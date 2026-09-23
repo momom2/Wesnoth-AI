@@ -202,3 +202,34 @@ Predictions: in `confirm.json`, the value head at 0.12 to 0.25 with 1
 to 3 of 8 ranked below (a fail, probability 0.6; a pass 0.25); the HP
 margin at 0.12 to 0.25 with 0 to 2 below (a pass, probability 0.5).
 In `screen.json`, both at 0.20 to 0.35 on the noisier truth.
+
+### Measured (2026-09-23): both graders fail
+
+Records: `training/metrics/turn_gap_ref_20260921/pregrader_confirm.txt`
+and `pregrader_screen.txt`.
+
+| file | grader | within-position residual SD | winners ranked below their base | top pick agrees |
+|---|---|---|---|---|
+| confirm.json (primary) | value head | 0.323 +- 0.059 | 2 of 8 | 7 of 16 |
+| confirm.json (primary) | HP margin | 0.322 +- 0.059 | 3 of 8 | 10 of 16 |
+| screen.json | value head | 0.222 | 8 of 24 | 22 of 60 |
+| screen.json | HP margin | 0.227 | 8 of 24 (2 ties) | 16 of 60 |
+
+(+- 0.059 is SD / sqrt(2 x 15); 32 candidates, 16 positions.) Both
+fail on the ranking, and both sit above 0.3 on the residual. On the
+confirmation's candidates, the base and the screen's best alternative,
+the value head barely separates them: correlation 0.07 with the playout
+mean, slope 0.05. The HP margin's slope is near zero in HP units.
+
+Against the predictions: the fails were predicted for the value head
+(probability 0.6) and not for the HP margin (a pass at 0.5); both
+primary residuals came out above the predicted 0.12 to 0.25; the screen's
+0.22 sits inside its predicted 0.20 to 0.35. The prior run's value-head
+residual of 0.156 used five candidates per position drawn without
+selection; here each position holds a base and the alternative selected
+as best, where the gaps are large, and the head does not see them.
+
+By the rule: no forward-only pre-grader at this head; the pipeline
+proceeds without one (rows 1 to 6 of the design), and a boundary value
+net trained for this is the prerequisite for row 7, as the plan already
+had it.
