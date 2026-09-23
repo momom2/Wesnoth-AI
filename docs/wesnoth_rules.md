@@ -2360,3 +2360,66 @@ enemy villages inside the mover's vision disc instead, behind the
 checkpoint flag `fog_hides_enemy_villages` (the seed was trained with
 the true count). With fog off every side's statistics are visible, so
 the count is legitimate there.
+
+## The preprocessor's macro grammar: `:` in names, `#arg` defaults (added 2026-09-22)
+
+Two features of Wesnoth's preprocessor that a naive `{NAME args}`
+reader gets wrong, both found by diffing our expansion against the
+engine's own (`tools/analysis/expansion_diff.py`).
+
+**A macro name may contain `:`.** The core macros use it as a
+namespace separator for definitions that are not meant to be called
+from scenarios:
+
+**Source (1.18.7 data):** `data/core/macros/abilities.cfg:4`
+
+    #define INTERNAL:ABILITY_HEALS_NO_NOTES
+
+and `data/core/macros/special-notes.cfg:8`
+`#define INTERNAL:SPECIAL_NOTES_SPIRIT`. They are invoked by name
+including the colon, e.g. `abilities.cfg:373`
+`special_note={INTERNAL:SPECIAL_NOTES_SUBMERGE}`.
+
+**Why non-obvious:** a `\w+` name class stops at the colon, so every
+such definition lands under the single name `INTERNAL` — each one
+overwriting the last — and every invocation expands to nothing while
+looking like an ordinary unknown macro.
+
+**A macro may declare optional NAMED arguments with defaults.**
+
+**Source (1.18.7 data):** `data/core/macros/traits.cfg:4-7`
+
+    #define TRAIT_LOYAL
+    #arg OVERLAY
+        "misc/loyal-icon.png"
+    #endarg
+
+used at `:23` as `add={OVERLAY}` and overridden by the caller at `:28`
+`{TRAIT_LOYAL OVERLAY="misc/hero-icon.png"}`.
+
+**Why non-obvious:** the block sits INSIDE the macro body, between
+`#define` and `#enddef`, so a reader that takes parameters only from
+the `#define` line never learns the name exists. Worse, a comment
+stripper that drops every line starting with `#` removes the `#arg`
+and `#endarg` markers but leaves the default value behind as a bare
+stray line in the body, and `{OVERLAY}` is never substituted.
+
+Both are read by `tools/scenario_events.py`
+(`_MACRO_DEFINE_RE`, `_MACRO_INVOKE_RE`, `_split_optional_args`).
+
+## `random_start_time` has three forms, not two (added 2026-09-22)
+
+`random_start_time=` accepts `yes`/`no` AND a value list such as
+`"2,4"`, meaning "draw one of these slots".
+
+**Source (1.18.4):** `src/tod_manager.cpp` `resolve_random()`, whose
+boolean branch draws once modulo the schedule length while the list
+branch draws over the listed values.
+
+**Why non-obvious:** a reader that coerces the attribute with a
+yes/no parser folds the list form onto `False`, which reads as "no
+random start" and silently begins the game at dawn. Our reconstruction
+path did exactly this: the guard meant to drop such replays sat inside
+the branch only a plain `yes` could enter. No corpus replay uses the
+list form, so nothing had diverged; `tools/wml_state.wml_bool_or_none`
+now distinguishes the third form and the caller drops it.

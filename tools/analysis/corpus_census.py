@@ -125,10 +125,59 @@ def scan_one(job: Tuple[str, str]) -> dict:
     if m:
         out["layout"], out["rows"], out["cols"] = layout_hash(m.group(1))
     out["factions"] = FACTION_RE.findall(head)[:2]
+    out["schedule"] = read_schedule(head)
     out["mods"] = sorted({MOD_ID_RE.search(b.group(1)).group(1)
                           for b in re.finditer(r"\[modification\](.*?)\[/modification\]",
                                                head, re.S)
                           if MOD_ID_RE.search(b.group(1))})
+    return out
+
+
+# The board's time-of-day schedule, as ids and lawful bonuses. The sim
+# reads the cycle off a hardcoded six-slot constant
+# (`combat.TOD_DEFAULT_CYCLE`), so whether that is an assumption or a
+# fact about the corpus is a question only the corpus can answer.
+_TIME_BLOCK_RE = re.compile(r"\[time\](.*?)\[/time\]", re.S)
+_TIME_ID_RE = re.compile(r"^\s*id\s*=\s*\"?([\w]+)", re.M)
+_TIME_BONUS_RE = re.compile(r"^\s*lawful_bonus\s*=\s*\"?(-?\d+)", re.M)
+DEFAULT_SCHEDULE = (("dawn", 0), ("morning", 25), ("afternoon", 25),
+                    ("dusk", 0), ("first_watch", -25), ("second_watch", -25))
+
+
+# A replay header can carry the scenario TWICE -- [replay_start] and
+# [snapshot] both hold it on 50 of 1,200 sampled games -- so a search
+# over the whole head sees each [time] block twice and every schedule
+# reads as a 12-slot one. Reconstruction takes the first of
+# replay_start / snapshot / scenario; so does this.
+_CONTAINER_RE = re.compile(r"\[(?:replay_start|snapshot|scenario)\]")
+
+
+def first_container(head: str) -> str:
+    first = _CONTAINER_RE.search(head)
+    if first is None:
+        return head
+    nxt = _CONTAINER_RE.search(head, first.end())
+    return head[first.end():nxt.start() if nxt else len(head)]
+
+
+def read_schedule(head: str):
+    """The TOP-LEVEL [time] blocks of the first scenario container, as
+    (id, lawful_bonus) pairs.
+
+    [time_area] sub-schedules are excluded: they are a zone's cycle,
+    not the board's, and the sim reads them separately. They are
+    dropped by removing every [time_area] block before the search,
+    which is what the engine's tod_manager ctor effectively does by
+    reading its own child list.
+    """
+    board = re.sub(r"\[time_area\].*?\[/time_area\]", "",
+                   first_container(head), flags=re.S)
+    out = []
+    for block in _TIME_BLOCK_RE.findall(board):
+        ident = _TIME_ID_RE.search(block)
+        bonus = _TIME_BONUS_RE.search(block)
+        out.append((ident.group(1) if ident else "?",
+                    int(bonus.group(1)) if bonus else 0))
     return out
 
 
@@ -146,9 +195,16 @@ def summarize(rows: Sequence[dict]) -> dict:
                                                 for k in SETTING_KEYS}
     factions: collections.Counter = collections.Counter()
     odd: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    schedules: collections.Counter = collections.Counter()
+    odd_schedule_maps: Dict[str, collections.Counter] = collections.defaultdict(
+        collections.Counter)
     for r in rows:
         pack = pack_of(r["map"])
         packs[pack] += 1
+        sched = tuple(tuple(t) for t in (r.get("schedule") or ()))
+        schedules[sched] += 1
+        if sched and sched != DEFAULT_SCHEDULE:
+            odd_schedule_maps[pack][r["map"]] += 1
         if r.get("layout"):
             layouts[r["map"]].add(r["layout"])
         for k in SETTING_KEYS:
@@ -170,6 +226,16 @@ def summarize(rows: Sequence[dict]) -> dict:
         "settings": {k: dict(v.most_common()) for k, v in settings.items()},
         "factions": dict(factions.most_common()),
         "non_default_by_pack": {p: dict(c) for p, c in odd.items()},
+        # The board schedule, keyed by its ids joined with "|" so the
+        # summary stays JSON. `default` is the six-slot cycle the sim
+        # hardcodes; anything else means a game whose time of day our
+        # cycle cannot express.
+        "schedules": {
+            ("default" if k == DEFAULT_SCHEDULE else
+             ("none" if not k else "|".join(f"{i}:{b}" for i, b in k))): n
+            for k, n in schedules.most_common()},
+        "non_default_schedule_maps": {p: dict(c)
+                                      for p, c in odd_schedule_maps.items()},
     }
 
 
@@ -178,6 +244,8 @@ def render(s: dict) -> str:
              f"packs: {s['packs']}",
              f"maps with more than one layout: {s['multi_layout_maps'] or 'none'}",
              f"eras: {s['settings']['era_id']}",
+             f"board schedules: "
+             f"{ {k: v for k, v in list(s.get('schedules', {}).items())[:4]} }",
              f"factions: {s['factions']}",
              "",
              f"{'pack':>10}{'games':>8}{'non-default rules':>19}  which"]

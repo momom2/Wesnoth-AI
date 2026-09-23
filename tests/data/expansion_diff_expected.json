@@ -1,0 +1,51 @@
+{
+ "_what": "Every way our macro expansion differs from the game's own, for the whole scenario pool. Regenerate with `python tools/analysis/expansion_diff.py --write-expected`, and read the diff before committing it: a NEW entry means our expander and Wesnoth disagree about a scenario, which is a bug until classified.",
+ "_classifications": {
+  "SUBSTITUTED": "The behaviour is real and the sim implements it itself, so the WML body is dropped deliberately. `stands_in` names the code that must not be deleted without putting the macro back.",
+  "IGNORED": "Presentation only; nothing downstream reads it."
+ },
+ "clusters": {
+  "event count | prestart: ours 0, the game's 1": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/traits.py roll_traits, the is_leader branch",
+   "why": "The era's [lua] prestart calling quick_4mp_leaders (wesnoth_src/data/multiplayer/eras.lua:5-22): every leader with max_moves=4 gains the quick trait at scenario start. Our expander emits no [lua], and the sim applies the same rule natively while rolling a leader's traits, so the behaviour is present and the WML body is not. The substitution is NOT the whole macro: the era gates it on the WML variable `make_4mp_leaders_quick` and skips any unit whose own `dont_make_me_quick` variable is set (eras.lua:6-16), and tools/traits.py reads neither. That is exact only because no scenario we build touches either gate -- checked over the pool and the two off-whitelist corpus maps by tests/test_wml_state.py, and enforced at build time by wml_state.check_quick_leader_gates. Dark Forecast and Isle of Mists DO set dont_make_me_quick, so the gates are real; those maps are simply not ours.",
+   "scenarios": [
+    "2p_mini",
+    "2p_mini_edited",
+    "Benji_Autumn_Siege_small",
+    "Modified_Tiny_Close_Relation",
+    "enclave_micro_isar",
+    "enclave_mini_fallenstar_1v1",
+    "enclave_small_fallenstar_1v1",
+    "multiplayer_Aethermaw",
+    "multiplayer_Arcanclave_Citadel",
+    "multiplayer_Basilisk",
+    "multiplayer_Clearing_Gushes",
+    "multiplayer_Den_of_Onis",
+    "multiplayer_Fallenstar_Lake",
+    "multiplayer_Hamlets",
+    "multiplayer_Hellhole",
+    "multiplayer_Howling_Ghost_Badlands",
+    "multiplayer_Ruined_Passage",
+    "multiplayer_Ruphus_Isle",
+    "multiplayer_Sablestone_Delta",
+    "multiplayer_Sullas_Ruins",
+    "multiplayer_Swamp_of_Dread",
+    "multiplayer_The_Freelands",
+    "multiplayer_The_Walls_of_Pyrennis",
+    "multiplayer_Tombs_of_Kesorak",
+    "multiplayer_Weldyn_Channel",
+    "multiplayer_thousand_stings_garrison"
+   ]
+  },
+  "event count | prestart: ours 1, the game's 2": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/traits.py roll_traits, the is_leader branch",
+   "why": "The same quick_4mp_leaders prestart, on the two scenarios that carry a prestart of their own as well (Silverhead Crossing's [object] for its Tentacle, Elensefar Courtyard's). Ours keeps theirs and omits the era's. The substitution is NOT the whole macro: the era gates it on the WML variable `make_4mp_leaders_quick` and skips any unit whose own `dont_make_me_quick` variable is set (eras.lua:6-16), and tools/traits.py reads neither. That is exact only because no scenario we build touches either gate -- checked over the pool and the two off-whitelist corpus maps by tests/test_wml_state.py, and enforced at build time by wml_state.check_quick_leader_gates. Dark Forecast and Isle of Mists DO set dont_make_me_quick, so the gates are real; those maps are simply not ours.",
+   "scenarios": [
+    "multiplayer_Silverhead_Crossing",
+    "multiplayer_elensefar_courtyard"
+   ]
+  }
+ }
+}

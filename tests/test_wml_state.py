@@ -142,6 +142,149 @@ def test_the_time_of_day_attributes_are_read_not_resolved():
     assert ws.read_tod(node('[scenario]\n[/scenario]\n')) == (None, False, 6)
 
 
+def test_a_time_area_does_not_contribute_its_own_schedule():
+    """The engine reads `current_time` and the slot count from the
+    scenario's TOP level; a [time_area]'s [time] children are that
+    area's cycle. Generation used to strip [time_area] with a regex
+    before searching the raw text; reading a parsed node makes the
+    stripping unnecessary, and this pins that it really is."""
+    n = node('[scenario]\n[time]\nid=dawn\n[/time]\n'
+             '[time_area]\ncurrent_time=3\n'
+             '[time]\nid=x\n[/time]\n[time]\nid=y\n[/time]\n'
+             '[/time_area]\n[/scenario]\n')
+    assert ws.read_tod(n) == (None, False, 1)
+
+
+def test_a_value_that_is_neither_yes_nor_no_is_not_quietly_no():
+    """`random_start_time` has a third form -- a value list such as
+    `"2,4"` -- and folding it onto False reads as "no random start",
+    which silently begins the game at dawn. The caller needs to be
+    able to tell the two apart."""
+    assert ws.wml_bool_or_none("yes") is True
+    assert ws.wml_bool_or_none("no") is False
+    assert ws.wml_bool_or_none('"2,4"') is None
+    assert ws.wml_bool_or_none("") is None
+    assert ws.wml_bool_or_none(None) is None
+    # The defaulting form keeps its contract.
+    assert ws.wml_bool('"2,4"', False) is False
+    assert ws.wml_bool('"2,4"', True) is True
+
+
+def test_both_pipelines_read_the_time_of_day_through_this_module():
+    """Generation read the three keys with three private regexes over
+    the raw template while reconstruction read them off a parsed node.
+    One reader now; this fails if either grows its own again."""
+    import re
+
+    root = Path(__file__).parent.parent
+    for rel in ("tools/scenario_pool.py", "tools/replay_extract.py"):
+        src = (root / rel).read_text(encoding="utf-8")
+        assert "read_tod(" in src, f"{rel} no longer uses the shared reader"
+        for key in ("current_time", "random_start_time"):
+            bad = re.findall(r"re\.(?:search|findall|match)\([^)]*"
+                             + key, src)
+            assert not bad, f"{rel}: a private regex over {key}: {bad}"
+
+
+def test_the_board_schedule_is_read_and_compared():
+    """Both engines hardcode the six-slot day, so the one thing that
+    must not happen is a scenario declaring a different one and
+    nothing noticing."""
+    default = ('[scenario]\n'
+               + "".join(f'[time]\nid={i}\nlawful_bonus={b}\n[/time]\n'
+                         for i, b in (("dawn", 0), ("morning", 25),
+                                      ("afternoon", 25), ("dusk", 0),
+                                      ("first_watch", -25),
+                                      ("second_watch", -25)))
+               + '[/scenario]\n')
+    assert ws.board_cycle(node(default)) == [0, 25, 25, 0, -25, -25]
+    assert ws.board_cycle_is_default(node(default))
+    # No schedule at all means the engine's default applies.
+    assert ws.board_cycle(node('[scenario]\n[/scenario]\n')) == []
+    assert ws.board_cycle_is_default(node('[scenario]\n[/scenario]\n'))
+    # An hourly schedule (24 slots with intermediate bonuses) exists in
+    # the wild; it is exactly what the constant cannot express.
+    hourly = ('[scenario]\n'
+              + "".join(f'[time]\nid=h{i}\nlawful_bonus={b}\n[/time]\n'
+                        for i, b in enumerate([0, 5, 15, 25, 25, 25]))
+              + '[/scenario]\n')
+    assert not ws.board_cycle_is_default(node(hourly))
+
+
+def test_an_unplayable_schedule_is_refused_under_strict(monkeypatch):
+    hourly = ('[scenario]\n'
+              + "".join(f'[time]\nid=h{i}\nlawful_bonus={b}\n[/time]\n'
+                        for i, b in enumerate([0, 5, 15, 25, 25, 25]))
+              + '[/scenario]\n')
+    assert ws.check_board_cycle(node(hourly), "x") is False   # warns
+    monkeypatch.setenv("WESNOTH_STRICT_WML", "1")
+    with pytest.raises(ws.UnsupportedSchedule):
+        ws.check_board_cycle(node(hourly), "x")
+    # The default passes under strict too, or the switch is unusable.
+    assert ws.check_board_cycle(node('[scenario]\n[/scenario]\n'), "x")
+
+
+def test_a_time_area_schedule_is_not_the_board_schedule():
+    """A zone's cycle is read per hex. If it leaked into the board
+    read, Tombs of Kesorak would look like a non-default map and the
+    guard would cry wolf on a scenario we handle correctly."""
+    n = node('[scenario]\n[time_area]\n'
+             + "".join(f'[time]\nid=z{i}\nlawful_bonus={b}\n[/time]\n'
+                       for i, b in enumerate([-25, 0, 0, -25]))
+             + '[/time_area]\n[/scenario]\n')
+    assert ws.board_cycle(n) == []
+    assert ws.board_cycle_is_default(n)
+
+
+def test_the_quick_leader_gates_are_seen_even_though_they_are_not_modelled():
+    """`tools/traits.py` gives every 4-MP leader the quick trait
+    unconditionally. The era gates that on a WML variable and on a
+    per-unit one (eras.lua:5-22), and real scenarios use the second --
+    Dark Forecast and Isle of Mists set `dont_make_me_quick`. Neither
+    is ours, which is WHY the unconditional rule is right; this reads
+    the gates so that stays a checked fact."""
+    clean = node('[scenario]\n[side]\n[unit]\ntype="Lieutenant"\n'
+                 '[/unit]\n[/side]\n[/scenario]\n')
+    assert ws.quick_leader_gates(clean) == []
+    assert ws.check_quick_leader_gates(clean, "x")
+
+    gated = node('[scenario]\n[side]\n[unit]\ntype="Lieutenant"\n'
+                 '[variables]\ndont_make_me_quick=yes\n[/variables]\n'
+                 '[/unit]\n[/side]\n[/scenario]\n')
+    assert ws.quick_leader_gates(gated) == [
+        "scenario/side/unit/variables.dont_make_me_quick"]
+    assert not ws.check_quick_leader_gates(gated, "x")
+
+    # The other gate, set the way WML sets a variable.
+    via_set = node('[scenario]\n[event]\n[set_variable]\n'
+                   'name=make_4mp_leaders_quick\nvalue=no\n'
+                   '[/set_variable]\n[/event]\n[/scenario]\n')
+    assert ws.quick_leader_gates(via_set)
+
+
+def test_a_quick_leader_gate_is_refused_under_strict(monkeypatch):
+    gated = node('[scenario]\n[side]\n[unit]\n'
+                 '[variables]\ndont_make_me_quick=yes\n[/variables]\n'
+                 '[/unit]\n[/side]\n[/scenario]\n')
+    monkeypatch.setenv("WESNOTH_STRICT_WML", "1")
+    with pytest.raises(ws.UnmodelledGate):
+        ws.check_quick_leader_gates(gated, "x")
+
+
+def test_nothing_we_build_touches_a_quick_leader_gate():
+    """The precondition itself, over every scenario we build: the pool
+    plus the two off-whitelist mainline maps in the corpus."""
+    from tools.analysis.expansion_diff import POOL, _scenario_block
+    from tools.scenario_events import load_scenario_wml
+
+    for scenario_id in list(POOL) + ["multiplayer_Cynsaun_Battlefield",
+                                     "multiplayer_Hornshark_Island"]:
+        root = load_scenario_wml(scenario_id)
+        assert root is not None, scenario_id
+        block = _scenario_block(root)
+        assert ws.quick_leader_gates(block) == [], scenario_id
+
+
 def test_no_second_parser_of_the_side_block_survives():
     """The point of this module is that there is one reader. A new
     regex over `[side]` or its economy attributes in the pipeline

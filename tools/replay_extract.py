@@ -42,8 +42,10 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.wml_state import (map_starting_positions, read_side,  # noqa: E402
-                             read_unit, read_villages, wml_bool, wml_int)
+from tools.wml_state import (check_board_cycle,  # noqa: E402
+                             check_quick_leader_gates, map_starting_positions,
+                             read_side, read_tod, read_unit, read_villages,
+                             wml_bool, wml_bool_or_none, wml_int)
 
 
 log = logging.getLogger("replay_extract")
@@ -109,6 +111,17 @@ class WMLNode:
         return [c for c in self.children if c.tag == tag]
 
 
+# A translatable string literal: `_ "text"` or `_"text"`. The marker
+# is grammar, not content -- the engine's own expansion writes the
+# value without it -- so it comes off before anything reads the value.
+# Anchored on the quote, so `id=_foo` is left alone.
+TRANSLATABLE_MARK_RE = re.compile(r'^_[ \t]*(?=")')
+
+
+def strip_translatable_mark(v: str) -> str:
+    return TRANSLATABLE_MARK_RE.sub("", v, count=1)
+
+
 def _strip_quotes(v: str) -> str:
     if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
         return v[1:-1]
@@ -172,7 +185,7 @@ def parse_wml(text: str) -> WMLNode:
 
         m = KEY_RE.match(line)
         if m:
-            key, val = m.group(1), m.group(2)
+            key, val = m.group(1), strip_translatable_mark(m.group(2))
             # Multiline quoted string? Starts with `"`, doesn't end with `"`.
             if val.startswith('"') and not (len(val) >= 2 and val.endswith('"')):
                 parts = [val]
@@ -1841,15 +1854,34 @@ def extract_replay(path: Path) -> Optional[dict]:
     # disabled nor pre-resolved (caller filters on the returned None).
     tod_start_index = 0
     if snap is not None:
-        ct_raw = snap.attrs.get("current_time", "").strip()
-        if ct_raw:
-            try:
-                tod_start_index = int(ct_raw)
-            except ValueError:
-                pass
+        # One reader for the three keys, shared with the generation
+        # path (`scenario_pool._scenario_tod_info`); only the
+        # RESOLUTION differs, because reconstruction has to recover the
+        # slot the server already drew and generation draws a fresh one.
+        check_board_cycle(snap, path.name)
+        # Leader traits are NOT carried in a replay (the engine
+        # re-rolls them from the recorded seed, docs/wesnoth_rules.md
+        # "Pitfall 5"), so we roll them too -- which means the era's
+        # quick-leader rule and its two gates are live on this path
+        # as well, not just at generation.
+        check_quick_leader_gates(snap, path.name)
+        current_time, random_start, n_times = read_tod(snap)
+        raw_start = (snap.attrs.get("random_start_time", "") or "").strip()
+        if current_time is not None:
+            tod_start_index = current_time
+        elif raw_start and wml_bool_or_none(raw_start) is None:
+            # List-form `random_start_time="2,4"`: two draws over a
+            # value list, which we do not model. Absent from the corpus.
+            # The guard that meant to drop these sat INSIDE the branch
+            # only a plain yes could enter, so they fell through to
+            # dawn instead -- the same silent-wrong-default shape as
+            # the hide-cover table.
+            log.debug(
+                f"{path.name}: list-form random_start_time "
+                f"({raw_start!r}); dropping")
+            return None
         else:
-            rst = (snap.attrs.get("random_start_time", "no") or "no").strip().lower()
-            if rst in ("yes", "true", "1"):
+            if random_start:
                 # The save records NO resolved time -- the engine
                 # re-rolls it identically at replay playback from the
                 # synced RNG: tod_manager::resolve_random (1.18.4
@@ -1871,14 +1903,10 @@ def extract_replay(path: Path) -> Optional[dict]:
                     calls = int(co.attrs.get("random_calls", "0") or 0)                         if co is not None else 0
                 except ValueError:
                     calls = 0
-                n_times = len(snap.all("time")) or 6
-                # List-form random_start_time ("2,4") has different
-                # draw semantics (two draws, value list) -- not seen
-                # in the corpus; keep dropping those for fidelity.
-                if rst not in ("yes", "true", "1") or not seed_hex:
+                if not seed_hex:
                     log.debug(
-                        f"{path.name}: unresolvable random_start_time "
-                        f"({rst!r}, seed={bool(seed_hex)}); dropping")
+                        f"{path.name}: random_start_time with no recorded "
+                        f"seed; dropping")
                     return None
                 # PRIMARY derivation: recorded [attack] blocks carry
                 # tod= and turn= labels; slot(turn) = (start + turn-1)

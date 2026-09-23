@@ -273,6 +273,10 @@
     "mp_use_map_settings": 4,
     "experience_modifier": 2
    }
-  }
+  },
+  "schedules": {
+   "default": 17019
+  },
+  "non_default_schedule_maps": {}
  }
 }

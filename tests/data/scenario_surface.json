@@ -1,0 +1,817 @@
+{
+ "_what": "Every tag path and attribute a pool scenario declares, and what we do with it. List the unclassified ones with `python tools/analysis/scenario_surface.py --write-manifest`, then decide each by hand: a MODELLED entry must name a reader that really exists, which tests/test_scenario_surface.py checks.",
+ "_classifications": {
+  "MODELLED": "a reader exists and is named file.py:symbol",
+  "IGNORED": "presentation; nothing downstream reads it",
+  "SUBSTITUTED": "real behaviour the sim produces another way, or a value generation deliberately chooses itself",
+  "UNKNOWN": "nobody has said; this is the bug state"
+ },
+ "_lookup": "An exact path.attribute entry wins over the path default. Control flow ([switch], [case], [if], [then], [else], [do], [foreach], [command]) is folded out of the path, because _apply_action dispatches a wrapped action with the same handler as a bare one. A path default is only allowed where every attribute under it is presentation. A MODELLED reader must NAME its attribute in its own source; a reader that gets it through a table or from its caller says so in `generic`.",
+ "paths": {
+  "scenario/event/item": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/message": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/objectives": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/objectives/note": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/objectives/objective": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/time_area/time": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/event/unit/modifications/trait/effect": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/item": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/side/ai": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/neutral_ai.py:_side_aggression",
+   "why": "the RCA tuning knobs. Only aggression is honoured, by the combat-only neutral AI; caution, village_value and villages_per_scout belong to move phases we do not run"
+  },
+  "scenario/side/unit/modifications/object/effect": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/side/unit/modifications/trait/effect": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/terrain_graphics": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/terrain_graphics/image": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/terrain_graphics/tile": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/terrain_graphics/tile/image": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  }
+ },
+ "pairs": {
+  "scenario.current_time": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_tod",
+   "why": ""
+  },
+  "scenario.define": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_strip_comments",
+   "why": "UNREAD, and our expander evaluates no #ifdef at all -- it keeps every branch. Right here because Hornshark's only conditional tests its own define, which Wesnoth sets at load. No #else exists in anything we expand (measured 2026-09-23)"
+  },
+  "scenario.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario.experience_modifier": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:scenario_economy",
+   "why": ""
+  },
+  "scenario.id": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:find_scenario_cfg_path",
+   "why": "selects the scenario",
+   "generic": "the id is the lookup KEY: the function is called with it and matches it against each cfg, it does not read it off a node"
+  },
+  "scenario.map_data": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_pool.py:build_scenario_gamestate",
+   "why": "read at the call site and handed to wml_state.resolve_map_file"
+  },
+  "scenario.map_file": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_pool.py:build_scenario_gamestate",
+   "why": "read at the call site and handed to wml_state.resolve_map_file"
+  },
+  "scenario.mp_village_gold": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:scenario_economy",
+   "why": ""
+  },
+  "scenario.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario.random_start_time": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_tod",
+   "why": ""
+  },
+  "scenario.turns": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/sim_self_play.py --max-turns",
+   "why": "the templates inject turns=-1 and the sim turn cap governs game length; the scenario value is not a rule we play"
+  },
+  "scenario/event.first_time_only": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:collect_events",
+   "why": ""
+  },
+  "scenario/event.id": {
+   "classification": "IGNORED",
+   "why": "a handle for [remove_event]; we fire events by name"
+  },
+  "scenario/event.name": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:collect_events",
+   "why": ""
+  },
+  "scenario/event/case.value": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_switch_action",
+   "why": ""
+  },
+  "scenario/event/clear_variable.name": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_clear_variable_action",
+   "why": ""
+  },
+  "scenario/event/fire_event.name": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_fire_event_action",
+   "why": ""
+  },
+  "scenario/event/lua.code": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_lua_action",
+   "why": "pattern-matched, never executed: _lua_action recognises the pN_faction idiom Hornshark uses and nothing else"
+  },
+  "scenario/event/modify_unit.moves": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_MODIFY_UNIT_SCALARS",
+   "why": "the table _modify_unit_action walks; moves -> current_moves"
+  },
+  "scenario/event/modify_unit/filter.role": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "why": ""
+  },
+  "scenario/event/object.duration": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_object_action",
+   "why": "UNREAD: the sim treats every [object] as permanent. Exact while every object declares duration=forever, which all 8 in the corpus scenarios do (measured 2026-09-23)"
+  },
+  "scenario/event/object.silent": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect.apply_to": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.damage": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect.heal_full": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.icon": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect.increase_attacks": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.increase_damage": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.increase_total": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.name": {
+   "classification": "IGNORED",
+   "why": "the new attack's name; the sim addresses attacks by index, as the replay's [attack] weapon= does"
+  },
+  "scenario/event/object/effect.number": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.range": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect.type": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/object/effect/abilities/hides.affect_self": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "why": "UNREAD. The hider rule assumes affect_self=yes, which every mainline {ABILITY_*} hides macro sets; a scenario-written [hides] with affect_self=no would be mis-modelled"
+  },
+  "scenario/event/object/effect/abilities/hides.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/abilities/hides.female_name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/abilities/hides.id": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_effect_member_ids",
+   "why": "the ability is keyed by its id=, not by its tag"
+  },
+  "scenario/event/object/effect/abilities/hides.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/abilities/hides.special_note": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/abilities/hides/filter/filter_location.terrain": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "why": "UNREAD. hides_cover transcribes the MACRO globs by ability id (*^F*, *^V*, Wo*^*), not the scenario's filter; exact only while scenarios use the mainline hides macros unchanged"
+  },
+  "scenario/event/object/effect/set_specials/firststrike.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/set_specials/firststrike.id": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_effect_member_ids",
+   "why": ""
+  },
+  "scenario/event/object/effect/set_specials/firststrike.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/set_specials/firststrike.special_note": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/specials/chance_to_hit.cumulative": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_effect_member_ids",
+   "why": "UNREAD, same as value: keyed by id=magical"
+  },
+  "scenario/event/object/effect/specials/chance_to_hit.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/specials/chance_to_hit.id": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_effect_member_ids",
+   "why": "the special is keyed by its id=, not by its tag"
+  },
+  "scenario/event/object/effect/specials/chance_to_hit.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/specials/chance_to_hit.special_note": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/object/effect/specials/chance_to_hit.value": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_effect_member_ids",
+   "why": "UNREAD. The special is keyed by id=magical and the sim applies the macro's flat 70; a scenario-written value would be ignored"
+  },
+  "scenario/event/object/filter.side": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "why": ""
+  },
+  "scenario/event/object/filter.type": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_units_matching_filter",
+   "why": "UNREAD. Hornshark's two MODIFY_BOWMAN objects filter on x, y AND type=Bowman; the location alone already pins the Bowman, measured over all 36 faction pairings (2026-09-23)"
+  },
+  "scenario/event/object/filter.x": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "why": ""
+  },
+  "scenario/event/object/filter.y": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "why": ""
+  },
+  "scenario/event/store_locations.variable": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_store_locations_action",
+   "why": ""
+  },
+  "scenario/event/store_locations.x": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "why": ""
+  },
+  "scenario/event/store_locations/or.terrain": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "why": ""
+  },
+  "scenario/event/store_locations/or.x": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "why": ""
+  },
+  "scenario/event/store_locations/or.y": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "why": ""
+  },
+  "scenario/event/switch.variable": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_switch_action",
+   "why": ""
+  },
+  "scenario/event/terrain.terrain": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_terrain_action",
+   "why": ""
+  },
+  "scenario/event/terrain.x": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_terrain_action",
+   "why": ""
+  },
+  "scenario/event/terrain.y": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_terrain_action",
+   "why": ""
+  },
+  "scenario/event/time_area.find_in": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_time_area_action",
+   "why": ""
+  },
+  "scenario/event/unit.ai_special": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": "guardian keeps the unit still (unit.cpp:659, ca_move_to_targets.cpp:269-277); tools/neutral_ai depends on it and checks it in _check_units_are_stationary"
+  },
+  "scenario/event/unit.generate_name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit.id": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": ""
+  },
+  "scenario/event/unit.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit.random_gender": {
+   "classification": "IGNORED",
+   "why": "display; gender does not change stats"
+  },
+  "scenario/event/unit.random_traits": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/traits.py:roll_traits",
+   "why": "UNREAD. Inert where measured: the only event-placed units with random_traits=yes are Tentacles, and race=monster has num_traits=0 (data/core/units.cfg:300), so Wesnoth rolls none either"
+  },
+  "scenario/event/unit.role": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "why": "stashed as _wml_role so a later [filter] role= can match it"
+  },
+  "scenario/event/unit.side": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": ""
+  },
+  "scenario/event/unit.type": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": ""
+  },
+  "scenario/event/unit.upkeep": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/wesnoth_sim.py:_apply_upkeep",
+   "why": "upkeep=free, on a controller=null scenery side whose gold the sim never spends or scores"
+  },
+  "scenario/event/unit.variation": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": ""
+  },
+  "scenario/event/unit.x": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": ""
+  },
+  "scenario/event/unit.y": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": ""
+  },
+  "scenario/event/unit/abilities/heals.affect_allies": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_heals_ability",
+   "why": "UNREAD. heals_4/heals_8 bake in the mainline {ABILITY_HEALS} semantics (heal adjacent allies, not self, slow poison)"
+  },
+  "scenario/event/unit/abilities/heals.affect_self": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_heals_ability",
+   "why": "UNREAD, as affect_allies"
+  },
+  "scenario/event/unit/abilities/heals.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/heals.female_name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/heals.id": {
+   "classification": "IGNORED",
+   "why": "the sim keys a heal by its value (heals_4 / heals_8)"
+  },
+  "scenario/event/unit/abilities/heals.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/heals.poison": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_events.py:_heals_ability",
+   "why": "UNREAD, as affect_allies"
+  },
+  "scenario/event/unit/abilities/heals.special_note": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/heals.value": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_heals_ability",
+   "why": ""
+  },
+  "scenario/event/unit/abilities/hides.affect_self": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "why": "UNREAD, as the [object] form"
+  },
+  "scenario/event/unit/abilities/hides.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/hides.female_name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/hides.id": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_unit_action",
+   "why": ""
+  },
+  "scenario/event/unit/abilities/hides.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/hides.special_note": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/abilities/hides/filter/filter_location.terrain": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "why": "UNREAD, as the [object] form: macro globs by ability id"
+  },
+  "scenario/event/unit/modifications/object.duration": {
+   "classification": "IGNORED",
+   "why": "duration=forever is the only value used; effects are permanent"
+  },
+  "scenario/event/unit/modifications/object.silent": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/event/unit/modifications/object/effect.apply_to": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "why": ""
+  },
+  "scenario/event/unit/modifications/object/effect.replace": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/neutral_ai.py:_check_units_are_stationary",
+   "why": "UNREAD: apply_to=movement_costs has no branch in _apply_effect_to_unit. Inert because the only carriers are the mini-map Tentacles (castle=99), all guardians the neutral AI never moves -- a precondition that check enforces"
+  },
+  "scenario/event/unit/modifications/object/effect/movement_costs.castle": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/neutral_ai.py:_check_units_are_stationary",
+   "why": "UNREAD, as effect.replace: movement costs only matter to a unit that moves, and these never do"
+  },
+  "scenario/event/unit/modifications/object/filter.X": {
+   "classification": "IGNORED",
+   "why": "an unexpanded macro parameter name, not a coordinate"
+  },
+  "scenario/event/unit/modifications/object/filter.Y": {
+   "classification": "IGNORED",
+   "why": "an unexpanded macro parameter name, not a coordinate"
+  },
+  "scenario/event/unit/modifications/object/filter.type": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/neutral_ai.py:_check_units_are_stationary",
+   "why": "UNREAD by _units_matching_filter (x, y, id, side, role only). Part of the same unmodelled movement_costs object on the stationary Tentacles"
+  },
+  "scenario/event/unit/modifications/trait.availability": {
+   "classification": "IGNORED",
+   "why": "whether the trait may be rolled; these traits are placed explicitly"
+  },
+  "scenario/event/unit/modifications/trait.description": {
+   "classification": "IGNORED",
+   "why": "the trait display strings; the id drives the effect"
+  },
+  "scenario/event/unit/modifications/trait.female_name": {
+   "classification": "IGNORED",
+   "why": "the trait display strings; the id drives the effect"
+  },
+  "scenario/event/unit/modifications/trait.help_text": {
+   "classification": "IGNORED",
+   "why": "the trait display strings; the id drives the effect"
+  },
+  "scenario/event/unit/modifications/trait.id": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_trait_ids_from_modifications",
+   "why": ""
+  },
+  "scenario/event/unit/modifications/trait.male_name": {
+   "classification": "IGNORED",
+   "why": "the trait display strings; the id drives the effect"
+  },
+  "scenario/side.allow_player": {
+   "classification": "IGNORED",
+   "why": "lobby slot assignment, not a rule"
+  },
+  "scenario/side.canrecruit": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_unit",
+   "why": "read on the side [unit] block, which is what marks the leader"
+  },
+  "scenario/side.color": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/side.controller": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_side",
+   "why": "controller=null is the engine skip_empty_sides rule"
+  },
+  "scenario/side.controller_lock": {
+   "classification": "IGNORED",
+   "why": "a lobby lock: it constrains what the host may change, not play"
+  },
+  "scenario/side.disallow_observers": {
+   "classification": "IGNORED",
+   "why": "a lobby setting"
+  },
+  "scenario/side.faction_lock": {
+   "classification": "IGNORED",
+   "why": "a lobby lock: it constrains what the host may change, not play"
+  },
+  "scenario/side.fog": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_pool.py:ScenarioSetup",
+   "why": "generation CHOOSES fog (user contract: our games, our settings, via setup.fogless); reconstruction reads the declaration through wml_state.read_side"
+  },
+  "scenario/side.gold": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_side",
+   "why": ""
+  },
+  "scenario/side.gold_lock": {
+   "classification": "IGNORED",
+   "why": "a lobby lock: it constrains what the host may change, not play"
+  },
+  "scenario/side.hidden": {
+   "classification": "IGNORED",
+   "why": "hides the side from the status table"
+  },
+  "scenario/side.id": {
+   "classification": "IGNORED",
+   "why": "a side's WML handle; the sim addresses sides by number"
+  },
+  "scenario/side.income": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_side",
+   "why": "an OFFSET on the engine base income"
+  },
+  "scenario/side.income_lock": {
+   "classification": "IGNORED",
+   "why": "a lobby lock: it constrains what the host may change, not play"
+  },
+  "scenario/side.leader_lock": {
+   "classification": "IGNORED",
+   "why": "a lobby lock: it constrains what the host may change, not play"
+  },
+  "scenario/side.no_leader": {
+   "classification": "IGNORED",
+   "why": "no leader is declared, so none is built"
+  },
+  "scenario/side.shroud": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/scenario_pool.py:ScenarioSetup",
+   "why": "same contract as fog; the user overrides shroud explicitly"
+  },
+  "scenario/side.side": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_side",
+   "why": ""
+  },
+  "scenario/side.team_lock": {
+   "classification": "IGNORED",
+   "why": "a lobby lock: it constrains what the host may change, not play"
+  },
+  "scenario/side.team_name": {
+   "classification": "IGNORED",
+   "why": "teams beyond 1v1 plus a scenery side are not modelled"
+  },
+  "scenario/side.user_team_name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/side.village_gold": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_side",
+   "why": ""
+  },
+  "scenario/side/unit.description": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/side/unit.facing": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/side/unit.gender": {
+   "classification": "IGNORED",
+   "why": "display; gender does not change stats"
+  },
+  "scenario/side/unit.name": {
+   "classification": "IGNORED",
+   "why": "presentation: shown to a human player, no game state"
+  },
+  "scenario/side/unit.random_traits": {
+   "classification": "SUBSTITUTED",
+   "stands_in": "tools/traits.py:roll_traits",
+   "why": "UNREAD. Side units carrying it are petrified scenery statues, which never act"
+  },
+  "scenario/side/unit.type": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_unit",
+   "why": ""
+  },
+  "scenario/side/unit.unrenamable": {
+   "classification": "IGNORED",
+   "why": "UI: the player cannot rename it"
+  },
+  "scenario/side/unit.x": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_unit",
+   "why": ""
+  },
+  "scenario/side/unit.y": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_unit",
+   "why": ""
+  },
+  "scenario/side/unit/modifications/trait.description": {
+   "classification": "IGNORED",
+   "why": "the trait display strings; the id drives the effect"
+  },
+  "scenario/side/unit/modifications/trait.id": {
+   "classification": "IGNORED",
+   "why": "only on petrified scenery statues, which never act or take damage, so their traits change nothing"
+  },
+  "scenario/side/unit/modifications/trait.name": {
+   "classification": "IGNORED",
+   "why": "the trait display strings; the id drives the effect"
+  },
+  "scenario/side/unit/status.petrified": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_unit",
+   "why": "petrified units are scenery: unattackable, and they never act"
+  },
+  "scenario/side/village.x": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_villages",
+   "why": "a village this side owns before turn 1"
+  },
+  "scenario/side/village.y": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_villages",
+   "why": "a village this side owns before turn 1"
+  },
+  "scenario/time.blue": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time.green": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time.id": {
+   "classification": "IGNORED",
+   "why": "the slot's name. read_tod counts the [time] CHILDREN, which is structural; the id itself is display"
+  },
+  "scenario/time.image": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time.lawful_bonus": {
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:board_cycle",
+   "why": "compared against the cycle both engines hardcode, by check_board_cycle"
+  },
+  "scenario/time.name": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time.red": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time.sound": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time_area.x": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_time_area_action",
+   "why": ""
+  },
+  "scenario/time_area.y": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_time_area_action",
+   "why": ""
+  },
+  "scenario/time_area/time.blue": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time_area/time.green": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time_area/time.id": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time_area/time.image": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time_area/time.lawful_bonus": {
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:_parse_time_cycle",
+   "why": ""
+  },
+  "scenario/time_area/time.name": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time_area/time.red": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  },
+  "scenario/time_area/time.sound": {
+   "classification": "IGNORED",
+   "why": "presentation: the map tint for this time of day"
+  }
+ }
+}

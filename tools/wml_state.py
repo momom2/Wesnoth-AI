@@ -30,9 +30,13 @@ Coordinates: WML is 1-indexed, everything here returns 0-indexed
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
+
+log = logging.getLogger("wml_state")
 
 # Wesnoth's `game_config::base_income`: a `[side] income=` is an offset
 # on it, not a replacement (team.hpp 1.18.4, `base_income() { return
@@ -83,16 +87,30 @@ def wml_int(value, default: Optional[int] = None) -> Optional[int]:
     return default
 
 
-def wml_bool(value, default: bool) -> bool:
-    """WML yes/no/true/false/1/0; `default` when absent or malformed."""
+def wml_bool_or_none(value) -> Optional[bool]:
+    """WML yes/no/true/false/1/0, or None when the value is absent or
+    is something else entirely.
+
+    The distinction matters where a key has a third form. Wesnoth's
+    `random_start_time=` accepts a VALUE LIST (`"2,4"`, draw one of
+    these slots), and a reader that folded that onto False treated it
+    as "no random start" and silently began at dawn."""
     if value is None:
-        return default
+        return None
     text = str(value).strip().strip('"').lower()
+    if not text:
+        return None
     if text in _TRUE:
         return True
     if text in _FALSE:
         return False
-    return default
+    return None
+
+
+def wml_bool(value, default: bool) -> bool:
+    """WML yes/no/true/false/1/0; `default` when absent or malformed."""
+    parsed = wml_bool_or_none(value)
+    return default if parsed is None else parsed
 
 
 def wml_list(value) -> List[str]:
@@ -221,6 +239,136 @@ def read_side(side_node, *, defaults: Optional[Dict] = None) -> Optional[Dict]:
         "color": attrs.get("color", "").strip().strip('"'),
         "controller": attrs.get("controller", "").strip().strip('"'),
     }
+
+
+# Wesnoth's default six-slot day: dawn, morning, afternoon, dusk,
+# first watch, second watch. The sim hardcodes it in BOTH engines --
+# `combat.TOD_DEFAULT_CYCLE` and `rust/wesnoth_core` `DEFAULT_CYCLE` --
+# so a scenario that declares a different one would be played at the
+# wrong time of day by a sim that never looked.
+DEFAULT_BOARD_CYCLE: Tuple[int, ...] = (0, 25, 25, 0, -25, -25)
+
+
+def board_cycle(node) -> List[int]:
+    """The lawful bonus of each of the board's top-level `[time]`
+    slots, in order. `[]` when the scenario declares no schedule, which
+    means the engine's default applies.
+
+    Not `[time_area]`: those are a zone's cycle and are read per hex.
+    `WMLNode.all` does not descend, so they are excluded by construction.
+    """
+    return [wml_int(t.attrs.get("lawful_bonus"), 0) or 0
+            for t in node.all("time")]
+
+
+def board_cycle_is_default(node) -> bool:
+    """Whether this scenario's board schedule is the one both engines
+    assume. A declared schedule that equals the default is fine; the
+    check is on the VALUES, not on whether it was written down."""
+    declared = board_cycle(node)
+    return not declared or tuple(declared) == DEFAULT_BOARD_CYCLE
+
+
+class UnsupportedSchedule(RuntimeError):
+    """A scenario declares a board schedule neither engine can play."""
+
+
+class UnmodelledGate(RuntimeError):
+    """A scenario turns a rule on or off through a switch we do not
+    read, so we would apply the rule the scenario disables."""
+
+
+_SCHEDULE_WARNED: set = set()
+
+
+def check_board_cycle(node, scenario_id: str = "") -> bool:
+    """Warn once when a scenario's board schedule is not the default,
+    and raise under `WESNOTH_STRICT_WML`.
+
+    The cycle is hardcoded in both engines, so a scenario with, say,
+    a 24-slot hourly schedule would be played on a six-slot day
+    silently, and every combat in it would use the wrong lawful bonus.
+    No scenario in the pool and no game in the corpus declares one
+    (measured 2026-09-22, docs/scenario_build_plan_20260922.md), which
+    is why the constant stands; this is what keeps that true.
+
+    Making it a READ is the fix, and it has to land in both engines at
+    once or they diverge on combat -- the Rust half cannot be built or
+    certified on the laptop, so it is box work.
+    """
+    if board_cycle_is_default(node):
+        return True
+    declared = board_cycle(node)
+    if os.environ.get("WESNOTH_STRICT_WML"):
+        raise UnsupportedSchedule(
+            f"{scenario_id or 'scenario'} declares a board schedule of "
+            f"{len(declared)} slots ({declared}); both engines hardcode "
+            f"{list(DEFAULT_BOARD_CYCLE)}")
+    key = (scenario_id, tuple(declared))
+    if key not in _SCHEDULE_WARNED:
+        _SCHEDULE_WARNED.add(key)
+        log.warning(
+            "%s declares a non-default board schedule %s; the sim will "
+            "play it on the default six-slot day, so every lawful bonus "
+            "in it is wrong. See wml_state.check_board_cycle.",
+            scenario_id or "scenario", declared)
+    return False
+
+
+# The era's quick-leader rule has two gates, and we apply it
+# unconditionally. Both are read here so an unconditional rule is a
+# CHECKED assumption rather than a lucky one.
+QUICK_LEADER_GATES = ("dont_make_me_quick", "make_4mp_leaders_quick")
+
+
+def quick_leader_gates(node) -> List[str]:
+    """Where this scenario touches either gate of `quick_4mp_leaders`.
+
+    `wesnoth_src/data/multiplayer/eras.lua:5-22`: the era gives every
+    `max_moves=4` leader the quick trait at prestart, UNLESS the WML
+    variable `make_4mp_leaders_quick` is false, and skipping any unit
+    whose own `dont_make_me_quick` variable is set. `tools/traits.py`
+    applies the rule with neither gate, which is exact only while no
+    scenario sets either. Dark Forecast and Isle of Mists DO set
+    `dont_make_me_quick` on units
+    (`data/multiplayer/scenarios/2p_Dark_Forecast.cfg:68`), so the
+    gates are not hypothetical -- those maps are simply not ours.
+    """
+    out: List[str] = []
+
+    def walk(n, path):
+        for key, value in n.attrs.items():
+            if key in QUICK_LEADER_GATES:
+                out.append(f"{path}.{key}")
+            elif (key == "name"
+                  and str(value).strip().strip(chr(34)) in QUICK_LEADER_GATES):
+                out.append(f"{path}.name={value}")
+        for child in n.children:
+            walk(child, f"{path}/{child.tag}")
+
+    walk(node, "scenario")
+    return out
+
+
+def check_quick_leader_gates(node, scenario_id: str = "") -> bool:
+    """Warn once when a scenario touches a gate we do not model, and
+    raise under `WESNOTH_STRICT_WML`."""
+    hits = quick_leader_gates(node)
+    if not hits:
+        return True
+    if os.environ.get("WESNOTH_STRICT_WML"):
+        raise UnmodelledGate(
+            f"{scenario_id or 'scenario'} sets {hits}; tools/traits.py "
+            f"applies the era quick-leader rule unconditionally")
+    key = (scenario_id, tuple(hits))
+    if key not in _SCHEDULE_WARNED:
+        _SCHEDULE_WARNED.add(key)
+        log.warning(
+            "%s touches the quick-leader gates %s, which tools/traits.py "
+            "does not model: it gives every 4-MP leader the quick trait "
+            "unconditionally. See wml_state.check_quick_leader_gates.",
+            scenario_id or "scenario", hits)
+    return False
 
 
 def read_tod(node, *, default_slots: int = 6) -> Tuple[Optional[int], bool, int]:

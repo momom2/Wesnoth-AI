@@ -4,10 +4,46 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT: the network cannot see the time of day (2026-09-22, user ruling)
+## NEXT: two decisions and a box job (2026-09-22)
 
-Found while reviewing the scenario-build plan; the user's ruling is
-that this is **the next thing worked on**, ahead of that plan.
+**1. The drill templates: DONE** (user ruling 2026-09-22, deleted).
+The 29 templates that remain are exactly the set
+`tools/build_scenario_templates.py` regenerates byte-identically, and
+`tests/test_template_builder.py` asserts the unbuildable set is empty.
+
+**2. The corpus sweep the expander changes owe.** The macro-name
+class (`:` in names), `#arg` optional arguments, the translatable-marker
+strip and taking `DEFAULT_SCHEDULE` off the cosmetic list all change
+what `load_scenario_wml` returns on the RECONSTRUCTION path. The
+28-scenario built-state snapshot and the 120-replay extract snapshot
+are unchanged, but `diff_replay` over all 17,019 is the real check:
+about 20 minutes and $0.20, and by this project's own rule it is not
+an acceptance test unless it fails under the old behaviour, so it runs
+with the old predicates monkeypatched back as the control.
+
+**3. W4, the engine oracle for scenario init**, the one unbuilt item
+of docs/scenario_build_plan_20260922.md. What scoping established is
+recorded there: the Lua collector already dumps each side's gold,
+village gold, village support, base income and fog, so the
+highest-value half needs no new Lua; the work is the launch
+(`--multiplayer --scenario=… --controller<n>=ai` rather than the
+bridge's `--test`, because the committed templates have the player
+sides stripped), and it must go through `WesnothGame` because the
+Windows binary is GUI-subsystem and gives nothing on stdout.
+
+## PARKED: the network cannot see the time of day (2026-09-22)
+
+Built and tested on 2026-09-22, **not run**: the user's order is
+"we're not retraining after every single bug", so the arm waits and is
+batched with whatever else the scenario rework turns up.
+`GLOBAL_FEAT_DIM` is 6 -> 8 (this turn's and next turn's lawful bonus
+over `LAWFUL_BONUS_NORM` 25), mirrored in the Rust kernels with
+`__phase__` 10 -> 11 and a gate that refuses a stale wheel,
+`OBSERVATION_EPOCH` 3 -> 4, seven tests in
+`tests/test_time_of_day_features.py`, pre-registration in
+docs/time_of_day_prereg_20260922.md.
+
+The original finding, which stands:
 
 `encoder.GLOBAL_FEAT_DIM` is 6, and the six are turn number, side to
 move, our gold, our income, our villages and theirs. No time of day,

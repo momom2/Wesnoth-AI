@@ -40,8 +40,10 @@ from tools.replay_dataset import (
 )
 from tools.scenario_events import load_scenario_wml
 from tools.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
-                             MP_VILLAGE_SUPPORT, map_starting_positions,
-                             read_villages, resolve_map_file, wml_int)
+                             MP_VILLAGE_SUPPORT, check_board_cycle,
+                             check_quick_leader_gates, map_starting_positions,
+                             read_tod, read_villages, resolve_map_file,
+                             wml_int)
 from tools.wml_state import scenario_economy as _read_scenario_economy
 
 
@@ -456,40 +458,34 @@ def random_setup(
 
 
 def _scenario_tod_info(scenario_id: str) -> tuple:
-    """(current_time, random_start, n_slots) from the scenario's
-    repo-tracked expanded template
-    (`tools/templates/scenarios/<id>.wml`, built by the game's own
-    preprocessor). Schedule macros resolve to a `current_time` attr
-    there -- e.g. {DEFAULT_SCHEDULE_SECOND_WATCH} (Fallenstar Lake,
-    Ruined Passage) emits current_time=5, so real Wesnoth starts
-    those maps at second watch, not dawn. `current_time` is None
-    when the template carries no such attr; `n_slots` counts the
-    schedule's top-level [time] blocks ([time_area] sub-schedules
-    excluded), falling back to the default 6.
+    """(current_time, random_start, n_slots) for a scenario we are
+    about to BUILD, read from the scenario's own expansion.
+
+    Schedule macros resolve to a `current_time` attr -- e.g.
+    {DEFAULT_SCHEDULE_SECOND_WATCH} (Fallenstar Lake, Ruined Passage)
+    emits current_time=5, so real Wesnoth starts those maps at second
+    watch, not dawn. `current_time` is None when the scenario declares
+    none; `n_slots` counts the schedule's top-level [time] blocks,
+    falling back to 6.
+
+    `read_tod` reads the TOP-LEVEL attributes and the top-level [time]
+    children, which is what the engine's tod_manager ctor reads: an
+    area-local `current_time` is that area's phase, not the game's
+    start slot, and `WMLNode.all` does not descend into [time_area].
+
+    ONE SOURCE. Until 2026-09-22 this read the committed template with
+    three private regexes while every other part of generation read
+    `load_scenario_wml`, so one scenario was built from two renderings
+    of itself. They agree on this triple for all 28 pool scenarios,
+    measured, and `tests/test_expansion_diff.py` is what keeps them
+    agreeing -- the templates are the EXPORT path's input now.
     """
-    import re as _re
-    tpl = (Path(__file__).resolve().parent / "templates" / "scenarios"
-           / f"{scenario_id}.wml")
-    try:
-        text = tpl.read_text(encoding="utf-8")
-    except OSError:
+    root = load_scenario_wml(scenario_id)
+    block = None if root is None else (
+        root.first("multiplayer") or root.first("scenario"))
+    if block is None:
         return None, False, 6
-    # Strip [time_area] sub-schedules BEFORE every search: the
-    # engine reads current_time / random_start_time as top-level
-    # scenario attrs only (tod_manager ctor); an area-local
-    # current_time is that area's phase, not the game start slot.
-    # (No current template carries one -- audited 2026-07-15 --
-    # this guards future maps.)
-    stripped = _re.sub(r'\[time_area\].*?\[/time_area\]', '',
-                       text, flags=_re.DOTALL)
-    m = _re.search(r'^\s*current_time=(\d+)', stripped, _re.MULTILINE)
-    current_time = int(m.group(1)) if m else None
-    random_start = bool(_re.search(
-        r'^\s*random_start_time="?(?:yes|true|1)"?\s*$',
-        stripped, _re.MULTILINE))
-    n_slots = len(_re.findall(r'^\s*\[time\]', stripped,
-                              _re.MULTILINE)) or 6
-    return current_time, random_start, n_slots
+    return read_tod(block)
 
 
 def _scenario_tod_start(scenario_id: str) -> int:
@@ -610,6 +606,8 @@ def build_scenario_gamestate(
         raise RuntimeError(
             f"scenario {setup.scenario_id} has no [multiplayer] / "
             f"[scenario] block")
+    check_board_cycle(mp, setup.scenario_id)
+    check_quick_leader_gates(mp, setup.scenario_id)
     project_root = Path(__file__).resolve().parent.parent
     map_path = resolve_map_file(project_root,
                                 map_file=mp.attrs.get("map_file", ""),

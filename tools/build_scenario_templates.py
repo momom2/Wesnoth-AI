@@ -18,10 +18,23 @@ Covers ALL THREE scenario pools (tools/scenario_pool.py):
     (tactical-training curriculum; templates make mini games
     exportable to the replay viewer, which replay extraction never
     could -- no human replays exist for them).
-  - DRILL_SCENARIO_IDS -- our own capability drills under
-    add-ons/wesnoth_ai/scenarios/drills/ (project add-on,
-    junctioned into userdata so the preprocessor and the real game
-    resolve the same files).
+
+The drill pool is gone: the user ruled the drill scenarios out in
+fba0513 and their sources were deleted with them, so
+`drill_chokepoint`, `drill_duel` and `drill_village_rush` could not be
+rebuilt or checked against anything. Their templates were deleted on
+the user's ruling 2026-09-22; every template committed here is now one
+this builder can regenerate, which tests/test_template_builder.py
+holds. This module also imported `DRILL_SCENARIO_IDS` from
+scenario_pool, where it no longer exists, so the whole builder -- not
+just the drill path -- was unimportable from 2026-08-10 until
+2026-09-22.
+
+`around_mini` keeps its template although it left the training pool in
+2026-07-14: its .cfg and .map are still in the Mini Maps Collection and
+tests/test_mini_tentacle_spawns.py builds it. It is named in
+EXTRA_MINI_TEMPLATE_IDS so `--only around_mini` knows which source tree
+to preprocess.
 
 REQUIREMENT for the mini pool: the add-on must ALSO be installed in
 Wesnoth's userdata (Documents/My Games/Wesnoth1.18/data/add-ons/),
@@ -34,7 +47,11 @@ Transformations from preprocessed [multiplayer] to save-shaped
 verified against the previously user-verified replay-derived
 templates):
   - [multiplayer] -> [scenario]
-  - translation markers `_"..."` -> plain strings (saves carry none)
+  - translation markers `_"..."` -> plain strings. A choice, not a
+    mirror of real saves: those DO carry the markers (400 of 400
+    sampled corpus replays, 2026-09-23, mostly on display keys such
+    as `name`, `help_text` and `description`), and Wesnoth reads both
+    forms. The only cost is untranslated text in an exported save.
   - #textdomain lines dropped
   - [side] 1 and 2 stripped (the runtime emitter renders fresh ones
     from sim state); scenery sides 3+ KEPT (sim_to_replay's
@@ -52,7 +69,10 @@ templates):
 Usage:
     python tools/build_scenario_templates.py            # all
     python tools/build_scenario_templates.py --only multiplayer_Hamlets 2p_mini
-    python tools/build_scenario_templates.py --check    # build to tmp + diff only
+    python tools/build_scenario_templates.py --out-dir /tmp/x  # then diff
+
+Verified 2026-09-22: all 29 templates regenerate byte-identical to
+the committed ones from the current Steam install (1.18.7).
 """
 from __future__ import annotations
 
@@ -72,7 +92,7 @@ if str(_ROOT) not in sys.path:
 
 from wesnoth_ai.constants import WESNOTH_PATH
 from tools.scenario_pool import (
-    DRILL_SCENARIO_IDS, LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,
+    LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,
 )
 from tools.replay_extract import parse_wml
 
@@ -86,12 +106,19 @@ LADDER_SRC = _ROOT / "wesnoth_src" / "data" / "multiplayer" / "scenarios"
 # refuses the file (observed: every enclave_* scenario).
 MINI_SRC = (_ROOT / "wesnoth_src" / "data" / "add-ons"
             / "Mini_Maps_Collection" / "_main.cfg")
-# Capability drills live in OUR add-on at the project root. The
-# preprocessor resolves its `{~add-ons/wesnoth_ai/...}` includes
-# against userdata, where add-ons/wesnoth_ai is junctioned -- so the
-# files it reads ARE these files.
-DRILL_SRC = _ROOT / "add-ons" / "wesnoth_ai" / "_main.cfg"
 OUT_DIR = _ROOT / "tools" / "templates" / "scenarios"
+
+# Scenarios we keep a template for although they are not in a training
+# pool. They come out of the same add-on as the mini pool, so naming
+# them here is what lets `--only <id>` preprocess the right tree
+# instead of reporting the id as missing.
+EXTRA_MINI_TEMPLATE_IDS = frozenset({
+    # Left the pool 2026-07-14 (its side-2 start is asymmetric), but
+    # its .cfg and .map are still shipped and
+    # tests/test_mini_tentacle_spawns.py builds it.
+    "around_mini",
+})
+MINI_TEMPLATE_IDS = frozenset(MINI_MAP_SCENARIO_IDS) | EXTRA_MINI_TEMPLATE_IDS
 
 # Save-only attributes the engine injects at game start. Injected
 # only when the cfg doesn't define them itself. experience_modifier
@@ -260,10 +287,9 @@ def transform(pp_text: str, scenario_id: str, source_note: str) -> str:
     # (the era boilerplate below is spliced raw and keeps its own).
     body = [re.sub(r'_\s*"', '"', ln) for ln in body]
     body = _strip_player_sides(body)
-    if (scenario_id not in MINI_MAP_SCENARIO_IDS
-            and scenario_id not in DRILL_SCENARIO_IDS):
-        # Minis and drills arrive with map_data already inlined by
-        # the preprocessor; ladder cfgs reference map_file=.
+    if scenario_id not in MINI_TEMPLATE_IDS:
+        # Add-on scenarios arrive with map_data already inlined by the
+        # preprocessor; mainline ladder cfgs reference map_file=.
         body = _inline_map_data(body, scenario_id)
 
     # Inject save-only attrs not already defined by the cfg.
@@ -337,8 +363,7 @@ def main(argv: List[str]) -> int:
                         format="%(levelname)s %(message)s")
 
     wanted = set(args.only) if args.only else (
-        set(LADDER_SCENARIO_IDS) | set(MINI_MAP_SCENARIO_IDS)
-        | set(DRILL_SCENARIO_IDS))
+        set(LADDER_SCENARIO_IDS) | MINI_TEMPLATE_IDS)
 
     with tempfile.TemporaryDirectory(prefix="wml_pp_") as td:
         tmp = Path(td)
@@ -351,7 +376,7 @@ def main(argv: List[str]) -> int:
             sources.update({k: "wesnoth_src/data/multiplayer/scenarios "
                                "(game cfg, game preprocessor)"
                             for k in idx})
-        if wanted & set(MINI_MAP_SCENARIO_IDS):
+        if wanted & MINI_TEMPLATE_IDS:
             if not MINI_SRC.is_file():
                 log.error(f"mini add-on missing: {MINI_SRC}")
                 return 2
@@ -359,16 +384,6 @@ def main(argv: List[str]) -> int:
             idx = _index_preprocessed(tmp / "mini")
             index.update(idx)
             sources.update({k: "Mini_Maps_Collection add-on "
-                               "(game cfg, game preprocessor)"
-                            for k in idx})
-        if wanted & set(DRILL_SCENARIO_IDS):
-            if not DRILL_SRC.is_file():
-                log.error(f"wesnoth_ai add-on missing: {DRILL_SRC}")
-                return 2
-            run_preprocessor(DRILL_SRC, tmp / "drills")
-            idx = _index_preprocessed(tmp / "drills")
-            index.update(idx)
-            sources.update({k: "add-ons/wesnoth_ai drills "
                                "(game cfg, game preprocessor)"
                             for k in idx})
 

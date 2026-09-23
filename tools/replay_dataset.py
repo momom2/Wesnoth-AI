@@ -2877,7 +2877,7 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     # _time_area_action), and we don't want order-of-events to flip.
     setup_static_time_areas(gs, root)
     from tools.scenario_events import collect_events
-    events = collect_events(root)
+    events = collect_events(root, scenario_id)
     setattr(gs.global_info, "_scenario_events", events)
     # Pre-populate WML variables for `pN_faction` so scenarios that
     # rely on them (Hornshark Island's [switch] variable=p1_faction)

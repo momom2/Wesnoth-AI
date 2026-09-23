@@ -524,6 +524,48 @@ State of play:
   (docs/turn_gap_ref_prereg_20260921.md; `tools/turn_gap.py
   --reference`, `scripts/turn_gap_ref_box.sh`, about $1.20) and waits
   for the user's word.
+- 2026-09-22 (user order: finish the preprocessor rework before any
+  retraining): **the scenario pipeline has detectors now, and the
+  first thing they did was disagree with the game.** The record is
+  docs/scenario_build_plan_20260922.md, whose work items W0-W3, W5 and
+  W6 are done; W4 (the engine oracle for scenario init) is scoped but
+  not built. The four detectors: our macro expansion against the
+  game's own, per pool scenario (`tools/analysis/expansion_diff.py`,
+  0.2 s, in the fast tier, and it FAILS under the old rule); every tag
+  path and attribute the pool declares against a manifest that binds
+  each MODELLED entry to a reader whose symbol is checked
+  (`tools/analysis/scenario_surface.py`, 51 paths, 178 pairs, 0
+  UNKNOWN); a dispatch that warns or raises instead of a silent no-op
+  (`WESNOTH_STRICT_WML`); and each substitution's precondition checked
+  where it is relied on. Found and fixed: `{DEFAULT_SCHEDULE}` sat on
+  the cosmetic list, so our expansion emitted ZERO `[time]` blocks
+  where the game's emits six (latent -- all 28 pool scenarios and all
+  17,019 corpus games use exactly the default cycle, measured, so the
+  hardcoded `TOD_DEFAULT_CYCLE` was right); macro names may contain
+  `:` (`INTERNAL:SPECIAL_NOTES_*` all collapsed onto one name) and
+  `#arg NAME ... #endarg` declares an optional named argument with a
+  default (`{OVERLAY}` leaked unsubstituted), both now in
+  docs/wesnoth_rules.md; the WML parser kept the `_ "` translatable
+  marker; `random_start_time` has a THIRD form (a value list) that a
+  yes/no coercion silently read as dawn; and `ai_special=guardian` was
+  read by NOTHING while `tools/neutral_ai`'s combat-only substitution
+  depended on it -- on Modified_Tiny_Close_Relation it is the only
+  thing keeping the Tentacle still, and the docstring's stated reasons
+  covered neither that map nor the real reason for two others.
+  Generation now reads ONE rendering of a scenario (it read the
+  committed template for the time of day through three private regexes
+  while reading `load_scenario_wml` for everything else); the template
+  builder imports again after six weeks (a dangling
+  `DRILL_SCENARIO_IDS`) and all 29 templates regenerate BYTE-IDENTICAL
+  from the current Steam install. The 28-scenario and 120-replay
+  snapshots did not move: this block changed what we NOTICE, not what
+  we build. **Owed: a `diff_replay` corpus sweep** (about 20 minutes
+  and $0.20, with the old predicates monkeypatched back as the
+  control), since the expander changes touch the reconstruction path
+  too. The time-of-day encoder arm (docs/time_of_day_prereg_20260922.md,
+  `GLOBAL_FEAT_DIM` 6 -> 8, `OBSERVATION_EPOCH` 3 -> 4) is built and
+  tested but PARKED by the same user order, to be batched into one
+  retrain with whatever else the rework turns up.
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint
@@ -750,6 +792,15 @@ Target ~600 lines. Split by responsibility when a file grows past that.
 - Private members: `_leading_underscore`
 - Lua: same conventions (Lua allows `snake_case` fine)
 
+### Versioning (adopted 2026-09-23)
+- `wesnoth_ai.__version__` in `wesnoth_ai/__init__.py` is the only
+  place the version lives. N.M.P: **P bumps with every commit, M with
+  every major feature, N only on the user's explicit decision** (0
+  until then). Bump it in the same commit it describes, and state the
+  new version on the first line of the commit body.
+- History starts at 0.1.0 (the time-of-day encoder commit); nothing
+  before it carries a number.
+
 ### Linting (adopted 2026-08-05)
 - **Run `ruff check .` before committing** — config in `ruff.toml`
   (rules E/F/W; E501/E731 off; E402 allowed in tools//tests//scripts
@@ -820,13 +871,16 @@ many line-coverage tests.
   `python -c "import wesnoth_core; print(wesnoth_core.__phase__)"`
   against `rust/wesnoth_core/src/lib.rs` before believing any core-on
   result, and certify Rust changes on a box.
-  The wheel cannot be rebuilt here, and the reason is narrower than
-  "cargo does not work": `cargo check` in the project tree runs most
-  build scripts fine and is refused on exactly one,
-  `pyo3-build-config` ("Accès refusé", os error 5 — the compiled
-  build-script binary is never executed). That looks like a security
-  policy blocking that one binary. If it is ever whitelisted, the
-  local gate gains the whole Rust path.
+  The wheel cannot be rebuilt here. **Corrected 2026-09-22:** the
+  block is NOT limited to `pyo3-build-config` as this note previously
+  said. `cargo check` in the project tree is refused on every crate
+  whose build script must execute — measured on `pyo3-build-config`,
+  `proc-macro2` and `libc`, each "Accès refusé" (os error 5), the
+  compiled build-script binary never executed. So no Rust change can
+  be type-checked here, let alone built, and every one is certified on
+  a box. A test that reads the Rust SOURCE for a constant is the one
+  local check available (tests/test_time_of_day_features.py does this
+  for the feature widths).
 
 ## Working Style
 

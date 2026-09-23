@@ -1,13 +1,43 @@
 """Neutral-side (side >= 3) combat turn: Wesnoth's default RCA AI,
 restricted to STATIONARY units (user-approved scope 2026-07-14).
 
-The Mini_Maps_Collection tentacles are either immobilized by the
-map itself (enclaves: a `turn refresh` event zeroes role=monster
-moves every turn) or terrain-locked (2p_mini: the only 2 water
-hexes are the spawn hexes). For a unit that cannot move, Wesnoth's
-default AI reduces EXACTLY to its combat candidate action over
-adjacent targets, repeated while the best rating > 0
-(src/ai/default/ca.cpp combat_phase, 1.18.4).
+For a unit that cannot move, Wesnoth's default AI reduces EXACTLY to
+its combat candidate action over adjacent targets, repeated while the
+best rating > 0 (src/ai/default/ca.cpp combat_phase, 1.18.4). So the
+substitution is exact only where the neutral units really cannot move.
+
+A neutral unit qualifies for one of exactly three reasons, all READ
+as of 2026-09-22 rather than assumed:
+
+  1. `ai_special=guardian`. It sets STATE_GUARDIAN (1.18.4
+     src/units/unit.cpp:659), and the default AI's move phase then
+     hands the unit a move from its own hex to its own hex --
+     "is guardian, staying still"
+     (src/ai/default/ca_move_to_targets.cpp:269-277). Stashed as
+     `_ai_guardian` by `scenario_events._unit_action`.
+  2. No movement left: the map pins it every `turn refresh`
+     ({MODIFY_UNIT (role=monster) moves 0}).
+  3. No landable hex: terrain-locked.
+
+Six pool scenarios field an acting neutral side, and the precondition
+holds on all six -- checked for the first time on 2026-09-22 by
+`_check_units_are_stationary`, which runs at the start of every
+neutral turn and is pinned by tests/test_neutral_ai_precondition.py:
+
+  - 2p_mini, 2p_mini_edited, Modified_Tiny_Close_Relation: guardians.
+    The first two are ALSO terrain-locked; Modified_Tiny_Close_Relation
+    is not -- its Tentacle has full MP and two adjacent water hexes it
+    can enter, and the only thing keeping it still is the guardian
+    flag. The earlier version of this docstring justified the
+    substitution by the pin and the terrain lock alone, which covered
+    neither that map nor the real reason for the other two.
+  - enclave_micro_isar, enclave_mini_fallenstar_1v1,
+    enclave_small_fallenstar_1v1: pinned to 0 MP.
+
+If a scenario ever fields a neutral unit that is none of the three,
+`_check_units_are_stationary` warns (and raises under
+`WESNOTH_STRICT_WML`) instead of this AI quietly rooting a unit
+Wesnoth would walk.
 
 Rating: verbatim port of src/ai/default/attack.cpp
 attack_analysis::rating (1.18.4, lines ~298-345; fetched and pinned
@@ -51,9 +81,15 @@ here.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Dict, Optional
 
 log = logging.getLogger("neutral_ai")
+
+
+class MobileNeutralUnit(RuntimeError):
+    """A neutral unit the default AI would move and this one
+    cannot. Raised under `WESNOTH_STRICT_WML`."""
 
 # RCA engine defaults (readonly_context defaults, 1.18.4) -- used
 # when the scenario's [side][ai] block doesn't override.
@@ -171,6 +207,56 @@ def rate_attack(gs, attacker, defender, action: dict,
     return value
 
 
+_MOBILE_WARNED: set = set()
+
+
+def _check_units_are_stationary(gs, side: int, scenario_id: str = "") -> bool:
+    """The substitution's precondition, checked at the moment it is
+    relied on.
+
+    A unit this AI drives must be one Wesnoth would not move, for one
+    of exactly three reasons:
+
+      * `ai_special=guardian` -- STATE_GUARDIAN (1.18.4
+        unit.cpp:659), and the move phase then hands it a move from
+        its own hex to its own hex (ca_move_to_targets.cpp:269-277);
+      * no movement left -- the scenario pins it every `turn refresh`
+        (the enclave maps' `{MODIFY_UNIT (role=monster) moves 0}`);
+      * no landable hex -- terrain-locked (2p_mini's water).
+
+    Anything else is a unit the real AI would walk and we would not,
+    silently. So it warns, and raises under `WESNOTH_STRICT_WML`.
+    """
+    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.visibility import is_scenery_unit
+
+    movers = [u for u in gs.map.units
+              if u.side == side and not is_scenery_unit(u)
+              and not getattr(u, "_ai_guardian", False)
+              and u.current_moves > 0]
+    if not movers:
+        return True
+    ctx = ReachContext.for_side(gs, side)
+    mobile = [u for u in movers if unit_reach(u, gs, ctx).landable]
+    if not mobile:
+        return True
+    detail = ", ".join(f"{u.name}@({u.position.x},{u.position.y})"
+                       for u in mobile)
+    if os.environ.get("WESNOTH_STRICT_WML"):
+        raise MobileNeutralUnit(
+            f"{scenario_id or 'scenario'}: side {side} has units the "
+            f"default AI would move but this one cannot: {detail}")
+    key = (scenario_id, side, detail)
+    if key not in _MOBILE_WARNED:
+        _MOBILE_WARNED.add(key)
+        log.warning(
+            "%s: neutral side %d has units Wesnoth's AI would MOVE and "
+            "this combat-only AI will not (%s). The games it generates "
+            "face a more passive opponent than the real one.",
+            scenario_id or "scenario", side, detail)
+    return False
+
+
 def run_neutral_side_turn(sim, side: int = 3) -> int:
     """Play the neutral side's turn: init_side healing/upkeep, then
     the RCA combat loop (execute the best-rated adjacent attack
@@ -197,6 +283,7 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
     sim.command_history.append(RecordedCommand(
         kind="init_side", side=side, cmd=["init_side", side]))
     aggression = _side_aggression(sim.scenario_id, side)
+    _check_units_are_stationary(gs, side, sim.scenario_id)
 
     n_attacks = 0
     for _guard in range(32):                # hard loop bound

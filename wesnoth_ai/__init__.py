@@ -14,4 +14,4 @@ and `tests/` holds the test suite.
 M with every major feature, N only on the user's explicit decision.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

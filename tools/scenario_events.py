@@ -28,12 +28,14 @@ Dependents: tools.replay_dataset
 """
 from __future__ import annotations
 
+import contextvars
 import copy as _copy
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -52,17 +54,38 @@ SCENARIO_DIR = WESNOTH_SRC / "data" / "multiplayer" / "scenarios"
 # WML macro pre-processor
 # ----------------------------------------------------------------------
 
-# Macros whose body is purely cosmetic — sound, music, halo, image
-# placement — that we substitute to nothing. The lists isn't exhaustive;
-# unknown macros also expand to nothing (with a logged warning the
-# first time we see them).
+# Macros we expand to nothing, in two classes, because the reason
+# matters and one set could not record it.
+#
+# COSMETIC: presentation only. Deleting the body changes nothing any
+# consumer reads. A macro qualifies only if that is true of its WHOLE
+# body. `DEFAULT_SCHEDULE` sat here until 2026-09-22 and did not
+# qualify -- it carries the board's six [time] blocks, so our
+# expansion emitted none where the game's emits six, and the cycle
+# came off a hardcoded constant instead of the scenario. Nothing
+# compared the two renderings of one file, which is why the gap went
+# unseen for as long as it did; tools/analysis/expansion_diff.py is
+# that comparison, and tests/test_expansion_diff.py keeps it.
 _COSMETIC_MACROS: Set[str] = {
     "FLASH_WHITE", "QUAKE", "PLACE_IMAGE", "PLACE_HALO",
-    "DEFAULT_SCHEDULE", "DEFAULT_MUSIC_PLAYLIST",
+    "DEFAULT_MUSIC_PLAYLIST",
     "UNDEAD_MUSIC", "LOYALIST_MUSIC", "REBELS_MUSIC",
     "ITM_FOREST_FOG", "BIGMAP", "IS_LAST_SCENARIO",
-    "TURNS_OVER_ADVANTAGE",
 }
+
+# SUBSTITUTED: the behaviour is real and the sim implements it
+# natively, so the WML body is dropped rather than ignored. Each entry
+# names what stands in for it; a reader who deletes the substitute
+# must put the macro back.
+_SUBSTITUTED_MACROS: Dict[str, str] = {
+    # The turn-cap tiebreak. wesnoth_sim scores a game that reaches
+    # the turn limit itself, so the era's lua hook is not needed.
+    "TURNS_OVER_ADVANTAGE": "wesnoth_sim turn-cap scoring",
+}
+
+# Unknown macros also expand to nothing, with a warning the first
+# time. That path is the one that hides bugs, so it is narrow by
+# design: anything reached through it is UNCLASSIFIED, not cosmetic.
 
 # Track which macros we've warned about to avoid log spam.
 _WARNED_MACROS: Set[str] = set()
@@ -74,12 +97,16 @@ _MACRO_DEFINE_RE = re.compile(
     # less macros like `#define SECOND_WATCH\n  [time]…` to swallow the
     # opening `[time]` of the body as a "parameter". That breaks every
     # ToD macro the time_area scenarios rely on.
-    r'#define[ \t]+(\w+)(?:[ \t]+([^\n]+))?\n(.*?)#enddef',
+    # The name may contain ':' -- the core macros declare
+    # `#define INTERNAL:SPECIAL_NOTES_SUBMERGE`, and `\w+` stopped at
+    # the colon, so every such macro was defined under the name
+    # "INTERNAL" and every use of one expanded to nothing.
+    r'#define[ \t]+([\w:]+)(?:[ \t]+([^\n]+))?\n(.*?)#enddef',
     re.DOTALL,
 )
 # {MACRO_NAME arg1 arg2 ...} — args can be quoted strings, bare words,
 # or numeric values. We capture the whole brace expression.
-_MACRO_INVOKE_RE = re.compile(r'\{([A-Z_][A-Z0-9_]*)([^{}]*)\}')
+_MACRO_INVOKE_RE = re.compile(r'\{([A-Z_][A-Z0-9_:]*)([^{}]*)\}')
 
 
 def _strip_textdomain(text: str) -> str:
@@ -123,21 +150,49 @@ def _strip_comments(text: str) -> str:
         if s.startswith("#") and not s.startswith(("#define", "#enddef",
                                                    "#textdomain", "#ifdef",
                                                    "#ifndef", "#endif",
-                                                   "#else", "#undef")):
+                                                   "#else", "#undef",
+                                                   "#arg", "#endarg")):
             continue
         out_lines.append(line)
     return "\n".join(out_lines)
 
 
-def _extract_inline_macros(text: str) -> Tuple[str, Dict[str, Tuple[List[str], str]]]:
-    """Pull #define...#enddef blocks out of `text`. Returns (text_without_defines,
-    {macro_name: (param_names, body_text)})."""
-    macros: Dict[str, Tuple[List[str], str]] = {}
+class MacroDef(NamedTuple):
+    """A `#define`: its positional parameters, its body, and the
+    defaults of its OPTIONAL named arguments."""
+    params: List[str]
+    body: str
+    defaults: Dict[str, str]
+
+
+# `#arg NAME` / <default value> / `#endarg` inside a macro body: an
+# optional named argument. Unhandled until 2026-09-22, which left
+# `{OVERLAY}` unsubstituted in TRAIT_LOYAL and the default value
+# stranded in the body as a bare line.
+_MACRO_ARG_RE = re.compile(r'#arg[ \t]+(\w+)[ \t]*\n(.*?)#endarg[ \t]*\n?',
+                           re.DOTALL)
+
+
+def _split_optional_args(body: str) -> Tuple[str, Dict[str, str]]:
+    defaults: Dict[str, str] = {}
+
+    def _take(m):
+        defaults[m.group(1)] = m.group(2).strip()
+        return ""
+
+    return _MACRO_ARG_RE.sub(_take, body), defaults
+
+
+def _extract_inline_macros(text: str) -> Tuple[str, Dict[str, MacroDef]]:
+    """Pull #define...#enddef blocks out of `text`. Returns
+    (text_without_defines, {macro_name: MacroDef})."""
+    macros: Dict[str, MacroDef] = {}
+
     def _strip(m):
-        name   = m.group(1)
+        name = m.group(1)
         params = (m.group(2) or "").split()
-        body   = m.group(3)
-        macros[name] = (params, body)
+        body, defaults = _split_optional_args(m.group(3))
+        macros[name] = MacroDef(params, body, defaults)
         return ""
     cleaned = _MACRO_DEFINE_RE.sub(_strip, text)
     return cleaned, macros
@@ -181,34 +236,77 @@ def _split_macro_args(arg_str: str) -> List[str]:
     return args
 
 
-def _substitute_macros(text: str, macros: Dict[str, Tuple[List[str], str]],
+_UNKNOWN_MACRO_COUNTS: Dict[str, int] = {}
+
+
+def unknown_macro_counts() -> Dict[str, int]:
+    """Macro name to the number of times it expanded to nothing because
+    we had no definition and no classification for it. A census, and
+    what `tests/test_action_classification.py` reads."""
+    return dict(_UNKNOWN_MACRO_COUNTS)
+
+
+def reset_unknown_macros() -> None:
+    _WARNED_MACROS.clear()
+    _UNKNOWN_MACRO_COUNTS.clear()
+
+
+def _report_unknown_macro(name: str) -> None:
+    """An undefined macro deleted from the expansion. This is the
+    third silent site, and it is the one that hid `DEFAULT_SCHEDULE`'s
+    sibling class for months at DEBUG level: a macro that expands to
+    nothing looks exactly like a macro whose body was cosmetic."""
+    _UNKNOWN_MACRO_COUNTS[name] = _UNKNOWN_MACRO_COUNTS.get(name, 0) + 1
+    if os.environ.get("WESNOTH_STRICT_WML"):
+        raise UnmodelledWML(
+            f"{{{name}}} has no definition and no recorded reason to drop it")
+    if name not in _WARNED_MACROS:
+        _WARNED_MACROS.add(name)
+        log.warning(
+            "unknown macro {%s} expanded to nothing. If its body is "
+            "presentation, name it in _COSMETIC_MACROS; if the sim "
+            "implements it, name it in _SUBSTITUTED_MACROS.", name)
+
+
+def _substitute_macros(text: str, macros: Dict[str, MacroDef],
                        depth: int = 0) -> str:
     """Recursively substitute {MACRO arg arg ...} occurrences in `text`.
-    Cosmetic macros and unknown macros expand to empty string."""
+    Classified and unknown macros expand to the empty string; the
+    unknown ones are reported (see `_report_unknown_macro`)."""
     if depth > 8:
         return text  # avoid infinite recursion
 
     def _do(m):
         name = m.group(1)
         argstr = m.group(2).strip()
-        if name in _COSMETIC_MACROS:
+        if name in _COSMETIC_MACROS or name in _SUBSTITUTED_MACROS:
             return ""
         if name in macros:
-            params, body = macros[name]
+            params, body, defaults = macros[name]
             args = _split_macro_args(argstr)
+            # An optional named argument is passed as `NAME=value` and
+            # binds by name, so it does not consume a positional slot.
+            named = dict(defaults)
+            positional = []
+            for arg in args:
+                key, sep, value = arg.partition("=")
+                if sep and key.strip() in defaults:
+                    named[key.strip()] = value.strip().strip('"')
+                else:
+                    positional.append(arg)
             # Pad/truncate to param count.
-            args = (args + [""] * len(params))[:len(params)]
+            positional = (positional + [""] * len(params))[:len(params)]
             sub = body
-            for p, a in zip(params, args):
+            for p, a in zip(params, positional):
                 sub = re.sub(r'\{' + re.escape(p) + r'\}', a, sub)
+            for key, value in named.items():
+                sub = re.sub(r'\{' + re.escape(key) + r'\}', value, sub)
             # Substitute nested macros in the expansion.
             return _substitute_macros(sub, macros, depth + 1)
         # Inline-include macros like {~add-ons/...} or {core/macros/...}
         if name.startswith("~") or "/" in argstr:
             return ""
-        if name not in _WARNED_MACROS:
-            _WARNED_MACROS.add(name)
-            log.debug(f"unknown macro {{{name} ...}} → substituted as empty")
+        _report_unknown_macro(name)
         return ""
 
     prev = None
@@ -223,11 +321,11 @@ def _substitute_macros(text: str, macros: Dict[str, Tuple[List[str], str]],
 # Scenario WML loader
 # ----------------------------------------------------------------------
 
-def _load_core_macros() -> Dict[str, Tuple[List[str], str]]:
+def _load_core_macros() -> Dict[str, MacroDef]:
     """Slurp Wesnoth's data/core/macros/*.cfg for macro definitions
     that scenarios commonly invoke. We don't expand the bodies (most
     are cosmetic anyway); just need names so we don't warn on them."""
-    macros: Dict[str, Tuple[List[str], str]] = {}
+    macros: Dict[str, MacroDef] = {}
     macros_dir = WESNOTH_SRC / "data" / "core" / "macros"
     if not macros_dir.exists():
         # A bare git clone carries only the tracked runtime subset.
@@ -248,11 +346,11 @@ def _load_core_macros() -> Dict[str, Tuple[List[str], str]]:
         except Exception:
             continue
         txt = _strip_comments(_strip_textdomain(txt))
-        for m in _MACRO_DEFINE_RE.finditer(txt):
-            name   = m.group(1)
-            params = (m.group(2) or "").split()
-            body   = m.group(3)
-            macros[name] = (params, body)
+        # The same extraction the scenario's own body gets: one reader,
+        # so optional-argument defaults and colon-bearing names behave
+        # identically whichever file a macro came from.
+        _, defined = _extract_inline_macros(txt)
+        macros.update(defined)
     # MODIFY_UNIT's mainline body (data/core/macros/utils.cfg:271-301)
     # is a [store_unit] kill=yes -> [foreach] set this_item.VAR ->
     # [unstore_unit] round-trip -- tags we don't run. For scalar VARs
@@ -263,7 +361,7 @@ def _load_core_macros() -> Dict[str, Tuple[List[str], str]]:
     # 86-91): it pins every tentacle at 0 MP, which via unit::
     # end_turn's movement_!=total_movement check permanently cancels
     # its rest heal (Micro Isar 38859, 2026-08-07).
-    macros["MODIFY_UNIT"] = (
+    macros["MODIFY_UNIT"] = MacroDef(
         ["FILTER", "VAR", "VALUE"],
         "[modify_unit]\n"
         "    [filter]\n"
@@ -271,11 +369,12 @@ def _load_core_macros() -> Dict[str, Tuple[List[str], str]]:
         "    [/filter]\n"
         "    {VAR}={VALUE}\n"
         "[/modify_unit]\n",
+        {},
     )
     return macros
 
 
-_CORE_MACROS_CACHE: Optional[Dict[str, Tuple[List[str], str]]] = None
+_CORE_MACROS_CACHE: Optional[Dict[str, MacroDef]] = None
 
 
 def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
@@ -455,9 +554,10 @@ class ScenarioEvent:
     first_time_only: bool = True
     actions: List[WMLNode] = field(default_factory=list)
     fired: bool = False               # latched by the interpreter
+    scenario_id: str = ""             # so an unmodelled tag names its map
 
 
-def collect_events(root: WMLNode) -> List[ScenarioEvent]:
+def collect_events(root: WMLNode, scenario_id: str = "") -> List[ScenarioEvent]:
     """Find every [event] block under [multiplayer] / [scenario] and
     return them in WML-order so the caller can fire them sequentially."""
     out: List[ScenarioEvent] = []
@@ -474,6 +574,7 @@ def collect_events(root: WMLNode) -> List[ScenarioEvent]:
         actions = [ch for ch in ev.children if ch.tag != "filter"]
         out.append(ScenarioEvent(
             name=name, first_time_only=first_time, actions=actions,
+            scenario_id=scenario_id,
         ))
     return out
 
@@ -628,11 +729,6 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     if raw_cells:
         new_raw = "\n".join(", ".join(row) for row in raw_cells)
         setattr(gs.global_info, "_raw_map_data", new_raw)
-
-
-def _no_op_action(gs: GameState, action: WMLNode) -> None:
-    """Cosmetic action — no state change."""
-    return
 
 
 def _modify_side_action(gs: GameState, action: WMLNode) -> None:
@@ -1281,6 +1377,49 @@ def _trait_ids_from_modifications(node: WMLNode) -> List[str]:
     return out
 
 
+def _heals_ability(node: WMLNode) -> Optional[str]:
+    """The sim's heal ability for one `[heals]` block: `heals_4`,
+    `heals_8`, or None when it heals nothing.
+
+    The value is READ, never assumed. The engine builds the heal
+    effect with a default of 0 (1.18.4 src/actions/heal.cpp:211,
+    `effect(heal_list, 0)`) and a block without `value=` contributes
+    nothing (src/units/abilities.cpp:2061), so a value-less [heals]
+    heals 0 in Wesnoth. This reader used to default it to 4.
+
+    That default was never exercised by a real scenario, but it was by
+    our own expander: until 2026-09-22 every `#define INTERNAL:...`
+    collapsed onto the single name INTERNAL, so Hornshark Island's
+    {ABILITY_HEALS} expanded to an EMPTY [heals] block. The default of
+    4 happened to equal the macro, so the preplaced Mermaid Initiates
+    healed correctly by accident -- and a map using {ABILITY_HEALS_8}
+    would have healed half what Wesnoth does, silently.
+    """
+    raw = node.attrs.get("value")
+    if raw is None or not str(raw).strip().strip('"'):
+        _report_unmodelled_value("[heals] with no value= (the engine heals 0)")
+        return None
+    try:
+        value = int(str(raw).strip().strip('"'))
+    except ValueError:
+        _report_unmodelled_value(f"[heals] value={raw!r} is not an integer")
+        return None
+    if value == 4:
+        return "heals_4"
+    if value == 8:
+        return "heals_8"
+    # The sim models the two mainline heal amounts only.
+    _report_unmodelled_value(f"[heals] value={value}: the sim models 4 and 8")
+    return "heals_8" if value > 8 else ("heals_4" if value > 0 else None)
+
+
+def _report_unmodelled_value(what: str) -> None:
+    scenario_id = _FIRING_SCENARIO.get()
+    if os.environ.get("WESNOTH_STRICT_WML"):
+        raise UnmodelledWML(what + (f" (scenario {scenario_id})" if scenario_id else ""))
+    log.warning("%s%s", what, f" in {scenario_id}" if scenario_id else "")
+
+
 def _unit_action(gs: GameState, action: WMLNode) -> None:
     """Spawn a unit on the map. Used by Hornshark-style pre-placed
     units in scenario [event]s. Reads side, type, x, y, optional name,
@@ -1462,13 +1601,9 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
         for child in abil_node.children:
             tag = child.tag
             if tag == "heals":
-                # ABILITY_HEALS expands to [heals] value=4. ABILITY_HEALS_8
-                # / ABILITY_EXTRA_HEAL expand to [heals] value=8.
-                try:
-                    val = int((child.attrs.get("value", "4") or "4").strip().strip('"'))
-                except (TypeError, ValueError):
-                    val = 4
-                new_abilities.add("heals_8" if val >= 8 else "heals_4")
+                heal = _heals_ability(child)
+                if heal:
+                    new_abilities.add(heal)
             else:
                 new_abilities.add((child.attrs.get("id") or "").strip().strip('"') or tag)
         if new_abilities != base_unit.abilities:
@@ -1478,6 +1613,15 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
     role = (action.attrs.get("role", "") or "").strip().strip('"')
     if role:
         setattr(base_unit, "_wml_role", role)
+    # `ai_special=guardian` sets STATE_GUARDIAN (1.18.4 unit.cpp:659),
+    # and the default AI's move phase then hands the unit a move from
+    # its own hex to its own hex -- "is guardian, staying still"
+    # (ca_move_to_targets.cpp:269-277). It is therefore the engine's
+    # own reason why a neutral unit does not roam, and tools/neutral_ai
+    # relies on exactly that. Read, not assumed: the dependency is
+    # asserted in `neutral_ai.run_neutral_side_turn`.
+    if (action.attrs.get("ai_special", "") or "").strip().strip('"') == "guardian":
+        setattr(base_unit, "_ai_guardian", True)
     gs.map.units.add(base_unit)
     # Bump Wesnoth's monotonic next_unit_id counter — Wesnoth's
     # prestart [unit] events also assign sequential uids.
@@ -1861,26 +2005,108 @@ _ACTION_HANDLERS: Dict[str, Callable[[GameState, WMLNode], None]] = {
     "modify_unit":     _modify_unit_action,
     "store_unit":      _store_unit_action,
     "if":              _if_action,
-    # state-affecting tags we don't (yet) interpret.
-    "remove_unit": _no_op_action,
-    # cosmetic / no-op
-    "message":     _no_op_action,
-    "note":        _no_op_action,
-    "objectives":  _no_op_action,
-    "objective":   _no_op_action,
-    "item":        _no_op_action,
-    "label":       _no_op_action,
-    "music":       _no_op_action,
-    "sound":       _no_op_action,
-    "endlevel":    _no_op_action,
-    "variable":    _no_op_action,
-    "case":        _no_op_action,
+}
+
+# Tags we deliberately do nothing with, each with the reason. A tag
+# reaches the no-op ONLY through this table.
+#
+# The default used to be the no-op itself, so an unrecognised tag was
+# indistinguishable from a classified one: `[unstore_unit]`, which puts
+# back a unit `[store_unit kill=yes]` has removed, was silently dropped,
+# and so was `[foreach]`. Nothing said so. The default now fails.
+_IGNORED_ACTIONS: Dict[str, str] = {
+    "message":    "text shown to a human player",
+    "note":       "text shown to a human player",
+    "objectives": "text shown to a human player",
+    "objective":  "text shown to a human player",
+    "item":       "a map decoration; no unit or terrain state",
+    "label":      "a map decoration; no unit or terrain state",
+    "music":      "sound",
+    "sound":      "sound",
+    "scroll":     "moves the human player's viewport",
+    "screen_fade": "moves the human player's viewport",
+    "delay":      "waits for a human to read the screen",
+    "variable":   "a [variable] PREDICATE, read by _if_action, never an action",
+    "case":       "a [case] branch, read by _switch_action, never an action",
+}
+
+# Tags whose behaviour is real, and which the sim produces some other
+# way. Each names what stands in for it; deleting that substitute
+# without implementing the tag is a bug, which is why the reason is
+# here rather than in a comment on the no-op.
+_SUBSTITUTED_ACTIONS: Dict[str, str] = {
+    "endlevel": (
+        "wesnoth_sim decides termination itself (_check_game_over) and "
+        "scores the turn cap itself, so the scenario's own end condition "
+        "is not replayed"),
+    "end_turn": (
+        "the pool's only [end_turn] is Silverhead Crossing's `side 3 "
+        "turn` event, on a controller=null side that never takes a turn "
+        "in the engine (skip_empty_sides) or here (_neutral_actor_sides "
+        "censuses controller != null). Inert by that precondition, which "
+        "tests/test_action_classification.py pins"),
 }
 
 
-def _apply_action(gs: GameState, action: WMLNode) -> None:
-    handler = _ACTION_HANDLERS.get(action.tag, _no_op_action)
-    handler(gs, action)
+class UnmodelledWML(RuntimeError):
+    """An event-action tag with no handler, no ignore reason and no
+    substitute. Raised instead of warned when `WESNOTH_STRICT_WML` is
+    set, so a test or a box run can demand the whole surface."""
+
+
+_UNMODELLED_SEEN: Set[Tuple[str, str]] = set()
+_UNMODELLED_COUNTS: Dict[str, int] = {}
+
+
+def unmodelled_action_counts() -> Dict[str, int]:
+    """Tag to the number of times it fell through, for a census or a
+    box record. Cleared by `reset_unmodelled_actions`."""
+    return dict(_UNMODELLED_COUNTS)
+
+
+def reset_unmodelled_actions() -> None:
+    _UNMODELLED_SEEN.clear()
+    _UNMODELLED_COUNTS.clear()
+
+
+def _report_unmodelled(tag: str, scenario_id: str) -> None:
+    _UNMODELLED_COUNTS[tag] = _UNMODELLED_COUNTS.get(tag, 0) + 1
+    if os.environ.get("WESNOTH_STRICT_WML"):
+        raise UnmodelledWML(
+            f"[{tag}] has no handler and no recorded reason to ignore it"
+            + (f" (scenario {scenario_id})" if scenario_id else ""))
+    key = (tag, scenario_id)
+    if key not in _UNMODELLED_SEEN:
+        _UNMODELLED_SEEN.add(key)
+        log.warning(
+            "unmodelled event action [%s]%s: doing nothing. Classify it in "
+            "scenario_events._IGNORED_ACTIONS / _SUBSTITUTED_ACTIONS, or "
+            "write a handler.", tag,
+            f" in {scenario_id}" if scenario_id else "")
+
+
+# The scenario whose event is firing. Nested actions -- the bodies of
+# [if], [switch] and [fire_event] -- dispatch through `_apply_action`
+# from inside handlers whose signature is (gs, action), so they cannot
+# be handed the id; without this an unmodelled tag inside an [if] was
+# reported as belonging to no scenario, and because reports dedupe on
+# (tag, scenario) a second scenario hitting the same nested tag stayed
+# silent. A ContextVar rather than a module global so concurrent sims
+# in one process (MCTS forks, threaded rollout workers) cannot see each
+# other's scenario.
+_FIRING_SCENARIO: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "firing_scenario", default="")
+
+
+def _apply_action(gs: GameState, action: WMLNode,
+                  scenario_id: str = "") -> None:
+    handler = _ACTION_HANDLERS.get(action.tag)
+    if handler is not None:
+        handler(gs, action)
+        return
+    if action.tag in _IGNORED_ACTIONS or action.tag in _SUBSTITUTED_ACTIONS:
+        return
+    _report_unmodelled(action.tag, scenario_id or _FIRING_SCENARIO.get())
 
 
 # ----------------------------------------------------------------------
@@ -1902,8 +2128,12 @@ def fire_event(gs: GameState, events: List[ScenarioEvent], trigger: str) -> int:
             continue
         if ev.first_time_only and ev.fired:
             continue
-        for action in ev.actions:
-            _apply_action(gs, action)
+        token = _FIRING_SCENARIO.set(ev.scenario_id)
+        try:
+            for action in ev.actions:
+                _apply_action(gs, action, ev.scenario_id)
+        finally:
+            _FIRING_SCENARIO.reset(token)
         ev.fired = True
         n += 1
     return n
@@ -1915,10 +2145,12 @@ def load_events_for_scenario(scenario_id: str) -> List[ScenarioEvent]:
     root = load_scenario_wml(scenario_id)
     if root is None:
         return []
-    return collect_events(root)
+    return collect_events(root, scenario_id)
 
 
 __all__ = [
     "ScenarioEvent", "load_scenario_wml", "load_events_for_scenario",
     "collect_events", "fire_event", "setup_static_time_areas",
+    "UnmodelledWML", "unmodelled_action_counts", "reset_unmodelled_actions",
+    "unknown_macro_counts", "reset_unknown_macros",
 ]
