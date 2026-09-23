@@ -750,11 +750,22 @@ if charge_doubled:
 target_eligible &= !target_unit->incapacitated();
 ```
 
-The synced engine doesn't enforce this (you can construct an
-attack on a petrified target via direct WML), but Wesnoth's UI
-gates the action so a player can never click-attack a statue.
-Our legality mask should match the UI rule: petrified targets
-excluded from attack mask.
+The AI action API refuses it too, `src/ai/actions.cpp:208-212`
+(1.18.4):
+```cpp
+	if(defender->incapacitated()) {
+		LOG_AI_ACTIONS << "attempt to attack unit that is petrified";
+		set_error(E_INCAPACITATED_DEFENDER);
+		return;
+	}
+```
+Only the synced replay handler (`src/synced_commands.cpp:152`, the
+`attack` command) has no such check, so a recorded [attack] on a statue
+would resolve; neither a player nor an AI can issue one. Our legality
+mask marks petrified units inert (`action_sampler`, the `occupancy`
+table) and `WesnothSim.step` refuses such an attack as well; both are
+pinned by tests (`test_scenery_never_an_attack_target_nor_actor`,
+`test_sim_gate_rejects_statue_attack_and_counts`).
 
 ### Healing: main sources take the MAX; rest adds on top
 
