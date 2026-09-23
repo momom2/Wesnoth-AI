@@ -333,7 +333,7 @@ def _validate(text: str, scenario_id: str) -> None:
         assert n >= 3, f"{scenario_id}: player side {n} not stripped"
 
 
-def _index_preprocessed(pp_dir: Path) -> Dict[str, str]:
+def index_preprocessed(pp_dir: Path) -> Dict[str, str]:
     """scenario_id -> preprocessed [multiplayer] block text, for
     every block in every cfg under pp_dir. A single output file may
     carry MANY blocks (preprocessing an add-on's _main.cfg expands
@@ -371,7 +371,7 @@ def main(argv: List[str]) -> int:
         sources: Dict[str, str] = {}
         if wanted & set(LADDER_SCENARIO_IDS):
             run_preprocessor(LADDER_SRC, tmp / "ladder")
-            idx = _index_preprocessed(tmp / "ladder")
+            idx = index_preprocessed(tmp / "ladder")
             index.update(idx)
             sources.update({k: "wesnoth_src/data/multiplayer/scenarios "
                                "(game cfg, game preprocessor)"
@@ -381,7 +381,7 @@ def main(argv: List[str]) -> int:
                 log.error(f"mini add-on missing: {MINI_SRC}")
                 return 2
             run_preprocessor(MINI_SRC, tmp / "mini")
-            idx = _index_preprocessed(tmp / "mini")
+            idx = index_preprocessed(tmp / "mini")
             index.update(idx)
             sources.update({k: "Mini_Maps_Collection add-on "
                                "(game cfg, game preprocessor)"

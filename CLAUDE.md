@@ -23,8 +23,10 @@ behind config is preferred to code that gates behavior behind weights.
 ### Wesnoth data provenance (updated 2026-06-12)
 
 `wesnoth_src/data/` is a WML-only copy (cfg/lua/map, no art) of the
-LOCAL STEAM INSTALL's data tree — currently **1.18.7** — refreshed
-via:
+LOCAL STEAM INSTALL's data tree, taken from **1.18.7**. The install
+reports 1.18.8 (2026-09-23), and the files the simulator reads from it
+(multiplayer factions, scenarios and maps, core macros and units, the
+eras) are identical to this copy, compared that day. Refreshed via:
 
     robocopy "C:\Program Files (x86)\Steam\steamapps\common\wesnoth\data" wesnoth_src\data *.cfg *.lua *.map /S
 
@@ -617,6 +619,32 @@ State of play:
   replay, imitation and value corpora), CUDA (14) or a live Wesnoth
   (2). Also landed: the fast tier's 41/42 skip flicker was an unseeded
   turn search, now seeded (0.2.4).
+- 2026-09-23 (0.4.0): **real Wesnoth builds every pool scenario's
+  starting state, and ours agrees with it on every compared field.**
+  `tools/scenario_init_oracle.py`, the last work item of
+  docs/scenario_build_plan_20260922.md (W4), launches a multiplayer game
+  per scenario with an AI config on side 1 whose Lua reports the whole
+  board at side 1's first turn, builds the same game the way self-play
+  does, and compares 26 fields: each side's economy, fog and recruits,
+  every unit, village owners, terrain and lawful bonus per hex, and the
+  time of day (record
+  `training/metrics/fidelity/scenario_init_oracle_20260923.json`, 28 of
+  28). It found two defects, both fixed. Three minis (`2p_mini`,
+  `2p_mini_edited`, Modified_Tiny_Close_Relation) declare `fog=no` and
+  self-play played them under fog, because the builder never read the
+  declaration. The statues of Caves of the Basilisk, Sullas Ruins and
+  Thousand Stings Garrison lacked the modifications that leave them 1 hp
+  and no moves; that is encoder input only, since a petrified unit
+  cannot be attacked in Wesnoth or in the simulator. A command-line
+  start is not a lobby: it skips `configure_engine::write_parameters`,
+  so villages pay 1 and experience runs at 100% unless the harness
+  supplies the lobby's values, which it does (docs/wesnoth_rules.md).
+  **Consequence for numbers:** mini self-play on those three maps is not
+  comparable with earlier games, and the statue input changes on 3 of
+  the 21 ladder maps eval draws from, so Elo measured from here is
+  cross-build against earlier numbers. The oracle launches Wesnoth for
+  about 50 s per scenario and runs only by hand, with the user's
+  agreement; no test launches it (user ruling the same day).
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

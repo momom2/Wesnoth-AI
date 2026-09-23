@@ -32,7 +32,7 @@ def test_action_file_writing():
     print_header("Test 2: Action File Writing")
 
     with TemporaryDirectory() as tmpdir:
-        game = WesnothGame("test_game", Path("dummy.cfg"))
+        game = WesnothGame("test_game")
         game.game_dir = Path(tmpdir)
         # Repoint the action file at the test's temp dir.
         from wesnoth_ai.constants import ACTION_FILE_NAME
@@ -61,7 +61,7 @@ def test_special_characters():
     print_header("Test 3: Special Characters Handling")
 
     with TemporaryDirectory() as tmpdir:
-        game = WesnothGame("test_game", Path("dummy.cfg"))
+        game = WesnothGame("test_game")
         game.game_dir = Path(tmpdir)
 
         test_cases = [
@@ -84,7 +84,7 @@ def test_action_roundtrip():
     print_header("Test 4: Action Roundtrip")
 
     with TemporaryDirectory() as tmpdir:
-        game = WesnothGame("test_game", Path("dummy.cfg"))
+        game = WesnothGame("test_game")
         game.game_dir = Path(tmpdir)
         # Repoint the action file at the test's temp dir.
         from wesnoth_ai.constants import ACTION_FILE_NAME

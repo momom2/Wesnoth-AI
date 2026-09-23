@@ -4,32 +4,28 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT: two decisions and a box job (2026-09-22)
+## NEXT (2026-09-23)
 
-**1. The drill templates: DONE** (user ruling 2026-09-22, deleted).
-The 29 templates that remain are exactly the set
-`tools/build_scenario_templates.py` regenerates byte-identically, and
-`tests/test_template_builder.py` asserts the unbuildable set is empty.
+The scenario rework is finished: W0-W6 are done
+(docs/scenario_build_plan_20260922.md), the last of them the engine
+oracle, which agrees with our builder on all 28 pool scenarios.
 
-**2. The corpus sweep the expander changes owe.** The macro-name
-class (`:` in names), `#arg` optional arguments, the translatable-marker
-strip and taking `DEFAULT_SCHEDULE` off the cosmetic list all change
-what `load_scenario_wml` returns on the RECONSTRUCTION path. The
-28-scenario built-state snapshot and the 120-replay extract snapshot
-are unchanged, but `diff_replay` over all 17,019 is the real check:
-about 20 minutes and $0.20, and by this project's own rule it is not
-an acceptance test unless it fails under the old behaviour, so it runs
-with the old predicates monkeypatched back as the control.
+**1. The retrain batch** the user ordered held until the rework ended.
+It carries the time-of-day features (PARKED below, pre-registered) and
+the rework's changes to what the network sees: the statues' hit points
+on three ladder maps, and fog off on three minis in generation. A box
+job; to be priced before it runs.
 
-**3. W4, the engine oracle for scenario init**, the one unbuilt item
-of docs/scenario_build_plan_20260922.md. What scoping established is
-recorded there: the Lua collector already dumps each side's gold,
-village gold, village support, base income and fog, so the
-highest-value half needs no new Lua; the work is the launch
-(`--multiplayer --scenario=… --controller<n>=ai` rather than the
-bridge's `--test`, because the committed templates have the player
-sides stripped), and it must go through `WesnothGame` because the
-Windows binary is GUI-subsystem and gives nothing on stdout.
+**2. Phase 2's first measurement**, the turn-level value gap against the
+reference (docs/turn_gap_ref_prereg_20260921.md, about $1.20), waits for
+the user's word.
+
+**3. Statues in the corpus reconstruction path, unchecked.**
+`_build_initial_gamestate` takes a statue's current hp from the replay
+record and its maximum from the unit type, so a corpus statue may read
+1 over the type's maximum where the engine and generation read 1/1. The
+local replay set holds no game on the three statue maps, so checking it
+needs the imitation corpus (a box). Encoder input only.
 
 ## Open after CI landed (2026-09-23)
 
@@ -40,6 +36,13 @@ Windows binary is GUI-subsystem and gives nothing on stdout.
   public and the corpus is other players' games, so which games (if
   any) may be committed is the user's call; the AI-vs-AI fixture
   `tests/fixtures/strict_sync_hamlets_t9.bz2` is the precedent.
+- **`test_actor_pool_streams_games_across_a_publication` is racy.** It
+  asserts that the games in flight at the publication are {2, 3}, which
+  holds only when games finish in index order. On 2026-09-23 CI saw
+  {0, 3}: one actor's game 0 outlasted the other actor's games 1 and 2.
+  The stream behaved correctly; a re-run passed. Proposed: assert two
+  distinct games in flight, none of them collected by the first window.
+  That relaxes an assertion, so it waits for the user's confirmation.
 - **`rust/wesnoth_core/src/encode.rs` holds six `#[test]` functions
   that nothing runs.** CI builds the wheel but does not run `cargo
   test`. With pyo3's `extension-module` feature unconditional in

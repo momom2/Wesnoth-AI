@@ -43,7 +43,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.replay_dataset import _apply_command, _build_initial_gamestate  # noqa: E402
 from tools.terrain_resolver import hides_cover  # noqa: E402
-from wesnoth_ai.constants import ADDONS_PATH, GAMES_PATH  # noqa: E402
+from wesnoth_ai.constants import GAMES_PATH  # noqa: E402
 from wesnoth_ai.visibility import units_visible_to  # noqa: E402
 
 log = logging.getLogger("hidden_units_oracle")
@@ -51,7 +51,6 @@ log = logging.getLogger("hidden_units_oracle")
 BOARD = 14                                   # playable hexes per side, Wesnoth coords 1..14
 SETUP_PATH = GAMES_PATH / "oracle" / "setup.lua"
 SCENARIO_ID = "ai_oracle"
-SCENARIO_PATH = ADDONS_PATH / "scenarios" / "oracle_scenario.cfg"
 TOD_IDS = ("dawn", "morning", "afternoon", "dusk", "first_watch", "second_watch")
 
 # The hider hex and the probe geometry: the mover walks straight down
@@ -251,7 +250,7 @@ def run_engine(case: Case, *, first_timeout: float = 240.0, timeout: float = 90.
     from wesnoth_ai.wesnoth_interface import WesnothGame
     SETUP_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETUP_PATH.write_text(setup_lua(case), encoding="utf-8", newline="\n")
-    game = WesnothGame(label=f"oracle_{case.name}", scenario_path=SCENARIO_PATH, scenario_id=SCENARIO_ID)
+    game = WesnothGame(label=f"oracle_{case.name}", scenario_id=SCENARIO_ID)
     out: dict = {"ok": False, "moves": []}
     try:
         game.start_wesnoth()

@@ -150,7 +150,7 @@ def test_full_pipeline():
         from wesnoth_ai.wesnoth_interface import WesnothGame
         from wesnoth_ai.constants import ACTION_FILE_NAME
         with TemporaryDirectory() as tmpdir:
-            game = WesnothGame("integration_test", Path("dummy.cfg"))
+            game = WesnothGame("integration_test")
             game.game_dir = Path(tmpdir)
             game.action_path = game.game_dir / ACTION_FILE_NAME
 

@@ -1479,6 +1479,26 @@ def _switch_action(gs: GameState, action: WMLNode) -> None:
 _TRAIT_MACRO_RE = re.compile(r'^TRAIT_(\w+)$')
 
 
+def own_modification_effects(mods: Optional[WMLNode]) -> List[WMLNode]:
+    """The [effect]s a placed [unit] carries in its own [modifications]:
+    those of every [object], and of every CUSTOM [trait] (one outside the
+    named traits, tools/traits.TRAITS, whose effects
+    `apply_traits_to_unit` applies; applying those twice cost Hornshark's
+    Sergeants and Drake Fighters a movement point). The statues of Caves
+    of the Basilisk and Sullas Ruins carry a `remove_hp` trait, those of
+    Thousand Stings Garrison the same effects in an [object]: 1 hp, no
+    moves."""
+    if mods is None:
+        return []
+    from tools.traits import TRAITS
+    out: List[WMLNode] = []
+    for node in mods.children:
+        tid = (node.attrs.get("id", "") or "").strip().strip('"').lower()
+        if node.tag == "object" or (node.tag == "trait" and tid not in TRAITS):
+            out.extend(node.all("effect"))
+    return out
+
+
 def _trait_ids_from_modifications(node: WMLNode) -> List[str]:
     """Walk a `[modifications]` child node and pull trait ids from
     nested [trait] children. The `{TRAIT_LOYAL}` macros are pre-
@@ -1672,24 +1692,8 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
         base_unit, current_hp=base_unit.max_hp,
         current_moves=base_unit.max_moves,
     )
-    # Apply CUSTOM trait [effect]s (NOT named traits already handled
-    # by apply_traits_to_unit). Examples: Caves of the Basilisk's
-    # `id=remove_hp` trait whose [effect]s drop hp/movement to make
-    # statues 1-HP non-actors, or Sullas Ruins' identical setup. These
-    # are NOT in our TRAITS registry; their behaviour lives entirely
-    # in the [trait]'s [effect] children.
-    # Skip named traits (loyal/quick/resilient/strong/intelligent/etc.)
-    # whose [effect]s are already applied by `apply_traits_to_unit` --
-    # double-applying them caused Hornshark Sergeants/Drake Fighters
-    # to lose 1 movement (resilient + quick stack incorrectly).
-    if mods is not None:
-        from tools.traits import TRAITS as _NAMED_TRAITS
-        for trait_node in mods.all("trait"):
-            tid = (trait_node.attrs.get("id", "") or "").strip().strip('"').lower()
-            if tid in _NAMED_TRAITS:
-                continue
-            for eff in trait_node.all("effect"):
-                _apply_effect_to_unit(base_unit, eff)
+    for eff in own_modification_effects(mods):
+        _apply_effect_to_unit(base_unit, eff)
     # Apply petrified status from `[status] petrified=yes`.
     status_node = action.first("status")
     if status_node is not None:
@@ -1800,6 +1804,8 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
       - `apply_to=status` (add named status flag)
       - `apply_to=new_ability` / `remove_ability` (by the `[abilities]`
         children's `id=`)
+      - `apply_to=movement_costs`: dropped, silently for a neutral
+        side's unit (it never moves), with a warning for a player's
       - cosmetic values in `_COSMETIC_APPLY_TO`: no-op.
 
     Anything else is logged once and dropped -- see `_COSMETIC_APPLY_TO`.
@@ -1951,12 +1957,25 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
             u.abilities = (have | ids) if apply_to == "new_ability" else (have - ids)
         return
 
+    if apply_to == "movement_costs":
+        # Movement costs matter only to a unit that moves. The pool's
+        # carriers are the minis' neutral Tentacles, which the neutral AI
+        # never moves (neutral_ai._check_units_are_stationary enforces
+        # it); a player unit's costs would be a real gap.
+        if u.side in (1, 2):
+            _warn_unmodelled_apply_to(apply_to)
+        return
+
     if apply_to and apply_to not in _COSMETIC_APPLY_TO:
-        if apply_to not in _APPLY_TO_GAPS_SEEN:
-            _APPLY_TO_GAPS_SEEN.add(apply_to)
-            log.warning("[effect] apply_to=%r is not modelled; the effect is "
-                        "dropped. Scenario behaviour will differ from Wesnoth.",
-                        apply_to)
+        _warn_unmodelled_apply_to(apply_to)
+
+
+def _warn_unmodelled_apply_to(apply_to: str) -> None:
+    if apply_to not in _APPLY_TO_GAPS_SEEN:
+        _APPLY_TO_GAPS_SEEN.add(apply_to)
+        log.warning("[effect] apply_to=%r is not modelled; the effect is "
+                    "dropped. Scenario behaviour will differ from Wesnoth.",
+                    apply_to)
 
 
 def _effect_member_ids(container: Optional[WMLNode]) -> set:

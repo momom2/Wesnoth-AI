@@ -253,7 +253,9 @@ Three risks to price first, all found by review:
   AI, which would then drive mobile units and say nothing. W1's
   "implemented or listed" would pass on listing, so the items are
   linked: `foreach` before W5, and the precondition gets a test.
-- **`[side] fog=yes` is declared on all 56 player sides.** Reading it
+- **`[side] fog=` is declared on all 56 player sides**: yes on 50,
+  no on the six of `2p_mini`, `2p_mini_edited` and
+  Modified_Tiny_Close_Relation (read from the engine by W4). Reading it
   without a precedence rule overrides `setup.fogless`, a training
   lever with its own tests. The rule is: the scenario supplies the
   default, our choice wins.
@@ -577,12 +579,11 @@ The three risks rev 3 priced:
   expansion at generation time, and `[unstore_unit]` now WARNS instead
   of silently dropping a killed unit, which is what made this
   invisible.
-- **`[side] fog=yes` never reaches generation.** Generation builds
-  player sides from `ScenarioSetup` rather than reading the
-  scenario's, so `setup.fogless` was never in competition with the
-  declaration. The precedence rule the plan wanted -- the scenario
-  supplies the default, our choice wins -- is the behaviour, not a
-  change.
+- **`[side] fog=` reaches generation since W4 (2026-09-23).**
+  `build_scenario_gamestate` reads each player side's fog and shroud
+  through `wml_state.read_side`, and `setup.fogless` still turns fog
+  off: the scenario supplies the default, our choice wins. Until then
+  the three minis that declare `fog=no` were played under fog.
 - **The defect was indeed mostly empty**: `[side] recruit=` and
   `type=` appear on zero player sides across the pool.
 
@@ -783,7 +784,7 @@ way, and an absent `lawful_bonus` is 0 in Wesnoth too.
 | W1 the failing default | **done** locally; owes the corpus sweep |
 | W2 templates | **done**; one deletion needs a ruling |
 | W3 classification manifest | **done**, 0 UNKNOWN, detectors fire on 5 shipped defects |
-| W4 engine oracle | **not built** — see below |
+| W4 engine oracle | **done** 2026-09-23 — see "W4. The engine oracle" |
 | W5 one expansion source | **done** |
 | W6 assumptions become reads | **done** |
 
@@ -805,58 +806,60 @@ way, and an absent `lawful_bonus` is 0 in Wesnoth too.
    `wml_state.check_board_cycle`, checked at the moment each is
    relied on rather than asserted in a docstring.
 
-## W4, and why it is not built
+## W4. The engine oracle for scenario init — DONE (2026-09-23)
 
-The engine oracle for scenario init is the one item left, and it is a
-different kind of work from the rest: an integration against a live
-Wesnoth process rather than a check we can run in the fast tier.
+`tools/scenario_init_oracle.py` launches a real multiplayer game per pool
+scenario (`--multiplayer --scenario=<id> --era=era_default`, both
+factions named, every side played by the AI) with
+`add-ons/wesnoth_ai/init_oracle_ai.cfg` on side 1. Its Lua
+(`lua/init_oracle.lua`) reports the whole board at side 1's first turn;
+the tool builds the same game the way self-play does, with the leaders
+the engine drew, and compares 26 fields (village owners only where a
+scenario pre-owns one): each player side's gold, base,
+total and net income, village gold and support, fog, recruit list and
+faction; whether each extra side takes turns; every unit's presence,
+type, leader flag, named traits, statuses, hit points, moves and
+experience; village owners; every hex's terrain code and lawful bonus;
+the time of day; and the lobby's experience modifier.
 
-What was established while scoping it, so the next session does not
-repeat it:
+**Record:** `training/metrics/fidelity/scenario_init_oracle_20260923.json`:
+all 28 pool scenarios, every field agreeing, after the fixes below.
 
-- **The collector already dumps the economy.**
-  `add-ons/wesnoth_ai/lua/state_collector.lua:296-337` reports each
-  side's `gold`, `village_gold`, `village_support`, `base_income`,
-  `recruit` and `fog`. That is precisely the surface the 2026-09-21
-  village-gold defect lived in, so the oracle's highest-value half
-  needs no new Lua.
-- **The launch is the work.** The bridge drives
-  `wesnoth --nodelay --test <id>`, which runs a `[test]` scenario from
-  our add-on, and the committed templates have player sides 1 and 2
-  stripped — so a pool scenario cannot simply be handed to it. The
-  alternative, `wesnoth --multiplayer --scenario=… --era=… --side<n>=…
-  --controller<n>=ai`, would launch the real thing with the scenario's
-  own `[side]` blocks intact, which is what makes the comparison
-  meaningful.
-- **stdout is unavailable.** The Windows binary is GUI-subsystem:
-  `wesnoth --help` returns nothing at all through a pipe, which is why
-  the bridge tails `.out.log` instead. Any new launch path inherits
-  that, so reuse `wesnoth_ai/wesnoth_interface.WesnothGame` rather
-  than calling `subprocess` directly.
-- **Random traits cannot be compared.** Leaders roll traits from the
-  engine's synced RNG and we roll our own; the comparison covers
-  sides, gold, income, village gold and support, village ownership,
-  unit types and positions, the leader flag, the experience modifier
-  and the time-of-day slot.
-- **The circularity rev 3 flagged is avoidable.** It only applies to
-  the `--load`-a-save route, which tests our exporter. The multiplayer
-  launch route does not go through `sim_to_replay` at all.
+**What the harness has to supply, because a command-line start is not a
+lobby** (docs/wesnoth_rules.md, "A command-line `--multiplayer` start
+skips the lobby's parameter writes"): the lobby's fog, shroud, village
+gold and support go in with `--parm`, for the sides Wesnoth's own
+preprocessing shows without them; and ours is built at the experience
+modifier the engine applies (100 on the command line, read from a unit
+type whose base is 100), while the lobby's value is its own field.
 
-## Two decisions waiting on the user
+**Found and fixed:**
 
-1. **The three drill templates.** `drill_chokepoint.wml`,
-   `drill_duel.wml` and `drill_village_rush.wml` are tracked files
-   whose sources were deleted with the scenarios (fba0513). They can
-   never be regenerated or checked. Deleting tracked files needs a
-   ruling; `tests/test_template_builder.py` names them explicitly
-   meanwhile so they cannot pass for live data.
-2. **The corpus sweep W1 owes.** The macro-name class, the `#arg`
-   handling, the translatable-marker strip and the cosmetic-list
-   change all alter what `load_scenario_wml` returns on the
-   RECONSTRUCTION path. The 28-scenario and 120-replay snapshots are
-   unchanged, but `diff_replay` over all 17,019 is box work: about 20
-   minutes and $0.20, run with the old predicates monkeypatched back
-   as the control so it can fail.
+- Three minis declare `fog=no` and were played under fog (above, W5).
+- The statues of Caves of the Basilisk, Sullas Ruins and Thousand Stings
+  Garrison carry modifications that leave them 1 hp and no moves (a
+  custom `remove_hp` trait, or the same effects in an `[object]`).
+  Units placed in a `[side]` block got none of them, and an event's
+  `[unit]` got its custom traits but not its objects;
+  `scenario_events.own_modification_effects` now serves both paths.
+  The manifest had the effects as IGNORED, "presentation".
+- Two representation differences, mapped rather than changed:
+  `not_living` is the engine's name for its three parts, and a
+  guardian's status is our `_ai_guardian` flag.
+
+**Not built:** a headless run. The Windows binary opens a window even
+minimized, so a sweep runs when the user says (28 launches, about 25
+minutes); `--frames DIR` saves the engine's reports so later changes
+can be rechecked with `--from-frames` without launching it.
+
+## Two decisions, taken
+
+1. **The three drill templates**: deleted (user ruling 2026-09-22).
+2. **The corpus sweep W1 owed**: not run. Reconstruction reads only
+   events and time areas from our expander, and diffing both, old
+   against new, over all 31 corpus scenarios shows only display text
+   and one heals block with identical sim abilities, so the sweep would
+   pass both ways and certify nothing (review below).
 
 ---
 

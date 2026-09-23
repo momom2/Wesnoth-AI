@@ -750,11 +750,22 @@ if charge_doubled:
 target_eligible &= !target_unit->incapacitated();
 ```
 
-The synced engine doesn't enforce this (you can construct an
-attack on a petrified target via direct WML), but Wesnoth's UI
-gates the action so a player can never click-attack a statue.
-Our legality mask should match the UI rule: petrified targets
-excluded from attack mask.
+The AI action API refuses it too, `src/ai/actions.cpp:208-212`
+(1.18.4):
+```cpp
+	if(defender->incapacitated()) {
+		LOG_AI_ACTIONS << "attempt to attack unit that is petrified";
+		set_error(E_INCAPACITATED_DEFENDER);
+		return;
+	}
+```
+Only the synced replay handler (`src/synced_commands.cpp:152`, the
+`attack` command) has no such check, so a recorded [attack] on a statue
+would resolve; neither a player nor an AI can issue one. Our legality
+mask marks petrified units inert (`action_sampler`, the `occupancy`
+table) and `WesnothSim.step` refuses such an attack as well; both are
+pinned by tests (`test_scenery_never_an_attack_target_nor_actor`,
+`test_sim_gate_rejects_statue_attack_and_counts`).
 
 ### Healing: main sources take the MAX; rest adds on top
 
@@ -1471,6 +1482,50 @@ For recruits during play, the RNG is keyed by the per-recruit
 multi-gender, then per-trait `get_random_int(0, len-1)` in the
 candidate pool.
 
+### A unit type's experience need is `(base * modifier + 50) / 100`, at least 1
+
+`src/units/types.cpp:577-589`:
+
+```cpp
+int unit_type::experience_needed(bool with_acceleration) const
+{
+	if(with_acceleration) {
+		int exp = (experience_needed_ * experience_modifier + 50) / 100;
+		if(exp < 1) {
+			exp = 1;
+		}
+
+		return exp;
+	}
+
+	return experience_needed_;
+}
+```
+
+`unit_stats.json` stores the BASE value (Swordsman 80,
+`wesnoth_src/data/core/units/humans/Loyalist_Swordsman.cfg:11`). Lua's
+`wesnoth.unit_types[t].max_experience` returns the accelerated one
+(`src/scripting/lua_unit_type.cpp:58`, `ut.experience_needed()`), so a type
+whose base is exactly 100, such as the Dwarvish Berserker, reads the
+modifier the game applies: `(100 * m + 50) / 100 = m`.
+`add-ons/wesnoth_ai/lua/init_oracle.lua` reports it that way.
+
+### `not_living` is a name for three statuses, not a status of its own
+
+`src/units/unit.cpp:1334-1337`:
+
+```cpp
+	// Backwards compatibility for not_living. Don't remove before 1.12
+	if(all_states.count("undrainable") && all_states.count("unpoisonable") && all_states.count("unplagueable")) {
+		all_states.insert("not_living");
+	}
+```
+
+`get_state("not_living")` returns the conjunction of the three
+(1349-1355) and setting it sets all three (1400-1405). A unit's saved or
+Lua-reported statuses therefore list `not_living` beside its parts; our
+units carry the three parts only.
+
 ---
 
 ## Villages
@@ -1593,10 +1648,53 @@ this entry read "Default Era uses **5** gold per village (not the
 historic 1)"; nothing supports it. Measured over the corpus's raw
 replay headers (`tools/analysis/corpus_census.py`, 17,019 games):
 `mp_village_gold` is 2 in 16,712, absent in 113, and 5 in 26. Every
-mainline 2p map that declares the setting declares 1 or 2. The engine
-constant `game_config::village_income` is not locally verifiable
-(`wesnoth_src/` carries no `src/` tree); what is corrected here is
-the multiplayer default, which the corpus settles.
+mainline 2p map that declares the setting declares 1 or 2. The engine's
+own constant is `village_income=1` (`wesnoth_src/data/game_config.cfg:17`);
+the multiplayer 2 is what a hosted game writes into the sides (next
+entry).
+
+### A command-line `--multiplayer` start skips the lobby's parameter writes
+
+A hosted game runs `configure_engine::write_parameters`
+(`src/game_initialization/configure_engine.cpp:168-208`, 1.18.4), which
+writes the host's settings into the scenario it is about to start:
+
+```cpp
+	scenario["experience_modifier"] = params.xp_modifier;
+	scenario["turns"] = params.num_turns;
+
+	for(config& side : scenario.child_range("side")) {
+		if(!params.use_map_settings) {
+			...
+		} else {
+			if(side["fog"].empty()) {
+				side["fog"] = params.fog_game;
+			}
+			...
+			if(side["village_gold"].empty()) {
+				side["village_gold"] = params.village_gold;
+			}
+```
+
+`mp::start_local_game_commandline`
+(`src/game_initialization/multiplayer.cpp:692-794`) sets the same
+parameters but builds no `configure_engine`, so none of them reaches the
+scenario. A side that declares no village gold then pays the engine's
+base rate, `income_per_village = cfg["village_gold"].to_int(game_config::village_income);`
+(`src/team.cpp:236`), which is 1, and units need their BASE experience,
+because the level keeps `level["experience_modifier"].to_int(100)`
+(`src/play_controller.cpp:160`). A side declaring no fog plays without
+it: `fog_.set_enabled(cfg["fog"].to_bool());` (`src/team.cpp:358`).
+
+**Why non-obvious:** both starts share `connect_engine`, and Lua's
+`wesnoth.scenario.mp_settings` reports village gold 2 and experience
+modifier 70 in both, because those are the parameters, not what the
+scenario received. Measured 2026-09-23 on Caves of the Basilisk: every
+side paid 1 per village and a Swordsman leader needed 80 experience,
+its base. `tools/scenario_init_oracle.py` writes the lobby's side values
+back with `--parm`, choosing the sides from Wesnoth's own preprocessing
+of the scenario, and reads the applied experience modifier with the
+probe in the next section's experience entry.
 
 ---
 

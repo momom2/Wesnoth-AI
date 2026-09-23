@@ -35,7 +35,7 @@ sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.action_sampler import sample_action
 from wesnoth_ai.classes import GameState
-from wesnoth_ai.constants import MAX_ACTIONS_PER_GAME, SCENARIOS_PATH
+from wesnoth_ai.constants import MAX_ACTIONS_PER_GAME
 from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.model import WesnothModel
 from wesnoth_ai.state_converter import StateConverter
@@ -92,11 +92,7 @@ async def play_one(
     run multiple games in parallel, gather() several `play_one` calls.
     """
     t0 = time.perf_counter()
-    game = WesnothGame(
-        label=label,
-        scenario_path=SCENARIOS_PATH,
-        scenario_id=scenario_id,
-    )
+    game = WesnothGame(label=label, scenario_id=scenario_id)
     error: Optional[str] = None
     winner = 0
     turns = 0
