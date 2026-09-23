@@ -755,6 +755,8 @@ def test_tree_reuse_inherits_subtree_for_deterministic_actions():
     child, then search again with reuse_root and assert the subtree
     object and its visit statistics are inherited."""
     import random as _random
+
+    import numpy as np
     import torch
     from wesnoth_ai.classes import state_key
     from wesnoth_ai.transformer_policy import TransformerPolicy
@@ -775,8 +777,13 @@ def test_tree_reuse_inherits_subtree_for_deterministic_actions():
     sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=30)
 
     cfg = MCTSConfig(n_simulations=40, add_root_noise=False)
+    # Seeded: without an rng, mcts_search draws its Gumbel root noise
+    # from np.random.default_rng() -- fresh OS entropy -- so WHICH root
+    # edges this search expands, and so whether the skip below fires,
+    # changed from run to run. Seeds 0-71 all yield a usable edge.
     root1 = mcts_search(
-        sim, policy._inference_model, policy._inference_encoder, cfg)
+        sim, policy._inference_model, policy._inference_encoder, cfg,
+        rng=np.random.default_rng(0))
 
     # Pick a deterministic, visited, expanded root edge.
     edge = next(
@@ -788,7 +795,7 @@ def test_tree_reuse_inherits_subtree_for_deterministic_actions():
     if edge is None:
         import pytest as _pytest
         _pytest.skip("search visited no deterministic expanded edge "
-                     "at 10 sims on this seed")
+                     "at 40 sims on this seed")
     child = edge.sole_child
 
     live = sim.fork()
@@ -800,7 +807,7 @@ def test_tree_reuse_inherits_subtree_for_deterministic_actions():
     inherited = child._total_visits
     root2 = mcts_search(
         live, policy._inference_model, policy._inference_encoder, cfg,
-        reuse_root=child)
+        reuse_root=child, rng=np.random.default_rng(1))
     assert root2 is child
     # Each simulation backs up exactly one root visit on top of the
     # inherited statistics.

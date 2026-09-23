@@ -35,7 +35,13 @@ from wesnoth_ai.classes import Terrain, TerrainModifiers  # noqa: E402
 from wesnoth_ai.encoder import RawEncoded, encode_raw  # noqa: E402
 
 if encoder._rust_encode_kernel() is None:
-    pytest.skip("Rust encode path disabled (WESNOTH_RUST=0)",
+    # Two causes, and the wheel's phase is the common one: the encoder
+    # refuses a kernel older than `_ENCODE_KERNEL_PHASE`, whose feature
+    # widths are wrong, and parity against it would mean nothing.
+    pytest.skip(
+        f"Rust encode kernel unavailable: WESNOTH_RUST=0, or the wheel is "
+        f"phase {getattr(wesnoth_core, '__phase__', '?')} and the encoder "
+        f"needs {encoder._ENCODE_KERNEL_PHASE}",
                 allow_module_level=True)
 
 
