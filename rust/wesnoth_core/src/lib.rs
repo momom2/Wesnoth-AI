@@ -530,6 +530,6 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 10: nightstalk's cover reads the illuminated time of day; the
     // map's cover flags are named hides_ambush / hides_concealment /
     // hides_submerge.
-    m.add("__phase__", 10)?;
+    m.add("__phase__", 11)?;
     Ok(())
 }

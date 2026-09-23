@@ -569,6 +569,7 @@ class CoreState:
             (enc.HP_NORM, enc.MOVES_NORM, enc.EXP_NORM, enc.COST_NORM, enc.GOLD_NORM,
              enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
             enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS)
+        _require_global_width(d["global_feats"])
         static = enc._static_hex_arrays(self._view())
         if relevant_set:
             hex_positions = [static.positions[t] for t in d["full_slots"].tolist()]
@@ -724,6 +725,33 @@ def _fork_statics(statics: Dict[str, object]) -> Dict[str, object]:
         else:
             out[k] = v
     return out
+
+
+
+def _require_global_width(global_feats) -> None:
+    """Refuse a core whose encoder is narrower than this one.
+
+    GameCore needs a phase-7 wheel for its state, but its encoder only
+    emits the time-of-day globals from phase 11
+    (`encoder._ENCODE_KERNEL_PHASE`). A phase 7-10 wheel passes the
+    core's own gate and hands back six globals to a model built for
+    eight, and the failure then surfaces as a shape error inside the
+    first forward pass, nowhere near its cause. The Python kernel path
+    has the same guard in `encoder._rust_encode_kernel`."""
+    from wesnoth_ai import encoder as enc
+
+    width = int(getattr(global_feats, "shape", (len(global_feats),))[-1])
+    if width != enc.GLOBAL_FEAT_DIM:
+        try:
+            import wesnoth_core
+        except ImportError:
+            wesnoth_core = None
+        raise RuntimeError(
+            f"wesnoth_core.GameCore encoded {width} global features where the "
+            f"encoder expects {enc.GLOBAL_FEAT_DIM}: the installed wheel is "
+            f"phase {getattr(wesnoth_core, '__phase__', '?')}, and the "
+            f"time-of-day features need phase {enc._ENCODE_KERNEL_PHASE}. "
+            f"Rebuild the wheel from rust/wesnoth_core.")
 
 
 def _observation_from_dict(d: dict, geometry):

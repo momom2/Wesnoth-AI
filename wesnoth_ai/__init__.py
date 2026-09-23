@@ -9,4 +9,9 @@ module map.
 Application/entry code lives outside this package: `tools/` holds the
 scripts (self-play, eval, replay tooling), `main.py` is the setup CLI,
 and `tests/` holds the test suite.
+
+`__version__` is N.M.P (adopted 2026-09-23): P bumps with every commit,
+M with every major feature, N only on the user's explicit decision.
 """
+
+__version__ = "0.1.0"

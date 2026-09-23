@@ -37,7 +37,9 @@ const VILLAGE_ENTRY_COLS: usize = 3;
 /// encoder.py NUM_HEX_MODIFIERS / NUM_HEX_DYNAMIC_FLAGS / GLOBAL_FEAT_DIM.
 pub(crate) const NUM_HEX_MODIFIERS: usize = 3;
 pub(crate) const NUM_HEX_DYNAMIC_FLAGS: usize = 3;
-pub(crate) const GLOBAL_FEAT_DIM: usize = 6;
+pub(crate) const GLOBAL_FEAT_DIM: usize = 8;
+/// encoder.py LAWFUL_BONUS_NORM: the lawful bonus is -25, 0 or +25.
+const LAWFUL_BONUS_NORM: f64 = 25.0;
 /// Order of the `norms` argument (encoder.py's module values).
 pub(crate) const NUM_NORMS: usize = 8;
 
@@ -155,7 +157,9 @@ fn write_onehot(alignment: i64, n_align: usize, out: &mut [f32]) -> PyResult<()>
 }
 
 /// encoder.py global features: turn, side in [-1, 1], gold, income,
-/// our villages, their villages (`globals` order).
+/// our villages, their villages, this turn's lawful bonus and the next
+/// turn's (`globals` order). The two bonuses arrive raw and are divided
+/// by LAWFUL_BONUS_NORM here, exactly as `_python_global_feats` does.
 fn global_feature_row(g: &[f64; GLOBAL_FEAT_DIM], norms: &Norms) -> Vec<f32> {
     vec![
         (g[0] / norms.turn) as f32,
@@ -164,6 +168,11 @@ fn global_feature_row(g: &[f64; GLOBAL_FEAT_DIM], norms: &Norms) -> Vec<f32> {
         (g[3] / norms.income) as f32,
         (g[4] / norms.villages) as f32,
         (g[5] / norms.villages) as f32,
+        // This turn's lawful bonus and the next turn's (2026-09-22).
+        // Both, because the bonus alone cannot tell dawn from dusk --
+        // each is 0 -- and they are strategically opposite.
+        (g[6] / LAWFUL_BONUS_NORM) as f32,
+        (g[7] / LAWFUL_BONUS_NORM) as f32,
     ]
 }
 
@@ -225,8 +234,9 @@ pub(crate) struct Composed {
 ///   recruit_type_ids [R] i64, recruit_stats [R*5] f64.
 ///   leader_x/y -- the mover's leader position (recruit phantoms sit
 ///                         there), clamped here.
-///   globals [6] f64 -- turn, current side, gold, income, our
-///                         villages, their villages.
+///   globals [8] f64 -- turn, current side, gold, income, our
+///                         villages, their villages, this turn's
+///                         lawful bonus, the next turn's (both raw).
 ///   norms [8] f64 -- HP, MOVES, EXP, COST, GOLD, INCOME, VILLAGES,
 ///                         TURN divisors.
 ///   map_limit -- MAX_MAP_SIZE - 1; num_alignments -- one-hot width.
@@ -489,9 +499,13 @@ mod tests {
 
     #[test]
     fn global_row_maps_side_to_sign() {
-        let g = global_feature_row(&[7.0, 1.0, 100.0, 2.0, 3.0, 4.0], &norms());
+        let g = global_feature_row(&[7.0, 1.0, 100.0, 2.0, 3.0, 4.0, 0.0, 25.0], &norms());
         assert_eq!(g[1], -1.0);
-        let g2 = global_feature_row(&[7.0, 2.0, 100.0, 2.0, 3.0, 4.0], &norms());
+        assert_eq!(g[6], 0.0);
+        assert_eq!(g[7], 1.0);
+        let g3 = global_feature_row(&[7.0, 1.0, 100.0, 2.0, 3.0, 4.0, -25.0, 0.0], &norms());
+        assert_eq!(g3[6], -1.0);
+        let g2 = global_feature_row(&[7.0, 2.0, 100.0, 2.0, 3.0, 4.0, 0.0, 0.0], &norms());
         assert_eq!(g2[1], 1.0);
         assert_eq!(g[0].to_bits(), ((7.0f64 / 60.0) as f32).to_bits());
         assert_eq!(g[5].to_bits(), ((4.0f64 / 30.0) as f32).to_bits());

@@ -151,9 +151,18 @@ impl GameCore {
                 .filter(|&mh| self.village_owner[mh] != 0 && self.village_owner[mh] != side && obs.view.disc[mh] != 0)
                 .count() as i64;
         }
+        // Slots 6 and 7: this turn's board-level lawful bonus and the
+        // next turn's. `lawful_bonus_at(-1, ..)` is the board cycle --
+        // a negative hex skips the time-area and lit-terrain branches --
+        // and it honours tod_start_offset, so a random-start scenario
+        // reads the phase it actually drew. Mirrors encoder.py's
+        // `_lawful_bonus_for_turn`.
+        let turn = self.global.turn_number;
         let globals: [f64; GLOBAL_FEAT_DIM] = [
-            self.global.turn_number as f64, side as f64, our_gold as f64, our_income as f64,
+            turn as f64, side as f64, our_gold as f64, our_income as f64,
             our_villages as f64, their_villages as f64,
+            self.lawful_bonus_at(-1, turn) as f64,
+            self.lawful_bonus_at(-1, turn + 1) as f64,
         ];
         let c = compose_streams(&static_flags, ht, &entries, &rejected, &unit_ints, &unit_stats,
                                 &recruit_type_ids, &recruit_stats, lx, ly, globals, norms, map_limit,

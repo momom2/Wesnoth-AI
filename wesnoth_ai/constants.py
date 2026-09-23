@@ -217,4 +217,4 @@ DEFAULT_FACTIONS = (
 #      Tentacle now has the submerge its scenario grants it, so it is
 #      hidden on the deep water it stands on, and its evil-eye attack
 #      carries `magical`, which SETS chance-to-hit to 70 (tools/scenario_events.py).
-OBSERVATION_EPOCH = 3
+OBSERVATION_EPOCH = 4

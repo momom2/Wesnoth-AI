@@ -105,6 +105,15 @@ def pad_legacy_encoder_state(encoder_state: dict, encoder) -> dict:
         pad = torch.zeros(cur_se.shape[0] - sew.shape[0],
                           sew.shape[1], dtype=sew.dtype)
         out["side_embed.weight"] = torch.cat([sew, pad], dim=0)
+    # The global features grew from 6 to 8 with the time-of-day terms
+    # (2026-09-22). A zero pad makes an old checkpoint ignore them, so
+    # it plays exactly the game it was trained on.
+    gpw = out.get("global_proj.weight")
+    cur_gp = encoder.global_proj.weight
+    if gpw is not None and gpw.shape[1] < cur_gp.shape[1]:
+        pad = torch.zeros(gpw.shape[0], cur_gp.shape[1] - gpw.shape[1],
+                          dtype=gpw.dtype)
+        out["global_proj.weight"] = torch.cat([gpw, pad], dim=1)
     return out
 
 
@@ -201,7 +210,36 @@ UNIT_FEAT_DIM         = UNIT_NUMERIC_FEATS + UNIT_ALIGNMENT_ONEHOT  # 13
 #   3: our_base_income / INCOME_NORM
 #   4: our_villages / VILLAGES_NORM
 #   5: their_villages / VILLAGES_NORM
-GLOBAL_FEAT_DIM = 6
+# Per-game GLOBAL features. Order MATTERS (the Linear is positional).
+#   0: turn number / TURN_NORM
+#   1: side to move, -1 or +1
+#   2: our gold / GOLD_NORM
+#   3: our income / INCOME_NORM
+#   4: our villages / VILLAGES_NORM
+#   5: their villages / VILLAGES_NORM
+#   6: this turn's lawful bonus / LAWFUL_BONUS_NORM
+#   7: next turn's lawful bonus / LAWFUL_BONUS_NORM
+#
+# 6 and 7 landed 2026-09-22. Until then the network could not see the
+# time of day at all, while combat applied its bonus
+# (rust/wesnoth_core/src/combat.rs `combat_modifier`), so a lawful
+# unit's damage swung by half for reasons the policy could not
+# observe. The turn number is not a stand-in: two pool scenarios start
+# at second watch and four minis roll a random start, so the same turn
+# number means different phases on different maps.
+#
+# BOTH this turn's and the next turn's, because the bonus alone cannot
+# tell dawn from dusk -- both are 0 -- and they are strategically
+# opposite: at dawn the lawful side is about to get stronger, at dusk
+# the chaotic side is. One float cannot express that.
+#
+# Old checkpoints load through `pad_legacy_encoder_state`, which
+# zero-pads `global_proj.weight`, so they observe exactly what they
+# observed before.
+GLOBAL_FEAT_DIM = 8
+# Wesnoth's lawful bonus is -25, 0 or +25 under every schedule in the
+# pool; dividing by 25 puts the feature in [-1, 1] like the side term.
+LAWFUL_BONUS_NORM = 25.0
 
 # Normalization divisors. Re-exported from `constants.py` so era
 # mods can override them in one place; see the comment block in
@@ -1391,20 +1429,29 @@ def encode_raw(
     their_faction_id = _lookup_id(them_fac, faction_to_id, MAX_FACTIONS)
 
     # ---- arrays ----
+    # The time of day the board is under, and the one it moves to next.
+    # `_tod_start_offset` carries the slot a random-start scenario drew,
+    # so this is the phase the game is actually in rather than the one
+    # the turn number would imply.
+    from tools.replay_dataset import _lawful_bonus_for_turn
+    tod_offset = int(getattr(gi, "_tod_start_offset", 0) or 0)
+    lawful_bonus = _lawful_bonus_for_turn(gi.turn_number, tod_offset)
+    next_lawful_bonus = _lawful_bonus_for_turn(gi.turn_number + 1, tod_offset)
+
     kernel = _rust_encode_kernel()
     if kernel is not None:
         hex_arrays, unit_arrays, recruit_arrays, global_feats_np = _rust_streams(
             kernel, static, H, village_entries, rejected_slots, units,
             current_side, type_to_id, own_recruits, own_leader_xy,
             (gi.turn_number, current_side, our_gold, our_income,
-             our_villages, their_villages))
+             our_villages, their_villages, lawful_bonus, next_lawful_bonus))
     else:
         hex_arrays = _python_hex_arrays(static, H, village_entries, rejected_slots)
         unit_arrays = _python_unit_arrays(units, current_side, type_to_id)
         recruit_arrays = _python_recruit_arrays(own_recruits, own_leader_xy, type_to_id)
         global_feats_np = _python_global_feats(
             gi.turn_number, current_side, our_gold, our_income,
-            our_villages, their_villages)
+            our_villages, their_villages, lawful_bonus, next_lawful_bonus)
     hex_modifier_flags_np, hex_dynamic_flags_np = hex_arrays
     (unit_is_ours_np, unit_type_ids_np, unit_side_ids_np,
      unit_xs_np, unit_ys_np, unit_feats_np) = unit_arrays
@@ -1496,14 +1543,40 @@ _EMPTY_I64 = np.zeros(0, dtype=np.int64)
 _EMPTY_F64 = np.zeros(0, dtype=np.float64)
 
 
+# The wheel phase whose `encode_raw_streams` composes the feature
+# widths this module expects. A kernel older than this emits a
+# narrower row -- a phase-10 wheel writes 6 global features where
+# GLOBAL_FEAT_DIM is now 8 -- and numpy would broadcast or raise far
+# from the cause, so the mismatch is caught here and the Python
+# builders take over.
+_ENCODE_KERNEL_PHASE = 11
+_warned_stale_kernel = False
+
+
 def _rust_encode_kernel():
     """The wheel's `encode_raw_streams`, selected exactly as
     tools.pathfind_sim selects its kernels (wheel importable and
     WESNOTH_RUST != 0), else None for the Python builders. A wheel
-    built before phase 2b lacks the function and takes the Python
-    path too."""
+    built before phase 2b lacks the function, and one built before
+    `_ENCODE_KERNEL_PHASE` composes the wrong widths; both take the
+    Python path."""
+    global _warned_stale_kernel
     from tools import pathfind_sim
-    return getattr(pathfind_sim._RUST, "encode_raw_streams", None)
+    kernel = getattr(pathfind_sim._RUST, "encode_raw_streams", None)
+    if kernel is None:
+        return None
+    phase = int(getattr(pathfind_sim._RUST, "__phase__", 0) or 0)
+    if phase < _ENCODE_KERNEL_PHASE:
+        if not _warned_stale_kernel:
+            _warned_stale_kernel = True
+            log.warning(
+                "wesnoth_core is phase %d; the encode kernel composes the "
+                "feature widths of phase %d or later (GLOBAL_FEAT_DIM=%d). "
+                "Using the PYTHON encoders, which are slower but current. "
+                "Rebuild the wheel: pip install rust/wesnoth_core.",
+                phase, _ENCODE_KERNEL_PHASE, GLOBAL_FEAT_DIM)
+        return None
+    return kernel
 
 
 def _rust_streams(kernel, static, H, village_entries, rejected_slots,
@@ -1660,7 +1733,8 @@ def _python_recruit_arrays(own_recruits, own_leader_xy, type_to_id):
 
 
 def _python_global_feats(turn_number, current_side, our_gold, our_income,
-                         our_villages, their_villages) -> np.ndarray:
+                         our_villages, their_villages,
+                         lawful_bonus, next_lawful_bonus) -> np.ndarray:
     return np.array([
         turn_number / TURN_NORM,
         (current_side - 1.5) * 2.0,   # 1 → -1, 2 → +1
@@ -1668,6 +1742,8 @@ def _python_global_feats(turn_number, current_side, our_gold, our_income,
         our_income     / INCOME_NORM,
         our_villages   / VILLAGES_NORM,
         their_villages / VILLAGES_NORM,
+        lawful_bonus      / LAWFUL_BONUS_NORM,
+        next_lawful_bonus / LAWFUL_BONUS_NORM,
     ], dtype=np.float32)
 
 
