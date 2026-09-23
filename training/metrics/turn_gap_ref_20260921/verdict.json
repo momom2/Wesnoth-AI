@@ -1,0 +1,49 @@
+{
+ "status": "RICH",
+ "screened": 60,
+ "n_positions": 60,
+ "nominal": [
+  11,
+  15,
+  17,
+  20,
+  23,
+  24,
+  32,
+  34,
+  38,
+  42,
+  47,
+  49,
+  50,
+  53,
+  55,
+  57
+ ],
+ "confirmed": [
+  11,
+  15,
+  20,
+  24,
+  42,
+  47,
+  57
+ ],
+ "confirmed_fraction": 0.11666666666666667,
+ "confirmed_se": 0.04144384867012947,
+ "confirmation_records": 16,
+ "screen_summary": {
+  "frac_gap_ge_threshold": 0.26666666666666666,
+  "null_frac_gap_ge_threshold": 0.3,
+  "mean_gap_split": 0.043611111111111114,
+  "mean_gap_split_se": 0.048306362477273414,
+  "playouts_capped_frac": 0.0323943661971831,
+  "decisions_per_turn_base": 10.2,
+  "wall_secs": 2209.2222561836243,
+  "dollars": 0.3436567954063416
+ },
+ "files": {
+  "screen": "/workspace/turn_gap/screen.json",
+  "confirm": "/workspace/turn_gap/confirm.json"
+ }
+}

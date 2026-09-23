@@ -122,3 +122,40 @@ is still read, at fewer positions, and says so.
 
 Written 2026-09-21 before any box is rented; the run waits for the
 user's word on the cost above.
+
+## Measured (2026-09-23, box 52267135: a 32-core slice of an EPYC 9684X host with an RTX 4090, $0.563/h)
+
+**Verdict: RICH. 7 of 60 positions confirmed, 0.117 +- 0.041**
+(positions 11, 15, 20, 24, 42, 47, 57; the bar is 6). Record:
+`training/metrics/turn_gap_ref_20260921/` (screen, confirmation,
+verdict, logs), run on `main` at 0.4.0 with the phase-11 wheel. About
+1.9 h of rental, about $1.05, against the expected $1.20.
+
+| quantity | predicted | measured |
+|---|---|---|
+| screen nominal hits | 8 to 14 of 60 | 16 (0.267 +- 0.057; permutation null 0.300) |
+| split-half mean gap | +0.00 to +0.04 | +0.044 +- 0.048 |
+| base decisions per turn | 12 to 14 | 10.2 (run 1: 9.4) |
+| confirmed | 1 to 3 | 7 |
+| capped playouts | 5 to 12% | 3.2% (screen), 1.8% (confirmation) |
+
+The screen's nominal fraction sits inside its permutation null, so by
+the rule only the confirmation is read. Of the 16 nominal hits it
+replayed, 7 confirmed, 6 were rejected (4 with the alternative worse),
+and 3 were undecided at 160 playouts. The screen played 7,810 playouts
+in 2,216 s and the confirmation 3,160 in 2,259 s, at 24 workers.
+
+Described, not pre-registered: in 6 of the 7 confirmed positions the
+better turn takes more decisions than the reference's (14.4 against
+10.3 on average) and in 5 it attacks more (37 attacks against 24 in
+all). Run 1's confirmed gaps were mostly the base ending its turn
+early; the -1.5 offset has not removed that pattern. The alternatives
+are the best of four temperature-1 samples, so this is a description
+of what won, not a measured cause.
+
+Scope: all 60 positions are side-2 turn boundaries, as in run 1 (a
+property of `configs/bench_states.json`), so the reading is about the
+second player's turns.
+
+By the rule, the next factor is the pre-graded pipeline of
+docs/turn_proposer_design_20260905.md (rows 1 to 7).

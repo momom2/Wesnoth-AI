@@ -10,22 +10,24 @@ The scenario rework is finished: W0-W6 are done
 (docs/scenario_build_plan_20260922.md), the last of them the engine
 oracle, which agrees with our builder on all 28 pool scenarios.
 
-**1. The retrain batch** the user ordered held until the rework ended.
-It carries the time-of-day features (PARKED below, pre-registered) and
-the rework's changes to what the network sees: the statues' hit points
-on three ladder maps, and fog off on three minis in generation. A box
-job; to be priced before it runs.
+**1. No retrain is owed** (user ruling 2026-09-23): none of the
+rework's defects touched the corpus the reference learned from; the fog
+and statue defects changed only self-play generation. The time-of-day
+features (PARKED below, pre-registered) are an experiment, run on their
+own when wanted.
 
-**2. Phase 2's first measurement**, the turn-level value gap against the
-reference (docs/turn_gap_ref_prereg_20260921.md, about $1.20), waits for
-the user's word.
+**2. Phase 2's first measurement: RICH** (2026-09-23), 7 of 60
+confirmed (docs/turn_gap_ref_prereg_20260921.md "Measured"). Next by its
+rule, approved: the forward-only pre-grader check of
+docs/turn_proposer_design_20260905.md section 6, on this run's recorded
+candidates.
 
-**3. Statues in the corpus reconstruction path, unchecked.**
-`_build_initial_gamestate` takes a statue's current hp from the replay
-record and its maximum from the unit type, so a corpus statue may read
-1 over the type's maximum where the engine and generation read 1/1. The
-local replay set holds no game on the three statue maps, so checking it
-needs the imitation corpus (a box). Encoder input only.
+**3. Statues in the corpus reconstruction path** (checked 2026-09-23 on
+60 of the 1,813 corpus games on the three statue maps): the replay
+records and reconstruction give statues full hp, so the reference
+learned from full-hp statues while generation and eval now show the
+engine's 1/1. User ruling: apply the statues' own modifications in
+reconstruction too, one rule for every path.
 
 ## Open after CI landed (2026-09-23)
 
@@ -880,9 +882,9 @@ anyway, ordered by what the measurements say is binding:
 
 ## Phase 2 prerequisite (measure before designing)
 
-- NEXT (pre-registered 2026-09-21, docs/turn_gap_ref_prereg_20260921.md;
-  waits for the user's word on about $1.20, ceiling $2.20): the same
-  measurement against the CURRENT reference. Run 1 measured the seed,
+- MEASURED 2026-09-23 (docs/turn_gap_ref_prereg_20260921.md "Measured"):
+  RICH, 7 of 60 confirmed, against the prediction of 1 to 3. The
+  measurement against the CURRENT reference, as pre-registered: Run 1 measured the seed,
   and two of its three confirmed gaps were the base ending its turn
   early, which the reference's -1.5 offset now removes from the base.
   `tools/turn_gap.py --reference` runs the config's checkpoint under

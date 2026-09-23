@@ -645,6 +645,15 @@ State of play:
   cross-build against earlier numbers. The oracle launches Wesnoth for
   about 50 s per scenario and runs only by hand, with the user's
   agreement; no test launches it (user ruling the same day).
+- 2026-09-23 (0.4.1): **Phase 2's first measurement reads RICH.** The
+  turn-level value gap under the reference (terrain at `raw:t0+eo-1.5`,
+  docs/turn_gap_ref_prereg_20260921.md "Measured"): 7 of 60 holdout
+  side-2 positions have a sampled alternative turn confirmed better by
+  at least 0.25, 0.117 +- 0.041, over the bar of 6 (predicted 1 to 3).
+  In 6 of the 7 the better turn takes more decisions (14.4 against
+  10.3). By the rule the next factor is the pre-graded pipeline of
+  docs/turn_proposer_design_20260905.md, starting with its section-6
+  check of forward-only graders. Box 52267135, about $1.05.
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint
