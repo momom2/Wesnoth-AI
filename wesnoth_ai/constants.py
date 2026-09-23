@@ -217,4 +217,11 @@ DEFAULT_FACTIONS = (
 #      Tentacle now has the submerge its scenario grants it, so it is
 #      hidden on the deep water it stands on, and its evil-eye attack
 #      carries `magical`, which SETS chance-to-hit to 70 (tools/scenario_events.py).
-OBSERVATION_EPOCH = 4
+#   4  (2026-09-22) the global features carry this turn's and next turn's
+#      lawful bonus (GLOBAL_FEAT_DIM 6 -> 8).
+#   5  (2026-09-23) generation reads a side's declared fog (three minis
+#      play without it), and the statues of Caves of the Basilisk, Sullas
+#      Ruins and Thousand Stings Garrison carry their own modifications
+#      (1 hp, no moves) in generation and reconstruction alike
+#      (scenario_events.apply_side_unit_modifications).
+OBSERVATION_EPOCH = 5
