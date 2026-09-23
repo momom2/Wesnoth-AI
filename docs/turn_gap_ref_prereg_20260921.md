@@ -159,3 +159,46 @@ second player's turns.
 
 By the rule, the next factor is the pre-graded pipeline of
 docs/turn_proposer_design_20260905.md (rows 1 to 7).
+
+## Pre-grader check on this run's candidates (pre-registered 2026-09-23, before the analysis)
+
+The section-6 check of docs/turn_proposer_design_20260905.md: does a
+forward-only grader rank candidate turns against the playout truth well
+enough to pre-grade them? This run recorded both graders the tool reads
+for every candidate, so the check is an analysis of the files above,
+with nothing played and no box.
+
+- Graders: `value_post`, the value head on the post-turn state from the
+  mover's side, and `hp_margin_post`, the mover's HP minus the
+  opponent's. The design's other two (the value after one argmax reply,
+  the expected material swing) were not recorded and are not measured
+  here.
+- Primary data: `confirm.json`, 16 positions, each the base and the
+  screen's best alternative on up to 160 playouts. Secondary, as an
+  attenuated check: `screen.json`, 60 positions and 299 candidates on 10
+  to 40 playouts each.
+- Estimand, per grader: the within-position residual SD of (playout mean
+  - a x grader - b), one slope across all candidates, one intercept per
+  position (`tools/analysis/turn_gap_pregrader.py`), with its standard
+  error taken as SD / sqrt(2 df), df = candidates - positions - 1; and
+  the ranking check: every alternative whose playout gap over its base
+  is at least 0.25 in that file (8 of the 16 in the confirmation) must
+  be ranked above its base.
+- Rule (the design's): a grader passes at a residual SD <= 0.2 with its
+  2-SE upper bound below 0.3 and every such alternative ranked above
+  its base; it fails at >= 0.3 or with any such alternative ranked
+  below; otherwise inconclusive. A pass builds the pre-graded pipeline
+  (row 7) with that grader; two fails leave the pipeline without a
+  pre-grader (rows 1 to 6). The tool's own verdict line (the 2026-09-05
+  rule, value head only) is reported as well.
+- Prior: the 2026-09-05 run on the seed's candidates
+  (`training/metrics/turn_gap/pregrader1.json`, 12 positions, 160
+  playouts; read today for the first time as a record): the value head
+  at 0.156 within position with 2 of 8 such alternatives ranked below
+  their base, a fail; the HP margin at 0.154 with 8 of 8 above, a pass
+  under this rule.
+
+Predictions: in `confirm.json`, the value head at 0.12 to 0.25 with 1
+to 3 of 8 ranked below (a fail, probability 0.6; a pass 0.25); the HP
+margin at 0.12 to 0.25 with 0 to 2 below (a pass, probability 0.5).
+In `screen.json`, both at 0.20 to 0.35 on the noisier truth.
