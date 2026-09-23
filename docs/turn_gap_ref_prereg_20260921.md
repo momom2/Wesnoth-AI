@@ -142,8 +142,8 @@ verdict, logs), run on `main` at 0.4.0 with the phase-11 wheel. About
 The screen's nominal fraction sits inside its permutation null, so by
 the rule only the confirmation is read. Of the 16 nominal hits it
 replayed, 7 confirmed, 6 were rejected (4 with the alternative worse),
-and 3 were undecided at 160 playouts. Screen 2,216 s, confirmation
-2,259 s: about 3,200 playouts an hour per stage, at 24 workers.
+and 3 were undecided at 160 playouts. The screen played 7,810 playouts
+in 2,216 s and the confirmation 3,160 in 2,259 s, at 24 workers.
 
 Described, not pre-registered: in 6 of the 7 confirmed positions the
 better turn takes more decisions than the reference's (14.4 against
