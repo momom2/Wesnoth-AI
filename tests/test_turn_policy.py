@@ -42,7 +42,14 @@ def _policy(turn_cfg: TurnSearchConfig) -> TurnCommitPolicy:
     torch.manual_seed(0)
     base = TransformerPolicy(device=torch.device("cpu"), d_model=32,
                              num_layers=1, num_heads=4, d_ff=64)
-    return TurnCommitPolicy(base, MCTSConfig(), turn_config=turn_cfg)
+    # rng_seed pins the turn search. MCTSPolicy draws fresh OS entropy
+    # without one, so the planned turn -- and whether its first action
+    # ends the turn -- changed from run to run: unseeded, 6 of 10 runs
+    # opened with end_turn and test_divergence_triggers_warm_replan
+    # skipped, the source of the fast tier's 41/42 skip count
+    # (2026-09-23). Seed 0 opens with a recruit, so every test here runs.
+    return TurnCommitPolicy(base, MCTSConfig(), turn_config=turn_cfg,
+                            rng_seed=0)
 
 
 def _cfg(**kw) -> TurnSearchConfig:

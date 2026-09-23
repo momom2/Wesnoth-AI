@@ -924,6 +924,16 @@ many line-coverage tests.
   multiple multi-GB zombie Python processes that locked up the 
   user's machine.)
 - Use `constants.py` values in assertions (not hardcoded duplicates).
+- **Every run lists its failed, errored and skipped tests** (pytest.ini
+  `-rfEs`). A skip count that differs between two runs of one tree is a
+  test that sometimes does not run; diff the two SKIPPED lists to name
+  it.
+- **A test that builds a search policy seeds it**: `MCTSPolicy(...,
+  rng_seed=N)` / `TurnCommitPolicy(..., rng_seed=N)`, or `rng=` on a
+  direct `mcts_search`. Unseeded, the search draws fresh OS entropy,
+  so any assertion or skip that depends on what it chose varies from
+  run to run -- the fast tier's 41/42 skip flicker was exactly that
+  (2026-09-23).
 - Never weaken a test without explicit user confirmation. A failing
   test is a signal — find the root cause first.
 - **A green local run does NOT cover the Rust paths.** The laptop's
