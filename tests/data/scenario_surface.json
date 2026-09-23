@@ -33,8 +33,9 @@
    "why": "presentation: the map tint for this time of day"
   },
   "scenario/event/unit/modifications/trait/effect": {
-   "classification": "IGNORED",
-   "why": "presentation: shown to a human player, no game state"
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:own_modification_effects",
+   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
   },
   "scenario/item": {
    "classification": "IGNORED",
@@ -46,12 +47,14 @@
    "why": "the RCA tuning knobs. Only aggression is honoured, by the combat-only neutral AI; caution, village_value and villages_per_scout belong to move phases we do not run"
   },
   "scenario/side/unit/modifications/object/effect": {
-   "classification": "IGNORED",
-   "why": "presentation: shown to a human player, no game state"
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:own_modification_effects",
+   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
   },
   "scenario/side/unit/modifications/trait/effect": {
-   "classification": "IGNORED",
-   "why": "presentation: shown to a human player, no game state"
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:own_modification_effects",
+   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
   },
   "scenario/terrain_graphics": {
    "classification": "IGNORED",
@@ -530,7 +533,7 @@
   "scenario/event/unit/modifications/object/effect.replace": {
    "classification": "SUBSTITUTED",
    "stands_in": "tools/neutral_ai.py:_check_units_are_stationary",
-   "why": "UNREAD: apply_to=movement_costs has no branch in _apply_effect_to_unit. Inert because the only carriers are the mini-map Tentacles (castle=99), all guardians the neutral AI never moves -- a precondition that check enforces"
+   "why": "apply_to=movement_costs is dropped by its own branch in _apply_effect_to_unit: silently for a neutral side's unit, with a warning for a player's. Inert because the only carriers are the mini-map Tentacles (castle=99), all guardians the neutral AI never moves -- a precondition that check enforces"
   },
   "scenario/event/unit/modifications/object/effect/movement_costs.castle": {
    "classification": "SUBSTITUTED",
@@ -606,9 +609,9 @@
    "why": "a lobby lock: it constrains what the host may change, not play"
   },
   "scenario/side.fog": {
-   "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_pool.py:ScenarioSetup",
-   "why": "generation CHOOSES fog (user contract: our games, our settings, via setup.fogless); reconstruction reads the declaration through wml_state.read_side"
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_side",
+   "why": "the scenario supplies the default in generation and reconstruction alike; setup.fogless turns fog off in generation"
   },
   "scenario/side.gold": {
    "classification": "MODELLED",
@@ -645,9 +648,9 @@
    "why": "no leader is declared, so none is built"
   },
   "scenario/side.shroud": {
-   "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_pool.py:ScenarioSetup",
-   "why": "same contract as fog; the user overrides shroud explicitly"
+   "classification": "MODELLED",
+   "reader": "tools/wml_state.py:read_side",
+   "why": "the scenario supplies the default in generation and reconstruction alike; setup.fogless turns fog off in generation"
   },
   "scenario/side.side": {
    "classification": "MODELLED",
@@ -716,8 +719,9 @@
    "why": "the trait display strings; the id drives the effect"
   },
   "scenario/side/unit/modifications/trait.id": {
-   "classification": "IGNORED",
-   "why": "only on petrified scenery statues, which never act or take damage, so their traits change nothing"
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:own_modification_effects",
+   "why": "decides whether the trait is named (tools/traits.py applies it) or custom (its effects apply here)"
   },
   "scenario/side/unit/modifications/trait.name": {
    "classification": "IGNORED",

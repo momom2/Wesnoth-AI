@@ -117,9 +117,10 @@ def test_outcome_carries_fog_flag_and_village_metrics():
 
     mp._rng = np.random.default_rng(3)
     sim = fresh_scenario_sim(seed=3, max_turns=4, mini=True)
+    fog = getattr(sim.gs.global_info, "_fog", True)
     out = play_one_game(sim, mp, lambda d: 0.0, game_label="g",
                         cost_lookup=cost)
-    assert out.fogless is False
+    assert out.fogless is (not fog)
     assert out.villages_mean_s1 >= 0.0
     assert out.villages_end_s1 >= 0
 
