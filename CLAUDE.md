@@ -566,6 +566,34 @@ State of play:
   `GLOBAL_FEAT_DIM` 6 -> 8, `OBSERVATION_EPOCH` 3 -> 4) is built and
   tested but PARKED by the same user order, to be batched into one
   retrain with whatever else the rework turns up.
+- 2026-09-23 (Opus 5.5; versions 0.1.0 -> 0.2.1): **a second model
+  reviewed the 09-22 work before it was committed, and the manifest
+  that claimed to bind every attribute to its reader did not.** Its
+  test checked that a named reader EXISTED; 22 of 72 MODELLED entries
+  named a function that never reads the attribute, and several
+  (`random_traits`, `affect_self`, `cumulative`) are read by nothing.
+  It also covered only the pool, not the corpus maps reconstruction
+  loads, and keyed on raw nesting, so a `[unit]` inside `[switch]
+  [case]` was invisible. Now: 31 scenarios, control flow folded out, a
+  reader must name its attribute in its own source, and SUBSTITUTED
+  rose from 8 to 25 -- seventeen behaviours claimed as read are
+  visibly unread, each with the precondition that makes that safe.
+  The review's sharpest find: under the old expander Hornshark
+  Island's Mermaid Initiates (248 corpus games) carried an EMPTY
+  `[heals]` block (the `INTERNAL:` macro collapse), and healed correctly
+  only because the reader defaulted a missing value to 4, which equals
+  `{ABILITY_HEALS}`; the engine's default is 0 (`heal.cpp:211`), and a
+  heals+8 map would have healed half. The reader now reads the value.
+  Also: preprocessor `#ifdef` / `#ifndef` / `#else` are evaluated as
+  the engine does (0.2.1; nothing we build moved), and **versioning
+  starts** (`wesnoth_ai.__version__`, see Code Style). The corpus
+  sweep is NOT recommended as a standalone box: reconstruction reads
+  only events and time areas from our expander, and diffing both, old
+  against new, over all 31 corpus scenarios shows only display text
+  and one heals block with identical sim abilities -- the sweep would
+  pass both ways and certify nothing. **Owed on a box:** the Rust
+  change (unbuilt here) and the slow test tier (it generates
+  self-play games).
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

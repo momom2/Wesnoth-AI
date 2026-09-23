@@ -77,9 +77,10 @@
    "why": ""
   },
   "scenario.define": {
-   "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_strip_comments",
-   "why": "UNREAD, and our expander evaluates no #ifdef at all -- it keeps every branch. Right here because Hornshark's only conditional tests its own define, which Wesnoth sets at load. No #else exists in anything we expand (measured 2026-09-23)"
+   "classification": "MODELLED",
+   "reader": "tools/scenario_events.py:scenario_defines",
+   "why": "the scenario's own preprocessor symbol, added to the define set its #ifdef lines are evaluated against",
+   "generic": "read by a regex over the RAW file, because Wesnoth applies define= before preprocessing and no parsed node exists yet"
   },
   "scenario.description": {
    "classification": "IGNORED",

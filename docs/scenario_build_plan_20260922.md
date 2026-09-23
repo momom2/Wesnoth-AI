@@ -954,15 +954,33 @@ measured on 2026-09-23:
 | `apply_to=movement_costs` (castle=99) | carried only by guardian Tentacles that never move |
 | `[object] duration` | all 8 objects in the corpus scenarios say `forever` |
 | `[object][filter] type=Bowman` | x, y alone pin the Bowman, over all 36 faction pairings |
-| `#ifdef` / `#ifndef` | our expander evaluates none and keeps every branch; Hornshark's only conditional tests its own `define=`, and no `#else` exists in anything we expand |
+| `#ifdef` / `#ifndef` | FIXED in 0.2.1: now evaluated as the engine does (see below) |
 
-## Proposed, not done
+## Done after the review: preprocessor conditionals are evaluated (0.2.1)
 
-**A preprocessor conditional evaluator.** The expander treats every
-`#ifdef` as true. That is right for the only conditional in our
-scenarios and unreached for the core-macro ones (`#ifdef EASY` /
-`HARD` / `NIGHTMARE`, `#ifndef MULTIPLAYER`), which the expansion
-diff proves for the pool. A faithful version evaluates against
-`{MULTIPLAYER}` plus the scenario's own `define=` (found by a pre-scan,
-since Wesnoth applies it at load). About 30 lines; its acceptance is
-the expansion diff staying green.
+The expander used to resolve no `#ifdef` at all: the comment stripper
+kept the directive lines, the WML parser skipped them, and every
+branch's content survived. `scenario_events.evaluate_conditionals` now
+follows the engine (`src/serialization/preprocessor.cpp:1322-1400`):
+`#ifdef` / `#ifndef` / `#else` / `#endif`, nested, against a define set
+that holds `MULTIPLAYER`, the scenario's own `define=` (found by a
+pre-scan, since Wesnoth applies it before preprocessing) and every
+macro `#define`d so far -- the engine keeps macros and symbols in one
+map, so `#ifdef SOME_MACRO` turns true at the line that defines it.
+`#ifhave` / `#ifver` and malformed nesting raise; nothing we expand
+uses them.
+
+All three text sources -- core macros, an add-on's utility files, the
+scenario -- go through one `_preprocess_text`, where they used to
+repeat the two strip calls and skip this step.
+
+What it changed: the core macros' difficulty branches
+(`QUANTITY`, `QUANTITY4`: `#ifdef EASY` / `NORMAL` / `HARD` /
+`NIGHTMARE`) and the AI controller's `#ifdef __UNUSED` / `#ifndef
+MULTIPLAYER` blocks now expand to what a multiplayer game gets.
+What it did not change: anything we build. The expansion diff still
+shows only the two accepted clusters, the 28-scenario and 120-replay
+snapshots are unchanged, and Hornshark Island -- the one scenario with
+a conditional of its own -- still defines MODIFY_BOWMAN and still
+gives both Loyalist Bowmen firststrike. The new tests fail with the
+evaluator switched off.

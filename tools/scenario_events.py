@@ -183,6 +183,118 @@ def _split_optional_args(body: str) -> Tuple[str, Dict[str, str]]:
     return _MACRO_ARG_RE.sub(_take, body), defaults
 
 
+# ----------------------------------------------------------------------
+# Preprocessor conditionals
+# ----------------------------------------------------------------------
+#
+# `#ifdef SYM` / `#ifndef SYM` / `#else` / `#endif`, evaluated the way
+# Wesnoth's preprocessor does (1.18.4 src/serialization/preprocessor.cpp
+# :1322-1400): a branch is live when SYM is in the define set, `#ifndef`
+# negates, `#else` flips, `#endif` closes, and they nest. The define set
+# holds preprocessor symbols AND every macro `#define`d so far
+# (`parent_.defines_` is one map), so `#ifdef SOME_MACRO` turns true at
+# the line that defines it.
+#
+# Until 2026-09-23 the expander evaluated none of this: the comment
+# stripper kept the directive lines, the WML parser skipped them, and
+# the content of EVERY branch survived. That was right for the only
+# conditional in a scenario we build -- Hornshark Island's, which tests
+# its own `define=` and so is true when Wesnoth loads it -- and wrong
+# for the core macros' `#ifdef EASY` / `NORMAL` / `HARD` / `NIGHTMARE`,
+# `#ifdef __UNUSED` and `#ifndef MULTIPLAYER`, none of which is defined
+# in a multiplayer game. No scenario we build invokes those macros,
+# which the expansion diff shows for the pool.
+
+# What a multiplayer game defines, as `--preprocess-defines=MULTIPLAYER`
+# does for the template builder.
+_BASE_DEFINES = frozenset({"MULTIPLAYER"})
+
+_COND_RE = re.compile(r'^\s*#(ifdef|ifndef|else|endif|ifhave|ifnhave|ifver|ifnver)\b'
+                      r'[ \t]*(\S*)')
+_DEFINE_NAME_RE = re.compile(r'^\s*#define[ \t]+([\w:]+)')
+# A scenario's own `define=`, which Wesnoth adds to the define set when it
+# loads that scenario (the MP list itself is preprocessed without it).
+_SCENARIO_DEFINE_RE = re.compile(r'^[ \t]*define[ \t]*=[ \t]*"?([^"\n]+?)"?[ \t]*$',
+                                 re.MULTILINE)
+
+
+class PreprocessorError(RuntimeError):
+    """An unbalanced or unsupported conditional."""
+
+
+def scenario_defines(text: str) -> Set[str]:
+    """The symbols a scenario defines for itself with `define=`. A
+    comma-separated list is accepted; Wesnoth's own scenarios use one."""
+    out: Set[str] = set()
+    for m in _SCENARIO_DEFINE_RE.finditer(text):
+        out.update(s.strip() for s in m.group(1).split(",") if s.strip())
+    return out
+
+
+def evaluate_conditionals(text: str, defines: Set[str]) -> str:
+    """`text` with every conditional resolved: directive lines removed,
+    dead branches dropped.
+
+    `defines` is UPDATED in place with each `#define` met in a live
+    branch, because the engine keeps one map for the whole load: pass
+    the same set through several files and a later file's `#ifdef`
+    sees an earlier file's `#define`.
+
+    `#ifhave` / `#ifver` and their negations test files and the game
+    version; nothing we expand uses them (measured 2026-09-23), so they
+    fail loudly rather than being guessed at."""
+    defined = defines
+    # One frame per open conditional: (this branch live?, parent live?,
+    # already saw #else?)
+    stack: List[Tuple[bool, bool, bool]] = []
+    live = True
+    out: List[str] = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        m = _COND_RE.match(line)
+        if m is None:
+            if live:
+                d = _DEFINE_NAME_RE.match(line)
+                if d:
+                    defined.add(d.group(1))
+                out.append(line)
+            continue
+        directive, symbol = m.group(1), m.group(2)
+        if directive in ("ifhave", "ifnhave", "ifver", "ifnver"):
+            raise PreprocessorError(
+                f"line {lineno}: #{directive} is not supported "
+                f"(nothing we expand used it when this was written)")
+        if directive in ("ifdef", "ifndef"):
+            if not symbol:
+                raise PreprocessorError(f"line {lineno}: #{directive} with no symbol")
+            found = symbol in defined
+            branch = found if directive == "ifdef" else not found
+            stack.append((branch, live, False))
+            live = live and branch
+        elif directive == "else":
+            if not stack or stack[-1][2]:
+                raise PreprocessorError(f"line {lineno}: unexpected #else")
+            branch, parent, _ = stack.pop()
+            stack.append((not branch, parent, True))
+            live = parent and not branch
+        else:                                   # endif
+            if not stack:
+                raise PreprocessorError(f"line {lineno}: unexpected #endif")
+            _, parent, _ = stack.pop()
+            live = parent
+    if stack:
+        raise PreprocessorError(f"{len(stack)} #ifdef/#ifndef never closed")
+    return "\n".join(out)
+
+
+def _preprocess_text(text: str, defines: Set[str]) -> str:
+    """The one path every expanded file takes before its macros are
+    read: textdomain and comments stripped, conditionals resolved.
+    Three call sites (core macros, an add-on's utility files, the
+    scenario) used to repeat the two strips and skip the third step."""
+    return evaluate_conditionals(_strip_comments(_strip_textdomain(text)),
+                                 defines)
+
+
 def _extract_inline_macros(text: str) -> Tuple[str, Dict[str, MacroDef]]:
     """Pull #define...#enddef blocks out of `text`. Returns
     (text_without_defines, {macro_name: MacroDef})."""
@@ -340,12 +452,15 @@ def _load_core_macros() -> Dict[str, MacroDef]:
             "[time_area] cycles WILL be wrong on maps that use them "
             "(Tombs of Kesorak, Elensefar Courtyard)", macros_dir)
         return macros
-    for cfg in macros_dir.glob("*.cfg"):
+    # One define set across the core files, as the engine keeps one
+    # map: a later file's `#ifdef` sees an earlier file's `#define`.
+    core_defines: Set[str] = set(_BASE_DEFINES)
+    for cfg in sorted(macros_dir.glob("*.cfg")):
         try:
             txt = cfg.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        txt = _strip_comments(_strip_textdomain(txt))
+        txt = _preprocess_text(txt, core_defines)
         # The same extraction the scenario's own body gets: one reader,
         # so optional-argument defaults and colon-bearing names behave
         # identically whichever file a macro came from.
@@ -502,8 +617,11 @@ def parse_scenario_cfg(candidate: Path) -> Optional[WMLNode]:
         _CORE_MACROS_CACHE = _load_core_macros()
 
     raw = candidate.read_text(encoding="utf-8", errors="replace")
-    raw = _strip_comments(_strip_textdomain(raw))
-    raw, scenario_macros = _extract_inline_macros(raw)
+    # What Wesnoth has defined by the time it preprocesses this file:
+    # the multiplayer symbol, the scenario's own `define=` (added when
+    # the scenario is loaded), and every core macro.
+    defines = set(_BASE_DEFINES) | scenario_defines(raw) | set(_CORE_MACROS_CACHE)
+    raw, scenario_macros = _extract_inline_macros(_preprocess_text(raw, defines))
     # Merge core macros with this scenario's local macros (local wins).
     all_macros = dict(_CORE_MACROS_CACHE)
     # Add-on scenarios may define macros in SIBLING utility files
@@ -525,9 +643,9 @@ def parse_scenario_cfg(candidate: Path) -> Optional[WMLNode]:
             if util_cfg == candidate:
                 continue
             try:
-                util_raw = _strip_comments(_strip_textdomain(
-                    util_cfg.read_text(encoding="utf-8",
-                                       errors="replace")))
+                util_raw = _preprocess_text(
+                    util_cfg.read_text(encoding="utf-8", errors="replace"),
+                    defines)
             except OSError:
                 continue
             _, util_macros = _extract_inline_macros(util_raw)

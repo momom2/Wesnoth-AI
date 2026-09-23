@@ -2423,3 +2423,39 @@ path did exactly this: the guard meant to drop such replays sat inside
 the branch only a plain `yes` could enter. No corpus replay uses the
 list form, so nothing had diverged; `tools/wml_state.wml_bool_or_none`
 now distinguishes the third form and the caller drops it.
+
+## Preprocessor conditionals, and what a multiplayer game defines (added 2026-09-23)
+
+`#ifdef SYM` keeps its branch when SYM is defined, `#ifndef` negates,
+`#else` flips the current branch, `#endif` closes it, and they nest.
+
+**Source (1.18.4):** `src/serialization/preprocessor.cpp:1322-1331`
+
+    } else if(command == "ifdef" || command == "ifndef") {
+        const bool negate = command[2] == 'n';
+        ...
+        bool found = parent_.defines_->count(symbol) != 0;
+        conditional_skip(negate ? found : !found);
+
+and `:1377-1400` for `#else` (`Unexpected #else` outside a branch) and
+`#endif` (`Unexpected #endif`).
+
+**Why non-obvious:** `defines_` is ONE map holding both preprocessor
+symbols and every macro defined with `#define` so far. So `#ifdef
+SOME_MACRO` is a test for a macro's existence and turns true at the
+line that defines it, and a `#define` inside a dead branch defines
+nothing.
+
+**What is defined in a multiplayer game:** `MULTIPLAYER` (the template
+builder preprocesses with `--preprocess-defines=MULTIPLAYER`), plus the
+scenario's own `define=` attribute, which the game adds when it LOADS
+that scenario. Hornshark Island relies on the second: its
+`#ifdef MULTIPLAYER_HORNSHARK_ISLAND_LOAD` blocks, which hold
+`MODIFY_BOWMAN` and its prestart events, are live only because
+`define=MULTIPLAYER_HORNSHARK_ISLAND_LOAD` sits in its own
+`[multiplayer]` block (`data/multiplayer/scenarios/2p_Hornshark_Island.cfg:31`).
+No difficulty symbol (`EASY`, `NORMAL`, `HARD`, `NIGHTMARE`) is
+defined, so `{QUANTITY ...}` (`data/core/macros/utils.cfg:8`) expands
+to nothing in multiplayer.
+
+Implemented by `tools/scenario_events.evaluate_conditionals`.
