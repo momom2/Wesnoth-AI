@@ -820,14 +820,43 @@ Target ~600 lines. Split by responsibility when a file grows past that.
 - Private members: `_leading_underscore`
 - Lua: same conventions (Lua allows `snake_case` fine)
 
-### Versioning (adopted 2026-09-23)
+### Branching (adopted 2026-09-23)
+GitHub flow: `main` holds only finished, checked work. Everything else
+happens on a short-lived topic branch cut from `main`, merged back when
+it is ready, then deleted.
+- **Names:** `feature/<name>`, `fix/<name>`, `test/<name>`,
+  `exp/<name>`; short, descriptive, hyphenated
+  (`fix/heals-value-default`). One task, one branch.
+- **Ready to merge** = `ruff check .` clean and the fast tier green;
+  once CI exists, its checks green as well (full suite, Rust build).
+- **Merge with a merge commit** (`git merge --no-ff`), never squash:
+  the commit messages are this project's lab notebook.
+- **`exp/` branches differ.** An experiment's code merges only if it
+  wins, but its pre-registration and its result land on `main` either
+  way (a records-only merge or a direct commit): "rejected: X, because
+  Y" is what stops X being proposed again.
+- **Status entries** in this file and in BACKLOG.md are written on
+  `main` when the work lands, never on the branch. Nearly every change
+  touches them, so branch-side edits would conflict with each other.
+- **Parallel agent sessions** each use their own branch in their own
+  worktree, so no session edits another's files.
+- Rejected: Git Flow's `develop` / `release/` branches. They serve
+  software shipped in numbered releases, and GitHub's own flow has
+  neither (docs.github.com, "GitHub flow").
+
+### Versioning (adopted 2026-09-23, revised the same day)
 - `wesnoth_ai.__version__` in `wesnoth_ai/__init__.py` is the only
-  place the version lives. N.M.P: **P bumps with every commit, M with
-  every major feature, N only on the user's explicit decision** (0
-  until then). Bump it in the same commit it describes, and state the
-  new version on the first line of the commit body.
+  place the version lives, and it numbers the states of `main`:
+  **every change that lands on `main` bumps it once** -- M for a
+  feature, P for anything else (fix, test, records) -- and N changes
+  only on the user's explicit decision (0 until then).
+- Bump it in the commit that lands the change on `main`: for a merge,
+  `git merge --no-ff --no-commit <branch>`, bump, then commit. Topic
+  branches never touch it, so two branches never claim one number.
+  State the new version on the first line of that commit's body.
 - History starts at 0.1.0 (the time-of-day encoder commit); nothing
-  before it carries a number.
+  before it carries a number. The first day bumped per commit; merges
+  to `main` are the unit from 0.2.2 on.
 
 ### Linting (adopted 2026-08-05)
 - **Run `ruff check .` before committing** — config in `ruff.toml`
@@ -912,8 +941,11 @@ many line-coverage tests.
 
 ## Working Style
 
-- **High autonomy** on reversible local work (edits, tests, reads).
-- **Ask before**: committing, force-pushing, changing branches,
+- **High autonomy** on reversible local work (edits, tests, reads),
+  including creating, switching and committing on topic branches
+  (see Branching).
+- **Ask before**: merging to `main` or committing to it directly,
+  pushing, force-pushing, deleting a branch whose work is not merged,
   deleting tracked files, making architectural changes (new IPC,
   replacing the model, etc.).
 - **Give best effort**: production-quality code with edge cases handled,
