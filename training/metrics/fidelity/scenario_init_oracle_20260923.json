@@ -1,133 +1,133 @@
 {
  "summary": {
-  "scenarios": 26,
+  "scenarios": 28,
   "errors": 0,
-  "scenarios_all_agree": 26,
+  "scenarios_all_agree": 28,
   "fields": {
    "lawful_bonus": {
-    "agree": 21151,
-    "total": 21151,
-    "scenarios_all_agree": 26
+    "agree": 21326,
+    "total": 21326,
+    "scenarios_all_agree": 28
    },
    "lobby.experience_modifier": {
-    "agree": 26,
-    "total": 26,
-    "scenarios_all_agree": 26
+    "agree": 28,
+    "total": 28,
+    "scenarios_all_agree": 28
    },
    "side.base_income": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.faction": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.fog": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.gold": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.net_income": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.recruit": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.total_income": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.turn": {
-    "agree": 61,
-    "total": 61,
-    "scenarios_all_agree": 26
+    "agree": 66,
+    "total": 66,
+    "scenarios_all_agree": 28
    },
    "side.village_gold": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "side.village_support": {
-    "agree": 52,
-    "total": 52,
-    "scenarios_all_agree": 26
+    "agree": 56,
+    "total": 56,
+    "scenarios_all_agree": 28
    },
    "terrain": {
-    "agree": 21151,
-    "total": 21151,
-    "scenarios_all_agree": 26
+    "agree": 21326,
+    "total": 21326,
+    "scenarios_all_agree": 28
    },
    "time_of_day": {
-    "agree": 26,
-    "total": 26,
-    "scenarios_all_agree": 26
+    "agree": 28,
+    "total": 28,
+    "scenarios_all_agree": 28
    },
    "unit.experience": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.hitpoints": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.leader": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.max_experience": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.max_hitpoints": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.max_moves": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.moves": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.present": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.status": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.traits": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "unit.type": {
-    "agree": 152,
-    "total": 152,
-    "scenarios_all_agree": 26
+    "agree": 157,
+    "total": 157,
+    "scenarios_all_agree": 28
    },
    "village.owner": {
     "agree": 18,
@@ -4725,6 +4725,330 @@
     "unit.type": {
      "agree": 5,
      "total": 5,
+     "diffs": []
+    }
+   }
+  },
+  {
+   "scenario_id": "Modified_Tiny_Close_Relation",
+   "factions": [
+    "Loyalists",
+    "Rebels"
+   ],
+   "parms": [
+    [
+     1,
+     "shroud",
+     "no"
+    ],
+    [
+     1,
+     "village_support",
+     "1"
+    ],
+    [
+     2,
+     "shroud",
+     "no"
+    ],
+    [
+     2,
+     "village_support",
+     "1"
+    ],
+    [
+     3,
+     "shroud",
+     "no"
+    ],
+    [
+     3,
+     "village_support",
+     "1"
+    ]
+   ],
+   "leaders": [
+    "Elvish Druid",
+    "Lieutenant"
+   ],
+   "time_of_day": "dawn",
+   "experience_modifier_played": 100,
+   "fields": {
+    "lawful_bonus": {
+     "agree": 15,
+     "total": 15,
+     "diffs": []
+    },
+    "lobby.experience_modifier": {
+     "agree": 1,
+     "total": 1,
+     "diffs": []
+    },
+    "side.base_income": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.faction": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.fog": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.gold": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.net_income": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.recruit": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.total_income": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.turn": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "side.village_gold": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.village_support": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "terrain": {
+     "agree": 15,
+     "total": 15,
+     "diffs": []
+    },
+    "time_of_day": {
+     "agree": 1,
+     "total": 1,
+     "diffs": []
+    },
+    "unit.experience": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.hitpoints": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.leader": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.max_experience": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.max_hitpoints": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.max_moves": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.moves": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.present": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.status": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.traits": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    },
+    "unit.type": {
+     "agree": 3,
+     "total": 3,
+     "diffs": []
+    }
+   }
+  },
+  {
+   "scenario_id": "Benji_Autumn_Siege_small",
+   "factions": [
+    "Northerners",
+    "Undead"
+   ],
+   "parms": [
+    [
+     1,
+     "village_support",
+     "1"
+    ],
+    [
+     2,
+     "village_support",
+     "1"
+    ]
+   ],
+   "leaders": [
+    "Orcish Crossbowman",
+    "Revenant"
+   ],
+   "time_of_day": "dawn",
+   "experience_modifier_played": 70,
+   "fields": {
+    "lawful_bonus": {
+     "agree": 160,
+     "total": 160,
+     "diffs": []
+    },
+    "lobby.experience_modifier": {
+     "agree": 1,
+     "total": 1,
+     "diffs": []
+    },
+    "side.base_income": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.faction": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.fog": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.gold": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.net_income": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.recruit": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.total_income": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.turn": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.village_gold": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "side.village_support": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "terrain": {
+     "agree": 160,
+     "total": 160,
+     "diffs": []
+    },
+    "time_of_day": {
+     "agree": 1,
+     "total": 1,
+     "diffs": []
+    },
+    "unit.experience": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.hitpoints": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.leader": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.max_experience": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.max_hitpoints": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.max_moves": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.moves": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.present": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.status": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.traits": {
+     "agree": 2,
+     "total": 2,
+     "diffs": []
+    },
+    "unit.type": {
+     "agree": 2,
+     "total": 2,
      "diffs": []
     }
    }

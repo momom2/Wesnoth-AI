@@ -822,10 +822,8 @@ type, leader flag, named traits, statuses, hit points, moves and
 experience; village owners; every hex's terrain code and lawful bonus;
 the time of day; and the lobby's experience modifier.
 
-**Record:** `training/metrics/fidelity/scenario_init_oracle_20260923.json`,
-26 of 28 scenarios, every field agreeing in all 26. Owed: Modified
-Tiny Close Relation and Benji Autumn Siege (two launches), whose
-first-sweep differences are all among the fixes below.
+**Record:** `training/metrics/fidelity/scenario_init_oracle_20260923.json`:
+all 28 pool scenarios, every field agreeing, after the fixes below.
 
 **What the harness has to supply, because a command-line start is not a
 lobby** (docs/wesnoth_rules.md, "A command-line `--multiplayer` start
