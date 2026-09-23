@@ -36,9 +36,12 @@ _DATASET = Path(__file__).parent.parent / "replays_dataset"
 
 _ARCH = dict(d_model=64, num_layers=2, num_heads=2, d_ff=128)
 
+# The replay corpus is not in git, so a bare clone (CI) has none.
+_needs_corpus = pytest.mark.skipif(not _DATASET.exists(),
+                                   reason="replays_dataset not present")
 
-@pytest.mark.skipif(not _DATASET.exists(),
-                    reason="replays_dataset not present")
+
+@_needs_corpus
 def test_sl_pass_round_trips_mcts_checkpoint(tmp_path):
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.supervised_train import train
@@ -88,6 +91,7 @@ def test_sl_pass_round_trips_mcts_checkpoint(tmp_path):
             f"aux head weights changed through the SL pass: {k}"
 
 
+@_needs_corpus
 def test_joint_value_loss_one_hot_edges():
     """Joint SL value loss (user 2026-07-16): corpus outcomes are
     decisive by construction (z in {-1,+1}), so the C51 target is a
@@ -100,9 +104,8 @@ def test_joint_value_loss_one_hot_edges():
     from tools.supervised_train import (_loss_parts_for_output,
                                         _pair_stream_serial)
     from tools.replay_dataset import filter_competitive_2p
-    from pathlib import Path as _P
 
-    files = filter_competitive_2p(_P("replays_dataset"))[:1]
+    files = filter_competitive_2p(_DATASET)[:1]
     enc = GameStateEncoder(d_model=128)
     mdl = WesnothModel(d_model=128, num_layers=2, num_heads=4, d_ff=128)
     item = next(i for i in _pair_stream_serial(files) if i[0] == "pair")
@@ -128,6 +131,7 @@ def test_joint_value_loss_one_hot_edges():
     assert on_win.total.requires_grad
 
 
+@_needs_corpus
 def test_flush_batch_carries_value_loss():
     """The batched (GPU) flow re-sums head stacks instead of using
     p.total -- the value term must be explicitly stacked in, or
@@ -140,9 +144,8 @@ def test_flush_batch_carries_value_loss():
     from tools.supervised_train import (_flush_batch, _pair_stream_serial,
                                         _raw_one)
     from tools.replay_dataset import filter_competitive_2p
-    from pathlib import Path as _P
 
-    files = filter_competitive_2p(_P("replays_dataset"))[:1]
+    files = filter_competitive_2p(_DATASET)[:1]
     enc = GameStateEncoder(d_model=128)
     mdl = WesnothModel(d_model=128, num_layers=2, num_heads=4, d_ff=128)
     dev = torch.device("cpu")
@@ -166,6 +169,7 @@ def test_flush_batch_carries_value_loss():
     assert all(0.0 < v < 20.0 for v in dq["v"])
 
 
+@_needs_corpus
 def test_batched_training_loop_actually_steps(tmp_path):
     """Integration guard for the 2026-07-16 stall: a duplicated
     positional arg at the _flush_batch CALL SITE made every flush
@@ -177,7 +181,7 @@ def test_batched_training_loop_actually_steps(tmp_path):
     from tools.supervised_train import train
 
     out = tmp_path / "sl_it.pt"
-    train(dataset_dir=Path("replays_dataset"), checkpoint_out=out,
+    train(dataset_dir=_DATASET, checkpoint_out=out,
           epochs=1, batch_size=8, max_pairs=24, log_every=1,
           device_str="cpu", batched_forward=True,
           d_model=128, num_layers=2, num_heads=4, d_ff=128,
@@ -187,3 +191,18 @@ def test_batched_training_loop_actually_steps(tmp_path):
     ck = torch.load(out, map_location="cpu", weights_only=False)
     assert int(ck.get("supervised_step", 0)) >= 3, \
         "batched train() must land optimizer steps"
+
+
+def test_training_without_replays_raises(tmp_path):
+    """A missing or empty corpus is an error, not a run of zero steps
+    (which is what a bare clone produced before)."""
+    from tools.supervised_train import train
+
+    kwargs = dict(checkpoint_out=tmp_path / "sl.pt", epochs=1, max_pairs=4,
+                  device_str="cpu", d_model=32, num_layers=1, num_heads=2, d_ff=64)
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        train(dataset_dir=tmp_path / "absent", **kwargs)
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ValueError, match="passes the filters"):
+        train(dataset_dir=tmp_path / "empty", **kwargs)
+    assert not (tmp_path / "sl.pt").exists()
