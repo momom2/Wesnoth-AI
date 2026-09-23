@@ -443,6 +443,9 @@ class _EnumRNG:
     any draw BEYOND the prefix defaults to hit (0) and still bumps
     `calls`, so the DFS driver learns another strike exists to branch on."""
     __slots__ = ("prefix", "calls")
+    # No Mersenne seed for the Rust kernel to replay, so resolve_attack
+    # runs the Python body, whose draws come from get_next_random.
+    seed_int = None
 
     def __init__(self, prefix: List[bool]):
         self.prefix = prefix
