@@ -96,7 +96,7 @@ from tools.actor_worker import (
     _R_FATAL, _R_GAME, _R_OUTCOME, _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop,
     _done_report, _set_fd_safe_sharing, _zero_reward,
 )
-from tools.mp_teardown import close_queue, discarding, end_stragglers, join_all
+from tools.mp_teardown import close_queue, discarding, end_stragglers, join_all, start_child
 from tools.serve_worker import (
     _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED, _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE,
     _SRV_STATS, _SRV_STOP, _SRV_SYNC, _BatchPicker, _best_window_rate, _merge_timelines,
@@ -335,21 +335,19 @@ class ActorPool:
         self._game_q = ctx.Queue()
         self._procs = []
         for aid in range(self._n):
-            p = ctx.Process(
-                target=_actor_loop,
-                args=(aid, self._ctrl_qs[aid], self._req_qs,
-                      self._resp_qs[aid], self._result_q, self._game_q,
-                      self._mcts_cfg,
-                      self._scenario_opts, self._max_turns,
-                      self._max_turns_min,
-                      self._pvp_kwargs, self._log_level,
-                      self._actor_threads, self._turn_cfg,
-                      self._gbc_labels, self._pt_cfg,
-                      self._train_kwargs, self._ground_cfg,
-                      self._game_records_dir),
-                daemon=True, name=f"actor-{aid}")
-            p.start()
-            self._procs.append(p)
+            self._procs.append(start_child(
+                ctx, _actor_loop,
+                (aid, self._ctrl_qs[aid], self._req_qs,
+                 self._resp_qs[aid], self._result_q, self._game_q,
+                 self._mcts_cfg,
+                 self._scenario_opts, self._max_turns,
+                 self._max_turns_min,
+                 self._pvp_kwargs, self._log_level,
+                 self._actor_threads, self._turn_cfg,
+                 self._gbc_labels, self._pt_cfg,
+                 self._train_kwargs, self._ground_cfg,
+                 self._game_records_dir),
+                name=f"actor-{aid}"))
         if self._serve_processes > 1:
             self._spawn_servers(ctx)
         self._server = InferenceServer(
@@ -463,15 +461,14 @@ class ActorPool:
         try:
             for sid in self._server_ids():
                 cq = ctx.Queue()
-                p = ctx.Process(
-                    target=_server_loop,
-                    args=(sid, cq, self._server_q, self._req_qs[sid], self._resp_qs,
-                          blueprint, switches, str(device), self._serve_threads,
-                          self._max_batch, self._serve_timeout, self._coalesce,
-                          self._coalesce_gap, self._log_level,
-                          self._server_torch_threads),
-                    daemon=True, name=f"serve-{sid}")
-                p.start()
+                p = start_child(
+                    ctx, _server_loop,
+                    (sid, cq, self._server_q, self._req_qs[sid], self._resp_qs,
+                     blueprint, switches, str(device), self._serve_threads,
+                     self._max_batch, self._serve_timeout, self._coalesce,
+                     self._coalesce_gap, self._log_level,
+                     self._server_torch_threads),
+                    name=f"serve-{sid}")
                 self._server_ctrl_qs.append(cq)
                 self._server_procs.append(p)
         finally:

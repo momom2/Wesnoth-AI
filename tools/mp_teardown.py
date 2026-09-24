@@ -1,5 +1,7 @@
 """Teardown of spawned children and of the multiprocessing queues they
-share with their manager (tools/actor_pool.ActorPool.shutdown).
+share with their manager: the manager's side
+(tools/actor_pool.ActorPool.shutdown) and the children's (start_child,
+run_child).
 
 Two properties of CPython's multiprocessing.Queue shape everything here
 (Lib/multiprocessing/queues.py, 3.13; Python docs, multiprocessing,
@@ -20,10 +22,12 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import multiprocessing as mp
+import multiprocessing.queues as mp_queues
 import queue as _queue
 import threading
 import time
-from typing import Callable, Iterable, Optional, Sequence
+from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 log = logging.getLogger("actor_pool")
 
@@ -138,3 +142,69 @@ def end_stragglers(procs: Iterable, grace: float = 5.0) -> None:
         log.error(f"process {p.name} survived terminate(); killing it")
         p.kill()
     join_all(survivors, grace)
+
+
+# =====================================================================
+# The children's side
+# =====================================================================
+
+def parent_gone() -> bool:
+    """True when the process that spawned this one has died.
+
+    A spawned child inherits BOTH ends of every queue it is handed, so
+    its reads never reach EOF and a blocking `get()` waits forever.
+    `daemon=True` only covers a CLEAN interpreter exit of the parent: a
+    kill -9, an OOM kill or a container-supervisor kill leaves the
+    children running for as long as the box lives, holding the
+    container's PID budget -- and a pool that exceeds pids.max serves
+    zero leaves (one rental lost that way, 2026-09-04).
+
+    Returns False in the main process (no parent), which is the shape
+    the in-process tests drive."""
+    parent = mp.parent_process()
+    return parent is not None and not parent.is_alive()
+
+
+def start_child(ctx, body: Callable, args: tuple, name: str):
+    """Start a daemon process of `ctx` that runs `body(*args)` through
+    `run_child`; returns the started process."""
+    p = ctx.Process(target=run_child, args=(body, *args), daemon=True, name=name)
+    p.start()
+    return p
+
+
+def run_child(body: Callable, *args) -> None:
+    """The process target `start_child` gives every child: runs
+    `body(*args)`. When the body ends, however it ends, after this
+    process's parent died, the process exits without writing out what it
+    put on the queues among `args`.
+
+    Nobody will read those: the parent is dead, and the pipes never
+    break, since this child holds their read ends itself. The exit would
+    otherwise wait until everything put is in the pipe (module
+    docstring), so an actor that shipped more than a pipe holds before
+    its learner was killed would never exit; one experience carries a
+    whole game state, 9 to 142 KB pickled.
+
+    While the parent lives, the exit writes everything out: the manager
+    reads the children's queues while they exit (ActorPool.shutdown),
+    and a child that stopped writing mid-message would leave it a
+    message whose remainder never comes."""
+    try:
+        body(*args)
+    finally:
+        if parent_gone():
+            log.warning(f"{mp.current_process().name}: the parent process is gone; "
+                        f"exiting without writing out what is left on its queues")
+            for q in _queues_in(args):
+                q.cancel_join_thread()
+
+
+def _queues_in(args) -> Iterator[mp_queues.Queue]:
+    """The multiprocessing queues among `args`, lists and tuples of them
+    included."""
+    for a in args:
+        if isinstance(a, (list, tuple)):
+            yield from _queues_in(a)
+        elif isinstance(a, mp_queues.Queue):
+            yield a

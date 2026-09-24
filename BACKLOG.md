@@ -39,6 +39,33 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## A pool child whose learner was killed exits (2026-09-24, FIXED, 0.5.6)
+
+The 2026-09-13 orphan guard made an actor return once its learner was
+killed, but its exit then waited for its queues' feeders to write out
+what it had shipped, and nobody would read: the learner was dead, and
+the pipes never break, since a spawned child holds their read ends
+itself. An actor with more than a pipe's worth unread (one experience
+is 9-142 KB) never exited. Measured before the fix: the actor returned
+from its body and was still running 15 s later with 1 MiB shipped, on
+Windows here and on Linux in CI (run 36051474864); with 1 KiB it exited
+2.0 s after the kill. Actors and serve processes now start through
+`tools/mp_teardown.start_child`, whose target cancels the exit's flush
+on every queue the child was handed when its body ends with the parent
+gone (tests/test_orphan_exit.py). Open:
+- A child that stopped on STOP still flushes, since the manager reads
+  its queues during shutdown; if the learner is killed during that
+  shutdown, the child waits forever.
+- The supervised trainer's encode workers (`tools/encode_worker.py`)
+  have no parent check at all: an untimed `in_q.get()`, a bounded
+  `out_q.put()`, then the same exit flush. `vast_onstart.sh`'s SL_MODE
+  relaunch pkills only the trainer (the spawned children's command
+  line does not match), so each relaunch can leave 24 workers. Flagged
+  as its own task, not started.
+- `SpoolWorkers` (`tools/selfplay_worker.py`, opt-in debug fallback)
+  loop until their control file changes, whatever becomes of the
+  parent.
+
 ## shutdown() reads its children's output while they exit (2026-09-24, FIXED, 0.5.5)
 
 A process that has put on an mp.Queue waits at exit until the queue's
