@@ -143,6 +143,9 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         stream.start()
         first = stream.collect(2, timeout=600.0)
         assert len(first.games) == 2
+        # Both actors play through the first window, each on its own
+        # server, so both serve in it.
+        assert all(n > 0 for n in pool.last_leaves_per_server), pool.last_leaves_per_server
         versions = []
 
         def publish():
@@ -152,7 +155,10 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         games, targets, t_pub = collect_across_publication(stream, publish)
         assert versions == [policy._inference_model._weights_version]
         assert_publication_straddled(games, targets, t_pub)
-        assert sum(pool.last_leaves_per_server) == pool.last_served_forwards > 0
+        # The last window runs from the previous collect to this one and
+        # can be too short for a batch (CI 2026-09-23 read 0), so only
+        # its accounting is checked.
+        assert sum(pool.last_leaves_per_server) == pool.last_served_forwards
         stream.stop(grace=120.0)
         synced = pool.probe([gs])
         assert torch.allclose(synced[0][0].value_logits, synced[1][0].value_logits, atol=1e-5)
