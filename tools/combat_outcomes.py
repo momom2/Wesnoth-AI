@@ -693,7 +693,17 @@ def _fallback_counter_weapon(d_stats_by_idx: Dict[int, object]) -> int:
 
 def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
                           a_weapon_idx: int) -> int:
-    """Defender's counter-attack weapon for a sim-originated attack:
+    """`counter_weapon_choice` without its strike tables."""
+    return counter_weapon_choice(gs, att, dfd, a_weapon_idx)[0]
+
+
+def counter_weapon_choice(gs: GameState, att: Unit, dfd: Unit,
+                          a_weapon_idx: int) -> Tuple[int, Dict[int, dict]]:
+    """(the defender's counter-attack weapon, the strike tables
+    simulated to choose it: {defender weapon: _strike_dp final states},
+    empty when one weapon or none could answer).
+
+    Defender's counter-attack weapon for a sim-originated attack:
     faithful port of battle_context::choose_defender_weapon (1.18.4
     attack.cpp). Returns -1 when the defender cannot retaliate.
 
@@ -723,11 +733,11 @@ def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
 
     if (not getattr(att, "attacks", None)
             or not getattr(dfd, "attacks", None)):
-        return -1
+        return -1, {}
     # Petrified defenders can't retaliate (their attacks are
     # stripped engine-side; build_attack_context forces -1 too).
     if "petrified" in dfd.statuses:
-        return -1
+        return -1, {}
     if a_weapon_idx >= len(att.attacks):
         a_weapon_idx = 0    # mirror build_attack_context's clamp
 
@@ -735,7 +745,7 @@ def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
     # and indices match what combat will use by construction.
     base = build_attack_context(gs, att, dfd, a_weapon_idx, -1)
     if a_weapon_idx >= len(base.att_cu.weapons):
-        return -1
+        return -1, {}
     att_range = base.att_cu.weapons[base.a_weapon].range
 
     # What options does defender have? (range match; defense_weight
@@ -743,10 +753,10 @@ def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
     candidates = [i for i, w in enumerate(base.dfd_cu.weapons)
                   if w.range == att_range]
     if not candidates:
-        return -1
+        return -1, {}
     if len(candidates) == 1:
         # Only one usable weapon, don't simulate.
-        return candidates[0]
+        return candidates[0], {}
 
     # Multiple options: simulate each candidate fight.
     ctxs = {i: build_attack_context(gs, att, dfd, a_weapon_idx, i)
@@ -755,13 +765,15 @@ def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
     d_stats_by_idx = {i: stats[i][1] for i in candidates}
 
     sims: Dict[int, Tuple[_CombatantMarginals, _CombatantMarginals]] = {}
+    tables: Dict[int, dict] = {}
     for i in candidates:
         a_stats, d_stats = stats[i]
         states = _strike_dp(a_stats, d_stats,
                             ctxs[i].att_cu, ctxs[i].dfd_cu,
                             track_touched=True)
         if states is None:
-            return _fallback_counter_weapon(d_stats_by_idx)
+            return _fallback_counter_weapon(d_stats_by_idx), {}
+        tables[i] = states
         sims[i] = _engine_marginals(states, a_stats, d_stats,
                                     ctxs[i].att_cu, ctxs[i].dfd_cu)
 
@@ -792,4 +804,4 @@ def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
                                   sims[best_idx][1], sims[best_idx][0],
                                   1.0)):
             best_idx = i
-    return best_idx
+    return best_idx, tables

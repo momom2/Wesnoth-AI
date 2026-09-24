@@ -510,6 +510,14 @@ class WesnothSim:
         # Wesnoth-loadable .bz2 replay so the user can inspect a
         # simulated game in the Wesnoth GUI.
         self.command_history: List[RecordedCommand] = []
+        # Recruit rejections as (index of the next command, x, y): they
+        # change what the side to move observes but apply no command,
+        # so a game record keeps them beside the history.
+        self.recruit_rejections: List[Tuple[int, int, int]] = []
+        # The counter-weapon strike tables of the attack command being
+        # built (`combat_outcomes.counter_weapon_choice`), attached to
+        # its RecordedCommand as outcome data.
+        self._pending_counter_tables: Optional[Tuple[int, Dict[int, dict]]] = None
 
         # Per-action RNG-request counter. Increments on every command
         # that consumes a Wesnoth synced [random_seed] (recruit,
@@ -721,10 +729,25 @@ class WesnothSim:
         else:
             setattr(self._gs.global_info, "_last_advance_events", [])
 
+    def _note_counter_outcomes(self, extras: dict) -> None:
+        """Put the counter-weapon strike tables computed for the attack
+        being recorded into its extras as outcome data (tools/
+        game_record.py); nothing on a search fork, whose history is
+        never kept, or when one weapon or none could answer."""
+        pending, self._pending_counter_tables = self._pending_counter_tables, None
+        if pending is None or self._is_search_fork:
+            return
+        from tools.game_record import strike_table_data
+        chosen, tables = pending
+        extras.setdefault("outcomes", {})["counter_weapon"] = {
+            "chosen": int(chosen),
+            "tables": {str(w): strike_table_data(t) for w, t in tables.items()}}
+
     def reject_recruit_hex(self, x: int, y: int) -> None:
         """A recruit bounced on (x, y) this turn (the god-view occupied
         hex a harness discovers): the per-turn rejection set the
         legality mask and the encoder read."""
+        self.recruit_rejections.append((len(self.command_history), int(x), int(y)))
         if self.core is not None:
             self.core.core.add_recruit_rejected(int(x), int(y))
             self._refresh_view()
@@ -769,6 +792,8 @@ class WesnothSim:
         out._seed_salt       = self._seed_salt
         out._is_search_fork  = self._is_search_fork
         out.command_history  = []   # forks don't track history
+        out.recruit_rejections = []
+        out._pending_counter_tables = None
         return out
 
     def enable_uniform_advancement(self) -> None:
@@ -861,6 +886,7 @@ class WesnothSim:
         if strikes:
             extras["checkup_strikes"] = strikes
             self._clear_checkup_strikes()
+        self._note_counter_outcomes(extras)
         self.command_history.append(RecordedCommand(
             kind="attack", side=side_now, cmd=list(cmd),
             extras=extras))
@@ -1254,6 +1280,7 @@ class WesnothSim:
                 if strikes:
                     extras["checkup_strikes"] = strikes
                     self._clear_checkup_strikes()
+                self._note_counter_outcomes(extras)
             self.command_history.append(RecordedCommand(
                 kind=cmd[0], side=side_now, cmd=list(cmd), extras=extras))
 
@@ -1569,7 +1596,7 @@ class WesnothSim:
             # we resolved. Lazy import: combat_outcomes pulls in
             # replay_dataset, which this module must not import at
             # module level.
-            from tools.combat_outcomes import choose_counter_weapon
+            from tools.combat_outcomes import counter_weapon_choice
             att_u = next(
                 (u for u in self.gs.map.units
                  if u.position.x == start.x and u.position.y == start.y),
@@ -1594,9 +1621,10 @@ class WesnothSim:
                     f"sim: rejecting attack on scenery/petrified "
                     f"target at {(target.x, target.y)}")
                 return None, None
-            d_weapon = (choose_counter_weapon(self.gs, att_u, dfd_u, weapon)
-                        if att_u is not None and dfd_u is not None
-                        else -1)
+            d_weapon, tables = (counter_weapon_choice(self.gs, att_u, dfd_u, weapon)
+                                if att_u is not None and dfd_u is not None
+                                else (-1, {}))
+            self._pending_counter_tables = (d_weapon, tables) if tables else None
             return ["attack",
                     start.x, start.y,
                     target.x, target.y,
