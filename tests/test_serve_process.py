@@ -153,6 +153,11 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         stream = pool.stream(base_seed=11, tag=3)
         stream.start()
         first = stream.collect(2, timeout=600.0)
+        print("REPRO first window (actor, index, decisions, no_outcome, start, end rel. open):",
+              [(g.actor, g.index, g.decisions, g.outcome is None,
+                round(g.t_start - t_open, 3), round(g.t_end - t_open, 3)) for g in first.games],
+              "leaves", pool.last_leaves_per_server, "window_s", round(first.seconds, 3),
+              flush=True)
         assert len(first.games) == 2
         # Iteration 2 ended with its games in flight: the reports its
         # actors sent afterwards are not the stream's games, and the
