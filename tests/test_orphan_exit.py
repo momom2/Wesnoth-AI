@@ -1,7 +1,8 @@
-"""A pool child whose learner was killed exits, whatever it shipped
-(tools/mp_teardown.run_child). The children are real processes that
-import no torch (tests/queue_children.py): a process's exit waiting on
-its queue's feeder happens only in a real process."""
+"""A child whose parent was killed exits: an actor whatever it shipped
+(tools/mp_teardown.run_child), an encode worker whatever it was waiting
+on (tools/encode_worker.serve_files). The children are real processes
+that import no torch (tests/queue_children.py): a process's exit waiting
+on its queue's feeder happens only in a real process."""
 from __future__ import annotations
 
 import contextlib
@@ -11,6 +12,7 @@ import time
 from pathlib import Path
 
 import psutil
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -35,6 +37,29 @@ def _wait_for_exit(proc: psutil.Process, seconds: float) -> bool:
     return True
 
 
+def _assert_child_exits_once_parent_is_killed(parent: mp.Process, child_pid, ready,
+                                             child: str) -> None:
+    """Start `parent`, wait until `ready`, kill it, and require the child
+    whose pid it reports to exit within 10 s. Both are killed on the way
+    out, so a failure leaves nothing running."""
+    parent.start()
+    proc = None
+    try:
+        assert ready.wait(60.0), f"the {child} never got ready"
+        proc = psutil.Process(child_pid.value)
+        parent.kill()
+        parent.join(10.0)
+        assert _wait_for_exit(proc, 10.0), (
+            f"the {child} was still running 10 s after its parent was killed")
+    finally:
+        if parent.is_alive():
+            parent.kill()
+            parent.join(10.0)
+        if proc is not None and not _exited(proc):
+            with contextlib.suppress(psutil.NoSuchProcess):
+                proc.kill()
+
+
 def test_an_actor_exits_with_results_its_killed_learner_never_read():
     """A learner killed while its actors ship results (an OOM kill
     between two collect() calls of a stream) leaves each actor with a
@@ -50,19 +75,21 @@ def test_an_actor_exits_with_results_its_killed_learner_never_read():
     actor_pid = ctx.Value("i", 0)
     learner = ctx.Process(target=queue_children.learner_killed_while_its_actor_ships,
                           args=(1 << 20, actor_pid, shipped), name="learner")
-    learner.start()
-    actor = None
-    try:
-        assert shipped.wait(60.0), "the actor never shipped"
-        actor = psutil.Process(actor_pid.value)
-        learner.kill()
-        learner.join(10.0)
-        assert _wait_for_exit(actor, 10.0), (
-            "the actor was still running 10 s after its learner was killed")
-    finally:
-        if learner.is_alive():
-            learner.kill()
-            learner.join(10.0)
-        if actor is not None and not _exited(actor):
-            with contextlib.suppress(psutil.NoSuchProcess):
-                actor.kill()
+    _assert_child_exits_once_parent_is_killed(learner, actor_pid, shipped, "actor")
+
+
+@pytest.mark.parametrize("n_replays", [0, 3], ids=["waiting-for-a-replay", "output-queue-full"])
+def test_an_encode_worker_exits_once_its_trainer_is_killed(n_replays):
+    """`supervised_train --workers N` on a box, and the trainer is killed:
+    an OOM kill, or the SL relaunch in scripts/vast_onstart.sh, whose
+    pkill matches the trainer's command line and not its spawned
+    workers'. A worker holds both ends of both its queues, so the pipes
+    never break, and it waited forever for a replay or, its output queue
+    full, for room; each relaunch left the previous run's workers
+    running."""
+    ctx = mp.get_context("spawn")
+    ready = ctx.Event()
+    worker_pid = ctx.Value("i", 0)
+    trainer = ctx.Process(target=queue_children.trainer_killed_with_its_encode_worker,
+                          args=(n_replays, worker_pid, ready), name="trainer")
+    _assert_child_exits_once_parent_is_killed(trainer, worker_pid, ready, "encode worker")

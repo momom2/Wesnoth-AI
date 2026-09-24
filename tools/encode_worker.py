@@ -47,11 +47,12 @@ input queue.
 
 from __future__ import annotations
 
+import functools
 import logging
 import sys
 import traceback
 from pathlib import Path
-from typing import Dict
+from typing import Callable, Dict, List
 
 
 # Resolve the project root from this file's location so workers can
@@ -61,6 +62,29 @@ from typing import Dict
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent
 _TOOLS_DIR    = _THIS.parent
+
+
+def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
+                relevant_set: bool, fog_hides_enemy_villages: bool = False,
+                terrain_multi_hot: bool = False) -> List:
+    """One replay's (RawEncoded, ActionIndices) pairs: the per-file work
+    of a worker, and of tools/preencode_corpus.py.
+
+    `relevant_set`: encode the relevant hex subset and build labels in
+    the same basis (label builder and `encode_raw` each compute the
+    subset; the encoder has no entry point that accepts a precomputed
+    one). `fog_hides_enemy_villages` and `terrain_multi_hot` are the
+    trainer encoder's own switches: a worker must encode exactly what
+    the encoder would, else the pairs carry another observation."""
+    from tools.replay_dataset import iter_replay_pairs
+    from wesnoth_ai.encoder import encode_raw
+    pairs = []
+    for state, ai in iter_replay_pairs(gz_path, relevant_set=relevant_set):
+        pairs.append((encode_raw(state, type_to_id=type_to_id, faction_to_id=faction_to_id,
+                                 relevant_set=relevant_set,
+                                 fog_hides_enemy_villages=fog_hides_enemy_villages,
+                                 terrain_multi_hot=terrain_multi_hot), ai))
+    return pairs
 
 
 def worker_main(
@@ -73,7 +97,8 @@ def worker_main(
     fog_hides_enemy_villages: bool = False,
     terrain_multi_hot: bool = False,
 ) -> None:
-    """Worker entry point.
+    """Worker entry point: `serve_files` over `encode_game` with the
+    trainer's vocab and encoder switches.
 
     Each item written to `out_q` is one of:
       ("file",       seq, pairs, gz_name)   # pairs = list of (RawEncoded, ActionIndices)
@@ -87,55 +112,37 @@ def worker_main(
     that drives gc / batch-flush bookkeeping is synthesized by the
     stream after a file's pairs are drained — workers don't emit it
     explicitly anymore.
-
-    `relevant_set`: encode the relevant hex subset and build labels in
-    the same basis (label builder and `encode_raw` each compute the
-    subset; the encoder has no entry point that accepts a precomputed
-    one). `fog_hides_enemy_villages` and `terrain_multi_hot` are the
-    trainer encoder's own switches: a worker must encode exactly what
-    the encoder would, else the pairs carry another observation.
     """
     # Re-bootstrap import paths for Windows spawn — fork would inherit.
     if str(_PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(_PROJECT_ROOT))
     if str(_TOOLS_DIR) not in sys.path:
         sys.path.insert(0, str(_TOOLS_DIR))
-
-    # Local imports so they happen post-bootstrap.
-    from wesnoth_ai.encoder import encode_raw
-    from tools.replay_dataset import iter_replay_pairs
-
     logging.basicConfig(level=log_level, format="%(message)s")
-    log = logging.getLogger("encode_worker")
+    serve_files(in_q, out_q, functools.partial(
+        encode_game, type_to_id=type_to_id, faction_to_id=faction_to_id,
+        relevant_set=relevant_set, fog_hides_enemy_villages=fog_hides_enemy_villages,
+        terrain_multi_hot=terrain_multi_hot))
 
+
+def serve_files(in_q, out_q, encode_file: Callable[[str], List]) -> None:
+    """The worker's loop: take `(seq, gz_path)` items until the sentinel
+    None, and ship `encode_file(gz_path)` for each, or its error."""
+    log = logging.getLogger("encode_worker")
     while True:
         item = in_q.get()
         if item is None:
             out_q.put(("worker_exit",))
             return
-
         seq, gz_path = item
         gz_name = Path(gz_path).name
         try:
-            pairs = []
-            for state, ai in iter_replay_pairs(gz_path,
-                                               relevant_set=relevant_set):
-                raw = encode_raw(
-                    state,
-                    type_to_id=type_to_id,
-                    faction_to_id=faction_to_id,
-                    relevant_set=relevant_set,
-                    fog_hides_enemy_villages=fog_hides_enemy_villages,
-                    terrain_multi_hot=terrain_multi_hot,
-                )
-                pairs.append((raw, ai))
-            # Single put() amortizes pickle cost across all pairs from
-            # this replay. Empty lists are valid (replay had no
-            # actionable pairs) — the trainer will see file_done with
-            # n=0 and move on.
-            out_q.put(("file", seq, pairs, gz_name))
+            # One put() per replay amortizes pickle cost across all its
+            # pairs. An empty list is valid (no actionable pairs): the
+            # trainer sees file_done with n=0 and moves on.
+            msg = ("file", seq, encode_file(gz_path), gz_name)
         except Exception as e:
             tb = traceback.format_exception_only(type(e), e)[-1].strip()
-            out_q.put(("file_error", seq, gz_name, tb))
+            msg = ("file_error", seq, gz_name, tb)
             log.debug(f"  worker skip {gz_name}: {e}")
-            # Keep going; main thread tolerates per-file failures.
+        out_q.put(msg)
