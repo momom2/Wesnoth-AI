@@ -744,8 +744,8 @@ class ActorPool:
         actors take games from a queue the stream keeps topped up, the
         caller collects completed games in windows and publishes
         weights between them while serving goes on. `tag` is the
-        iteration index the tickets and the PLAY carry (the actors
-        skip tickets of another tag); `tickets_ahead` is how many
+        iteration index the tickets and the PLAY carry (an actor plays
+        only tickets of its PLAY's tag); `tickets_ahead` is how many
         unstarted games the queue holds beyond the actors' own (one
         per actor by default)."""
         from tools.actor_stream import ActorStream
