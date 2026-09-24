@@ -4,8 +4,8 @@
 Dynamic hex flags 1-2 encode village ownership AS SEEN by the side to
 move:
   - own villages: always flagged "ours" (you know what you own);
-  - enemy-owned villages: flagged "theirs" only when the hex is in
-    the side's vision disc (or fog is off); fogged enemy villages
+  - enemy-owned villages: flagged "theirs" only when the side sees
+    the hex (or fog is off); fogged enemy villages
     appear NEUTRAL (both flags 0);
   - neutral villages / non-village hexes: both flags 0.
 
@@ -34,9 +34,9 @@ from test_inference_snapshot import _gs
 def _village_gs(*, owner_map, current_side=1, fog=True):
     """_gs() plus three village hexes at (1,1), (5,5), (9,9).
 
-    Side-1 units sit at (0,0)/(3,3): with default vision (~5-6),
-    (1,1) and (5,5) are within side 1's discs; (9,9) is safely
-    outside every side-1 disc.
+    Side-1 units sit at (0,0)/(3,3): with their vision (~5-6 MP plus
+    the ring), side 1 sees (1,1) and (5,5); (9,9) is safely outside
+    its view.
     """
     gs = _gs()
     for pos in ((1, 1), (5, 5), (9, 9)):

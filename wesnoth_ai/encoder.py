@@ -167,7 +167,7 @@ NUM_HEX_MODIFIERS = 3
 #                          your own villages even in fog).
 #   2: village_theirs   -- this village hex is owned by the opponent
 #                          AND its hex is currently visible to the
-#                          side to move (in its vision disc, or fog
+#                          side to move (a hex it sees, or fog
 #                          is off). A fogged enemy-owned village has
 #                          BOTH flags 0 = appears neutral (user spec
 #                          2026-07-11; deliberate small deviation
@@ -334,7 +334,7 @@ class EncodedState:
     material: Optional[torch.Tensor] = None
 
     # The side's observation computed once per decision by the Rust
-    # kernel (wesnoth_ai/observe.py): the vision disc, unit visibility,
+    # kernel (wesnoth_ai/observe.py): the seen hexes, unit visibility,
     # the reach-context flags and the recruit row. The legality mask
     # builder reads it instead of rebuilding the same sets; None on
     # the Python path.
@@ -1278,7 +1278,7 @@ def encode_raw(
     # load-bearing, because the trainer replays target_idx against
     # re-encoded states.
     # One observation per decision through the Rust kernels (wesnoth_ai/
-    # observe.py): the disc, the visible units, the mask builder's
+    # observe.py): the seen hexes, the visible units, the mask builder's
     # reach context and, in the relevant-set basis, the acting units'
     # landable rows and the relevant hex set; None on the Python path.
     from wesnoth_ai.observe import observe as _observe
@@ -1316,24 +1316,25 @@ def encode_raw(
         or set()
     )
 
-    # Side-to-move vision disc, shared between the village-ownership
-    # fog gate below and `units_visible_to` (which otherwise
-    # recomputes it) -- computed lazily, at most ONCE per encode.
+    # The hexes the side to move sees, shared between the
+    # village-ownership fog gate below and `units_visible_to` (which
+    # otherwise reads them again) -- read lazily, at most ONCE per
+    # encode.
     # Fog toggle: underscore attr so GlobalInfo.__deepcopy__ carries
     # it through MCTS state copies (non-underscore attrs are
     # dropped; adversarial review 2026-07-11).
     fog_on = getattr(game_state.global_info, "_fog", True)
-    _disc_cache: list = []
+    _seen_cache: list = []
 
-    def _vision_disc():
-        if not _disc_cache:
+    def _seen_hexes():
+        if not _seen_cache:
             if observation is not None:
-                _disc_cache.append(observation.disc_set())
+                _seen_cache.append(observation.seen_set())
             else:
                 from wesnoth_ai.visibility import visible_hexes_for
-                _disc_cache.append(
+                _seen_cache.append(
                     visible_hexes_for(game_state, current_side))
-        return _disc_cache[0]
+        return _seen_cache[0]
 
     # Static per-map arrays come from a cache keyed on the hex set's
     # identity (2026-09-04: the per-hex Python loop was ~1 ms of the
@@ -1347,7 +1348,7 @@ def encode_raw(
         rejected_slots: List[int] = []
     else:
         village_entries = _village_entries(
-            static, game_state, current_side, fog_on, _vision_disc)
+            static, game_state, current_side, fog_on, _seen_hexes)
         rejected_slots = _rejected_slots(static, rejected_hexes)
 
     # ---- units ----
@@ -1358,7 +1359,7 @@ def encode_raw(
     # the policy learns to use enemy positions it wouldn't have
     # access to at deploy time. `units_visible_to` honors the
     # three Wesnoth rules: own units always visible; enemy units
-    # outside the side's sight discs hidden; enemy units with an
+    # on hexes the side does not see hidden; enemy units with an
     # active hide-cover ability (ambush/concealment/submerge/
     # nightstalk) hidden until uncovered (sim manages the
     # `_uncovered_units` set per ambush-trigger). See
@@ -1373,9 +1374,9 @@ def encode_raw(
     else:
         units = visible_units_in_slot_order(
             game_state, current_side,
-            # Reuse the disc if the village fog gate already computed
-            # it; None lets the filter compute lazily.
-            vis_set=_disc_cache[0] if _disc_cache else None,
+            # Reuse the seen hexes if the village fog gate already read
+            # them; None lets the filter read them lazily.
+            vis_set=_seen_cache[0] if _seen_cache else None,
         )
     unit_positions = [u.position for u in units]
     unit_ids       = [u.id for u in units]
@@ -1421,7 +1422,7 @@ def encode_raw(
         # the engine). Behind a checkpoint flag: the seed was trained
         # with the count, its encoding stays byte-identical.
         from wesnoth_ai.visibility import enemy_villages_visible_to
-        their_villages = enemy_villages_visible_to(game_state, current_side, _vision_disc())
+        their_villages = enemy_villages_visible_to(game_state, current_side, _seen_hexes())
 
     our_fac  = sides[us_idx].faction   if 0 <= us_idx   < len(sides) else ""
     them_fac = sides[them_idx].faction if 0 <= them_idx < len(sides) else ""
@@ -1495,16 +1496,16 @@ def encode_raw(
 # ---------------------------------------------------------------------
 
 def _village_entries(static, game_state, current_side, fog_on,
-                     vision_disc) -> List[Tuple[int, int, bool]]:
+                     seen_hexes) -> List[Tuple[int, int, bool]]:
     """Village ownership as the mover sees it, one (hex slot, owner
     code, owner visible) per candidate hex. Candidates are the hexes
     carrying the village MODIFIER (the static village bit) plus every
     owner-map entry on the board (an owned hex without the modifier
     gets the village bit too). Owner code: 1 = ours, 2 = another
     side's, 0 = neutral. Owner visible is the fog gate: own villages
-    always, others when fog is off or the hex is in the mover's
-    vision disc -- evaluated in that order, so the disc is computed
-    only when a candidate that is not ours needs it."""
+    always, others when fog is off or the mover sees the hex --
+    evaluated in that order, so the seen hexes are read only when a
+    candidate that is not ours needs them."""
     village_owner_map = (getattr(
         game_state.global_info, "_village_owner", None) or {})
     cand = set(static.village_idx)
@@ -1519,7 +1520,7 @@ def _village_entries(static, game_state, current_side, fog_on,
         key = static.keys[i]
         owner = village_owner_map.get(key, 0)
         ours = owner == current_side
-        visible = ours or not fog_on or key in vision_disc()
+        visible = ours or not fog_on or key in seen_hexes()
         code = 1 if ours else (2 if owner not in (0, current_side) else 0)
         entries.append((i, code, visible))
     return entries

@@ -135,7 +135,30 @@ def build_cases() -> List[Case]:
     two = _probe("two_moves:short_then_ambush", "Elvish Ranger", "Gg^Fp", note="a frame per move")
     two.moves = [("u1", 8, 5), ("u1", 8, 9)]
     cases.append(two)
+    cases += vision_cases()
     return cases
+
+
+def vision_cases() -> List[Case]:
+    """What side 1 sees, not who hides (docs/wesnoth_rules.md "Vision
+    and fog"): the Fencer (6 MP, 1 per grass hex) sees what it could
+    reach plus the ring around it, terrain it cannot cross blocks its
+    view, and what the side cleared at turn start stays clear after it
+    walks away. The disc of radius max_moves the simulator drew until
+    2026-09-24 answers each of the three the other way."""
+    def units(enemy_at):
+        return [_unit(1, "Fencer", 1, *MOVER_START, leader=True),
+                _unit(2, "Spearman", 2, *enemy_at),
+                _unit(3, "Spearman", 2, *FAR_CORNER, leader=True)]
+    return [
+        Case(name="vision:ring", units=units((8, 10)),
+             note="seven hexes down on grass, one beyond the Fencer's reach: seen"),
+        Case(name="vision:wall", units=units((8, 7)),
+             terrain=[(x, 5, "Xu") for x in range(1, BOARD + 1)],
+             note="a cave wall across the board: the Spearman four hexes away is behind it"),
+        Case(name="vision:kept_after_walking_away", units=units((8, 10)), moves=[("u1", 8, 1)],
+             note="cleared at turn start, still seen after the Fencer walks away from it"),
+    ]
 
 
 # ---------------------------------------------------------------------

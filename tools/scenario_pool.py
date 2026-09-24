@@ -871,7 +871,7 @@ def build_scenario_gamestate(
 
     # Fogless game: underscore attr so GlobalInfo.__deepcopy__
     # carries it through MCTS state copies. Consumed by
-    # visibility.units_visible_to (skips the sight-disc gate) and
+    # visibility.units_visible_to (skips the seen-hex gate) and
     # the encoder's village-ownership fog rule.
     if setup.fogless:
         setattr(gs.global_info, "_fog", False)

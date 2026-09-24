@@ -2,15 +2,16 @@
 //! of `tools/pathfind_sim.walk_move_path` and of the move branch of
 //! `tools/replay_dataset._apply_command` (the landing, the village
 //! capture), with the visibility rules they consume from
-//! `wesnoth_ai/visibility.py`: the hide cover, discovery by adjacency,
-//! the sight disc and the units a side can see. tools/diff_core.py
-//! replays the corpus through both and is the oracle.
+//! `wesnoth_ai/visibility.py`: the hide cover, discovery by adjacency
+//! and the units a side can see, and the fog the mover clears along its
+//! path (core_fog.rs). tools/diff_core.py replays the corpus through
+//! both and is the oracle.
 
 use pyo3::prelude::*;
 
 use crate::core::GameCore;
 use crate::core_attack::apply_illumination;
-use crate::observe::{hex_distance, neighbours};
+use crate::observe::neighbours;
 
 /// `pathfind_sim.UNREACHABLE` (movetype.hpp).
 pub const UNREACHABLE: i64 = 99;
@@ -82,33 +83,14 @@ impl GameCore {
         }
     }
 
-    /// `visibility.visible_hexes_for`: the union of the side's units'
-    /// sight discs, radius max(max_moves, 1).
-    pub fn vision_disc(&self, side: i64) -> Vec<u8> {
-        let h = self.map.h;
-        let mut disc = vec![0u8; h];
-        for u in &self.units {
-            if u.side != side {
-                continue;
-            }
-            let r = u.max_moves.max(1);
-            for j in 0..h {
-                if disc[j] == 0 && hex_distance(u.x, u.y, self.map.hx[j], self.map.hy[j]) <= r {
-                    disc[j] = 1;
-                }
-            }
-        }
-        disc
-    }
-
     /// `visibility.units_visible_to(side)` as one flag per unit: own
     /// units and scenery always; a covered hider only when uncovered
-    /// or discovered by adjacency; the rest inside the sight disc
+    /// or discovered by adjacency; the rest on a hex the side sees
     /// when fog is on.
     pub fn visible_to(&self, side: i64) -> Vec<bool> {
         let n = self.units.len();
         let mut out = vec![false; n];
-        let mut disc: Option<Vec<u8>> = None;
+        let mut seen: Option<Vec<u8>> = None;
         for i in 0..n {
             let u = &self.units[i];
             if u.side == side || self.is_scenery(i) {
@@ -122,8 +104,8 @@ impl GameCore {
                 out[i] = true;
                 continue;
             }
-            let d = disc.get_or_insert_with(|| self.vision_disc(side));
-            if u.hex >= 0 && d[u.hex as usize] != 0 {
+            let s = seen.get_or_insert_with(|| self.seen_by(side));
+            if u.hex >= 0 && s[u.hex as usize] != 0 {
                 out[i] = true;
             }
         }
@@ -279,7 +261,8 @@ impl GameCore {
     /// `_apply_command(["move", xs, ys, from_side])`: the unit on the
     /// source hex (of `from_side` when given) walks the path; the walk
     /// record, the reveals, the landing (position, movement, resting
-    /// dropped) and the village capture follow the Python branch.
+    /// dropped), the fog cleared from every entered hex and the village
+    /// capture follow the Python branch.
     #[pyo3(signature = (xs, ys, from_side=0, enforce_budget=false))]
     fn apply_move(&mut self, xs: Vec<i64>, ys: Vec<i64>, from_side: i64, enforce_budget: bool) -> PyResult<()> {
         if xs.is_empty() || xs.len() != ys.len() {
@@ -296,6 +279,8 @@ impl GameCore {
         if class < 0 || class as usize >= self.classes.read().unwrap().len() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!("unit {} has no movement class", u.id)));
         }
+        let mover_side = u.side;
+        self.track_side(mover_side);
         let out = self.walk_move_path(i, &xs, &ys, enforce_budget);
         let m = xs.len();
         self.last_move_walk = Some((xs[m - 1], ys[m - 1], xs[out.final_idx], ys[out.final_idx], out.reason.to_string()));
@@ -316,6 +301,10 @@ impl GameCore {
             u.drop_status("resting");
             u.side
         };
+        let entered: Vec<usize> = (1..=out.final_idx)
+            .filter_map(|j| self.map.pos_index.get(&(xs[j], ys[j])).copied())
+            .collect();
+        self.clear_fog_from(i, &entered);
         if hex >= 0 && self.map.village_terrain[hex as usize] != 0 {
             self.capture_village(hex as usize, side);
         }

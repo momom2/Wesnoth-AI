@@ -39,6 +39,9 @@ from wesnoth_ai.classes import (
     Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
 from wesnoth_ai import combat as cb
+# The fog each command clears or recalculates (docs/wesnoth_rules.md
+# "Vision and fog").
+from wesnoth_ai.visibility import clear_fog, refog, track_side
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
 from tools.terrain_resolver import strip_start_position, terrain_mask
@@ -1746,6 +1749,13 @@ def build_attack_context(gs: GameState, att: Unit, dfd: Unit,
     )
 
 
+def _clear_fog_if_advanced(gs: GameState, before: Unit, after: Optional[Unit]) -> None:
+    """An advancement or AMLA clears fog around the new unit for its
+    side (advancement.cpp:397-399)."""
+    if after is not None and after is not before:
+        clear_fog(gs, after, [(after.position.x, after.position.y)])
+
+
 def _apply_command(gs: GameState, cmd: list) -> None:
     """Mutate GameState by applying one replay command (compact format
     from replay_extract.extract_replay)."""
@@ -2031,6 +2041,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if events:
             from tools.scenario_events import fire_event
             fire_event(gs, events, "turn refresh")
+        # "Make sure vision is accurate": clear_shroud(side, reset_fog)
+        # after the refresh events (play_controller.cpp:524-525).
+        refog(gs, side)
         return
 
     if kind == "end_turn":
@@ -2064,6 +2077,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             ended = _rebuild_unit(u, statuses=set(u.statuses) - drop)
             new_units.add(ended)
         gs.map.units = new_units
+        # "This is where we refog, after all of a side's events are
+        # done" (play_controller.cpp:582-590).
+        refog(gs, ending_side)
         return
 
     if kind == "move":
@@ -2098,6 +2114,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # played, so a budget overrun can only mean OUR reconstructed
         # MP drifted -- never truncate a human path for it.
         from tools.pathfind_sim import walk_move_path
+        track_side(gs, unit.side)
         out = walk_move_path(gs, unit, xs, ys, enforce_budget=False)
         # Side-channel for the sim's command recorder (mirrors
         # _last_advance_events): where the walk actually stopped vs
@@ -2130,6 +2147,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             current_moves=out.mp_left,
             statuses=new_statuses,
         )
+        # The mover clears fog at every hex it enters (move.cpp:972-976).
+        clear_fog(gs, moved, list(zip(xs[1:out.final_idx + 1], ys[1:out.final_idx + 1])))
         if _terrain_at(gs, tx, ty) == "village":
             _capture_village(gs, tx, ty, moved.side)
         return
@@ -2217,6 +2236,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # only affects this disconnect class.
         if not seed_hex:
             return
+        track_side(gs, att.side)
+        track_side(gs, dfd.side)
 
         ctx = build_attack_context(gs, att, dfd, a_weapon, d_weapon)
 
@@ -2352,7 +2373,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if att_feed_bump:
                 prev = int(getattr(new_att, "_feeding_count", 0) or 0)
                 setattr(new_att, "_feeding_count", prev + 1)
-            _maybe_advance_unit(gs, new_att)
+            _clear_fog_if_advanced(gs, new_att, _maybe_advance_unit(gs, new_att))
         else:
             gs.map.units.discard(att)
             # Plague reverse-direction: defender's plague counter
@@ -2366,6 +2387,12 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 _spawn_plague_corpse(gs, att,
                                      attacker_side=dfd.side,
                                      attacker_name=dfd.name)
+        # The defender's side refogs when the defender died, was slowed
+        # or was petrified in the fight, before any advancement
+        # (attack.cpp:1150-1185 and 1456-1458).
+        dfd_refog = (not result.defender_alive
+                     or any(s in dfd_statuses and s not in dfd.statuses
+                            for s in ("slowed", "petrified")))
         if result.defender_alive:
             new_max = dfd.max_hp + (1 if dfd_feed_bump else 0)
             new_hp = result.defender_hp_after + (1 if dfd_feed_bump else 0)
@@ -2377,7 +2404,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if dfd_feed_bump:
                 prev = int(getattr(new_dfd, "_feeding_count", 0) or 0)
                 setattr(new_dfd, "_feeding_count", prev + 1)
-            _maybe_advance_unit(gs, new_dfd)
+            if dfd_refog:
+                refog(gs, dfd.side)
+            _clear_fog_if_advanced(gs, new_dfd, _maybe_advance_unit(gs, new_dfd))
         else:
             gs.map.units.discard(dfd)
             # Plague: a kill by a [plague] weapon raises a Walking
@@ -2395,6 +2424,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 _spawn_plague_corpse(gs, dfd,
                                      attacker_side=att.side,
                                      attacker_name=att.name)
+            refog(gs, dfd.side)
         return
 
     if kind == "recruit":
@@ -2439,6 +2469,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if _pick:
             setattr(spawned, "_pickadvance", list(_pick))
         gs.map.units.add(spawned)
+        clear_fog(gs, spawned, [(tx, ty)])
         # Bump Wesnoth's monotonic next_unit_id counter (see
         # _build_initial_gamestate setup).
         cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)

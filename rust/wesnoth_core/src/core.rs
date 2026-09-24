@@ -2,15 +2,15 @@
 //!
 //! `GameCore` holds what `wesnoth_ai.classes.GameState` holds and the
 //! per-fork stash the simulator keeps on `global_info`: the units, the
-//! sides, the turn scalars, the village owners, the uncovered hiders
-//! and the per-turn rejection sets. What never changes within a game
-//! is shared across forks behind `Arc`: the map (`MapStatic`, built
-//! once by `wesnoth_ai.game_core` from the hex set, the terrain codes
-//! and the time areas), the unit-type table and the movement classes
-//! (per unit type and slowed status: movement cost, defense subcost
-//! and defense percentage per hex, resolved by Python's terrain
-//! resolver once per map). `fork` is a clone: the dynamic part copies,
-//! the static part is a reference count.
+//! sides, the turn scalars, the village owners, the uncovered hiders,
+//! the per-turn rejection sets and each side's cleared hexes. What
+//! never changes within a game is shared across forks behind `Arc`:
+//! the map (`MapStatic`, built once by `wesnoth_ai.game_core` from the
+//! hex set, the terrain codes and the time areas), the unit-type table
+//! and the movement classes (per unit type and slowed status: movement
+//! cost, defense subcost and defense percentage per hex, resolved by
+//! Python's terrain resolver once per map). `fork` is a clone: the
+//! dynamic part copies, the static part is a reference count.
 //!
 //! Python constructs units (recruits, advancements, plague corpses:
 //! `tools/replay_dataset.py` and `tools/traits.py`) and runs scenario
@@ -198,6 +198,7 @@ pub struct GameCore {
     pub global: GlobalRec,
     pub village_owner: Vec<i64>,     // [H] side or 0
     pub uncovered: Vec<String>,      // sorted
+    pub fog_cleared: Vec<Vec<u8>>,   // per side (index side - 1): [H] cleared hexes, empty = untracked
     pub recruit_rejected: Vec<u8>,   // [H]
     pub move_rejected: Vec<u8>,      // [H]
     pub advance_choices: Vec<i64>,
@@ -329,6 +330,7 @@ impl GameCore {
             global: GlobalRec::default(),
             village_owner: vec![0; h],
             uncovered: Vec::new(),
+            fog_cleared: Vec::new(),
             recruit_rejected: vec![0; h],
             move_rejected: vec![0; h],
             advance_choices: Vec::new(),
@@ -684,8 +686,9 @@ impl GameCore {
 
     /// `classes.state_key`'s content over the same fields: the units
     /// (by id, sorted), the sides, the village owners, the uncovered
-    /// and rejected sets, the turn scalars. Equal states hash equal;
-    /// a changed field changes it (tests/test_game_core.py).
+    /// and rejected sets, the cleared hexes, the turn scalars. Equal
+    /// states hash equal; a changed field changes it
+    /// (tests/test_game_core.py).
     fn state_key(&self) -> i64 {
         let mut hs = Hasher::default();
         let mut order: Vec<usize> = (0..self.units.len()).collect();
@@ -727,6 +730,17 @@ impl GameCore {
         for i in 0..self.map.h {
             if self.recruit_rejected[i] != 0 {
                 hs.add_i(i as i64);
+            }
+        }
+        for (k, v) in self.fog_cleared.iter().enumerate() {
+            if v.is_empty() {
+                continue;
+            }
+            hs.add_i(k as i64 + 1);
+            for (j, &c) in v.iter().enumerate() {
+                if c != 0 {
+                    hs.add_i(j as i64);
+                }
             }
         }
         let g = &self.global;
