@@ -1083,8 +1083,9 @@ the values below.
   them would silently make fog castle hexes ineligible for the
   recruit mask. `wesnoth_ai/encoder.py:1008-1024`.
 - **Unit stream fog-filtered** **[ON]** — own units always; enemies
-  outside sight discs hidden; ambush/submerge/nightstalk units hidden
-  until uncovered. `wesnoth_ai/encoder.py:1137-1158`.
+  on hexes the side does not see hidden (its fog, kept as the engine
+  keeps it: docs/wesnoth_rules.md "Vision and fog");
+  ambush/submerge/nightstalk units hidden until uncovered. `wesnoth_ai/encoder.py:1137-1158`.
 - **Recruit phantoms OWN SIDE ONLY** **[ON]** — emitting them for
   every side was a double fog leak (enemy faction identity + enemy
   keep coordinates). `wesnoth_ai/encoder.py:1190-1235`.
@@ -1163,8 +1164,8 @@ the values below.
 
 `pos_to_hex` map, `recruit_is_ours_np` zero-copy view,
 `visible_unit_ids` frozenset (keyed by stable `u.id` so it survives
-deep-copied GameStates), `_RECRUIT_STATS_CACHE`, and a lazily
-computed vision disc shared between the village fog gate and unit
+deep-copied GameStates), `_RECRUIT_STATS_CACHE`, and the side's seen
+hexes, read once and shared between the village fog gate and unit
 visibility. Plus pinned-memory H2D transfers on CUDA.
 `wesnoth_ai/encoder.py:236-278`, `:666-683`, `:1052-1066`, `:1357`.
 

@@ -76,8 +76,8 @@ def turn_start_states(data: dict):
 
 def village_lead(gs, mover: int, visible_only: bool) -> float:
     """Own villages minus the enemy's: the true count (what global
-    feature 5 carried before the fog gate) or the count inside the
-    mover's vision disc (what a player can know under fog)."""
+    feature 5 carried before the fog gate) or the count on hexes the
+    mover sees (what a player can know under fog)."""
     from wesnoth_ai.visibility import enemy_villages_visible_to
     own = gs.sides[mover - 1].nb_villages_controlled
     enemy = 3 - mover

@@ -39,6 +39,20 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## Vision follows the engine (2026-09-24, FIXED, 0.4.6)
+
+A side sees its fog as the engine keeps it (docs/wesnoth_rules.md
+"Vision and fog"; commits 0b7b3ea, 71f29c8, 73f4c1f). Open:
+- **The reference learned from disc observations.** Its imitation
+  corpus was encoded with the disc; at inference it now sees the
+  engine's fog. The measurement is its recipe retrained under epoch 6
+  and matched against it (800 decisive games); whether to spend it is
+  the user's call.
+- **Not modelled:** `vision=` / `[vision_costs]` (four unit types, none
+  in the default era; such a unit warns), jamming, shared vision, the
+  delay-shroud preference some corpus players may have used, and
+  sighted-move interrupts (exports carry `skip_sighted="all"`).
+
 ## PARKED: the network cannot see the time of day (2026-09-22)
 
 Built and tested on 2026-09-22, **not run**: the user's order is

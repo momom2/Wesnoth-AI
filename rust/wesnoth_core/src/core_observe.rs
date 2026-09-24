@@ -41,7 +41,6 @@ impl GameCore {
         let mut uy = vec![0i64; n];
         let mut uhex = vec![-1i64; n];
         let mut uside = vec![0i64; n];
-        let mut uradius = vec![0i64; n];
         let mut uscenery = vec![0u8; n];
         let mut upetrified = vec![0u8; n];
         let mut uleader = vec![0u8; n];
@@ -53,7 +52,6 @@ impl GameCore {
             uy[i] = u.y;
             uhex[i] = u.hex;
             uside[i] = u.side;
-            uradius[i] = u.max_moves.max(1);                 // visibility.sight_radius_for
             uscenery[i] = self.is_scenery(i) as u8;
             upetrified[i] = u.has_status("petrified") as u8;
             uleader[i] = u.is_leader as u8;
@@ -62,12 +60,12 @@ impl GameCore {
             uzoc[i] = (self.unit_level(i) >= 1) as u8;
         }
         let facts = UnitFacts {
-            ux: &ux, uy: &uy, uhex: &uhex, uside: &uside, uradius: &uradius, uscenery: &uscenery,
+            ux: &ux, uy: &uy, uhex: &uhex, uside: &uside, uscenery: &uscenery,
             upetrified: &upetrified, uleader: &uleader, uhider: &uhider, uzoc: &uzoc,
         };
         let m = &self.map;
-        let view = observe_slices(&m.hx, &m.hy, &m.nbrs, &m.castle_or_keep, &m.keep, &self.recruit_rejected,
-                                  &facts, side, self.global.fog_on);
+        let view = observe_slices(&m.nbrs, &m.castle_or_keep, &m.keep, &self.recruit_rejected,
+                                  self.seen_by(side), &facts, side, self.global.fog_on);
         let mut out = CoreObservation {
             view, unit_hex: uhex, acting: Vec::new(), can_move: Vec::new(), can_attack: Vec::new(),
             landable: Vec::new(), relevant: Vec::new(),
@@ -162,7 +160,7 @@ pub(crate) fn observation_dict<'py>(py: Python<'py>, core: &GameCore, obs: CoreO
     d.set_item("unit_ids", core.units.iter().map(|u| u.id.clone()).collect::<Vec<_>>())?;
     d.set_item("unit_hex", obs.unit_hex.into_pyarray(py))?;
     let v = obs.view;
-    d.set_item("disc", v.disc.into_pyarray(py))?;
+    d.set_item("seen", v.seen.into_pyarray(py))?;
     d.set_item("visible", v.visible.into_pyarray(py))?;
     d.set_item("zoc", v.zoc.into_pyarray(py))?;
     d.set_item("enemy", v.enemy.into_pyarray(py))?;
@@ -188,7 +186,7 @@ pub(crate) fn observation_dict<'py>(py: Python<'py>, core: &GameCore, obs: CoreO
 #[pymethods]
 impl GameCore {
     /// `observe.observe(state, side, reach)` as a dict of arrays: side,
-    /// fog_on, unit_ids (unit order), unit_hex, disc, visible, zoc,
+    /// fog_on, unit_ids (unit order), unit_hex, seen, visible, zoc,
     /// enemy, ally, occupied, inert, recruit_row, network,
     /// leader_on_keep; with reach also acting, unit_can_move,
     /// unit_can_attack, landable [N, H] and relevant.

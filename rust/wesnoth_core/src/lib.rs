@@ -22,6 +22,7 @@ mod core_step;
 mod core_move;
 mod core_attack;
 mod core_observe;
+mod core_fog;
 mod core_encode;
 mod core_sim;
 
@@ -530,6 +531,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 10: nightstalk's cover reads the illuminated time of day; the
     // map's cover flags are named hides_ambush / hides_concealment /
     // hides_submerge.
-    m.add("__phase__", 11)?;
+    // 12: vision follows the engine (docs/wesnoth_rules.md "Vision and
+    // fog"): observe_side takes the side's seen hexes instead of
+    // drawing a disc, and GameCore tracks each side's cleared hexes.
+    m.add("__phase__", 12)?;
     Ok(())
 }

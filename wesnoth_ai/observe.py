@@ -2,12 +2,13 @@
 
 The encoder, the legality mask builder and the visibility module used
 to rebuild the same facts about the side to move from the game state
-on every decision: which hexes it sees, which units it sees, which
-hexes its units may not cross (the reach context), where it may
-recruit and, in the relevant-set basis, which hexes matter this
-decision. `observe(state, side)` computes all of it in one call of the
-Rust kernel (`wesnoth_core.observe_side`, rust/wesnoth_core/src/
-observe.rs) over flat arrays, and `observe(state, side, reach=True)`
+on every decision: which units it sees, which hexes its units may not
+cross (the reach context), where it may recruit and, in the
+relevant-set basis, which hexes matter this decision. `observe(state,
+side)` computes all of it in one call of the Rust kernel
+(`wesnoth_core.observe_side`, rust/wesnoth_core/src/observe.rs) over
+flat arrays and the hexes the side sees (`visibility.visible_hexes_for`,
+the side's fog), and `observe(state, side, reach=True)`
 adds every acting unit's landable row (`wesnoth_core.reach_rows`) and
 the relevant hex set, the union of those rows with the villages, the
 castles, the visible units' hexes and the leader's castle network
@@ -45,7 +46,8 @@ def _kernels() -> Dict[str, object]:
                 import wesnoth_core
             except ImportError:
                 wesnoth_core = None
-            if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 5:
+            # Phase 12: observe_side takes the side's seen hexes.
+            if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 12:
                 for name in ("observe_side", "reach_rows", "rows_from_reach"):
                     _KERNELS[name] = getattr(wesnoth_core, name)
     return _KERNELS
@@ -120,7 +122,7 @@ def map_geometry(state: GameState) -> MapGeometry:
     return geom
 
 
-_ARRAY_FIELDS = ("unit_hex", "disc", "visible", "zoc", "enemy", "ally", "occupied", "inert",
+_ARRAY_FIELDS = ("unit_hex", "seen", "visible", "zoc", "enemy", "ally", "occupied", "inert",
                  "recruit_row", "network", "acting", "unit_can_move", "unit_can_attack",
                  "landable", "relevant", "tok_of_hex")
 
@@ -146,7 +148,7 @@ class Observation:
     geometry: MapGeometry
     unit_ids: List
     unit_hex: np.ndarray              # [N] i64 map index or -1
-    disc: np.ndarray                  # [H] u8
+    seen: np.ndarray                  # [H] u8: the hexes the side sees
     visible: np.ndarray               # [N] u8
     zoc: np.ndarray                   # [H] u8
     enemy: np.ndarray                 # [H] u8
@@ -168,14 +170,14 @@ class Observation:
     # by the encoder, read by the mask builder.
     tok_of_hex: Optional[np.ndarray] = None      # [H] i64
     _units: Optional[List[Unit]] = field(default=None, repr=False)
-    _disc_set: Optional[Set[Tuple[int, int]]] = field(default=None, repr=False)
+    _seen_set: Optional[Set[Tuple[int, int]]] = field(default=None, repr=False)
 
-    def disc_set(self) -> Set[Tuple[int, int]]:
-        """The vision disc as the set of (x, y) the Python API returns."""
-        if self._disc_set is None:
+    def seen_set(self) -> Set[Tuple[int, int]]:
+        """The seen hexes as the set of (x, y) the Python API returns."""
+        if self._seen_set is None:
             keys = self.geometry.keys
-            self._disc_set = set(map(keys.__getitem__, np.nonzero(self.disc)[0].tolist()))
-        return self._disc_set
+            self._seen_set = set(map(keys.__getitem__, np.nonzero(self.seen)[0].tolist()))
+        return self._seen_set
 
     def visible_units(self) -> List[Unit]:
         """`units_visible_to(state, side)`: the god-view list filtered,
@@ -198,7 +200,7 @@ class Observation:
     def detached(self) -> "Observation":
         """A copy without the Unit references (picklable, for RawEncoded)."""
         return Observation(self.side, self.fog_on, self.geometry, self.unit_ids, self.unit_hex,
-                           self.disc, self.visible, self.zoc, self.enemy, self.ally,
+                           self.seen, self.visible, self.zoc, self.enemy, self.ally,
                            self.occupied, self.inert, self.recruit_row, self.network,
                            self.leader_on_keep, self.acting, self.unit_can_move,
                            self.unit_can_attack, self.landable, self.relevant, self.tok_of_hex)
@@ -208,6 +210,28 @@ def _arrays_equal(a, b) -> bool:
     if a is None or b is None:
         return a is None and b is None
     return np.array_equal(a, b)
+
+
+# The seen-hex array of a side's fog, by the identity of the frozenset
+# `visibility.visible_hexes_for` returns (a tracked fog is one object
+# until a command replaces it) and of the geometry.
+_SEEN_ARRAYS: Dict[int, tuple] = {}
+
+
+def seen_array(state: GameState, side: int, geom: MapGeometry) -> np.ndarray:
+    """[H] u8 in map space: the hexes `side` sees."""
+    from wesnoth_ai.visibility import visible_hexes_for
+    seen = visible_hexes_for(state, side)
+    hit = _SEEN_ARRAYS.get(id(seen))
+    if hit is not None and hit[0] is seen and hit[1] is geom:
+        return hit[2]
+    arr = np.zeros(len(geom.keys), dtype=np.uint8)
+    idx = [j for j in map(geom.pos_index.get, seen) if j is not None]
+    arr[idx] = 1
+    if len(_SEEN_ARRAYS) >= 256:
+        _SEEN_ARRAYS.clear()
+    _SEEN_ARRAYS[id(seen)] = (seen, geom, arr)
+    return arr
 
 
 def _hider_hidden(state: GameState, u: Unit, uncovered) -> bool:
@@ -226,7 +250,7 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
     if fn is None:
         return None
     from tools.replay_dataset import _stats_for
-    from wesnoth_ai.visibility import is_scenery_unit, sight_radius_for
+    from wesnoth_ai.visibility import is_scenery_unit
     geom = map_geometry(state)
     units = list(state.map.units)
     n = len(units)
@@ -239,7 +263,6 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
     uhex = np.fromiter((pos_index.get((u.position.x, u.position.y), -1) for u in units),
                        dtype=np.int64, count=n)
     uside = np.fromiter((u.side for u in units), dtype=np.int64, count=n)
-    uradius = np.fromiter((sight_radius_for(u) for u in units), dtype=np.int64, count=n)
     uscenery = np.fromiter((is_scenery_unit(u) for u in units), dtype=np.uint8, count=n)
     upetrified = np.fromiter(("petrified" in (u.statuses or set()) for u in units),
                              dtype=np.uint8, count=n)
@@ -254,11 +277,11 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
         j = pos_index.get(p)
         if j is not None:
             recruit_rej[j] = 1
-    disc, visible, zoc, enemy, ally, occupied, inert, recruit_row, network, on_keep = fn(
-        geom.hx, geom.hy, geom.nbrs, geom.castle_or_keep, geom.keep, recruit_rej,
-        ux, uy, uhex, uside, uradius, uscenery, upetrified, uleader, uhider, uzoc,
+    seen, visible, zoc, enemy, ally, occupied, inert, recruit_row, network, on_keep = fn(
+        geom.nbrs, geom.castle_or_keep, geom.keep, recruit_rej, seen_array(state, side, geom),
+        ux, uy, uhex, uside, uscenery, upetrified, uleader, uhider, uzoc,
         int(side), fog_on)
-    obs = Observation(int(side), fog_on, geom, [u.id for u in units], uhex, disc, visible,
+    obs = Observation(int(side), fog_on, geom, [u.id for u in units], uhex, seen, visible,
                       zoc, enemy, ally, occupied, inert, recruit_row, network, bool(on_keep),
                       _units=units)
     if reach:

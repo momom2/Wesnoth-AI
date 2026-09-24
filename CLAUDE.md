@@ -59,7 +59,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-09-23)
+## Current status (2026-09-04, entries through 2026-09-24)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -676,6 +676,22 @@ State of play:
   covers this and 0.4.0's mini fog: caches from earlier epochs refuse to
   load, a checkpoint from one warns, and Elo measured from here does not
   chain onto earlier numbers.
+- 2026-09-24 (0.4.6): **a side sees its fog as the engine keeps it, and
+  `OBSERVATION_EPOCH` is 6.** The simulator drew a disc of radius
+  max_moves around each unit's current hex. The engine clears what a
+  unit could reach with its full movement at its movement costs, plus
+  the ring around that, keeps what the side cleared during its turn, and
+  recalculates at the side's turn start and end and for a defender that
+  died, was slowed or was petrified (docs/wesnoth_rules.md "Vision and
+  fog"). On 31,137 decisions of 92 fogged corpus games the two views
+  differed at 30,814; of 309,711 enemy units on the board at those
+  decisions, 19,439 were shown only by the engine's rule and 3,341 only
+  by the disc (`tools/analysis/vision_rule_census.py`). The Python
+  applier and the Rust core (phase 12) keep each side's fog; real
+  Wesnoth answers three positions the disc gets wrong as the simulator
+  now does (`tools/hidden_units_oracle.py --only vision:`). Elo measured
+  from here does not chain onto earlier numbers, and the reference was
+  trained on observations drawn with the disc.
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

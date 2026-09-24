@@ -171,7 +171,7 @@ def test_stream_labels_catch_fast_turn_events():
 
 def test_fogless_game_observes_everything():
     """Project round-4: the --fogless-ratio slice must label with
-    WHOLE-BOARD observability -- the sight-disc union censored
+    WHOLE-BOARD observability; the side's seen hexes would censor
     labels by a fog the game does not have."""
     from wesnoth_ai.gbc import _observable_hexes
     sim = fresh_scenario_sim(seed=0, max_turns=6, mini=False)
@@ -187,7 +187,7 @@ def test_fogless_game_observes_everything():
 def test_owner_always_observes_own_unit_death():
     """Round-4 adjacent: the owner's roster shrinks even when the
     death hex is fogged from EVERYONE (a lone unit deep in enemy
-    territory takes its own disc with it)."""
+    territory takes its own view with it)."""
     from wesnoth_ai.gbc import diff_events_obs
     prev = (1, {"v1": (2, "Spearman", (5, 5), 14, False)}, {},
             frozenset(), frozenset())

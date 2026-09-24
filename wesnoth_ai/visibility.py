@@ -8,95 +8,72 @@ view has to be filtered so the model only sees what a real
 Wesnoth client would render for that side.
 
 This module is the single source of truth for that filter.
-`encoder.py`, `action_sampler.py`, and `rewards.py` all import
-from here, so the contract is consistent everywhere.
+`encoder.py`, `action_sampler.py`, `observe.py` and `rewards.py` all
+import from here, so the contract is consistent everywhere; the Rust
+core mirrors it (rust/wesnoth_core/src/core_fog.rs, observe.rs).
+
+Vision and fog (docs/wesnoth_rules.md "Vision and fog")
+=======================================================
+
+A unit sees every hex it could reach in one turn spending its maximum
+movement at its movement costs (doubled when it is slowed), other
+units ignored, plus every hex next to one of those (`unit_vision`).
+
+A side sees its fog: the hexes it has cleared, kept per side on
+`global_info._fog_cleared` ({side: frozenset of (x, y)}, replaced,
+never mutated, so search forks share it safely). The command applier
+(`tools.replay_dataset._apply_command`) keeps it as the engine does:
+
+  refog(state, side)          the side's units' vision from where they
+                              stand: at the side's turn start and end,
+                              and for the defender after a fight that
+                              killed, slowed or petrified it;
+  clear_fog(state, u, hexes)  adds u's vision from each hex: every hex
+                              a mover enters, a recruit's hex, an
+                              advanced unit's hex;
+  track_side(state, side)     starts tracking an untracked side before
+                              a command changes its units.
+
+A side with no tracked fog sees its units' vision from where they
+stand (`side_vision`), which is what the engine clears for every side
+when the game starts. Fog-off games track nothing.
 
 Public API
 ==========
 
-  sight_radius_for(unit) -> int
-      Per-Wesnoth-default sight range in hexes. Defaults to the
-      unit's `max_moves` (the engine's fallback when `vision`
-      isn't specified). Reads `max_moves` from our `Unit` dataclass.
-
-  visible_hexes_for(state, side) -> Set[Tuple[int, int]]
-      Hexes the side can SEE -- union of each of side's units'
-      sight discs. Used for fog-clearing reward and for the
-      sight component of unit-visibility.
-
+  visible_hexes_for(state, side) -> frozenset of (x, y)
+      The hexes the side sees.
   visible_fraction_for(state, side) -> float
-      `len(visible_hexes_for) / total_map_hexes`. Range [0, 1].
-      Used by the continuous-payment fog_reveal_weight shaping
-      reward (see rewards.WeightedReward).
-
+      Their share of the map (the fog-reveal shaping reward).
   units_visible_to(state, side) -> List[Unit]
-      Side's god-view list filtered by the visibility rules:
-        * own-side units: always
-        * enemy units hiding under an active ambush ability AND
-          not on the sim's `_uncovered_units` set: NEVER
-        * other enemy units: only if in `visible_hexes_for(side)`
-      The result is what the policy / sampler should iterate over
-      when treating units as observations.
+      The god-view unit list filtered:
+        * own-side units and scenery: always
+        * enemy units hiding under an active hide-cover ability and
+          neither uncovered nor discovered by adjacency: never
+        * other enemy units: when fog is off or their hex is seen.
 
-Visibility rules
-================
+Shroud is not modelled: every hex's terrain is known, as in the
+multiplayer ladder games we train on (fog on, shroud off).
 
-Wesnoth's UI fog of war hides three things from a side:
-  1. Enemy units outside the side's sight discs.
-  2. Enemy units within sight discs that are hiding via an
-     ability (ambush in forest, concealment in village,
-     submerge in deep water, nightstalk at night) -- unless
-     they have been "uncovered" this turn cycle.
-  3. (Shroud only) terrain itself in unscouted hexes. We
-     don't model shroud separately; the encoder already
-     retains all hex tokens, per the legality-mask contract
-     in CLAUDE.md.
-
-We model rules 1 and 2 with this module. Rule 3 is a no-op
-because our sim doesn't track shroud -- every hex is
-considered terrain-visible. (Wesnoth scenarios used by our
-training set are "fog of war on" with shroud off by default in
-multiplayer ladder, so this matches the training data.)
-
-The sim's `_uncovered_units` set (managed in
-`WesnothSim._refresh_uncovered_state` and the ambush-trigger
-path) is the authoritative record of which hiding units are
-exposed. We read it directly; no copy.
-
-Sight-radius simplification
-===========================
-
-Wesnoth's true vision computation respects terrain (some terrain
-costs more to see through, some -- "vision-cost" -- can block
-vision entirely). We approximate with a flat hex-distance disc of
-radius `max_moves`. That's the engine's fallback when `vision`
-isn't specified and is the default for every unit we encode
-(per `tools/scrape_unit_stats.py`'s vision-field handling).
-
-This loose disc occasionally credits visibility on hexes Wesnoth
-itself wouldn't (e.g., across a vision-blocking mountain). The
-error is small (< 5% of hexes typical) and conservative in the
-right direction for training: the agent learns to fight with
-slightly MORE optimistic vision than Wesnoth provides; on real
-Wesnoth deploy the policy effectively over-estimates its
-information, which is a benign failure mode (the sampler's
-legality mask catches the actual moves Wesnoth would accept).
-
-Dependencies: classes (Unit, GameState), terrain_resolver
-  (hides_cover), replay_dataset (_lawful_bonus_at -- read-only).
-Dependents: rewards (visible_fraction_for), encoder
-  (units_visible_to), action_sampler (units_visible_to),
-  tests/visibility/test_visibility.py.
+Dependencies: classes (Unit, GameState), terrain_resolver (hides_cover),
+  pathfind_sim (the movement cost arrays), replay_dataset
+  (illuminated_lawful_bonus_at).
+Dependents: rewards (visible_fraction_for), encoder and observe
+  (visible_hexes_for, units_visible_to), action_sampler
+  (units_visible_to), replay_dataset (the fog hooks).
 """
 
 from __future__ import annotations
 
-from typing import List, Optional, Set, Tuple
-
-import numpy as np
+import logging
+from heapq import heappop, heappush
+from typing import AbstractSet, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
 from wesnoth_ai.classes import GameState, Unit
 
+log = logging.getLogger("visibility")
+
+Hex = Tuple[int, int]
 
 # Cover abilities -- a unit with one of these CAN hide on the
 # matching terrain / ToD. Match `WesnothSim._AMBUSH_ABILITIES`
@@ -107,114 +84,168 @@ _AMBUSH_ABILITIES = frozenset({
     "ambush", "nightstalk", "concealment", "submerge",
 })
 
+# Unit types whose own cfg declares `vision=` or `[vision_costs]`
+# (wesnoth_src/data/core/units, 1.18.7; pinned by
+# tests/test_vision.py). Neither is modelled: they see with their
+# movement. None is in the default era, the pool or the corpus.
+OWN_VISION_TYPES = frozenset({
+    "Dune Falconer", "Dune Sky Hunter", "Dragonfly", "Grand Dragonfly",
+})
+_WARNED_VISION_TYPES: Set[str] = set()
 
-def sight_radius_for(unit: Unit) -> int:
-    """Wesnoth sight-disc radius for `unit`, in hexes.
-
-    Defaults to `max_moves` (Wesnoth's engine fallback when the
-    unit's `vision` attribute is unset). Our `Unit` dataclass
-    doesn't carry a separate `vision` field -- `max_moves` is
-    the proxy. Always >= 1 so degenerate `moves=0` units (boats
-    of certain scenarios, etc.) still contribute a 1-hex disc.
-    """
-    return max(int(getattr(unit, "max_moves", 5)), 1)
-
-
-def _hex_distance(ax: int, ay: int, bx: int, by: int) -> int:
-    """Wesnoth hex distance (odd-q offset). Inlined from
-    rewards.hex_distance so this module has no cyclic import
-    risk; the formula is verbatim against `wesnoth_src/src/
-    map_location.cpp::distance_between`.
-    """
-    hd = abs(ax - bx)
-    a_even = (ax & 1) == 0
-    b_even = (bx & 1) == 0
-    vpenalty = 0
-    if (a_even and not b_even and ay <= by) or \
-       (b_even and not a_even and by <= ay):
-        vpenalty = 1
-    return max(hd, abs(ay - by) + hd // 2 + vpenalty)
+FOG_CLEARED = "_fog_cleared"
 
 
-# Per-map-constant coordinate arrays, keyed by the hex container's
-# IDENTITY: Map.__deepcopy__ aliases `hexes` across forks, so every
-# fork of one game hits the same entry (project round-1 C1: the
-# rebuild cost 97 us of visible_hexes_for's 256 us on a 902-hex
-# state, under every sim move command, encode, and mask
-# enumeration). The entry stores the container itself, which both
-# pins the id against recycling and makes the identity check exact.
-# Geometry is static per map (terrain events mutate hex properties,
-# never the container), and iteration order is stable per container.
-_GEOM_CACHE: dict = {}
+def vision_points(unit: Unit) -> int:
+    """The unit's vision points: its maximum movement
+    (`unit::vision()`, src/units/unit.hpp:1415-1418 at 1.18.4, for a
+    type without `vision=`)."""
+    if unit.name in OWN_VISION_TYPES and unit.name not in _WARNED_VISION_TYPES:
+        _WARNED_VISION_TYPES.add(unit.name)
+        log.warning("%s declares its own vision or vision costs; the simulator "
+                    "sees with its movement (docs/wesnoth_rules.md, Vision and fog)", unit.name)
+    return max(int(unit.max_moves), 0)
 
 
-def _geometry_arrays(hexes):
-    ent = _GEOM_CACHE.get(id(hexes))
-    if ent is not None and ent[0] is hexes:
-        return ent[1]
-    hex_coords = [(h.position.x, h.position.y) for h in hexes]
-    hxs = np.fromiter((c[0] for c in hex_coords), dtype=np.int64,
-                      count=len(hex_coords))
-    hys = np.fromiter((c[1] for c in hex_coords), dtype=np.int64,
-                      count=len(hex_coords))
-    hx_even = (hxs & 1) == 0
-    if len(_GEOM_CACHE) > 16:
-        _GEOM_CACHE.clear()
-    _GEOM_CACHE[id(hexes)] = (hexes,
-                              (hex_coords, hxs, hys, hx_even))
-    return hex_coords, hxs, hys, hx_even
+# One unit's vision area per (movement cost array, vision points,
+# start hex). The cost arrays come from `pathfind_sim._terrain_arrays_for`,
+# one per map, unit type, slowed status and defense table; the entry
+# keeps the array itself, which pins its id and makes the identity
+# check exact.
+_VISION_CACHE: Dict[tuple, tuple] = {}
+_VISION_CACHE_MAX = 8192
 
 
-def visible_hexes_for(state: GameState,
-                      side: int) -> Set[Tuple[int, int]]:
-    """Set of (x, y) hex coordinates `side` can see in `state`.
+def _vision_area(nbrs, mcost, dsub, start: int, budget: int) -> Iterable[int]:
+    """Hex indices reachable from `start` within `budget` (vertex costs),
+    plus their neighbours: through the Rust reach kernel with an empty
+    context when the wheel is loaded (its reached set is the hexes whose
+    cheapest route costs at most `budget`), else by the search below."""
+    from tools import pathfind_sim
+    if pathfind_sim._RUST is not None:
+        import numpy as np
+        flat, mcost_a, dsub_a = pathfind_sim.rust_arrays(nbrs, mcost, dsub)
+        empty = _empty_context(len(mcost))
+        mp, _cost, _prev = pathfind_sim._RUST.unit_reach_arrays(
+            flat, mcost_a, dsub_a, empty, empty, empty, start, budget, False)
+        reached = np.nonzero(mp >= 0)[0]
+        ring = flat.reshape(-1, 6)[reached].ravel()
+        return np.union1d(reached, ring[ring >= 0]).tolist()
+    return _vision_search(nbrs, mcost, start, budget)
 
-    Computed by iterating each unit on `side` and unioning the
-    sight discs. Returns a fresh Set each call (callers may
-    freeze if they want a long-lived snapshot).
 
-    Cost: O(|units(side)| * |hexes|) per call. Hex iteration
-    is over the side's BUFFER of hex positions which is small in
-    practice (~1500 max on largest ladder maps); typical games
-    have 6-15 units per side, so ~10k-25k distance calls per
-    invocation. In the µs regime; safe to call per-step.
+_EMPTY_CONTEXT: Dict[int, object] = {}
 
-    If the map has no hexes or the side has no units, returns
-    an empty set (the side sees nothing).
-    """
-    visible: Set[Tuple[int, int]] = set()
-    if not state.map.units or not state.map.hexes:
-        return visible
-    our = [u for u in state.map.units if u.side == side]
-    if not our:
-        return visible
-    # Optimization #4 (2026-06-14): vectorize the per-unit distance
-    # disc over all hexes with numpy. The scalar _hex_distance loop
-    # was O(units x hexes) Python calls -- ~4.4x slower on a 1175-hex
-    # ladder map. This is a BIT-IDENTICAL transcription of
-    # `_hex_distance` (odd-q offset; verified against it in
-    # test_visibility); coords are emitted as python ints so set
-    # membership matches the scalar path exactly.
-    hex_coords, hxs, hys, hx_even = _geometry_arrays(state.map.hexes)
-    for u in our:
-        r = sight_radius_for(u)
-        ux, uy = u.position.x, u.position.y
-        hd = np.abs(ux - hxs)
-        # vpenalty mirrors _hex_distance's odd-q vertical penalty:
-        #   (a_even & ~b_even & ay<=by) | (b_even & ~a_even & by<=ay)
-        # with a=(ux,uy) the unit, b=(hx,hy) the hex.
-        a_even = (ux & 1) == 0
-        if a_even:
-            vpen = (~hx_even) & (uy <= hys)
-        else:
-            vpen = hx_even & (hys <= uy)
-        dist = np.maximum(hd, np.abs(uy - hys) + (hd >> 1) + vpen)
-        # .tolist() converts the index array to Python ints in one
-        # C pass; iterating numpy scalars and indexing per element
-        # was 21% slower on the same inputs (project round-2 C13).
-        visible.update(map(hex_coords.__getitem__,
-                           np.nonzero(dist <= r)[0].tolist()))
-    return visible
+
+def _empty_context(h: int):
+    """A zero [H] u8 array: no zone of control, enemy or ally anywhere."""
+    arr = _EMPTY_CONTEXT.get(h)
+    if arr is None:
+        import numpy as np
+        arr = _EMPTY_CONTEXT[h] = np.zeros(h, dtype=np.uint8)
+    return arr
+
+
+def _vision_search(nbrs, mcost, start: int, budget: int) -> Set[int]:
+    """`_vision_area` in Python: Dijkstra over vertex costs."""
+    spent = {start: 0}
+    frontier = [(0, start)]
+    while frontier:
+        cost, i = heappop(frontier)
+        if cost > spent[i]:
+            continue
+        for j in nbrs[i]:
+            if j < 0:
+                continue
+            nxt = cost + mcost[j]
+            if nxt <= budget and nxt < spent.get(j, budget + 1):
+                spent[j] = nxt
+                heappush(frontier, (nxt, j))
+    seen = set(spent)
+    for i in spent:
+        seen.update(j for j in nbrs[i] if j >= 0)
+    return seen
+
+
+def unit_vision(state: GameState, unit: Unit, at: Optional[Hex] = None) -> FrozenSet[Hex]:
+    """Hexes `unit` sees from `at` (default: where it stands): every hex
+    it could reach this turn spending its vision points at its vision
+    costs, other units and zones of control ignored, plus every hex
+    next to one of those (`pathfind::vision_path`,
+    src/pathfind/pathfind.cpp:576-588, and the edges `find_routes`
+    collects, :349-352 and :392-398, at 1.18.4). Vision costs are the
+    movement costs, since no default-era type declares
+    `[vision_costs]`, doubled when the unit is slowed
+    (src/movetype.hpp:69-72, through `_move_cost_at_hex`)."""
+    from tools.pathfind_sim import _terrain_arrays_for
+    pos_to_idx, positions, nbrs, mcost, dsub = _terrain_arrays_for(unit, state)
+    start = pos_to_idx.get(at if at is not None else (unit.position.x, unit.position.y))
+    if start is None:
+        return frozenset()
+    budget = vision_points(unit)
+    key = (id(mcost), budget, start)
+    hit = _VISION_CACHE.get(key)
+    if hit is not None and hit[0] is mcost:
+        return hit[1]
+    seen = frozenset(map(positions.__getitem__, _vision_area(nbrs, mcost, dsub, start, budget)))
+    if len(_VISION_CACHE) >= _VISION_CACHE_MAX:
+        _VISION_CACHE.clear()
+    _VISION_CACHE[key] = (mcost, seen)
+    return seen
+
+
+def side_vision(state: GameState, side: int) -> FrozenSet[Hex]:
+    """The union of the side's units' vision from where they stand."""
+    areas = [unit_vision(state, u) for u in state.map.units if u.side == side]
+    return frozenset().union(*areas)
+
+
+def _fog_on(state: GameState) -> bool:
+    return bool(getattr(state.global_info, "_fog", True))
+
+
+def _set_cleared(state: GameState, side: int, hexes: FrozenSet[Hex]) -> None:
+    """A new dict every time: search forks share the old one."""
+    cleared = dict(getattr(state.global_info, FOG_CLEARED, None) or {})
+    cleared[side] = hexes
+    setattr(state.global_info, FOG_CLEARED, cleared)
+
+
+def visible_hexes_for(state: GameState, side: int) -> AbstractSet[Hex]:
+    """The hexes `side` sees: its cleared hexes when tracked, else its
+    units' vision from where they stand. A frozenset."""
+    tracked = (getattr(state.global_info, FOG_CLEARED, None) or {}).get(side)
+    if tracked is not None:
+        return tracked
+    return side_vision(state, side)
+
+
+def track_side(state: GameState, side: int) -> None:
+    """Start tracking `side`'s fog from its units' vision, before a
+    command moves, replaces or removes its units."""
+    if not _fog_on(state):
+        return
+    if side in (getattr(state.global_info, FOG_CLEARED, None) or {}):
+        return
+    _set_cleared(state, side, side_vision(state, side))
+
+
+def refog(state: GameState, side: int) -> None:
+    """Recalculate `side`'s fog from where its units stand
+    (`actions::recalculate_fog`, src/actions/vision.cpp:702-736)."""
+    if _fog_on(state):
+        _set_cleared(state, side, side_vision(state, side))
+
+
+def clear_fog(state: GameState, unit: Unit, hexes: Iterable[Hex]) -> None:
+    """Add `unit`'s vision from each of `hexes` to its side's fog
+    (`shroud_clearer::clear_unit`, src/actions/vision.cpp:332-371)."""
+    hexes = list(hexes)
+    if not _fog_on(state) or not hexes:
+        return
+    base = visible_hexes_for(state, unit.side)
+    _set_cleared(state, unit.side, frozenset(base).union(
+        *(unit_vision(state, unit, at=h) for h in hexes)))
 
 
 def visible_fraction_for(state: GameState, side: int) -> float:
@@ -233,8 +264,8 @@ def visible_fraction_for(state: GameState, side: int) -> float:
         return 0.0
     # Fogless game: everything is effectively revealed, so the
     # fog-reveal shaping reward saturates rather than paying for
-    # sight-disc coverage that carries no information value.
-    if not getattr(state.global_info, "_fog", True):
+    # vision coverage that carries no information value.
+    if not _fog_on(state):
         return 1.0
     return len(visible_hexes_for(state, side)) / len(hexes)
 
@@ -381,8 +412,8 @@ def enemy_villages_visible_to(state: GameState, side: int,
     count under fog or shroud (src/team.cpp:704-716 knows_about_team:
     "We don't know about enemies"; src/gui/dialogs/game_stats.cpp:139
     fills gold/villages/units only `if(known || see_all)`), so the
-    count a player can form is over the villages inside its own
-    vision disc; with fog off every enemy village counts."""
+    count a player can form is over the villages on hexes it sees;
+    with fog off every enemy village counts."""
     owner_map = getattr(state.global_info, "_village_owner", None) or {}
     fog_on = getattr(state.global_info, "_fog", True)
     if not fog_on:
@@ -407,10 +438,8 @@ def units_visible_to(
       3. Other enemy units: included iff their hex is in
          `visible_hexes_for(state, side)`.
 
-    The visibility-disc computation is shared per call (the
-    side's hex set is materialised once and indexed for every
-    enemy check), so the cost stays in the µs regime even with
-    many enemies.
+    The side's seen hexes are read once per call and indexed for
+    every enemy check.
 
     The legality contract in CLAUDE.md says hexes (not units) are
     always exposed to the encoder; we honor that by not filtering
@@ -419,14 +448,14 @@ def units_visible_to(
     sides need a separate filter at the encoder level (they're a
     distinct fog leak the simple unit filter doesn't cover).
 
-    Callers that already hold the side's vision disc (e.g. the
-    encoder, which may have computed it for the village-ownership
-    fog gate) can pass it as `vis_set` to skip the recompute; when
-    omitted it is computed lazily, at most once per call.
+    Callers that already hold the side's seen hexes (e.g. the
+    encoder, which may have read them for the village-ownership
+    fog gate) can pass them as `vis_set`; when omitted they are read
+    lazily, at most once per call.
 
     Fog can be disabled per-game via `global_info._fog = False`
     (underscore attr so `GlobalInfo.__deepcopy__` carries it through
-    MCTS state copies): the sight-disc gate is skipped and every
+    MCTS state copies): the seen-hex gate is skipped and every
     non-hidden unit is visible. Hide-cover abilities still conceal
     (Wesnoth's ambush et al. work independently of fog).
 
@@ -462,9 +491,9 @@ def units_visible_to(
         if _hide_cover_active(state, u) and u.id not in uncovered:
             if not _discovered_by_adjacency(state, u, side):
                 continue
-        # Second gate: sight disc -- skipped entirely when fog is
-        # off for this game. Compute lazily (skip the work if every
-        # enemy turns out to be hide-blocked).
+        # Second gate: the side's seen hexes -- skipped entirely when
+        # fog is off for this game. Read lazily (skip the work if
+        # every enemy turns out to be hide-blocked).
         if not fog_on:
             out.append(u)
             continue

@@ -221,6 +221,11 @@ impl GameCore {
         }
         let att_id = self.units[a].id.clone();
         let dfd_id = self.units[d].id.clone();
+        let (att_side, dfd_side) = (self.units[a].side, self.units[d].side);
+        self.track_side(att_side);
+        self.track_side(dfd_side);
+        let dfd_was_slowed = self.units[d].has_status("slowed");
+        let dfd_was_petrified = self.units[d].has_status("petrified");
         self.uncover(&att_id);                  // attack.cpp:1378
         let aw = self.weapons_of(a);
         let dw = self.weapons_of(d);
@@ -283,6 +288,11 @@ impl GameCore {
             r.set_item("att_advances", a_alive && a_xp >= att.max_exp)?;
             r.set_item("dfd_advances", d_alive && d_xp >= dfd.max_exp)?;
             r.set_item("plague_forward", plague_forward)?;
+            // attack.cpp:1456-1458: the defender's side refogs when the
+            // defender died, was slowed or was petrified in the fight;
+            // the wrapper does it after the corpses rise.
+            r.set_item("dfd_refog", !d_alive || (out[7] != 0 && !dfd_was_slowed)
+                                    || (out[9] != 0 && !dfd_was_petrified))?;
             r.set_item("plague_reverse", plague_reverse)?;
             r.set_item("dmg_to_defender", (dfd.current_hp - d_hp).max(0))?;
             r.set_item("dmg_to_attacker", (att.current_hp - a_hp).max(0))?;

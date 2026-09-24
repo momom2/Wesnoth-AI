@@ -3,8 +3,9 @@ integration into `encoder.py` and `action_sampler.py`.
 
 The contract:
   * Own-side units: always visible to own side.
-  * Enemy units within sight discs and NOT hiding: visible.
-  * Enemy units outside sight discs: NOT visible.
+  * Enemy units on hexes the side sees and NOT hiding: visible
+    (what a side sees: tests/test_vision.py).
+  * Enemy units on hexes it does not see: NOT visible.
   * Enemy units with active hide-cover ability AND not in
     `global_info._uncovered_units`: NOT visible.
   * Recruit phantoms emitted by the encoder: ONLY for the
@@ -35,9 +36,12 @@ def _hexes_grid(w: int, h: int = 1, terrain=Terrain.FLAT):
 
 
 def _unit(uid: str, x: int, side: int, max_moves: int = 2,
-          abilities=frozenset(), is_leader=False):
+          abilities=frozenset(), is_leader=False, name='Test'):
+    """A unit of type `name`: the placeholder 'Test' pays 1 MP per hex on
+    boards without terrain codes; on coded terrain the vision tests use a
+    real type, whose movement costs the resolver knows."""
     return Unit(
-        id=uid, name='Test', name_id='test', side=side,
+        id=uid, name=name, name_id='test', side=side,
         is_leader=is_leader, position=Position(x=x, y=0),
         max_hp=10, max_moves=max_moves, max_exp=20, cost=10,
         alignment=Alignment.NEUTRAL, levelup_names=tuple(),
@@ -83,12 +87,12 @@ def test_own_units_always_visible():
     assert {u.id for u in seen} == {'mine_close', 'mine_far'}
 
 
-# ---- sight-disc enemy visibility ----------------------------------
+# ---- enemy visibility ------------------------------------------------
 
 def test_enemy_in_sight_is_visible():
     units = [
-        _unit('mine', x=0, side=1, max_moves=3),    # sight radius 3
-        _unit('enemy_close', x=2, side=2),           # within 3 hexes
+        _unit('mine', x=0, side=1, max_moves=3),    # sees x <= 4
+        _unit('enemy_close', x=2, side=2),
     ]
     s = _state(units, _hexes_grid(20))
     seen = {u.id for u in visibility.units_visible_to(s, side=1)}
@@ -97,7 +101,7 @@ def test_enemy_in_sight_is_visible():
 
 def test_enemy_outside_sight_is_invisible():
     units = [
-        _unit('mine', x=0, side=1, max_moves=3),    # sight radius 3
+        _unit('mine', x=0, side=1, max_moves=3),    # sees x <= 4
         _unit('enemy_far', x=10, side=2),            # far outside
     ]
     s = _state(units, _hexes_grid(20))
@@ -142,13 +146,16 @@ def test_ambush_unit_in_forest_is_hidden_until_uncovered():
     2026-09-13 did NOT list it, so the lurker stayed visible there.
     A code the old table happened to cover (`Gg^Fp`) would pass under
     both rules and prove nothing about the fix.
+
+    The observer is a Spearman: forest costs it 2 of its 3 MP, so it
+    reaches x=1 and sees x=2, where the lurker stands.
     """
     forest_hexes = {Hex(position=Position(x=x, y=0),
                        terrain_types=frozenset({Terrain.FOREST}),
                        modifiers=frozenset())
                    for x in range(20)}
     units = [
-        _unit('mine', x=0, side=1, max_moves=3),  # sight 3
+        _unit('mine', x=0, side=1, max_moves=3, name='Spearman'),
         _unit('lurker', x=2, side=2, max_moves=2,
               abilities={'ambush'}),                # inside sight, on forest
     ]
@@ -211,9 +218,10 @@ def test_encoder_omits_fog_hidden_enemy_tokens():
 
 def test_encoder_omits_cover_hidden_enemy_tokens():
     """A unit hidden by its ABILITY, not by distance, must also lose
-    its token. The enemy here is well inside sight range: cover is the
-    only reason it can be absent, and `Gs^Fms` is a forest code the
-    pre-2026-09-13 defense-key table did not list, so this fails
+    its token. The enemy here stands on a hex the side sees (a
+    Spearman with 5 MP reaches x=2 through forest and sees x=3): cover
+    is the only reason it can be absent, and `Gs^Fms` is a forest code
+    the pre-2026-09-13 defense-key table did not list, so this fails
     against that rule.
 
     This is the half the corpus certification could not reach --
@@ -221,7 +229,7 @@ def test_encoder_omits_cover_hidden_enemy_tokens():
     the policy was shown.
     """
     units = [
-        _unit('mine_leader', x=0, side=1, max_moves=3, is_leader=True),
+        _unit('mine_leader', x=0, side=1, max_moves=5, is_leader=True, name='Spearman'),
         _unit('plain_enemy', x=2, side=2),
         _unit('lurker', x=3, side=2, abilities={'ambush'}),
     ]
@@ -257,57 +265,12 @@ def test_encoder_recruit_phantoms_only_for_current_side():
 
 # ---- visible_hexes / visible_fraction -----------------------------
 
-def test_visible_hexes_radius_disc():
-    units = [_unit('u', x=5, side=1, max_moves=2)]   # sight 2
+def test_visible_hexes_are_the_reach_and_the_ring_around_it():
+    """A 2-MP unit on open ground reaches 2 hexes each way and sees the
+    third (tests/test_vision.py covers terrain and the turn)."""
+    units = [_unit('u', x=5, side=1, max_moves=2)]
     s = _state(units, _hexes_grid(20))
-    vis = visibility.visible_hexes_for(s, 1)
-    # All hexes at distance <=2 from (5, 0).
-    expected = {(x, 0) for x in range(3, 8)}   # x=3..7
-    assert vis == expected
-
-
-def _scalar_visible(state, side):
-    """Reference: the pre-optimization scalar sight-disc computation,
-    using the module's verbatim `_hex_distance`. The vectorized
-    `visible_hexes_for` (optimization #4) must match this exactly."""
-    out = set()
-    our = [u for u in state.map.units if u.side == side]
-    coords = [(h.position.x, h.position.y) for h in state.map.hexes]
-    for u in our:
-        r = visibility.sight_radius_for(u)
-        ux, uy = u.position.x, u.position.y
-        for hx, hy in coords:
-            if visibility._hex_distance(ux, uy, hx, hy) <= r:
-                out.add((hx, hy))
-    return out
-
-
-def test_visible_hexes_vectorized_matches_scalar():
-    """Optimization #4: the numpy-vectorized sight disc is BIT-
-    IDENTICAL to the scalar `_hex_distance` loop. Units span both
-    column parities and low/high rows so the odd-q vertical-penalty
-    branches (a_even & ~b_even & ay<=by) AND (b_even & ~a_even &
-    by<=ay) are both exercised, plus varied radii."""
-    hexes = _hexes_grid(14, 7)
-    units = []
-    for uid, x, y, mv in [("a", 2, 0, 2), ("b", 5, 3, 3),
-                          ("c", 8, 6, 4), ("d", 11, 1, 1),
-                          ("e", 7, 5, 5)]:
-        u = _unit(uid, x=x, side=1, max_moves=mv)
-        u.position = Position(x=x, y=y)   # _unit hardcodes y=0
-        units.append(u)
-    # An enemy unit too, to confirm side filtering is unaffected.
-    e = _unit("z", x=4, side=2, max_moves=3)
-    e.position = Position(x=4, y=4)
-    units.append(e)
-    s = _state(units, hexes)
-    got = visibility.visible_hexes_for(s, 1)
-    ref = _scalar_visible(s, 1)
-    assert got == ref, f"vectorized != scalar: {got ^ ref}"
-    # Sanity: result is non-trivial and python-int tuples (set
-    # membership parity with the scalar path).
-    assert got and all(isinstance(c[0], int) and isinstance(c[1], int)
-                       for c in got)
+    assert visibility.visible_hexes_for(s, 1) == {(x, 0) for x in range(2, 9)}
 
 
 def test_visible_fraction_in_unit_interval():
@@ -315,7 +278,7 @@ def test_visible_fraction_in_unit_interval():
     s = _state(units, _hexes_grid(20))
     f = visibility.visible_fraction_for(s, 1)
     assert 0.0 < f <= 1.0
-    assert f == pytest.approx(5/20)
+    assert f == pytest.approx(7/20)
 
 
 # ---- move onto hidden units: Wesnoth blocked/ambush semantics ----
@@ -330,9 +293,9 @@ def test_walk_blocked_by_hidden_enemy_keeps_mp():
     ambush/ZoC-final, move.cpp:1041-1043), and reveals the
     blocker.
 
-    Setup note: sight radius == max_moves, so the mover gets
-    max_moves=1 (sight 1 -> the lurker at distance 3 is fog-hidden
-    and exerts no ZoC) with an explicit walk budget of 4."""
+    Setup note: the mover gets max_moves=1, so it sees x <= 2 (its
+    reach and the ring around it) and the lurker at distance 3 is
+    fog-hidden and exerts no ZoC; the walk budget is an explicit 4."""
     from tools.pathfind_sim import walk_move_path
     units = [
         _unit('mover', x=0, side=1, max_moves=1),

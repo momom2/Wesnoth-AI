@@ -779,7 +779,7 @@ class MCTSPolicy:
         decision -- project round-2 C4/C6: TCS fast turns record no
         training state, so the recorded-only diff mis-stamped their
         events). Diffing HERE keeps retention O(events), not
-        O(decisions x vision-disc) (project round-3 C3). Anchor ids
+        O(decisions x seen hexes) (project round-3 C3). Anchor ids
         are safe: a recorded state is pinned by _pending until
         finalize, so no later object can recycle its address and
         overwrite its anchor entry. No-op when GBC labels are off;
