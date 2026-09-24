@@ -490,10 +490,17 @@ EXCEPT:
    adjacent. This does NOT persist: move the adjacent unit away and
    the hider re-hides.
 2. **STATE_UNCOVERED** — persistent until the hider's own side's
-   turn start (`unit::new_turn`, unit.cpp:1277). Set in exactly two
+   turn start (`unit::new_turn`, unit.cpp:1277), from turn 2 on:
+   `unit::new_turn` runs from `game_board::new_turn`, which
+   `do_init_side` calls only `if(turn() > 1)` (play_controller.cpp:
+   488-490), so a hider revealed on turn 1 stays revealed until its
+   side's turn-2 start. Set in exactly two
    places: `reveal_ambusher` when an ambush/blocked-move reveal
    fires (move.cpp:870), and the hider itself attacking
-   (attack.cpp:1378, unconditional on the attacker).
+   (attack.cpp:1378, unconditional on the attacker). Until 2026-09-24
+   the simulator reset it outside the command applier, at every
+   init_side including turn 1, and replay reconstruction never reset
+   it; `_apply_command`'s init_side does it now for both.
 
 **Why non-obvious:** "I saw it earlier this turn so it stays
 visible" is NOT engine behavior for mere adjacency — only

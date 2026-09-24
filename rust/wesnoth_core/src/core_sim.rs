@@ -1,5 +1,5 @@
 //! Phase 4: what the simulator (tools/wesnoth_sim.py) asks the core
-//! between commands: the per-turn reveal reset, a recruit rejection,
+//! between commands: a recruit rejection,
 //! the progress fingerprint of the no-progress tracker, the sides
 //! with a leader, the structural invariants, the advancement salt.
 
@@ -9,13 +9,6 @@ use crate::core::{GameCore, Hasher};
 
 #[pymethods]
 impl GameCore {
-    /// `WesnothSim._refresh_uncovered_state`: the side's own hiders
-    /// re-hide at its turn start (unit::new_turn, unit.cpp:1277).
-    fn refresh_uncovered(&mut self, side: i64) {
-        let own: Vec<String> = self.units.iter().filter(|u| u.side == side).map(|u| u.id.clone()).collect();
-        self.uncovered.retain(|id| !own.contains(id));
-    }
-
     /// A recruit attempt bounced on (x, y) this turn.
     fn add_recruit_rejected(&mut self, x: i64, y: i64) {
         if let Some(&i) = self.map.pos_index.get(&(x, y)) {

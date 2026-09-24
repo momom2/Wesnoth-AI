@@ -52,8 +52,9 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 12: the core tracks each side's fog.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 12:
+        # Phase 13: the core tracks each side's fog and re-hides hiders
+        # at init_side.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 13:
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
 
@@ -236,7 +237,7 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 12 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 13 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}
