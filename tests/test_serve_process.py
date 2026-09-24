@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import queue as _queue
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -139,9 +140,15 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         # Continuous generation: a publication lands in the serve
         # process WHILE it serves (its SYNC loads under the gate), the
         # stream refuses nothing, and both servers agree afterwards.
+        t_open = time.time()
         stream = pool.stream(base_seed=11, tag=3)
         stream.start()
         first = stream.collect(2, timeout=600.0)
+        print("REPRO first window (actor, index, decisions, no_outcome, start, end rel. open):",
+              [(g.actor, g.index, g.decisions, g.outcome is None,
+                round(g.t_start - t_open, 3), round(g.t_end - t_open, 3)) for g in first.games],
+              "leaves", pool.last_leaves_per_server, "window_s", round(first.seconds, 3),
+              flush=True)
         assert len(first.games) == 2
         # Both actors play through the first window, each on its own
         # server, so both serve in it.
