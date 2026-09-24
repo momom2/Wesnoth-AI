@@ -2017,6 +2017,15 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             )
             new_units.add(healed)
         gs.map.units = new_units
+        # The side's revealed hiders hide again: unit::new_turn clears
+        # STATE_UNCOVERED (unit.cpp:1277), inside board_.new_turn's
+        # `turn() > 1` gate with the move refresh (play_controller.cpp:
+        # 488-490). A new set: search forks share the old one.
+        if not first_turn:
+            uncovered = getattr(gs.global_info, "_uncovered_units", None)
+            if uncovered:
+                own = {u.id for u in gs.map.units if u.side == side}
+                gs.global_info._uncovered_units = {i for i in uncovered if i not in own}
 
         # Income & upkeep (side_income), paid only when turn > 1:
         # Wesnoth's "no income on the first side turn" rule.

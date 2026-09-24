@@ -100,8 +100,8 @@ impl GameCore {
     /// events: the side to move, the rejection sets, the turn counter
     /// and time of day at side 1, healing (heal.cpp::calculate_healing
     /// as the Python transcribes it), the move refresh, income and
-    /// upkeep (play_controller.cpp:524-534), and the side's fog
-    /// recalculated.
+    /// upkeep (play_controller.cpp:524-534), the side's revealed hiders
+    /// hidden again after turn 1, and the side's fog recalculated.
     fn apply_init_side(&mut self, side: i64) -> PyResult<()> {
         let h = self.map.h;
         self.global.current_side = side;
@@ -185,6 +185,12 @@ impl GameCore {
                     u.has_attacked = false;
                 }
             }
+        }
+        if !first_turn {
+            // unit::new_turn clears STATE_UNCOVERED (unit.cpp:1277)
+            // inside board_.new_turn's turn() > 1 gate.
+            let own: Vec<String> = self.units.iter().filter(|u| u.side == side).map(|u| u.id.clone()).collect();
+            self.uncovered.retain(|id| !own.contains(id));
         }
         if side >= 1 && (side as usize) <= self.sides.len() && turn > 1 {
             let owned = self.sides[side as usize - 1].nb_villages;

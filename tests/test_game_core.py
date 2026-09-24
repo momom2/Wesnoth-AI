@@ -6,7 +6,7 @@ attacks; sides; the turn scalars; the village owners, the uncovered and
 rejected sets, the advancement queue, the last walk and strikes) and
 share the hex set by identity. A fork must not share dynamic state
 with its parent. The core's state key must agree with itself on equal
-states and change with any modeled field. Skipped without the phase-7
+states and change with any modeled field. Skipped without the phase-13
 wheel.
 """
 from __future__ import annotations
@@ -266,71 +266,21 @@ def _twin_sims(seed: int, *, mini: bool, max_turns: int):
     return py, core
 
 
-class _Brawler:
-    """A deterministic test driver: recruits like the dummy policy,
-    then walks every unit toward the nearest enemy on the sim's own
-    planner and attacks when adjacent."""
-
-    def __init__(self):
-        from wesnoth_ai.dummy_policy import DummyPolicy
-        self.dummy = DummyPolicy()
-
-    def select_action(self, gs, **kw):
-        from tools.abilities import hex_neighbors
-        from tools.pathfind_sim import ReachContext, unit_reach
-        from wesnoth_ai.classes import Position
-        from wesnoth_ai.rewards import hex_distance
-        from wesnoth_ai.visibility import is_scenery_unit
-        side = gs.global_info.current_side
-        units = sorted(gs.map.units, key=lambda u: u.id)
-        mine = [u for u in units if u.side == side]
-        leader = next((u for u in mine if u.is_leader), None)
-        if leader is None:
-            return {"type": "end_turn"}
-        rec = self.dummy._try_recruit(leader, gs.sides[side - 1], gs, mine)
-        if rec is not None:
-            return rec
-        enemies = [u for u in units if u.side in (1, 2) and u.side != side and not is_scenery_unit(u)]
-        if not enemies:
-            return self.dummy.select_action(gs, **kw)
-        enemy_ids = {e.id for e in enemies}
-        at = {(u.position.x, u.position.y): u for u in units}
-
-        def dist(pos):
-            return min(hex_distance(pos[0], pos[1], e.position.x, e.position.y) for e in enemies)
-
-        for u in mine:
-            if "petrified" in (u.statuses or ()):
-                continue
-            if not u.has_attacked and u.attacks:
-                for nb in hex_neighbors(u.position.x, u.position.y):
-                    e = at.get(nb)
-                    if e is not None and e.id in enemy_ids:
-                        return {"type": "attack", "start_hex": u.position,
-                                "target_hex": Position(x=nb[0], y=nb[1]), "attack_index": 0}
-            if u.current_moves <= 0:
-                continue
-            reach = unit_reach(u, gs, ReachContext.for_side(gs, side, exclude_unit=u))
-            best = min(reach.landable, key=dist, default=None)
-            if best is not None and dist(best) < dist((u.position.x, u.position.y)):
-                return {"type": "move", "start_hex": u.position, "target_hex": Position(x=best[0], y=best[1])}
-        return {"type": "end_turn"}
-
-
 def test_simulator_on_the_core_plays_the_python_game():
     """Deterministic drivers play twin simulators, the Python state of
     record against the core: the same commands with the same extras
     (the recorder's attack and advancement side channels included),
     the same end state, and a fork of the core sim leaves its parent
-    untouched. One game fights (`_Brawler`), one random-walks."""
+    untouched. One game fights (`Brawler`), one random-walks."""
     import wesnoth_ai.dummy_policy as dummy_policy
+    from tests.sim_test_helpers import Brawler
     from wesnoth_ai.classes import state_key
     from wesnoth_ai.dummy_policy import DummyPolicy
     total = attacks = 0
     cap = dummy_policy._BOOTSTRAP_UNITS
     dummy_policy._BOOTSTRAP_UNITS = 8
     try:
-        total, attacks = _twin_game(3, True, 10, _Brawler(), state_key, total, attacks)
+        total, attacks = _twin_game(3, True, 10, Brawler(), state_key, total, attacks)
         total, attacks = _twin_game(5, False, 4, DummyPolicy(), state_key, total, attacks)
     finally:
         dummy_policy._BOOTSTRAP_UNITS = cap

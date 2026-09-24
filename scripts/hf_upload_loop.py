@@ -155,7 +155,8 @@ def _timeout_for(src: str) -> int:
 def run_cycle(uploader: Callable[[str, str], bool],
               state: Dict) -> None:
     """One sweep: campaign files (signature-gated, all-or-retry),
-    validation exports (each once), games-log tarball. `uploader(src,
+    validation exports (each once), games-log tarball, game records
+    (each file again when it has grown). `uploader(src,
     dst_in_repo) -> bool`; False means the file didn't land and the
     relevant signature must NOT advance. Ends with the heartbeat
     line -- every cycle prints exactly one `cycle ...` line, so
@@ -216,6 +217,20 @@ def run_cycle(uploader: Callable[[str, str], bool],
                             HF_PREFIX + "games_log.tar.gz"):
                     state["last_games_sig"] = gsig
                     did.append(f"games_log ({gsig[0]} files)")
+        # Whole-game records (tools/game_record.py): one gzip JSON-lines
+        # file per actor per run, appended as games finish; a file is
+        # uploaded again whenever it has grown.
+        rdir = Path(os.environ.get("GAME_RECORD_DIR", "training/game_records"))
+        if rdir.is_dir():
+            sizes = state.setdefault("record_sizes", {})
+            for f in sorted(rdir.rglob("*.jsonl.gz")):
+                rel = f.relative_to(rdir).as_posix()
+                size = os.path.getsize(f)
+                if sizes.get(rel) == size:
+                    continue
+                if uploader(str(f), f"{HF_PREFIX}game_records/{rel}"):
+                    sizes[rel] = size
+                    did.append(f"records {rel}")
     except Exception as e:                          # noqa: BLE001
         # Transient FS/Hub errors must not kill the loop -- the next
         # cycle retries.
