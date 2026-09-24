@@ -41,8 +41,8 @@ per worker, 100s of KB). Either way, workers treat them as read-only.
 Failure mode: any exception inside the worker on a single replay is
 caught, logged, and turned into a `("file_error", seq, gz_name,
 err_str)` message — the trainer skips that file and moves on. A
-worker only exits cleanly when it pops the sentinel `None` from the
-input queue.
+worker exits when it pops the sentinel `None` from the input queue,
+or once the trainer is gone (`serve_files`).
 """
 
 from __future__ import annotations
@@ -53,6 +53,12 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Callable, Dict, List
+
+from tools.mp_teardown import ParentGone, get_while_parent_lives, put_while_parent_lives
+
+# How long a read or a write waits before checking that the trainer is
+# still alive (seconds); the actors' period (tools/actor_worker.py).
+_PARENT_POLL = 2.0
 
 
 # Resolve the project root from this file's location so workers can
@@ -127,22 +133,33 @@ def worker_main(
 
 def serve_files(in_q, out_q, encode_file: Callable[[str], List]) -> None:
     """The worker's loop: take `(seq, gz_path)` items until the sentinel
-    None, and ship `encode_file(gz_path)` for each, or its error."""
+    None, and ship `encode_file(gz_path)` for each, or its error.
+
+    Returns once the trainer is gone. A spawned worker holds both ends of
+    both queues, so neither pipe ever breaks: a killed trainer (an OOM
+    kill, or the SL relaunch's pkill, which matches the trainer's command
+    line and not the workers') would leave it waiting forever for a
+    replay, or for room on its full output queue. So every read and
+    write waits in _PARENT_POLL slices and checks the trainer between
+    them (tools/mp_teardown.get_while_parent_lives)."""
     log = logging.getLogger("encode_worker")
-    while True:
-        item = in_q.get()
-        if item is None:
-            out_q.put(("worker_exit",))
-            return
-        seq, gz_path = item
-        gz_name = Path(gz_path).name
-        try:
-            # One put() per replay amortizes pickle cost across all its
-            # pairs. An empty list is valid (no actionable pairs): the
-            # trainer sees file_done with n=0 and moves on.
-            msg = ("file", seq, encode_file(gz_path), gz_name)
-        except Exception as e:
-            tb = traceback.format_exception_only(type(e), e)[-1].strip()
-            msg = ("file_error", seq, gz_name, tb)
-            log.debug(f"  worker skip {gz_name}: {e}")
-        out_q.put(msg)
+    try:
+        while True:
+            item = get_while_parent_lives(in_q, _PARENT_POLL)
+            if item is None:
+                put_while_parent_lives(out_q, ("worker_exit",), _PARENT_POLL)
+                return
+            seq, gz_path = item
+            gz_name = Path(gz_path).name
+            try:
+                # One put() per replay amortizes pickle cost across all
+                # its pairs. An empty list is valid (no actionable
+                # pairs): the trainer sees file_done with n=0.
+                msg = ("file", seq, encode_file(gz_path), gz_name)
+            except Exception as e:
+                tb = traceback.format_exception_only(type(e), e)[-1].strip()
+                msg = ("file_error", seq, gz_name, tb)
+                log.debug(f"  worker skip {gz_name}: {e}")
+            put_while_parent_lives(out_q, msg, _PARENT_POLL)
+    except ParentGone:
+        log.warning("encode worker: the trainer process is gone; exiting")

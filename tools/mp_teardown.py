@@ -165,19 +165,51 @@ def parent_gone() -> bool:
     return parent is not None and not parent.is_alive()
 
 
-def start_child(ctx, body: Callable, args: tuple, name: str):
-    """Start a daemon process of `ctx` that runs `body(*args)` through
-    `run_child`; returns the started process."""
-    p = ctx.Process(target=run_child, args=(body, *args), daemon=True, name=name)
+class ParentGone(Exception):
+    """The process that spawned this one has died: nobody will read what
+    this one sends, nor send it anything."""
+
+
+def get_while_parent_lives(q, poll: float):
+    """`q.get()`, waiting in `poll`-second slices. Raises ParentGone once
+    the parent has died, checked before every read, so an orphan does
+    not work through what is still queued."""
+    while True:
+        if parent_gone():
+            raise ParentGone
+        try:
+            return q.get(timeout=poll)
+        except _queue.Empty:
+            pass
+
+
+def put_while_parent_lives(q, item, poll: float) -> None:
+    """`q.put(item)` on a bounded queue, waiting for room in `poll`-second
+    slices. Raises ParentGone once the parent has died."""
+    while True:
+        if parent_gone():
+            raise ParentGone
+        try:
+            q.put(item, timeout=poll)
+            return
+        except _queue.Full:
+            pass
+
+
+def start_child(ctx, body: Callable, args: tuple, name: str, kwargs: Optional[dict] = None):
+    """Start a daemon process of `ctx` that runs `body(*args, **kwargs)`
+    through `run_child`; returns the started process."""
+    p = ctx.Process(target=run_child, args=(body, *args), kwargs=kwargs or {},
+                    daemon=True, name=name)
     p.start()
     return p
 
 
-def run_child(body: Callable, *args) -> None:
+def run_child(body: Callable, *args, **kwargs) -> None:
     """The process target `start_child` gives every child: runs
-    `body(*args)`. When the body ends, however it ends, after this
-    process's parent died, the process exits without writing out what it
-    put on the queues among `args`.
+    `body(*args, **kwargs)`. When the body ends, however it ends, after
+    this process's parent died, the process exits without writing out
+    what it put on the queues among its arguments.
 
     Nobody will read those: the parent is dead, and the pipes never
     break, since this child holds their read ends itself. The exit would
@@ -191,12 +223,12 @@ def run_child(body: Callable, *args) -> None:
     and a child that stopped writing mid-message would leave it a
     message whose remainder never comes."""
     try:
-        body(*args)
+        body(*args, **kwargs)
     finally:
         if parent_gone():
             log.warning(f"{mp.current_process().name}: the parent process is gone; "
                         f"exiting without writing out what is left on its queues")
-            for q in _queues_in(args):
+            for q in _queues_in((*args, *kwargs.values())):
                 q.cancel_join_thread()
 
 
