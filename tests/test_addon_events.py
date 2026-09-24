@@ -337,7 +337,7 @@ def test_object_effects_survive_advancement():
 
 
 def test_end_turn_mp_deficit_clears_resting():
-    """unit::end_turn (unit.cpp:1078-1091, 1.18.4): a unit ending its
+    """unit::end_turn (unit.cpp:1280-1292, 1.18.4): a unit ending its
     side's turn with remaining MP != max MP loses `resting`, even if
     it never moved or fought -- MP-draining events count as activity.
     A unit at full MP keeps resting."""

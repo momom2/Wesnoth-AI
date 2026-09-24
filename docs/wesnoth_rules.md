@@ -815,9 +815,9 @@ then the `turn refresh` WML event fires (`pump().fire("turn_refresh")`
 — space and underscore are interchangeable in event names: scenario
 WML writes `name=turn refresh` and it matches).
 
-`src/units/unit.cpp:1078-1091` `unit::end_turn` (via
-`game_board::end_turn(side)`, game_board.cpp:61-67, current side's
-units only):
+`src/units/unit.cpp:1280-1292` `unit::end_turn` (via
+`game_board::end_turn(side)`, `src/game_board.cpp:79-86`, current
+side's units only; 1.18.4, line numbers re-read 2026-09-24):
 ```cpp
 set_state(STATE_SLOWED,false);
 if((movement_ != total_movement()) && !(get_state(STATE_NOT_MOVED))) {
@@ -836,6 +836,100 @@ survivor whose ZoC forked the whole game). Sim port:
 `tools/replay_dataset.py` end_turn handler + `turn refresh` firing
 at the end of init_side; MODIFY_UNIT expands to `[modify_unit]` in
 `tools/scenario_events.py::_load_core_macros`.
+
+### End of a side's turn: the same for every controller, AI included
+
+A side's turn ends through one path whatever controls it (1.18.4,
+read 2026-09-24). `play_controller::play_side`
+(`src/play_controller.cpp:1279-1308`) runs `maybe_do_init_side()`,
+then `play_side_impl()`, whose AI branch is
+(`src/playsingle_controller.cpp:497-498`)
+```cpp
+} else if(current_team().is_local_ai() || (current_team().is_local_human() && current_team().is_droid())) {
+    play_ai_turn();
+```
+and `play_ai_turn` finishes with `require_end_turn();` (`:676-678`).
+`play_side` then calls `sync_end_turn()`, which records `[end_turn]`
+and sets the `TURN_ENDED` phase (`:752-774`). Back in `play_some`
+(`:227-229`):
+```cpp
+if (!is_regular_game_end() && gamestate().in_phase(game_data::TURN_ENDED)) {
+    finish_side_turn();
+}
+```
+and `finish_side_turn` (`:243-254`) calls `finish_side_turn_events()`
+(`src/play_controller.cpp:571-595`), in order:
+```cpp
+gamestate().board_.end_turn(current_side());
+...
+// Clear shroud, in case units had been slowed for the turn.
+actions::clear_shroud(current_side());
+
+pump().fire("side_turn_end");
+pump().fire("side_" + side_num + "_turn_end");
+pump().fire("side_turn_" + turn_num + "_end");
+pump().fire("side_" + side_num + "_turn_" + turn_num + "_end");
+// This is where we refog, after all of a side's events are done.
+actions::recalculate_fog(current_side());
+check_victory();
+```
+`game_board::end_turn` (`src/game_board.cpp:79-86`) calls
+`unit::end_turn` on each of that side's units
+(`src/units/unit.cpp:1280-1292`):
+```cpp
+expire_modifications("turn end");
+
+set_state(STATE_SLOWED,false);
+if((movement_ != total_movement()) && !(get_state(STATE_NOT_MOVED))) {
+    resting_ = false;
+}
+
+set_state(STATE_NOT_MOVED,false);
+// Clear interrupted move
+set_interrupted_move(map_location());
+```
+
+**Why non-obvious**: an AI side's turn looks like it needs no ending
+-- nobody clicks "end turn" -- so a port that drives a neutral side
+with its own loop can record the `[end_turn]` and skip the effects.
+The effects are real on the mini maps: a tentacle slowed by a player
+stays slowed until ITS side's turn ends, and a tentacle pinned at 0 MP
+by `turn refresh` must lose `resting` there, or it rest-heals +2 on
+top of regeneration (previous entry). `unit::end_turn` is the only
+turn-boundary code that clears `STATE_SLOWED` (the other clear is
+`unit::new_scenario`, `src/units/unit.cpp:1303`), so the units of a
+controller=null side, which never ends a turn, keep a slow across
+turns: Silverhead Crossing's Tentacle, once slowed, stays slowed unless
+it advances (an AMLA clears the slow, entry "AMLA grants +3 max_hp").
+The simulator opens and closes the neutral side's turn through the same
+appliers as a player's (`WesnothSim._play_neutral_turn`); the default
+AI's attacks in between are `tools/neutral_ai.py`.
+
+What the applier models of this list: slow expiry, the `resting`
+rule and the refog (`tools/replay_dataset.py` end_turn handler, Rust
+`apply_end_turn`). Not modelled, with the reason each is safe today:
+- `STATE_NOT_MOVED`. Only `unit::remove_movement_ai` sets it, on a unit
+  at full movement (`src/units/unit.cpp:2784-2791`), and the default AI
+  calls that through a stop-unit action that is not recorded
+  (`src/ai/actions.cpp:912-913`). Its move-to-targets phase hands a
+  guardian with movement left a move from its hex to its hex
+  (`src/ai/default/ca_move_to_targets.cpp:269-277`), which becomes that
+  stop (`src/ai/actions.cpp:496-507`). So the engine's guardian ends its
+  turn at 0 MP with `resting` kept, where ours ends it at full MP with
+  `resting` kept: the same healing, but the engine's guardian shows 0 MP
+  until its next turn. Replay playback replays the recorded commands
+  instead of running the AI, so a replay, and our reconstruction of it,
+  shows full MP as the simulator does. (Read from the source on
+  2026-09-24, not observed in a running game.)
+- Interrupted moves: nothing we interpret sets them.
+- `expire_modifications("turn end")`: no pool scenario creates a
+  `duration=turn end` object. The one core macro that does,
+  `FORCE_CHANCE_TO_HIT` in `data/core/macros/utils.cfg`, is used by no
+  multiplayer scenario or tracked add-on, and the two scenarios that
+  create one in Lua, 2p_Dark_Forecast and 2p_Isle_of_Mists, are outside
+  the pool.
+- The `side turn end` events: none in `data/multiplayer`,
+  `data/core/macros` or the three tracked add-ons (grep, 2026-09-24).
 
 ### Healing vs poison
 

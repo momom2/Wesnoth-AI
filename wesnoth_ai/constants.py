@@ -234,4 +234,11 @@ DEFAULT_FACTIONS = (
 #      again at its turn start after turn 1 (unit::new_turn), as the
 #      simulator did; the simulator no longer does it at turn 1, where
 #      the engine does not either.
-OBSERVATION_EPOCH = 7
+#   8  (2026-09-24) the simulator ends the neutral side's turn (the
+#      tentacles of six mini maps) through the end_turn applier, as the
+#      engine does for every side: a slowed tentacle's slow expires, and
+#      a tentacle pinned at 0 MP loses `resting` and heals by
+#      regeneration alone (docs/wesnoth_rules.md "End of a side's turn").
+#      Replay reconstruction already applied it, so the corpora it
+#      builds are unchanged; generated games on those maps change.
+OBSERVATION_EPOCH = 8
