@@ -1367,25 +1367,23 @@ note at the top. It applies to the REINFORCE path only.
   forwards. Activated for tier-b without a fresh A/B (user accepted
   the arithmetic). Caveat: cross-actor dynamic batching breaks
   bit-determinism of training.
-- **Spool workers** **[OFF]** (`--spool-workers 0`) — **the measured
-  winner.** N independent processes each play whole games with their
-  own in-process GPU forwards and atomically spool one pickle per
-  finished game; the learner consumes them and saves checkpoints the
-  workers hot-reload on mtime change. Saturated a 4090 at 99%.
-  `tools/selfplay_worker.py:1-20`; ingest `tools/sim_self_play.py:1080-1379`.
-  Warning: training is no longer bit-deterministic under the actor
-  pool (dynamic cross-actor batching).
-- **VRAM-budgeted device split + reactive demotion** **[ON when spool
-  is used]** — `SPOOL_WORKER_VRAM_BYTES = 640 MiB`,
+- **Spool workers** **[REMOVED 2026-09-24]** (user ruling; off by
+  default since 2026-08-10, and its workers never noticed a dead
+  learner). N independent processes each played whole games with
+  their own in-process GPU forwards and atomically spooled one pickle
+  per finished game; the learner consumed them and saved checkpoints
+  the workers hot-reloaded on mtime change. Saturated a 4090 at 99%
+  at tier-a.
+- **VRAM-budgeted device split + reactive demotion** **[REMOVED
+  2026-09-24, with the spool]** — `SPOOL_WORKER_VRAM_BYTES = 640 MiB`,
   `TRAINER_VRAM_RESERVE_BYTES = 15 GiB`; a one-way per-iteration
   demotion ratchet driven by the iteration's true backward peak, plus
   an OOM emergency retry (empty_cache → demote one worker → retry
   once). *Why:* the 2026-07-18 incident — 56 auto-CUDA workers on a
   24GB 4090 left the trainer 318MB short and crash-looped it through
   3 OOM deaths; the learner's backward peak GROWS with play quality
-  (7.1 → 12.6 GiB across two days at unchanged settings).
-  `tools/sim_self_play.py:936-945`, `:1245-1277`, `:1892-1910`;
-  derivation in `docs/design_constants.md`.
+  (7.1 → 12.6 GiB across two days at unchanged settings). The OOM
+  retry (empty_cache, retry once) stays in `run_iteration`.
 - **Device-aware `train_batch_size`** — `1` in `TrainerConfig`
   (`wesnoth_ai/trainer.py:226`), **128 on CUDA at the CLI**
   (`tools/sim_self_play.py:3284-3292`). *Why:* on CPU, batching the

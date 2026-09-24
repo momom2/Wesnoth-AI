@@ -649,16 +649,8 @@ fi
 
 # Both spellings: torch <=2.7 reads PYTORCH_CUDA_ALLOC_CONF, newer
 # reads PYTORCH_ALLOC_CONF.
-# SPOOL_WORKERS / TRAIN_BATCH: GPU-memory knobs, overridable via
-# -e at create time for smaller cards (16GB: 12 / 48; the 24GB
-# defaults 16 / 64 measured ~17GB with creep).
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-# GPU memory budget (24GB card, learned from the 2026-07-06 OOM):
-# each spool worker pins a ~560MB CUDA context + model, so
-# 24 workers (13.7GB) + trainer peak at batch 128 (~10GB) OOM'd
-# mid-train-step (and allocator thrash made the step take 22 min).
-# 16 workers (~9GB) + batch 64 (~5GB) leaves real headroom.
 # 48 actor processes x (ctrl/resp queues + shipped experience pipes)
 # exceed the container's default 1024-fd soft limit (observed
 # 2026-07-02: OSError errno 24 in multiprocessing resource_sharer).
@@ -694,22 +686,16 @@ fi
 # production path -- weightless actor processes ship every leaf
 # forward to the learner's central GPU batching server. The measured
 # ~200 req/s server ceiling is 3-10x what 15M needs (20-62 req/s at
-# 4-7k steps/hr), while spool workers' 15M CPU forwards project to
-# ~2k steps/hr. Spool stays as the debug fallback: pass
-# -e SPOOL_WORKERS=N (>0) to get the old topology. Caveat: training
-# is not bit-deterministic under the pool (dynamic cross-actor
-# batching). games-per-iter stays decoupled from the actor count
-# (extra actors deepen the replay buffer, not the iteration).
-if [ "${SPOOL_WORKERS:-0}" -gt 0 ]; then
-    TOPO_ARGS="--spool-workers ${SPOOL_WORKERS} --spool-worker-device ${SPOOL_WORKER_DEVICE:-auto}${SPOOL_CUDA_WORKERS:+ --spool-cuda-workers $SPOOL_CUDA_WORKERS}"
-    TOPO_DESC="spool=${SPOOL_WORKERS}"
-else
-    # Size from the CGROUP CPU QUOTA, not nproc: inside a Vast
-    # container nproc reports the HOST's cores (measured 2026-08-10:
-    # nproc=120 on a 38.4-core slice; /proc/loadavg is host-wide for
-    # the same reason). cgroup v2 cpu.max = "quota period"; v1 =
-    # cfs_quota_us/cfs_period_us; "max"/absent = uncapped -> nproc.
-    _CORES=$("$PY" - <<'PYEOF'
+# 4-7k steps/hr). Caveat: training is not bit-deterministic under
+# the pool (dynamic cross-actor batching). games-per-iter stays
+# decoupled from the actor count (extra actors deepen the replay
+# buffer, not the iteration).
+# Size from the CGROUP CPU QUOTA, not nproc: inside a Vast
+# container nproc reports the HOST's cores (measured 2026-08-10:
+# nproc=120 on a 38.4-core slice; /proc/loadavg is host-wide for
+# the same reason). cgroup v2 cpu.max = "quota period"; v1 =
+# cfs_quota_us/cfs_period_us; "max"/absent = uncapped -> nproc.
+_CORES=$("$PY" - <<'PYEOF'
 import os
 def cores():
     try:
@@ -729,19 +715,18 @@ def cores():
 print(cores())
 PYEOF
 )
-    ACTOR_POOL="${ACTOR_POOL:-$(( _CORES - 4 ))}"
-    [ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
-    # Server fuse cap: fuse<=32 STILL OOM'd 19 min in (2026-08-10,
-    # attempt 2) -- the collision is a train_step backward overlapping
-    # BOTH serve threads' fused forwards (the MHA python path
-    # materializes S^2 attention per layer). 16 x 2 threads + the
-    # B=32 training chunks fit the 24GB card; raise only with
-    # measured VRAM headroom. TRAIN_BATCH is the chunk size, not the
-    # gradient batch (loss is /N-accumulated) -- memory-neutral to
-    # training dynamics.
-    TOPO_ARGS="--actor-pool ${ACTOR_POOL} --actor-max-batch ${ACTOR_MAX_BATCH:-16}"
-    TOPO_DESC="actor-pool=${ACTOR_POOL} (quota ${_CORES} cores, fuse<=${ACTOR_MAX_BATCH:-16})"
-fi
+ACTOR_POOL="${ACTOR_POOL:-$(( _CORES - 4 ))}"
+[ "$ACTOR_POOL" -lt 8 ] && ACTOR_POOL=8
+# Server fuse cap: fuse<=32 STILL OOM'd 19 min in (2026-08-10,
+# attempt 2) -- the collision is a train_step backward overlapping
+# BOTH serve threads' fused forwards (the MHA python path
+# materializes S^2 attention per layer). 16 x 2 threads + the
+# B=32 training chunks fit the 24GB card; raise only with
+# measured VRAM headroom. TRAIN_BATCH is the chunk size, not the
+# gradient batch (loss is /N-accumulated) -- memory-neutral to
+# training dynamics.
+TOPO_ARGS="--actor-pool ${ACTOR_POOL} --actor-max-batch ${ACTOR_MAX_BATCH:-16}"
+TOPO_DESC="actor-pool=${ACTOR_POOL} (quota ${_CORES} cores, fuse<=${ACTOR_MAX_BATCH:-16})"
 GAMES_PER_ITER="${GAMES_PER_ITER:-24}"
 
 echo "[onstart] games_per_iter=${GAMES_PER_ITER} (${TOPO_DESC})"
@@ -969,8 +954,7 @@ _TRAIN_BODY="
         break
       fi
     fi
-    # Tripwire aborts (3=reserved, 4=all-draws, 5=holdout stall,
-    # 6=systemic index-basis mismatch between workers and learner)
+    # Tripwire aborts (3=reserved, 4=all-draws, 5=holdout stall)
     # need a human: marker blocks auto-relaunch until removed.
     if [ \$rc -ge 3 ] && [ \$rc -le 9 ]; then
       touch '$WORKDIR/ABORTED_'\$rc

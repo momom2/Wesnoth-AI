@@ -93,7 +93,6 @@ def test_no_same_file_duals_at_runtime():
     # The production self-play graph plus the export/eval chains. These
     # are all import-safe (defs + sys.path bootstraps only).
     import tools.sim_self_play         # noqa: F401  learner entry
-    import tools.selfplay_worker       # noqa: F401  worker entry
     import tools.mcts_policy           # noqa: F401  search stack
     import tools.validation_exports    # noqa: F401  export chain
     import tools.supervised_train      # noqa: F401  SL chain

@@ -2,28 +2,22 @@
 """2-minute box-shape microbenchmark (user directive 2026-08-05:
 "we can't A/B every time we switch box -- it's too long").
 
-Measures the five numbers the rollout cost model needs ON THIS BOX
-and prints a recommended rollout shape (spool vs actor-pool, batch
-size, worker count) instead of an hour-scale A/B:
+Measures the numbers the actor pool's cost model needs ON THIS BOX
+and prints its projected games per hour instead of an hour-scale run:
 
   - model forward latency, GPU, batch 1/8/16/32/64/128 (mixed-length
     states, so padding waste is priced in)
-  - model forward latency, CPU batch-1 (the spool worker's price)
   - encode_raw + legal-action enumeration per state (CPU, serial)
   - core count
 
-Cost model (calibrated against the 2026-08-05 measurements on the
-192-core RTX 3060 box, where it must and does predict spool ~= pool
-parity; see BACKLOG "Throughput program"):
+Cost model (see BACKLOG "Throughput program"):
 
-  spool games/hr  ~ cores * 3600 / (D * S * (cpu_fwd + enc + enum))
   pool  games/hr  ~ min( GPU ceiling:   3600 * B_eff / (D * S * fwd_B),
                          CPU ceiling:   cores * 3600 / (D * S * (enc + enum)) )
 
 with D = decisions/game (default 500), S = mean sims/decision after
-playout-cap (default 14). The recommendation is a PREDICTION: when
-the two shapes land within 25% of each other, run the real A/B; when
-one wins by >=2x, trust the bench.
+playout-cap (default 14). The projection is a PREDICTION, not a
+measurement of the pool.
 
 Usage:  python tools/box_bench.py [--checkpoint CKPT] [--decisions 500]
 """
@@ -51,14 +45,6 @@ def main(argv):
                          "default playout-cap = 14).")
     ap.add_argument("--states", type=int, default=8,
                     help="Distinct states per batch (padding realism).")
-    ap.add_argument("--fleet-efficiency", type=float, default=0.5,
-                    help="Scale on the spool projection for fleet "
-                         "contention (memory bandwidth, cache, "
-                         "hyperthread sharing): the solo-worker bench "
-                         "measured ~2x faster than the same box's "
-                         "full 76-worker fleet (2026-08-06 "
-                         "calibration vs the measured t2b leg). 1.0 "
-                         "= solo-extrapolated upper bound.")
     args = ap.parse_args(argv[1:])
 
     import os
@@ -70,7 +56,7 @@ def main(argv):
     n_cores = os.cpu_count() or 1
     # A bench on a busy box measures contention, not the box (the
     # 2026-08-05 calibration attempt read cpu-forward 5487ms vs the
-    # true ~60-100ms because 76 spool workers were running). Warn
+    # true ~60-100ms because 76 workers were running). Warn
     # loudly; results under load are NOT calibration-grade.
     try:
         # getloadavg is absent on Windows (AttributeError, not OSError).
@@ -123,16 +109,13 @@ def main(argv):
         return (time.perf_counter() - t0) / n * 1000.0   # ms
 
     # ---- CPU-side per-state costs ----
-    # Model a SPOOL WORKER, not the idle machine: workers run 2 torch
-    # threads each (the 2026-08-05 idle calibration measured 25ms
-    # all-cores vs the ~60-100ms a real worker pays -- a ~70x spool
-    # projection error before this clamp).
+    # A worker's thread budget, not the idle machine's: the 2026-08-05
+    # idle calibration measured 25 ms with all cores against the
+    # ~60-100 ms a real worker paid.
     torch.set_num_threads(2)
     encoded = [enc.encode(gs) for gs in states]
     t_enc = timeit(lambda: enc.encode(states[0]), 10)
     with torch.no_grad():
-        t_cpu_fwd = timeit(
-            lambda: cpu_pol._inference_model(encoded[0]), 10)
         out0 = cpu_pol._inference_model(encoded[0])
     t_enum = timeit(lambda: enumerate_legal_actions_with_priors(
         encoded[0], out0, states[0]), 10)
@@ -141,7 +124,6 @@ def main(argv):
     print(f"arch: {a}")
     print(f"encode          {t_enc:8.2f} ms/state (cpu, serial)")
     print(f"enumerate       {t_enum:8.2f} ms/state (cpu, serial)")
-    print(f"forward cpu b1  {t_cpu_fwd:8.2f} ms")
 
     t_gpu = {}
     if has_cuda:
@@ -168,13 +150,8 @@ def main(argv):
 
     # ---- projection ----
     D, S = args.decisions, args.mean_sims
-    per_leaf_cpu = t_cpu_fwd + t_enc + t_enum
-    spool = (n_cores * args.fleet_efficiency * 3600e3
-             / (D * S * per_leaf_cpu))
     print()
     print(f"PROJECTION (D={D} decisions/game, mean sims {S}):")
-    print(f"  spool ({n_cores} cores x {args.fleet_efficiency} "
-          f"fleet-eff): {spool:7.1f} games/hr")
     if t_gpu:
         best_B, best = min(
             ((B, t / B) for B, t in t_gpu.items() if B > 1),
@@ -186,17 +163,8 @@ def main(argv):
         print(f"  actor-pool (batch {best_B}):    {pool:7.1f} games/hr "
               f"[{lim}-limited; gpu ceiling {gpu_ceiling:.1f}, "
               f"cpu ceiling {cpu_ceiling:.1f}]")
-        ratio = pool / max(spool, 1e-9)
-        if ratio >= 2.0:
-            rec = f"ACTOR-POOL (predicted {ratio:.1f}x over spool)"
-        elif ratio <= 0.5:
-            rec = f"SPOOL (pool predicted {ratio:.1f}x = worse)"
-        else:
-            rec = (f"CLOSE CALL ({ratio:.2f}x) -- run the real A/B "
-                   f"before committing a campaign")
-        print(f"  RECOMMENDATION: {rec}")
     else:
-        print("  no CUDA: spool is the only shape.")
+        print("  no CUDA: no pool projection.")
     return 0
 
 

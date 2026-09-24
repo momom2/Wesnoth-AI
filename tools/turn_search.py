@@ -54,10 +54,8 @@ log = logging.getLogger("turn_search")
 
 
 def config_from_args(args) -> Optional["TurnSearchConfig"]:
-    """Build a TurnSearchConfig from parsed CLI args (shared by
-    sim_self_play and selfplay_worker so the flag surface stays
-    symmetric -- the worker-side-targets contract). None when
-    turn search is off."""
+    """Build a TurnSearchConfig from sim_self_play's parsed CLI args.
+    None when turn search is off."""
     if not getattr(args, "turn_search", False):
         return None
     project = str(getattr(args, "turn_project", "none"))

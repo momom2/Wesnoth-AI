@@ -39,6 +39,17 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## The spool self-play path is removed (2026-09-24, DONE, 0.5.8)
+
+User ruling 2026-09-24. The spool workers (`--spool-workers`,
+`tools/selfplay_worker.py`) were off by default since the 2026-08-10
+topology ruling, and each looped until its control file changed,
+whatever became of the learner. Removed with them: the VRAM-budgeted
+device split and its demotion, `--prof` with `tools/prof_hooks.py` and
+`prof_report.py`, `tools/profile_worker_split.py`, the spool ingest's
+exit-6 basis tripwire, and the spool branch of `vast_onstart.sh`.
+`box_bench.py` keeps the pool projection only.
+
 ## An encode worker whose trainer was killed exits (2026-09-24, FIXED, 0.5.7)
 
 `supervised_train --workers N` spawns encode workers that waited on an
@@ -74,9 +85,6 @@ gone (tests/test_orphan_exit.py). Open:
 - A child that stopped on STOP still flushes, since the manager reads
   its queues during shutdown; if the learner is killed during that
   shutdown, the child waits forever.
-- `SpoolWorkers` (`tools/selfplay_worker.py`, opt-in debug fallback)
-  loop until their control file changes, whatever becomes of the
-  parent. User ruling 2026-09-24: remove the spool path.
 
 ## shutdown() reads its children's output while they exit (2026-09-24, FIXED, 0.5.5)
 

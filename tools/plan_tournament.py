@@ -59,8 +59,7 @@ Beta starvation tripwire DISARMED for the first iteration: log,
 calibrate, then arm (user ruling 2026-08-26).
 
 Known limitations (accepted, measured at step 1): forwards
-un-batched (the pool server batches across actors); spool-worker
-pt_* telemetry not aggregated (loud launch warning); selection
+un-batched (the pool server batches across actors); selection
 retains one-realization grading bias (certification is the
 counter).
 

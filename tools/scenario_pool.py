@@ -524,7 +524,7 @@ def sample_tod_start(scenario_id: str, rng: random.Random) -> int:
         return rng.randrange(n_slots)
     # De-confound lever (BACKLOG 3c, pre-register before trusting):
     # WESNOTH_MINI_RANDOM_TOD=1 forces a random start slot on the
-    # fixed-ToD mini templates. Env-inherited so spool workers pick
+    # fixed-ToD mini templates. Env-inherited so the pool's actors pick
     # it up with no CLI forwarding (three forwarding bugs taught
     # that lesson). The replay exporter pins the sampled slot as
     # always, so Wesnoth playback stays faithful either way.

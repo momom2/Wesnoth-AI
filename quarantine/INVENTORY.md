@@ -95,8 +95,9 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Category: CORE.
 - Coupling: policy anchor cache (4.1) and value anchor cache are built from the same corpus; the human-holdout probe's t0 is the seed's CE.
 
-### 1.7 Execution topology (thread workers / actor pool / spool workers)
-- Where: `--workers`, `--actor-pool` + `--actor-max-batch` + `--pool-drain-grace` (`tools/actor_pool.py`), `--spool-workers` + `--spool-worker-device` + `--spool-cuda-workers` + `--spool-dir` (`tools/selfplay_worker.py`, `SpoolWorkers` ingest in sim_self_play).
+### 1.7 Execution topology (thread workers / actor pool)
+- Where: `--workers`, `--actor-pool` + `--actor-max-batch` + `--pool-drain-grace` (`tools/actor_pool.py`).
+- Removed 2026-09-24 (user ruling): the spool workers (`--spool-*`, `tools/selfplay_worker.py`), off by default since 2026-08-10; their processes never noticed a dead learner.
 - Mechanism: who generates games and where forwards run; the actor pool ships leaves to a central batched server (no weight sync), the spool runs whole games per process and pickles them.
 - Default: serial in-process; tier-b legs used `--actor-pool` (F3 ruling 2026-08-10, "activated without a fresh A/B").
 - Evidence: spool saturated a 4090 at 99% at tier-a (techniques.md 7.4); actor-pool server measured ~200 req/s ceiling at tier-a; A6 postmortem ~54 fwd/s shared by ~24 games (turn_search comment). Cross-actor batching breaks bit-determinism. Instrument gaps on the pool path: boundary pairs read n=0 for two campaigns, TCS/distill stats not aggregated in leg 3 (leg4 doc R2). Never compared for strength.
@@ -182,7 +183,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 ### 2.8 Plan-tournament telemetry (`pt_*`)
 - Where: `tools/plan_tournament.py::PT_DRAIN_KEYS`, `drain_tournament_stats` (certification rate, beta percentiles, forwards/turn, half-turn cap hits).
 - Mechanism: per-iteration certify/abstain accounting.
-- Default: on when `--plan-tournament` is on; not aggregated from spool workers (loud warning).
+- Default: on when `--plan-tournament` is on.
 - Evidence: never produced a live row (PT never ran a leg).
 - Category: INSTRUMENT.
 - Coupling: 5.28.

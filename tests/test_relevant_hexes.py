@@ -208,27 +208,6 @@ def test_policy_threads_flag_to_both_encoders():
     assert not off._inference_encoder.relevant_set_hexes
 
 
-def test_worker_learner_index_basis_seam_is_wired():
-    """AST/source guard on the seam: worker must parse the flag, honour it
-    in its policy, and STAMP the payload; the learner must forward the flag
-    and REJECT a mismatched payload. Third bug of this class (dead spool
-    telemetry, _combine_stats swallow, dead acting-side advice), so the
-    boundary gets a test that reads the boundary."""
-    import ast
-    import pathlib
-    w = pathlib.Path("tools/selfplay_worker.py").read_text(encoding="utf-8")
-    assert "--relevant-set-hexes" in w
-    assert '"relevant_set"' in w, "worker must stamp the payload"
-    tree = ast.parse(w)
-    tp = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
-          and getattr(n.func, "id", None) == "TransformerPolicy"]
-    assert tp and any(k.arg == "relevant_set_hexes" for k in tp[0].keywords)
-    src = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
-    assert '"--relevant-set-hexes"]' in src, "learner must forward the flag"
-    assert "REJECTING" in src and "relevant_set" in src, \
-        "learner must reject a mismatched index basis loudly"
-
-
 def test_holdout_probe_is_discarded_across_an_index_basis_change(tmp_path):
     """holdout CE is the ONE curve we rely on being comparable across
     restarts -- that's why the probe is persisted. Restoring a probe
@@ -252,23 +231,3 @@ def test_holdout_probe_is_discarded_across_an_index_basis_change(tmp_path):
     f2.write_bytes(pickle.dumps({"experiences": [], "games": 1,
                                  "target": 4, "relevant_set": False}))
     assert p_off.load_holdout(f2) is True
-
-
-def test_systemic_basis_mismatch_escalates_to_a_halt():
-    """Dropping a mismatched game handles the TRANSIENT (a stale worker
-    across a flag change). A SYSTEMIC mismatch must halt loudly instead of
-    degrading into a run that trains on starved iterations while logging
-    errors nobody reads -- the silent-boundary failure class this project
-    has hit three times. Exit 6 is in the supervisor's tripwire range, so
-    it writes ABORTED_6 and stops auto-relaunch."""
-    import pathlib
-    import re
-    src = pathlib.Path("tools/sim_self_play.py").read_text(encoding="utf-8")
-    assert "_basis_reject_streak" in src
-    assert "SystemExit(6)" in src
-    # must require a STREAK, not fire on a single bad iteration
-    assert re.search(r"_basis_reject_streak\s*>=\s*2", src), \
-        "escalation must require consecutive iterations"
-    onstart = pathlib.Path("scripts/vast_onstart.sh").read_text(encoding="utf-8")
-    assert "6=systemic index-basis mismatch" in onstart, \
-        "exit code must be documented where the supervisor lists tripwires"

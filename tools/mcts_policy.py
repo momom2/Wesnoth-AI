@@ -172,7 +172,7 @@ class MCTSPolicy:
         # GBC event-supervision labels (2026-08-14, docs/archive/gbc_spec.md):
         # when on, finalize_game attaches fog-censored hindsight
         # event labels to every experience (pure state diffs -- no
-        # model involvement, so actor-pool/spool policies build them
+        # model involvement, so actor-pool policies build them
         # too and the labels ride the existing pickle payloads).
         self._gbc_labels_on = bool(gbc_labels)
         # Per-game observation stream for GBC labeling (project
@@ -209,7 +209,7 @@ class MCTSPolicy:
         # because finalize_game runs ACTOR-side on both production
         # topologies, where no trainer config exists to read
         # (project round-2 C1: the _base._trainer lookup silently
-        # sealed 0.0 in every pool actor and spool worker while the
+        # sealed 0.0 in every pool actor while the
         # launcher logged the knob as in effect).
         self._draw_value_weight = float(draw_value_weight)
         # Value memory (user ruling 2026-08-30): the value head's
@@ -1431,12 +1431,10 @@ class MCTSPolicy:
         experiences in recorded order.
 
         Works wherever a per-game, order-preserving experience list
-        exists: `finalize_game` (in-process rollouts), the SPOOL
-        ingest (sim_self_play's collect loop -- spool payloads are
-        atomic per game and preserve finalize order; the learner-side
-        finalize_game never runs for those games, which is exactly
-        how the 2026-07-29 campaign shipped boundary telemetry that
-        read n=0), and the actor-pool drain's per-game payloads.
+        exists: `finalize_game` (in-process rollouts) and the actor
+        pool's per-game payloads, for which the learner-side
+        finalize_game never runs (the 2026-07-29 campaign shipped
+        boundary telemetry that read n=0 on such a path).
 
         The recorded side is the stored state's `current_side`. MUST
         be called with a SINGLE game's experiences -- mixing games

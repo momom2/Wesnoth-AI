@@ -265,8 +265,8 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--playout-cap-prob", type=float, default=0.25)
     ap.add_argument("--playout-cap-fast-sims", type=int, default=0)
     ap.add_argument("--torch-threads", type=int, default=0,
-                    help="torch.set_num_threads cap; 2 models a spool "
-                         "worker (box_bench lesson: all-cores idle "
+                    help="torch.set_num_threads cap; 0 keeps torch's "
+                         "default (box_bench lesson: an all-cores idle "
                          "calibration was 70x optimistic).")
     ap.add_argument("--save-json", type=Path, default=None)
     ap.add_argument("--log-level", default="WARNING",
