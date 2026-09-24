@@ -96,6 +96,7 @@ from tools.actor_worker import (
     _R_FATAL, _R_GAME, _R_OUTCOME, _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop,
     _done_report, _set_fd_safe_sharing, _zero_reward,
 )
+from tools.mp_teardown import close_queue, discarding, end_stragglers, join_all
 from tools.serve_worker import (
     _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED, _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE,
     _SRV_STATS, _SRV_STOP, _SRV_SYNC, _BatchPicker, _best_window_rate, _merge_timelines,
@@ -149,46 +150,12 @@ class _Serving:
     stopped: bool = False
 
 
-def _close_queue(q, drain: bool) -> None:
-    """Release one mp.Queue without ever waiting on its feeder thread.
-
-    A put() only hands the object to the queue's feeder thread; the
-    bytes reach the pipe later. A feeder blocked in `send_bytes` on a
-    pipe full of messages nobody will read (a wedged actor's unread
-    PLAYs; measured: three 6.6 KB messages against Windows' 8 KiB pipe
-    hang it about half the time, twenty reliably, Linux's 64 KiB pipe
-    at eight to ten) never returns, and `join_thread()` is untimed.
-    So `cancel_join_thread()` is what keeps this from hanging: after
-    it the feeder is abandoned as a daemon and `join_thread()` is a
-    no-op (CPython's Finalize.cancel clears its key). `drain` first
-    reads out, with a bounded 50 ms wait per message, whatever is
-    still buffered, so the pipe's bytes are released rather than left
-    to the OS; pass it ONLY for a queue this process alone writes to,
-    since a half-written message from a killed child would block a
-    read for a remainder that never comes. Every child is joined
-    before this runs, so nothing refills a queue behind us."""
-    if q is None:
-        return
-    if drain:
-        while True:
-            try:
-                q.get(timeout=0.05)
-            except Exception:        # empty, or a queue already broken
-                break
-        try:
-            q.cancel_join_thread()   # backstop: never wait forever here
-        except Exception:
-            pass
-    else:
-        try:
-            q.cancel_join_thread()
-        except Exception:            # a plain queue.Queue has no feeder
-            pass
-    try:
-        q.close()
-    except Exception:
-        pass
-
+def _log_failure_report(msg) -> None:
+    """Shutdown discards what the children send it; the failures among
+    that (an actor's error or fatal report, a serve process's error
+    reply) are logged, since nothing else will ever read them."""
+    if isinstance(msg, tuple) and len(msg) == 3 and msg[0] in (_R_ERROR, _R_FATAL, _S_ERROR):
+        log.error(f"shutdown: {msg[0]} report from child {msg[1]}:\n{msg[2]}")
 
 
 # =====================================================================
@@ -1175,7 +1142,19 @@ class ActorPool:
         queues. Each mp.Queue holds a pipe pair and (once written to) a
         feeder thread, so a pool that is dropped without this leaks
         ~2n+3 of both -- which the test suite feels first, several
-        pools living in one pytest process (2026-09-13 audit)."""
+        pools living in one pytest process (2026-09-13 audit).
+
+        The children get `timeout` seconds in all, not each: joined one
+        after another, every child that would not exit added a full
+        timeout, 12 minutes for 48 actors at 15 s. While they exit, the
+        manager reads and discards what they send it. An actor whose
+        results nobody reads any more (the loop raised mid-iteration or
+        mid-stream) cannot exit until its queue's feeder thread has
+        written them into the pipe (tools/mp_teardown.py), which holds
+        64 KiB on Linux and 8 KiB on Windows, while each experience
+        carries a whole game state: 9 KB pickled on a 36-hex mini map,
+        47-142 KB on ladder maps (measured 2026-09-24). Unread, every
+        such actor was terminated after its timeout (CI 2026-09-24)."""
         if not self._started:
             return
         for q in self._ctrl_qs:
@@ -1188,30 +1167,21 @@ class ActorPool:
                 q.put((_SRV_STOP,))
             except Exception:
                 pass
-        for p in self._procs + self._server_procs:
-            p.join(timeout)
-            if p.is_alive():
-                log.warning(f"terminating unresponsive process {p.name}")
-                p.terminate()
-                # terminate() only SIGNALS: without this join the
-                # process stays a live child (and, on the box, a live
-                # CUDA context) while the parent walks on.
-                p.join(5.0)
-                if p.is_alive():
-                    log.error(f"process {p.name} survived terminate(); killing it")
-                    p.kill()
-                    p.join(5.0)
+        children = self._procs + self._server_procs
+        with discarding([self._result_q, self._server_q], on_message=_log_failure_report):
+            join_all(children, timeout)
+        end_stragglers(children)
         self._procs = []
         self._server_procs = []
         # Drained: the queues the manager alone writes to (commands,
         # weight blobs, tickets), which can hold megabytes nobody took.
-        # Not drained: everything a child writes, where a killed child
-        # may have left half a message behind.
+        # Not drained here: the queues a child writes to, where a killed
+        # child may have left half a message behind.
         for q in list(self._ctrl_qs) + list(self._server_ctrl_qs) + [self._game_q]:
-            _close_queue(q, drain=True)
+            close_queue(q, drain=True)
         for q in (list(self._resp_qs) + list(self._req_qs)
                   + [self._result_q, self._server_q]):
-            _close_queue(q, drain=False)
+            close_queue(q, drain=False)
         self._ctrl_qs = []
         self._resp_qs = []
         self._req_qs = []
