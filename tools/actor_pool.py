@@ -223,6 +223,7 @@ class ActorPool:
         server_start_timeout: float = 600.0,
         server_reply_timeout: float = 120.0,
         graphed_serve: bool = False,
+        game_records_dir: Optional[str] = None,
     ):
         """`server_priors`: actors ship packed legality masks and the
         server returns compact legal actions with priors
@@ -284,6 +285,10 @@ class ActorPool:
         self._gbc_labels = bool(gbc_labels)
         self._train_kwargs = dict(train_kwargs or {})
         self._scenario_opts = scenario_opts or {}
+        # Every game an actor finishes is recorded whole under this
+        # directory, one file per actor (tools/game_record.py); None
+        # records nothing.
+        self._game_records_dir = None if game_records_dir is None else str(game_records_dir)
         self._max_turns = max_turns
         self._max_turns_min = max_turns_min
         self._pvp_kwargs = (dict(pvp_defaults.__dict__)
@@ -369,7 +374,8 @@ class ActorPool:
                       self._pvp_kwargs, self._log_level,
                       self._actor_threads, self._turn_cfg,
                       self._gbc_labels, self._pt_cfg,
-                      self._train_kwargs, self._ground_cfg),
+                      self._train_kwargs, self._ground_cfg,
+                      self._game_records_dir),
                 daemon=True, name=f"actor-{aid}")
             p.start()
             self._procs.append(p)

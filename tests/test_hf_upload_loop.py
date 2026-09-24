@@ -74,6 +74,54 @@ def test_cycle_retries_after_failed_upload(tmp_path, monkeypatch,
     assert "nothing to upload" in capsys.readouterr().out
 
 
+def test_game_records_go_up_once_as_whole_records(tmp_path, monkeypatch,
+                                                 capsys):
+    """A growing record log goes up as the whole records it gained since
+    the last landed upload, one upload per cycle: a record still being
+    written waits, a failed upload is resent, and a restarted loop
+    resends nothing."""
+    import gzip
+    from tools.game_record import GameRecordLog, read_records
+    rdir = tmp_path / "records"
+    log_path = rdir / "run" / "actor_000.jsonl.gz"
+    monkeypatch.setattr(hul, "FILES", [])
+    monkeypatch.setattr(hul, "RECORD_STAGE", tmp_path / "stage")
+    monkeypatch.setattr(hul, "RECORD_OFFSETS", tmp_path / "offsets.json")
+    monkeypatch.setenv("GAME_RECORD_DIR", str(rdir))
+    monkeypatch.chdir(tmp_path)
+    sent, answer = [], [True]
+
+    def uploader(src, dst):
+        assert dst == hul.HF_PREFIX + "game_records"
+        sent.append({p.relative_to(src).as_posix(): [r["n"] for r in read_records(p)]
+                     for p in Path(src).rglob("*.jsonl.gz")})
+        return answer[0]
+
+    log = GameRecordLog(log_path)
+    log.write({"n": 1})
+    log.write({"n": 2})
+    third = gzip.compress(b'{"n": 3}\n')
+    with open(log_path, "ab") as fh:
+        fh.write(third[:8])                     # the third game being written
+    state = {}
+    hul.run_cycle(uploader, state)
+    offset = log_path.stat().st_size - 8
+    assert sent == [{"run/actor_000.000000000000.jsonl.gz": [1, 2]}]
+
+    with open(log_path, "ab") as fh:
+        fh.write(third[8:])
+    log.write({"n": 4})
+    answer[0] = False
+    hul.run_cycle(uploader, state)              # fails: resent next cycle
+    answer[0] = True
+    hul.run_cycle(uploader, state)
+    hul.run_cycle(uploader, state)              # nothing new
+    hul.run_cycle(uploader, {})                 # a restarted loop
+    part = {f"run/actor_000.{offset:012d}.jsonl.gz": [3, 4]}
+    assert sent[1:] == [part, part]
+    assert "ERROR" not in capsys.readouterr().out
+
+
 def test_heartbeat_prints_even_when_idle(tmp_path, monkeypatch,
                                          capsys):
     monkeypatch.setattr(hul, "FILES",

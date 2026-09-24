@@ -1064,6 +1064,20 @@ def main(argv) -> int:
         "ended_by": sim.ended_by,
         "secs": round(time.time() - t0, 1),
     }
+    # The game itself, beside its result (tools/game_record.py), written
+    # before the result so a result file always has its game.
+    from tools.game_record import GameRecordLog, game_record
+    _rec_path = out_path.with_name(out_path.stem + ".game.jsonl.gz")
+    _rec_tmp = _rec_path.with_name(_rec_path.name + ".tmp")
+    _rec_tmp.unlink(missing_ok=True)
+    GameRecordLog(_rec_tmp).write(game_record(
+        sim, setup, game_label=game_label,
+        players={"a": {"label": args.label_a, "spec": str(args.spec_a), "side": args.side_a,
+                       "procedure": result["procedure_a"]},
+                 "b": {"label": args.label_b, "spec": str(args.spec_b), "side": 3 - args.side_a,
+                       "procedure": result["procedure_b"]}},
+        extra={"seed": args.seed}))
+    os.replace(_rec_tmp, _rec_path)
     # Atomic publish (round-24 C11): a kill mid-write must never
     # leave a truncated file occupying the slot.
     _tmp = out_path.with_suffix(".json.tmp")

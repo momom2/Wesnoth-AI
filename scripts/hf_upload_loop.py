@@ -35,17 +35,24 @@ Config (env, or files next to WORKDIR for tokenless templates):
   WORKDIR    -- defaults to /workspace
   HF_UPLOAD_TIMEOUT_LARGE / _SMALL -- seconds (default 900 / 300);
                 "large" applies over HF_UPLOAD_LARGE_BYTES (50 MB).
+  GAME_RECORD_DIR -- the game-record logs to send (default
+                training/game_records); each byte is sent once, and what
+                has been sent is kept in $WORKDIR/game_records_uploaded.json.
 Run from the repo root (paths below are repo-relative).
 """
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Callable, Dict
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 UPLOAD_EVERY = int(os.environ.get("HF_UPLOAD_EVERY", "1800"))
 WORKDIR = Path(os.environ.get("WORKDIR", "/workspace"))
@@ -81,6 +88,12 @@ FILES = [
     # A1/F1 verdict.
     ("training/logs/holdout_probe.csv", "holdout_probe.csv"),
 ]
+# Whole-game records (tools/game_record.py) are sent as the runs of whole
+# gzip members appended since the last upload (see _upload_new_records):
+# the stage holds one cycle's runs, the offsets file what has landed.
+RECORD_STAGE = WORKDIR / "game_records_stage"
+RECORD_OFFSETS = WORKDIR / "game_records_uploaded.json"
+
 # HF_EXTRA_FILES="src:dst,src:dst" adds run-specific artifacts (e.g.
 # the supervised pass: supervised.pt + its eval curve, 2026-07-16).
 for _pair in os.environ.get("HF_EXTRA_FILES", "").split(","):
@@ -102,13 +115,19 @@ def _read_opt(env: str, fallback_file: Path) -> str:
 # ---------------------------------------------------------------------
 
 # The subprocess body. Module-level so the regression test can swap
-# in a hanging stub and exercise the REAL kill path.
+# in a hanging stub and exercise the REAL kill path. A directory goes
+# up as one commit (upload_folder), its layout kept under the target.
 _CHILD_CODE = (
     "import os, sys\n"
     "from huggingface_hub import HfApi\n"
-    "HfApi(token=os.environ['HF_UPLOAD_TOKEN']).upload_file(\n"
-    "    path_or_fileobj=sys.argv[1], path_in_repo=sys.argv[2],\n"
-    "    repo_id=sys.argv[3], repo_type='model')\n"
+    "api = HfApi(token=os.environ['HF_UPLOAD_TOKEN'])\n"
+    "src, dst, repo = sys.argv[1:4]\n"
+    "if os.path.isdir(src):\n"
+    "    api.upload_folder(folder_path=src, path_in_repo=dst,\n"
+    "                      repo_id=repo, repo_type='model')\n"
+    "else:\n"
+    "    api.upload_file(path_or_fileobj=src, path_in_repo=dst,\n"
+    "                    repo_id=repo, repo_type='model')\n"
 )
 
 
@@ -141,10 +160,79 @@ def upload_with_timeout(src: str, path_in_repo: str, repo: str,
 
 def _timeout_for(src: str) -> int:
     try:
-        return (TIMEOUT_LARGE if os.path.getsize(src) > LARGE_BYTES
-                else TIMEOUT_SMALL)
+        if os.path.isdir(src):
+            size = sum(f.stat().st_size for f in Path(src).rglob("*")
+                       if f.is_file())
+        else:
+            size = os.path.getsize(src)
     except OSError:
         return TIMEOUT_SMALL
+    return TIMEOUT_LARGE if size > LARGE_BYTES else TIMEOUT_SMALL
+
+
+# ---------------------------------------------------------------------
+# Game records: each byte sent once
+# ---------------------------------------------------------------------
+
+def _load_record_offsets() -> Dict[str, int]:
+    try:
+        return {k: int(v) for k, v in
+                json.loads(RECORD_OFFSETS.read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_record_offsets(offsets: Dict[str, int]) -> None:
+    tmp = RECORD_OFFSETS.with_name(RECORD_OFFSETS.name + ".tmp")
+    tmp.write_text(json.dumps(offsets, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, RECORD_OFFSETS)
+
+
+def _upload_new_records(uploader: Callable[[str, str], bool],
+                        rdir: Path, state: Dict) -> str:
+    """Send what the record logs under `rdir` gained since the last
+    upload, in one commit; return the cycle's note ("" if nothing).
+
+    A record log (one per actor per run) grows by one gzip member per
+    finished game, and any run of whole members is itself a valid log.
+    So each cycle takes, per log, the bytes from the last uploaded
+    offset to the end of its last whole member (a member still being
+    written waits for the next cycle), stages them as
+    `<log name>.<start offset, 12 digits>.jsonl.gz` beside where the
+    log would sit, and uploads the stage as one folder commit under
+    game_records/. Every byte goes up once and a cycle is one commit;
+    the parts of a log, read in offset order, are the log. The offsets
+    advance only when the upload reports success, and persist in
+    RECORD_OFFSETS, so a restarted loop resends nothing; a commit that
+    landed but reported a failure (a kill at the deadline) is replaced
+    by the next cycle's part of the same name, which starts at the same
+    offset and extends it."""
+    from tools.game_record import complete_members_end
+    offsets = state.get("record_offsets")
+    if offsets is None:
+        offsets = state["record_offsets"] = _load_record_offsets()
+    shutil.rmtree(RECORD_STAGE, ignore_errors=True)
+    staged: Dict[str, int] = {}
+    for f in sorted(rdir.rglob("*.jsonl.gz")):
+        rel = f.relative_to(rdir).as_posix()
+        start = offsets.get(rel, 0)
+        end = complete_members_end(f, start)
+        if end <= start:
+            continue
+        part = RECORD_STAGE / f"{rel[:-len('.jsonl.gz')]}.{start:012d}.jsonl.gz"
+        part.parent.mkdir(parents=True, exist_ok=True)
+        with open(f, "rb") as fh:
+            fh.seek(start)
+            part.write_bytes(fh.read(end - start))
+        staged[rel] = end
+    if not staged:
+        return ""
+    if not uploader(str(RECORD_STAGE), f"{HF_PREFIX}game_records"):
+        return f"records ({len(staged)} logs) INCOMPLETE (retries)"
+    offsets.update(staged)
+    _save_record_offsets(offsets)
+    shutil.rmtree(RECORD_STAGE, ignore_errors=True)
+    return f"records ({len(staged)} logs)"
 
 
 # ---------------------------------------------------------------------
@@ -155,7 +243,8 @@ def _timeout_for(src: str) -> int:
 def run_cycle(uploader: Callable[[str, str], bool],
               state: Dict) -> None:
     """One sweep: campaign files (signature-gated, all-or-retry),
-    validation exports (each once), games-log tarball. `uploader(src,
+    validation exports (each once), games-log tarball, game records
+    (the bytes each log gained, one commit). `uploader(src,
     dst_in_repo) -> bool`; False means the file didn't land and the
     relevant signature must NOT advance. Ends with the heartbeat
     line -- every cycle prints exactly one `cycle ...` line, so
@@ -216,6 +305,12 @@ def run_cycle(uploader: Callable[[str, str], bool],
                             HF_PREFIX + "games_log.tar.gz"):
                     state["last_games_sig"] = gsig
                     did.append(f"games_log ({gsig[0]} files)")
+        # Whole-game records (tools/game_record.py).
+        rdir = Path(os.environ.get("GAME_RECORD_DIR", "training/game_records"))
+        if rdir.is_dir():
+            note = _upload_new_records(uploader, rdir, state)
+            if note:
+                did.append(note)
     except Exception as e:                          # noqa: BLE001
         # Transient FS/Hub errors must not kill the loop -- the next
         # cycle retries.

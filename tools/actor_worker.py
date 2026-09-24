@@ -270,6 +270,7 @@ def _actor_loop(
     pvp_kwargs: Optional[Dict], log_level: int, torch_threads: int,
     turn_cfg=None, gbc_labels: bool = False, pt_cfg=None,
     train_kwargs: dict = None, ground_cfg=None,
+    game_records_dir: Optional[str] = None,
 ) -> None:
     """Persistent actor process body. Builds a seam-backed MCTSPolicy
     once, then loops on the control queue: PLAY -> pull game tickets
@@ -297,6 +298,10 @@ def _actor_loop(
     from tools.sim_self_play import _play_one_game_safe, _recruit_cost_lookup
     from tools.scenario_pool import random_setup, roll_mix
     from tools.wesnoth_sim import PvPDefaults
+    from tools.game_record import configure as configure_records
+    if game_records_dir is not None:
+        from pathlib import Path as _Path
+        configure_records(_Path(game_records_dir), f"actor_{actor_id:03d}")
 
     client = _IPCInferenceClient(actor_id, req_qs, resp_q)
     rmodel = RemoteModel(client)
@@ -463,7 +468,10 @@ def _actor_loop(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,
                     cost_lookup=cost_lookup, game_label=gl,
-                    seed_salt=f"pool:{seed}")     # this game's own combat luck
+                    seed_salt=f"pool:{seed}",     # this game's own combat luck
+                    record_extra={"iteration": iter_idx, "game_index": g,
+                                  "game_seed": seed, "category": cat,
+                                  "decision_step": ds_game0})
                 if outcome is not None:
                     result_q.put((_R_OUTCOME, actor_id, outcome))
                 # Ship this game's experiences immediately (smaller
