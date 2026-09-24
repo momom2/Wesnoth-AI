@@ -2557,3 +2557,131 @@ defined, so `{QUANTITY ...}` (`data/core/macros/utils.cfg:8`) expands
 to nothing in multiplayer.
 
 Implemented by `tools/scenario_events.evaluate_conditionals`.
+
+## Vision and fog: what a side sees, and when it is recomputed (added 2026-09-24)
+
+**Rule.**
+
+1. **What one unit sees.** Every hex it could reach in one turn by
+   spending its vision points at its vision costs, other units and zones
+   of control ignored, plus every hex adjacent to one of those, on the
+   board or off it. Vision points are the unit's `vision=` when its type
+   declares one, else its maximum movement; vision costs are its
+   `[vision_costs]` when declared, else its movement costs; a slowed
+   unit pays double; a jamming enemy adds its jamming cost per hex. In
+   the default era no unit type declares `vision=`, `[vision_costs]` or
+   jamming, so a unit sees what it could reach with its full movement,
+   plus the ring around it.
+2. **What a side sees is its fog, and fog is state.** Hexes a side's
+   units see are cleared, and they stay cleared until the side's fog is
+   recalculated. Hexes are cleared by: the side's units, at its turn
+   start; a moving unit, at every hex it enters; a recruit, at its hex;
+   an advancing unit of either side, at its hex, whoever's turn it is.
+   Recalculation (refog everything, then clear from every unit's
+   current hex) happens at the side's turn start (after the turn-refresh
+   events), at its turn end (after its units' slow expires and after the
+   turn-end events), and, for the defending side, after a fight in which
+   the defending unit died, was slowed or was petrified.
+3. **So, during its own turn,** a side sees its turn-start vision plus
+   everything its movers and recruits saw since; nothing is refogged
+   during its own turn, not even where its own units died.
+
+**Source (1.18.4).** `src/pathfind/pathfind.cpp:576-588`, the vision
+area:
+
+    vision_path::vision_path(const unit& viewer, const map_location& loc,
+    ...
+    	const int sight_range = viewer.vision();
+    	// The three nullptr parameters indicate (in order):
+    	// ignore units, ignore ZoC (no effect), and don't build a cost_map.
+    	...
+    	find_routes(loc, viewer.movement_type().get_vision(),
+    	            viewer.get_state(unit::STATE_SLOWED), sight_range, sight_range,
+    	            0, destinations, &edges, &viewer, nullptr, nullptr, &viewing_team, &jamming_map, nullptr, true);
+
+`find_routes` collects the edges: off-board neighbours of every
+collected hex (`:349-352`, `edges->insert(off_board_it, adj_locs.end());`)
+and every neighbour it cannot enter (`:392-398`):
+
+    			if ( next.moves_left < 0 || next.turns_left < 0 ) {
+    				// Either can never enter this hex or out of turns.
+    				if ( edges != nullptr )
+    					edges->insert(next_hex);
+    				continue;
+    			}
+
+with the cost of entering at `:378`, `int cost = costs.cost(map[next_hex], slowed);`
+and the jamming added at `:379-384`. `src/actions/vision.cpp:354-369`
+clears both sets (`for (const pathfind::paths::step &dest : sight.destinations)`
+and `for (const map_location &dest : sight.edges)`). Vision points,
+`src/units/unit.hpp:1415-1418`:
+
+    	int vision() const
+    	{
+    		return vision_ < 0 ? max_movement_ : vision_;
+    	}
+
+and a `movement` effect moves vision with movement unless it says
+`apply_to_vision=no` (`src/units/unit.cpp:2175-2198`). Vision costs fall
+back to movement costs, `src/movetype.cpp:822`,
+`vision_(cfg.child_or_empty("vision_costs"), mvj_params_, &movement_),`.
+Slowed doubles, `src/movetype.hpp:69-72`,
+`return  slowed  &&  result != movetype::UNREACHABLE ? 2 * result : result;`.
+
+When fog is cleared and recalculated:
+- Turn start, `src/play_controller.cpp:524-525`, after the turn-refresh
+  events: `// Make sure vision is accurate.` /
+  `actions::clear_shroud(current_side(), true);` -- the second argument
+  is `reset_fog`, which ends in `recalculate_fog(side);`
+  (`src/actions/vision.cpp:774-779`).
+- Turn end, `src/play_controller.cpp:582-590`:
+  `gamestate().board_.end_turn(current_side());` (which clears slow,
+  `src/units/unit.cpp:1284` `set_state(STATE_SLOWED,false);`), then
+  `// Clear shroud, in case units had been slowed for the turn.`, the
+  turn-end events, and
+  `// This is where we refog, after all of a side's events are done.` /
+  `actions::recalculate_fog(current_side());`.
+- `recalculate_fog`, `src/actions/vision.cpp:702-736`: `tm.refog();`
+  (`:718`), then `clearer.clear_unit(u.get_location(), u, tm, &visible_locs);`
+  for every unit of the side (`:724-728`).
+- A move, `src/actions/move.cpp:972-976`, after each step:
+  `// Update the fog.` / `if ( current_uses_fog_ )` /
+  `handle_fog(*real_end_, new_animation);`, which clears around the
+  entered hex (`:548-557`).
+- A recruit, `src/actions/create.cpp:695-698`: `// Fog clearing.` ...
+  `clearer.clear_unit(current_loc, *new_unit_itor);`.
+- An advancement, `src/actions/advancement.cpp:397-399`:
+  `// Update fog/shroud.` / `clearer.clear_unit(loc, *new_unit);`.
+- A fight, `src/actions/attack.cpp`: in `perform_hit`,
+  `bool& update_fog = attacker_turn ? update_def_fog_ : update_att_fog_;`
+  (`:965`) is set when the struck unit dies (`:1151-1154`), is slowed
+  (`:1174-1178`) or is petrified (`:1181-1184`), and
+  `// update_att_fog_ is not used, other than making some code simpler.`
+  (`:751`); at the end of the fight, `if(update_def_fog_) {` /
+  `actions::recalculate_fog(defender_side);` (`:1456-1458`).
+
+A move and a recruit clear immediately only while the player's "delay
+shroud updates" preference is off (`current_uses_fog_(current_team_->fog_or_shroud() && current_team_->auto_shroud_updates())`,
+`src/actions/move.cpp:371`, and `create.cpp:697`); that is the default,
+and the simulator models it. A unit placed by WML (`[unit]`) or a
+plague corpse clears nothing (`src/actions/unit_creator.cpp` and
+`attack::unit_killed` have no clearing call).
+
+**Why non-obvious.** Until 2026-09-24 the simulator drew a disc of
+radius `max_moves` around each unit's current hex. That is wrong three
+ways: it sees across terrain the unit could not cross (mountains,
+water, cave walls), it misses the ring one hex beyond the reachable
+area, and it forgets, after a unit moves, what the side saw earlier in
+the turn. On 31,137 decisions of 92 fogged corpus games (three per
+map), the engine's turn-accumulated view differs from the disc at
+30,814; it holds 63.1 hexes per decision the disc lacks and lacks 26.4
+the disc holds (522.9 against 486.1 hexes seen); of 309,711 enemy units
+on the board at those decisions, 19,439 are shown only by the engine's
+view and 3,341 only by the disc
+(`tools/analysis/vision_rule_census.py`,
+`training/metrics/fidelity/vision_rule_census_20260924.json`).
+
+**Not modelled.** `vision=` and `[vision_costs]` (declared by the Dune
+Falconer, the Dune Sky Hunter, the Dragonfly and the Grand Dragonfly,
+none of which is in the default era, the pool or the corpus), jamming,
+shared vision between allies, and the delayed-shroud preference.

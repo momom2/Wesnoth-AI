@@ -120,6 +120,45 @@ def sight_radius_for(unit: Unit) -> int:
     return max(int(getattr(unit, "max_moves", 5)), 1)
 
 
+def unit_vision(state: GameState, unit: Unit,
+                at: Optional[Tuple[int, int]] = None) -> Set[Tuple[int, int]]:
+    """Hexes `unit` sees from `at` (default: where it stands), by the
+    engine's rule: every hex it could reach this turn spending its vision
+    points at its vision costs, other units and zones of control
+    ignored, plus every hex next to one of those
+    (`pathfind::vision_path`, src/pathfind/pathfind.cpp:576-589, and the
+    edges `find_routes` collects, :242-244 and :393-398, at the 1.18.4
+    tag). Vision points are the unit's maximum movement
+    (`unit::vision()`, src/units/unit.hpp:1415-1417); vision costs are
+    its movement costs, since no default-era movetype declares
+    `[vision_costs]`, and double when it is slowed (movetype.hpp:69-72,
+    through `_move_cost_at_hex`)."""
+    import heapq
+    from tools.pathfind_sim import _terrain_arrays_for
+    pos_to_idx, positions, nbrs, mcost, _ = _terrain_arrays_for(unit, state)
+    start = pos_to_idx.get(at if at is not None else (unit.position.x, unit.position.y))
+    if start is None:
+        return set()
+    budget = max(int(unit.max_moves), 0)
+    spent = {start: 0}
+    frontier = [(0, start)]
+    while frontier:
+        cost, i = heapq.heappop(frontier)
+        if cost > spent[i]:
+            continue
+        for j in nbrs[i]:
+            if j < 0:
+                continue
+            nxt = cost + mcost[j]
+            if nxt <= budget and nxt < spent.get(j, budget + 1):
+                spent[j] = nxt
+                heapq.heappush(frontier, (nxt, j))
+    seen = set(spent)
+    for i in spent:
+        seen.update(j for j in nbrs[i] if j >= 0)
+    return {positions[i] for i in seen}
+
+
 def _hex_distance(ax: int, ay: int, bx: int, by: int) -> int:
     """Wesnoth hex distance (odd-q offset). Inlined from
     rewards.hex_distance so this module has no cyclic import
