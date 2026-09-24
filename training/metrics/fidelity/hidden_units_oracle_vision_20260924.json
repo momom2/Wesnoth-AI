@@ -1,0 +1,403 @@
+{
+ "summary": {
+  "cases": 3,
+  "agree": 3,
+  "differ": 0,
+  "engine_failed": 0,
+  "wall_s": 41.4
+ },
+ "records": [
+  {
+   "case": "vision:ring",
+   "note": "seven hexes down on grass, one beyond the Fencer's reach: seen",
+   "terrain": [],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      8,
+      10
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": []
+   },
+   "rule_says_cover": [],
+   "wall_s": 27.4
+  },
+  {
+   "case": "vision:wall",
+   "note": "a cave wall across the board: the Spearman four hexes away is behind it",
+   "terrain": [
+    [
+     1,
+     5,
+     "Xu"
+    ],
+    [
+     2,
+     5,
+     "Xu"
+    ],
+    [
+     3,
+     5,
+     "Xu"
+    ],
+    [
+     4,
+     5,
+     "Xu"
+    ],
+    [
+     5,
+     5,
+     "Xu"
+    ],
+    [
+     6,
+     5,
+     "Xu"
+    ],
+    [
+     7,
+     5,
+     "Xu"
+    ],
+    [
+     8,
+     5,
+     "Xu"
+    ],
+    [
+     9,
+     5,
+     "Xu"
+    ],
+    [
+     10,
+     5,
+     "Xu"
+    ],
+    [
+     11,
+     5,
+     "Xu"
+    ],
+    [
+     12,
+     5,
+     "Xu"
+    ],
+    [
+     13,
+     5,
+     "Xu"
+    ],
+    [
+     14,
+     5,
+     "Xu"
+    ]
+   ],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1"
+     ],
+     "sim": [
+      "u1"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      8,
+      7
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1"
+    ],
+    "moves": []
+   },
+   "rule_says_cover": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "wall_s": 7.2
+  },
+  {
+   "case": "vision:kept_after_walking_away",
+   "note": "cleared at turn start, still seen after the Fencer walks away from it",
+   "terrain": [],
+   "tod": "morning",
+   "fog": {
+    "1": true,
+    "2": true
+   },
+   "agree": true,
+   "engine_ok": true,
+   "engine_error": null,
+   "checks": [
+    {
+     "check": "visible at start",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    },
+    {
+     "check": "time of day",
+     "engine": "morning",
+     "sim": "morning",
+     "agree": true
+    },
+    {
+     "check": "move 0 landing hex",
+     "engine": [
+      8,
+      1
+     ],
+     "sim": [
+      8,
+      1
+     ],
+     "agree": true
+    },
+    {
+     "check": "move 0 movement left",
+     "engine": 4,
+     "sim": 4,
+     "agree": true
+    },
+    {
+     "check": "move 0 visible after",
+     "engine": [
+      "u1",
+      "u2"
+     ],
+     "sim": [
+      "u1",
+      "u2"
+     ],
+     "agree": true
+    }
+   ],
+   "engine": {
+    "ok": true,
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        2
+       ],
+       [
+        8,
+        1
+       ]
+      ],
+      "cost": 2,
+      "past_movement": false,
+      "status": "0",
+      "success": true,
+      "final": [
+       8,
+       1,
+       4
+      ],
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ],
+    "time_of_day": "morning",
+    "units_start": {
+     "u1": [
+      8,
+      3
+     ],
+     "u2": [
+      8,
+      10
+     ],
+     "u3": [
+      14,
+      14
+     ]
+    },
+    "visible_start": [
+     "u1",
+     "u2"
+    ]
+   },
+   "sim": {
+    "visible_start": [
+     "u1",
+     "u2"
+    ],
+    "moves": [
+     {
+      "path": [
+       [
+        8,
+        3
+       ],
+       [
+        8,
+        2
+       ],
+       [
+        8,
+        1
+       ]
+      ],
+      "landed": [
+       8,
+       1
+      ],
+      "moves_left": 4,
+      "stop_reason": "end",
+      "visible_after": [
+       "u1",
+       "u2"
+      ]
+     }
+    ]
+   },
+   "rule_says_cover": [],
+   "wall_s": 6.7
+  }
+ ]
+}
