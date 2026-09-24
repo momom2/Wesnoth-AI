@@ -39,6 +39,21 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## An ended iteration's leftovers stay out of the next session (2026-09-24, FIXED, 0.5.4)
+
+An iteration that aborts (a serve process fails) or is abandoned at its
+hard deadline leaves reports, a dead-server marker and tickets on the
+queues its actors share, and the next session read them as its own:
+test_serve_process's stream counted the aborted iteration's two games as
+its first window (28 of 75 CI runs of the test failed that way). Per-game
+reports and the marker now carry their session's tag, an ended
+iteration clears its tickets, an actor keeps a later session's ticket
+for that session's PLAY, and shutdown() stops open serving before
+closing the queues. Open:
+- shutdown() joins the actors one after another, 15 s each, when they
+  cannot exit (seen as "terminating unresponsive process" in the same
+  run); `fix/shutdown-drains-results` is on it.
+
 ## Vision follows the engine (2026-09-24, FIXED, 0.4.6)
 
 A side sees its fog as the engine keeps it (docs/wesnoth_rules.md
