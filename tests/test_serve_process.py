@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import queue as _queue
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -79,12 +80,21 @@ class _Q:
         return self.items.pop(0)
 
 
-def test_client_raises_on_the_dead_server_marker():
-    req, resp = _Q(), _Q([(_RID_SERVER_DEAD, None)])
+def test_client_raises_on_the_dead_server_marker_of_its_own_play():
+    """The manager marks the reply queues of a dead server's actors with
+    the tag of the iteration it aborts. A marker the actor reads under a
+    later PLAY was left behind by that iteration and is dropped (CI
+    2026-09-24: one crashed the first game of the next stream)."""
+    req, resp = _Q(), _Q([(_RID_SERVER_DEAD, 3)])
     client = _IPCInferenceClient(3, [req], resp)
+    client.use_server(0, 3)
     with pytest.raises(RuntimeError, match="died"):
         client.infer_batch([object()])
     assert req.items[0][0] == 3
+
+    client.use_server(0, 4)
+    resp.items = [(_RID_SERVER_DEAD, 3), (1, [])]
+    assert client.infer_batch([object()]) == []
 
 
 @pytest.mark.slow
@@ -139,10 +149,17 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         # Continuous generation: a publication lands in the serve
         # process WHILE it serves (its SYNC loads under the gate), the
         # stream refuses nothing, and both servers agree afterwards.
+        t_open = time.time()
         stream = pool.stream(base_seed=11, tag=3)
         stream.start()
         first = stream.collect(2, timeout=600.0)
         assert len(first.games) == 2
+        # Iteration 2 ended with its games in flight: the reports its
+        # actors sent afterwards are not the stream's games, and the
+        # dead-server marker it left crashes none of them.
+        assert all(g.t_start > t_open and g.outcome is not None for g in first.games), \
+            [(g.actor, g.index, round(g.t_start - t_open, 3), g.outcome is None)
+             for g in first.games]
         # Both actors play through the first window, each on its own
         # server, so both serve in it.
         assert all(n > 0 for n in pool.last_leaves_per_server), pool.last_leaves_per_server
