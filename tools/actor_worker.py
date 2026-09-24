@@ -60,11 +60,15 @@ _R_EXPS    = "experiences"  # List[MCTSExperience]
 _R_DONE    = "iter_done"   # (local_decisions, distill stats, iter_idx)
 # One per completed game, after its _R_OUTCOME and _R_EXPS: (game index,
 # decisions made in it, time.time() at its start and end, the distill
-# stats drained for it under the continuous pool, else None).
+# stats drained for it under the continuous pool, else None, the
+# iteration or stream tag of the PLAY it was played under). The tag is
+# how a stream tells its own games from those of an iteration that
+# ended without collecting them, whose reports reach it on the same
+# queue (tools/actor_stream.ActorStream._close_game).
 _R_GAME    = "game"
 # Under the continuous pool only, one per game right after its start
-# stamp: (game index, time.time() at its start). The stream keeps the
-# games in flight from it; the barrier pool has no use for it.
+# stamp: (game index, time.time() at its start, the tag). The stream
+# keeps the games in flight from it; the barrier pool has no use for it.
 _R_START   = "start"
 _R_ERROR   = "error"       # traceback string (non-fatal; logged)
 _R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
@@ -80,8 +84,11 @@ def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
 
 
 # Reply marker the manager puts on an actor's reply queue when the
-# serve process that actor was assigned to died: the client raises on
-# it whatever request it is waiting for.
+# serve process that actor was assigned to died: (_RID_SERVER_DEAD, the
+# tag of the iteration or stream it aborted). The client raises on it
+# whatever request it is waiting for under that tag. A marker the actor
+# reads under a later PLAY is dropped: the aborted iteration left it
+# behind, and the pool starts nothing while a serve process is dead.
 _RID_SERVER_DEAD = -1
 
 
@@ -139,9 +146,12 @@ class _IPCInferenceClient:
         self._req = self._req_qs[0]
         self._resp = resp_q
         self._next_id = 0
+        self._tag: Optional[int] = None
 
-    def use_server(self, index: int) -> None:
+    def use_server(self, index: int, tag: Optional[int] = None) -> None:
+        """Ask server `index` from now on, under the PLAY tagged `tag`."""
         self._req = self._req_qs[index]
+        self._tag = tag
 
     def infer(self, raw):
         return self.infer_batch([raw])[0]
@@ -173,8 +183,10 @@ class _IPCInferenceClient:
                         "the learner process is gone; abandoning this request")
                 continue
             if r_rid == _RID_SERVER_DEAD:
-                raise RuntimeError("the serve process this actor was assigned to died "
-                                   "(see the pool's log)")
+                if wires == self._tag:          # the marker's tag
+                    raise RuntimeError("the serve process this actor was assigned to died "
+                                       "(see the pool's log)")
+                continue                        # left by an earlier PLAY: drop
             if r_rid == rid:
                 if wires is None:
                     raise RuntimeError("inference server failed on this batch "
@@ -346,7 +358,7 @@ def _actor_loop(
         # Which server answers this actor this iteration (module
         # docstring, "Serve processes"); legacy PLAY tuples = the
         # learner process.
-        client.use_server(int(cmd[10]) if len(cmd) > 10 else 0)
+        client.use_server(int(cmd[10]) if len(cmd) > 10 else 0, iter_idx)
         # Global feature 5 under fog (visibility.enemy_villages_visible_to);
         # legacy PLAY tuples = the true count, as the seed was trained.
         _fhv = bool(cmd[11]) if len(cmd) > 11 else False
@@ -463,7 +475,7 @@ def _actor_loop(
                 ds_game0 = int(getattr(base, "_decision_step", 0))
                 t_game0 = time.time()
                 if _stream:
-                    result_q.put((_R_START, actor_id, (g, t_game0)))
+                    result_q.put((_R_START, actor_id, (g, t_game0, iter_idx)))
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,
@@ -491,7 +503,7 @@ def _actor_loop(
                             game_dstats = None
                 result_q.put((_R_GAME, actor_id,
                               (g, int(getattr(base, "_decision_step", ds_game0)) - ds_game0,
-                               t_game0, time.time(), game_dstats)))
+                               t_game0, time.time(), game_dstats, iter_idx)))
         except Exception:
             result_q.put((_R_ERROR, actor_id, traceback.format_exc()))
         finally:

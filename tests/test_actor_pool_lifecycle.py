@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from test_actor_pool_watchdog import _FakeProc, _FakeQ, _pool  # noqa: E402
 from tools import actor_worker  # noqa: E402
-from tools.actor_pool import _R_DONE, _R_EXPS  # noqa: E402
+from tools.actor_pool import _R_DONE, _R_EXPS, _R_FATAL, ActorFatalError  # noqa: E402
 from tools.actor_worker import (  # noqa: E402
     _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _parent_gone, _take_ticket,
     _wait_for_command,
@@ -252,6 +252,20 @@ def test_serve_threads_stop_on_an_unnamed_error_path():
     assert pool._serving is False
 
 
+def test_an_aborted_iteration_leaves_no_tickets_behind():
+    """The ticket flush sat after the iteration's `finally`, so an
+    iteration that raised left its unplayed games and end markers on the
+    game queue: the next PLAY of the same index plays those games again,
+    and its actors stop at the stale end markers."""
+    procs = [_FakeProc(True, name="actor-0"), _FakeProc(True, name="actor-1")]
+    pool = _pool(procs, results=[(_R_FATAL, 1, "boom")])
+
+    with pytest.raises(ActorFatalError):
+        pool.run_iteration(2, games_per_iter=2, base_seed=1)
+
+    assert pool._game_q._items == []
+
+
 # ---------------------------------------------------------------- fix 4
 
 class _FakeProcess:
@@ -300,6 +314,7 @@ def _queue_pool(n: int = 2, tickets: int = 0):
         pool._game_q.put((0, g, g))
     pool._procs = [_FakeProcess(f"actor-{i}", stubborn=(i == 0)) for i in range(n)]
     pool._server_procs = [_FakeProcess("serve-1")]
+    pool._open_serving = None
     return pool
 
 
@@ -399,6 +414,27 @@ def test_shutdown_returns_with_big_messages_nobody_read():
         "shutdown() did not return: the drain lost the race with the feeder "
         "and join_thread() is waiting on a pipe nobody reads")
     assert not err, err
+
+
+def test_shutdown_stops_open_serving_before_closing_its_queue():
+    """CI 2026-09-24: a test raised with a stream open, and shutdown()
+    closed the request queue under the stream's serve threads, which
+    each died on the closed queue with a traceback in the log."""
+    pool = _queue_pool(n=1)
+    pool._server = None                 # never asked: no requests
+    pool._serve_threads = 2
+    pool._max_batch = 8
+    pool._serve_timeout = 0.01
+    pool._coalesce, pool._coalesce_gap = "fifo", 0
+    pool._stuck_serve_threads = []
+    sv = pool._start_serving(3)
+
+    pool.shutdown(timeout=0.5)
+
+    assert not any(th.is_alive() for th in sv.threads), "shutdown left serve threads running"
+    for th in sv.threads:
+        th.join(timeout=5.0)
+    assert [s.get("error") for s in sv.serve_stats] == [None, None]
 
 
 def test_shutdown_is_idempotent():

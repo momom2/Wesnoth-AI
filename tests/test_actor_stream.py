@@ -25,8 +25,10 @@ from tools.actor_stream import _window_delta  # noqa: E402
 from tools.inference_seam import ServeGate  # noqa: E402
 
 
-def _game(aid, g, decisions=4, t0=None, t1=None, outcome="o", exps=("e1", "e2"), dstats=None):
-    """The three messages an actor sends per completed game."""
+def _game(aid, g, decisions=4, t0=None, t1=None, outcome="o", exps=("e1", "e2"), dstats=None,
+          tag=0):
+    """The three messages an actor sends per completed game, played
+    under the PLAY tagged `tag` (a stream's tag is 0 unless given)."""
     now = time.time()
     msgs = []
     if outcome is not None:
@@ -34,7 +36,7 @@ def _game(aid, g, decisions=4, t0=None, t1=None, outcome="o", exps=("e1", "e2"),
     if exps:
         msgs.append((_R_EXPS, aid, list(exps)))
     msgs.append((_R_GAME, aid, (g, decisions, now - 10 if t0 is None else t0,
-                                now - 1 if t1 is None else t1, dstats)))
+                                now - 1 if t1 is None else t1, dstats, tag)))
     return msgs
 
 
@@ -48,8 +50,8 @@ def _stream_pool(results, n=2, **kw):
 
 
 def test_stream_collects_whole_games_and_keeps_the_queue_topped_up():
-    results = _game(0, 0, decisions=5) + _game(1, 1, decisions=3, outcome=None, exps=(),
-                                              dstats={"distill_x": 1.0})
+    results = _game(0, 0, decisions=5, tag=7) + _game(1, 1, decisions=3, outcome=None, exps=(),
+                                                     dstats={"distill_x": 1.0}, tag=7)
     pool = _stream_pool(results)
     stream = pool.stream(base_seed=100, tag=7)
     stream.start()
@@ -113,14 +115,14 @@ def test_wait_in_flight_reads_the_starts_and_holds_completed_games_for_collect()
         # first reports an iteration abandoned before the stream done
         # (it stays live), then starts game 1. The finished game is
         # read during the wait and must come out of the next collect.
-        pool._result_q._items.append((_R_START, 0, (0, time.time() - 10)))
+        pool._result_q._items.append((_R_START, 0, (0, time.time() - 10, 0)))
         pool._result_q._items.extend(_game(0, 0))
-        pool._result_q._items.append((_R_START, 0, (2, time.time())))
+        pool._result_q._items.append((_R_START, 0, (2, time.time(), 0)))
         pool._result_q._items.append((_R_DONE, 1, (3, None, 5)))
         with pytest.raises(RuntimeError, match=r"actors \[1\] not inside a game"):
             stream.wait_in_flight(timeout=0.3)
         assert stream._live == {0, 1}
-        pool._result_q._items.append((_R_START, 1, (1, time.time())))
+        pool._result_q._items.append((_R_START, 1, (1, time.time(), 0)))
         flight = stream.wait_in_flight(timeout=5.0)
         assert {aid: g for aid, (g, _) in flight.items()} == {0: 2, 1: 1}
         window = stream.collect(1, timeout=5.0)
@@ -184,6 +186,34 @@ def test_stop_drains_the_actors_and_returns_what_completed_meanwhile():
     pool._result_q._items.append((_R_DONE, 1, (0, None, 3)))
     outcomes, exps = pool.run_iteration(3, games_per_iter=1, base_seed=1)
     assert outcomes == [] and exps == []
+
+
+def test_a_stream_drops_the_games_of_an_iteration_that_ended_without_them():
+    """CI 2026-09-24 (tests/test_serve_process.py): an iteration aborted
+    with its games in flight, and what its actors sent afterwards --
+    actor 0's finished game, actor 1's game crashed on the dead-server
+    marker, their done reports -- was still on the result queue when the
+    next stream opened. The two games filled the stream's first window
+    before it had served a leaf. They carry the aborted iteration's tag
+    and are dropped with their outcome and experiences."""
+    now = time.time()
+    stale = (_game(0, 1, outcome="stale", exps=("stale",), tag=2) + [(_R_DONE, 0, (6, None, 2))]
+             + _game(1, 0, outcome=None, exps=(), tag=2) + [(_R_DONE, 1, (1, None, 2))])
+    own = ([(_R_START, 0, (0, now, 3))] + _game(0, 0, tag=3)
+           + [(_R_START, 1, (1, now, 3))] + _game(1, 1, tag=3))
+    pool = _stream_pool(stale + own)
+    harvested = []
+    pool._policy.harvest_boundary_pairs = harvested.append
+    stream = pool.stream(base_seed=5, tag=3)
+    stream.start()
+    try:
+        window = stream.collect(2, timeout=5.0)
+    finally:
+        stream.stop(grace=0.5)
+    assert [(g.actor, g.index) for g in window.games] == [(0, 0), (1, 1)]
+    assert window.outcomes == ["o", "o"]
+    assert window.experiences == ["e1", "e2", "e1", "e2"]
+    assert harvested == [["e1", "e2"], ["e1", "e2"]], "a dropped game reached the harvest"
 
 
 def test_iteration_and_stream_exclude_each_other():

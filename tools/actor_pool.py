@@ -337,6 +337,10 @@ class ActorPool:
         # iteration can re-join them instead of forgetting a thread that
         # is still reading the request queue.
         self._stuck_serve_threads: List[threading.Thread] = []
+        # The serving started and not yet stopped (an iteration's, or a
+        # stream's): shutdown() stops its threads before closing the
+        # queues they read.
+        self._open_serving: Optional[_Serving] = None
 
     # -- lifecycle ----------------------------------------------------
 
@@ -667,7 +671,7 @@ class ActorPool:
         failures = failures or {}
         for aid in range(self._n):
             if self._server_of(aid) in dead:
-                self._resp_qs[aid].put((_RID_SERVER_DEAD, None))
+                self._resp_qs[aid].put((_RID_SERVER_DEAD, iter_idx))
         what = "; ".join(
             f"serve process {sid} failed:\n{failures[sid]}" if sid in failures
             else f"serve process {sid} died (exitcode {self._server_procs[sid - 1].exitcode})"
@@ -812,14 +816,17 @@ class ActorPool:
                       picker=_BatchPicker(self._coalesce, self._coalesce_gap),
                       t_start=time.monotonic())
         self._picker = sv.picker
-        sv.threads = [threading.Thread(
-            target=_serve_loop,
-            args=(self._server, sv.picker, self._req_qs[0], self._resp_qs,
-                  self._max_batch, self._serve_timeout, sv.stop_ev, sv.serve_stats),
-            daemon=True, name=f"serve-{i}")
-            for i in range(self._serve_threads)]
-        for th in sv.threads:
+        self._open_serving = sv
+        # `sv.threads` holds started threads only, so a start that fails
+        # (the container's PID limit) leaves a serving that stops cleanly.
+        for i in range(self._serve_threads):
+            th = threading.Thread(
+                target=_serve_loop,
+                args=(self._server, sv.picker, self._req_qs[0], self._resp_qs,
+                      self._max_batch, self._serve_timeout, sv.stop_ev, sv.serve_stats),
+                daemon=True, name=f"serve-{i}")
             th.start()
+            sv.threads.append(th)
         for cq in self._server_ctrl_qs:
             cq.put((_SRV_SERVE, iter_idx))
         return sv
@@ -833,7 +840,16 @@ class ActorPool:
         with their PAUSE reply."""
         if sv.stopped:
             return
+        self._stop_serve_threads(sv)
+        sv.server_stats.update(self._pause_servers())
+
+    def _stop_serve_threads(self, sv: "_Serving") -> None:
+        """Stop and join the in-process serve threads behind `sv`. The
+        first half of `_stop_serving`, and all of it that shutdown()
+        needs: shutdown stops the serve processes with STOP, not PAUSE."""
         sv.stopped = True
+        if self._open_serving is sv:
+            self._open_serving = None
         sv.stop_ev.set()
         for th in sv.threads:
             th.join(timeout=10.0)
@@ -848,7 +864,6 @@ class ActorPool:
                       f"request queue until they do")
         self.last_stuck_serve_threads = [th.name for th in slow]
         self._stuck_serve_threads += slow
-        sv.server_stats.update(self._pause_servers())
 
     def _serve_snapshot(self, sv: "_Serving") -> Tuple[List[Dict], Dict[str, int], List[int]]:
         """The serving's stats so far: every thread's stats dict (the
@@ -863,7 +878,7 @@ class ActorPool:
         if sv.stopped:
             per_server = sv.server_stats
         else:
-            per_server = self._server_stats_live()
+            per_server = self._server_stats_live(sv.iter_idx)
         for sid in self._server_ids():
             ss = per_server.get(sid) or {}
             ts = list(ss.get("threads", []))
@@ -873,7 +888,7 @@ class ActorPool:
                 pick[k] = pick.get(k, 0) + int(v)
         return threads, pick, leaves_per_server
 
-    def _server_stats_live(self) -> Dict[int, Dict]:
+    def _server_stats_live(self, iter_idx: int) -> Dict[int, Dict]:
         """Every live serve process's stats while it serves (STATS
         command; a dead one contributes nothing)."""
         if not self._server_procs:
@@ -894,7 +909,7 @@ class ActorPool:
                 got[sid] = payload
                 pending.discard(sid)
             elif r_kind == _S_ERROR:
-                self._abort_on_dead_servers(-1, [sid], failures={sid: str(payload)})
+                self._abort_on_dead_servers(iter_idx, [sid], failures={sid: str(payload)})
         if pending:
             log.error(f"serve process(es) {sorted(pending)} did not return their stats")
         return got
@@ -1157,7 +1172,10 @@ class ActorPool:
                     outstanding -= self._scan_liveness(iter_idx, outstanding)
         finally:
             self._stop_serving(sv)
-        self._last_tickets_flushed = self._flush_tickets()
+            # On every exit path: tickets left by an iteration that
+            # aborted would be played by the next PLAY of the same index
+            # and its end markers would end that PLAY's actors early.
+            self._last_tickets_flushed = self._flush_tickets()
         if self._last_tickets_flushed:
             log.info(f"iter {iter_idx}: {self._last_tickets_flushed} game tickets "
                      f"and end markers left unplayed (drain or dropped actors)")
@@ -1178,6 +1196,14 @@ class ActorPool:
         pools living in one pytest process (2026-09-13 audit)."""
         if not self._started:
             return
+        # Serving still open (a stream the caller never stopped, or a
+        # serving whose start failed midway): its threads read the
+        # request queue closed below, and each would die on the closed
+        # queue with a traceback in the log (2026-09-24 CI).
+        if self._open_serving is not None:
+            log.warning(f"shutdown with serving {self._open_serving.iter_idx} still open; "
+                        f"stopping its serve threads first")
+            self._stop_serve_threads(self._open_serving)
         for q in self._ctrl_qs:
             try:
                 q.put((_CMD_STOP,))
