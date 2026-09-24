@@ -56,6 +56,7 @@ from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_pa
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tools.replay_dataset import ActionIndices, filter_competitive_2p, iter_replay_pairs
 from tools.encode_worker import worker_main as _encode_worker_main
+from tools.mp_teardown import start_child
 
 
 log = logging.getLogger("supervised_train")
@@ -408,19 +409,17 @@ class _ParallelStream:
         # in-flight files.
         self._out_q = self._ctx.Queue(maxsize=max(workers * prefetch_factor, 8))
 
-        self._procs = []
-        for _ in range(workers):
-            p = self._ctx.Process(
-                target=_encode_worker_main,
-                args=(self._in_q, self._out_q,
-                      dict(type_to_id), dict(faction_to_id)),
-                kwargs={"relevant_set": relevant_set,
-                        "fog_hides_enemy_villages": fog_hides_enemy_villages,
-                        "terrain_multi_hot": terrain_multi_hot},
-                daemon=True,
-            )
-            p.start()
-            self._procs.append(p)
+        # Through start_child, so a worker whose trainer was killed
+        # exits without writing out results nobody will read
+        # (tools/mp_teardown.run_child).
+        self._procs = [
+            start_child(self._ctx, _encode_worker_main,
+                        (self._in_q, self._out_q, dict(type_to_id), dict(faction_to_id)),
+                        name=f"encode-{i}",
+                        kwargs={"relevant_set": relevant_set,
+                                "fog_hides_enemy_villages": fog_hides_enemy_villages,
+                                "terrain_multi_hot": terrain_multi_hot})
+            for i in range(workers)]
 
         self._workers_alive = workers
         self._init_consumer_state()

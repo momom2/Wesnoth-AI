@@ -39,6 +39,24 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## An encode worker whose trainer was killed exits (2026-09-24, FIXED, 0.5.7)
+
+`supervised_train --workers N` spawns encode workers that waited on an
+untimed `in_q.get()` and a bounded `out_q.put()` with no parent check,
+holding both ends of both queues. When the trainer was killed (an OOM
+kill, or `vast_onstart.sh`'s SL_MODE relaunch, whose pkill matches the
+trainer's command line and not the workers') each worker waited
+forever: shown on Windows here and on Linux in CI (run 36055626436) for
+a worker waiting for a replay and one waiting for room on a full output
+queue. `encode_worker.serve_files` now reads and writes in 2 s slices
+and returns once the trainer is gone, and `_ParallelStream` starts its
+workers through `start_child`, so the exit does not wait on unread
+results (tests/test_orphan_exit.py). The per-file work, `encode_game`,
+moved from preencode_corpus into encode_worker. New:
+tests/test_parallel_stream_workers.py (slow tier), the first CI test
+that spawns these workers, requires the in-process encoding through
+two real workers with every encoder switch off its default.
+
 ## A pool child whose learner was killed exits (2026-09-24, FIXED, 0.5.6)
 
 The 2026-09-13 orphan guard made an actor return once its learner was
@@ -56,15 +74,9 @@ gone (tests/test_orphan_exit.py). Open:
 - A child that stopped on STOP still flushes, since the manager reads
   its queues during shutdown; if the learner is killed during that
   shutdown, the child waits forever.
-- The supervised trainer's encode workers (`tools/encode_worker.py`)
-  have no parent check at all: an untimed `in_q.get()`, a bounded
-  `out_q.put()`, then the same exit flush. `vast_onstart.sh`'s SL_MODE
-  relaunch pkills only the trainer (the spawned children's command
-  line does not match), so each relaunch can leave 24 workers. Flagged
-  as its own task, not started.
 - `SpoolWorkers` (`tools/selfplay_worker.py`, opt-in debug fallback)
   loop until their control file changes, whatever becomes of the
-  parent.
+  parent. User ruling 2026-09-24: remove the spool path.
 
 ## shutdown() reads its children's output while they exit (2026-09-24, FIXED, 0.5.5)
 

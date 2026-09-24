@@ -40,3 +40,41 @@ def ship_results_until_orphaned(ctrl_q, result_q, actor_pid, shipped, nbytes: in
     shipped.set()
     while actor_worker._wait_for_command(ctrl_q) is not None:
         pass
+
+
+def trainer_killed_with_its_encode_worker(n_replays: int, worker_pid, ready) -> None:
+    """A trainer that has started one encode worker and handed it
+    `n_replays` replays, reading none of its output; it waits to be
+    killed. `ready` is set once the worker waits: for a replay when
+    `n_replays` is 0, else for room on its full output queue."""
+    import multiprocessing as mp
+    import time
+    from tools.mp_teardown import start_child
+    ctx = mp.get_context("spawn")
+    in_q = ctx.Queue(maxsize=n_replays + 1)
+    out_q = ctx.Queue(maxsize=max(n_replays - 1, 1))
+    started = ctx.Event()
+    worker = start_child(ctx, encode_worker_noticing_sooner, (in_q, out_q, started),
+                         name="encode-0")
+    worker_pid.value = worker.pid
+    for seq in range(n_replays):
+        in_q.put((seq, f"replay_{seq}.json.gz"))
+    started.wait(60.0)
+    while n_replays and not out_q.full():
+        time.sleep(0.01)
+    ready.set()
+    time.sleep(600.0)
+
+
+def encode_worker_noticing_sooner(in_q, out_q, started) -> None:
+    """tools.encode_worker's loop over replays that each encode to 1 MiB,
+    far more than a pipe holds; it checks on its trainer every 0.2 s
+    instead of every 2 s."""
+    from tools import encode_worker
+    encode_worker._PARENT_POLL = 0.2
+    started.set()
+    encode_worker.serve_files(in_q, out_q, _one_mebibyte_of_pairs)
+
+
+def _one_mebibyte_of_pairs(gz_path: str) -> list:
+    return [(b"x" * (1 << 20), None)]
