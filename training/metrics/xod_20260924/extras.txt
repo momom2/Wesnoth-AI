@@ -1,0 +1,15 @@
+needs R4 on top of R0: 2 rewrites, 2 attacks, classes {'K': 2}
+needs R4 on top of r3g: 84 rewrites, 75 attacks, classes {'H': 82, 'K': 2}
+needs R4 on top of r3l: 109 rewrites, 96 attacks, classes {'H': 107, 'K': 2}
+needs R4 on top of r1+r2-0.15+r3l: 109 rewrites, 96 attacks, classes {'H': 107, 'K': 2}
+horizon 8: rewrites admitted only with R1 265; of them the hopeless rule in R1's place rejects 79 {'Q2': 55, 'Q': 24}
+horizon 16: rewrites admitted only with R1 265; of them the hopeless rule in R1's place rejects 188 {'Q2': 133, 'Q': 55}
+Q2 at R0: 2024-03-22_2p__Caves_of_the_Basilisk_Turn_14_ 11 {'first': 'u29', 'second': 'u31', 'target': 'u22'} {'d_p_kill': 0, 'p_first_kills': 0, 'd_p_levelup_a1': 0, 'd_hp_a1': 1.35, 'd_p_levelup_a2': 0, 'd_hp_a2': 0.0, 'd_target_hp': 0.0} [('hp:a1', '>')]
+Q2 at R0: 2024-03-23_2p__Caves_of_the_Basilisk_Turn_16_ 13 {'first': 'u37', 'second': 'u39', 'target': 'u49'} {'d_p_kill': 0, 'p_first_kills': 0, 'd_p_levelup_a1': 0, 'd_hp_a1': -0.0, 'd_p_levelup_a2': 0, 'd_hp_a2': 0.0, 'd_target_hp': -0.169} [('hp:t', '>')]
+Q2 at R0: 2024-03-25_2p__Aethermaw_Turn_12_(21).json.gz 5 {'first': 'u11', 'second': 'u8', 'target': 'u3'} {'d_p_kill': 0.0, 'p_first_kills': 0, 'd_p_levelup_a1': 0, 'd_hp_a1': 0.0, 'd_p_levelup_a2': 0, 'd_hp_a2': 0.0, 'd_target_hp': -0.375} [('hp:t', '>'), ('attack_left:a1', '>')]
+
+Q/Q2 blocked only by own hp/xp traded between the attackers: 1394
+  Q Ghost(16) then Skeleton Archer(31) on Elvish Fighter(18); swap: {'d_hp_a1': +1.10, 'd_hp_a2': -0.48, 'd_p_kill': +0.000}
+  Q Bowman(31) then Spearman(35) on Elvish Scout(33); swap: {'d_hp_a1': +0.00, 'd_hp_a2': -0.14, 'd_p_kill': +0.000}
+  Q2 Elvish Archer(30) then Elvish Scout(31) on Spearman(32); swap: {'d_hp_a1': +0.00, 'd_hp_a2': -0.04, 'd_p_kill': +0.000}
+  Q2 Swordsman(55) then Mage(28) on Merman Hunter(32); swap: {'d_hp_a1': -0.00, 'd_hp_a2': -0.20, 'd_p_kill': -0.000}

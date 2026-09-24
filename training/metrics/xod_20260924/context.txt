@@ -1,0 +1,65 @@
+decisions 85776, attacks 17914, rows 27805
+
+== Target is the enemy leader ==
+attacks on the leader with a candidate: 711 (8.29/1k dec); rewrites 1162
+rewrites raising the leader-kill chance: 12 on 12 attacks; admitted by some of 36: 0
+  W p_kill 0.000 -> 0.110; own hp -5.6; attacker is leader False; admitted36 False; worse ['enemy_xp', 'own_alive', 'own_hp', 'own_petrified', 'own_poisoned', 'own_slowed', 'own_xp']
+  Q2 p_kill 0.030 -> 0.050; own hp -11.8; attacker is leader False; admitted36 False; worse ['alive:a2', 'hp:a2', 'poisoned:a2', 'slowed:a2', 'xp:a1', 'xp:a2', 'xp:t']
+  W p_kill 0.000 -> 0.507; own hp -13.2; attacker is leader False; admitted36 False; worse ['enemy_xp', 'own_alive', 'own_hp', 'own_petrified', 'own_poisoned', 'own_slowed', 'own_xp']
+  W p_kill 0.352 -> 0.640; own hp +10.8; attacker is leader False; admitted36 False; worse ['enemy_hp']
+  W p_kill 0.000 -> 0.043; own hp -3.7; attacker is leader False; admitted36 False; worse ['enemy_hp', 'enemy_xp', 'own_alive', 'own_hp', 'own_petrified', 'own_poisoned', 'own_slowed', 'own_xp']
+  W p_kill 0.000 -> 0.216; own hp -18.5; attacker is leader False; admitted36 False; worse ['own_hp']
+  W p_kill 0.000 -> 0.027; own hp -1.4; attacker is leader False; admitted36 False; worse ['enemy_hp', 'own_hp']
+  W p_kill 0.352 -> 0.640; own hp +1.6; attacker is leader True; admitted36 False; worse ['enemy_hp']
+  W p_kill 0.000 -> 0.343; own hp -8.5; attacker is leader True; admitted36 False; worse ['enemy_xp', 'own_alive', 'own_hp', 'own_petrified', 'own_poisoned', 'own_slowed', 'own_xp']
+  W p_kill 0.000 -> 0.343; own hp -14.9; attacker is leader False; admitted36 False; worse ['own_hp']
+  W p_kill 0.000 -> 0.031; own hp -31.1; attacker is leader False; admitted36 False; worse ['enemy_hp', 'enemy_xp', 'own_alive', 'own_hp', 'own_levelup', 'own_petrified', 'own_poisoned', 'own_slowed', 'own_xp']
+  W p_kill 0.027 -> 0.090; own hp +0.5; attacker is leader False; admitted36 False; worse ['enemy_hp']
+played leader-kill chance per attack: {'0': 540, '0.1-0.3': 63, '<0.1': 45, '0.3-0.6': 42, '>=0.6': 21}
+
+== Intelligent attackers in Q/Q2 ==
+Q/Q2 rewrites 5414; exactly one attacker intelligent 2331; own xp traded 1369; xp moved toward the intelligent one 642
+  their kill-chance symbol: {'=': 629, '>': 3, '<': 10}
+  admitted by some of 36: 43
+  E[xp] gained by the intelligent unit: mean +1.93, max +8.96
+  other blocking groups once xp is settled (hp eps <= 0.15 passes): {'own_hp': 247, '(nothing)': 163, 'attack_left move_kept own_hp': 61, 'attack_left move_kept': 30, 'attack_left own_hp': 25, 'death own_hp own_status': 24, 'own_hp own_levelup': 20, 'attack_left move_kept own_hp own_levelup': 9}
+
+== XP distance to threshold vs XP at stake (Q/Q2 with own xp traded) ==
+  ('1 can level this window', 'gains xp') 83
+  ('1 can level this window', 'loses xp') 258
+  ('2 within one more kill', 'gains xp') 515
+  ('2 within one more kill', 'loses xp') 632
+  ('3 within three more kills', 'gains xp') 1999
+  ('3 within three more kills', 'loses xp') 1988
+  ('4 further', 'gains xp') 563
+  ('4 further', 'loses xp') 282
+  (3160 rewrites)
+
+== Target healing and follow-up attackers ==
+attacks with any candidate: 15324
+  target heals next turn: {'none': 10611, 'village/oasis': 3030, 'regenerates': 1160, 'healer+4': 440, 'healer+8': 83}
+  potential follow-up attackers (3 = 3+): {0: 5035, 1: 4003, 2: 2688, 3: 3598}
+  follow-up attacks played on it: {0: 9431, 1: 4134, 2: 1361, 3: 398}
+
+== Kill chance first extras (kill better, no own death worse, rejected by all 36) ==
+461 rewrites on 453 attacks; by class {'W': 426, 'Q2': 26, 'Q': 8, 'H': 1}
+  ('played 0', 'cand 0.1-0.3') 71
+  ('played 0', 'cand 0.3-0.6') 29
+  ('played 0', 'cand <0.1') 58
+  ('played 0', 'cand >=0.6') 17
+  ('played >0', 'cand 0.1-0.3') 41
+  ('played >0', 'cand 0.3-0.6') 67
+  ('played >0', 'cand <0.1') 21
+  ('played >0', 'cand >=0.6') 157
+  target heals: {'none': 322, 'village/oasis': 93, 'regenerates': 39, 'healer+4': 7}
+  potential follow-ups: {0: 179, 1: 111, 2: 83, 3: 88}
+  enemies next to the target: {0: 268, 1: 140, 2: 45, 3: 8}
+  what blocks them (xp and eps<=0.15 hp ignored): {'own_hp': 290, 'enemy_hp own_hp': 87, 'enemy_hp': 44, 'own_hp own_status': 11, 'attack_left move_kept own_hp': 8, 'attack_left move_kept': 3}
+  d_p_kill: mean +0.180 median +0.130 max +0.821 min +0.000
+  d_target_hp: mean -2.035 median -1.037 max +3.465 min -20.520
+  d_own_hp: mean -5.039 median -4.800 max +10.771 min -21.190
+  own hp given per unit of kill chance: median -26.1
+
+== Reference: expected material swing (cost x hp fraction, dead = 0), rejected by all 36 ==
+rewrites with a positive swing: 2587 on 2433 attacks (28.4/1k dec); mean 1.20 gold, median 0.68, above 1 gold 1023, above 3 gold 244
+  by class: {'W': 1460, 'Q': 364, 'H': 10, 'Q2': 753}

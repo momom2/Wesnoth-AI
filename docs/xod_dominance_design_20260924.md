@@ -1,5 +1,11 @@
 # XOD-P: combat overrides certified by distributional dominance (design, 2026-09-24)
 
+**PARKED 2026-09-24 by user ruling, on branch `exp/xod-dominance`, not
+merged.** The rewrites the checker certifies are worth a few Elo per
+game at most, below what an 800-game match resolves. Section 10 holds
+the measurement, the reopening condition and the catalogue of further
+relaxations collected before parking.
+
 A teacher candidate for phase 2 (docs/plan_20260904.md 5): the
 reference player, with its combat rewritten wherever the rewrite's
 outcome distribution is at least as good as the original's on every
@@ -454,3 +460,252 @@ Tests, each able to fail:
   wanted.
 - rejected: running the census on the laptop, because it generates
   self-play games (user ruling: none on the laptop).
+
+## 10. Parked (2026-09-24): what was measured, and when to come back
+
+### 10.1 Measured on human games
+
+**300 games** (the first 300 of the training split; the driver of
+10.4 reproduces the tool on the first 20 exactly): 8,024 side-turns,
+85,776 decisions, 17,914 attacks, no failed game. Attacks with an
+admitted rewrite: 84 at R0 (0.98 per 1,000 decisions); 487 under any
+of the 36 combinations (5.68 per 1,000), the loosest alone giving the
+same set; 680 (7.93 per 1,000) with the class Q2 of 10.4. The
+pre-registered bars (section 7) are 1% of decisions for R0 and 0.5%
+beyond R0 for a relaxed combination; humans sit at 0.1% and 0.57%.
+These counts use status dimensions with a dead unit read as the extreme
+value (10.3), which changes 4 admissions in 300 games.
+
+**20 games**, the first read, with the gains per opportunity. The first 20 games of the imitation corpus's training split
+(`tools/analysis/dominance_count.py --games 20`, 15 s on three cores):
+611 side-turns, 7,310 decisions, 1,411 attacks. An opportunity is an
+attack with at least one admitted rewrite of the class.
+
+| combination | W | H | A | K | Q | F | any class | of decisions |
+|---|---|---|---|---|---|---|---|---|
+| R0 | 1 | 0 | 0 | 2 | 0 | 0 | 3 | 0.04% |
+| r2-0.15 | 5 | 0 | 0 | 2 | 0 | 0 | 7 | 0.10% |
+| r3g+r4 | 1 | 11 | 0 | 2 | 0 | 0 | 14 | 0.19% |
+| r1+r2-0.15+r3l+r4 (loosest reported) | 5 | 17 | 0 | 2 | 3 | 1 | 28 | 0.38% |
+
+Set aside on the way: 1,336 attack-hex candidates whose fight was not
+better, 16 attack-hex candidates that a later command needed, 457
+setup candidates on attacks that could kill, 2 fights the enumerator
+could not resolve.
+
+Gain per opportunity at the loosest combination (the best rewrite of
+each attack):
+
+| class | opportunities | mean gain | largest |
+|---|---|---|---|
+| H | 17 | attacker +1.35 hp; kill chance unchanged | +3.6 hp |
+| W | 5 | kill chance +0.155, attacker +1.95 hp, target -1.7 hp | kill chance +0.296 |
+| Q | 3 | no change in kill or level-up chance | |
+| F | 1 | level-up chance +0.01 | |
+| K | 2 | 3.3 movement points banked (tier O) | 4.2 |
+
+Per game that is about 0.04 kills and 1.6 hp (1.4 opportunities per
+game; the 300-game sample reads 1.6, or 2.3 with Q2). Near an even score one
+point of win probability is about 7 Elo; if a kill were worth 10 to 20
+points of win probability, the rewrites of a game are worth 3 to 6 Elo,
+against a standard error of about 12 Elo on an 800-game match. The
+value of a kill is an assumption, not a measurement; the rider of
+section 7 measures a rewrite's worth directly by playouts.
+
+### 10.2 When to come back
+
+- The reference's own count. Every eval match records its games whole
+  (`tools/game_record.py`, `tools/elo_eval_game.py`), so running
+  `dominance_count.py --records` over the records of any match that runs
+  anyway gives the reference's rates at no extra rental. Reopen if they
+  are about ten times the human rates with gains of W's size (kill
+  chance), not H's (a hp or two).
+- A relaxation from 10.4 that multiplies the opportunities about tenfold
+  with material gains.
+- The input-side variant (10.5).
+
+### 10.3 Known defects, not fixed
+
+- A dead unit's outcome reads slowed, poisoned and petrified as false
+  (`combat_outcomes._canonical` for `fight_dims`, `_after_fight` for
+  `_joint_dims`). Enemy statuses count "more is better", so a candidate
+  that kills more can read worse on a status the played attack also
+  gives; the own-unit mirror reads a unit saved and left poisoned as
+  worse. The right order: for an enemy, dead above alive with the status
+  above alive without; for an own unit the reverse. Measured on 300
+  games: the symbols change on 7,316 candidate vectors, admissions on 4
+  (0.05 per 1,000 decisions).
+- R2 lets an almost-dominant hp dimension pass but never counts it as the
+  gain, so a rewrite whose only improvement is almost dominant is refused
+  at every level (10 in 300 games); section 4 reads as if it should
+  count.
+- H's enemy-threat guard reads enemy reach on the played board, where the
+  mover still stands on the played hex, blocking and zoning; it causes
+  99 of the 123 guard failures.
+- Q sees only two attacks in a row on one target: 1,607 of the 6,981
+  same-target pairs in 300 games. 4,023 more have one move between them,
+  usually the second attacker walking in (Q2, 10.4).
+- A kill also shows as a status gain under the corrected reading:
+  harmless for admission, a double count if gains are ever summed.
+
+### 10.4 Further relaxations, collected before parking
+
+From three independent agents: Wesnoth tactics, the dominance
+literature, and measurement over corpus games. V marks a mechanic
+checked in the 1.18.4 source or the local WML, J a judgement. None is
+built. The agents' full reports are not kept; their essentials follow.
+
+**From Wesnoth's mechanics.**
+1. *Project enemy units to their next turn start* (V). Compare an enemy's
+   hp and poison as they stand after its side's next init_side (the
+   largest of village, regeneration and adjacent healer, plus 2 rest
+   heal only for a `healthy` unit, since an attack clears resting,
+   `attack.cpp:1374-1375`; poison 8, `game_config.cpp:43`), when no
+   later command of the turn attacks it. Exact for the next moment hp
+   has an effect; removes false gains such as 2 hp off a regenerating
+   troll. Occasional to common (J).
+2. *Own slow caused in the own turn is dropped* (V). Slow ends at the
+   slowed unit's side's end of turn (`unit.cpp:1284`), and a unit that
+   attacked cannot act again in the default era (`attack.cpp:1372`), so
+   the slow's only effect was inside the fight, already in the hp
+   distribution. Enemy slow stays: it lasts through the enemy's turn.
+   Rare to occasional (J).
+3. *Experience bands* (V for the mechanics). Residual experience compared
+   through how far the unit is from levelling: levelled, one fight
+   away, one kill away, two kills, far (kill experience 8 x level, 4 at
+   level 0; fight experience = level, `game_config.cpp:40-41`; an
+   advancing unit heals fully and is cured, `advancement.cpp:320-324`).
+   Between R0 and R1; covers "no realistic hope of levelling". Common
+   (J).
+4. *Leader rules* (V: a side without a leader is defeated,
+   `team.cpp:146,189`). (a) Never relax either leader's hp under R2-R4.
+   (b) A rewrite that raises P(enemy leader dead) by at least a threshold
+   and raises no own death is admitted whatever else it costs.
+5. *Experience as progress weighted by the level-up's value*: the
+   intelligent-unit case (V: intelligent is -20% max experience,
+   `traits.cfg:186-200`; half the races draw it from four traits). Own
+   experience pooled as the sum of weight x experience / max experience
+   once kills, deaths, hp and statuses pass.
+6. *Plague credit* (V: `attack.cpp:155-157`, `1287-1295`): P(an own unit
+   is spawned) as a dimension, so an order that gives the kill to a
+   plaguer counts. Rare.
+7. *A kill that opens a path* to the enemy leader or a village for an own
+   unit with moves left (ZoC, V; level-0 units emitting none, not
+   verified). Occasional, often wrong (J).
+8. Weaker: own units out of enemy reach projected to their next turn
+   start; own hp in next-turn threat bands; cost-weighted merge of own
+   units; on the last side-turn before the cap only the leader kill
+   counts (a project convention, not a game rule).
+
+**Measured on 300 human games** (per 1,000 decisions; "extra" is admitted
+by the rule on top of some combination and by none of the 36 without
+it). Scripts and outputs as run: `training/metrics/xod_20260924/`; the
+per-candidate rows (8.8 MB, derived from corpus games) were not
+committed and are regenerated by `census.py` in about 5 minutes on three
+cores.
+
+- Q2, a class added by the measurement: played "attack a1, move a2,
+  attack a2", rewritten "move a2, attack a2, attack a1", the move
+  replayed identically and a1's fight unchanged, with an option
+  dimension for a2's move being committed on a1's kill branch. With it
+  the admitted attacks go from 487 to 680.
+- R0 refuses 7,909 candidates that are better somewhere. The largest
+  families are trades, not near-dominance: the attacker safer against
+  target damage or kill chance (17.6), own hp moved between the two
+  attackers of Q (16.0), Q2's committed move (11.4), only own experience
+  moved (9.4, of which R1 admits some), more target damage for more own
+  damage (8.2). Among candidates blocked only by an incomparable hp
+  dimension, 218 of 282 have epsilon above 0.5: mostly worse, not nearly
+  better.
+
+| rule | extra attacks (/1k) | gains of what it admits, mean |
+|---|---|---|
+| kill chance first: kill chance better, no own death chance worse, all else ignored | 453 (5.28) | kill +0.18, own hp -5.0, target hp -2.0 |
+| same, gated: the kill opens something (another enemy next to the target, or the target on a village) | 272 (3.17) | kill +0.17, own hp -4.9 |
+| same, gated: no follow-up attacker left | 174 (2.03) | kill +0.17, own hp -5.3 |
+| same, gated: the target heals 8 or more next turn | 131 (1.53) | kill +0.18 |
+| Q/Q2: drop the committed-move dimension, pool hp, attacks left and experience of the two attackers | 497 (5.79) | own hp +2.1 |
+| Q/Q2: keep only the experience of the unit nearer its threshold, pool own hp | 445 (5.19) | own hp +0.5 |
+| Q/Q2: pool the two attackers' hp | 303 (3.53) | own hp +1.6, level-up +0.025 |
+| Q/Q2: exactly one attacker intelligent, keep only its experience, pool hp | 245 (2.86) | own hp +0.7 |
+| Q/Q2: exactly one attacker intelligent, keep only its experience | 120 (1.40) | experience to it +1.4; nothing else |
+| experience hopeless: drop a unit's experience when a kill now leaves it more than 16 short (8: 52, 0.61) | 76 (0.89) | experience moved only |
+| an incomparable hp dimension decided by its mean | 74 (0.86) | kill +0.05, own hp +2.0 |
+| R2 counted as a gain | 10 (0.12) | |
+| enemy leader kill first | 6 to 11 (0.07 to 0.13) | kill +0.18 to +0.20, own hp -3.7 to -7.9 |
+| target hp after its next heal | 1 to 6 | |
+| reference only: XOD's valued swap (material swing above 0), which section 9 rejects | 2,433 (28.4) | median 0.68 gold |
+
+The "experience hopeless" rule also tightens R1: of the 265 rewrites
+only R1 admits, it refuses 79 (8) or 188 (16), which take experience
+from a unit within reach of its threshold. On the user's examples: 711
+attacks on the enemy leader have a candidate, 12 raise the leader-kill
+chance and none of the 36 admits one (two go from 0.35 to 0.64 while
+sparing our attacker, blocked only by an incomparable target hp); in
+642 Q or Q2 rewrites experience moves toward the one intelligent
+attacker at an equal kill chance, and 43 are admitted today.
+
+**From the dominance literature.**
+1. *Follow-up kill utilities* (target-based utility; Castagnoli and
+   LiCalzi 1996, abstract read). A target's hp is valued only through
+   the chance that each plausible follow-up this turn kills it: the
+   rewrite must be at least as good for every follow-up plan (own units
+   with an attack left that can reach the target), computed with
+   `fight()` on the window's end states. Sound because no mainline
+   special depends on the attacker's hp (grepped), so hp is worth its
+   survival. On the section-4 example (6-4 against 8-2, 20 hp) it admits
+   the swap for every follow-up tried (spearman 0.569 against 0.462,
+   grunt 0.442 against 0.227, archer, fencer) where R2 admits it without
+   knowing why; it should replace R2 for enemy hp. When the target
+   surely survives the turn it falls back to first-order dominance.
+2. *Terminal outcomes as extremes with a priority factor kappa*
+   (derivation by the agent; lexicographic limit in Fishburn 1974,
+   abstract only). The enemy leader's death counts as the best value of
+   every dimension, the own leader's as the worst; admit when each
+   dimension's worst-case shortfall on the non-terminal mass is at most
+   (1 + kappa) x the gain in P(win); record kappa* per rewrite as epsilon
+   is recorded. Example: a 33-hp fighter's sword 5-4 against a 10-hp
+   leader wins 0.821 where the bow never does; R0 refuses it on own hp,
+   kappa* = 0.164.
+3. *Experience still needed, valued by a decreasing convex function*
+   (increasing convex order; Tsetlin and Winkler 2018, abstract read):
+   for every t, the pooled sum over own units of w x E[(t - r)+] must not
+   fall, r the experience still needed. Admits the intelligent-unit kill
+   transfer that R0 finds incomparable and R1 sees as no change; with a
+   horizon cut it covers "no realistic hope".
+4. *A band of valuations around a material scale* (multivariate almost
+   dominance by optimal transport, Mueller and Wiesel 2026, arXiv
+   2607.28215; Light 2026, arXiv 2607.29560; read through a summarizer):
+   every valuation whose marginal values lie within [gamma, 1] of a
+   nominal gold scale (the default AI's weights, `src/ai/default/
+   attack.cpp`) must prefer the rewrite; gamma* recorded per rewrite.
+   Spans R0 (gamma -> 0) to a valued swap (gamma = 1): a bridge to XOD's
+   valued swaps, not a first arm.
+5. *Certification over a set of valuations* (maximality; Troffaes 2007,
+   abstract read): each rule above as linear constraints on the
+   valuation, one small linear program per rewrite; it also settles
+   which admitted rewrite to play (best worst-case gain).
+6. Weaker: joint dominance within one unit as a guard; an S-shaped own-hp
+   utility, superseded by rule 1's own-hp half.
+
+Rejected by the literature pass: global second-order or convex dominance
+on hp or damage (the game is risk-neutral in win probability and hp
+matters by steps), higher orders, almost second-order variants,
+dependence orders between units, acceptability indices, minimax regret,
+lexicographic semiorders, and deriving kappa or the bounds from the
+value head (config, not weights; the head failed as a pre-grader).
+
+### 10.5 The input-side variant (not built)
+
+Instead of overriding the policy, give it the fight: for each legal
+attack option, the chance to kill, expected damage dealt and taken, the
+chance to lose the attacker and level-up chances, so the policy weighs
+them itself. It touches every attack (about 35 per side per game), not
+one rewrite per game. Two facts found on the way: the weapon head reads
+only the actor (`action_sampler.py`, "P(weapon | actor)"), so a unit
+uses one weapon distribution whatever its target, which limits any
+per-target fight input unless the weapon head sees the target; at
+temperature 0 the damage is smaller, since the weapon and target heads
+read the same actor context. It is a model change: a fresh arm and an
+800-game match, on the user's word.
+

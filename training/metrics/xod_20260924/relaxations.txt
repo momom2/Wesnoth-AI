@@ -1,0 +1,57 @@
+rows (class conditions met) 27805, decisions 85776, attacks 17914; admitted by some of 36: 744, R0: 91
+existing: attacks with an admitted rewrite under some combination 680 (7.93/1k dec)
+
+xp hopeless, horizon 0 (+ any combo): +0 rewrites (0.00/1k dec), +0 attacks (0.00/1k dec); by class {}
+xp hopeless, horizon 8: +52 rewrites (0.61/1k dec), +52 attacks (0.61/1k dec); by class {'Q': 15, 'Q2': 37}
+    d_p_kill mean -0.000 max +0.000 min -0.000; d_target_hp mean +0.000 max +0.000 min +0.000; d_own_hp mean +0.000 max +0.000 min -0.000; d_p_levelup mean +0.000 max +0.000 min +0.000
+xp hopeless, horizon 16: +76 rewrites (0.89/1k dec), +76 attacks (0.89/1k dec); by class {'Q2': 53, 'Q': 23}
+    d_p_kill mean -0.000 max +0.000 min -0.000; d_target_hp mean +0.000 max +0.000 min +0.000; d_own_hp mean -0.000 max +0.000 min -0.000; d_p_levelup mean +0.000 max +0.000 min +0.000
+prefer intelligent's xp (Q/Q2): +120 rewrites (1.40/1k dec), +120 attacks (1.40/1k dec); by class {'Q2': 86, 'Q': 34}
+    d_p_kill mean +0.000 max +0.000 min -0.000; d_target_hp mean +0.000 max +0.000 min +0.000; d_own_hp mean +0.000 max +0.000 min -0.000; d_p_levelup mean +0.000 max +0.000 min +0.000
+    kept unit's E[xp] gain mean +1.388 max +7.725
+prefer closest-to-level xp (Q/Q2): +204 rewrites (2.38/1k dec), +204 attacks (2.38/1k dec); by class {'Q2': 150, 'Q': 54}
+    d_p_kill mean -0.000 max +0.000 min -0.000; d_target_hp mean +0.000 max +0.000 min +0.000; d_own_hp mean -0.000 max +0.000 min -0.000; d_p_levelup mean +0.000 max +0.000 min +0.000
+    kept unit's E[xp] gain mean +1.449 max +7.725
+prefer intelligent's xp + pooled own hp: +245 rewrites (2.86/1k dec), +245 attacks (2.86/1k dec); by class {'Q2': 178, 'Q': 67}
+    d_p_kill mean +0.001 max +0.208 min -0.000; d_target_hp mean -0.003 max +0.000 min -0.779; d_own_hp mean +0.661 max +21.746 min -0.000; d_p_levelup mean +0.013 max +0.648 min +0.000
+    kept unit's E[xp] gain mean +1.191 max +7.772
+prefer closest xp + pooled own hp: +445 rewrites (5.19/1k dec), +445 attacks (5.19/1k dec); by class {'Q2': 318, 'Q': 127}
+    d_p_kill mean +0.000 max +0.208 min -0.000; d_target_hp mean -0.002 max +0.000 min -0.779; d_own_hp mean +0.543 max +21.746 min -0.000; d_p_levelup mean +0.009 max +0.648 min +0.000
+    kept unit's E[xp] gain mean +0.865 max +9.175
+prefer intelligent's xp + pooled hp + pooled attacks: +260 rewrites (3.03/1k dec), +260 attacks (3.03/1k dec); by class {'Q2': 178, 'Q': 82}
+    d_p_kill mean +0.001 max +0.208 min -0.000; d_target_hp mean -0.003 max +0.000 min -0.779; d_own_hp mean +0.817 max +21.746 min -0.000; d_p_levelup mean +0.012 max +0.648 min +0.000
+    kept unit's E[xp] gain mean +1.111 max +7.772
+pooled own xp (sum): +0 rewrites (0.00/1k dec), +0 attacks (0.00/1k dec); by class {}
+pooled own hp (sum): +303 rewrites (3.53/1k dec), +303 attacks (3.53/1k dec); by class {'Q': 86, 'Q2': 217}
+    d_p_kill mean +0.001 max +0.208 min -0.000; d_target_hp mean -0.003 max +0.000 min -0.779; d_own_hp mean +1.609 max +26.652 min +0.001; d_p_levelup mean +0.025 max +0.648 min +0.000
+pooled attack_left (count): +23 rewrites (0.27/1k dec), +23 attacks (0.27/1k dec); by class {'Q': 23}
+    d_p_kill mean +0.000 max +0.000 min -0.000; d_target_hp mean +0.000 max +0.000 min +0.000; d_own_hp mean +4.353 max +30.191 min -0.000; d_p_levelup mean +0.025 max +0.512 min +0.000
+pooled hp + attack_left + xp: +376 rewrites (4.38/1k dec), +376 attacks (4.38/1k dec); by class {'Q': 159, 'Q2': 217}
+    d_p_kill mean +0.001 max +0.208 min -0.000; d_target_hp mean -0.003 max +0.000 min -0.779; d_own_hp mean +1.935 max +30.191 min -0.000; d_p_levelup mean +0.025 max +0.648 min +0.000
+Q2 move_kept dropped: +0 rewrites (0.00/1k dec), +0 attacks (0.00/1k dec); by class {}
+Q2 move_kept dropped + pooled hp/attacks/xp: +497 rewrites (5.79/1k dec), +497 attacks (5.79/1k dec); by class {'Q': 159, 'Q2': 338}
+    d_p_kill mean +0.001 max +0.208 min -0.000; d_target_hp mean -0.004 max +0.000 min -0.779; d_own_hp mean +2.081 max +30.191 min -0.000; d_p_levelup mean +0.025 max +0.648 min +0.000
+leader kill first (own deaths not worse): +6 rewrites (0.07/1k dec), +6 attacks (0.07/1k dec); by class {'W': 6}
+    d_p_kill mean +0.204 max +0.343 min +0.027; d_target_hp mean -0.797 max +3.465 min -7.371; d_own_hp mean -3.653 max +10.771 min -18.496; d_p_levelup mean +0.084 max +0.288 min +0.000
+leader kill first (own leader not worse): +11 rewrites (0.13/1k dec), +11 attacks (0.13/1k dec); by class {'W': 10, 'Q2': 1}
+    d_p_kill mean +0.176 max +0.507 min +0.021; d_target_hp mean -0.910 max +3.465 min -7.371; d_own_hp mean -7.945 max +10.771 min -31.084; d_p_levelup mean -0.013 max +0.288 min -0.648
+kill chance first, own deaths not worse, gate all: +461 rewrites (5.37/1k dec), +453 attacks (5.28/1k dec); by class {'W': 426, 'Q2': 26, 'Q': 8, 'H': 1}
+    d_p_kill mean +0.180 max +0.821 min +0.000; d_target_hp mean -2.035 max +3.465 min -20.520; d_own_hp mean -5.039 max +10.771 min -21.190; d_p_levelup mean +0.007 max +0.475 min -0.021
+kill chance first, own deaths not worse, gate no_followup: +179 rewrites (2.09/1k dec), +174 attacks (2.03/1k dec); by class {'W': 168, 'Q2': 8, 'Q': 3}
+    d_p_kill mean +0.166 max +0.683 min +0.000; d_target_hp mean -1.891 max +3.276 min -12.288; d_own_hp mean -5.331 max +10.771 min -19.267; d_p_levelup mean +0.005 max +0.288 min +0.000
+kill chance first, own deaths not worse, gate target_heals8: +132 rewrites (1.54/1k dec), +131 attacks (1.53/1k dec); by class {'W': 119, 'Q': 5, 'Q2': 8}
+    d_p_kill mean +0.178 max +0.819 min +0.005; d_target_hp mean -2.240 max +2.375 min -17.120; d_own_hp mean -4.181 max +10.771 min -21.190; d_p_levelup mean +0.009 max +0.475 min -0.021
+kill chance first, own deaths not worse, gate opens: +277 rewrites (3.23/1k dec), +272 attacks (3.17/1k dec); by class {'W': 256, 'Q': 5, 'Q2': 15, 'H': 1}
+    d_p_kill mean +0.174 max +0.821 min +0.000; d_target_hp mean -1.823 max +3.465 min -17.120; d_own_hp mean -4.898 max +10.771 min -21.190; d_p_levelup mean +0.006 max +0.475 min -0.021
+target hp after its healing, no follow-up: +1 rewrites (0.01/1k dec), +1 attacks (0.01/1k dec); by class {'W': 1}
+    d_p_kill mean +0.192 max +0.192 min +0.192; d_target_hp mean -0.192 max -0.192 min -0.192; d_own_hp mean +2.093 max +2.093 min +2.093; d_p_levelup mean +0.000 max +0.000 min +0.000
+target hp after its healing, always: +6 rewrites (0.07/1k dec), +6 attacks (0.07/1k dec); by class {'W': 6}
+    d_p_kill mean +0.032 max +0.192 min +0.000; d_target_hp mean -0.465 max +0.600 min -3.200; d_own_hp mean +2.449 max +9.000 min +0.000; d_p_levelup mean +0.000 max +0.000 min +0.000
+hp almost-dominance counts as gain (eps <= 0.15): +10 rewrites (0.12/1k dec), +10 attacks (0.12/1k dec); by class {'W': 10}
+    d_p_kill mean +0.000 max +0.000 min +0.000; d_target_hp mean -2.200 max +0.000 min -3.600; d_own_hp mean +0.414 max +1.787 min +0.000; d_p_levelup mean +0.000 max +0.000 min +0.000
+R2 at eps 0.25: +9 rewrites (0.10/1k dec), +9 attacks (0.10/1k dec); by class {'Q': 1, 'W': 8}
+    d_p_kill mean +0.035 max +0.250 min +0.000; d_target_hp mean -1.744 max +0.000 min -3.000; d_own_hp mean +2.036 max +5.600 min +0.450; d_p_levelup mean +0.000 max +0.000 min +0.000
+R2 at eps 0.35: +15 rewrites (0.17/1k dec), +15 attacks (0.17/1k dec); by class {'W': 14, 'Q': 1}
+    d_p_kill mean +0.074 max +0.432 min +0.000; d_target_hp mean -1.882 max +0.000 min -9.360; d_own_hp mean +2.051 max +5.600 min +0.323; d_p_levelup mean +0.029 max +0.432 min +0.000
+hp by mean (incomparable hp dims): +74 rewrites (0.86/1k dec), +74 attacks (0.86/1k dec); by class {'W': 71, 'Q': 1, 'Q2': 2}
+    d_p_kill mean +0.048 max +0.475 min -0.000; d_target_hp mean -1.355 max +0.173 min -10.488; d_own_hp mean +2.008 max +14.700 min -0.240; d_p_levelup mean +0.019 max +0.475 min +0.000
