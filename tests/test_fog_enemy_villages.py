@@ -3,8 +3,8 @@
 Wesnoth never shows a player an enemy side's village count under fog
 or shroud (docs/wesnoth_rules.md, "Enemy side statistics under fog").
 The encoder used the true count on every path; behind the checkpoint
-flag `fog_hides_enemy_villages` it counts only the enemy villages
-inside the mover's vision disc, and the flag rides the checkpoint so
+flag `fog_hides_enemy_villages` it counts only the enemy villages on
+hexes the mover sees, and the flag rides the checkpoint so
 the seed's encoding stays what it was trained with."""
 import sys
 from pathlib import Path
@@ -24,17 +24,17 @@ THEIR_VILLAGES_FEATURE = 5
 
 
 def _state_with_enemy_villages():
-    """A ladder start where the enemy owns villages on both sides of
-    our vision disc (the owner map is what the sim keeps; the hexes
-    need no village terrain for either count); returns how many lie
-    inside and outside the disc."""
+    """A ladder start where the enemy owns villages both on hexes we see
+    and on hexes we do not (the owner map is what the sim keeps; the
+    hexes need no village terrain for either count); returns how many
+    lie inside and outside our view."""
     gs = fresh_scenario_sim(seed=2, mini=False).gs
     side = gs.global_info.current_side
     enemy = 3 - side
-    disc = visible_hexes_for(gs, side)
+    seen = visible_hexes_for(gs, side)
     static = _static_hex_arrays(gs)
-    keys_in = [k for k in static.keys if k in disc][:3]
-    keys_out = [k for k in static.keys if k not in disc][:5]
+    keys_in = [k for k in static.keys if k in seen][:3]
+    keys_out = [k for k in static.keys if k not in seen][:5]
     assert keys_in and keys_out
     owner = {k: enemy for k in keys_in + keys_out}
     gs.global_info._village_owner = owner
@@ -46,9 +46,9 @@ def _feat5(raw) -> float:
     return float(raw.global_feats[THEIR_VILLAGES_FEATURE])
 
 
-def test_visible_enemy_villages_follow_the_vision_disc_and_the_fog_switch():
+def test_visible_enemy_villages_follow_what_the_side_sees_and_the_fog_switch():
     gs, side, inside, outside = _state_with_enemy_villages()
-    assert outside > 0, "the fixture needs an enemy village outside the disc"
+    assert outside > 0, "the fixture needs an enemy village the side does not see"
     assert enemy_villages_visible_to(gs, side) == inside
     gs.global_info._fog = False
     assert enemy_villages_visible_to(gs, side) == inside + outside

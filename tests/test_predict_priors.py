@@ -222,7 +222,7 @@ def test_illegal_actor_has_zero_mass():
     because it isn't their turn.
 
     Per the fog-of-war contract (visibility.py + encoder.py), enemy
-    units OUTSIDE side-1's sight discs are filtered out of unit_ids
+    units on hexes side 1 does not see are filtered out of unit_ids
     entirely, so they never appear as slots to mask. That's a
     stronger guarantee than the actor mask alone, so we only assert
     here on the visible enemy `u2` (at (4,3) adjacent to u1). ldr2

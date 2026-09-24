@@ -279,7 +279,8 @@ class _Brawler:
         from tools.abilities import hex_neighbors
         from tools.pathfind_sim import ReachContext, unit_reach
         from wesnoth_ai.classes import Position
-        from wesnoth_ai.visibility import _hex_distance, is_scenery_unit
+        from wesnoth_ai.rewards import hex_distance
+        from wesnoth_ai.visibility import is_scenery_unit
         side = gs.global_info.current_side
         units = sorted(gs.map.units, key=lambda u: u.id)
         mine = [u for u in units if u.side == side]
@@ -296,7 +297,7 @@ class _Brawler:
         at = {(u.position.x, u.position.y): u for u in units}
 
         def dist(pos):
-            return min(_hex_distance(pos[0], pos[1], e.position.x, e.position.y) for e in enemies)
+            return min(hex_distance(pos[0], pos[1], e.position.x, e.position.y) for e in enemies)
 
         for u in mine:
             if "petrified" in (u.statuses or ()):

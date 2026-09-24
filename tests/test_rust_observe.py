@@ -1,8 +1,8 @@
 """The observation kernel (wesnoth_ai/observe.py, rust/wesnoth_core/src/
 observe.rs) against the Python originals it replaces, on harvested
-states: the vision disc, unit visibility, the reach-context flags and
-the recruit row must be identical for both sides, with fog on and off
-and with rejected recruit hexes."""
+states: the seen hexes it was given, unit visibility, the reach-context
+flags and the recruit row must be identical for both sides, with fog on
+and off and with rejected recruit hexes."""
 from __future__ import annotations
 
 import sys
@@ -74,8 +74,8 @@ def test_observation_equals_the_python_originals(fog_on):
             obs = obs_mod.observe(state, side)
             assert obs is not None
             keys_on_map = set(obs.geometry.keys)
-            # the vision disc
-            assert _as_set(obs, obs.disc) == visible_hexes_for(state, side)
+            # the seen hexes, carried into map space
+            assert _as_set(obs, obs.seen) == visible_hexes_for(state, side)
             # unit visibility, by id and as the same objects
             ref = units_visible_to(state, side)
             assert obs.visible_ids() == {u.id for u in ref}
@@ -158,6 +158,6 @@ def test_detached_observation_pickles_without_units():
     d = obs.detached()
     blob = pickle.dumps(d)
     back = pickle.loads(blob)
-    assert np.array_equal(back.disc, obs.disc) and back.visible_ids() == obs.visible_ids()
+    assert np.array_equal(back.seen, obs.seen) and back.visible_ids() == obs.visible_ids()
     with pytest.raises(ValueError):
         back.visible_units()

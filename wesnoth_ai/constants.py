@@ -224,4 +224,10 @@ DEFAULT_FACTIONS = (
 #      Ruins and Thousand Stings Garrison carry their own modifications
 #      (1 hp, no moves) in generation and reconstruction alike
 #      (scenario_events.apply_side_unit_modifications).
-OBSERVATION_EPOCH = 5
+#   6  (2026-09-24) a side sees its fog as the engine keeps it: each
+#      unit's vision is what it could reach with its full movement plus
+#      the ring around that, and what the side cleared during its turn
+#      stays clear until the turn ends (visibility.py, docs/wesnoth_rules.md
+#      "Vision and fog"); it was a disc of radius max_moves around each
+#      unit's current hex.
+OBSERVATION_EPOCH = 6

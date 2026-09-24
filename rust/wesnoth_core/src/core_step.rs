@@ -100,7 +100,8 @@ impl GameCore {
     /// events: the side to move, the rejection sets, the turn counter
     /// and time of day at side 1, healing (heal.cpp::calculate_healing
     /// as the Python transcribes it), the move refresh, income and
-    /// upkeep (play_controller.cpp:524-534).
+    /// upkeep (play_controller.cpp:524-534), and the side's fog
+    /// recalculated.
     fn apply_init_side(&mut self, side: i64) -> PyResult<()> {
         let h = self.map.h;
         self.global.current_side = side;
@@ -202,11 +203,13 @@ impl GameCore {
             let s = &mut self.sides[side as usize - 1];
             s.current_gold += income - net_upkeep;
         }
+        self.refog(side);                       // play_controller.cpp:524-525
         Ok(())
     }
 
     /// `_apply_command(["end_turn"])`: the ending side's units lose
-    /// `slowed`, and `resting` when they moved.
+    /// `slowed`, and `resting` when they moved; then its fog is
+    /// recalculated.
     fn apply_end_turn(&mut self) -> PyResult<()> {
         let side = self.global.current_side;
         for u in self.units.iter_mut() {
@@ -218,6 +221,7 @@ impl GameCore {
                 u.drop_status("resting");
             }
         }
+        self.refog(side);                       // play_controller.cpp:582-590
         Ok(())
     }
 

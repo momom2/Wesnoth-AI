@@ -13,7 +13,7 @@ Pins (semantics refined 2026-07-14: ARMED non-petrified side>=3
 units are hostile COMBATANTS -- fog-gated, attackable; only
 petrified or attackless units are scenery):
   1. units_visible_to: attackless non-player-side units and
-     petrified units bypass the fog disc; real enemies (including
+     petrified units bypass the fog gate; real enemies (including
      armed side-3 tentacles) still don't.
   2. Encoder: neutral units carry side code 2 (NUM_SIDE_CODES=3),
      is_ours=0.
@@ -58,7 +58,7 @@ def test_scenery_side_visible_through_fog():
     vortex = _scenery("vortex", 3, 9, 9)
     _with_extra(gs, vortex)
     vis_ids = {u.id for u in units_visible_to(gs, 1)}
-    assert "vortex" in vis_ids, "scenery must bypass the fog disc"
+    assert "vortex" in vis_ids, "scenery must bypass the fog gate"
 
 
 def test_petrified_statue_visible_through_fog_any_side():
@@ -75,10 +75,10 @@ def test_armed_side3_unit_is_a_fog_gated_combatant():
     """2026-07-14: an ARMED side-3 unit (Mini_Maps tentacle) is NOT
     scenery -- it hides in fog like any enemy and is attackable."""
     gs = _gs()
-    tentacle = _u("tent", 3, 9, 0)            # armed, out of vision
+    tentacle = _u("tent", 3, 9, 9)            # armed, 9 hexes from side 1: out of vision
     _with_extra(gs, tentacle)
     vis_ids = {u.id for u in units_visible_to(gs, 1)}
-    assert "tent" not in vis_ids,         "armed side-3 units respect the fog disc"
+    assert "tent" not in vis_ids,         "armed side-3 units respect the fog gate"
 
     from wesnoth_ai.visibility import is_scenery_unit
     assert not is_scenery_unit(tentacle)
@@ -110,10 +110,10 @@ def test_armed_side3_unit_is_attackable():
 def test_fog_off_reveals_enemies_and_survives_deepcopy():
     """`_fog = False` (underscore attr: GlobalInfo.__deepcopy__ only
     carries underscore attrs through MCTS state copies) disables the
-    sight-disc gate for real enemies too."""
+    seen-hex gate for real enemies too."""
     import copy
     gs = _gs()
-    _with_extra(gs, _u("sneak", 2, 9, 0))     # out of vision range
+    _with_extra(gs, _u("sneak", 2, 9, 9))     # out of vision range
     setattr(gs.global_info, "_fog", False)
     gs2 = copy.deepcopy(gs)                   # MCTS-style state copy
     vis_ids = {u.id for u in units_visible_to(gs2, 1)}
@@ -122,11 +122,12 @@ def test_fog_off_reveals_enemies_and_survives_deepcopy():
 
 def test_real_enemy_still_fogged():
     gs = _gs()
-    hidden = _u("sneak", 2, 9, 0)          # far from side-1 units
+    # (9,0) is 6 hexes from u1: its 5 MP reach and the ring around it.
+    hidden = _u("sneak", 2, 9, 9)          # 9 hexes from every side-1 unit
     _with_extra(gs, hidden)
     vis_ids = {u.id for u in units_visible_to(gs, 1)}
     assert "sneak" not in vis_ids, \
-        "ordinary enemies must still respect the fog disc"
+        "ordinary enemies must still respect the fog gate"
 
 
 def test_neutral_side_code_in_encoder():

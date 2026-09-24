@@ -767,14 +767,10 @@ def hex_distance(a_x: int, a_y: int, b_x: int, b_y: int) -> int:
     return max(hd, abs(a_y - b_y) + hd // 2 + vpenalty)
 
 
-# Visibility helpers extracted to `visibility.py` so encoder,
-# action_sampler, and rewards share one implementation of the
-# fog-of-war contract. Local module-level aliases preserve the
-# (now thin) namespace consumers used to import.
-from wesnoth_ai.visibility import (  # noqa: E402, F401 -- late import documented above; aliases re-exported for legacy consumers
+# Visibility lives in `visibility.py` so encoder, action_sampler and
+# rewards share one implementation of the fog-of-war contract.
+from wesnoth_ai.visibility import (  # noqa: E402 -- late import documented above
     visible_fraction_for as _visible_fraction,
-    visible_hexes_for as _compute_visible_hexes,
-    sight_radius_for as _sight_radius_for,
 )
 
 

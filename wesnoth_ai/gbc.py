@@ -118,12 +118,10 @@ def village_hexes(gs) -> List[Tuple[int, int]]:
 
 def _observable_hexes(gs, side):
     """Hexes `side` observes: the WHOLE BOARD when the game runs
-    fogless (project round-4: visible_hexes_for is a pure sight-
-    disc union with no _fog branch -- unlike units_visible_to and
-    the encoder's gates -- so the --fogless-ratio slice trained the
-    event head against labels censored by a disc the game does not
-    have; docs/archive/gbc_spec.md defines the label as what the observer
-    SEES)."""
+    fogless, else the hexes it sees. `visible_hexes_for` has no fog
+    branch (unlike units_visible_to and the encoder's gates), and
+    docs/archive/gbc_spec.md defines the label as what the observer
+    SEES."""
     from wesnoth_ai.visibility import visible_hexes_for
     if not getattr(gs.global_info, "_fog", True):
         return {(h.position.x, h.position.y) for h in gs.map.hexes}
@@ -160,7 +158,7 @@ def diff_events_obs(seq: int, prev: Tuple, cur: Tuple) -> List[Event]:
             # The OWNER always observes its own unit's death -- the
             # roster/sidebar shrinks even when the hex is fogged
             # (round-4 adjacent finding: a lone unit dying deep in
-            # enemy territory took its own sight disc with it and
+            # enemy territory took its own view with it and
             # its side labeled 0 for its own loss).
             out.append(Event(seq, _turn, "dies", ("u", uid), side,
                              pos, observed(pos) | {side}, cost=cost,

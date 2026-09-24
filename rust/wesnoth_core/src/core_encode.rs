@@ -87,7 +87,7 @@ impl GameCore {
                 continue;
             }
             let ours = owner == side;
-            let visible = ours || !fog_on || obs.view.disc[mh] != 0;
+            let visible = ours || !fog_on || obs.view.seen[mh] != 0;
             let code = if ours { 1 } else if owner != 0 { 2 } else { 0 };
             entries.extend([t as i64, code, visible as i64]);
         }
@@ -137,7 +137,7 @@ impl GameCore {
         }
         // Global values: turn, side, gold, income, our and their
         // villages (the other side's count, or under the fog gate the
-        // enemy villages inside the vision disc).
+        // enemy villages among the hexes it sees).
         let ns = self.sides.len();
         let us = side - 1;
         let them = if ns == 2 { 1 - us } else { us };
@@ -148,7 +148,7 @@ impl GameCore {
         let mut their_villages = if side_ok(them) { self.sides[them as usize].nb_villages } else { 0 };
         if fog_hides_enemy_villages && fog_on {
             their_villages = (0..h)
-                .filter(|&mh| self.village_owner[mh] != 0 && self.village_owner[mh] != side && obs.view.disc[mh] != 0)
+                .filter(|&mh| self.village_owner[mh] != 0 && self.village_owner[mh] != side && obs.view.seen[mh] != 0)
                 .count() as i64;
         }
         // Slots 6 and 7: this turn's board-level lawful bonus and the

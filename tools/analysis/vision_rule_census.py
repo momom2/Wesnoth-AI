@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""How far the simulator's vision disc is from the engine's vision rule,
-measured on corpus positions.
+"""How far a vision disc is from the engine's vision rule, measured on
+corpus positions. The simulator drew the disc until 2026-09-24
+(OBSERVATION_EPOCH 5); `disc_hexes` below keeps it for this comparison.
 
 At every decision of the acting side (each move, attack, recruit and
 end_turn) in a sample of fogged corpus games, three sets of hexes:
 
-- `disc`: what `visibility.visible_hexes_for` returns, a disc of radius
-  max_moves around each own unit's current hex;
+- `disc`: a disc of radius max_moves (at least 1) around each own
+  unit's current hex;
 - `now`: the engine's rule (`visibility.unit_vision`) from the units'
   current hexes;
 - `turn`: the engine's rule accumulated over the turn, as the engine
@@ -34,17 +35,37 @@ import time
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.replay_dataset import (_apply_command, _build_initial_gamestate,  # noqa: E402
                                   _setup_scenario_events)
-from wesnoth_ai.visibility import unit_vision, visible_hexes_for  # noqa: E402
+from wesnoth_ai.visibility import unit_vision  # noqa: E402
 
 CORPUS = ROOT / "replays_dataset_imitation"
 DECISIONS = ("move", "attack", "recruit", "end_turn")
 Hex = Tuple[int, int]
+
+
+def disc_hexes(gs, side: int) -> Set[Hex]:
+    """The hexes within max(max_moves, 1) of one of the side's units
+    (odd-q hex distance, map_location.cpp::distance_between)."""
+    keys = [(h.position.x, h.position.y) for h in gs.map.hexes]
+    hx = np.array([k[0] for k in keys], dtype=np.int64)
+    hy = np.array([k[1] for k in keys], dtype=np.int64)
+    hx_even = (hx & 1) == 0
+    seen = np.zeros(len(keys), dtype=bool)
+    for u in gs.map.units:
+        if u.side != side:
+            continue
+        ux, uy = u.position.x, u.position.y
+        hd = np.abs(ux - hx)
+        vpen = (~hx_even) & (uy <= hy) if (ux & 1) == 0 else hx_even & (hy <= uy)
+        seen |= np.maximum(hd, np.abs(uy - hy) + (hd >> 1) + vpen) <= max(int(u.max_moves), 1)
+    return {keys[i] for i in np.nonzero(seen)[0].tolist()}
 
 
 def _map_key(file_name: str) -> str:
@@ -121,7 +142,7 @@ def census_game(path: Path, per_map: Dict[str, collections.Counter]) -> None:
             turn_seen = vision.side_now(side)
             continue
         if kind in DECISIONS and side in (1, 2):
-            disc = visible_hexes_for(gs, side)
+            disc = disc_hexes(gs, side)
             now = vision.side_now(side)
             enemies = [(u.position.x, u.position.y) for u in gs.map.units
                        if u.side not in (side,) and u.side in (1, 2)]

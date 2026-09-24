@@ -364,6 +364,27 @@ def _terrain_arrays_for(unit, gs):
     return out
 
 
+def rust_arrays(nbrs, mcost, dsub):
+    """(neighbours [H*6], movement cost [H], defense subcost [H]) as the
+    int64 numpy arrays the Rust reach kernel takes, cached per
+    `_terrain_arrays_for` entry (keyed by its neighbour list, which the
+    entry pins)."""
+    import numpy as _np
+    bundle = _RUST_ARRAYS_CACHE.get(id(nbrs))
+    if bundle is None or bundle[0] is not nbrs:
+        flat = _np.fromiter(
+            (n for row in nbrs for n in row), dtype=_np.int64,
+            count=len(nbrs) * 6)
+        bundle = (nbrs,
+                  flat,
+                  _np.asarray(mcost, dtype=_np.int64),
+                  _np.asarray(dsub, dtype=_np.int64))
+        if len(_RUST_ARRAYS_CACHE) > 512:
+            _RUST_ARRAYS_CACHE.clear()
+        _RUST_ARRAYS_CACHE[id(nbrs)] = bundle
+    return bundle[1], bundle[2], bundle[3]
+
+
 def unit_reach(unit, gs, ctx: ReachContext,
                budget: Optional[int] = None) -> UnitReach:
     """Array-index port of `_unit_reach_reference` (2026-07-22):
@@ -400,20 +421,9 @@ def unit_reach(unit, gs, ctx: ReachContext,
 
     if _RUST is not None:
         import numpy as _np
-        bundle = _RUST_ARRAYS_CACHE.get(id(nbrs))
-        if bundle is None or bundle[0] is not nbrs:
-            flat = _np.fromiter(
-                (n for row in nbrs for n in row), dtype=_np.int64,
-                count=H * 6)
-            bundle = (nbrs,
-                      flat,
-                      _np.asarray(mcost, dtype=_np.int64),
-                      _np.asarray(dsub, dtype=_np.int64))
-            if len(_RUST_ARRAYS_CACHE) > 512:
-                _RUST_ARRAYS_CACHE.clear()
-            _RUST_ARRAYS_CACHE[id(nbrs)] = bundle
+        flat_nbrs, mcost_a, dsub_a = rust_arrays(nbrs, mcost, dsub)
         mp_a, cost_a, prev_a = _RUST.unit_reach_arrays(
-            bundle[1], bundle[2], bundle[3],
+            flat_nbrs, mcost_a, dsub_a,
             _np.frombuffer(bytes(zoc), dtype=_np.uint8),
             _np.frombuffer(bytes(enemy), dtype=_np.uint8),
             _np.frombuffer(bytes(ally), dtype=_np.uint8),

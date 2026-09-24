@@ -35,7 +35,7 @@ MODELED_GLOBALS = (
     "_move_rejected_hexes", "_tod_start_offset", "_experience_modifier",
     "_next_uid_counter", "_rng_request_counter", "_advance_choices", "_pickadvance_game",
     "_did_first_init_side", "_last_move_walk", "_last_checkup_strikes", "_last_advance_events",
-    "_advance_uniform", "_advance_salt", "_advance_counter",
+    "_advance_uniform", "_advance_salt", "_advance_counter", "_fog_cleared",
 )
 # Per-unit stash keys the state comparison checks (every underscore
 # attribute of a unit travels beside the core, shared across forks).
@@ -52,7 +52,8 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 7:
+        # Phase 12: the core tracks each side's fog.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 12:
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
 
@@ -235,7 +236,7 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 7 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 12 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}
@@ -284,6 +285,7 @@ class CoreState:
             s, d = strikes[k], strikes[k + 1]
             flat += [int(s["chance"]), int(bool(s["hits"])), int(s["damage"]), int(bool(d["dies"]))]
         core.set_last_checkup_strikes(flat)
+        core.set_fog_cleared(_fog_cleared_rows(gi))
         return cs
 
     def _register_type(self, name: str) -> None:
@@ -375,6 +377,7 @@ class CoreState:
             strikes.append({"chance": flat[k], "hits": bool(flat[k + 1]), "damage": flat[k + 2]})
             strikes.append({"dies": bool(flat[k + 3])})
         gi._last_checkup_strikes = strikes or None
+        gi._fog_cleared = {side: frozenset(map(tuple, hexes)) for side, hexes in core.fog_cleared_export()}
         units = {unit_from_fields(d, self.unit_stash.get(d["id"])) for d in core.units_export()}
         sides = [SideInfo(player=p, recruits=list(r), current_gold=gold, base_income=b,
                           nb_villages_controlled=v, faction=f)
@@ -450,6 +453,7 @@ class CoreState:
             if pside == side and ptype == unit_type and lst:
                 setattr(spawned, "_pickadvance", list(lst))
         self._add_unit(spawned, self._view())
+        core.clear_unit_fog(spawned.id)
         core.set_global_int("next_uid_counter", int(g["next_uid_counter"]) + 1)
         core.spend_gold(side, int(_stats_for(unit_type).get("cost", 14)))
 
@@ -457,8 +461,9 @@ class CoreState:
         """The attack on the core, then what the kernel leaves to the
         Python builders in the applier's order: the attacker's feeding
         and advancement, the corpse of an attacker killed by a plague
-        counter, the defender's feeding and advancement, the corpse of
-        a defender killed by plague."""
+        counter, the defender's feeding, its side's refog when the
+        fight killed, slowed or petrified it, and its advancement, the
+        corpse of a defender killed by plague."""
         from tools.engagement_stats import emit_event
         from wesnoth_ai.combat import seed_int_of
         ax, ay, dx, dy, a_weapon = (int(v) for v in cmd[1:6])
@@ -484,10 +489,14 @@ class CoreState:
         if out["dfd_alive"]:
             if out["dfd_feed"]:
                 self._feed(out["dfd_id"])
+            if out["dfd_refog"]:
+                self.core.refog_side(out["dfd_side"])
             if out["dfd_advances"]:
                 self._advance(out["dfd_id"])
-        elif out["plague_forward"]:
-            self._spawn_corpse(out["dfd_x"], out["dfd_y"], out["att_side"], out["dfd_name"])
+        else:
+            if out["plague_forward"]:
+                self._spawn_corpse(out["dfd_x"], out["dfd_y"], out["att_side"], out["dfd_name"])
+            self.core.refog_side(out["dfd_side"])
 
     def _feed(self, uid: str) -> None:
         """One more fed kill on the unit's stash (a new dict: the stash
@@ -515,6 +524,7 @@ class CoreState:
         self.unit_stash.pop(uid, None)
         if advanced is not None:
             self._add_unit(advanced, self._view())
+            core.clear_unit_fog(advanced.id)
         core.set_advance_state([int(c) if isinstance(c, int) else -1 for c in gi._advance_choices],
                                list(pick), [(int(a), int(b)) for a, b in gi._last_advance_events])
         core.set_global_int("advance_counter", int(gi._advance_counter))
@@ -704,6 +714,13 @@ class CoreState:
             s, d = strikes[k], strikes[k + 1]
             flat += [int(s["chance"]), int(bool(s["hits"])), int(s["damage"]), int(bool(d["dies"]))]
         core.set_last_checkup_strikes(flat)
+        core.set_fog_cleared(_fog_cleared_rows(gi))
+
+
+def _fog_cleared_rows(gi) -> List[Tuple[int, List[Tuple[int, int]]]]:
+    """`global_info._fog_cleared` as the core's (side, [(x, y)]) rows."""
+    cleared = getattr(gi, "_fog_cleared", None) or {}
+    return [(int(side), [(int(x), int(y)) for x, y in hexes]) for side, hexes in cleared.items()]
 
 
 def _fork_statics(statics: Dict[str, object]) -> Dict[str, object]:
@@ -729,15 +746,12 @@ def _fork_statics(statics: Dict[str, object]) -> Dict[str, object]:
 
 
 def _require_global_width(global_feats) -> None:
-    """Refuse a core whose encoder is narrower than this one.
-
-    GameCore needs a phase-7 wheel for its state, but its encoder only
-    emits the time-of-day globals from phase 11
-    (`encoder._ENCODE_KERNEL_PHASE`). A phase 7-10 wheel passes the
-    core's own gate and hands back six globals to a model built for
-    eight, and the failure then surfaces as a shape error inside the
-    first forward pass, nowhere near its cause. The Python kernel path
-    has the same guard in `encoder._rust_encode_kernel`."""
+    """Refuse a core whose encoder emits a different number of global
+    features than this one (a wheel built from an older or newer
+    rust/wesnoth_core); the failure would otherwise surface as a shape
+    error inside the first forward pass, nowhere near its cause. The
+    Python kernel path has the same guard in
+    `encoder._rust_encode_kernel`."""
     from wesnoth_ai import encoder as enc
 
     width = int(getattr(global_feats, "shape", (len(global_feats),))[-1])
@@ -749,8 +763,7 @@ def _require_global_width(global_feats) -> None:
         raise RuntimeError(
             f"wesnoth_core.GameCore encoded {width} global features where the "
             f"encoder expects {enc.GLOBAL_FEAT_DIM}: the installed wheel is "
-            f"phase {getattr(wesnoth_core, '__phase__', '?')}, and the "
-            f"time-of-day features need phase {enc._ENCODE_KERNEL_PHASE}. "
+            f"phase {getattr(wesnoth_core, '__phase__', '?')}. "
             f"Rebuild the wheel from rust/wesnoth_core.")
 
 
@@ -758,7 +771,7 @@ def _observation_from_dict(d: dict, geometry):
     """`observe.Observation` from the core's dict of arrays."""
     from wesnoth_ai.observe import Observation
     return Observation(int(d["side"]), bool(d["fog_on"]), geometry, list(d["unit_ids"]), d["unit_hex"],
-                       d["disc"], d["visible"], d["zoc"], d["enemy"], d["ally"], d["occupied"], d["inert"],
+                       d["seen"], d["visible"], d["zoc"], d["enemy"], d["ally"], d["occupied"], d["inert"],
                        d["recruit_row"], d["network"], bool(d["leader_on_keep"]), d.get("acting"),
                        d.get("unit_can_move"), d.get("unit_can_attack"), d.get("landable"),
                        d.get("relevant"), d.get("tok_of_hex"))
@@ -834,6 +847,9 @@ def states_equal(a: GameState, b: GameState, *, stash: bool = True) -> List[str]
                 [tuple(x) if isinstance(x, (list, tuple)) else x for x in (vb or [])]
         if k == "_last_checkup_strikes":
             va, vb = va or None, vb or None
+        if k == "_fog_cleared":
+            va = {s: frozenset(h) for s, h in (va or {}).items()}
+            vb = {s: frozenset(h) for s, h in (vb or {}).items()}
         if va != vb:
             diffs.append(f"global {k}: {va!r} != {vb!r}")
     if (a.game_over, a.winner) != (b.game_over, b.winner):

@@ -76,7 +76,7 @@ def test_fog_hides_enemy_ownership_outside_vision():
     from wesnoth_ai.classes import Terrain
     gs = _state()
     side = gs.global_info.current_side
-    # The village farthest from every own unit is outside the vision disc.
+    # The village farthest from every own unit is on a hex the side does not see.
     own_units = [u for u in gs.map.units if u.side == side]
     villages = [h for h in gs.map.hexes if Terrain.VILLAGE in h.terrain_types]
     far = max(villages, key=lambda h: min(abs(h.position.x - u.position.x)

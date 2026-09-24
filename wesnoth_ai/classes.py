@@ -473,11 +473,16 @@ def state_key(gs: "GameState") -> int:
     # whose masks disagreed -- caught live 2026-07-18 as "mask/sim
     # reachability disagreement" warnings in self-play (the noop
     # sentinel bounded the damage; the merge was still wrong).
+    # The fog each side has cleared decides which enemies it sees
+    # (visibility.visible_hexes_for); a frozenset of int pairs hashes
+    # the same in every process and caches its hash.
     hidden_state_key = (
         tuple(sorted(getattr(gs.global_info, "_uncovered_units", None)
                      or ())),
         tuple(sorted(getattr(gs.global_info, "_recruit_rejected_hexes",
                              None) or ())),
+        tuple(sorted((side, hash(hexes)) for side, hexes in
+                     (getattr(gs.global_info, "_fog_cleared", None) or {}).items())),
     )
     global_key = (
         gs.global_info.current_side,
