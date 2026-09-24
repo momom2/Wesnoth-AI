@@ -19,13 +19,16 @@
 # Unattended: fetched and started by the box's onstart through HF.
 # Every 30 minutes the escrow uploads the latest checkpoint, epoch
 # checkpoints, log and curve to HF $HF_DIR. Re-entry resumes from the
-# latest checkpoint. Every exit, clean or not, leaves ALL_DONE on HF
-# so the watcher on the laptop pulls and destroys the box.
+# latest checkpoint, continuing its pass where it was cut
+# (tools/supervised_train.py `PassPosition`); a new STAGE is staged over
+# the old code. Every exit, clean or not, leaves ALL_DONE on HF and then
+# stops the instance (`stop_self`, with the id and key Vast puts in the
+# container); a watcher on the laptop stops it too when ALL_DONE lands.
 set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/obsretrain
 ENC=$WORKDIR/encoded_obs
-STAGE="${STAGE:-tier-b/staging/stage_20260924r.tar.gz}"
+STAGE="${STAGE:-tier-b/staging/stage_20260925r.tar.gz}"
 EPOCHS="${EPOCHS:-4}"
 STOP_AFTER_EPOCH="${STOP_AFTER_EPOCH:-1}"
 RUN_SEED="${RUN_SEED:-20260909}"
@@ -53,14 +56,36 @@ for p in sorted(glob.glob("/workspace/obsretrain/*")):
                         repo_id="momom2/wesnoth-model-checkpoints")
 EOF
 }
+stop_self() {                    # stop this instance: its GPU stops billing, its disk stays
+    local id="${CONTAINER_ID:-}" key="${CONTAINER_API_KEY:-}"
+    if [ -z "$id" ] || [ -z "$key" ]; then
+        id=$(tr '\0' '\n' < /proc/1/environ 2>/dev/null | sed -n 's/^CONTAINER_ID=//p' | head -1)
+        key=$(tr '\0' '\n' < /proc/1/environ 2>/dev/null | sed -n 's/^CONTAINER_API_KEY=//p' | head -1)
+    fi
+    if [ -z "$id" ] || [ -z "$key" ]; then
+        echo "stop_self $(date -u +%FT%TZ): no instance id or key in the environment; the laptop watcher stops the box" >> "$OUT/stop.log"
+        upload_small
+        return
+    fi
+    echo "stop_self $(date -u +%FT%TZ): stopping instance $id" >> "$OUT/stop.log"
+    upload_small
+    INSTANCE_KEY="$key" python - "$id" >> "$OUT/stop.log" 2>&1 <<'EOF'
+import os, sys
+import requests
+r = requests.put(f"https://console.vast.ai/api/v0/instances/{sys.argv[1]}/",
+                 params={"api_key": os.environ["INSTANCE_KEY"]}, json={"state": "stopped"}, timeout=60)
+print("stop:", r.status_code, r.text[:200])
+EOF
+}
 die() {                          # die REASON: the run stops, the box does not idle
     echo "FAILED: $1" | tee -a "$OUT/FAILED"
     touch "$OUT/ALL_DONE"
     upload_small
+    stop_self
     exit 1
 }
 
-if [ ! -d Wesnoth-AI/tools ]; then
+if [ ! -f Wesnoth-AI/.staged_from ] || [ "$(cat Wesnoth-AI/.staged_from)" != "$STAGE" ]; then
 python - "$STAGE" <<'EOF' || die "code staging"
 import os, sys, tarfile
 from huggingface_hub import hf_hub_download
@@ -70,6 +95,7 @@ with tarfile.open(p, "r:gz") as tf:
     tf.extractall("/workspace/Wesnoth-AI")
 print("code staged", flush=True)
 EOF
+echo "$STAGE" > Wesnoth-AI/.staged_from
 fi
 cd Wesnoth-AI
 
@@ -280,3 +306,4 @@ progress
 escrow >> "$OUT/escrow.log" 2>&1
 upload_small
 echo OBSERVATION_RETRAIN_DONE
+stop_self
