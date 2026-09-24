@@ -39,6 +39,21 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## shutdown() reads its children's output while they exit (2026-09-24, FIXED, 0.5.5)
+
+A process that has put on an mp.Queue waits at exit until the queue's
+feeder thread has written it all into the pipe (64 KiB on Linux, 8 KiB
+on Windows), and one experience carries a whole game state (9 KB
+pickled on a mini map, 47-142 KB on ladder maps). So once the loop
+raised mid-iteration or mid-stream, shutdown() read nothing, every actor
+with unread results ran out its 15 s join timeout and was terminated,
+one after another (CI run 36022513684). The children now get one
+deadline together while a daemon thread reads and discards the result
+and server queues, logging any error or fatal report among them
+(tools/mp_teardown.py). Measured on the laptop, three children each
+holding 1 MiB unread, timeout 5 s: 15.66 s with all three terminated
+before, 0.48 s with all three exiting on their own after.
+
 ## An ended iteration's leftovers stay out of the next session (2026-09-24, FIXED, 0.5.4)
 
 An iteration that aborts (a serve process fails) or is abandoned at its
@@ -49,10 +64,7 @@ its first window (28 of 75 CI runs of the test failed that way). Per-game
 reports and the marker now carry their session's tag, an ended
 iteration clears its tickets, an actor keeps a later session's ticket
 for that session's PLAY, and shutdown() stops open serving before
-closing the queues. Open:
-- shutdown() joins the actors one after another, 15 s each, when they
-  cannot exit (seen as "terminating unresponsive process" in the same
-  run); `fix/shutdown-drains-results` is on it.
+closing the queues.
 
 ## Vision follows the engine (2026-09-24, FIXED, 0.4.6)
 
