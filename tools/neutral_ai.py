@@ -258,30 +258,17 @@ def _check_units_are_stationary(gs, side: int, scenario_id: str = "") -> bool:
 
 
 def run_neutral_side_turn(sim, side: int = 3) -> int:
-    """Play the neutral side's turn: init_side healing/upkeep, then
-    the RCA combat loop (execute the best-rated adjacent attack
-    while rating > 0, re-rating after each). Returns the number of
-    attacks executed. Assumes the caller invokes this at the correct
-    point of the turn cycle (after side 2's end_turn, before
-    init_side(1)) and restores current_side afterwards via
-    _begin_side_turn."""
+    """The default AI's decisions for the neutral side's turn: the RCA
+    combat loop (execute the best-rated adjacent attack while
+    rating > 0, re-rating after each). Returns the number of attacks
+    executed. The simulator opens the turn with the side's init_side
+    before calling this and closes it with the side's end_turn after
+    (`WesnothSim._play_neutral_turn`)."""
     from tools.abilities import hex_neighbors
     from wesnoth_ai.visibility import is_scenery_unit
     from wesnoth_ai.classes import Position
 
     gs = sim.gs
-    # Side turn opens with init_side: healing (regenerate!), poison,
-    # resting flags -- the same parity-verified loop players use.
-    # Emitted UNCONDITIONALLY: the engine gives every controller!=
-    # null side its turn even with zero living units, and playback
-    # expects the [init_side]/[end_turn] pair each round. An early
-    # return on "no combatants" dropped the pair after tentacle
-    # extinction -> OOS on every exported tentacle game that
-    # outlived its tentacles (2026-07-21).
-    from tools.wesnoth_sim import RecordedCommand
-    sim._apply_with_stats(["init_side", side])
-    sim.command_history.append(RecordedCommand(
-        kind="init_side", side=side, cmd=["init_side", side]))
     aggression = _side_aggression(sim.scenario_id, side)
     _check_units_are_stationary(gs, side, sim.scenario_id)
 
@@ -314,11 +301,4 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
         n_attacks += 1
         if sim.done:
             break
-    # Close the side's turn in the command stream: Wesnoth playback
-    # advances turns via each side's [end_turn] wrap-around
-    # (independent review 2026-07-14 M2 -- without this, exported
-    # tentacle-map replays are structurally invalid).
-    if not sim.done:
-        sim.command_history.append(RecordedCommand(
-            kind="end_turn", side=side, cmd=["end_turn"]))
     return n_attacks

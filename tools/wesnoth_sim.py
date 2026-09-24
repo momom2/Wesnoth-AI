@@ -410,9 +410,11 @@ class RecordedCommand:
     end_turn carry the relevant side index).
 
     `extras` stores side-channel data the WML format needs but
-    `_apply_command` doesn't: today only `leader_pos` for recruit
-    (the [from] coordinates), captured at recruit time so the
-    exporter doesn't have to reconstruct game state.
+    `_apply_command` doesn't: `leader_pos` for a recruit (the [from]
+    coordinates), `advance_choices` and `checkup_strikes` for an
+    attack, and an `attempted` comment on a truncated move or a
+    forced end_turn. `WesnothSim._apply_and_record` is the one place
+    that appends an entry, right after applying its command.
     """
     kind:   str
     side:   int
@@ -514,7 +516,7 @@ class WesnothSim:
         # change what the side to move observes but apply no command,
         # so a game record keeps them beside the history.
         self.recruit_rejections: List[Tuple[int, int, int]] = []
-        # The position each player side's turn starts from, as (index
+        # The position each side's turn starts from, as (index
         # of its init_side command, `state_digest`): a game record
         # checks its rebuild against them (tools/game_record.py).
         self.turn_digests: List[Tuple[int, str]] = []
@@ -863,49 +865,92 @@ class WesnothSim:
             clear_event_sink()
         self._refresh_view()
 
+    def _apply_and_record(self, cmd: list, side: int,
+                          extras: Optional[dict] = None) -> None:
+        """Apply one command and append it to `command_history`. Every
+        command the simulator plays goes through here, so the stream a
+        replay export or a rebuild walks is the stream that was played.
+        `extras` carries what the caller knew before applying; the
+        applier's side channels add the rest."""
+        self._apply_with_stats(cmd)
+        recorded = dict(extras or {})
+        recorded.update(self._side_channel_extras(cmd))
+        self.command_history.append(RecordedCommand(
+            kind=cmd[0], side=side, cmd=list(cmd), extras=recorded))
+
+    def _side_channel_extras(self, cmd: list) -> dict:
+        """What a replay export needs from the command just applied,
+        read (and consumed) from the applier's side channels."""
+        extras: dict = {}
+        gi = self.gs.global_info
+        if cmd[0] == "move":
+            # Truncated walk (blocked/ambush): annotate the ATTEMPTED
+            # destination so the exported replay shows what the policy
+            # wanted (comment instrumentation, 2026-07-19).
+            walk = getattr(gi, "_last_move_walk", None) or {}
+            if walk and walk.get("landed") != walk.get("ordered"):
+                extras["attempted"] = (
+                    f"move ordered to {walk['ordered']}, stopped "
+                    f"at {walk['landed']} ({walk['stop_reason']})")
+        if cmd[0] == "attack":
+            # Advancement [choose] events, one per advancement step
+            # (AMLA and multi-advance chain links included,
+            # attacker-first order preserved -- matches
+            # attack_unit_and_advance).
+            advance_choices = list(getattr(gi, "_last_advance_events", []) or [])
+            if advance_choices:
+                self._clear_advance_events()
+                extras["advance_choices"] = advance_choices
+                es = getattr(self, "_engagement", None)
+                if es is not None:
+                    for adv_side, _ in advance_choices:
+                        if adv_side in (1, 2):
+                            es.advancements[adv_side] += 1
+            # Per-strike checkup payloads stashed by resolve_attack.
+            # Exported as [checkup][result] children; Wesnoth playback
+            # compares each strike's chance/hits/damage/dies and
+            # OOS-errors on divergence (see test_rng_accounting.py).
+            strikes = getattr(gi, "_last_checkup_strikes", None)
+            if strikes:
+                extras["checkup_strikes"] = strikes
+                self._clear_checkup_strikes()
+            self._note_counter_outcomes(extras)
+        return extras
+
     def apply_neutral_attack(self, action: dict) -> bool:
         """Execute one pre-validated NEUTRAL-side attack (side >= 3
-        RCA turn, tools/neutral_ai.py). Mirrors step()'s attack-apply
-        bookkeeping (pre snapshots, advancement choices, checkup
-        strikes, history) WITHOUT step()'s end-turn fallback: a
-        neutral attack must never rotate the player turn order.
-        Returns False if the action didn't translate to an attack
-        command (caller aborts its loop)."""
+        RCA turn, tools/neutral_ai.py), recorded like step()'s attacks
+        but WITHOUT step()'s end-turn fallback: a neutral attack must
+        never rotate the player turn order. Returns False if the
+        action didn't translate to an attack command (caller aborts
+        its loop)."""
         cmd, _cost = self._action_to_command(action)
         if cmd is None or cmd[0] != "attack":
             log.warning(f"neutral attack failed to translate: {action!r}")
             return False
-        side_now = self.gs.global_info.current_side
-        self._apply_with_stats(cmd)
-        extras: dict = {}
-        # Advancement [choose] events straight from the applier's
-        # side-channel (one per advancement step, AMLA and chain
-        # links included; attacker-first order preserved). The old
-        # name-change diff missed AMLAs and double-advances
-        # (validation pipeline catch, 2026-07-15).
-        advance_choices = list(getattr(
-            self.gs.global_info, "_last_advance_events", []) or [])
-        if advance_choices:
-            self._clear_advance_events()
-            extras["advance_choices"] = advance_choices
-            es = getattr(self, "_engagement", None)
-            if es is not None:
-                for _adv_side, _ in advance_choices:
-                    if _adv_side in (1, 2):
-                        es.advancements[_adv_side] += 1
-        strikes = getattr(self.gs.global_info,
-                          "_last_checkup_strikes", None)
-        if strikes:
-            extras["checkup_strikes"] = strikes
-            self._clear_checkup_strikes()
-        self._note_counter_outcomes(extras)
-        self.command_history.append(RecordedCommand(
-            kind="attack", side=side_now, cmd=list(cmd),
-            extras=extras))
+        self._apply_and_record(cmd, self.gs.global_info.current_side)
         if __debug__:
             self._assert_invariants(after_cmd="attack")
         self._check_game_over()
         return True
+
+    def _play_neutral_turn(self, side: int) -> None:
+        """The neutral side's turn, opened and closed like every side's:
+        its init_side, the default AI's attacks (tools/neutral_ai.py),
+        then its end_turn through the same applier. The engine ends an
+        AI side's turn through the same finish_side_turn as a player's,
+        so its slowed units recover and a unit short of full movement
+        stops resting (docs/wesnoth_rules.md "End of a side's turn").
+        The pair is played even when the side has no living unit: the
+        engine skips only controller=null sides, and playback expects
+        the side's [init_side] and [end_turn] every round
+        (docs/wesnoth_rules.md "controller=null sides get no turn,
+        ever")."""
+        from tools.neutral_ai import run_neutral_side_turn
+        self._begin_side_turn(side)
+        run_neutral_side_turn(self, side)
+        if not self.done:
+            self._apply_and_record(["end_turn"], side)
 
     def _next_seed(self) -> str:
         """Allocate the next synced-RNG seed. Live sims (no salt)
@@ -1179,7 +1224,6 @@ class WesnothSim:
                 # the turn are still visible here and may re-hide
                 # afterwards (user spec 2026-07-12).
                 _es.note_end_turn(self.gs, side_now)
-            self._apply_with_stats(["end_turn"])
             _et_extras: dict = {}
             _note = getattr(self, "_forced_end_turn_note", None)
             if _note is not None and action.get("type") != "end_turn":
@@ -1188,9 +1232,7 @@ class WesnothSim:
                 # absence of the annotation IS the provenance signal.
                 _et_extras["attempted"] = _note
             self._forced_end_turn_note = None
-            self.command_history.append(RecordedCommand(
-                kind="end_turn", side=side_now, cmd=["end_turn"],
-                extras=_et_extras))
+            self._apply_and_record(["end_turn"], side_now, _et_extras)
             # Advance to the next side. 2p only for now.
             n_sides = max(2, len(self.gs.sides))
             next_side = (side_now % n_sides) + 1
@@ -1224,8 +1266,7 @@ class WesnothSim:
                 # side 3").
                 if getattr(self.gs.global_info,
                            "_neutral_actor_sides", None):
-                    from tools.neutral_ai import run_neutral_side_turn
-                    run_neutral_side_turn(self, side=3)
+                    self._play_neutral_turn(3)
                     if self.done and self.gs.global_info.current_side \
                             not in (1, 2):
                         # A tentacle killed a leader: the game is
@@ -1241,60 +1282,15 @@ class WesnothSim:
             if not self.done:
                 self._begin_side_turn(next_side)
         else:
-            self._apply_with_stats(cmd)
             # Move MP, truncation (blocked/ambush), reveals, and the
             # ZoC / village-capture MP zeroing are all resolved
             # INSIDE _apply_command's move handler via
             # `pathfind_sim.walk_move_path` -- one truncation
-            # semantics shared with replay reconstruction (the old
-            # post-apply `_deduct_extra_mp` / `_apply_post_move_stops`
-            # fix-ups are gone with the flat-1-MP deduction they
-            # corrected).
+            # semantics shared with replay reconstruction.
             extras: dict = {}
-            if cmd[0] == "move":
-                # Truncated walk (blocked/ambush): annotate the
-                # ATTEMPTED destination so the exported replay shows
-                # what the policy wanted (comment instrumentation,
-                # 2026-07-19).
-                walk = getattr(self.gs.global_info,
-                               "_last_move_walk", None) or {}
-                if walk and walk.get("landed") != walk.get("ordered"):
-                    extras["attempted"] = (
-                        f"move ordered to {walk['ordered']}, stopped "
-                        f"at {walk['landed']} ({walk['stop_reason']})")
             if cmd[0] == "recruit" and leader_pos is not None:
                 extras["leader_pos"] = leader_pos
-            # Advancement [choose] events from the applier's
-            # side-channel (one per advancement step, AMLA and
-            # multi-advance chain links included; attacker-first
-            # order preserved -- matches attack_unit_and_advance).
-            if cmd[0] == "attack":
-                advance_choices = list(getattr(
-                    self.gs.global_info, "_last_advance_events", [])
-                    or [])
-                if advance_choices:
-                    self._clear_advance_events()
-                    extras["advance_choices"] = advance_choices
-                    if _es is not None:
-                        for _adv_side, _ in advance_choices:
-                            if _adv_side in (1, 2):
-                                _es.advancements[_adv_side] += 1
-            if cmd[0] == "attack":
-                # Per-strike checkup payloads recorded by
-                # resolve_attack (stashed by the shared attack
-                # handler). Exported as [checkup][result] children;
-                # Wesnoth playback compares each strike's
-                # chance/hits/damage/dies and OOS-errors on
-                # divergence -- the export-side verification
-                # contract (see test_rng_accounting.py).
-                strikes = getattr(self.gs.global_info,
-                                  "_last_checkup_strikes", None)
-                if strikes:
-                    extras["checkup_strikes"] = strikes
-                    self._clear_checkup_strikes()
-                self._note_counter_outcomes(extras)
-            self.command_history.append(RecordedCommand(
-                kind=cmd[0], side=side_now, cmd=list(cmd), extras=extras))
+            self._apply_and_record(cmd, side_now, extras)
 
         self._actions_by_side[side_now] = self._actions_by_side.get(side_now, 0) + 1
         # Post-step invariants. Run only under __debug__ so production
@@ -1361,9 +1357,7 @@ class WesnothSim:
         turn-start events, and computing healing / poison / curing
         for `side`'s units. Game-over can also fire here (turn-limit
         checks; NB poison cannot kill -- healing clamps at 1 HP)."""
-        self._apply_with_stats(["init_side", side])
-        self.command_history.append(RecordedCommand(
-            kind="init_side", side=side, cmd=["init_side", side]))
+        self._apply_and_record(["init_side", side], side)
         if self._keeps_record:
             self.turn_digests.append((len(self.command_history) - 1, state_digest(self.gs)))
         self._check_game_over()

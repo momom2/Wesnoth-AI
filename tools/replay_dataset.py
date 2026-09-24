@@ -2057,7 +2057,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
 
     if kind == "end_turn":
         # Port of game_board::end_turn(side) → unit::end_turn() per
-        # unit on the ending side (unit.cpp:1078-1091, 1.18.4):
+        # unit on the ending side (unit.cpp:1280-1292, 1.18.4):
         #   - SLOWED clears — Wesnoth keeps slow active throughout the
         #     slowed unit's own turn and drops it only at the very end.
         #   - `if((movement_ != total_movement()) && !STATE_NOT_MOVED)
@@ -2070,8 +2070,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         #     (user-verified frames, Micro Isar 38859: regen-only
         #     15→23 on turn 4; our extra +2 left a 1-HP survivor
         #     whose ZoC rerouted the leader's turn-5 keep ride).
-        #     STATE_NOT_MOVED is not modeled: nothing we interpret
-        #     sets it.
+        #     STATE_NOT_MOVED is not modeled: no command sets it (the
+        #     AI's stop-unit sets it and is not recorded;
+        #     docs/wesnoth_rules.md "End of a side's turn").
         ending_side = gs.global_info.current_side
         new_units = set()
         for u in gs.map.units:

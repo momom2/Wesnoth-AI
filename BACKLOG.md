@@ -53,14 +53,23 @@ A side sees its fog as the engine keeps it (docs/wesnoth_rules.md
   delay-shroud preference some corpus players may have used, and
   sighted-move interrupts (exports carry `skip_sighted="all"`).
 
+## The neutral side's turn ends through the applier (2026-09-24, FIXED, 0.5.1)
+
+Side 3's end_turn was recorded and never applied (docs/wesnoth_rules.md
+"End of a side's turn"). Open, from the engine reading, not observed in
+a running game: a guardian with movement left probably gets a
+"stay in place" move from the default AI's move-to-targets phase
+(`ca_move_to_targets.cpp:269-277`), an unrecorded stop that zeroes its
+movement (`unit.cpp:2784-2791`), so in live Wesnoth a guardian tentacle
+likely shows 0 movement during the players' turns where replays and the
+simulator show full movement. Healing is the same either way; the
+encoder sees a different movement value.
+
 ## Every generated game is recorded (2026-09-24, SHIPPED, 0.5.0)
 
 `tools/game_record.py`; records carry turn-start fingerprints, so a
 rules change that makes a stored game rebuild differently is refused
 instead of passing silently. Open:
-- **Tentacle maps rebuild wrong until the neutral fix lands**: side 3's
-  end_turn is recorded and never applied by the simulator
-  (`fix/neutral-end-turn`); after it, add a tentacle-map rebuild test.
 - A mid-game record stores its corpus directory as the absolute path on
   the box; rebuilding elsewhere needs the corpus at that path.
 - The Rust core's hider reset (0.4.7) is correct by reading and

@@ -159,6 +159,26 @@ def test_a_recorded_game_rebuilds_position_by_position(tmp_path, use_core):
     assert _differences(game_record.rebuild(rec), sim.gs) == []
 
 
+def test_a_game_with_an_acting_neutral_side_rebuilds_from_its_record(tmp_path):
+    """Micro Isar's tentacles take a turn after side 2's, pinned at 0
+    movement by the scenario, so each of their ends of turn drops their
+    resting status; a record whose stream holds that end_turn without
+    the simulator having applied it rebuilds to another position and is
+    refused at the next turn start."""
+    from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+    from tools.wesnoth_sim import WesnothSim
+    setup = ScenarioSetup(scenario_id="enclave_micro_isar",
+                          faction1="Knalgan Alliance", leader1="Dwarvish Steelclad",
+                          faction2="Rebels", leader2="Elvish Captain")
+    sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id,
+                     max_turns=10, use_core=False)
+    for _ in range(6):
+        sim.step({"type": "end_turn"})
+    rec = _stored(game_record.game_record(sim, setup, game_label="neutral", build={}), tmp_path)
+    assert rec["commands"].count(["init_side", 3]) >= 2
+    assert _differences(game_record.rebuild(rec), sim.gs) == []
+
+
 def test_the_walk_passes_through_every_position_the_game_did():
     sim, setup, after = _played_game(max_turns=4)
     rec = game_record.game_record(sim, setup, game_label="g", build={})

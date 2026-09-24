@@ -716,8 +716,21 @@ State of play:
   (process-independent) and raise `RecordMismatch`. Written by the
   training pool's actors, in-process self-play, az_loop and every eval
   match (`<game>.game.jsonl.gz` beside each result); the box's upload
-  loop sends each byte once. On tentacle maps a rebuild diverges until
-  the neutral side's end_turn is applied (`fix/neutral-end-turn`).
+  loop sends each byte once.
+- 2026-09-24 (0.5.1): **the neutral side's turn ends through the
+  end_turn applier, and `OBSERVATION_EPOCH` is 8.** The simulator
+  recorded side 3's end_turn without applying it, so tentacles never
+  went through `unit::end_turn`: they stayed slowed and kept `resting`
+  at 0 movement, healing 2 more than the engine and diverging from
+  their own replay (docs/wesnoth_rules.md "End of a side's turn"). With
+  a scripted player that hunts tentacles, 10 games per map: every game
+  diverged on Micro Isar and both Fallenstar variants (225/527, 294/494
+  and 484/641 decisions), 6 and 7 of 10 on the two 2p minis, 1 on
+  Modified_Tiny_Close_Relation; 0 after. Every command now records
+  through one path (`WesnothSim._apply_and_record`). Elo matches are
+  unaffected (no Ladder map has an acting neutral side; Silverhead's
+  side 3 is `controller=null`) and reconstructed corpora are unchanged;
+  mini self-play before and after is not comparable.
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

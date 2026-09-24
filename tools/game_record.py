@@ -9,9 +9,10 @@ recruit seeds included. Recruit rejections, which change what the side
 to move observes but apply no command, are kept beside it.
 
 A record also carries fingerprints of the game it was written from:
-the `state_digest` of the position each player side's turn started
-from and of the final position. `walk` and `rebuild` check them and
-raise `RecordMismatch` when the rebuild leaves the played game.
+the `state_digest` of the position each side's turn started from (the
+neutral side's included) and of the final position. `walk` and
+`rebuild` check them and raise `RecordMismatch` when the rebuild leaves
+the played game.
 
 Fight outcome distributions ride along as optional data, keyed by the
 index of the attack command they describe (`outcomes`): training writes
