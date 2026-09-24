@@ -72,10 +72,6 @@ rules change that makes a stored game rebuild differently is refused
 instead of passing silently. Open:
 - A mid-game record stores its corpus directory as the absolute path on
   the box; rebuilding elsewhere needs the corpus at that path.
-- The Rust core's hider reset (0.4.7) is correct by reading and
-  untested: `test_init_side_and_end_turn_equal_the_python_applier` runs
-  on states without a revealed-hider set; decorating them at turn > 1
-  would cover it.
 
 ## A revealed hider hides again at its turn start (2026-09-24, FIXED, 0.4.7)
 

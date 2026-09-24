@@ -132,6 +132,28 @@ def test_init_side_and_end_turn_equal_the_python_applier():
     assert checked >= 16 and rust >= 8
 
 
+def test_init_side_hides_the_sides_revealed_hiders_again_after_turn_one():
+    """unit::new_turn clears STATE_UNCOVERED inside `turn() > 1`
+    (docs/wesnoth_rules.md "Hidden-unit visibility"): at a side's turn
+    start after turn 1 its own revealed hiders hide again and the other
+    side's stay revealed; on turn 1 nothing changes. Both appliers."""
+    checked = 0
+    for gs in _harvested():
+        by_side = {s: sorted(u.id for u in gs.map.units if u.side == s) for s in (1, 2)}
+        if not by_side[1] or not by_side[2]:
+            continue
+        revealed = {by_side[1][0], by_side[2][0]}
+        for side, turn, hidden in ((1, 3, {by_side[1][0]}), (2, 3, {by_side[2][0]}), (2, 1, set())):
+            gs.global_info.turn_number = turn
+            gs.global_info._uncovered_units = set(revealed)
+            py, cs, path = _apply_both(gs, ["init_side", side])
+            assert path == "rust"
+            assert py.global_info._uncovered_units == revealed - hidden, (side, turn)
+            assert cs.to_state().global_info._uncovered_units == revealed - hidden, (side, turn)
+            checked += 1
+    assert checked >= 6
+
+
 def test_lawful_bonus_equals_the_python_helper():
     from tools.replay_dataset import _lawful_bonus_at
     n = 0
