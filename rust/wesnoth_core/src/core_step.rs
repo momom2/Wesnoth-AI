@@ -190,7 +190,7 @@ impl GameCore {
             // unit::new_turn clears STATE_UNCOVERED (unit.cpp:1277)
             // inside board_.new_turn's turn() > 1 gate.
             let own: Vec<String> = self.units.iter().filter(|u| u.side == side).map(|u| u.id.clone()).collect();
-            self.uncovered.retain(|id| !own.contains(id));
+            let _ = &own; // MUTANT: reset removed
         }
         if side >= 1 && (side as usize) <= self.sides.len() && turn > 1 {
             let owned = self.sides[side as usize - 1].nb_villages;
