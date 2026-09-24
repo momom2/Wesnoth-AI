@@ -171,58 +171,6 @@ re-calibrated the next day. The derivation above is kept as the
 reasoning, not as the setting: do not "restore the documented
 value".
 
-## Spool-worker VRAM budget (2026-07-18, revised 2026-07-20)
-
-`tools/sim_self_play.py`:
-`SPOOL_WORKER_VRAM_BYTES = 640 MiB`, `TRAINER_VRAM_RESERVE_BYTES = 15 GiB`,
-consumed by `_assign_spool_devices` ("auto" mode:
-`K_cuda = (total_vram − reserve) // per_worker`).
-
-Derivation — measured on the 45230879 campaign box (RTX 4090,
-23.52 GiB usable, 5.0M-param model):
-
-  - per-worker VRAM: torch's OOM reports listed worker processes at
-    388–586 MiB on 2026-07-18 and 564–618 MiB on 2026-07-20 (CUDA
-    context ~300 MiB + model weights + forward buffers; the spread
-    is batch-in-flight variance). 640 MiB is the latest observed
-    ceiling rounded up to a clean budget unit.
-  - trainer reserve: the learner's backward peak GROWS with play
-    quality — 7.14 GiB on 2026-07-18, 12.6 GiB on 2026-07-20
-    (12.05 GiB in use + a failed 556 MiB allocation) at UNCHANGED
-    `--train-batch-size 64` / 2048-transition minibatches. Longer,
-    denser games mean bigger per-batch activation graphs. 15 GiB ≈
-    1.2× the latest peak; the multiplier is deliberately modest
-    because the peak history (not a one-off measurement) is the
-    real guide — REVISIT if a future OOM shows the peak passing
-    ~14 GiB.
-
-Consequence on a 24 GiB card: K ≈ 13 cuda workers; requesting more
-workers spills the remainder to cpu instead of starving the trainer.
-Incident history: 2026-07-18 crash-loop (3 OOM deaths, 56 all-cuda
-workers, no budget); 2026-07-20 OOM (auto-assign granted 19 cuda
-workers under the stale 12 GiB reserve < 12.6 GiB actual peak).
-`--spool-cuda-workers` / `SPOOL_CUDA_WORKERS` overrides the
-constant-based K with a measured cap (the campaign box pins 8 via
-env.sh). Re-measure both numbers if the model grows past ~10M
-params or the replay minibatch changes materially.
-
-`DEMOTION_HEADROOM_BYTES = 2 GiB` — the reactive-demotion margin
-(2026-07-20): each iteration the learner recomputes
-`headroom = total − trainer_peak − n_cuda × per_worker` from the
-iteration's measured backward peak and gracefully demotes one cuda
-worker (between-games ctl-file exit, zero data loss) when headroom
-drops under the margin. Derivation: the trainer peak history shows
-≤ ~500 MB growth per iteration (7.1 → 12.6 GiB over ~19
-iterations, front-loaded); 2 GiB ≈ 4× the largest observed
-single-iteration step, so the guard fires at least one iteration
-before exhaustion even on the fastest observed trend. The margin
-makes the spawn-time constants above non-load-bearing: they seed
-the initial split, and the ratchet converges the fleet on any
-card/model combination. A residual OOM (a single-step jump past
-2 GiB) is caught in `run_iteration`'s train_step retry: empty
-cache, HARD-demote one worker (process kill frees its ~300 MB CUDA
-context; costs that worker's one in-flight game), retry once.
-
 ## Gumbel q-transform: `c_visit = 50`, `c_scale = 0.1`, rescale to [0,1]
 
 `tools/mcts.py` — `_gumbel_sigma` / `_rescale_q`, consumed by BOTH

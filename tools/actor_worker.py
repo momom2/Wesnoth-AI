@@ -5,8 +5,8 @@ design overview and the manager).
   result messages (_R_*) and the dead-server reply marker
   (_RID_SERVER_DEAD).
 - _IPCInferenceClient: the RemoteModel transport inside an actor.
-- _zero_reward, _set_fd_safe_sharing: shared by every generation path
-  (tools/selfplay_worker.py imports them through tools.actor_pool).
+- _zero_reward, _set_fd_safe_sharing: also used by the manager, the
+  serve process and the anatomy tools (through tools.actor_pool).
 - _actor_loop: the spawned actor process body (ActorPool.start runs it
   through tools.mp_teardown.start_child; spawn pickles it by this
   module path).
@@ -118,8 +118,7 @@ class _IPCInferenceClient:
     outputs. The old per-leaf protocol (B messages each way per
     forward_batch, each reply pickling ~9 torch tensors through the
     shm tensor-sharing machinery) capped the central server at
-    ~200 req/s with the GPU idle -- the reason spool workers
-    replaced the pool. Payloads are plain numpy (inference_seam
+    ~200 req/s with the GPU idle. Payloads are plain numpy (inference_seam
     output_to_wire/output_from_wire), which pickle inline."""
 
     def __init__(self, actor_id: int, req_qs, resp_q):
@@ -491,10 +490,8 @@ def _actor_loop(
                 cat = roll_mix(rng, **mix)
                 setup = None
                 if cat == "midgame":
-                    # Same midgame path as selfplay_worker (2026-07-22
-                    # port; the old "actors cannot splice midgame
-                    # starts" CLI rejection predates
-                    # _play_one_game_safe handling the tuple form).
+                    # A human-corpus midgame start (2026-07-22 port):
+                    # _play_one_game_safe takes the tuple form.
                     from tools.midgame_starts import sample_midgame_start
                     from pathlib import Path as _P
                     mg = sample_midgame_start(

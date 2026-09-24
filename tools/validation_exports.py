@@ -9,9 +9,7 @@ replay while training runs. The box's HF uploader ships the
 exports; `tools/run_validation_batch.py` plays each back in real
 Wesnoth under strict sync locally and reports OOS.
 
-Counters are per-process: each spool worker counts its own game
-stream, so the aggregate pick rate stays 1/100 per category and
-picks spread evenly across workers. Filenames carry pid + counter
+Counters are per process. Filenames carry pid + counter
 so parallel workers never collide.
 
 Fresh games export via `export_replay_from_scratch` (the path
@@ -75,7 +73,7 @@ def category_of(sim) -> str:
 
 class ValidationExporter:
     """Every-Nth-per-category picker + exporter. Thread-safe within
-    one process; per-process counters across spool workers."""
+    one process; its counters are per process."""
 
     def __init__(self, out_dir: Path, every: int = 100):
         self.out_dir = Path(out_dir)

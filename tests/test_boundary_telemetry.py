@@ -58,9 +58,9 @@ def test_stats_fields_exist_and_default_to_nan():
 
 
 # --------------------------------------------------------------------
-# Spool path (T1-H): the box runs 100 WORKER PROCESSES, so the learner's
-# finalize_game never sees those games. Pairs are reconstructed at ingest
-# from each experience's own recorded side.
+# Per-game harvest (T1-H): the pool's actors play in other processes, so
+# the learner's finalize_game never sees those games. Pairs are
+# reconstructed at the drain from each experience's own recorded side.
 # --------------------------------------------------------------------
 
 class _Exp:
@@ -88,12 +88,12 @@ def _harvest(exps):
     return sink
 
 
-def test_spool_harvest_pairs_on_side_switches():
+def test_harvest_pairs_on_side_switches():
     exps = [_Exp(1, "a"), _Exp(1, "b"), _Exp(2, "c"), _Exp(2, "d"), _Exp(1, "e")]
     assert len(_harvest(exps)) == 2
 
 
-def test_spool_harvest_single_side_and_short_games():
+def test_harvest_single_side_and_short_games():
     assert _harvest([_Exp(1, "a"), _Exp(1, "b")]) == []
     assert _harvest([_Exp(1, "a")]) == []
     assert _harvest([]) == []
