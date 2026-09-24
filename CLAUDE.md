@@ -654,6 +654,17 @@ State of play:
   10.3). By the rule the next factor is the pre-graded pipeline of
   docs/turn_proposer_design_20260905.md, starting with its section-6
   check of forward-only graders. Box 52267135, about $1.05.
+- 2026-09-23 (0.4.2): **no forward-only pre-grader at this head.** The
+  section-6 check, run on that measurement's recorded candidates with
+  no box (docs/turn_gap_ref_prereg_20260921.md "Pre-grader check"): on
+  the confirmation's 16 positions the value head's within-position
+  residual is 0.323 +- 0.059 with 2 of 8 winning alternatives ranked
+  below their base, and the HP margin's 0.322 with 3 of 8; the value
+  head correlates 0.07 with the playout mean there. The turn-search
+  pipeline proceeds without a pre-grader (the design's rows 1 to 6); a
+  boundary value net is the prerequisite for row 7. The 2026-09-05 run
+  on the seed's candidates, first written down the same day: value head
+  0.156 with 2 of 8 below (a fail), HP margin 0.154 with 8 of 8 above.
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

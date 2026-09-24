@@ -16,11 +16,12 @@ and statue defects changed only self-play generation. The time-of-day
 features (PARKED below, pre-registered) are an experiment, run on their
 own when wanted.
 
-**2. Phase 2's first measurement: RICH** (2026-09-23), 7 of 60
-confirmed (docs/turn_gap_ref_prereg_20260921.md "Measured"). Next by its
-rule, approved: the forward-only pre-grader check of
-docs/turn_proposer_design_20260905.md section 6, on this run's recorded
-candidates.
+**2. Phase 2: turn search without a pre-grader.** The turn-level gap
+under the reference is RICH (7 of 60 confirmed) and neither forward-only
+grader passes the section-6 check (both 2026-09-23,
+docs/turn_gap_ref_prereg_20260921.md), so by the design's rules the
+pipeline is built from rows 1 to 6 of
+docs/turn_proposer_design_20260905.md.
 
 **3. Statues in the corpus reconstruction path** (checked 2026-09-23 on
 60 of the 1,813 corpus games on the three statue maps): the replay

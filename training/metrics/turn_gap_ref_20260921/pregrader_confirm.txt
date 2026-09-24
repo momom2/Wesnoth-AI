@@ -1,0 +1,22 @@
+positions 16, candidates with playouts 32, playout-mean SE (noise floor) 0.103, threshold 0.25
+value_post: n=32 (skipped 0), fit slope 0.051 intercept -0.163, corr 0.068, residual SD 0.523 plain / 0.323 within-position / 0.301 noise-corrected (playout-mean SD 0.533; fits weighted by playouts)
+  confirmed alternatives (gap >= threshold): 8 ranked (above 6, tie 0, below 2) + 0 without a read; top pick agrees 7/16, within 0.1: 11/16
+    position 11: gap +0.350, base -0.4435, alt -0.4301, above
+    position 15: gap +0.417, base -0.954, alt -0.9174, above
+    position 20: gap +1.000, base -0.8304, alt -0.7151, above
+    position 24: gap +0.467, base -0.2306, alt -0.5202, BELOW
+    position 38: gap +0.250, base 0.96, alt 0.9612, above
+    position 42: gap +0.294, base -0.8531, alt -0.7014, above
+    position 47: gap +0.900, base -0.0571, alt -0.0181, above
+    position 57: gap +0.800, base -0.1056, alt -0.3485, BELOW
+hp_margin_post: n=32 (skipped 0), fit slope -0.000 intercept -0.183, corr 0.048, residual SD 0.523 plain / 0.322 within-position / 0.301 noise-corrected (playout-mean SD 0.533; fits weighted by playouts)
+  confirmed alternatives (gap >= threshold): 8 ranked (above 5, tie 0, below 3) + 0 without a read; top pick agrees 10/16, within 0.1: 13/16
+    position 11: gap +0.350, base -63, alt -68, BELOW
+    position 15: gap +0.417, base 16, alt 45, above
+    position 20: gap +1.000, base 46, alt 30, BELOW
+    position 24: gap +0.467, base -93, alt -108, BELOW
+    position 38: gap +0.250, base -973, alt -967, above
+    position 42: gap +0.294, base 70, alt 91, above
+    position 47: gap +0.900, base 68, alt 89, above
+    position 57: gap +0.800, base 37, alt 39, above
+verdict (value head): KILL (residual SD >= 0.3)
