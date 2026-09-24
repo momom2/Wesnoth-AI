@@ -87,7 +87,9 @@ dimension, marginal by marginal:
 
 Premise, written down: the game's value is monotone in each dimension
 and additive across them, so marginal dominance implies a better
-expected value. Joint (multivariate) dominance would cover every
+expected value. Position, visibility and villages can block a rewrite
+but never justify one: a candidate must be better on a unit's
+existence, hp, statuses, level-up, experience or attacks left. Joint (multivariate) dominance would cover every
 monotone valuation and fire less; see section 9.
 
 **Visibility** is read at the end of the window with the simulator's
@@ -115,6 +117,13 @@ checked twice: by playouts on a sample (section 7, the rider) and by a
 match (section 6). The axes combine freely: R1 on or off, R2 off or at
 one of two values of ε, R3 off, guarded or literal, R4 on or off, 36
 combinations in all, R0 being the one with every axis off.
+
+A combination treats a dimension it drops as a valuation indifferent to
+it would: the dimension neither blocks a rewrite nor counts as its gain.
+So a looser combination can admit fewer rewrites than a tighter one,
+when a rewrite's only gain lies on what it drops: a kill moved from one
+unit to another raises one unit's experience and lowers the other's, and
+under R1 it is no gain at all.
 
 **R1, experience as level-ups.** XP is compared only through level-up
 events: per unit, the probability of levelling (or reaching an AMLA)
@@ -193,7 +202,8 @@ Each class names the rewrite and the relaxations it needs.
   illuminator next to the fight, played before the attack instead of
   after. The move is applied for real in the pre-attack state
   (legality); the mover's end hex and movement left must equal the
-  baseline's.
+  baseline's. Only for an attack that cannot kill: on the kill branch
+  the baseline could still drop the move, which the rewrite commits.
 - **K, attack before a non-enabling move** (R0, tier O; widened by R3).
   A killable attack followed in the plan by a move of another unit to a
   hex next to the same target, where the move does not change the
@@ -211,7 +221,15 @@ Each class names the rewrite and the relaxations it needs.
 - **H, attack hex** (R3). The same attacker, target and weapon from
   another hex next to the target, with a fight distribution that
   dominates (better terrain defense for the attacker) and a position
-  admitted by R3.
+  admitted by R3. Every candidate hex and the played one are next to
+  the target, so R3's two-hex bound always holds for H and only the
+  guard decides.
+
+Every class also requires the rest of the turn to play as it did: no
+later command lands on or recruits onto the hex a rewrite occupies, and
+every attack between the rewrite's commands, or after them for H, next
+to a hex a unit left or took, keeps its exact fight distribution with
+the unit moved (backstab flanks, leadership, illumination).
 
 Out of scope, and recorded in section 9: which target, anything
 spanning turns, and XOD's valued swaps.
@@ -277,9 +295,12 @@ at its loosest, and each candidate rewrite stores its full comparison
 vector: the symbol of every dimension, the ε of each hp dimension, the
 level-up flags, each unit's position distance and guard results, the
 visibility symbols. A combination admits a rewrite when every dimension
-it keeps passes, so all 36 are read from the stored vectors without
+it keeps passes and one it keeps that can justify the rewrite is better
+(section 4), so all 36 are read from the stored vectors without
 recomputing anything; each rewrite also records its *minimal sets*, the
-smallest combinations that admit it.
+smallest combinations that admit it. An opportunity is an attack with
+at least one admitted rewrite of a class, however many it has; rates
+count opportunities, and failed games stay out of every denominator.
 
 **Estimands, per source and combination.**
 
@@ -357,20 +378,20 @@ write their records as they go.
 
 All in `tools/`, tests in `tests/`; no simulator change.
 
-1. `tools/swap_detector.py`: the missing dimensions (moves and attacks
-   left per own unit, village ownership); `_verify_reorder` applies the
-   setup move through `_apply_command` and checks its legality instead
-   of placing the unit; a side-turn source that reads an extracted
-   record or a live simulator, besides exported bundles.
+1. `tools/swap_detector.py` stays as it is. What it lacked (attacks
+   left per own unit, village ownership, the setup move applied through
+   `_apply_command` with its legality checked, side-turns read from
+   game records and corpus games) is in the new modules of item 2. K's
+   widening by R3 (section 5) is not built: the census counts K under
+   R0 and R4.
 2. `tools/combat_dominance.py` and `tools/dominance_rewrites.py`, new:
    the full comparison vector (the dimensions of section 3 including
    visibility, the XP-to-level-up map, the ε of each hp dimension, each
    unit's position distance and guard results), the combination filter
    over it, and the six classes as functions over a realized side-turn,
    returning rewrites with class, vector, minimal sets and gain. A
-   relaxation only removes constraints: a dropped dimension no longer
-   blocks, and a better value on it still counts, so a looser
-   combination admits everything a tighter one does. Q and F compose
+   dropped dimension neither blocks nor justifies (section 4). Q and F
+   compose
    the two fights from the exact fight tables (the first fight's, then
    the second's from each state the first leaves), checked against the
    simulator's own enumeration; walking the simulator through every

@@ -8,18 +8,29 @@ is a vector of dimensions, each carrying enough to be read under any of
 the 36 combinations of relaxations:
 
   binary dims  (a unit alive, a status, a level-up)   never relaxed
+  option dims  (an own unit's attack left)            never relaxed
   hp dims      almost-dominance ratio eps             R2 admits eps <= its level
   xp dims      residual experience                    R1 drops them (keeps level-ups)
   pos dims     hex distance and the guard             R3 admits distance <= 2 (guarded or literal)
   vis dims     what the side sees and shows           R4 drops them
+  count dims   villages held                          never relaxed
+
+A dimension either can justify a rewrite (its better value is the
+rewrite's gain) or only block it: a rewrite is not worth making for a
+better view, a moved unit or a village alone, so position, visibility
+and village dimensions block and never justify.
 
 A combination admits a rewrite when no dimension it keeps is worse and
-at least one dimension is better (tier D), or, for tier O, when the
-rewrite keeps an option the played turn spent (the attack before a
-surround move, whose mover keeps its movement on the kill branch). A
-relaxation only removes constraints: a dimension it drops can no longer
-block, and a better value on it still counts, so a looser combination
-admits every rewrite a tighter one does.
+at least one dimension it keeps that can justify it is better (tier D),
+or, for tier O,
+when no kept dimension is worse and the rewrite keeps an option the
+played turn spent (the attack before a surround move, whose mover keeps
+its movement on the kill branch). A dimension a combination drops is
+ignored both ways, as a valuation indifferent to it would: it neither
+blocks nor counts as a gain. So a looser combination can admit fewer
+rewrites than a tighter one, when a rewrite's only gain lies on the
+dimension it drops (a kill moved from one unit to another is a gain in
+one unit's experience and a loss in the other's, and R1 sees neither).
 
 Classes (section 5 of the design): W weapon, H attack hex, A ability
 setup (backstab, leadership), K attack before a non-enabling move,
@@ -62,11 +73,20 @@ class Dim:
     (Leshno and Levy 2002), 0 when the candidate dominates, 1 when the
     played turn does."""
     name: str
-    kind: str          # binary, hp, xp, pos, vis, count
+    kind: str          # binary, option, hp, xp, pos, vis, count
     sym: str
     eps: float = 0.0
     distance: int = 0  # pos: hexes between the candidate's position and the played one
     guard: bool = True  # pos: the guarded form's conditions hold
+
+    @property
+    def justifies(self) -> bool:
+        """A better value on this dimension can be the rewrite's gain."""
+        return self.kind in JUSTIFYING_KINDS
+
+
+JUSTIFYING_KINDS = ("binary", "option", "hp", "xp")
+FIGHT_KINDS = ("binary", "hp", "xp")
 
 
 def compare_marginals(mc: Dict[float, float], mb: Dict[float, float],
@@ -164,10 +184,22 @@ def dim_passes(d: Dim, c: Combo) -> Optional[bool]:
     return False
 
 
+def kept_gains(dims: List[Dim], c: Combo) -> List[Dim]:
+    """The dimensions `c` keeps on which the candidate is better and that
+    can justify a rewrite."""
+    return [d for d in dims if d.sym == GT and d.justifies and dim_passes(d, c)]
+
+
 def admits(dims: List[Dim], tier: str, c: Combo) -> bool:
     if any(dim_passes(d, c) is False for d in dims):
         return False
-    return tier == "O" or any(d.sym == GT for d in dims)
+    return tier == "O" or bool(kept_gains(dims, c))
+
+
+def fight_gain(dims: List[Dim], c: Combo) -> bool:
+    """A kept gain on a unit's survival, hp, statuses, level-up or
+    experience, as opposed to an attack left or a banked option."""
+    return any(d.kind in FIGHT_KINDS for d in kept_gains(dims, c))
 
 
 def minimal_combos(dims: List[Dim], tier: str) -> List[Combo]:
@@ -189,6 +221,7 @@ class Rewrite:
     detail: Dict[str, object]
     dims: List[Dim]
     gains: Dict[str, float] = field(default_factory=dict)
+    anchor: int = -1                   # game index of the attack the rewrite changes
 
     def admitted(self) -> Dict[str, bool]:
         return {c.name(): admits(self.dims, self.tier, c) for c in COMBOS}
@@ -250,6 +283,23 @@ def fight(gs: GameState, action: dict):
     return enumerate_attack_outcomes(gs, action, advancement_choice="uniform")
 
 
+LEVELLED = 1_000_000                   # experience of a unit that levelled or took an AMLA
+
+
+def end_xp(unit, alive: bool, end_type: str, opp_level: int, opp_dead: bool) -> int:
+    """`unit`'s experience after a fight: -1 dead, LEVELLED when it
+    advanced (a new type, or an AMLA: same type, threshold crossed; the
+    enumerator resolves both into full hp), else what it gained on top.
+    A fight is worth the opponent's level, a kill its kill experience
+    (combat_outcomes._kill_xp)."""
+    if not alive:
+        return -1
+    xp = unit.current_exp + (_kill_xp(opp_level) if opp_dead else opp_level)
+    if end_type != unit.name or xp >= unit.max_exp:
+        return LEVELLED
+    return xp
+
+
 def fight_dims(cand, base, att, dfd) -> List[Dim]:
     """The attack's own dimensions, attacker = own unit. Keys of
     `combat_outcomes.OutcomeDistribution`: (a_hp, d_hp, a_slowed,
@@ -259,18 +309,10 @@ def fight_dims(cand, base, att, dfd) -> List[Dim]:
     a_lvl, d_lvl = _level(att.name), _level(dfd.name)
 
     def own_xp(k):
-        if k[0] <= 0:
-            return -1
-        if k[8] != att.name:
-            return 1_000_000                   # levelled: counted by the level-up dim
-        return att.current_exp + (_kill_xp(d_lvl) if k[1] <= 0 else d_lvl)
+        return end_xp(att, k[0] > 0, k[8], d_lvl, k[1] <= 0)
 
     def enemy_xp(k):
-        if k[1] <= 0:
-            return -1
-        if k[9] != dfd.name:
-            return 1_000_000
-        return dfd.current_exp + (_kill_xp(a_lvl) if k[0] <= 0 else a_lvl)
+        return end_xp(dfd, k[1] > 0, k[9], a_lvl, k[0] <= 0)
 
     return [
         numeric_dim("enemy_alive", "binary", c, b, lambda k: int(k[1] > 0), False),
@@ -282,8 +324,9 @@ def fight_dims(cand, base, att, dfd) -> List[Dim]:
         numeric_dim("enemy_petrified", "binary", c, b, lambda k: int(bool(k[7])), True),
         numeric_dim("own_slowed", "binary", c, b, lambda k: int(bool(k[2])), False),
         numeric_dim("own_poisoned", "binary", c, b, lambda k: int(bool(k[4])), False),
-        numeric_dim("own_levelup", "binary", c, b, lambda k: int(k[0] > 0 and k[8] != att.name), True),
-        numeric_dim("enemy_levelup", "binary", c, b, lambda k: int(k[1] > 0 and k[9] != dfd.name), False),
+        numeric_dim("own_petrified", "binary", c, b, lambda k: int(bool(k[6])), False),
+        numeric_dim("own_levelup", "binary", c, b, lambda k: int(own_xp(k) == LEVELLED), True),
+        numeric_dim("enemy_levelup", "binary", c, b, lambda k: int(enemy_xp(k) == LEVELLED), False),
         numeric_dim("own_xp", "xp", c, b, own_xp, True),
         numeric_dim("enemy_xp", "xp", c, b, enemy_xp, False),
     ]
