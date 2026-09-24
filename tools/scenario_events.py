@@ -1499,6 +1499,41 @@ def own_modification_effects(mods: Optional[WMLNode]) -> List[WMLNode]:
     return out
 
 
+def apply_side_unit_modifications(gs: GameState, root: WMLNode) -> None:
+    """Give the units a scenario places in its [side] blocks their own
+    [modifications] effects, as the engine builds them at scenario init,
+    before prestart. Units are matched by side, position and type, so
+    this serves a state built from the scenario (generation) and one
+    rebuilt from a replay record (reconstruction) alike: neither's
+    starting units carry the modifications. Called once per game from
+    replay_dataset._setup_scenario_events; the units are freshly built,
+    so the in-place contract of _apply_effect_to_unit holds."""
+    block = root.first("multiplayer") or root.first("scenario")
+    if block is None:
+        return
+    effects: Dict[Tuple[int, int, int, str], List[WMLNode]] = {}
+    for side_node in block.all("side"):
+        try:
+            side = int(side_node.attrs.get("side", "0"))
+        except ValueError:
+            continue
+        for unit_node in side_node.all("unit"):
+            try:
+                x = int(unit_node.attrs.get("x", "0")) - 1
+                y = int(unit_node.attrs.get("y", "0")) - 1
+            except ValueError:
+                continue
+            unit_type = unit_node.attrs.get("type", "").strip().strip('"')
+            own = own_modification_effects(unit_node.first("modifications"))
+            if own:
+                effects[(side, x, y, unit_type)] = own
+    if not effects:
+        return
+    for unit in gs.map.units:
+        for eff in effects.get((unit.side, unit.position.x, unit.position.y, unit.name), ()):
+            _apply_effect_to_unit(unit, eff)
+
+
 def _trait_ids_from_modifications(node: WMLNode) -> List[str]:
     """Walk a `[modifications]` child node and pull trait ids from
     nested [trait] children. The `{TRAIT_LOYAL}` macros are pre-

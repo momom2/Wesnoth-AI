@@ -545,7 +545,7 @@
     10,
     "Elvish Marksman",
     false,
-    1,
+    37,
     56
    ],
    [
@@ -554,7 +554,7 @@
     7,
     "Highwayman",
     false,
-    1,
+    70,
     105
    ],
    [
@@ -563,7 +563,7 @@
     12,
     "Armageddon Drake",
     false,
-    1,
+    98,
     140
    ],
    [
@@ -572,7 +572,7 @@
     17,
     "Direwolf Rider",
     false,
-    1,
+    61,
     105
    ],
    [
@@ -581,7 +581,7 @@
     10,
     "Grand Marshal",
     false,
-    1,
+    68,
     140
    ],
    [
@@ -590,7 +590,7 @@
     10,
     "Mermaid Siren",
     false,
-    1,
+    51,
     105
    ],
    [
@@ -599,7 +599,7 @@
     11,
     "Naga Myrmidon",
     false,
-    1,
+    49,
     105
    ],
    [
@@ -608,7 +608,7 @@
     11,
     "Sea Serpent",
     false,
-    1,
+    85,
     105
    ],
    [
@@ -617,7 +617,7 @@
     13,
     "Grand Knight",
     false,
-    1,
+    84,
     105
    ],
    [
@@ -626,7 +626,7 @@
     13,
     "Sky Drake",
     false,
-    1,
+    45,
     53
    ],
    [
@@ -635,7 +635,7 @@
     5,
     "Elder Wose",
     false,
-    1,
+    64,
     56
    ],
    [
@@ -644,7 +644,7 @@
     10,
     "Iron Mauler",
     false,
-    1,
+    64,
     105
    ],
    [
@@ -653,7 +653,7 @@
     16,
     "Giant Spider",
     false,
-    1,
+    54,
     105
    ],
    [
@@ -662,7 +662,7 @@
     7,
     "Saurian Oracle",
     false,
-    1,
+    29,
     52
    ],
    [
@@ -671,7 +671,7 @@
     7,
     "Saurian Flanker",
     false,
-    1,
+    54,
     105
    ]
   ],
@@ -1317,7 +1317,7 @@
     15,
     "Yeti",
     false,
-    1,
+    142,
     140
    ],
    [
@@ -1326,7 +1326,7 @@
     18,
     "Yeti",
     false,
-    1,
+    142,
     140
    ],
    [
@@ -1335,7 +1335,7 @@
     14,
     "Great Mage",
     false,
-    1,
+    65,
     140
    ],
    [
@@ -1344,7 +1344,7 @@
     10,
     "Yeti",
     false,
-    1,
+    142,
     140
    ],
    [
@@ -1353,7 +1353,7 @@
     14,
     "Yeti",
     false,
-    1,
+    142,
     140
    ]
   ],
@@ -1763,7 +1763,7 @@
     6,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1772,7 +1772,7 @@
     7,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1781,7 +1781,7 @@
     8,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1790,7 +1790,7 @@
     9,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1799,7 +1799,7 @@
     10,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1808,7 +1808,7 @@
     11,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1817,7 +1817,7 @@
     12,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1826,7 +1826,7 @@
     13,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1835,7 +1835,7 @@
     14,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1844,7 +1844,7 @@
     15,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1853,7 +1853,7 @@
     16,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1862,7 +1862,7 @@
     17,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1871,7 +1871,7 @@
     18,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1880,7 +1880,7 @@
     19,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1889,7 +1889,7 @@
     20,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1898,7 +1898,7 @@
     21,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1907,7 +1907,7 @@
     22,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1916,7 +1916,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1925,7 +1925,7 @@
     5,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1934,7 +1934,7 @@
     6,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1943,7 +1943,7 @@
     7,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1952,7 +1952,7 @@
     8,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1961,7 +1961,7 @@
     6,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1970,7 +1970,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1979,7 +1979,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1988,7 +1988,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -1997,7 +1997,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2006,7 +2006,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2015,7 +2015,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2024,7 +2024,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2033,7 +2033,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2042,7 +2042,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2051,7 +2051,7 @@
     23,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2060,7 +2060,7 @@
     2,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2069,7 +2069,7 @@
     1,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2078,7 +2078,7 @@
     2,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2087,7 +2087,7 @@
     1,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2096,7 +2096,7 @@
     2,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2105,7 +2105,7 @@
     1,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2114,7 +2114,7 @@
     2,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2123,7 +2123,7 @@
     1,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2132,7 +2132,7 @@
     2,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2141,7 +2141,7 @@
     1,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2150,7 +2150,7 @@
     19,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2159,7 +2159,7 @@
     16,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2168,7 +2168,7 @@
     17,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2177,7 +2177,7 @@
     18,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2186,7 +2186,7 @@
     19,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2195,7 +2195,7 @@
     2,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2204,7 +2204,7 @@
     3,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2213,7 +2213,7 @@
     4,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2222,7 +2222,7 @@
     5,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2231,7 +2231,7 @@
     6,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2240,7 +2240,7 @@
     7,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2249,7 +2249,7 @@
     8,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2258,7 +2258,7 @@
     9,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2267,7 +2267,7 @@
     10,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2276,7 +2276,7 @@
     11,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2285,7 +2285,7 @@
     12,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2294,7 +2294,7 @@
     13,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2303,7 +2303,7 @@
     14,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2312,7 +2312,7 @@
     15,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2321,7 +2321,7 @@
     16,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2330,7 +2330,7 @@
     17,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2339,7 +2339,7 @@
     18,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ],
    [
@@ -2348,7 +2348,7 @@
     19,
     "Giant Scorpion",
     false,
-    1,
+    35,
     35
    ]
   ],

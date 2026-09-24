@@ -6,7 +6,7 @@ them under fog because it never read the declaration. The statues of
 Caves of the Basilisk, Sullas Ruins and Thousand Stings Garrison carry
 modifications that leave them 1 hp and no moves (a custom `remove_hp`
 trait, or the same effects in an [object]); units placed in a [side]
-block got none of them.
+block got none of them, in generation or in replay reconstruction.
 """
 import logging
 import random
@@ -39,8 +39,31 @@ def test_the_scenario_declares_the_fog_and_fogless_still_turns_it_off():
     assert getattr(_build("multiplayer_Hamlets", fogless=True).global_info, "_fog") is False
 
 
+def _record(scenario_id: str, monkeypatch) -> dict:
+    """The replay-shaped record the builder hands _build_initial_gamestate:
+    starting units with type, position and the petrified flag only, as a
+    corpus record carries them."""
+    captured: dict = {}
+    real = sp._build_initial_gamestate
+
+    def capture(data):
+        captured.update(data)
+        return real(data)
+
+    monkeypatch.setattr(sp, "_build_initial_gamestate", capture)
+    _build(scenario_id)
+    return captured
+
+
 @pytest.mark.parametrize("scenario_id", ["multiplayer_Basilisk", "multiplayer_thousand_stings_garrison"])
-def test_statues_placed_in_a_side_block_carry_their_trait_effects(scenario_id):
-    statues = [u for u in _build(scenario_id).map.units if "petrified" in u.statuses]
-    assert statues
-    assert all(u.max_hp == u.current_hp == 1 and u.max_moves == 0 for u in statues)
+def test_statues_carry_their_modifications_in_generation_and_reconstruction(scenario_id, monkeypatch):
+    from tools.replay_dataset import _build_initial_gamestate, _setup_scenario_events
+    from tools.wesnoth_sim import WesnothSim
+
+    rebuilt = _build_initial_gamestate(_record(scenario_id, monkeypatch))
+    _setup_scenario_events(rebuilt, scenario_id)
+    generated = WesnothSim(_build(scenario_id), scenario_id=scenario_id).gs
+    for gs in (rebuilt, generated):
+        statues = [u for u in gs.map.units if "petrified" in u.statuses]
+        assert statues
+        assert all(u.max_hp == u.current_hp == 1 and u.max_moves == 0 for u in statues)

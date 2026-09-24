@@ -23,13 +23,6 @@ docs/turn_gap_ref_prereg_20260921.md), so by the design's rules the
 pipeline is built from rows 1 to 6 of
 docs/turn_proposer_design_20260905.md.
 
-**3. Statues in the corpus reconstruction path** (checked 2026-09-23 on
-60 of the 1,813 corpus games on the three statue maps): the replay
-records and reconstruction give statues full hp, so the reference
-learned from full-hp statues while generation and eval now show the
-engine's 1/1. User ruling: apply the statues' own modifications in
-reconstruction too, one rule for every path.
-
 ## Open after CI landed (2026-09-23)
 
 - **The corpus tests never run on CI.** 33 of its 49 skips need

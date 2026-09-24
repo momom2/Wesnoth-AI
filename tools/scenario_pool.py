@@ -38,8 +38,7 @@ from wesnoth_ai.classes import GameState, Position
 from tools.replay_dataset import (
     _build_initial_gamestate,
 )
-from tools.scenario_events import (_apply_effect_to_unit, own_modification_effects,
-                                   load_scenario_wml)
+from tools.scenario_events import load_scenario_wml
 from tools.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
                              MP_VILLAGE_SUPPORT, check_board_cycle,
                              check_quick_leader_gates, map_starting_positions,
@@ -752,7 +751,6 @@ def build_scenario_gamestate(
     # are ordinary controllable units (trait-less -- such cfgs
     # carry random_traits=no so Wesnoth playback instantiates them
     # trait-less too, matching this model).
-    placed_effects: Dict[str, list] = {}   # unit id -> its own [modifications] effects
     next_uid = 1000   # leave room above the leader uids; placed
                       # units don't need contiguous numbering.
     for s in mp.all("side"):
@@ -789,9 +787,6 @@ def build_scenario_gamestate(
                 "is_leader": False,
                 "petrified": petrified,
             })
-            effects = own_modification_effects(u.first("modifications"))
-            if effects:
-                placed_effects[f"u{next_uid}"] = effects
             next_uid += 1
     # The scenario's own economy, unless the caller forced one.
     scn_village_gold, scn_village_support, scn_exp = scenario_economy(
@@ -880,15 +875,6 @@ def build_scenario_gamestate(
     # the encoder's village-ownership fog rule.
     if setup.fogless:
         setattr(gs.global_info, "_fog", False)
-    # The own [modifications] effects of the units placed in [side]
-    # blocks, as an event-placed [unit] gets them
-    # (scenario_events._unit_action): the statues drop to 1 hp and no
-    # moves. The units are
-    # freshly built, so the in-place contract of _apply_effect_to_unit
-    # holds.
-    for unit in gs.map.units:
-        for eff in placed_effects.get(unit.id, ()):
-            _apply_effect_to_unit(unit, eff)
     # Pool category stash: lets category-scoped prior biases
     # (action_sampler.prior_bias_end_turn) detect mini games from
     # the state alone, symmetrically at rollout and trainer

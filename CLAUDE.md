@@ -665,6 +665,17 @@ State of play:
   boundary value net is the prerequisite for row 7. The 2026-09-05 run
   on the seed's candidates, first written down the same day: value head
   0.156 with 2 of 8 below (a fail), HP margin 0.154 with 8 of 8 above.
+- 2026-09-23 (0.4.4): **statues carry their own modifications in every
+  path, and `OBSERVATION_EPOCH` is 5.** The corpus records and replay
+  reconstruction gave the statues of the three statue maps full hp while
+  generation gave the engine's 1/1 (0.4.0), so the reference learned
+  from full-hp statues and met 1/1 in eval. By user ruling the
+  modifications now apply in the scenario setup every path runs once per
+  game (`scenario_events.apply_side_unit_modifications`); the
+  scenario-init oracle still agrees on all 28 scenarios. The epoch bump
+  covers this and 0.4.0's mini fog: caches from earlier epochs refuse to
+  load, a checkpoint from one warns, and Elo measured from here does not
+  chain onto earlier numbers.
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

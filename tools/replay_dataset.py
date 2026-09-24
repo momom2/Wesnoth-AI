@@ -2858,7 +2858,8 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     """
     try:
         from tools.scenario_events import (
-            load_scenario_wml, fire_event, setup_static_time_areas,
+            apply_side_unit_modifications, load_scenario_wml, fire_event,
+            setup_static_time_areas,
         )
     except ImportError:
         # If scenario_events isn't importable for some reason, silently
@@ -2876,6 +2877,8 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     # event itself contains a [time_area] (see scenario_events.py
     # _time_area_action), and we don't want order-of-events to flip.
     setup_static_time_areas(gs, root)
+    # [side]-placed units exist, modifications applied, before prestart.
+    apply_side_unit_modifications(gs, root)
     from tools.scenario_events import collect_events
     events = collect_events(root, scenario_id)
     setattr(gs.global_info, "_scenario_events", events)
