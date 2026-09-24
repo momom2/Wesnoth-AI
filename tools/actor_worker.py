@@ -222,6 +222,22 @@ def _set_fd_safe_sharing() -> None:
         pass
 
 
+def _classify_ticket(ticket, iter_idx: int):
+    """What a ticket means to an actor bound to `iter_idx`: ("game",
+    (index, seed)), ("end", None) at the end marker, ("next", ticket)
+    for a ticket of a later session, or None for a stale one of an
+    earlier session (the sessions' tags increase: iteration indices,
+    and a stream takes the next one)."""
+    t_iter, g, seed = ticket
+    if t_iter < iter_idx:
+        return None
+    if t_iter > iter_idx:
+        return "next", ticket
+    if g == _TICKET_END:
+        return "end", None
+    return "game", (g, seed)
+
+
 def _take_ticket(game_q, ctrl_q, iter_idx: int):
     """The next game of this iteration from the shared queue, honouring
     control commands while waiting. Returns ("game", (index, seed)),
@@ -229,8 +245,14 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
     the manager asked for no new games, ("play", cmd) when the next
     iteration's PLAY is already waiting, ("update", payload) on the
     continuous pool's UPDATE, ("stop", None) on STOP or once the parent
-    is gone. Tickets of another iteration are skipped (stale after a
-    drain)."""
+    is gone, and ("next", ticket) for a ticket of a later session.
+    Tickets go out before the PLAYs and on another queue, so an actor
+    still bound to an iteration the manager ended (aborted, abandoned
+    at its hard deadline) can meet the next session's tickets before
+    its PLAY; skipping them lost those games for good, and a stream
+    that lost its first tickets that way kept an actor idle for the rest
+    of it (CI loop, 2026-09-24). Tickets of an earlier session are
+    skipped (stale after a drain)."""
     while True:
         # Checked before every ticket, not only on an empty queue: an
         # orphaned actor with tickets still queued would otherwise walk
@@ -263,16 +285,38 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
         except _queue.Empty:
             pass
         try:
-            t_iter, g, seed = game_q.get(timeout=0.5)
+            ticket = game_q.get(timeout=0.5)
         except _queue.Empty:
             if _parent_gone():
                 return "stop", None
             continue
-        if t_iter != iter_idx:
-            continue
-        if g == _TICKET_END:
-            return "end", None
-        return "game", (g, seed)
+        got = _classify_ticket(ticket, iter_idx)
+        if got is not None:
+            return got
+
+
+class _TicketSource:
+    """`_take_ticket` plus the ticket of a later session an actor met
+    while bound to an ended iteration: it is held, and played first
+    under the PLAY it belongs to."""
+
+    def __init__(self, game_q, ctrl_q):
+        self._game_q = game_q
+        self._ctrl_q = ctrl_q
+        self._held = None
+
+    def take(self, iter_idx: int):
+        if self._held is not None:
+            held, self._held = self._held, None
+            got = _classify_ticket(held, iter_idx)
+            if got is not None:
+                if got[0] == "next":
+                    self._held = held
+                return got
+        got = _take_ticket(self._game_q, self._ctrl_q, iter_idx)
+        if got[0] == "next":
+            self._held = got[1]
+        return got
 
 
 def _actor_loop(
@@ -325,6 +369,7 @@ def _actor_loop(
     # that iteration and started the next one): it is run here rather
     # than read off the control queue.
     pending: Optional[tuple] = None
+    tickets = _TicketSource(game_q, ctrl_q)
     while True:
         if pending is not None:
             cmd, pending = pending, None
@@ -431,7 +476,7 @@ def _actor_loop(
                 # finish the game in progress, start no new one. The
                 # check sits BETWEEN games so a completed game is
                 # never thrown away (the leg-3 waste mode).
-                kind, ticket = _take_ticket(game_q, ctrl_q, iter_idx)
+                kind, ticket = tickets.take(iter_idx)
                 if kind == "stop":
                     return
                 if kind == "update":
@@ -445,6 +490,11 @@ def _actor_loop(
                     log.warning("actor %d: iteration %d was abandoned by the "
                                 "manager, the next one has already started; "
                                 "reporting done and running it", actor_id, iter_idx)
+                if kind == "next":
+                    log.warning("actor %d: iteration %d has ended and the next "
+                                "session's tickets are out; reporting done and "
+                                "holding ticket %s for its PLAY", actor_id, iter_idx,
+                                ticket)
                 if kind != "game":
                     break
                 g, seed = ticket

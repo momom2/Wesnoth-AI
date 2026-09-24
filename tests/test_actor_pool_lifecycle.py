@@ -36,7 +36,7 @@ from tools import actor_worker  # noqa: E402
 from tools.actor_pool import _R_DONE, _R_EXPS, _R_FATAL, ActorFatalError  # noqa: E402
 from tools.actor_worker import (  # noqa: E402
     _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _parent_gone, _take_ticket,
-    _wait_for_command,
+    _TicketSource, _wait_for_command,
 )
 from tools.serve_worker import _Waiting, _serve_loop  # noqa: E402
 
@@ -163,6 +163,22 @@ def test_abandoned_actor_resyncs_instead_of_eating_the_next_iteration():
 
     assert (kind, handed) == ("play", play), "the PLAY must reach the main loop"
     assert game_q.qsize() == 7, "the stale actor consumed the new iteration's tickets"
+
+
+def test_an_actor_bound_to_an_ended_iteration_holds_the_next_sessions_ticket():
+    """The same actor when the next session's tickets reach it before
+    its PLAY (they go out first, on another queue). It skipped them, and
+    those games were lost for good: a stream that lost its first tickets
+    this way kept an actor idle for the rest of it (CI loop, 2026-09-24).
+    It ends its iteration and plays the ticket under that PLAY."""
+    ctrl, game_q = _queue.Queue(), _queue.Queue()
+    game_q.put((3, 0, 1000))                # the stream's; its PLAY is not here yet
+    tickets = _TicketSource(game_q, ctrl)
+
+    got = _call_with_deadline(lambda: tickets.take(2))
+
+    assert got == ("next", (3, 0, 1000))
+    assert tickets.take(3) == ("game", (0, 1000))
 
 
 def test_done_for_an_abandoned_iteration_does_not_retire_the_actor():
