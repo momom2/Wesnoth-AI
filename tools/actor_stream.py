@@ -28,12 +28,13 @@ tail, and this module removes it:
 
 The actor-side contract (tools/actor_worker.py): one PLAY for the
 whole stream with the `stream` flag; per game the actor reports
-_R_START (index, start time) as the game begins, then _R_OUTCOME,
+_R_START (index, start time, tag) as the game begins, then _R_OUTCOME,
 _R_EXPS and _R_GAME (index, decisions, start and end times, its
-drained distill stats) as it ends, so the stream knows which games are
-in flight (`in_flight`, `wait_in_flight`); UPDATE between games carries the
-new value center and the global anneal counter; DRAIN ends the
-stream, the actor finishing its game and reporting done.
+drained distill stats, tag) as it ends, so the stream knows which games
+are in flight (`in_flight`, `wait_in_flight`) and which games are its
+own (the tag is the PLAY's); UPDATE between games carries the new
+value center and the global anneal counter; DRAIN ends the stream, the
+actor finishing its game and reporting done.
 
 What the learner sees per step is a batch of G whole games, as under
 the barrier, generated at the saturated rate. Whether games may
@@ -343,9 +344,10 @@ class ActorStream:
 
     def _pump(self, outstanding: set, *, timeout: float) -> bool:
         """One read of the result queue. A start report puts its actor
-        in flight; completed games go to `_done` for the next cut; a
-        done report retires its actor from `outstanding` (the drain)
-        and from the live set. Returns True when a message was read."""
+        in flight; a game's outcome and experiences wait for its closing
+        report (`_close_game`); a done report retires its actor from
+        `outstanding` (the drain) and from the live set. Returns True
+        when a message was read."""
         pool = self._pool
         try:
             kind, aid, payload = pool._result_q.get(timeout=timeout)
@@ -356,30 +358,15 @@ class ActorStream:
                     pool._abort_on_dead_servers(self._tag, sorted(failed), failures=failed)
             return False
         if kind == _R_START:
-            g, t_start = payload
-            self._in_flight[aid] = (int(g), float(t_start))
+            g, t_start, tag = payload
+            if tag == self._tag:
+                self._in_flight[aid] = (int(g), float(t_start))
         elif kind == _R_OUTCOME:
             self._pending.setdefault(aid, {})["outcome"] = payload
         elif kind == _R_EXPS:
-            offer = getattr(pool._policy, "offer_holdout_game", None)
-            if offer is None or not offer(payload):
-                harvest = getattr(pool._policy, "harvest_boundary_pairs", None)
-                if harvest is not None:
-                    harvest(payload)
-                self._pending.setdefault(aid, {})["exps"] = list(payload)
+            self._pending.setdefault(aid, {})["exps"] = list(payload)
         elif kind == _R_GAME:
-            g, decisions, t_start, t_end, dstats = payload
-            rec = self._pending.pop(aid, {})
-            game = CompletedGame(
-                index=int(g), actor=aid, outcome=rec.get("outcome"),
-                experiences=rec.get("exps", []), decisions=int(decisions or 0),
-                t_start=float(t_start), t_end=float(t_end),
-                straddled=sum(1 for t in self._publishes if t_start < t <= t_end),
-                distill_stats=dstats)
-            self._completed += 1
-            self._in_flight.pop(aid, None)
-            self._done.append(game)
-            self._top_up()
+            self._close_game(aid, payload)
         elif kind == _R_DONE:
             _n_dec, _dstats, done_iter = _done_report(payload)
             if done_iter is not None and done_iter != self._tag:
@@ -403,6 +390,43 @@ class ActorStream:
             if failed:
                 pool._abort_on_dead_servers(self._tag, sorted(failed), failures=failed)
         return True
+
+    def _close_game(self, aid: int, report) -> None:
+        """A game's closing report: with the outcome and experiences its
+        actor sent before it, the game goes to `_done` for the next cut.
+        A game played under another PLAY is dropped with them: an
+        iteration that ended without collecting its games (an abort, a
+        hard deadline) or a stream whose drain grace ran out leaves its
+        actors' reports on the result queue, and its game indices are
+        not this stream's (2026-09-24: an aborted iteration's two games
+        filled a stream's first window before the stream served a leaf).
+        The holdout probe and the boundary harvest see only accepted
+        games."""
+        pool = self._pool
+        g, decisions, t_start, t_end, dstats, tag = report
+        rec = self._pending.pop(aid, {})
+        if tag != self._tag:
+            log.warning(f"stream {self._tag}: actor {aid} reported game {g} of iteration "
+                        f"{tag}, which ended without collecting it; dropped")
+            return
+        exps = rec.get("exps", [])
+        if exps:
+            offer = getattr(pool._policy, "offer_holdout_game", None)
+            if offer is not None and offer(exps):
+                exps = []
+            else:
+                harvest = getattr(pool._policy, "harvest_boundary_pairs", None)
+                if harvest is not None:
+                    harvest(exps)
+        self._done.append(CompletedGame(
+            index=int(g), actor=aid, outcome=rec.get("outcome"),
+            experiences=exps, decisions=int(decisions or 0),
+            t_start=float(t_start), t_end=float(t_end),
+            straddled=sum(1 for t in self._publishes if t_start < t <= t_end),
+            distill_stats=dstats))
+        self._completed += 1
+        self._in_flight.pop(aid, None)
+        self._top_up()
 
     def _drop_dead(self, window: StreamWindow) -> None:
         dead = self._pool._scan_liveness(self._tag, set(self._live))

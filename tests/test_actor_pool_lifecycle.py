@@ -33,10 +33,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from test_actor_pool_watchdog import _FakeProc, _FakeQ, _pool  # noqa: E402
 from tools import actor_worker  # noqa: E402
-from tools.actor_pool import _R_DONE, _R_EXPS  # noqa: E402
+from tools.actor_pool import _R_DONE, _R_EXPS, _R_FATAL, ActorFatalError  # noqa: E402
 from tools.actor_worker import (  # noqa: E402
     _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _parent_gone, _take_ticket,
-    _wait_for_command,
+    _TicketSource, _wait_for_command,
 )
 from tools.serve_worker import _Waiting, _serve_loop  # noqa: E402
 
@@ -165,6 +165,22 @@ def test_abandoned_actor_resyncs_instead_of_eating_the_next_iteration():
     assert game_q.qsize() == 7, "the stale actor consumed the new iteration's tickets"
 
 
+def test_an_actor_bound_to_an_ended_iteration_holds_the_next_sessions_ticket():
+    """The same actor when the next session's tickets reach it before
+    its PLAY (they go out first, on another queue). It skipped them, and
+    those games were lost for good: a stream that lost its first tickets
+    this way kept an actor idle for the rest of it (CI loop, 2026-09-24).
+    It ends its iteration and plays the ticket under that PLAY."""
+    ctrl, game_q = _queue.Queue(), _queue.Queue()
+    game_q.put((3, 0, 1000))                # the stream's; its PLAY is not here yet
+    tickets = _TicketSource(game_q, ctrl)
+
+    got = _call_with_deadline(lambda: tickets.take(2))
+
+    assert got == ("next", (3, 0, 1000))
+    assert tickets.take(3) == ("game", (0, 1000))
+
+
 def test_done_for_an_abandoned_iteration_does_not_retire_the_actor():
     """That actor then reports the ABANDONED iteration done, while the
     manager is collecting the next one. Counting it there retires an
@@ -252,6 +268,20 @@ def test_serve_threads_stop_on_an_unnamed_error_path():
     assert pool._serving is False
 
 
+def test_an_aborted_iteration_leaves_no_tickets_behind():
+    """The ticket flush sat after the iteration's `finally`, so an
+    iteration that raised left its unplayed games and end markers on the
+    game queue: the next PLAY of the same index plays those games again,
+    and its actors stop at the stale end markers."""
+    procs = [_FakeProc(True, name="actor-0"), _FakeProc(True, name="actor-1")]
+    pool = _pool(procs, results=[(_R_FATAL, 1, "boom")])
+
+    with pytest.raises(ActorFatalError):
+        pool.run_iteration(2, games_per_iter=2, base_seed=1)
+
+    assert pool._game_q._items == []
+
+
 # ---------------------------------------------------------------- fix 4
 
 class _FakeProcess:
@@ -300,6 +330,7 @@ def _queue_pool(n: int = 2, tickets: int = 0):
         pool._game_q.put((0, g, g))
     pool._procs = [_FakeProcess(f"actor-{i}", stubborn=(i == 0)) for i in range(n)]
     pool._server_procs = [_FakeProcess("serve-1")]
+    pool._open_serving = None
     return pool
 
 
@@ -399,6 +430,27 @@ def test_shutdown_returns_with_big_messages_nobody_read():
         "shutdown() did not return: the drain lost the race with the feeder "
         "and join_thread() is waiting on a pipe nobody reads")
     assert not err, err
+
+
+def test_shutdown_stops_open_serving_before_closing_its_queue():
+    """CI 2026-09-24: a test raised with a stream open, and shutdown()
+    closed the request queue under the stream's serve threads, which
+    each died on the closed queue with a traceback in the log."""
+    pool = _queue_pool(n=1)
+    pool._server = None                 # never asked: no requests
+    pool._serve_threads = 2
+    pool._max_batch = 8
+    pool._serve_timeout = 0.01
+    pool._coalesce, pool._coalesce_gap = "fifo", 0
+    pool._stuck_serve_threads = []
+    sv = pool._start_serving(3)
+
+    pool.shutdown(timeout=0.5)
+
+    assert not any(th.is_alive() for th in sv.threads), "shutdown left serve threads running"
+    for th in sv.threads:
+        th.join(timeout=5.0)
+    assert [s.get("error") for s in sv.serve_stats] == [None, None]
 
 
 def test_shutdown_is_idempotent():
