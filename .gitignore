@@ -134,6 +134,10 @@ test_replays_temp/
 # per-run log artifacts (escrowed to HF, never tracked)
 training/logs/trainer_history*.csv*
 
+# Whole-game records (tools/game_record.py): written by every self-play
+# run and escrowed to HF by the training box, never tracked.
+training/game_records/
+
 # Validation-export working dir: replays pulled from HF (`--hf-pull`) plus
 # locally generated bundles. Regenerable and rewritten on every run, so it
 # should never show up as untracked churn.

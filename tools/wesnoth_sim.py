@@ -71,7 +71,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_ai.classes import GameState, Position, SideInfo
+from wesnoth_ai.classes import GameState, Position, SideInfo, state_digest
 from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
@@ -514,6 +514,13 @@ class WesnothSim:
         # change what the side to move observes but apply no command,
         # so a game record keeps them beside the history.
         self.recruit_rejections: List[Tuple[int, int, int]] = []
+        # The position each player side's turn starts from, as (index
+        # of its init_side command, `state_digest`): a game record
+        # checks its rebuild against them (tools/game_record.py).
+        self.turn_digests: List[Tuple[int, str]] = []
+        # False on a fork: its history is never a game of record, so it
+        # computes neither turn digests nor outcome data.
+        self._keeps_record: bool = True
         # The counter-weapon strike tables of the attack command being
         # built (`combat_outcomes.counter_weapon_choice`), attached to
         # its RecordedCommand as outcome data.
@@ -732,10 +739,10 @@ class WesnothSim:
     def _note_counter_outcomes(self, extras: dict) -> None:
         """Put the counter-weapon strike tables computed for the attack
         being recorded into its extras as outcome data (tools/
-        game_record.py); nothing on a search fork, whose history is
-        never kept, or when one weapon or none could answer."""
+        game_record.py); nothing on a fork, whose history is never
+        kept, or when one weapon or none could answer."""
         pending, self._pending_counter_tables = self._pending_counter_tables, None
-        if pending is None or self._is_search_fork:
+        if pending is None or not self._keeps_record:
             return
         from tools.game_record import strike_table_data
         chosen, tables = pending
@@ -793,6 +800,8 @@ class WesnothSim:
         out._is_search_fork  = self._is_search_fork
         out.command_history  = []   # forks don't track history
         out.recruit_rejections = []
+        out.turn_digests = []
+        out._keeps_record = False
         out._pending_counter_tables = None
         return out
 
@@ -808,14 +817,17 @@ class WesnothSim:
         search forks branch over advancement too; the per-step salt
         sync in _step_inner decorrelates those forks. Default OFF, so
         replay reconstruction / diff_replay keep the deterministic path
-        ([choose] queue, else targets[0])."""
+        ([choose] queue, else targets[0]). The channel takes the
+        current `_seed_salt` at once, as a game record's rebuild does
+        (tools/game_record.start_state)."""
         if self.core is not None:
             self.core.core.set_global_int("advance_uniform", 1)
             self._refresh_view()
-            return
-        self._gs.global_info._advance_uniform = True
-        if not hasattr(self._gs.global_info, "_advance_counter"):
-            self._gs.global_info._advance_counter = 0
+        else:
+            self._gs.global_info._advance_uniform = True
+            if not hasattr(self._gs.global_info, "_advance_counter"):
+                self._gs.global_info._advance_counter = 0
+        self._set_advance_salt(self._seed_salt)
 
     def enable_engagement_stats(self):
         """Attach a per-game EngagementStats accumulator to THIS sim.
@@ -1352,6 +1364,8 @@ class WesnothSim:
         self._apply_with_stats(["init_side", side])
         self.command_history.append(RecordedCommand(
             kind="init_side", side=side, cmd=["init_side", side]))
+        if self._keeps_record:
+            self.turn_digests.append((len(self.command_history) - 1, state_digest(self.gs)))
         self._check_game_over()
 
     def _assert_invariants(self, *, after_cmd: str) -> None:

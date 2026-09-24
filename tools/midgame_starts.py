@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import copy
 import gzip
+import hashlib
 import json
 import logging
 import random
@@ -101,8 +102,8 @@ def sample_midgame_start(
     row = rng.choice(rows)
     gz = dataset_dir / row["file"]
     try:
-        with gzip.open(gz, "rt", encoding="utf-8") as f:
-            data = json.load(f)
+        content = gzip.decompress(gz.read_bytes())
+        data = json.loads(content)
         cmds = data.get("commands", [])
         if excluded_command_hashes():
             from tools.replay_dataset import command_hash
@@ -144,15 +145,18 @@ def sample_midgame_start(
         alive = {u.side for u in gs.map.units if u.is_leader}
         if not {1, 2} <= alive:
             return None
-        # Provenance for validation exports: enough to re-walk the
-        # human prefix (commands[:boundary_idx]) and splice it in
-        # front of the sim continuation
-        # (tools/validation_exports.export_midgame_replay).
+        # Provenance for validation exports and game records: enough
+        # to re-walk the human prefix (commands[:boundary_idx]) and
+        # splice it in front of the sim continuation
+        # (tools/validation_exports.export_midgame_replay), and the
+        # digest of the file's content, so a rebuild from a
+        # re-extracted corpus is detected (tools/game_record.py).
         provenance = {
             "dataset_dir": str(dataset_dir),
             "file": row["file"],
             "boundary_idx": boundary_idx,
             "begin_side": begin_side,
+            "sha256": hashlib.sha256(content).hexdigest(),
         }
         # The walk's per-command side-channels are PREFIX bookkeeping,
         # not position state — the validation exporter re-harvests

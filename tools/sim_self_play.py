@@ -445,8 +445,9 @@ def play_one_game(
         else:
             recruit_cost = 0
 
+        commands_before = len(sim.command_history)
         sim.step(action)
-        note_search_outcomes(sim, policy, game_label)
+        note_search_outcomes(sim, policy, game_label, commands_before)
         action_counts[atype] = action_counts.get(atype, 0) + 1
         # Per-side-turn action tally: how many decisions one side
         # makes within one turn. This is the MCTS depth calibration
@@ -2975,11 +2976,15 @@ def main(argv: List[str]) -> int:
                          "(one subdir per category; swept by the HF "
                          "uploader on training boxes).")
     ap.add_argument("--game-record-dir", type=Path,
-                    default=Path("training/game_records"),
+                    default=Path(os.environ.get("WESNOTH_GAME_RECORD_DIR",
+                                                "training/game_records")),
                     help="Every finished game is recorded whole here "
                          "(tools/game_record.py), one gzip JSON-lines file "
                          "per process under a per-run subdirectory. Pass "
-                         "an empty string to disable.")
+                         "an empty string to disable. Default: "
+                         "$WESNOTH_GAME_RECORD_DIR, else training/game_records "
+                         "(the test suite points the variable at a temporary "
+                         "directory).")
     ap.add_argument("--game-log-dir", type=Path,
                     default=Path("training/logs/games"),
                     help="Per-game JSONL telemetry root; each "
