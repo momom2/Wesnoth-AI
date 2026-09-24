@@ -230,4 +230,8 @@ DEFAULT_FACTIONS = (
 #      stays clear until the turn ends (visibility.py, docs/wesnoth_rules.md
 #      "Vision and fog"); it was a disc of radius max_moves around each
 #      unit's current hex.
-OBSERVATION_EPOCH = 6
+#   7  (2026-09-24) replay reconstruction hides a side's revealed hiders
+#      again at its turn start after turn 1 (unit::new_turn), as the
+#      simulator did; the simulator no longer does it at turn 1, where
+#      the engine does not either.
+OBSERVATION_EPOCH = 7

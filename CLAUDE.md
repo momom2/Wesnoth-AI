@@ -692,6 +692,17 @@ State of play:
   now does (`tools/hidden_units_oracle.py --only vision:`). Elo measured
   from here does not chain onto earlier numbers, and the reference was
   trained on observations drawn with the disc.
+- 2026-09-24 (0.4.7): **a revealed hider hides again at its side's turn
+  start in replay reconstruction too, and `OBSERVATION_EPOCH` is 7.**
+  The engine clears STATE_UNCOVERED in `unit::new_turn` (unit.cpp:1277),
+  called only `if(turn() > 1)` (play_controller.cpp:488-490). The
+  simulator did it outside the command applier, at every init_side
+  including turn 1, and reconstruction never did it, so a hider once
+  revealed stayed visible for the rest of a reconstructed corpus game:
+  on 206 corpus games the visible units differed at 804 of 66,873
+  decisions, in 27 games (no reconstructed move landed differently).
+  The reset now sits in `_apply_command`'s init_side and in the Rust
+  core's `apply_init_side` (phase 13).
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

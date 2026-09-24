@@ -53,6 +53,16 @@ A side sees its fog as the engine keeps it (docs/wesnoth_rules.md
   delay-shroud preference some corpus players may have used, and
   sighted-move interrupts (exports carry `skip_sighted="all"`).
 
+## A revealed hider hides again at its turn start (2026-09-24, FIXED, 0.4.7)
+
+Replay reconstruction never cleared STATE_UNCOVERED; the simulator did,
+outside the command applier and on turn 1 too. One copy now, in
+`_apply_command`'s init_side, gated like the engine's `turn() > 1`
+(docs/wesnoth_rules.md "Hidden-unit visibility"). It changes what
+reconstructed corpus positions show (804 of 66,873 decisions on 206
+games), so the reference's imitation data is epoch 6 or older either
+way; the retrain question of the vision entry above covers both.
+
 ## PARKED: the network cannot see the time of day (2026-09-22)
 
 Built and tested on 2026-09-22, **not run**: the user's order is

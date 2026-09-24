@@ -534,6 +534,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 12: vision follows the engine (docs/wesnoth_rules.md "Vision and
     // fog"): observe_side takes the side's seen hexes instead of
     // drawing a disc, and GameCore tracks each side's cleared hexes.
-    m.add("__phase__", 12)?;
+    // 13: apply_init_side hides the side's revealed hiders again after
+    // turn 1; refresh_uncovered is gone.
+    m.add("__phase__", 13)?;
     Ok(())
 }

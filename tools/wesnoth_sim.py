@@ -1315,33 +1315,6 @@ class WesnothSim:
         "ambush", "nightstalk", "concealment", "submerge",
     })
 
-    def _refresh_uncovered_state(self, current_side: int) -> None:
-        """Called at each side's init_side. Implements Wesnoth's
-        `unit::new_turn` reset of STATE_UNCOVERED for the side's own
-        units (unit.cpp:1277): a hider that was revealed (ambush
-        trigger, blocked-move reveal, or its own attack) re-hides at
-        ITS side's turn start.
-
-        Adjacency-based discovery is deliberately NOT persisted
-        here: `would_be_discovered` is a LIVE predicate (a hider
-        adjacent to an enemy is visible only while the enemy stays
-        adjacent -- display_context.cpp:29-49), modelled by
-        `visibility._discovered_by_adjacency` at observation time.
-        (An earlier revision persisted turn-start adjacency reveals
-        for the whole turn; source check 2026-07-17 showed the
-        engine has no such rule.)
-        """
-        if self.core is not None:
-            self.core.core.refresh_uncovered(current_side)
-            self._refresh_view()
-            return
-        uncovered: set = getattr(
-            self.gs.global_info, "_uncovered_units", None) or set()
-        for u in list(self.gs.map.units):
-            if u.side == current_side and u.id in uncovered:
-                uncovered.discard(u.id)
-        setattr(self.gs.global_info, "_uncovered_units", uncovered)
-
     def _begin_side_turn(self, side: int) -> None:
         """Fire init_side(side). Replay-recon's _apply_command for
         init_side handles: setting current_side, incrementing turn
@@ -1352,11 +1325,6 @@ class WesnothSim:
         self._apply_with_stats(["init_side", side])
         self.command_history.append(RecordedCommand(
             kind="init_side", side=side, cmd=["init_side", side]))
-        # Refresh hidden/uncovered tracking: own-side units re-hide,
-        # other-side hidden units adjacent to our units become exposed.
-        # Must run AFTER _apply_command (turn number / ToD updated) so
-        # nightstalk's lawful_bonus check sees the right ToD.
-        self._refresh_uncovered_state(side)
         self._check_game_over()
 
     def _assert_invariants(self, *, after_cmd: str) -> None:

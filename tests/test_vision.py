@@ -1,6 +1,6 @@
 """What a side sees under fog, by the engine's rule (docs/wesnoth_rules.md
-"Vision and fog"), through the command applier that the simulator and
-replay reconstruction share.
+"Vision and fog"), and when a revealed hider hides again, through the
+command applier that the simulator and replay reconstruction share.
 
 The first three tests fail under the disc of radius max_moves the
 simulator drew until 2026-09-24; the recruit and death tests fail when
@@ -140,3 +140,25 @@ def test_the_types_with_their_own_vision_are_the_listed_ones():
             if type_id and (re.search(r"^\s*vision=", block, flags=re.M) or "[vision_costs]" in block):
                 declared.add(type_id.group(1).strip())
     assert declared == visibility.OWN_VISION_TYPES
+
+
+def test_a_revealed_hider_hides_again_when_its_side_starts_a_turn_after_turn_1():
+    """unit::new_turn clears STATE_UNCOVERED (unit.cpp:1277) inside
+    board_.new_turn's `turn() > 1` gate. A Ranger revealed on turn 1
+    stays revealed through its own turn-1 start and side 1's turn 2,
+    then hides at its turn-2 start: side 1's Spearman, which sees its
+    forest hex, no longer sees it on turn 3."""
+    gs = _game(["Gs^Fp " * 10], [("Spearman", 1, 0, 0, {}), ("Elvish Ranger", 2, 3, 0, {})])
+    _apply_command(gs, ["init_side", 1])
+    assert not _sees(gs, 1, "u2"), "control: the Ranger is under cover"
+    gs.global_info._uncovered_units = {"u2"}           # revealed during side 1's turn
+    for cmd in (["end_turn"], ["init_side", 2]):
+        _apply_command(gs, cmd)
+    assert "u2" in gs.global_info._uncovered_units, "no re-hide on turn 1"
+    for cmd in (["end_turn"], ["init_side", 1]):
+        _apply_command(gs, cmd)
+    assert _sees(gs, 1, "u2"), "still revealed until its own side's turn starts"
+    for cmd in (["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1]):
+        _apply_command(gs, cmd)
+    assert "u2" not in gs.global_info._uncovered_units
+    assert not _sees(gs, 1, "u2")
