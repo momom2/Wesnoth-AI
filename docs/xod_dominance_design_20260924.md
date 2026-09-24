@@ -92,18 +92,13 @@ monotone valuation and fire less; see section 9.
 
 **Visibility** is read at the end of the window with the simulator's
 model (`wesnoth_ai.visibility`: `visible_hexes_for`, `units_visible_to`,
-including hiders the window uncovers). With positions equal, it moves
-only when a unit dies or a hider is uncovered, so it rarely decides a
-strict comparison; it decides the relaxed ones where positions change
-(R3, and K's mover on the kill branch). The model differs from the
-engine's, and the dimension inherits the difference: the engine clears
-fog along a path over each unit's vision costs up to its vision range,
-plus the hexes beyond that area (`pathfind::vision_path` destinations
-and edges, src/actions/vision.cpp:352-368 at 1.18.4), and keeps what was
-cleared during the turn (`clear_shroud` refogs only when asked,
-vision.cpp:740-751); the simulator uses a disc of radius `max_moves`
-around each unit's current position. That gap is a fidelity item of
-its own (BACKLOG.md), not part of this design.
+including hiders the window uncovers), which follows the engine since
+0.4.6: a side sees the fog it has cleared during its turn, a mover
+clearing along its path (docs/wesnoth_rules.md "Vision and fog"). With
+positions equal, it moves only when a unit dies or a hider is
+uncovered, so it rarely decides a strict comparison; it decides the
+relaxed ones where positions change (R3, and K's mover on the kill
+branch).
 
 **Tier O, option dominance.** A unit that keeps its movement and can
 still reach the hex the baseline moved it to dominates the unit that
@@ -367,18 +362,24 @@ All in `tools/`, tests in `tests/`; no simulator change.
    setup move through `_apply_command` and checks its legality instead
    of placing the unit; a side-turn source that reads an extracted
    record or a live simulator, besides exported bundles.
-2. `tools/combat_dominance.py`, new: the full comparison vector (the
-   dimensions of section 3 including visibility, the XP-to-level-up map,
-   the ε of each hp dimension, each unit's position distance and guard
-   results), the combination filter over it, and the six classes as
-   functions over (state, plan or realized turn), returning rewrites
-   with class, vector, minimal sets and gain; W, Q, F and H are new, A
-   and K wrap the existing generators.
-3. `tools/analysis/dominance_census.py`, new: plays the reference's
-   self-play games (the eval worker's game loop, recording side-turns),
-   reads the corpus games, runs the classes, reads every combination
-   from the stored vectors, samples the rider's rewrites by minimal set,
-   writes the record.
+2. `tools/combat_dominance.py` and `tools/dominance_rewrites.py`, new:
+   the full comparison vector (the dimensions of section 3 including
+   visibility, the XP-to-level-up map, the ε of each hp dimension, each
+   unit's position distance and guard results), the combination filter
+   over it, and the six classes as functions over a realized side-turn,
+   returning rewrites with class, vector, minimal sets and gain. A
+   relaxation only removes constraints: a dropped dimension no longer
+   blocks, and a better value on it still counts, so a looser
+   combination admits everything a tighter one does. Q and F compose
+   the two fights from the exact fight tables (the first fight's, then
+   the second's from each state the first leaves), checked against the
+   simulator's own enumeration; walking the simulator through every
+   strike pattern of both took over a minute on some pairs.
+3. `tools/analysis/dominance_count.py`, new: reads corpus games and
+   game records (tools/game_record.py; the reference's games come from
+   an eval match, which records every game), runs the classes, counts
+   every combination, keeps every fight distribution it computed per
+   game, writes the record. The rider's sampling is still to add.
 4. `tools/turn_gap.py`: a mode that grades given pairs of turns (the
    realized and the rewritten action list) from one start state.
 5. `scripts/dominance_census_box.sh`: stage, games, census, rider,
