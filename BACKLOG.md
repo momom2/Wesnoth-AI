@@ -39,13 +39,6 @@ reconstruction too, one rule for every path.
   public and the corpus is other players' games, so which games (if
   any) may be committed is the user's call; the AI-vs-AI fixture
   `tests/fixtures/strict_sync_hamlets_t9.bz2` is the precedent.
-- **`test_actor_pool_streams_games_across_a_publication` is racy.** It
-  asserts that the games in flight at the publication are {2, 3}, which
-  holds only when games finish in index order. On 2026-09-23 CI saw
-  {0, 3}: one actor's game 0 outlasted the other actor's games 1 and 2.
-  The stream behaved correctly; a re-run passed. Proposed: assert two
-  distinct games in flight, none of them collected by the first window.
-  That relaxes an assertion, so it waits for the user's confirmation.
 - **`rust/wesnoth_core/src/encode.rs` holds six `#[test]` functions
   that nothing runs.** CI builds the wheel but does not run `cargo
   test`. With pyo3's `extension-module` feature unconditional in

@@ -180,7 +180,11 @@ def test_actor_pool_streams_games_across_a_publication():
         # would make its next game miss the publication: publish only
         # once both are inside their second game.
         games, targets, t_pub = collect_across_publication(stream, publish)
-        assert targets == {2, 3}, "each actor is inside its second game"
+        # Which games are in flight depends on which finished first, not
+        # on their indices: one actor's first game can outlast the other
+        # actor's first two (CI 2026-09-23 saw {0, 3}).
+        assert len(targets) == 2 and not targets & {g.index for g in first.games}, \
+            "each actor is inside a game the first window did not collect"
         assert_publication_straddled(games, targets, t_pub)
         tail = stream.stop(grace=120.0)
         assert stream._live == set(), "every actor reported done after the drain"
