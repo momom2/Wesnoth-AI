@@ -70,6 +70,7 @@ from wesnoth_ai.rewards import (
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.wesnoth_sim import PvPDefaults, WesnothSim
+from tools.game_record import note_search_outcomes, record_game
 
 
 log = logging.getLogger("sim_self_play")
@@ -444,7 +445,9 @@ def play_one_game(
         else:
             recruit_cost = 0
 
+        commands_before = len(sim.command_history)
         sim.step(action)
+        note_search_outcomes(sim, policy, game_label, commands_before)
         action_counts[atype] = action_counts.get(atype, 0) + 1
         # Per-side-turn action tally: how many decisions one side
         # makes within one turn. This is the MCTS depth calibration
@@ -681,14 +684,22 @@ def _is_ladder_map(scenario_id: str) -> bool:
     return s in _LADDER_MAP_SCENARIO_IDS
 
 
+def _records_run_tag() -> str:
+    from tools.validation_exports import run_tag
+    return run_tag()
+
+
 def _play_one_game_safe(
     *, setup, max_turns, pvp_defaults, policy, reward_fn,
     cost_lookup, game_label, no_progress_turns: int = 0,
-    seed_salt: str = "",
+    seed_salt: str = "", record_extra: Optional[dict] = None,
 ) -> Optional[GameOutcome]:
     """Run one game end-to-end from a `ScenarioSetup` (random
     scenario + faction + leader picks). Catches exceptions, drops
     pending transitions on crash, returns None on failure.
+
+    A finished game is written to the process's game-record sink
+    (`tools.game_record.configure`), with `record_extra` beside it.
 
     `seed_salt` is the game's own combat-luck stream (`WesnothSim.
     _seed_salt`): without one every self-play game replays the unsalted
@@ -728,7 +739,7 @@ def _play_one_game_safe(
         if hasattr(reward_fn, "reset_game_state"):
             reward_fn.reset_game_state(game_label)
         try:
-            return play_one_game(
+            outcome = play_one_game(
                 sim, policy, reward_fn,
                 game_label=game_label, cost_lookup=cost_lookup,
             )
@@ -736,6 +747,9 @@ def _play_one_game_safe(
             log.exception(f"midgame game {game_label} crashed: {e}")
             policy.drop_pending(game_label)
             return None
+        record_game(sim, setup, game_label=game_label,
+                    players={"policy": type(policy).__name__}, extra=record_extra)
+        return outcome
     # Map pvp_defaults onto build_scenario_gamestate kwargs.
     # starting_gold is NOT mapped (bugfix 2026-07-21): passing the
     # PvP default overrode every scenario's own [side] gold= --
@@ -775,7 +789,7 @@ def _play_one_game_safe(
     if hasattr(reward_fn, "reset_game_state"):
         reward_fn.reset_game_state(game_label)
     try:
-        return play_one_game(
+        outcome = play_one_game(
             sim, policy, reward_fn,
             game_label=game_label, cost_lookup=cost_lookup,
         )
@@ -783,6 +797,9 @@ def _play_one_game_safe(
         log.exception(f"game {game_label} crashed: {e}")
         policy.drop_pending(game_label)
         return None
+    record_game(sim, setup, game_label=game_label, build={"base_income": bi},
+                players={"policy": type(policy).__name__}, extra=record_extra)
+    return outcome
 
 
 def _worker_loop(
@@ -2958,6 +2975,16 @@ def main(argv: List[str]) -> int:
                     help="Root dir for validation replay exports "
                          "(one subdir per category; swept by the HF "
                          "uploader on training boxes).")
+    ap.add_argument("--game-record-dir", type=Path,
+                    default=Path(os.environ.get("WESNOTH_GAME_RECORD_DIR",
+                                                "training/game_records")),
+                    help="Every finished game is recorded whole here "
+                         "(tools/game_record.py), one gzip JSON-lines file "
+                         "per process under a per-run subdirectory. Pass "
+                         "an empty string to disable. Default: "
+                         "$WESNOTH_GAME_RECORD_DIR, else training/game_records "
+                         "(the test suite points the variable at a temporary "
+                         "directory).")
     ap.add_argument("--game-log-dir", type=Path,
                     default=Path("training/logs/games"),
                     help="Per-game JSONL telemetry root; each "
@@ -3538,6 +3565,12 @@ def main(argv: List[str]) -> int:
             "terminal outcome itself. Did you mean --reinforce?")
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
+    if args.game_record_dir is not None and str(args.game_record_dir) in ("", "."):
+        args.game_record_dir = None
+    if args.game_record_dir is not None:
+        from tools.game_record import configure as _configure_records
+        from tools.validation_exports import run_tag as _run_tag
+        _configure_records(args.game_record_dir / _run_tag(), f"learner_p{os.getpid()}")
     if int(getattr(args, "validate_export_every", 0)) > 0:
         from tools.validation_exports import ValidationExporter
         global VALIDATION_EXPORTER
@@ -4317,7 +4350,9 @@ def main(argv: List[str]) -> int:
             max_batch=(args.actor_max_batch or None),
             drain_grace=float(getattr(args, "pool_drain_grace",
                                       1800.0)),
-            log_level=logging.getLogger().level)
+            log_level=logging.getLogger().level,
+            game_records_dir=(None if args.game_record_dir is None
+                              else args.game_record_dir / _records_run_tag()))
         actor_pool.start()
         atexit.register(actor_pool.shutdown)
         log.info(f"actor pool: {args.actor_pool} processes "

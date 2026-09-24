@@ -432,18 +432,11 @@ class GameState:
 # Includes per-village ownership (mutable: village capture changes
 # it) by reading `gs.global_info._village_owner` if present.
 
-def state_key(gs: "GameState") -> int:
-    """Return an order-independent 64-bit content hash of `gs`.
-
-    Designed for MCTS transposition: two states differing in exactly
-    one unit's HP, position, MP, status set, has_attacked flag, or
-    XP produce different keys; two states differing only in unit-set
-    iteration order produce the SAME key.
-
-    Cost: O(U + V + S) where U=#units, V=#villages, S=#sides.
-    Typical 2p mid-game: ~30 units, ~10 villages, 2 sides; runs in
-    well under 0.1ms.
-    """
+def _state_content(gs: "GameState") -> tuple:
+    """The mutable content `state_key` covers, in plain values: the
+    units, the sides, the village owners, the turn's globals, the
+    revealed hiders, the recruit rejections, and each side's cleared
+    fog (the dict of hex sets itself)."""
     # Note: u.statuses is annotated `Set[UnitStatus]` but the live
     # codebase uses string keys ("slowed", "poisoned", "resting",
     # "petrified", "loyal", "uncovered", ...) -- the enum is unused.
@@ -466,6 +459,14 @@ def state_key(gs: "GameState") -> int:
     )
     village_owner = getattr(gs.global_info, "_village_owner", None) or {}
     villages_key = tuple(sorted(village_owner.items()))
+    turn_key = (
+        gs.global_info.current_side,
+        gs.global_info.turn_number,
+        gs.global_info.time_of_day,
+        gs.global_info.village_gold,
+        gs.global_info.village_upkeep,
+        gs.global_info.base_income,
+    )
     # Observable-state side-data that changes LEGALITY without moving
     # any unit: revealed hiders (visibility/ZoC/blocking) and the
     # per-turn recruit-rejection set (the mask excludes those hexes).
@@ -474,31 +475,59 @@ def state_key(gs: "GameState") -> int:
     # reachability disagreement" warnings in self-play (the noop
     # sentinel bounded the damage; the merge was still wrong).
     # The fog each side has cleared decides which enemies it sees
-    # (visibility.visible_hexes_for); a frozenset of int pairs hashes
-    # the same in every process and caches its hash.
+    # (visibility.visible_hexes_for).
+    uncovered = tuple(sorted(getattr(gs.global_info, "_uncovered_units", None) or ()))
+    rejected = tuple(sorted(getattr(gs.global_info, "_recruit_rejected_hexes", None) or ()))
+    fog_cleared = getattr(gs.global_info, "_fog_cleared", None) or {}
+    return units_key, sides_key, villages_key, turn_key, uncovered, rejected, fog_cleared
+
+
+def state_key(gs: "GameState") -> int:
+    """Return an order-independent 64-bit content hash of `gs`.
+
+    Designed for MCTS transposition: two states differing in exactly
+    one unit's HP, position, MP, status set, has_attacked flag, or
+    XP produce different keys; two states differing only in unit-set
+    iteration order produce the SAME key.
+
+    Python's `hash` salts strings per process, so a key is valid only
+    within the process that computed it; `state_digest` is the
+    storable form.
+
+    Cost: O(U + V + S) where U=#units, V=#villages, S=#sides.
+    Typical 2p mid-game: ~30 units, ~10 villages, 2 sides; runs in
+    well under 0.1ms.
+    """
+    (units_key, sides_key, villages_key, turn_key,
+     uncovered, rejected, fog_cleared) = _state_content(gs)
+    # A frozenset of int pairs caches its hash.
     hidden_state_key = (
-        tuple(sorted(getattr(gs.global_info, "_uncovered_units", None)
-                     or ())),
-        tuple(sorted(getattr(gs.global_info, "_recruit_rejected_hexes",
-                             None) or ())),
-        tuple(sorted((side, hash(hexes)) for side, hexes in
-                     (getattr(gs.global_info, "_fog_cleared", None) or {}).items())),
+        uncovered, rejected,
+        tuple(sorted((side, hash(hexes)) for side, hexes in fog_cleared.items())),
     )
-    global_key = (
-        gs.global_info.current_side,
-        gs.global_info.turn_number,
-        gs.global_info.time_of_day,
-        gs.global_info.village_gold,
-        gs.global_info.village_upkeep,
-        gs.global_info.base_income,
-        # Sim's RNG counter -- two states with the same unit layout
-        # but different counter values would produce different
-        # downstream traits / damage rolls, so they're NOT the same
-        # MCTS node. Pull from the optional field set by WesnothSim.
-        getattr(gs.global_info, "_rng_request_counter", 0),
-    )
+    # Sim's RNG counter -- two states with the same unit layout but
+    # different counter values would produce different downstream
+    # traits / damage rolls, so they're NOT the same MCTS node. Pull
+    # from the optional field set by WesnothSim.
+    global_key = turn_key + (getattr(gs.global_info, "_rng_request_counter", 0),)
     return hash((units_key, sides_key, villages_key, global_key,
                  hidden_state_key))
+
+
+def state_digest(gs: "GameState") -> str:
+    """A digest of the content `state_key` covers that is the same in
+    every process: 16 hex characters of a SHA-256 over plain values.
+    It leaves out the simulator's seed counter, which a game record
+    replaces by the seeds themselves, and counts an unowned village the
+    same whether it is absent from the owner map or mapped to 0."""
+    import hashlib
+    (units_key, sides_key, villages_key, turn_key,
+     uncovered, rejected, fog_cleared) = _state_content(gs)
+    owned = tuple(kv for kv in villages_key if kv[1])
+    fog_key = tuple(sorted((int(side), tuple(sorted(hexes)))
+                           for side, hexes in fog_cleared.items()))
+    text = repr((units_key, sides_key, owned, turn_key, uncovered, rejected, fog_key))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def deep_state_fingerprint(gs: "GameState") -> int:

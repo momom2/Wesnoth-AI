@@ -703,6 +703,21 @@ State of play:
   decisions, in 27 games (no reconstructed move landed differently).
   The reset now sits in `_apply_command`'s init_side and in the Rust
   core's `apply_init_side` (phase 13).
+- 2026-09-24 (0.5.0, user order): **every generated game is recorded
+  whole.** Before this a training leg kept one summary line per game and
+  one replay in a hundred, and no match game was kept anywhere
+  (2026-09-24 inventory: 63 full replays from the September legs, none
+  from the reference). `tools/game_record.py`: a record is the scenario
+  setup or mid-game start (with its corpus file's SHA-256), the command
+  list the applier replays, recruit rejections, and per attack the
+  outcome data computed while playing (counter-weapon strike tables, the
+  search's exact distribution); `walk()` and `rebuild()` check each
+  player turn start against the simulator's `state_digest`
+  (process-independent) and raise `RecordMismatch`. Written by the
+  training pool's actors, in-process self-play, az_loop and every eval
+  match (`<game>.game.jsonl.gz` beside each result); the box's upload
+  loop sends each byte once. On tentacle maps a rebuild diverges until
+  the neutral side's end_turn is applied (`fix/neutral-end-turn`).
 
 Standing rules (full list in the plan): the reference player is
 `terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint

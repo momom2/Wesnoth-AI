@@ -78,6 +78,7 @@ from tools.sim_self_play import (
     _would_recruit_bounce,
 )
 from wesnoth_ai.transformer_policy import TransformerPolicy
+from tools.game_record import note_search_outcomes
 from tools.wesnoth_sim import WesnothSim
 
 
@@ -196,7 +197,9 @@ def _play_one_eval_game(
         if acting_side == our_side:
             our_actions += 1
 
+        commands_before = len(sim.command_history)
         sim.step(action)
+        note_search_outcomes(sim, actor.policy, game_label, commands_before)
         _update_closest_approach(sim.gs, closest_approach)
 
     wall = time.perf_counter() - t0

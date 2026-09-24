@@ -12,8 +12,11 @@ redundant under pytest, not required.
 The repo-root conftest.py stays responsible for `collect_ignore_glob`
 (vendored trees that must not be collected).
 """
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 _TESTS = Path(__file__).resolve().parent
 _ROOT = _TESTS.parent
@@ -22,6 +25,20 @@ for _p in (_ROOT, _ROOT / "tools", _TESTS):
     _s = str(_p)
     if _s not in sys.path:
         sys.path.insert(0, _s)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _game_records_in_tmp(tmp_path_factory):
+    """Self-play entry points record every game under
+    training/game_records by default (tools/game_record.py); the suite's
+    games go to a temporary directory instead, subprocesses included."""
+    old = os.environ.get("WESNOTH_GAME_RECORD_DIR")
+    os.environ["WESNOTH_GAME_RECORD_DIR"] = str(tmp_path_factory.mktemp("game_records"))
+    yield
+    if old is None:
+        os.environ.pop("WESNOTH_GAME_RECORD_DIR", None)
+    else:
+        os.environ["WESNOTH_GAME_RECORD_DIR"] = old
 
 
 def _source_phase() -> int:

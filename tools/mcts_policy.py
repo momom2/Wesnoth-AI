@@ -309,6 +309,10 @@ class MCTSPolicy:
         # matches (deterministic actions match; combat RNG diverges
         # and rebuilds). See MCTSConfig.tree_reuse.
         self._reuse: Dict[str, Tuple] = {}
+        # game_label -> the exact outcome distribution the search
+        # computed for the attack it just played (tools/combat_outcomes),
+        # taken by the game loop into the game record.
+        self._played_outcomes: Dict[str, object] = {}
         # game_label -> whether the LAST select_action recorded a pending
         # training target (True only for full-budget moves). Lets the
         # fog-bounce retry loop drop exactly the rejected decision's tail
@@ -567,14 +571,20 @@ class MCTSPolicy:
                                          + ds["et_prior"])
                         a["et_target"] = (a.get("et_target", 0.0)
                                           + ds["et_target"])
-        # Stash the played edge's outcome children for
-        # state-key-checked reuse at the next decision. Action dicts
-        # are returned by identity from the edge, so `is` finds the
-        # edge; `==` is the fallback for wrappers that copy.
+        # The played edge: its outcome children are stashed for
+        # state-key-checked reuse at the next decision, and its exact
+        # outcome distribution, when the search computed one, goes to
+        # the game record. Action dicts are returned by identity from
+        # the edge, so `is` finds the edge; `==` is the fallback for
+        # wrappers that copy.
+        edge = next(
+            (e for e in root.edges
+             if e.action is action or e.action == action), None)
+        dist = getattr(edge, "outcome_probs", None)
+        if dist is not None and not isinstance(dist, str):
+            with self._lock:
+                self._played_outcomes[game_label] = dist
         if self._mcts_config.tree_reuse:
-            edge = next(
-                (e for e in root.edges
-                 if e.action is action or e.action == action), None)
             if edge is not None and edge.children:
                 stash = {k: n for k, n in edge.children.items()
                          if isinstance(k, int)}   # skip error sentinel
@@ -613,6 +623,7 @@ class MCTSPolicy:
         with self._lock:
             states = self._pending.pop(game_label, [])
             self._reuse.pop(game_label, None)
+            self._played_outcomes.pop(game_label, None)
             # Unconditional release (project round-3 C2: popping
             # only inside the labeling branch leaked the trace for
             # games sealing with zero recorded states, and a reused
@@ -805,6 +816,12 @@ class MCTSPolicy:
                       f"{e!r} -- trace dropped for this game")
             self._gbc_obs[game_label] = {"broken": True}
 
+    def pop_played_outcomes(self, game_label: str):
+        """The exact outcome distribution of the attack the last
+        select_action played, if the search computed one (and forget it)."""
+        with self._lock:
+            return self._played_outcomes.pop(game_label, None)
+
     def drop_pending(self, game_label: str) -> None:
         """Match TransformerPolicy's drop_pending API for error
         recovery: the rollout loop calls it when a game errors mid-
@@ -812,6 +829,7 @@ class MCTSPolicy:
         with self._lock:
             self._pending.pop(game_label, None)
             self._reuse.pop(game_label, None)
+            self._played_outcomes.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
             self._gbc_obs.pop(game_label, None)
 

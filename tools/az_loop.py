@@ -224,12 +224,28 @@ def _profile(pin: Path, out: Path, device: str) -> None:
                        check=False)
 
 
+def _game_records_dir(args) -> Optional[Path]:
+    """Where this run's actors record their games: a per-run
+    subdirectory of --game-record-dir (WORKDIR/game_records unless
+    given), or None when recording is disabled."""
+    root = args.game_record_dir
+    if root is not None and str(root) in ("", "."):
+        return None
+    from tools.validation_exports import run_tag
+    return (root if root is not None else args.workdir / "game_records") / run_tag()
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--seed-checkpoint", type=Path, required=True)
     ap.add_argument("--campaign", type=Path, required=True,
                     help="rolling checkpoint (resumed if it exists)")
     ap.add_argument("--workdir", type=Path, default=Path("/workspace"))
+    ap.add_argument("--game-record-dir", type=Path, default=None,
+                    help="Every game the actors finish is recorded whole here, "
+                         "one file per actor under a per-run subdirectory "
+                         "(tools/game_record.py); default WORKDIR/game_records. "
+                         "Pass an empty string to disable.")
     ap.add_argument("--iterations", type=int, default=60)
     ap.add_argument("--games-per-iter", type=int, default=24)
     ap.add_argument("--actors", type=int, default=0,
@@ -508,7 +524,8 @@ def main(argv) -> int:
                      # the packed layout is 3.7 (docs/box_specs.md).
                      packed_embed=bool(args.packed_trunk and device.type == "cuda"),
                      serve_processes=max(1, int(args.serve_processes)),
-                     graphed_serve=bool(args.graphed_serve))
+                     graphed_serve=bool(args.graphed_serve),
+                     game_records_dir=_game_records_dir(args))
     pool.start()
     # Calibration happens after the FIRST ITERATION, not here.
     # `pool.start()` is a loop of `p.start()` with no barrier, so at
