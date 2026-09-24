@@ -61,6 +61,31 @@ def _send_together(address: str, values):
     return replies
 
 
+def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
+    """A client holding its reply reads counters that include it: the
+    service counts each batch before answering it. The counter is read
+    at every reply the serve thread sends, one request per batch."""
+    from multiprocessing.connection import _ConnectionBase
+    counted_at_send = []
+    real_send = _ConnectionBase.send
+    box = {}
+
+    def send(self, obj):
+        if threading.current_thread().name == "infer-serve":
+            counted_at_send.append(box["svc"].stats.requests)
+        return real_send(self, obj)
+
+    monkeypatch.setattr(_ConnectionBase, "send", send)
+    svc, address, _seen = _service(window_s=0.0, max_batch=1)
+    box["svc"] = svc
+    try:
+        replies = _send_together(address, [1, 2, 3])
+        assert replies == {1: (1, [2]), 2: (2, [4]), 3: (3, [6])}
+        assert counted_at_send == [1, 2, 3]
+    finally:
+        svc.stop()
+
+
 def test_coalescer_window_and_max_batch():
     svc, address, seen = _service(window_s=0.25, max_batch=3)
     try:
