@@ -7,18 +7,19 @@ design overview and the manager).
 - _IPCInferenceClient: the RemoteModel transport inside an actor.
 - _zero_reward, _set_fd_safe_sharing: shared by every generation path
   (tools/selfplay_worker.py imports them through tools.actor_pool).
-- _actor_loop: the spawned actor process body (ActorPool.start's
-  Process target; spawn pickles it by this module path).
+- _actor_loop: the spawned actor process body (ActorPool.start runs it
+  through tools.mp_teardown.start_child; spawn pickles it by this
+  module path).
 
-Heavy imports (sim, policies) happen inside _actor_loop, after the
-spawn, as before.
+Heavy imports (torch, sim, policies) happen inside _actor_loop, after
+the spawn: the rest of this module is standard library only, so a
+torch-free child can use it (tests/queue_children.py).
 """
 
 from __future__ import annotations
 
 import logging
 import dataclasses
-import multiprocessing as mp
 import os
 import queue as _queue
 import random
@@ -28,7 +29,7 @@ import traceback
 from types import SimpleNamespace
 from typing import Dict, Optional, Tuple
 
-import torch
+from tools.mp_teardown import parent_gone
 
 log = logging.getLogger("actor_pool")
 
@@ -93,25 +94,8 @@ _RID_SERVER_DEAD = -1
 
 
 # =====================================================================
-# Parent liveness
+# Parent liveness (tools/mp_teardown.parent_gone)
 # =====================================================================
-
-def _parent_gone() -> bool:
-    """True when the process that spawned this actor has died.
-
-    An actor inherits BOTH ends of every queue it is handed, so its
-    control pipe never reaches EOF and a blocking `get()` waits
-    forever. `daemon=True` only covers a CLEAN interpreter exit of the
-    parent: a kill -9, an OOM-kill or a container-supervisor kill
-    leaves the actors running for as long as the box lives, holding
-    the container's PID budget -- and a pool that exceeds pids.max
-    serves zero leaves (one rental lost that way, 2026-09-04).
-
-    Returns False in the main process (no parent), which is the shape
-    the in-process tests drive."""
-    parent = mp.parent_process()
-    return parent is not None and not parent.is_alive()
-
 
 def _wait_for_command(ctrl_q):
     """The next control command, or None once the parent is gone."""
@@ -119,7 +103,7 @@ def _wait_for_command(ctrl_q):
         try:
             return ctrl_q.get(timeout=_PARENT_POLL)
         except _queue.Empty:
-            if _parent_gone():
+            if parent_gone():
                 return None
 
 
@@ -178,7 +162,7 @@ class _IPCInferenceClient:
                 # the same guard, so nothing would ever answer.
                 r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
             except _queue.Empty:
-                if _parent_gone():
+                if parent_gone():
                     raise RuntimeError(
                         "the learner process is gone; abandoning this request")
                 continue
@@ -259,7 +243,7 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
         # them one by one, building a scenario and waiting one
         # inference poll on each, before the empty-queue check let it
         # go (2026-09-14 review).
-        if _parent_gone():
+        if parent_gone():
             return "stop", None
         try:
             nxt = ctrl_q.get_nowait()
@@ -287,7 +271,7 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
         try:
             ticket = game_q.get(timeout=0.5)
         except _queue.Empty:
-            if _parent_gone():
+            if parent_gone():
                 return "stop", None
             continue
         got = _classify_ticket(ticket, iter_idx)
@@ -332,6 +316,7 @@ def _actor_loop(
     once, then loops on the control queue: PLAY -> pull game tickets
     from the shared queue until the iteration's end marker, shipping
     each game's experiences and outcome; STOP -> exit."""
+    import torch
     logging.basicConfig(level=log_level,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     torch.set_num_threads(max(1, torch_threads))

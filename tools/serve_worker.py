@@ -6,8 +6,9 @@ overview and the manager).
   share a batch, shared by the serve threads.
 - _serve_loop: one serving thread, in the learner process or a serve
   process.
-- _server_loop: the spawned serve-process body (ActorPool._spawn_servers'
-  Process target; spawn pickles it by this module path).
+- _server_loop: the spawned serve-process body (ActorPool._spawn_servers
+  runs it through tools.mp_teardown.start_child; spawn pickles it by
+  this module path).
 - _merge_timelines, _best_window_rate, _picker_stats: the serve-stats
   helpers run_iteration merges with.
 
@@ -17,7 +18,6 @@ Logs under the pool's logger ("actor_pool").
 from __future__ import annotations
 
 import logging
-import multiprocessing as mp
 import queue as _queue
 import threading
 import time
@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 
 from tools.actor_worker import _set_fd_safe_sharing
+from tools.mp_teardown import parent_gone
 
 log = logging.getLogger("actor_pool")
 
@@ -383,7 +384,6 @@ def _server_loop(
         server_q.put((_S_ERROR, server_id, traceback.format_exc()))
         return
     server_q.put((_S_READY, server_id, None))
-    parent = mp.parent_process()
     threads: List[threading.Thread] = []
     # Threads of an EARLIER iteration that did not stop within their
     # grace. They exit on their own (their stop_ev is set), but they are
@@ -397,7 +397,7 @@ def _server_loop(
         try:
             cmd = ctrl_q.get(timeout=2.0)
         except _queue.Empty:
-            if parent is not None and not parent.is_alive():
+            if parent_gone():
                 log.error("serve-%d: the learner process is gone; exiting", server_id)
                 break
             continue

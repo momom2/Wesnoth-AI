@@ -38,9 +38,10 @@ from test_actor_pool_watchdog import _FakeProc, _FakeQ, _pool  # noqa: E402
 from tools import actor_worker  # noqa: E402
 from tools.actor_pool import _R_DONE, _R_EXPS, _R_FATAL, ActorFatalError  # noqa: E402
 from tools.actor_worker import (  # noqa: E402
-    _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _parent_gone, _take_ticket,
+    _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _take_ticket,
     _TicketSource, _wait_for_command,
 )
+from tools.mp_teardown import parent_gone  # noqa: E402
 from tools.serve_worker import _Waiting, _serve_loop  # noqa: E402
 
 
@@ -68,14 +69,14 @@ class _DeadParent:
 @pytest.fixture
 def dead_parent(monkeypatch):
     """The actor's view of a learner that was killed."""
-    monkeypatch.setattr(actor_worker.mp, "parent_process", lambda: _DeadParent())
+    monkeypatch.setattr(mp, "parent_process", lambda: _DeadParent())
     monkeypatch.setattr(actor_worker, "_PARENT_POLL", 0.05)
 
 
 def test_parent_alive_in_the_main_process():
     """The guard must be inert where there is no parent -- every
     in-process test and the standalone smoke run that way."""
-    assert _parent_gone() is False
+    assert parent_gone() is False
 
 
 def test_idle_actor_exits_when_the_parent_is_gone(dead_parent):
