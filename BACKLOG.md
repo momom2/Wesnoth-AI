@@ -39,6 +39,31 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## Shutdown waits for the children together and reads what they send (2026-09-24, FIXED, 0.5.5)
+
+ActorPool.shutdown joined its children one after another, 15 s each,
+and read nothing meanwhile. A process that has put on an mp.Queue waits
+at exit until the queue's feeder thread has written it all into the
+pipe (64 KiB on Linux, 8 KiB on Windows), and each experience carries a
+whole game state (9 KB pickled on a mini map, 47-142 KB on ladder maps),
+so after the loop raised, every actor with unread results was
+terminated after its timeout: 48 actors would take 12 minutes. The
+children now get one deadline together, and a reader thread discards
+what they send on the result and server queues while they exit
+(tools/mp_teardown.py). Measured, three children holding 1 MiB each at
+timeout 5 s: 15.66 s with all three terminated before, 0.48 s with all
+three exiting on their own after. Open:
+- An actor mid-game at shutdown still waits out the deadline: it reads
+  STOP only between games, and its server stops at once. A stop marker
+  on the reply queues would let it leave at once.
+- An orphaned actor (learner killed) whose results nobody read may block
+  at exit forever, since nobody can read them; likeliest in stream mode,
+  where nothing reads during the learner's step. Not verified; a
+  separate session is on it (the actor cancelling the flush on its way
+  out).
+- tools/eval_workers.WorkerPool.shutdown closes its workers one after
+  another, 10 s each (about 100 s at --jobs 10).
+
 ## An ended iteration's leftovers stay out of the next session (2026-09-24, FIXED, 0.5.4)
 
 An iteration that aborts (a serve process fails) or is abandoned at its
@@ -49,10 +74,16 @@ its first window (28 of 75 CI runs of the test failed that way). Per-game
 reports and the marker now carry their session's tag, an ended
 iteration clears its tickets, an actor keeps a later session's ticket
 for that session's PLAY, and shutdown() stops open serving before
-closing the queues. Open:
-- shutdown() joins the actors one after another, 15 s each, when they
-  cannot exit (seen as "terminating unresponsive process" in the same
-  run); `fix/shutdown-drains-results` is on it.
+closing the queues. Reproduced on the laptop against the pre-fix code
+with the fake pool: the stream's first window was the aborted
+iteration's two games. Open:
+- A barrier iteration still collects an earlier iteration's games
+  (measured on 0.5.4: outcomes `['stale', 'own']`), by the documented
+  choice at the `_R_DONE` branch of `_run_iteration` ("the games behind
+  them are kept too"), while a stream drops them. After a hard-deadline
+  abandon those games are complete and one weights version old; no
+  production caller runs a barrier iteration after one raised. Left as
+  is pending the user's ruling.
 
 ## Vision follows the engine (2026-09-24, FIXED, 0.4.6)
 
