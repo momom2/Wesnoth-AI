@@ -88,6 +88,21 @@ history-encoding name would lie within hours.
                      at raw:t0, 800 decisive games; matches serve it
                      in its own basis (run_elo_batch does). Self-pin
                      through the shared path pending.
+    terrain          the reference player 2026-09-20 to 2026-09-25:
+                     relset's recipe from scratch with the hex's
+                     terrain as its full set (terrain_multi_hot), one
+                     pass; HF tier-b/terrain_multi_hot_20260919/
+                     arm_epoch0.pt, local training/checkpoints/
+                     terrain.pt; decoded at raw:t0+eo-1.5.
+    obs8             THE REFERENCE PLAYER (user ruling 2026-09-25):
+                     terrain's recipe from scratch on the observation
+                     of OBSERVATION_EPOCH 8 (the time of day, the
+                     engine's vision, statues, the re-hide), one pass
+                     of 2,826,147 pairs; HF tier-b/
+                     observation_retrain_20260924/arm_epoch0.pt, local
+                     training/checkpoints/obs8.pt; +73 +- 13 Elo over
+                     terrain, both at raw:t0+eo-1.5, 800 decisive
+                     games (docs/observation_retrain_prereg_20260924.md).
 
 Old labels (`ref_2p29M`, `old_2p40M`, `new_2p52M`, `tcs3`) are
 catalog aliases of the above.
