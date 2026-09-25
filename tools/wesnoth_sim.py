@@ -75,12 +75,12 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.classes import GameState, Position, SideInfo, state_digest
-from wesnoth_ai.paths import UNIT_STATS_PATH
 from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
     _setup_scenario_events,
 )
+from wesnoth_ai.paths import UNIT_STATS_PATH
 
 
 log = logging.getLogger("wesnoth_sim")
