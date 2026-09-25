@@ -185,12 +185,15 @@ def _save_checkpoint(
 class PassPosition:
     """Where a resumed run re-enters the epoch it was cut in, so the rest
     of the epoch is the stream the uncut run would have trained. The
-    epoch's file order comes from the global `random` at the epoch's
-    start; the pairs already trained are read again and skipped, their
-    value-selection draws replayed, and training goes on from the next
-    pair."""
+    epoch's file order is the corpus's own order shuffled by the global
+    `random` at the epoch's start; the pairs the cut run took from the
+    stream are read again and skipped, their value-selection draws
+    replayed, and training goes on from the next pair. The cut run
+    counts every pair it takes, dropped ones included (a failed file's
+    pairs still waiting in the batch, a failed flush, a failed per-pair
+    loss), so the skip ends where the cut run stood."""
     epoch: int
-    skip_pairs: int                        # pairs of this epoch trained before the cut
+    skip_pairs: int                        # pairs of this epoch taken before the cut
     step_in_epoch: int
     epoch_rng_state: Optional[tuple]       # None: the seed's state (a first run's first epoch)
     rng_state_at_cut: Optional[tuple]      # checked once the skip ends; None: unknown
@@ -261,6 +264,19 @@ def _log_pass_reentry(position: PassPosition, t_epoch: float) -> None:
     else:
         log.error("  the replayed draws do NOT land on the checkpoint's state: the "
                   "continued pass differs from the one that was cut")
+
+
+def _replay_lr_schedule(opt: torch.optim.Optimizer, scheduler, completed_epochs: int) -> None:
+    """Set the learning rate where this run's schedule stands after
+    `completed_epochs`: every group back at the schedule's base rate, then
+    one scheduler step per completed epoch, the steps the uncut run took.
+    The restored optimizer state carries the rate of the epoch it was
+    saved in, and the cosine scheduler's step scales the current rate, so
+    stepping from the restored rate would apply the decay twice."""
+    for group, base_lr in zip(opt.param_groups, scheduler.base_lrs):
+        group["lr"] = base_lr
+    for _ in range(completed_epochs):
+        scheduler.step()
 
 
 def _seed_vocab_from_unit_stats(
@@ -1765,8 +1781,9 @@ def train(
     # Cosine learning-rate decay across the planned epoch budget. With
     # the resume-from-checkpoint path, `T_max` is the TOTAL planned
     # epochs (not just the remaining ones) -- the scheduler is
-    # advanced once per epoch and we use `last_epoch=resumed_epoch`
-    # to skip forward to the right point on the cosine curve. The
+    # advanced once per epoch, and a resume replays one step per
+    # completed epoch (`_replay_lr_schedule`) to stand at the right
+    # point on the cosine curve. The
     # late-epoch sharpening this gives is empirically helpful for
     # behavior-cloning loss to converge tightly.
     #
@@ -1881,11 +1898,9 @@ def train(
             ckpt, resumed_epoch, resumed_pairs, resumed_step, seed)
         if "supervised_resume" in ckpt:
             resumed_last_eval = int(ckpt["supervised_resume"]["last_eval_pairs"])
-        # Fast-forward the LR scheduler past completed epochs. We
-        # don't checkpoint the scheduler's state directly; we
-        # reconstruct it from the epoch counter at resume time.
-        for _ in range(resumed_epoch):
-            lr_scheduler.step()
+        # The rate is a function of this run's schedule and the epoch
+        # counter, whatever rate the restored optimizer state carries.
+        _replay_lr_schedule(opt, lr_scheduler, resumed_epoch)
         log.info(f"  LR scheduler advanced {resumed_epoch} epochs; "
                  f"current lr = {opt.param_groups[0]['lr']:.2e}")
 
@@ -2111,6 +2126,10 @@ def train(
     files_seen = 0
     file_errors = 0
     flush_failures = 0        # batches lost to an exception (warned, counted)
+    # Pairs taken from the stream and never trained: a failed file's
+    # pairs still waiting, a failed flush's, a failed per-pair loss's.
+    # `running_count` counts them too (`PassPosition`).
+    pairs_dropped = 0
     autocast_dtype = torch.bfloat16 if bf16 else None
     if bf16:
         log.info("Batched flow under bf16 autocast (fp32 weights and gradients)")
@@ -2169,7 +2188,10 @@ def train(
         epoch_rng_state = random.getstate()
         epoch_start_pairs = running_count - (position.skip_pairs if position else 0)
         epoch_start_step = global_step - (position.step_in_epoch if position else 0)
-        random.shuffle(files)
+        # Every epoch shuffles the corpus's own order, so its order is a
+        # function of `epoch_rng_state` alone, which a resume restores.
+        epoch_files = list(files)
+        random.shuffle(epoch_files)
         step = position.step_in_epoch if position else 0
         skip_left = position.skip_pairs if position else 0
         t_epoch = time.time()
@@ -2186,13 +2208,13 @@ def train(
         # (does encoding inline) or parallel (workers prefetch the
         # encode_raw side; main does encode_from_raw + forward + back).
         if preencoded is not None:
-            check_preencoded(preencoded, files, encoder, relevant_set_hexes)
+            check_preencoded(preencoded, epoch_files, encoder, relevant_set_hexes)
             log.info(f"Pairs from the pre-encoded corpus {preencoded} "
                      f"(workers ignored; the per-replay cap does not apply)")
-            stream = _pair_stream_preencoded(files, preencoded)
+            stream = _pair_stream_preencoded(epoch_files, preencoded)
         elif workers > 0:
             stream = _pair_stream_parallel(
-                files,
+                epoch_files,
                 workers=workers,
                 type_to_id=encoder.unit_type_to_id,
                 faction_to_id=encoder.faction_to_id,
@@ -2204,7 +2226,7 @@ def train(
             )
         else:
             stream = _pair_stream_serial(
-                files,
+                epoch_files,
                 max_pairs_per_replay=max_pairs_per_replay,
                 relevant_set=relevant_set_hexes,
             )
@@ -2214,6 +2236,7 @@ def train(
         batch_raws: List = []
         batch_ais: List[ActionIndices] = []
         batch_zw: List = []
+        file_pairs_in_batch = 0  # batched flow: the current file's pairs waiting in the batch
         losses_in_batch = 0  # used by per-pair flow
         params_for_clip = list(model.parameters()) + list(encoder.parameters())
         opt.zero_grad()
@@ -2244,6 +2267,7 @@ def train(
                         opt.step()
                         opt.zero_grad()
                         losses_in_batch = 0
+                    file_pairs_in_batch = 0
                     if files_seen % gc_every_files == 0:
                         gc.collect()
                     continue
@@ -2260,13 +2284,24 @@ def train(
                     # summary line.
                     if file_errors <= 5:
                         log.warning(f"  file_error {gz_name}: {err}")
-                    # Abandon any partial gradient or batch from this
-                    # file — its data is incomplete.
-                    opt.zero_grad()
-                    batch_raws.clear()
-                    batch_ais.clear()
-                    batch_zw.clear()
-                    losses_in_batch = 0
+                    # The file's data is incomplete: its pairs not yet
+                    # trained are dropped. In the batched flow they are
+                    # the batch's last `file_pairs_in_batch` entries; the
+                    # earlier files' pairs before them stay. The per-pair
+                    # flow steps at every file_done, so its pending
+                    # gradient is this file's alone, and it has counted
+                    # those pairs already.
+                    if use_batched:
+                        dropped = file_pairs_in_batch
+                        if dropped:
+                            del batch_raws[-dropped:], batch_ais[-dropped:], batch_zw[-dropped:]
+                        running_count += dropped
+                    else:
+                        dropped = losses_in_batch
+                        opt.zero_grad()
+                        losses_in_batch = 0
+                    pairs_dropped += dropped
+                    file_pairs_in_batch = 0
                     continue
 
                 # kind == "pair"
@@ -2314,8 +2349,10 @@ def train(
                     continue
 
                 if skip_left > 0:
-                    # Trained before the cut this run resumes: its draws
+                    # Taken before the cut this run resumes: its draws
                     # above are replayed, the pair is not trained again.
+                    # A pair the batched flow cannot encode was never
+                    # taken, so it is encoded again to tell.
                     if use_batched:
                         try:
                             _raw_one(encoder, state_or_raw)
@@ -2341,6 +2378,7 @@ def train(
                     batch_raws.append(raw)
                     batch_ais.append(ai)
                     batch_zw.append((v_z, v_w, p_w))
+                    file_pairs_in_batch += 1
                     if len(batch_raws) < batch_size:
                         continue
                     _tf = time.perf_counter() if prof_on else 0.0
@@ -2363,9 +2401,12 @@ def train(
                         log.warning(f"  batch flush failed ({len(batch_raws)} pairs lost, "
                                     f"{flush_failures} so far): {e!r}"[:400])
                         opt.zero_grad()
+                        running_count += len(batch_raws)      # taken, so counted
+                        pairs_dropped += len(batch_raws)
                         batch_raws.clear()
                         batch_ais.clear()
                         batch_zw.clear()
+                        file_pairs_in_batch = 0
                         continue
                     finally:
                         if prof_on:
@@ -2374,6 +2415,7 @@ def train(
                     batch_raws.clear()
                     batch_ais.clear()
                     batch_zw.clear()
+                    file_pairs_in_batch = 0
                     step_just_landed = True
                 else:
                     # === Per-pair flow: forward+backward per pair, step
@@ -2393,6 +2435,8 @@ def train(
                         )
                     except Exception as e:
                         log.debug(f"  loss compute failed: {e}")
+                        running_count += 1      # taken, so counted
+                        pairs_dropped += 1
                         continue
                     finally:
                         if prof_on:
@@ -2538,11 +2582,12 @@ def train(
                         type_loss_weights=type_loss_weights,
                         autocast_dtype=autocast_dtype,
                     )
-                    running_count += len(batch_raws)
                 except Exception as e:
                     flush_failures += 1
+                    pairs_dropped += len(batch_raws)
                     log.warning(f"  end-of-epoch flush failed ({len(batch_raws)} pairs lost): {e!r}"[:400])
                     opt.zero_grad()
+                running_count += len(batch_raws)      # taken, so counted, trained or lost
                 batch_raws.clear()
                 batch_ais.clear()
                 batch_zw.clear()
@@ -2574,7 +2619,7 @@ def train(
         if stop:
             log.info(f"max_pairs cut mid-epoch {epoch}; checkpoint "
                      f"records epoch={completed} (NOT completed; "
-                     f"resume redoes it)")
+                     f"a resume continues it)")
         _save_checkpoint(checkpoint_out, model, encoder, opt,
                          global_step, running_count, epoch=completed,
                          resume_state=resume_state, **save_kwargs)
@@ -2591,7 +2636,7 @@ def train(
         log.info(f"  epoch accounting: files_seen={files_seen} "
                  f"file_errors={file_errors} "
                  f"pairs={running_count - run_start_count} "
-                 f"(chain total {running_count}) "
+                 f"({pairs_dropped} dropped untrained; chain total {running_count}) "
                  f"target_off_subset={target_off_subset} "
                  f"flush_failures={flush_failures} oom_halvings={oom_halvings}")
         if holdout_files:
@@ -2632,9 +2677,9 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--all-scenarios", action="store_true",
                     help="Skip the competitive-2p scenario filter.")
     ap.add_argument("--resume", type=Path, default=None,
-                    help="Checkpoint to resume from (model + encoder + "
-                         "optimizer). New shuffled file order — we don't "
-                         "rewind to the exact replay we left off on.")
+                    help="Checkpoint to resume from (model, encoder, optimizer "
+                         "and where its pass stands): the run continues the "
+                         "pass the checkpoint was cut from.")
     ap.add_argument("--max-replay-commands", type=int, default=1500,
                     help="Skip replays with > this many commands "
                          "(catches the 4 corpus outliers at 2000+ that "
