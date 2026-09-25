@@ -54,20 +54,12 @@ import traceback
 from pathlib import Path
 from typing import Callable, Dict, List
 
+from wesnoth_ai.paths import REPO_ROOT, TOOLS_DIR
 from tools.mp_teardown import ParentGone, get_while_parent_lives, put_while_parent_lives
 
 # How long a read or a write waits before checking that the trainer is
 # still alive (seconds); the actors' period (tools/actor_worker.py).
 _PARENT_POLL = 2.0
-
-
-# Resolve the project root from this file's location so workers can
-# `import encoder` and `import replay_dataset` regardless of how they
-# were spawned (Linux fork inherits sys.path; Windows spawn re-bootstraps
-# the interpreter and would otherwise miss the project root).
-_THIS = Path(__file__).resolve()
-_PROJECT_ROOT = _THIS.parent.parent
-_TOOLS_DIR    = _THIS.parent
 
 
 def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
@@ -119,11 +111,13 @@ def worker_main(
     stream after a file's pairs are drained — workers don't emit it
     explicitly anymore.
     """
-    # Re-bootstrap import paths for Windows spawn — fork would inherit.
-    if str(_PROJECT_ROOT) not in sys.path:
-        sys.path.insert(0, str(_PROJECT_ROOT))
-    if str(_TOOLS_DIR) not in sys.path:
-        sys.path.insert(0, str(_TOOLS_DIR))
+    # The repo root and tools/ on the worker's import path, however it
+    # was started (fork inherits the trainer's; a Windows spawn starts
+    # a fresh interpreter).
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    if str(TOOLS_DIR) not in sys.path:
+        sys.path.insert(0, str(TOOLS_DIR))
     logging.basicConfig(level=log_level, format="%(message)s")
     serve_files(in_q, out_q, functools.partial(
         encode_game, type_to_id=type_to_id, faction_to_id=faction_to_id,

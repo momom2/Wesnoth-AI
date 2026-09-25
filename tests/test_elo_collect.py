@@ -177,9 +177,11 @@ def test_the_batch_runner_s_timeout_artifact_carries_every_estimand():
     and blocks the whole dir as MIXED (found 2026-09-14 with
     observation_epoch). Pin: every estimand key is spelled in that
     dict's source, and an artifact built from a full record collects."""
+    import inspect
     import re
+    from tools import run_elo_batch
     from tools.elo_collect import ESTIMAND_DEFAULTS, dir_estimands
-    src = (Path(__file__).parent.parent / "tools" / "run_elo_batch.py").read_text(encoding="utf-8")
+    src = inspect.getsource(run_elo_batch)
     m = re.search(r"_prov = \{(.*?)\n    if args\.plan_a or args\.plan_b:", src, re.S)
     assert m, "run_elo_batch's provenance dict moved; update this pin"
     block = m.group(1)

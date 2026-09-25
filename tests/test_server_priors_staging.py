@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 @functools.lru_cache(maxsize=None)
 def _batch():
     """(policy, encoded states, packs, game states), harvested once."""
-    from tests.test_server_priors import _policy, _states
+    from helpers.priors_parity import _policy, _states
     from wesnoth_ai.server_priors import pack_masks
     policy = _policy()
     enc = policy._inference_encoder

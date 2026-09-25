@@ -53,8 +53,9 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Dict, List, Mapping, Optional
+
+from wesnoth_ai.paths import TERRAIN_DB_PATH
 
 
 log = logging.getLogger("terrain_resolver")
@@ -72,10 +73,6 @@ MARKER_BASE  = "_bas"
 UNREACHABLE_COST = 99
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_TERRAIN_DB_PATH = _PROJECT_ROOT / "terrain_db.json"
-
-
 # ---------------------------------------------------------------------
 # DB loading
 # ---------------------------------------------------------------------
@@ -90,11 +87,11 @@ def load_terrain_db() -> Dict[str, dict]:
     global _TERRAIN_DB
     if _TERRAIN_DB is not None:
         return _TERRAIN_DB
-    if not _TERRAIN_DB_PATH.exists():
+    if not TERRAIN_DB_PATH.exists():
         raise FileNotFoundError(
-            f"{_TERRAIN_DB_PATH.name} not found at project root. "
+            f"{TERRAIN_DB_PATH.name} not found at project root. "
             f"Run `python tools/scrape_terrain.py` to (re)build it.")
-    _TERRAIN_DB = json.loads(_TERRAIN_DB_PATH.read_text(encoding="utf-8"))
+    _TERRAIN_DB = json.loads(TERRAIN_DB_PATH.read_text(encoding="utf-8"))
     return _TERRAIN_DB
 
 

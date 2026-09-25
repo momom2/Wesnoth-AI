@@ -37,13 +37,13 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 from tools.analysis.expansion_diff import POOL, _scenario_block  # noqa: E402
 from tools.scenario_events import load_scenario_wml  # noqa: E402
 
-MANIFEST = ROOT / "tests" / "data" / "scenario_surface.json"
+MANIFEST = REPO_ROOT / "tests" / "data" / "scenario_surface.json"
 CLASSES = ("MODELLED", "IGNORED", "SUBSTITUTED")
 
 
@@ -165,7 +165,7 @@ def masking_path_defaults(found=None, manifest=None) -> List[str]:
 def reader_source(rel: str, symbol: str) -> Optional[str]:
     """The source of a function, class or module-level assignment named
     `symbol` in `rel`, or None when there is no such definition."""
-    path = ROOT / rel
+    path = REPO_ROOT / rel
     if not path.is_file():
         return None
     text = path.read_text(encoding="utf-8", errors="replace")

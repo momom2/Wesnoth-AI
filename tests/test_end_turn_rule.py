@@ -162,11 +162,12 @@ def test_actor_rule_on_the_compact_arrays_matches_the_list_path():
 
 
 def test_batch_driver_forwards_the_end_turn_decode():
-    repo = Path(__file__).parent.parent
-    src = (repo / "tools/run_elo_batch.py").read_text(encoding="utf-8")
+    import inspect
+    from tools import elo_eval_game, run_elo_batch
+    src = inspect.getsource(run_elo_batch)
     assert "--raw-end-turn-a" in src and "--raw-end-turn-offset-b" in src
     assert "raw_end_turn=args.raw_end_turn_a" in src
-    game = (repo / "tools/elo_eval_game.py").read_text(encoding="utf-8")
+    game = inspect.getsource(elo_eval_game)
     assert '"raw_end_turn_a": args.raw_end_turn_a' in game
 
 

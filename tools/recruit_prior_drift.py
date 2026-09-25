@@ -268,10 +268,11 @@ def cmd_collect(args) -> int:
 
 
 def load_snapshots(snapdir: pathlib.Path) -> List[dict]:
+    from wesnoth_ai import unpickle
     snaps: List[dict] = []
     for p in sorted(snapdir.glob("snaps_seed*.pkl")):
         with open(p, "rb") as f:
-            snaps.extend(pickle.load(f))
+            snaps.extend(unpickle.load(f))
     return snaps
 
 

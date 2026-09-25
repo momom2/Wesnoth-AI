@@ -60,11 +60,12 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+from wesnoth_ai.paths import REPO_ROOT, TOOLS_DIR  # noqa: E402
 
 log = logging.getLogger("run_elo_batch")
 
 # The script that plays one game (or, with --worker, many).
-GAME_SCRIPT = _THIS.parent / "elo_eval_game.py"
+GAME_SCRIPT = TOOLS_DIR / "elo_eval_game.py"
 # Seconds between two polls of the games in flight.
 POLL_S = 2.0
 
@@ -315,7 +316,7 @@ def _checkpoint_flags(spec: str) -> Tuple[str, str]:
     if spec in _FLAGS_MEMO:
         return _FLAGS_MEMO[spec]
     proc = subprocess.run(
-        [sys.executable, "-c", _PEEK_FLAGS, spec, str(_THIS.parent.parent)],
+        [sys.executable, "-c", _PEEK_FLAGS, spec, str(REPO_ROOT)],
         capture_output=True, text=True, timeout=600)
     lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
     parts = lines[-1].split() if lines else []

@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from wesnoth_ai.classes import GameState, Position
+from wesnoth_ai.paths import REPO_ROOT, WESNOTH_SRC_DIR
 from tools.replay_dataset import (
     _build_initial_gamestate,
 )
@@ -220,9 +221,7 @@ def load_factions(faction_dir: Optional[Path] = None) -> Dict[str, FactionInfo]:
     if _FACTIONS_CACHE is not None:
         return _FACTIONS_CACHE
     if faction_dir is None:
-        # Default location relative to project root.
-        root = Path(__file__).resolve().parent.parent
-        faction_dir = root / "wesnoth_src" / "data" / "multiplayer" / "factions"
+        faction_dir = WESNOTH_SRC_DIR / "data" / "multiplayer" / "factions"
     if not faction_dir.is_dir():
         raise RuntimeError(
             f"faction dir not found: {faction_dir} -- "
@@ -608,8 +607,7 @@ def build_scenario_gamestate(
             f"[scenario] block")
     check_board_cycle(mp, setup.scenario_id)
     check_quick_leader_gates(mp, setup.scenario_id)
-    project_root = Path(__file__).resolve().parent.parent
-    map_path = resolve_map_file(project_root,
+    map_path = resolve_map_file(REPO_ROOT,
                                 map_file=mp.attrs.get("map_file", ""),
                                 map_data=mp.attrs.get("map_data", ""))
     if map_path is None:

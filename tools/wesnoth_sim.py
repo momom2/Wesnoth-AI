@@ -78,6 +78,7 @@ from tools.replay_dataset import (
     _build_initial_gamestate,
     _setup_scenario_events,
 )
+from wesnoth_ai.paths import UNIT_STATS_PATH
 
 
 log = logging.getLogger("wesnoth_sim")
@@ -189,9 +190,7 @@ def _unit_stats_data() -> dict:
     global _UNIT_STATS_DATA
     if _UNIT_STATS_DATA is None:
         import json
-        from pathlib import Path
-        path = Path(__file__).resolve().parent.parent / "unit_stats.json"
-        with path.open(encoding="utf-8") as f:
+        with UNIT_STATS_PATH.open(encoding="utf-8") as f:
             _UNIT_STATS_DATA = json.load(f)
     return _UNIT_STATS_DATA
 

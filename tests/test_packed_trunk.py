@@ -109,7 +109,7 @@ def test_packed_forward_on_real_states_matches_single_forward_and_priors():
     per-sample view equals the single-sample forward, and the compact
     priors computed from the packed output equal those from the padded
     output (same legal entries, same order)."""
-    from tests.test_server_priors import _policy, _states
+    from helpers.priors_parity import _policy, _states
     from wesnoth_ai.server_priors import batched_priors, pack_masks
     policy = _policy()
     enc, model = policy._inference_encoder, policy._inference_model

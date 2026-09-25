@@ -174,16 +174,18 @@ def test_both_pipelines_read_the_time_of_day_through_this_module():
     """Generation read the three keys with three private regexes over
     the raw template while reconstruction read them off a parsed node.
     One reader now; this fails if either grows its own again."""
+    import inspect
     import re
 
-    root = Path(__file__).parent.parent
-    for rel in ("tools/scenario_pool.py", "tools/replay_extract.py"):
-        src = (root / rel).read_text(encoding="utf-8")
-        assert "read_tod(" in src, f"{rel} no longer uses the shared reader"
+    from tools import replay_extract, scenario_pool
+
+    for module in (scenario_pool, replay_extract):
+        src, name = inspect.getsource(module), module.__name__
+        assert "read_tod(" in src, f"{name} no longer uses the shared reader"
         for key in ("current_time", "random_start_time"):
             bad = re.findall(r"re\.(?:search|findall|match)\([^)]*"
                              + key, src)
-            assert not bad, f"{rel}: a private regex over {key}: {bad}"
+            assert not bad, f"{name}: a private regex over {key}: {bad}"
 
 
 def test_the_board_schedule_is_read_and_compared():
@@ -296,23 +298,24 @@ def test_no_second_parser_of_the_side_block_survives():
     `filter_replays`) and the census are out of scope, and the census
     reads headers the pipelines never parse.
     """
+    import inspect
     import re
 
-    root = Path(__file__).parent.parent
-    watched = ["tools/scenario_pool.py", "tools/replay_extract.py",
-               "tools/sim_to_replay.py", "tools/replay_builder.py",
-               "tools/dump_savestate.py"]
+    from tools import (dump_savestate, replay_builder, replay_extract, scenario_pool,
+                       sim_to_replay)
+
+    watched = [scenario_pool, replay_extract, sim_to_replay, replay_builder, dump_savestate]
     # A regex that reaches into a [side] block or its economy attrs.
     suspicious = re.compile(
         r"re\.(compile|search|match|finditer|findall)\([^)]*"
         r"(\[side\]|village_gold|village_support|experience_modifier"
         r"|canrecruit|\[village\])")
     offenders = {}
-    for rel in watched:
-        text = (root / rel).read_text(encoding="utf-8")
+    for module in watched:
+        text = inspect.getsource(module)
         hits = [m.group(0)[:70] for m in suspicious.finditer(text)]
         if hits:
-            offenders[rel] = hits
+            offenders[module.__name__] = hits
     assert offenders == {}, (
         f"a second parser of the side block appeared: {offenders}. "
         f"Read it through tools/wml_state instead.")

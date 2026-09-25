@@ -17,13 +17,11 @@ import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Set
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
 from wesnoth_ai.encoder import MAX_UNIT_TYPES, names_on_overflow_row  # noqa: E402
-
-UNIT_STATS = ROOT / "unit_stats.json"
+from wesnoth_ai.paths import UNIT_STATS_PATH  # noqa: E402
 
 
 def _faction_types() -> Set[str]:
@@ -76,14 +74,14 @@ def advancement_closure(names: Iterable[str], units: Dict[str, Dict]) -> Set[str
     return out
 
 
-def reachable_unit_types(unit_stats: Path = UNIT_STATS) -> List[str]:
+def reachable_unit_types(unit_stats: Path = UNIT_STATS_PATH) -> List[str]:
     """The unit types that can take part in a game we build or rebuild,
     sorted by name."""
     units = json.loads(Path(unit_stats).read_text(encoding="utf-8"))["units"]
     return sorted(advancement_closure(_faction_types() | _placed_types(), units))
 
 
-def seed_vocab(encoder, unit_stats: Path = UNIT_STATS) -> None:
+def seed_vocab(encoder, unit_stats: Path = UNIT_STATS_PATH) -> None:
     """Give every reachable unit type of a fresh encoder its own row, in
     name order. Refuses a set that would reach the overflow row."""
     type_to_id = encoder.unit_type_to_id

@@ -29,19 +29,20 @@ import random
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
+from wesnoth_ai.paths import REPO_ROOT
+
 if TYPE_CHECKING:
     from wesnoth_ai.classes import GameState
 
 log = logging.getLogger("midgame_starts")
 
 _INDEX_CACHE: dict = {}
-_ROOT = Path(__file__).resolve().parent.parent
 # The imitation holdout's command hashes (training/metrics/value_head/
 # contamination/imitation_holdout_command_hashes.json): a start is
 # never cut from one of those games, whichever corpus it is sampled
 # from (replays_dataset/ holds 114 of them under other names,
 # 2026-09-08 review).
-_EXCLUDED_HASHES_FILE = (_ROOT / "training/metrics/value_head/contamination/"
+_EXCLUDED_HASHES_FILE = (REPO_ROOT / "training/metrics/value_head/contamination/"
                          "imitation_holdout_command_hashes.json")
 _EXCLUDED_CACHE: dict = {}
 

@@ -35,23 +35,28 @@ for _p in (str(_ROOT), str(_ROOT / "tools"), str(_TESTS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from helpers.source_tree import source_files  # noqa: E402
+
 TOOLS_DIR = _ROOT / "tools"
-# Directories whose sources must never bare-import a tools module.
-# tmp_scratch/ is deliberately excluded (throwaway probes), as is
-# wesnoth_src/ (vendored engine data, not ours).
-LINTED_DIRS = ("tools", "tests", "wesnoth_ai", "benchmarks")
+# Directories whose sources must never bare-import a tools module, each
+# walked recursively and required to hold Python files. tmp_scratch/ is
+# deliberately excluded (throwaway probes), as is wesnoth_src/ (vendored
+# engine data, not ours).
+LINTED_DIRS = ("tools", "tests", "wesnoth_ai", "benchmarks", "scripts", "signal_profiler")
 
 
 def _tools_module_names() -> set:
-    return {p.stem for p in TOOLS_DIR.glob("*.py")}
+    """Every name a bare import resolves through tools/ on sys.path: its
+    modules and its subpackages (a directory holding Python files)."""
+    modules = {p.stem for p in TOOLS_DIR.glob("*.py")}
+    packages = {p.name for p in TOOLS_DIR.iterdir()
+                if p.is_dir() and p.name != "__pycache__" and any(p.rglob("*.py"))}
+    return modules | packages
 
 
 def _linted_files():
     yield from _ROOT.glob("*.py")
-    for d in LINTED_DIRS:
-        base = _ROOT / d
-        if base.is_dir():
-            yield from base.glob("**/*.py")
+    yield from source_files(*LINTED_DIRS)
 
 
 def _bare_tool_imports(path: Path, tool_names: set):

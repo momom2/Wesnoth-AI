@@ -12,7 +12,9 @@ concatenation, parenthesised, or as an f-string is read too), so it
 costs milliseconds and covers every tool at once; running each `--help`
 as a subprocess would import torch dozens of times. A `help=` whose
 value is a name or a call cannot be read here and is reported as such
-rather than passed silently.
+rather than passed silently. The scan walks tools/, scripts/ and the
+package recursively, so it still reads a parser that moves into a
+subpackage.
 """
 from __future__ import annotations
 
@@ -22,7 +24,8 @@ import textwrap
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-ROOT = Path(__file__).parent.parent
+from helpers.source_tree import source_files
+from wesnoth_ai.paths import REPO_ROOT as ROOT
 
 # A percent that argparse will try to interpret: not `%%` and not the
 # start of a `%(name)s` substitution.
@@ -81,11 +84,7 @@ _UNREADABLE_HELP = {
 
 
 def _python_files() -> List[Path]:
-    files: List[Path] = []
-    for sub in ("tools", "scripts", "wesnoth_ai"):
-        files.extend(sorted((ROOT / sub).glob("*.py")))
-    files.append(ROOT / "main.py")
-    return [f for f in files if f.exists()]
+    return source_files("tools", "scripts", "wesnoth_ai") + [ROOT / "main.py"]
 
 
 def test_no_help_string_contains_a_bare_percent():

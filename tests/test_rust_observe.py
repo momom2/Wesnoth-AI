@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(obs_mod.kernel() is None,
 
 
 def _states():
-    from tests.test_enumerate_vectorized import _states as harvest
+    from helpers.played_states import _states as harvest
     return harvest(n_attack=3, n_plain=4)
 
 
@@ -131,7 +131,7 @@ def test_mask_builder_on_the_observation_equals_the_python_path():
     the same encoded state (the observation stripped)."""
     import dataclasses
     import torch
-    from tests.test_server_priors import _policy
+    from helpers.priors_parity import _policy
     from wesnoth_ai.action_sampler import _build_legality_masks
     policy = _policy()
     enc = policy._inference_encoder

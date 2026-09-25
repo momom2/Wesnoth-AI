@@ -38,11 +38,12 @@ import zlib
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from wesnoth_ai import unpickle  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+from wesnoth_ai.paths import IMITATION_DATASET_DIR  # noqa: E402
 from tools.encode_worker import encode_game  # noqa: E402
 
 log = logging.getLogger("preencode")
@@ -95,7 +96,7 @@ def write_record(path: Path, pairs: List) -> None:
 
 
 def read_record(path: Path) -> List:
-    return pickle.loads(zlib.decompress(path.read_bytes()))
+    return unpickle.loads(zlib.decompress(path.read_bytes()))
 
 
 _W: Dict = {}
@@ -147,7 +148,7 @@ def load_manifest(out_dir: Path) -> Optional[Dict]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dataset", type=Path, default=ROOT / "replays_dataset_imitation")
+    ap.add_argument("--dataset", type=Path, default=IMITATION_DATASET_DIR)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--vocab-from", type=Path, required=True,
                     help="Checkpoint whose unit/faction vocab the encoding uses "

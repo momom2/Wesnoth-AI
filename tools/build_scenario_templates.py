@@ -86,11 +86,11 @@ import time
 from pathlib import Path
 from typing import Dict, List
 
-_ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+if str(Path(__file__).resolve().parents[1]) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from wesnoth_ai.constants import WESNOTH_PATH
+from wesnoth_ai.paths import SCENARIO_TEMPLATES_DIR, WESNOTH_SRC_DIR
 from tools.scenario_pool import (
     LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,
 )
@@ -98,15 +98,15 @@ from tools.replay_extract import parse_wml
 
 log = logging.getLogger("build_scenario_templates")
 
-LADDER_SRC = _ROOT / "wesnoth_src" / "data" / "multiplayer" / "scenarios"
+LADDER_SRC = WESNOTH_SRC_DIR / "data" / "multiplayer" / "scenarios"
 # Preprocess the add-on via its _main.cfg, NOT the scenarios dir:
 # _main.cfg includes utils/ (shared #defines) before scenarios/,
 # mirroring the game's load order. Preprocessing scenario files in
 # isolation leaves utils macros undefined and the preprocessor
 # refuses the file (observed: every enclave_* scenario).
-MINI_SRC = (_ROOT / "wesnoth_src" / "data" / "add-ons"
+MINI_SRC = (WESNOTH_SRC_DIR / "data" / "add-ons"
             / "Mini_Maps_Collection" / "_main.cfg")
-OUT_DIR = _ROOT / "tools" / "templates" / "scenarios"
+OUT_DIR = SCENARIO_TEMPLATES_DIR
 
 # Scenarios we keep a template for although they are not in a training
 # pool. They come out of the same add-on as the mini pool, so naming
@@ -258,7 +258,7 @@ def _inline_map_data(body_lines: List[str], scenario_id: str) -> List[str]:
         m = re.match(r'(\s*)map_file\s*=\s*"?([^"\s]+)"?\s*$', line)
         if m:
             indent, rel = m.group(1), m.group(2)
-            map_path = _ROOT / "wesnoth_src" / "data" / rel
+            map_path = WESNOTH_SRC_DIR / "data" / rel
             if not map_path.is_file():
                 raise RuntimeError(
                     f"{scenario_id}: map file not found: {map_path}")

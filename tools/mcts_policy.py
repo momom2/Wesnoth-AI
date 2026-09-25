@@ -1017,14 +1017,14 @@ class MCTSPolicy:
         the fresh-sampling behavior untouched. The stored TARGET does
         not override the configured one: a loaded partial set keeps
         collecting up to the current --holdout-size."""
-        import pickle
         from pathlib import Path as _P
+        from wesnoth_ai import unpickle
         path = _P(path)
         if not path.exists():
             return False
         try:
             with open(path, "rb") as f:
-                payload = pickle.load(f)
+                payload = unpickle.load(f)
             exps = list(payload["experiences"])
             games = int(payload.get("games", 0))
             _wanted = bool(getattr(

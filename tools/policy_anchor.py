@@ -120,8 +120,9 @@ def load_policy_anchor(path: Path,
     the other gate is refused the same way (a cache without the key
     was encoded with the true enemy village count), and so is a cache
     from an earlier `constants.OBSERVATION_EPOCH`."""
+    from wesnoth_ai import unpickle
     with Path(path).open("rb") as f:
-        blob = pickle.load(f)
+        blob = unpickle.load(f)
     if not isinstance(blob, dict) or blob.get("version") != CACHE_VERSION:
         raise ValueError(
             f"{path}: not a v{CACHE_VERSION} policy-anchor cache (got "

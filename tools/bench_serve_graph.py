@@ -312,10 +312,11 @@ def threaded_check(model, encoder, device: torch.device, bf16: bool, pairs, thre
 def replay_dump(path: Path, model, encoder, device: torch.device, bf16: bool) -> int:
     """The dumped batch through the eager seam, then the static body run
     eagerly (graphs off), then the graph; shapes and outputs printed."""
-    import pickle
     from tools.inference_seam import InferenceServer
+    from wesnoth_ai import unpickle
     from wesnoth_ai.graphed_serve import Caps, GraphedServe
-    pairs = pickle.load(open(path, "rb"))
+    with open(path, "rb") as f:
+        pairs = unpickle.load(f)
     raws = [r for r, _ in pairs]
     sizes = [(r.unit_xs.shape[0], r.recruit_type_ids.shape[0], r.hex_xs.shape[0]) for r in raws]
     print("batch", len(pairs), "sizes (U, R, H)", sizes)

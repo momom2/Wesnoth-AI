@@ -147,7 +147,8 @@ def test_raw_of_carries_every_switch_of_its_encoder():
 
 
 def test_the_pool_play_command_carries_the_flag():
-    repo = Path(__file__).parent.parent
-    pool_src = (repo / "tools/actor_pool.py").read_text(encoding="utf-8")
-    actor_src = (repo / "tools/actor_worker.py").read_text(encoding="utf-8")
+    import inspect
+    from tools import actor_pool, actor_worker
+    pool_src = inspect.getsource(actor_pool)
+    actor_src = inspect.getsource(actor_worker)
     assert "self._terrain_multi_hot())" in pool_src and "terrain_multi_hot=_tmh" in actor_src

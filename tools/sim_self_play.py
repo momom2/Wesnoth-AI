@@ -66,6 +66,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.classes import GameState, Unit
+from wesnoth_ai.paths import UNIT_STATS_PATH
 from tools.scenario_pool import LADDER_SCENARIO_IDS
 from tools.scenario_pool import classify_scenario as _classify_scenario
 from wesnoth_ai.rewards import (
@@ -194,9 +195,8 @@ def _outcome_for(winner: int, ended_by: str, side: int) -> str:
 # Cost lookup for recruit shaping. Re-uses the same unit_stats.json
 # the sim already loads, so we don't drift between sim and rewards.
 def _recruit_cost_lookup() -> Dict[str, int]:
-    path = Path(__file__).resolve().parent.parent / "unit_stats.json"
     try:
-        with path.open(encoding="utf-8") as f:
+        with UNIT_STATS_PATH.open(encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
         log.warning("unit_stats.json not found; recruit cost defaults to 14")

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from imitation_helpers import ARCH, TYPE_W, labels, per_sample_reference, states
+from helpers.imitation import ARCH, TYPE_W, labels, per_sample_reference, states
 from tools import supervised_train as st
 from tools import signal_telemetry as sig
 from tools.signal_telemetry import (

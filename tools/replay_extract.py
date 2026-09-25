@@ -42,6 +42,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from wesnoth_ai.paths import UNIT_STATS_PATH  # noqa: E402
 from tools.wml_state import (check_board_cycle,  # noqa: E402
                              check_quick_leader_gates, map_starting_positions,
                              read_side, read_tod, read_unit, read_villages,
@@ -385,8 +386,7 @@ def _unit_stats(unit_type: str) -> dict:
     global _UNIT_DB_CACHE, _RECRUIT_NO_RNG_TYPES
     if not _UNIT_DB_CACHE:
         try:
-            db_path = Path(__file__).resolve().parent.parent / "unit_stats.json"
-            with db_path.open(encoding="utf-8") as f:
+            with UNIT_STATS_PATH.open(encoding="utf-8") as f:
                 data = json.load(f)
             for k, v in data.get("units", {}).items():
                 _UNIT_DB_CACHE[k] = {

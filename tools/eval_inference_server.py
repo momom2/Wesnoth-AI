@@ -78,7 +78,12 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
+from wesnoth_ai.paths import TOOLS_DIR  # noqa: E402
+
 log = logging.getLogger("eval_inference_server")
+
+# The command line a server process is launched through.
+SERVER_SCRIPT = TOOLS_DIR / "eval_inference_server.py"
 
 ADDR_PREFIX = "__ADDR__ "
 INFO_PREFIX = "__INFO__ "
@@ -481,7 +486,7 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
     never see them)."""
     outdir = Path(outdir)
     stats_path = outdir / f".inference_server_{tag}.json"
-    cmd = [python or sys.executable, "-u", str(_THIS), "--spec", str(spec),
+    cmd = [python or sys.executable, "-u", str(SERVER_SCRIPT), "--spec", str(spec),
            "--device", device, "--window-ms", str(window_ms),
            "--max-batch", str(max_batch), "--torch-threads", str(torch_threads),
            "--stats-out", str(stats_path), "--label", tag]

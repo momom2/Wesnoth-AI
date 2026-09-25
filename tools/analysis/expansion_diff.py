@@ -41,9 +41,9 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from wesnoth_ai.paths import REPO_ROOT, SCENARIO_TEMPLATES_DIR  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
 from tools.scenario_events import load_scenario_wml  # noqa: E402
 from tools.wml_state import (map_starting_positions, resolve_map_file,  # noqa: E402
@@ -51,7 +51,7 @@ from tools.wml_state import (map_starting_positions, resolve_map_file,  # noqa: 
 from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
                                  MINI_MAP_SCENARIO_IDS)
 
-TEMPLATES = ROOT / "tools" / "templates" / "scenarios"
+TEMPLATES = SCENARIO_TEMPLATES_DIR
 POOL = list(LADDER_SCENARIO_IDS) + list(MINI_MAP_SCENARIO_IDS)
 
 # Presentation only: nothing downstream of the scenario reader looks at
@@ -128,7 +128,7 @@ def _map_text(block) -> Optional[str]:
     data = (block.attrs.get("map_data", "") or "").strip()
     if data and not data.startswith("{"):
         return data
-    path = resolve_map_file(ROOT, map_file=block.attrs.get("map_file", "") or "",
+    path = resolve_map_file(REPO_ROOT, map_file=block.attrs.get("map_file", "") or "",
                             map_data=data)
     if path is None:
         return None
@@ -246,7 +246,7 @@ def render(found: Dict[str, Dict], n_scenarios: int) -> str:
     return "\n".join(lines)
 
 
-EXPECTED = ROOT / "tests" / "data" / "expansion_diff_expected.json"
+EXPECTED = REPO_ROOT / "tests" / "data" / "expansion_diff_expected.json"
 
 
 def expected_clusters() -> Dict[str, Dict]:

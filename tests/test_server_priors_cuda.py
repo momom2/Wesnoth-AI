@@ -25,7 +25,7 @@ CUDA = torch.device("cuda")
 def _setup():
     """CPU policy plus CUDA copies of its inference encoder and model
     (same weights), the harvested states, encodings and packs."""
-    from tests.test_server_priors import _policy, _states
+    from helpers.priors_parity import _policy, _states
     from wesnoth_ai.server_priors import pack_masks
     policy = _policy()
     enc, model = policy._inference_encoder, policy._inference_model
@@ -73,7 +73,7 @@ def test_cuda_priors_equal_cpu_priors_on_the_same_forward():
 
 def test_cuda_seam_matches_reference_enumeration():
     from tools.inference_seam import InferenceServer, RemoteEncoder, RemoteModel
-    from tests.test_server_priors import _same
+    from helpers.priors_parity import _same
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     enc, model, enc_cuda, model_cuda, states, encs, _ = _setup()
     with torch.no_grad():

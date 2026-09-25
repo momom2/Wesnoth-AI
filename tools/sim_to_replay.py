@@ -63,6 +63,8 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
+from wesnoth_ai.paths import (REPO_ROOT, SCENARIO_TEMPLATES_DIR, TEMPLATES_DIR,
+                              UNIT_STATS_PATH, WESNOTH_SRC_DIR)
 from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim
 from tools.wml_state import read_unit, read_villages, resolve_map_file, wml_int
 
@@ -333,8 +335,7 @@ def _unit_trait_info(unit_type: str) -> dict:
         return _RNG_INFO_CACHE[unit_type]
     try:
         import json
-        path = Path(__file__).resolve().parent.parent / "unit_stats.json"
-        with path.open(encoding="utf-8") as f:
+        with UNIT_STATS_PATH.open(encoding="utf-8") as f:
             data = json.load(f)
         u = data.get("units", {}).get(unit_type, {})
         t = u.get("traits", {}) or {}
@@ -818,12 +819,9 @@ def _rewrite_pvp_settings(text: str, defaults: PvPDefaults) -> str:
 # This removes the dependency on `replays_raw/`: as long as the
 # wesnoth_src checkout has the scenario .cfg + .map, we can export.
 
-_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-_SCAFFOLD_PATH = _TEMPLATES_DIR / "wesnoth_save_scaffold.wml"
-_PER_SCENARIO_DIR = _TEMPLATES_DIR / "scenarios"
-_WESNOTH_SRC = Path(__file__).resolve().parent.parent / "wesnoth_src"
-_SCENARIO_DIR = _WESNOTH_SRC / "data" / "multiplayer" / "scenarios"
-_MAPS_DIR = _WESNOTH_SRC / "data" / "multiplayer" / "maps"
+_SCAFFOLD_PATH = TEMPLATES_DIR / "wesnoth_save_scaffold.wml"
+_SCENARIO_DIR = WESNOTH_SRC_DIR / "data" / "multiplayer" / "scenarios"
+_MAPS_DIR = WESNOTH_SRC_DIR / "data" / "multiplayer" / "maps"
 
 
 def _strip_comment_lines(text: str) -> str:
@@ -902,7 +900,7 @@ def _load_map_data(map_file_attr: str) -> str:
 
     Wesnoth's `map_file=` is repo-relative to `wesnoth_src/data/`,
     so we resolve under there."""
-    abs_path = resolve_map_file(_WESNOTH_SRC.parent, map_file=map_file_attr)
+    abs_path = resolve_map_file(REPO_ROOT, map_file=map_file_attr)
     if abs_path is None or not abs_path.exists():
         raise FileNotFoundError(
             f"map file not found at {abs_path} "
@@ -1139,7 +1137,7 @@ def _per_scenario_template_path(scenario_id: str) -> Path:
     by `tools/build_scenario_templates.py` from the game's own .cfg
     via the game's own preprocessor, committed to the repo,
     consumed by the runtime emitter."""
-    return _PER_SCENARIO_DIR / f"{scenario_id}.wml"
+    return SCENARIO_TEMPLATES_DIR / f"{scenario_id}.wml"
 
 
 def build_save_wml(
