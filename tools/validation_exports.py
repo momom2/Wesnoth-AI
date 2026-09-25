@@ -119,15 +119,20 @@ def side_economy_from_dataset(starting_sides: list) -> dict:
     `village_income` (the [side] village_gold attr),
     `village_support`, `base_income` (TOTAL; the emitted [side]
     income attr is the offset over game_config::base_income=2,
-    team.hpp:179)."""
+    team.hpp:179). A default stands in only for a MISSING value: a
+    declared 0 is the game's own setting, which the reconstruction
+    plays (`_build_initial_gamestate`) and the export must declare."""
+    from tools.wml_state import (ENGINE_BASE_INCOME, MP_VILLAGE_GOLD,
+                                 MP_VILLAGE_SUPPORT, wml_int)
     econ = {}
     for i, s in enumerate(starting_sides):
-        side = int(s.get("side", i + 1) or (i + 1))
+        side = wml_int(s.get("side")) or (i + 1)
         econ[side] = {
-            "gold": int(s.get("gold", 100) or 100),
-            "village_gold": int(s.get("village_income", 2) or 2),
-            "village_support": int(s.get("village_support", 1) or 1),
-            "income_offset": int(s.get("base_income", 2) or 2) - 2,
+            "gold": wml_int(s.get("gold"), 100),
+            "village_gold": wml_int(s.get("village_income"), MP_VILLAGE_GOLD),
+            "village_support": wml_int(s.get("village_support"), MP_VILLAGE_SUPPORT),
+            "income_offset": (wml_int(s.get("base_income"), ENGINE_BASE_INCOME)
+                              - ENGINE_BASE_INCOME),
         }
     return econ
 
