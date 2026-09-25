@@ -128,15 +128,26 @@ The attribution arm, the best screened offset (-1.5), seed base 43000,
 |---|---|---|---|---|
 | `raw:t0+eo-1.5` vs `raw:t0` | 631-169 (63) | 0.789 +- 0.014 (800) | 0.768 | 9.25 / 5.90 (1.57x) |
 
-The offset does not merely match the rule within 1 SE: it beats it by
-0.037 (2.5 SE), about +229 +- 15 Elo against the rule's +193. Under the
-pre-registered reading the lever is "act more", and the config
-scalar (`--raw-end-turn-offset`, a logit offset on end_turn) is the
-adopted form; the actor-level rule is not needed. Open, not
-pre-registered: the offset's best value (the screens read -0.75 at
-0.733 and -1.5 at 0.744 over 30-39 decisive; -1.5 at 800 reads 0.789,
-so the curve is still rising at -1.5) and whether the same offset
-helps a searched player.
+The offset scores 0.036 above the rule, about +229 +- 15 Elo against
+the rule's +193 +- 14. The two matches are independent (seed bases
+42000 and 43000), so the gap is 1.7 SE of the difference (SE 0.021,
+the square root of 0.0153^2 + 0.0144^2). A gap outside 1 SE reads
+"differs, rule-specific" under the reading pre-registered with this
+test, and the verdict written on the box says so (`verdict.txt`,
+from the readout committed with this document in 1f7d5f4). The
+commit that recorded this result (264c5f4) rewrote the readout to
+read an offset above the rule as "act more"; the readout
+(`tools/analysis/endturn_readout.py`) now applies the pre-registered
+reading on the SE of the difference. What the numbers support: the
+offset scores at least as well as the rule, and it is the simpler
+lever (one logit offset on end_turn, `--raw-end-turn-offset`, with no
+actor-level comparison). Adopting `raw:t0+eo-1.5` as the reference
+decode was a user ruling (2026-09-20), not the outcome of this bar.
+Open when this was written, not pre-registered: the offset's best
+value (the screens read -0.75 at 0.733 and -1.5 at 0.744 over 30-39
+decisive; -1.5 at 800 reads 0.789; the curve is measured in
+docs/endturn_offset_sweep_prereg_20260919.md) and whether the same
+offset helps a searched player.
 
 The reference's self-pin rider, `raw:t0` against itself, seed base
 44000, 1,300 games in 791 s (the 800-decisive target was not reached

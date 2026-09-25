@@ -1810,8 +1810,13 @@ Both pass the pre-registered bar (p >= 0.535): about +193 +- 14 Elo
 for the rule and +229 +- 15 for the offset, decode rules that train
 nothing. The capped fraction fell from the reference's own self-match
 rate (about 0.4) to 0.07-0.09, so neither wins by stalling. The
-offset beat the rule by 2.5 SE, so the pre-registered reading is "act
-more" and the config scalar is the adopted form. A 40-game screen
+offset scores 0.036 above the rule, 1.7 SE of the difference between
+the two independent matches. The reading pre-registered for that gap
+is "differs, rule-specific", as the box's verdict says; the commit
+that recorded the result rewrote the readout to read it as "act more"
+(docs/endturn_rule_prereg_20260919.md "Measured"). The offset scores
+at least as well as the rule and is the simpler lever; adopting it as
+the reference decode was a user ruling (2026-09-20). A 40-game screen
 here takes 36-46 s and an 800-decisive match about 9 minutes, the
 second box class of the 2026-09-13 range (42-74 s) rather than the
 single-tenant 24-25 s.

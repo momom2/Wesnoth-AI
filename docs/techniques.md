@@ -1504,12 +1504,10 @@ note at the top. It applies to the REINFORCE path only.
 Listed so the next reader does not re-derive them. None of these
 change behavior today.
 
-- `configs/imitation.json` `value_from_outcome_weight` is a **dead
-  key** — nothing reads it; value supervision is controlled solely by
-  `--value-loss-weight`. Editing it to `0.0` would NOT disable value
-  supervision, contrary to the file's own `_doc`.
-- `configs/imitation.json` `_doc` names a flag `--imitation-manifest`
-  that does not exist; the real flag is `--imitation-config`.
+- Resolved: `configs/imitation.json` `value_from_outcome_weight` sets
+  the value-loss weight in imitation mode (read since b4f6ded,
+  `tools/supervised_train.py`), and its `_doc` names the real flag,
+  `--imitation-config`.
 - `--max-pairs-per-replay` is silently ignored when `--workers > 0`
   (`tools/supervised_train.py:236-238`). Harmless at the default 0.
 - `--eval-only` never computes value AUC (it omits `winner_map=`).

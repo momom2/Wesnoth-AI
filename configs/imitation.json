@@ -2,7 +2,7 @@
   "_doc": [
     "Imitation-learning dataset + loss configuration (2026-08-07).",
     "Consumed by tools/build_imitation_dataset.py (dataset selection)",
-    "and tools/supervised_train.py --imitation-manifest (loss shaping).",
+    "and tools/supervised_train.py --imitation-config (loss shaping).",
     "All knobs are config, not code: outcome classes, winner filtering,",
     "per-game weighting and value supervision can change without",
     "touching model or trainer internals.",

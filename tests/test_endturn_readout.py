@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools" / "analysis"))
 
-from endturn_readout import main, read_dir, verdict  # noqa: E402
+from endturn_readout import Readout, main, read_dir, verdict  # noqa: E402
 
 
 def _write(path: Path, outcomes, fwd_a=12, fwd_b=10, turns=2, pa="raw:t0+endm", pb="raw:t0"):
@@ -59,18 +59,36 @@ def test_verdict_applies_the_bars(tmp_path):
     assert "PASS (p 0.550)" in text
     assert "within 1 SE, the lever is act more" in text
     assert "barrier" in text and "clear" in text
-    # An offset that BEATS the rule reads as "act more" too (2026-09-19:
-    # -1.5 read 0.789 against the rule's 0.752); only one well below
-    # the rule leaves something rule-specific.
-    _write(tmp_path / "games_eo-1.5", ["win"] * 500 + ["loss"] * 300, pa="raw:t0+eo-1.5")
-    _write(tmp_path / "games_eo-0.25", ["win"] * 380 + ["loss"] * 420, pa="raw:t0+eo-0.25")
-    text = verdict([read_dir(tmp_path / n) for n in ("games_screen_endm", "games_endm",
-                                                       "games_eo-1.5", "games_eo-0.25")],
-                   fire=1.03, pass_p=0.535)
-    assert "games_eo-1.5: p 0.625 against the rule's 0.550: above the rule by" in text
-    assert "the lever is act more; the config scalar is the adopted form" in text
-    assert "games_eo-0.25: p 0.475 against the rule's 0.550: below the rule by" in text
-    assert "rule-specific" in text
+
+
+def _readout(name: str, wins: int, losses: int, procedure_a: str) -> Readout:
+    return Readout(name=name, games=wins + losses, wins=wins, losses=losses, draws=0,
+                   capped=0, dps_a=9.0, dps_b=6.0, procedure_a=procedure_a,
+                   procedure_b="raw:t0")
+
+
+def test_attribution_reads_the_se_of_the_difference():
+    """The rule's match and an offset's match are independent (disjoint
+    seed bases), so their gap is read in SE of the difference,
+    sqrt(se_rule^2 + se_offset^2). On the recorded 2026-09-19 pair (rule
+    602-198, offset -1.5 631-169) that is 1.7 SE; the rule's SE alone
+    reads 2.4. An offset 1.1 rule-SEs below the rule is within 1 SE of
+    the difference. Outside 1 SE, either way, the pre-registered reading
+    is "differs, rule-specific"."""
+    rule = _readout("games_endm", 602, 198, "raw:t0+endm")
+    arms = [_readout("games_eo-1.5", 631, 169, "raw:t0+eo-1.5"),
+            _readout("games_eo-0.5", 588, 212, "raw:t0+eo-0.5"),
+            _readout("games_eo-4", 680, 120, "raw:t0+eo-4"),
+            _readout("games_eo-0.25", 540, 260, "raw:t0+eo-0.25")]
+    text = verdict([rule] + arms, fire=1.03, pass_p=0.535)
+    lines = {line.split(":")[0]: line for line in text.splitlines()
+             if line.startswith("attribution ")}
+    recorded = lines["attribution games_eo-1.5"]
+    assert "+1.7 SE of the difference" in recorded
+    assert recorded.endswith("differs, rule-specific")
+    assert lines["attribution games_eo-0.5"].endswith("within 1 SE, the lever is act more")
+    assert lines["attribution games_eo-4"].endswith("differs, rule-specific")
+    assert lines["attribution games_eo-0.25"].endswith("differs, rule-specific")
 
 
 def test_mixed_procedures_are_refused(tmp_path):

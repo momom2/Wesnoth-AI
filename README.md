@@ -23,20 +23,28 @@ pip install -r requirements.txt
 pytest                     # fast tier — run after every change
 pytest -m ""               # full suite (~11 min) — before commits/campaigns
 
-# 3. A 40-game match between two checkpoints in the simulator (no Wesnoth
-#    needed; in practice this runs on a rented GPU box, docs/box_specs.md).
-python tools/run_elo_batch.py `
-    --label-a cand --spec-a training/checkpoints/cand.pt `
-    --label-b seed --spec-b training/checkpoints/seed_imit_tierb_start.pt `
-    --outdir eval_games/cand_vs_seed --games 40 --mcts-sims 0 `
-    --raw-temperature-a 0 --raw-temperature-b 0
-python tools/elo_collect.py eval_games/cand_vs_seed --no-catalog
-#   Self-play training (tools/sim_self_play.py, tools/az_loop.py) is being
-#   rebuilt; see docs/plan_20260904.md.
-
-# 4. Watch a trained model play one game (exports a Wesnoth-loadable .bz2).
+# 3. Watch a trained model play one game (exports a Wesnoth-loadable .bz2).
 python tools/sim_demo_game.py
 ```
+
+Matches run in the simulator (no Wesnoth needed) on a rented GPU box
+(docs/box_specs.md). A 40-game match of a checkpoint against the
+reference player (`configs/reference_player.json`), both players at
+the reference's decode (temperature 0, end_turn logit offset -1.5):
+
+```bash
+python tools/reference_player.py --ensure      # fetch the reference checkpoint if missing
+python tools/run_elo_batch.py \
+    --label-a cand --spec-a training/checkpoints/cand.pt --raw-end-turn-offset-a -1.5 \
+    $(python tools/reference_player.py --flags b) \
+    --outdir eval_games/cand_vs_ref --games 40 --mcts-sims 0 \
+    --raw-temperature-a 0 --raw-temperature-b 0 \
+    --device cuda --jobs 10 --persistent-workers --shared-inference
+python tools/elo_collect.py eval_games/cand_vs_ref --no-catalog
+```
+
+Imitation training is `tools/supervised_train.py`; self-play legs run
+through `tools/az_loop.py` (docs/plan_20260904.md).
 
 A bare `git clone` can train: the simulator's runtime WML inputs are
 committed, so no Wesnoth install is required for self-play. Wesnoth
@@ -46,14 +54,17 @@ itself is only needed for the eval bridge (below); `python main.py
 ## Overview
 
 **The simulator is the production training path.**
-[`tools/wesnoth_sim.py`](tools/wesnoth_sim.py) is a pure-Python
-reimplementation of Wesnoth 1.18.4's game logic — ~1000× faster than
-driving Wesnoth as a subprocess, and bit-exact for combat (verified
-strike-for-strike against Wesnoth's `[mp_checkup]` oracle on strict-sync
-replays). [`tools/sim_self_play.py`](tools/sim_self_play.py) drives N
-games per iteration through it with both sides on the same policy, then
-applies one gradient update — REINFORCE + value baseline by default, or
-AlphaZero-style soft-target distillation with `--mcts`.
+[`tools/wesnoth_sim.py`](tools/wesnoth_sim.py) is a Python
+reimplementation (with optional Rust kernels) of Wesnoth 1.18.4's game
+logic — ~1000× faster than driving Wesnoth as a subprocess, and
+bit-exact for combat (verified strike-for-strike against Wesnoth's
+`[mp_checkup]` oracle on strict-sync replays). Self-play runs through
+[`tools/az_loop.py`](tools/az_loop.py): each iteration plays N games
+through the simulator with both sides on the current policy under
+MCTS, then applies one gradient step toward the search's visit counts
+and the games' results. [`tools/sim_self_play.py`](tools/sim_self_play.py),
+the earlier entry point, trains by search distillation by default
+(`--mcts`) and by REINFORCE with a value baseline under `--reinforce`.
 
 **The model** is a transformer over tokenized state (per-unit, per-hex,
 recruit-phantom, and global features). One forward produces the action
@@ -63,8 +74,10 @@ weapon) plus a categorical **C51** value distribution over 51 atoms in
 exposed as `cliffness`.
 
 **Warm-start** comes from behavior cloning of 1.18.x human replays via
-[`tools/supervised_train.py`](tools/supervised_train.py), producing the
-`supervised*.pt` checkpoints that self-play resumes from.
+[`tools/supervised_train.py`](tools/supervised_train.py). Every
+reference checkpoint so far is such an imitation product
+(`configs/reference_player.json` names the current one), and self-play
+starts from one (`az_loop --seed-checkpoint`).
 
 **The live-Wesnoth bridge is eval-only.**
 [`tools/eval_vs_builtin.py`](tools/eval_vs_builtin.py) (plus
@@ -87,7 +100,8 @@ configs/          Reward + weight JSON (reward_selfplay.json, ...).
 docs/             Reference docs — see below.
 training/         checkpoints/ (tracked .pt files), logs/.
 main.py           Setup/maintenance CLI (--check-setup, --clean-games).
-wesnoth_src/      1.18.4-pinned Wesnoth WML (runtime inputs tracked).
+wesnoth_src/      WML-only copy of the Wesnoth 1.18.7 data tree (runtime
+                  subset tracked; CLAUDE.md, "Wesnoth data provenance").
 add-ons/wesnoth_ai/   Lua side of the eval bridge.
 ```
 
@@ -106,9 +120,12 @@ add-ons/wesnoth_ai/   Lua side of the eval bridge.
 
 ## Two things to get right
 
-- **Coordinates:** Wesnoth is 1-indexed (WML/Lua); Python is 0-indexed
-  internally. The ±1 conversion lives only in
-  `wesnoth_ai/state_converter.py` — don't sprinkle it elsewhere.
+- **Coordinates:** Wesnoth is 1-indexed (WML, replays, Lua); Python is
+  0-indexed internally. The ±1 conversion happens only where Wesnoth
+  data enters or leaves Python: the live bridge
+  (`wesnoth_ai/state_converter.py`) and the WML readers and writers
+  under `tools/` (listed in CLAUDE.md, "Coordinates"). Game logic, the
+  encoder and the model work in 0-indexed coordinates only.
 - **Version pin:** `unit_stats.json` / `terrain_db.json` are committed
   1.18.4 scrapes. Unit stats might drift between releases and break combat
   parity — never re-scrape from a different Wesnoth version.

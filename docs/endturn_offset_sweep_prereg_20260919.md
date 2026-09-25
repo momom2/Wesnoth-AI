@@ -80,9 +80,19 @@ another box of the same family), quoted for the curve.
 | -99 | 46200 | 802 (2) | 533-267 | 0.666 +- 0.017 (800) | 0.666 | 15.57 / 6.79 | +120 +- 13 | 882 s |
 
 The curve peaks between -1.5 and -2.5 and falls past it: -2.5 is
-0.012 above -1.5 (under 1 SE, a tie the pre-registered reading
-resolves in favour of the smaller offset), -4 is 3.3 SE below -2.5,
-and -99 is 8 SE below it. So the reading is: **-1.5 is the proposed
+0.012 above -1.5 (0.6 SE of the difference between two independent
+matches, seed bases 43000 and 46000: a tie the pre-registered reading
+resolves in favour of the smaller offset), -4 is 0.048 below -2.5,
+and -99 is 0.135 below it. Those two gaps read about 2.3 and 6.2 SE of
+the difference if the arms were independent, and about 3.1-3.4 and
+8.1-9.6 on either arm's SE alone. Neither pair of figures is exact:
+the script steps the seed base by 100 between 800-game matches
+(`scripts/endturn_offset_sweep_box.sh`), so -4 shares 700 and -99
+shares 600 of their 800 base game slots with -2.5, and a shared slot
+plays the same map, factions, sides and luck salt. The exact figure is
+the paired difference over the shared slots, and the per-game records
+were not kept (the script uploaded only the readouts). Both gaps
+exceed 2 SE under either figure. So the reading is: **-1.5 is the proposed
 reference decode, with -2.5 its equal within 1 SE and fewer capped
 games (1% against 7%)**; and the end_turn head does carry
 information the argmax needs, since acting while anything is legal

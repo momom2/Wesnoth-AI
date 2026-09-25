@@ -29,30 +29,33 @@ What's faithful to Wesnoth (because it shares the replay-recon code):
   - Scenario events (time_area, store_locations, Aethermaw morph, etc).
   - Village capture on entry.
   - Slow-status drop at end_turn.
+  - Unit advancement at max experience, AMLA included
+    (replay_dataset._maybe_advance_unit): a replay's [choose] when
+    present, else advances_to[0]; self-play draws uniformly over the
+    targets after enable_uniform_advancement().
+  - Random rolls. Every attack and recruit takes its seed from
+    _next_seed(): a hash of the request counter, salted by _seed_salt
+    when one is set (per-game luck in eval and self-play, independent
+    rolls across search forks). combat.MTRng, a bit-exact
+    std::mt19937, turns the seed into combat and trait rolls, and
+    sim_to_replay writes each seed into the exported replay's
+    [random_seed].
 
-What's NOT yet covered (deferred -- check before claiming
-self-play parity):
+What's NOT covered (check before claiming self-play parity):
   - Default RCA AI as the opponent. For self-play we don't need this
     (both sides driven by our policy); for eval against built-in AI
     we'd need to reimplement RCA, which is a separate large project.
-  - Unit advancement on level-up (replays handle this implicitly via
-    the next [unit] command's level info; the simulator would need
-    to apply it directly when XP threshold hits).
   - Some scenario events on maps we don't currently train on.
-  - Random number generation for trait rolls and combat. The
-    replay-recon code uses seeded RNG matching Wesnoth's; for
-    self-play we just use Python's random module (different RNG
-    stream than Wesnoth, but statistically equivalent).
 
 Usage:
     sim = WesnothSim.from_replay("replays_dataset/<id>.json.gz")
     while not sim.done:
         action = policy.select_action(sim.state, game_label="sim")
         sim.step(action)
-    print(sim.winner, sim.turn_count)
+    print(sim.winner, sim.turn_number)
 
-Or for AI-vs-AI:
-    result = sim.run_game(policy_a, policy_b, max_turns=100)
+Or for AI-vs-AI (the turn cap is the constructor's max_turns):
+    result = sim.run_game(policy_a, policy_b)   # SimResult: winner, turns, ...
 """
 
 from __future__ import annotations

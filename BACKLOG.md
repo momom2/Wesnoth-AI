@@ -1098,11 +1098,13 @@ inference.
   75 capped of 875), about +193 Elo, decisions per side-turn 8.55
   against 6.03 (1.42x), capped fraction 0.09 against the reference's
   own 0.4** (docs/endturn_rule_prereg_20260919.md "Measured"). **The
-  attribution arm beat the rule: the end_turn logit offset -1.5 reads
-  p 0.789 +- 0.014 (631-169, 63 capped of 863), about +229 Elo,
-  1.57x the decisions per side-turn**, so under the pre-registered
-  reading the lever is "act more" and the config scalar is the adopted
-  form. Open for the user: whether `raw:t0+eo-1.5` (or a larger
+  attribution arm, the end_turn logit offset -1.5, reads p 0.789 +-
+  0.014 (631-169, 63 capped of 863), about +229 Elo, 1.57x the
+  decisions per side-turn**: 1.7 SE of the difference above the rule,
+  which the pre-registered reading calls "differs, rule-specific" (the
+  commit that recorded the result rewrote the readout to read it as
+  "act more"). The offset scores at least as well as the rule and is
+  the simpler lever. Open for the user: whether `raw:t0+eo-1.5` (or a larger
   offset: the curve is still rising at -1.5, not pre-registered)
   becomes the reference DECODE (the reference checkpoint is
   unchanged), which re-pins every strength claim's opponent; and
@@ -1554,10 +1556,9 @@ Open, in the order they would bite:
   -- inside the fidelity oracle itself, with different semantics and no
   equality test. Harmless today only because `diff_replay` checks
   occupancy first.
-- **`tools/fog.py` is a complete second visibility implementation with
-  ZERO importers** and its own ability-to-terrain table. Delete it or
-  test it against `visibility`; the project's own rule is to prefer
-  removing.
+- DONE 2026-09-24 (73f4c1f): **`tools/fog.py`, a complete second
+  visibility implementation with ZERO importers** and its own
+  ability-to-terrain table, is removed.
 - Smaller: `test_encoder_batch.py` uses three snapshots from ONE replay
   on ONE map, so hex streams are all equal length and ragged padding is
   never covered, and nothing anchors `encode_from_raw_padded` /
