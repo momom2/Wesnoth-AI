@@ -305,17 +305,36 @@ def _action_to_json(action: Dict) -> Dict:
     return out
 
 
+def pre_end_turn_snapshot(sim: WesnothSim, policy, mover: int) -> Dict:
+    """The position the mover sees as it ends its turn, as data: the
+    commands and recruit rejections the candidate turn applied from the
+    boundary (the forms tools/game_record.py walks), the state's
+    digest, and the policy's value head read there (the mover is still
+    the side to move). tools/turn_value.py rebuilds the state from the
+    boundary and these, and checks the digest."""
+    from wesnoth_ai.classes import state_digest
+    return {"commands": [list(rc.cmd) for rc in sim.command_history],
+            "rejections": [list(r) for r in sim.recruit_rejections],
+            "digest": state_digest(sim.gs),
+            "value_pre": _value_read(policy, sim.gs, mover)}
+
+
 def play_side_turn(sim: WesnothSim, player, game_label: str,
-                   actions_out: Optional[List[Dict]] = None) -> int:
+                   actions_out: Optional[List[Dict]] = None,
+                   snapshot_out: Optional[Dict] = None) -> int:
     """Play the side to move until it has ended its turn or the game
     is over. Returns the number of decisions before the end_turn;
-    appends every action (end_turn included) to `actions_out`."""
+    appends every action (end_turn included) to `actions_out`, and
+    fills `snapshot_out` with the pre-end_turn snapshot when the turn
+    ends by an end_turn."""
     side = sim.current_side
     decisions = 0
     while not sim.done and sim.current_side == side:
         action = _decide(player, sim, game_label)
         if action.get("type", "end_turn") != "end_turn":
             decisions += 1
+        elif snapshot_out is not None:
+            snapshot_out.update(pre_end_turn_snapshot(sim, player, side))
         if actions_out is not None:
             actions_out.append(_action_to_json(action))
         sim.step(action)
@@ -360,8 +379,10 @@ def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
         actions.append(_action_to_json(act))
         sim.step(act)
         added += 1
+    snapshot = None
     if not sim.done and sim.current_side == side:
         end = {"type": "end_turn"}
+        snapshot = pre_end_turn_snapshot(sim, player, side)
         actions.append(end)
         sim.step(end)
     mover = position.gs.global_info.current_side
@@ -369,6 +390,7 @@ def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
         "sample_seed": None, "proposer": "continue", "extra_decisions": added,
         "n_decisions": sum(1 for a in actions if a.get("type") != "end_turn"),
         "actions": actions,
+        "pre_end_turn": snapshot,
         "value_post": (None if sim.done else _value_read(player, sim.gs, mover)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         "post_state_key": state_key(sim.gs),
@@ -456,12 +478,16 @@ def _candidate_turn(position: BoundaryPosition, player, max_turns: int,
                     game_label: str) -> Tuple[Dict, WesnothSim]:
     sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
     actions: List[Dict] = []
-    decisions = play_side_turn(sim, player, game_label, actions)
+    snapshot: Dict = {}
+    decisions = play_side_turn(sim, player, game_label, actions, snapshot)
     mover = position.gs.global_info.current_side
     candidate = {
         "sample_seed": sample_seed,
         "n_decisions": decisions,
         "actions": actions,
+        # What the mover sees before its end_turn, for a grader that
+        # reads the mover's own observation (tools/turn_value.py).
+        "pre_end_turn": snapshot or None,
         # Forward-only pre-graders (docs/turn_proposer_design_20260905.md):
         # the value head on the post-turn state and the HP margin, both
         # from the mover's side, to be compared with the playout mean.
@@ -613,21 +639,37 @@ def finish_record(index: int, meta: Dict, base: Dict, alternatives: List[Dict],
     return record
 
 
-def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
+def _replay_candidate(position: BoundaryPosition, recorded: Dict, policy,
                       max_turns: int, salt: str, game_label: str,
                       source: str) -> Tuple[Dict, WesnothSim]:
-    """A recorded turn replayed command by command (a confirmation
-    grades the turn the screen selected, not a fresh sample: 12 of 48
-    sampled turns did not reproduce across runs, docs/
+    """A recorded candidate turn replayed action by action (a
+    confirmation grades the turn the screen selected, not a fresh
+    sample: 12 of 48 sampled turns did not reproduce across runs, docs/
     turn_proposer_design_20260905.md 2.7). With the screen's turn salt
-    the realization is the screen's too."""
+    the realization is the screen's too. The recruit rejections the
+    screen's turn met are replayed where they happened, and a recorded
+    pre-end_turn digest must be met."""
+    actions = recorded["actions"]
+    recorded_snapshot = recorded.get("pre_end_turn") or {}
+    pending = sorted((tuple(r) for r in recorded_snapshot.get("rejections", ())),
+                     key=lambda r: r[0])
     sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
     side = sim.current_side
+
+    def reject_due() -> None:
+        while pending and pending[0][0] == len(sim.command_history):
+            _, x, y = pending.pop(0)
+            sim.reject_recruit_hex(int(x), int(y))
+
     played: List[Dict] = []
+    snapshot = None
     for a in actions:
         if sim.done or sim.current_side != side:
             break
+        reject_due()
         act = _action_from_json(a)
+        if act.get("type", "end_turn") == "end_turn":
+            snapshot = pre_end_turn_snapshot(sim, policy, side)
         played.append(_action_to_json(act))
         sim.step(act)
         if sim.last_step_rejected:
@@ -638,11 +680,19 @@ def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
     if len(played) != len(actions):
         raise RuntimeError(f"{game_label}: the turn ended after {len(played)} of "
                            f"{len(actions)} recorded actions")
+    if pending:
+        raise RuntimeError(f"{game_label}: recruit rejections {pending} were recorded at "
+                           f"points the replayed turn never reached")
+    want = recorded_snapshot.get("digest")
+    if want is not None and (snapshot is None or snapshot["digest"] != want):
+        raise RuntimeError(f"{game_label}: the replayed turn does not reach the recorded "
+                           f"pre-end_turn position")
     mover = position.gs.global_info.current_side
     candidate = {
         "sample_seed": None, "proposer": "replay", "source": source,
         "n_decisions": sum(1 for a in played if a.get("type") != "end_turn"),
         "actions": played,
+        "pre_end_turn": snapshot,
         "value_post": (None if sim.done else _value_read(policy, sim.gs, mover)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         "post_state_key": state_key(sim.gs),
@@ -651,12 +701,12 @@ def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
     return candidate, sim
 
 
-def replay_selection(record: Dict, top: int) -> List[Tuple[str, List[Dict]]]:
-    """(name, actions) of a screen record's alternatives to confirm:
+def replay_selection(record: Dict, top: int) -> List[Tuple[str, Dict]]:
+    """(name, candidate) of a screen record's alternatives to confirm:
     the `top` by screen mean, best first, named by their index in the
     screen record's alternatives list (`screen_alt<j>`)."""
     ranked = sorted(enumerate(record.get("alternatives", [])), key=lambda ja: -ja[1]["mean"])
-    return [(f"screen_alt{j}", a["actions"]) for j, a in ranked[:top]]
+    return [(f"screen_alt{j}", a) for j, a in ranked[:top]]
 
 
 def _check_replayed_base(base: Dict, screen_base: Dict, game_label: str) -> None:
@@ -685,7 +735,7 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
     pairs = reference_pairs(policy, cfg)
 
     if replay is not None:
-        base, base_sim = _replay_candidate(position, replay["base"]["actions"], policy,
+        base, base_sim = _replay_candidate(position, replay["base"], policy,
                                            max_turns, salt, label + "base", "base")
         _check_replayed_base(base, replay["base"], label + "base")
     else:
@@ -694,9 +744,9 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
     seen: Dict[int, str] = {base["post_state_key"]: "base"}
     alternatives: List[Tuple[int, Dict, WesnothSim]] = []
     dropped: List[Dict] = []
-    for k, (name, actions) in enumerate(replay_selection(replay, replay_top)
-                                        if replay is not None else []):
-        alt, alt_sim = _replay_candidate(position, actions, policy, max_turns, salt,
+    for k, (name, recorded) in enumerate(replay_selection(replay, replay_top)
+                                         if replay is not None else []):
+        alt, alt_sim = _replay_candidate(position, recorded, policy, max_turns, salt,
                                          f"{label}rep{k}", name)
         same = seen.get(alt["post_state_key"])
         if same is not None:
@@ -1029,6 +1079,29 @@ def _resolve_inference(args) -> PolicySpec:
                       infer_compile=comp)
 
 
+def launch_shared_inference(spec: PolicySpec, server_dir: Path, jobs: int,
+                            window_ms: float, tag: str = "turn_gap"):
+    """One inference server (tools/eval_inference_server.py) over
+    spec's checkpoint for `jobs` workers. Returns the server and the
+    spec the workers load: its address and its precision path."""
+    if spec.checkpoint == "random":
+        raise SystemExit("--shared-inference needs a checkpoint file (the server "
+                         "loads it), not 'random'")
+    from tools.eval_inference_server import launch_inference_server
+    server_dir = Path(server_dir)
+    server_dir.mkdir(parents=True, exist_ok=True)
+    server = launch_inference_server(
+        spec.checkpoint, server_dir,
+        tag=tag, device=spec.device, infer_bf16=spec.infer_bf16,
+        window_ms=window_ms, max_batch=max(1, jobs))
+    worker_spec = PolicySpec(checkpoint=spec.checkpoint, device=spec.device,
+                             infer_bf16=bool(server.info["infer_bf16"]),
+                             infer_compile=False, inference_address=server.address,
+                             infer_packed_trunk=bool(server.info["packed_trunk"]))
+    log.info("inference server at %s: %s", server.address, server.info)
+    return server, worker_spec
+
+
 def _fresh_playouts(cfg: GapConfig, screen_cfg: Dict, offset_arg: int) -> GapConfig:
     """A confirmation's playout salts must not repeat the screen's:
     with the screen's seed, an offset of 0 (the CLI default) becomes
@@ -1203,21 +1276,8 @@ def main(argv) -> int:
     spec = _resolve_inference(args)
     server = None
     if args.shared_inference:
-        if spec.checkpoint == "random":
-            raise SystemExit("--shared-inference needs a checkpoint file (the server "
-                             "loads it), not 'random'")
-        from tools.eval_inference_server import launch_inference_server
-        server_dir = args.out.parent if args.out else Path(".")
-        server_dir.mkdir(parents=True, exist_ok=True)
-        server = launch_inference_server(
-            spec.checkpoint, server_dir,
-            tag="turn_gap", device=spec.device, infer_bf16=spec.infer_bf16,
-            window_ms=args.inference_window_ms, max_batch=max(1, args.jobs))
-        spec = PolicySpec(checkpoint=spec.checkpoint, device=spec.device,
-                          infer_bf16=bool(server.info["infer_bf16"]),
-                          infer_compile=False, inference_address=server.address,
-                          infer_packed_trunk=bool(server.info["packed_trunk"]))
-        log.info("inference server at %s: %s", server.address, server.info)
+        server, spec = launch_shared_inference(spec, args.out.parent if args.out else Path("."),
+                                               args.jobs, args.inference_window_ms)
     cfg = GapConfig(k_alternatives=args.alternatives, playouts=args.playouts,
                     temperature=args.temperature, cap_turns=args.cap_turns,
                     playout_temperature=args.playout_temperature,

@@ -299,16 +299,25 @@ def test_shared_inference_reproduces_the_in_process_measurement(tmp_path, positi
                     [got["base"]] + got["alternatives"]):
         if a["value_post"] is not None:
             assert abs(a["value_post"] - b["value_post"]) < 1e-4
+        if a["pre_end_turn"] is not None:
+            assert abs(a["pre_end_turn"]["value_pre"] - b["pre_end_turn"]["value_pre"]) < 1e-4
     assert stats is not None and stats["requests"] > 0 and stats["connections"] == 1
 
 
 def _strip(cands):
     """Candidates without the process-local fields (state keys hash
-    strings per process; value_post is compared with a tolerance)."""
+    strings per process) and the value reads (compared with a
+    tolerance)."""
     if isinstance(cands, dict):
         cands = [cands]
-    return [{k: v for k, v in c.items() if k not in ("post_state_key", "value_post")}
-            for c in cands]
+    out = []
+    for c in cands:
+        kept = {k: v for k, v in c.items() if k not in ("post_state_key", "value_post")}
+        if kept.get("pre_end_turn"):
+            kept["pre_end_turn"] = {k: v for k, v in kept["pre_end_turn"].items()
+                                    if k != "value_pre"}
+        out.append(kept)
+    return out
 
 
 def test_cli_shared_inference_launches_one_server_for_the_workers(tmp_path, positions,
@@ -465,6 +474,42 @@ def test_confirmation_replays_the_screened_turns(policy, positions):
                                 replay=screen, replay_top=1)
     assert fresh["base"]["seeds"] != screen["base"]["seeds"]
     assert fresh["base"]["actions"] == screen["base"]["actions"]
+
+
+def test_candidates_record_the_position_before_their_end_turn(policy, positions):
+    """Every candidate that ends its turn records the commands, recruit
+    rejections and digest of the position before its end_turn, which
+    rebuild that position from the boundary; a confirmation's replay
+    reaches the same digest, and a replay or a rebuild that does not is
+    refused."""
+    import copy
+    from tools.game_record import RecordMismatch
+    from tools.turn_value import apply_snapshot
+    cfg = tg.GapConfig(k_alternatives=2, continue_edits=1, playouts=1, temperature=1.0,
+                       cap_turns=1, seed=1)
+    screen = tg.measure_position(policy, positions[0], cfg)
+    mover = positions[0].gs.global_info.current_side
+    rebuilt = 0
+    for cand in [screen["base"]] + screen["alternatives"]:
+        snap = cand["pre_end_turn"]
+        assert (snap is None) == cand["terminal_in_turn"]
+        if snap is None:
+            continue
+        gs = copy.deepcopy(positions[0].gs)
+        apply_snapshot(gs, snap, "candidate")         # raises unless the digest is met
+        assert gs.global_info.current_side == mover
+        assert -1.0 <= snap["value_pre"] <= 1.0
+        rebuilt += 1
+    assert rebuilt >= 2
+    replayed = tg.measure_position(policy, positions[0], cfg, replay=screen, replay_top=1)
+    assert replayed["base"]["pre_end_turn"]["digest"] == screen["base"]["pre_end_turn"]["digest"]
+    other = json.loads(json.dumps(screen))
+    other["base"]["pre_end_turn"]["rejections"] = [[0, 0, 0]]
+    with pytest.raises(RuntimeError, match="pre-end_turn"):
+        tg.measure_position(policy, positions[0], cfg, replay=other)
+    wrong = dict(screen["base"]["pre_end_turn"], digest="0" * 16)
+    with pytest.raises(RecordMismatch):
+        apply_snapshot(copy.deepcopy(positions[0].gs), wrong, "candidate")
 
 
 def test_cli_confirm_from_selects_the_large_gap_positions(tmp_path, policy, positions,

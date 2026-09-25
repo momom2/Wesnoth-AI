@@ -46,10 +46,10 @@ def playout_mean_se(candidate: Dict) -> Tuple[float, float]:
 
 def pregrader_value(candidate: Dict, key: str) -> Optional[float]:
     """The pre-grader's read of a candidate. A turn that ended the game
-    has no value_post; the value of a terminal state is its outcome
+    has no value read; the value of a terminal state is its outcome
     (the repeated terminal result), which is what a value head reads."""
     x = candidate.get(key)
-    if x is None and key == "value_post" and candidate.get("terminal_in_turn"):
+    if x is None and candidate.get("terminal_in_turn"):
         return float(candidate["outcomes"][0])
     return None if x is None else float(x)
 
@@ -157,7 +157,21 @@ def rank_checks(records: Sequence[Dict], key: str, threshold: float) -> Dict:
     }
 
 
-def analyze(records: Sequence[Dict], threshold: float) -> Dict:
+def null_within_position_sd(records: Sequence[Dict]) -> Optional[float]:
+    """The within-position residual SD of a grader that gives every
+    candidate of a position the same read: the spread of the playout
+    means around their position's mean, weighted as the graders are."""
+    ys, ns, pos = [], [], []
+    for rec in records:
+        for cand in candidates_of(rec):
+            ys.append(playout_mean_se(cand)[0])
+            ns.append(len(cand["outcomes"]))
+            pos.append(int(rec["index"]))
+    return within_position_sd(np.asarray(ys), np.asarray(pos), np.asarray(ns, dtype=float))
+
+
+def analyze(records: Sequence[Dict], threshold: float,
+            keys: Sequence[str] = PREGRADERS) -> Dict:
     ses = [playout_mean_se(c)[1] for r in records for c in candidates_of(r)]
     ses = [s for s in ses if not math.isnan(s)]
     out = {"n_positions": len(records),
@@ -165,7 +179,7 @@ def analyze(records: Sequence[Dict], threshold: float) -> Dict:
            "playout_mean_se_mean": float(np.mean(ses)) if ses else None,
            "threshold": threshold, "pregraders": {}}
     noise_var = float(np.mean([s ** 2 for s in ses])) if ses else 0.0
-    for key in PREGRADERS:
+    for key in keys:
         x, y, n, pos, skipped = collect(records, key)
         a, b = fit_line(x, y, n)
         resid = y - (a * x + b)

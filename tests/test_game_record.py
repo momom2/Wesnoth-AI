@@ -194,6 +194,25 @@ def test_the_walk_passes_through_every_position_the_game_did():
     assert compared >= 20
 
 
+def test_turn_starts_are_the_positions_right_after_each_init_side():
+    """Each turn start is the simulator's position after that init_side,
+    before the turn's first decision: a recruit rejection met during the
+    turn is not in it."""
+    sim, setup, after = _played_game(max_turns=4)
+    rec = json.loads(json.dumps(game_record.game_record(sim, setup, game_label="g", build={})))
+    init_sides = [k for k, cmd in enumerate(rec["commands"]) if cmd[0] == "init_side"]
+    # A rejection as the first thing of the second turn start's turn:
+    # it belongs to that turn, not to its start.
+    first_move_of_turn = init_sides[1] + 1
+    rec["rejections"] = [[first_move_of_turn, 0, 0]]
+    starts = [(k, copy.deepcopy(gs)) for k, gs in game_record.turn_starts(rec)]
+    assert [k for k, _ in starts] == init_sides and len(starts) >= 4
+    for k, gs in starts:
+        assert not getattr(gs.global_info, "_recruit_rejected_hexes", None), k
+        if k in after:
+            assert _differences(gs, after[k]) == [], k
+
+
 def test_the_fingerprints_hold_in_a_process_with_other_string_hashes(tmp_path):
     """Python salts string hashes per process, and records are rebuilt
     elsewhere: a record written here rebuilds, checked, in a process

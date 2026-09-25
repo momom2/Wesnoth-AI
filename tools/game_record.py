@@ -27,6 +27,7 @@ rebuild the game.
     GameRecordLog(path).write(rec)                        # one gzip member
     for rec in read_records(path): ...
     for k, gs, cmd in walk(rec): ...                      # the state before each command
+    for k, gs in turn_starts(rec): ...                    # each side's turn start
     gs = rebuild(rec)                                     # the final state
 
 A log is a sequence of gzip members, one record each, so a log grows as
@@ -183,9 +184,14 @@ class GameRecordLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def write(self, rec: Dict[str, Any]) -> None:
-        line = (json.dumps(rec, separators=(",", ":")) + "\n").encode("utf-8")
+        self.write_many([rec])
+
+    def write_many(self, recs: List[Dict[str, Any]]) -> None:
+        """Several records as ONE gzip member: a reader sees all of
+        them or, after a crash mid-write, none."""
+        lines = "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in recs)
         with open(self.path, "ab") as fh:
-            fh.write(gzip.compress(line))
+            fh.write(gzip.compress(lines.encode("utf-8")))
             fh.flush()
             os.fsync(fh.fileno())
 
@@ -387,6 +393,32 @@ def _check(rec: Dict[str, Any], gs, want: Optional[str], where: str) -> None:
             f"is not the played game's")
 
 
+def _replay_steps(rec: Dict[str, Any], gs, verify: bool) -> Iterator[Tuple[str, int, Any, list]]:
+    """The two moments of each command k on `gs`: ("before", k, state,
+    command), the recruit rejections recorded before it applied, and
+    ("after", k, state, command), the command applied and checked. When
+    exhausted, `gs` holds the final position, pointed at the side the
+    game ended on, and is checked against the final fingerprint."""
+    from tools.replay_dataset import _apply_command
+    rejections: Dict[int, List[Tuple[int, int]]] = {}
+    for k, x, y in rec.get("rejections", ()):
+        rejections.setdefault(int(k), []).append((int(x), int(y)))
+    digests = {int(k): d for k, d in rec.get("turn_digests", ())} if verify else {}
+    n = len(rec["commands"])
+    for k, cmd in enumerate(rec["commands"]):
+        for x, y in rejections.get(k, ()):
+            _reject_recruit(gs, x, y)
+        yield "before", k, gs, cmd
+        _apply_command(gs, cmd)
+        _check(rec, gs, digests.get(k), f"after command {k} ({cmd[0]})")
+        yield "after", k, gs, cmd
+    for x, y in rejections.get(n, ()):
+        _reject_recruit(gs, x, y)
+    if "final_side" in rec:
+        gs.global_info.current_side = int(rec["final_side"])
+    _check(rec, gs, rec.get("final_digest") if verify else None, "at the end")
+
+
 def walk(rec: Dict[str, Any], gs=None, *, verify: bool = True) -> Iterator[Tuple[int, Any, list]]:
     """(index, state before the command, command) for every command of
     the record, the recruit rejections applied where they happened.
@@ -397,25 +429,24 @@ def walk(rec: Dict[str, Any], gs=None, *, verify: bool = True) -> Iterator[Tuple
     With `verify`, each position a player side's turn started from and
     the final position are checked against the record's fingerprints
     (format 2 on), and a difference raises `RecordMismatch`."""
-    from tools.replay_dataset import _apply_command
     if gs is None:
         gs = start_state(rec, verify=verify)
-    rejections: Dict[int, List[Tuple[int, int]]] = {}
-    for k, x, y in rec.get("rejections", ()):
-        rejections.setdefault(int(k), []).append((int(x), int(y)))
-    digests = {int(k): d for k, d in rec.get("turn_digests", ())} if verify else {}
-    n = len(rec["commands"])
-    for k, cmd in enumerate(rec["commands"]):
-        for x, y in rejections.get(k, ()):
-            _reject_recruit(gs, x, y)
-        yield k, gs, cmd
-        _apply_command(gs, cmd)
-        _check(rec, gs, digests.get(k), f"after command {k} ({cmd[0]})")
-    for x, y in rejections.get(n, ()):
-        _reject_recruit(gs, x, y)
-    if "final_side" in rec:
-        gs.global_info.current_side = int(rec["final_side"])
-    _check(rec, gs, rec.get("final_digest") if verify else None, "at the end")
+    for moment, k, state, cmd in _replay_steps(rec, gs, verify):
+        if moment == "before":
+            yield k, state, cmd
+
+
+def turn_starts(rec: Dict[str, Any], gs=None, *, verify: bool = True) -> Iterator[Tuple[int, Any]]:
+    """(index of the init_side command, the position right after it)
+    for every side's turn start, the neutral side's included: the
+    position the side acts from, before any decision of its turn (so
+    before its recruit rejections). The state is the walk's: copy it to
+    keep it. Checks as `walk`."""
+    if gs is None:
+        gs = start_state(rec, verify=verify)
+    for moment, k, state, cmd in _replay_steps(rec, gs, verify):
+        if moment == "after" and cmd[0] == "init_side":
+            yield k, state
 
 
 def _reject_recruit(gs, x: int, y: int) -> None:
