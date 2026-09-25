@@ -5,7 +5,7 @@ Every command of each replay goes to the Python state through
 `replay_dataset._apply_command` and to a `wesnoth_ai.game_core.CoreState`
 built from a copy of the initial state; after every command (or every
 `--every` commands) the two states are compared over their modeled
-content (`game_core.states_equal`). A difference is a divergence,
+content (`game_core.state_differences`). A difference is a divergence,
 reported with the command's index and kind and the path the core took
 ("rust" or the Python fallback). Certification of the port's step
 kernels (docs/rust_port_plan.md phase 4).
@@ -37,7 +37,7 @@ log = logging.getLogger("diff_core")
 def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
               counts: Optional[Counter] = None) -> List[str]:
     from tools.replay_dataset import _apply_command, _build_initial_gamestate, _setup_scenario_events
-    from wesnoth_ai.game_core import CoreState, states_equal
+    from wesnoth_ai.game_core import CoreState, state_differences
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     gs = _build_initial_gamestate(data)
@@ -55,7 +55,7 @@ def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
         if counts is not None:
             counts[(kind, path)] += 1
         if idx % every == 0 or kind in ("init_side", "attack"):
-            diffs = states_equal(gs, cs.to_state(), stash=False)
+            diffs = state_differences(gs, cs.to_state(), stash=False)
             if diffs:
                 out.append(f"{gz_path.name}#{idx} {kind} via {path}: " + " | ".join(diffs[:4]))
                 if stop_on_first:

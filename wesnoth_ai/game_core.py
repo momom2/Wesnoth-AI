@@ -801,7 +801,7 @@ def units_equal(a: Unit, b: Unit) -> bool:
     return True
 
 
-def states_equal(a: GameState, b: GameState, *, stash: bool = True) -> List[str]:
+def state_differences(a: GameState, b: GameState, *, stash: bool = True) -> List[str]:
     """The differences between two states over the modeled content, as
     strings (empty when equal)."""
     diffs: List[str] = []
@@ -859,4 +859,4 @@ def states_equal(a: GameState, b: GameState, *, stash: bool = True) -> List[str]
 
 
 __all__ = ["CoreState", "map_static", "type_fields", "unit_fields", "unit_from_fields",
-           "units_equal", "states_equal", "game_core_class"]
+           "units_equal", "state_differences", "game_core_class"]
