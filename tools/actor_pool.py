@@ -96,6 +96,7 @@ from tools.actor_worker import (
     _R_FATAL, _R_GAME, _R_OUTCOME, _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop,
     _done_report, _set_fd_safe_sharing, _zero_reward,
 )
+from tools.mp_teardown import close_queue, discarding, end_stragglers, join_all, start_child
 from tools.serve_worker import (
     _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED, _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE,
     _SRV_STATS, _SRV_STOP, _SRV_SYNC, _BatchPicker, _best_window_rate, _merge_timelines,
@@ -149,46 +150,12 @@ class _Serving:
     stopped: bool = False
 
 
-def _close_queue(q, drain: bool) -> None:
-    """Release one mp.Queue without ever waiting on its feeder thread.
-
-    A put() only hands the object to the queue's feeder thread; the
-    bytes reach the pipe later. A feeder blocked in `send_bytes` on a
-    pipe full of messages nobody will read (a wedged actor's unread
-    PLAYs; measured: three 6.6 KB messages against Windows' 8 KiB pipe
-    hang it about half the time, twenty reliably, Linux's 64 KiB pipe
-    at eight to ten) never returns, and `join_thread()` is untimed.
-    So `cancel_join_thread()` is what keeps this from hanging: after
-    it the feeder is abandoned as a daemon and `join_thread()` is a
-    no-op (CPython's Finalize.cancel clears its key). `drain` first
-    reads out, with a bounded 50 ms wait per message, whatever is
-    still buffered, so the pipe's bytes are released rather than left
-    to the OS; pass it ONLY for a queue this process alone writes to,
-    since a half-written message from a killed child would block a
-    read for a remainder that never comes. Every child is joined
-    before this runs, so nothing refills a queue behind us."""
-    if q is None:
-        return
-    if drain:
-        while True:
-            try:
-                q.get(timeout=0.05)
-            except Exception:        # empty, or a queue already broken
-                break
-        try:
-            q.cancel_join_thread()   # backstop: never wait forever here
-        except Exception:
-            pass
-    else:
-        try:
-            q.cancel_join_thread()
-        except Exception:            # a plain queue.Queue has no feeder
-            pass
-    try:
-        q.close()
-    except Exception:
-        pass
-
+def _log_failure_report(msg) -> None:
+    """Shutdown discards what the children send it; the failures among
+    that (an actor's error or fatal report, a serve process's error
+    reply) are logged, since nothing else will ever read them."""
+    if isinstance(msg, tuple) and len(msg) == 3 and msg[0] in (_R_ERROR, _R_FATAL, _S_ERROR):
+        log.error(f"shutdown: {msg[0]} report from child {msg[1]}:\n{msg[2]}")
 
 
 # =====================================================================
@@ -337,6 +304,10 @@ class ActorPool:
         # iteration can re-join them instead of forgetting a thread that
         # is still reading the request queue.
         self._stuck_serve_threads: List[threading.Thread] = []
+        # The serving started and not yet stopped (an iteration's, or a
+        # stream's): shutdown() stops its threads before closing the
+        # queues they read.
+        self._open_serving: Optional[_Serving] = None
 
     # -- lifecycle ----------------------------------------------------
 
@@ -364,21 +335,19 @@ class ActorPool:
         self._game_q = ctx.Queue()
         self._procs = []
         for aid in range(self._n):
-            p = ctx.Process(
-                target=_actor_loop,
-                args=(aid, self._ctrl_qs[aid], self._req_qs,
-                      self._resp_qs[aid], self._result_q, self._game_q,
-                      self._mcts_cfg,
-                      self._scenario_opts, self._max_turns,
-                      self._max_turns_min,
-                      self._pvp_kwargs, self._log_level,
-                      self._actor_threads, self._turn_cfg,
-                      self._gbc_labels, self._pt_cfg,
-                      self._train_kwargs, self._ground_cfg,
-                      self._game_records_dir),
-                daemon=True, name=f"actor-{aid}")
-            p.start()
-            self._procs.append(p)
+            self._procs.append(start_child(
+                ctx, _actor_loop,
+                (aid, self._ctrl_qs[aid], self._req_qs,
+                 self._resp_qs[aid], self._result_q, self._game_q,
+                 self._mcts_cfg,
+                 self._scenario_opts, self._max_turns,
+                 self._max_turns_min,
+                 self._pvp_kwargs, self._log_level,
+                 self._actor_threads, self._turn_cfg,
+                 self._gbc_labels, self._pt_cfg,
+                 self._train_kwargs, self._ground_cfg,
+                 self._game_records_dir),
+                name=f"actor-{aid}"))
         if self._serve_processes > 1:
             self._spawn_servers(ctx)
         self._server = InferenceServer(
@@ -492,15 +461,14 @@ class ActorPool:
         try:
             for sid in self._server_ids():
                 cq = ctx.Queue()
-                p = ctx.Process(
-                    target=_server_loop,
-                    args=(sid, cq, self._server_q, self._req_qs[sid], self._resp_qs,
-                          blueprint, switches, str(device), self._serve_threads,
-                          self._max_batch, self._serve_timeout, self._coalesce,
-                          self._coalesce_gap, self._log_level,
-                          self._server_torch_threads),
-                    daemon=True, name=f"serve-{sid}")
-                p.start()
+                p = start_child(
+                    ctx, _server_loop,
+                    (sid, cq, self._server_q, self._req_qs[sid], self._resp_qs,
+                     blueprint, switches, str(device), self._serve_threads,
+                     self._max_batch, self._serve_timeout, self._coalesce,
+                     self._coalesce_gap, self._log_level,
+                     self._server_torch_threads),
+                    name=f"serve-{sid}")
                 self._server_ctrl_qs.append(cq)
                 self._server_procs.append(p)
         finally:
@@ -667,7 +635,7 @@ class ActorPool:
         failures = failures or {}
         for aid in range(self._n):
             if self._server_of(aid) in dead:
-                self._resp_qs[aid].put((_RID_SERVER_DEAD, None))
+                self._resp_qs[aid].put((_RID_SERVER_DEAD, iter_idx))
         what = "; ".join(
             f"serve process {sid} failed:\n{failures[sid]}" if sid in failures
             else f"serve process {sid} died (exitcode {self._server_procs[sid - 1].exitcode})"
@@ -740,8 +708,8 @@ class ActorPool:
         actors take games from a queue the stream keeps topped up, the
         caller collects completed games in windows and publishes
         weights between them while serving goes on. `tag` is the
-        iteration index the tickets and the PLAY carry (the actors
-        skip tickets of another tag); `tickets_ahead` is how many
+        iteration index the tickets and the PLAY carry (an actor plays
+        only tickets of its PLAY's tag); `tickets_ahead` is how many
         unstarted games the queue holds beyond the actors' own (one
         per actor by default)."""
         from tools.actor_stream import ActorStream
@@ -812,14 +780,17 @@ class ActorPool:
                       picker=_BatchPicker(self._coalesce, self._coalesce_gap),
                       t_start=time.monotonic())
         self._picker = sv.picker
-        sv.threads = [threading.Thread(
-            target=_serve_loop,
-            args=(self._server, sv.picker, self._req_qs[0], self._resp_qs,
-                  self._max_batch, self._serve_timeout, sv.stop_ev, sv.serve_stats),
-            daemon=True, name=f"serve-{i}")
-            for i in range(self._serve_threads)]
-        for th in sv.threads:
+        self._open_serving = sv
+        # `sv.threads` holds started threads only, so a start that fails
+        # (the container's PID limit) leaves a serving that stops cleanly.
+        for i in range(self._serve_threads):
+            th = threading.Thread(
+                target=_serve_loop,
+                args=(self._server, sv.picker, self._req_qs[0], self._resp_qs,
+                      self._max_batch, self._serve_timeout, sv.stop_ev, sv.serve_stats),
+                daemon=True, name=f"serve-{i}")
             th.start()
+            sv.threads.append(th)
         for cq in self._server_ctrl_qs:
             cq.put((_SRV_SERVE, iter_idx))
         return sv
@@ -833,7 +804,16 @@ class ActorPool:
         with their PAUSE reply."""
         if sv.stopped:
             return
+        self._stop_serve_threads(sv)
+        sv.server_stats.update(self._pause_servers())
+
+    def _stop_serve_threads(self, sv: "_Serving") -> None:
+        """Stop and join the in-process serve threads behind `sv`. The
+        first half of `_stop_serving`, and all of it that shutdown()
+        needs: shutdown stops the serve processes with STOP, not PAUSE."""
         sv.stopped = True
+        if self._open_serving is sv:
+            self._open_serving = None
         sv.stop_ev.set()
         for th in sv.threads:
             th.join(timeout=10.0)
@@ -848,7 +828,6 @@ class ActorPool:
                       f"request queue until they do")
         self.last_stuck_serve_threads = [th.name for th in slow]
         self._stuck_serve_threads += slow
-        sv.server_stats.update(self._pause_servers())
 
     def _serve_snapshot(self, sv: "_Serving") -> Tuple[List[Dict], Dict[str, int], List[int]]:
         """The serving's stats so far: every thread's stats dict (the
@@ -863,7 +842,7 @@ class ActorPool:
         if sv.stopped:
             per_server = sv.server_stats
         else:
-            per_server = self._server_stats_live()
+            per_server = self._server_stats_live(sv.iter_idx)
         for sid in self._server_ids():
             ss = per_server.get(sid) or {}
             ts = list(ss.get("threads", []))
@@ -873,7 +852,7 @@ class ActorPool:
                 pick[k] = pick.get(k, 0) + int(v)
         return threads, pick, leaves_per_server
 
-    def _server_stats_live(self) -> Dict[int, Dict]:
+    def _server_stats_live(self, iter_idx: int) -> Dict[int, Dict]:
         """Every live serve process's stats while it serves (STATS
         command; a dead one contributes nothing)."""
         if not self._server_procs:
@@ -894,7 +873,7 @@ class ActorPool:
                 got[sid] = payload
                 pending.discard(sid)
             elif r_kind == _S_ERROR:
-                self._abort_on_dead_servers(-1, [sid], failures={sid: str(payload)})
+                self._abort_on_dead_servers(iter_idx, [sid], failures={sid: str(payload)})
         if pending:
             log.error(f"serve process(es) {sorted(pending)} did not return their stats")
         return got
@@ -1157,7 +1136,10 @@ class ActorPool:
                     outstanding -= self._scan_liveness(iter_idx, outstanding)
         finally:
             self._stop_serving(sv)
-        self._last_tickets_flushed = self._flush_tickets()
+            # On every exit path: tickets left by an iteration that
+            # aborted would be played by the next PLAY of the same index
+            # and its end markers would end that PLAY's actors early.
+            self._last_tickets_flushed = self._flush_tickets()
         if self._last_tickets_flushed:
             log.info(f"iter {iter_idx}: {self._last_tickets_flushed} game tickets "
                      f"and end markers left unplayed (drain or dropped actors)")
@@ -1175,9 +1157,29 @@ class ActorPool:
         queues. Each mp.Queue holds a pipe pair and (once written to) a
         feeder thread, so a pool that is dropped without this leaks
         ~2n+3 of both -- which the test suite feels first, several
-        pools living in one pytest process (2026-09-13 audit)."""
+        pools living in one pytest process (2026-09-13 audit).
+
+        The children get `timeout` seconds in all, not each: joined one
+        after another, every child that would not exit added a full
+        timeout, 12 minutes for 48 actors at 15 s. While they exit, the
+        manager reads and discards what they send it. An actor whose
+        results nobody reads any more (the loop raised mid-iteration or
+        mid-stream) cannot exit until its queue's feeder thread has
+        written them into the pipe (tools/mp_teardown.py), which holds
+        64 KiB on Linux and 8 KiB on Windows, while each experience
+        carries a whole game state: 9 KB pickled on a 36-hex mini map,
+        47-142 KB on ladder maps (measured 2026-09-24). Unread, every
+        such actor was terminated after its timeout (CI 2026-09-24)."""
         if not self._started:
             return
+        # Serving still open (a stream the caller never stopped, or a
+        # serving whose start failed midway): its threads read the
+        # request queue closed below, and each would die on the closed
+        # queue with a traceback in the log (2026-09-24 CI).
+        if self._open_serving is not None:
+            log.warning(f"shutdown with serving {self._open_serving.iter_idx} still open; "
+                        f"stopping its serve threads first")
+            self._stop_serve_threads(self._open_serving)
         for q in self._ctrl_qs:
             try:
                 q.put((_CMD_STOP,))
@@ -1188,30 +1190,21 @@ class ActorPool:
                 q.put((_SRV_STOP,))
             except Exception:
                 pass
-        for p in self._procs + self._server_procs:
-            p.join(timeout)
-            if p.is_alive():
-                log.warning(f"terminating unresponsive process {p.name}")
-                p.terminate()
-                # terminate() only SIGNALS: without this join the
-                # process stays a live child (and, on the box, a live
-                # CUDA context) while the parent walks on.
-                p.join(5.0)
-                if p.is_alive():
-                    log.error(f"process {p.name} survived terminate(); killing it")
-                    p.kill()
-                    p.join(5.0)
+        children = self._procs + self._server_procs
+        with discarding([self._result_q, self._server_q], on_message=_log_failure_report):
+            join_all(children, timeout)
+        end_stragglers(children)
         self._procs = []
         self._server_procs = []
         # Drained: the queues the manager alone writes to (commands,
         # weight blobs, tickets), which can hold megabytes nobody took.
-        # Not drained: everything a child writes, where a killed child
-        # may have left half a message behind.
+        # Not drained here: the queues a child writes to, where a killed
+        # child may have left half a message behind.
         for q in list(self._ctrl_qs) + list(self._server_ctrl_qs) + [self._game_q]:
-            _close_queue(q, drain=True)
+            close_queue(q, drain=True)
         for q in (list(self._resp_qs) + list(self._req_qs)
                   + [self._result_q, self._server_q]):
-            _close_queue(q, drain=False)
+            close_queue(q, drain=False)
         self._ctrl_qs = []
         self._resp_qs = []
         self._req_qs = []

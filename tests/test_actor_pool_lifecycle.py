@@ -13,10 +13,12 @@ Four leaks, each one money on a rented box:
     an unnamed error;
   * shutdown() left the processes unjoined and the queues open.
 
-No real multiprocessing here: the tests drive the production functions
-with plain queues, fake processes and a fake parent, so they are safe
-(and fast) in the pytest sweep. The pool's own end-to-end smoke is
-tests/test_actor_pool_smoke.py.
+The tests drive the production functions with plain queues, fake
+processes and a fake parent, so they are safe (and fast) in the pytest
+sweep. The one exception spawns two short-lived children that import
+only the standard library (tests/queue_children.py): a process's exit
+waiting on its queue's feeder happens only in a real process. The
+pool's own end-to-end smoke is tests/test_actor_pool_smoke.py.
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ import multiprocessing as mp
 import queue as _queue
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -33,11 +36,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from test_actor_pool_watchdog import _FakeProc, _FakeQ, _pool  # noqa: E402
 from tools import actor_worker  # noqa: E402
-from tools.actor_pool import _R_DONE, _R_EXPS  # noqa: E402
+from tools.actor_pool import _R_DONE, _R_EXPS, _R_FATAL, ActorFatalError  # noqa: E402
 from tools.actor_worker import (  # noqa: E402
-    _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _parent_gone, _take_ticket,
-    _wait_for_command,
+    _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _take_ticket,
+    _TicketSource, _wait_for_command,
 )
+from tools.mp_teardown import parent_gone  # noqa: E402
 from tools.serve_worker import _Waiting, _serve_loop  # noqa: E402
 
 
@@ -65,14 +69,14 @@ class _DeadParent:
 @pytest.fixture
 def dead_parent(monkeypatch):
     """The actor's view of a learner that was killed."""
-    monkeypatch.setattr(actor_worker.mp, "parent_process", lambda: _DeadParent())
+    monkeypatch.setattr(mp, "parent_process", lambda: _DeadParent())
     monkeypatch.setattr(actor_worker, "_PARENT_POLL", 0.05)
 
 
 def test_parent_alive_in_the_main_process():
     """The guard must be inert where there is no parent -- every
     in-process test and the standalone smoke run that way."""
-    assert _parent_gone() is False
+    assert parent_gone() is False
 
 
 def test_idle_actor_exits_when_the_parent_is_gone(dead_parent):
@@ -165,6 +169,22 @@ def test_abandoned_actor_resyncs_instead_of_eating_the_next_iteration():
     assert game_q.qsize() == 7, "the stale actor consumed the new iteration's tickets"
 
 
+def test_an_actor_bound_to_an_ended_iteration_holds_the_next_sessions_ticket():
+    """The same actor when the next session's tickets reach it before
+    its PLAY (they go out first, on another queue). It skipped them, and
+    those games were lost for good: a stream that lost its first tickets
+    this way kept an actor idle for the rest of it (CI loop, 2026-09-24).
+    It ends its iteration and plays the ticket under that PLAY."""
+    ctrl, game_q = _queue.Queue(), _queue.Queue()
+    game_q.put((3, 0, 1000))                # the stream's; its PLAY is not here yet
+    tickets = _TicketSource(game_q, ctrl)
+
+    got = _call_with_deadline(lambda: tickets.take(2))
+
+    assert got == ("next", (3, 0, 1000))
+    assert tickets.take(3) == ("game", (0, 1000))
+
+
 def test_done_for_an_abandoned_iteration_does_not_retire_the_actor():
     """That actor then reports the ABANDONED iteration done, while the
     manager is collecting the next one. Counting it there retires an
@@ -252,6 +272,20 @@ def test_serve_threads_stop_on_an_unnamed_error_path():
     assert pool._serving is False
 
 
+def test_an_aborted_iteration_leaves_no_tickets_behind():
+    """The ticket flush sat after the iteration's `finally`, so an
+    iteration that raised left its unplayed games and end markers on the
+    game queue: the next PLAY of the same index plays those games again,
+    and its actors stop at the stale end markers."""
+    procs = [_FakeProc(True, name="actor-0"), _FakeProc(True, name="actor-1")]
+    pool = _pool(procs, results=[(_R_FATAL, 1, "boom")])
+
+    with pytest.raises(ActorFatalError):
+        pool.run_iteration(2, games_per_iter=2, base_seed=1)
+
+    assert pool._game_q._items == []
+
+
 # ---------------------------------------------------------------- fix 4
 
 class _FakeProcess:
@@ -300,6 +334,7 @@ def _queue_pool(n: int = 2, tickets: int = 0):
         pool._game_q.put((0, g, g))
     pool._procs = [_FakeProcess(f"actor-{i}", stubborn=(i == 0)) for i in range(n)]
     pool._server_procs = [_FakeProcess("serve-1")]
+    pool._open_serving = None
     return pool
 
 
@@ -337,9 +372,11 @@ def test_shutdown_terminates_and_then_joins_an_unresponsive_child():
 
     stubborn, willing = procs[0], procs[1]
     assert stubborn.terminated == 1
-    assert stubborn.joins == [0.5, 5.0], "terminate() was not followed by a join"
+    # What is left of one shared deadline: the timeout, then the grace.
+    assert stubborn.joins == pytest.approx([0.5, 5.0], abs=0.1), (
+        "terminate() was not followed by a join")
     assert stubborn.killed == 0
-    assert willing.terminated == 0 and willing.joins == [0.5]
+    assert willing.terminated == 0 and willing.joins == pytest.approx([0.5], abs=0.1)
 
 
 def test_shutdown_drains_leftover_tickets_without_blocking():
@@ -399,6 +436,145 @@ def test_shutdown_returns_with_big_messages_nobody_read():
         "shutdown() did not return: the drain lost the race with the feeder "
         "and join_thread() is waiting on a pipe nobody reads")
     assert not err, err
+
+
+def _spawn_actors_with_unread_results(pool, n: int, nbytes: int) -> list:
+    """Real children in place of the pool's actors, each holding `nbytes`
+    of results the manager never read; returns once all have shipped."""
+    import queue_children
+    ctx = mp.get_context("spawn")
+    shipped = [ctx.Event() for _ in range(n)]
+    procs = [ctx.Process(target=queue_children.ship_results_then_wait_for_stop,
+                         args=(pool._ctrl_qs[i], pool._result_q, shipped[i], nbytes),
+                         daemon=True, name=f"actor-{i}")
+             for i in range(n)]
+    for p in procs:
+        p.start()
+    pool._procs = list(procs)
+    pool._server_procs = []
+    for ev in shipped:
+        assert ev.wait(60.0), "a child never started"
+    return procs
+
+
+def test_shutdown_reads_the_results_the_actors_are_still_flushing():
+    """CI 2026-09-24: a test raised with a stream open, and shutdown()
+    terminated both actors, each after its full join timeout.
+
+    An actor's exit waits for its result queue's feeder thread to push
+    what it shipped into the pipe (Python docs, multiprocessing,
+    "Joining processes that use queues"). One game's experiences are
+    far more than a pipe holds (64 KiB on Linux, 8 KiB on Windows), so
+    once the manager stops reading -- an exception mid-iteration or
+    mid-stream -- the actor cannot exit until someone reads. shutdown()
+    must read while it waits, or it terminates every such actor after
+    its timeout: 48 of them at 15 s each is 12 minutes."""
+    pool = _queue_pool(n=2)
+    procs = _spawn_actors_with_unread_results(pool, n=2, nbytes=1 << 20)
+    try:
+        t0 = time.monotonic()
+        pool.shutdown(timeout=5.0)
+        elapsed = time.monotonic() - t0
+        codes = [p.exitcode for p in procs]
+        assert codes == [0, 0], (
+            f"shutdown terminated actors instead of letting them exit (exitcodes "
+            f"{codes}, shutdown took {elapsed:.1f}s)")
+    finally:
+        for p in procs:
+            if p.is_alive():
+                p.kill()
+                p.join(5.0)
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="a Windows pipe delivers whole messages: a killed writer "
+                           "cannot leave half of one")
+def test_shutdown_returns_past_a_message_a_killed_child_left_half_written():
+    """A child killed while writing (an OOM kill mid-iteration, before
+    the loop raised and called shutdown) leaves a message whose
+    remainder never comes, and nothing bounds the read of it: shutdown
+    may read what the children send, but must never wait on a read."""
+    import os
+    import struct
+    pool = _queue_pool(n=1)
+    fd = pool._result_q._writer.fileno()
+    # The length header of a 1000-byte message, then 16 of its bytes.
+    os.write(fd, struct.pack("!i", 1000) + b"x" * 16)
+    done = threading.Event()
+    err = []
+
+    def _go():
+        try:
+            pool.shutdown(timeout=0.3)
+        except Exception as exc:            # noqa: BLE001 -- reported below
+            err.append(exc)
+        finally:
+            done.set()
+
+    threading.Thread(target=_go, daemon=True).start()
+    try:
+        assert done.wait(10.0), "shutdown() is waiting on the half-written message"
+        assert not err, err
+    finally:
+        os.write(fd, b"x" * 984)            # the remainder releases the blocked read
+        for th in threading.enumerate():
+            if th.name == "teardown-reader":
+                th.join(5.0)
+
+
+class _WedgedProcess(_FakeProcess):
+    """A child that exits only once terminated; until then a join waits
+    out its whole timeout."""
+
+    def __init__(self, name: str):
+        super().__init__(name, stubborn=True)
+
+    def join(self, timeout=None):
+        super().join(timeout)
+        if self._alive and timeout:
+            time.sleep(timeout)
+
+
+def test_shutdown_waits_for_all_children_against_one_deadline():
+    """Whatever keeps a child from exiting (an actor mid-game on a
+    server that stopped, a C-level wedge), the children are waited for
+    together: one after another, each unresponsive one added a full
+    timeout."""
+    # One control queue: closing each costs a 50 ms drain, which is not
+    # what this measures.
+    pool = _queue_pool(n=1)
+    pool._procs = [_WedgedProcess(f"actor-{i}") for i in range(9)]
+    pool._server_procs = [_WedgedProcess("serve-1")]
+    children = pool._procs + pool._server_procs
+
+    t0 = time.monotonic()
+    pool.shutdown(timeout=0.3)
+    elapsed = time.monotonic() - t0
+
+    assert all(p.terminated == 1 for p in children)
+    # One after another: 10 x 0.3 s. Together: 0.3 s and the overhead.
+    assert elapsed < 1.5, f"10 wedged children at timeout 0.3 s took {elapsed:.2f}s"
+
+
+def test_shutdown_stops_open_serving_before_closing_its_queue():
+    """CI 2026-09-24: a test raised with a stream open, and shutdown()
+    closed the request queue under the stream's serve threads, which
+    each died on the closed queue with a traceback in the log."""
+    pool = _queue_pool(n=1)
+    pool._server = None                 # never asked: no requests
+    pool._serve_threads = 2
+    pool._max_batch = 8
+    pool._serve_timeout = 0.01
+    pool._coalesce, pool._coalesce_gap = "fifo", 0
+    pool._stuck_serve_threads = []
+    sv = pool._start_serving(3)
+
+    pool.shutdown(timeout=0.5)
+
+    assert not any(th.is_alive() for th in sv.threads), "shutdown left serve threads running"
+    for th in sv.threads:
+        th.join(timeout=5.0)
+    assert [s.get("error") for s in sv.serve_stats] == [None, None]
 
 
 def test_shutdown_is_idempotent():

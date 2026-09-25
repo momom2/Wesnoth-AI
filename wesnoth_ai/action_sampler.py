@@ -843,8 +843,8 @@ def prior_bias_end_turn(game_state) -> float:
     constants.py): logit nudge on the end_turn actor slot for
     MINI-category games only. Default OFF; activated per-run on
     explicit user order via WESNOTH_PRIOR_BIAS_END_TURN_MINI=<float>
-    (negative = against passing, e.g. -1.5). Env-inherited, so spool
-    workers and the trainer re-forward read the identical value --
+    (negative = against passing, e.g. -1.5). Env-inherited, so the
+    pool's actors and the trainer re-forward read the identical value --
     the rollout/training symmetry contract holds by construction."""
     import os as _os
     v = _os.environ.get("WESNOTH_PRIOR_BIAS_END_TURN_MINI")

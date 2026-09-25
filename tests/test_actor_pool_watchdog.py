@@ -89,6 +89,7 @@ def _pool(procs, results, *, iteration_timeout=1800.0,
     pool.last_serve_thread_errors = []
     pool.last_stuck_serve_threads = []
     pool._stuck_serve_threads = []
+    pool._open_serving = None
     return pool
 
 

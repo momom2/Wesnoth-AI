@@ -276,6 +276,15 @@ class InferenceService:
             gpu: Dict[str, float] = {}
             replies, errors = self._answer(batch, gpu)
             t1 = time.monotonic()
+            # Counted before answering, so a client holding its reply
+            # reads counters that include it.
+            leaves = sum(len(p.payload) for p in batch)
+            st.requests += len(batch)
+            st.batches += 1
+            st.leaves += leaves
+            st.batch_hist[leaves] += 1
+            st.infer_s += t1 - t0
+            st.gpu_ms += float(gpu.get("gpu_ms", 0.0))
             for p, reply, error in zip(batch, replies, errors):
                 msg = (p.rid, reply) if error is None else (p.rid, None, error)
                 try:
@@ -283,15 +292,7 @@ class InferenceService:
                         p.conn.send(msg)
                 except (OSError, EOFError, ValueError):
                     pass                            # the client went away
-            t2 = time.monotonic()
-            leaves = sum(len(p.payload) for p in batch)
-            st.requests += len(batch)
-            st.batches += 1
-            st.leaves += leaves
-            st.batch_hist[leaves] += 1
-            st.infer_s += t1 - t0
-            st.reply_s += t2 - t1
-            st.gpu_ms += float(gpu.get("gpu_ms", 0.0))
+            st.reply_s += time.monotonic() - t1
 
 
 # ---------------------------------------------------------------------

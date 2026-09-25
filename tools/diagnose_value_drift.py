@@ -15,7 +15,7 @@ Arms (each restarts from the SAME checkpoint):
   anchor-only    step_value_from_raw on human batches (control: the
                  rehearsal itself should IMPROVE the probe)
 
-Training data: self-play experiences from a spool/pickle file
+Training data: self-play experiences from a pickle file
 (--experiences), e.g. captured by ladder_anatomy or a worker run.
 
 Usage (on the training box):

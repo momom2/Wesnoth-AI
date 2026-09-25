@@ -43,6 +43,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+from tools.encode_worker import encode_game  # noqa: E402
 
 log = logging.getLogger("preencode")
 
@@ -95,21 +96,6 @@ def write_record(path: Path, pairs: List) -> None:
 
 def read_record(path: Path) -> List:
     return pickle.loads(zlib.decompress(path.read_bytes()))
-
-
-def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                relevant_set: bool, fog_hides_enemy_villages: bool = False,
-                terrain_multi_hot: bool = False) -> List:
-    """The encode worker's per-file work (tools/encode_worker.py)."""
-    from tools.replay_dataset import iter_replay_pairs
-    from wesnoth_ai.encoder import encode_raw
-    pairs = []
-    for state, ai in iter_replay_pairs(gz_path, relevant_set=relevant_set):
-        pairs.append((encode_raw(state, type_to_id=type_to_id, faction_to_id=faction_to_id,
-                                 relevant_set=relevant_set,
-                                 fog_hides_enemy_villages=fog_hides_enemy_villages,
-                                 terrain_multi_hot=terrain_multi_hot), ai))
-    return pairs
 
 
 _W: Dict = {}
