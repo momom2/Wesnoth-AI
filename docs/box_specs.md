@@ -89,6 +89,9 @@ buys nothing while the CPUs are the bottleneck.
 
 ## Operational facts (learned, box-management)
 
+The procedure these facts feed, from staging to the destroy, is
+docs/box_runbook.md.
+
 - **Always filter offers with `vms_enabled=false`** (2026-08-24/25:
   four consecutive VM-class hosts booted "running" but never
   delivered the ssh key — vast-cli issue #336, broken

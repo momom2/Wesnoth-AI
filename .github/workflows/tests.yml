@@ -17,6 +17,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  shell:
+    # The box library and the box scripts that run on it: a shell bug found
+    # on a rented box costs the rental. Box scripts that do not source the
+    # library are records of past runs and are left as they ran.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck the box library and its scripts
+        run: |
+          command -v shellcheck >/dev/null || sudo apt-get install -y -qq shellcheck
+          shellcheck --version | head -2
+          on_library=$(grep -lE '^\s*(\.|source)\s+\S*boxlib\.sh' scripts/*_box.sh)
+          echo "box scripts on the library: $on_library"
+          shellcheck -x scripts/box/*.sh $on_library
+
   suite:
     runs-on: ubuntu-latest
     timeout-minutes: 60
