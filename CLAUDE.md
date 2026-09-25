@@ -12,13 +12,14 @@ behind config is preferred to code that gates behavior behind weights.
 - **Language:** Python 3.11+
 - **ML:** PyTorch
 - **Game:** Wesnoth 1.18.x (Steam install on Windows)
-- **Run:** training via `python tools/sim_self_play.py`; demos via
-  `python tools/sim_demo_game.py`; live-Wesnoth setup checks via
-  `python main.py --check-setup`
-- **Test:** `pytest` (tests are Python-only; they exercise the WML
-  parser and Lua-file generation with synthetic data — they do NOT spin
-  up real Wesnoth). CI runs the full suite with a freshly built Rust
-  wheel on every push (see Testing).
+- **Run:** imitation training via `python tools/supervised_train.py`
+  (every reference checkpoint so far comes from it); self-play legs via
+  `python tools/az_loop.py`; demos via `python tools/sim_demo_game.py`;
+  live-Wesnoth setup checks via `python main.py --check-setup`
+- **Test:** `pytest` (tests are Python-only; they run the simulator,
+  encoder, model, trainer and tools on synthetic inputs and committed
+  data, and none of them launches Wesnoth). CI runs the full suite with
+  a freshly built Rust wheel on every push (see Testing).
 
 ### Wesnoth data provenance (updated 2026-06-12)
 
@@ -825,10 +826,19 @@ stays at the root. So a bare name like `classes.py` below means
   (which is bit-exact against Wesnoth via `[mp_checkup]` oracle on
   combat); just swaps the data source from "WML command stream"
   to "policy queries."
-- `tools/sim_self_play.py` — self-play training entry point. Drives
-  N games per iteration through `WesnothSim`, calls `policy.observe`
-  for shaping rewards, applies one gradient update per iteration via
-  `policy.train_step`. `--mcts` flag swaps in `MCTSPolicy`.
+- `tools/az_loop.py` — the self-play loop
+  (docs/archive/az_minimal_spec.md): the actor pool
+  (`tools/actor_pool.py`) plays N games per iteration under MCTS, then
+  one gradient step toward the visit counts and the game results.
+- `tools/sim_self_play.py` — the game loop every producer runs
+  (`_play_one_game_safe`, which the actor pool calls), and the earlier
+  self-play entry point, which carries the quarantined mechanisms
+  (quarantine/INVENTORY.md). Its CLI trains by search distillation by
+  default (`--mcts`, with turn search); `--reinforce` selects REINFORCE
+  with a value baseline, the only consumer of the shaping reward
+  (`wesnoth_ai/rewards.py`, `configs/reward_selfplay.json`: gold,
+  damage and village deltas, per-turn penalty, unit-type and
+  turn-conditional bonuses). The actor pool plays with a zero reward.
 - `tools/scenario_pool.py` / `tools/scenarios.py` — scenario
   randomization for training (Ladder Era 21-map whitelist, faction
   randomization with optional `--forced-faction` lock).
@@ -870,16 +880,20 @@ stays at the root. So a bare name like `classes.py` below means
 - `wesnoth_ai/trainer.py` — REINFORCE + value baseline (`step`) and
   AlphaZero-style soft-target distillation (`step_mcts`); both
   use the categorical CE value loss against C51 atom projections.
-- `wesnoth_ai/rewards.py` / `configs/reward_selfplay.json` — shaping
-  reward (terminal ±1, gold/damage/village deltas, per-turn penalty,
-  unit-type bonuses, turn-conditional bonuses).
 
 ### Coordinates
 
-- **Wesnoth uses 1-indexed hex coordinates.**
+- **Wesnoth uses 1-indexed hex coordinates** (WML, replays, Lua).
 - **Python uses 0-indexed hex coordinates everywhere internally.**
-- Conversion happens in `wesnoth_ai/state_converter.py` (both
-  directions). Keep it there; do not sprinkle `±1` around the codebase.
+- The ±1 conversion happens where Wesnoth data enters or leaves Python:
+  the live bridge (`wesnoth_ai/state_converter.py`, both directions),
+  the WML and replay readers (`tools/replay_extract.py`,
+  `tools/scenario_pool.py`, `tools/scenario_events.py`,
+  `tools/wml_state.py`) and the writers that emit WML or feed the
+  engine (`tools/sim_to_replay.py`, `tools/dump_savestate.py`,
+  `tools/hidden_units_oracle.py`, `tools/scenario_init_oracle.py`).
+  Keep it at those boundaries; game logic, the encoder and the model
+  work in 0-indexed coordinates only.
 
 ## Architecture Principles
 
@@ -1052,8 +1066,8 @@ it is ready, then deleted.
 - Material/faction properties → LUTs in config, not `if`-chains.
 
 ### Encapsulation
-- Python systems talk through explicit APIs on `GameManager` /
-  `WesnothGame`, not by reaching into private attributes.
+- Python systems talk through explicit APIs (on the live bridge,
+  `WesnothGame`), not by reaching into private attributes.
 - Lua code never decides game logic; it just serializes state and
   executes actions the Python side chose.
 
@@ -1065,10 +1079,13 @@ burning an overnight training run. Prefer few behavioral tests over
 many line-coverage tests.
 
 ### What tests we have (and what they are NOT)
-- `test_wml_parser.py`, `test_integration.py`, `test_lua_actions.py`
-  are **Python unit tests with synthetic inputs**. Despite the name,
-  `test_integration.py` does NOT launch Wesnoth. A real end-to-end
-  test requires a live Wesnoth process — we don't have one yet.
+- `test_integration.py` and `test_lua_actions.py` cover the live
+  bridge with **synthetic inputs**: JSON payloads shaped like the Lua
+  collector's, and the Lua action files Python writes. Despite the
+  name, `test_integration.py` does NOT launch Wesnoth, and no test
+  does. The engine oracles (`tools/hidden_units_oracle.py`,
+  `tools/scenario_init_oracle.py`) launch real Wesnoth and run only by
+  hand, with the user's agreement.
 
 ### Guidelines
 - Run `pytest` after changes. This runs the FAST tier (~2.5 min):

@@ -6,12 +6,15 @@ Windows or on the cluster. The Python simulator (`tools/wesnoth_sim.py`)
 runs the same game logic in-process at ~1000x the speed and is
 trivially cluster-portable. This module is the glue that connects
 the existing TransformerPolicy (model + encoder + trainer) to
-WesnothSim, drives self-play games, and applies REINFORCE+baseline
-gradient updates.
+WesnothSim, drives self-play games, and applies one gradient update
+per iteration: search distillation by default (`--mcts`, with turn
+search), or REINFORCE with a value baseline under `--reinforce`.
 
 The loop, per iteration:
 
-  1. Sample N initial states from `replays_dataset/*.json.gz`.
+  1. Draw N game setups: `scenario_pool.random_setup` (a random map,
+     factions and leaders), or a mid-game start cut from the replay
+     corpus when the category mix rolls one (`--midgame-ratio`).
   2. For each, build a WesnothSim and roll out the model against
      itself, calling `policy.select_action` for every action and
      `policy.observe` for the per-step shaping reward.
@@ -20,7 +23,8 @@ The loop, per iteration:
   4. Call `policy.train_step()` to apply one gradient update across
      all queued trajectories (one per side per game).
 
-Reward function: the existing `WeightedReward` from rewards.py. It
+Reward function (`--reinforce` only; `--mcts` distills the terminal
+outcome): the existing `WeightedReward` from rewards.py. It
 diffs pre/post step GameStates -- we deepcopy the GameState before
 each step so the diff is well-defined (the sim mutates in place,
 swapping the units set, the sides list, and global_info attributes).
@@ -2523,8 +2527,8 @@ def main(argv: List[str]) -> int:
                          "Full-information games give the value head "
                          "mutually-visible armies -- an engagement-"
                          "learning aid.")
-    # MCTS-mode flags. Default OFF: the existing REINFORCE path runs.
-    # When --mcts is set, action selection runs an AlphaZero-style
+    # MCTS-mode flags. Default ON; --reinforce runs the REINFORCE path.
+    # Under --mcts, action selection runs an AlphaZero-style
     # tree search and the trainer minimizes CE against visit-count
     # distributions instead of policy gradient. Per-step shaping
     # rewards are silently ignored in MCTS mode (AlphaZero distills

@@ -1556,10 +1556,9 @@ Open, in the order they would bite:
   -- inside the fidelity oracle itself, with different semantics and no
   equality test. Harmless today only because `diff_replay` checks
   occupancy first.
-- **`tools/fog.py` is a complete second visibility implementation with
-  ZERO importers** and its own ability-to-terrain table. Delete it or
-  test it against `visibility`; the project's own rule is to prefer
-  removing.
+- DONE 2026-09-24 (73f4c1f): **`tools/fog.py`, a complete second
+  visibility implementation with ZERO importers** and its own
+  ability-to-terrain table, is removed.
 - Smaller: `test_encoder_batch.py` uses three snapshots from ONE replay
   on ONE map, so hex streams are all equal length and ragged padding is
   never covered, and nothing anchors `encode_from_raw_padded` /
