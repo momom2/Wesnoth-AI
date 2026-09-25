@@ -6,7 +6,7 @@ attacks; sides; the turn scalars; the village owners, the uncovered and
 rejected sets, the advancement queue, the last walk and strikes) and
 share the hex set by identity. A fork must not share dynamic state
 with its parent. The core's state key must agree with itself on equal
-states and change with any modeled field. Skipped without the phase-14
+states and change with any modeled field. Skipped without the phase-15
 wheel.
 """
 from __future__ import annotations

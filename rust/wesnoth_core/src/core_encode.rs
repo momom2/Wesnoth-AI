@@ -23,6 +23,19 @@ fn clamp_pos(v: i64, limit: i64) -> i64 {
     if v < 0 { 0 } else if v > limit { limit } else { v }
 }
 
+/// The other player's side (`wesnoth_ai.classes.opponent_of`). The
+/// sides a scenario declares beyond the players (statues, a neutral
+/// AI) are nobody's opponent, and a side that is not a player's has
+/// none.
+fn opponent_of(side: i64) -> PyResult<i64> {
+    match side {
+        1 => Ok(2),
+        2 => Ok(1),
+        _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "side {side} is not a player side (1, 2)"))),
+    }
+}
+
 #[pymethods]
 impl GameCore {
     /// Every array of `encoder.encode_raw` for `side`, as a dict:
@@ -45,6 +58,7 @@ impl GameCore {
                            recruit_type_ids: Vec<i64>, recruit_stats: Vec<f64>, fog_hides_enemy_villages: bool,
                            norms: [f64; NUM_NORMS], map_limit: i64, num_alignments: usize)
         -> PyResult<Bound<'py, PyDict>> {
+        let them_side = opponent_of(side)?;
         let obs = self.observe_core(side, relevant_set)?;
         let m = &self.map;
         let h = m.h;
@@ -136,11 +150,13 @@ impl GameCore {
             ly = l.y;
         }
         // Global values: turn, side, gold, income, our and their
-        // villages (the other side's count, or under the fog gate the
-        // enemy villages among the hexes it sees).
+        // villages (the other player's count, or under the fog gate the
+        // enemy villages among the hexes it sees). The other player is
+        // found by its side number: a replayed game lists every side
+        // its scenario declares, statues and tentacles included.
         let ns = self.sides.len();
         let us = side - 1;
-        let them = if ns == 2 { 1 - us } else { us };
+        let them = them_side - 1;
         let side_ok = |k: i64| k >= 0 && (k as usize) < ns;
         let our_gold = if side_ok(us) { self.sides[us as usize].current_gold } else { 0 };
         let our_income = if side_ok(us) { self.sides[us as usize].base_income } else { 0 };
