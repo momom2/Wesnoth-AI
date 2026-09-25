@@ -16,12 +16,23 @@ concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
 
+# The job reads the repository and needs nothing else of the token.
+permissions:
+  contents: read
+
 jobs:
   suite:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Secret scan
+        # The repository is public: no token or key may land in it
+        # (tools/secret_scan.py; standard library only, before any install).
+        run: python3 tools/secret_scan.py
 
       - uses: actions/setup-python@v5
         with:
