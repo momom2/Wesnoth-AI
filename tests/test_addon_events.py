@@ -220,9 +220,9 @@ def test_pickadvance_extractor_plumbing():
     with its dependent [input] and emits the compact pickadvance
     command (0-indexed hex, override strings, flags); ignore=yes
     picks are dropped."""
-    import pathlib
-    src = pathlib.Path("tools/replay_extract.py").read_text(
-        encoding="utf-8")
+    import inspect
+    from tools import replay_extract
+    src = inspect.getsource(replay_extract)
     assert 'menu item pickadvance' in src
     assert '"pickadvance",' in src
     assert 'pending_pick_hex' in src

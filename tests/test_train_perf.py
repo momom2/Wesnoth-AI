@@ -106,12 +106,15 @@ def test_tf32_training_restores_even_when_the_block_raises():
 def test_the_sim_and_eval_paths_never_enable_tf32():
     """The knob is training-only by construction: no module outside the
     trainers may call it."""
-    root = Path(__file__).parent.parent
+    import inspect
+    from helpers.source_tree import source_files
+    from wesnoth_ai import train_perf
+    home = Path(inspect.getsourcefile(train_perf)).resolve()
+    files = source_files("wesnoth_ai", "tools", "scripts")
+    assert home in files, "the scan must reach the module that defines the knob"
     callers = set()
-    files = [py for sub in ("wesnoth_ai", "tools", "tools/analysis", "scripts")
-             for py in (root / sub).glob("*.py")]
     for py in files:
-        if py.name in ("train_perf.py",):
+        if py == home:
             continue
         text = py.read_text(encoding="utf-8", errors="replace")
         if "enable_tf32" in text or "tf32_training" in text or "allow_tf32" in text:

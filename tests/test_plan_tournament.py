@@ -7,6 +7,7 @@ starved schedules, unbounded telemetry.
 """
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -265,8 +266,8 @@ def test_certification_replicates_share_a_spine_salt():
     re-execute on the SAME dice stream so a shared command prefix
     cancels out of the paired delta (the per-arm ':c'/':i' salts
     made the test unpaired). Pin the salt construction."""
-    src = (Path(__file__).parent.parent
-           / "tools/plan_tournament.py").read_text(encoding="utf-8")
+    import tools.plan_tournament as pt
+    src = inspect.getsource(pt)
     assert 'f"{s}:spine"' in src,         "certification spine salts must be shared per replicate"
     assert 'f"{s}:{tag}"' not in src.split("def certify")[1]         .split("def run_tournament")[0].replace(
             'f"{s}:p{tag}"', ""),         "per-arm spine salts reintroduced in certify()"
@@ -379,9 +380,9 @@ def test_drain_keys_all_reach_the_csv():
     list is dropped by DictWriter(extrasaction='ignore') -- dark
     telemetry, the leg-3 failure class. Every pt_* key the drain
     can emit must have a column."""
+    from tools import sim_self_play
     from tools.plan_tournament import PT_DRAIN_KEYS
-    csv_src = (Path(__file__).parent.parent
-               / "tools/sim_self_play.py").read_text(encoding="utf-8")
+    csv_src = inspect.getsource(sim_self_play)
     missing = {k for k in PT_DRAIN_KEYS if f'"{k}"' not in csv_src}
     assert not missing, f"drain keys with no CSV column: {missing}"
 
@@ -390,8 +391,8 @@ def test_pt_flag_defaults_match_tournament_config():
     """Round-3 C18 (the leg-3 half-carried-config class): the --pt-*
     argparse defaults must not drift from TournamentConfig."""
     import re
-    root = Path(__file__).parent.parent
-    ssp = (root / "tools/sim_self_play.py").read_text(encoding="utf-8")
+    from tools import sim_self_play
+    ssp = inspect.getsource(sim_self_play)
     knobs = set(re.findall(r'add_argument\("(--pt-[a-z-]+)"', ssp))
     assert knobs, "no pt knobs found in sim_self_play"
     # EVERY knob default must match TournamentConfig (round-14 C2 /

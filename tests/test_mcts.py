@@ -1093,9 +1093,9 @@ def test_playout_cap_cli_default_on():
     """User ruling 2026-08-05: playout-cap randomization is ON by
     default at the TRAINING entry point (and only there -- library
     MCTSConfig stays False so eval paths search full-budget)."""
-    import pathlib
-    src = pathlib.Path("tools/sim_self_play.py").read_text(
-        encoding="utf-8")
+    import inspect
+    from tools import sim_self_play
+    src = inspect.getsource(sim_self_play)
     i = src.index('"--mcts-playout-cap"')
     window = src[i:i + 400]
     assert "BooleanOptionalAction" in window and "default=True" in window

@@ -119,8 +119,9 @@ def test_eval_game_guard_separates_temperature_estimands(tmp_path):
 
 
 def test_batch_driver_forwards_temperature():
-    repo = Path(__file__).parent.parent
-    src = (repo / "tools/run_elo_batch.py").read_text(encoding="utf-8")
+    import inspect
+    from tools import run_elo_batch
+    src = inspect.getsource(run_elo_batch)
     assert "--raw-temperature-a" in src and "--raw-temperature-b" in src
     assert "args.raw_temperature_a" in src
 

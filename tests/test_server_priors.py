@@ -106,7 +106,8 @@ def test_mixed_batch_refused():
 
 
 def test_actor_pool_play_command_carries_flag():
-    repo = Path(__file__).parent.parent
-    pool_src = (repo / "tools/actor_pool.py").read_text(encoding="utf-8")
-    actor_src = (repo / "tools/actor_worker.py").read_text(encoding="utf-8")
+    import inspect
+    from tools import actor_pool, actor_worker
+    pool_src = inspect.getsource(actor_pool)
+    actor_src = inspect.getsource(actor_worker)
     assert "bool(self.server_priors)" in pool_src and "server_priors=_sp" in actor_src

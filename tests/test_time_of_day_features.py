@@ -154,9 +154,11 @@ def test_the_rust_kernel_declares_the_same_widths():
     which is readable whether or not the wheel is current."""
     import re
 
-    source = (Path(__file__).parent.parent / "rust" / "wesnoth_core" / "src"
-              / "encode.rs").read_text(encoding="utf-8")
-    declared = int(re.search(r"GLOBAL_FEAT_DIM: usize = (\d+)", source).group(1))
-    assert declared == GLOBAL_FEAT_DIM
-    norm = float(re.search(r"LAWFUL_BONUS_NORM: f64 = ([\d.]+)", source).group(1))
-    assert norm == LAWFUL_BONUS_NORM
+    from helpers.source_tree import source_files
+
+    source = "\n".join(p.read_text(encoding="utf-8")
+                       for p in source_files("rust/wesnoth_core/src", pattern="*.rs"))
+    declared = re.findall(r"GLOBAL_FEAT_DIM: usize = (\d+)", source)
+    assert [int(v) for v in declared] == [GLOBAL_FEAT_DIM], declared
+    norms = re.findall(r"LAWFUL_BONUS_NORM: f64 = ([\d.]+)", source)
+    assert [float(v) for v in norms] == [LAWFUL_BONUS_NORM], norms
