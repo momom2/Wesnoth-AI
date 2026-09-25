@@ -975,6 +975,13 @@ class TransformerPolicy:
         # "vocab grew" for every type already in the checkpoint).
         self._encoder.unit_type_to_id.clear()
         self._encoder.unit_type_to_id.update(ckpt["unit_type_to_id"])
+        from wesnoth_ai.encoder import MAX_UNIT_TYPES, names_on_overflow_row
+        shared = names_on_overflow_row(self._encoder.unit_type_to_id)
+        if len(shared) > 1:
+            self._logger.warning(
+                f"{path}: {len(shared)} of its {len(self._encoder.unit_type_to_id)} unit "
+                f"types share the overflow row of a {MAX_UNIT_TYPES}-row type embedding "
+                f"(it was trained so and plays so): {', '.join(shared[:4])}, ...")
         # Faction vocab — present in checkpoints saved after faction
         # conditioning landed. Older checkpoints lack it; fall back to
         # the encoder's default-seeded vocab so names still resolve.

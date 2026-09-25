@@ -48,6 +48,7 @@ import torch.nn.functional as F
 # Project imports — assume cwd is the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools.unit_vocab import seed_vocab
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.model import WesnothModel
@@ -261,39 +262,6 @@ def _log_pass_reentry(position: PassPosition, t_epoch: float) -> None:
     else:
         log.error("  the replayed draws do NOT land on the checkpoint's state: the "
                   "continued pass differs from the one that was cut")
-
-
-def _seed_vocab_from_unit_stats(
-    encoder: GameStateEncoder,
-    unit_stats_path: Path,
-) -> None:
-    """Pre-seed the encoder's vocab from `unit_stats.json`.
-
-    Called before workers spawn (when --workers > 0 and we're not
-    resuming). Workers receive the seeded dict at startup; out-of-vocab
-    names later still hit the overflow bucket via `_lookup_id` clamp,
-    but the named-row hit rate is much higher.
-
-    No-op if `unit_stats.json` is missing — workers will fall back to
-    overflow more often, which only hurts rare unit types.
-    """
-    if not unit_stats_path.exists():
-        log.warning(
-            f"  vocab seed skipped: {unit_stats_path} not found"
-        )
-        return
-    try:
-        with unit_stats_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        log.warning(f"  vocab seed skipped: {e}")
-        return
-    type_to_id = encoder.unit_type_to_id
-    # Stable ordering — use sorted keys so two different runs starting
-    # from the same unit_stats.json produce the same id assignment.
-    for name in sorted(data.get("units", {}).keys()):
-        if name not in type_to_id:
-            type_to_id[name] = len(type_to_id)
 
 
 # ---------------------------------------------------------------------
@@ -2062,18 +2030,12 @@ def train(
                                        encoding="utf-8")
         return
 
-    # Pre-seed the encoder vocab from observed names BEFORE workers
-    # spawn (when --workers > 0). Workers receive a snapshot at startup
-    # and never grow it afterwards: out-of-vocab names hit the overflow
-    # bucket. With a fresh encoder, this scan touches the unit names
-    # in `unit_stats.json` so common types (Drake Burner, Loyalist,
-    # etc.) hit named rows instead of the overflow bucket. Skip if
-    # we resumed (the resumed dict already has whatever the previous
-    # runs accumulated). A fresh encoder is seeded on every path: the
-    # pre-encoded records carry the seeded vocab's ids, and a serial
-    # run without records only gains named rows up front.
+    # A fresh encoder gets every reachable unit type's row BEFORE
+    # workers spawn: they receive a snapshot and never grow it, and the
+    # pre-encoded records carry the seeded ids (tools/unit_vocab.py). A
+    # resumed run keeps its checkpoint's vocab.
     if ckpt is None:
-        _seed_vocab_from_unit_stats(encoder, dataset_dir.parent / "unit_stats.json")
+        seed_vocab(encoder)
         log.info(
             f"Pre-seeded encoder vocab: "
             f"{len(encoder.unit_type_to_id)} unit types, "

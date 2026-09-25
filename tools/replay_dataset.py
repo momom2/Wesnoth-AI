@@ -2953,19 +2953,25 @@ def _fire_turn_events(gs: GameState, side: int, turn: int) -> None:
     fire_event(gs, events, "side turn")
 
 
+PLAYER_SIDES = (1, 2)
+
+
 def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
-    """Yield (state_before, action_indices) for each player command
-    in one .json.gz replay. `relevant_set` selects the label's hex
-    basis (see `_action_indices`); it must match the encoder's."""
+    """Yield (state_before, action_indices) for each command a player
+    side (1 or 2) made in one .json.gz replay; the neutral side's are
+    its AI's, not a player's to imitate. `relevant_set` selects the
+    label's hex basis (see `_action_indices`); it must match the
+    encoder's."""
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
     for cmd in data.get("commands", []):
-        ai = _action_indices(gs, cmd, relevant_set=relevant_set)
-        if ai is not None:
-            yield gs, ai
+        if gs.global_info.current_side in PLAYER_SIDES:
+            ai = _action_indices(gs, cmd, relevant_set=relevant_set)
+            if ai is not None:
+                yield gs, ai
         _apply_command(gs, cmd)
 
 

@@ -271,13 +271,12 @@ def main(argv: List[str]) -> int:
                         format="%(asctime)s %(levelname)s %(message)s",
                         datefmt="%H:%M:%S")
 
-    # Frozen vocab: same seeding path as supervised_train (unit_stats
-    # pre-seed) so RawEncoded ids match every campaign checkpoint.
+    # Frozen vocab: the seeding path of supervised_train (tools/unit_vocab.py),
+    # so RawEncoded ids match a checkpoint trained from scratch.
     from wesnoth_ai.encoder import GameStateEncoder
-    from tools.supervised_train import _seed_vocab_from_unit_stats
+    from tools.unit_vocab import seed_vocab
     enc = GameStateEncoder(d_model=32)
-    _seed_vocab_from_unit_stats(
-        enc, args.dataset_dir.parent / "unit_stats.json")
+    seed_vocab(enc)
     n = build_cache(args.dataset_dir, args.out, games=args.games,
                     stride=args.stride, seed=args.seed,
                     type_to_id=enc.unit_type_to_id,
