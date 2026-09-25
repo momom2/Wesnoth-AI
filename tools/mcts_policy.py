@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import random
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
@@ -1240,10 +1241,12 @@ class MCTSPolicy:
                                  sig_pre) -> None:
         from tools.signal_telemetry import dv_stats, signal_grad_norms
         if getattr(self, "_signal_telemetry", False):
+            started = time.perf_counter()
             norms = signal_grad_norms(self._base._trainer, batch,
                                       self._replay_rng)
             for k, v in norms.items():
                 setattr(stats, k, v)
+            stats.sig_seconds = time.perf_counter() - started
         dv = dv_stats(sig_pre, self._base)
         for k, v in dv.items():
             setattr(stats, k, v)

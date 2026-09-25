@@ -1708,7 +1708,7 @@ def run_iteration(
                     if train_stats else None)
                 for k in ("sig_policy_norm", "sig_value_game_norm",
                           "sig_value_ground_norm",
-                          "sig_value_consist_norm",
+                          "sig_value_consist_norm", "sig_seconds",
                           "sig_dv_consult_mean", "sig_dv_consult_n",
                           "consist_bias_hat", "consist_sigma2_hat",
                           "consist_pair_n", "consist_loss",
@@ -2036,7 +2036,7 @@ class _TrainerHistoryCSV:
         # states (the erosion gauge, ~0.08 = search's 2-atom
         # decision threshold).
         "sig_policy_norm", "sig_value_game_norm",
-        "sig_value_ground_norm", "sig_value_consist_norm",
+        "sig_value_ground_norm", "sig_value_consist_norm", "sig_seconds",
         "sig_dv_consult_mean", "sig_dv_consult_n",
         # Arm VG2 principled mixture: estimated bootstrap bias /
         # residual variance, paired-label count, the two new loss
@@ -2945,14 +2945,16 @@ def main(argv: List[str]) -> int:
                          "(2026-07-10: the 71%%-draw gradient mass "
                          "flattened the value head even with honest "
                          "z=0 labels and a rehearsal anchor).")
-    ap.add_argument("--signal-telemetry", action="store_true",
+    ap.add_argument("--signal-telemetry", action=argparse.BooleanOptionalAction, default=True,
                     help="Per-source gradient-norm telemetry every "
                          "iteration (sig_*_norm columns; 4 extra "
                          "backward passes on a 128-state subsample, "
-                         "~3-5%%). OFF by default (user ruling "
-                         "2026-09-02) so it never runs unnoticed. "
-                         "dv_consult logs regardless (the VG2 trust "
-                         "region needs it).")
+                         "~3-5%%), its cost in the sig_seconds column. "
+                         "On by default (user, 2026-09-25: telemetry in "
+                         "every trainer; the recorded cost answers the "
+                         "2026-09-02 ruling that no overhead runs "
+                         "unnoticed). dv_consult logs regardless (the "
+                         "VG2 trust region needs it).")
     ap.add_argument("--value-ground", action="store_true",
                     help="Value grounding on search-consulted states "
                          "(arm VG, 2026-09-01; tools/value_grounding). "

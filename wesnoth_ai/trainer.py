@@ -418,6 +418,7 @@ class TrainStats:
     sig_value_game_norm: float = float("nan")
     sig_value_ground_norm: float = float("nan")
     sig_value_consist_norm: float = float("nan")
+    sig_seconds: float = float("nan")      # what the norms above cost
     sig_dv_consult_mean: float = float("nan")
     sig_dv_consult_n: float = 0.0
     # Arm VG2 principled-mixture telemetry: the paired-label
