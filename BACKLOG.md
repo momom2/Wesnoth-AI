@@ -10,19 +10,16 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 over `terrain` (docs/observation_retrain_prereg_20260924.md). Every
 number from here is measured against it.
 
-**Next: the turn-ranking value net** (approved in principle 2026-09-24,
-design under discussion with the user): a value function that ranks
-candidate turns from one position, trained on within-position contrasts
-from branched `obs8` playouts, its own weights (no gradient into the
-policy). First arm: a head on `obs8`'s frozen trunk
-(`tools/value_head_fit.py` caches the trunk's features); a fine-tuned
-copy of the trunk only if it fails; the pass bar is the pre-grader check
-of docs/turn_gap_ref_prereg_20260921.md on fresh confirmed pairs under
-`obs8`. Pre-registration before any box.
-
-**Running: the turn-ranking value function** (branch `exp/turn-value`,
-its pre-registration docs/turn_value_prereg_20260925.md there; box
-52605483 since 2026-09-25).
+**Running: the turn-ranking value function** (approved in principle
+2026-09-24; branch `exp/turn-value`, its pre-registration
+docs/turn_value_prereg_20260925.md there; box 52605483 since
+2026-09-25): a value function that ranks candidate turns from one
+position, trained on within-position contrasts from branched `obs8`
+playouts, its own weights (no gradient into the policy). First arm: a
+head on `obs8`'s frozen trunk (`tools/value_head_fit.py` caches the
+trunk's features); a fine-tuned copy of the trunk only if it fails; the
+pass bar is the pre-grader check of docs/turn_gap_ref_prereg_20260921.md
+on fresh confirmed pairs under `obs8`.
 
 **Waiting on the user: the unit-vocabulary retrain**
 (docs/unit_vocab_retrain_prereg_20260925.md): `obs8`'s recipe with every
@@ -241,7 +238,8 @@ that refuses a stale wheel,
 `tests/test_time_of_day_features.py`, pre-registration in
 docs/time_of_day_prereg_20260922.md.
 
-The original finding, which stands:
+The original finding, which stood until the time-of-day features
+(`GLOBAL_FEAT_DIM` is 8 since 2026-09-22):
 
 `encoder.GLOBAL_FEAT_DIM` is 6, and the six are turn number, side to
 move, our gold, our income, our villages and theirs. No time of day,
@@ -287,8 +285,8 @@ asymmetry detected (`training/metrics/elo/relset_selfpin_20260912/`;
 four arms replaying one 40-seed set on the shared luck stream, so the
 standard error is optimistic).
 
-Left open, neither blocking phase 2, both needing a box and a word
-from the user first:
+Left open at the close, neither blocking phase 2, both needing a box
+and a word from the user first (both resolved since):
 - plan 1.3's 3,000-leaves-per-second-per-4090 target: MET
   2026-09-21 (user order). Every earlier reading (1,450-1,565 on
   2026-09-13, 2,126-2,269 and 2,634-2,914 on 2026-09-18) ran the
@@ -326,11 +324,12 @@ and the sections after it), on one 24-core 4090:
   that died at 38 is exactly what the read limit prevents, so the
   default no longer has to be conservative. **1.68x on generation,
   from a default.**
-- Plan 1.3's 3,000-leaves-per-4090 target is NOT met: the real 4090
-  reads 1,450-1,565 saturated at ~320 tokens per leaf, which LOOKS like
-  docs/gpu_forward_design_20260904.md's 1,300-1,800 band but is NOT a
-  confirmation of it: that band was computed at 1,270 tokens per
-  leaf and this is measured at ~320, where the same doc's
+- SUPERSEDED 2026-09-21 (the target is met with the serve batch cap at
+  64, above). Plan 1.3's 3,000-leaves-per-4090 target is NOT met: the
+  real 4090 reads 1,450-1,565 saturated at ~320 tokens per leaf, which
+  LOOKS like docs/gpu_forward_design_20260904.md's 1,300-1,800 band but
+  is NOT a confirmation of it: that band was computed at 1,270 tokens
+  per leaf and this is measured at ~320, where the same doc's
   arithmetic gives a ceiling about 4x higher. They coincide because
   the binding cost turned out to be a fixed per-batch LAUNCH that
   does not scale with tokens -- a different mechanism than the one
@@ -400,8 +399,10 @@ anyway, ordered by what the measurements say is binding:
   3.5-4.4, recorded 2026-09-14) and the cost is mostly a fixed
   per-batch launch, so it cannot win. The standing 1.3-1.5x
   expectation is refuted on both; `--serve-processes` stays at 1.
-- the trainer is GPU-bound: bf16 autocast is built (`--bf16`) and
-  timed only on a 16 GB card; TF32 for the trunk is untried.
+- the trainer is GPU-bound: bf16 autocast is built (`--bf16`, off by
+  default) and timed on a 24 GB card at 1.25x with an equivalent loss
+  (2026-09-13, above); TF32 for the trunk is untried (`--tf32`, opt-in
+  since 2026-09-14).
 - the az training path is NOT a lever: on the pool's own experiences
   (masks shipped, as production trains) the step costs 2.22 ms per
   experience, 0.10 in the policy loss, and the training path is 4% of
@@ -429,8 +430,9 @@ anyway, ordered by what the measurements say is binding:
   be resumed (tools/run_elo_batch.py:703); mid-game [time_area]
   changes do not reach the core's baked map tables.
 - a second hunt (2026-09-13, over the Rust kernels, the Elo accounting
-  and the Wesnoth rule layer) reported eleven more, NONE fixed. In
-  order of what they corrupt:
+  and the Wesnoth rule layer) reported eleven more, none fixed that
+  day; each entry says what became of it. In order of what they
+  corrupt:
   * ~~hide cover decided by a hand-rolled overlay allow-list~~ FIXED
     2026-09-13 at the root and swept over the whole corpus. The
     sweep shows NO REGRESSION; it does not certify the new rule
@@ -447,20 +449,27 @@ anyway, ordered by what the measurements say is binding:
     new rule (docs/box_specs.md "Hide cover after the root fix: the
     corpus sweep, and what it does NOT certify"; docs/wesnoth_rules.md
     has the rule, `tools/analysis/hide_cover_census.py` the census).
-  * **the Elo catalog sums repeat measurements of one pair as
+  * FIXED 2026-09-13 (each edge records its (side, seed) game slots,
+    and a collect that replays another edge's games is refused; the two
+    `ref~old` edges turned out to carry disjoint seeds). Was:
+    **the Elo catalog sums repeat measurements of one pair as
     independent evidence** (tools/elo_catalog.py:360; the edge key is
     the games-dir name and nothing compares seeds). Both generators
     default to a fixed seed base, and at raw:t0 a rerun is
     deterministic, so a re-pin into a fresh outdir doubles n and
     shrinks the standard error on no new information. Already live in
     the committed catalog: two edges for `ref~old` pool to n=240.
-  * basis, precision and batch estimands are dropped at the catalog
-    boundary (tools/elo_collect.py:278): guarded three times inside a
+  * FIXED 2026-09-13 (the estimands travel on the edge as
+    `protocol["estimands"]` and two different ones cannot pool into one
+    fit). Was: basis, precision and batch estimands are dropped at the
+    catalog boundary (tools/elo_collect.py:278): guarded three times inside a
     dir, lost between dirs, so a relevant-set edge and a full-board
     edge can be pooled into one fit with no warning. `value_center`
     and `ELO_MOVES_LEFT_UTILITY` change the searched player and reach
     no result field at all (tools/elo_eval_game.py:352).
-  * every eval game shares one combat-luck stream
+  * FIXED 2026-09-13 (each eval game salts its own stream, recorded as
+    `combat_stream=per_game`; self-play games since 2026-09-14). Was:
+    every eval game shares one combat-luck stream
     (tools/wesnoth_sim.py:862): `_rng_requests` restarts at 0 per game
     with an empty salt, a correlation the standard error does not
     model.
@@ -499,7 +508,7 @@ anyway, ordered by what the measurements say is binding:
     named by id=" below.
   The full reports are in this session's workflow transcripts.
 
-## NEXT ACTIONS (phase 1: engineering, in order)
+## Phase 1's actions, as recorded (phase 1 closed 2026-09-12)
 
 1. **Benchmark harness** (plan 1.1): DONE 2026-09-04, baseline in
    `docs/box_specs.md` and `training/metrics/bench_pipeline/`. Per
@@ -694,8 +703,6 @@ anyway, ordered by what the measurements say is binding:
      publication with a version check (CUDA IPC sharing rejected per
      the torch 2.5.1 constraints), stats merged. Pool row queued after
      the arms; expected toward ~1.5x if the host work is the ceiling.
-     az_loop flag and its sync_servers() call after train_step still
-     to add once the row is in.
    - **THIS NUMBER HAS NO RECORD (flagged 2026-09-13).** Every pool
      JSON in the repo carries `serve_processes: 1`, the commit that
      added this sentence added no metrics file, and 1,146 sits exactly
@@ -838,7 +845,8 @@ anyway, ordered by what the measurements say is binding:
    (2026-09-05, `--shared-inference`) 40 games take 145 s against
    215, mean batch 3.7: the workers' own Python per decision is the
    limit now. ~45 min per 800-game gate. Open: re-pin raw:t0 through
-   the server before quoting gates through it.
+   the server before quoting gates through it (done: `relset`'s
+   self-pins through the shared path, 2026-09-12 and 2026-09-19).
 7. **Training path** (measured 2026-09-05, docs/box_specs.md
    "Training path cost"): 69 ms per experience at the loop's fp32
    batch 1; the factored policy loss is 32-34 ms of it in every
@@ -1135,8 +1143,9 @@ Rejected (14): everything that distils individually confirmed pairs
 before a ruling, sigma_s readouts the 48-candidate set cannot resolve,
 and three proposals that would train on the holdout games. Open
 rulings: distilling confirmed pairs (R2); whether the relevant-set
-retrain replaces the seed; the re-pin of raw:t0 through shared
-inference.
+retrain replaces the seed (ruled 2026-09-11: `relset` became the
+reference); the re-pin of raw:t0 through shared inference (done
+2026-09-12 and 2026-09-19).
 - TEST 1 SHIPPED AS CODE (2026-09-19, autonomous window): the
   actor-level end_turn rule and the end_turn logit offset are decode
   options of the raw player (`tools/raw_player.py`, exact on the
@@ -1166,7 +1175,8 @@ inference.
   which the pre-registered reading calls "differs, rule-specific" (the
   commit that recorded the result rewrote the readout to read it as
   "act more"). The offset scores at least as well as the rule and is
-  the simpler lever. Open for the user: whether `raw:t0+eo-1.5` (or a larger
+  the simpler lever. Open for the user (ruled 2026-09-20: `raw:t0+eo-1.5`
+  is the reference decode): whether `raw:t0+eo-1.5` (or a larger
   offset: the curve is still rising at -1.5, not pre-registered)
   becomes the reference DECODE (the reference checkpoint is
   unchanged), which re-pins every strength claim's opponent; and
@@ -1187,7 +1197,7 @@ inference.
   end_turn head carries information the argmax needs** (docs/
   endturn_offset_sweep_prereg_20260919.md "Measured"). Proposed to the
   user: `raw:t0+eo-1.5` as the reference decode, -2.5 its equal with
-  fewer capped games.
+  fewer capped games (ruled 2026-09-20: -1.5).
 - TEST 3 QUEUED (2026-09-05 evening, ~$2.4, last in the box queue):
   the corpus's player ratings are fitted (`tools/player_ratings.py`,
   records in training/metrics/player_ratings/): 142 regulars at 30+
@@ -1212,7 +1222,7 @@ inference.
   (+9 +- 55); the mcts:32 gaps (-367, +223) were procedure effects.
   Open: 800-game edges before any of these is quoted as a fact.
 
-## Scenario building, from the ground up (2026-09-22, PLANNED)
+## Scenario building, from the ground up (2026-09-22, DONE 2026-09-23)
 
 **docs/scenario_build_plan_20260922.md.** One scenario builder whose
 output is checked against the game, with two automatic detectors
@@ -1222,15 +1232,12 @@ that catches any discrepancy. User ruling: stop patching defects one
 by one; make it correct from the ground up and detect the rest
 automatically.
 
-Work items, each gating the next, all local: W1 the engine oracle for
-scenario init (built first, it is the acceptance test for the rest);
-W2 the classification manifest with a failing default; W3 repair the
-template builder, unimportable since 2026-08-10, and regenerate
-keeping the player sides; W4 generation reads one expanded source;
-W0 diff our expansion against the game's as a standing test; W1 the
-failing default; W2 repair the template builder; W3 the manifest bound
-to readers; W4 the engine oracle on the existing --load path; W5 one
-expansion source; W6 the assumptions that become reads. Our own
+Work items, all done by 2026-09-23 (the plan's record says how): W0
+diff our expansion against the game's as a standing test; W1 the
+failing default; W2 repair and regenerate the templates; W3 the
+classification manifest, bound to readers; W4 the engine oracle for
+scenario init (`tools/scenario_init_oracle.py`); W5 one expansion
+source for generation; W6 the assumptions that become reads. Our own
 preprocessor is deferred behind a trigger.
 
 Two independent reviews found seven factual errors between them, all
@@ -1379,7 +1386,10 @@ end to end on the real scenario (6 tests). `OBSERVATION_EPOCH` is 3.
 sweep that `scripts/hide_cover_cert_box.sh` runs, on a box. Budget:
 the last full sweep was 233 s of wall on a 28-core box plus setup, so
 well under an hour at roughly $0.30-0.50. Queue it with the next box
-rental rather than renting for it alone.
+rental rather than renting for it alone. RAN 2026-09-14 on the
+post-review box: 17,039 of 17,039 replays clean, the Tentacle's
+`magical` and submerge included (docs/box_specs.md "The post-review box
+run").
 
 Two further findings from the same hunt, NOT fixed:
 
@@ -1809,7 +1819,8 @@ docs/box_specs.md and docs/wesnoth_rules.md. What stays open:
   predicate, and run_elo_batch alternates sides, so there was never a
   within-match asymmetry), but a new number must not be chained onto
   them without re-measuring. The relset self-pin is the natural place
-  to re-establish the baseline.
+  to re-establish the baseline (done 2026-09-19: the tight self-pin,
+  "Phase 1 status" above).
 - DONE 2026-09-14 (`replay_dataset.illuminated_lawful_bonus_at`, used by
   `visibility._hide_cover_active`, `build_attack_context` and the core's
   `hide_cover_active`; the combat arithmetic is unchanged, the nightstalk
@@ -1864,7 +1875,7 @@ under a different one -- the vocab, hex basis and fog gate all stay
 identical when the sim's visibility rules move, so nothing else could
 have caught a stale cache (tests/test_anchor_cache_gate.py).
 
-## Rulings (user, 2026-09-05; reference player 2026-09-20)
+## Rulings (user, 2026-09-05; reference player 2026-09-20 and 2026-09-25)
 
 - 2026-09-25: the reference player is `obs8` at `raw:t0+eo-1.5`
   (terrain's recipe retrained on the observation of epoch 8; +73 +- 13
@@ -1896,8 +1907,13 @@ have caught a stale cache (tests/test_anchor_cache_gate.py).
 ## Ops notes that are still true
 
 - Boxes: propose specs and cost, wait for a yes, `vms_enabled=false`,
-  CPU model EPYC or Ryzen, destroy at the end (`yes | vastai destroy
-  instance <id>`; the CLI prompts).
-- Launch a detached job over ssh in one call and verify in another;
-  the launching session hangs while the child runs.
+  CPU model EPYC or Ryzen, destroy at the end. `scripts/rent_box.py`
+  does it through Vast's SDK (the `vastai` CLI binary is blocked on the
+  laptop): `search` lists offers without VM hosts, `create OFFER_ID
+  --onstart <script>` starts the image with an onstart that fetches the
+  named script from HF `tier-b/staging/` and runs it detached,
+  `status` and `start` follow an instance, `destroy` ends it. The
+  retrain scripts since 2026-09-24 (`observation_retrain_box.sh`,
+  `unit_vocab_retrain_box.sh`) leave ALL_DONE on HF and stop their own
+  instance on every exit (`stop_self`).
 - No compute on the laptop beyond sub-minute microbenchmarks.
