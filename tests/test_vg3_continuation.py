@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
 
-from test_inference_snapshot import _gs  # noqa: E402
+from helpers.tiny_state import _gs  # noqa: E402
 from tools.mcts import MCTSConfig  # noqa: E402
 from tools.mcts_policy import MCTSPolicy  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402

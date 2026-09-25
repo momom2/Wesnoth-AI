@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import torch
 
-from test_inference_snapshot import _gs, _u
+from helpers.tiny_state import _gs, _u
 from wesnoth_ai.visibility import units_visible_to
 
 

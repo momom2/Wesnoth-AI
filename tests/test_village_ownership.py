@@ -28,7 +28,7 @@ import torch
 from wesnoth_ai.classes import (Hex, Position,
                      Terrain, TerrainModifiers)
 from wesnoth_ai.encoder import NUM_HEX_DYNAMIC_FLAGS, encode_raw
-from test_inference_snapshot import _gs
+from helpers.tiny_state import _gs
 
 
 def _village_gs(*, owner_map, current_side=1, fog=True):

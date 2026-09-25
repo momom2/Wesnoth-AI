@@ -18,8 +18,8 @@ import torch
 from wesnoth_ai.encoder import GameStateEncoder, encode_raw
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
 from wesnoth_ai.model import WesnothModel
-from imitation_helpers import ARCH as _ARCH, TYPE_W as _TYPE_W, labels as _labels, states as _states
-from imitation_helpers import per_sample_reference as _reference
+from helpers.imitation import ARCH as _ARCH, TYPE_W as _TYPE_W, labels as _labels, states as _states
+from helpers.imitation import per_sample_reference as _reference
 
 
 def _grad_close(a, b):

@@ -22,7 +22,7 @@ pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_co
 
 
 def _harvested():
-    from tests.test_enumerate_vectorized import _states as harvest
+    from helpers.played_states import _states as harvest
     return harvest(n_attack=3, n_plain=4)
 
 

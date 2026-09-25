@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from test_actor_pool_watchdog import _FakeProc, _pool  # noqa: E402
+from helpers.actor_pool_fakes import _FakeProc, _pool  # noqa: E402
 from tools.actor_pool import (  # noqa: E402
     _CMD_DRAIN, _CMD_PLAY, _CMD_UPDATE, _R_DONE, _R_EXPS, _R_GAME, _R_OUTCOME,
     ActorFatalError,

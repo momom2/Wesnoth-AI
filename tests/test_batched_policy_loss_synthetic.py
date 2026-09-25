@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
-from test_batched_policy_loss import (  # noqa: E402
+from helpers.policy_loss_parity import (  # noqa: E402
     _assert_parity, batched_policy_step, reference_policy_step,
 )
 from tools.bench_train_step import configure_trainer_like_az_loop  # noqa: E402

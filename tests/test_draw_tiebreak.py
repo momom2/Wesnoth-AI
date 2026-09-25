@@ -251,7 +251,7 @@ def test_draw_value_weight_zero_removes_draw_gradient():
     from wesnoth_ai.trainer import MCTSExperience
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
-    from test_inference_snapshot import _gs as _real_gs
+    from helpers.tiny_state import _gs as _real_gs
 
     net = TransformerPolicy(device=torch.device("cpu"), d_model=32,
                             num_layers=1, num_heads=4, d_ff=64)

@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(_obs.kernel() is None or _obs.kernel_rows_from_r
 
 
 def _states():
-    from tests.test_enumerate_vectorized import _states as harvest
+    from helpers.played_states import _states as harvest
     return harvest(n_attack=3, n_plain=4)
 
 

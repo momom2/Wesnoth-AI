@@ -34,7 +34,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_actor_pool_watchdog import _FakeProc, _FakeQ, _pool  # noqa: E402
+from helpers.actor_pool_fakes import _FakeProc, _FakeQ, _pool  # noqa: E402
 from tools import actor_worker  # noqa: E402
 from tools.actor_pool import _R_DONE, _R_EXPS, _R_FATAL, ActorFatalError  # noqa: E402
 from tools.actor_worker import (  # noqa: E402

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
 
-from test_inference_snapshot import _gs  # noqa: E402
+from helpers.tiny_state import _gs  # noqa: E402
 from tools.value_grounding import (  # noqa: E402
     GroundCapture, GroundingConfig, build_grounding_experiences,
 )

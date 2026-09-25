@@ -23,7 +23,7 @@ import torch
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.mcts import _leaf_to_cpu
 
-from test_inference_snapshot import _gs
+from helpers.tiny_state import _gs
 
 
 def test_leaf_to_cpu_is_identity_on_cpu():

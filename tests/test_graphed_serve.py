@@ -13,7 +13,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tests.test_server_priors import _policy, _same, _states  # noqa: E402
+from helpers.priors_parity import _policy, _same, _states  # noqa: E402
 
 
 def _pairs(policy, states):

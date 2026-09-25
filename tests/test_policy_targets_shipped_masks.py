@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from test_batched_policy_loss import (  # noqa: E402
+from helpers.policy_loss_parity import (  # noqa: E402
     _assert_parity, _bench_states, batched_policy_step, reference_policy_step,
 )
 from tools.bench_train_step import (  # noqa: E402

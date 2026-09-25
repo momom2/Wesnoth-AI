@@ -33,7 +33,7 @@ from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.mcts_policy import MCTSPolicy, _PendingMCTSState
 
 # Minimal synthetic GameState builder shared with the snapshot tests.
-from test_inference_snapshot import _gs
+from helpers.tiny_state import _gs
 
 
 def _pend(n):
