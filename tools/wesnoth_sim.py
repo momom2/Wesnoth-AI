@@ -77,6 +77,7 @@ from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
     _setup_scenario_events,
+    village_count_mismatches,
 )
 
 
@@ -1389,6 +1390,14 @@ class WesnothSim:
               recoverable via `_check_game_over`'s heuristic but
               indicates a recruit/recall logic bug.
 
+          (e) Each side's `nb_villages_controlled` equals the villages
+              `_village_owner` gives it. The engine has no separate
+              count (a team's villages are a set, src/team.cpp:437-468)
+              and income reads ours, so a transfer that moved one and
+              not the other paid the wrong income every turn after:
+              `[capture_village]` did, on WL Cold War and Summer Frosts,
+              until 2026-09-26.
+
         Raises AssertionError with enough context to debug.
         """
         if self.core is not None:
@@ -1430,6 +1439,12 @@ class WesnothSim:
                     f"sim invariant: side {side} has {len(leaders)} "
                     f"leaders ({leaders!r}); at most one allowed "
                     f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
+        # (e) Village counts follow the owners.
+        bad = village_count_mismatches(self.gs)
+        if bad:
+            raise AssertionError(
+                f"sim invariant: village counts disagree with the owners "
+                f"{bad} (after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
 
     def _check_game_over(self) -> None:
         if self.done:

@@ -2721,8 +2721,60 @@ end
 
 Absent `side=`, ownership is cleared (village becomes neutral).
 Used at prestart by add-on maps (WL Cold War / Summer Frosts) for
-asymmetric starting villages. Sim: `_capture_village_action`
-(tools/scenario_events.py) mutating `_village_owner`.
+asymmetric starting villages.
+
+**`set_owner` moves the village between the sides' village SETS, and
+a side's village count is that set's size (corrected 2026-09-26).**
+`src/scripting/game_lua_kernel.cpp:1142-1193` (1.18.4,
+`intf_set_village_owner`), abridged:
+```cpp
+	map_location loc = luaW_checklocation(L, 1);
+	if(!board().map().is_village(loc)) {
+		return 0;
+	}
+
+	const int old_side_num = board().village_owner(loc);
+	const int new_side_num = lua_isnoneornil(L, 2) ? 0 : luaL_checkinteger(L, 2);
+	...
+	if(old_side_num == new_side_num) {
+		return 0;
+	}
+	...
+	// The new side was valid, but already defeated. Do nothing.
+	if(new_side && board().team_is_defeated(*new_side)) {
+		return 0;
+	}
+	...
+	if(old_side) {
+		old_side->lose_village(loc);
+	}
+
+	// If the new side was valid, re-assign the village.
+	if(new_side) {
+		new_side->get_village(loc, old_side_num, (luaW_toboolean(L, 3) ? &gamedata() : nullptr));
+	}
+```
+and `team::get_village` / `team::lose_village`
+(`src/team.cpp:437-468`) insert into and erase from `villages_`. A
+location that is not a village is skipped, side 0 or none leaves the
+village to nobody, a side counted as defeated (by default: no leader
+left) gets nothing, and `fire_event=yes` fires `capture` events.
+
+Sim: `_capture_village_action` (tools/scenario_events.py) hands each
+matched village through `replay_dataset.set_village_owner`, the
+transfer a move's capture uses, so the owner map and each side's
+`nb_villages_controlled` (which income reads) move together;
+`WesnothSim._assert_invariants` (e) checks they agree. It reads `side`,
+`x`, `y` and `terrain`; any other filter key, and `fire_event`, is
+reported as unmodelled; the defeated-side no-op is not modelled.
+
+**Why non-obvious:** the Lua tag looks like an owner assignment, and
+the first handler wrote only `_village_owner`. Our count is a second
+record of the same fact, so the handler left WL Cold War starting at
+counts 1 and 1 with 2 and 3 villages owned, and WL Summer Frosts at 1
+and 1 with 1 and 2: every turn paid (and supported upkeep for) one
+village too few on Cold War's side 1, two on its side 2, and one on
+Summer Frosts' side 2. Neither map is in the pools or the corpus.
 
 ## [modify_unit] moves= writes CURRENT MP, not max
 

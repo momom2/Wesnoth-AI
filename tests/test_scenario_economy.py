@@ -96,13 +96,26 @@ def test_the_economy_travels_in_the_record_fields_not_a_post_build_patch(monkeyp
     assert _economy(built) == (3, sp.MP_VILLAGE_SUPPORT, sp.MP_EXPERIENCE_MODIFIER)
 
 
+def _own_a_village(gs, side: int) -> None:
+    """Give `side` one village nobody owns, the way the game does
+    (`set_village_owner`), so its count and the owner map agree, as
+    the simulator's invariant requires."""
+    from tools.replay_dataset import _terrain_at, set_village_owner
+    owners = getattr(gs.global_info, "_village_owner", None) or {}
+    x, y = min((h.position.x, h.position.y) for h in gs.map.hexes
+               if _terrain_at(gs, h.position.x, h.position.y) == "village"
+               and not owners.get((h.position.x, h.position.y)))
+    set_village_owner(gs, x, y, side)
+
+
 def test_a_village_actually_pays_the_scenario_rate():
     """The field reaches the turn's income, not just `global_info`.
     One village on a mini map pays base_income + 3 = 5; under the
     hardcoded 2 it paid 4."""
     gs = sp.build_scenario_gamestate(_setup("2p_mini_edited"))
     sim = WesnothSim(gs, scenario_id="2p_mini_edited", max_turns=6)
-    sim.gs.sides[0] = replace(sim.gs.sides[0], nb_villages_controlled=1)
+    _own_a_village(sim.gs, 1)
+    assert sim.gs.sides[0].nb_villages_controlled == 1
     before = sim.gs.sides[0].current_gold
     sim.step({"type": "end_turn"})            # side 1 -> 2
     sim.step({"type": "end_turn"})            # side 2 -> 1: side 1's income lands
@@ -138,7 +151,8 @@ def test_a_declared_zero_village_economy_is_paid_as_zero():
                                      village_gold=0, village_upkeep=0)
     assert _economy(gs)[:2] == (0, 0)
     sim = WesnothSim(gs, scenario_id="2p_mini_edited", max_turns=6)
-    sim.gs.sides[0] = replace(sim.gs.sides[0], nb_villages_controlled=1)
+    _own_a_village(sim.gs, 1)
+    assert sim.gs.sides[0].nb_villages_controlled == 1
     _with_upkeep_unit(sim.gs, 1, "Spearman")
     before = sim.gs.sides[0].current_gold
     sim.step({"type": "end_turn"})            # side 1 -> 2

@@ -858,7 +858,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
         # do NOT stamp TerrainModifiers.VILLAGE on the hexes -- Hex
         # objects are aliased across MCTS forks (Map.__deepcopy__), and
         # the modifier-as-ownership-cache pattern is what caused the
-        # 2026-07-29 fork-isolation leak (see _capture_village).
+        # 2026-07-29 fork-isolation leak (see set_village_owner).
         # Bump nb_villages_controlled per side.
         for sn, n in side_increments.items():
             old = gs.sides[sn - 1]
@@ -870,8 +870,8 @@ def _build_initial_gamestate(data: dict) -> GameState:
                 faction=old.faction,
             )
         # Stash the owner map so subsequent moves into these hexes
-        # don't double-credit ownership (the move-time _capture_village
-        # checks _village_owner before incrementing).
+        # don't double-credit ownership (set_village_owner checks
+        # _village_owner before incrementing).
         setattr(gs.global_info, "_village_owner", owner_map)
     return gs
 
@@ -2749,18 +2749,39 @@ def _build_plague_corpse(dead_name: str, side: int, x: int, y: int,
 
 
 def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None:
-    """Mark the village at (x,y) as belonging to `capturing_side` and
-    update side village counts. We track ownership via a per-game
-    `_village_owner: Dict[(x,y) -> side]` we stash on gs.global_info
-    (lightweight; survives within iter_replay_pairs).
+    """A unit of `capturing_side` ends its move on the village at (x, y)
+    (`actions::get_village`, src/actions/move.cpp:139-184, 1.18.4): the
+    village changes hands through `set_village_owner`."""
+    by_xy_hex, _ = _hex_lookup(gs)
+    if (x, y) not in by_xy_hex:
+        return
+    set_village_owner(gs, x, y, capturing_side)
 
-    FORK ISOLATION (2026-07-29): this function must NEVER mutate the
-    Hex object. `Map.__deepcopy__` ALIASES `hexes` across MCTS forks,
-    so the historical `hex_obj.modifiers.add(TerrainModifiers.VILLAGE)`
-    here leaked every HYPOTHETICAL capture inside a search back into
-    the real game's state -- the parent's encoder input changed
-    (~1e-3 prior shift on every root action via softmax renorm),
-    which is what made
+
+def set_village_owner(gs: GameState, x: int, y: int, side: int) -> None:
+    """Hand the village at (x, y) to `side`, or to nobody when `side`
+    is 0, keeping each side's `nb_villages_controlled` equal to the
+    villages it owns: the engine's count IS the size of the side's
+    village set (team::get_village / lose_village, src/team.cpp:437-468),
+    and income and upkeep read ours (`side_income`). Both ways a village
+    changes hands go through here, a move's capture (`_capture_village`)
+    and a scenario's `[capture_village]` (`wesnoth.map.set_owner`,
+    src/scripting/game_lua_kernel.cpp:1142-1193). A side beyond
+    `gs.sides` (a scenery side, which has no SideInfo) owns the village
+    without a count. The Rust core's twin is `GameCore::capture_village`
+    (core_move.rs).
+
+    Same owner: nothing changes. `actions::get_village` returns early
+    when the side already owns the village; the pre-2026-05-02 code
+    decremented the previous owner anyway and dropped side 1's count
+    from 8 to 6 after two leader revisits, underpaying income for turns.
+
+    FORK ISOLATION (2026-07-29): this must NEVER mutate the Hex object.
+    `Map.__deepcopy__` ALIASES `hexes` across MCTS forks, so the
+    historical `hex_obj.modifiers.add(TerrainModifiers.VILLAGE)` here
+    leaked every HYPOTHETICAL capture inside a search back into the real
+    game's state -- the parent's encoder input changed (~1e-3 prior
+    shift on every root action via softmax renorm), which is what made
     test_inference_seam::test_mcts_search_through_seam_matches_direct
     flaky. Ownership lives ONLY in the per-fork `_village_owner`
     (deep-copied by GlobalInfo.__deepcopy__ and hashed by state_key);
@@ -2768,54 +2789,50 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
     encode_raw). Regression guard:
     test_village_ownership::test_fork_capture_does_not_mutate_parent_encoding.
     """
-    by_xy_hex, _ = _hex_lookup(gs)
-    hex_obj = by_xy_hex.get((x, y))
-    if hex_obj is None:
-        return
-
-    # Per-replay village-owner map. Lazy-initialize on first call.
     owner_map: Dict[Tuple[int, int], int] = getattr(
         gs.global_info, "_village_owner", None
     ) or {}
-    prev_owner = owner_map.get((x, y), 0)
-
-    # Same-side revisit: no ownership change, no count update. Wesnoth's
-    # `actions::get_village` (game_board.cpp ~line 200, called from
-    # try_actual_movement / place_recruit) checks `village_owner ==
-    # side` and returns without touching team village lists when the
-    # mover already owns the village. Our pre-2026-05-02 code
-    # decremented the prev owner unconditionally then guarded the
-    # increment on `prev != capturing_side`, leaving a -1 net count
-    # whenever a unit walked back onto its own village. That dropped
-    # side 1's village count from 8 -> 6 mid-turn after two leader
-    # revisits and underpaid income by 4 gold/turn for several turns.
-    if prev_owner == capturing_side:
-        owner_map[(x, y)] = capturing_side  # idempotent
-        setattr(gs.global_info, "_village_owner", owner_map)
-        return
-
-    owner_map[(x, y)] = capturing_side
     setattr(gs.global_info, "_village_owner", owner_map)
+    prev_owner = owner_map.get((x, y), 0)
+    if prev_owner == side:
+        return
+    if side:
+        owner_map[(x, y)] = side
+    else:
+        owner_map.pop((x, y), None)
+    if prev_owner:
+        _add_villages(gs, prev_owner, -1)
+    if side:
+        _add_villages(gs, side, +1)
 
-    # Decrement old owner's count (if any), increment new.
-    if prev_owner and 1 <= prev_owner <= len(gs.sides):
-        s = gs.sides[prev_owner - 1]
-        gs.sides[prev_owner - 1] = SideInfo(
-            player=s.player, recruits=s.recruits,
-            current_gold=s.current_gold,
-            base_income=s.base_income,
-            nb_villages_controlled=max(0, s.nb_villages_controlled - 1),
-            faction=s.faction,
-        )
-    if 1 <= capturing_side <= len(gs.sides):
-        s = gs.sides[capturing_side - 1]
-        gs.sides[capturing_side - 1] = SideInfo(
-            player=s.player, recruits=s.recruits,
-            current_gold=s.current_gold,
-            base_income=s.base_income,
-            nb_villages_controlled=s.nb_villages_controlled + 1,
-            faction=s.faction,
-        )
+
+def _add_villages(gs: GameState, side: int, delta: int) -> None:
+    """Move `side`'s village count by `delta`; a side without a
+    SideInfo keeps none."""
+    if not 1 <= side <= len(gs.sides):
+        return
+    s = gs.sides[side - 1]
+    gs.sides[side - 1] = SideInfo(
+        player=s.player, recruits=s.recruits,
+        current_gold=s.current_gold,
+        base_income=s.base_income,
+        nb_villages_controlled=max(0, s.nb_villages_controlled + delta),
+        faction=s.faction,
+    )
+
+
+def village_count_mismatches(gs: GameState) -> Dict[int, Tuple[int, int]]:
+    """{side: (its count, the villages the owner map gives it)} for
+    every side whose two disagree; empty when the state is consistent.
+    The invariant `set_village_owner` keeps."""
+    owners = getattr(gs.global_info, "_village_owner", None) or {}
+    owned: Dict[int, int] = {}
+    for side in owners.values():
+        if side:
+            owned[side] = owned.get(side, 0) + 1
+    return {i: (s.nb_villages_controlled, owned.get(i, 0))
+            for i, s in enumerate(gs.sides, start=1)
+            if s.nb_villages_controlled != owned.get(i, 0)}
 
 
 def _action_indices(gs: GameState, cmd: list, *,

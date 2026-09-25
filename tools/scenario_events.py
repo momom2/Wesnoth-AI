@@ -1211,30 +1211,45 @@ def _num_or_none(s: str):
         return None
 
 
+# What `_capture_village_action` reads: the side, and the location
+# filter's x=, y= and terrain= (`_eval_location_clause`).
+_CAPTURE_VILLAGE_READ = frozenset({"side", "x", "y", "terrain"})
+
+
 def _capture_village_action(gs: GameState, action: WMLNode) -> None:
-    """`[capture_village] side=N x= y=` -- transfer village ownership,
-    exactly wesnoth_src/data/lua/wml-tags.lua:444-461: for every
-    matched location, set the owner to `side` (absent side= makes the
-    village neutral). WL_Mappack's Cold War / Summer Frosts use this
-    at prestart for asymmetric starting villages; dropping it silently
-    drifts income by 1g/turn compounding (audit 2026-08-06)."""
+    """`[capture_village] side=N` plus a location filter: every matched
+    VILLAGE changes hands as `wesnoth.map.set_owner` hands it
+    (wesnoth_src/data/lua/wml-tags.lua:444-461, then
+    src/scripting/game_lua_kernel.cpp:1142-1193, 1.18.4): a location
+    that is not a village is skipped, the old owner loses the village
+    and `side` gains it; no side (or 0) leaves it to nobody. The
+    transfer is `replay_dataset.set_village_owner`, the one a move's
+    capture uses, so the sides' village counts, which income reads,
+    follow the owners. WL_Mappack's Cold War and Summer Frosts use this
+    at prestart for asymmetric starting villages (audit 2026-08-06).
+
+    Not modelled, and reported when a scenario uses it: the rest of the
+    standard location filter (`[and]`, `[filter_side]`, radius, ...)
+    and `fire_event=`, which would fire capture events. Also not
+    modelled: set_owner does nothing for a side the engine counts as
+    defeated (by default, one without a leader); every capture we have
+    met runs at prestart on the player sides, whose leaders stand."""
+    from tools.replay_dataset import _terrain_at, set_village_owner
+    unread = sorted(set(action.attrs) - _CAPTURE_VILLAGE_READ)
+    unread += [f"[{child.tag}]" for child in action.children]
+    if unread:
+        _report_unmodelled_value(
+            f"[capture_village] {', '.join(unread)}: the sim reads side, x, y and terrain")
     side_raw = _subst_wml_vars(gs, action.attrs.get("side", "")).strip()
     try:
-        side = int(side_raw) if side_raw else None
+        side = int(side_raw) if side_raw else 0
     except ValueError:
-        return
-    owner = getattr(gs.global_info, "_village_owner", None)
-    if owner is None:
-        owner = {}
-        setattr(gs.global_info, "_village_owner", owner)
-    for wx, wy in _resolve_xy_attr(action.attrs.get("x", ""),
-                                   action.attrs.get("y", ""),
-                                   gs.map.size_x, gs.map.size_y):
-        key = (wx - 1, wy - 1)
-        if side is None:
-            owner.pop(key, None)
-        else:
-            owner[key] = side
+        return          # the engine raises "invalid side in [capture_village]"
+    hexes = _eval_location_clause(gs, action, gs.map.size_x, gs.map.size_y)
+    for wx, wy in sorted(hexes):
+        x, y = wx - 1, wy - 1
+        if _terrain_at(gs, x, y) == "village":
+            set_village_owner(gs, x, y, side)
 
 
 def _units_matching_filter(gs: GameState, flt: Optional[WMLNode]):
