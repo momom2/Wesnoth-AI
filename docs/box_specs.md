@@ -8,6 +8,31 @@ pipeline change plausibly moves a bottleneck, re-profile first,
 then rent. This file records the current derivation, its inputs,
 and how to refresh each input — it is a worksheet, not a policy.
 
+## Current box shape (2026-09-26)
+
+What the current box scripts rent, with the measurement behind each
+line. The worksheet below re-derives it when a pipeline change moves a
+bottleneck.
+
+- **Host:** single-tenant (`vms_enabled=false`; VM hosts refuse ssh),
+  one RTX 4090, an EPYC or Ryzen CPU, image
+  `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`
+  (`scripts/rent_box.py`). The account's balance is read before
+  renting: Vast stops an instance when it runs out.
+- **A match of 800 decisive games** at the reference decode
+  (`run_elo_batch` with 20 persistent workers and one shared inference
+  server): 489-536 s on the 2026-09-19 and 2026-09-24 hosts, EPYC 4090
+  hosts from a 30.7-core slice to 64 cores (the `match.walls` records
+  under `training/metrics/bench_pipeline/`).
+- **An imitation retrain with its match**
+  (`scripts/unit_vocab_retrain_box.sh`): at least 32 effective cores,
+  64 GB of memory and 60 GB of disk, about 4.5 box-hours
+  (docs/unit_vocab_retrain_prereg_20260925.md, "Cost").
+- **Self-play generation through the actor pool:** the serve batch cap
+  64 and the automatic actor count are the defaults; 3,222-3,237
+  saturated leaves per second on a whole-CPU Ryzen 9 5950X 4090 host
+  ("The serve batch cap" below).
+
 ## How to re-derive (run these BEFORE renting)
 
 1. **Forward cost + batching**: `tools/box_bench.py` on any
@@ -36,8 +61,7 @@ and how to refresh each input — it is a worksheet, not a policy.
    forwards); net size changes (forward cost superlinear in
    tokens: ladder maps ~1050-1190 tokens, O(n²) attention).
 
-## Current derived profiles (2026-08-17 — STALE the moment the
-## batching change is benchmarked; re-run Q9 first)
+## Derived profiles of 2026-08-17 (superseded by "Current box shape" above)
 
 ### Training leg / measurement session box
 

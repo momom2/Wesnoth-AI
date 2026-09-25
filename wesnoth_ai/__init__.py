@@ -16,4 +16,4 @@ for anything else; N changes only on the user's explicit decision. See
 CLAUDE.md "Branching" and "Versioning".
 """
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"

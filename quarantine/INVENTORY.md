@@ -3,7 +3,8 @@
 Every separately switchable mechanism above the basic self-play
 loop (play games in the simulator -> build policy/value targets ->
 gradient step), enumerated from the code as of tag
-`pre-restart-20260903`. Each entry: where, mechanism, default,
+`pre-restart-20260903`, commit `8ddf052` (quarantine/README.md shows
+how to read it). Each entry: where, mechanism, default,
 evidence, category, coupling. Verdicts are the documents' own;
 "never measured in isolation" means exactly that.
 

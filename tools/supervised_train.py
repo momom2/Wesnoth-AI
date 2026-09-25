@@ -1,27 +1,38 @@
-"""Supervised pre-training on human replays — behavior cloning loss.
+"""Imitation training on human replays: behavior cloning with a value head.
 
-Trains the same encoder+model we use for self-play against human
-actions observed in the replay corpus. Loss is cross-entropy on:
-  - actor head: which slot the observed action picks.
-  - target head: which hex (for move/attack/recruit) the action targets.
-  - weapon head: which weapon slot (attack only).
+Trains the encoder and model the players use on the corpus's human
+decisions. The policy loss is cross-entropy on each observed action:
+the actor slot, the unit type of a recruit, the target hex and the
+weapon. The value head trains in the same pass on about
+`--value-states-per-game` states per game, each labelled with its
+game's outcome for the side to move (C51 cross-entropy, weight
+`--value-loss-weight` or the imitation config's
+`value_from_outcome_weight`), whenever the dataset directory carries
+`value_corpus_index.jsonl`. With `--imitation-config
+configs/imitation.json` the policy loss reads the winners' decisions
+only, every game weighs the same, and the holdout split comes from the
+corpus manifest.
 
-Value head is NOT trained here (we don't have clean win/loss labels
-on every state). Will be initialized from the self-play phase.
+Quickstart, the reference recipe (every reference checkpoint so far is
+one pass of it; `scripts/unit_vocab_retrain_box.sh` runs it end to end
+on a box, the corpus download, the pre-encoding and the match
+included):
 
-Output: a checkpoint at training/checkpoints/supervised.pt that the
-self-play path can `--resume` from.
+    python tools/supervised_train.py replays_dataset_imitation \
+        --checkpoint arm.pt --imitation-config configs/imitation.json \
+        --d-model 384 --num-layers 8 --num-heads 12 --d-ff 1536 \
+        --relevant-set-hexes --terrain-multi-hot \
+        --epochs 4 --seed 20260909 --bs 64 --lr 1e-4 --device cuda --workers 30 \
+        --eval-every 50000 --eval-pairs 1200 --eval-pairs-per-game 8 --eval-sample-seed 0
 
-Usage:
-    python tools/supervised_train.py DATASET_DIR [--epochs N] [--lr 1e-4] [--bs 8]
-        [--init-from CKPT | --resume CKPT] [--relevant-set-hexes]
-        [--max-pairs N] [--seed N]
-
-Simplicity first: no DataLoader, no workers. Iterate replay files
-sequentially, yield pairs, batch by count. If training gets slow we
-can add multi-worker prefetch. Current rate estimate: with ~2000 pairs
-per replay × ~10 replays/sec encoding-only → ~20K pairs/sec, so a
-10M-pair corpus is one overnight run at batch=8 on CPU.
+The learning rate follows a cosine over `--epochs`; the reference runs
+stop once the first epoch's checkpoint (`arm_epoch0.pt`) and its
+holdout evaluation are written. `--workers N` encodes replays in N
+processes; the box script reads a corpus encoded once by
+`tools/preencode_corpus.py` instead (`--preencoded DIR --workers 0`),
+which trains on the same pairs in the same order. `--resume CKPT`
+continues a cut run where its pass stood; `--init-from CKPT` warm-starts
+from another checkpoint's weights.
 """
 
 from __future__ import annotations
@@ -2755,9 +2766,8 @@ def main(argv: List[str]) -> int:
                          "pairs in parallel. On the cluster's 8-CPU "
                          "L40S node, --workers 6 leaves 2 cores for "
                          "the main thread + os and roughly doubles "
-                         "throughput. Out-of-vocab unit names hit the "
-                         "overflow bucket — for fresh runs we pre-seed "
-                         "vocab from unit_stats.json automatically.")
+                         "throughput. A fresh run's vocabulary holds "
+                         "every reachable unit type (tools/unit_vocab.py).")
     ap.add_argument("--prefetch-factor", type=int, default=4,
                     help="Output-queue depth target per worker.")
     ap.add_argument("--batched-forward", choices=("auto", "on", "off"),

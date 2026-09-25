@@ -1,22 +1,20 @@
-"""Pure-Python headless Wesnoth simulator for self-play training.
+"""Headless Wesnoth simulator for self-play training and matches.
 
-Why this exists: running Wesnoth proper (`--test`, `--multiplayer`,
-plugin-driven, or wesnothd-relayed) is slow on Windows (SDL frame loop)
-and unsolved on the cluster (Linux Wesnoth install is non-trivial,
-prior headless attempts didn't pan out -- see
-memory/reference_wesnoth_headless_attempt.md). A from-scratch Python
-simulator that's bit-exact with Wesnoth's game logic has TWO huge
-advantages:
+Wesnoth's game logic reimplemented in-process: no engine subprocess,
+no rendering, no IPC, and no Wesnoth install on a GPU box (the WML it
+reads is committed under wesnoth_src/). The logic is Python; when the
+wheel is installed, Rust kernels (rust/wesnoth_core) compute reach and
+legal moves, the observation, the encoding and combat, and
+`WESNOTH_RUST_CORE=1` makes the Rust-owned state (`GameCore`) the
+state of record (CLAUDE.md, Architecture).
 
-  - 100x+ faster than `--test`: no SDL, no rendering, no IPC.
-  - Runs trivially on the cluster: pure Python + numpy + torch.
-
-We already have most of what's needed. The replay-reconstruction
-pipeline in tools/replay_dataset.py is bit-exact against Wesnoth (we
-verified across 50+ replays during the corpus build) -- it reads the
-WML command stream and applies it to a `GameState`. The simulator
-reuses that machinery and just swaps the data source: instead of
-reading commands from a replay, it queries a Python policy.
+The simulator reuses the replay-reconstruction machinery of
+tools/replay_dataset.py, which reads a replay's WML command stream and
+applies it to a `GameState`; it swaps the data source, querying a
+policy instead of reading commands. That machinery is checked against
+Wesnoth: combat strike for strike against the `[mp_checkup]` records
+of strict-sync replays (tests/test_combat_seed_alignment.py), and the
+whole replay corpus command by command (tools/diff_replay.py).
 
 What's faithful to Wesnoth (because it shares the replay-recon code):
   - Unit stats / attacks / resistances / abilities (via unit_stats.json).

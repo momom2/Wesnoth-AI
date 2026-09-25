@@ -274,7 +274,7 @@ Active only under `--mcts-classic-root`.
   26% of the rollout before counting syncs inside `forward`'s 41%).
   CPU inputs pass through untouched, so the CPU path is
   byte-identical. `tools/mcts.py:1246`; spec in
-  `docs/gpu_perf_patches.md`.
+  `docs/archive/gpu_perf_patches.md`.
 
 ### 1.8 Search budget control
 

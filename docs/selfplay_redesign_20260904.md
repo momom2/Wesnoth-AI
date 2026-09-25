@@ -2,6 +2,8 @@
 
 *Judge/synthesis pass, 2026-09-04 (Opus workflow: 4 literature agents, 5 designers, 10 critics, 1 judge). Inputs: five designs, ten critiques, four literature surveys, and a repo verification pass (every claim marked ✅ below was checked in the tree, not taken from a critique).*
 
+**Status (2026-09-26).** Of the code plan in section 5 only item 1 exists (`az_loop`'s probe plays `raw:t0`, 2026-09-04); XOD was not built on `main`. A dominance-rule form of the override was measured and parked by user ruling 2026-09-24 on branch `exp/xod-dominance`, not merged (its last commit, f3aecd9, records the measured rates and the condition for reopening it). The plan in force is docs/plan_20260904.md.
+
 ---
 
 ## 0. Summary

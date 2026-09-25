@@ -1,5 +1,12 @@
 # Pre-registration: the time of day in the observation (2026-09-22)
 
+**Status (2026-09-26).** Not run as its own arm. By user order the
+time-of-day features were batched into the observation retrain: its arm
+`obs8`, which sees them, beat `terrain` +73 +- 13 Elo together with the
+vision, statue and re-hide corrections
+(docs/observation_retrain_prereg_20260924.md), and is the reference
+player since 2026-09-25. The time of day's own share is not measured.
+
 Written before the box is rented, on the template of
 docs/terrain_multi_hot_prereg_20260919.md.
 

@@ -1,16 +1,29 @@
-# Python deps. Phase 1/2 runtime is stdlib-only; Phase 3 adds torch
-# for the TransformerPolicy + trainer.
+# Python dependencies: Python 3.11 or later (the laptop and CI run 3.13).
 #
-# torch-directml pulls in a matching torch wheel (currently torch
-# 2.4.1+cpu). It provides a DirectML backend so AMD / Intel GPUs on
-# Windows work via DirectX 12. AMD ROCm on Windows does NOT support
-# the user's RX 6600 (RDNA 2 / gfx1032), so DirectML is the path.
-# See memory/user_gpu_setup.md for device-picker notes.
-torch-directml>=0.2.5
+# PyTorch is not listed, because the right build depends on the machine:
+#   laptop and CI (CPU):  pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   GPU box:              the image pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime ships it
+# torch-directml (DirectML for AMD and Intel GPUs on Windows) is optional;
+# tools/device_select.py uses it when it is installed.
+#
+# The simulator's Rust kernels are optional too:
+#   pip install ./rust/wesnoth_core    (needs a Rust toolchain, https://rustup.rs)
 
-# Used by encoder/action_sampler/combat and the test suite. On
-# Python >= 3.13 torch-directml's pinned torch is unavailable --
-# install plain `torch` (CPU) instead and the device picker falls
-# back automatically.
 numpy
+# Rating fits (tools/player_ratings.py, which the test suite imports) and
+# the value-head comparison (tools/analysis/value_head_compare.py).
+scipy
+# The match driver's memory log (tools/run_elo_batch.py) and the tests
+# that check child processes exit.
+psutil
+# The model host: tools/reference_player.py --ensure fetches checkpoints,
+# and the box scripts stage code and upload records.
+huggingface_hub
+# Only for a reward config written as .yaml; the committed configs are JSON.
+pyyaml
+
+# Development: the test runner, and the linter at the version CI runs.
 pytest
+ruff==0.15.17
+
+# Renting boxes (scripts/rent_box.py) also needs vastai.

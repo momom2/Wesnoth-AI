@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sampler-on-CPU split + B2 batch reads (gpu_perf_patches.md #1/#2).
+"""Sampler-on-CPU split + B2 batch reads (docs/archive/gpu_perf_patches.md #1/#2).
 
 On CPU the split must be a strict NO-OP (same objects back, no
 copies) so the whole existing suite pins the CPU path byte-identical.
