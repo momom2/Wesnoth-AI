@@ -60,7 +60,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-09-24)
+## Current status (2026-09-04, entries through 2026-09-25)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -74,7 +74,8 @@ State of play:
   `tier-b/observation_retrain_20260924/arm_epoch0.pt`, local
   `training/checkpoints/obs8.pt`), +73 +- 13 Elo over `terrain` at the
   same decode (483-317 of 800 decisive games,
-  docs/observation_retrain_prereg_20260924.md). Before it (2026-09-20
+  docs/observation_retrain_prereg_20260924.md). No self-pin of `obs8`
+  has been run. Before it (2026-09-20
   to 2026-09-25) the reference was `terrain` at `raw:t0+eo-1.5`: the
   terrain-set arm (HF
   `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`, local
@@ -216,7 +217,8 @@ State of play:
   asymmetry detected; four replays of one 40-seed set, see above).
   Two optional confirmations need a box and a word: the
   3,000-per-4090 target of plan 1.3 (an A4000 cannot judge it) and a
-  tight 800-game self-pin.
+  tight 800-game self-pin (resolved: the tight self-pin ran 2026-09-19
+  and the 3,000 per 4090 was met 2026-09-21, both below).
 - 2026-09-13 (user order: keep optimizing throughput): **the pool's
   constraint was the actor COUNT.** An actor blocks on the inference
   server for nine tenths of its cycle -- its own Python is about 3 ms
@@ -230,7 +232,8 @@ State of play:
   3,000-per-4090 target is NOT met on a real 4090 (1,450-1,565
   saturated; docs/gpu_forward_design_20260904.md's 1,300-1,800 band
   coincides numerically but priced 1,270 tokens per leaf against
-  this run's ~320, so it is not a confirmation); the
+  this run's ~320, so it is not a confirmation; resolved 2026-09-21:
+  met with the serve batch cap at 64, below); the
   eval path wants neither more workers nor more servers (a second
   server halves the mean batch per server, 6.9-8.2 -> 3.5-4.4 recorded
   2026-09-14 with the walls overlapping, so it cannot win, refuting the
@@ -275,7 +278,8 @@ State of play:
   stay internally valid (both players in a match always ran the same
   predicate) but nothing may be chained onto them without
   re-measuring; the reference player's self-pin is where to
-  re-establish the baseline. Pre-encoded corpora and anchor caches
+  re-establish the baseline (done 2026-09-19: the tight self-pin of the
+  first entry). Pre-encoded corpora and anchor caches
   now carry `constants.OBSERVATION_EPOCH` and refuse an older one.
   The review's open items are in BACKLOG.md "Open after the
   hide-cover review".
@@ -293,11 +297,14 @@ State of play:
   the root with tests (tests/test_effect_ids.py); an unmodelled
   `apply_to` now warns instead of vanishing. The combat half owes the
   corpus sweep on the next box (BACKLOG.md "Scenario [effect] members
-  are named by id="). Two further findings there are NOT fixed: the
+  are named by id="; resolved 2026-09-14: the post-review box's sweep
+  is clean, below). Two further findings there are NOT fixed: the
   encoder's terrain one-hot labels 1356 of the 1,572 forest-overlay
   Ladder hexes (86%) as something other than forest
   (`tools/analysis/hide_cover_census.py`; model input, no rule reads
-  it, so it wants its own arm and an 800-game match), and `burrow` /
+  it, so it wants its own arm and an 800-game match; resolved
+  2026-09-19: the terrain set behind the `terrain_multi_hot` flag,
+  below), and `burrow` /
   `swamp_lurk` are unmodelled `[hides]` abilities whose carriers (the
   Horned Scarab, whose burrow the pinned scrape dropped; the Swamp
   Lizard) appear in neither pool.
@@ -475,7 +482,8 @@ State of play:
   evening: +44 +- 12 Elo over `relset` (800 decisive, 450-350),
   holdout proxies equal to the twin's**; checkpoint
   `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`, the candidate
-  reference pending the user's ruling; under the -1.5 decode it
+  reference pending the user's ruling (adopted 2026-09-20); under the
+  -1.5 decode it
   keeps +26 +- 12 over the reference under the same decode, and
   composed it is **+263 +- 16 over today's reference** (656-144,
   docs/composed_levers_prereg_20260919.md). The same day the panel's
@@ -497,7 +505,8 @@ State of play:
   winners' rate of about 9-11 decisions per side-turn, and the
   end_turn head still marks turns worth passing. Whether
   `raw:t0+eo-1.5` becomes the reference decode is the user's ruling
-  (BACKLOG.md "Training-signal panel").
+  (BACKLOG.md "Training-signal panel"; ruled 2026-09-20: it is the
+  reference decode).
 - 2026-09-21 (user order): **the pool's serve batch cap was the
   binding constraint, and 64 is the default.** Every generation
   reading through 2026-09-18 ran the server under the az legs'
@@ -540,13 +549,14 @@ State of play:
   value gap against the current reference, is pre-registered
   (docs/turn_gap_ref_prereg_20260921.md; `tools/turn_gap.py
   --reference`, `scripts/turn_gap_ref_box.sh`, about $1.20) and waits
-  for the user's word.
+  for the user's word (ran 2026-09-23: RICH, 7 of 60, below).
 - 2026-09-22 (user order: finish the preprocessor rework before any
   retraining): **the scenario pipeline has detectors now, and the
   first thing they did was disagree with the game.** The record is
   docs/scenario_build_plan_20260922.md, whose work items W0-W3, W5 and
   W6 are done; W4 (the engine oracle for scenario init) is scoped but
-  not built. The four detectors: our macro expansion against the
+  not built (built 2026-09-23: `tools/scenario_init_oracle.py`,
+  below). The four detectors: our macro expansion against the
   game's own, per pool scenario (`tools/analysis/expansion_diff.py`,
   0.2 s, in the fast tier, and it FAILS under the old rule); every tag
   path and attribute the pool declares against a manifest that binds
@@ -579,7 +589,9 @@ State of play:
   we build. **Owed: a `diff_replay` corpus sweep** (about 20 minutes
   and $0.20, with the old predicates monkeypatched back as the
   control), since the expander changes touch the reconstruction path
-  too. The time-of-day encoder arm (docs/time_of_day_prereg_20260922.md,
+  too (judged not worth a box on 2026-09-23: it would pass both ways,
+  next entry). The time-of-day encoder arm
+  (docs/time_of_day_prereg_20260922.md,
   `GLOBAL_FEAT_DIM` 6 -> 8, `OBSERVATION_EPOCH` 3 -> 4) is built and
   tested but PARKED by the same user order, to be batched into one
   retrain with whatever else the rework turns up.
@@ -712,7 +724,8 @@ State of play:
   including turn 1, and reconstruction never did it, so a hider once
   revealed stayed visible for the rest of a reconstructed corpus game:
   on 206 corpus games the visible units differed at 804 of 66,873
-  decisions, in 27 games (no reconstructed move landed differently).
+  decisions, in 27 games (no reconstructed move landed differently;
+  commit 6b2373a's message, no record kept).
   The reset now sits in `_apply_command`'s init_side and in the Rust
   core's `apply_init_side` (phase 13).
 - 2026-09-24 (0.5.0, user order): **every generated game is recorded
@@ -738,7 +751,9 @@ State of play:
   a scripted player that hunts tentacles, 10 games per map: every game
   diverged on Micro Isar and both Fallenstar variants (225/527, 294/494
   and 484/641 decisions), 6 and 7 of 10 on the two 2p minis, 1 on
-  Modified_Tiny_Close_Relation; 0 after. Every command now records
+  Modified_Tiny_Close_Relation; 0 after (the probe's output was not
+  kept in the repo; commit 4d0d6ba's message has the decision counts).
+  Every command now records
   through one path (`WesnothSim._apply_and_record`). Elo matches are
   unaffected (no Ladder map has an acting neutral side; Silverhead's
   side 3 is `controller=null`) and reconstructed corpora are unchanged;
@@ -808,14 +823,25 @@ match; one factor at a time, each with its own number and kill
 criterion; proxies are crash barriers, never verdicts; compute on
 rented boxes only, proposed with cost first.
 
-Eval procedure: `tools/run_elo_batch.py ... --mcts-sims 0
---raw-temperature-a 0 --raw-temperature-b 0` for raw players (the
-procedure tag is `raw:t0`; the legacy sampler is `raw` and never mixes
-in one outdir); searched players carry `mcts:<sims>` (Gumbel root) or
-`tcs:<sims>`. Run on a 4090 box with `--device cuda --jobs 10
---persistent-workers --shared-inference` (docs/box_specs.md). The last
-two are `store_true` and default OFF; without them you get the slowest
-mode in the repo, and every current match script passes them.
+Eval procedure: the match command of README's Quickstart. The
+candidate plays side A, and `$(python tools/reference_player.py --flags
+b)` puts the reference on side B with its label, checkpoint and decode
+flags; the candidate takes the same decode with
+`--raw-end-turn-offset-a -1.5`, and `--mcts-sims 0 --raw-temperature-a 0
+--raw-temperature-b 0` makes both sides raw players at argmax. The
+procedure tag is `raw:t0`, or `raw:t0+eo-1.5` with the offset; the
+legacy sampler (no raw temperature) is `raw` and never mixes with them
+in one outdir; searched players carry `mcts:<sims>` (Gumbel root) or
+`tcs:<sims>`. Every game draws a map from the 21-map Ladder pool with
+fog and puts the Knalgan Alliance on one side (`FORCED_FACTION` in
+`tools/scenario_pool.py`, described with the scenario pool under
+Architecture), which each result records as `forced_faction`. Run on a
+4090 box with `--device cuda --jobs 20 --persistent-workers
+--shared-inference` (docs/box_specs.md; every match script since
+2026-09-19 runs 20 workers). The last two are `store_true` and default
+OFF; without them you get the slowest mode in the repo, and every
+current match script passes them. `tools/elo_collect.py <outdir>
+--no-catalog` fits the decisive games.
 
 **Timing, corrected 2026-09-13, then corrected again the same night.**
 The "40 raw games in 2 minutes" that stood here was match A of the
@@ -831,7 +857,13 @@ its own 42 s, a 1.76x swing, so a single wall is not resolvable and an
 800-game match is budgeted at about 18 minutes and $0.20. Those
 figures are a box class: a single-tenant Core Ultra 9 285K host
 (2026-09-18) played the same match in 24-25 s, its server at 4.6-4.9
-ms per batch against 27 ms there.
+ms per batch against 27 ms there. They are `raw:t0` against itself,
+whose games stall at the cap. At the reference decode few games are
+capped: the 800-decisive matches of 2026-09-19 and 2026-09-24 took
+489-491 s with both players at `raw:t0+eo-1.5` and 511-536 s against a
+`raw:t0` opponent, 20 workers on 4090 hosts (the `match.walls` records
+in training/metrics/bench_pipeline/composed_levers_20260919/,
+endturn_rule_20260919/ and observation_retrain_20260924/).
 
 Two older numbers are NOT comparable and should not be re-quoted: the
 408 s one-process figure is a TWENTY-game wall (`eval_workers/
@@ -855,7 +887,13 @@ stays at the root. So a bare name like `classes.py` below means
 `wesnoth_ai/classes.py`.
 
 **Production path: in-process simulator.**
-- `tools/wesnoth_sim.py` — pure-Python game logic. Reuses the
+- `tools/wesnoth_sim.py` — the game logic, in Python, with Rust kernels
+  (`rust/wesnoth_core`) for reach and legal-move enumeration, the
+  observation, the encoding and combat. Each kernel runs by default
+  when the installed wheel has the phase it needs; `WESNOTH_RUST=0`,
+  `WESNOTH_RUST_OBSERVE=0` and `WESNOTH_RUST_COMBAT=0` force the Python
+  paths, and `tools/kernel_status.py` says which run. The Rust-owned
+  state (`GameCore`) is opt-in (`WESNOTH_RUST_CORE=1`). Reuses the
   replay-reconstruction machinery from `tools/replay_dataset.py`
   (which is bit-exact against Wesnoth via `[mp_checkup]` oracle on
   combat); just swaps the data source from "WML command stream"
@@ -874,10 +912,66 @@ stays at the root. So a bare name like `classes.py` below means
   damage and village deltas, per-turn penalty, unit-type and
   turn-conditional bonuses). The actor pool plays with a zero reward.
 - `tools/scenario_pool.py` / `tools/scenarios.py` — scenario
-  randomization for training (Ladder Era 21-map whitelist, faction
-  randomization with optional `--forced-faction` lock).
+  randomization: the Ladder Era 21-map whitelist (fogged or fogless),
+  the mini maps, the factions and leaders. `random_setup` forces one
+  faction onto one side of the game unless its caller passes
+  `forced_faction=None`: `FORCED_FACTION` is the Knalgan Alliance (user
+  request 2026-04-30), put on side 1 or side 2 at random, and the other
+  side draws uniformly from the six default-era factions, Knalgan
+  included (a mirror in about one game in six). The eval games
+  (`tools/elo_eval_game.py`, which every `run_elo_batch` match plays,
+  and the older `elo_ladder` and `eval_sim` unless told otherwise), the
+  in-process `sim_self_play` games (`--forced-faction none` turns it
+  off, another name forces that faction) and the demo all have a
+  Knalgan side; `az_loop`'s actors pass `forced_faction=None` and draw
+  both factions uniformly. Every `run_elo_batch` match since 2026-07-04
+  was played this way (`run_elo_batch.LEGACY_FORCED_FACTION`), the
+  reference players' numbers included.
 - `tools/mcts.py` / `tools/mcts_policy.py` — MCTS implementation
   and the MCTSPolicy adapter that wraps TransformerPolicy.
+- The actor pool (self-play generation): `tools/az_loop.py` drives
+  `tools/actor_pool.py`, whose actor processes (`tools/actor_worker.py`)
+  play the games and send their leaves to a serve thread or process
+  (`tools/serve_worker.py`) that holds the model;
+  `wesnoth_ai/server_priors.py` and `wesnoth_ai/leaf_wire.py` are the
+  wire, `tools/actor_stream.py` the continuous form (`--stream`) and
+  `tools/bench_pool.py` its benchmark.
+
+**Imitation (every reference checkpoint so far).**
+- `tools/supervised_train.py` — behavior cloning of the human corpus
+  with a value head trained on game outcomes in the same pass; its
+  docstring gives the reference recipe's command line, and
+  `configs/imitation.json` holds its loss settings (the winners'
+  decisions only, equal weight per game, the manifest's holdout split).
+- `tools/preencode_corpus.py` — encodes the corpus once, so a run
+  streams tensors (`supervised_train --preencoded`).
+- `scripts/unit_vocab_retrain_box.sh` — the whole recipe on a box: the
+  corpus from Hugging Face, the vocabulary (`tools/unit_vocab.py`), the
+  pre-encoding, one pass, the per-phase value table and the 800-game
+  match against the reference.
+
+**Evaluation (strength claims).**
+- `tools/run_elo_batch.py` — the match driver: resumable, memory-guarded,
+  sides alternated, seeds derived from the game index.
+- `tools/elo_eval_game.py` — one game, or many as a persistent worker
+  (`tools/eval_workers.py`); under `--shared-inference`,
+  `tools/eval_inference_server.py` serves the forwards of every worker.
+- `tools/raw_player.py` — the raw player's decode (temperature, end_turn
+  offset); `tools/reference_player.py` reads
+  `configs/reference_player.json`.
+- `tools/elo_collect.py` — fits Elo on the decisive games (capped games
+  are absences) and refuses to mix estimands within an outdir.
+- `tools/game_record.py` — each game is recorded whole beside its
+  result (`<game>.game.jsonl.gz`).
+
+**The Rust core.**
+- `rust/wesnoth_core/` — the kernels, installed with `pip install
+  ./rust/wesnoth_core`. `lib.rs` declares `__phase__`; a wheel of an
+  older phase serves only the kernels it has, and the rest run in
+  Python. The Python side of each kernel lives in `tools/pathfind_sim.py`
+  (reach, enumeration), `wesnoth_ai/observe.py`, `wesnoth_ai/combat.py`,
+  `wesnoth_ai/encoder.py` and `wesnoth_ai/game_core.py` (`GameCore`);
+  docs/rust_port_plan.md records the port.
 
 **Live-Wesnoth path (eval only).**
 - `main.py` — setup / maintenance CLI (`--check-setup`,
@@ -946,12 +1040,15 @@ touching model code?"
 ### 4. The simulator must be perfectly faithful to Wesnoth
 The simulator's combat math is verified against Wesnoth's own
 `[mp_checkup]` oracle on strict-sync replays (731/731 strikes
-matched). Any sim change that touches combat, healing, or
-advancement must keep that parity. `tools/diff_replay.py` is the
-regression check (runs the simulator over a corpus, compares
-against the recorded WML command stream). New scenario events go in
-`tools/scenario_events.py`; new abilities in `tools/abilities.py`;
-both with citations to `wesnoth_src/` file:line.
+matched; a 2026-05 figure with no record kept, and
+tests/test_combat_seed_alignment.py re-checks every strike of a
+29-attack strict-sync fixture on each run). Any sim change that
+touches combat, healing, or advancement must keep that parity.
+`tools/diff_replay.py` is the regression check (runs the simulator
+over a corpus, compares against the recorded WML command stream). New
+scenario events go in `tools/scenario_events.py`; new abilities in
+`tools/abilities.py`; both with citations: `src/<path>:<line>` at the
+1.18.4 tag for C++, `wesnoth_src/data/<path>:<line>` for WML and Lua.
 
 Any mismatch between the simulator and Wesnoth (usually surfaced
 by OOS errors when strict syncing sim-produced replays) is a
@@ -963,9 +1060,17 @@ well-defined serialization, actions as one schema, Lua side stays
 dumb. But that path is no longer how training data is generated.
 
 ### 5. Failures are visible
-Both paths log timeouts and stage-of-failure. The simulator returns
-typed errors (e.g. `"recruit:insufficient_gold"`) that
-`sim_self_play.py` surfaces in the per-game summary. The bridge
+Both paths log timeouts and stage-of-failure. The simulator does not
+apply a refused action (a recruit onto a hex that turns out to be
+occupied under fog, a move outside the landable set, an attack with no
+hex to strike from): `WesnothSim.step` sets `last_step_rejected` and the
+caller decides again, a recruit bounce being recorded on
+`gs.global_info._recruit_rejected_hexes` (principle 6). An action it
+cannot translate ends the side's turn, and so do eight rejections in a
+row from a caller that ignores the mask (with a warning); the recorded
+end_turn then carries what was attempted. `tools/diff_replay.py`, which
+checks each command of a real replay before applying it, reports typed
+divergences (e.g. `"recruit:insufficient_gold"`). The bridge
 path (display, eval) wraps any Python wait in a finite timeout and
 logs which stage timed out; Lua errors reach the Python log, not
 silently die inside a `pcall`.
@@ -1122,18 +1227,19 @@ many line-coverage tests.
   hand, with the user's agreement.
 
 ### Guidelines
-- Run `pytest` after changes. This runs the FAST tier (~2.5 min):
-  tests marked `slow` (full-game / subprocess / threading e2e,
-  >10s each — see pytest.ini) are excluded by default.
+- Run `pytest` after changes. This runs the FAST tier (6-14 minutes
+  on the laptop in the runs of 2026-09-24/25): tests marked `slow`
+  (full-game / subprocess / threading e2e, >10s each — see pytest.ini)
+  are excluded by default.
 - **CI runs the FULL suite — `pytest -m ""` — on every push**
-  (`.github/workflows/tests.yml`, GitHub Actions, about 10 minutes of
-  tests). The slow tier holds the e2e regression guards (MCTS
-  self-play smoke, concurrent train-step races, export validation);
-  the fast tier alone does NOT cover them, and the laptop does not run
-  them (they generate self-play games). A branch merges on a green
-  run, and a training campaign launches from a commit that has one.
-  CI has no GPU and no corpora: the CUDA tests and the tests that read
-  replay, imitation or value data skip there.
+  (`.github/workflows/tests.yml`, GitHub Actions; the test step took
+  5-7 minutes in the runs of 2026-09-25). The slow tier holds the e2e
+  regression guards (MCTS self-play smoke, concurrent train-step races,
+  export validation); the fast tier alone does NOT cover them, and the
+  laptop does not run them (they generate self-play games). A branch
+  merges on a green run, and a training campaign launches from a commit
+  that has one. CI has no GPU and no corpora: the CUDA tests and the
+  tests that read replay, imitation or value data skip there.
 - **Never run more than one pytest invocation at a time.** Each
   pytest spawns a Python process that imports torch + the model;
   parallel runs balloon memory (5+ GB per process) and a stuck
@@ -1198,9 +1304,8 @@ many line-coverage tests.
   source.** The wiki sometimes lags, has edge cases wrong, or omits
   attrs. **`wesnoth_src/` has NO `src/` tree** -- it is a WML-only
   copy of the local 1.18.7 install (see the provenance note above), so
-  `grep wesnoth_src/src/` returns nothing and the 68 such citations in
-  docs/wesnoth_rules.md are not locally verifiable (85 C++ citations
-  in all, over 45 distinct files; 17 are already written bare). For C++ engine
+  `grep wesnoth_src/src/` returns nothing, and the rules catalog's
+  citations of C++ files cannot be checked locally. For C++ engine
   internals read the **1.18.4 tag on GitHub raw**, e.g.
   `https://raw.githubusercontent.com/wesnoth/wesnoth/1.18.4/src/units/unit.cpp`,
   and cite `src/...:line` as the rules catalog does. For WML and Lua,
@@ -1229,16 +1334,19 @@ many line-coverage tests.
   added saves the next exploration session hours, and the doc
   prevents truth-drift across sessions.
 - **Wesnoth rules can live in C++, Lua, OR WML — search all three.**
-  Common gotcha: a rule we're hunting in `wesnoth_src/src/` is
-  actually in `wesnoth_src/data/multiplayer/eras.lua` or a WML
-  macro under `wesnoth_src/data/core/macros/`. After grepping `src/`,
-  always also grep `data/multiplayer/`, `data/core/macros/`,
-  `data/lua/`. Rules with a "post-pass" feel (applied after unit
-  setup) often hide in `[event]name=prestart` Lua callbacks.
-- **`changelog.md` is HISTORICAL — verify against current source.**
-  Old changelog entries describe behavior at THAT version, which
-  may have changed since. Cross-check any changelog quote against
-  the live `wesnoth_src/` code path before treating it as authority.
+  Common gotcha: a rule we're hunting in the engine's C++ (`src/` at
+  the 1.18.4 tag) is actually in
+  `wesnoth_src/data/multiplayer/eras.lua` or a WML macro under
+  `wesnoth_src/data/core/macros/`. After reading the C++, always also
+  grep `wesnoth_src/data/multiplayer/`, `wesnoth_src/data/core/macros/`,
+  `wesnoth_src/data/lua/`. Rules with a "post-pass" feel (applied after
+  unit setup) often hide in `[event]name=prestart` Lua callbacks.
+- **Wesnoth's `changelog.md` is HISTORICAL — verify against current
+  source.** It lives in the engine repository on GitHub (`wesnoth_src/`
+  has no copy). Old changelog entries describe behavior at THAT
+  version, which may have changed since. Cross-check any changelog
+  quote against the code at the 1.18.4 tag (C++) or in
+  `wesnoth_src/data/` (WML, Lua) before treating it as authority.
 - **`docs/design_constants.md` catalogues DERIVED numerical
   constants** (not arbitrary tuning knobs). Anything with a
   derivation — math, measurement, fixed external standard —
