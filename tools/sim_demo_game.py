@@ -1,36 +1,21 @@
-"""One-game demo via the simulator + bz2 replay export.
+"""Play one game in the simulator and export it as a Wesnoth replay.
 
-Replaces the old "watch one Wesnoth window" path. The sim is headless
--- there's no live game window -- but we play one full game with the
-loaded checkpoint vs itself, then export a Wesnoth-loadable .bz2
-replay so the user can open it in Wesnoth's replay viewer (File ->
-Load Game -> pick the .bz2). That's the same end goal as the old
---display flow (see one model game, animations on, no training)
-without spinning up the broken Wesnoth subprocess.
+Both sides play the same checkpoint, loaded as the evaluation path loads
+it (`tools.eval_sim._load_policy`: its architecture and every structural
+flag, the hex basis included). Each side decides with the reference
+player's decode by default (configs/reference_player.json: argmax with
+its end_turn logit offset); `--temperature` and `--end-turn-offset`
+change the decode, and `--mcts` plays the search player instead. The
+game is written as a .bz2 replay that Wesnoth 1.18 opens (Load Game) and
+copied into Wesnoth's saves directory. No Wesnoth install is needed to
+play the game, only to watch it.
 
-Why a separate script (vs adding `--games 1` + a flag to
-sim_self_play): sim_self_play's loop is built around train_step.
-Doing inference-only with replay export is enough of a
-different shape -- no reward bookkeeping, no gradient step, no
-multi-iteration loop -- that splitting it keeps each tool's job
-crisp.
+    python tools/reference_player.py --ensure
+    python tools/sim_demo_game.py --checkpoint $(python tools/reference_player.py --path)
 
-CLI:
-
-    python tools/sim_demo_game.py
-        --checkpoint training/checkpoints/supervised_epoch3.pt
-        --out demo.bz2
-        --max-turns 40
-
-Auto-pick checkpoint: if --checkpoint is omitted, picks the most
-recently modified `supervised*.pt` in `training/checkpoints/`. Same
-behavior the old run_self_play.ps1 had so the GUI's Display button
-keeps its zero-config feel.
-
-The exported .bz2 lands wherever --out points (default:
-`logs/sim_demo_<timestamp>.bz2`). The script logs the full path so
-the GUI can print it and the user can double-click straight from
-the log line.
+Without `--checkpoint` the demo plays the reference player's local
+checkpoint. The replay lands at `--out` (default
+`logs/sim_demo_<timestamp>.bz2`), and the log names both copies.
 """
 
 from __future__ import annotations
@@ -50,26 +35,32 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
+from tools import reference_player
+from tools.eval_sim import _load_policy
 from tools.sim_to_replay import export_replay, find_source_bz2
-from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
 
 log = logging.getLogger("sim_demo_game")
 
 
-def _autoselect_checkpoint(root: Path) -> Optional[Path]:
-    """Return the freshest `supervised*.pt` (or any .pt) in `root` by
-    modification time."""
-    if not root.is_dir():
-        return None
-    pts = sorted(root.glob("supervised*.pt"),
-                 key=lambda p: p.stat().st_mtime, reverse=True)
-    if pts:
-        return pts[0]
-    pts = sorted(root.glob("*.pt"),
-                 key=lambda p: p.stat().st_mtime, reverse=True)
-    return pts[0] if pts else None
+def load_player(ckpt: Path, device, *, mcts_sims: int, temperature: float,
+                end_turn_offset: float, end_turn_rule: str = "joint",
+                seed: Optional[int] = None):
+    """The player both sides use: the checkpoint loaded as the eval path
+    loads it (its arch and every structural flag, so a relevant-set
+    checkpoint chooses its hex targets in the relevant-set basis), under
+    the eval-contract search when `mcts_sims` > 0 (MCTSConfig defaults:
+    no material shapers), else the raw player at the given decode."""
+    policy = _load_policy(ckpt, device, label="demo")
+    if mcts_sims > 0:
+        from tools.mcts import MCTSConfig
+        from tools.mcts_policy import MCTSPolicy
+        return MCTSPolicy(policy, mcts_config=MCTSConfig(n_simulations=int(mcts_sims)),
+                          rng_seed=seed)
+    from tools.raw_player import RawPolicyPlayer
+    return RawPolicyPlayer(policy, temperature, seed=seed, end_turn_rule=end_turn_rule,
+                           end_turn_offset=end_turn_offset)
 
 
 def _pick_replay_seed(pool: Path, rng: random.Random) -> Optional[Path]:
@@ -111,8 +102,9 @@ def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--checkpoint", type=Path, default=None,
-                    help="Model checkpoint .pt. Default: freshest "
-                         "supervised*.pt under training/checkpoints/.")
+                    help="Model checkpoint .pt. Default: the reference "
+                         "player's local checkpoint "
+                         "(configs/reference_player.json).")
     ap.add_argument("--replay-pool", type=Path, default=None,
                     help="Optional pool of .json.gz replays to seed the "
                          "initial state from. If omitted, uses the "
@@ -126,7 +118,7 @@ def main(argv) -> int:
                          "Default: random from the 21-map ladder pool.")
     ap.add_argument("--out", type=Path, default=None,
                     help="Output .bz2 path. Default: "
-                         "logs/sim_demo_<UTC>.bz2.")
+                         "logs/sim_demo_<local timestamp>.bz2.")
     ap.add_argument("--saves-dir", type=Path,
                     default=Path.home() / "Documents" / "My Games"
                             / "Wesnoth1.18" / "saves",
@@ -140,22 +132,30 @@ def main(argv) -> int:
                          "OFF -- the ladder pool's fogless condition "
                          "(ScenarioSetup.fogless).")
     ap.add_argument("--mcts", action="store_true",
-                    help="SHOWCASE mode: drive both sides with full "
-                         "MCTS in the eval-contract configuration "
-                         "(MCTSConfig defaults = training crutches "
-                         "OFF, pure search over the checkpoint's own "
-                         "heads; identical to elo_ladder's "
-                         "'mcts:<sims>:<ckpt>' players). This is the "
-                         "project's play-quality-with-all-advantages "
-                         "view; the default (raw sampling) shows the "
-                         "bare prior instead. ~10-100x slower.")
+                    help="Drive both sides with MCTS in the eval-contract "
+                         "configuration (MCTSConfig defaults: no material "
+                         "shapers, search over the checkpoint's own heads) "
+                         "instead of the raw player. Much slower.")
     ap.add_argument("--mcts-sims", type=int, default=32,
                     help="Simulations per decision for --mcts "
                          "(32 = training/eval convention).")
+    decode = reference_player.load()["decode"]
+    ap.add_argument("--temperature", type=float,
+                    default=float(decode["raw_temperature"]),
+                    help="The raw player's joint temperature (0 = argmax). "
+                         "Default: the reference player's.")
+    ap.add_argument("--end-turn-offset", type=float,
+                    default=float(decode.get("raw_end_turn_offset", 0.0)),
+                    help="Added to the end_turn actor logit before the "
+                         "choice. Default: the reference player's.")
     ap.add_argument("--max-turns", type=int, default=40,
                     help="Per-game turn cap.")
     ap.add_argument("--seed", type=int, default=None,
-                    help="RNG seed for replay sampling. Default: time-based.")
+                    help="Seed of the scenario draw and of the player's "
+                         "choices. Default: time-based.")
+    # The multiplayer defaults, for a game seeded from a replay
+    # (--replay-pool); a from-scratch game plays its scenario's own
+    # gold, village economy and experience modifier, as self-play does.
     ap.add_argument("--starting-gold", type=int, default=100)
     ap.add_argument("--village-gold", type=int, default=2)
     ap.add_argument("--village-support", type=int, default=1)
@@ -173,20 +173,14 @@ def main(argv) -> int:
         datefmt="%H:%M:%S",
     )
 
-    # 1. Pick checkpoint
-    ckpt = args.checkpoint
-    if ckpt is None:
-        ckpt = _autoselect_checkpoint(Path("training/checkpoints"))
-        if ckpt is None:
-            log.error(
-                "no checkpoint passed and none found under "
-                "training/checkpoints/. Train one via "
-                "tools/sim_self_play.py or pass --checkpoint.")
-            return 2
-        log.info(f"auto-picked checkpoint: {ckpt}")
+    # 1. The checkpoint: the reference player's unless one is passed.
+    ckpt = args.checkpoint or reference_player.local_path()
     if not ckpt.exists():
-        log.error(f"checkpoint not found: {ckpt}")
+        log.error(f"checkpoint not found: {ckpt}"
+                  + ("" if args.checkpoint else
+                     " (fetch it: python tools/reference_player.py --ensure)"))
         return 2
+    log.info(f"checkpoint: {ckpt}")
 
     # 2. Build the initial GameState.
     rng = random.Random(args.seed if args.seed is not None
@@ -235,13 +229,9 @@ def main(argv) -> int:
             f"from-scratch setup: scenario={setup.scenario_id} "
             f"factions={setup.faction1} vs {setup.faction2} "
             f"leaders={setup.leader1} / {setup.leader2}")
-        gs = build_scenario_gamestate(
-            setup,
-            base_income=pvp.base_income,
-            village_gold=pvp.village_gold,
-            village_upkeep=pvp.village_support,
-            experience_modifier=pvp.experience_modifier,
-        )
+        # The scenario's own economy (None), as sim_self_play reads it
+        # since 2026-09-21: five of the seven minis pay 3 gold a village.
+        gs = build_scenario_gamestate(setup, base_income=pvp.base_income)
         sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                          max_turns=args.max_turns)
         src_bz2 = None  # unused in the from-scratch path
@@ -264,57 +254,31 @@ def main(argv) -> int:
             seed_replay, max_turns=args.max_turns, pvp_defaults=pvp,
         )
 
-    # 5. Load the policy + drive the game. We use TransformerPolicy
-    #    with training off (no gradient updates, no replay buffer
-    #    growth) so this is pure inference.
-    # Peek the checkpoint's saved arch and build a matching
-    # TransformerPolicy. `load_checkpoint` refuses to load across
-    # mismatched d_model / num_layers / num_heads / d_ff so we
-    # construct the right shape up front rather than catch a
-    # mid-load exception.
-    import torch as _torch
+    # 3. Load the player and play the game.
     from tools.device_select import select_inference_device, describe_device
-    _device = select_inference_device(args.device)
-    log.info(f"device: {describe_device(_device)}")
-    _raw = _torch.load(ckpt, map_location="cpu", weights_only=False)
-    _arch = _raw.get("arch", {})
-    policy = TransformerPolicy(
-        device=_device,
-        d_model=int(_arch.get("d_model", 512)),
-        num_layers=int(_arch.get("num_layers", 6)),
-        num_heads=int(_arch.get("num_heads", 8)),
-        d_ff=int(_arch.get("d_ff", 2048)),
-    )
-    policy.load_checkpoint(ckpt)
-    if args.mcts:
-        # Eval-contract search wrapper (mirrors tools/elo_ladder's
-        # 'mcts:' players): MCTSConfig defaults keep aux_value_bonus
-        # and draw_tiebreak OFF -- pure search strength, the
-        # convention our Elo numbers are measured under.
-        from tools.mcts import MCTSConfig
-        from tools.mcts_policy import MCTSPolicy
-        policy = MCTSPolicy(policy, mcts_config=MCTSConfig(
-            n_simulations=int(args.mcts_sims)))
-        log.info(f"MCTS showcase mode: {args.mcts_sims} sims/decision "
-                 f"(eval contract -- no training crutches)")
+    device = select_inference_device(args.device)
+    log.info(f"device: {describe_device(device)}")
+    policy = load_player(
+        ckpt, device, mcts_sims=args.mcts_sims if args.mcts else 0,
+        temperature=args.temperature, end_turn_offset=args.end_turn_offset,
+        seed=args.seed)
+    log.info(f"player: {type(policy).__name__} "
+             + (f"({args.mcts_sims} simulations per decision)" if args.mcts else
+                f"(temperature {args.temperature}, end_turn offset "
+                f"{args.end_turn_offset})"))
     log.info("running one game (this is headless -- progress in stderr)...")
     t0 = time.perf_counter()
     game_label = "demo"
     while not sim.done:
-        # Deepcopy the state before each select_action: the policy
-        # stores the GameState reference in a Transition (it's a
-        # trainable policy class even though we discard pending here),
-        # and `sim.step` mutates `sim.gs` in place. Without the copy
-        # the stored state would diverge from what the trainer's
-        # reforward sees later. See the contract in
-        # `transformer_policy.select_action`'s docstring.
+        # Deepcopy the state before each select_action: a search player
+        # keeps references to the states it decided on, and `sim.step`
+        # mutates `sim.gs` in place (the contract in
+        # `transformer_policy.select_action`'s docstring).
         pre_state = copy.deepcopy(sim.gs)
         action = policy.select_action(pre_state, game_label=game_label,
                                       sim=sim)
         sim.step(action)
-    # Drop any pending trajectory transitions so policy state stays
-    # clean. observe(done=True) would normally close them; we don't
-    # want to and we have no reward to attach.
+    # Nothing trains here: drop whatever the player recorded.
     policy.drop_pending(game_label)
     dt = time.perf_counter() - t0
 
@@ -324,7 +288,7 @@ def main(argv) -> int:
         f"ended_by={sim.ended_by} "
         f"actions={len(sim.command_history)}")
 
-    # 6. Export the replay
+    # 4. Export the replay.
     if args.out is None:
         Path("logs").mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y%m%d_%H%M%S")

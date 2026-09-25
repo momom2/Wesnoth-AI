@@ -400,6 +400,21 @@ class GameState:
     winner: Optional[int] = None
 
 
+# The players' sides. A scenario may declare more (the statues of Caves
+# of the Basilisk, a mini map's tentacles), and a replayed game keeps a
+# SideInfo for each of them: they are scenery or a neutral AI, never a
+# player, and nobody's opponent.
+PLAYER_SIDES = (1, 2)
+
+
+def opponent_of(side: int) -> int:
+    """The other player's side. A side that is not a player's has no
+    opponent: ValueError."""
+    if side not in PLAYER_SIDES:
+        raise ValueError(f"side {side} is not a player side {PLAYER_SIDES}")
+    return PLAYER_SIDES[1] if side == PLAYER_SIDES[0] else PLAYER_SIDES[0]
+
+
 # ---------------------------------------------------------------------
 # Canonical state key for MCTS transposition tables
 # ---------------------------------------------------------------------

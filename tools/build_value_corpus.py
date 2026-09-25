@@ -5,7 +5,10 @@ Pipeline (raw .bz2 from replays.wesnoth.org -> labeled game index):
   1. Header gates (cheap, no full parse; reuses filter_replays):
      - version 1.18.x
      - era_id default / era_default, no campaign, no mods requested
-     - exactly 2 sides, both human-controlled
+     - the two player sides (1 and 2) human-controlled and no other
+       side human; a scenario's further sides (the statues of Caves
+       of the Basilisk, Silverhead Crossing's Shapeshifter) are
+       scenery
      - scenario_id in the competitive-2p whitelist (mainline default
        2p maps = the ladder pool's mainline subset)
   2. Outcome scan on the RAW text (server metadata never reaches the
@@ -59,7 +62,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tools.filter_replays import parse_header
+from tools.replay_dataset import _player_sides
 from tools.scenarios import COMPETITIVE_2P_SCENARIOS
+from wesnoth_ai.classes import PLAYER_SIDES
 
 log = logging.getLogger("build_value_corpus")
 
@@ -139,14 +144,24 @@ def _side_player_map(header: dict) -> Dict[str, int]:
     return out
 
 
-def _human_sides(header: dict) -> int:
+def _human_sides(sides: List[dict]) -> int:
     """Count sides a human (local or network) controls."""
-    n = 0
-    for s in header.get("sides", []):
-        ctrl = (s.get("controller") or "").lower()
-        if ctrl in ("human", "network"):
-            n += 1
-    return n
+    return sum(1 for s in sides
+               if (s.get("controller") or "").lower() in ("human", "network"))
+
+
+def two_human_players(header: dict) -> bool:
+    """Both player sides are there and human, and no other side is: the
+    game is a human 2p game. The player sides are counted as replay
+    reconstruction counts them (`replay_dataset._player_sides`), so a
+    scenario's further sides (the statues of Caves of the Basilisk,
+    Sullas Ruins and Thousand Stings Garrison, Silverhead Crossing's
+    Shapeshifter, all controller=null) do not disqualify a game."""
+    sides = header.get("sides", [])
+    players = _player_sides(sides)
+    return (len(players) == len(PLAYER_SIDES)
+            and _human_sides(players) == len(PLAYER_SIDES)
+            and _human_sides(sides) == len(PLAYER_SIDES))
 
 
 def build(raw_dir: Path, out_dir: Path, *, min_turns: int,
@@ -220,8 +235,7 @@ def build(raw_dir: Path, out_dir: Path, *, min_turns: int,
             if (top.get("campaign") or "").strip():
                 stats["reject_campaign"] += 1
                 continue
-            sides = header.get("sides", [])
-            if len(sides) != 2 or _human_sides(header) != 2:
+            if not two_human_players(header):
                 stats["reject_sides"] += 1
                 continue
             scen = header.get("scenario_id") or ""

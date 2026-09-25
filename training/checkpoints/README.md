@@ -1,60 +1,50 @@
-# Checkpoint naming — read this before picking one
+# Checkpoints
 
-**The LATEST checkpoint is the one with the newest DATE in its name, not
-the one called "final".** On 2026-07-28 a `tier_a_campaign_final.pt` dated
-2026-07-13 (decision_step 1.87M) was mistaken for the newest and used for
-an eval; the actual newest was `tier_a_campaign_20260719.pt`
-(decision_step 2.75M, ~880k steps further trained). That file has been
-renamed to `tier_a_campaign_20260713.pt`. **Do not reintroduce "final",
-"best", or "latest" in a checkpoint filename** — they age badly and lie.
+## Quickstart
 
-## Rules
+    python tools/reference_player.py --ensure   # fetch the reference player's checkpoint if missing
+    python tools/reference_player.py --path     # its local path
+    python tools/reference_player.py            # its record: label, checkpoint, decode, provenance
 
-- **Name campaign checkpoints `<lineage>_<YYYYMMDD>.pt`.** The date is the
-  save date. Ties inside a day get a `_hhmm` or a suffix.
-- **Verify before trusting a name.** `decision_step` inside the file is the
-  authoritative measure of how much training a checkpoint has had:
+`--ensure` downloads from the Hugging Face repository
+`momom2/wesnoth-model-checkpoints`, which is private: log in first with
+`huggingface-cli login`, on an account with access to it.
 
-      python -c "import torch,sys; c=torch.load(sys.argv[1],map_location='cpu',weights_only=False); print(c.get('decision_step'), c.get('arch'))" training/checkpoints/X.pt
+## Which checkpoint is current
 
-  `ls -lt` (mtime) is a good cross-check.
+`configs/reference_player.json` names the reference player, one
+checkpoint under one decode: since 2026-09-25 it is `obs8` at
+`raw:t0+eo-1.5` (HF `tier-b/observation_retrain_20260924/arm_epoch0.pt`,
+local `training/checkpoints/obs8.pt`). Every strength claim is a match
+against it (CLAUDE.md, "Eval procedure"). The earlier reference players
+and the rest of the lineage are listed in docs/checkpoint_naming.md.
 
-## Reserved filename — do NOT rename
+## Names
 
-`tier_a_campaign.pt` is **load-bearing infrastructure**, not just an old
-local file. It is hard-coded as the live campaign filename in:
+docs/checkpoint_naming.md gives the scheme: a name encodes the
+checkpoint's training history as a path through the lineage tree
+(`2516k-b-294k-l4-430k`), and the named imitation checkpoints (`seed2`,
+`relset`, `terrain`, `obs8`) are listed there with their HF paths. No
+name says "final", "best" or "latest": such names age badly (on
+2026-07-28 a `_final.pt` dated 2026-07-13 was taken for the newest
+checkpoint). A checkpoint's `decision_step` counts its self-play
+decisions and its `arch` gives its size:
 
-- `scripts/vast_onstart.sh` (`CAMPAIGN=`, and the HF seed download), and
-- `scripts/hf_upload_loop.py` (uploads it, plus `.holdout`, to the Hub).
+    python -c "import torch,sys; c=torch.load(sys.argv[1],map_location='cpu',weights_only=False); print(c.get('decision_step'), c.get('arch'))" training/checkpoints/X.pt
 
-Renaming it locally breaks the box seed/upload loop. Leave it alone; the
-local copy may be stale relative to the Hub.
+`tier_a_campaign.pt` is the default campaign filename of
+`scripts/vast_onstart.sh` (`HF_SEED_FILE`) and
+`scripts/hf_upload_loop.py` (`CAMPAIGN_FILE`); renaming a local copy
+does not change what those scripts read and write.
 
-## Current lineage (2026-07-28)
+## What is tracked, and where the rest lives
 
-| file | decision_step | note |
-|---|---|---|
-| `tier_a_campaign_20260722.pt` | 3,741,764 | newest (= the Hub's `tier_a_campaign.pt`) but **measurably WORSE** — loses 0-1-3 to each predecessor |
-| `tier_a_campaign_20260719.pt` | 2,747,117 | near the measured PEAK of the lineage |
-| `selfplay_local_20260718.pt`  | 2,299,999 | ladder-comparable to the above |
-| `tier_a_campaign_5h_20260715.pt` | 2,290,529 | |
-| `tier_a_campaign_20260713.pt` | 1,866,523 | was misnamed `_final` |
-| `tier_a_campaign.pt` | (07-03 local copy) | RESERVED pipeline name — STALE locally |
-
-**The Hub's `tier_a_campaign.pt` is at decision_step 3,741,764** (uploaded
-2026-07-22), pulled locally as `tier_a_campaign_20260722.pt`. A box restart
-therefore resumes from THAT — which the ladder measures as the weakest of
-the recent lineage (see `docs/eval_20260728.md` §0). Seed from an earlier
-file with `-e HF_SEED_FILE=...` if you want to restart from the peak.
-
-**Cache-vs-Hub trap:** an earlier check of the LOCAL HF cache
-(`~/.cache/huggingface/hub/models--momom2--wesnoth-model-checkpoints`) reported the
-Hub campaign as the 07-19 / 2.75M checkpoint. That was wrong — the cache
-did not hold the newest revision. Always verify against the Hub itself
-(the token resolves via `huggingface_hub.get_token()` once
-`huggingface-cli login` has been run); treat cache reads as a fallback that
-can be stale.
-
-Measured strength (see `docs/eval_20260728.md`): the 07-19 checkpoint beats
-the 07-13 one 8-0-0 in the sim ladder, but is statistically indistinguishable
-from the 07-18 one (3-1-4) — i.e. the last training leg shows no gain.
+Git tracks five names from before the Hugging Face era (`.gitignore`
+lists them): `supervised.pt`, `supervised_epoch9.pt`, `sim_selfplay.pt`
+and its `sim_selfplay_archive_*.pt` snapshots, 3-layer networks of
+2026-05 and 2026-06, and `tier_a_5m.pt`, the 5M network that seeded
+the 2026-07 tier-a runs. None of them is current. Every later checkpoint lives
+on Hugging Face in `momom2/wesnoth-model-checkpoints` (each imitation run
+under `tier-b/<run>/`, its checkpoint after the first pass
+`arm_epoch0.pt`) and is copied here under a short name (`obs8.pt`,
+`terrain.pt`, `relset.pt`), which git ignores.

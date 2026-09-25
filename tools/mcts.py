@@ -1104,7 +1104,7 @@ def _backup(
 
 
 def _leaf_to_cpu(encoded, output):
-    """Forward-on-GPU / sampler-on-CPU split (gpu_perf_patches.md #1).
+    """Forward-on-GPU / sampler-on-CPU split (docs/archive/gpu_perf_patches.md #1).
 
     `enumerate_legal_actions_with_priors` does dozens of per-actor
     `.item()`/`.tolist()` reads; on CUDA each one is a serializing
@@ -1299,7 +1299,7 @@ def _run_sim_batch(
         with torch.no_grad():
             encoded_list = [encoder.encode(ln.sim.gs) for ln in unique_list]
             outputs = model.forward_batch(encoded_list)
-        # B2 (gpu_perf_patches.md #2): read every leaf's scalar value
+        # B2 (docs/archive/gpu_perf_patches.md #2): read every leaf's scalar value
         # + cliffness in ONE batched D2H transfer instead of 2
         # serializing syncs per leaf. Values are identical to the
         # per-leaf `.item()` reads; CPU path skips the coalesce (the

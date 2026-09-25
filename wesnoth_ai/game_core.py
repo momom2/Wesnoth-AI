@@ -32,7 +32,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from wesnoth_ai.classes import (Attack, GameState, GlobalInfo, Map, Position, SideInfo,
-                                TerrainModifiers, Unit)
+                                TerrainModifiers, Unit, opponent_of)
 
 _KERNEL_CHECKED = False
 _GAME_CORE = None
@@ -61,9 +61,10 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 14: the core tracks each side's fog, re-hides hiders at
-        # init_side and pays a declared 0 village gold or support as 0.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 14:
+        # Phase 15: the core tracks each side's fog, re-hides hiders at
+        # init_side, pays a declared 0 village gold or support as 0, and
+        # its encoding counts the other player's side as the enemy.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 15:
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
 
@@ -246,7 +247,7 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 14 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 15 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}
@@ -569,12 +570,11 @@ class CoreState:
         """`encoder.encode_raw` over the core for the side to move: the
         same RawEncoded, byte for byte (tests/test_game_core.py)."""
         from wesnoth_ai import encoder as enc
-        from wesnoth_ai.classes import Position
         core = self.core
         side = int(core.current_side)
         sides = core.sides_export()
         us = side - 1
-        them = 1 - us if len(sides) == 2 else us
+        them = opponent_of(side) - 1
         our_fac = sides[us][5] if 0 <= us < len(sides) else ""
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []

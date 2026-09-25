@@ -54,6 +54,7 @@ from tools.scenario_pool import (LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,  # 
                                  build_scenario_gamestate, classify_scenario)
 from tools.traits import TRAITS  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
+from wesnoth_ai.classes import PLAYER_SIDES  # noqa: E402
 
 log = logging.getLogger("scenario_init_oracle")
 
@@ -61,7 +62,6 @@ POOL = list(LADDER_SCENARIO_IDS) + list(MINI_MAP_SCENARIO_IDS)
 FACTIONS = ("Drakes", "Knalgan Alliance", "Loyalists", "Northerners", "Rebels", "Undead")
 AI_CONFIG = "~add-ons/wesnoth_ai/init_oracle_ai.cfg"
 TOD_IDS = ("dawn", "morning", "afternoon", "dusk", "first_watch", "second_watch")
-PLAYER_SIDES = (1, 2)
 SIDE_FIELDS = ("gold", "base_income", "total_income", "net_income", "village_gold",
                "village_support", "fog", "recruit", "faction")
 UNIT_FIELDS = ("hitpoints", "max_hitpoints", "moves", "max_moves", "experience", "max_experience")

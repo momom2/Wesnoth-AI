@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """T-B analyzer: pooled paired-AUC comparison of raw value head vs
-32-sim search root value (docs/eval_box.md queue, 2026-08-04).
+32-sim search root value (docs/archive/eval_box.md queue, 2026-08-04).
 
 Consumes the JSONL shards written by tools/probe_teacher_advantage.py
 (rows: {file, turn, side, z, ev_raw, ev_search}; error rows carry

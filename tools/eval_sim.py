@@ -107,6 +107,10 @@ class GameResult:
     closest_approach_ours: Optional[int] = None
     closest_approach_opp:  Optional[int] = None
     attack_count_ours:     int = 0
+    # Turns handed to a side neither policy plays, each ended at once.
+    # The simulator gives turns to the two players and plays the
+    # neutral sides itself, so a nonzero count is a defect to report.
+    unplayed_side_turns:   int = 0
 
 
 @dataclass
@@ -157,15 +161,21 @@ def _play_one_eval_game(
     _update_closest_approach(sim.gs, closest_approach)
     attack_count_ours = 0
     our_actions = 0
+    unplayed_side_turns = 0
     t0 = time.perf_counter()
 
     while not sim.done:
         acting_side = sim.gs.global_info.current_side
         actor = by_side.get(acting_side)
         if actor is None:
-            # Scenery side or unexpected mover -- end_turn is the
-            # safe default. (In standard 2p ladder play this branch
-            # should never fire.)
+            # The simulator hands turns only to the players
+            # (WesnothSim._next_player_side), so this is a defect: the
+            # turn is ended, counted and reported, and the game goes on.
+            if not unplayed_side_turns:
+                log.warning("%s: side %d is to move at turn %d and no policy plays it; "
+                            "ending its turns (counted in unplayed_side_turns)",
+                            game_label, acting_side, sim.gs.global_info.turn_number)
+            unplayed_side_turns += 1
             sim.step({"type": "end_turn"})
             continue
         # Stable snapshot for select_action (see play_one_game's
@@ -238,6 +248,7 @@ def _play_one_eval_game(
         closest_approach_ours=closest_approach.get(our_side),
         closest_approach_opp=closest_approach.get(3 - our_side),
         attack_count_ours=attack_count_ours,
+        unplayed_side_turns=unplayed_side_turns,
     )
 
 

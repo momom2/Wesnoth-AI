@@ -33,8 +33,17 @@ defended by experiment, the experiment goes in BACKLOG.md.
 
 ## Table of contents
 
+- [Gumbel target: `gumbel_rescale_floor`](#gumbel-target)
 - [Value head / cliffness](#value-head--cliffness)
 - [Encoder normalizations](#encoder-normalizations)
+- [Material-margin village normalization](#material-margin-village-normalization-2026-07-12)
+- [Gumbel q-transform: `c_visit`, `c_scale`](#gumbel-q-transform-c_visit--50-c_scale--01-rescale-to-01)
+- [Value trust region: `trust_delta`](#value-trust-region-trust_delta--008-2-c51-atoms-2026-09-02)
+- [Consistency-term precision: `sigma2`](#consistency-term-precision-sigma2--point--128--se-2026-09-03)
+- [TCS linear-link advantage gain: `target_beta`](#tcs-linear-link-advantage-gain-target_beta--50-2026-08-17)
+- [`CERT_RESERVE_PAD` (tools/plan_tournament.py)](#cert_reserve_pad--20-toolsplan_tournamentpy)
+- [`_T_CRIT` (tools/plan_tournament.py)](#_t_crit--2-337-3-20-4-172-5-161-toolsplan_tournamentpy)
+- [Search tempo bonus: `tempo_bonus`](#search-tempo-bonus-tempo_bonus-2026-09-04-default-is-00)
 
 ---
 
@@ -43,7 +52,7 @@ defended by experiment, the experiment goes in BACKLOG.md.
 ### `gumbel_rescale_floor = 0.04` (one C51 atom)
 
 **Defined:** `tools/mcts.py` (`MCTSConfig.gumbel_rescale_floor`),
-CLI `--mcts-gumbel-rescale-floor`, worker `--gumbel-rescale-floor`.
+CLI `tools/sim_self_play.py --mcts-gumbel-rescale-floor`.
 
 **Derivation:** the C51 value head quantizes [-1, +1] into 51 atoms,
 so its resolution is `2 / (51 - 1) = 0.04` — one atom. A root whose
@@ -366,8 +375,7 @@ ceiling.
 No shipped DEFAULT is 0.44: `tools/az_loop.py`'s `--tempo-bonus`
 defaults to 0.0. 0.44 is the DERIVED value the section below
 computes, and it is quoted as that in az_loop.py (the flag's own
-help, and again later), mcts_policy.py and sim_self_play.py. 0.44 is the derived value the
-section below computes, not a shipped one.
+help, and again later), mcts_policy.py and sim_self_play.py.
 
 Used by `tools/az_loop.py --tempo-bonus` with `--value-center`: the
 search value center is `mean_V - tempo_bonus`, so search reads every

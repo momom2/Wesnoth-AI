@@ -66,6 +66,11 @@ kaggle/kaggle_output/
 # Kaggle API credential — a secret, must never be committed.
 kaggle/kaggle_token.txt
 kaggle/*token*
+# Box credentials, anywhere in the tree: the HF token file the onstart
+# writes, the Vast account key's file, and env files handed to a box.
+.hf_token
+*vast_api_key*
+box.env
 
 # External Wesnoth source — refreshed from the Steam install (see
 # CLAUDE.md "Wesnoth data provenance"). Mostly untracked, EXCEPT the

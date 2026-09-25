@@ -19,16 +19,21 @@ Side assignment alternates so the pair is balanced: an odd game index
 puts A on side 2. Seeds are derived from the index, so the same command
 always schedules the same games and two chunks never collide.
 
-Usage (raw-policy A/B -- `--mcts-sims 0` is what makes it RAW):
+Usage: a candidate against the reference player, both at the
+reference's decode (`--mcts-sims 0` with a raw temperature makes both
+players raw players at argmax, `raw:t0`; the end_turn offset makes it
+`raw:t0+eo-1.5`), on a GPU box:
+    python tools/reference_player.py --ensure
     python tools/run_elo_batch.py \\
-        --label-a best  --spec-a training/checkpoints/campaign_live_20260730.pt \\
-        --label-b anchor --spec-b training/checkpoints/selfplay_seed_20260718.pt \\
-        --games 400 --outdir eval_games/tc_raw --mcts-sims 0 \\
-        --time-budget-min 55
+        --label-a cand --spec-a training/checkpoints/cand.pt --raw-end-turn-offset-a -1.5 \\
+        $(python tools/reference_player.py --flags b) \\
+        --outdir eval_games/cand_vs_ref --games 40 --mcts-sims 0 \\
+        --raw-temperature-a 0 --raw-temperature-b 0 \\
+        --device cuda --jobs 20 --persistent-workers --shared-inference
 
 Then fit (decisive games only -- capped games are no-result absences,
 user ruling 2026-08-17; see elo_collect.py):
-    python tools/elo_collect.py eval_games/tc_raw
+    python tools/elo_collect.py eval_games/cand_vs_ref --no-catalog
 
 A game that ends without a result file leaves failed_<game>.json (the
 slot, the return code, the tail of its stderr) and stays unplayed, so a

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T-B: teacher-advantage probe (docs/eval_box.md queue, 2026-08-04).
+"""T-B: teacher-advantage probe (docs/archive/eval_box.md queue, 2026-08-04).
 
 For sampled human-corpus states, computes BOTH the raw value head's
 E[V] and the 32-sim search's root value (visit-weighted mean child Q)

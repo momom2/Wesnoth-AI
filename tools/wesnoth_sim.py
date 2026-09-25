@@ -1,22 +1,20 @@
-"""Pure-Python headless Wesnoth simulator for self-play training.
+"""Headless Wesnoth simulator for self-play training and matches.
 
-Why this exists: running Wesnoth proper (`--test`, `--multiplayer`,
-plugin-driven, or wesnothd-relayed) is slow on Windows (SDL frame loop)
-and unsolved on the cluster (Linux Wesnoth install is non-trivial,
-prior headless attempts didn't pan out -- see
-memory/reference_wesnoth_headless_attempt.md). A from-scratch Python
-simulator that's bit-exact with Wesnoth's game logic has TWO huge
-advantages:
+Wesnoth's game logic reimplemented in-process: no engine subprocess,
+no rendering, no IPC, and no Wesnoth install on a GPU box (the WML it
+reads is committed under wesnoth_src/). The logic is Python; when the
+wheel is installed, Rust kernels (rust/wesnoth_core) compute reach and
+legal moves, the observation, the encoding and combat, and
+`WESNOTH_RUST_CORE=1` makes the Rust-owned state (`GameCore`) the
+state of record (CLAUDE.md, Architecture).
 
-  - 100x+ faster than `--test`: no SDL, no rendering, no IPC.
-  - Runs trivially on the cluster: pure Python + numpy + torch.
-
-We already have most of what's needed. The replay-reconstruction
-pipeline in tools/replay_dataset.py is bit-exact against Wesnoth (we
-verified across 50+ replays during the corpus build) -- it reads the
-WML command stream and applies it to a `GameState`. The simulator
-reuses that machinery and just swaps the data source: instead of
-reading commands from a replay, it queries a Python policy.
+The simulator reuses the replay-reconstruction machinery of
+tools/replay_dataset.py, which reads a replay's WML command stream and
+applies it to a `GameState`; it swaps the data source, querying a
+policy instead of reading commands. That machinery is checked against
+Wesnoth: combat strike for strike against the `[mp_checkup]` records
+of strict-sync replays (tests/test_combat_seed_alignment.py), and the
+whole replay corpus command by command (tools/diff_replay.py).
 
 What's faithful to Wesnoth (because it shares the replay-recon code):
   - Unit stats / attacks / resistances / abilities (via unit_stats.json).
@@ -74,7 +72,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_ai.classes import GameState, Position, SideInfo, state_digest
+from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, SideInfo, state_digest
 from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
@@ -956,6 +954,48 @@ class WesnothSim:
         if not self.done:
             self._apply_and_record(["end_turn"], side)
 
+    def _next_player_side(self, side_now: int) -> Optional[int]:
+        """The player side whose turn follows `side_now`'s, once the
+        neutral sides between them have played theirs; None when one of
+        them ends the game.
+
+        The engine's order within a turn is by increasing side number,
+        skipping every side that never takes a turn, and the last side
+        hands over to side 1 of the next turn (docs/wesnoth_rules.md
+        "Side order within a turn"). Which of the sides beyond the
+        players take turns is the census `_neutral_actor_sides` (their
+        controller is not null), recorded by the scenario builder from
+        the [side] blocks and by replay reconstruction from the
+        record's init_side commands; the SideInfo list says nothing
+        about it, since a replayed game keeps one for every declared
+        side. Whether a side acts is never decided by its living units:
+        an ai side keeps its (possibly empty) turn after its last unit
+        dies, and playback expects it (2026-07-21, "Expacted was a
+        [command] from side 3").
+
+        The neutral turns run inside the end_turn step of the side
+        before them, in search forks too, so a search anticipates
+        tentacle retaliation. NB reward attribution (review 2026-07-14
+        M4): their effects land in side 2's end_turn step, so the
+        REINFORCE path's compute_delta credits side 2 for tentacle
+        damage to side 1; fix the delta split before any REINFORCE run
+        on tentacle maps (production training is MCTS, where per-step
+        shaping is a no-op)."""
+        neutral = set(getattr(self.gs.global_info, "_neutral_actor_sides", None) or ())
+        for side in sorted(s for s in set(PLAYER_SIDES) | neutral if s > side_now):
+            if side in PLAYER_SIDES:
+                return side
+            self._play_neutral_turn(side)
+            if self.done:
+                # A neutral unit killed a leader. The winner is the
+                # player whose leader survives, and a terminal state
+                # names a player side as the side to move: telemetry,
+                # the terminal observation and GameOutcome index by it.
+                if self.winner in PLAYER_SIDES:
+                    self._set_current_side(self.winner)
+                return None
+        return PLAYER_SIDES[0]
+
     def _next_seed(self) -> str:
         """Allocate the next synced-RNG seed. Live sims (no salt)
         derive it purely from the request counter -- the bit-exact
@@ -1237,53 +1277,8 @@ class WesnothSim:
                 _et_extras["attempted"] = _note
             self._forced_end_turn_note = None
             self._apply_and_record(["end_turn"], side_now, _et_extras)
-            # Advance to the next side. 2p only for now.
-            n_sides = max(2, len(self.gs.sides))
-            next_side = (side_now % n_sides) + 1
-            # NB reward attribution (review 2026-07-14 M4): the
-            # neutral turn's effects land inside side 2's end_turn
-            # step, so REINFORCE-path compute_delta credits side 2
-            # for tentacle damage to side 1. Production training is
-            # MCTS (per-step shaping is a no-op there); fix the
-            # delta split before any REINFORCE run on tentacle maps.
-            # Neutral side-3 turn (Mini_Maps tentacles, 2026-07-14):
-            # Wesnoth's side order is 1, 2, 3 within a turn, so the
-            # RCA combat turn for armed side-3 units runs after side
-            # 2 ends, before init_side(1) increments the turn. Runs
-            # in MCTS forks too -- search must anticipate tentacle
-            # retaliation.
-            if side_now == 2 and not self.done:
-                # Whether side 3 acts is decided by its CONTROLLER
-                # attribute, censused once at setup
-                # (_neutral_actor_sides = declared sides > 2 with
-                # controller != null), NEVER by a living-unit check:
-                # the engine's only turn-loop skip is
-                # team::is_empty() == controller=null
-                # (playsingle_controller.cpp:198-210
-                # skip_empty_sides -- the 2026-07-19 Silverhead
-                # desync was emitting turns for such a side). An ai
-                # side keeps taking (possibly empty) turns after its
-                # last unit dies: gating on unit existence dropped
-                # side 3 from the rotation at tentacle extinction
-                # and every exported mini replay desynced there
-                # (2026-07-21 OOS, "Expacted was a [command] from
-                # side 3").
-                if getattr(self.gs.global_info,
-                           "_neutral_actor_sides", None):
-                    self._play_neutral_turn(3)
-                    if self.done and self.gs.global_info.current_side \
-                            not in (1, 2):
-                        # A tentacle killed a leader: the game is
-                        # over and the WINNER is the player side
-                        # whose leader survives (_check_game_over's
-                        # leader-alive rule). Terminal states must
-                        # not report current_side=3 -- every
-                        # downstream consumer (telemetry, terminal
-                        # observation, GameOutcome) indexes by
-                        # player side. Point it at the survivor.
-                        if self.winner in (1, 2):
-                            self._set_current_side(self.winner)
-            if not self.done:
+            next_side = None if self.done else self._next_player_side(side_now)
+            if next_side is not None:
                 self._begin_side_turn(next_side)
         else:
             # Move MP, truncation (blocked/ambush), reveals, and the

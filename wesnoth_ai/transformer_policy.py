@@ -102,8 +102,8 @@ class TransformerPolicy:
         # TDR) ~90s into the first train_step — even at batch=4 with the
         # two-pass trainer. The backward-heavy workload on this driver /
         # DML-plugin combination is unstable for our model. Code paths
-        # remain in place: set WESNOTH_AI_DEVICE=dml:1 to opt in for
-        # rollout-only experiments, or pass `device=` explicitly.
+        # remain in place: pass `device=` explicitly for rollout-only
+        # experiments (tools/device_select.py resolves "dml").
         self._device = (
             device if device is not None else torch.device("cpu")
         )
@@ -705,8 +705,8 @@ class TransformerPolicy:
         # prior good checkpoint, then os.replace (atomic rename) into place.
         # A long self-play campaign runs on rented SPOT/preemptible GPUs where
         # a kill mid-`torch.save` would otherwise truncate the ONLY checkpoint
-        # (docs/running_on_gpu.md uses the same path for --checkpoint-in/-out),
-        # losing the whole paid run. os.replace is atomic on the same
+        # (a run that resumes from and saves to one path, as
+        # sim_self_play's --checkpoint-in/-out allow), losing the whole paid run. os.replace is atomic on the same
         # filesystem; the `.bak` gives the resume path a fallback if the
         # primary is somehow corrupt. Mirrors tools/supervised_train.py.
         tmp = path.with_suffix(path.suffix + ".tmp")

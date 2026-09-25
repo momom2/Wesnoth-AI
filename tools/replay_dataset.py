@@ -35,7 +35,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 # Re-use existing game-state dataclasses.
 from wesnoth_ai.classes import (
-    Alignment as AlignmentEnum, Attack, DamageType, GameState, GlobalInfo,
+    PLAYER_SIDES, Alignment as AlignmentEnum, Attack, DamageType, GameState, GlobalInfo,
     Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
 from wesnoth_ai import combat as cb
@@ -638,7 +638,24 @@ def _player_sides(starting_sides) -> list:
     """Sides 1 and 2, the players of a 2p game. Maps with a scenery
     side 3 (1,648 of the first 3,000 corpus games) carry no fog
     attribute for it, and it must not decide the game's setting."""
-    return [s for s in (starting_sides or []) if int(s.get("side", 0) or 0) in (1, 2)]
+    return [s for s in (starting_sides or []) if int(s.get("side", 0) or 0) in PLAYER_SIDES]
+
+
+def extra_side_turns(data: dict) -> Tuple[frozenset, frozenset]:
+    """(acting, silent): the sides a replay declares beyond the players,
+    split by whether they take turns. The engine gives a turn every
+    round to each side whose controller is not null and never to a null
+    one (docs/wesnoth_rules.md "Side order within a turn"). An extracted
+    record keeps no controller, but its commands hold an init_side for
+    every side turn the engine played, so the split is complete once
+    the record reaches turn 2. Over the imitation corpus it matches the
+    scenarios' own [side] controllers in all 7,118 games that declare a
+    third side (2026-09-25)."""
+    declared = {int(s.get("side", 0) or 0) for s in data.get("starting_sides") or []}
+    extra = declared - set(PLAYER_SIDES) - {0}
+    acting = {int(c[1]) for c in data.get("commands") or []
+              if c and c[0] == "init_side" and len(c) > 1}
+    return frozenset(extra & acting), frozenset(extra - acting)
 
 
 def fog_on_for(starting_sides) -> bool:
@@ -793,6 +810,15 @@ def _build_initial_gamestate(data: dict) -> GameState:
     setattr(gs.global_info, "_fog", fog_on_for(data.get("starting_sides", [])))
     setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
     setattr(gs.global_info, "_experience_modifier", exp_mod)
+    # The sides beyond the players that take turns and those that never
+    # do, the two sets the scenario builder reads from its [side]
+    # controllers: the simulator's side order reads them when it
+    # continues this game.
+    acting, silent = extra_side_turns(data)
+    if silent:
+        setattr(gs.global_info, "_null_controller_sides", silent)
+    if acting:
+        setattr(gs.global_info, "_neutral_actor_sides", acting)
     # Wesnoth's monotonic next_unit_id counter — increments on EVERY
     # unit creation (recruit, plague spawn, scenario [unit] event,
     # advancement that creates a new uid? — actually advancement
@@ -2967,9 +2993,6 @@ def _fire_turn_events(gs: GameState, side: int, turn: int) -> None:
     fire_event(gs, events, f"turn {turn}")
     fire_event(gs, events, "new turn")
     fire_event(gs, events, "side turn")
-
-
-PLAYER_SIDES = (1, 2)
 
 
 def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False
