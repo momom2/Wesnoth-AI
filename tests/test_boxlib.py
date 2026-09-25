@@ -118,7 +118,7 @@ class Box:
         (stubs / "python").write_bytes(STUB_PYTHON.encode())
         (stubs / "python").chmod(0o755)
         self.work.mkdir()
-        (self.work / ".hf_token").write_bytes(b"hf_stubtoken0for0the0library0tests\r\n")
+        (self.work / ".hf_token").write_bytes(b"hf_stubtoken0for0the0library0tests\r\n")  # not-a-secret
         self.stubs = stubs
         self.env = {"BOX_MAX_H": "1"}
 

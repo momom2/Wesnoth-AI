@@ -18,7 +18,7 @@ import pytest
 import scripts.box.box_stage as box_stage
 import scripts.box.box_upload as box_upload
 
-TOKEN = "hf_SENTINEL0token0never0written0anywhere"
+TOKEN = "hf_SENTINEL0token0never0written0anywhere"  # not-a-secret: a test sentinel
 HF_DIR = "tier-b/upload_test"
 
 
