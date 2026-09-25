@@ -41,6 +41,8 @@ import time
 from pathlib import Path
 from typing import List
 
+SIGNAL_PROBE_STATES = 512    # cached training states the per-epoch telemetry probes
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -281,6 +283,24 @@ def main(argv) -> int:
         head = copy.deepcopy(model.value_head).to(dev)
     opt = torch.optim.AdamW(head.parameters(), lr=args.lr)
 
+    # Signal telemetry, always on (user, 2026-09-25): a row per epoch in
+    # <checkpoint-out stem>_signal.jsonl with the steps' gradient norms and
+    # the head's gradient on a fixed probe of training states split by
+    # outcome (tools/signal_telemetry.py `value_head_signal`).
+    from tools.signal_telemetry import StepNorms, value_head_signal, write_signal_row
+    signal_path = args.checkpoint_out.with_name(args.checkpoint_out.stem + "_signal.jsonl")
+    step_norms = StepNorms(clip=float("inf"))
+    signal_pick = random.Random(args.seed ^ 0x51C).sample(
+        range(len(train_c["z"])), min(SIGNAL_PROBE_STATES, len(train_c["z"])))
+    signal_feats = train_c["feats"][signal_pick].to(dev)
+    signal_z = train_c["z"][signal_pick].to(dev)
+    write_signal_row(signal_path, {"kind": "start", "arm": args.arm, "lr": args.lr,
+                                   "probe_states": len(signal_pick), "ts": time.strftime("%FT%T")})
+
+    def _state_losses(logits, z):
+        return torch.stack([_categorical_value_loss(logits[i:i + 1], z[i:i + 1], atoms)
+                            for i in range(len(z))])
+
     pf, pz = probe_c["feats"], probe_c["z"]
     m0 = eval_head(head, pf, pz, atoms, dev)
     log.info(f"BEFORE: ce={m0['ce']:.4f} "
@@ -316,10 +336,22 @@ def main(argv) -> int:
                                            atoms) / len(sel)
             opt.zero_grad()
             loss.backward()
+            step_norms.append(torch.stack([p.grad.detach().norm() for p in head.parameters()
+                                           if p.grad is not None]).norm())
             opt.step()
             tot += float(loss.item())
             n_b += 1
         m = eval_head(head, pf, pz, atoms, dev)
+        t_signal = time.perf_counter()
+        try:
+            signal = value_head_signal(head, opt, _state_losses, signal_feats, signal_z)
+        except Exception as e:                    # noqa: BLE001 - telemetry never stops a fit
+            signal = {"probe_error": repr(e)[:300]}
+            log.warning(f"signal telemetry failed at epoch {epoch}: {e!r}"[:300])
+        write_signal_row(signal_path, {"kind": "epoch", "epoch": epoch, "steps": step_norms.drain(),
+                                       "train_v": tot / max(1, n_b), "holdout_ce": m["ce"],
+                                       "value_auc": m["value_auc"], **signal,
+                                       "probe_ms": round(1000 * (time.perf_counter() - t_signal), 1)})
         log.info(f"epoch {epoch}: {len(idx)} states in "
                  f"{time.time() - t0:.0f}s train_v={tot / n_b:.4f} | "
                  f"holdout ce={m['ce']:.4f} "

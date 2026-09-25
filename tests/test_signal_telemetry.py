@@ -260,3 +260,45 @@ def test_a_resumed_runs_file_reads_as_one_run(tmp_path):
                     encoding="utf-8")        # the trainer killed mid-write
     assert [(r["kind"], r["pairs"]) for r in read_signal_rows(path)] == [
         ("start", 0), ("probe", 100), ("start", 150), ("probe", 200), ("probe", 300)]
+
+
+def test_the_value_head_probe_splits_the_fit_loss_by_outcome():
+    """tools/value_head_fit.py's per-epoch probe: the won and lost terms'
+    gradients add up to the gradient of the loss the fit steps on, each
+    term's norm is its own gradient's, and the probe leaves torch's
+    generator and the head's gradients as they were (the head drops out
+    at 0.5 here, so a probe that drew from the generator would show)."""
+    from wesnoth_ai.trainer import _categorical_value_loss
+    torch.manual_seed(8)
+    atoms = torch.linspace(-1.0, 1.0, 11)
+    head = torch.nn.Sequential(torch.nn.Linear(6, 16), torch.nn.ReLU(), torch.nn.Dropout(0.5),
+                               torch.nn.Linear(16, len(atoms)))
+    feats = torch.randn(10, 6)
+    z = torch.tensor([1.0, -1.0] * 5)
+    opt = torch.optim.AdamW(head.parameters(), lr=1e-3)
+    sig.StepNorms(clip=1.0).append(0.5)            # a trainer's float norm is accepted
+
+    def state_losses(logits, zs):
+        return torch.stack([_categorical_value_loss(logits[i:i + 1], zs[i:i + 1], atoms)
+                            for i in range(len(zs))])
+
+    head.eval()                                    # the reference and the probe see one forward
+    rng_before = torch.get_rng_state()
+    row = sig.value_head_signal(head, opt, state_losses, feats, z)
+    assert torch.equal(torch.get_rng_state(), rng_before)
+    assert all(p.grad is None for p in head.parameters())
+    assert row["terms"] == ["won", "lost"] and "update" not in row     # no step taken yet
+
+    params = list(head.parameters())
+    losses = state_losses(head(feats), z)
+    whole = torch.autograd.grad(losses.mean(), params, retain_graph=True)
+    won = torch.autograd.grad(losses[z > 0].sum() / len(z), params, retain_graph=True)
+    whole_sq = sum(float(g.pow(2).sum()) for g in whole)
+    won_sq = sum(float(g.pow(2).sum()) for g in won)
+    assert row["gradient"]["total_norm"] ** 2 == pytest.approx(whole_sq, rel=1e-5)
+    assert row["gradient"]["won"]["norm"] ** 2 == pytest.approx(won_sq, rel=1e-5)
+
+    head.train()
+    rng_before = torch.get_rng_state()
+    sig.value_head_signal(head, opt, state_losses, feats, z)
+    assert torch.equal(torch.get_rng_state(), rng_before)

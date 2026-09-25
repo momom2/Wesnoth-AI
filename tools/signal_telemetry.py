@@ -354,8 +354,10 @@ class StepNorms:
         self.clip = clip
         self._norms: List[torch.Tensor] = []
 
-    def append(self, norm: torch.Tensor) -> None:
-        self._norms.append(norm.detach())
+    def append(self, norm) -> None:
+        """A step's pre-clip norm: a tensor (left on its device) or a
+        float (a trainer that already read it back)."""
+        self._norms.append(norm.detach() if torch.is_tensor(norm) else torch.tensor(float(norm)))
 
     def __len__(self) -> int:
         return len(self._norms)
@@ -564,14 +566,22 @@ class ImitationSignal:
         return row
 
     def _write(self, row: Dict) -> None:
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(row) + "\n")
+        if write_signal_row(self.path, row):
             self.rows += 1
-        except (OSError, TypeError, ValueError) as e:
+        else:
             self.failures += 1
-            log.warning(f"signal row write failed ({self.path}): {e!r}")
+
+
+def write_signal_row(path: Path, row: Dict) -> bool:
+    """Append one JSONL row; False (and a warning) when it cannot."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+        return True
+    except (OSError, TypeError, ValueError) as e:
+        log.warning(f"signal row write failed ({path}): {e!r}")
+        return False
 
 
 def check_signal_cadence(every: int, probe_pairs: int = IMITATION_PROBE_PAIRS) -> None:
@@ -599,3 +609,39 @@ def read_signal_rows(path: Path) -> List[Dict]:
             rows = [r for r in rows if r["pairs"] <= row["pairs"]]
         rows.append(row)
     return rows
+
+
+# ---- A value head fitted on cached features (tools/value_head_fit.py) --------
+
+def outcome_terms(loss_per_state: torch.Tensor, z: torch.Tensor) -> Dict[str, torch.Tensor]:
+    """A value loss split by the outcome each state is labelled with:
+    the won, lost and drawn states' summed losses, over all states
+    (so the terms add up to the mean loss). Drawn only when present."""
+    n = max(1, int(z.numel()))
+    terms = {"won": loss_per_state[z > 0].sum() / n, "lost": loss_per_state[z < 0].sum() / n}
+    if bool((z == 0).any()):
+        terms["drawn"] = loss_per_state[z == 0].sum() / n
+    return terms
+
+
+def value_head_signal(head: torch.nn.Module, optimizer: Optional[torch.optim.Optimizer],
+                      loss_per_state: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+                      feats: torch.Tensor, z: torch.Tensor) -> Dict:
+    """The head's gradient on a probe of cached states split by outcome
+    (`outcome_terms`), in gradient and update space: whether wins or
+    losses drive the head's update, and whether they pull against each
+    other (a negative share). Leaves training untouched: forked
+    generators, gradients by `autograd.grad`."""
+    probe = GradientProbe([("head." + n, p) for n, p in head.named_parameters()],
+                          lambda _name: "head", ("head",), optimizer)
+    with probe.fork_rng():
+        terms = outcome_terms(loss_per_state(head(feats), z), z)
+        gradient, update, stateless = probe.grams(terms, 1.0)
+    names = list(terms)
+    row = {"probe_states": int(z.numel()), "terms": names,
+           "gradient": summarize_gram(gradient.cpu().tolist(), terms=names, groups=("head",))["head"],
+           "gradient_gram": gradient.cpu().tolist()[0]}
+    if update is not None:
+        row["update"] = summarize_gram(update.cpu().tolist(), terms=names, groups=("head",))["head"]
+        row["update_gram"] = update.cpu().tolist()[0]
+    return row

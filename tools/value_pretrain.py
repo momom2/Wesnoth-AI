@@ -285,6 +285,12 @@ def main(argv: List[str]) -> int:
     # checkpoint is selected on it, CE logged alongside.
     best_ce = m0["ce"]
     best_auc = m0.get("value_auc", float("nan"))
+    # Signal telemetry, always on (user, 2026-09-25): a row per epoch in
+    # <checkpoint-out stem>_signal.jsonl, the steps' pre-clip gradient norms
+    # and the per-source norms of the self-play telemetry on the probe states.
+    from tools.signal_telemetry import StepNorms, signal_grad_norms, write_signal_row
+    signal_path = args.checkpoint_out.with_name(args.checkpoint_out.stem + "_signal.jsonl")
+    step_norms = StepNorms(clip=float(trainer.config.grad_clip))
     for epoch in range(args.epochs):
         rng.shuffle(train_rows)
         t0 = time.time()
@@ -297,6 +303,7 @@ def main(argv: List[str]) -> int:
             while len(batch) >= args.batch:
                 chunk, batch = batch[:args.batch], batch[args.batch:]
                 stats = trainer.step_mcts(chunk)
+                step_norms.append(stats.grad_norm)
                 vloss_sum += stats.value_loss
                 vloss_n += 1
                 n_pairs += len(chunk)
@@ -307,8 +314,14 @@ def main(argv: List[str]) -> int:
                              f"{vloss_sum / max(1, vloss_n):.4f}")
         if batch:
             stats = trainer.step_mcts(batch)
+            step_norms.append(stats.grad_norm)
             n_pairs += len(batch)
         m = trainer.eval_value_metrics(probe)
+        t_signal = time.perf_counter()
+        norms = signal_grad_norms(trainer, probe, random.Random(args.seed + epoch))
+        write_signal_row(signal_path, {"kind": "epoch", "epoch": epoch, "steps": step_norms.drain(),
+                                       **norms, "holdout_ce": m["ce"],
+                                       "probe_ms": round(1000 * (time.perf_counter() - t_signal), 1)})
         auc = m.get("value_auc", float("nan"))
         log.info(f"epoch {epoch}: {n_pairs} pairs in "
                  f"{time.time() - t0:.0f}s | holdout ce={m['ce']:.4f} "
