@@ -1,11 +1,14 @@
-"""Entry point for Wesnoth AI training.
+"""Setup and maintenance CLI for the live-Wesnoth evaluation bridge.
 
-Responsibilities:
-- Verify local setup (Wesnoth executable, add-on source files, userdata dir).
+- Verify the local setup (Wesnoth executable, add-on source files,
+  userdata directory).
 - Install the project's add-on into Wesnoth's userdata directory as a
   directory junction, so edits to `add-ons/wesnoth_ai/` show up live in
   Wesnoth without re-copying.
-- Launch training.
+
+Training and matches run in the simulator and need no Wesnoth install:
+imitation through `tools/supervised_train.py`, self-play through
+`tools/az_loop.py`, matches through `tools/run_elo_batch.py`.
 """
 
 import argparse
@@ -240,29 +243,23 @@ def check_setup() -> bool:
 def main() -> int:
     """Setup + maintenance CLI for the live-Wesnoth eval pipeline.
 
-    The training path migrated to the in-process simulator on
-    2026-04-29 (`tools/sim_self_play.py`); the live-Wesnoth IPC
-    training path + `--display` mode were retired 2026-05-11.
-    What's left in main.py:
-
       - `--check-setup`: verify Wesnoth + add-on install link.
-        Still useful because `tools/eval_vs_builtin.py` drives
-        real Wesnoth subprocesses for evaluation against the
-        built-in RCA AI.
+        `tools/eval_vs_builtin.py` drives real Wesnoth subprocesses
+        for evaluation against the built-in RCA AI.
       - `--clean-games`: sweep stale per-game state-channel dirs
         the live-Wesnoth Lua side can't clean (sandbox excludes
         `os.remove`).
 
-    To run a self-play training cycle, use
-    `tools/sim_self_play.py`.
-    To watch a trained model play, use `tools/sim_demo_game.py`
-    (exports a Wesnoth-loadable .bz2 the GUI can replay).
+    Training runs in the simulator: `tools/supervised_train.py`
+    (imitation) and `tools/az_loop.py` (self-play). To watch a trained
+    model play, use `tools/sim_demo_game.py` (it exports a .bz2 replay
+    that Wesnoth opens with Load Game).
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Wesnoth AI setup / maintenance CLI. Training itself "
-            "runs via tools/sim_self_play.py; demos via "
-            "tools/sim_demo_game.py."
+            "Wesnoth AI setup / maintenance CLI. Training runs via "
+            "tools/supervised_train.py (imitation) and tools/az_loop.py "
+            "(self-play); demos via tools/sim_demo_game.py."
         )
     )
     parser.add_argument(
@@ -298,9 +295,11 @@ def main() -> int:
 
     # No more training path here; redirect the user.
     print(
-        "\nNothing to do. To run a training cycle:\n"
-        "  python tools/sim_self_play.py [--mcts] [...]\n"
-        "\nTo watch a trained model play one game:\n"
+        "\nNothing to do. Training runs in the simulator:\n"
+        "  python tools/supervised_train.py [...]   (imitation)\n"
+        "  python tools/az_loop.py [...]            (self-play)\n"
+        "\nTo watch the reference player play one game:\n"
+        "  python tools/reference_player.py --ensure\n"
         "  python tools/sim_demo_game.py [--scenario multiplayer_*]\n"
     )
     return 0
