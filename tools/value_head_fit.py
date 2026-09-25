@@ -53,7 +53,7 @@ def build_cache(policy, rows, dataset_dir: Path, stride: int,
     """Load games (parallel), forward once through the frozen trunk,
     return {feats [N,d], z [N], game_idx [N]} on CPU."""
     import torch
-    from tools.value_pretrain import _load_worker
+    from tools.value_pretrain import LoadFailures, _load_worker
 
     model = policy._trainer.model
     encoder = policy._trainer.encoder
@@ -103,16 +103,21 @@ def build_cache(policy, rows, dataset_dir: Path, stride: int,
                      f"{len(zs) + len(pend_z)} states, "
                      f"{time.time() - t0:.0f}s")
 
+    failures = LoadFailures("cache")
     if loader_jobs <= 1:
         for gi, t in enumerate(tasks):
-            _consume(gi, _load_worker(t))
+            exps, error = _load_worker(t)
+            failures.note(error)
+            _consume(gi, exps)
     else:
         import multiprocessing as mp
         with mp.get_context("spawn").Pool(loader_jobs) as pool:
             # imap (ordered) so game_idx aligns with rows order.
-            for gi, exps in enumerate(pool.imap(_load_worker, tasks,
-                                                chunksize=8)):
+            for gi, (exps, error) in enumerate(pool.imap(_load_worker, tasks,
+                                                         chunksize=8)):
+                failures.note(error)
                 _consume(gi, exps)
+    failures.summary(len(tasks))
     _flush()
     handle.remove()
     if not feats:
