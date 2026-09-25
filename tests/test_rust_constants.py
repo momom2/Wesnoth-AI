@@ -113,6 +113,9 @@ def test_the_alignment_codes_mean_the_same_alignments():
 
 
 def test_the_default_cycle_length_is_the_turn_modulus():
-    """`GameCore::tod_index` writes the cycle's length as a literal."""
+    """`GameCore::tod_index` writes the cycle's length as a literal,
+    as `% 6` or `.rem_euclid(6)`."""
     body = re.search(r"fn tod_index\(.*?\n    \}", _source("core_step.rs"), re.S).group(0)
-    assert int(re.search(r"% (\d+)\)", body).group(1)) == len(combat.TOD_DEFAULT_CYCLE)
+    modulus = re.search(r"(?:% |rem_euclid\()(\d+)\)", body)
+    assert modulus, body
+    assert int(modulus.group(1)) == len(combat.TOD_DEFAULT_CYCLE)
