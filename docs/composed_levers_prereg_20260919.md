@@ -68,10 +68,12 @@ Records under `training/metrics/bench_pipeline/composed_levers_20260919/`
 | terrain_e1 `raw:t0` against itself | 49000 | 1029 (229) | 402-398 | 0.502 +- 0.018 | +2 +- 12 | 5.94 / 5.93 | 812 s |
 
 Match 1: the checkpoint lever survives the decode at +26 +- 12 Elo,
-2.1 SE from zero and 1.4 SE below its lone +44: consistent with two
-independent levers within noise, and with a partial overlap; the
-800-game match cannot separate the two, and it does not need to for
-the rulings (the arm is ahead either way). Match 2: the composed
+2.1 SE from zero and 18 Elo below its lone +44 +- 12, which is 1.0
+SE of the difference between the two independent matches (seed bases
+47000 and 61000): consistent with two independent levers within
+noise, and with a partial overlap; the 800-game match cannot separate
+the two, and it does not need to for the rulings (the arm is ahead
+either way). Match 2: the composed
 player takes p 0.820 (predicted 0.81, range 0.76-0.86) against the
 reference every strength claim is made against, about +263 Elo, with
 4% of games capped against the reference's own 40%. Match 3: no

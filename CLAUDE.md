@@ -483,9 +483,13 @@ State of play:
   (602-198), about +193 Elo for a decode rule that trains nothing**,
   1.42x the decisions per side-turn and a capped fraction of 0.09
   against the reference's own 0.4; **the attribution arm, a plain
-  end_turn logit offset of -1.5, beat it: p 0.789 +- 0.014, about
-  +229 Elo**, so the lever is "act more" and the config scalar is the
-  adopted form. The offset curve ran the same evening
+  end_turn logit offset of -1.5, scored p 0.789 +- 0.014, about +229
+  Elo**, 1.7 SE of the difference above the rule. The pre-registered
+  reading of that gap is "differs, rule-specific"; the commit that
+  recorded the result rewrote the readout to read it as "act more"
+  (docs/endturn_rule_prereg_20260919.md "Measured"). The offset scores
+  at least as well as the rule and is the simpler lever. The offset
+  curve ran the same evening
   (docs/endturn_offset_sweep_prereg_20260919.md): -2.5 reads 0.801
   +- 0.014, -4 0.754, and acting while anything is legal (-99) 0.666,
   so the peak sits at -1.5 to -2.5 (a tie within 1 SE) at the corpus

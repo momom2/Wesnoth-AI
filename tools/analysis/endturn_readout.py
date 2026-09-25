@@ -5,6 +5,14 @@ player A's decisive score, the same with capped games scored 0.5, the
 capped fraction, and each player's decisions per side-turn (the raw
 player makes one forward per decision, so forwards over turns).
 
+Two arms are compared on the standard error of their difference,
+sqrt(se_a^2 + se_b^2), which holds for independent matches: disjoint
+seed sets, as the rule's match (seed base 42000) and the offset arm's
+(43000) are. Arms that share game slots (the same seeds, hence the
+same maps, factions, sides and luck salt) are correlated, and comparing
+them needs the paired per-slot difference, which this tool does not
+compute.
+
     python tools/analysis/endturn_readout.py GAMES_DIR [GAMES_DIR ...]
         [--require-fire 1.03]   exit 1 unless A's decisions per side-turn
                                 are at least that multiple of B's (kill 1)
@@ -86,6 +94,26 @@ def read_dir(path: Path) -> Readout:
                    procedure_a=str(pa), procedure_b=str(pb))
 
 
+def diff_se(a: Readout, b: Readout) -> Optional[float]:
+    """Standard error of a.p - b.p for two independent matches (see the
+    module docstring for arms that share seeds)."""
+    if a.se is None or b.se is None:
+        return None
+    return math.hypot(a.se, b.se)
+
+
+def attribution(name: str, offset: Readout, rule: Readout) -> str:
+    """The attribution reading pre-registered with the test: an offset
+    within 1 SE of the rule says the lever is "act more"; any other
+    offset differs from the rule. The SE is that of the difference."""
+    d = offset.p - rule.p
+    se = diff_se(offset, rule) or 0.0
+    distance = f"{d / se:+.1f} SE of the difference" if se else "no spread"
+    reading = "within 1 SE, the lever is act more" if abs(d) <= se else "differs, rule-specific"
+    return (f"attribution {name}: p {offset.p:.3f} against the rule's {rule.p:.3f}, "
+            f"{d:+.3f} ({distance}): {reading}")
+
+
 def describe(r: Readout) -> str:
     p = f"{r.p:.3f} +- {r.se:.3f}" if r.p is not None else "n/a"
     ph = f"{r.p_half:.3f}" if r.p_half is not None else "n/a"
@@ -125,19 +153,7 @@ def verdict(readouts: List[Readout], fire: float, pass_p: float) -> str:
                          f"{'STALL TILT' if tilt else 'clear'}")
     for name, r in by.items():
         if name.startswith("games_eo") and r.p is not None and match is not None and match.p is not None:
-            # The pre-registered reading: an offset that matches the rule
-            # within 1 SE says the lever is "act more" and the config
-            # scalar is the adopted form; one that BEATS the rule says so
-            # louder; only an offset well below the rule leaves something
-            # rule-specific to explain.
-            se = match.se or 0.0
-            if r.p >= match.p - se:
-                how = ("within 1 SE" if abs(r.p - match.p) <= se
-                       else f"above the rule by {(r.p - match.p) / max(se, 1e-9):.1f} SE")
-                reading = f"{how}, the lever is act more; the config scalar is the adopted form"
-            else:
-                reading = f"below the rule by {(match.p - r.p) / max(se, 1e-9):.1f} SE: rule-specific"
-            lines.append(f"attribution {name}: p {r.p:.3f} against the rule's {match.p:.3f}: {reading}")
+            lines.append(attribution(name, r, match))
     return "\n".join(lines)
 
 
