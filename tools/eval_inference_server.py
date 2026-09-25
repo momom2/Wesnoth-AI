@@ -37,7 +37,10 @@ Protocol on a connection (client -> server -> client):
   ("infer", rid, PackedRequest)  -> (rid, [wire, ...]) or (rid, None, error)
 The server prints `__ADDR__ <address>` then `__INFO__ <json>` on
 stdout once it serves, and exits when its stdin closes (the driver's
-shutdown), writing `--stats-out` first.
+shutdown), writing `--stats-out` first. It exits with status 3 when a
+failed batch leaves the device failing its health probe (a sticky CUDA
+fault): the stats carry the fault under "fatal", and the driver admits
+no more games.
 
 Provenance: results played through a server record
 `shared_inference: true`, `infer_bf16` and `infer_packed_trunk` (the
@@ -58,6 +61,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import queue
 import subprocess
 import sys
@@ -131,19 +135,29 @@ class InferenceService:
     `infer_fn(payloads) -> replies`: one reply per payload, in order;
     `stats` is passed as a keyword so the model path can add device
     time under "gpu_ms". Generic over the payload so the batching is
-    testable without torch."""
+    testable without torch.
+
+    `health_fn()` raises when the device can no longer run work; it is
+    called after a batch fails. A sticky device fault fails every later
+    call, so a service that kept answering would fail every game that
+    reaches it while its process looked alive (2026-09-14: 40 of 40
+    games). When the probe fails, the service answers the batch with the
+    fault, stops, and keeps the fault in `fatal`."""
 
     def __init__(self, listener: Listener, infer_fn: Callable, hello: Dict, *,
-                 window_s: float, max_batch: int):
+                 window_s: float, max_batch: int,
+                 health_fn: Optional[Callable[[], None]] = None):
         self._listener = listener
         self._infer_fn = infer_fn
         self._hello = hello
         self._window = max(0.0, float(window_s))
         self._max_batch = max(1, int(max_batch))
+        self._health_fn = health_fn
         self._q: "queue.Queue[_Pending]" = queue.Queue()
         self._stop = threading.Event()
         self._serve_thread: Optional[threading.Thread] = None
         self.stats = ServeStats()
+        self.fatal: Optional[str] = None
 
     def start(self) -> None:
         self._serve_thread = threading.Thread(target=self._serve, daemon=True,
@@ -159,6 +173,23 @@ class InferenceService:
             pass
         if self._serve_thread is not None:
             self._serve_thread.join(timeout)
+
+    def serve_until_closed(self, wait_for_eof: Callable[[], object],
+                           poll_s: float = 0.5) -> Optional[str]:
+        """Serve until `wait_for_eof()` returns (the driver closed the
+        server's stdin) or a device fault stops the service; the fault,
+        or None."""
+        closed = threading.Event()
+
+        def _wait() -> None:
+            wait_for_eof()
+            closed.set()
+
+        threading.Thread(target=_wait, daemon=True, name="infer-stdin").start()
+        while not closed.wait(poll_s):
+            if self.fatal is not None:
+                break
+        return self.fatal
 
     def _accept(self) -> None:
         while not self._stop.is_set():
@@ -243,6 +274,13 @@ class InferenceService:
         except Exception:                          # noqa: BLE001
             error = traceback.format_exc()
         self.stats.failed_batches += 1
+        probe = self._probe_failure()
+        if probe is not None:
+            self.fatal = f"{error}\nthen the device failed its health probe:\n{probe}"
+            self.stats.failed_requests += len(batch)
+            log.error("a failed batch left the device unable to serve; stopping:\n%s",
+                      self.fatal)
+            return [None] * len(batch), [self.fatal] * len(batch)
         if len(batch) == 1:
             replies, errors = [None], [error]
         else:
@@ -265,6 +303,17 @@ class InferenceService:
             log.warning("every request of the failed batch passed alone (a batch-level "
                         "fault, not a position's)")
         return replies, errors
+
+    def _probe_failure(self) -> Optional[str]:
+        """The health probe's traceback when the device can no longer
+        serve; None when it can, or when there is no probe."""
+        if self._health_fn is None:
+            return None
+        try:
+            self._health_fn()
+        except Exception:                          # noqa: BLE001
+            return traceback.format_exc()
+        return None
 
     def _serve(self) -> None:
         st = self.stats
@@ -293,6 +342,15 @@ class InferenceService:
                 except (OSError, EOFError, ValueError):
                     pass                            # the client went away
             st.reply_s += time.monotonic() - t1
+            if self.fatal is not None:
+                # Accept nothing more; the process exits once the main
+                # thread sees the fault, which closes every connection.
+                self._stop.set()
+                try:
+                    self._listener.close()
+                except OSError:
+                    pass
+                return
 
 
 # ---------------------------------------------------------------------
@@ -490,6 +548,32 @@ def _resolve_device(name: str):
     return torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 
+def _read_to_eof(fd: int) -> None:
+    """Block until the pipe on `fd` reaches its end. Raw reads hold no
+    lock of sys.stdin's buffered reader, so the process can exit while a
+    thread still waits here: a daemon thread blocked in that reader makes
+    interpreter shutdown abort ("could not acquire lock ... possibly due
+    to daemon threads")."""
+    while os.read(fd, 1 << 16):
+        pass
+
+
+def _device_health_fn(device) -> Optional[Callable[[], None]]:
+    """A probe that raises when `device` can no longer run work. A
+    sticky CUDA fault (an illegal address, a device-side assert)
+    corrupts the context, so every later call on it fails; a transient
+    one, such as an out-of-memory, leaves it usable. None off CUDA."""
+    if device.type != "cuda":
+        return None
+    import torch
+
+    def probe() -> None:
+        torch.cuda.synchronize(device)
+        (torch.ones(1, device=device) + 1).item()
+
+    return probe
+
+
 def _model_infer_fn(server) -> Callable:
     """The service's infer_fn over the real model: unpack the packed
     requests, one batched forward with server-side priors, wire the
@@ -556,6 +640,7 @@ def main(argv: List[str]) -> int:
     import torch
     from tools.eval_sim import _load_policy
     from tools.inference_seam import InferenceServer
+    from tools.run_elo_batch import file_sha256
     from wesnoth_ai.packed_trunk import check_packed_trunk_supported, flash_varlen_applies
     torch.set_num_threads(max(1, args.torch_threads))
     device = _resolve_device(args.device)
@@ -564,6 +649,8 @@ def main(argv: List[str]) -> int:
     if bf16 and not cuda:
         raise SystemExit("--infer-bf16 requires a cuda device: on cpu it would no-op "
                          "and the results would claim a precision that never ran")
+    # The games record which checkpoint they were served (the hello).
+    checkpoint_sha256 = file_sha256(spec)
     policy = _load_policy(spec, device, label=args.label, infer_bf16=bf16,
                           infer_compile=False)
     model = policy._inference_model
@@ -602,7 +689,8 @@ def main(argv: List[str]) -> int:
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
                              packed_embed=packed_embed, graphed=graphed)
     hello = {
-        "spec": str(spec), "device": device.type, "infer_bf16": bf16,
+        "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
+        "device": device.type, "infer_bf16": bf16,
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
         "graphed": graphed is not None,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
@@ -613,7 +701,8 @@ def main(argv: List[str]) -> int:
     }
     listener = Listener()
     service = InferenceService(listener, _model_infer_fn(server), hello,
-                               window_s=args.window_ms / 1000.0, max_batch=args.max_batch)
+                               window_s=args.window_ms / 1000.0, max_batch=args.max_batch,
+                               health_fn=_device_health_fn(device))
     service.start()
     info = {k: v for k, v in hello.items() if k not in ("type_to_id", "faction_to_id")}
     info.update(window_ms=args.window_ms, max_batch=args.max_batch)
@@ -622,10 +711,11 @@ def main(argv: List[str]) -> int:
     log.info("serving %s on %s (device=%s bf16=%s packed=%s packed_embed=%s compiled=%s "
              "window=%.1fms max_batch=%d)", spec.name, listener.address, device.type, bf16,
              packed, packed_embed, compiled, args.window_ms, args.max_batch)
-    for _line in sys.stdin:            # until the driver closes our stdin
-        pass
+    # Until the driver closes our stdin, or a device fault: then this
+    # process exits and the driver, seeing it dead, admits no more games.
+    fatal = service.serve_until_closed(lambda: _read_to_eof(sys.stdin.fileno()))
     service.stop()
-    stats = dict(info, **service.stats.as_dict())
+    stats = dict(info, **service.stats.as_dict(), fatal=fatal)
     if graphed is not None:
         stats["graphed_serve"] = graphed.summary()
         log.info("graphed serve: %s", stats["graphed_serve"])
@@ -634,7 +724,7 @@ def main(argv: List[str]) -> int:
         args.stats_out.write_text(json.dumps(stats, indent=1), encoding="utf-8")
     log.info("served %d requests in %d batches (mean batch %.2f); exiting",
              stats["requests"], stats["batches"], stats["mean_batch"])
-    return 0
+    return 0 if fatal is None else 3
 
 
 if __name__ == "__main__":

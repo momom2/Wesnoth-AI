@@ -4,6 +4,26 @@ tag helper from elo_eval_game pulled torch + the sim stack into it
 (round-5 C9: +174 MB RSS in the batch process)."""
 from __future__ import annotations
 
+from typing import Optional
+
+
+def end_turn_refusal(side: str, spec: str, sims: int, raw_temperature,
+                     raw_end_turn: str, raw_end_turn_offset: float) -> Optional[str]:
+    """Why side `side`'s end_turn decode flags cannot apply, or None.
+    They are knobs of the joint-temperature raw player
+    (tools/raw_player.py), which a side plays only at sims 0 with a raw
+    temperature and a network. The search, the legacy sampler and the
+    scripted 'dummy' never read them, while the result file recorded
+    them as if they had played."""
+    if raw_end_turn == "joint" and not raw_end_turn_offset:
+        return None
+    if sims > 0 or raw_temperature is None or spec == "dummy":
+        return (f"--raw-end-turn-{side}/--raw-end-turn-offset-{side} decode the "
+                f"joint-temperature raw player only: side {side} needs sims 0, "
+                f"--raw-temperature-{side} and a network (the search, the legacy "
+                f"sampler and 'dummy' never read them).")
+    return None
+
 
 def procedure_of(sims: int, plan: bool, no_turn_search: bool,
                  raw_temperature=None, gumbel_root: bool = True, *,

@@ -52,14 +52,16 @@ def test_killed_worker_is_replaced(tmp_path):
 
 
 def test_batch_driver_persistent_workers_end_to_end(tmp_path):
-    from tools.run_elo_batch import main
+    from tools.run_elo_batch import EXIT_GUARD_SPENT, main
     out = tmp_path / "games"
     rc = main(["x", "--label-a", "A", "--spec-a", "dummy", "--label-b", "B",
                "--spec-b", "dummy", "--outdir", str(out), "--games", "2",
                "--mcts-sims", "0", "--max-turns", "2", "--device", "cpu",
                "--jobs", "1", "--persistent-workers", "--max-extra-games", "0",
                "--time-budget-min", "5", "--min-free-mb", "0"])
-    assert rc == 0
+    # Both games play out; 2 turns decide nothing, and with no
+    # replacement allowed the match ends short of its 2 decisive results.
+    assert rc == EXIT_GUARD_SPENT
     files = sorted(out.glob("game_*.json"))
     assert len(files) == 2
     assert not list(out.glob(".stderr_*"))       # per-game shims never materialize
@@ -129,7 +131,7 @@ def test_timeout_artifact_passes_the_resume_guards(tmp_path):
     """A game killed by the per-game timeout leaves an artifact that
     the next chunk's pre-scan accepts (it once lacked mcts_batch and
     the precision fields, so every resume of a cuda outdir aborted)."""
-    from tools.run_elo_batch import main
+    from tools.run_elo_batch import EXIT_GUARD_SPENT, main
     out = tmp_path / "games"
     common = ["x", "--label-a", "A", "--spec-a", "dummy", "--label-b", "B",
               "--spec-b", "dummy", "--outdir", str(out), "--games", "1",
@@ -142,5 +144,7 @@ def test_timeout_artifact_passes_the_resume_guards(tmp_path):
     art = json.loads(files[0].read_text(encoding="utf-8"))
     assert art["mcts_batch"] == 4 and art["infer_bf16"] is False and art["infer_compile"] is False
     assert (art["basis_a"], art["basis_b"]) == ("full", "full")
-    rc = main(common)                    # the resume must not raise SystemExit
-    assert rc == 0
+    # The resume must not raise SystemExit; the killed game was the one
+    # slot, a no-result with no replacement allowed.
+    rc = main(common)
+    assert rc == EXIT_GUARD_SPENT
