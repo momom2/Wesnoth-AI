@@ -72,6 +72,15 @@ def search(args) -> int:
     return 0
 
 
+def redacted(res):
+    """The create response without its secrets: Vast answers with the new
+    instance's API key, which must not reach a terminal log."""
+    if not isinstance(res, dict):
+        return res
+    return {k: ("<redacted>" if "key" in k.lower() or "token" in k.lower() else v)
+            for k, v in res.items()}
+
+
 def create(args) -> int:
     from huggingface_hub import get_token
     tok = get_token()
@@ -85,7 +94,7 @@ def create(args) -> int:
     v = _vast()
     res = v.create_instance(id=args.offer_id, image=IMAGE, disk=args.disk, runtype="ssh_direc",
                             env=env, onstart_cmd=ONSTART.format(script=args.onstart))
-    print(json.dumps(res, default=str))
+    print(json.dumps(redacted(res), default=str))
     iid = res.get("new_contract") if isinstance(res, dict) else None
     if not (isinstance(res, dict) and res.get("success")):
         if iid:
