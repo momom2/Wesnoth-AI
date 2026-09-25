@@ -24,6 +24,7 @@ import contextlib
 import logging
 import multiprocessing as mp
 import multiprocessing.queues as mp_queues
+import os
 import queue as _queue
 import threading
 import time
@@ -221,7 +222,9 @@ def run_child(body: Callable, *args, **kwargs) -> None:
     While the parent lives, the exit writes everything out: the manager
     reads the children's queues while they exit (ActorPool.shutdown),
     and a child that stopped writing mid-message would leave it a
-    message whose remainder never comes."""
+    message whose remainder never comes. If the parent dies before the
+    exit is done (a learner killed during its own shutdown), nobody
+    will read the rest, and `_end_if_parent_dies` ends the process."""
     try:
         body(*args, **kwargs)
     finally:
@@ -230,6 +233,20 @@ def run_child(body: Callable, *args, **kwargs) -> None:
                         f"exiting without writing out what is left on its queues")
             for q in _queues_in((*args, *kwargs.values())):
                 q.cancel_join_thread()
+        elif mp.parent_process() is not None:
+            threading.Thread(target=_end_if_parent_dies, daemon=True,
+                             name="parent-watch").start()
+
+
+def _end_if_parent_dies() -> None:
+    """Runs while this process exits with its parent alive, waiting on
+    the parent's sentinel. The exit's wait for the queues' feeders is
+    untimed and cannot be cancelled once it has begun, so a parent that
+    dies first is answered by ending the process here."""
+    mp.parent_process().join()
+    log.warning(f"{mp.current_process().name}: the parent process died while this one "
+                f"was exiting; ending it without writing out the rest")
+    os._exit(1)
 
 
 def _queues_in(args) -> Iterator[mp_queues.Queue]:
