@@ -119,3 +119,59 @@ per-phase evaluation 5 minutes, the 800-decisive match 15-30 minutes
 single-tenant host (`vms_enabled=false`) with an RTX 4090, at least 32
 effective cores, 64 GB of memory and 60 GB of disk. Every exit, clean
 or not, leaves ALL_DONE on HF.
+
+## Measured (2026-09-24/25, instance 52448275: a 64-core EPYC 7B13 host with an RTX 4090, $0.67/h)
+
+Records: `training/metrics/bench_pipeline/observation_retrain_20260924/`
+(the match's fit and log, the training log and holdout curve, the
+per-phase value table, the box's logs). The arm's checkpoint is HF
+`tier-b/observation_retrain_20260924/arm_epoch0.pt`. The 800 games'
+result files and whole-game records stayed on the stopped instance's
+disk.
+
+| match | seed base | games (capped) | decisive | Elo of the arm | p | wall |
+|---|---|---|---|---|---|---|
+| obs_e1 vs terrain, PURE, both at `raw:t0+eo-1.5`, current observation against the reference's | 64000 | 800 (0) | 800 | +73 +- 13 | 0.604 +- 0.017 (483-317) | 491 s |
+
+**PASS** under the pre-registered bar (p >= 0.535; predicted 0.56, range
+0.50 to 0.63): the reference's recipe trained on the current observation
+beats the reference by about 73 Elo. Under the pre-registered reading
+the arm is the candidate reference, pending the user's ruling and a
+self-pin. The result cannot say how much of it is the time of day and
+how much the corrected vision, statues and hiders (batched by the
+user's order); no attribution arm is proposed unless the user wants one.
+
+Crash barriers: the tests before the pre-encoding passed (41 passed, 1
+skipped: `wesnoth_src/data/core/units` is not staged); the pass trained
+2,826,147 pairs, exactly the terrain arm's count, over 16,650 files
+with no file error, flush failure or out-of-memory split. Holdout
+proxies at the end of the pass, against the terrain arm's: CE 2.822
+against 2.837, actor top-1 0.595 against 0.584, masked target CE 1.342
+against 1.350, value AUC 0.732 against 0.743; per-phase same-turn value
+AUC 0.656, 0.725, 0.792, 0.840, 0.787, 0.864 against 0.645, 0.733,
+0.783, 0.833, 0.792, 0.864. As in every earlier arm, the proxies do not
+see the match. No game of the 800 reached the 200-turn cap. Not
+measured: the two maps whose turn number misleads about the time of day
+and the decisions per side-turn, which need the game files on the
+stopped instance.
+
+**The run was cut and resumed.** At 1.79M pairs Vast stopped the
+instance because the account's credit ran out (balance -$0.19 against
+its -$0.01 threshold). The trainer's `--resume` restarted an epoch in a
+new order, which would have broken the one-pass recipe; the trainer now
+continues a cut pass (`fix/exact-resume`, tools/supervised_train.py
+`PassPosition`, tested to bit-identical weights on a cut-and-resumed
+small run). The box's checkpoint predated that change, so it resumed
+through the first-epoch path: the same file order from the seed, the
+1,792,000 pairs already trained read again and skipped in 2,936 s,
+training continued at step 28,000, and the pass ended at the same pair
+count as the terrain arm. Two things differ from an uncut run: the
+dropout draws (probability 1e-4) after the cut, and the holdout
+evaluation points after it. The restarted box re-staged its code, and
+at the end stopped itself through Vast's API (`stop_self`, 00:20:51 UTC).
+
+Cost: 3.9 box-hours for the first run and 2.5 for the resumed one, 6.4
+in all, about $4.3 at $0.67/h, against the pre-registered $2.5-3.6: a
+slower pass than the terrain arm's (153-160 pairs/s against 221 on the
+same host class), the 49-minute skip and the restart's bring-up.
+
