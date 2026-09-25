@@ -39,6 +39,7 @@ from wesnoth_ai.classes import (
     Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
 from wesnoth_ai import combat as cb
+from wesnoth_ai.paths import UNIT_STATS_PATH
 # The fog each command clears or recalculates (docs/wesnoth_rules.md
 # "Vision and fog").
 from wesnoth_ai.visibility import clear_fog, refog, track_side
@@ -56,7 +57,6 @@ log = logging.getLogger("replay_dataset")
 # Unit-type stats database (scraped from Wesnoth source)
 # ---------------------------------------------------------------------
 
-_UNIT_STATS_PATH = Path(__file__).resolve().parent.parent / "unit_stats.json"
 _UNIT_DB: Dict[str, dict] = {}
 _MOVETYPE_DB: Dict[str, dict] = {}
 _RACE_DB: Dict[str, dict] = {}
@@ -68,14 +68,14 @@ def _load_unit_db() -> None:
     if _UNIT_DB:
         return
     try:
-        with _UNIT_STATS_PATH.open(encoding="utf-8") as f:
+        with UNIT_STATS_PATH.open(encoding="utf-8") as f:
             data = json.load(f)
         _UNIT_DB     = data.get("units", {})
         _MOVETYPE_DB = data.get("movement_types", {})
         _RACE_DB     = data.get("races", {})
         log.info(f"Loaded {len(_UNIT_DB)} unit types from unit_stats.json")
     except FileNotFoundError:
-        log.warning(f"{_UNIT_STATS_PATH} not found; using fallback stats. "
+        log.warning(f"{UNIT_STATS_PATH} not found; using fallback stats. "
                     f"Run `python tools/scrape_unit_stats.py wesnoth_src "
                     f"unit_stats.json` to fix.")
 

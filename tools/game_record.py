@@ -52,9 +52,10 @@ import zlib
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Iterator, List, Optional, Tuple
 
-_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+
+from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 
 log = logging.getLogger("game_record")
 
@@ -343,7 +344,7 @@ def _corpus_game(rec: Dict[str, Any], verify: bool) -> dict:
     prov = rec["setup"]["midgame"]
     path = Path(prov["dataset_dir"]) / prov["file"]
     if not path.is_absolute():
-        path = _ROOT / path
+        path = REPO_ROOT / path
     content = gzip.decompress(path.read_bytes())
     want = prov.get("sha256")
     if verify and want and hashlib.sha256(content).hexdigest() != want:

@@ -36,12 +36,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+
+from wesnoth_ai.paths import IMITATION_DATASET_DIR  # noqa: E402
 
 BUCKETS = [(1, 5), (6, 10), (11, 15), (16, 20), (21, 30), (31, 10 ** 6)]
-DATASET = ROOT / "replays_dataset_imitation"
+DATASET = IMITATION_DATASET_DIR
 
 
 def bucket_of(turn: int) -> str:

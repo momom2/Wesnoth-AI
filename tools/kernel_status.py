@@ -36,6 +36,8 @@ from typing import Dict, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from wesnoth_ai.paths import RUST_CORE_SRC_DIR  # noqa: E402
+
 
 def wheel_phase() -> Optional[int]:
     """`__phase__` of the installed wheel, or None when absent."""
@@ -49,8 +51,7 @@ def wheel_phase() -> Optional[int]:
 def source_phase() -> Optional[int]:
     """`__phase__` the Rust source declares, or None if unreadable."""
     import re
-    src = (Path(__file__).resolve().parent.parent
-           / "rust" / "wesnoth_core" / "src" / "lib.rs")
+    src = RUST_CORE_SRC_DIR / "lib.rs"
     try:
         text = src.read_text(encoding="utf-8", errors="replace")
     except OSError:

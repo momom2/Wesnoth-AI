@@ -41,12 +41,13 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.classes import GameState, Hex, Position, SideInfo
+from wesnoth_ai.paths import ADDONS_DIR, WESNOTH_SRC_DIR
 from tools.replay_extract import WMLNode, parse_wml
 
 
 log = logging.getLogger("scenario_events")
 
-WESNOTH_SRC = Path(__file__).resolve().parent.parent / "wesnoth_src"
+WESNOTH_SRC = WESNOTH_SRC_DIR
 SCENARIO_DIR = WESNOTH_SRC / "data" / "multiplayer" / "scenarios"
 
 
@@ -549,7 +550,7 @@ def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
     import re as _re
     addon_roots = [
         SCENARIO_DIR.parent.parent / "add-ons",        # wesnoth_src/data
-        Path(__file__).resolve().parents[1] / "add-ons",   # project
+        ADDONS_DIR,                                     # project
     ]
     for addons_dir in addon_roots:
         if not addons_dir.is_dir():

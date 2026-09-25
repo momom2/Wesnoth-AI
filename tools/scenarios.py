@@ -23,13 +23,14 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 from typing import Set
+
+from wesnoth_ai.paths import WESNOTH_SRC_DIR
 
 
 log = logging.getLogger("scenarios")
 
-WESNOTH_SRC = Path(__file__).resolve().parent.parent / "wesnoth_src"
+WESNOTH_SRC = WESNOTH_SRC_DIR
 SCENARIO_DIR = WESNOTH_SRC / "data" / "multiplayer" / "scenarios"
 
 

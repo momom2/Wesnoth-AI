@@ -24,8 +24,11 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-CONFIG = ROOT / "configs" / "reference_player.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from wesnoth_ai.paths import CONFIGS_DIR, REPO_ROOT  # noqa: E402
+
+CONFIG = CONFIGS_DIR / "reference_player.json"
 
 
 def load() -> dict:
@@ -34,7 +37,7 @@ def load() -> dict:
 
 def local_path(ref: dict | None = None) -> Path:
     ref = ref or load()
-    return ROOT / ref["checkpoint_local"]
+    return REPO_ROOT / ref["checkpoint_local"]
 
 
 def ensure_checkpoint(ref: dict | None = None) -> Path:

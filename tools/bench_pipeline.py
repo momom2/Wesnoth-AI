@@ -46,14 +46,16 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+
+from wesnoth_ai.paths import (CONFIGS_DIR, IMITATION_DATASET_DIR,  # noqa: E402
+                              REPO_ROOT, TOOLS_DIR)
 
 log = logging.getLogger("bench_pipeline")
 
-DEFAULT_MANIFEST = ROOT / "configs" / "bench_states.json"
-DEFAULT_DATASET = ROOT / "replays_dataset_imitation"
+DEFAULT_MANIFEST = CONFIGS_DIR / "bench_states.json"
+DEFAULT_DATASET = IMITATION_DATASET_DIR
 COMPONENTS = ("deepcopy", "fork", "encode_raw", "encode_from_raw",
               "legality_masks", "enumerate_priors", "sim_step", "state_key",
               "pack_masks", "unpack_compact")
@@ -412,10 +414,10 @@ def end_to_end(checkpoint: Path, outdir: Path, games: int, jobs: int, device: st
         # One directory per run: run_elo_batch resumes an existing
         # outdir and would count games this run never played.
         d = outdir / name / stamp
-        cmd = [sys.executable, str(ROOT / "tools" / "run_elo_batch.py"),
+        cmd = [sys.executable, str(TOOLS_DIR / "run_elo_batch.py"),
                "--outdir", str(d)] + extra + common
         t0 = time.perf_counter()
-        subprocess.run(cmd, cwd=str(ROOT), check=False)
+        subprocess.run(cmd, cwd=str(REPO_ROOT), check=False)
         out[name] = _summarize_games(d, time.perf_counter() - t0, dollars_per_hour)
         log.info("%s: %s", name, out[name])
     return out
@@ -489,7 +491,7 @@ def main(argv) -> int:
                          "(design note section 13; needs --packed-trunk)")
     ap.add_argument("--label", default="")
     ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--games-outdir", type=Path, default=ROOT / "eval_games" / "bench_pipeline")
+    ap.add_argument("--games-outdir", type=Path, default=REPO_ROOT / "eval_games" / "bench_pipeline")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level),
