@@ -20,9 +20,12 @@ from sim_test_helpers import fresh_scenario_sim   # noqa: E402
 from tools.combat_outcomes import (   # noqa: E402
     _CombatantMarginals as M,
     _better_combat,
+    _engine_marginals,
     _probability_of_debuff,
+    _strike_dp,
     choose_counter_weapon,
 )
+from wesnoth_ai import combat as cb   # noqa: E402
 
 
 def test_better_combat_kill_probability_dominates():
@@ -131,3 +134,65 @@ def test_no_matching_range_means_no_counter():
     gs, att, dfd = _surgical_matchup(sim, "Spearman", "Drake Clasher")
     idx = choose_counter_weapon(gs, att, dfd, 1)   # javelin, ranged
     assert idx == -1
+
+
+def test_an_attacker_the_fight_levels_is_scored_at_full_hp():
+    """Corpus game 0223d226cc2f (replays_dataset), command 333: a
+    Skeleton at 33/34 HP and 26/27 XP attacks a Dwarvish Fighter at
+    22/38 HP, poisoned, and the engine recorded the axe (index 0).
+    Fighting a level-1 unit gives 1 XP, so the Skeleton levels
+    whatever happens and `combatant::fight` scores every outcome it
+    survives at full HP (forced_levelup). Neither side can die here, so
+    both counters leave it at 34, tie, and `better_combat`'s last
+    tie-break keeps the first candidate. Scored at its real HP, the
+    hammer's 10x2 against the Skeleton's impact weakness beats the
+    axe's 4x3 and wins instead."""
+    sim = fresh_scenario_sim(seed=20, max_turns=10, mini=True)
+    gs, att, dfd = _surgical_matchup(sim, "Skeleton", "Dwarvish Fighter")
+    att.current_hp, att.max_hp, att.current_exp, att.max_exp = 33, 34, 26, 27
+    dfd.current_hp, dfd.max_hp, dfd.current_exp, dfd.max_exp = 22, 38, 3, 32
+    dfd.statuses.add("poisoned")
+    assert choose_counter_weapon(gs, att, dfd, 0) == 0
+
+
+def _battle_stats(damage: int, strikes: int) -> cb.BattleStats:
+    """50% to hit, no special."""
+    return cb.BattleStats(
+        cth=50, damage=damage, slow_damage=damage // 2, n_attacks=strikes,
+        orig_attacks=strikes, rounds=1, firststrike=False, drains=False,
+        drain_constant=0, drain_percent=0, plague=False, plague_type="",
+        poisons=False, slows=False, petrifies=False, backstab=False,
+        swarm=False, is_attacker=True)
+
+
+def _combat_unit(hp: int, max_hp: int, xp: int, max_xp: int) -> cb.CombatUnit:
+    return cb.CombatUnit(
+        side=1, hp=hp, max_hp=max_hp, level=1, experience=xp,
+        max_experience=max_xp, alignment=cb.Alignment.NEUTRAL, weapons=[],
+        resistance={}, defense_pct=50)
+
+
+def _attacker_average_hp(attacker, defender, a_stats, d_stats) -> float:
+    states = _strike_dp(a_stats, d_stats, attacker, defender, track_touched=True)
+    return _engine_marginals(states, a_stats, d_stats, attacker, defender)[0].avg_hp
+
+
+def test_levelup_scoring_follows_the_engine_fight_paths():
+    """A (10/20 HP) strikes first, once, for 5 at 50%: it kills B
+    (5 HP) half the time. Numbers worked by hand from
+    attack_prediction.cpp.
+
+    At 2/9 XP only a kill's 8 XP levels A. One strike each takes
+    `one_strike_fight`, whose conditional_levelup scales A's surviving
+    HP by 1 - P(kill) / P(survive) = 0.5 and adds P(kill) at full HP:
+    A is 10 w.p. 0.75 and 6 w.p. 0.25 before, so 0.5 * 9 + 0.5 * 20 =
+    14.5. When B strikes twice for 2 the fight goes through the matrix,
+    which moves exactly the kill outcomes to full HP:
+    0.5 * 20 + 0.5 * (0.25 * 10 + 0.5 * 8 + 0.25 * 6) = 14.0.
+    At 8/9 XP the fight's 1 XP alone levels A: every survivor at 20."""
+    b = _combat_unit(5, 30, 0, 100)
+    on_kill = _combat_unit(10, 20, 2, 9)
+    assert _attacker_average_hp(on_kill, b, _battle_stats(5, 1), _battle_stats(4, 1)) == 14.5
+    assert _attacker_average_hp(on_kill, b, _battle_stats(5, 1), _battle_stats(2, 2)) == 14.0
+    forced = _combat_unit(10, 20, 8, 9)
+    assert _attacker_average_hp(forced, b, _battle_stats(5, 1), _battle_stats(4, 1)) == 20.0

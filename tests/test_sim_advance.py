@@ -145,6 +145,34 @@ def test_damage_based_advance_detected(fresh_sim):
     assert "advance_choices" in rc.extras
 
 
+def test_a_quick_defender_keeps_its_extra_move_through_advancement(fresh_sim, monkeypatch):
+    """`unit::advance_to` restores the movement the unit had, clamped to
+    the new total only after its traits are re-applied (unit.cpp:921 and
+    :1026, stats_storage_resetter :186-207). A quick Spearman that has
+    not moved (6/6) and levels while defending stays at 6/6 as any of
+    its three advancements, all of base movement 5. Clamping to that 5
+    before quick came back left it at 5/6 for the rest of the turn."""
+    import tools.traits as traits
+    from tools.replay_dataset import _rebuild_unit
+    sim = fresh_sim
+    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
+    with monkeypatch.context() as m:
+        m.setattr(traits, "roll_traits", lambda *a, **k: ["quick", "resilient"])
+        spear = _make("Spearman", 2, 11, 10, 2, exp_modifier=xpmod)
+    assert (spear.current_moves, spear.max_moves) == (6, 6)
+    spear = _rebuild_unit(spear, current_exp=spear.max_exp - 1)   # +1 for the fight
+    _run_attack(
+        sim,
+        _make("Skeleton", 1, 10, 10, 1, exp_modifier=xpmod),
+        spear,
+        _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
+        _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod),
+    )
+    advanced = next(u for u in sim.gs.map.units if u.id == spear.id)
+    assert advanced.name in ("Swordsman", "Pikeman", "Javelineer")
+    assert (advanced.current_moves, advanced.max_moves) == (6, 6)
+
+
 def test_simultaneous_advance_order(fresh_sim):
     """Both attacker and defender cross threshold -- attacker recorded
     first per Wesnoth's attack_unit_and_advance order."""

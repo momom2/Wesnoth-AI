@@ -74,6 +74,7 @@ from tools.replay_dataset import (
     iter_replay_pairs_with_state, _stats_for,
 )
 from tools.wml_state import MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT
+from tools.wml_state import village_economy as declared_village_economy
 
 
 # ----------------------------------------------------------------------
@@ -508,8 +509,7 @@ def dump_savestate(gs: GameState, scenario_id: str = "multiplayer_test",
     raw_side_by_num = {int(s.get("side", 0)): s for s in raw_sides}
 
     # The game's own village economy, emitted rather than invented.
-    village_economy = (int(gs.global_info.village_gold or MP_VILLAGE_GOLD),
-                       int(gs.global_info.village_upkeep or MP_VILLAGE_SUPPORT))
+    village_economy = declared_village_economy(gs.global_info)
     lines: List[str] = []
     # Top-level metadata
     lines.extend(_emit_attrs({

@@ -560,30 +560,97 @@ def _kill_xp(opp_level: int) -> int:
             if opp_level else cb.KILL_EXPERIENCE // 2)
 
 
+def _is_one_strike_fight(a_stats, d_stats, a_cu, d_cu) -> bool:
+    """Whether `do_fight` (1.18.4 attack_prediction.cpp:2211-2244)
+    hands this fight to `one_strike_fight` rather than the exact
+    matrix: no slow, drain, petrify or berserk on either side, neither
+    combatant already slowed (a slowed unit starts with a non-empty
+    `summary[1]`, :1693-1698), and at most one strike each.
+
+    The engine's flags are the effective ones (attack.cpp:140-142 and
+    :218): a drain needs an opponent that is not undrainable. The
+    unslowable and unpetrifiable statuses appear only in the engine's
+    own WML test scenarios, so for slow and petrify the weapon special
+    decides."""
+    if a_cu.is_slowed or d_cu.is_slowed:
+        return False
+    sides = [(a_stats, d_cu)] if d_stats is None else [
+        (a_stats, d_cu), (d_stats, a_cu)]
+    for st, opp_cu in sides:
+        drains = st.drains and not opp_cu.is_undrainable
+        if (st.slows or drains or st.petrifies or st.rounds != 1
+                or st.n_attacks > 1):
+            return False
+    return True
+
+
+def _levelup_average_hp(cu, opp_cu, avg_hp: float, avg_hp_on_kill: float,
+                        death: float, kill: float,
+                        one_strike: bool) -> float:
+    """`combatant::average_hp()` once `combatant::fight` has applied the
+    level-up it predicts (`levelup_considered`, true for every
+    prediction `choose_defender_weapon` runs):
+
+      - the fight's XP alone reaches `max_experience`: every surviving
+        outcome is scored at full HP (`forced_levelup`);
+      - only a kill's XP reaches it: the outcomes where the opponent
+        dies are scored at full HP (`conditional_levelup`).
+
+    The matrix path does the second exactly (attack_prediction.cpp:
+    2189-2200, `merge_col` of the opponent's 0-HP column). The
+    one-strike path approximates it (:2038-2048 and :1733-1752): it
+    scales every surviving HP by `1 - kill / P(survive)` and adds the
+    kill probability at full HP, as if the unit's HP and the kill were
+    independent. `avg_hp` sums p * hp over surviving outcomes,
+    `avg_hp_on_kill` the same over those where the opponent died,
+    `death` is this unit's death probability and `kill` the
+    opponent's."""
+    if cu.experience + cb.COMBAT_EXPERIENCE * opp_cu.level >= cu.max_experience:
+        return (1.0 - death) * cu.max_hp
+    if cu.experience + _kill_xp(opp_cu.level) < cu.max_experience:
+        return avg_hp
+    if not one_strike:
+        return avg_hp - avg_hp_on_kill + kill * cu.max_hp
+    survive = 1.0 - death
+    scale = 1.0 - kill / survive if survive > sys.float_info.min else 0.0
+    return scale * avg_hp + kill * cu.max_hp
+
+
 def _engine_marginals(
     states, a_stats, d_stats, a_cu, d_cu,
 ) -> Tuple[_CombatantMarginals, _CombatantMarginals]:
     """(attacker, defender) marginals from a touched-tracked DP,
-    matching what `combatant::fight` computes: exact death/avg_hp,
+    matching what `combatant::fight` computes: exact death, avg_hp
+    after the level-up the engine predicts (`_levelup_average_hp`),
     and `poisoned` via the engine's own approximation formula fed
     with our exact touched probability. The engine approximates
     P(hit at least once) incrementally; ours is exact -- a documented
     (and strictly smaller-error) deviation."""
     a_death = d_death = a_avg = d_avg = a_touch = d_touch = 0.0
+    a_avg_on_kill = d_avg_on_kill = 0.0
     for (a_hp, d_hp, _asl, _dsl, _apo, _dpo, _ape, _dpe,
          a_t, d_t), p in states.items():
         if a_hp <= 0:
             a_death += p
         else:
             a_avg += p * a_hp
+            if d_hp <= 0:
+                a_avg_on_kill += p * a_hp
         if d_hp <= 0:
             d_death += p
         else:
             d_avg += p * d_hp
+            if a_hp <= 0:
+                d_avg_on_kill += p * d_hp
         if a_t:
             a_touch += p
         if d_t:
             d_touch += p
+    one_strike = _is_one_strike_fight(a_stats, d_stats, a_cu, d_cu)
+    a_avg = _levelup_average_hp(a_cu, d_cu, a_avg, a_avg_on_kill,
+                                a_death, d_death, one_strike)
+    d_avg = _levelup_average_hp(d_cu, a_cu, d_avg, d_avg_on_kill,
+                                d_death, a_death, one_strike)
 
     a_pois = _probability_of_debuff(
         1.0 if a_cu.is_poisoned else 0.0,
@@ -724,10 +791,15 @@ def counter_weapon_choice(gs: GameState, att: Unit, dfd: Unit,
     wesnoth_src/data/core/units/monsters/) cannot influence the
     choice through the dead filter anyway.
 
-    Other documented deviations, all outside the training pools:
+    Other documented deviations, outside the training pools:
     [disable] specials are unmodeled (no default-era weapon has
     one), and DP-overflow fights fall back to the v1 heuristic
     where the engine would switch its combatant sim to Monte-Carlo.
+    Inside them: the strike DP runs every berserk round where the
+    prediction stops at 99% dead mass, and counters with exactly
+    equal predicted outcomes are decided by floating-point residue
+    the DP does not reproduce bit for bit (4 of 737 recorded choices,
+    training/metrics/fidelity/counter_weapon_census_20260925.json).
     """
     from tools.replay_dataset import build_attack_context
 
