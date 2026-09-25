@@ -55,9 +55,10 @@ from tools.dev.import_rewrite import (FilePlan, ModuleNames, Source,  # noqa: E4
 log = logging.getLogger("move_module")
 
 # The directories on sys.path in practice, relative to the repo root.
-# Names under BARE_ROOTS resolve too, and must never be used.
+# Names under BARE_ROOTS resolve too, and must never be used: tools/ is on
+# sys.path everywhere, tools/analysis in one test (test_turn_gap).
 IMPORT_ROOTS = (".", "tests")
-BARE_ROOTS = ("tools",)
+BARE_ROOTS = ("tools", "tools/analysis")
 # Trees a walk leaves out when the root is not a git work tree.
 SKIPPED_DIRS = {".git", ".claude", "__pycache__", "wesnoth_src", "kaggle", ".venv", "venv",
                 "node_modules"}
