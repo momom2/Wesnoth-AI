@@ -46,7 +46,7 @@ from wesnoth_ai.visibility import clear_fog, refog, track_side
 # stripped (the engine's string_to_number_); never re-implement it here.
 from tools.terrain_resolver import strip_start_position, terrain_mask
 from tools.wml_state import split_map_grid          # noqa: F401 (re-export)
-from tools.wml_state import village_economy
+from tools.wml_state import fix_time_index, village_economy
 
 
 log = logging.getLogger("replay_dataset")
@@ -747,6 +747,13 @@ def _build_initial_gamestate(data: dict) -> GameState:
     else:
         village_gold = 2
         village_support = 1
+    # The turn-1 slot, wrapped the engine's way (`fix_time_index`) into
+    # the default schedule, the only one the simulator models (a
+    # scenario declaring another is flagged by
+    # `wml_state.check_board_cycle`): the Rust core indexes its cycle
+    # with this value and panics on a negative one.
+    tod_start = fix_time_index(len(cb.TOD_DEFAULT_CYCLE),
+                               int(data.get("tod_start_index", 0) or 0))
     gs = GameState(
         game_id=data.get("game_id", "?"),
         map=Map(size_x=size_x, size_y=size_y,
@@ -754,8 +761,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
                 hexes=hexes, units=units),
         global_info=GlobalInfo(
             current_side=current_side, turn_number=0,
-            time_of_day=_tod_for_turn(
-                1, int(data.get("tod_start_index", 0) or 0)),
+            time_of_day=_tod_for_turn(1, tod_start),
             village_gold=village_gold,
             village_upkeep=village_support, base_income=2,
         ),
@@ -778,8 +784,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
     # that turn-1 reads as e.g. afternoon (offset=2) — matching the
     # server-side `tod_manager::resolve_random` decision recorded in
     # the replay's [scenario] / [replay_start] `current_time` attr.
-    setattr(gs.global_info, "_tod_start_offset",
-            int(data.get("tod_start_index", 0) or 0))
+    setattr(gs.global_info, "_tod_start_offset", tod_start)
     setattr(gs.global_info, "_raw_starting_sides",
             list(data.get("starting_sides", [])))
     # wesnoth_ai.visibility reads it: the encoder hides enemy units
@@ -957,8 +962,12 @@ def _tod_cycle_index(turn_number: int, start_offset: int = 0) -> int:
     """Compute the cycle index (0..5) for `turn_number` given a starting
     offset. `start_offset` defaults to 0 (turn 1 = dawn). For replays
     with `random_start_time=yes` resolved server-side, the offset
-    encodes which ToD the server picked."""
-    return (max(1, turn_number) - 1 + max(0, start_offset)) % 6
+    encodes which ToD the server picked. The readers hand over an
+    offset already in range (`wml_state.read_tod`,
+    `_build_initial_gamestate`); the wrap is the engine's modulo
+    (`tod_manager::calculate_time_index_at_turn`), as the time-area
+    path in `_lawful_bonus_at` wraps, never a clamp to dawn."""
+    return (max(1, turn_number) - 1 + start_offset) % len(cb.TOD_DEFAULT_CYCLE)
 
 
 def _lawful_bonus_for_turn(turn_number: int, start_offset: int = 0) -> int:

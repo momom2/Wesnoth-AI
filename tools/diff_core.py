@@ -7,8 +7,11 @@ built from a copy of the initial state; after every command (or every
 `--every` commands) the two states are compared over their modeled
 content (`game_core.state_differences`). A difference is a divergence,
 reported with the command's index and kind and the path the core took
-("rust" or the Python fallback). Certification of the port's step
-kernels (docs/rust_port_plan.md phase 4).
+("rust" or the Python fallback). A replay on which the core raises or
+panics (a Rust panic reaches Python as pyo3's PanicException, a
+BaseException) is listed as that replay's divergence and the sweep goes
+on. Certification of the port's step kernels (docs/rust_port_plan.md
+phase 4).
 
     python tools/diff_core.py replays_dataset_imitation/*.json.gz --limit 200
     python tools/diff_core.py DIR --every 1 --stop-on-first
@@ -34,6 +37,24 @@ sys.path.insert(0, str(ROOT))
 log = logging.getLogger("diff_core")
 
 
+def is_rust_panic(exc: BaseException) -> bool:
+    """A Rust panic reaches Python as pyo3's `PanicException`, which
+    derives from BaseException precisely so that `except Exception`
+    does not catch it. It has no importable home (`pyo3_runtime` is
+    not a module), so it is recognised by its name."""
+    return type(exc).__name__ == "PanicException"
+
+
+def _describe_failure(exc: BaseException) -> str:
+    """A replay's failure as one listed line, or the exception re-raised
+    when it is not the replay's (KeyboardInterrupt, SystemExit)."""
+    if is_rust_panic(exc):
+        return f"panicked {exc!r}"
+    if isinstance(exc, Exception):
+        return f"raised {exc!r}"
+    raise exc
+
+
 def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
               counts: Optional[Counter] = None) -> List[str]:
     from tools.replay_dataset import _apply_command, _build_initial_gamestate, _setup_scenario_events
@@ -49,8 +70,8 @@ def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
         _apply_command(gs, list(cmd))
         try:
             path = cs.apply_command(list(cmd))
-        except Exception as e:  # noqa: BLE001 - reported as a divergence
-            out.append(f"{gz_path.name}#{idx} {kind}: core raised {e!r}")
+        except BaseException as e:  # noqa: BLE001 - a panic is a divergence too
+            out.append(f"{gz_path.name}#{idx} {kind}: core {_describe_failure(e)}")
             break
         if counts is not None:
             counts[(kind, path)] += 1
@@ -92,8 +113,8 @@ def main(argv: List[str]) -> int:
     for gz in files:
         try:
             d = diff_core(gz, every=args.every, stop_on_first=args.stop_on_first, counts=counts)
-        except Exception as e:  # noqa: BLE001 - one bad file must not end the sweep
-            d = [f"{gz.name}: harness error {e!r}"]
+        except BaseException as e:  # noqa: BLE001 - one bad file, panic included, must not end the sweep
+            d = [f"{gz.name}: harness {_describe_failure(e)}"]
         if d:
             divergences.extend(d)
         else:

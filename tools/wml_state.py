@@ -385,8 +385,23 @@ def check_quick_leader_gates(node, scenario_id: str = "") -> bool:
     return False
 
 
+def fix_time_index(number_of_times: int, time: int) -> int:
+    """The engine's `tod_manager::fix_time_index`: a schedule slot
+    wrapped into [0, number_of_times) by a modulo that is never
+    negative (`modulo`, src/utils/math.hpp), 0 for an empty schedule.
+    Python's `%` with a positive divisor is that modulo."""
+    if number_of_times <= 0:
+        return 0
+    return time % number_of_times
+
+
 def read_tod(node, *, default_slots: int = 6) -> Tuple[Optional[int], bool, int]:
     """(current_time, random_start_time, number of schedule slots).
+
+    `current_time` comes back as the slot the engine starts on: the
+    tod_manager constructor wraps it with `fix_time_index`
+    (src/tod_manager.cpp:66, 1.18.4), so -1 on a six-slot schedule is
+    slot 5 and 7 is slot 1. None when the scenario declares none.
 
     Only the reading is shared: reconstruction has to recover the slot
     the server already drew, while generation draws a fresh one, so the
@@ -395,6 +410,8 @@ def read_tod(node, *, default_slots: int = 6) -> Tuple[Optional[int], bool, int]
     current = wml_int(node.attrs.get("current_time"))
     random_start = wml_bool(node.attrs.get("random_start_time"), False)
     slots = len(node.all("time")) or default_slots
+    if current is not None:
+        current = fix_time_index(slots, current)
     return current, random_start, slots
 
 
