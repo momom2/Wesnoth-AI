@@ -7,7 +7,10 @@
 Every file under the HF prefix lands under the local directory with
 the same basename. Files already present with the same size are
 skipped, so the pull can run again while the box is still uploading.
-Prints one line per file and the count at the end.
+A file with a secret-shaped string in it (tools/secret_scan.py: a token,
+a keyed URL, a key in a traceback) is withheld and named, since records
+go on to git and the repository is public. Prints one line per file and
+the count at the end.
 """
 from __future__ import annotations
 
@@ -16,6 +19,9 @@ import logging
 import shutil
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tools.secret_scan import scan_file  # noqa: E402
 
 REPO = "momom2/wesnoth-model-checkpoints"
 log = logging.getLogger("pull_box_records")
@@ -28,7 +34,7 @@ def pull(prefix: str, dest: Path, max_mb: float = 50.0) -> int:
     dest.mkdir(parents=True, exist_ok=True)
     infos = [i for i in api.list_repo_tree(REPO, path_in_repo=prefix.rstrip("/"))
              if hasattr(i, "size")]
-    n = 0
+    n = withheld = 0
     for info in infos:
         name = info.path[len(prefix):]
         target = dest / name
@@ -46,11 +52,17 @@ def pull(prefix: str, dest: Path, max_mb: float = 50.0) -> int:
             log.info("skipped %s (%d MB, over --max-mb %g)", name, info.size // 1_000_000, max_mb)
             continue
         src = hf_hub_download(REPO, info.path)
+        hits = scan_file(Path(src))
+        if hits:
+            withheld += 1
+            log.warning("WITHHELD %s: secret-shaped content at %s", name,
+                        ", ".join(f"line {line} ({kind})" for line, kind in hits[:5]))
+            continue
         shutil.copyfile(src, target)
         log.info("pulled  %s (%d bytes)", name, info.size)
         n += 1
-    log.info("%d files pulled, %d present under %s", n, len(infos), dest)
-    return 0
+    log.info("%d files pulled, %d withheld, %d present under %s", n, withheld, len(infos), dest)
+    return 1 if withheld else 0
 
 
 def main(argv: list[str]) -> int:

@@ -75,6 +75,8 @@ REDACTED = "<redacted>"
 _SECRET_FIELD = re.compile(r"key|token|secret|password", re.IGNORECASE)
 _API_KEY_PARAM = re.compile(r"(api_key=)[^&\s'\"]+")
 _HF_TOKEN_TEXT = re.compile(r"\bhf_[A-Za-z0-9]{20,}")
+_BEARER_TEXT = re.compile(r"(Bearer\s+)[A-Za-z0-9_\-.]{8,}")
+_CONTAINER_KEY_TEXT = re.compile(r"(CONTAINER_API_KEY['\"]?\s*[:=]\s*['\"]?)[A-Za-z0-9_\-]{8,}")
 _STAGE_DEFAULT = re.compile(
     r"""^\s*(?:export\s+)?STAGE=["']?(?:\$\{STAGE:-)?([^}"'\s$]+)""", re.MULTILINE)
 _SECRETS: set[str] = set()
@@ -113,6 +115,8 @@ def scrub_text(text: str) -> str:
     for secret in _SECRETS:
         text = text.replace(secret, REDACTED)
     text = _API_KEY_PARAM.sub(r"\g<1>" + REDACTED, text)
+    text = _BEARER_TEXT.sub(r"\g<1>" + REDACTED, text)
+    text = _CONTAINER_KEY_TEXT.sub(r"\g<1>" + REDACTED, text)
     return _HF_TOKEN_TEXT.sub(REDACTED, text)
 
 
