@@ -76,6 +76,7 @@ notes() {                        # the pass's pair count and the match's decisiv
     pairs=$(grep -o "chain total [0-9]*" "$OUT/train.log" 2>/dev/null | tail -1)
     echo "pairs: ${pairs:-none}, decisive: $(decisive_results "$OUT/games_$NAME")"
 }
+# shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 box_on_round() {                 # progress.txt, before each upload round
     { date -u
