@@ -150,3 +150,64 @@ revived. Steps 0 to 2 conflict with neither.
   subpackages is optional; this plan moves the simulator's (classes,
   combat, visibility, observe, game_core) with the sim step and leaves the
   rest to the user's choice.
+
+## Step 0, delivered (2026-09-26, branch refactor/step0-safe-moves)
+
+- `wesnoth_ai/paths.py` holds the repo root and every location library
+  code reads from it (unit_stats.json, terrain_db.json, wesnoth_src/,
+  add-ons/, configs/, tools/ for launched scripts, the save templates, the
+  Rust source, the imitation corpus). The 24 library modules that counted
+  `__file__` hops take their locations from it; in them `__file__` is left
+  only in `sys.path` bootstraps. tests/test_paths.py fails when a
+  `wesnoth_ai` module other than paths.py reads `__file__`, when paths.py
+  names a location that does not exist, or when a torch-free driver
+  (run_elo_batch, eval_procedure, turn_search_config, host_resources)
+  imports torch.
+- The tests that read source take it from the imported module
+  (`inspect.getsource`), or walk a directory recursively through
+  `tests/helpers/source_tree.source_files`, which fails on a directory
+  with no matching file.
+- `tests/helpers/` holds the shared fixtures, imported as
+  `helpers.<module>`.
+- Every reader of pickled project objects goes through
+  `wesnoth_ai.unpickle.load` / `loads`, which map module paths through
+  `MOVED_MODULES`; tests/test_unpickle.py fails when a production tree
+  reads a pickle any other way.
+- `tools/dev/move_module.py` is the codemod.
+
+## Moving a module (step 3 onwards)
+
+1. Create the destination package: an `__init__.py` with a docstring and
+   no imports, since importing any module of the package runs it, in the
+   torch-free drivers too.
+2. `python tools/dev/move_module.py OLD NEW`, for example
+   `tools.replay_dataset wesnoth_ai.sim.replay_dataset`. The dry run
+   changes nothing and prints every rewrite, every refusal with its
+   file:line, the patches made through the module object (a name not bound
+   at the module's top level is flagged), the moved module's `__file__`,
+   `__name__` and `sys.path` lines, and every other mention of the module.
+   Resolve the refusals by hand and run it again until there are none.
+3. The same command with `--apply` rewrites the importers, moves the file
+   with `git mv` (the rename is staged) and adds the move to
+   `MOVED_MODULES`.
+4. In the moved module, delete the `sys.path` bootstrap lines the report
+   lists (tests/test_paths.py fails while any remain) and take any data
+   path from `wesnoth_ai.paths`. A logger named by `__name__` changes name
+   with the module (graphed_serve, packed_trunk and inference_seam use
+   one; tests/test_packed_compile.py spells `wesnoth_ai.packed_trunk`).
+5. Go through the other mentions: Python code inside strings
+   (`run_elo_batch._PEEK_FLAGS` imports `tools.eval_sim` in a child
+   interpreter), `sys.modules` keys and `__import__` lists in strings, the
+   readers of `tests/data/scenario_surface.json`, Rust doc comments, live
+   docs. Records (docs/archive, quarantine, dated docs) stay as written.
+6. A module with a command line keeps a thin wrapper at its `tools/` path:
+   argparse, then one call into the package. A library-only module keeps
+   nothing in `tools/`: the codemod has rewritten every importer, and a
+   re-export shim at the old path would take `monkeypatch.setattr(shim,
+   ...)` into the shim's namespace, not the module's.
+7. `ruff check .`, the fast tier, the branch's CI run.
+
+The codemod moves whole modules. Extractions (step 1) and function
+splits (step 9) move names between modules; there, the codemod's dry run
+for the source module lists the tests that patch it through the module
+object, which are the ones to check by hand.
