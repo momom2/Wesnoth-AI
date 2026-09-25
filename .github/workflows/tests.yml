@@ -35,11 +35,13 @@ jobs:
         # CPU torch from PyTorch's index: the default Linux wheel pulls
         # the CUDA libraries, which no test here can use. The rest is what
         # the code imports (requirements.txt names torch-directml, which
-        # is Windows-only). ruff is pinned to the version the laptop runs.
+        # is Windows-only). requests is the box stop helper's transport and
+        # raises the SDK errors the rent_box leak tests replay. ruff is
+        # pinned to the version the laptop runs.
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install numpy scipy psutil pyyaml huggingface_hub pytest ruff==0.15.17
+          python -m pip install numpy scipy psutil pyyaml huggingface_hub requests pytest ruff==0.15.17
 
       - name: Build the Rust wheel from this commit
         # rustup and cargo ship with the runner image.
