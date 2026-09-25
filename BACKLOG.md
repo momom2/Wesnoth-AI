@@ -36,6 +36,30 @@ docs/turn_gap_ref_prereg_20260921.md), so by the design's rules the
 pipeline is built from rows 1 to 6 of
 docs/turn_proposer_design_20260905.md.
 
+**Standing, taken whenever there is room (user, 2026-09-25):**
+
+- **Signal telemetry in every trainer.** The self-play learner
+  (`az_loop`) records it since 2026-09-03 and the imitation trainer
+  since 0.7.0 (`tools/signal_telemetry.py`). Still without it: the
+  value-head fit on cached features (`tools/value_head_fit.py`), the
+  value pre-training (`tools/value_pretrain.py`, which steps through
+  `step_mcts`), the turn-value fitter's head arm (branch
+  `exp/turn-value`: a level term and a ranking term), the policy
+  anchor's rehearsal steps (`tools/policy_anchor.py`), and the older
+  self-play entry `sim_self_play`, where it sits behind
+  `--signal-telemetry` (the 2026-09-02 ruling; the user's 2026-09-25
+  instruction puts every trainer on it).
+- **Refactor for navigation, documentation and separation of
+  systems.** Library modules live in `tools/` beside one-off scripts
+  (165 Python files there against 30 in `wesnoth_ai/`); nine files
+  are more than three times the 600-line target
+  (`tools/sim_self_play.py` 4,088 lines, `tools/replay_dataset.py`
+  3,081, `tools/supervised_train.py` 2,845); this file holds 1,900
+  lines, most of them closed sections. Target: one package per system
+  with a README each (what it does, entry points, invariants, tests),
+  scripts as thin entry points whose documented command lines keep
+  working, closed backlog sections archived.
+
 ## Open after the 2026-09-25 audits
 
 Found by five audits (rules, observation, training, evaluation, tests

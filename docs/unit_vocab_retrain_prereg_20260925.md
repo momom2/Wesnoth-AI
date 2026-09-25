@@ -31,7 +31,8 @@ match cannot separate the two; the first is expected to dominate.
 
 ## Estimand
 
-- Arm: `obs8`'s recipe from scratch on `main` at 0.6.7
+- Arm: `obs8`'s recipe from scratch on `main` as staged at rental (0.7.0
+  or later; the run records its stage and version)
   (`tools/unit_vocab.py`: a fresh vocabulary of the 190 reachable unit
   types in name order, none on the overflow row; player-side imitation
   pairs only), `scripts/observation_retrain_box.sh` to the letter
@@ -39,7 +40,7 @@ match cannot separate the two; the first is expected to dominate.
   `configs/imitation.json`, batch 64, lr 1e-4, cosine over 4 epochs
   stopped after one pass, the deduplicated corpus with the manifest
   split, fog gate on, pre-encoded records, run seed 20260909, arch
-  384/8/12/1536, `OBSERVATION_EPOCH` 9. `scripts/unit_vocab_retrain_box.sh`
+  384/8/12/1536, `OBSERVATION_EPOCH` 9 or later. `scripts/unit_vocab_retrain_box.sh`
   runs it. The code also carries the engine rules landed with it
   (0.6.6): the corpus reconstructs 16 games with their declared zero
   village economy and keeps a levelling unit's trait movement, and both
@@ -58,6 +59,16 @@ match cannot separate the two; the first is expected to dominate.
   the arm's side (Northerners and Undead lose the most rows), the capped
   fraction, the holdout probe at the end of the pass (proxies, never
   verdicts), the per-phase value AUC.
+- Recorded, not read for the verdict: the trainer's signal telemetry
+  (`arm_signal.jsonl`, tools/signal_telemetry.py `ImitationSignal`):
+  every 25,000 pairs, each loss term's share of the encoder's, the
+  trunk's and the heads' gradient and of AdamW's update, and the
+  steps' gradient norms, from a probe built to leave the training
+  unchanged (bit-identical on CPU in tests; training on CUDA is not
+  bit-reproducible in any case) whose cost each row records (estimated
+  0.5-0.7% of the pass); and the stage timing (`arm_prof.json`). The
+  box's stage is rebuilt from `main` at rental: the stage the script
+  names by default (`stage_20260925u`) predates the telemetry.
 
 Held fixed: `obs8` and its decode, bf16 packed serving on cuda,
 combat-oracle alphas 0, one result directory for the pair.

@@ -797,6 +797,19 @@ State of play:
     pairs. One-pass runs such as `obs8`'s were unaffected.
   - Open findings, and the decisions they wait on, are in BACKLOG.md
     "Open after the 2026-09-25 audits".
+- 2026-09-25 (0.7.0): **the imitation trainer records the signal
+  telemetry, always on.** Every reference since the seed trained through
+  `tools/supervised_train.py`, which recorded none: the 2026-09-01
+  ruling had been wired into the self-play learner only, so `obs8`'s
+  retrain left no signal record. Every 25,000 trained pairs a row in
+  `<checkpoint stem>_signal.jsonl` splits a 32-pair probe of the batch
+  just trained by loss term (actor, type, target, weapon, value) over
+  the encoder, the trunk and the heads, in gradient space and in
+  AdamW's update space, with the steps' pre-clip gradient norms and the
+  probe's own cost; the stage timing is always on
+  (`tools/signal_telemetry.py`, whose `GradientProbe` the other
+  trainers will use: BACKLOG.md "Standing"). The probe is built to
+  leave training unchanged and tests hold it bit-identical on CPU.
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

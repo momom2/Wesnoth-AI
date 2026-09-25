@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 import tools.supervised_train as st  # noqa: E402
+from tools.signal_telemetry import read_signal_rows  # noqa: E402
 from tools.unit_vocab import seed_vocab  # noqa: E402
 import wesnoth_ai.train_perf as train_perf  # noqa: E402
 
@@ -125,7 +126,7 @@ def _train_scripted(ds: Path, ckpt: Path, monkeypatch, *, batched: bool, failure
     st.train(ds, ckpt, epochs=3, batch_size=4, max_pairs=max_pairs, resume=resume,
              seed=SCRIPT_SEED, d_model=16, num_layers=1, num_heads=2, d_ff=32, competitive_only=False,
              max_replay_commands=0, holdout_games=0, batched_forward=batched,
-             preencoded=ds / "encoded", log_every=1000, ckpt_every=1000)
+             preencoded=ds / "encoded", log_every=1000, ckpt_every=1000, signal_every=8)
     return run
 
 
@@ -138,7 +139,11 @@ def test_a_failed_file_costs_only_its_own_pairs(tmp_path, monkeypatch):
     completed = [(name, i) for name, (n, fails) in SCRIPT.items() if not fails for i in range(n)]
     trained = [key for key, _z, _lr in run.trained if not SCRIPT[key[0]][1]]
     assert sorted(trained) == sorted(completed * 3)
-
+    # The signal telemetry probed through train() and failed on the
+    # scripted pairs, which carry no encoding: rows record the failure
+    # and training went on.
+    probes = [r for r in read_signal_rows(tmp_path / "run_signal.jsonl") if r["kind"] == "probe"]
+    assert len(probes) >= 3 and all("probe_error" in r for r in probes)
 
 @pytest.mark.parametrize("batched", [True, False], ids=["batched", "per_pair"])
 def test_a_run_cut_in_its_last_epoch_resumes_on_the_uncut_pass(tmp_path, monkeypatch, batched):
@@ -158,6 +163,11 @@ def test_a_run_cut_in_its_last_epoch_resumes_on_the_uncut_pass(tmp_path, monkeyp
     assert {"g2.json.gz", "g4.json.gz", lost} <= set(last_epoch), "the cut must follow what it tests"
     assert len(cut.trained) < len(full.trained), "the run must be cut"
     assert cut.trained == full.trained[:len(cut.trained)]
+    # The checkpoint keeps where the telemetry last probed, so the resumed
+    # run probes where the uncut one does.
+    saved = torch.load(tmp_path / "cut.pt", map_location="cpu", weights_only=False)
+    probes = [r for r in read_signal_rows(tmp_path / "cut_signal.jsonl") if r["kind"] == "probe"]
+    assert saved["supervised_resume"]["signal"]["last_row_pairs"] == probes[-1]["pairs"]
     rest = _train_scripted(ds, tmp_path / "cut.pt", monkeypatch, batched=batched,
                            resume=tmp_path / "cut.pt")
     assert cut.trained + rest.trained == full.trained
@@ -233,8 +243,22 @@ def _train(corpus, ckpt: Path, monkeypatch, *, epochs=1, max_pairs=0, resume=Non
              max_replay_commands=0, batched_forward=True, preencoded=encoded,
              relevant_set_hexes=True, terrain_multi_hot=True, fog_hides_enemy_villages=True,
              imitation_config=ROOT / "configs" / "imitation.json", value_states_per_game=40,
-             eval_every=40, eval_pairs=16, log_every=1000, ckpt_every=1000)
+             eval_every=40, eval_pairs=16, log_every=1000, ckpt_every=1000, signal_every=16,
+             signal_probe_pairs=3)
     return trained
+
+
+def _signal_rows(*paths: Path):
+    """The signal telemetry's probe readings by trained-pair count; the
+    step norms are left out, since a resumed run's first row counts only
+    the steps it took itself."""
+    rows = {}
+    for path in paths:
+        for row in read_signal_rows(path):
+            if row["kind"] == "probe":
+                rows[row["pairs"]] = {key: row.get(key) for key in (
+                    "probe_pairs", "fired", "gradient", "gradient_gram", "update", "update_gram")}
+    return rows
 
 
 def _weights(ckpt: Path):
@@ -256,6 +280,10 @@ def test_a_cut_and_resumed_run_trains_the_uncut_pass(corpus, tmp_path, monkeypat
     assert "the replayed draws land on the checkpoint's state" in caplog.text
     a, b = _weights(tmp_path / "full.pt"), _weights(tmp_path / "resumed.pt")
     assert a.keys() == b.keys() and all(torch.equal(a[k], b[k]) for k in a)
+    # The signal telemetry probes the same pairs at the same weights.
+    uncut = _signal_rows(tmp_path / "full_signal.jsonl")
+    assert len(uncut) >= 3 and min(uncut) < CUT < max(uncut)
+    assert _signal_rows(tmp_path / "cut_signal.jsonl", tmp_path / "resumed_signal.jsonl") == uncut
 
 
 @needs_corpus

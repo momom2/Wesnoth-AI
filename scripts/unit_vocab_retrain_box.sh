@@ -26,7 +26,7 @@ set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/vocabretrain
 ENC=$WORKDIR/encoded_vocab
-STAGE="${STAGE:-tier-b/staging/stage_20260925u.tar.gz}"
+STAGE="${STAGE:-}"               # the code stage built from main at rental (tools/stage_code.py)
 EPOCHS="${EPOCHS:-4}"
 STOP_AFTER_EPOCH="${STOP_AFTER_EPOCH:-1}"
 RUN_SEED="${RUN_SEED:-20260909}"
@@ -114,6 +114,10 @@ die() {                          # die REASON: the run stops, the box does not i
     stop_self
     exit 1
 }
+
+# The stage the run was pre-registered with predates the signal telemetry
+# (0.7.0): a rental names the stage it built, or the box stops here.
+[ -n "$STAGE" ] || die "no STAGE: build the code stage from main (tools/stage_code.py) and pass STAGE"
 
 if [ ! -f Wesnoth-AI/.staged_from ] || [ "$(cat Wesnoth-AI/.staged_from)" != "$STAGE" ]; then
 python - "$STAGE" <<'EOF' || die "code staging"
@@ -225,7 +229,8 @@ def upload(path, name):
     return False
 
 
-files = ["train.log", "arm_eval.jsonl", "preencode.log", "box.txt", "progress.txt", "build.log",
+files = ["train.log", "arm_eval.jsonl", "arm_signal.jsonl", "arm_prof.json",
+         "preencode.log", "box.txt", "progress.txt", "build.log",
          "tests_obs.log", "phase_obs.json", "phase_obs.md", "STOPPED_AFTER_EPOCH", "match.walls"]
 files += sorted(os.path.basename(p) for p in glob.glob(out + "/arm_epoch*.pt"))
 files += sorted(os.path.basename(p) for p in glob.glob(out + "/*.fit.json"))
