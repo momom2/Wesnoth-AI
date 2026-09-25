@@ -6,7 +6,7 @@ attacks; sides; the turn scalars; the village owners, the uncovered and
 rejected sets, the advancement queue, the last walk and strikes) and
 share the hex set by identity. A fork must not share dynamic state
 with its parent. The core's state key must agree with itself on equal
-states and change with any modeled field. Skipped without the phase-13
+states and change with any modeled field. Skipped without the phase-14
 wheel.
 """
 from __future__ import annotations
@@ -130,6 +130,28 @@ def test_init_side_and_end_turn_equal_the_python_applier():
             assert not diffs, (side, "end_turn", "\n".join(diffs[:6]))
             checked += 1
     assert checked >= 16 and rust >= 8
+
+
+def test_init_side_pays_a_declared_zero_village_economy():
+    """A declared `village_gold=0` pays nothing per village and a
+    declared `village_support=0` supports no upkeep (team.cpp:236 and
+    :239-244); both appliers used to replace each 0 by the multiplayer
+    default. One village and a level-1 Spearman: side 1's turn-2 start
+    pays base_income minus 1."""
+    import random
+    from dataclasses import replace
+    from tools import scenario_pool as sp
+    from tests.test_scenario_economy import _with_upkeep_unit
+    gs = sp.build_scenario_gamestate(sp.random_setup(random.Random(1)),
+                                     village_gold=0, village_upkeep=0)
+    gs.global_info.turn_number = 2
+    gs.sides[0] = replace(gs.sides[0], nb_villages_controlled=1)
+    _with_upkeep_unit(gs, 1, "Spearman")
+    want = gs.sides[0].current_gold + gs.sides[0].base_income - 1
+    py, cs, path = _apply_both(gs, ["init_side", 1])
+    assert path == "rust"
+    assert py.sides[0].current_gold == want
+    assert cs.to_state().sides[0].current_gold == want
 
 
 def test_init_side_hides_the_sides_revealed_hiders_again_after_turn_one():

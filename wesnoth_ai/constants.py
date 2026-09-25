@@ -241,4 +241,11 @@ DEFAULT_FACTIONS = (
 #      regeneration alone (docs/wesnoth_rules.md "End of a side's turn").
 #      Replay reconstruction already applied it, so the corpora it
 #      builds are unchanged; generated games on those maps change.
-OBSERVATION_EPOCH = 8
+#   9  (2026-09-25) a declared zero village gold or village support is
+#      paid as zero, not as the default (16 of 17,019 corpus games declare
+#      one; no pool map does), and a unit that levels up keeps its
+#      movement up to its new maximum with its traits, as unit::advance_to
+#      clamps after re-applying them (a quick defender kept 5 of 6 moves).
+#      The defender's counter weapon also follows the engine's level-up
+#      scoring, which changes play, not what a side observes.
+OBSERVATION_EPOCH = 9

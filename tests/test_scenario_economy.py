@@ -112,6 +112,41 @@ def test_a_village_actually_pays_the_scenario_rate():
         f"one village paid {gained - base_income}, the scenario says 3")
 
 
+def _with_upkeep_unit(gs, side: int, unit_type: str):
+    """A non-leader copy of the side's leader, retyped, on the free hex
+    nearest to it: a unit that costs its level in upkeep."""
+    from tools.replay_dataset import _rebuild_unit
+    leader = next(u for u in gs.map.units if u.side == side and u.is_leader)
+    taken = {(u.position.x, u.position.y) for u in gs.map.units}
+    spot = min((h.position for h in gs.map.hexes
+                if (h.position.x, h.position.y) not in taken),
+               key=lambda p: (abs(p.x - leader.position.x) + abs(p.y - leader.position.y),
+                              p.x, p.y))
+    gs.map.units.add(_rebuild_unit(leader, id="u_upkeep", name=unit_type,
+                                   is_leader=False, traits=set(), position=spot))
+
+
+def test_a_declared_zero_village_economy_is_paid_as_zero():
+    """The engine takes a default only for a village economy the side
+    does not declare (team.cpp:236 and :239-244, 1.18.4): a declared
+    `village_gold=0` pays nothing per village and a declared
+    `village_support=0` supports no upkeep. 16 of the corpus's 17,019
+    games declare one of the two. With one village and a level-1
+    Spearman, side 1's turn pays base_income minus 1; replacing each 0
+    by the multiplayer default paid base_income + 2 instead."""
+    gs = sp.build_scenario_gamestate(_setup("2p_mini_edited"),
+                                     village_gold=0, village_upkeep=0)
+    assert _economy(gs)[:2] == (0, 0)
+    sim = WesnothSim(gs, scenario_id="2p_mini_edited", max_turns=6)
+    sim.gs.sides[0] = replace(sim.gs.sides[0], nb_villages_controlled=1)
+    _with_upkeep_unit(sim.gs, 1, "Spearman")
+    before = sim.gs.sides[0].current_gold
+    sim.step({"type": "end_turn"})            # side 1 -> 2
+    sim.step({"type": "end_turn"})            # side 2 -> 1: side 1's income lands
+    gained = sim.gs.sides[0].current_gold - before
+    assert gained == sim.gs.sides[0].base_income - 1
+
+
 def test_both_spellings_of_the_village_economy_are_read():
     """Runtime reads `[side] village_gold` and the mini add-on writes
     it there; the mainline maps declare the game-creation setting

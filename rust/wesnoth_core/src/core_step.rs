@@ -194,8 +194,11 @@ impl GameCore {
         }
         if side >= 1 && (side as usize) <= self.sides.len() && turn > 1 {
             let owned = self.sides[side as usize - 1].nb_villages;
-            let village_gold = if self.global.village_gold != 0 { self.global.village_gold } else { 2 };
-            let village_support = if self.global.village_upkeep != 0 { self.global.village_upkeep } else { 1 };
+            // A declared 0 is paid as 0 (team.cpp:236 and :239-244 default
+            // only a missing value); the state always carries a value, the
+            // default having been taken where the record was read.
+            let village_gold = self.global.village_gold;
+            let village_support = self.global.village_upkeep;
             let income = self.sides[side as usize - 1].base_income + owned * village_gold;
             let mut upkeep = 0;
             for i in 0..self.units.len() {

@@ -46,6 +46,7 @@ from wesnoth_ai.visibility import clear_fog, refog, track_side
 # stripped (the engine's string_to_number_); never re-implement it here.
 from tools.terrain_resolver import strip_start_position, terrain_mask
 from tools.wml_state import split_map_grid          # noqa: F401 (re-export)
+from tools.wml_state import village_economy
 
 
 log = logging.getLogger("replay_dataset")
@@ -1006,8 +1007,7 @@ def side_income(gs: GameState, side: int) -> Tuple[int, int]:
     The engine reports the first as a side's `total_income`."""
     s = gs.sides[side - 1]
     owned = s.nb_villages_controlled
-    village_gold = gs.global_info.village_gold or 2
-    village_support = gs.global_info.village_upkeep or 1
+    village_gold, village_support = village_economy(gs.global_info)
     income = s.base_income + owned * village_gold
     upkeep = 0
     for u in gs.map.units:
@@ -1558,6 +1558,12 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
     new_statuses.discard("slowed")
     new_statuses.discard("petrified")
     new_statuses.discard("stunned")
+    # `unit::advance_to` snapshots the movement left before it rebuilds
+    # the unit and restores it, clamped to the new total, only after
+    # the traits and objects are re-applied (unit.cpp:921 and :1026 ->
+    # stats_storage_resetter, :186-207). A quick unit keeps its extra
+    # point: a quick Spearman at 6/6 becomes a Swordsman at 6/6.
+    moves_left = u.current_moves
     fresh = _replace_unit(
         gs, u,
         name=new_type,
@@ -1566,7 +1572,7 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
         max_exp=new_max_xp_base,
         current_exp=max(0, u.current_exp - u.max_exp),
         max_moves=new_max_moves_base,
-        current_moves=min(u.current_moves, new_max_moves_base),
+        current_moves=moves_left,
         cost=int(new_stats.get("cost", u.cost or 14)),
         alignment=_alignment_from_str(new_stats.get("alignment", "neutral")),
         levelup_names=list(new_stats.get("advances_to", [])),
@@ -1637,6 +1643,7 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
         from tools.scenario_events import _apply_effect_to_unit
         for eff in eff_nodes:
             _apply_effect_to_unit(out_unit, eff)
+    out_unit.current_moves = min(out_unit.max_moves, moves_left)
     return out_unit
 
 

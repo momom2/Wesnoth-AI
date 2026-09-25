@@ -34,7 +34,7 @@ from typing import List, Optional
 
 from tools.replay_extract import WMLNode
 from tools.wml_state import (MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT,
-                             resolve_map_file)
+                             resolve_map_file, village_economy)
 
 # Reuse the existing replay-command emitter; the [replay] block at
 # the end is the same shape as before.
@@ -214,8 +214,7 @@ def _build_scenario_node(
             f"GameState missing leader for side 1 or 2: {leader_pos}")
 
     # Side 1 + 2 with our chosen factions/leaders.
-    economy = (int(gs.global_info.village_gold or MP_VILLAGE_GOLD),
-               int(gs.global_info.village_upkeep or MP_VILLAGE_SUPPORT))
+    economy = village_economy(gs.global_info)
     fog_on = bool(getattr(gs.global_info, "_fog", True))
     s1 = _build_side_block(
         side=1, faction_info=factions[setup.faction1],

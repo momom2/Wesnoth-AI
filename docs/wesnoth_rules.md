@@ -1008,6 +1008,76 @@ tools/neutral_ai.py (exposure term exactly 0 for immobile
 attackers; power_projection gates approximated as
 support=vulnerability=0 pending a port -- documented there).
 
+### The defender's counter weapon is chosen on a prediction that counts level-ups
+
+**Rule (added 2026-09-25):** `choose_defender_weapon` simulates every
+candidate counter with `combatant::fight` and keeps the one
+`better_combat` prefers, comparing death probabilities, then
+`average_hp()`. That simulation predicts level-ups: a unit is scored
+at FULL HP in every outcome it survives when the fight's XP alone
+reaches its `max_experience`, and in the outcomes where it kills when
+only a kill's XP does. Death probabilities are unchanged.
+
+GitHub 1.18.4 tag, fetched 2026-09-25. The default argument,
+`src/attack_prediction.hpp:38`:
+```cpp
+	void fight(combatant &opponent, bool levelup_considered=true);
+```
+`battle_context::simulate` (`src/actions/attack.cpp:376`, called by
+`choose_defender_weapon` at :643) passes none:
+```cpp
+		attacker_combatant_->fight(*defender_combatant_);
+```
+On the exact matrix, `complex_fight` (`src/attack_prediction.cpp:2189-2200`):
+```cpp
+	if(levelup_considered) {
+		if(stats.experience + game_config::combat_xp(opp_stats.level) >= stats.max_experience) {
+			m->forced_levelup_a();
+		} else if(stats.experience + game_config::kill_xp(opp_stats.level) >= stats.max_experience) {
+			m->conditional_levelup_a();
+		}
+```
+and the same for B. `forced_levelup_a` moves every surviving cell to
+row `a_max_hp_`; `conditional_levelup_a` moves only column 0, B dead
+(:1157-1199; `merge_col` skips row 0, :793-802). A fight in which
+neither side slows, drains, petrifies or berserks, neither starts
+slowed, and each strikes at most once goes to `one_strike_fight`
+instead (`do_fight`, :2223-2229). It uses the vector forms (:2038-2048),
+and the kill case there is an approximation that treats the unit's HP
+as independent of the kill (`conditional_levelup`, :1733-1752):
+```cpp
+	double scalefactor = 0;
+	const double chance_to_survive = 1 - hp_dist.front();
+	if(chance_to_survive > DBL_MIN) {
+		scalefactor = 1 - kill_prob / chance_to_survive;
+	}
+```
+followed by scaling every surviving entry and
+`hp_dist.back() += kill_prob;`. `no_death_fight` applies only the
+forced form (:1959-1965), where nobody can die.
+
+**Why non-obvious:** the prediction values a levelling unit's damage
+at nothing, so it changes which counter the defender picks. Corpus
+game `0223d226cc2f` (replays_dataset), command 333: a Skeleton at
+26/27 XP attacks a Dwarvish Fighter. The fight's 1 XP levels it, both
+counters leave it at 34 in the prediction, they tie, and
+`better_combat`'s last tie-break (`them_a.average_hp() <
+them_b.average_hp()`, attack.cpp:514) keeps the first candidate: the
+axe, which the engine recorded. Scored at its real HP, the hammer's
+10x2 against the Skeleton's impact weakness wins. Over 149 long games
+of the imitation corpus, our choice matches the recorded counter in
+141 of the 143 attacks where a level-up was possible, 138 without the
+rule; the 4 disagreements left among 737 recorded choices are exact
+ties in expected damage, where the engine's choice rests on
+floating-point residue our strike DP does not reproduce
+(`training/metrics/fidelity/counter_weapon_census_20260925.json`,
+`tools/analysis/counter_weapon_census.py`).
+
+Ours: `tools/combat_outcomes._levelup_average_hp` and
+`_is_one_strike_fight`, applied in `_engine_marginals`. Tests:
+`tests/test_counter_weapon.py::test_an_attacker_the_fight_levels_is_scored_at_full_hp`,
+`test_levelup_scoring_follows_the_engine_fight_paths`.
+
 ### Attacking a petrified defender
 
 `wesnoth_src/src/actions/attack.cpp` and `unit.hpp:1352-1355`:
@@ -1627,6 +1697,38 @@ modifier the game applies: `(100 * m + 50) / 100 = m`.
 Lua-reported statuses therefore list `not_living` beside its parts; our
 units carry the three parts only.
 
+### Advancement keeps the movement left, clamped only after traits are re-applied
+
+**Rule (added 2026-09-25):** a unit that advances keeps the movement
+points it had, capped at the new type's total movement WITH its traits
+and objects: a quick Spearman at 6/6 becomes a quick Swordsman at 6/6.
+
+`get_advanced_unit` (`src/actions/advancement.cpp:319-322`, 1.18.4)
+clones the unit and calls `advance_to`, then `heal_fully`; nothing
+after touches movement. `unit::advance_to` (`src/units/unit.cpp:921`)
+snapshots first:
+```cpp
+	auto ss = stats_storage_resetter(*this, true);
+```
+It then resets `max_movement_ = new_type.movement();` (:987), re-applies
+the traits and objects with `apply_modifications();` (:1021), and only
+then restores the snapshot with `ss();` (:1026), whose clamping branch
+is (:195-196):
+```cpp
+			if(clamp) {
+				u.set_movement(std::min(u.total_movement(), moves));
+```
+
+**Why non-obvious:** at :987 the maximum is the bare type's, so a
+clamp taken there, before quick adds its point back, loses the point.
+It shows only on a unit that levels while defending with more movement
+left than its new type's bare total, and only until its side's next
+turn start refreshes movement: attacking spends all movement before
+the advance.
+
+Ours: `tools/replay_dataset._advance_unit_once`. Test:
+`tests/test_sim_advance.py::test_a_quick_defender_keeps_its_extra_move_through_advancement`.
+
 ---
 
 ## Villages
@@ -1710,15 +1812,42 @@ to upkeep. Verified at `wesnoth_src/src/units/unit.cpp:1746-1751`
 
 ### `village_gold` / `village_support` are PER-SIDE attributes, set by host
 
-`wesnoth_src/src/team.cpp:235-243`:
+`src/team.cpp:236-244` (1.18.4; corrected 2026-09-25, this entry cited
+235-243 and quoted only the support half):
 ```cpp
-const std::string& village_support = cfg["village_support"];
-if(village_support.empty()) {
-    support_per_village = game_config::village_support;  // default 1
-} else {
-    support_per_village = lexical_cast_default<int>(...);
-}
+	income_per_village = cfg["village_gold"].to_int(game_config::village_income);
+	recall_cost = cfg["recall_cost"].to_int(game_config::recall_cost);
+
+	const std::string& village_support = cfg["village_support"];
+	if(village_support.empty()) {
+		support_per_village = game_config::village_support;
+	} else {
+		support_per_village = lexical_cast_default<int>(village_support, game_config::village_support);
+	}
 ```
+
+**A declared 0 is kept.** Both defaults apply only to a value that is
+not there: `village_support` tests `empty()`, and `to_int` returns its
+argument only for a blank, boolean, translatable or unparsable value,
+an integer coming back as itself (`src/config_attribute_value.cpp:277-283`):
+```cpp
+	T operator()(const utils::monostate&) const { return def_; }
+	T operator()(bool)                 const { return def_; }
+	T operator()(int i)                const { return static_cast<T>(i); }
+```
+So `village_gold=0` pays nothing per village and `village_support=0`
+supports no upkeep. 16 of the corpus's 17,019 games declare one of the
+two: 7 the gold (the 7 raw headers with `mp_village_gold` 0 in
+`training/metrics/corpus_census.json`), 10 the support, one both, read
+from every record's `starting_sides` on 2026-09-25. Until then both appliers read a 0 as
+"not set" and paid the multiplayer default (`village_gold or 2` in
+Python, `!= 0` in the Rust core), which gave those games more gold
+than the engine did; no recorded recruit could fail on it, so the
+replay sweep could not see it. Ours: `tools/wml_state.village_economy`
+(the default only for None) and `apply_init_side` in
+`rust/wesnoth_core/src/core_step.rs`. Tests:
+`tests/test_scenario_economy.py::test_a_declared_zero_village_economy_is_paid_as_zero`,
+`tests/test_game_core.py::test_init_side_pays_a_declared_zero_village_economy`.
 
 `village_gold=` is on the `[side]` block, not global. In MP, the
 host's game-options dialog sets it identically across all sides, but
@@ -2424,13 +2553,17 @@ holds up:
 ## Combat-outcome prediction (the in-game damage calculator)
 
 **Rule:** Wesnoth's attack-prediction oracle computes EXACT joint
-HP distributions by sparse dynamic programming, with three
+HP distributions by sparse dynamic programming, with four
 approximations: (a) probabilities within 1e-9 of 0/1 are snapped,
 (b) extra berserk rounds stop once >= 99% of probability mass has a
 dead combatant, (c) above a complexity threshold of 50,000 it
 abandons exactness for Monte-Carlo simulation with 5,000 sampled
-fights. (Researched 2026-06-12 from the GitHub 1.18.4 tag; local
-wesnoth_src/src/ was lost in the machine move.)
+fights, (d) in a fight of at most one strike a side, a level-up that
+needs a kill is scored as if the unit's HP were independent of the
+kill (Combat, "The defender's counter weapon is chosen on a
+prediction that counts level-ups", added 2026-09-25). (Researched
+2026-06-12 from the GitHub 1.18.4 tag; local wesnoth_src/src/ was
+lost in the machine move.)
 
 - `src/attack_prediction.cpp` — `prob_matrix`: a sparse 2D matrix
   of (A_hp, B_hp) probabilities across FOUR planes

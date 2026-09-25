@@ -536,6 +536,7 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // drawing a disc, and GameCore tracks each side's cleared hexes.
     // 13: apply_init_side hides the side's revealed hiders again after
     // turn 1; refresh_uncovered is gone.
-    m.add("__phase__", 13)?;
+    // 14: apply_init_side pays a declared 0 village gold or support as 0.
+    m.add("__phase__", 14)?;
     Ok(())
 }

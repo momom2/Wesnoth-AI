@@ -50,6 +50,20 @@ MP_VILLAGE_GOLD = 2
 MP_VILLAGE_SUPPORT = 1
 MP_EXPERIENCE_MODIFIER = 70
 
+
+def village_economy(global_info) -> Tuple[int, int]:
+    """(gold per village, upkeep supported per village) of a game
+    state's `global_info`, each taking the multiplayer default only
+    when it is not set. A declared 0 is paid as 0, as the engine does:
+    `income_per_village = cfg["village_gold"].to_int(game_config::village_income);`
+    and `if(village_support.empty())` fall back only for a missing
+    value (team.cpp:236 and :239-244, 1.18.4)."""
+    gold = global_info.village_gold
+    support = global_info.village_upkeep
+    return (MP_VILLAGE_GOLD if gold is None else int(gold),
+            MP_VILLAGE_SUPPORT if support is None else int(support))
+
+
 _LEADING_INT = re.compile(r"-?\d+")
 _TRUE = ("yes", "true", "1")
 _FALSE = ("no", "false", "0")

@@ -1,0 +1,85 @@
+{
+ "min_turn": 20,
+ "offset": 0,
+ "long_games": 2728,
+ "elapsed_s": 200.6,
+ "games": 149,
+ "attacks_with_a_choice": 737,
+ "agree": 733,
+ "agree_before": 730,
+ "levelup_possible": 143,
+ "levelup_agree": 141,
+ "levelup_agree_before": 138,
+ "disagreements": [
+  {
+   "game": "2024-03-29_2p__Caves_of_the_Basilisk_Turn_24_(696).json.gz",
+   "command": 392,
+   "attacker": "Troll Whelp 18/25 xp",
+   "defender": "Dwarvish Fighter 13/32 xp",
+   "recorded": 0,
+   "ours": 1,
+   "before": 1,
+   "tie": true
+  },
+  {
+   "game": "2024-03-30_2p__Caves_of_the_Basilisk_Turn_27_(899).json.gz",
+   "command": 189,
+   "attacker": "Troll 1/23 xp",
+   "defender": "Dwarvish Fighter 10/18 xp",
+   "recorded": 0,
+   "ours": 1,
+   "before": 1,
+   "tie": true
+  },
+  {
+   "game": "2024-04-05_2p__Hamlets_Turn_24_(1338).json.gz",
+   "command": 303,
+   "attacker": "Troll Whelp 3/25 xp",
+   "defender": "Dwarvish Fighter 21/32 xp",
+   "recorded": 0,
+   "ours": 1,
+   "before": 1,
+   "tie": true
+  },
+  {
+   "game": "2024-04-10_2p__Hamlets_Turn_25_(4117).json.gz",
+   "command": 94,
+   "attacker": "Troll Whelp 2/25 xp",
+   "defender": "Drake Clasher 2/23 xp",
+   "recorded": 0,
+   "ours": 1,
+   "before": 1,
+   "tie": true
+  },
+  {
+   "game": "2024-04-13_2p__Fallenstar_Lake_Turn_26_(6008).json.gz",
+   "command": 718,
+   "attacker": "Elvish Scout 24/29 xp",
+   "defender": "Dwarvish Fighter 8/32 xp",
+   "recorded": 0,
+   "ours": 0,
+   "before": 1,
+   "tie": false
+  },
+  {
+   "game": "2024-04-18_2p__Fallenstar_Lake_Turn_28_(8861).json.gz",
+   "command": 927,
+   "attacker": "Bowman 10/25 xp",
+   "defender": "Orcish Crossbowman 20/30 xp",
+   "recorded": 1,
+   "ours": 1,
+   "before": 2,
+   "tie": false
+  },
+  {
+   "game": "2024-04-22_2p__Fallenstar_Lake_Turn_22_(11495).json.gz",
+   "command": 694,
+   "attacker": "Bowman 15/20 xp",
+   "defender": "Orcish Archer 17/18 xp",
+   "recorded": 1,
+   "ours": 1,
+   "before": 2,
+   "tie": false
+  }
+ ]
+}
