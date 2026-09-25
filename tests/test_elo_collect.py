@@ -87,7 +87,9 @@ def test_dir_estimands_reports_every_travelling_field():
                    "infer_compile": False, "shared_inference": True,
                    "infer_packed_trunk": True,
                    "combat_stream": "per_game",
-                   "observation_epoch": 3}, (
+                   "observation_epoch": 3,
+                   # Absent from these records: a legacy file's value.
+                   "forced_faction": "Knalgan Alliance"}, (
         "None-valued fields must drop out (they constrain nothing); "
         "every other field must travel")
 

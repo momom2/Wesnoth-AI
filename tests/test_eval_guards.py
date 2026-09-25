@@ -338,6 +338,32 @@ def test_collect_skips_stateless_absences_in_material(tmp_path):
     assert nores[(0, 1)] == 3
 
 
+def test_a_checkpoint_whose_arch_does_not_load_is_refused(tmp_path):
+    """A checkpoint whose arch record lacks a dimension builds the model
+    at the default for it, and loading then meets an arch mismatch. The
+    loader used to warn and hand back the random init under the
+    checkpoint's name; it raises. Control: the intact file loads its own
+    weights."""
+    import torch
+    from tools.eval_sim import _load_policy
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    torch.manual_seed(3)
+    saved = TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1,
+                              num_heads=2, d_ff=64)
+    intact = tmp_path / "intact.pt"
+    saved.save_checkpoint(intact)
+    loaded = _load_policy(intact, None, label="intact")
+    for (name, want), got in zip(saved._model.state_dict().items(),
+                                 loaded._model.state_dict().values()):
+        assert torch.equal(want, got), name
+    ckpt = torch.load(intact, map_location="cpu", weights_only=False)
+    del ckpt["arch"]["d_ff"]
+    legacy = tmp_path / "legacy.pt"
+    torch.save(ckpt, legacy)
+    with pytest.raises(RuntimeError, match="arch mismatch"):
+        _load_policy(legacy, None, label="legacy")
+
+
 def test_ts_args_choice_typo_refused(tmp_path):
     """Round-33 C3: a typo in a choice-valued --ts-args knob must
     die in the PARENT, not kill every child while the batch exits

@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tools.elo_ladder import PairRecord, fit_elo
-from tools.run_elo_batch import bases_of, terrain_views_of
+from tools.run_elo_batch import LEGACY_FORCED_FACTION, bases_of, terrain_views_of
 
 
 # Estimand fields carried by every result file, with the value an
@@ -50,6 +50,8 @@ from tools.run_elo_batch import bases_of, terrain_views_of
 #                      ("shared" = every pre-2026-09-13 result file)
 #   value_center_*     MCTSConfig.value_center per side (search only)
 #   moves_left_utility ELO_MOVES_LEFT_UTILITY (search only)
+#   forced_faction     the faction forced onto one side of every game,
+#                      or "none" (run_elo_batch.forced_faction_tag)
 # A None default means "legacy files cannot say": the field then
 # constrains nothing, the same silence-unconstrained rule the turn
 # horizon uses.
@@ -66,7 +68,24 @@ ESTIMAND_DEFAULTS = {
     "observation_epoch": 1,
     "value_center_a": None, "value_center_b": None,
     "moves_left_utility": None,
+    "forced_faction": LEGACY_FORCED_FACTION,
 }
+
+
+def refuse_mixed_checkpoints(games: List[dict]) -> None:
+    """Refuse a dir in which one label played two checkpoints (the
+    SHA-256 the result files record): two players under one name, which
+    the fit would pool. Files without the field constrain nothing."""
+    seen: Dict[str, set] = {}
+    for g in games:
+        for side in ("a", "b"):
+            sha = g.get(f"checkpoint_sha256_{side}")
+            if sha is not None:
+                seen.setdefault(g[f"label_{side}"], set()).add(sha)
+    mixed = {label: sorted(shas) for label, shas in seen.items() if len(shas) > 1}
+    if mixed:
+        raise SystemExit(f"one label played several checkpoints in one games dir: "
+                         f"{mixed} -- two players under one name. Use a fresh outdir.")
 
 
 def dir_estimands(games: List[dict]) -> Dict[str, object]:
@@ -263,6 +282,7 @@ def main(argv) -> int:
     if len(_views) > 1:
         raise SystemExit(f"mixed terrain views in one games dir: "
                          f"{sorted(_views)} -- estimands don't mix.")
+    refuse_mixed_checkpoints(games)
     _mt = next(iter(_mts)) if _mts else None
     _proc_tag = next(iter(procs)) if procs else ("legacy", "legacy")
     _basis_tag = next(iter(_bases))

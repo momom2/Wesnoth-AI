@@ -70,7 +70,9 @@ from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_sim import (_PolicyPair, _load_policy,
                             _play_one_eval_game, peek_checkpoint_arch)
 from tools.inference_seam import RemoteEncoder
-from tools.run_elo_batch import basis_refusal, terrain_refusal
+from tools.run_elo_batch import (basis_refusal, checkpoint_refusal, faction_refusal,
+                                 file_sha256, forced_faction_tag, terrain_refusal)
+from tools import scenario_pool
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
 
@@ -92,7 +94,7 @@ def _search_policy_cls(turn_search: bool, plan_tournament: bool = False):
     return MCTSPolicy
 
 
-from tools.eval_procedure import procedure_of as _procedure_of  # noqa: E402
+from tools.eval_procedure import end_turn_refusal, procedure_of as _procedure_of  # noqa: E402
 
 
 # The knob machinery lives in tools/turn_search_config (torch-free,
@@ -219,6 +221,27 @@ def _effective_terrain(spec, inference_address) -> str:
         if _WORKER_MODE:
             _TERRAIN_CACHE[spec] = view
     return view
+
+
+_SHA_CACHE: dict = {}
+
+
+def _checkpoint_sha(spec, inference_address):
+    """The SHA-256 of the checkpoint file this side plays: the one its
+    shared inference server loaded (the server's hello), else the file at
+    `spec`, read once per spec in worker mode like the policy the worker
+    keeps; None for 'dummy' and 'random', which load none. Recorded as
+    checkpoint_sha256_a/_b (run_elo_batch.checkpoint_refusal)."""
+    if spec in (None, "dummy", "random"):
+        return None
+    if inference_address is not None:
+        return _shared_client(inference_address).hello.get("checkpoint_sha256")
+    sha = _SHA_CACHE.get(spec) if _WORKER_MODE else None
+    if sha is None:
+        sha = file_sha256(Path(spec))
+        if _WORKER_MODE:
+            _SHA_CACHE[spec] = sha
+    return sha
 
 
 def _effective_basis(spec, relevant_set: bool, inference_address) -> str:
@@ -685,6 +708,14 @@ def main(argv) -> int:
             "--raw-temperature-a/-b apply to the raw player only (that "
             "side's sims must be 0); a silently ignored temperature "
             "would mislabel the measured object.")
+    for _side, _spec, _sims, _temp, _rule, _offset in (
+            ("a", args.spec_a, sims_a, args.raw_temperature_a, args.raw_end_turn_a,
+             args.raw_end_turn_offset_a),
+            ("b", args.spec_b, sims_b, args.raw_temperature_b, args.raw_end_turn_b,
+             args.raw_end_turn_offset_b)):
+        _why = end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset)
+        if _why is not None:
+            raise SystemExit(_why)
     for _n, _spec in (("spec_a", args.spec_a),
                       ("spec_b", args.spec_b)):
         if _spec not in ("dummy", "random") \
@@ -703,6 +734,11 @@ def main(argv) -> int:
                                args.inference_address_b)
     terrain_a = _effective_terrain(args.spec_a, args.inference_address_a)
     terrain_b = _effective_terrain(args.spec_b, args.inference_address_b)
+    ckpt_a = _checkpoint_sha(args.spec_a, args.inference_address_a)
+    ckpt_b = _checkpoint_sha(args.spec_b, args.inference_address_b)
+    # The faction random_setup forces onto one side; read once, so the
+    # result records the value the setup used.
+    forced_faction = scenario_pool.FORCED_FACTION
 
     torch.set_num_threads(2)
     if shared:
@@ -900,6 +936,11 @@ def main(argv) -> int:
                         f"({prev.get('turn_config')} vs {_want_tc})"
                         f": refusing to mix estimands (round-32 "
                         f"C3). Use a fresh outdir.")
+            for _why in (checkpoint_refusal(out_path.name, prev, (ckpt_a, ckpt_b)),
+                         faction_refusal(out_path.name, prev,
+                                         forced_faction_tag(forced_faction))):
+                if _why is not None:
+                    raise SystemExit(_why)
             print(f"exists, skipping: {out_path.name}")
             return 0
 
@@ -933,7 +974,12 @@ def main(argv) -> int:
         raw_end_turn_offset=args.raw_end_turn_offset_b)
 
     rng = random.Random(args.seed)
-    setup = random_setup(rng)
+    setup = random_setup(rng, forced_faction=forced_faction)
+    if forced_faction and forced_faction not in (setup.faction1, setup.faction2):
+        # random_setup samples uniformly when the name is not a faction
+        # of the era: the result would claim a forcing that never ran.
+        raise SystemExit(f"the forced faction {forced_faction!r} is on neither side of "
+                         f"{setup.label()}: it is not a faction of the era")
     gs = build_scenario_gamestate(setup)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                      max_turns=args.max_turns)
@@ -997,6 +1043,13 @@ def main(argv) -> int:
         # run_elo_batch.TERRAIN_VIEWS): an estimand field, guarded per outdir.
         "terrain_a": terrain_a,
         "terrain_b": terrain_b,
+        # The checkpoint each side played (SHA-256 of the file; None for
+        # 'dummy' and 'random'): a label names it only by convention.
+        "checkpoint_sha256_a": ckpt_a,
+        "checkpoint_sha256_b": ckpt_b,
+        # The faction forced onto one side (run_elo_batch.forced_faction_tag):
+        # an estimand field, compared between dirs by the catalog.
+        "forced_faction": forced_faction_tag(forced_faction),
         "gumbel_root_a": (bool(args.gumbel_root_a) if sims_a > 0 and not args.plan_a
                           and (args.no_turn_search or args.no_turn_search_a) else None),
         "gumbel_root_b": (bool(args.gumbel_root_b) if sims_b > 0 and not args.plan_b

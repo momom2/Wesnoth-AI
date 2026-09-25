@@ -168,3 +168,43 @@ def test_batch_driver_forwards_the_end_turn_decode():
     assert "raw_end_turn=args.raw_end_turn_a" in src
     game = (repo / "tools/elo_eval_game.py").read_text(encoding="utf-8")
     assert '"raw_end_turn_a": args.raw_end_turn_a' in game
+
+
+def _batch_argv(tmp_path, *extra):
+    return ["x", "--label-a", "A", "--spec-a", "random", "--label-b", "B",
+            "--spec-b", "dummy", "--outdir", str(tmp_path / "games"), "--games", "2",
+            "--device", "cpu", "--jobs", "1", "--time-budget-min", "0",
+            "--min-free-mb", "0", *extra]
+
+
+def test_the_driver_refuses_an_end_turn_decode_that_would_not_apply(tmp_path):
+    """The decode flags are knobs of the raw player at a temperature. A
+    searched side, the legacy sampler and the scripted dummy dropped
+    them while the result recorded them; the driver refuses up front."""
+    from tools.run_elo_batch import main
+    for extra in (["--mcts-sims", "8", "--raw-end-turn-offset-a", "-1.5"],
+                  ["--mcts-sims", "0", "--raw-end-turn-a", "actor"],
+                  ["--mcts-sims", "0", "--raw-temperature-b", "0",
+                   "--raw-end-turn-offset-b", "-1.5"]):
+        with pytest.raises(SystemExit) as refused:
+            main(_batch_argv(tmp_path, *extra))
+        assert refused.value.code == 2, extra                    # argparse's refusal
+    # Control: the raw player at a temperature takes the decode.
+    main(_batch_argv(tmp_path, "--mcts-sims", "0", "--raw-temperature-a", "0",
+                     "--raw-end-turn-offset-a", "-1.5"))
+
+
+def test_a_game_refuses_an_end_turn_decode_that_would_not_apply(tmp_path):
+    """Per game too: the legacy sampler (no temperature) on a real
+    checkpoint would play without the offset and record it."""
+    import torch
+    from tools.elo_eval_game import main
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    spec = str(tmp_path / "net.pt")
+    TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2,
+                      d_ff=64).save_checkpoint(spec)
+    out = tmp_path / "games"
+    with pytest.raises(SystemExit, match="raw-end-turn"):
+        main(["x", "A", spec, "B", "dummy", "1", "7", str(out), "--mcts-sims", "0",
+              "--raw-end-turn-offset-a", "-1.5", "--max-turns", "1", "--device", "cpu"])
+    assert not list(out.glob("game_*.json"))

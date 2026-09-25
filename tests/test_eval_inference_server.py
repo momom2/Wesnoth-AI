@@ -18,11 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 
-def _service(window_s: float, max_batch: int, poison=None):
+def _service(window_s: float, max_batch: int, poison=None, health=None):
     """An in-process service over a fake model: each payload is a
     one-element list, its reply the element doubled; the batch sizes
     it saw are the coalescer's record. A payload holding `poison`
-    makes the forward raise."""
+    makes the forward raise; `health` is the device probe."""
     from tools.eval_inference_server import InferenceService
     seen = []
 
@@ -34,7 +34,7 @@ def _service(window_s: float, max_batch: int, poison=None):
 
     listener = Listener()
     svc = InferenceService(listener, infer, {"hello": True},
-                           window_s=window_s, max_batch=max_batch)
+                           window_s=window_s, max_batch=max_batch, health_fn=health)
     svc.start()
     return svc, listener.address, seen
 
@@ -129,6 +129,40 @@ def test_a_failing_request_does_not_fail_its_batch_mates():
         svc.stop()
 
 
+def test_a_device_that_fails_its_probe_stops_the_service():
+    """A sticky device fault (an illegal address, a device-side assert)
+    fails every later call on the device: the 2026-09-14 server answered
+    every request after one with the same CUDA error and looked alive
+    while 40 of 40 games failed. After a failed batch the service probes
+    the device; when the probe fails too, it answers the batch with the
+    fault and stops, and serve_until_closed returns the fault so the
+    server process exits. Control: a passing probe keeps it serving."""
+    def broken():
+        raise RuntimeError("CUDA error: an illegal memory access was encountered")
+
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=broken)
+    stdin_closed = threading.Event()             # the driver keeps our stdin open
+    try:
+        replies = _send_together(address, [13])
+        assert replies[13][:2] == (13, None)
+        assert "illegal memory access" in replies[13][2]
+        fault = svc.serve_until_closed(stdin_closed.wait, poll_s=0.01)
+        assert fault is not None and "illegal memory access" in fault
+    finally:
+        stdin_closed.set()
+        svc.stop()
+
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=lambda: None)
+    try:
+        replies = _send_together(address, [13])
+        assert replies[13][:2] == (13, None) and "poisoned position 13" in replies[13][2]
+        assert _send_together(address, [5]) == {5: (5, [10])}
+        assert svc.fatal is None
+        assert svc.serve_until_closed(lambda: None, poll_s=0.01) is None   # stdin closed
+    finally:
+        svc.stop()
+
+
 def test_startup_failure_reports_the_servers_stderr(tmp_path):
     """A server that dies before serving (here: a --spec that does not
     exist) surfaces its own stderr in the exception and names the log
@@ -161,9 +195,10 @@ def _tiny_checkpoint(path: Path) -> str:
 def test_shared_inference_end_to_end(tmp_path):
     """Two 2-turn games, both sides the same tiny checkpoint at argmax
     through ONE server, two workers: result files carry the shared
-    provenance, and the server's stats account for every forward the
-    workers counted."""
-    from tools.run_elo_batch import main
+    provenance, including the checkpoint the server loaded, and the
+    server's stats account for every forward the workers counted."""
+    import hashlib
+    from tools.run_elo_batch import EXIT_GUARD_SPENT, main
     spec = _tiny_checkpoint(tmp_path / "tiny.pt")
     out = tmp_path / "games"
     rc = main(["x", "--label-a", "A", "--spec-a", spec, "--label-b", "B",
@@ -173,7 +208,9 @@ def test_shared_inference_end_to_end(tmp_path):
                "--jobs", "2", "--persistent-workers", "--shared-inference",
                "--max-extra-games", "0", "--time-budget-min", "5",
                "--min-free-mb", "0"])
-    assert rc == 0
+    # 2 turns decide nothing and no replacement is allowed.
+    assert rc == EXIT_GUARD_SPENT
+    sha = hashlib.sha256(Path(spec).read_bytes()).hexdigest()
     files = sorted(out.glob("game_*.json"))
     assert len(files) == 2
     forwards = 0
@@ -181,6 +218,7 @@ def test_shared_inference_end_to_end(tmp_path):
         r = json.loads(f.read_text(encoding="utf-8"))
         assert r["outcome_a"] in ("win", "loss", "draw", "timeout")
         assert r["procedure_a"] == "raw:t0" and r["procedure_b"] == "raw:t0"
+        assert r["checkpoint_sha256_a"] == r["checkpoint_sha256_b"] == sha
         assert r["shared_inference"] is True
         assert r["infer_bf16"] is False and r["infer_compile"] is False
         assert r["infer_packed_trunk"] is False

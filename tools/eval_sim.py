@@ -302,7 +302,10 @@ def _load_policy(
     the paths the checkpoint carries and every weight loads --
     without this, an eval would silently measure a structurally
     different model than the one that trained (the probe-bug class
-    from the 2026-07-29 hoarding probe)."""
+    from the 2026-07-29 hoarding probe).
+
+    A checkpoint that does not load raises, an arch mismatch included:
+    the policy it was loading into holds the random init."""
     if ckpt_path is not None and not Path(ckpt_path).exists():
         # A typo'd path used to measure a random-init net under the
         # checkpoint's name (2026-09-06: a value-head study ran on one
@@ -316,13 +319,9 @@ def _load_policy(
     if ckpt_path is not None:
         try:
             policy.load_checkpoint(ckpt_path)
-            log.info(f"[{label}] loaded {ckpt_path.name}")
         except RuntimeError as e:
-            if "arch mismatch" in str(e).lower():
-                log.warning(f"[{label}] arch mismatch loading "
-                            f"{ckpt_path}: {e}; using random init")
-            else:
-                raise
+            raise RuntimeError(f"[{label}] cannot load {ckpt_path}: {e}") from e
+        log.info(f"[{label}] loaded {Path(ckpt_path).name}")
     else:
         log.info(f"[{label}] no checkpoint -> random init")
     return policy

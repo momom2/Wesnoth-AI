@@ -29,11 +29,18 @@ Usage (raw-policy A/B -- `--mcts-sims 0` is what makes it RAW):
 Then fit (decisive games only -- capped games are no-result absences,
 user ruling 2026-08-17; see elo_collect.py):
     python tools/elo_collect.py eval_games/tc_raw
+
+A game that ends without a result file leaves failed_<game>.json (the
+slot, the return code, the tail of its stderr) and stays unplayed, so a
+re-run replays it. The exit status says whether the match is done
+(EXIT_MEANING): 0 complete, 1 failed, 3 games left to play, 4 the
+replacement guard is spent short of --games.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -50,6 +57,29 @@ sys.path.insert(0, str(_THIS.parent))
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 log = logging.getLogger("run_elo_batch")
+
+# The script that plays one game (or, with --worker, many).
+GAME_SCRIPT = _THIS.parent / "elo_eval_game.py"
+# Seconds between two polls of the games in flight.
+POLL_S = 2.0
+
+# Exit status of a chunk: whether the match is done, so a script acts
+# on it without counting files. A time-budget cut, a memory stop and
+# failed games all used to exit 0 with a short outdir.
+EXIT_COMPLETE = 0
+EXIT_FAILED = 1
+EXIT_RESUMABLE = 3
+EXIT_GUARD_SPENT = 4
+EXIT_MEANING = {
+    EXIT_COMPLETE: "the match is complete: --games decisive results",
+    EXIT_FAILED: "games failed or an inference server died (see the failed_*.json "
+                 "records); a re-run replays the failed games once the cause is fixed",
+    EXIT_RESUMABLE: "the time budget or the memory guard left games to play; re-run "
+                    "the same command to continue",
+    EXIT_GUARD_SPENT: "every slot is played with fewer decisive results than --games: "
+                      "the replacement guard is spent, a re-run adds nothing, and the "
+                      "fit's interval widens",
+}
 
 # Below this, a torch process thrashes instead of running (see module
 # docstring). Generous on purpose: the cost of pausing is one idle slot,
@@ -135,6 +165,128 @@ def terrain_refusal(name: str, record: dict, want: Tuple[str, str]) -> Optional[
     return (f"{name} was played in terrain views (a={got[0]}, b={got[1]}) but this "
             f"run plays (a={want[0]}, b={want[1]}): the view changes the hex tokens, "
             f"refusing to mix. Use a fresh outdir.")
+
+
+# Which checkpoint each side played (2026-09-25): the SHA-256 of the
+# file's bytes, recorded per side in every result file as
+# checkpoint_sha256_a/_b (None for 'dummy' and 'random', which load no
+# file). A label names a checkpoint only by convention, so a resume that
+# pointed --spec-a at other weights under the same label mixed two
+# players in one outdir without a word.
+def file_sha256(path: Path) -> str:
+    """The SHA-256 of a file's bytes."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def spec_sha256(spec: str) -> Optional[str]:
+    """The SHA-256 of a player spec's checkpoint file; None for the
+    literals 'dummy' and 'random', which load none."""
+    if spec in ("dummy", "random"):
+        return None
+    return file_sha256(Path(spec))
+
+
+def checkpoint_refusal(name: str, record: dict,
+                       want: Tuple[Optional[str], Optional[str]]) -> Optional[str]:
+    """The refusal to keep `record` in an outdir whose sides play the
+    checkpoints `want` (SHA-256 per side); None when they agree. A file
+    written before the field existed cannot say which checkpoint played
+    a checkpoint side, so it is refused too."""
+    def named(sha: Optional[str]) -> str:
+        return f"checkpoint {sha}" if sha else "no checkpoint ('dummy' or 'random')"
+
+    for side, sha in zip("ab", want):
+        field = f"checkpoint_sha256_{side}"
+        got = record.get(field)
+        if got == sha:
+            continue
+        if field not in record:
+            return (f"{name} does not record which checkpoint played side {side} (it "
+                    f"predates the field) and this run plays {named(sha)}: refusing to "
+                    f"mix what cannot be compared. Use a fresh outdir.")
+        return (f"{name} was played by {named(got)} on side {side} but this run plays "
+                f"{named(sha)} under the same label: refusing to mix two players. Use a "
+                f"fresh outdir or another label.")
+    return None
+
+
+# The faction forced onto one side of every eval game (elo_eval_game
+# passes scenario_pool.FORCED_FACTION to random_setup). It changes the
+# games, so it is an estimand field: recorded in every result as the
+# faction's name, or "none" when no faction is forced. Every result file
+# from before the field was played with the Knalgan Alliance forced:
+# the constant's value since 2026-04-30, and the eval has drawn its
+# setups through random_setup's default since 2026-07-04.
+LEGACY_FORCED_FACTION = "Knalgan Alliance"
+
+
+def forced_faction_tag(faction: Optional[str]) -> str:
+    """How a result records the forced faction: its name, or "none"."""
+    return faction or "none"
+
+
+def forced_faction_of(record: dict) -> str:
+    return record.get("forced_faction", LEGACY_FORCED_FACTION)
+
+
+def faction_refusal(name: str, record: dict, want: str) -> Optional[str]:
+    """The refusal to keep `record` in an outdir whose games force the
+    faction `want`; None when they agree."""
+    got = forced_faction_of(record)
+    if got == want:
+        return None
+    return (f"{name} was played with the forced faction {got!r} but this run forces "
+            f"{want!r}: the faction changes the games, refusing to mix. Use a fresh "
+            f"outdir.")
+
+
+def failure_name(label_a: str, label_b: str, side_a: int, seed: int) -> str:
+    """The failure record of a game slot, beside its result file's name
+    (never matched by the result globs, game_*.json)."""
+    return f"failed_{label_a}_{label_b}_s{side_a}_{seed}.json"
+
+
+def record_failure(outdir: Path, label_a: str, label_b: str, side_a: int, seed: int, *,
+                   slot: int, gen: int, returncode, reason: str) -> Path:
+    """Write the record of a game that ended without a result file. The
+    slot stays unplayed, so a re-run replays it; the record stays too,
+    counting the slot's failures."""
+    path = outdir / failure_name(label_a, label_b, side_a, seed)
+    try:
+        failures = int(json.loads(path.read_text(encoding="utf-8"))["failures"])
+    except (OSError, ValueError, KeyError, TypeError):
+        failures = 0
+    rec = {"label_a": label_a, "label_b": label_b, "side_a": side_a, "seed": seed,
+           "slot": slot, "gen": gen, "returncode": returncode, "reason": reason,
+           "failures": failures + 1, "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(rec, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def dead_servers(servers: dict) -> List[str]:
+    """One line per inference server process that has exited: its spec,
+    return code and the tail of its log."""
+    return [f"{spec} (rc={h.proc.returncode}): {h.err_tail()[-800:].strip()}"
+            for spec, handles in servers.items() for h in handles if not h.alive()]
+
+
+def match_status(outdir: Path, label_a: str, label_b: str, games: int, seed_base: int,
+                 max_extra: int, failed: bool) -> int:
+    """The chunk's exit status (EXIT_*), read from the files on disk the
+    way a resume reads them."""
+    n_results, _n_nores, pending, _extra = scan_slots(
+        outdir, label_a, label_b, games, seed_base, max_extra)
+    if failed:
+        return EXIT_FAILED
+    if n_results >= games:
+        return EXIT_COMPLETE
+    return EXIT_RESUMABLE if pending else EXIT_GUARD_SPENT
 
 
 _PEEK_FLAGS = (
@@ -386,6 +538,9 @@ def _log_server_stats(stats: dict) -> None:
         if not st:
             log.warning("inference server for %s left no stats", spec)
             continue
+        if st.get("fatal"):
+            log.error("inference server %s stopped serving on a device fault:\n%s",
+                      Path(spec).name, st["fatal"][-2000:])
         log.info("inference server %s: %d requests in %d batches, mean batch "
                  "%.2f, hist %s; idle %.1fs window %.1fs infer %.1fs reply %.1fs "
                  "of %.1fs wall (gpu %.1fs)", Path(spec).name, st["requests"],
@@ -604,6 +759,14 @@ def main(argv: List[str]) -> int:
     if ((args.raw_temperature_a is not None and sims_a > 0)
             or (args.raw_temperature_b is not None and sims_b > 0)):
         ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
+    from tools.eval_procedure import end_turn_refusal
+    for _side, _spec, _sims, _temp in (("a", args.spec_a, sims_a, args.raw_temperature_a),
+                                       ("b", args.spec_b, sims_b, args.raw_temperature_b)):
+        _why = end_turn_refusal(_side, _spec, _sims, _temp,
+                                getattr(args, f"raw_end_turn_{_side}"),
+                                getattr(args, f"raw_end_turn_offset_{_side}"))
+        if _why is not None:
+            ap.error(_why)
     if args.label_a == args.label_b:
         ap.error("--label-a and --label-b must differ (result files and "
                  "the workers' per-side policy cache are keyed by label)")
@@ -728,7 +891,11 @@ def main(argv: List[str]) -> int:
                     else DEFAULT_MIN_FREE_MB)
     floor = min_free * jobs
     _peak_rss: dict = {}   # pid -> max sampled RSS (MB), best effort
-    played = failed = 0
+    # failed: games that ended without a result file (each leaves a
+    # failure record); timed_out: games killed on the per-game timeout
+    # (each leaves a no-result artifact, like a capped game).
+    played = failed = timed_out = 0
+    server_died = False
     max_extra = (args.games // 2 if args.max_extra_games is None
                  else args.max_extra_games)
 
@@ -769,6 +936,12 @@ def main(argv: List[str]) -> int:
     if not args.shared_inference:
         want_bases = _want_bases(args, _checkpoint_basis)
         want_terrains = _want_terrains(args, _checkpoint_terrain)
+    # The checkpoint each side plays and the faction every game forces
+    # (see checkpoint_refusal, faction_refusal).
+    _sha_of = {spec: spec_sha256(spec) for spec in {args.spec_a, args.spec_b}}
+    want_ckpts = (_sha_of[args.spec_a], _sha_of[args.spec_b])
+    from tools import scenario_pool
+    want_faction = forced_faction_tag(scenario_pool.FORCED_FACTION)
     for f in sorted(args.outdir.glob("game_*.json")):
         try:
             prev = json.loads(f.read_text(encoding="utf-8"))
@@ -879,6 +1052,10 @@ def main(argv: List[str]) -> int:
                     f"{f.name} was played under a different "
                     f"turn-search config: estimands don't mix -- "
                     f"use a fresh outdir (round-32 C3).")
+        for _why in (checkpoint_refusal(f.name, prev, want_ckpts),
+                     faction_refusal(f.name, prev, want_faction)):
+            if _why is not None:
+                raise SystemExit(_why)
 
     n_results, n_nores, pending, extra = scan_slots(
         args.outdir, args.label_a, args.label_b, args.games,
@@ -892,7 +1069,7 @@ def main(argv: List[str]) -> int:
     if args.persistent_workers:
         from tools.eval_workers import WorkerPool
         worker_pool = WorkerPool(
-            [sys.executable, "-u", str(_THIS.parent / "elo_eval_game.py"),
+            [sys.executable, "-u", str(GAME_SCRIPT),
              "--worker"], jobs, args.outdir)
         log.info("persistent workers: up to %d elo_eval_game --worker "
                  "processes, policies cached across games", jobs)
@@ -929,6 +1106,16 @@ def main(argv: List[str]) -> int:
                 raise SystemExit(f"the inference servers disagree on precision "
                                  f"{sorted(infos)}; one match, one numerics path")
             shared_bf16, shared_packed = infos.pop()
+            # The games record the checkpoint their server loaded; the
+            # pre-scan and the timeout artifacts use the driver's read.
+            for spec, hs in servers.items():
+                for h in hs:
+                    if h.info.get("checkpoint_sha256") != _sha_of[spec]:
+                        raise SystemExit(
+                            f"the inference server for {spec} loaded checkpoint "
+                            f"{h.info.get('checkpoint_sha256')} but the driver read "
+                            f"{_sha_of[spec]}: the file changed on disk between the two "
+                            f"reads. Re-run once it no longer changes.")
             # A served side plays in the server's basis (its
             # checkpoint's flag) unless the CLI flag forces the subset.
             want_bases = _want_bases(
@@ -962,7 +1149,7 @@ def main(argv: List[str]) -> int:
 
     def launch(slot):
         i, side_a, seed, _out, _gen = slot
-        cmd = [sys.executable, "-u", str(_THIS.parent / "elo_eval_game.py"),
+        cmd = [sys.executable, "-u", str(GAME_SCRIPT),
                args.label_a, args.spec_a, args.label_b, args.spec_b,
                str(side_a), str(seed), str(args.outdir),
                "--mcts-sims", str(args.mcts_sims),
@@ -1056,7 +1243,7 @@ def main(argv: List[str]) -> int:
         # globs never see it.
         if worker_pool is not None:
             handle, errf = worker_pool.submit(
-                [str(_THIS.parent / "elo_eval_game.py")] + cmd[3:],
+                [str(GAME_SCRIPT)] + cmd[3:],
                 game_tag=f"{i}_{seed}")
             return handle, time.perf_counter(), slot, errf
         errf = open(args.outdir / f".stderr_{i}_{seed}.log", "w+b")
@@ -1102,7 +1289,11 @@ def main(argv: List[str]) -> int:
              # The effective hex basis and terrain view per side (see
              # BASES, TERRAIN_VIEWS).
              "basis_a": want_bases[0], "basis_b": want_bases[1],
-             "terrain_a": want_terrains[0], "terrain_b": want_terrains[1]}
+             "terrain_a": want_terrains[0], "terrain_b": want_terrains[1],
+             # The checkpoint per side and the forced faction (see
+             # checkpoint_refusal, faction_refusal).
+             "checkpoint_sha256_a": want_ckpts[0], "checkpoint_sha256_b": want_ckpts[1],
+             "forced_faction": want_faction}
     if args.plan_a or args.plan_b:
         from types import SimpleNamespace
         from tools.elo_eval_game import _pt_config
@@ -1140,6 +1331,14 @@ def main(argv: List[str]) -> int:
         # (round-24 C7).
         while running or (pending and not stop):
             while pending and len(running) < jobs and not stop:
+                dead = dead_servers(servers)
+                if dead:
+                    # Every game through a dead server fails: admit no
+                    # more, drain the games in flight.
+                    log.error("an inference server has exited; no new games, "
+                              "draining %d in flight: %s", len(running), " | ".join(dead))
+                    server_died = stop = True
+                    break
                 if time.perf_counter() > deadline:
                     log.info("time budget reached — no new games; "
                              "draining %d in flight", len(running))
@@ -1162,7 +1361,7 @@ def main(argv: List[str]) -> int:
 
             if not running:
                 break
-            time.sleep(2.0)
+            time.sleep(POLL_S)
             # Peak-RSS sampling (best effort): --per-job-mb is an
             # assumption until a box has logged real numbers; the
             # "peak_rss" lines below are that record.
@@ -1203,7 +1402,7 @@ def main(argv: List[str]) -> int:
                                 "window (%s); result kept", i,
                                 outcome_of(out))
                             continue
-                        failed += 1
+                        timed_out += 1
                         # Persist the kill as a no-result artifact
                         # (round-32 C5: an empty slot was re-
                         # launched identically on EVERY resume --
@@ -1256,16 +1455,19 @@ def main(argv: List[str]) -> int:
                 else:
                     failed += 1
                     err = _err_tail(errf)
-                    log.warning("game %d (side %d, seed %d) failed rc=%s: %s",
-                                i, side_a, seed, proc.returncode,
+                    rec = record_failure(args.outdir, args.label_a, args.label_b, side_a,
+                                         seed, slot=i, gen=gen,
+                                         returncode=proc.returncode, reason=err)
+                    log.warning("game %d (side %d, seed %d) failed rc=%s, recorded in "
+                                "%s: %s", i, side_a, seed, proc.returncode, rec.name,
                                 err.strip()[-200:])
                 _pk = _peak_rss.pop(proc.pid, None)
                 log.info("game %d done in %.1f min%s (results=%d/%d "
-                         "no_result=%d failed=%d, %d pending, %d in "
-                         "flight)", i, elapsed / 60.0,
+                         "no_result=%d failed=%d timed_out=%d, %d pending, "
+                         "%d in flight)", i, elapsed / 60.0,
                          (f", peak_rss {_pk:.0f}MB"
                           if _pk else ""), n_results,
-                         args.games, n_nores, failed, len(pending),
+                         args.games, n_nores, failed, timed_out, len(pending),
                          len(running))
 
     finally:
@@ -1283,12 +1485,17 @@ def main(argv: List[str]) -> int:
     # Report as a fraction, never a percentage or an extrapolation.
     log.info("chunk end: %d/%d RESULTS (%d no-result absences, "
              "replacements %d/%d; %d files) in %s (this chunk: %d "
-             "played, %d failed)",
+             "played, %d failed, %d timed out)",
              n_results, args.games, n_nores, extra, max_extra, total,
-             args.outdir, played, failed)
-    if n_results < args.games and (pending or extra < max_extra):
-        log.info("re-run the same command to continue")
-    return 0
+             args.outdir, played, failed, timed_out)
+    status = match_status(args.outdir, args.label_a, args.label_b, args.games,
+                          args.seed_base, max_extra, failed=bool(failed or server_died))
+    n_records = len(list(args.outdir.glob("failed_*.json")))
+    if n_records:
+        log.warning("%d game slot(s) of this outdir have failed at least once "
+                    "(failed_*.json)", n_records)
+    log.info("exit %d: %s", status, EXIT_MEANING[status])
+    return status
 
 
 if __name__ == "__main__":
