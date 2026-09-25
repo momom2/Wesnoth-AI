@@ -16,7 +16,7 @@ from wesnoth_ai import paths
 NOT_IN_GIT = {"IMITATION_DATASET_DIR"}
 
 # The drivers that run without torch (docs/refactor_plan_20260925.md,
-# "What a move must not break"); each imports paths.
+# "What a move must not break"); run_elo_batch imports paths.
 TORCH_FREE_DRIVERS = ("tools.run_elo_batch", "tools.eval_procedure",
                       "tools.turn_search_config", "tools.host_resources")
 
