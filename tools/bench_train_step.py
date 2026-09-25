@@ -737,8 +737,9 @@ def main(argv) -> int:
     else:
         if not args.experiences_in:
             raise SystemExit("--source file needs --experiences-in")
+        from wesnoth_ai import unpickle
         with open(args.experiences_in, "rb") as f:
-            exps = pickle.load(f)
+            exps = unpickle.load(f)
         source = {"kind": "file", "path": str(args.experiences_in)}
     source["experiences"] = len(exps)
     source["build_seconds"] = time.perf_counter() - t0

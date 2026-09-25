@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
-import pickle
 import random
 import sys
 from pathlib import Path
@@ -69,12 +68,13 @@ def main(argv: List[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     import torch
+    from wesnoth_ai import unpickle
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     with args.experiences.open("rb") as f:
-        pool = pickle.load(f)
+        pool = unpickle.load(f)
     with args.anchor.open("rb") as f:
-        anchor = pickle.load(f)
+        anchor = unpickle.load(f)
     rng = random.Random(args.seed)
     probe = rng.sample(anchor, min(args.probe_states, len(anchor)))
     probe_raws = [t[0] for t in probe]

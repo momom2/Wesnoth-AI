@@ -41,6 +41,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from wesnoth_ai import unpickle  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.paths import IMITATION_DATASET_DIR  # noqa: E402
 from tools.encode_worker import encode_game  # noqa: E402
@@ -95,7 +96,7 @@ def write_record(path: Path, pairs: List) -> None:
 
 
 def read_record(path: Path) -> List:
-    return pickle.loads(zlib.decompress(path.read_bytes()))
+    return unpickle.loads(zlib.decompress(path.read_bytes()))
 
 
 _W: Dict = {}
