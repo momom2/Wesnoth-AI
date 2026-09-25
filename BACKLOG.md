@@ -39,6 +39,81 @@ docs/turn_proposer_design_20260905.md.
   (not verified; nothing here builds the crate). A `cargo test` step
   on CI settles it.
 
+## The spool self-play path is removed (2026-09-24, DONE, 0.5.8)
+
+User ruling 2026-09-24. The spool workers (`--spool-workers`,
+`tools/selfplay_worker.py`) were off by default since the 2026-08-10
+topology ruling, and each looped until its control file changed,
+whatever became of the learner. Removed with them: the VRAM-budgeted
+device split and its demotion, `--prof` with `tools/prof_hooks.py` and
+`prof_report.py`, `tools/profile_worker_split.py`, the spool ingest's
+exit-6 basis tripwire, and the spool branch of `vast_onstart.sh`.
+`box_bench.py` keeps the pool projection only.
+
+## An encode worker whose trainer was killed exits (2026-09-24, FIXED, 0.5.7)
+
+`supervised_train --workers N` spawns encode workers that waited on an
+untimed `in_q.get()` and a bounded `out_q.put()` with no parent check,
+holding both ends of both queues. When the trainer was killed (an OOM
+kill, or `vast_onstart.sh`'s SL_MODE relaunch, whose pkill matches the
+trainer's command line and not the workers') each worker waited
+forever: shown on Windows here and on Linux in CI (run 36055626436) for
+a worker waiting for a replay and one waiting for room on a full output
+queue. `encode_worker.serve_files` now reads and writes in 2 s slices
+and returns once the trainer is gone, and `_ParallelStream` starts its
+workers through `start_child`, so the exit does not wait on unread
+results (tests/test_orphan_exit.py). The per-file work, `encode_game`,
+moved from preencode_corpus into encode_worker. New:
+tests/test_parallel_stream_workers.py (slow tier), the first CI test
+that spawns these workers, requires the in-process encoding through
+two real workers with every encoder switch off its default.
+
+## A pool child whose learner was killed exits (2026-09-24, FIXED, 0.5.6)
+
+The 2026-09-13 orphan guard made an actor return once its learner was
+killed, but its exit then waited for its queues' feeders to write out
+what it had shipped, and nobody would read: the learner was dead, and
+the pipes never break, since a spawned child holds their read ends
+itself. An actor with more than a pipe's worth unread (one experience
+is 9-142 KB) never exited. Measured before the fix: the actor returned
+from its body and was still running 15 s later with 1 MiB shipped, on
+Windows here and on Linux in CI (run 36051474864); with 1 KiB it exited
+2.0 s after the kill. Actors and serve processes now start through
+`tools/mp_teardown.start_child`, whose target cancels the exit's flush
+on every queue the child was handed when its body ends with the parent
+gone (tests/test_orphan_exit.py). A child whose body returns while
+the parent lives (an actor on STOP) still writes everything out, since
+the manager reads its queues during shutdown; if the parent dies before
+that exit is done, a watch thread on the parent's sentinel ends the
+process (0.5.9).
+
+## shutdown() reads its children's output while they exit (2026-09-24, FIXED, 0.5.5)
+
+A process that has put on an mp.Queue waits at exit until the queue's
+feeder thread has written it all into the pipe (64 KiB on Linux, 8 KiB
+on Windows), and one experience carries a whole game state (9 KB
+pickled on a mini map, 47-142 KB on ladder maps). So once the loop
+raised mid-iteration or mid-stream, shutdown() read nothing, every actor
+with unread results ran out its 15 s join timeout and was terminated,
+one after another (CI run 36022513684). The children now get one
+deadline together while a daemon thread reads and discards the result
+and server queues, logging any error or fatal report among them
+(tools/mp_teardown.py). Measured on the laptop, three children each
+holding 1 MiB unread, timeout 5 s: 15.66 s with all three terminated
+before, 0.48 s with all three exiting on their own after.
+
+## An ended iteration's leftovers stay out of the next session (2026-09-24, FIXED, 0.5.4)
+
+An iteration that aborts (a serve process fails) or is abandoned at its
+hard deadline leaves reports, a dead-server marker and tickets on the
+queues its actors share, and the next session read them as its own:
+test_serve_process's stream counted the aborted iteration's two games as
+its first window (28 of 75 CI runs of the test failed that way). Per-game
+reports and the marker now carry their session's tag, an ended
+iteration clears its tickets, an actor keeps a later session's ticket
+for that session's PLAY, and shutdown() stops open serving before
+closing the queues.
+
 ## Vision follows the engine (2026-09-24, FIXED, 0.4.6)
 
 A side sees its fog as the engine keeps it (docs/wesnoth_rules.md
@@ -72,10 +147,6 @@ rules change that makes a stored game rebuild differently is refused
 instead of passing silently. Open:
 - A mid-game record stores its corpus directory as the absolute path on
   the box; rebuilding elsewhere needs the corpus at that path.
-- The Rust core's hider reset (0.4.7) is correct by reading and
-  untested: `test_init_side_and_end_turn_equal_the_python_applier` runs
-  on states without a revealed-hider set; decorating them at turn > 1
-  would cover it.
 
 ## A revealed hider hides again at its turn start (2026-09-24, FIXED, 0.4.7)
 

@@ -1089,28 +1089,6 @@ def test_distill_stats_drain():
     assert MCTSPolicy.drain_distill_stats(stub) is None
 
 
-def test_spool_forwards_distill_knobs():
-    """The spool WORKERS build the training targets, so the distill
-    damping knobs must ride the worker command line -- omitting them
-    would silently train undamped while the learner's own MCTSConfig
-    says otherwise (caught 2026-08-05 pre-launch)."""
-    import pathlib
-    learner_src = pathlib.Path("tools/sim_self_play.py").read_text(
-        encoding="utf-8")
-    tail = learner_src.split("_cmd_tail", 1)[1][:4000]
-    assert '"--distill-prior-discount"' in tail
-    assert '"--distill-target-temp"' in tail
-    worker_src = pathlib.Path("tools/selfplay_worker.py").read_text(
-        encoding="utf-8")
-    assert '"--distill-prior-discount"' in worker_src
-    assert "distill_prior_discount=getattr" in worker_src
-    # Playout-cap rides the same channel (default ON at the CLI as of
-    # 2026-08-05; the learner encodes on/off in the prob's sign).
-    assert '"--playout-cap-prob"' in tail
-    assert '"--playout-cap-prob"' in worker_src
-    assert "playout_cap_randomization=(" in worker_src
-
-
 def test_playout_cap_cli_default_on():
     """User ruling 2026-08-05: playout-cap randomization is ON by
     default at the TRAINING entry point (and only there -- library
@@ -1252,10 +1230,8 @@ def test_hierarchical_gumbel_actor_mass_competition():
     Under flat per-edge selection, m=2 slots are frequently BOTH
     filled by 0.02 slivers of the same actor (the structural
     end_turn/factored-prior pathology). Terminal children let sims
-    run with model=None (no forward on terminal leaves). Also pins
-    spool/worker forwarding of the flag."""
+    run with model=None (no forward on terminal leaves)."""
     import numpy as np
-    import pathlib
     from tools.mcts import MCTSConfig, _gumbel_root_search
 
     # Root: unit actor 0 with 30 edges of 0.02 each (mass 0.60),
@@ -1311,82 +1287,6 @@ def test_hierarchical_gumbel_actor_mass_competition():
     # The pathology hierarchical removes: flat top-2 books BOTH
     # slots with same-actor slivers ~35% of seeds.
     assert flat_dup >= 2, flat_dup
-
-    src = pathlib.Path("tools/sim_self_play.py").read_text(
-        encoding="utf-8")
-    assert '"--hierarchical-gumbel"' in src.split("_cmd_tail", 1)[1][:4600]
-    wsrc = pathlib.Path("tools/selfplay_worker.py").read_text(
-        encoding="utf-8")
-    assert "gumbel_hierarchical=getattr" in wsrc
-
-
-def test_prof_hooks_arm_measure_report(tmp_path):
-    """Production profiling chain (WESNOTH_PROF lever): arm() patches
-    the REAL WesnothSim class + enumerate seam, a real mini game step
-    accumulates counts, snapshot() serializes into a heartbeat-shaped
-    JSON, and prof_report aggregates it. disarm() restores originals
-    (other tests must see unpatched classes)."""
-    import json
-    import pathlib
-    from types import SimpleNamespace
-    from tools import prof_hooks
-    from tools.prof_report import aggregate, render
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
-    from tools.wesnoth_sim import WesnothSim
-    import random as _r
-
-    orig_step = WesnothSim.step
-    enc = SimpleNamespace(encode=lambda gs: "enc")
-    mdl = SimpleNamespace(forward=lambda x: "fwd",
-                          forward_batch=lambda xs: ["fwd"])
-    try:
-        prof_hooks.arm(enc, mdl)
-        assert prof_hooks.armed()
-        prof_hooks.arm(enc, mdl)          # idempotent, no double-wrap
-        assert not getattr(WesnothSim.step, "_prof_wrapped", False) or \
-            not getattr(orig_step, "_prof_wrapped", False)
-
-        setup = random_setup(_r.Random(3), category="mini")
-        gs = build_scenario_gamestate(setup)
-        sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=5)
-        sim.step({"type": "end_turn"})
-        enc.encode(None)
-        mdl.forward(None)
-        snap = prof_hooks.snapshot()
-        assert snap["sim.step"]["n"] >= 1
-        assert snap["encode"]["n"] == 1
-        assert snap["forward"]["n"] == 1
-        assert all(e["s"] >= 0.0 for e in snap.values())
-
-        # Heartbeat-shaped file -> fleet aggregation.
-        hb = {"worker": 0, "games": 2, "decisions": 40,
-              "started": 100.0, "updated": 220.0, "prof": snap}
-        (tmp_path / "w0.json").write_text(json.dumps(hb),
-                                          encoding="utf-8")
-        (tmp_path / "w1.json").write_text(json.dumps(
-            {"worker": 1, "games": 1, "decisions": 10,
-             "started": 0.0, "updated": 60.0}), encoding="utf-8")
-        agg = aggregate(tmp_path)
-        # w1 has no prof section: contributes nothing (not armed).
-        assert agg["workers"] == 1 and agg["games"] == 2
-        assert agg["wall_s"] == 120.0
-        assert agg["components"]["sim.step"][0] == snap["sim.step"]["n"]
-        text = render(agg)
-        assert "unattributed" in text and "sim.step" in text
-    finally:
-        prof_hooks.disarm()
-    assert WesnothSim.step is orig_step
-    assert not prof_hooks.armed() and prof_hooks.snapshot() == {}
-
-    # The lever is actually plumbed: learner stamps env from --prof,
-    # worker arms on the env and folds snapshot into its heartbeat.
-    lsrc = pathlib.Path("tools/sim_self_play.py").read_text(
-        encoding="utf-8")
-    assert 'os.environ["WESNOTH_PROF"] = "1"' in lsrc
-    wsrc = pathlib.Path("tools/selfplay_worker.py").read_text(
-        encoding="utf-8")
-    assert 'os.environ.get("WESNOTH_PROF") == "1"' in wsrc
-    assert 'hb["prof"] = prof.snapshot()' in wsrc
 
 
 def test_gumbel_rescale_floor_fades_noise_targets_to_prior():

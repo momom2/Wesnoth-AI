@@ -386,24 +386,16 @@ def test_drain_keys_all_reach_the_csv():
     assert not missing, f"drain keys with no CSV column: {missing}"
 
 
-def test_pt_flag_symmetry_across_generation_paths():
-    """Round-3 C18 (the leg-3 half-carried-config class): every
-    --pt-* knob defined in sim_self_play must (a) be forwarded in
-    the spool-worker command tail and (b) exist in the worker's own
-    parser; and argparse defaults must not drift from
-    TournamentConfig."""
+def test_pt_flag_defaults_match_tournament_config():
+    """Round-3 C18 (the leg-3 half-carried-config class): the --pt-*
+    argparse defaults must not drift from TournamentConfig."""
     import re
     root = Path(__file__).parent.parent
     ssp = (root / "tools/sim_self_play.py").read_text(encoding="utf-8")
-    wrk = (root / "tools/selfplay_worker.py").read_text(encoding="utf-8")
     knobs = set(re.findall(r'add_argument\("(--pt-[a-z-]+)"', ssp))
     assert knobs, "no pt knobs found in sim_self_play"
-    for k in knobs:
-        assert ssp.count(f'"{k}"') >= 2, \
-            f"{k} defined but not forwarded to spool workers"
-        assert f'"{k}"' in wrk, f"{k} missing from worker parser"
-    # EVERY knob default must match TournamentConfig in both
-    # parsers (round-14 C2 / round-15 C1: pinning only two knobs
+    # EVERY knob default must match TournamentConfig (round-14 C2 /
+    # round-15 C1: pinning only two knobs
     # left the other seven free to drift -- and the round-14 patch
     # for this silently failed to apply when an earlier section of
     # the same patch script aborted).
@@ -415,19 +407,16 @@ def test_pt_flag_symmetry_across_generation_paths():
         want = getattr(cfg, attr_of.get(key, key))
         pat = (r'default="([\d,]+)"' if key == "depths"
                else r'default=([0-9.]+)')
-        for src, name in ((ssp, "sim_self_play"), (wrk, "worker")):
-            m = re.search(re.escape(f'"{flag}"')
-                          + r'[\s\S]{0,120}?' + pat, src)
-            assert m, f"{name}: no default found for {flag}"
-            got = m.group(1)
-            if key == "depths":
-                got_v = tuple(int(x) for x in got.split(","))
-                assert got_v == tuple(want), \
-                    f"{name} {flag} default drifted: {got_v} vs " \
-                    f"{tuple(want)}"
-            else:
-                assert float(got) == float(want), \
-                    f"{name} {flag} default drifted: {got} vs {want}"
+        m = re.search(re.escape(f'"{flag}"') + r'[\s\S]{0,120}?' + pat, ssp)
+        assert m, f"no default found for {flag}"
+        got = m.group(1)
+        if key == "depths":
+            got_v = tuple(int(x) for x in got.split(","))
+            assert got_v == tuple(want), \
+                f"{flag} default drifted: {got_v} vs {tuple(want)}"
+        else:
+            assert float(got) == float(want), \
+                f"{flag} default drifted: {got} vs {want}"
 
 
 def test_reserve_covers_long_challengers():

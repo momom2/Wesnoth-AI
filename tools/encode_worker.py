@@ -41,17 +41,24 @@ per worker, 100s of KB). Either way, workers treat them as read-only.
 Failure mode: any exception inside the worker on a single replay is
 caught, logged, and turned into a `("file_error", seq, gz_name,
 err_str)` message — the trainer skips that file and moves on. A
-worker only exits cleanly when it pops the sentinel `None` from the
-input queue.
+worker exits when it pops the sentinel `None` from the input queue,
+or once the trainer is gone (`serve_files`).
 """
 
 from __future__ import annotations
 
+import functools
 import logging
 import sys
 import traceback
 from pathlib import Path
-from typing import Dict
+from typing import Callable, Dict, List
+
+from tools.mp_teardown import ParentGone, get_while_parent_lives, put_while_parent_lives
+
+# How long a read or a write waits before checking that the trainer is
+# still alive (seconds); the actors' period (tools/actor_worker.py).
+_PARENT_POLL = 2.0
 
 
 # Resolve the project root from this file's location so workers can
@@ -61,6 +68,29 @@ from typing import Dict
 _THIS = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS.parent.parent
 _TOOLS_DIR    = _THIS.parent
+
+
+def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
+                relevant_set: bool, fog_hides_enemy_villages: bool = False,
+                terrain_multi_hot: bool = False) -> List:
+    """One replay's (RawEncoded, ActionIndices) pairs: the per-file work
+    of a worker, and of tools/preencode_corpus.py.
+
+    `relevant_set`: encode the relevant hex subset and build labels in
+    the same basis (label builder and `encode_raw` each compute the
+    subset; the encoder has no entry point that accepts a precomputed
+    one). `fog_hides_enemy_villages` and `terrain_multi_hot` are the
+    trainer encoder's own switches: a worker must encode exactly what
+    the encoder would, else the pairs carry another observation."""
+    from tools.replay_dataset import iter_replay_pairs
+    from wesnoth_ai.encoder import encode_raw
+    pairs = []
+    for state, ai in iter_replay_pairs(gz_path, relevant_set=relevant_set):
+        pairs.append((encode_raw(state, type_to_id=type_to_id, faction_to_id=faction_to_id,
+                                 relevant_set=relevant_set,
+                                 fog_hides_enemy_villages=fog_hides_enemy_villages,
+                                 terrain_multi_hot=terrain_multi_hot), ai))
+    return pairs
 
 
 def worker_main(
@@ -73,7 +103,8 @@ def worker_main(
     fog_hides_enemy_villages: bool = False,
     terrain_multi_hot: bool = False,
 ) -> None:
-    """Worker entry point.
+    """Worker entry point: `serve_files` over `encode_game` with the
+    trainer's vocab and encoder switches.
 
     Each item written to `out_q` is one of:
       ("file",       seq, pairs, gz_name)   # pairs = list of (RawEncoded, ActionIndices)
@@ -87,55 +118,48 @@ def worker_main(
     that drives gc / batch-flush bookkeeping is synthesized by the
     stream after a file's pairs are drained — workers don't emit it
     explicitly anymore.
-
-    `relevant_set`: encode the relevant hex subset and build labels in
-    the same basis (label builder and `encode_raw` each compute the
-    subset; the encoder has no entry point that accepts a precomputed
-    one). `fog_hides_enemy_villages` and `terrain_multi_hot` are the
-    trainer encoder's own switches: a worker must encode exactly what
-    the encoder would, else the pairs carry another observation.
     """
     # Re-bootstrap import paths for Windows spawn — fork would inherit.
     if str(_PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(_PROJECT_ROOT))
     if str(_TOOLS_DIR) not in sys.path:
         sys.path.insert(0, str(_TOOLS_DIR))
-
-    # Local imports so they happen post-bootstrap.
-    from wesnoth_ai.encoder import encode_raw
-    from tools.replay_dataset import iter_replay_pairs
-
     logging.basicConfig(level=log_level, format="%(message)s")
+    serve_files(in_q, out_q, functools.partial(
+        encode_game, type_to_id=type_to_id, faction_to_id=faction_to_id,
+        relevant_set=relevant_set, fog_hides_enemy_villages=fog_hides_enemy_villages,
+        terrain_multi_hot=terrain_multi_hot))
+
+
+def serve_files(in_q, out_q, encode_file: Callable[[str], List]) -> None:
+    """The worker's loop: take `(seq, gz_path)` items until the sentinel
+    None, and ship `encode_file(gz_path)` for each, or its error.
+
+    Returns once the trainer is gone. A spawned worker holds both ends of
+    both queues, so neither pipe ever breaks: a killed trainer (an OOM
+    kill, or the SL relaunch's pkill, which matches the trainer's command
+    line and not the workers') would leave it waiting forever for a
+    replay, or for room on its full output queue. So every read and
+    write waits in _PARENT_POLL slices and checks the trainer between
+    them (tools/mp_teardown.get_while_parent_lives)."""
     log = logging.getLogger("encode_worker")
-
-    while True:
-        item = in_q.get()
-        if item is None:
-            out_q.put(("worker_exit",))
-            return
-
-        seq, gz_path = item
-        gz_name = Path(gz_path).name
-        try:
-            pairs = []
-            for state, ai in iter_replay_pairs(gz_path,
-                                               relevant_set=relevant_set):
-                raw = encode_raw(
-                    state,
-                    type_to_id=type_to_id,
-                    faction_to_id=faction_to_id,
-                    relevant_set=relevant_set,
-                    fog_hides_enemy_villages=fog_hides_enemy_villages,
-                    terrain_multi_hot=terrain_multi_hot,
-                )
-                pairs.append((raw, ai))
-            # Single put() amortizes pickle cost across all pairs from
-            # this replay. Empty lists are valid (replay had no
-            # actionable pairs) — the trainer will see file_done with
-            # n=0 and move on.
-            out_q.put(("file", seq, pairs, gz_name))
-        except Exception as e:
-            tb = traceback.format_exception_only(type(e), e)[-1].strip()
-            out_q.put(("file_error", seq, gz_name, tb))
-            log.debug(f"  worker skip {gz_name}: {e}")
-            # Keep going; main thread tolerates per-file failures.
+    try:
+        while True:
+            item = get_while_parent_lives(in_q, _PARENT_POLL)
+            if item is None:
+                put_while_parent_lives(out_q, ("worker_exit",), _PARENT_POLL)
+                return
+            seq, gz_path = item
+            gz_name = Path(gz_path).name
+            try:
+                # One put() per replay amortizes pickle cost across all
+                # its pairs. An empty list is valid (no actionable
+                # pairs): the trainer sees file_done with n=0.
+                msg = ("file", seq, encode_file(gz_path), gz_name)
+            except Exception as e:
+                tb = traceback.format_exception_only(type(e), e)[-1].strip()
+                msg = ("file_error", seq, gz_name, tb)
+                log.debug(f"  worker skip {gz_name}: {e}")
+            put_while_parent_lives(out_q, msg, _PARENT_POLL)
+    except ParentGone:
+        log.warning("encode worker: the trainer process is gone; exiting")

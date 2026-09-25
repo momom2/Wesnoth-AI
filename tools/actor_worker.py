@@ -5,20 +5,21 @@ design overview and the manager).
   result messages (_R_*) and the dead-server reply marker
   (_RID_SERVER_DEAD).
 - _IPCInferenceClient: the RemoteModel transport inside an actor.
-- _zero_reward, _set_fd_safe_sharing: shared by every generation path
-  (tools/selfplay_worker.py imports them through tools.actor_pool).
-- _actor_loop: the spawned actor process body (ActorPool.start's
-  Process target; spawn pickles it by this module path).
+- _zero_reward, _set_fd_safe_sharing: also used by the manager, the
+  serve process and the anatomy tools (through tools.actor_pool).
+- _actor_loop: the spawned actor process body (ActorPool.start runs it
+  through tools.mp_teardown.start_child; spawn pickles it by this
+  module path).
 
-Heavy imports (sim, policies) happen inside _actor_loop, after the
-spawn, as before.
+Heavy imports (torch, sim, policies) happen inside _actor_loop, after
+the spawn: the rest of this module is standard library only, so a
+torch-free child can use it (tests/queue_children.py).
 """
 
 from __future__ import annotations
 
 import logging
 import dataclasses
-import multiprocessing as mp
 import os
 import queue as _queue
 import random
@@ -28,7 +29,7 @@ import traceback
 from types import SimpleNamespace
 from typing import Dict, Optional, Tuple
 
-import torch
+from tools.mp_teardown import parent_gone
 
 log = logging.getLogger("actor_pool")
 
@@ -60,11 +61,15 @@ _R_EXPS    = "experiences"  # List[MCTSExperience]
 _R_DONE    = "iter_done"   # (local_decisions, distill stats, iter_idx)
 # One per completed game, after its _R_OUTCOME and _R_EXPS: (game index,
 # decisions made in it, time.time() at its start and end, the distill
-# stats drained for it under the continuous pool, else None).
+# stats drained for it under the continuous pool, else None, the
+# iteration or stream tag of the PLAY it was played under). The tag is
+# how a stream tells its own games from those of an iteration that
+# ended without collecting them, whose reports reach it on the same
+# queue (tools/actor_stream.ActorStream._close_game).
 _R_GAME    = "game"
 # Under the continuous pool only, one per game right after its start
-# stamp: (game index, time.time() at its start). The stream keeps the
-# games in flight from it; the barrier pool has no use for it.
+# stamp: (game index, time.time() at its start, the tag). The stream
+# keeps the games in flight from it; the barrier pool has no use for it.
 _R_START   = "start"
 _R_ERROR   = "error"       # traceback string (non-fatal; logged)
 _R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
@@ -80,31 +85,17 @@ def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
 
 
 # Reply marker the manager puts on an actor's reply queue when the
-# serve process that actor was assigned to died: the client raises on
-# it whatever request it is waiting for.
+# serve process that actor was assigned to died: (_RID_SERVER_DEAD, the
+# tag of the iteration or stream it aborted). The client raises on it
+# whatever request it is waiting for under that tag. A marker the actor
+# reads under a later PLAY is dropped: the aborted iteration left it
+# behind, and the pool starts nothing while a serve process is dead.
 _RID_SERVER_DEAD = -1
 
 
 # =====================================================================
-# Parent liveness
+# Parent liveness (tools/mp_teardown.parent_gone)
 # =====================================================================
-
-def _parent_gone() -> bool:
-    """True when the process that spawned this actor has died.
-
-    An actor inherits BOTH ends of every queue it is handed, so its
-    control pipe never reaches EOF and a blocking `get()` waits
-    forever. `daemon=True` only covers a CLEAN interpreter exit of the
-    parent: a kill -9, an OOM-kill or a container-supervisor kill
-    leaves the actors running for as long as the box lives, holding
-    the container's PID budget -- and a pool that exceeds pids.max
-    serves zero leaves (one rental lost that way, 2026-09-04).
-
-    Returns False in the main process (no parent), which is the shape
-    the in-process tests drive."""
-    parent = mp.parent_process()
-    return parent is not None and not parent.is_alive()
-
 
 def _wait_for_command(ctrl_q):
     """The next control command, or None once the parent is gone."""
@@ -112,7 +103,7 @@ def _wait_for_command(ctrl_q):
         try:
             return ctrl_q.get(timeout=_PARENT_POLL)
         except _queue.Empty:
-            if _parent_gone():
+            if parent_gone():
                 return None
 
 
@@ -127,8 +118,7 @@ class _IPCInferenceClient:
     outputs. The old per-leaf protocol (B messages each way per
     forward_batch, each reply pickling ~9 torch tensors through the
     shm tensor-sharing machinery) capped the central server at
-    ~200 req/s with the GPU idle -- the reason spool workers
-    replaced the pool. Payloads are plain numpy (inference_seam
+    ~200 req/s with the GPU idle. Payloads are plain numpy (inference_seam
     output_to_wire/output_from_wire), which pickle inline."""
 
     def __init__(self, actor_id: int, req_qs, resp_q):
@@ -139,9 +129,12 @@ class _IPCInferenceClient:
         self._req = self._req_qs[0]
         self._resp = resp_q
         self._next_id = 0
+        self._tag: Optional[int] = None
 
-    def use_server(self, index: int) -> None:
+    def use_server(self, index: int, tag: Optional[int] = None) -> None:
+        """Ask server `index` from now on, under the PLAY tagged `tag`."""
         self._req = self._req_qs[index]
+        self._tag = tag
 
     def infer(self, raw):
         return self.infer_batch([raw])[0]
@@ -168,13 +161,15 @@ class _IPCInferenceClient:
                 # the same guard, so nothing would ever answer.
                 r_rid, wires = self._resp.get(timeout=_PARENT_POLL)
             except _queue.Empty:
-                if _parent_gone():
+                if parent_gone():
                     raise RuntimeError(
                         "the learner process is gone; abandoning this request")
                 continue
             if r_rid == _RID_SERVER_DEAD:
-                raise RuntimeError("the serve process this actor was assigned to died "
-                                   "(see the pool's log)")
+                if wires == self._tag:          # the marker's tag
+                    raise RuntimeError("the serve process this actor was assigned to died "
+                                       "(see the pool's log)")
+                continue                        # left by an earlier PLAY: drop
             if r_rid == rid:
                 if wires is None:
                     raise RuntimeError("inference server failed on this batch "
@@ -210,6 +205,22 @@ def _set_fd_safe_sharing() -> None:
         pass
 
 
+def _classify_ticket(ticket, iter_idx: int):
+    """What a ticket means to an actor bound to `iter_idx`: ("game",
+    (index, seed)), ("end", None) at the end marker, ("next", ticket)
+    for a ticket of a later session, or None for a stale one of an
+    earlier session (the sessions' tags increase: iteration indices,
+    and a stream takes the next one)."""
+    t_iter, g, seed = ticket
+    if t_iter < iter_idx:
+        return None
+    if t_iter > iter_idx:
+        return "next", ticket
+    if g == _TICKET_END:
+        return "end", None
+    return "game", (g, seed)
+
+
 def _take_ticket(game_q, ctrl_q, iter_idx: int):
     """The next game of this iteration from the shared queue, honouring
     control commands while waiting. Returns ("game", (index, seed)),
@@ -217,15 +228,21 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
     the manager asked for no new games, ("play", cmd) when the next
     iteration's PLAY is already waiting, ("update", payload) on the
     continuous pool's UPDATE, ("stop", None) on STOP or once the parent
-    is gone. Tickets of another iteration are skipped (stale after a
-    drain)."""
+    is gone, and ("next", ticket) for a ticket of a later session.
+    Tickets go out before the PLAYs and on another queue, so an actor
+    still bound to an iteration the manager ended (aborted, abandoned
+    at its hard deadline) can meet the next session's tickets before
+    its PLAY; skipping them lost those games for good, and a stream
+    that lost its first tickets that way kept an actor idle for the rest
+    of it (CI loop, 2026-09-24). Tickets of an earlier session are
+    skipped (stale after a drain)."""
     while True:
         # Checked before every ticket, not only on an empty queue: an
         # orphaned actor with tickets still queued would otherwise walk
         # them one by one, building a scenario and waiting one
         # inference poll on each, before the empty-queue check let it
         # go (2026-09-14 review).
-        if _parent_gone():
+        if parent_gone():
             return "stop", None
         try:
             nxt = ctrl_q.get_nowait()
@@ -251,16 +268,38 @@ def _take_ticket(game_q, ctrl_q, iter_idx: int):
         except _queue.Empty:
             pass
         try:
-            t_iter, g, seed = game_q.get(timeout=0.5)
+            ticket = game_q.get(timeout=0.5)
         except _queue.Empty:
-            if _parent_gone():
+            if parent_gone():
                 return "stop", None
             continue
-        if t_iter != iter_idx:
-            continue
-        if g == _TICKET_END:
-            return "end", None
-        return "game", (g, seed)
+        got = _classify_ticket(ticket, iter_idx)
+        if got is not None:
+            return got
+
+
+class _TicketSource:
+    """`_take_ticket` plus the ticket of a later session an actor met
+    while bound to an ended iteration: it is held, and played first
+    under the PLAY it belongs to."""
+
+    def __init__(self, game_q, ctrl_q):
+        self._game_q = game_q
+        self._ctrl_q = ctrl_q
+        self._held = None
+
+    def take(self, iter_idx: int):
+        if self._held is not None:
+            held, self._held = self._held, None
+            got = _classify_ticket(held, iter_idx)
+            if got is not None:
+                if got[0] == "next":
+                    self._held = held
+                return got
+        got = _take_ticket(self._game_q, self._ctrl_q, iter_idx)
+        if got[0] == "next":
+            self._held = got[1]
+        return got
 
 
 def _actor_loop(
@@ -276,6 +315,7 @@ def _actor_loop(
     once, then loops on the control queue: PLAY -> pull game tickets
     from the shared queue until the iteration's end marker, shipping
     each game's experiences and outcome; STOP -> exit."""
+    import torch
     logging.basicConfig(level=log_level,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     torch.set_num_threads(max(1, torch_threads))
@@ -313,6 +353,7 @@ def _actor_loop(
     # that iteration and started the next one): it is run here rather
     # than read off the control queue.
     pending: Optional[tuple] = None
+    tickets = _TicketSource(game_q, ctrl_q)
     while True:
         if pending is not None:
             cmd, pending = pending, None
@@ -346,7 +387,7 @@ def _actor_loop(
         # Which server answers this actor this iteration (module
         # docstring, "Serve processes"); legacy PLAY tuples = the
         # learner process.
-        client.use_server(int(cmd[10]) if len(cmd) > 10 else 0)
+        client.use_server(int(cmd[10]) if len(cmd) > 10 else 0, iter_idx)
         # Global feature 5 under fog (visibility.enemy_villages_visible_to);
         # legacy PLAY tuples = the true count, as the seed was trained.
         _fhv = bool(cmd[11]) if len(cmd) > 11 else False
@@ -419,7 +460,7 @@ def _actor_loop(
                 # finish the game in progress, start no new one. The
                 # check sits BETWEEN games so a completed game is
                 # never thrown away (the leg-3 waste mode).
-                kind, ticket = _take_ticket(game_q, ctrl_q, iter_idx)
+                kind, ticket = tickets.take(iter_idx)
                 if kind == "stop":
                     return
                 if kind == "update":
@@ -433,6 +474,11 @@ def _actor_loop(
                     log.warning("actor %d: iteration %d was abandoned by the "
                                 "manager, the next one has already started; "
                                 "reporting done and running it", actor_id, iter_idx)
+                if kind == "next":
+                    log.warning("actor %d: iteration %d has ended and the next "
+                                "session's tickets are out; reporting done and "
+                                "holding ticket %s for its PLAY", actor_id, iter_idx,
+                                ticket)
                 if kind != "game":
                     break
                 g, seed = ticket
@@ -444,10 +490,8 @@ def _actor_loop(
                 cat = roll_mix(rng, **mix)
                 setup = None
                 if cat == "midgame":
-                    # Same midgame path as selfplay_worker (2026-07-22
-                    # port; the old "actors cannot splice midgame
-                    # starts" CLI rejection predates
-                    # _play_one_game_safe handling the tuple form).
+                    # A human-corpus midgame start (2026-07-22 port):
+                    # _play_one_game_safe takes the tuple form.
                     from tools.midgame_starts import sample_midgame_start
                     from pathlib import Path as _P
                     mg = sample_midgame_start(
@@ -463,7 +507,7 @@ def _actor_loop(
                 ds_game0 = int(getattr(base, "_decision_step", 0))
                 t_game0 = time.time()
                 if _stream:
-                    result_q.put((_R_START, actor_id, (g, t_game0)))
+                    result_q.put((_R_START, actor_id, (g, t_game0, iter_idx)))
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
                     policy=policy, reward_fn=_zero_reward,
@@ -491,7 +535,7 @@ def _actor_loop(
                             game_dstats = None
                 result_q.put((_R_GAME, actor_id,
                               (g, int(getattr(base, "_decision_step", ds_game0)) - ds_game0,
-                               t_game0, time.time(), game_dstats)))
+                               t_game0, time.time(), game_dstats, iter_idx)))
         except Exception:
             result_q.put((_R_ERROR, actor_id, traceback.format_exc()))
         finally:

@@ -10,16 +10,13 @@ default-on integration:
     back decision_step, and discards the plan;
   * full game -> finalize_game -> train_step through the INHERITED
     MCTS pipeline (experiences carry non-empty 5-tuple targets);
-  * config symmetry across the three generation paths (the
-    mis-damped-target failure class): sim_self_play's --turn-* flags
-    == selfplay_worker's, the spool cmd_tail forwards every one, and
-    the actor-pool plumbing carries turn_cfg.
+  * config symmetry across the generation paths (the mis-damped-
+    target failure class): the actor-pool plumbing carries turn_cfg.
 """
 from __future__ import annotations
 
 import copy
 import inspect
-import re
 import sys
 from pathlib import Path
 
@@ -156,40 +153,6 @@ def test_full_game_trains_through_inherited_pipeline():
 # ---------------------------------------------------------------------
 # Config symmetry across the three generation paths
 # ---------------------------------------------------------------------
-
-_FLAG_RE = re.compile(r'"(--turn-[a-z-]+)"')
-
-
-def _flags_in(path: Path, span: str = "") -> set:
-    text = path.read_text(encoding="utf-8")
-    return {m for m in _FLAG_RE.findall(text)
-            if not span or m in text}
-
-
-def test_turn_flag_symmetry_across_paths():
-    """The mis-damped-target failure class: a knob the learner sets
-    but a generation path silently ignores. All --turn-* flags must
-    exist in BOTH parsers, and the spool cmd_tail must forward each
-    (--no-turn-search counts as forwarding --turn-search)."""
-    ssp = (REPO / "tools" / "sim_self_play.py").read_text(
-        encoding="utf-8")
-    wrk = (REPO / "tools" / "selfplay_worker.py").read_text(
-        encoding="utf-8")
-    ssp_flags = set(_FLAG_RE.findall(ssp))
-    wrk_flags = set(_FLAG_RE.findall(wrk))
-    assert ssp_flags, "sim_self_play defines --turn-* flags"
-    assert ssp_flags - {"--no-turn-search"} <= wrk_flags | {
-        "--no-turn-search"}
-    assert wrk_flags <= ssp_flags, \
-        f"worker-only turn flags: {wrk_flags - ssp_flags}"
-    # Every value flag appears in the SpoolWorkers cmd_tail region.
-    tail = ssp[ssp.index("_cmd_tail = ["):]
-    tail = tail[:tail.index("self._seed0")]
-    for flag in sorted(wrk_flags - {"--turn-search",
-                                    "--no-turn-search"}):
-        assert flag in tail, f"{flag} not forwarded in _cmd_tail"
-    assert ("--turn-search" in tail or "--no-turn-search" in tail)
-
 
 def test_actor_pool_carries_turn_cfg():
     from tools.actor_pool import ActorPool, _actor_loop

@@ -149,7 +149,7 @@ TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 #     retired 2026-08-05, defaults stay 0.0)
 #   - end_turn bias on mini-category games (2026-08-06): activated
 #     per-run via WESNOTH_PRIOR_BIAS_END_TURN_MINI=<float> (negative
-#     = against passing); env-inherited so spool workers and the
+#     = against passing); env-inherited so the pool's actors and the
 #     trainer re-forward see the identical bias (symmetry contract).
 COMBAT_TARGET_ALPHA = 0.0   # prior-bias instance: attack target
 COMBAT_TYPE_ALPHA   = 0.0   # prior-bias instance: attack type

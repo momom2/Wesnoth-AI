@@ -76,11 +76,10 @@ from tools.game_record import note_search_outcomes, record_game
 log = logging.getLogger("sim_self_play")
 
 # Strict-sync validation exporter (tools/validation_exports). Set by
-# main() / selfplay_worker.main() from --validate-export-every; when
-# set, play_one_game exports every Nth finished game per category
-# (mini / ladder / ladder_fogless / midgame) as a Wesnoth-loadable
-# replay for local strict-sync verification. Per-process counters:
-# each spool worker picks every Nth of ITS OWN stream.
+# main() from --validate-export-every; when set, play_one_game exports
+# every Nth finished game per category (mini / ladder / ladder_fogless
+# / midgame) as a Wesnoth-loadable replay for local strict-sync
+# verification. Counters are per process.
 VALIDATION_EXPORTER = None
 
 
@@ -149,9 +148,9 @@ class GameOutcome:
     # of war off (ladder pool only). villages_mean_* = time-average
     # of villages owned per TURN (sampled once at each turn
     # boundary; the "is anyone actually capturing?" curve);
-    # villages_end_* = final ownership count. Consumers must
-    # getattr() these with defaults: spool workers may pickle
-    # outcomes from an older code version.
+    # villages_end_* = final ownership count. Consumers getattr()
+    # these with defaults: an outcome pickled by an older code
+    # version lacks them.
     fogless: bool = False
     # Game began from a human-corpus mid-game position (2026-07-12
     # backward-curriculum starts) rather than a fresh scenario.
@@ -861,29 +860,6 @@ def _worker_loop(
                 shared["outcomes"].append(outcome)
 
 
-# ---- spool-worker VRAM budgeting (2026-07-18 OOM incident) ----------
-# Measured on the 4090 campaign box: each cuda spool worker holds
-# 388-618MB of VRAM (CUDA context ~300MB + 5M model + forward
-# buffers); budget at the observed ceiling rounded up. The learner's
-# backward peak GROWS with play quality (longer, denser games):
-# 7.1GB on 2026-07-18, 12.6GB on 2026-07-20 (12.05GB in use + a
-# failed 556MB allocation at the same batch/minibatch settings).
-# Reserve 15GB (~1.2x the latest peak, chosen knowing the trend) so
-# the auto split can't hand out cuda workers the trainer will need
-# back mid-campaign. Derivations + the peak-growth history recorded
-# in docs/design_constants.md ("Spool-worker VRAM budget").
-SPOOL_WORKER_VRAM_BYTES = 640 * 2**20
-TRAINER_VRAM_RESERVE_BYTES = 15 * 2**30
-# Reactive demotion (2026-07-20, after the second OOM): the trainer
-# peak GROWS during a campaign, so the spawn-time budget can become
-# stale mid-run. Each iteration the learner recomputes
-#   headroom = total_vram - trainer_peak - n_cuda * per_worker
-# and demotes one cuda worker to cpu (graceful, between games) when
-# headroom drops below this margin. 2GiB ≈ 4x the largest observed
-# single-iteration peak growth -- see docs/design_constants.md.
-DEMOTION_HEADROOM_BYTES = 2 * 2**30
-
-
 _GAME_LOG_RUN_ID: Optional[int] = None
 
 
@@ -968,435 +944,6 @@ def _roll_max_turns(rng, max_turns: int, max_turns_min=None) -> int:
     return rng.randint(max_turns_min, max_turns)
 
 
-def _assign_spool_devices(n: int, mode: str,
-                          *, cuda_available: Optional[bool] = None,
-                          total_vram: Optional[int] = None,
-                          cuda_cap: Optional[int] = None) -> List[str]:
-    """Per-worker forward-device assignment for the spool fleet.
-
-    mode:
-      - "cpu":  all workers cpu (zero VRAM; the trainer keeps the
-                whole card; worker count can scale to vCPUs).
-      - "cuda": all workers cuda (expert override -- YOU own the
-                VRAM math; this is the pre-2026-07-18 behavior that
-                crash-looped the trainer at 56 workers).
-      - "auto": as many cuda workers as the VRAM budget allows after
-                the trainer's reserve, remainder cpu:
-                  K = (total_vram - TRAINER_VRAM_RESERVE_BYTES)
-                      // SPOOL_WORKER_VRAM_BYTES
-                On a 24GB card that's ~13; a 56-worker fleet becomes
-                13 cuda + 43 cpu instead of an OOM crash-loop.
-
-    `cuda_available` / `total_vram` are injectable for tests; they
-    default to the live torch.cuda probe.
-    """
-    if n <= 0:
-        return []
-    if mode == "cpu":
-        return ["cpu"] * n
-    if cuda_available is None:
-        import torch
-        cuda_available = torch.cuda.is_available()
-    if not cuda_available:
-        return ["cpu"] * n
-    if mode == "cuda":
-        return ["cuda"] * n
-    # auto: budgeted split. `cuda_cap` (--spool-cuda-workers /
-    # SPOOL_CUDA_WORKERS) overrides the constant-based budget with a
-    # MEASURED cap from tools/profile_worker_split.py.
-    if cuda_cap is not None:
-        k = max(0, int(cuda_cap))
-    else:
-        if total_vram is None:
-            import torch
-            total_vram = torch.cuda.get_device_properties(0).total_memory
-        k = max(0, int((total_vram - TRAINER_VRAM_RESERVE_BYTES)
-                       // SPOOL_WORKER_VRAM_BYTES))
-    k = min(n, k)
-    return ["cuda"] * k + ["cpu"] * (n - k)
-
-
-class SpoolWorkers:
-    """Spawn + supervise N independent self-play worker PROCESSES
-    (tools/selfplay_worker.py) and collect their spooled games.
-
-    The winning architecture from the 2026-07 measurements: each
-    worker plays whole games in-process with its own GPU forwards (no
-    inference server, no IPC — the central-server pool capped at
-    ~200 req/s with the GPU idle; independent processes saturated
-    it). The spool directory is the only seam: workers atomically
-    write one pickle per game; the learner consumes, trains, and
-    saves checkpoints that workers hot-reload between games.
-
-    VRAM discipline (2026-07-18 incident): every cuda worker costs
-    ~400-590MB of the card (CUDA context + model + buffers), and the
-    learner's backward needs gigabytes MORE than its steady state.
-    56 auto-cuda workers on a 24GB 4090 left the trainer 318MB short
-    and crash-looped it through 3 OOM deaths. Worker devices are now
-    assigned by `_assign_spool_devices` under an explicit budget."""
-
-    def __init__(self, n: int, spool_dir: Path, checkpoint: Path,
-                 args, log_level: str):
-        import subprocess
-        self._n = n
-        self._dir = spool_dir / "games"
-        self._dir.mkdir(parents=True, exist_ok=True)
-        self._checkpoint = checkpoint
-        # Per-worker forward device, assigned from the VRAM budget
-        # (see _assign_spool_devices). Respawns keep the slot's
-        # CURRENT device; reactive demotion (maybe_demote_for_
-        # headroom) may flip cuda slots to cpu mid-run.
-        self._devices = _assign_spool_devices(
-            n, getattr(args, "spool_worker_device", "auto"),
-            cuda_cap=getattr(args, "spool_cuda_workers", None))
-        # Device-control seam for graceful demotion: workers read
-        # spool/ctl/w<i>.device between games and exit cleanly when
-        # it disagrees with their device; ensure_alive respawns the
-        # slot with the updated self._devices[i]. Cleared at startup
-        # so a previous run's demotions don't apply to this run's
-        # fresh budget.
-        self._ctl_dir = spool_dir / "ctl"
-        self._ctl_dir.mkdir(parents=True, exist_ok=True)
-        for stale in self._ctl_dir.glob("w*.device"):
-            stale.unlink(missing_ok=True)
-        n_cuda = sum(1 for d in self._devices if d == "cuda")
-        if 0 < n_cuda < n:
-            log.info(f"spool devices: {n_cuda} cuda + {n - n_cuda} cpu "
-                     f"(VRAM budget; see --spool-worker-device)")
-        elif n_cuda == 0:
-            log.info("spool devices: all cpu")
-        from tools.plan_tournament import TournamentConfig as _PTC
-        self._cmd_tail = [
-            "--checkpoint", str(checkpoint),
-            "--spool-dir", str(spool_dir),
-            "--mcts-sims", str(args.mcts_sims),
-            "--mini-ratio", str(args.mini_ratio),
-            "--max-turns", str(args.max_turns),
-            "--no-progress-turns", str(getattr(
-                args, "no_progress_turns", 0)),
-            # Always forwarded (2026-08-17): the old truthiness guard
-            # dropped an explicit 0 (fixed cap) AND let a worker
-            # default fill in when the flag was absent -- the exact
-            # half-carried-config failure mode that ran leg 3 at
-            # [60,200] instead of [60,100].
-            "--max-turns-min", str(getattr(args, "max_turns_min", 60)
-                                   or 0),
-        ] + [
-            "--draw-tiebreak-cap", str(max(0.0, args.draw_tiebreak_cap)),
-        ] + (["--relevant-set-hexes"] if getattr(
-                 args, "relevant_set_hexes", False) else []) + [
-            "--moves-left-utility", str(args.mcts_moves_left_utility),
-            "--aux-value-bonus", str(getattr(
-                args, "mcts_aux_value_bonus", 0.0)),
-            # Distillation-damping knobs (2026-08-05): the WORKERS
-            # build the training targets, so omitting these here
-            # would silently train undamped while the learner's own
-            # config says otherwise.
-            "--distill-prior-discount", str(getattr(
-                args, "distill_prior_discount", 1.0)),
-            "--distill-target-temp", str(getattr(
-                args, "distill_target_temp", 1.0)),
-            "--gumbel-rescale-floor", str(getattr(
-                args, "mcts_gumbel_rescale_floor", 0.04)),
-            # Playout-cap trio: same worker-side-targets argument as
-            # the distill knobs above.
-            "--playout-cap-prob", str(
-                getattr(args, "mcts_playout_cap_prob", 0.25)
-                if getattr(args, "mcts_playout_cap", True) else -1.0),
-            "--playout-cap-fast-sims", str(getattr(
-                args, "mcts_playout_cap_fast_sims", 0)),
-            "--mcts-batch-size", str(getattr(
-                args, "mcts_batch_size", None) or -1),
-        ] + (["--hierarchical-gumbel"] if getattr(
-            args, "mcts_hierarchical_gumbel", False) else []) + [
-            # Workers resolve AUTO against their OWN device, so only
-            # EXPLICIT precision/compile choices are forwarded.
-        ] + ([] if getattr(args, "_infer_compile_explicit", None) is None
-             else (["--infer-compile"]
-                   if args._infer_compile_explicit
-                   else ["--no-infer-compile"])) + [
-        ] + ([] if getattr(args, "_infer_bf16_explicit", None) is None
-             else (["--infer-bf16"] if args._infer_bf16_explicit
-                   else ["--no-infer-bf16"])) + [
-            "--fogless-ratio", str(getattr(args, "fogless_ratio", 0.0)),
-            "--midgame-ratio", str(getattr(args, "midgame_ratio", 0.0)),
-            "--ladder-ratio", str(getattr(args, "ladder_ratio", 1.0)),
-            "--midgame-dataset", str(getattr(
-                args, "midgame_dataset", Path("replays_dataset"))),
-            "--validate-export-every", str(getattr(
-                args, "validate_export_every", 100)),
-            "--validate-export-dir", str(getattr(
-                args, "validate_export_dir",
-                Path("training/validate_exports"))),
-            "--log-level", log_level,
-        ] + (["--train-draw-tiebreak"] if getattr(
-            args, "train_draw_tiebreak", False) else []) + [
-            # Winnerless value weight seals WORKER-side (single
-            # authority, project round-2 C1) -- must ride the cmd.
-            "--draw-value-weight", str(getattr(
-                args, "draw_value_weight", 0.0)),
-            # TCS knobs (2026-08-14): the WORKERS build the training
-            # targets -- same symmetry contract as the distill knobs.
-            "--plan-tournament" if getattr(args, "plan_tournament",
-                                           False)
-            else "--no-plan-tournament",
-            # Fallbacks derive from TournamentConfig so a drifted
-            # duplicate literal cannot reintroduce the even-depth
-            # frame bug (review C14).
-            "--pt-challengers", str(getattr(
-                args, "pt_challengers", _PTC().n_challengers)),
-            "--pt-depths", str(getattr(
-                args, "pt_depths",
-                ",".join(str(d) for d in _PTC().depths))),
-            "--pt-redraws", str(getattr(
-                args, "pt_redraws", _PTC().redraws)),
-            "--pt-cert-depth", str(getattr(
-                args, "pt_cert_depth", _PTC().cert_depth)),
-            "--pt-cert-redraws", str(getattr(
-                args, "pt_cert_redraws", _PTC().cert_redraws)),
-            "--pt-budget-forwards", str(getattr(
-                args, "pt_budget_forwards", _PTC().budget_forwards)),
-            "--pt-margin-band", str(getattr(
-                args, "pt_margin_band", _PTC().margin_band)),
-            "--pt-beta-max", str(getattr(
-                args, "pt_beta_max", _PTC().beta_max)),
-            "--pt-margin-ref", str(getattr(
-                args, "pt_margin_ref", _PTC().margin_ref)),
-            "--turn-search" if getattr(args, "turn_search", False)
-            else "--no-turn-search",
-            "--turn-alt", str(getattr(args, "turn_alt", 4)),
-            "--turn-rounds", str(getattr(args, "turn_rounds", 3)),
-            "--turn-fast-rounds", str(getattr(
-                args, "turn_fast_rounds", 1)),
-            "--turn-reval-salts", str(getattr(
-                args, "turn_reval_salts", 3)),
-            "--turn-min-delta", str(getattr(
-                args, "turn_min_delta", 0.01)),
-            "--turn-full-prob", str(getattr(
-                args, "turn_full_prob", 0.25)),
-            "--turn-project", str(getattr(args, "turn_project",
-                                          "none")),
-            "--turn-project-halfturns", str(getattr(
-                args, "turn_project_halfturns", 1)),
-            "--turn-project-max-actions", str(getattr(
-                args, "turn_project_max_actions", 40)),
-            "--turn-target-link", str(getattr(
-                args, "turn_target_link", "linear")),
-            "--turn-target-beta", str(getattr(
-                args, "turn_target_beta", 5.0)),
-            "--turn-boundary-frame", str(getattr(
-                args, "turn_boundary_frame", "opponent")),
-            "--turn-reply", str(getattr(args, "turn_reply", "none")),
-            "--turn-reply-max-actions", str(getattr(
-                args, "turn_reply_max_actions", 4)),
-            "--turn-max-spine", str(getattr(
-                args, "turn_max_spine", 40)),
-            # GBC labels are built worker-side (finalize_game) and
-            # ride the experience pickles -- same symmetry contract.
-            "--gbc" if getattr(args, "gbc", False) else "--no-gbc",
-        ]
-        self._seed0 = args.seed * 1_000_003 + 7
-        self._subprocess = subprocess
-        self._procs: List = [None] * n
-        for i in range(n):
-            self._spawn(i)
-
-    def _spawn(self, i: int) -> None:
-        worker = Path(__file__).resolve().parent / "selfplay_worker.py"
-        self._procs[i] = self._subprocess.Popen(
-            [sys.executable, str(worker), "--worker-id", str(i),
-             "--seed", str(self._seed0 + i),
-             "--device", self._devices[i]] + self._cmd_tail,
-            stdout=self._subprocess.DEVNULL,
-            stderr=self._subprocess.DEVNULL,
-        )
-
-    def ensure_alive(self) -> None:
-        """Respawn dead workers (called once per iteration). A worker
-        that exited for a device-ctl demotion comes back on the
-        slot's updated device; a crash respawns as before."""
-        for i, p in enumerate(self._procs):
-            if p is None or p.poll() is not None:
-                rc = None if p is None else p.poll()
-                if rc != 0:
-                    log.warning(f"spool worker {i} died (rc={rc}); "
-                                f"respawning on {self._devices[i]}")
-                self._spawn(i)
-
-    def demote_one_cuda_worker(self, reason: str,
-                               hard: bool = False) -> bool:
-        """Flip the highest cuda slot to cpu. Graceful (default): the
-        worker finishes its current game, sees the ctl file, exits;
-        ensure_alive respawns it on cpu -- zero data loss, takes
-        effect within one game. `hard` (OOM emergency): terminate the
-        process NOW to free its VRAM (context ~300MB frees only on
-        process exit; loses at most that worker's one in-flight game)
-        and respawn immediately. Returns False if no cuda slot left."""
-        cuda_slots = [i for i, d in enumerate(self._devices)
-                      if d == "cuda"]
-        if not cuda_slots:
-            log.warning(f"demotion requested ({reason}) but no cuda "
-                        f"workers remain")
-            return False
-        i = cuda_slots[-1]
-        self._devices[i] = "cpu"
-        ctl = self._ctl_dir / f"w{i}.device"
-        tmp = self._ctl_dir / f".tmp_w{i}.device"
-        tmp.write_text("cpu", encoding="ascii")
-        os.replace(tmp, ctl)
-        log.warning(f"demoting spool worker {i} to cpu "
-                    f"({'HARD' if hard else 'graceful'}): {reason}; "
-                    f"{len(cuda_slots) - 1} cuda workers remain")
-        if hard:
-            p = self._procs[i]
-            if p is not None and p.poll() is None:
-                p.terminate()
-                try:
-                    p.wait(timeout=15)  # VRAM frees on process exit
-                except Exception:                   # noqa: BLE001
-                    p.kill()
-                    p.wait(timeout=15)
-            self._spawn(i)
-        return True
-
-    def maybe_demote_for_headroom(
-            self, trainer_peak_mb, *,
-            cuda_available: Optional[bool] = None,
-            total_vram: Optional[int] = None) -> bool:
-        """Reactive VRAM guard, called once per iteration with the
-        iteration's trainer backward peak: demote one cuda worker
-        whenever projected headroom falls under
-        DEMOTION_HEADROOM_BYTES. One-way ratchet, at most one
-        demotion per call (peak growth is gradual -- a few hundred
-        MB/iter -- so single steps converge without churn).
-        `cuda_available`/`total_vram` injectable for tests."""
-        if trainer_peak_mb is None:
-            return False
-        if cuda_available is None:
-            import torch
-            cuda_available = torch.cuda.is_available()
-        if not cuda_available:
-            return False
-        n_cuda = sum(1 for d in self._devices if d == "cuda")
-        if n_cuda == 0:
-            return False
-        if total_vram is None:
-            import torch
-            total_vram = torch.cuda.get_device_properties(0).total_memory
-        headroom = (total_vram - int(trainer_peak_mb) * 2**20
-                    - n_cuda * SPOOL_WORKER_VRAM_BYTES)
-        if headroom >= DEMOTION_HEADROOM_BYTES:
-            return False
-        return self.demote_one_cuda_worker(
-            f"headroom {headroom / 2**30:.2f}GiB < "
-            f"{DEMOTION_HEADROOM_BYTES / 2**30:.1f}GiB margin "
-            f"(trainer peak {trainer_peak_mb}MB, {n_cuda} cuda "
-            f"workers x {SPOOL_WORKER_VRAM_BYTES // 2**20}MB)")
-
-    def collect(self, policy, want: int,
-                timeout_s: float = 3600.0) -> List["GameOutcome"]:
-        """Block until `want` spooled games are consumed (or timeout).
-        Per game file: advance the global decision counter, offer the
-        WHOLE game to the learner-side holdout, else queue it for
-        training; delete the file."""
-        import pickle as _pickle
-        outcomes: List[GameOutcome] = []
-        _basis_rejects = 0
-        deadline = time.perf_counter() + timeout_s
-        while len(outcomes) < want:
-            files = sorted(self._dir.glob("game_*.pkl"))
-            if not files:
-                if time.perf_counter() > deadline:
-                    log.error(
-                        f"spool collect timed out with "
-                        f"{len(outcomes)}/{want} games; check worker "
-                        f"logs / respawn next iteration.")
-                    break
-                time.sleep(5.0)
-                continue
-            for f in files[:want - len(outcomes)]:
-                try:
-                    payload = _pickle.loads(f.read_bytes())
-                except Exception as e:                  # noqa: BLE001
-                    log.warning(f"unreadable spool file {f.name}: {e}")
-                    f.unlink(missing_ok=True)
-                    continue
-                base = getattr(policy, "_base", policy)
-                # Index-basis agreement. The hex stream defines what
-                # target_idx MEANS, so ingesting a payload built under the
-                # other basis silently poisons every replayed transition --
-                # no error, just wrong gradients. Refuse it loudly instead:
-                # a stale worker after a flag change is the realistic cause,
-                # and dropping its games costs one iteration while accepting
-                # them costs the run. (Same seam that hid the dead
-                # detector-advice wiring, deleted 2026-08-10; see
-                # docs/archive/autonomous_run.md cycle 20.)
-                _want_rs = bool(getattr(
-                    getattr(base, "_encoder", None), "relevant_set_hexes",
-                    False))
-                _got_rs = bool(payload.get("relevant_set", False))
-                if _got_rs != _want_rs:
-                    _basis_rejects += 1
-                    log.error(
-                        f"spool: REJECTING {f.name} -- relevant_set="
-                        f"{_got_rs} but this learner encodes with "
-                        f"relevant_set={_want_rs}; its target_idx values "
-                        f"index a different hex basis. Stale worker? "
-                        f"Dropping the game.")
-                    f.unlink(missing_ok=True)
-                    continue
-                with base._lock:
-                    base._decision_step += int(payload["n_decisions"])
-                exps = payload["experiences"]
-                offer = getattr(policy, "offer_holdout_game", None)
-                if offer is None or not offer(exps):
-                    # T1-F boundary telemetry: spool games never run
-                    # the learner-side finalize_game (the worker ran
-                    # its own), so pairs must be reconstructed HERE.
-                    # Valid because each payload is one game's exps
-                    # in recorded order. getattr-guarded like the
-                    # holdout offer above (non-MCTS/stub policies).
-                    _hv = getattr(policy, "harvest_boundary_pairs",
-                                  None)
-                    if _hv is not None:
-                        _hv(exps)
-                    with policy._lock:
-                        policy._queue.extend(exps)
-                outcomes.append(payload["outcome"])
-                f.unlink(missing_ok=True)
-        # Escalation (Fable, T2-C): dropping a basis-mismatched game handles
-        # the realistic TRANSIENT -- a stale worker across a flag change.
-        # But if the mismatch is SYSTEMIC (every worker stale, or the
-        # learner misconfigured) the drop path degrades into a run that
-        # trains on starvation while logging errors nobody reads. That is
-        # the silent-boundary failure class this run has already hit three
-        # times, so persistent mismatch halts LOUDLY with a distinct code
-        # (the all-draws-abort pattern).
-        if _basis_rejects >= max(1, want // 2):
-            self._basis_reject_streak = getattr(
-                self, "_basis_reject_streak", 0) + 1
-            log.error(
-                f"spool: {_basis_rejects}/{want} games rejected for "
-                f"index-basis mismatch "
-                f"(streak {self._basis_reject_streak}/2)")
-            if self._basis_reject_streak >= 2:
-                log.error(
-                    "spool: SYSTEMIC index-basis mismatch -- workers and "
-                    "learner disagree about --relevant-set-hexes. Halting "
-                    "rather than training on starved iterations. Fix the "
-                    "flag on both sides (see docs/archive/autonomous_run.md) and "
-                    "restart.")
-                raise SystemExit(6)
-        else:
-            self._basis_reject_streak = 0
-        return outcomes
-
-    def shutdown(self) -> None:
-        for p in self._procs:
-            if p is not None and p.poll() is None:
-                p.terminate()
-
-
 def _gpu_mem_mb():
     """(allocated_MB, reserved_MB) of the trainer process, or
     (None, None) off-CUDA. Reserved > allocated = allocator cache;
@@ -1412,10 +959,8 @@ def _gpu_mem_peak_mb(reset: bool = False):
     """Max CUDA bytes allocated since the last reset (MB), or None
     off-CUDA. With `reset=True` the counter restarts -- called at
     each iteration start so the logged value is THIS iteration's
-    true backward peak. This is the number the spool-worker VRAM
-    budget's trainer reserve must exceed (2026-07-18 OOM: steady-
-    state alloc looked fine at ~7GB while the backward peaked past
-    12GB; profile_worker_split consumes this column)."""
+    true backward peak (2026-07-18 OOM: steady-state alloc looked
+    fine at ~7GB while the backward peaked past 12GB)."""
     import torch
     if not torch.cuda.is_available():
         return None
@@ -1459,7 +1004,6 @@ def run_iteration(
     game_log_dir: Optional[Path] = None,
     snapshot_sink: Optional[Callable[[Dict], None]] = None,
     actor_pool=None,
-    spool=None,
     human_anchor=None,   # (pool, updates_per_iter, batch, rng) or None
     human_anchor_policy=None,  # (pairs, updates_per_iter, batch, rng) or None
 ) -> List[GameOutcome]:
@@ -1503,15 +1047,7 @@ def run_iteration(
     if hasattr(reward_fn, "_component_acc"):
         reward_fn._component_acc = {}
 
-    if spool is not None:
-        # Spool path (MCTS only): fully independent worker processes
-        # play games with their own in-process GPU forwards and drop
-        # one pickle per game; collect() advances the anneal counter,
-        # routes whole games to the learner-side holdout, and queues
-        # the rest for the shared train_step below.
-        spool.ensure_alive()
-        outcomes.extend(spool.collect(policy, games_per_iter))
-    elif actor_pool is not None:
+    if actor_pool is not None:
         # Actor-pool path (MCTS only): self-play runs in weightless
         # actor PROCESSES feeding this process's central batched-
         # inference server (see tools/actor_pool). The actors ship back
@@ -1846,8 +1382,8 @@ def run_iteration(
     # doing work (more captures, closer approach, decisive games)
     # must be visible per CONDITION, not pooled. villages/turn is
     # the time-averaged count of villages owned (both sides summed);
-    # `end` is final ownership. getattr() defaults tolerate spooled
-    # outcomes pickled by older worker code.
+    # `end` is final ownership. getattr() defaults tolerate outcomes
+    # pickled by an older code version.
     def _fog_cond_stats(want_fogless: bool) -> Dict:
         # FRESH ladder games only: midgame continuations are fog-on
         # and village-rich by inheritance, and pooling them here made
@@ -1971,20 +1507,15 @@ def run_iteration(
             train_stats = policy.train_step()
         except Exception as e:
             # OOM emergency path (2026-07-20): free the allocator
-            # cache, hard-demote one cuda worker (its ~300MB CUDA
-            # context frees only on process death), retry ONCE. The
-            # step is retryable (replay-buffer sampling); a second
-            # OOM re-raises to the supervisor.
+            # cache and retry ONCE. The step is retryable (replay-
+            # buffer sampling); a second OOM re-raises to the
+            # supervisor.
             import torch
             if not isinstance(e, torch.cuda.OutOfMemoryError):
                 raise
             log.error("CUDA OOM in train_step; emptying cache, "
-                      "hard-demoting one cuda spool worker, "
                       "retrying once")
             torch.cuda.empty_cache()
-            if spool is not None:
-                spool.demote_one_cuda_worker("train_step OOM",
-                                             hard=True)
             train_stats = policy.train_step()
         # Value-memory step (user ruling 2026-08-30): one value-only
         # gradient step per iteration over game-uniform samples from
@@ -2078,13 +1609,8 @@ def run_iteration(
     # appends a CSV row to disk. Tests don't pass one, so this is
     # a no-op there. Keeping the return type a plain List[GameOutcome]
     # avoids touching every test that asserts on it.
-    # Reactive VRAM guard (2026-07-20): this iteration's trainer
-    # backward peak decides whether the cuda worker fleet must
-    # shrink -- BEFORE the next iteration's backward can OOM.
-    # Independent of snapshot_sink (tests/smokes stay guarded).
+    # This iteration's trainer backward peak (gpu_mem_peak_mb).
     _peak_mb = _gpu_mem_peak_mb(reset=True)
-    if spool is not None:
-        spool.maybe_demote_for_headroom(_peak_mb)
     # Floor-relative fresh holdout CE (fresh_value_ce - fresh_ce_floor):
     # the A5 stall-tripwire metric (raw CE moves with the outcome-label
     # mix; the raw version mis-fired twice in the 72h run). Stashed on
@@ -2968,8 +2494,7 @@ def main(argv: List[str]) -> int:
                          "as a Wesnoth-loadable replay for offline "
                          "strict-sync verification (user spec "
                          "2026-07-15). 0 disables. Counters are "
-                         "per-process (each spool worker exports "
-                         "every Nth of its own stream).")
+                         "per process.")
     ap.add_argument("--validate-export-dir", type=Path,
                     default=Path("training/validate_exports"),
                     help="Root dir for validation replay exports "
@@ -3183,16 +2708,11 @@ def main(argv: List[str]) -> int:
                     help="Two-level Gumbel root: actors compete with "
                          "full prior mass, then edges within actors. "
                          "Default off; A/B lever (BACKLOG 3c).")
-    ap.add_argument("--prof", action="store_true",
-                    help="Arm per-component rollout timers in every "
-                         "spool worker (WESNOTH_PROF=1, env-"
-                         "inherited). ~<0.1%% overhead; read with "
-                         "tools/prof_report.py.")
     ap.add_argument("--mini-random-tod", action="store_true",
                     help="Force a RANDOM start-ToD slot on the "
                          "fixed-ToD mini templates (the 3 passivity-"
                          "asymmetry maps). De-confound lever, BACKLOG "
-                         "3c; env-inherited by spool workers.")
+                         "3c; env-inherited by the pool's actors.")
     ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction,
                     default=None,
                     help="bf16 autocast for INFERENCE forwards "
@@ -3353,35 +2873,6 @@ def main(argv: List[str]) -> int:
                          "in PUCT selection. 0 = off (default). Needs "
                          "the moves-left head (--mcts-moves-left) to "
                          "carry any signal; start ~0.2.")
-    ap.add_argument("--spool-workers", type=int, default=0,
-                    help="MCTS only: N INDEPENDENT self-play worker "
-                         "processes, each playing whole games with its "
-                         "own in-process GPU forwards and spooling one "
-                         "pickle per game (tools/selfplay_worker.py); "
-                         "the learner consumes, trains, and saves "
-                         "checkpoints the workers hot-reload. The "
-                         "measured replacement for --actor-pool (whose "
-                         "central server capped at ~200 req/s with the "
-                         "GPU idle). Safe to size to vCPUs: worker "
-                         "GPU placement is VRAM-budgeted separately "
-                         "(--spool-worker-device).")
-    ap.add_argument("--spool-worker-device",
-                    choices=("auto", "cuda", "cpu"), default="auto",
-                    help="Forward device for spool workers. auto = "
-                         "as many cuda workers as fit the VRAM budget "
-                         "(each costs ~600MB; 12GB reserved for the "
-                         "learner's backward -- 2026-07-18 OOM "
-                         "incident), remainder cpu. cpu = all-cpu "
-                         "fleet (trainer keeps the whole card). cuda "
-                         "= all-cuda (expert override, no budget).")
-    ap.add_argument("--spool-cuda-workers", type=int, default=None,
-                    help="auto mode only: MEASURED cap on cuda "
-                         "workers (from tools/profile_worker_split), "
-                         "overriding the constant-based VRAM budget.")
-    ap.add_argument("--spool-dir", type=Path,
-                    default=Path("training/spool"),
-                    help="Directory for spooled game files "
-                         "(--spool-workers).")
     ap.add_argument("--replay-buffer", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="AlphaZero-style experience replay + multi-"
@@ -3522,12 +3013,6 @@ def main(argv: List[str]) -> int:
         _time.strftime("%Y%m%d-%H%M%S", _time.gmtime()))
     if getattr(args, "mini_random_tod", False):
         os.environ["WESNOTH_MINI_RANDOM_TOD"] = "1"
-    if getattr(args, "prof", False):
-        # Env-inherited worker lever (same pattern as the ToD lever
-        # above): spool workers arm tools/prof_hooks and report
-        # per-component seconds in their heartbeat JSONs. Read the
-        # fleet-wide breakdown anytime with tools/prof_report.py.
-        os.environ["WESNOTH_PROF"] = "1"
     # Mix guard (2026-07-20): the five category ratios are absolute
     # proportions and must account for the full distribution.
     from tools.scenario_pool import validate_mix
@@ -3751,11 +3236,11 @@ def main(argv: List[str]) -> int:
     # GBC heads: same peek-and-OR as aux (a gbc-on checkpoint keeps
     # its trained heads on resume even under --no-gbc).
     gbc_flag = bool(getattr(args, "gbc", False)) or ckpt_gbc
-    # Write the RESOLVED flag back (project round-5: the spool cmd
-    # builder and the ActorPool call read args, so without this a
-    # --no-gbc resume of a gbc checkpoint built+logged the heads ON
-    # learner-side while every producer attached gbc_labels=None --
-    # zero GBC gradient for the leg on both production topologies).
+    # Write the RESOLVED flag back (project round-5: the ActorPool
+    # call reads args, so without this a --no-gbc resume of a gbc
+    # checkpoint built+logged the heads ON learner-side while every
+    # producer attached gbc_labels=None -- zero GBC gradient for the
+    # leg).
     args.gbc = gbc_flag
     # Basis resolution (project round-1 C2: the ONLY structural
     # flag not peeked from the checkpoint -- a resume that omitted
@@ -3781,17 +3266,11 @@ def main(argv: List[str]) -> int:
                 f"target. Pass the matching value, or omit the "
                 f"flag to inherit.")
     # Write the RESOLVED basis back so every later consumer (the
-    # worker spool cmd builder, telemetry) sees one truth -- the
-    # spool's index-basis tripwire otherwise halts on a learner/
-    # worker disagreement the inheritance itself created.
+    # actor pool, telemetry) sees one truth.
     args.relevant_set_hexes = relevant_set_flag
     # Inference precision/compile resolution (user ruling
     # 2026-08-28: compile+bf16 default on CUDA; measured 2.0x
-    # together, ~1x each alone). Keep the EXPLICIT values aside
-    # first: spool workers resolve AUTO against their own device,
-    # so only explicit overrides are forwarded to them.
-    args._infer_bf16_explicit = args.infer_bf16
-    args._infer_compile_explicit = args.infer_compile
+    # together, ~1x each alone).
     # TRAINING default: OFF (2026-08-29). The 2026-08-28 compile+
     # bf16 ruling stands for EVAL (bench-validated, match-proven);
     # on the TRAINING path an in-process compile deadlocked on a
@@ -4076,13 +3555,6 @@ def main(argv: List[str]) -> int:
                     "the floor schedule at K=12 -- every mid-length "
                     "side-turn will abstain. Raise "
                     "--pt-budget-forwards.")
-            if int(getattr(args, "spool_workers", 0)) > 0:
-                log.warning(
-                    "plan-tournament pt_* telemetry is NOT "
-                    "aggregated from spool workers (no drain "
-                    "channel on that path); the CSV columns will "
-                    "be empty. Use --actor-pool or in-process for "
-                    "calibrated beta logging.")
         elif turn_cfg is not None:
             from tools.turn_policy import TurnCommitPolicy
             policy = TurnCommitPolicy(
@@ -4320,8 +3792,7 @@ def main(argv: List[str]) -> int:
             mini_ratio=float(args.mini_ratio),
             fogless_ratio=float(args.fogless_ratio),
             ladder_ratio=float(args.ladder_ratio),
-            # Actors splice midgame starts exactly like spool workers
-            # (2026-07-22 port; the old rejection is gone).
+            # Actors splice midgame starts (2026-07-22 port).
             midgame_ratio=float(args.midgame_ratio),
             midgame_dataset=args.midgame_dataset,
         )
@@ -4357,30 +3828,6 @@ def main(argv: List[str]) -> int:
         atexit.register(actor_pool.shutdown)
         log.info(f"actor pool: {args.actor_pool} processes "
                  f"(GIL-free; --workers thread-path disabled)")
-
-    # Spool workers: independent per-game processes, the measured
-    # replacement for the actor pool (see SpoolWorkers docstring).
-    spool = None
-    if args.spool_workers > 0:
-        if not args.mcts:
-            log.error("--spool-workers requires --mcts")
-            return 2
-        if args.actor_pool > 0 or args.workers > 0:
-            log.error("--spool-workers is mutually exclusive with "
-                      "--actor-pool / --workers")
-            return 2
-        import atexit
-        # Workers boot from the checkpoint file: guarantee it exists
-        # (a fresh run hasn't saved yet).
-        if not args.checkpoint_out.exists():
-            policy.save_checkpoint(args.checkpoint_out)
-        spool = SpoolWorkers(args.spool_workers, args.spool_dir,
-                             args.checkpoint_out, args,
-                             log_level=args.log_level)
-        atexit.register(spool.shutdown)
-        log.info(f"spool workers: {args.spool_workers} independent "
-                 f"processes -> {args.spool_dir} (in-process GPU "
-                 f"forwards; no inference server)")
 
     # K-collapse tripwire state (--abort-k-median).
     k_low_streak = 0
@@ -4442,7 +3889,6 @@ def main(argv: List[str]) -> int:
             game_log_dir=args.game_log_dir,
             snapshot_sink=(history_csv.append if history_csv else None),
             actor_pool=actor_pool,
-            spool=spool,
             human_anchor=human_anchor,
             human_anchor_policy=human_anchor_policy,
         )
@@ -4618,9 +4064,9 @@ def main(argv: List[str]) -> int:
 
 
 if __name__ == "__main__":
-    # Canonicalize the module identity BEFORE anything unpickles a spool
-    # payload. Spool workers pickle GameOutcome under its import name
-    # "tools.sim_self_play"; without this alias, the learner (running
+    # Canonicalize the module identity BEFORE anything unpickles an
+    # actor's payload. Pool actors pickle GameOutcome under its import
+    # name "tools.sim_self_play"; without this alias, the learner (running
     # this same file as __main__) would RE-EXECUTE the whole module on
     # first unpickle and hold two copies of every module global and
     # class (dual-import hazard, audited 2026-07-30). With the alias,

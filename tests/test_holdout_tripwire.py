@@ -27,7 +27,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import pytest
 import torch
 
 from wesnoth_ai.transformer_policy import TransformerPolicy
@@ -294,41 +293,6 @@ def test_abort_tripwire_exits_4_and_saves(tmp_path):
     rows = csv.read_text(encoding="utf-8").strip().splitlines()
     # Header + one row per completed iteration (window=2 -> 2 iters).
     assert len(rows) >= 3, f"CSV must hold the aborted run's rows: {rows}"
-
-
-@pytest.mark.slow          # ~16s: see pytest.ini two-tier note
-def test_spool_workers_end_to_end(tmp_path):
-    """--spool-workers through the real main(): one independent
-    worker process plays a mini game, spools it, and the learner
-    consumes + trains from it. Pins the whole seam: worker boot from
-    the saved checkpoint, atomic spool files, collect() routing
-    (decision-step advance + holdout offer + queue), train_step."""
-    from tools.sim_self_play import main
-
-    ckpt = tmp_path / "spool.pt"
-    rc = main([
-        "sim_self_play.py",
-        "--mcts", "--mcts-sims", "2",
-        "--spool-workers", "1", "--spool-dir", str(tmp_path / "spool"),
-        "--iterations", "1", "--games-per-iter", "1",
-        "--max-turns", "2", "--mini-ratio", "1.0",
-        "--ladder-ratio", "0.0",
-        "--d-model", "32", "--num-layers", "1",
-        "--num-heads", "2", "--d-ff", "64",
-        "--replay-min-size", "1",
-        "--checkpoint-out", str(ckpt),
-        "--trainer-history-csv", str(tmp_path / "h.csv"),
-        "--save-every", "1",
-        "--seed", "11", "--log-level", "WARNING",
-    ])
-    assert rc == 0, f"spool e2e run failed rc={rc}"
-    assert ckpt.exists()
-    rows = (tmp_path / "h.csv").read_text(encoding="utf-8") \
-        .strip().splitlines()
-    assert len(rows) >= 2, "iteration row must be logged"
-    # The consumed game must have carried transitions into training.
-    assert ",1," in rows[1] or rows[1].split(",")[2] == "1", (
-        f"expected 1 game consumed in the iteration row: {rows[1]}")
 
 
 def test_holdout_stall_tripwire_exits_5(tmp_path):
