@@ -78,7 +78,11 @@ def _apply_size_filters(
     replays without opening them. For the rest we open the gz once
     and check `starting_units` — a smaller per-replay cost than
     paying for the whole training iteration only to OOM later.
-    """
+
+    A dataset without index.jsonl (the imitation corpus has none) gets
+    no command cap, and the log says so: every run of the reference's
+    recipe so far trained without it, so applying it would change the
+    recipe."""
     # Build index lookup: file → n_commands.
     by_file: dict = {}
     idx = dataset_dir / "index.jsonl"
@@ -90,6 +94,7 @@ def _apply_size_filters(
     out: List[Path] = []
     n_dropped_cmds = 0
     n_dropped_units = 0
+    n_unreadable = 0
     for p in files:
         n_cmds = by_file.get(p.name, 0)
         if max_commands and n_cmds and n_cmds > max_commands:
@@ -103,12 +108,20 @@ def _apply_size_filters(
                 if len(data.get("starting_units", [])) > max_starting:
                     n_dropped_units += 1
                     continue
-            except Exception:
+            except Exception as e:                  # noqa: BLE001 - counted and warned
+                n_unreadable += 1
+                if n_unreadable <= 3:
+                    log.warning(f"  size filter: {p.name} unreadable, dropped: {e!r}"[:300])
                 continue
         out.append(p)
-    msg = f"  size filter dropped {n_dropped_cmds} (>{max_commands} cmds)"
+    if max_commands and not idx.exists():
+        msg = f"  size filter: no {idx.name} in {dataset_dir}, so the {max_commands}-command cap is not applied"
+    else:
+        msg = f"  size filter dropped {n_dropped_cmds} (>{max_commands} cmds)"
     if max_starting:
         msg += f", {n_dropped_units} (>{max_starting} starting units)"
+    if n_unreadable:
+        msg += f", {n_unreadable} unreadable (dropped)"
     log.info(msg)
     return out
 
@@ -1281,6 +1294,11 @@ def _evaluate(
     (`target_off_mask`: the mask is stricter than Wesnoth in places,
     e.g. multi-turn moves).
 
+    `probe_skipped` counts the holdout files that failed to reconstruct
+    and the pairs that failed to encode or to run through the model, so
+    a probe whose composition changed says so (a cached probe counts
+    none: its pairs are the ones the first call kept).
+
     `cache`: a list the first call fills with the sample's pairs (their
     RawEncoded, labels, mover and legality row) and later calls read
     instead of reconstructing the holdout games through the simulator
@@ -1307,6 +1325,7 @@ def _evaluate(
     # they were independent). Per-game statistics + between-game SE
     # replace the pooled AUC when the cap is on.
     per_game: Dict[str, Dict[str, list]] = {}
+    skipped = {"file_errors": 0, "encode": 0, "forward": 0}
     _order = sorted(holdout_files)
     if eval_sample_seed is not None and eval_pairs_per_game:
         # The tripwire's "independent redraws" must redraw the GAME
@@ -1328,12 +1347,17 @@ def _evaluate(
                 max_pairs_per_replay=eval_pairs_per_game,
                 sample_seed=eval_sample_seed,
                 relevant_set=encoder.relevant_set_hexes):
+            if item[0] == "file_error":
+                skipped["file_errors"] += 1
+                if skipped["file_errors"] <= 3:
+                    log.warning(f"  holdout probe: {item[1]} not reconstructed: {item[2]}"[:300])
             if item[0] != "pair":
                 continue
             _, state, ai, name = item
             try:
                 raw = _raw_one(encoder, state)
-            except Exception:                     # noqa: BLE001
+            except Exception:                     # noqa: BLE001 - counted in probe_skipped
+                skipped["encode"] += 1
                 continue
             legal, mask_error = None, None
             if ai.target_idx is not None and ai.action_type != "end_turn":
@@ -1356,7 +1380,8 @@ def _evaluate(
                 break
             try:
                 output = model(encoder.encode_from_raw(raw, device=device))
-            except Exception:                     # noqa: BLE001
+            except Exception:                     # noqa: BLE001 - counted in probe_skipped
+                skipped["forward"] += 1
                 continue
             n += 1
             off_subset += int(ai.target_off_subset)
@@ -1416,7 +1441,9 @@ def _evaluate(
     if was_training:
         model.train()
         encoder.train()
-    out = {"n": n, "ce": (ce_sum / n) if n else float("nan")}
+    out = {"n": n, "ce": (ce_sum / n) if n else float("nan"), "probe_skipped": skipped}
+    if any(skipped.values()):
+        log.warning(f"  holdout probe skipped {skipped}")
     # Standard error of the mean CE (user ruling 2026-08-20: values
     # don't mean anything without a CI).
     if n >= 2:

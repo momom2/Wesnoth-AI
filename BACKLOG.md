@@ -114,7 +114,8 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   without saying so; `--stream` publishes trial weights of the line
   search and actors accumulate boundary pairs; `value_pretrain
   --freeze-trunk` accumulates encoder gradients; loaders drop games or
-  pairs at DEBUG; the anchor caches encode the full board whatever the
+  pairs at DEBUG (the replay size filter, the holdout probe and the value
+  loaders report theirs since 0.7.2); the anchor caches encode the full board whatever the
   basis.
 - **Evaluation:** the committed catalog mixes `raw` and `mcts:32` edges in
   one fit; the catalog's duplicate-game key depends on which label is A;

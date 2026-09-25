@@ -30,7 +30,7 @@ import random
 import sys
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -39,7 +39,10 @@ log = logging.getLogger("value_pretrain")
 
 
 def _load_worker(task):
-    """Pool worker: reconstruct one game -> capped experience list.
+    """Pool worker: reconstruct one game -> (capped experience list,
+    error). The error is None, or the failure's type and message when
+    the game could not be reconstructed: the caller counts and reports
+    it, since a pool worker's log goes nowhere.
     Top-level (spawn-picklable); each call seeds its own rng from the
     task so results are order-independent under imap_unordered.
     Loading REPLAYS the whole game (~4 s single-threaded), which
@@ -52,11 +55,31 @@ def _load_worker(task):
     try:
         exps = game_experiences(Path(dataset_dir) / fname, winner,
                                 stride=stride, rng=rng)
-    except Exception:                                   # noqa: BLE001
-        return []
+    except Exception as e:                              # noqa: BLE001 - reported by the caller
+        return [], f"{fname}: {type(e).__name__}: {e}"[:300]
     if cap and len(exps) > cap:
         exps = rng.sample(exps, cap)
-    return exps
+    return exps, None
+
+
+class LoadFailures:
+    """The games a pass could not load: warned for the first few,
+    counted, and summarized at the end of the pass."""
+
+    def __init__(self, what: str):
+        self.what = what
+        self.errors: List[str] = []
+
+    def note(self, error: Optional[str]) -> None:
+        if error is None:
+            return
+        self.errors.append(error)
+        if len(self.errors) <= 3:
+            log.warning(f"  {self.what}: game not loaded: {error}")
+
+    def summary(self, total: int) -> None:
+        if self.errors:
+            log.warning(f"  {self.what}: {len(self.errors)} of {total} games not loaded")
 
 
 def main(argv: List[str]) -> int:
@@ -228,14 +251,19 @@ def main(argv: List[str]) -> int:
                   stride, args.max_states_per_game,
                   args.seed * 1_000_003 + epoch * 131 + i)
                  for i, r in enumerate(rows)]
+        failures = LoadFailures(f"pass {epoch}")
         if args.loader_jobs <= 1:
             for t in tasks:
-                yield _load_worker(t)
-            return
-        import multiprocessing as mp
-        with mp.get_context("spawn").Pool(args.loader_jobs) as pool:
-            yield from pool.imap_unordered(_load_worker, tasks,
-                                           chunksize=8)
+                exps, error = _load_worker(t)
+                failures.note(error)
+                yield exps
+        else:
+            import multiprocessing as mp
+            with mp.get_context("spawn").Pool(args.loader_jobs) as pool:
+                for exps, error in pool.imap_unordered(_load_worker, tasks, chunksize=8):
+                    failures.note(error)
+                    yield exps
+        failures.summary(len(tasks))
 
     # Fixed held-out probe (sampled once, parallel-loaded). Probe
     # stride is high so the probe spans MANY games at few states.
