@@ -122,6 +122,7 @@ def _save_checkpoint(
     relevant_set_hexes: bool = False,
     training_meta: Optional[Dict] = None,
     terrain_multi_hot: bool = False,
+    resume_state: Optional[Dict] = None,
 ) -> None:
     """Atomic-ish checkpoint write: save to .tmp then rename.
 
@@ -136,7 +137,8 @@ def _save_checkpoint(
     reads it with the other CHECKPOINT_STRUCT_FLAGS so every eval
     entry point builds the encoder in the hex basis this checkpoint
     was trained in. `training_meta` is provenance (init_from, seed,
-    max_pairs); nothing reads it back.
+    max_pairs); the resume reads its seed. `resume_state` is where the
+    pass stands (`_resume_state`), so a resume continues it exactly.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -172,9 +174,93 @@ def _save_checkpoint(
         "supervised_pairs": pairs,
         "supervised_epoch": epoch,
     })
+    if resume_state is not None:
+        payload["supervised_resume"] = resume_state
     torch.save(payload, tmp)
     import os
     os.replace(tmp, path)
+
+
+@dataclass
+class PassPosition:
+    """Where a resumed run re-enters the epoch it was cut in, so the rest
+    of the epoch is the stream the uncut run would have trained. The
+    epoch's file order comes from the global `random` at the epoch's
+    start; the pairs already trained are read again and skipped, their
+    value-selection draws replayed, and training goes on from the next
+    pair."""
+    epoch: int
+    skip_pairs: int                        # pairs of this epoch trained before the cut
+    step_in_epoch: int
+    epoch_rng_state: Optional[tuple]       # None: the seed's state (a first run's first epoch)
+    rng_state_at_cut: Optional[tuple]      # checked once the skip ends; None: unknown
+
+
+def _resume_state(epoch: int, epoch_rng_state: tuple, epoch_start_pairs: int,
+                  epoch_start_step: int, last_eval_pairs: int, seed: Optional[int]) -> Dict:
+    """What a checkpoint records for a later run to continue its pass:
+    the epoch in progress (or just finished), the global `random` state
+    at its start and now, the counters at its start, the last holdout
+    evaluation (so the resumed run evaluates where the uncut one would)
+    and the torch generators (dropout)."""
+    state = {"epoch": int(epoch), "epoch_rng_state": epoch_rng_state,
+             "epoch_start_pairs": int(epoch_start_pairs),
+             "epoch_start_step": int(epoch_start_step),
+             "last_eval_pairs": int(last_eval_pairs),
+             "rng_state": random.getstate(), "torch_rng_state": torch.get_rng_state(),
+             "seed": seed}
+    if torch.cuda.is_available():
+        state["cuda_rng_state"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _pass_position(ckpt: Dict, resumed_epoch: int, resumed_pairs: int, resumed_step: int,
+                   seed: Optional[int]) -> Tuple[Optional[PassPosition], Optional[tuple]]:
+    """(position, rng state) of a resume: the position when the
+    checkpoint was cut inside the epoch it resumes, the global `random`
+    state the next epoch shuffles with when it was saved at an epoch's
+    end. Restores the torch generators the checkpoint saved. A checkpoint
+    without a saved position continues exactly only in the first epoch of
+    a first run under the same --seed, where the order is the seed's;
+    otherwise the epoch restarts in a new order, with a warning."""
+    res = ckpt.get("supervised_resume")
+    if res is not None:
+        torch.set_rng_state(res["torch_rng_state"])
+        if "cuda_rng_state" in res and torch.cuda.is_available():
+            try:
+                torch.cuda.set_rng_state_all(res["cuda_rng_state"])
+            except RuntimeError as e:
+                log.warning(f"  CUDA generators not restored ({e}); dropout draws differ")
+        if int(res["epoch"]) == resumed_epoch:
+            return PassPosition(resumed_epoch, resumed_pairs - int(res["epoch_start_pairs"]),
+                                resumed_step - int(res["epoch_start_step"]),
+                                res["epoch_rng_state"], res["rng_state"]), None
+        return None, res["rng_state"]
+    meta = ckpt.get("training_meta") or {}
+    if (resumed_epoch == 0 and resumed_pairs > 0 and seed is not None
+            and meta.get("seed") == seed and meta.get("resume") is None):
+        log.info("  the checkpoint predates saved pass positions: its first epoch "
+                 "continues in the seed's order; dropout draws start afresh")
+        return PassPosition(0, resumed_pairs, resumed_step, None, None), None
+    if resumed_pairs > 0:
+        log.warning("  this resume cannot continue its pass (no saved position, and "
+                    "not the first epoch of a first run under the same --seed): the "
+                    "epoch restarts in a new order")
+    return None, None
+
+
+def _log_pass_reentry(position: PassPosition, t_epoch: float) -> None:
+    """The skip of a resumed pass is over: say so, and check that the
+    replayed draws land on the state the checkpoint saw."""
+    log.info(f"  resumed inside epoch {position.epoch}: {position.skip_pairs} pairs "
+             f"read again and skipped in {time.time() - t_epoch:.0f} s")
+    if position.rng_state_at_cut is None:
+        return
+    if random.getstate() == position.rng_state_at_cut:
+        log.info("  the replayed draws land on the checkpoint's state: the pass continues exactly")
+    else:
+        log.error("  the replayed draws do NOT land on the checkpoint's state: the "
+                  "continued pass differs from the one that was cut")
 
 
 def _seed_vocab_from_unit_stats(
@@ -1693,12 +1779,14 @@ def train(
     )
 
     # Optional resume: restore model + encoder + optimizer state from
-    # a previous checkpoint. Loop continues with a fresh shuffled
-    # file order — we don't try to resume mid-replay precisely, since
-    # behavior cloning doesn't require it.
+    # a previous checkpoint, and continue the pass where it was cut
+    # (`_pass_position`).
     resumed_step = 0
     resumed_pairs = 0
     resumed_epoch = 0
+    pass_position: Optional[PassPosition] = None
+    next_epoch_rng_state: Optional[tuple] = None
+    resumed_last_eval: Optional[int] = None
     if ckpt is not None:
         log.info(f"{'Warm start (weights only) from' if init_from else 'Resuming from'} "
                  f"{ckpt_src}")
@@ -1789,6 +1877,10 @@ def train(
             f"  resumed at step={resumed_step} "
             f"pairs={resumed_pairs} epoch={resumed_epoch}"
         )
+        pass_position, next_epoch_rng_state = _pass_position(
+            ckpt, resumed_epoch, resumed_pairs, resumed_step, seed)
+        if "supervised_resume" in ckpt:
+            resumed_last_eval = int(ckpt["supervised_resume"]["last_eval_pairs"])
         # Fast-forward the LR scheduler past completed epochs. We
         # don't checkpoint the scheduler's state directly; we
         # reconstruct it from the epoch counter at resume time.
@@ -2012,7 +2104,7 @@ def train(
     # run_start_count.
     running_count = resumed_pairs
     run_start_count = resumed_pairs
-    last_eval_pairs = resumed_pairs
+    last_eval_pairs = resumed_pairs if resumed_last_eval is None else resumed_last_eval
     global_step = resumed_step
     t_start = time.time()
     stop = False
@@ -2068,8 +2160,18 @@ def train(
     for epoch in range(resumed_epoch, epochs):
         if stop:
             break
+        position = pass_position if (pass_position is not None
+                                     and pass_position.epoch == epoch) else None
+        if position is not None and position.epoch_rng_state is not None:
+            random.setstate(position.epoch_rng_state)
+        elif epoch == resumed_epoch and next_epoch_rng_state is not None:
+            random.setstate(next_epoch_rng_state)
+        epoch_rng_state = random.getstate()
+        epoch_start_pairs = running_count - (position.skip_pairs if position else 0)
+        epoch_start_step = global_step - (position.step_in_epoch if position else 0)
         random.shuffle(files)
-        step = 0
+        step = position.step_in_epoch if position else 0
+        skip_left = position.skip_pairs if position else 0
         t_epoch = time.time()
         # Snapshot the cumulative `running_count` at epoch start so the
         # rate log uses pairs-this-epoch / elapsed-this-epoch. Without
@@ -2209,6 +2311,19 @@ def train(
                 if p_w == 0.0 and v_z is None:
                     # Loser-side pair not selected as a value state:
                     # nothing to learn from -- skip before encoding.
+                    continue
+
+                if skip_left > 0:
+                    # Trained before the cut this run resumes: its draws
+                    # above are replayed, the pair is not trained again.
+                    if use_batched:
+                        try:
+                            _raw_one(encoder, state_or_raw)
+                        except Exception:
+                            continue
+                    skip_left -= 1
+                    if skip_left == 0:
+                        _log_pass_reentry(position, t_epoch)
                     continue
 
                 if use_batched:
@@ -2358,14 +2473,14 @@ def train(
                     if global_step % ckpt_every == 0:
                         # Mid-epoch periodic checkpoint: save the
                         # GLOBAL completed-epoch count (= `epoch`,
-                        # since this epoch hasn't finished yet).
-                        # On a walltime-cut resume, the next link
-                        # will redo this epoch from the start --
-                        # cheaper than tracking mid-epoch resume
-                        # state and acceptable for behavior cloning.
+                        # since this epoch hasn't finished yet) and
+                        # the pass position a resume continues from.
                         _save_checkpoint(
                             checkpoint_out, model, encoder, opt,
                             global_step, running_count, epoch=epoch,
+                            resume_state=_resume_state(epoch, epoch_rng_state,
+                                                       epoch_start_pairs, epoch_start_step,
+                                                       last_eval_pairs, seed),
                             **save_kwargs,
                         )
                         log.info(f"  periodic checkpoint @ step={global_step}")
@@ -2450,20 +2565,25 @@ def train(
         # mid-epoch did NOT complete it (project round-1 C15:
         # recording epoch+1 made the resume skip the rest of the
         # corpus).
+        if skip_left > 0:
+            log.error(f"epoch {epoch} ended with {skip_left} pairs of the resumed pass "
+                      f"still to skip: the corpus is not the one the cut run read")
         completed = epoch if stop else epoch + 1
+        resume_state = _resume_state(epoch, epoch_rng_state, epoch_start_pairs,
+                                     epoch_start_step, last_eval_pairs, seed)
         if stop:
             log.info(f"max_pairs cut mid-epoch {epoch}; checkpoint "
                      f"records epoch={completed} (NOT completed; "
                      f"resume redoes it)")
         _save_checkpoint(checkpoint_out, model, encoder, opt,
                          global_step, running_count, epoch=completed,
-                         **save_kwargs)
+                         resume_state=resume_state, **save_kwargs)
         epoch_path = checkpoint_out.with_name(
             f"{checkpoint_out.stem}_epoch{epoch}{checkpoint_out.suffix}"
         )
         _save_checkpoint(epoch_path, model, encoder, opt,
                          global_step, running_count, epoch=completed,
-                         **save_kwargs)
+                         resume_state=resume_state, **save_kwargs)
         log.info(f"Epoch {epoch} saved to {checkpoint_out} and {epoch_path.name}")
         # Accounting line: an epoch that "completes" with a large
         # error count or far fewer pairs than the corpus holds is a
