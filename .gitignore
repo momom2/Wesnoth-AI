@@ -161,3 +161,13 @@ replays_dataset_imitation_duplicates/
 training/metrics/**/phase_*.json
 training/metrics/**/*.escrowed
 training/metrics/**/*.partial.json
+
+# Credentials, whatever their name (the repository is public).
+.hf_token*
+hf_token*.txt
+.env
+*.env
+kaggle.json
+id_rsa*
+id_ed25519*
+*.pem
