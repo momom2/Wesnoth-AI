@@ -763,6 +763,40 @@ State of play:
   `tier-b/observation_retrain_20260924/games_obs_e1_vs_terrain.tar.gz`).
   Every strength claim from here is measured against `obs8`; nothing is
   chained across references.
+- 2026-09-25 (0.6.1 -> 0.6.7): **five independent audits of the code;
+  what they found is fixed or listed.**
+  - **The reference cannot tell 76 of the 190 unit types our games field
+    apart.** Since 2026-09-09 a fresh vocabulary held all 356 names of
+    `unit_stats.json` against a 200-row type embedding, and every id from
+    199 up is clamped silently onto the last row, in training and play
+    alike: `obs8`, `terrain`, `relset` and seed2's lineage read 6 of the 7
+    Northerner recruits and 4 of the 7 Undead ones as one type, and the
+    unit features carry no attacks, resistances or abilities. A fresh
+    vocabulary now holds exactly the 190 reachable types
+    (`tools/unit_vocab.py`), seeding refuses one that reaches the overflow
+    row, and a checkpoint whose types share it says so on load (old ones
+    play as before). The imitation pairs no longer include the neutral
+    side's commands, which the pre-encoded path trained as side-2 winner
+    targets. The retrain that measures both is pre-registered
+    (docs/unit_vocab_retrain_prereg_20260925.md,
+    `scripts/unit_vocab_retrain_box.sh`).
+  - **Engine rules** (0.6.6, `OBSERVATION_EPOCH` 9, Rust core phase 14):
+    the defender's counter weapon scores a levelling unit at full HP as
+    the engine's prediction does (733 of 737 recorded corpus choices
+    match, against 730; the other 4 are exact ties the engine breaks by
+    its summation order); a declared zero village gold or support is paid
+    as zero (16 corpus games); a levelling unit keeps its trait movement.
+    Matches from here do not chain onto earlier ones.
+  - **Measurement** (0.6.3-0.6.4): the end_turn offset scored 1.7 SE of
+    the difference above the actor-level rule, not 2.5 (docs/endturn_rule_prereg_20260919.md);
+    `run_elo_batch` records each failed game, exits non-zero on an
+    incomplete match, names each side's checkpoint SHA-256 and the forced
+    faction in every result, and refuses a resume that changes either.
+  - **Training** (0.6.5): a resume after epoch 0 decayed the learning rate
+    twice and trained another epoch order; a failed file discarded good
+    pairs. One-pass runs such as `obs8`'s were unaffected.
+  - Open findings, and the decisions they wait on, are in BACKLOG.md
+    "Open after the 2026-09-25 audits".
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

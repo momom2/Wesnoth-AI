@@ -20,12 +20,74 @@ copy of the trunk only if it fails; the pass bar is the pre-grader check
 of docs/turn_gap_ref_prereg_20260921.md on fresh confirmed pairs under
 `obs8`. Pre-registration before any box.
 
+**Running: the turn-ranking value function** (branch `exp/turn-value`,
+its pre-registration docs/turn_value_prereg_20260925.md there; box
+52605483 since 2026-09-25).
+
+**Waiting on the user: the unit-vocabulary retrain**
+(docs/unit_vocab_retrain_prereg_20260925.md): `obs8`'s recipe with every
+reachable unit type on its own embedding row, 800 decisive games against
+`obs8`, about 4.5 box-hours.
+
 **2. Phase 2: turn search without a pre-grader.** The turn-level gap
 under the reference is RICH (7 of 60 confirmed) and neither forward-only
 grader passes the section-6 check (both 2026-09-23,
 docs/turn_gap_ref_prereg_20260921.md), so by the design's rules the
 pipeline is built from rows 1 to 6 of
 docs/turn_proposer_design_20260905.md.
+
+## Open after the 2026-09-25 audits
+
+Found by five audits (rules, observation, training, evaluation, tests
+and hygiene) and not fixed in 0.6.1-0.6.7.
+
+- **Decision: a recruit onto an occupied castle hex.** The engine places
+  the recruit on another castle hex and spends the gold
+  (`actions/create.cpp:419-421`: an occupied location is treated as none
+  given); the simulator refuses at no cost, as CLAUDE.md principle 6
+  assumes. Rare (an enemy hidden inside the recruiter's own castle).
+- **Decision: deletions.** About 20 fast-tier test files test quarantined
+  mechanisms (`test_rewards`, `test_plan_tournament`, `test_swap_detector`,
+  `test_holdout_tripwire`, the gbc and vg tests, ...); tests that restate
+  the code (`test_boundary_telemetry.py:25-50`,
+  `test_distributional_value.py:69-118`, `test_action_type_head.py:281-324`),
+  read source text instead of behaviour, or pin defaults; dead modules
+  (`wesnoth_ai/policy.py`, `wesnoth_ai/profiling.py`,
+  `tools/replay_builder.py`) and about 20 one-shot probe scripts with no
+  user. Each needs the user's word.
+- **A lever to measure: the attack hex.** For an attack on a unit the
+  attacker is not next to, the simulator picks the hex by route cost
+  (`wesnoth_sim.py:1016`), in effect the nearest; ranking by the
+  attacker's defense there is a decode change, measured by a match.
+- **Model input:** recruit options code lawful and neutral the other way
+  round from units on the board (`encoder._alignment_value`); fixing it
+  changes the observation, so it waits for a retrain behind a flag.
+- **Engine rules, latent or rare:** exact counter-weapon ties (the
+  engine's summation order) and the berserk prediction's 99% cutoff;
+  teleport in reach and vision (0 of 207,184 corpus moves); scenario
+  ability names by `id=` against the scrape's macro names; `apply_to=
+  hitpoints` forms; `[modify_side] income=` as an offset; a recruit on a
+  castle-village capturing it; an out-of-range weapon index replaced by 0
+  without a warning; a `[time_area]` added after the Rust core is built;
+  the order of turn events.
+- **Live-Wesnoth observation** (eval against the built-in AI only): the
+  converted state has no `_fog_cleared`, our own fogged villages lose
+  their owner bit, and the time-of-day start offset is not set.
+- **Training:** `az_loop` trains on at most 4,000 experiences per step
+  without saying so; `--stream` publishes trial weights of the line
+  search and actors accumulate boundary pairs; `value_pretrain
+  --freeze-trunk` accumulates encoder gradients; loaders drop games or
+  pairs at DEBUG; the anchor caches encode the full board whatever the
+  basis.
+- **Evaluation:** the committed catalog mixes `raw` and `mcts:32` edges in
+  one fit; the catalog's duplicate-game key depends on which label is A;
+  a game's 2,000-action cap is recorded nowhere.
+- **Host:** on a slow shared host the eval-style inference server is
+  launch-bound (turn-value box: 25 requests per batch, 34.6 ms infer, the
+  GPU 6% busy); the graphed server is the lever there
+  (docs/box_specs.md "The graphed server on a quiet host").
+- The box scripts of past retrains import the seeding function 0.6.7
+  removed; they are records, and fail at the vocabulary step if rerun.
 
 ## Open after CI landed (2026-09-23)
 

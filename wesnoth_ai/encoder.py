@@ -1204,6 +1204,13 @@ def _clamp_pos(v: int) -> int:
     return max(0, min(v, MAX_MAP_SIZE - 1))
 
 
+def names_on_overflow_row(type_to_id: Dict[str, int]) -> List[str]:
+    """The type names whose id reaches the overflow row (MAX_UNIT_TYPES
+    - 1): the encoder clamps them onto it, so they share one embedding
+    row with each other and with every unknown name."""
+    return sorted(name for name, i in type_to_id.items() if i >= MAX_UNIT_TYPES - 1)
+
+
 def _lookup_id(name: str, table: Dict[str, int], maxn: int) -> int:
     """Read-only vocab lookup. Out-of-vocab → overflow bucket (maxn-1).
 

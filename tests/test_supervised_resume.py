@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 import tools.supervised_train as st  # noqa: E402
+from tools.unit_vocab import seed_vocab  # noqa: E402
 import wesnoth_ai.train_perf as train_perf  # noqa: E402
 
 # Every run wraps these, not a previous run's wrapper.
@@ -200,7 +201,7 @@ def corpus(tmp_path_factory):
                 for r in small if r["file"] in index), encoding="utf-8")
     shutil.copyfile(ROOT / "unit_stats.json", root / "unit_stats.json")
     enc = GameStateEncoder(d_model=32)
-    st._seed_vocab_from_unit_stats(enc, root / "unit_stats.json")
+    seed_vocab(enc)
     vocab = root / "vocab.pt"
     torch.save({"unit_type_to_id": dict(enc.unit_type_to_id),
                 "faction_to_id": dict(enc.faction_to_id)}, vocab)

@@ -354,3 +354,18 @@ def test_reading_skips_a_damaged_record_and_goes_on(tmp_path, caplog):
         m.endswith(f"bytes {a} to {b} hold no whole record (cut short or damaged); skipped")
         for m, (a, b) in zip(messages, skipped)), messages
     assert game_record.complete_members_end(path) == end
+
+
+def test_imitation_pairs_are_the_players_commands_only(tmp_path):
+    """A replay in which a neutral side takes turns: the imitation pairs
+    are the two players' commands, none of the neutral side's."""
+    from tools.replay_dataset import iter_replay_pairs
+    data = dict(_duel_data(), commands=[["init_side", s] if i % 2 == 0 else ["end_turn"]
+                                        for i, s in enumerate([1, 1, 2, 2, 3, 3, 1, 1])])
+    data["starting_units"].append({"uid": 3, "type": "Tentacle of the Deep", "side": 3,
+                                   "x": 2, "y": 0})
+    data["starting_sides"].append({"side": 3, "gold": 0, "recruit": []})
+    path = tmp_path / "g.json.gz"
+    _write_corpus_game(path, data)
+    movers = [gs.global_info.current_side for gs, _ai in iter_replay_pairs(path)]
+    assert movers == [1, 2, 1]
