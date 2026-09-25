@@ -421,13 +421,13 @@ class CoreState:
         """One replay or simulator command (`_apply_command`'s
         vocabulary). Returns "rust" when the core applied it, "python"
         when it went through a Python state (a kind the core does not
-        apply yet, or an init_side while the scenario still has an
-        event that can fire)."""
+        apply yet, or an init_side or end_turn that would fire a
+        scenario event: the core runs no events)."""
         kind = cmd[0] if cmd else ""
-        if kind == "init_side" and not self._events_pending():
+        if kind == "init_side" and not self._events_pending(cmd):
             self.core.apply_init_side(int(cmd[1]))
             return "rust"
-        if kind == "end_turn":
+        if kind == "end_turn" and not self._events_pending(cmd):
             self.core.apply_end_turn()
             return "rust"
         if kind == "move":
@@ -651,10 +651,22 @@ class CoreState:
                                          game_over=False, winner=None)
         return self._view_cache
 
-    def _events_pending(self) -> bool:
+    def _events_pending(self, cmd: list) -> bool:
+        """Whether this init_side or end_turn would fire one of the
+        scenario's events: the names the Python applier fires for it
+        (tools/scenario_events, the engine's turn-event order) against
+        the events that can still fire."""
         events = self.statics.get("_scenario_events") or []
-        return any(not (getattr(ev, "first_time_only", True) and getattr(ev, "fired", False))
-                   for ev in events)
+        if not events:
+            return False
+        from tools.scenario_events import (any_can_fire, init_side_event_names,
+                                           side_turn_end_event_names)
+        g = self.core.globals_export()
+        if cmd[0] == "init_side":
+            names = init_side_event_names(int(cmd[1]), int(g["turn_number"]))
+        else:
+            names = side_turn_end_event_names(int(g["current_side"]), int(g["turn_number"]))
+        return any_can_fire(events, names)
 
     def _python_path(self, cmd: list) -> None:
         from tools.replay_dataset import _apply_command

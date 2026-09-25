@@ -92,13 +92,14 @@ def test_terrain_event_preserves_overlay_in_codes():
     """
     from sim_test_helpers import fresh_scenario_sim
     from tools.replay_dataset import _fire_turn_events
+    from tools.scenario_events import side_turn_event_names
     from tools.wesnoth_sim import _move_cost_at_hex
 
     sim = fresh_scenario_sim(0, scenario_id="multiplayer_Aethermaw")
     gs = sim.gs
     # Production event path, both sides' full morph schedule.
     for side, turn in [(1, 4), (2, 4), (1, 5), (2, 5), (1, 6), (2, 6)]:
-        _fire_turn_events(gs, side, turn)
+        _fire_turn_events(gs, side_turn_event_names(side, turn, new_turn=side == 1))
 
     codes = getattr(gs.global_info, "_terrain_codes")
     # The two wall hexes keep their overlay (WML (22,19)/(28,22) ->

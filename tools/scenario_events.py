@@ -665,6 +665,21 @@ def parse_scenario_cfg(candidate: Path) -> Optional[WMLNode]:
 # Event extraction
 # ----------------------------------------------------------------------
 
+def standard_event_name(name: str) -> str:
+    """The engine's `event_handlers::standardize_name`
+    (src/game_events/manager_impl.cpp:65-76, 1.18.4): trimmed, every
+    internal space an underscore, case kept. `side 1 turn` and
+    `side_1_turn` are one name; `Prestart` is not `prestart`."""
+    return name.strip().replace(" ", "_")
+
+
+def event_names(raw: str) -> List[str]:
+    """The names an [event] answers to: its `name=` is a comma-separated
+    list, split with empty pieces dropped, each piece standardized
+    (`event_handler::names`, src/game_events/handlers.cpp:64-88)."""
+    return [standard_event_name(piece) for piece in raw.split(",") if piece.strip()]
+
+
 @dataclass
 class ScenarioEvent:
     """One [event] block extracted from a scenario .cfg."""
@@ -673,6 +688,63 @@ class ScenarioEvent:
     actions: List[WMLNode] = field(default_factory=list)
     fired: bool = False               # latched by the interpreter
     scenario_id: str = ""             # so an unmodelled tag names its map
+
+    @property
+    def names(self) -> List[str]:
+        return event_names(self.name)
+
+    def can_fire(self) -> bool:
+        return not (self.first_time_only and self.fired)
+
+
+# The events the engine fires around a side's turn, in its order
+# (src/play_controller.cpp, 1.18.4). `do_init_side` fires "turn N" and
+# "new turn" only at the first side turn of a turn (:473-477, latched by
+# tod_manager's has_turn_event_fired, which next_turn resets), then the
+# four side forms (:479-482); after the refresh, healing and income, the
+# four refresh forms (:519-522). `finish_side_turn_events` fires the four
+# end forms after the side's units end their turn (:585-588), and
+# `finish_turn` the two turn-end forms once the last side's turn is
+# over (:601-602). docs/wesnoth_rules.md "Turn events".
+
+def side_turn_event_names(side: int, turn: int, *, new_turn: bool) -> List[str]:
+    names = [f"turn {turn}", "new turn"] if new_turn else []
+    return names + ["side turn", f"side {side} turn", f"side turn {turn}",
+                    f"side {side} turn {turn}"]
+
+
+def turn_refresh_event_names(side: int, turn: int) -> List[str]:
+    return ["turn refresh", f"side {side} turn refresh", f"turn {turn} refresh",
+            f"side {side} turn {turn} refresh"]
+
+
+def side_turn_end_event_names(side: int, turn: int) -> List[str]:
+    return ["side turn end", f"side {side} turn end", f"side turn {turn} end",
+            f"side {side} turn {turn} end"]
+
+
+def turn_end_event_names(turn: int) -> List[str]:
+    return ["turn end", f"turn {turn} end"]
+
+
+def init_side_event_names(side: int, turn_before: int) -> List[str]:
+    """Every name the applier's init_side fires, given the turn counter
+    before it. The applier opens a turn at side 1's init_side (it counts
+    turns there; side 1 always opens a turn), so that init_side also
+    ends the turn before it."""
+    if side != 1:
+        return (side_turn_event_names(side, turn_before, new_turn=False)
+                + turn_refresh_event_names(side, turn_before))
+    turn = turn_before + 1
+    ended = turn_end_event_names(turn_before) if turn_before >= 1 else []
+    return (ended + side_turn_event_names(side, turn, new_turn=True)
+            + turn_refresh_event_names(side, turn))
+
+
+def any_can_fire(events: List["ScenarioEvent"], names: List[str]) -> bool:
+    """Whether firing `names` would run any of `events`."""
+    wanted = {standard_event_name(n) for n in names}
+    return any(ev.can_fire() and not wanted.isdisjoint(ev.names) for ev in events)
 
 
 def collect_events(root: WMLNode, scenario_id: str = "") -> List[ScenarioEvent]:
@@ -683,7 +755,7 @@ def collect_events(root: WMLNode, scenario_id: str = "") -> List[ScenarioEvent]:
     if container is None:
         return out
     for ev in container.all("event"):
-        name = ev.attrs.get("name", "").strip().strip('"').lower()
+        name = ev.attrs.get("name", "").strip().strip('"')
         first_time = ev.attrs.get("first_time_only", "yes").strip().lower() in (
             "yes", "true", "1",
         )
@@ -1446,22 +1518,15 @@ def _lua_action(gs: GameState, action: WMLNode) -> None:
 def _fire_event_action(gs: GameState, action: WMLNode) -> None:
     """`[fire_event] name=X` triggers another named [event] from inside
     the current event's action list (Hornshark uses this from prestart
-    to call into `place_units`). Honors `first_time_only` like the
-    public fire_event entry point."""
-    name = action.attrs.get("name", "").strip().strip('"').lower()
+    to call into `place_units`), through the same matching and
+    `first_time_only` latch as the public `fire_event`."""
+    name = action.attrs.get("name", "").strip().strip('"')
     if not name:
         return
     events = getattr(gs.global_info, "_scenario_events", None)
     if not events:
         return
-    for ev in events:
-        if ev.name != name:
-            continue
-        if ev.first_time_only and ev.fired:
-            continue
-        for child in ev.actions:
-            _apply_action(gs, child)
-        ev.fired = True
+    fire_event(gs, events, name)
 
 
 def _switch_action(gs: GameState, action: WMLNode) -> None:
@@ -2301,19 +2366,18 @@ def _apply_action(gs: GameState, action: WMLNode,
 # ----------------------------------------------------------------------
 
 def fire_event(gs: GameState, events: List[ScenarioEvent], trigger: str) -> int:
-    """Fire every event whose name matches `trigger`. Returns the number
-    of events fired. Latches `first_time_only` so subsequent calls with
-    the same trigger don't re-fire.
+    """Fire every event that answers to `trigger`, in WML order.
+    Returns the number of events fired. Latches `first_time_only` so
+    subsequent calls with the same trigger don't re-fire.
 
-    Space and underscore are interchangeable in event names, as in the
-    engine: play_controller.cpp fires "turn_refresh" while scenario WML
-    writes `name=turn refresh`, and they match."""
+    Names compare as the engine standardizes them (`event_names`): the
+    engine fires "turn_refresh" while scenario WML writes `name=turn
+    refresh`, and they match; `name=side 1 turn,side 2 turn` answers to
+    both."""
     n = 0
-    trig = trigger.replace("_", " ")
+    trig = standard_event_name(trigger)
     for ev in events:
-        if ev.name.replace("_", " ") != trig:
-            continue
-        if ev.first_time_only and ev.fired:
+        if trig not in ev.names or not ev.can_fire():
             continue
         token = _FIRING_SCENARIO.set(ev.scenario_id)
         try:
@@ -2324,6 +2388,12 @@ def fire_event(gs: GameState, events: List[ScenarioEvent], trigger: str) -> int:
         ev.fired = True
         n += 1
     return n
+
+
+def fire_events(gs: GameState, events: List[ScenarioEvent], triggers: List[str]) -> int:
+    """`fire_event` for each trigger in order, as the engine pumps a
+    sequence of names (the turn events above)."""
+    return sum(fire_event(gs, events, trigger) for trigger in triggers)
 
 
 def load_events_for_scenario(scenario_id: str) -> List[ScenarioEvent]:
@@ -2337,7 +2407,10 @@ def load_events_for_scenario(scenario_id: str) -> List[ScenarioEvent]:
 
 __all__ = [
     "ScenarioEvent", "load_scenario_wml", "load_events_for_scenario",
-    "collect_events", "fire_event", "setup_static_time_areas",
+    "collect_events", "fire_event", "fire_events", "setup_static_time_areas",
+    "standard_event_name", "event_names", "side_turn_event_names",
+    "turn_refresh_event_names", "side_turn_end_event_names",
+    "turn_end_event_names", "init_side_event_names", "any_can_fire",
     "UnmodelledWML", "unmodelled_action_counts", "reset_unmodelled_actions",
     "unknown_macro_counts", "reset_unknown_macros",
 ]

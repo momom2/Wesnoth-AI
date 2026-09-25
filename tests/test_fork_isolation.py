@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 
 from tools.replay_dataset import _fire_turn_events  # noqa: E402
+from tools.scenario_events import side_turn_event_names  # noqa: E402
 from tools.replay_extract import WMLNode  # noqa: E402
 from tools.scenario_events import (  # noqa: E402
     _modify_unit_action, _object_action,
@@ -91,7 +92,7 @@ def test_fork_turn_event_latch_isolated():
     fork = sim.fork()
     # Production path: _apply_command("init_side") calls this at every
     # turn rotation, including turn rotations stepped inside a fork.
-    _fire_turn_events(fork.gs, 1, 4)
+    _fire_turn_events(fork.gs, side_turn_event_names(1, 4, new_turn=True))
 
     # Sanity: the FORK saw its morph and latched its own event.
     fork_events = getattr(fork.gs.global_info, "_scenario_events")
@@ -109,7 +110,7 @@ def test_fork_turn_event_latch_isolated():
                    "_terrain_codes")[_MORPH_HEX_PY] == baseline
 
     # ...and the REAL game still morphs when its own turn 4 arrives.
-    _fire_turn_events(sim.gs, 1, 4)
+    _fire_turn_events(sim.gs, side_turn_event_names(1, 4, new_turn=True))
     assert getattr(sim.gs.global_info,
                    "_terrain_codes")[_MORPH_HEX_PY] == _MORPH_CODE
 
@@ -321,7 +322,7 @@ def test_deep_fingerprint_stable_across_fork_mutation():
     fp0 = deep_state_fingerprint(sim.gs)
 
     fork = sim.fork()
-    _fire_turn_events(fork.gs, 1, 4)   # terrain morph + event latch
+    _fire_turn_events(fork.gs, side_turn_event_names(1, 4, new_turn=True))   # terrain morph + event latch
     u = min((x for x in fork.gs.map.units if x.side == 1 and x.attacks),
             key=lambda x: x.id)
     obj = WMLNode("object")

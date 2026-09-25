@@ -2075,6 +2075,105 @@ sim played>`; `scenario_pool._scenario_tod_start` reads the slot
 from the expanded template for fresh builds. Pinned by
 `test_sim_to_replay_from_scratch.py::test_exported_save_pins_tod_start_slot`.
 
+**The declared slot is wrapped, never taken raw (added 2026-09-26).**
+`src/tod_manager.cpp:521-528`:
+```cpp
+int tod_manager::fix_time_index(int number_of_times, int time)
+{
+	if(number_of_times == 0) {
+		return 0;
+	}
+
+	return modulo(time, number_of_times);
+}
+```
+with `modulo` from `src/utils/math.hpp:62-74`, which adds `mod` to a
+negative remainder: on the six-slot schedule `current_time=-1` starts
+at second watch and `current_time=7` at morning. `wml_state.read_tod`
+applies `wml_state.fix_time_index` where the slot is read, and
+`_build_initial_gamestate` wraps a record's `tod_start_index` the same
+way. Before, the raw value went through: the default-cycle index
+clamped a negative one to dawn, the time-area index wrapped it, and the
+Rust core panicked on it. No pool scenario or corpus record holds one
+out of range (measured 2026-09-26).
+
+### Turn events: which names fire, how often, in what order (added 2026-09-26)
+
+**Rule:** at a side's turn start the engine fires `turn N` and
+`new turn` only if no side has started this turn yet, then `side turn`,
+`side S turn`, `side turn N`, `side S turn N`; after the refresh,
+income and healing, `turn refresh`, `side S turn refresh`,
+`turn N refresh`, `side S turn N refresh`. At a side's turn end it
+fires `side turn end`, `side S turn end`, `side turn N end`,
+`side S turn N end`, and after the last side's turn of a turn,
+`turn end` and `turn N end`.
+
+`src/play_controller.cpp:472-482` (1.18.4, `do_init_side`):
+```cpp
+		// We might have skipped some sides because they were empty so it is not enough to check for side_num==1
+		if(!gamestate().tod_manager_.has_turn_event_fired()) {
+			pump().fire("turn_" + turn_num);
+			pump().fire("new_turn");
+			gamestate().tod_manager_.turn_event_fired();
+		}
+
+		pump().fire("side_turn");
+		pump().fire("side_" + side_num + "_turn");
+		pump().fire("side_turn_" + turn_num);
+		pump().fire("side_" + side_num + "_turn_" + turn_num);
+```
+then `:519-522`, after `board_.new_turn`, income, healing and resting:
+```cpp
+		pump().fire("turn_refresh");
+		pump().fire("side_" + side_num + "_turn_refresh");
+		pump().fire("turn_" + turn_num + "_refresh");
+		pump().fire("side_" + side_num + "_turn_" + turn_num + "_refresh");
+```
+`finish_side_turn_events` (`:585-588`), after `board_.end_turn(side)`
+and before the refog:
+```cpp
+		pump().fire("side_turn_end");
+		pump().fire("side_" + side_num + "_turn_end");
+		pump().fire("side_turn_" + turn_num + "_end");
+		pump().fire("side_" + side_num + "_turn_" + turn_num + "_end");
+```
+and `finish_turn` (`:597-604`), which `finish_side_turn` calls when the
+next side to play wraps to a new turn (`src/playsingle_controller.cpp:259-262`):
+```cpp
+	pump().fire("turn_end");
+	pump().fire("turn_" + turn_num + "_end");
+```
+The latch is reset by `tod_manager::next_turn` (`src/tod_manager.cpp:574-579`,
+`has_turn_event_fired_ = false;`). An event answers to every name in its
+comma-separated `name=` list, each trimmed and with internal spaces made
+underscores, case kept (`event_handler::names`,
+`src/game_events/handlers.cpp:64-88`; `event_handlers::standardize_name`,
+`src/game_events/manager_impl.cpp:65-76`).
+
+Sim: `tools/scenario_events.py` names the four sequences
+(`side_turn_event_names`, `turn_refresh_event_names`,
+`side_turn_end_event_names`, `turn_end_event_names`), and the applier
+fires them from `_apply_command`. It opens a turn at side 1's
+init_side, where it counts turns (side 1 always opens a turn), so that
+init_side fires the previous turn's two end names first, then `turn N`
+and `new turn`. The Rust core runs no events: `CoreState.apply_command`
+sends an init_side or end_turn to the Python applier when one of the
+names it fires has an event that can still fire
+(`init_side_event_names`). Not modelled: the `side_number` and
+`turn_number` WML variables the engine sets for these events, and
+event filters (`[filter_side]`, `[filter_condition]`).
+
+**Why non-obvious:** "new turn" reads like "a side's new turn". The
+applier fired `side S turn N`, `turn N`, `new turn` and `side turn` at
+every side's init_side (to 2026-09-26): a repeating `new turn` or
+`turn N` event ran once per side, the other side, refresh and end forms
+never ran, and the order differed. No pool or corpus scenario defines
+an event on a name whose behaviour changed: their turn events are
+Aethermaw's `side 1|2 turn 4|5|6` (first-time-only terrain morphs, same
+moment), the enclave minis' `turn 1` (first-time-only, same moment) and
+`turn refresh` (unchanged), and Silverhead Crossing's repeating
+`side 3 turn`, whose side is `controller=null` and never takes a turn.
+
 ### Pre-placed units via `[switch] variable=pN_faction [case]` (Hornshark Island)
 
 Most MP maps spawn only leaders and let players recruit. **Hornshark

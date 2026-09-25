@@ -1814,6 +1814,16 @@ def _apply_command(gs: GameState, cmd: list) -> None:
 
     if kind == "init_side":
         side = cmd[1]
+        # Side 1 opens every turn here (the turn counter below), so its
+        # init_side first ends the turn before: the engine fires "turn
+        # end" and "turn N end" once the last side's turn is over, while
+        # that side is still the current one (finish_turn,
+        # play_controller.cpp:597-604).
+        from tools.scenario_events import (side_turn_event_names,
+                                           turn_end_event_names,
+                                           turn_refresh_event_names)
+        if side == 1 and gs.global_info.turn_number >= 1:
+            _fire_turn_events(gs, turn_end_event_names(gs.global_info.turn_number))
         gs.global_info.current_side = side
         # Per-turn rejection history clears at init_side. Per the
         # legality-mask contract (CLAUDE.md): rejection history is
@@ -1845,10 +1855,13 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             gs.global_info.time_of_day = _tod_for_turn(
                 gs.global_info.turn_number, tod_offset
             )
-        # Fire scenario-script side/turn events for whichever scenario
-        # we're in. For Aethermaw this morphs impassable terrain into
-        # water at side N turn 4/5/6.
-        _fire_turn_events(gs, side, gs.global_info.turn_number)
+        # The scenario's turn events (Aethermaw's side N turn 4/5/6
+        # morph impassable terrain into water), in the engine's order:
+        # "turn N" and "new turn" once per turn, at the side that opens
+        # it, then the four side forms (do_init_side,
+        # play_controller.cpp:473-482).
+        _fire_turn_events(gs, side_turn_event_names(
+            side, gs.global_info.turn_number, new_turn=(side == 1)))
 
         # Apply per-turn healing for `side`'s units. Direct port of
         # Wesnoth's wesnoth_src/src/actions/heal.cpp::calculate_healing.
@@ -2089,16 +2102,14 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 current_gold=new_gold, base_income=s.base_income,
                 nb_villages_controlled=owned, faction=s.faction,
             )
-        # "turn refresh" fires LAST in do_init_side (play_controller.
-        # cpp, 1.18.4: calculate_healing → set_resting(true) →
-        # pump().fire("turn_refresh")) — i.e. after the MP refresh and
-        # healing it is allowed to override. Mini Maps' repeating
+        # The four refresh forms fire LAST in do_init_side (play_controller.
+        # cpp:519-522, 1.18.4: calculate_healing → set_resting(true) →
+        # pump().fire("turn_refresh") ...) — i.e. after the MP refresh and
+        # healing they are allowed to override. Mini Maps' repeating
         # {MODIFY_UNIT (role=monster) moves 0} runs here every side
         # turn, re-zeroing tentacle MP right after the refresh.
-        events = getattr(gs.global_info, "_scenario_events", None)
-        if events:
-            from tools.scenario_events import fire_event
-            fire_event(gs, events, "turn refresh")
+        _fire_turn_events(gs, turn_refresh_event_names(
+            side, gs.global_info.turn_number))
         # "Make sure vision is accurate": clear_shroud(side, reset_fog)
         # after the refresh events (play_controller.cpp:524-525).
         refog(gs, side)
@@ -2136,6 +2147,11 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             ended = _rebuild_unit(u, statuses=set(u.statuses) - drop)
             new_units.add(ended)
         gs.map.units = new_units
+        # The side's four end forms, after its units end their turn
+        # (finish_side_turn_events, play_controller.cpp:585-588).
+        from tools.scenario_events import side_turn_end_event_names
+        _fire_turn_events(gs, side_turn_end_event_names(
+            ending_side, gs.global_info.turn_number))
         # "This is where we refog, after all of a side's events are
         # done" (play_controller.cpp:582-590).
         refog(gs, ending_side)
@@ -3005,18 +3021,15 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
         fire_event(gs, events, "start")
 
 
-def _fire_turn_events(gs: GameState, side: int, turn: int) -> None:
-    """Fire the side/turn events Wesnoth would dispatch at this moment.
-    Triggers we recognize: 'side N turn M', 'turn M', 'new turn'.
-    """
+def _fire_turn_events(gs: GameState, names: List[str]) -> None:
+    """Fire the scenario's events on `names`, in order: one of the
+    engine's turn-event sequences (tools/scenario_events, "The events
+    the engine fires around a side's turn")."""
     events = getattr(gs.global_info, "_scenario_events", None)
     if not events:
         return
-    from tools.scenario_events import fire_event
-    fire_event(gs, events, f"side {side} turn {turn}")
-    fire_event(gs, events, f"turn {turn}")
-    fire_event(gs, events, "new turn")
-    fire_event(gs, events, "side turn")
+    from tools.scenario_events import fire_events
+    fire_events(gs, events, names)
 
 
 def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False
