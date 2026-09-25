@@ -147,6 +147,53 @@ def test_a_declared_zero_village_economy_is_paid_as_zero():
     assert gained == sim.gs.sides[0].base_income - 1
 
 
+def _player_side_economies(text: str):
+    """{side number: (village_gold, village_support)} of the player
+    [side] blocks anywhere in an emitted WML document."""
+    from tools.replay_extract import parse_wml
+
+    found = {}
+
+    def walk(node):
+        for child in node.children:
+            if child.tag == "side":
+                side = child.attrs.get("side", "").strip('"')
+                if side in ("1", "2"):
+                    found[int(side)] = tuple(child.attrs.get(k, "").strip('"')
+                                             for k in ("village_gold", "village_support"))
+            walk(child)
+
+    walk(parse_wml(text))
+    return found
+
+
+def test_every_side_emitter_declares_a_zero_village_economy():
+    """A game played at village_gold=0 and village_support=0 is
+    exported at 0 by all three [side] emitters: the replay exporter
+    (`sim_to_replay.build_save_wml`), the scenario replay builder and
+    the save dump. The exporter read `gi.village_gold or default`,
+    which wrote a declared 0 as the default 2, a game that never
+    happened; the other two read `wml_state.village_economy`."""
+    from tools import replay_builder
+    from tools.dump_savestate import dump_savestate
+    from tools.scenario_events import load_scenario_wml
+    from tools.sim_to_replay import build_save_wml
+
+    setup = _setup("2p_mini_edited")
+    gs = sp.build_scenario_gamestate(setup, village_gold=0, village_upkeep=0)
+    sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=4)
+    scenario = replay_builder._build_scenario_node(
+        setup, gs, "", load_scenario_wml(setup.scenario_id))
+    emitted = {
+        "sim_to_replay": build_save_wml(sim),
+        "replay_builder": replay_builder.emit_wml(scenario),
+        "dump_savestate": dump_savestate(gs),
+    }
+    declared = {name: _player_side_economies(text) for name, text in emitted.items()}
+    want = {1: ("0", "0"), 2: ("0", "0")}
+    assert declared == {name: want for name in emitted}
+
+
 def test_both_spellings_of_the_village_economy_are_read():
     """Runtime reads `[side] village_gold` and the mini add-on writes
     it there; the mainline maps declare the game-creation setting

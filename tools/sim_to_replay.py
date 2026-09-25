@@ -64,7 +64,8 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim
-from tools.wml_state import read_unit, read_villages, resolve_map_file, wml_int
+from tools.wml_state import (read_unit, read_villages, resolve_map_file,
+                             village_economy, wml_int)
 
 
 log = logging.getLogger("sim_to_replay")
@@ -1182,16 +1183,14 @@ def build_save_wml(
         )
 
     pvp = pvp_defaults or PvPDefaults()
-    # The economy the GAME was played under, not the multiplayer
-    # default. Since 716a1c3 the sim reads the scenario's own village
-    # gold, so five of the seven mini scenarios play at 3; an export
-    # that wrote PvPDefaults' 2 declared a game that never happened
-    # (found 2026-09-22 by review, demonstrated on 2p_mini_edited).
-    # `dump_savestate` and `replay_builder` were fixed in be00037;
-    # this was the third emitter.
+    # The economy the GAME was played under, read the way the applier
+    # pays it (`wml_state.village_economy`, shared with `dump_savestate`
+    # and `replay_builder`): the scenario's own village gold, which is 3
+    # on five of the seven mini scenarios, and a declared 0 exported as
+    # 0 -- the engine takes the default only for a missing value
+    # (team.cpp:236 and :239-244, 1.18.4).
     gi = sim.gs.global_info
-    village_gold    = int(getattr(gi, "village_gold", None) or pvp.village_gold)
-    village_support = int(getattr(gi, "village_upkeep", None) or pvp.village_support)
+    village_gold, village_support = village_economy(gi)
 
     # Per-side starting gold: scrape the wesnoth_src .cfg
     # for any `gold=N` overrides (Arcanclave: 175). Falls back
