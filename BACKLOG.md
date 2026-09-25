@@ -4,17 +4,21 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-09-23)
+## NEXT (2026-09-25)
 
-The scenario rework is finished: W0-W6 are done
-(docs/scenario_build_plan_20260922.md), the last of them the engine
-oracle, which agrees with our builder on all 28 pool scenarios.
+**1. `obs8` is the reference** (user ruling 2026-09-25): +73 +- 13 Elo
+over `terrain` (docs/observation_retrain_prereg_20260924.md). Every
+number from here is measured against it.
 
-**1. No retrain is owed** (user ruling 2026-09-23): none of the
-rework's defects touched the corpus the reference learned from; the fog
-and statue defects changed only self-play generation. The time-of-day
-features (PARKED below, pre-registered) are an experiment, run on their
-own when wanted.
+**Next: the turn-ranking value net** (approved in principle 2026-09-24,
+design under discussion with the user): a value function that ranks
+candidate turns from one position, trained on within-position contrasts
+from branched `obs8` playouts, its own weights (no gradient into the
+policy). First arm: a head on `obs8`'s frozen trunk
+(`tools/value_head_fit.py` caches the trunk's features); a fine-tuned
+copy of the trunk only if it fails; the pass bar is the pre-grader check
+of docs/turn_gap_ref_prereg_20260921.md on fresh confirmed pairs under
+`obs8`. Pre-registration before any box.
 
 **2. Phase 2: turn search without a pre-grader.** The turn-level gap
 under the reference is RICH (7 of 60 confirmed) and neither forward-only
@@ -118,11 +122,10 @@ closing the queues.
 
 A side sees its fog as the engine keeps it (docs/wesnoth_rules.md
 "Vision and fog"; commits 0b7b3ea, 71f29c8, 73f4c1f). Open:
-- **The reference learned from disc observations.** Its imitation
-  corpus was encoded with the disc; at inference it now sees the
-  engine's fog. The measurement is its recipe retrained under epoch 6
-  and matched against it (800 decisive games); whether to spend it is
-  the user's call.
+- **RESOLVED 2026-09-25: the reference learned from disc observations.**
+  Its recipe retrained on the current observation (epoch 8, the time of
+  day included) beat it +73 +- 13 Elo and is the reference `obs8`
+  (docs/observation_retrain_prereg_20260924.md).
 - **Not modelled:** `vision=` / `[vision_costs]` (four unit types, none
   in the default era; such a unit warns), jamming, shared vision, the
   delay-shroud preference some corpus players may have used, and
@@ -158,7 +161,12 @@ reconstructed corpus positions show (804 of 66,873 decisions on 206
 games), so the reference's imitation data is epoch 6 or older either
 way; the retrain question of the vision entry above covers both.
 
-## PARKED: the network cannot see the time of day (2026-09-22)
+## The network sees the time of day (2026-09-22; trained into `obs8` 2026-09-25)
+
+Ran batched into the observation retrain: `obs8`, which sees it, beats
+`terrain` +73 +- 13 Elo together with the vision, statue and re-hide
+corrections; the time of day's own share is not measured. The record
+below is the design as parked.
 
 Built and tested on 2026-09-22, **not run**: the user's order is
 "we're not retraining after every single bug", so the arm waits and is
@@ -1795,6 +1803,10 @@ have caught a stale cache (tests/test_anchor_cache_gate.py).
 
 ## Rulings (user, 2026-09-05; reference player 2026-09-20)
 
+- 2026-09-25: the reference player is `obs8` at `raw:t0+eo-1.5`
+  (terrain's recipe retrained on the observation of epoch 8; +73 +- 13
+  Elo over `terrain`, docs/observation_retrain_prereg_20260924.md),
+  adopted on the condition that it beat the previous reference.
 - 2026-09-20: the reference player is `terrain` at `raw:t0+eo-1.5`
   (the terrain-set arm decoded with the end_turn logit offset -1.5;
   `configs/reference_player.json`, `tools/reference_player.py`).

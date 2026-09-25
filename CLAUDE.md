@@ -67,8 +67,15 @@ mechanism specs are in `docs/archive/` (index in its README); the 78
 quarantined training mechanisms are in `quarantine/INVENTORY.md`.
 
 State of play:
-- **The reference player (user ruling 2026-09-20) is `terrain` at
-  `raw:t0+eo-1.5`:** the terrain-set arm (HF
+- **The reference player (user ruling 2026-09-25) is `obs8` at
+  `raw:t0+eo-1.5`:** terrain's recipe from scratch on the observation
+  of `OBSERVATION_EPOCH` 8 (HF
+  `tier-b/observation_retrain_20260924/arm_epoch0.pt`, local
+  `training/checkpoints/obs8.pt`), +73 +- 13 Elo over `terrain` at the
+  same decode (483-317 of 800 decisive games,
+  docs/observation_retrain_prereg_20260924.md). Before it (2026-09-20
+  to 2026-09-25) the reference was `terrain` at `raw:t0+eo-1.5`: the
+  terrain-set arm (HF
   `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`, local
   `training/checkpoints/terrain.pt`; relevant-set basis, fog gate on,
   terrain set on) decoded with the end_turn logit offset -1.5, both
@@ -731,9 +738,29 @@ State of play:
   unaffected (no Ladder map has an acting neutral side; Silverhead's
   side 3 is `controller=null`) and reconstructed corpora are unchanged;
   mini self-play before and after is not comparable.
+- 2026-09-25 (0.6.0, user ruling): **`obs8` is the reference player: the
+  reference's recipe retrained on the current observation beats it +73
+  +- 13 Elo.** `terrain` was trained at `OBSERVATION_EPOCH` 3 and played
+  every match on observations it never learned: the engine's vision (a
+  different seen set at 30,814 of 31,137 fogged corpus decisions),
+  1-hp statues, the re-hide at turn start, and no time of day (zero-
+  padded). The same recipe from scratch on the current code (one pass,
+  exactly its 2,826,147 pairs), both players at `raw:t0+eo-1.5`: 483-317
+  of 800 decisive games, none capped, p 0.604 +- 0.017 against a pass
+  bar of 0.535 and a prediction of 0.56
+  (docs/observation_retrain_prereg_20260924.md "Measured"). The share
+  of the time of day against the corrections is not measured (batched
+  by user order). Holdout proxies equal terrain's. Vast stopped the box
+  at 1.79M pairs when the account's credit ran out; the trainer now
+  continues a cut pass exactly (0.5.10, `supervised_train`
+  `PassPosition`), and the box stopped itself at the end through Vast's
+  API. About 6.4 box-hours, $4.3. The 800 games are recorded whole (HF
+  `tier-b/observation_retrain_20260924/games_obs_e1_vs_terrain.tar.gz`).
+  Every strength claim from here is measured against `obs8`; nothing is
+  chained across references.
 
 Standing rules (full list in the plan): the reference player is
-`terrain` at `raw:t0+eo-1.5` (user ruling 2026-09-20; one checkpoint
+`obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint
 and one decode, both in `configs/reference_player.json`, which
 `tools/reference_player.py --flags b` turns into run_elo_batch flags);
 every strength claim is a PURE match against it with the standard
