@@ -30,8 +30,8 @@ def _python_reach_sets(state, side):
     ._build_legality_masks): visible units by position, ally/enemy/
     occupied/ZoC as coordinate sets."""
     from tools.abilities import hex_neighbors
-    from tools.replay_dataset import _stats_for
-    from wesnoth_ai.visibility import is_scenery_unit, units_visible_to
+    from tools.pathfind_sim import emits_zoc
+    from wesnoth_ai.visibility import units_visible_to
     unit_at = {}
     for u in units_visible_to(state, side):
         unit_at[(u.position.x, u.position.y)] = u
@@ -42,11 +42,8 @@ def _python_reach_sets(state, side):
             ally.add(pos)
             continue
         enemy.add(pos)
-        if is_scenery_unit(u) or "petrified" in (u.statuses or set()):
-            continue
-        if int(_stats_for(u.name).get("level", 1)) < 1:
-            continue
-        zoc.update(hex_neighbors(pos[0], pos[1]))
+        if emits_zoc(u):
+            zoc.update(hex_neighbors(pos[0], pos[1]))
     return unit_at, occ, ally, enemy, zoc
 
 

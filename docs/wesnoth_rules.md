@@ -237,18 +237,52 @@ player's OBSERVABLE state — exactly our legality-mask contract.
 
 ### ZoC and incapacitation
 
-`wesnoth_src/src/units/unit.hpp:1352-1355`:
+**Rule (corrected 2026-09-26):** a unit holds a zone of control when its
+level is 1 or more and it is not petrified, whatever its attacks; it
+holds it against a mover's side when it is that side's enemy and
+visible to it.
+
+`src/units/unit.hpp:1352-1356` (1.18.4):
 ```cpp
-/** Tests whether the unit has a zone-of-control, considering @ref incapacitated. */
-bool get_emit_zoc() const
-{
-    return emit_zoc_  && !incapacitated();
-}
+	/** Tests whether the unit has a zone-of-control, considering @ref incapacitated. */
+	bool emits_zoc() const
+	{
+		return emit_zoc_  && !incapacitated();
+	}
+```
+(this entry used to quote the function as `get_emit_zoc`, which is the
+raw flag's getter just below it). `emit_zoc_` is the unit type's
+`zoc=`, `src/units/types.cpp:215`:
+```cpp
+	zoc_ = get_cfg()["zoc"].to_bool(level_ > 0);
+```
+copied onto the unit in `unit::advance_to` (`src/units/unit.cpp:991`,
+`emit_zoc_ = new_type.has_zoc();`); a `[unit] zoc=` (`:507-508`) or an
+`[effect] apply_to=zoc` (`:2270-2274`) overrides it, and nothing in the
+default era, the pool scenarios or the corpus scenarios sets either
+(grep of wesnoth_src/data, 2026-09-26). The mover's side enters the
+test in `enemy_zoc` (`src/pathfind/pathfind.cpp:134-146`):
+```cpp
+		const unit *u = resources::gameboard->get_visible_unit(adj, viewing_team, see_all);
+		if ( u  &&  current_team.is_enemy(u->side())  &&  u->emits_zoc() )
+			return true;
 ```
 
 Petrified (`STATE_PETRIFIED`) → `incapacitated()` is true →
 emits no ZoC. Also has `attacks_left() = 0` and `movement_left() = 0`
 (unit.hpp:998 and 1299).
+
+Sim: `tools/pathfind_sim.emits_zoc` is the one predicate; the planner
+(`ReachContext.for_side`), the walker (`walk_move_path`), the legality
+mask's reach context (`action_sampler`) and the observation's unit flags
+(`wesnoth_ai/observe.py`) ask it. Every non-own side counts as an enemy.
+
+**Why non-obvious:** our "scenery" class (`visibility.is_scenery_unit`:
+petrified, or attackless on a side past 2) reads like "inert", and the
+planner skipped scenery for ZoC while the walker did not, so on a board
+with an attackless level-1 side-3 unit the mask offered moves that the
+walk cut short at the unit's zone (to 2026-09-26). No pool or corpus
+board has such a unit: every scenery unit there is a petrified statue.
 
 ### controller=null sides get no turn, ever
 

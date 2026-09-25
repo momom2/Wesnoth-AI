@@ -249,7 +249,7 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
     fn = fns.get("observe_side")
     if fn is None:
         return None
-    from tools.replay_dataset import _stats_for
+    from tools.pathfind_sim import emits_zoc
     from wesnoth_ai.visibility import is_scenery_unit
     geom = map_geometry(state)
     units = list(state.map.units)
@@ -269,8 +269,10 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
     uleader = np.fromiter((bool(u.is_leader) for u in units), dtype=np.uint8, count=n)
     uhider = np.fromiter((_hider_hidden(state, u, uncovered) for u in units),
                          dtype=np.uint8, count=n)
-    uzoc = np.fromiter((int(_stats_for(u.name).get("level", 1)) >= 1 for u in units),
-                       dtype=np.uint8, count=n)
+    # The one zone-of-control predicate. observe.rs still skips scenery
+    # before reading this flag, which the engine does not do; the kernel
+    # change is owed with the next Rust phase.
+    uzoc = np.fromiter((emits_zoc(u) for u in units), dtype=np.uint8, count=n)
     H = len(geom.keys)
     recruit_rej = np.zeros(H, dtype=np.uint8)
     for p in (getattr(gi, "_recruit_rejected_hexes", None) or ()):

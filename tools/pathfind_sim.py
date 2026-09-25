@@ -106,6 +106,27 @@ _SUBCOST_SCALE = 1.0 / 10000.0
 Coord = Tuple[int, int]
 
 
+def emits_zoc(unit) -> bool:
+    """Whether a unit exerts a zone of control: the engine's
+    `unit::emits_zoc()`, `return emit_zoc_  && !incapacitated();`
+    (src/units/unit.hpp:1352-1356, 1.18.4), where `emit_zoc_` is the unit
+    type's `zoc=`, which defaults to `level > 0` (src/units/types.cpp:215)
+    and which a `[unit] zoc=` or an `[effect] apply_to=zoc` can override.
+    None of those appears in the default era's units, the pool scenarios
+    or the corpus scenarios (wesnoth_src/data grep, 2026-09-26), so the
+    level decides. Attacks play no part: an attackless unit of level 1
+    or more holds a zone of control like any other. Whether it holds it
+    against a given mover is `enemy_zoc` (src/pathfind/pathfind.cpp:134-146):
+    an enemy of the mover, visible to the mover's side, which the callers
+    decide. The planner (`ReachContext.for_side`), the walker
+    (`walk_move_path`), the legality mask (`action_sampler`) and the
+    observation (`wesnoth_ai.observe`) all ask this."""
+    if "petrified" in (unit.statuses or set()):
+        return False
+    from tools.replay_dataset import _stats_for
+    return int(_stats_for(unit.name).get("level", 1)) >= 1
+
+
 @dataclass
 class ReachContext:
     """Per-decision, per-side observable-state snapshot shared by all
@@ -135,8 +156,7 @@ class ReachContext:
     def for_side(cls, gs, side: int, *, god_view: bool = False,
                  exclude_unit=None) -> "ReachContext":
         from tools.abilities import hex_neighbors
-        from tools.replay_dataset import _stats_for
-        from wesnoth_ai.visibility import units_visible_to, is_scenery_unit
+        from wesnoth_ai.visibility import units_visible_to
 
         # `playable` is read nowhere (project round-2 C12: its
         # per-call rebuild was pure overhead under every move
@@ -156,18 +176,11 @@ class ReachContext:
                 ctx.ally_hexes.add(pos)
                 continue
             # All non-own sides are enemies in our 2p (+hostile
-            # neutrals) setting; scenery is inert set-dressing that
-            # still occupies its hex but neither fights nor ZoCs.
+            # neutrals) setting; scenery occupies its hex like any
+            # enemy, and holds a zone of control by the same rule.
             ctx.enemy_hexes.add(pos)
-            if is_scenery_unit(u):
-                continue
-            # ZoC: level >= 1, not petrified (unit.hpp:1352-1355
-            # `emit_zoc_ && !incapacitated()`).
-            if "petrified" in (u.statuses or set()):
-                continue
-            if int(_stats_for(u.name).get("level", 1)) < 1:
-                continue
-            ctx.zoc_hexes.update(hex_neighbors(pos[0], pos[1]))
+            if emits_zoc(u):
+                ctx.zoc_hexes.update(hex_neighbors(pos[0], pos[1]))
         return ctx
 
 
@@ -676,17 +689,11 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     # engine's plot).
     zoc_hexes: Set[Coord] = set()
     if not skirmisher:
-        from tools.replay_dataset import _stats_for
         from wesnoth_ai.visibility import units_visible_to
         for u in units_visible_to(gs, side):
-            if u.side == side:
-                continue
-            if "petrified" in (u.statuses or set()):
-                continue
-            if int(_stats_for(u.name).get("level", 1)) < 1:
-                continue
-            zoc_hexes.update(
-                hex_neighbors(u.position.x, u.position.y))
+            if u.side != side and emits_zoc(u):
+                zoc_hexes.update(
+                    hex_neighbors(u.position.x, u.position.y))
 
     newly_uncovered: List[str] = []
     cum_cost = [0]                # cum_cost[j] = MP to stand at xs[j]

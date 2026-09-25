@@ -1565,9 +1565,7 @@ def _build_legality_masks(
     # `ReachContext.for_side` on the same observable state, which is
     # what makes "mask offers it => sim can route it" hold.
     from tools.abilities import hex_neighbors as _hex_neighbors
-    from tools.pathfind_sim import ReachContext, unit_reach
-    from tools.replay_dataset import _stats_for as _rd_stats_for
-    from wesnoth_ai.visibility import is_scenery_unit as _is_scenery
+    from tools.pathfind_sim import ReachContext, emits_zoc, unit_reach
     reach_ctx = ReachContext(
         side=current_side,
 
@@ -1585,13 +1583,8 @@ def _build_legality_masks(
                 reach_ctx.ally_hexes.add(_pos)
                 continue
             reach_ctx.enemy_hexes.add(_pos)
-            if _is_scenery(_uu):
-                continue
-            if "petrified" in (_uu.statuses or set()):
-                continue
-            if int(_rd_stats_for(_uu.name).get("level", 1)) < 1:
-                continue
-            reach_ctx.zoc_hexes.update(_hex_neighbors(_pos[0], _pos[1]))
+            if emits_zoc(_uu):
+                reach_ctx.zoc_hexes.update(_hex_neighbors(_pos[0], _pos[1]))
 
     # Rust batch enumeration (phase 2): all units' move/attack rows
     # in one call; None = Python path (no wheel / relevant-set).
