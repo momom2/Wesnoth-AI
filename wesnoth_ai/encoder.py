@@ -35,9 +35,11 @@ from wesnoth_ai.classes import (
     Alignment,
     GameState,
     Position,
+    SideInfo,
     Terrain,
     TerrainModifiers,
     Unit,
+    opponent_of,
 )
 
 
@@ -1221,6 +1223,12 @@ def _lookup_id(name: str, table: Dict[str, int], maxn: int) -> int:
     return min(table.get(name, maxn - 1), maxn - 1)
 
 
+def _side_info(sides: List[SideInfo], side: int) -> Optional[SideInfo]:
+    """The SideInfo of side number `side`, or None when the state
+    lists fewer sides."""
+    return sides[side - 1] if 0 < side <= len(sides) else None
+
+
 def encode_raw(
     game_state: GameState,
     *,
@@ -1254,8 +1262,13 @@ def encode_raw(
     `_rust_encode_kernel`) or by the `_python_*` builders below, which
     are the reference the wheel is certified against
     (tests/test_rust_encode_raw.py).
+
+    The side to move must be a player's (`classes.PLAYER_SIDES`); the
+    global features describe the other player's side as the enemy.
+    A state whose side to move is not a player's raises ValueError.
     """
     current_side = game_state.global_info.current_side
+    them_side = opponent_of(current_side)
     sides = game_state.sides
 
     # ---- hexes ----
@@ -1415,13 +1428,16 @@ def encode_raw(
     own_recruits = own_recruit_types(game_state, current_side)
 
     # ---- global ----
+    # The enemy is the other player's side, looked up by its number: a
+    # replayed game lists a SideInfo for every side its scenario
+    # declares, statues and tentacles included.
     gi = game_state.global_info
-    us_idx = current_side - 1
-    them_idx = 1 - us_idx if len(sides) == 2 else us_idx  # 2p assumption
-    our_gold       = sides[us_idx].current_gold if 0 <= us_idx < len(sides) else 0
-    our_income     = sides[us_idx].base_income  if 0 <= us_idx < len(sides) else 0
-    our_villages   = sides[us_idx].nb_villages_controlled if 0 <= us_idx < len(sides) else 0
-    their_villages = sides[them_idx].nb_villages_controlled if 0 <= them_idx < len(sides) else 0
+    us = _side_info(sides, current_side)
+    them = _side_info(sides, them_side)
+    our_gold       = us.current_gold if us else 0
+    our_income     = us.base_income if us else 0
+    our_villages   = us.nb_villages_controlled if us else 0
+    their_villages = them.nb_villages_controlled if them else 0
     if fog_hides_enemy_villages and fog_on:
         # Global feature 5 was the enemy's TRUE village count on every
         # path (2026-09-08 contamination review): a player under fog
@@ -1431,8 +1447,8 @@ def encode_raw(
         from wesnoth_ai.visibility import enemy_villages_visible_to
         their_villages = enemy_villages_visible_to(game_state, current_side, _seen_hexes())
 
-    our_fac  = sides[us_idx].faction   if 0 <= us_idx   < len(sides) else ""
-    them_fac = sides[them_idx].faction if 0 <= them_idx < len(sides) else ""
+    our_fac  = us.faction if us else ""
+    them_fac = them.faction if them else ""
     our_faction_id   = _lookup_id(our_fac,  faction_to_id, MAX_FACTIONS)
     their_faction_id = _lookup_id(them_fac, faction_to_id, MAX_FACTIONS)
 

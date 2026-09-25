@@ -537,6 +537,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 13: apply_init_side hides the side's revealed hiders again after
     // turn 1; refresh_uncovered is gone.
     // 14: apply_init_side pays a declared 0 village gold or support as 0.
-    m.add("__phase__", 14)?;
+    // 15: GameCore.encode_streams reads the other player's side as the
+    // enemy and refuses a side that is not a player's.
+    m.add("__phase__", 15)?;
     Ok(())
 }

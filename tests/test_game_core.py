@@ -6,7 +6,7 @@ attacks; sides; the turn scalars; the village owners, the uncovered and
 rejected sets, the advancement queue, the last walk and strikes) and
 share the hex set by identity. A fork must not share dynamic state
 with its parent. The core's state key must agree with itself on equal
-states and change with any modeled field. Skipped without the phase-14
+states and change with any modeled field. Skipped without the phase-15
 wheel.
 """
 from __future__ import annotations
@@ -253,11 +253,31 @@ def test_observation_from_core_equals_observe():
     assert n >= 32
 
 
+BASES_AND_GATES = ((False, False), (True, False), (True, True), (False, True))
+
+
+def _assert_raws_equal(py, core, label):
+    """Every RawEncoded field of the core's encoding equals the
+    encoder's, arrays byte for byte."""
+    import dataclasses
+    from wesnoth_ai.encoder import RawEncoded
+    for f in dataclasses.fields(RawEncoded):
+        a, b = getattr(py, f.name), getattr(core, f.name)
+        where = (f.name,) + tuple(label)
+        if f.name == "observation":
+            _assert_observations_equal(a, b)
+        elif isinstance(a, np.ndarray):
+            assert isinstance(b, np.ndarray), where
+            assert a.dtype == b.dtype and a.shape == b.shape, (where, a.dtype, b.dtype, a.shape, b.shape)
+            assert a.tobytes() == b.tobytes(), where
+        else:
+            assert a == b, where
+
+
 def test_encode_raw_from_core_is_byte_identical():
     """Every RawEncoded field from the core equals the encoder's on the
     Python state: both bases, fog on and off, the enemy-village gate."""
-    import dataclasses
-    from wesnoth_ai.encoder import RawEncoded, encode_raw
+    from wesnoth_ai.encoder import encode_raw
     states = _states_for_encoding()
     type_to_id, faction_to_id = _vocab_of(states)
     n = 0
@@ -267,24 +287,49 @@ def test_encode_raw_from_core_is_byte_identical():
             for side in (1, 2):
                 gs.global_info.current_side = side
                 cs = gc.CoreState.from_state(gs)
-                for relevant, gate in ((False, False), (True, False), (True, True), (False, True)):
+                for relevant, gate in BASES_AND_GATES:
                     kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id,
                               relevant_set=relevant, fog_hides_enemy_villages=gate)
-                    py = encode_raw(gs, **kw)
-                    core = cs.encode_raw(**kw)
-                    for f in dataclasses.fields(RawEncoded):
-                        a, b = getattr(py, f.name), getattr(core, f.name)
-                        label = (f.name, side, fog, relevant, gate)
-                        if f.name == "observation":
-                            _assert_observations_equal(a, b)
-                        elif isinstance(a, np.ndarray):
-                            assert isinstance(b, np.ndarray), label
-                            assert a.dtype == b.dtype and a.shape == b.shape, (label, a.dtype, b.dtype, a.shape, b.shape)
-                            assert a.tobytes() == b.tobytes(), label
-                        else:
-                            assert a == b, label
+                    _assert_raws_equal(encode_raw(gs, **kw), cs.encode_raw(**kw),
+                                       (side, fog, relevant, gate))
                     n += 1
     assert n >= 64
+
+
+def test_encode_raw_from_core_reads_the_other_player_on_a_three_side_state():
+    """A replayed game whose record declares a third side (a statue or
+    tentacle side) keeps a SideInfo for it: the core's enemy faction and
+    enemy village count are the other player's, as the encoder's are,
+    and neither the core nor its Rust entry encodes for the third side."""
+    from tests.sim_test_helpers import replayed_state, three_side_record
+    from wesnoth_ai import encoder as enc
+    n = 0
+    for fog in (True, False):
+        record = three_side_record(fog=fog, third_side_acts=True)
+        for n_commands, side in ((1, 1), (3, 2)):
+            gs = replayed_state(record, n_commands)
+            assert gs.global_info.current_side == side and len(gs.sides) == 3
+            type_to_id, faction_to_id = _vocab_of([gs])
+            cs = gc.CoreState.from_state(gs)
+            for relevant, gate in BASES_AND_GATES:
+                kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id,
+                          relevant_set=relevant, fog_hides_enemy_villages=gate)
+                _assert_raws_equal(enc.encode_raw(gs, **kw), cs.encode_raw(**kw),
+                                   (side, fog, relevant, gate))
+                n += 1
+        gs = replayed_state(record, 5)
+        type_to_id, faction_to_id = _vocab_of([gs])
+        third = gc.CoreState.from_state(gs)
+        assert int(third.core.current_side) == 3
+        with pytest.raises(ValueError, match="not a player side"):
+            third.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id)
+        with pytest.raises(ValueError, match="not a player side"):
+            third.core.encode_streams(
+                3, False, third._type_vocab(type_to_id), [], [], False,
+                (enc.HP_NORM, enc.MOVES_NORM, enc.EXP_NORM, enc.COST_NORM, enc.GOLD_NORM,
+                 enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
+                enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS)
+    assert n == 16
 
 
 def _one_sim(seed: int, *, mini: bool, max_turns: int, use_core: bool):

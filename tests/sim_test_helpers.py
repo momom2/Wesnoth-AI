@@ -91,6 +91,60 @@ def twin_scenario_sims(seed: int = 0, *, max_turns: int = 6,
     )
 
 
+# A replay record, as tools/replay_extract writes one, of a 2p game whose
+# scenario declares a third side (compare Caves of the Basilisk: a
+# "Custom" statue side, controller=null). Coordinates are 0-indexed.
+THREE_SIDE_FACTIONS = {1: "Rebels", 2: "Loyalists", 3: "Custom"}
+THREE_SIDE_VILLAGES = {1: [(0, 0), (2, 0)], 2: [(9, 5), (7, 5), (9, 3)]}
+
+
+def three_side_record(*, third_side_acts: bool = False, fog: bool = False,
+                      turns: int = 3) -> dict:
+    """The record of `turns` turns in which every side ends its turn at
+    once. Side 1 (Rebels) owns two villages, side 2 (Loyalists) three,
+    and side 3 holds one petrified statue and no village. With
+    `third_side_acts` side 3 takes a turn after side 2 every round, as a
+    mini map's tentacle side (controller=ai) does; otherwise it never
+    does, as the engine plays a controller=null side."""
+    width, height = 10, 6
+    villages = {xy for owned in THREE_SIDE_VILLAGES.values() for xy in owned} | {(5, 5)}
+    rows = [", ".join("Gg^Vh" if (x, y) in villages else "Gg" for x in range(width))
+            for y in range(height)]
+    border = ", ".join(["Xv"] * (width + 2))
+    map_data = "\n".join([border] + [f"Xv, {r}, Xv" for r in rows] + [border])
+    units = [("Elvish Captain", 1, 1, 1, {"is_leader": True}),
+             ("Lieutenant", 2, 8, 4, {"is_leader": True}),
+             ("Dwarvish Fighter", 3, 5, 2, {"petrified": True})]
+    recruits = {1: ["Elvish Fighter"], 2: ["Spearman"], 3: []}
+    one_turn = [["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"]]
+    if third_side_acts:
+        one_turn += [["init_side", 3], ["end_turn"]]
+    return {
+        "game_id": "three_sides", "scenario_id": "", "map_data": map_data,
+        "starting_units": [{"uid": i + 1, "type": t, "side": s, "x": x, "y": y,
+                            "is_leader": False, **extra}
+                           for i, (t, s, x, y, extra) in enumerate(units)],
+        "starting_sides": [{"side": s, "faction": THREE_SIDE_FACTIONS[s], "gold": 100,
+                            "recruit": recruits[s], "fog": fog, "shroud": False}
+                           for s in (1, 2, 3)],
+        "starting_villages": [{"x": x, "y": y, "side": s}
+                              for s, owned in THREE_SIDE_VILLAGES.items() for x, y in owned],
+        "commands": one_turn * turns,
+    }
+
+
+def replayed_state(record: dict, n_commands: int):
+    """The record's state after its first `n_commands` commands, built
+    as replay reconstruction builds it."""
+    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
+                                      _setup_scenario_events)
+    gs = _build_initial_gamestate(record)
+    _setup_scenario_events(gs, record.get("scenario_id", ""))
+    for cmd in record["commands"][:n_commands]:
+        _apply_command(gs, cmd)
+    return gs
+
+
 class Brawler:
     """A deterministic test driver: recruits like the dummy policy,
     then walks every unit toward the nearest enemy on the sim's own

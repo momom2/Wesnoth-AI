@@ -292,6 +292,56 @@ turn ("received a synced [command] from side 1. Expacted was a
 Both directions of the same census rule: WHO ACTS = declared
 controller attribute, never the live unit roster.
 
+### Side order within a turn
+
+The next side to play is the next side number whose team is not
+empty; wrapping past the last side starts a new turn. At each side's
+turn start, `src/play_controller.cpp:465` (`do_init_side`):
+```cpp
+gamestate_->next_player_number_ = gamestate_->player_number_ + 1;
+```
+and at its end, `src/playsingle_controller.cpp:251` and `:259`
+(`finish_side_turn`):
+```cpp
+int next_player_number_temp = gamestate_->next_player_number_;
+auto [next_player_number, new_turn]  = skip_empty_sides(next_player_number_temp);
+```
+`skip_empty_sides` (quoted in the entry above) walks forward modulo
+the number of teams to the first team that is not `is_empty()`, and
+reports a new turn when it wraps. `src/team.hpp:247`:
+```cpp
+bool is_empty() const { return info_.controller == side_controller::type::none; }
+```
+and `src/side_controller.hpp:21` names that controller in WML:
+```cpp
+static constexpr const char* const none = "null";
+```
+On a 2p map with a third side, each turn is therefore sides 1, 2,
+then 3 when its controller is not null, and side 1 opens the next
+turn. The simulator plays sides 1 and 2 by policy and an acting third
+side by `tools/neutral_ai.py`, inside side 2's end_turn step
+(`WesnothSim._next_player_side`).
+
+**Why non-obvious:** who acts is a property of each side's
+controller, and our states do not carry controllers. A scenario build
+records the census from the scenario's [side] blocks
+(`_null_controller_sides`, `_neutral_actor_sides`); an extracted replay
+record keeps no controller but keeps a SideInfo for every declared
+side, statues included. Counting SideInfos therefore gave a replayed
+Caves of the Basilisk position continued in the simulator a side-3
+turn every round: the init_side and end_turn of a side the engine
+never plays (its units' turn-start healing and end-of-turn refresh,
+its `side 3 turn` events), with side 3 as the side to move after
+side 2. Replay reconstruction reads the census from the record's
+init_side commands (`replay_dataset.extra_side_turns`). Over the
+imitation corpus (2026-09-25), 7,118 of 17,019 games declare a third
+side; its init_side appears in every game of the six tentacle minis
+(`controller=ai`: 2p_mini, 2p_mini_edited,
+Modified_Tiny_Close_Relation, enclave_micro_isar,
+enclave_mini_fallenstar_1v1, enclave_small_fallenstar_1v1) and in no
+game of Caves of the Basilisk, Silverhead Crossing, Sullas Ruins,
+Thousand Stings Garrison or WL_Troll_Toll (`controller=null`).
+
 ### Hide cover is a terrain-CODE filter, not a defense class
 
 `wesnoth_src/data/core/macros/abilities.cfg:280-382` — each `[hides]`

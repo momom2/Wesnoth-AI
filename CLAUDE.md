@@ -825,6 +825,28 @@ State of play:
   (`tools/signal_telemetry.py`, whose `GradientProbe` the other
   trainers will use: BACKLOG.md "Standing"). The probe is built to
   leave training unchanged and tests hold it bit-identical on CPU.
+- 2026-09-26 (0.7.7): **the encoder gave the mover's own faction as the
+  enemy's in a quarter of the corpus.** It chose the enemy side by
+  counting sides (`them = 1 - us if len(sides) == 2 else us`), and a
+  replayed game carries one side per recorded side, statue and neutral
+  sides included. In the 7,118 corpus games that declare a third side
+  (Caves of the Basilisk, Silverhead Crossing, Sullas Ruins, Thousand
+  Stings Garrison, WL_Troll_Toll and the six tentacle minis), 1,287,662
+  of the 4,986,924 player decisions (25.8%), the enemy faction was the
+  mover's own (all but 290 mirror-game decisions) and global feature 5
+  the mover's own village count wherever the fog gate did not recompute
+  it (268,627 decisions under the gate). seed2, relset, terrain and
+  `obs8` trained on it, and play builds two-side states, so training and
+  play disagreed on 4 of the 21 match maps. The same count gave the
+  third side a turn every round in positions continued from those games
+  (13 of the 60 turn-gap positions of 2026-09-23; the RICH verdict
+  stands, none of its 7 confirmed positions is among them) and kept the
+  four maps out of the value corpus. One definition of the player sides
+  (`classes.PLAYER_SIDES`, `opponent_of`) serves the Python encoder, the
+  core and the Rust encoder (phase 15); the turn order follows the
+  engine (docs/wesnoth_rules.md "Side order within a turn").
+  `OBSERVATION_EPOCH` is 10: matches from here do not chain onto earlier
+  ones, although a match game plays identically before and after.
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

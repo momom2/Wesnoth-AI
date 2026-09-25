@@ -248,4 +248,12 @@ DEFAULT_FACTIONS = (
 #      clamps after re-applying them (a quick defender kept 5 of 6 moves).
 #      The defender's counter weapon also follows the engine's level-up
 #      scoring, which changes play, not what a side observes.
-OBSERVATION_EPOCH = 9
+#  10  (2026-09-26) the global features read the other player's side as
+#      the enemy (classes.opponent_of). A replayed game keeps a SideInfo
+#      for every side its record declares, and in the 7,118 of 17,019
+#      corpus games that declare a third side (four ladder maps, six
+#      minis and WL_Troll_Toll) the encoder took the mover's own side for
+#      the enemy: its faction id, and global feature 5 wherever the fog
+#      gate did not recount it. Games generated from a scenario list the
+#      two players only and read the right side.
+OBSERVATION_EPOCH = 10

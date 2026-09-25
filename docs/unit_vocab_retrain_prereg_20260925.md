@@ -40,12 +40,15 @@ match cannot separate the two; the first is expected to dominate.
   `configs/imitation.json`, batch 64, lr 1e-4, cosine over 4 epochs
   stopped after one pass, the deduplicated corpus with the manifest
   split, fog gate on, pre-encoded records, run seed 20260909, arch
-  384/8/12/1536, `OBSERVATION_EPOCH` 9 or later. `scripts/unit_vocab_retrain_box.sh`
+  384/8/12/1536, `OBSERVATION_EPOCH` 10 or later. `scripts/unit_vocab_retrain_box.sh`
   runs it. The code also carries the engine rules landed with it
   (0.6.6): the corpus reconstructs 16 games with their declared zero
   village economy and keeps a levelling unit's trait movement, and both
   players of the match choose counter weapons by the engine's level-up
-  rule.
+  rule. From 0.7.7 it also encodes the enemy's faction and villages
+  correctly on maps with a third side (a quarter of the corpus's player
+  decisions read the mover's own); the match measures both corrections
+  together and cannot separate them.
 - Opponent: `obs8` as configured, served through its own inference server
   in its own encoding (its 356-name vocabulary and its clamp).
 - Match: PURE, both sides at the reference decode (`raw:t0` with the

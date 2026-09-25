@@ -24,7 +24,10 @@ on fresh confirmed pairs under `obs8`.
 **Waiting on the user: the unit-vocabulary retrain**
 (docs/unit_vocab_retrain_prereg_20260925.md): `obs8`'s recipe with every
 reachable unit type on its own embedding row, 800 decisive games against
-`obs8`, about 4.5 box-hours.
+`obs8`, about 4.5 box-hours. On the current code it also carries the
+player-side correction (0.7.7: the enemy's faction and villages right in
+the quarter of the corpus played on maps with a third side), and its
+match cannot separate the two corrections.
 
 **2. Phase 2: turn search without a pre-grader.** The turn-level gap
 under the reference is RICH (7 of 60 confirmed) and neither forward-only
@@ -95,8 +98,14 @@ the same night:
 - **`obs8` has no self-pin on record** (terrain has +2 +- 12). Decision:
   run one on the next box, or record that none is needed.
 - **The value corpus has no game of the four eval maps with a third
-  side** (`build_value_corpus` counted `[side]` blocks); the fix is on
-  branch `fix/player-side-encoding`, the rebuild needs a CPU box.
+  side** (`build_value_corpus` counted `[side]` blocks; fixed in 0.7.7):
+  a rebuild adds about 1,500 games and needs a CPU box.
+- **Mid-game exports on three-side maps:** `sim_to_replay.build_save_wml`
+  loops over every SideInfo and raises "no leader record for side 3" on a
+  replayed three-side game, so a validation export of a mid-game start
+  drawn from such a game fails (only reachable with
+  `--midgame-dataset replays_dataset_imitation`, or after the value
+  corpus rebuild).
 - **Legacy box path:** `scripts/box_stop_on_abort.py` (the quarantined
   campaign flow) puts the Vast ACCOUNT key on the box and logs requests
   that carry it. Retire it with the user's word.
