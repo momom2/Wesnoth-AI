@@ -2534,6 +2534,9 @@ def train(
                         # GLOBAL completed-epoch count (= `epoch`,
                         # since this epoch hasn't finished yet) and
                         # the pass position a resume continues from.
+                        # The step norms since the last signal row go
+                        # out first, so a resume from here loses none.
+                        signal.close(epoch=epoch, step=global_step, pairs=running_count)
                         _save_checkpoint(
                             checkpoint_out, model, encoder, opt,
                             global_step, running_count, epoch=epoch,

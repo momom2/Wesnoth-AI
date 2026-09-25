@@ -70,7 +70,8 @@ def _reference_grams(model, enc, raws, ais, zw, optimizer=None):
     """Per group, the Gram matrix of the five terms' gradients built from
     the per-sample loss path (tests/test_imitation_flat_batch.py holds it
     equal to the batched one), in gradient space and, given an optimizer
-    with state, divided by Adam's bias-corrected scale."""
+    with state, as the step AdamW takes for it: times lr over its
+    bias-corrected scale."""
     parts, _ = per_sample_reference(model, enc, raws, ais, zw, DEV)
     terms = {
         "actor": sum(w * p.actor for p, (_, _, w) in zip(parts, zw)),
@@ -91,9 +92,10 @@ def _reference_grams(model, enc, raws, ais, zw, optimizer=None):
             flat[signal_group(name)][i].append(g.reshape(-1).double())
             st_p = optimizer.state.get(p) if optimizer is not None else None
             if st_p:
-                beta2, eps = optimizer.param_groups[0]["betas"][1], optimizer.param_groups[0]["eps"]
+                hyper = optimizer.param_groups[0]
+                beta2, eps, lr = hyper["betas"][1], hyper["eps"], hyper["lr"]
                 v_hat = st_p["exp_avg_sq"].double() / (1 - beta2 ** float(st_p["step"]))
-                scaled[signal_group(name)][i].append((g.double() / (v_hat.sqrt() + eps)).reshape(-1))
+                scaled[signal_group(name)][i].append((g.double() * lr / (v_hat.sqrt() + eps)).reshape(-1))
 
     def gram(vectors):
         out = {}
@@ -133,7 +135,14 @@ def test_each_term_is_the_gradient_the_trainer_steps_on(tmp_path, game_states):
                      probe_pairs=len(raws))
     row = signal.record((raws, ais, zw), epoch=0, step=1, pairs=len(raws))
     assert "probe_error" not in row and row["probe_pairs"] == len(raws)
-    assert row["fired"]["value"] > 0 and row["fired"]["weapon"] > 0
+    assert "update_stateless" not in row
+    # A policy term covers the pairs whose actor is in the sample and whose
+    # policy weight is not zero; the value-only pair counts for value alone.
+    in_sample = [ai.actor_idx < len(r.unit_ids) + len(r.recruit_types) + 1 for r, ai in zip(raws, ais)]
+    assert row["fired"]["actor"] == sum(ok and pw > 0 for ok, (_, _, pw) in zip(in_sample, zw))
+    assert row["fired"]["value"] == sum(ok and z is not None and vw > 0
+                                        for ok, (z, vw, _) in zip(in_sample, zw))
+    assert 0 < row["fired"]["actor"] < sum(in_sample) and row["fired"]["weapon"] > 0
 
     gradient, update = _reference_grams(model, enc, raws, ais, zw, optimizer=opt)
     for group in SIGNAL_GROUPS:
@@ -152,6 +161,14 @@ def test_each_term_is_the_gradient_the_trainer_steps_on(tmp_path, game_states):
     policy = [IMITATION_SOURCES.index(s) for s in POLICY_SOURCES]
     trunk = row["gradient_gram"]["trunk"]
     assert sum(trunk[a][b] for a in policy for b in policy) > 0 and trunk[4][4] > 0
+
+    # A parameter never stepped is left out of the update space, and said so.
+    largest_trunk = max((p for name, p in named_model_parameters(model, enc)
+                         if signal_group(name) == "trunk" and opt.state.get(p)),
+                        key=lambda p: p.numel())
+    del opt.state[largest_trunk]
+    partial = signal.record((raws, ais, zw), epoch=0, step=2, pairs=2 * len(raws))
+    assert partial["update_stateless"] == {"trunk": 1}
 
 
 def test_the_probe_leaves_training_bit_identical(tmp_path, game_states):
@@ -239,6 +256,7 @@ def test_a_resumed_runs_file_reads_as_one_run(tmp_path):
             {"kind": "probe", "pairs": 200}, {"kind": "steps", "pairs": 230},
             {"kind": "start", "pairs": 150}, {"kind": "probe", "pairs": 200},
             {"kind": "probe", "pairs": 300}]
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows) + '{"kind": "pro',
+                    encoding="utf-8")        # the trainer killed mid-write
     assert [(r["kind"], r["pairs"]) for r in read_signal_rows(path)] == [
         ("start", 0), ("probe", 100), ("start", 150), ("probe", 200), ("probe", 300)]
