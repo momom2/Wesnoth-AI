@@ -1010,13 +1010,20 @@ def _tod_for_turn(turn_number: int, start_offset: int = 0) -> str:
     return cb.TOD_DEFAULT_CYCLE[_tod_cycle_index(turn_number, start_offset)][0]
 
 
+# The [illuminates] ability's value and max_value, both 25 in
+# `{ABILITY_ILLUMINATES}` (data/core/macros/abilities.cfg:232-236), the
+# only definition of it in the default era. The Rust core keeps it as
+# `ILLUMINATION` (core_attack.rs); tests/test_rust_constants.py compares.
+ILLUMINATES_VALUE = 25
+
+
 def apply_unit_illumination(base: int, illuminated: bool) -> int:
     """`bounded_add(base, 25, max_sum=25, min_sum=0)`'s positive branch
     (tod_manager.cpp:265-281): the [illuminates] ability on top of the
     terrain-lit time of day, `min(base + 25, max(base, 25))`."""
     if not illuminated:
         return base
-    return min(base + 25, max(base, 25))
+    return min(base + ILLUMINATES_VALUE, max(base, ILLUMINATES_VALUE))
 
 
 def illuminated_lawful_bonus_at(gs: GameState, unit: Unit, turn: int) -> int:
