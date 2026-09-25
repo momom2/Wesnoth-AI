@@ -29,7 +29,7 @@ PARAM_GROUPS = (
 )
 
 
-def _group_of(name: str) -> str:
+def group_of(name: str) -> str:
     for g, pred in PARAM_GROUPS:
         if pred(name):
             return g
@@ -214,7 +214,7 @@ def build_tree(policy_factory, batch: List,
     tree = {"groups": {}, "terms": {}}
     group_names = {}
     for n in names:
-        group_names.setdefault(_group_of(n), []).append(n)
+        group_names.setdefault(group_of(n), []).append(n)
 
     tot_flat_all = _flat(total, names)
     tot_sq = float(tot_flat_all.pow(2).sum().item()) or 1e-12

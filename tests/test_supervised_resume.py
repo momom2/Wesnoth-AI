@@ -233,8 +233,20 @@ def _train(corpus, ckpt: Path, monkeypatch, *, epochs=1, max_pairs=0, resume=Non
              max_replay_commands=0, batched_forward=True, preencoded=encoded,
              relevant_set_hexes=True, terrain_multi_hot=True, fog_hides_enemy_villages=True,
              imitation_config=ROOT / "configs" / "imitation.json", value_states_per_game=40,
-             eval_every=40, eval_pairs=16, log_every=1000, ckpt_every=1000)
+             eval_every=40, eval_pairs=16, log_every=1000, ckpt_every=1000, signal_every=16)
     return trained
+
+
+def _signal_rows(*paths: Path):
+    """The signal telemetry's readings by trained-pair count; the step
+    norms are left out, since a resumed run's first row counts only the
+    steps it took itself."""
+    rows = {}
+    for path in paths:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            rows[row["pairs"]] = (row["groups"], row["gram"])
+    return rows
 
 
 def _weights(ckpt: Path):
@@ -256,6 +268,10 @@ def test_a_cut_and_resumed_run_trains_the_uncut_pass(corpus, tmp_path, monkeypat
     assert "the replayed draws land on the checkpoint's state" in caplog.text
     a, b = _weights(tmp_path / "full.pt"), _weights(tmp_path / "resumed.pt")
     assert a.keys() == b.keys() and all(torch.equal(a[k], b[k]) for k in a)
+    # The signal telemetry probes the same pairs at the same weights.
+    uncut = _signal_rows(tmp_path / "full_signal.jsonl")
+    assert len(uncut) >= 3 and min(uncut) < CUT < max(uncut)
+    assert _signal_rows(tmp_path / "cut_signal.jsonl", tmp_path / "resumed_signal.jsonl") == uncut
 
 
 @needs_corpus

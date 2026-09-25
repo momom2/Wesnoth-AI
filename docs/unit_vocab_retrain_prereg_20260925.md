@@ -58,6 +58,12 @@ match cannot separate the two; the first is expected to dominate.
   the arm's side (Northerners and Undead lose the most rows), the capped
   fraction, the holdout probe at the end of the pass (proxies, never
   verdicts), the per-phase value AUC.
+- Recorded, not read for the verdict: the trainer's signal telemetry
+  (`arm_signal.jsonl`, tools/signal_telemetry.py `ImitationSignal`):
+  every 25,000 pairs, the share of the trunk's, the encoder's and the
+  heads' gradient owed to each loss term and the steps' gradient norms,
+  from a probe that leaves the training bit-identical and costs under
+  1% of the pass; and the stage timing (`arm_prof.json`).
 
 Held fixed: `obs8` and its decode, bf16 packed serving on cuda,
 combat-oracle alphas 0, one result directory for the pair.

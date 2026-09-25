@@ -225,7 +225,8 @@ def upload(path, name):
     return False
 
 
-files = ["train.log", "arm_eval.jsonl", "preencode.log", "box.txt", "progress.txt", "build.log",
+files = ["train.log", "arm_eval.jsonl", "arm_signal.jsonl", "arm_prof.json",
+         "preencode.log", "box.txt", "progress.txt", "build.log",
          "tests_obs.log", "phase_obs.json", "phase_obs.md", "STOPPED_AFTER_EPOCH", "match.walls"]
 files += sorted(os.path.basename(p) for p in glob.glob(out + "/arm_epoch*.pt"))
 files += sorted(os.path.basename(p) for p in glob.glob(out + "/*.fit.json"))

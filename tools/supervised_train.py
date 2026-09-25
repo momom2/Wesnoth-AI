@@ -48,6 +48,7 @@ import torch.nn.functional as F
 # Project imports — assume cwd is the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools.signal_telemetry import IMITATION_SIGNAL_EVERY, ImitationSignal
 from tools.unit_vocab import seed_vocab
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.constants import OBSERVATION_EPOCH
@@ -1110,6 +1111,21 @@ def _accumulate_batch(model, encoder, raws, ais, zw, batch_size, device,
             torch.cuda.empty_cache()
 
 
+GRAD_CLIP = 1.0     # the global gradient-norm clip of every step
+
+
+def _clip_and_step(opt: torch.optim.Optimizer, params: List[torch.nn.Parameter],
+                   step_norms: Optional[List[torch.Tensor]] = None) -> None:
+    """Clip the accumulated gradient, step, zero the gradients. The
+    pre-clip norm goes to `step_norms` as a device tensor (the signal
+    telemetry reads them back once per row, not once per step)."""
+    norm = torch.nn.utils.clip_grad_norm_(params, GRAD_CLIP)
+    if step_norms is not None:
+        step_norms.append(norm.detach())
+    opt.step()
+    opt.zero_grad()
+
+
 def _flush_batch(
     model:           WesnothModel,
     encoder:         GameStateEncoder,
@@ -1128,10 +1144,12 @@ def _flush_batch(
     running_loss_value:  deque,
     type_loss_weights: Optional[Dict[str, float]] = None,
     autocast_dtype=None,
+    step_norms: Optional[List[torch.Tensor]] = None,
 ) -> int:
     """One batched forward + summed-loss backward + opt step over B
     RawEncoded pairs; returns the number of times the batch had to be
-    halved to fit the device (0 when it fit whole).
+    halved to fit the device (0 when it fit whole). The step's pre-clip
+    gradient norm goes to `step_norms` (`_clip_and_step`).
 
     The batch's token embeddings come from one pinned host buffer
     (`encode_from_raw_embedded`, the inference server's path), the
@@ -1161,10 +1179,7 @@ def _flush_batch(
     sink: List = []
     splits = _accumulate_batch(model, encoder, batch_raws, batch_ais, zw, batch_size, device,
                                type_loss_weights, sink, opt, autocast_dtype)
-
-    torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
-    opt.step()
-    opt.zero_grad()
+    _clip_and_step(opt, params_for_clip, step_norms)
 
     # One transfer for the whole flush, AFTER the optimizer step: the
     # backward, the clip and the step are all enqueued before the host
@@ -1552,6 +1567,9 @@ def train(
                                      # per game per epoch
     eval_every: int = 50_000,        # pairs between held-out evals
                                      # (0 = only at epoch ends)
+    signal_every: int = IMITATION_SIGNAL_EVERY,
+                                     # trained pairs between signal
+                                     # telemetry rows (<stem>_signal.jsonl)
     eval_pairs: int = 1200,          # held-out pairs per eval
     eval_pairs_per_game: int = 0,    # stratified probe cap (0=legacy)
     eval_sample_seed: Optional[int] = None,  # seeded random redraw
@@ -2100,20 +2118,23 @@ def train(
     # as actor/type/weapon pairs, target head silent). Expected 0;
     # every one is a superset violation worth a look.
     target_off_subset = 0
+    # Pairs the batched flow could not encode: never taken (the resume's
+    # skip encodes them again to tell), warned and counted.
+    encode_failures = 0
+    pair_loss_failures = 0    # the per-pair flow's, counted in pairs_dropped
 
-    # Stage profiling (WESNOTH_PROF=1, same env flag as the rollout
-    # prof system): wall-time accumulators for the three loop stages.
+    # Stage timing, always on: wall-time accumulators for the loop's
+    # stages.
     #   wait   = producer stall (worker prefetch / disk / extract)
     #   encode = phase-2 encoding on the main thread
     #   flush  = forward + backward + opt step (on CUDA the .tolist()
     #            sync inside _flush_batch absorbs async kernel time,
     #            so `flush` is an honest GPU-side total)
+    #   signal = the signal telemetry's probes
     # Reported in every log line and dumped to <ckpt>_prof.json at
     # each eval -- the box-sizing readout (CPU-encode vs GPU-forward
     # balance) for tier-b hardware selection.
-    prof_on = bool(int(os.environ.get("WESNOTH_PROF", "0") or 0))
-    prof_acc = {"wait": 0.0, "encode": 0.0, "flush": 0.0,
-                "other": 0.0, "pairs": 0}
+    prof_acc = {"wait": 0.0, "encode": 0.0, "flush": 0.0, "signal": 0.0, "pairs": 0}
     prof_path = checkpoint_out.with_name(
         checkpoint_out.stem + "_prof.json")
 
@@ -2132,6 +2153,20 @@ def train(
         f"Forward mode: {'BATCHED' if use_batched else 'per-pair'} "
         f"(device={device.type}, batched_forward={batched_forward})"
     )
+
+    # Signal telemetry, always on (user ruling 2026-09-01): a row every
+    # `signal_every` trained pairs (tools/signal_telemetry.py).
+    probe_weights = (_DEFAULT_ACTION_TYPE_LOSS_WEIGHT if type_loss_weights is None
+                     else type_loss_weights)
+    signal = ImitationSignal(
+        checkpoint_out.with_name(checkpoint_out.stem + "_signal.jsonl"),
+        lambda raws, ais, zw: _batch_loss(model, encoder, raws, ais, zw, device,
+                                          probe_weights, autocast_dtype),
+        model, encoder, pairs=running_count, every=signal_every, clip=GRAD_CLIP,
+        seed=seed or 0)
+    log.info(f"Signal telemetry: a row every {signal_every} trained pairs in "
+             f"{signal.path.name}"
+             + ("" if use_batched else " (the per-pair flow records the step norms only)"))
 
     # Loop counts GLOBAL epochs across the whole chain. After a
     # walltime-cut and resume, this picks up at `resumed_epoch`
@@ -2207,13 +2242,12 @@ def train(
             while True:
                 if stop:
                     break
-                _tw = time.perf_counter() if prof_on else 0.0
+                _tw = time.perf_counter()
                 try:
                     event = next(_stream_iter)
                 except StopIteration:
                     break
-                if prof_on:
-                    prof_acc["wait"] += time.perf_counter() - _tw
+                prof_acc["wait"] += time.perf_counter() - _tw
                 kind = event[0]
 
                 if kind == "file_done":
@@ -2225,9 +2259,7 @@ def train(
                     # a free `opt.step()` on whatever's accumulated, so
                     # we do it for crash-resilience.
                     if not use_batched and losses_in_batch > 0:
-                        torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
-                        opt.step()
-                        opt.zero_grad()
+                        _clip_and_step(opt, params_for_clip, signal.step_norms)
                         losses_in_batch = 0
                     file_pairs_in_batch = 0
                     if files_seen % gc_every_files == 0:
@@ -2327,23 +2359,24 @@ def train(
 
                 if use_batched:
                     # === Batched flow: accumulate B, then forward_batch.
-                    _te = time.perf_counter() if prof_on else 0.0
+                    _te = time.perf_counter()
                     try:
                         raw = _raw_one(encoder, state_or_raw)
                     except Exception as e:
-                        log.debug(f"  encode failed: {e}")
+                        encode_failures += 1
+                        if encode_failures <= 5:
+                            log.warning(f"  encode failed ({_gz_name}, pair not taken): {e!r}"[:400])
                         continue
                     finally:
-                        if prof_on:
-                            prof_acc["encode"] += time.perf_counter() - _te
-                            prof_acc["pairs"] += 1
+                        prof_acc["encode"] += time.perf_counter() - _te
+                        prof_acc["pairs"] += 1
                     batch_raws.append(raw)
                     batch_ais.append(ai)
                     batch_zw.append((v_z, v_w, p_w))
                     file_pairs_in_batch += 1
                     if len(batch_raws) < batch_size:
                         continue
-                    _tf = time.perf_counter() if prof_on else 0.0
+                    _tf = time.perf_counter()
                     try:
                         oom_halvings += _flush_batch(
                             model, encoder, batch_raws, batch_ais,
@@ -2357,6 +2390,7 @@ def train(
                             running_loss_value,
                             type_loss_weights=type_loss_weights,
                             autocast_dtype=autocast_dtype,
+                            step_norms=signal.step_norms,
                         )
                     except Exception as e:
                         flush_failures += 1
@@ -2371,9 +2405,12 @@ def train(
                         file_pairs_in_batch = 0
                         continue
                     finally:
-                        if prof_on:
-                            prof_acc["flush"] += time.perf_counter() - _tf
+                        prof_acc["flush"] += time.perf_counter() - _tf
                     running_count += len(batch_raws)
+                    if signal.due(running_count):
+                        # The step this flush took is counted just below.
+                        signal.record((batch_raws, batch_ais, batch_zw), epoch=epoch,
+                                      step=global_step + 1, pairs=running_count)
                     batch_raws.clear()
                     batch_ais.clear()
                     batch_zw.clear()
@@ -2387,7 +2424,7 @@ def train(
                     # worse so per-pair wins.
                     # (per-pair mode: encode happens inside the call,
                     # so `flush` here covers encode+forward+backward)
-                    _tf = time.perf_counter() if prof_on else 0.0
+                    _tf = time.perf_counter()
                     try:
                         parts = _loss_parts_for_pair(
                             encoder, model, state_or_raw, ai, device,
@@ -2396,14 +2433,15 @@ def train(
                             policy_weight=p_w,
                         )
                     except Exception as e:
-                        log.debug(f"  loss compute failed: {e}")
+                        pair_loss_failures += 1
+                        if pair_loss_failures <= 5:
+                            log.warning(f"  loss compute failed ({_gz_name}, pair dropped): {e!r}"[:400])
                         running_count += 1      # taken, so counted
                         pairs_dropped += 1
                         continue
                     finally:
-                        if prof_on:
-                            prof_acc["flush"] += time.perf_counter() - _tf
-                            prof_acc["pairs"] += 1
+                        prof_acc["flush"] += time.perf_counter() - _tf
+                        prof_acc["pairs"] += 1
                     (parts.total / batch_size).backward()
                     if parts.actor_fired:
                         # 5 .item() calls per pair on CPU is fine — the
@@ -2423,11 +2461,12 @@ def train(
                     losses_in_batch += 1
                     if losses_in_batch < batch_size:
                         continue
-                    torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
-                    opt.step()
-                    opt.zero_grad()
+                    _clip_and_step(opt, params_for_clip, signal.step_norms)
                     losses_in_batch = 0
                     step_just_landed = True
+                    if signal.due(running_count):
+                        signal.record(None, epoch=epoch, step=global_step + 1,
+                                      pairs=running_count)
 
                 # Common bookkeeping post-step.
                 if step_just_landed:
@@ -2457,15 +2496,15 @@ def train(
                         # learned WHAT to do but not WHERE. (Either
                         # head can be NaN early on if no pair has
                         # fired it yet.)
-                        prof_str = ""
-                        if prof_on:
-                            tot = max(1e-9, sum(
-                                prof_acc[k] for k in
-                                ("wait", "encode", "flush")))
-                            prof_str = (
-                                f" prof[wait={prof_acc['wait']/tot:.0%}"
-                                f" enc={prof_acc['encode']/tot:.0%}"
-                                f" flush={prof_acc['flush']/tot:.0%}]")
+                        prof_acc["signal"] = signal.probe_seconds
+                        tot = max(1e-9, sum(
+                            prof_acc[k] for k in
+                            ("wait", "encode", "flush", "signal")))
+                        prof_str = (
+                            f" prof[wait={prof_acc['wait']/tot:.0%}"
+                            f" enc={prof_acc['encode']/tot:.0%}"
+                            f" flush={prof_acc['flush']/tot:.0%}"
+                            f" signal={prof_acc['signal']/tot:.1%}]")
                         log.info(
                             f"  epoch={epoch} step={step} "
                             f"avg_loss={avg:.3f} "
@@ -2504,13 +2543,13 @@ def train(
                         stats["train_target_off_subset"] = target_off_subset
                         _log_eval(stats, epoch, global_step,
                                   running_count, checkpoint_out)
-                        if prof_on:
-                            prof_path.write_text(json.dumps({
-                                "pairs": running_count,
-                                "wall_s": time.time() - t_start,
-                                **{k: round(v, 2) for k, v in
-                                   prof_acc.items()},
-                            }), encoding="utf-8")
+                        prof_acc["signal"] = signal.probe_seconds
+                        prof_path.write_text(json.dumps({
+                            "pairs": running_count,
+                            "wall_s": time.time() - t_start,
+                            **{k: round(v, 2) for k, v in
+                               prof_acc.items()},
+                        }), encoding="utf-8")
                     if (max_pairs
                             and running_count - run_start_count
                             >= max_pairs):
@@ -2543,20 +2582,24 @@ def train(
                         running_loss_value,
                         type_loss_weights=type_loss_weights,
                         autocast_dtype=autocast_dtype,
+                        step_norms=signal.step_norms,
                     )
+                    flushed = True
                 except Exception as e:
+                    flushed = False
                     flush_failures += 1
                     pairs_dropped += len(batch_raws)
                     log.warning(f"  end-of-epoch flush failed ({len(batch_raws)} pairs lost): {e!r}"[:400])
                     opt.zero_grad()
                 running_count += len(batch_raws)      # taken, so counted, trained or lost
+                if flushed and signal.due(running_count):
+                    signal.record((batch_raws, batch_ais, batch_zw), epoch=epoch,
+                                  step=global_step, pairs=running_count)
                 batch_raws.clear()
                 batch_ais.clear()
                 batch_zw.clear()
             elif not use_batched and losses_in_batch > 0:
-                torch.nn.utils.clip_grad_norm_(params_for_clip, 1.0)
-                opt.step()
-                opt.zero_grad()
+                _clip_and_step(opt, params_for_clip, signal.step_norms)
                 losses_in_batch = 0
 
         # Save after each epoch — to BOTH the canonical path (for
@@ -2600,7 +2643,9 @@ def train(
                  f"pairs={running_count - run_start_count} "
                  f"({pairs_dropped} dropped untrained; chain total {running_count}) "
                  f"target_off_subset={target_off_subset} "
-                 f"flush_failures={flush_failures} oom_halvings={oom_halvings}")
+                 f"flush_failures={flush_failures} oom_halvings={oom_halvings} "
+                 f"encode_failures={encode_failures} "
+                 f"{signal.summary(time.time() - t_start)}")
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
                               eval_pairs=eval_pairs,
@@ -2698,6 +2743,9 @@ def main(argv: List[str]) -> int:
                     help="Pairs between held-out evals (0 = epoch "
                          "ends only).")
     ap.add_argument("--eval-pairs", type=int, default=1200)
+    ap.add_argument("--signal-every", type=int, default=IMITATION_SIGNAL_EVERY,
+                    help="Trained pairs between signal telemetry rows "
+                         "(<checkpoint stem>_signal.jsonl; always on).")
     ap.add_argument("--eval-sample-seed", type=int, default=None,
                     help="Seeded RANDOM per-game pair sample instead "
                          "of first-N (independent probe redraws).")
@@ -2819,6 +2867,7 @@ def main(argv: List[str]) -> int:
         value_loss_weight=args.value_loss_weight,
         value_states_per_game=args.value_states_per_game,
         eval_every=args.eval_every,
+        signal_every=args.signal_every,
         eval_pairs=args.eval_pairs,
         eval_pairs_per_game=args.eval_pairs_per_game,
         eval_sample_seed=args.eval_sample_seed,

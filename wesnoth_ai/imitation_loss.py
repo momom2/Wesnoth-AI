@@ -121,6 +121,17 @@ class ImitationLossParts:
     weapon: torch.Tensor
     value_raw: torch.Tensor
     value: torch.Tensor
+    policy_w: torch.Tensor            # [B] the policy heads' weight per sample
+
+    def source_losses(self) -> Dict[str, torch.Tensor]:
+        """`total` split by the loss term each head trains on: the four
+        policy cross-entropies at their policy weight and the weighted
+        value cross-entropy. The five sum to `total` up to rounding
+        (tools/signal_telemetry.py decomposes the gradient by them)."""
+        w = self.policy_w
+        return {"actor": (self.actor_raw * w).sum(), "type": (self.type * w).sum(),
+                "target": (self.target * w).sum(), "weapon": (self.weapon * w).sum(),
+                "value": self.value.sum()}
 
     def log_tensor(self) -> torch.Tensor:
         """[5, B] on the loss's own device: actor_raw, type, target,
@@ -182,4 +193,4 @@ def imitation_loss_parts(padded, targets: ImitationTargets,
 
     total = ((actor_raw + type_loss + target_loss + weapon_loss) * t["policy_w"]).sum() + value.sum()
     return ImitationLossParts(total, actor_raw, actor_raw * t["actor_w"], type_loss, target_loss,
-                              weapon_loss, value_raw, value)
+                              weapon_loss, value_raw, value, t["policy_w"])

@@ -32,7 +32,7 @@ import logging
 from typing import Dict, List
 
 from signal_profiler.gradient_tree import (
-    TERM_SURGERY, _group_of, _surgered,
+    TERM_SURGERY, group_of, _surgered,
 )
 
 log = logging.getLogger("signal_profiler")
@@ -162,7 +162,7 @@ def build_update_tree(policy_factory, batch: List,
 
     group_names: Dict[str, List[str]] = {}
     for n in names:
-        group_names.setdefault(_group_of(n), []).append(n)
+        group_names.setdefault(group_of(n), []).append(n)
 
     def _flat(d, keys):
         return torch.cat([d[k].reshape(-1) for k in keys])
