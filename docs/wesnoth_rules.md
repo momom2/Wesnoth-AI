@@ -14,7 +14,11 @@ first.** If the rule is documented, cite it; don't re-derive.
 **When you establish a new rule, add an entry here.** Required:
 
 - One-line statement of the rule
-- File path + line number where it's enforced (`wesnoth_src/...`)
+- File path + line number where it's enforced: C++ as
+  `src/<path>:<line>` at the 1.18.4 tag on GitHub (`wesnoth_src/` holds
+  the data tree only), WML and Lua as `wesnoth_src/data/<path>:<line>`.
+  Older entries cite C++ as `wesnoth_src/src/...`, from when the tree
+  was a full checkout; read those paths at the tag.
 - Verbatim quote of the smallest snippet that proves it (with code fence)
 - A "why this is non-obvious" note when the answer wasn't where you'd
   expect (e.g. lives in Lua not C++, or contradicts a stale changelog)
@@ -31,8 +35,10 @@ the quote to find the file again. Paraphrases drift; quotes don't.
 ## Table of contents
 
 - [Movement](#movement)
+- [Rounding rules](#rounding-rules)
 - [Combat](#combat)
 - [Units, traits, leaders](#units-traits-leaders)
+- [Villages](#villages)
 - [Recruit and recall](#recruit-and-recall)
 - [Replay structure](#replay-structure)
 - [Scenario events](#scenario-events)
@@ -40,6 +46,15 @@ the quote to find the file again. Paraphrases drift; quotes don't.
 - [File map (where to look first)](#file-map-where-to-look-first)
 - [Search recipes](#search-recipes)
 - [Verification protocol](#verification-protocol)
+- [Combat-outcome prediction (the in-game damage calculator)](#combat-outcome-prediction-the-in-game-damage-calculator)
+- [Turn-1 init_side: WRONG, superseded -- see the init_side entry above](#turn-1-init_side-wrong-superseded----see-the-init_side-entry-above)
+- [\[capture_village\] = set_owner per matched hex](#capture_village--set_owner-per-matched-hex)
+- [\[modify_unit\] moves= writes CURRENT MP, not max](#modify_unit-moves-writes-current-mp-not-max)
+- [Enemy side statistics under fog or shroud (added 2026-09-08)](#enemy-side-statistics-under-fog-or-shroud-added-2026-09-08)
+- [The preprocessor's macro grammar: `:` in names, `#arg` defaults (added 2026-09-22)](#the-preprocessors-macro-grammar--in-names-arg-defaults-added-2026-09-22)
+- [`random_start_time` has three forms, not two (added 2026-09-22)](#random_start_time-has-three-forms-not-two-added-2026-09-22)
+- [Preprocessor conditionals, and what a multiplayer game defines (added 2026-09-23)](#preprocessor-conditionals-and-what-a-multiplayer-game-defines-added-2026-09-23)
+- [Vision and fog: what a side sees, and when it is recomputed (added 2026-09-24)](#vision-and-fog-what-a-side-sees-and-when-it-is-recomputed-added-2026-09-24)
 
 ---
 
@@ -2319,7 +2334,10 @@ of original size but uniformly vanilla.
 ## File map (where to look first)
 
 The Wesnoth source tree is large. Here's where each kind of question
-tends to land:
+tends to land. The C++ paths below are written `wesnoth_src/src/...`,
+from when the tree was a full checkout; read them at the 1.18.4 tag on
+GitHub (`src/actions/attack.cpp` for `wesnoth_src/src/actions/attack.cpp`).
+The WML and Lua paths are local.
 
 ### Combat / damage / hits / rolls
 
@@ -2539,7 +2557,10 @@ holds up:
    skim a wall.
 
 4. **Cite file:line.** Wesnoth source moves between releases;
-   pin to the version. Our tree is `wesnoth_src/` at tag 1.18.4.
+   pin to the version: C++ as `src/<path>:<line>` at the 1.18.4 tag
+   on GitHub, WML and Lua as `wesnoth_src/data/<path>:<line>`
+   (`wesnoth_src/` is a copy of the local 1.18.7 install's data tree;
+   CLAUDE.md, "Wesnoth data provenance").
 
 5. **Note non-obvious paths.** If the rule lives in Lua but the
    superficial search would land on C++, write that down.

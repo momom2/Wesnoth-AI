@@ -77,17 +77,20 @@ history-encoding name would lie within hours.
                      deduplicated corpus, manifest split, fog gate on,
                      two epochs; user-named 2026-09-11; +33 +- 12 Elo
                      over 2516k-b-294k at raw:t0, 800 decisive games)
-    relset           THE REFERENCE PLAYER (user ruling 2026-09-11
-                     night): seed2's recipe from scratch in the
-                     relevant-set hex basis, ONE pass (2,825,379
-                     pairs); HF tier-b/seed2_relset_20260911/
-                     arm_epoch0.pt, local training/checkpoints/
-                     relset.pt; fog gate on, relevant_set_hexes on;
-                     +56 +- 12 Elo over seed2's own one-pass
-                     checkpoint (clean_seed_20260909/arm_epoch0.pt)
-                     at raw:t0, 800 decisive games; matches serve it
-                     in its own basis (run_elo_batch does). Self-pin
-                     through the shared path pending.
+    relset           the reference player 2026-09-11 to 2026-09-20
+                     (user ruling 2026-09-11 night): seed2's recipe
+                     from scratch in the relevant-set hex basis, ONE
+                     pass (2,825,379 pairs); HF tier-b/
+                     seed2_relset_20260911/arm_epoch0.pt, local
+                     training/checkpoints/relset.pt; fog gate on,
+                     relevant_set_hexes on; +56 +- 12 Elo over seed2's
+                     own one-pass checkpoint (clean_seed_20260909/
+                     arm_epoch0.pt) at raw:t0, 800 decisive games;
+                     matches serve it in its own basis (run_elo_batch
+                     does). Self-pinned through the shared path:
+                     -57 +- 37 Elo over 160 games on 2026-09-12, and
+                     p 0.520 +- 0.018 over 781 decisive games on
+                     2026-09-19 (docs/endturn_rule_prereg_20260919.md).
     terrain          the reference player 2026-09-20 to 2026-09-25:
                      relset's recipe from scratch with the hex's
                      terrain as its full set (terrain_multi_hot), one

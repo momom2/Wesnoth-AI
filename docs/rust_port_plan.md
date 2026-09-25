@@ -1,5 +1,11 @@
 # Rust hot-path port — plan (ruling 2026-08-30)
 
+**Status (2026-09-26).** Phases 1 to 4 are done. The kernels for reach
+and enumeration, the encoding, the observation, the relevant set and
+combat run by default when the installed wheel carries them; the
+Rust-owned state (`GameCore`) is opt-in (`WESNOTH_RUST_CORE=1`). The
+source declares `__phase__` 14; phases 11 to 14 are listed after 3b/4.
+
 User ruling: port the HOT PATH to Rust; the ML stack, tooling,
 launchers, and probes stay Python ("the brain stays Python").
 Motivation: the 2026-08-28/29 profiling — training generation is
@@ -274,17 +280,34 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    eleven certification suites on both states of record (117 passed
    each; records `training/metrics/bench_pipeline/postreview_20260914/`,
    docs/box_specs.md "The post-review box run").
+11-14. **Later phases** (2026-09-22 to 2026-09-25), each built and
+   tested by CI from the pushed commit (CLAUDE.md, Testing): 11, the
+   encode kernel composes the time-of-day global features
+   (`GLOBAL_FEAT_DIM` 8); 12, vision as the engine keeps it:
+   `observe_side` takes the side's seen hexes instead of drawing a
+   disc, and `GameCore` tracks each side's cleared hexes; 13,
+   `apply_init_side` hides a side's revealed hiders again after turn 1;
+   14, `apply_init_side` pays a declared 0 village gold or support as
+   0. The comment beside `__phase__` in `lib.rs` says what each recent
+   phase changed.
 
 ## Build/dev
 
-- Local Windows: rustc 1.96 msvc toolchain VERIFIED working
-  (hello-world links); maturin via pip; `maturin develop` for the
-  dev loop.
+- Local Windows (the laptop): the wheel does not build here. `cargo
+  check` in the project tree is refused on every crate whose build
+  script must execute (measured 2026-09-22 on `pyo3-build-config`,
+  `proc-macro2` and `libc`, os error 5). The installed wheel is phase
+  3, so the local Rust tests skip, and the suite prints a banner
+  saying so.
+- CI (Linux): `.github/workflows/tests.yml` builds the wheel from each
+  pushed commit (`pip install ./rust/wesnoth_core`), refuses one whose
+  `__phase__` differs from `lib.rs`, and runs every Rust test.
 - Boxes (Linux): maturin build in the box setup; wheels are
   box-local (no cross-compilation needed — source ships in the
   tarball/clone and builds in ~1 min).
 - Tests: pytest drives the differential tests (Rust called via the
-  wheel); `cargo test` for Rust-internal invariants.
+  wheel). Nothing runs `cargo test`, so the six `#[test]` functions in
+  `encode.rs` do not run (BACKLOG.md, "Open after CI landed").
 
 Rejected: full-codebase port (user agreed 2026-08-30) — the ML
 stack is GPU-bound and ecosystem-locked; tooling is
