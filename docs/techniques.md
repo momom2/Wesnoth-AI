@@ -923,13 +923,22 @@ the values below.
   the raw dataset), `--max-replay-commands 1500` (p99 ≈ 1450; four
   outliers at 2000-3300 drove RAM to 65% and caused swap thrashing).
   `tools/supervised_train.py:1188-1205`.
-- **Stage profiling `WESNOTH_PROF=1`** **[OFF]** — splits wall-clock
-  into `wait` (producer stall) / `encode` (phase-2 on the main
-  thread) / `flush` (fwd+bwd+step). Purpose: the CPU-encode vs
-  GPU-forward balance readout for hardware selection.
-  `tools/supervised_train.py:1374-1386`.
+- **Stage timing** **[ON, always]** — splits wall-clock into `wait`
+  (producer stall) / `encode` (phase-2 on the main thread) / `flush`
+  (fwd+bwd+step) / `signal` (the telemetry's probes), in every log
+  line and in `<ckpt_stem>_prof.json` at each eval. Purpose: the
+  CPU-encode vs GPU-forward balance readout for hardware selection.
+- **Signal telemetry** **[ON, always]** — every `--signal-every 25000`
+  trained pairs, a row in `<ckpt_stem>_signal.jsonl`: a 32-pair probe of
+  the batch just trained, its gradient split by loss term (actor, type,
+  target, weapon, value) over the encoder, the trunk and the heads, in
+  gradient space and in AdamW's update space, and the steps' pre-clip
+  gradient norms. `tools/signal_telemetry.py` `ImitationSignal`.
 - **Epoch accounting line** **[ON]** — `files_seen / file_errors /
-  pairs` per epoch, plus WARNING-level per-file error logs.
+  pairs` per epoch, the pairs dropped untrained, flush failures,
+  out-of-memory halvings, encode and per-pair loss failures, and the
+  signal telemetry's rows, failures and share of the wall, plus
+  WARNING-level per-file error logs.
   *Why:* an epoch that "completes" with a large error count or far
   fewer pairs than the corpus holds is a broken run, not a fast one
   (2026-08-08 random-arm underrun: "done" at 171k of 2.5M pairs,

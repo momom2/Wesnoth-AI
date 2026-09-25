@@ -60,10 +60,14 @@ match cannot separate the two; the first is expected to dominate.
   verdicts), the per-phase value AUC.
 - Recorded, not read for the verdict: the trainer's signal telemetry
   (`arm_signal.jsonl`, tools/signal_telemetry.py `ImitationSignal`):
-  every 25,000 pairs, the share of the trunk's, the encoder's and the
-  heads' gradient owed to each loss term and the steps' gradient norms,
-  from a probe that leaves the training bit-identical and costs under
-  1% of the pass; and the stage timing (`arm_prof.json`).
+  every 25,000 pairs, each loss term's share of the encoder's, the
+  trunk's and the heads' gradient and of AdamW's update, and the
+  steps' gradient norms, from a probe built to leave the training
+  unchanged (bit-identical on CPU in tests; training on CUDA is not
+  bit-reproducible in any case) whose cost each row records (estimated
+  0.5-0.7% of the pass); and the stage timing (`arm_prof.json`). The
+  box's stage is rebuilt from `main` at rental: the stage the script
+  names by default (`stage_20260925u`) predates the telemetry.
 
 Held fixed: `obs8` and its decode, bf16 packed serving on cuda,
 combat-oracle alphas 0, one result directory for the pair.

@@ -47,3 +47,18 @@ def labels(raws, rng):
         ais.append(ai)
         zw.append((z, vw, pw))
     return ais, zw
+
+
+def per_sample_reference(model, enc, raws, ais, zw, dev):
+    """The per-sample loss path (`encode_from_raw` + `forward_batch` +
+    `_loss_parts_for_output`): each pair's LossParts and the batched
+    flow's total over them."""
+    from tools.supervised_train import _loss_parts_for_output
+    encoded = [enc.encode_from_raw(r, device=dev) for r in raws]
+    outs = model.forward_batch(encoded)
+    parts = [_loss_parts_for_output(o, ai, dev, type_loss_weights=TYPE_W,
+                                    value_z=z, value_weight=vw, policy_weight=pw)
+             for o, ai, (z, vw, pw) in zip(outs, ais, zw)]
+    total = (sum(pw * (p.actor + p.type + p.target + p.weapon) for p, (_, _, pw) in zip(parts, zw))
+             + sum(vw * p.value for p, (_, vw, _) in zip(parts, zw)))
+    return parts, total

@@ -48,7 +48,9 @@ import torch.nn.functional as F
 # Project imports — assume cwd is the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.signal_telemetry import IMITATION_SIGNAL_EVERY, ImitationSignal
+from tools.signal_telemetry import (
+    IMITATION_PROBE_PAIRS, IMITATION_SIGNAL_EVERY, ImitationSignal, check_signal_cadence,
+)
 from tools.unit_vocab import seed_vocab
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.constants import OBSERVATION_EPOCH
@@ -202,16 +204,19 @@ class PassPosition:
 
 
 def _resume_state(epoch: int, epoch_rng_state: tuple, epoch_start_pairs: int,
-                  epoch_start_step: int, last_eval_pairs: int, seed: Optional[int]) -> Dict:
+                  epoch_start_step: int, last_eval_pairs: int, seed: Optional[int],
+                  signal_state: Optional[Dict] = None) -> Dict:
     """What a checkpoint records for a later run to continue its pass:
     the epoch in progress (or just finished), the global `random` state
     at its start and now, the counters at its start, the last holdout
-    evaluation (so the resumed run evaluates where the uncut one would)
-    and the torch generators (dropout)."""
+    evaluation and the signal telemetry's last row (so the resumed run
+    evaluates and probes where the uncut one would) and the torch
+    generators (dropout)."""
     state = {"epoch": int(epoch), "epoch_rng_state": epoch_rng_state,
              "epoch_start_pairs": int(epoch_start_pairs),
              "epoch_start_step": int(epoch_start_step),
              "last_eval_pairs": int(last_eval_pairs),
+             "signal": dict(signal_state or {}),
              "rng_state": random.getstate(), "torch_rng_state": torch.get_rng_state(),
              "seed": seed}
     if torch.cuda.is_available():
@@ -1570,6 +1575,8 @@ def train(
     signal_every: int = IMITATION_SIGNAL_EVERY,
                                      # trained pairs between signal
                                      # telemetry rows (<stem>_signal.jsonl)
+    signal_probe_pairs: int = IMITATION_PROBE_PAIRS,
+                                     # pairs of the trained batch a row probes
     eval_pairs: int = 1200,          # held-out pairs per eval
     eval_pairs_per_game: int = 0,    # stratified probe cap (0=legacy)
     eval_sample_seed: Optional[int] = None,  # seeded random redraw
@@ -1615,6 +1622,7 @@ def train(
         log.info(f"Seed: {seed} (file order, value subsampling, torch)")
     if resume is not None and init_from is not None:
         raise ValueError("--resume and --init-from are exclusive")
+    check_signal_cadence(signal_every, signal_probe_pairs)
     # `--device dml` (or `dml:N`) routes through Microsoft DirectML
     # for AMD/Intel GPU acceleration on Windows. NVIDIA users keep
     # passing `cuda` which torch resolves itself.
@@ -1790,6 +1798,7 @@ def train(
     pass_position: Optional[PassPosition] = None
     next_epoch_rng_state: Optional[tuple] = None
     resumed_last_eval: Optional[int] = None
+    resumed_signal_row: Optional[int] = None
     if ckpt is not None:
         log.info(f"{'Warm start (weights only) from' if init_from else 'Resuming from'} "
                  f"{ckpt_src}")
@@ -1884,6 +1893,7 @@ def train(
             ckpt, resumed_epoch, resumed_pairs, resumed_step, seed)
         if "supervised_resume" in ckpt:
             resumed_last_eval = int(ckpt["supervised_resume"]["last_eval_pairs"])
+            resumed_signal_row = ckpt["supervised_resume"].get("signal", {}).get("last_row_pairs")
         # The rate is a function of this run's schedule and the epoch
         # counter, whatever rate the restored optimizer state carries.
         _replay_lr_schedule(opt, lr_scheduler, resumed_epoch)
@@ -2154,16 +2164,18 @@ def train(
         f"(device={device.type}, batched_forward={batched_forward})"
     )
 
-    # Signal telemetry, always on (user ruling 2026-09-01): a row every
-    # `signal_every` trained pairs (tools/signal_telemetry.py).
+    # Signal telemetry, always on in every trainer (user, 2026-09-25: "The
+    # signal profiler is supposed to be always on"); the cost each row
+    # records keeps the 2026-09-02 concern, overhead nobody sees, answered.
+    # A row every `signal_every` trained pairs (tools/signal_telemetry.py).
     probe_weights = (_DEFAULT_ACTION_TYPE_LOSS_WEIGHT if type_loss_weights is None
                      else type_loss_weights)
     signal = ImitationSignal(
         checkpoint_out.with_name(checkpoint_out.stem + "_signal.jsonl"),
         lambda raws, ais, zw: _batch_loss(model, encoder, raws, ais, zw, device,
                                           probe_weights, autocast_dtype),
-        model, encoder, pairs=running_count, every=signal_every, clip=GRAD_CLIP,
-        seed=seed or 0)
+        model, encoder, optimizer=opt, pairs=running_count, last_row_pairs=resumed_signal_row,
+        every=signal_every, probe_pairs=signal_probe_pairs, clip=GRAD_CLIP, seed=seed or 0)
     log.info(f"Signal telemetry: a row every {signal_every} trained pairs in "
              f"{signal.path.name}"
              + ("" if use_batched else " (the per-pair flow records the step norms only)"))
@@ -2378,7 +2390,7 @@ def train(
                         continue
                     _tf = time.perf_counter()
                     try:
-                        oom_halvings += _flush_batch(
+                        halvings = _flush_batch(
                             model, encoder, batch_raws, batch_ais,
                             batch_zw,
                             opt, params_for_clip, batch_size, device,
@@ -2392,6 +2404,7 @@ def train(
                             autocast_dtype=autocast_dtype,
                             step_norms=signal.step_norms,
                         )
+                        oom_halvings += halvings
                     except Exception as e:
                         flush_failures += 1
                         log.warning(f"  batch flush failed ({len(batch_raws)} pairs lost, "
@@ -2410,7 +2423,8 @@ def train(
                     if signal.due(running_count):
                         # The step this flush took is counted just below.
                         signal.record((batch_raws, batch_ais, batch_zw), epoch=epoch,
-                                      step=global_step + 1, pairs=running_count)
+                                      step=global_step + 1, pairs=running_count,
+                                      max_probe_pairs=-(-len(batch_raws) // 2 ** halvings))
                     batch_raws.clear()
                     batch_ais.clear()
                     batch_zw.clear()
@@ -2525,7 +2539,7 @@ def train(
                             global_step, running_count, epoch=epoch,
                             resume_state=_resume_state(epoch, epoch_rng_state,
                                                        epoch_start_pairs, epoch_start_step,
-                                                       last_eval_pairs, seed),
+                                                       last_eval_pairs, seed, signal.state()),
                             **save_kwargs,
                         )
                         log.info(f"  periodic checkpoint @ step={global_step}")
@@ -2570,7 +2584,7 @@ def train(
         if not stop:
             if use_batched and batch_raws:
                 try:
-                    oom_halvings += _flush_batch(
+                    halvings = _flush_batch(
                         model, encoder, batch_raws, batch_ais,
                         batch_zw,
                         opt, params_for_clip, batch_size, device,
@@ -2584,6 +2598,7 @@ def train(
                         autocast_dtype=autocast_dtype,
                         step_norms=signal.step_norms,
                     )
+                    oom_halvings += halvings
                     flushed = True
                 except Exception as e:
                     flushed = False
@@ -2594,7 +2609,8 @@ def train(
                 running_count += len(batch_raws)      # taken, so counted, trained or lost
                 if flushed and signal.due(running_count):
                     signal.record((batch_raws, batch_ais, batch_zw), epoch=epoch,
-                                  step=global_step, pairs=running_count)
+                                  step=global_step, pairs=running_count,
+                                  max_probe_pairs=-(-len(batch_raws) // 2 ** halvings))
                 batch_raws.clear()
                 batch_ais.clear()
                 batch_zw.clear()
@@ -2619,8 +2635,9 @@ def train(
             log.error(f"epoch {epoch} ended with {skip_left} pairs of the resumed pass "
                       f"still to skip: the corpus is not the one the cut run read")
         completed = epoch if stop else epoch + 1
+        signal.close(epoch=epoch, step=global_step, pairs=running_count)
         resume_state = _resume_state(epoch, epoch_rng_state, epoch_start_pairs,
-                                     epoch_start_step, last_eval_pairs, seed)
+                                     epoch_start_step, last_eval_pairs, seed, signal.state())
         if stop:
             log.info(f"max_pairs cut mid-epoch {epoch}; checkpoint "
                      f"records epoch={completed} (NOT completed; "
@@ -2644,7 +2661,7 @@ def train(
                  f"({pairs_dropped} dropped untrained; chain total {running_count}) "
                  f"target_off_subset={target_off_subset} "
                  f"flush_failures={flush_failures} oom_halvings={oom_halvings} "
-                 f"encode_failures={encode_failures} "
+                 f"encode_failures={encode_failures} pair_loss_failures={pair_loss_failures} "
                  f"{signal.summary(time.time() - t_start)}")
         if holdout_files:
             stats = _evaluate(model, encoder, holdout_files, device,
@@ -2745,7 +2762,7 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--eval-pairs", type=int, default=1200)
     ap.add_argument("--signal-every", type=int, default=IMITATION_SIGNAL_EVERY,
                     help="Trained pairs between signal telemetry rows "
-                         "(<checkpoint stem>_signal.jsonl; always on).")
+                         "(<checkpoint stem>_signal.jsonl; always on, so at least 1).")
     ap.add_argument("--eval-sample-seed", type=int, default=None,
                     help="Seeded RANDOM per-game pair sample instead "
                          "of first-N (independent probe redraws).")

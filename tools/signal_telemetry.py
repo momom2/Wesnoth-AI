@@ -14,11 +14,13 @@ extra backward passes on <=128 states + <=64*2 value forwards ≈ a
 few percent of an iteration.
 
 The imitation trainer (tools/supervised_train.py): `ImitationSignal`,
-one row every IMITATION_SIGNAL_EVERY trained pairs in
-<checkpoint stem>_signal.jsonl, the gradient of a probe of the batch
-just trained split by loss term over the encoder, the trunk and the
-heads, and the real steps' gradient norms (its docstring). Cost: about
-two training steps per row, under 1% of a pass, recorded in each row.
+a row every IMITATION_SIGNAL_EVERY trained pairs in
+<checkpoint stem>_signal.jsonl: a probe of the batch just trained
+split by loss term over the encoder, the trunk and the heads, in
+gradient space and in the optimizer's update space (`GradientProbe`,
+which any trainer can use), and the real steps' gradient norms (its
+docstring). Cost: two to three training steps per row, recorded in
+each row.
 
 The full update-space tree stays offline (signal_profiler)."""
 from __future__ import annotations
@@ -30,7 +32,7 @@ import math
 import random
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import torch
 
@@ -178,152 +180,299 @@ def dv_stats(pre, base_policy) -> Dict[str, float]:
         return {}
 
 
+# ---- Parameter groups -----------------------------------------------------------
+
+# Predicates over `named_parameters()` names, the model's and the encoder's
+# namespaced as "model." and "encoder."; a parameter no predicate claims is
+# the trunk's. The offline profiler (signal_profiler/) groups the same way.
+PARAM_GROUPS = (
+    ("encoder",     lambda n: n.startswith("encoder.")),
+    ("value_head",  lambda n: n.startswith(("model.value_head", "model.material_proj"))),
+    ("actor_head",  lambda n: n.startswith("model.actor_head")),
+    ("type_head",   lambda n: n.startswith("model.type_head")),
+    ("target_proj", lambda n: n.startswith("model.target_")),
+    ("weapon_head", lambda n: n.startswith("model.weapon_head")),
+    ("gbc_heads",   lambda n: n.startswith("model.gbc_heads")),
+    ("aux_ml",      lambda n: n.startswith(("model.aux_score_head", "model.moves_left"))),
+)
+
+
+def group_of(name: str) -> str:
+    """The parameter group of a namespaced parameter name."""
+    for group, claims in PARAM_GROUPS:
+        if claims(name):
+            return group
+    return "trunk"
+
+
+def named_model_parameters(model: torch.nn.Module,
+                           encoder: Optional[torch.nn.Module]) -> List[Tuple[str, torch.nn.Parameter]]:
+    """The trained parameters, namespaced as PARAM_GROUPS expects."""
+    named = [("model." + n, p) for n, p in model.named_parameters()]
+    if encoder is not None:
+        named += [("encoder." + n, p) for n, p in encoder.named_parameters()]
+    return [(n, p) for n, p in named if p.requires_grad]
+
+
+# ---- A gradient probe any trainer can use ---------------------------------------
+
+def summarize_gram(gram: Sequence[Sequence[Sequence[float]]], terms: Sequence[str],
+                   groups: Sequence[str], *, policy_terms: Sequence[str] = (),
+                   shared_groups: Sequence[str] = ()) -> Dict[str, Dict]:
+    """Readings of per-group Gram matrices of loss terms' vectors:
+    `gram[k][i][j]` is <u_i, u_j> over the parameters of groups[k].
+
+    Per group, and for "all" (their sum): the norm of the summed vector
+    and, per term, its norm, its signed share of the summed vector
+    (<u_i, u> / |u|^2; the shares add up to 1, and a negative one pulls
+    against the rest) and its cosine with it. In each of `shared_groups`
+    (and "all"), the cosine between the sum of `policy_terms` and the
+    "value" term, when both are present and non-zero."""
+    n = len(terms)
+    by_group = dict(zip(groups, gram))
+    by_group["all"] = [[sum(g[i][j] for g in gram) for j in range(n)] for i in range(n)]
+    policy = [terms.index(t) for t in policy_terms]
+    value = terms.index("value") if "value" in terms else None
+    out = {}
+    for name, g in by_group.items():
+        total_sq = sum(sum(row) for row in g)
+        total_norm = math.sqrt(max(total_sq, 0.0))
+        node: Dict = {"total_norm": total_norm}
+        for i, term in enumerate(terms):
+            norm = math.sqrt(max(g[i][i], 0.0))
+            dot = sum(g[i])
+            node[term] = {
+                "norm": norm,
+                "share": dot / total_sq if total_sq > 0 else None,
+                "cos": dot / (norm * total_norm) if norm > 0 and total_norm > 0 else None}
+        if policy and value is not None and (name == "all" or name in shared_groups):
+            policy_sq = sum(g[a][b] for a in policy for b in policy)
+            policy_value = sum(g[a][value] for a in policy)
+            value_sq = g[value][value]
+            node["policy_value_cos"] = (policy_value / math.sqrt(policy_sq * value_sq)
+                                        if policy_sq > 0 and value_sq > 0 else None)
+        out[name] = node
+    return out
+
+
+class GradientProbe:
+    """The Gram matrices of loss terms' gradients over parameter groups,
+    in two spaces:
+
+      - gradient: each term's gradient as the loss defines it;
+      - update: each term's gradient divided, coordinate by coordinate,
+        by the optimizer's scale for that coordinate, sqrt(v_hat) + eps
+        of Adam's bias-corrected second moment -- the direction the
+        optimizer moves the weights for that gradient, momentum and
+        weight decay aside (signal_profiler/update_tree.py, "exp_avg
+        zeroed, exp_avg_sq kept"). Present once the optimizer has state.
+
+    The gradients come from `torch.autograd.grad`, which leaves every
+    parameter's `.grad` and the optimizer untouched; the caller runs the
+    forward inside `fork_rng()` so that dropout draws do not move the
+    training's generators."""
+
+    def __init__(self, named_params: Sequence[Tuple[str, torch.nn.Parameter]],
+                 group_of_name: Callable[[str], str], groups: Sequence[str],
+                 optimizer: Optional[torch.optim.Optimizer] = None):
+        named = [(n, p) for n, p in named_params if p.requires_grad]
+        self.groups = tuple(groups)
+        self._params = [p for _, p in named]
+        self._group_index = [self.groups.index(group_of_name(n)) for n, _ in named]
+        self._optimizer = optimizer
+        self._hyper = {}
+        if optimizer is not None:
+            for param_group in optimizer.param_groups:
+                for p in param_group["params"]:
+                    self._hyper[id(p)] = param_group
+
+    def fork_rng(self):
+        """torch's generators forked for the probe: the CPU one and every
+        CUDA device the parameters live on (not merely the current one)."""
+        devices = sorted({p.device.index for p in self._params if p.is_cuda})
+        return torch.random.fork_rng(devices=devices)
+
+    def grams(self, losses: Dict[str, torch.Tensor], scale: float
+              ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """[groups, terms, terms] Gram matrices of the terms' gradients
+        (each loss times `scale`), in gradient space and in update space
+        (None before the optimizer has stepped)."""
+        terms = list(losses)
+        grads = {}
+        for k, term in enumerate(terms):
+            loss = losses[term]
+            if not loss.requires_grad:
+                grads[term] = [None] * len(self._params)
+                continue
+            grads[term] = torch.autograd.grad(loss * scale, self._params,
+                                              retain_graph=k + 1 < len(terms), allow_unused=True)
+        n = len(terms)
+        device = self._params[0].device
+        gradient = torch.zeros(len(self.groups), n, n, dtype=torch.float64, device=device)
+        update = torch.zeros_like(gradient)
+        stepped = False
+        for j, (param, group) in enumerate(zip(self._params, self._group_index)):
+            rows = [grads[term][j] for term in terms]
+            if all(r is None for r in rows):
+                continue
+            flat = torch.stack([torch.zeros(param.numel(), device=device) if r is None
+                                else r.reshape(-1).float() for r in rows])
+            gradient[group] += (flat @ flat.T).double()
+            scale_j = self._adam_scale(param)
+            if scale_j is not None:
+                scaled = flat / scale_j.reshape(-1)
+                update[group] += (scaled @ scaled.T).double()
+                stepped = True
+        return gradient, (update if stepped else None)
+
+    def _adam_scale(self, param: torch.nn.Parameter) -> Optional[torch.Tensor]:
+        state = self._optimizer.state.get(param) if self._optimizer is not None else None
+        if not state or "exp_avg_sq" not in state:
+            return None
+        hyper = self._hyper[id(param)]
+        beta2, eps = hyper["betas"][1], hyper["eps"]
+        v_hat = state["exp_avg_sq"].float() / (1.0 - beta2 ** float(state["step"]))
+        return v_hat.sqrt().add_(eps)
+
+
+class StepNorms:
+    """The real optimizer steps' pre-clip gradient norms, left on the
+    device until read: one transfer per read, none per step."""
+
+    def __init__(self, clip: float):
+        self.clip = clip
+        self._norms: List[torch.Tensor] = []
+
+    def append(self, norm: torch.Tensor) -> None:
+        self._norms.append(norm.detach())
+
+    def __len__(self) -> int:
+        return len(self._norms)
+
+    def drain(self) -> Dict:
+        """Count, mean, max and share above the clip since the last read;
+        non-finite norms are counted apart."""
+        if not self._norms:
+            return {"n": 0}
+        device = self._norms[0].device
+        norms = torch.stack([n.float().to(device) for n in self._norms]).cpu()
+        self._norms.clear()
+        finite = norms[torch.isfinite(norms)]
+        out: Dict = {"n": int(norms.numel()), "nonfinite": int(norms.numel() - finite.numel())}
+        if finite.numel():
+            out.update(mean=float(finite.mean()), max=float(finite.max()),
+                       clipped=float((finite > self.clip).float().mean()))
+        return out
+
+
 # ---- The imitation trainer (tools/supervised_train.py) ----------------------
 
 IMITATION_SOURCES = ("actor", "type", "target", "weapon", "value")
 POLICY_SOURCES = ("actor", "type", "target", "weapon")
 SIGNAL_GROUPS = ("encoder", "trunk", "heads")
 # Trained pairs between rows: about 113 rows over obs8's 2.83M-pair pass.
-# A probe costs about two training steps, so at batch 64 (390 steps per
-# row) the telemetry takes about 0.5% of the pass.
+# A probe costs about two to three training steps (one forward and five
+# backwards over 32 pairs), so at batch 64 (390 steps per row) the
+# telemetry takes about 0.5-0.7% of the pass; each row records its cost.
 IMITATION_SIGNAL_EVERY = 25_000
 IMITATION_PROBE_PAIRS = 32
+MIN_PROBE_PAIRS = 4       # the smallest probe an out-of-memory retry goes down to
 
 
 def signal_group(name: str) -> str:
-    """The telemetry's group of a parameter named the way the profiler
-    names them ("model.<name>" or "encoder.<name>"): encoder, trunk or
-    heads."""
-    from signal_profiler.gradient_tree import group_of
+    """The telemetry's coarse group of a namespaced parameter: encoder,
+    trunk or heads."""
     group = group_of(name)
     return group if group in ("encoder", "trunk") else "heads"
 
 
-def summarize_gram(gram: Sequence[Sequence[Sequence[float]]]) -> Dict[str, Dict]:
-    """Readings of the per-group Gram matrices of the loss terms'
-    gradients: `gram[k][i][j]` is <g_i, g_j> over the parameters of
-    SIGNAL_GROUPS[k], terms in IMITATION_SOURCES order.
-
-    Per group, and for "all" (their sum): the norm of the summed
-    gradient and, per term, its norm, its signed share of the summed
-    gradient (<g_i, g> / |g|^2; the shares add up to 1, a negative one
-    pulls against the update) and its cosine with it; and the cosine
-    between the four policy terms' sum and the value term."""
-    n = len(IMITATION_SOURCES)
-    groups = dict(zip(SIGNAL_GROUPS, gram))
-    groups["all"] = [[sum(g[i][j] for g in gram) for j in range(n)] for i in range(n)]
-    policy = [IMITATION_SOURCES.index(s) for s in POLICY_SOURCES]
-    value = IMITATION_SOURCES.index("value")
-    out = {}
-    for name, g in groups.items():
-        total_sq = sum(sum(row) for row in g)
-        total_norm = math.sqrt(max(total_sq, 0.0))
-        node: Dict = {"total_norm": total_norm}
-        for i, source in enumerate(IMITATION_SOURCES):
-            norm = math.sqrt(max(g[i][i], 0.0))
-            dot = sum(g[i])
-            node[source] = {
-                "norm": norm,
-                "share": dot / total_sq if total_sq > 0 else None,
-                "cos": dot / (norm * total_norm) if norm > 0 and total_norm > 0 else None}
-        policy_sq = sum(g[a][b] for a in policy for b in policy)
-        policy_value = sum(g[a][value] for a in policy)
-        value_sq = g[value][value]
-        node["policy_value_cos"] = (policy_value / math.sqrt(policy_sq * value_sq)
-                                    if policy_sq > 0 and value_sq > 0 else None)
-        out[name] = node
-    return out
-
-
 class ImitationSignal:
-    """The imitation trainer's always-on signal telemetry: one JSONL row
-    each time the trained-pair count crosses a multiple of `every`.
+    """The imitation trainer's signal telemetry, always on: JSONL rows in
+    <checkpoint stem>_signal.jsonl.
 
-    A row holds:
-      - `steps`: the real optimizer steps since the previous row, their
-        pre-clip gradient norms (mean, max, the share above the clip)
-        and how many were not finite;
-      - `groups`: the gradient of a probe (up to `probe_pairs` pairs of
-        the batch just trained, at the weights that batch produced),
-        split by loss term (`summarize_gram`) over the encoder, the
-        trunk, the heads and all parameters. The terms are the ones the
-        trainer sums (`ImitationLossParts.source_losses`), each divided
-        by the probe's size as the trainer divides by the batch's;
-      - `gram`: the per-group Gram matrices those readings come from,
-        so any other combination of terms can be derived later;
-      - `probe_ms`: what the probe cost.
+    Rows, by "kind":
+      - "start": written when a run (or a resumed run) starts: the terms,
+        the groups, the cadence, the clip. Rows written earlier with a
+        larger pair count belong to a run that was cut and resumed from
+        an earlier checkpoint; `read_signal_rows` drops them.
+      - "probe": written at the first trained batch after the trained-pair
+        count crosses a multiple of `every`. `steps`: the real optimizer
+        steps since the previous row (count, pre-clip gradient norm mean
+        and max, share above the clip, non-finite count). `gradient` and
+        `update`: a probe of up to `probe_pairs` pairs of the batch just
+        trained, at the weights that step produced, split by loss term
+        (`ImitationLossParts.source_losses`, each divided by the probe's
+        size as the trainer divides by the batch's) over the encoder, the
+        trunk, the heads and all parameters (`summarize_gram`), in
+        gradient space and in the optimizer's update space
+        (`GradientProbe`); `*_gram` the matrices they come from, terms in
+        the start row's order; `fired`: how many probe pairs each head's
+        term covers. A probe that runs out of memory is retried at half
+        its size, down to MIN_PROBE_PAIRS.
+      - "steps": at an epoch's end (or a cut), the step norms since the
+        previous row, so none go unrecorded.
 
-    The probe changes nothing the training reads: it picks its pairs
-    with its own generator, seeded by the step so a resumed run picks
-    the same ones; it forks torch's generators around its forward (the
-    model's dropout draws); and it takes gradients with
-    `torch.autograd.grad`, which leaves every parameter's `.grad` and
-    the optimizer alone. A probe that fails warns, counts into
+    The probe changes nothing the training reads: it picks its pairs with
+    its own generator seeded by the pair count (a resumed run picks the
+    same ones), forks torch's generators around its forward, and takes
+    gradients with `torch.autograd.grad`. Any failure warns, counts into
     `failures` and the epoch accounting, and training goes on."""
 
     def __init__(self, path: Path, batch_loss: Callable, model: torch.nn.Module,
-                 encoder: torch.nn.Module, *, pairs: int = 0,
-                 every: int = IMITATION_SIGNAL_EVERY,
-                 probe_pairs: int = IMITATION_PROBE_PAIRS,
+                 encoder: torch.nn.Module, *, optimizer: Optional[torch.optim.Optimizer] = None,
+                 pairs: int = 0, last_row_pairs: Optional[int] = None,
+                 every: int = IMITATION_SIGNAL_EVERY, probe_pairs: int = IMITATION_PROBE_PAIRS,
                  clip: float = 1.0, seed: int = 0):
         """`batch_loss(raws, ais, zw)` returns the trainer's
-        (ImitationLossParts, targets) for those pairs; `pairs` is the
-        trained-pair count the run starts from (a resume's)."""
-        if every < 1 or probe_pairs < 1:
-            raise ValueError(f"signal telemetry needs every >= 1 and probe_pairs >= 1, "
-                             f"got {every} and {probe_pairs}")
+        (ImitationLossParts, ImitationTargets) for those pairs; `pairs` is
+        the trained-pair count the run starts from and `last_row_pairs`
+        the count at its last probe row (`state()`, saved with a
+        checkpoint)."""
+        check_signal_cadence(every, probe_pairs)
         self.path = path
         self._batch_loss = batch_loss
-        named = [("model." + n, p) for n, p in model.named_parameters()]
-        named += [("encoder." + n, p) for n, p in encoder.named_parameters()]
-        named = [(n, p) for n, p in named if p.requires_grad]
-        self._params = [p for _, p in named]
-        self._group_of_param = [SIGNAL_GROUPS.index(signal_group(n)) for n, _ in named]
+        self._probe = GradientProbe(named_model_parameters(model, encoder), signal_group,
+                                    SIGNAL_GROUPS, optimizer)
+        self.step_norms = StepNorms(clip)
         self._every = every
         self._probe_pairs = probe_pairs
-        self._clip = clip
         self._seed = seed
-        self._last_pairs = pairs
-        # Pre-clip norms of the real steps since the last row, left on
-        # the device: one transfer per row, none per step.
-        self.step_norms: List[torch.Tensor] = []
+        self._last_row_pairs = pairs if last_row_pairs is None else last_row_pairs
         self.rows = 0
         self.failures = 0
         self.probe_seconds = 0.0
+        self._write({"kind": "start", "pairs": pairs, "ts": time.strftime("%FT%T"),
+                     "terms": list(IMITATION_SOURCES), "groups": list(SIGNAL_GROUPS),
+                     "every": every, "probe_pairs": probe_pairs, "clip": clip,
+                     "update": "gradient / (sqrt(v_hat) + eps) of the optimizer's second moment"})
+
+    def state(self) -> Dict[str, int]:
+        """What a checkpoint keeps so that a resumed run writes its rows
+        where the uncut run does."""
+        return {"last_row_pairs": self._last_row_pairs}
 
     def due(self, pairs: int) -> bool:
-        """Whether the trained-pair count crossed a multiple of `every`
-        since the previous call."""
-        crossed = pairs // self._every != self._last_pairs // self._every
-        self._last_pairs = pairs
-        return crossed
+        """Whether the trained-pair count has crossed a multiple of `every`
+        since the last probe row."""
+        return pairs // self._every > self._last_row_pairs // self._every
 
-    def record(self, batch: Optional[tuple], *, epoch: int, step: int, pairs: int) -> Dict:
-        """Write one row and return it. `batch` is the (raws, ais, zw)
-        the last step trained on, or None where there is none to probe
-        (the per-pair flow keeps no batch): that row carries the step
-        norms alone."""
-        row: Dict = {"epoch": epoch, "step": step, "pairs": pairs,
-                     "ts": time.strftime("%FT%T"), "steps": self._drain_step_norms()}
-        started = time.perf_counter()
-        if batch is None:
-            row["probe"] = "none: the per-pair flow keeps no batch"
-        else:
-            try:
-                row.update(self._probe(*batch, step=step))
-            except Exception as e:  # noqa: BLE001 -- telemetry never stops training
-                self.failures += 1
-                row["probe_error"] = repr(e)[:300]
-                if self.failures <= 5:
-                    log.warning(f"signal probe failed at step {step} "
-                                f"({self.failures} so far): {e!r}"[:400])
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-        elapsed = time.perf_counter() - started
-        self.probe_seconds += elapsed
-        row["probe_ms"] = round(1000.0 * elapsed, 1)
-        self._write(row)
-        return row
+    def record(self, batch: Optional[tuple], *, epoch: int, step: int, pairs: int,
+               max_probe_pairs: Optional[int] = None) -> Dict:
+        """Write a probe row and return it. `batch` is the (raws, ais,
+        zw) the last step trained on, or None where there is none (the
+        per-pair flow keeps no batch; that row carries the step norms
+        alone). `max_probe_pairs` caps the probe, e.g. at the chunk size
+        the step itself had to split its batch into."""
+        self._last_row_pairs = pairs
+        return self._row("probe", batch, epoch=epoch, step=step, pairs=pairs,
+                         max_probe_pairs=max_probe_pairs)
+
+    def close(self, *, epoch: int, step: int, pairs: int) -> Optional[Dict]:
+        """The step norms since the last row, at an epoch's end or a cut;
+        nothing when no step was taken since."""
+        if not len(self.step_norms):
+            return None
+        return self._row("steps", None, epoch=epoch, step=step, pairs=pairs)
 
     def summary(self, wall_seconds: float) -> str:
         """The epoch accounting's fields: rows, failures, share of the wall."""
@@ -331,54 +480,63 @@ class ImitationSignal:
         return (f"signal_rows={self.rows} signal_failures={self.failures} "
                 f"signal_wall={share:.1%}")
 
-    def _probe(self, raws: Sequence, ais: Sequence, zw: Sequence, *, step: int) -> Dict:
-        rng = random.Random(self._seed * 1_000_003 + step)
-        pick = sorted(rng.sample(range(len(raws)), min(len(raws), self._probe_pairs)))
-        batch = ([raws[i] for i in pick], [ais[i] for i in pick], [zw[i] for i in pick])
-        on_cuda = self._params[0].is_cuda
-        with torch.random.fork_rng(devices=[torch.cuda.current_device()] if on_cuda else []):
-            parts, _ = self._batch_loss(*batch)
-            losses = parts.source_losses()
-            grads = {}
-            for k, source in enumerate(IMITATION_SOURCES):
-                loss = losses[source]
-                if not loss.requires_grad:
-                    grads[source] = [None] * len(self._params)
-                    continue
-                grads[source] = torch.autograd.grad(
-                    loss / len(pick), self._params,
-                    retain_graph=k + 1 < len(IMITATION_SOURCES), allow_unused=True)
-            del parts, losses
-        gram = self._grams(grads).cpu().tolist()
-        return {"probe_pairs": len(pick), "groups": summarize_gram(gram),
-                "gram": dict(zip(SIGNAL_GROUPS, gram))}
+    def _row(self, kind: str, batch: Optional[tuple], *, epoch: int, step: int, pairs: int,
+             max_probe_pairs: Optional[int] = None) -> Dict:
+        started = time.perf_counter()
+        row: Dict = {"kind": kind, "epoch": epoch, "step": step, "pairs": pairs,
+                     "ts": time.strftime("%FT%T")}
+        try:
+            row["steps"] = self.step_norms.drain()
+            if kind == "probe":
+                if batch is None:
+                    row["probe"] = "none: the per-pair flow keeps no batch"
+                else:
+                    row.update(self._probe_batch(*batch, pairs=pairs, cap=max_probe_pairs))
+        except Exception as e:  # noqa: BLE001 -- telemetry never stops training
+            self.failures += 1
+            row["probe_error"] = repr(e)[:300]
+            if self.failures <= 5:
+                log.warning(f"signal telemetry failed at step {step} "
+                            f"({self.failures} so far): {e!r}"[:400])
+        elapsed = time.perf_counter() - started
+        self.probe_seconds += elapsed
+        row["probe_ms"] = round(1000.0 * elapsed, 1)
+        self._write(row)
+        return row
 
-    def _grams(self, grads: Dict[str, Sequence]) -> torch.Tensor:
-        """[groups, terms, terms]: the terms' gradient inner products
-        over each group's parameters."""
-        n = len(IMITATION_SOURCES)
-        device = self._params[0].device
-        gram = torch.zeros(len(SIGNAL_GROUPS), n, n, dtype=torch.float64, device=device)
-        for j, (param, group) in enumerate(zip(self._params, self._group_of_param)):
-            rows = [grads[source][j] for source in IMITATION_SOURCES]
-            if all(r is None for r in rows):
-                continue
-            flat = torch.stack([torch.zeros(param.numel(), device=device) if r is None
-                                else r.reshape(-1).float() for r in rows])
-            gram[group] += (flat @ flat.T).double()
-        return gram
+    def _probe_batch(self, raws: Sequence, ais: Sequence, zw: Sequence, *, pairs: int,
+                     cap: Optional[int]) -> Dict:
+        order = random.Random(self._seed * 1_000_003 + pairs).sample(range(len(raws)), len(raws))
+        n = min(len(raws), self._probe_pairs, cap or len(raws))
+        while True:
+            try:
+                return self._probe_once(raws, ais, zw, sorted(order[:n]))
+            except torch.cuda.OutOfMemoryError:
+                if n <= MIN_PROBE_PAIRS:
+                    raise
+                n = max(MIN_PROBE_PAIRS, n // 2)
+            # Past the except clause, the failed attempt's frames and graph
+            # are gone, so the allocator can hand their memory to the retry.
+            torch.cuda.empty_cache()
 
-    def _drain_step_norms(self) -> Dict:
-        if not self.step_norms:
-            return {"n": 0}
-        norms = torch.stack([n.float() for n in self.step_norms]).cpu()
-        self.step_norms.clear()
-        finite = norms[torch.isfinite(norms)]
-        out: Dict = {"n": int(norms.numel()), "nonfinite": int(norms.numel() - finite.numel())}
-        if finite.numel():
-            out.update(mean=float(finite.mean()), max=float(finite.max()),
-                       clipped=float((finite > self._clip).float().mean()))
-        return out
+    def _probe_once(self, raws: Sequence, ais: Sequence, zw: Sequence, pick: List[int]) -> Dict:
+        with self._probe.fork_rng():
+            parts, targets = self._batch_loss([raws[i] for i in pick], [ais[i] for i in pick],
+                                              [zw[i] for i in pick])
+            gradient, update = self._probe.grams(parts.source_losses(), 1.0 / len(pick))
+            del parts
+        readings = dict(terms=IMITATION_SOURCES, groups=SIGNAL_GROUPS,
+                        policy_terms=POLICY_SOURCES, shared_groups=("encoder", "trunk"))
+        gradient_gram = gradient.cpu().tolist()
+        row = {"probe_pairs": len(pick),
+               "fired": {head: int(sum(flags)) for head, flags in targets.ok.items()},
+               "gradient": summarize_gram(gradient_gram, **readings),
+               "gradient_gram": dict(zip(SIGNAL_GROUPS, gradient_gram))}
+        if update is not None:
+            update_gram = update.cpu().tolist()
+            row["update"] = summarize_gram(update_gram, **readings)
+            row["update_gram"] = dict(zip(SIGNAL_GROUPS, update_gram))
+        return row
 
     def _write(self, row: Dict) -> None:
         try:
@@ -386,6 +544,26 @@ class ImitationSignal:
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(row) + "\n")
             self.rows += 1
-        except OSError as e:
+        except (OSError, TypeError, ValueError) as e:
             self.failures += 1
             log.warning(f"signal row write failed ({self.path}): {e!r}")
+
+
+def check_signal_cadence(every: int, probe_pairs: int = IMITATION_PROBE_PAIRS) -> None:
+    """Refuse a cadence the telemetry cannot run at (it is always on)."""
+    if every < 1 or probe_pairs < 1:
+        raise ValueError(f"the signal telemetry is always on: it needs every >= 1 and "
+                         f"probe_pairs >= 1, got {every} and {probe_pairs}")
+
+
+def read_signal_rows(path: Path) -> List[Dict]:
+    """The rows of a signal file that describe the training as it went:
+    after a "start" row at pair count P, earlier rows past P are dropped
+    (their run was cut and resumed from an earlier checkpoint)."""
+    rows: List[Dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        if row.get("kind") == "start":
+            rows = [r for r in rows if r["pairs"] <= row["pairs"]]
+        rows.append(row)
+    return rows

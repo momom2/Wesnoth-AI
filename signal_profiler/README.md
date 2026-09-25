@@ -54,20 +54,26 @@ Node fields:
 Smoke test (tiny net, CPU): pytest signal_profiler/tests -q
 (deliberately outside the main suite's testpaths).
 
-## Always on in the trainers
+## In the trainers, always on
 
 `tools/signal_telemetry.py` records the trend view during training,
-at every step of a run, with no flag:
+with no flag to set:
 
 - the self-play learner (`az_loop`): per iteration, the gradient norm
   of each signal source (the `sig_*_norm` columns; the older
   `sim_self_play` entry records them with `--signal-telemetry`);
 - the imitation trainer (`tools/supervised_train.py`): a row every
-  25,000 trained pairs in `<checkpoint stem>_signal.jsonl`, the
-  gradient of a probe of the batch just trained split by loss term
-  (actor, type, target, weapon, value) over the encoder, the trunk,
-  the heads and all parameters -- each term's norm, signed share and
-  cosine with the summed gradient, the policy-value cosine, the Gram
-  matrices -- and the steps' pre-clip gradient norms since the
-  previous row. The probe leaves training bit-identical
-  (tests/test_signal_telemetry.py) and records its own cost.
+  25,000 trained pairs in `<checkpoint stem>_signal.jsonl`. A probe of
+  32 pairs of the batch just trained is split by loss term (actor,
+  type, target, weapon, value) over the encoder, the trunk, the heads
+  and all parameters: each term's norm, signed share and cosine with
+  the sum, the policy-value cosine and the Gram matrices, in two
+  spaces -- the gradient, and the gradient divided coordinate by
+  coordinate by AdamW's scale sqrt(v_hat) + eps (the "update" space
+  of `update_tree.py`, which is what shares of the weights' movement
+  mean under Adam). Each row also carries the real steps' pre-clip
+  gradient norms since the previous row and the probe's own cost.
+  The probe is built to leave training unchanged (its own generator,
+  forked torch generators, gradients by `autograd.grad`);
+  tests/test_signal_telemetry.py holds the weights bit-identical on
+  CPU. `read_signal_rows` reads a file whose run was resumed.

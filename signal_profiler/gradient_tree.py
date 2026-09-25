@@ -12,28 +12,9 @@ import dataclasses
 import logging
 from typing import Dict, List, Optional
 
+from tools.signal_telemetry import group_of   # the trainers' telemetry groups the same way
+
 log = logging.getLogger("signal_profiler")
-
-# Parameter-group predicates over `named_parameters()` names, model
-# and encoder namespaced as "model." / "encoder.".
-PARAM_GROUPS = (
-    ("encoder",     lambda n: n.startswith("encoder.")),
-    ("value_head",  lambda n: n.startswith("model.value_head")),
-    ("actor_head",  lambda n: n.startswith("model.actor_head")),
-    ("type_head",   lambda n: n.startswith("model.type_head")),
-    ("target_proj", lambda n: n.startswith("model.target_")),
-    ("weapon_head", lambda n: n.startswith("model.weapon_head")),
-    ("gbc_heads",   lambda n: n.startswith("model.gbc_heads")),
-    ("aux_ml",      lambda n: n.startswith(("model.aux_score_head",
-                                            "model.moves_left"))),
-)
-
-
-def group_of(name: str) -> str:
-    for g, pred in PARAM_GROUPS:
-        if pred(name):
-            return g
-    return "trunk"
 
 
 class _NoStepOptimizer:

@@ -31,9 +31,8 @@ from __future__ import annotations
 import logging
 from typing import Dict, List
 
-from signal_profiler.gradient_tree import (
-    TERM_SURGERY, group_of, _surgered,
-)
+from signal_profiler.gradient_tree import TERM_SURGERY, _surgered
+from tools.signal_telemetry import group_of
 
 log = logging.getLogger("signal_profiler")
 

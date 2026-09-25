@@ -19,18 +19,7 @@ from wesnoth_ai.encoder import GameStateEncoder, encode_raw
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
 from wesnoth_ai.model import WesnothModel
 from imitation_helpers import ARCH as _ARCH, TYPE_W as _TYPE_W, labels as _labels, states as _states
-
-
-def _reference(model, enc, raws, ais, zw, dev):
-    from tools.supervised_train import _loss_parts_for_output
-    encoded = [enc.encode_from_raw(r, device=dev) for r in raws]
-    outs = model.forward_batch(encoded)
-    parts = [_loss_parts_for_output(o, ai, dev, type_loss_weights=_TYPE_W,
-                                    value_z=z, value_weight=vw, policy_weight=pw)
-             for o, ai, (z, vw, pw) in zip(outs, ais, zw)]
-    total = (sum(pw * (p.actor + p.type + p.target + p.weapon) for p, (_, _, pw) in zip(parts, zw))
-             + sum(vw * p.value for p, (_, vw, _) in zip(parts, zw)))
-    return parts, total
+from imitation_helpers import per_sample_reference as _reference
 
 
 def _grad_close(a, b):
