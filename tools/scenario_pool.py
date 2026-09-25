@@ -739,11 +739,11 @@ def build_scenario_gamestate(
     # rejects the [recruit] command at replay-load with "found
     # [recruit] command expecting user choice".
     #
-    # We don't add a SideInfo for these sides: the sim rotates
-    # 1<->2 based on `len(gs.sides)`, and the statues are inert
-    # (petrified -> 0 moves, no attacks, has_attacked=True). Keeping
-    # them out of `starting_sides` avoids accidental side-3 turns;
-    # leaving them in `starting_units` (with side=3) is enough for
+    # These sides get no SideInfo: they have no gold, recruits or
+    # villages to track, and which of them take turns is the census
+    # recorded at the end of this function (_null_controller_sides,
+    # _neutral_actor_sides), which the simulator's side order reads.
+    # Their units in `starting_units` (with side=3) are enough for
     # `gs.map.units` to list them and the legality mask to see the
     # hexes as occupied.
     # Pre-placed PLAYER units (sides 1/2) come first: the capability

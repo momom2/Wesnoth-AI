@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from wesnoth_ai.classes import (Attack, GameState, GlobalInfo, Map, Position, SideInfo,
-                                TerrainModifiers, Unit)
+                                TerrainModifiers, Unit, opponent_of)
 
 _KERNEL_CHECKED = False
 _GAME_CORE = None
@@ -560,12 +560,11 @@ class CoreState:
         """`encoder.encode_raw` over the core for the side to move: the
         same RawEncoded, byte for byte (tests/test_game_core.py)."""
         from wesnoth_ai import encoder as enc
-        from wesnoth_ai.classes import Position
         core = self.core
         side = int(core.current_side)
         sides = core.sides_export()
         us = side - 1
-        them = 1 - us if len(sides) == 2 else us
+        them = opponent_of(side) - 1
         our_fac = sides[us][5] if 0 <= us < len(sides) else ""
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []

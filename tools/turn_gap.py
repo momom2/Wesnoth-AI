@@ -82,7 +82,7 @@ from tools.mcts import fork_guard
 from tools.raw_player import END_TURN_RULES, RawPolicyPlayer
 from tools.sim_self_play import _would_recruit_bounce
 from tools.wesnoth_sim import WesnothSim
-from wesnoth_ai.classes import GameState, state_key
+from wesnoth_ai.classes import GameState, opponent_of, state_key
 
 log = logging.getLogger("turn_gap")
 
@@ -379,9 +379,11 @@ def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
 
 def _hp_margin(gs: GameState, mover: int) -> int:
     """Mover's total unit HP minus the opponent's: the exact-material
-    pre-grader of docs/turn_proposer_design_20260905.md."""
+    pre-grader of docs/turn_proposer_design_20260905.md. A scenario's
+    other sides (statues, a tentacle) belong to neither."""
+    opponent = opponent_of(mover)
     ours = sum(int(u.current_hp) for u in gs.map.units if u.side == mover)
-    theirs = sum(int(u.current_hp) for u in gs.map.units if u.side != mover)
+    theirs = sum(int(u.current_hp) for u in gs.map.units if u.side == opponent)
     return ours - theirs
 
 
@@ -442,7 +444,7 @@ def play_out(post_gs: GameState, scenario_id: str, mover: int, max_turns: int,
     """One playout from a post-turn position with `raw:t0` on both
     sides. Returns (outcome, capped, final turn number)."""
     sim = sim_from_state(post_gs, scenario_id, max_turns, salt)
-    _play_one_eval_game(sim, pairs[mover], pairs[3 - mover], game_label=game_label)
+    _play_one_eval_game(sim, pairs[mover], pairs[opponent_of(mover)], game_label=game_label)
     outcome, capped = outcome_for(sim, mover)
     return outcome, capped, sim.gs.global_info.turn_number
 

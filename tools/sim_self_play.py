@@ -535,12 +535,8 @@ def play_one_game(
 
     # Game over. Emit terminal reward to every side that ACTED so
     # each trajectory the policy started actually gets a terminal
-    # observe(done=True). Iterating over `last_acting_side` (rather
-    # than a hardcoded (1, 2) tuple) handles replays declaring more
-    # than 2 sides: WesnothSim's `_apply_command(end_turn)` cycles
-    # `current_side` modulo `len(gs.sides)`, so a 3- or 4-side
-    # replay's `select_action` keys land on sides > 2. Without this
-    # they leak forever in `_pending`.
+    # observe(done=True), and no side the policy never played gets
+    # one.
     final_turn = sim.gs.global_info.turn_number
     for side, acted in list(last_acting_side.items()):
         if not acted:
