@@ -7,12 +7,21 @@ static arrays once per hex set (`map_static`), the unit types it needs
 and the terrain resolver's defense percentages per hex, per unit type
 and slowed status), then the units, sides, globals and the stash the
 simulator keeps on `global_info`. `to_state()` rebuilds a GameState
-whose modeled content equals the original (tests/test_game_core.py);
-the hex set, the terrain codes, the time areas, the scenario events
-and every stash key the core does not model are shared by reference,
-as `GlobalInfo.__deepcopy__` shares them across forks. Per-unit stash
-attributes (`_defense_table`, `_pickadvance`, `_trait_order`,
-`_feeding_count`) live in `unit_stash`, replaced never mutated.
+whose modeled content equals the original (tests/test_game_core.py).
+
+What the core does not model -- the hex set, the mask and fog, the
+terrain codes, the time areas, the scenario events and every other
+stash key -- stays Python in `statics`. `to_state()` hands those
+objects to the GameState it builds by reference, and `reload()` takes
+them back after a command the Python applier ran. A search fork
+(`fork()`) copies them by `GlobalInfo.__deepcopy__`'s rules
+(`_fork_statics`): the hex set, the mask, the fog and the terrain
+codes stay aliased, unfired scenario events are copied per fork (their
+`fired` latch is state), and dict, set and list values are copied
+shallowly. Per-unit stash attributes (every underscore attribute of a
+unit, such as `_defense_table`, `_pickadvance`, `_trait_order`,
+`_feeding_count` and `_wml_role`) live in `unit_stash`, replaced never
+mutated.
 """
 from __future__ import annotations
 

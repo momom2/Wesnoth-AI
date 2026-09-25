@@ -346,9 +346,10 @@ def request_seed(request_id: int) -> str:
 # Wesnoth's recruit handler refuses a recruit if the side can't afford
 # the unit's cost (see wesnoth_src/src/synced_commands.cpp recruit
 # handler around the `u_type->cost() > beginning_gold` check). Our
-# `_apply_command` is permissive (clamps gold to 0), so the sim's
-# move-validation layer needs the cost to gate recruits before they
-# reach _apply_command.
+# `_apply_command` accepts any recruit and deducts its cost without a
+# floor, as `team::spend_gold` does, so the sim's move-validation
+# layer needs the cost to gate recruits before they reach
+# _apply_command.
 
 _RECRUIT_COSTS_CACHE: Dict[str, int] = {}
 
@@ -1341,17 +1342,9 @@ class WesnothSim:
 
     # ----- internals -------------------------------------------------
 
-    # Cover abilities -- units with one of these CAN be hidden in
-    # the matching terrain/ToD, but only if not already revealed.
-    # `_hide_cover_active` and the per-turn `_uncovered_units` set
-    # together gate when ambush actually fires.
     # Loop guard: max consecutive planner-rejected steps before the
     # sim forces end_turn (mask-less caller protection; see step()).
     _MAX_CONSECUTIVE_REJECTS = 8
-
-    _AMBUSH_ABILITIES = frozenset({
-        "ambush", "nightstalk", "concealment", "submerge",
-    })
 
     def _begin_side_turn(self, side: int) -> None:
         """Fire init_side(side). Replay-recon's _apply_command for
@@ -1649,9 +1642,9 @@ class WesnothSim:
             # side can't afford the unit or the target hex isn't part
             # of the leader's castle, playback errors with "cannot
             # recruit unit: ...". Our `_apply_command` is permissive --
-            # it deducts cost and clamps gold to 0, then accepts the
-            # recruit -- so without this gate the sim emits illegal
-            # recruits that Wesnoth rejects.
+            # it accepts the recruit and deducts the cost with no floor,
+            # so gold can go negative -- so without this gate the sim
+            # emits illegal recruits that Wesnoth rejects.
             # Leader-on-keep + castle-network connectivity, via the
             # SHARED helper the legality mask consumes
             # (visibility.leader_castle_network) -- audit 2026-07-17

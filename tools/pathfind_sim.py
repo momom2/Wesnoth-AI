@@ -238,14 +238,15 @@ def defense_pct_at(unit, gs, x: int, y: int) -> int:
     return min(vals) if vals else 50
 
 
-# Per-(map-terrain, unit-name, slowed) precomputed (mvt_cost,
-# defense_pct) per hex. The Dijkstra relaxes ~150 edges per unit per
-# decision and MCTS rebuilds masks per node -- resolving terrain
-# through the alias graph per edge was ~37us/edge (5.6ms/decision
-# measured 2026-07-17); one full-map precompute per unit TYPE per
-# scenario amortizes to dict lookups. Keyed by a live hash of the
-# terrain-code dict so mid-game terrain morphs (Aethermaw)
-# invalidate naturally.
+# Per-(map-terrain, unit-name, slowed, defense table) precomputed
+# (mvt_cost, defense_pct) per hex. The Dijkstra relaxes ~150 edges
+# per unit per decision and MCTS rebuilds masks per node -- resolving
+# terrain through the alias graph per edge was ~37us/edge
+# (5.6ms/decision measured 2026-07-17); one full-map precompute per
+# unit TYPE per scenario amortizes to dict lookups. The map part of
+# the key is the state's terrain epoch (below), which a terrain-morph
+# event (Aethermaw) replaces, so a morph misses the cache; only an
+# unstamped state falls back to hashing the terrain-code dict.
 _TERRAIN_MAPS_CACHE: Dict[Tuple[int, str, bool, int],
                           Dict[Coord, Tuple[int, int]]] = {}
 
@@ -605,17 +606,19 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     module docstring for the blocked / ambush / village / ZoC rules
     and their move.cpp citations.
 
-    `enforce_budget=False` is the RECONSTRUCTION mode: the engine
-    already validated the recorded move when it was played, so a
-    budget overrun (which can only mean our reconstructed MP
-    drifted) must not truncate a human path -- MP just clamps to 0.
-    The policy path keeps enforcement on (its orders are our own to
-    validate).
+    The one production caller is the move branch of
+    `replay_dataset._apply_command`, which replay reconstruction and
+    the simulator's own moves (`WesnothSim.step`) both go through, so
+    the two share one truncation semantics. It passes
+    `enforce_budget=False`: a recorded move was validated by the
+    engine when it was played, and the simulator routes its orders
+    within the budget before recording them, so an overrun can only
+    mean the reconstructed MP drifted, and it must not truncate the
+    path -- MP just clamps to 0. The default (enforcement on) serves
+    the tests, which walk hand-written paths.
 
-    Does NOT mutate gs -- callers apply the outcome (position, MP,
-    `_uncovered_units`, village capture) themselves, so the
-    reconstruction path (replay_dataset._apply_command) and the
-    policy path (WesnothSim.step) share one truncation semantics.
+    Does NOT mutate gs -- the caller applies the outcome (position,
+    MP, `_uncovered_units`, village capture).
     """
     from tools.abilities import hex_neighbors
     from tools.wesnoth_sim import _move_cost_at_hex
