@@ -81,10 +81,11 @@ Windows here and on Linux in CI (run 36051474864); with 1 KiB it exited
 2.0 s after the kill. Actors and serve processes now start through
 `tools/mp_teardown.start_child`, whose target cancels the exit's flush
 on every queue the child was handed when its body ends with the parent
-gone (tests/test_orphan_exit.py). Open:
-- A child that stopped on STOP still flushes, since the manager reads
-  its queues during shutdown; if the learner is killed during that
-  shutdown, the child waits forever.
+gone (tests/test_orphan_exit.py). A child whose body returns while
+the parent lives (an actor on STOP) still writes everything out, since
+the manager reads its queues during shutdown; if the parent dies before
+that exit is done, a watch thread on the parent's sentinel ends the
+process (0.5.9).
 
 ## shutdown() reads its children's output while they exit (2026-09-24, FIXED, 0.5.5)
 

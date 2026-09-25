@@ -42,6 +42,31 @@ def ship_results_until_orphaned(ctrl_q, result_q, actor_pid, shipped, nbytes: in
         pass
 
 
+def learner_killed_while_its_stopped_actor_flushes(actor_pid, stopped) -> None:
+    """A learner killed during its own shutdown: it has sent STOP to an
+    actor holding 1 MiB of results and reads none of them; it waits to
+    be killed."""
+    import multiprocessing as mp
+    import time
+    from tools.mp_teardown import start_child
+    ctx = mp.get_context("spawn")
+    ctrl_q, result_q = ctx.Queue(), ctx.Queue()
+    start_child(ctx, ship_results_then_take_stop, (ctrl_q, result_q, actor_pid, stopped),
+                name="actor-0")
+    ctrl_q.put(("stop",))
+    time.sleep(600.0)
+
+
+def ship_results_then_take_stop(ctrl_q, result_q, actor_pid, stopped) -> None:
+    """An actor that ships 1 MiB of results, far more than a pipe holds,
+    then takes STOP and returns while its learner is alive."""
+    import os
+    result_q.put(b"x" * (1 << 20))
+    ctrl_q.get(timeout=60.0)
+    actor_pid.value = os.getpid()
+    stopped.set()
+
+
 def trainer_killed_with_its_encode_worker(n_replays: int, worker_pid, ready) -> None:
     """A trainer that has started one encode worker and handed it
     `n_replays` replays, reading none of its output; it waits to be

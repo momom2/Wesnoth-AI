@@ -38,15 +38,16 @@ def _wait_for_exit(proc: psutil.Process, seconds: float) -> bool:
 
 
 def _assert_child_exits_once_parent_is_killed(parent: mp.Process, child_pid, ready,
-                                             child: str) -> None:
-    """Start `parent`, wait until `ready`, kill it, and require the child
-    whose pid it reports to exit within 10 s. Both are killed on the way
-    out, so a failure leaves nothing running."""
+                                             child: str, settle: float = 0.0) -> None:
+    """Start `parent`, wait until `ready` and `settle` seconds more, kill
+    it, and require the child whose pid it reports to exit within 10 s.
+    Both are killed on the way out, so a failure leaves nothing running."""
     parent.start()
     proc = None
     try:
         assert ready.wait(60.0), f"the {child} never got ready"
         proc = psutil.Process(child_pid.value)
+        time.sleep(settle)
         parent.kill()
         parent.join(10.0)
         assert _wait_for_exit(proc, 10.0), (
@@ -76,6 +77,21 @@ def test_an_actor_exits_with_results_its_killed_learner_never_read():
     learner = ctx.Process(target=queue_children.learner_killed_while_its_actor_ships,
                           args=(1 << 20, actor_pid, shipped), name="learner")
     _assert_child_exits_once_parent_is_killed(learner, actor_pid, shipped, "actor")
+
+
+def test_a_stopped_actor_exits_when_its_learner_is_killed_during_shutdown():
+    """An actor that took STOP returns while its learner lives, so it
+    writes out what it shipped as it exits, and the learner reads it
+    (ActorPool.shutdown). A learner killed during that shutdown stops
+    reading, and the actor waited forever at exit with its results
+    half written. The kill comes `settle` seconds after the actor's last
+    statement, when its body has long returned."""
+    ctx = mp.get_context("spawn")
+    stopped = ctx.Event()
+    actor_pid = ctx.Value("i", 0)
+    learner = ctx.Process(target=queue_children.learner_killed_while_its_stopped_actor_flushes,
+                          args=(actor_pid, stopped), name="learner")
+    _assert_child_exits_once_parent_is_killed(learner, actor_pid, stopped, "actor", settle=1.0)
 
 
 @pytest.mark.parametrize("n_replays", [0, 3], ids=["waiting-for-a-replay", "output-queue-full"])
