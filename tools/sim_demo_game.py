@@ -153,6 +153,9 @@ def main(argv) -> int:
     ap.add_argument("--seed", type=int, default=None,
                     help="Seed of the scenario draw and of the player's "
                          "choices. Default: time-based.")
+    # The multiplayer defaults, for a game seeded from a replay
+    # (--replay-pool); a from-scratch game plays its scenario's own
+    # gold, village economy and experience modifier, as self-play does.
     ap.add_argument("--starting-gold", type=int, default=100)
     ap.add_argument("--village-gold", type=int, default=2)
     ap.add_argument("--village-support", type=int, default=1)
@@ -226,13 +229,9 @@ def main(argv) -> int:
             f"from-scratch setup: scenario={setup.scenario_id} "
             f"factions={setup.faction1} vs {setup.faction2} "
             f"leaders={setup.leader1} / {setup.leader2}")
-        gs = build_scenario_gamestate(
-            setup,
-            base_income=pvp.base_income,
-            village_gold=pvp.village_gold,
-            village_upkeep=pvp.village_support,
-            experience_modifier=pvp.experience_modifier,
-        )
+        # The scenario's own economy (None), as sim_self_play reads it
+        # since 2026-09-21: five of the seven minis pay 3 gold a village.
+        gs = build_scenario_gamestate(setup, base_income=pvp.base_income)
         sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                          max_turns=args.max_turns)
         src_bz2 = None  # unused in the from-scratch path
