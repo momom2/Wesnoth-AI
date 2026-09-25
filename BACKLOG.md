@@ -58,7 +58,9 @@ docs/turn_proposer_design_20260905.md.
   lines, most of them closed sections. Target: one package per system
   with a README each (what it does, entry points, invariants, tests),
   scripts as thin entry points whose documented command lines keep
-  working, closed backlog sections archived.
+  working, closed backlog sections archived. Plan:
+  docs/refactor_plan_20260925.md (steps 0-2 conflict with no open branch;
+  the moves wait for `exp/turn-value` to land).
 
 ## Open after the 2026-09-25 audits
 
@@ -78,7 +80,18 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   read source text instead of behaviour, or pin defaults; dead modules
   (`wesnoth_ai/policy.py`, `wesnoth_ai/profiling.py`,
   `tools/replay_builder.py`) and about 20 one-shot probe scripts with no
-  user. Each needs the user's word.
+  user. Each needs the user's word. Extended by the 2026-09-25 inventory
+  (docs/refactor_inventory_20260925.md, section b, with the evidence for
+  each): 48 entry points that nothing imports, runs or documents (10,111
+  lines: probes whose results live in archived docs, corpus-rebuild tools,
+  fidelity oracles worth keeping for the next fidelity bug, legacy loops
+  and dashboards); `benchmarks/` (3 files named nowhere); 23 functions and
+  6 methods with no caller; argparse flags no caller passes; unread
+  constants and configs (`configs/replay_map_whitelist.txt`,
+  `map_whitelist_1v1.json`, `vendored_addon_ids.txt`); about 29 more test
+  files that test only quarantined or dead code. Moving or deleting
+  quarantined code also needs a ruling on quarantine/README.md's "the code
+  stays where it is".
 - **A lever to measure: the attack hex.** For an attack on a unit the
   attacker is not next to, the simulator picks the hex by route cost
   (`wesnoth_sim.py:1016`), in effect the nearest; ranking by the
