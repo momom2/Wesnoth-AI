@@ -16,6 +16,8 @@ pre-end_turn state.
 Splits are by game, from a hash of the file name alone (so every run on
 these games splits them alike): --proxy-games are the held-out proxy
 set, --stop-games the fit's early-stopping set, the rest the fit set.
+The proxy set's candidates play --proxy-playouts playouts each, so its
+playout noise can be measured and corrected for.
 
 One task per game: a worker walks the record once and measures the
 game's positions in order. Each finished game is appended to --out as
@@ -38,7 +40,7 @@ import multiprocessing as mp
 import random
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -71,6 +73,13 @@ class Selection:
     per_game: int = 15
     min_turn: int = 2
     seed: int = 25
+    proxy_playouts: int = 2
+
+
+def config_for(cfg: tg.GapConfig, sel: Selection, split: str) -> tg.GapConfig:
+    """The measurement of a split's positions: the proxy set plays
+    sel.proxy_playouts playouts per candidate."""
+    return replace(cfg, playouts=sel.proxy_playouts) if split == "proxy" else cfg
 
 
 def game_files(games_dir: Path) -> List[Path]:
@@ -144,7 +153,7 @@ def measure_game(policy, task: GameTask, cfg: tg.GapConfig, sel: Selection) -> L
             scenario_id=rec["scenario_id"],
             meta={"source": "game_record", "game": task.name, "command_index": k,
                   "split": task.split, "game_winner": int(rec["winner"])})
-        out.append(tg.measure_position(policy, position, cfg))
+        out.append(tg.measure_position(policy, position, config_for(cfg, sel, task.split)))
         if not picks:
             break
     if picks:
@@ -220,7 +229,7 @@ def read_log(path: Path) -> Tuple[Optional[Dict], List[Dict], Set[str]]:
 
 
 def _same_run(old: Dict, new: Dict) -> bool:
-    keys = ("config", "selection", "splits", "games")
+    keys = ("config", "selection", "splits", "games", "checkpoint_sha256", "code_version")
     return all(old.get(k) == new.get(k) for k in keys)
 
 
@@ -233,7 +242,8 @@ def open_log(path: Path, header: Dict) -> Set[str]:
     old, _, done = read_log(path)
     if old is None or not _same_run(old, header):
         raise SystemExit(f"{path} holds another run's data (its header differs in "
-                         f"config, selection, splits or games); use another --out")
+                         f"config, selection, splits, games, checkpoint or code "
+                         f"version); use another --out")
     log.info("%s: continuing, %d games already finished", path, len(done))
     return done
 
@@ -262,6 +272,8 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--min-turn", type=int, default=Selection.min_turn)
     ap.add_argument("--proxy-games", type=int, default=100)
     ap.add_argument("--stop-games", type=int, default=70)
+    ap.add_argument("--proxy-playouts", type=int, default=Selection.proxy_playouts,
+                    help="Playouts per candidate on the proxy set's positions.")
     ap.add_argument("--limit-games", type=int, default=0,
                     help="Measure only the first N games in file order (a smoke run).")
     ap.add_argument("--alternatives", type=int, default=2)
@@ -271,6 +283,11 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--playout-temperature", type=float, default=0.5)
     ap.add_argument("--cap-turns", type=int, default=30)
     ap.add_argument("--seed", type=int, default=Selection.seed)
+    ap.add_argument("--horizon-reads", type=int, default=8,
+                    help="Value and HP-margin reads at a playout's first N player "
+                         "turn starts (tools/playout_reads.py).")
+    ap.add_argument("--playout-luck", action=argparse.BooleanOptionalAction, default=True,
+                    help="The luck of every playout's fights (tools/playout_reads.py).")
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction, default=None)
@@ -297,13 +314,16 @@ def main(argv) -> int:
                        cap_turns=args.cap_turns, seed=args.seed,
                        playout_temperature=args.playout_temperature,
                        end_turn_rule=args.raw_end_turn,
-                       end_turn_offset=args.raw_end_turn_offset)
-    sel = Selection(per_game=args.per_game, min_turn=args.min_turn, seed=args.seed)
+                       end_turn_offset=args.raw_end_turn_offset,
+                       horizon_reads=args.horizon_reads, playout_luck=args.playout_luck)
+    sel = Selection(per_game=args.per_game, min_turn=args.min_turn, seed=args.seed,
+                    proxy_playouts=args.proxy_playouts)
     tasks = tasks_for(args.games_dir, args.proxy_games, args.stop_games)
     header = {"tool": "turn_value_data", "config": asdict(cfg), "selection": asdict(sel),
               "splits": {"proxy": args.proxy_games, "stop": args.stop_games},
               "games": len(tasks), "games_dir": str(args.games_dir),
               "reference": reference, "checkpoint": str(args.checkpoint),
+              "checkpoint_sha256": tg.file_sha256(Path(args.checkpoint)),
               "procedures": {"base": tg.procedure_tag(cfg, 0.0),
                              "alternatives": tg.procedure_tag(cfg, cfg.temperature),
                              "playouts": tg.procedure_tag(cfg, cfg.playout_temperature)},

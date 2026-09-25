@@ -5,28 +5,30 @@
             position file (a tools/turn_value_data.py log, or a
             tools/turn_gap.py result) and cache, per candidate, the
             frozen reference trunk's global token (the value head's
-            input), the reference value head's read, and the playout
-            truth.
+            input), the reference value head's read, the luck of the
+            candidate turn's own fights, and per playout its outcome,
+            its horizon reads and its fight luck (tools/playout_reads.py).
+            The checkpoint must be the one the position file was
+            measured with.
   fit       fit the arms on a cache's fit split, early-stopped on its
             stop split (tools/turn_value_fit.py).
-  evaluate  the arms and the baselines against the playout truth of
-            turn_gap validation files (the pre-registered rule), and the
-            proxy barrier on a cache's proxy split.
+  evaluate  the arms, the truncated-rollout grader and the baselines
+            against the playout truth of a turn_gap validation file (the
+            pre-registered rule), and on a cache's proxy split.
 
 A candidate's pre-end_turn position is its boundary position with the
 candidate's recorded commands and recruit rejections applied
 (`pre_end_turn` in the record, tools/turn_gap.py), checked against the
-recorded digest. A candidate turn that ended the game has none; the
-analysis reads its outcome instead (tools/analysis/turn_gap_pregrader.py).
+recorded digest. A candidate turn that ended the game has none and is
+left out: its outcome is known.
 
 Usage (box):
   python tools/turn_value.py features --reference --positions data.jsonl.gz \\
       --games-dir DIR --out train.pt --device cuda --jobs 24
-  python tools/turn_value.py features --reference --positions confirm.json --out confirm.pt
+  python tools/turn_value.py features --reference --positions validation.json --out validation.pt
   python tools/turn_value.py fit --train train.pt --out-dir heads
   python tools/turn_value.py evaluate --heads heads --train train.pt \\
-      --validation confirm.json=confirm.pt --validation screen.json=screen.pt \\
-      --out verdict.json
+      --validation validation.json=validation.pt --out verdict.json
 """
 from __future__ import annotations
 
@@ -35,6 +37,7 @@ import copy
 import gzip
 import json
 import logging
+import math
 import multiprocessing as mp
 import sys
 import time
@@ -48,6 +51,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.bench_pipeline import DEFAULT_DATASET
 from tools.game_record import read_records, turn_starts, walk
+from tools.turn_gap import file_sha256
 
 log = logging.getLogger("turn_value")
 
@@ -57,6 +61,18 @@ SPLIT_VALIDATION = "validation"
 # ---------------------------------------------------------------------
 # Position files
 # ---------------------------------------------------------------------
+
+def positions_checkpoint(path: Path) -> Optional[str]:
+    """The SHA-256 of the checkpoint a position file was measured with
+    (None for a file from before the field)."""
+    path = Path(path)
+    if path.name.endswith(".jsonl.gz"):
+        from tools.turn_value_data import read_log
+        header = read_log(path)[0] or {}
+        return header.get("checkpoint_sha256")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return (data.get("provenance") or {}).get("checkpoint_sha256")
+
 
 def load_positions(path: Path) -> List[Dict]:
     """The position records of a turn_value_data log (.jsonl.gz: the
@@ -137,12 +153,36 @@ def _init_worker(encode_args: Dict) -> None:
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 
-def _encode_group(task) -> List[Tuple[int, int, object]]:
-    """(position index, slot, RawEncoded) for every candidate of a group
-    of positions that shares one source, the ones without a pre-end_turn
-    snapshot left out."""
-    from wesnoth_ai.encoder import encode_raw
+def _encode_group(task) -> Tuple[List[Tuple[int, int, object]], Optional[str], int]:
+    """(rows, error, candidates in the group): a row (position index,
+    slot, RawEncoded) for every candidate of a group of positions that
+    shares one source. A group that fails to rebuild gives no rows and
+    its error, reported instead of raised: one game must not end the
+    stage."""
     kind, source, items = task
+    n = sum(len(snaps) for _, _, snaps in items)
+    try:
+        return _encode_group_rows(kind, source, items), None, n
+    except Exception as exc:                          # noqa: BLE001 - reported per group
+        log.exception("features: %s %s failed", kind, source[1])
+        return [], f"{kind} {source[1]}: {type(exc).__name__}: {exc}", n
+
+
+def turn_luck(gs, snapshot: Dict) -> Tuple[float, float]:
+    """(HP, kills): the luck of a candidate turn's own fights, from its
+    boundary position `gs` and its pre-end_turn commands (the realized
+    minus the expected change of the mover's margins, tools/playout_reads.py).
+    A grader that reads the turn's realized dice earns nothing a teacher
+    can use: the dice are drawn again when the turn is played."""
+    from tools.playout_reads import playout_reads
+    reads = playout_reads(gs, snapshot["commands"], snapshot.get("rejections", []),
+                          mover=gs.global_info.current_side, value_of=None,
+                          horizon_reads=0, luck=True, advance_salt=snapshot.get("turn_salt"))
+    return reads["luck"]["hp"], reads["luck"]["kills"]
+
+
+def _encode_group_rows(kind, source, items) -> List[Tuple[int, int, object, Tuple[float, float]]]:
+    from wesnoth_ai.encoder import encode_raw
     out = []
     if kind == "game_record":
         games_dir, game = source
@@ -155,9 +195,10 @@ def _encode_group(task) -> List[Tuple[int, int, object]]:
         pairs = [((index, snaps), _manifest_position(dataset, entry))]
     for (index, snaps), gs in pairs:
         for slot, snap in snaps:
+            luck = turn_luck(gs, snap)
             state = copy.deepcopy(gs)
             apply_snapshot(state, snap, f"position {index} slot {slot}")
-            out.append((index, slot, encode_raw(state, **_ENCODE_ARGS)))
+            out.append((index, slot, encode_raw(state, **_ENCODE_ARGS), luck))
     return out
 
 
@@ -174,7 +215,9 @@ def encode_tasks(records: Sequence[Dict], games_dir: Optional[Path],
         for slot, cand in enumerate(candidates(rec)):
             snap = cand.get("pre_end_turn")
             if snap:
-                snaps.append((slot, snap))
+                # The candidate simulator's seed salt, which an advancement
+                # under the uniform channel draws from.
+                snaps.append((slot, dict(snap, turn_salt=rec.get("turn_salt"))))
             else:
                 skipped["terminal_in_turn" if cand.get("terminal_in_turn") else "no_snapshot"] += 1
         if not snaps:
@@ -280,11 +323,19 @@ def build_cache(records: Sequence[Dict], model, encoder, device, *, games_dir: O
     t0 = time.time()
     n_tasks = 0
 
-    def consume(rows):
+    errors: List[str] = []
+    lucks: Dict[Tuple[int, int], Tuple[float, float]] = {}
+
+    def consume(result):
         nonlocal n_tasks
+        rows, error, n = result
         n_tasks += 1
-        for index, slot, raw in rows:
+        if error is not None:
+            errors.append(error)
+            skipped["rebuild_failed"] += n
+        for index, slot, raw, luck in rows:
             reader.add((index, slot), raw)
+            lucks[(index, slot)] = luck
         if n_tasks % 50 == 0:
             log.info("features: %d/%d sources, %d candidates, %.0f s", n_tasks, len(tasks),
                      len(reader.keys) + len(reader.pending), time.time() - t0)
@@ -311,14 +362,77 @@ def build_cache(records: Sequence[Dict], model, encoder, device, *, games_dir: O
         n.append(len(outcomes))
         split.append(split_of(rec))
         group.append(group_of(rec))
-    log.info("features: %d candidates in %.0f s; left out %s", len(keys), time.time() - t0,
-             dict(skipped))
-    return {"feats": feats, "value_reference": value,
-            "index": torch.tensor([k[0] for k in keys], dtype=torch.int64),
-            "slot": torch.tensor([k[1] for k in keys], dtype=torch.int64),
-            "y": torch.tensor(y, dtype=torch.float32), "n": torch.tensor(n, dtype=torch.float32),
-            "split": split, "group": group, "skipped": dict(skipped),
-            "switches": {k: v for k, v in enc_args.items() if not k.endswith("_to_id")}}
+    log.info("features: %d candidates in %.0f s; left out %s%s", len(keys), time.time() - t0,
+             dict(skipped), "".join("\n  " + err for err in errors))
+    cache = {"feats": feats, "value_reference": value,
+             "index": torch.tensor([k[0] for k in keys], dtype=torch.int64),
+             "slot": torch.tensor([k[1] for k in keys], dtype=torch.int64),
+             "y": torch.tensor(y, dtype=torch.float32), "n": torch.tensor(n, dtype=torch.float32),
+             "split": split, "group": group, "skipped": dict(skipped), "errors": errors,
+             "counts": split_counts(records),
+             "baselines": baseline_reads(by_index, keys),
+             "switches": {k: v for k, v in enc_args.items() if not k.endswith("_to_id")}}
+    cache.update({k: torch.from_numpy(v) for k, v in playout_arrays(by_index, keys).items()})
+    cache["turn_luck"] = torch.tensor([lucks[k] for k in keys], dtype=torch.float32).reshape(-1, 2)
+    return cache
+
+
+def split_counts(records: Sequence[Dict]) -> Dict:
+    """Positions and source games per split, as generated."""
+    positions: Counter = Counter(split_of(r) for r in records)
+    games: Dict[str, set] = defaultdict(set)
+    for r in records:
+        games[split_of(r)].add(group_of(r))
+    return {"positions": dict(positions), "games": {s: len(g) for s, g in games.items()}}
+
+
+def baseline_reads(by_index: Dict[int, Dict], keys) -> Dict[str, List[Optional[float]]]:
+    """The recorded graders of each cached candidate: the reference's
+    value read while playing (before end_turn), its read after the
+    end_turn, and the HP margin after the turn."""
+    out: Dict[str, List[Optional[float]]] = {"value_pre": [], "value_post": [],
+                                             "hp_margin_post": []}
+    for index, slot in keys:
+        cand = candidates(by_index[index])[slot]
+        out["value_pre"].append((cand.get("pre_end_turn") or {}).get("value_pre"))
+        out["value_post"].append(cand.get("value_post"))
+        out["hp_margin_post"].append(cand.get("hp_margin_post"))
+    return out
+
+
+def playout_arrays(by_index: Dict[int, Dict], keys) -> Dict:
+    """Per candidate and playout, NaN where a candidate played fewer:
+    `outcomes` [N, P]; `horizon_value` and `horizon_margin` [N, P, H],
+    the reads of tools/playout_reads.py, where a read past the end of
+    the game takes the playout's outcome as its value (the value of a
+    finished game) and no margin; `luck` [N, P, 2] (HP, kills)."""
+    import numpy as np
+    cands = [candidates(by_index[i])[s] for i, s in keys]
+    p_max = max([len(c["outcomes"]) for c in cands] or [1])
+    h_max = max([len(r["horizon"]) for c in cands for r in (c.get("reads") or [])
+                 if r and r.get("horizon")] or [0])
+    outcomes = np.full((len(cands), p_max), np.nan, dtype=np.float32)
+    value = np.full((len(cands), p_max, h_max), np.nan, dtype=np.float32)
+    margin = np.full((len(cands), p_max, h_max), np.nan, dtype=np.float32)
+    luck = np.full((len(cands), p_max, 2), np.nan, dtype=np.float32)
+    for row, cand in enumerate(cands):
+        reads = cand.get("reads") or [None] * len(cand["outcomes"])
+        for r, (z, read) in enumerate(zip(cand["outcomes"], reads)):
+            outcomes[row, r] = z
+            if not read:
+                continue
+            horizon = read.get("horizon") or []
+            for j in range(h_max):
+                if j >= len(horizon):
+                    value[row, r, j] = z
+                    continue
+                v, m = horizon[j]
+                value[row, r, j] = math.nan if v is None else v
+                margin[row, r, j] = math.nan if m is None else m
+            if read.get("luck"):
+                luck[row, r] = (read["luck"]["hp"], read["luck"]["kills"])
+    return {"outcomes": outcomes, "horizon_value": value, "horizon_margin": margin,
+            "luck": luck}
 
 
 # ---------------------------------------------------------------------
@@ -340,6 +454,12 @@ def cmd_features(args) -> int:
     import torch
     checkpoint, reference = _checkpoint_of(args)
     device = torch.device(args.device)
+    measured_with = positions_checkpoint(args.positions)
+    if measured_with is None:
+        log.warning("%s records no checkpoint digest; the check is skipped", args.positions)
+    elif measured_with != file_sha256(checkpoint):
+        raise SystemExit(f"{args.positions} was measured with another checkpoint than "
+                         f"{checkpoint}; its labels and these tokens would not belong together")
     model, encoder = load_reference_model(checkpoint, device)
     records = load_positions(args.positions)
     log.info("%s: %d positions", args.positions, len(records))
@@ -347,7 +467,9 @@ def cmd_features(args) -> int:
                         dataset=args.dataset, jobs=args.jobs, batch=args.batch)
     cache.update(positions=str(args.positions), checkpoint=str(checkpoint), reference=reference)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(cache, args.out)
+    tmp = args.out.with_suffix(args.out.suffix + ".tmp")
+    torch.save(cache, tmp)
+    tmp.replace(args.out)
     log.info("wrote %s: %d candidates, splits %s", args.out, len(cache["split"]),
              dict(Counter(cache["split"])))
     return 0

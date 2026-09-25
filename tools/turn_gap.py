@@ -132,6 +132,12 @@ class GapConfig:
     # configs/reference_player.json's (`--reference`).
     end_turn_rule: str = "joint"
     end_turn_offset: float = 0.0
+    # Side readings of every playout (tools/playout_reads.py), for the
+    # turn-ranking value function (docs/turn_value_prereg_20260925.md):
+    # the value head and the HP margin at the first `horizon_reads`
+    # player turn starts, and the luck of its fights.
+    horizon_reads: int = 0
+    playout_luck: bool = False
 
     def __post_init__(self):
         if self.k_alternatives < 0 or self.playouts < 1 or self.cap_turns < 1:
@@ -146,6 +152,8 @@ class GapConfig:
             raise ValueError("playout_offset must be >= 0")
         if self.continue_edits < 0:
             raise ValueError("continue_edits must be >= 0")
+        if self.horizon_reads < 0:
+            raise ValueError("horizon_reads must be >= 0")
 
 
 def procedure_tag(cfg: GapConfig, temperature: float) -> str:
@@ -460,13 +468,25 @@ def playout_pairs(policy, cfg: GapConfig, salt: str) -> Dict[int, _PolicyPair]:
 
 def play_out(post_gs: GameState, scenario_id: str, mover: int, max_turns: int,
              salt: str, pairs: Dict[int, _PolicyPair],
-             game_label: str) -> Tuple[int, bool, int]:
-    """One playout from a post-turn position with `raw:t0` on both
-    sides. Returns (outcome, capped, final turn number)."""
+             game_label: str) -> Tuple[int, bool, int, WesnothSim]:
+    """One playout from a post-turn position. Returns (outcome, capped,
+    final turn number, the playout's simulator)."""
     sim = sim_from_state(post_gs, scenario_id, max_turns, salt)
     _play_one_eval_game(sim, pairs[mover], pairs[3 - mover], game_label=game_label)
     outcome, capped = outcome_for(sim, mover)
-    return outcome, capped, sim.gs.global_info.turn_number
+    return outcome, capped, sim.gs.global_info.turn_number, sim
+
+
+def side_readings(post_gs: GameState, playout: WesnothSim, mover: int, policy,
+                  cfg: GapConfig) -> Dict:
+    """The playout's horizon reads and fight luck, from the mover's side
+    (tools/playout_reads.py), replayed from the post-turn position."""
+    from tools.playout_reads import playout_reads
+    return playout_reads(post_gs, [list(rc.cmd) for rc in playout.command_history],
+                         [list(r) for r in playout.recruit_rejections], mover=mover,
+                         value_of=lambda gs: _value_read(policy, gs, mover),
+                         horizon_reads=cfg.horizon_reads, luck=cfg.playout_luck,
+                         advance_salt=playout._seed_salt)
 
 
 # ---------------------------------------------------------------------
@@ -507,10 +527,12 @@ def _play_next(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
     """Append candidate `c`'s next playout (index = playouts recorded so
     far, offset by cfg.playout_offset; the salt scheme of the module
     docstring)."""
-    for key in ("outcomes", "capped", "turns", "seeds"):
+    reading = bool(cfg.horizon_reads or cfg.playout_luck)
+    for key in ("outcomes", "capped", "turns", "seeds") + (("reads",) if reading else ()):
         candidate.setdefault(key, [])
     r = cfg.playout_offset + len(candidate["outcomes"])
     salt = playout_salt(cfg.seed, position.index, c, r)
+    reads = None
     if sim.done:
         # The candidate turn ended the game: the one terminal result
         # stands for every playout (the gap arithmetic reads the same
@@ -518,9 +540,13 @@ def _play_next(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
         o, cp = outcome_for(sim, mover)
         t = sim.gs.global_info.turn_number
     else:
-        o, cp, t = play_out(sim.gs, position.scenario_id, mover, max_turns,
-                            salt, playout_pairs(policy, cfg, salt),
-                            f"{game_label}c{c}r{r}")
+        o, cp, t, playout = play_out(sim.gs, position.scenario_id, mover, max_turns,
+                                     salt, playout_pairs(policy, cfg, salt),
+                                     f"{game_label}c{c}r{r}")
+        if reading:
+            reads = side_readings(sim.gs, playout, mover, policy, cfg)
+    if reading:
+        candidate["reads"].append(reads)
     candidate["outcomes"].append(o)
     candidate["capped"].append(cp)
     candidate["turns"].append(t)
@@ -1155,6 +1181,45 @@ def _apply_reference(args) -> Optional[Dict]:
     return {k: ref.get(k) for k in ("label", "checkpoint_hf", "procedure_tag")}
 
 
+def file_sha256(path: Path) -> str:
+    """The SHA-256 of a file's bytes: which checkpoint a run used."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def checkpoint_digest(checkpoint: Optional[str]) -> Optional[str]:
+    """The checkpoint file's SHA-256; None for a random init (no file)."""
+    if checkpoint in (None, "random") or not Path(checkpoint).is_file():
+        return None
+    return file_sha256(Path(checkpoint))
+
+
+def resume_from(out: Path, header: Dict, positions: List[BoundaryPosition]
+                ) -> Tuple[List[Dict], List[BoundaryPosition]]:
+    """(records already measured, positions still to measure) from the
+    run's result file or its partial file. The files must come from the
+    same configuration and checkpoint; the positions they hold are not
+    measured again."""
+    found = next((p for p in (out, out.with_suffix(".partial.json")) if p.exists()), None)
+    if found is None:
+        return [], positions
+    prev = json.loads(found.read_text(encoding="utf-8"))
+    same_config = prev.get("config") == json.loads(json.dumps(header["config"]))
+    same_checkpoint = ((prev.get("provenance") or {}).get("checkpoint_sha256")
+                       == header["provenance"]["checkpoint_sha256"])
+    if not (same_config and same_checkpoint):
+        raise SystemExit(f"--resume: {found} holds another run (its configuration or "
+                         f"checkpoint differs); use another --out")
+    done = list(prev["positions"])
+    measured = {int(r["index"]) for r in done}
+    todo = [p for p in positions if p.index not in measured]
+    log.info("--resume: %d positions from %s, %d to measure", len(done), found, len(todo))
+    return done, todo
+
+
 def write_json(path: Path, payload: Dict) -> None:
     """Atomic: a kill mid-write never leaves a truncated file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1241,6 +1306,16 @@ def main(argv) -> int:
                     help="With --confirm-from: alternatives per position, best "
                          "screen mean first.")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--horizon-reads", type=int, default=0,
+                    help="Record in every playout the value head and the HP margin at "
+                         "its first N player turn starts (tools/playout_reads.py).")
+    ap.add_argument("--playout-luck", action="store_true",
+                    help="Record in every playout the luck of its fights: realized "
+                         "minus expected HP and kill margins (tools/playout_reads.py).")
+    ap.add_argument("--resume", action="store_true",
+                    help="Continue from --out or its .partial.json: the positions "
+                         "there are kept, not measured again (same configuration "
+                         "and checkpoint only).")
     ap.add_argument("--jobs", type=int, default=1,
                     help="Positions in parallel, one process (and policy) each.")
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
@@ -1287,7 +1362,8 @@ def main(argv) -> int:
                     stop_z=args.stop_z, stop_margin=args.stop_margin,
                     threshold=args.gap_threshold,
                     end_turn_rule=args.raw_end_turn,
-                    end_turn_offset=args.raw_end_turn_offset)
+                    end_turn_offset=args.raw_end_turn_offset,
+                    horizon_reads=args.horizon_reads, playout_luck=args.playout_luck)
     replays: Dict[int, Dict] = {}
     if args.confirm_from is not None:
         screen = json.loads(args.confirm_from.read_text(encoding="utf-8"))
@@ -1329,6 +1405,7 @@ def main(argv) -> int:
             "alternative_procedure": procedure_tag(cfg, cfg.temperature),
             "playout_procedure": procedure_tag(cfg, cfg.playout_temperature),
             "reference": reference,
+            "checkpoint_sha256": checkpoint_digest(spec.checkpoint),
             "policy": asdict(spec), "shared_inference": server is not None,
             "confirm_from": (None if args.confirm_from is None else str(args.confirm_from)),
             "confirm_top": args.confirm_top,
@@ -1340,6 +1417,13 @@ def main(argv) -> int:
         },
     }
     partial: List[Dict] = []
+    if args.resume:
+        if args.out is None:
+            raise SystemExit("--resume needs --out")
+        partial, positions = resume_from(args.out, header, positions)
+        if args.out.exists() and not positions:
+            log.info("--resume: %s is complete; nothing to measure", args.out)
+            return 0
 
     def on_record(rec: Dict) -> None:
         # Completed positions survive a box death; `--summarize` reads them.
@@ -1350,12 +1434,14 @@ def main(argv) -> int:
                    dict(header, summary={"wall_secs": time.time() - t0},
                         positions=sorted(partial, key=lambda r: r["index"])))
 
+    resumed = list(partial)
     try:
         records = measure_positions(positions, cfg, spec=spec, jobs=args.jobs,
                                     log_level=args.log_level, on_record=on_record,
                                     replays=replays, replay_top=args.confirm_top)
     finally:
         server_stats = server.shutdown() if server is not None else None
+    records = sorted(resumed + records, key=lambda r: r["index"])
     wall = time.time() - t0
     summary = summarize(records, threshold=args.gap_threshold, wall_secs=wall,
                         dollars_per_hour=args.dollars_per_hour)

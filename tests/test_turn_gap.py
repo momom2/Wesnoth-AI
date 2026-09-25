@@ -512,6 +512,60 @@ def test_candidates_record_the_position_before_their_end_turn(policy, positions)
         apply_snapshot(copy.deepcopy(positions[0].gs), wrong, "candidate")
 
 
+def test_playouts_record_their_side_readings(policy, positions):
+    """With horizon reads and luck on, every playout of every candidate
+    carries its readings, the first horizon read being the post-turn
+    position the value_post and hp_margin_post pre-graders read."""
+    cfg = tg.GapConfig(k_alternatives=1, playouts=2, temperature=1.0, cap_turns=2, seed=1,
+                       horizon_reads=3, playout_luck=True)
+    rec = tg.measure_position(policy, positions[0], cfg)
+    read_count = 0
+    for cand in [rec["base"]] + rec["alternatives"]:
+        assert len(cand["reads"]) == len(cand["outcomes"])
+        for read in cand["reads"]:
+            if cand["terminal_in_turn"]:
+                assert read is None
+                continue
+            assert 1 <= len(read["horizon"]) <= 3
+            value, margin = read["horizon"][0]
+            assert value == pytest.approx(cand["value_post"], abs=1e-6)
+            assert margin == cand["hp_margin_post"]
+            assert read["luck"]["attacks"] >= read["luck"]["skipped"] >= 0
+            read_count += 1
+    assert read_count >= 2
+
+
+def test_resume_measures_only_the_missing_positions(tmp_path, positions, monkeypatch):
+    """`--resume` after a cut keeps the positions already in the partial
+    file, measures the rest, and refuses a file from another run."""
+    from test_eval_inference_server import _tiny_checkpoint
+    ckpt = _tiny_checkpoint(tmp_path / "tiny.pt")
+    monkeypatch.setattr(tg, "positions_from_manifest", lambda *a, **k: list(positions))
+    out = tmp_path / "gap.json"
+    args = ["x", "--checkpoint", ckpt, "--device", "cpu", "--n-states", "2",
+            "--alternatives", "1", "--playouts", "1", "--cap-turns", "1", "--out", str(out)]
+    assert tg.main(args) == 0
+    full = json.loads(out.read_text(encoding="utf-8"))
+    out.unlink()
+    out.with_suffix(".partial.json").write_text(
+        json.dumps(dict(full, positions=full["positions"][:1])), encoding="utf-8")
+    measured = []
+    real = tg.measure_position
+
+    def counting(policy, position, *a, **k):
+        measured.append(position.index)
+        return real(policy, position, *a, **k)
+    monkeypatch.setattr(tg, "measure_position", counting)
+    assert tg.main(args + ["--resume"]) == 0
+    resumed = json.loads(out.read_text(encoding="utf-8"))
+    assert measured == [positions[1].index]
+    assert [r["index"] for r in resumed["positions"]] == [p.index for p in positions]
+    assert resumed["positions"][0] == full["positions"][0]
+    assert tg.main(args + ["--resume"]) == 0 and measured == [positions[1].index]
+    with pytest.raises(SystemExit):
+        tg.main([a if a != "1" else "2" for a in args] + ["--resume"])
+
+
 def test_cli_confirm_from_selects_the_large_gap_positions(tmp_path, policy, positions,
                                                           monkeypatch):
     """`--confirm-from FILE` without --positions takes the file's

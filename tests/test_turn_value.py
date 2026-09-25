@@ -119,6 +119,7 @@ def test_a_candidate_is_read_offline_as_the_player_read_it(generated, games_dir,
         assert cache["value_reference"][row].item() == pytest.approx(live[key][0], abs=1e-4)
         assert cache["y"][row].item() == live[key][1]
     assert cache["feats"].shape == (len(keys), model.d_model)
+    assert cache["turn_luck"].shape == (len(keys), 2) and torch.isfinite(cache["turn_luck"]).all()
 
     # The same run continues where it stopped; another run is refused.
     size = out.stat().st_size
@@ -130,87 +131,104 @@ def test_a_candidate_is_read_offline_as_the_player_read_it(generated, games_dir,
 
 def test_fit_and_evaluate_write_a_verdict_for_each_arm(tmp_path, generated, games_dir,
                                                       checkpoint):
-    """The box's last stage end to end: features for the training log
-    and for a validation file, both arms fitted, every grader judged by
-    the rule and read on the proxy split."""
+    """The box's last stages end to end: features for the training log
+    and for a validation file, both arms fitted over every label and
+    rank weight, every judged grader given a verdict by the rule, and
+    every grader read on the proxy games."""
     train = tmp_path / "train.pt"
     base = ["turn_value", "features", "--checkpoint", checkpoint, "--games-dir", str(games_dir)]
     assert turn_value.main(base + ["--positions", str(generated), "--out", str(train)]) == 0
-    validation = tmp_path / "confirm.json"
+    validation = tmp_path / "validation.json"
     validation.write_text(json.dumps({"positions": turn_value.load_positions(generated)}),
                           encoding="utf-8")
-    val_cache = tmp_path / "confirm.pt"
+    val_cache = tmp_path / "validation.pt"
     assert turn_value.main(base + ["--positions", str(validation), "--out", str(val_cache)]) == 0
     heads = tmp_path / "heads"
     assert turn_value.main(["turn_value", "fit", "--train", str(train),
                             "--out-dir", str(heads)]) == 0
     verdict = tmp_path / "verdict.json"
     assert turn_value.main(["turn_value", "evaluate", "--heads", str(heads),
-                            "--primary", f"{validation}={val_cache}", "--train", str(train),
+                            "--validation", f"{validation}={val_cache}", "--train", str(train),
                             "--out", str(verdict)]) == 0
     out = json.loads(verdict.read_text(encoding="utf-8"))
-    graders = out["files"]["primary"]["pregraders"]
-    assert {"grader_linear", "grader_head", "value_reference", "value_pre"} <= set(graders)
-    for key in ("grader_linear", "grader_head"):
-        assert graders[key]["n_skipped"] == 0
-        assert graders[key]["rule"]["verdict"].split()[0] in (
+    assert {"linear", "head", "rollout", "value_reference", "value_pre"} <= set(out["validation"])
+    for name in turn_value_fit.JUDGED:
+        assert out["validation"][name]["verdict"].split()[0] in (
             "PASS", "FAIL", "INCONCLUSIVE", "UNDECIDED")
-    assert set(out["proxy"]) == {"linear", "head", "value_reference"}
+    assert {"linear", "head", "value_reference"} <= set(out["proxy"])
+    assert out["counts"]["train"]["positions"] == {"fit": 2, "stop": 2, "proxy": 2}
+    cache = torch.load(train, weights_only=False)
+    proxy_rows = [s == "proxy" for s in cache["split"]]
+    assert all(torch.isfinite(cache["outcomes"][i, :2]).all() for i, p in enumerate(proxy_rows) if p)
 
 
 def test_the_linear_arm_solves_its_objective():
-    """At the closed-form solution the objective's gradient vanishes;
-    the ranking term ignores what is common to a position."""
+    """At the closed-form solution the objective's gradient vanishes, at
+    every rank weight; the ranking term ignores what is common to a
+    position."""
     gen = torch.Generator().manual_seed(0)
     feats = torch.randn(60, 5, generator=gen, dtype=torch.float64)
-    index = torch.arange(60) // 3
-    groups = turn_value_fit.position_ids(index)
+    groups = turn_value_fit.position_ids(torch.arange(60) // 3)
     y = (feats[:, 0] + 0.3 * torch.randn(60, generator=gen, dtype=torch.float64)).clamp(-1, 1)
     w = torch.ones(60, dtype=torch.float64)
-    arm = turn_value_fit.fit_linear(feats, y, w, groups, ridge=0.01)
-    theta = torch.cat([arm.coef, torch.tensor([arm.intercept], dtype=torch.float64)])
-    theta.requires_grad_(True)
-    z = (feats - arm.mean) / arm.std
-    v = z @ theta[:-1] + theta[-1]
-    objective = turn_value_fit.turn_loss(v, y, w, groups) + 0.01 * (theta[:-1] ** 2).sum()
-    objective.backward()
-    assert theta.grad.abs().max().item() < 1e-8
-
-    def rank_term(v):
-        return (turn_value_fit.turn_loss(v, y, w, groups)
-                - turn_value_fit.turn_loss(v, y, w, groups, rank_weight=0.0))
+    problem = turn_value_fit.LinearProblem(feats, w, groups)
+    for rank_weight in (0.0, 1.0, 10.0):
+        arm = problem.solve(y, rank_weight, ridge=0.01)
+        theta = torch.cat([arm.coef, torch.tensor([arm.intercept], dtype=torch.float64)])
+        theta.requires_grad_(True)
+        v = ((feats - arm.mean) / arm.std) @ theta[:-1] + theta[-1]
+        objective = (turn_value_fit.turn_loss(v, y, w, groups, rank_weight)
+                     + 0.01 * (theta[:-1] ** 2).sum())
+        objective.backward()
+        assert theta.grad.abs().max().item() < 1e-8, rank_weight
+    v = v.detach()
     shift = torch.randn(20, generator=gen, dtype=torch.float64)[groups]
-    assert float(rank_term(v.detach() + shift)) == pytest.approx(float(rank_term(v.detach())))
-    assert float(rank_term(v.detach())) > 0.0
+    within = turn_value_fit.within_error
+    assert float(within(v + shift, y, w, groups)) == pytest.approx(float(within(v, y, w, groups)))
 
 
-def test_the_proxy_reads_within_position_agreement():
-    gen = np.random.default_rng(0)
-    y = gen.choice([-1.0, 1.0], size=300)
-    index = torch.arange(300) // 3
-    part = {"y": torch.tensor(y), "w": torch.ones(300, dtype=torch.float64),
-            "groups": turn_value_fit.position_ids(index),
-            "group": [str(i // 15) for i in range(300)]}
-    agree = turn_value_fit.within_correlation(y + gen.normal(0, 0.1, 300), part)
-    assert agree["r"] > 0.9 and agree["passes"]
-    noise = turn_value_fit.within_correlation(gen.normal(0, 1, 300), part)
-    assert abs(noise["r"]) < 0.25 and not noise["passes"]
+def test_the_corrected_correlation_recovers_the_true_one():
+    """Graders whose within-position correlation with the true candidate
+    values is known, read against 20 win/loss playouts per candidate:
+    the observed correlation is attenuated by the playout noise, the
+    corrected one lands on the truth."""
+    rng = np.random.default_rng(1)
+    n_positions, n_cands, n_playouts = 400, 5, 20
+    values = np.clip(rng.normal(0, 0.3, (n_positions, 1))
+                     + rng.normal(0, 0.2, (n_positions, n_cands)), -0.95, 0.95)
+    wins = rng.random((n_positions, n_cands, n_playouts)) < (1 + values[..., None]) / 2
+    truth = np.where(wins, 1.0, -1.0).reshape(-1, n_playouts)
+    positions = np.repeat(np.arange(n_positions), n_cands)
+    games = positions // 2
+    within = (values - values.mean(axis=1, keepdims=True)).ravel()
+    for target in (0.5, 0.8):
+        noise_sd = within.std() * math.sqrt((1 / target ** 2 - 1) / (1 - 1 / n_cands))
+        grade = values.ravel() + rng.normal(0, noise_sd, values.size)
+        g_within = grade - np.repeat(grade.reshape(n_positions, n_cands).mean(axis=1), n_cands)
+        true_r = float(np.corrcoef(g_within, within)[0, 1])
+        stats = turn_value_fit.corrected_correlation(grade, truth, positions, games)
+        assert abs(stats["corrected"] - true_r) < 3 * stats["corrected_se"], (target, stats)
+        assert stats["observed"] < true_r - 0.1
+        assert 0.02 < stats["corrected_se"] < 0.1
 
 
-def _graded(sd, above, below, unranked=0, n=40, positions=20):
-    return {"residual_sd_within_position": sd, "n_confirmed": above + below,
-            "n_confirmed_unranked": unranked, "n_confirmed_ranked_above": above,
-            "n_confirmed_ranked_below": below, "n": n, "n_positions_graded": positions}
-
-
-def test_the_rule_reads_the_preregistered_bars():
-    rule = turn_value_fit.rule
-    assert rule(_graded(0.15, 6, 0), null_sd=0.40)["verdict"] == "PASS"
-    assert rule(_graded(0.15, 5, 1), null_sd=0.40)["verdict"] == "FAIL"
-    assert rule(_graded(0.31, 6, 0), null_sd=0.40)["verdict"] == "FAIL"
-    assert rule(_graded(0.15, 6, 0), null_sd=0.16)["verdict"] == "INCONCLUSIVE"
-    assert rule(_graded(0.25, 6, 0), null_sd=0.40)["verdict"] == "INCONCLUSIVE"
-    assert rule(_graded(0.15, 5, 0, unranked=1), null_sd=0.40)["verdict"] == "INCONCLUSIVE"
-    assert rule(_graded(0.15, 3, 0), null_sd=0.40)["verdict"].startswith("UNDECIDED")
-    se = rule(_graded(0.15, 6, 0), null_sd=0.40)["residual_sd_se"]
-    assert se == pytest.approx(0.15 / math.sqrt(2 * 19))
+def test_luck_adjusted_labels_keep_their_mean_and_shed_noise():
+    """When the outcome follows the luck of the playout's fights and of
+    the candidate turn's own, subtracting the fitted luck terms leaves
+    the labels' mean and lowers their variance."""
+    rng = np.random.default_rng(2)
+    n = 4000
+    luck = rng.normal(0, 1, (n, 1, 2))
+    turn = rng.normal(0, 1, (n, 2))
+    p_win = 1 / (1 + np.exp(-(0.2 + 1.5 * luck[:, 0, 0] - 0.5 * luck[:, 0, 1]
+                              + 0.8 * turn[:, 0])))
+    outcomes = np.where(rng.random(n) < p_win, 1.0, -1.0)[:, None]
+    part = {"outcomes": torch.tensor(outcomes), "luck": torch.tensor(luck),
+            "turn_luck": torch.tensor(turn), "horizon_value": torch.zeros(n, 1, 0)}
+    beta, r2, used = turn_value_fit.luck_coefficients(part)
+    assert used == n and r2 > 0.1
+    assert beta[0] > 0 > beta[1] and beta[2] > 0 and abs(beta[3]) < beta[2] / 3
+    raw = turn_value_fit.labels(part, turn_value_fit.LabelSpec(0.0, False), beta)
+    adjusted = turn_value_fit.labels(part, turn_value_fit.LabelSpec(0.0, True), beta)
+    assert abs(float(adjusted.mean() - raw.mean())) < 3 * float(raw.std()) / math.sqrt(n)
+    assert float(adjusted.var()) < 0.9 * float(raw.var())

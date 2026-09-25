@@ -1,8 +1,10 @@
 # Pre-registration: a value function that ranks candidate turns under obs8 (2026-09-25)
 
-Written before any code for it runs on a box. Approved in principle by
-the user on 2026-09-24 ("Turn-ranking value net: Approved in principle")
-and ordered on 2026-09-25 ("Proceed").
+Written before any box runs it. Approved in principle by the user on
+2026-09-24 and ordered on 2026-09-25 ("Proceed"). Revised the same day,
+still before any run, after four independent reviews (data path,
+statistics, box operations, literature) and a second statistics review
+of the revision; the decision record is at the end.
 
 ## Why
 
@@ -10,21 +12,21 @@ Phase 2's teacher is a player that proposes a few whole turns, grades
 them, and plays the best (docs/plan_20260904.md 5). Better turns exist:
 under the reference, 7 of 60 positions have a sampled alternative turn
 better by at least 0.25 in expected outcome
-(docs/turn_gap_ref_prereg_20260921.md). Grading by playouts costs
+(docs/turn_gap_ref_prereg_20260921.md). Grading by full playouts costs
 $0.006-0.013 per side-turn, so an 800-game gate of such a player costs
-$50-300 (docs/turn_proposer_design_20260905.md); the teacher that can
-be matched needs a grader that costs a forward pass. The value head we
-have does not rank candidate turns: correlation 0.07 with the playout
-mean, within-position residual 0.323 +- 0.059, 2 of 8 winning
-alternatives ranked below their base (0.4.2). It was trained on one
-human outcome per game through the policy's trunk, which is the likely
-cause.
+$50-300 (docs/turn_proposer_design_20260905.md); a teacher that can be
+matched needs a grader that costs a forward pass or a few short
+rollouts. The value head we have ranks candidate turns poorly: on the
+2026-09-23 screen (60 positions, 10-40 playouts per candidate) its
+read after the turn correlates 0.26 with the playout means within a
+position, before any correction for playout noise.
 
 ## Question
 
-Does a value function trained on outcome contrasts between candidate
-turns of the same position, under `obs8`'s own play, rank candidate
-turns well enough to pre-grade them?
+Does a grader trained on outcome contrasts between candidate turns of
+the same position under `obs8`'s own play, or `obs8`'s own value head
+read a few turns into short rollouts, rank candidate turns well enough
+to pre-grade them?
 
 ## Design
 
@@ -36,8 +38,8 @@ rebuilt from their records with the fingerprints checked
 41,328 turn starts (11 to 199 per game, median 47); up to 15 per game
 are drawn with a seed of the game's own, 11,980 in all. Games are split
 by a hash of their file name: 630 games (9,438 positions) are fit, 70
-(1,046) decide the fit's early stopping, and 100 (1,496) are the
-held-out proxy set.
+(1,046) choose each arm's configuration, and 100 (1,496) are held out
+as the proxy games.
 
 **Candidates.** At each position, as the turn-gap tool proposes them
 (tools/turn_gap.py): `obs8`'s own turn at its decode
@@ -46,114 +48,202 @@ held-out proxy set.
 argmax action). Candidates whose resulting position equals an earlier
 one are dropped. Generation: tools/turn_value_data.py.
 
-**Labels.** One playout per candidate to the end of the game, both
-sides `obs8` at `raw:t0.5+eo-1.5`, capped 30 turns after the position
-(the turn-gap reference procedure, so the labels and the validation
-truth below measure the same thing): +1 win, -1 loss, 0 draw or capped,
-from the mover's side.
+**Playouts.** One playout per candidate (two on the proxy games, so
+their playout noise can be measured), both sides `obs8` at
+`raw:t0.5+eo-1.5`, capped 30 turns after the position: +1 win, -1
+loss, 0 draw or capped, from the mover's side. Every playout also
+records, replayed from its commands (tools/playout_reads.py):
+- horizon reads: `obs8`'s value from the side to move, signed to the
+  mover, and the mover's HP margin, at each of the first 8 player turn
+  starts after the candidate turn (read 0 is the position right after
+  it; the mover's own turn starts k turns later are reads 2k - 1); a
+  read after the game ended takes the outcome;
+- fight luck: for each attack, the realized minus the exact expected
+  change of the mover's HP margin and kill margin, from the exact
+  outcome enumerator (tools/combat_outcomes.py); its conditional mean
+  is zero, so it can correct a label without biasing it.
 
-**What the grader reads.** The position after the candidate turn's last
-action and before its end_turn, encoded from the mover's side by
-`obs8`'s encoder: exactly what the mover observes when it is about to
-end the turn. The existing `value_post` is read after the end_turn,
-from the opponent's side, which includes what the opponent sees and the
-mover does not; a grader the mover plays with must not. Each candidate
-records the commands, recruit rejections and digest of that position
-(`pre_end_turn`, tools/turn_gap.py); tools/turn_value.py rebuilds it
-from the boundary, checks the digest, and caches `obs8`'s global token
-for it. A candidate turn that ends the game is graded by its outcome.
+The candidate turn's own fights get the same luck reading, from its
+recorded commands (computed with the features). One least-squares fit
+of the outcome on both lucks, over the fit games' playouts, gives the
+**adjusted outcome**: the outcome minus the fitted luck terms. It keeps
+the expected value of the candidate turn over its own dice and sheds
+noise; it is the truth every grader is judged against, because a
+teacher replays the turn it picks with new dice and cannot use the ones
+a grader saw.
 
-**Arms.** The policy stays byte-identical; the grader has its own
-weights and never sends a gradient into the policy.
-- A: a linear map from `obs8`'s frozen global token (384 values) to a
-  value.
-- B: a head of the shape of `obs8`'s value head on the same frozen
-  token, initialized from it.
+**What a trained grader reads.** The position after the candidate
+turn's last action and before its end_turn, encoded from the mover's
+side by `obs8`'s encoder: what the mover observes when it is about to
+end the turn. Each candidate records the commands, recruit rejections
+and digest of that position; tools/turn_value.py rebuilds it, checks the
+digest, and caches `obs8`'s global token (384 values). A candidate turn
+that ends the game is left out of every measure: its outcome is known.
 
-Both fit on the cached tokens (tools/turn_value_fit.py), by squared
-error against each playout outcome plus the same error on
-within-position centered predictions and outcomes (the ranking term,
-weight 1). A: closed-form ridge on standardized tokens, the strength
-chosen from 1e-6 to 10 on the early-stopping games. B: AdamW (lr 3e-4,
-weight decay 0.01, 128 positions per batch), up to 40 epochs, the epoch
-with the lowest early-stopping loss kept (epoch 0 is `obs8`'s head
-itself). A fine-tuned copy of the trunk (arm C) is not in this
-registration; it is proposed only if A and B fail while the proxy
-shows signal.
+**Graders judged.**
+- A, linear: standardized token to value, in closed form with a ridge.
+- B, head: the shape of `obs8`'s value head, from its weights, trained
+  with AdamW, the epoch chosen as below.
+- D, rollout: no training; the mean over R = 8 playouts of the horizon
+  read 2 turns after the candidate turn (read 3), at a cost of about
+  R x 2 / 15 of a full playout per candidate.
 
-Reported beside the arms and not judged: `obs8`'s own value head on the
-same pre-end_turn state (read offline, `value_reference`, and while
-playing, `value_pre`), the existing `value_post` and HP margin, and
-the null grader.
+A and B are fitted (tools/turn_value_fit.py) on the loss
+level MSE + w x within-position MSE, with the label of a candidate the
+mean over its playouts of lam x (horizon read 3) + (1 - lam) x
+(the outcome, or the adjusted outcome). Each arm's configuration, among
+lam in {0, 0.25, 0.5, 0.75}, the adjustment on or off, w in {0, 1, 10},
+and the ridge (A, 1e-6 to 10) or the epoch (B, up to 40, epoch 0 being
+`obs8`'s head), is the one whose grades correlate best, within
+position, with the adjusted outcomes of the 70 choosing games. A
+fine-tuned copy of the trunk is not in this registration.
 
-## Validation set (the verdict's data)
+**Reported, not judged:** `obs8`'s head on the pre-end_turn state (read
+offline, and while playing), its read after the end_turn, the HP margin
+after the turn, D at (R, read) = (4, 3), (8, 1) and (8, 7), each
+grader's measure against the raw outcomes, each arm's selected
+configuration, and the share of the outcome variance the lucks explain.
 
-The 2026-09-23 procedure under `obs8`: tools/turn_gap.py `--reference`
-on the first 60 positions of `configs/bench_states.json` (holdout side-2
-turn starts), a sequential screen of the base and four samples at
-temperature 1 (up to 40 playouts), then the confirmation of each
-nominal hit (base and best alternative, up to 160 fresh playouts), seed
-25. The grader reads each candidate the way it reads training
-candidates. Primary file: the confirmation; secondary: the screen.
-These are side-2 turn starts of human games, where the training
-positions are turn starts of `obs8`'s own games: a grader that passes
-here ranks turns outside the distribution it was fitted on.
+## Validation (the verdict's data)
 
-## Bars (per arm, on the confirmation file)
+All 200 positions of `configs/bench_states.json` (side-2 turn starts of
+200 distinct human games). Candidates: `obs8`'s turn, three turns
+sampled at temperature 1 and one continue edit; 28 playouts each under
+the procedure above (seed 25), horizon reads and luck recorded, about
+28,000 playouts. D's grade reads playouts 1 to 8 and its truth is
+playouts 9 to 28; every other grader's truth is playouts 1 to 28. These are
+positions of human games, where the training positions come from
+`obs8`'s games: a grader that passes here ranks turns outside the
+distribution it was fitted on.
 
-The check of docs/turn_gap_ref_prereg_20260921.md ("Pre-grader check"),
-with one addition:
-- **Pass:** within-position residual SD <= 0.2 with its 2-SE upper
-  bound below 0.3; every alternative whose playout gap to its base is
-  >= 0.25 ranked above its base; and the residual SD below the null
-  grader's (one constant per position) by at least one SE. The addition
-  is new: where the true differences between candidates are small, a
-  constant can meet the SD bar alone.
-- **Fail:** residual SD >= 0.3, or any such alternative ranked below its
-  base.
-- **Inconclusive** otherwise.
-- **Undecided:** fewer than 4 alternatives with a gap >= 0.25 in the
-  confirmation; the ranking half cannot be judged and the screen file
-  is read as secondary evidence only.
-- **Crash barrier, not a verdict:** on the held-out proxy set, the
-  correlation between predicted and observed within-position outcome
-  differences must be positive at 2 SE. If it is not, the data carry no
-  signal the arm can use at this size, and the verdict is not read.
+## Measure
+
+Within a position, center each candidate's grade and its mean adjusted
+outcome on the position's means. The observed correlation r_obs pools
+these deviations over the positions with two or more candidates.
+Playout noise shrinks it: the reliability rho is the share of the means'
+within-position variance that is not noise, with the noise of a
+candidate's mean estimated as its adjusted outcomes' variance over its
+playout count, times (1 - 1/C) for C candidates. The measure is r =
+r_obs / sqrt(rho): an estimate of the grader's within-position
+correlation with the candidates' expected values. Its standard error is
+half the central 68% interval of 1,000 bootstrap resamples of the
+positions (of games, on the proxy games). A synthetic check recovers a
+known correlation of 0.5 and of 0.8 within 3 SE
+(tests/test_turn_value.py).
+
+## Rule
+
+For each judged grader on the validation positions:
+- **PASS:** r >= 0.7.
+- **FAIL:** r <= 0.5.
+- **INCONCLUSIVE:** in between.
+- **UNDECIDED:** rho below 0.2 (the playouts do not separate the
+  candidates) or an SE above 0.12.
+
+0.7 is the design's bar: a grader error of 0.2 against a true
+within-position spread of 0.15-0.2 is a correlation of about 0.7, the
+level at which a pre-grader enriches gaps of 0.5 tenfold
+(docs/turn_proposer_design_20260905.md). The second statistics review
+simulated the rule as coded (200 positions x 5 candidates, 20 truth
+playouts, raw outcomes, 50-60 runs per row, +- 0.06), at the 2026-09-23
+spread of candidate values and at half its large gaps:
+
+| true r | PASS / FAIL / INCONCLUSIVE / UNDECIDED |
+|---|---|
+| 0.50 | 0 / 0.40 / 0.60 / 0 (half the gaps: 0 / 0.40 / 0.50 / 0.10) |
+| 0.55 | 0 / 0.18 / 0.82 / 0 (0.02 / 0.16 / 0.66 / 0.16) |
+| 0.60 | 0.02 / 0.03 / 0.95 / 0 (0.06 / 0.08 / 0.80 / 0.06) |
+| 0.70 | 0.57 / 0 / 0.43 / 0 (0.34 / 0 / 0.50 / 0.16) |
+| 0.85 | 1.00 / 0 / 0 / 0 (0.90 / 0 / 0 / 0.10) |
+
+The corrected r's spread was 0.045-0.057 at the 2026-09-23 spread and
+0.07-0.08 at half, its bias 0 to +0.04. With 12 truth playouts, D was
+UNDECIDED at 0.48-0.74 at half the gaps; its truth now has 20, as A's
+and B's had in these rows, the adjusted outcomes raise the reliability
+by the share of the variance the lucks explain, and the percentile SE
+no longer follows the long tail of near-zero reliability resamples. No
+grader's PASS below a true 0.6 appeared more than 6% of the time.
+
+**Crash barrier, not a verdict:** on the proxy games, the observed
+within-position correlation of A and of B with their own playouts must
+be positive at 2 SE; an arm that misses it has learned nothing usable
+at this size and its verdict is not read.
 
 ## Predictions
 
-Arm A: residual SD 0.25 to 0.32, P(pass) 0.15. Arm B: 0.22 to 0.30,
-P(pass) 0.25. Proxy barrier: passed by both arms, with a within-position
-correlation of 0.03 to 0.10. The token was learned to predict human
-actions, not to separate turns, and one playout per candidate is noisy:
-a playout outcome has an SD near 0.9, so a within-position difference
-of 0.1 has a signal-to-noise ratio near 0.08 per candidate pair, and
-the 9,438 fit positions give about 25,000 independent contrasts. The
-HP margin, a summary the token certainly carries, ranked 3 of 8 large
-gaps below their base on 2026-09-23. A fail is more likely than a
-pass; the data and the validation set carry over to arm C either way.
+- `obs8`'s head before the end_turn: r 0.2 to 0.45 (its read after the
+  turn reads 0.34 +- 0.10 corrected against the raw outcomes of the
+  2026-09-23 screen).
+- A: r 0.3 to 0.6, P(PASS) 0.1. B: r 0.35 to 0.65, P(PASS) 0.15.
+- D: r 0.45 to 0.75, P(PASS) 0.3, P(UNDECIDED) 0.1: two turns of play
+  turn most of a turn's consequences into material, which the head reads
+  well late in a game, but part of what it reads is the turn's own dice,
+  which the adjusted truth removes.
+- Every grader reads higher against the raw outcomes than against the
+  adjusted ones, by 0.05 to 0.15.
+- Both arms pass the barrier; the selected configurations use the
+  adjustment, lam 0.25 to 0.5 and a rank weight of 10.
+- The lucks explain 0.1 to 0.3 of the outcome variance, the candidate
+  turn's own a quarter to a half of that.
 
 ## Consequences
 
-A pass makes the cheap teacher buildable: propose, grade with the head,
-play the best, gated by an 800-game match against `obs8` (its own
-pre-registration). A fail with signal on the proxy proposes arm C; a
-fail without signal says the grader needs a different target or much
-more data, and the turn-search route is re-priced before anything else.
+A PASS by A or B builds the pre-graded teacher with that head; a PASS
+by D alone builds it with truncated rollouts; the teacher gets its own
+pre-registration and an 800-game match against `obs8`. A head is fitted
+on full-precision tokens and a teacher would read them through the
+inference server's bf16 path, so before a teacher uses a head, its
+grades on the validation positions are re-read through that path and
+compared. All FAIL with
+the barrier passed proposes a fine-tuned trunk on the better labels;
+the barrier missed says the labels or the data do not carry the signal
+at this size, and the turn-search route is re-priced before anything
+else.
 
 ## Cost
 
-One single-tenant RTX 4090 host, 32 or more effective cores, at about
-$0.55-0.70 per hour; the balance is checked before renting.
-- Validation set: about 1.25 h (2026-09-23: 7,810 screen playouts in
-  2,216 s and 3,160 confirmation playouts in 2,259 s at 24 workers).
-- Training data: 11,980 positions x up to 4 candidates, about 46,000
-  playouts at about 3.5 a second, about 3.7 h.
-- Bring-up, the tests against the built wheel, features (about 46,000
-  rebuilt turns through the frozen trunk) and the fits: about 0.5 h.
+One RTX 4090 host with 64 cores at about $0.48 per hour; the balance
+is checked before renting ($27.52 on 2026-09-25).
+- Validation: about 28,000 playouts at the 2026-09-23 rate of 3.5 per
+  second, 2.2 h.
+- Training data: 10,484 fit and choosing positions x up to 4 candidates
+  x 1 playout, plus 1,496 proxy positions x up to 4 x 2, about 54,000
+  playouts, 4.3 h. The readings add a replay of each playout, 0.4 s
+  for a median playout on the laptop against several seconds of play:
+  about 5-10%.
+- Bring-up, tests, features and fits (24 configurations per arm): 0.6 h.
 
-About 5.5 box-hours, $3.1-3.9. The script (scripts/turn_value_box.sh)
-runs the stages in that order, uploads every stage's records as it
-goes and the growing data log every 30 minutes, cuts each stage at
-twice its estimate (ceiling about 11 box-hours, $6.2-7.8), and stops
-the instance at the end (`stop_self`).
+About 7.1 box-hours, $3.4. scripts/turn_value_box.sh runs the stages in
+that order, uploads every record as it goes, resumes after a stop on the
+same box or a new one, and stops the instance at the end. The two long
+stages are cut at twice their estimates (12.8 h together) and every
+other step has its own cap: all caps at once come to about 20
+box-hours, $9.5.
+
+## Decision record
+
+- Rejected: the pass bar of the 2026-09-23 pre-grader check (within-
+  position residual SD <= 0.2 on the confirmation's pairs, every gap of
+  0.25 or more ranked above its base), because at about 16 pairs a
+  grader at the design's own bar fails about half the time (simulated
+  400 times: PASS 0.14, FAIL 0.47) and a clearly weak one fails 0.69:
+  a FAIL would not tell them apart.
+- Rejected: a fixed rank weight of 1, because level plus ranking at
+  weight 1 barely differs from plain squared error, and when the
+  within-position signal lies in token directions the level does not
+  use it recovers 0.20 of a recoverable 1.0 (simulated); the weight is
+  chosen on the choosing games.
+- Rejected: common random numbers across candidates' playouts, because
+  after two turns diverge they share a median of 0 fights
+  (docs/selfplay_redesign_20260904.md).
+- Rejected: judging against the raw outcomes, because a grader that
+  reads the realized material of a candidate turn earns correlation
+  from that turn's own dice, which a teacher cannot use.
+- Rejected: choosing configurations by within-position squared error,
+  because it favours a well-scaled worse ranking (a correlation of 0.60
+  at the right scale beats 0.65 at 1.5 times the spread), where the
+  verdict is scale-free.
+- Rejected: the bootstrap SD as the standard error, because resamples
+  whose reliability falls near zero give it a long tail that overstated
+  the SE of a good grader and left it UNDECIDED.
