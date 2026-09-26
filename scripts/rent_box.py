@@ -11,20 +11,25 @@ CLI binary is blocked on the laptop).
     python scripts/rent_box.py destroy INSTANCE_ID
 
 `create` starts the pytorch 2.5.1 image with ssh, labels the instance with
-the script's name, passes HF_TOKEN (the laptop's huggingface token) as an
-environment variable, and an onstart that fetches the named script from HF
-`tier-b/staging/` and runs it detached under /workspace (unattended
-bring-up: docs/box_specs.md "Operational facts"). Offers are filtered
-client-side: no VM hosts (they refuse ssh), a remaining rental window of at
-least --min-hours. Prices are for --disk GB of storage, the disk `create`
-rents.
+the script's name, passes HF_TOKEN (the laptop's huggingface token) and the
+code stage as STAGE as environment variables, and an onstart that runs the
+script detached under /workspace (unattended bring-up, docs/box_runbook.md).
+For a script on the box library (it sources scripts/box/boxlib.sh) the
+onstart fetches box_onstart.sh from the stage's library side copy on HF
+(`<stage>.box/`, written by `tools/stage_code.py --upload`), and
+box_onstart.sh fetches the rest of the library, then the script; for any
+other script it fetches the script from HF `tier-b/staging/`. Offers are
+filtered client-side: no VM hosts (they refuse ssh), a remaining rental
+window of at least --min-hours. Prices are for --disk GB of storage, the
+disk `create` rents.
 
 Before renting, `create` checks the following, and refuses with the reasons
 when any check fails:
   * the onstart script is on HF staging, and so is the code stage it
     downloads: --stage, else STAGE from --env, else the script's own
     `STAGE="${STAGE:-...}"` default (`--stage none` for a script that
-    downloads no code);
+    downloads no code); for a script on the box library, so is every file
+    of the stage's library side copy;
   * the account's funds cover 1.5 x --hours of the offer's price (the
     project rule since a run was stopped by credit at 3.5 h of 6,
     2026-09-24), and the offer's rental window has 1.5 x --hours left.
@@ -55,19 +60,32 @@ import json
 import re
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    from scripts.box.box_stage import LIBRARY_FILES, library_dir
+except ImportError:              # run as a script: scripts/ is on the path, the root is not
+    from box.box_stage import LIBRARY_FILES, library_dir
 
 IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
 HF_REPO = "momom2/wesnoth-model-checkpoints"
 STAGING = "tier-b/staging/"
-ONSTART = (
+# The onstart fetches one file from HF staging, writes the token file and
+# starts the file detached: the script itself, or for a script on the box
+# library its bring-up (scripts/box/box_onstart.sh), given the script and
+# the library's HF folder.
+ONSTART_FETCH = (
     "cd /workspace && python -m pip install -q huggingface_hub >/dev/null 2>&1; "
     "python -c \"from huggingface_hub import hf_hub_download as d; import shutil, os; "
-    "shutil.copyfile(d('momom2/wesnoth-model-checkpoints', 'tier-b/staging/{script}', "
-    "token=os.environ['HF_TOKEN']), '/workspace/{script}')\" && "
+    "shutil.copyfile(d('momom2/wesnoth-model-checkpoints', '{source}', "
+    "token=os.environ['HF_TOKEN']), '/workspace/{target}')\" && "
     "printf '%s' \"$HF_TOKEN\" > /workspace/.hf_token && chmod 600 /workspace/.hf_token && "
-    "(setsid nohup bash /workspace/{script} > /workspace/onstart_script.log 2>&1 < /dev/null &)"
+    "(setsid nohup bash /workspace/{target}{arguments} > /workspace/onstart_script.log 2>&1 < /dev/null &)"
 )
+# Script names and HF paths go into the onstart's shell line unquoted.
+_SHELL_SAFE = re.compile(r"^[A-Za-z0-9._/-]+$")
+_SOURCES_LIBRARY = re.compile(r"^\s*(?:\.|source)\s+\S*boxlib\.sh", re.MULTILINE)
 # The account's funds and the offer's rental window must both cover this
 # multiple of the run's estimated hours.
 MARGIN = 1.5
@@ -202,30 +220,72 @@ def stage_default(script_text: str) -> str | None:
     return m.group(1) if m else None
 
 
-def staging_problems(staging, script: str, stage: str | None) -> list[str]:
-    """Why the script or its code stage would be missing on the box: the
-    onstart downloads the script from HF staging, and the script downloads
-    its stage."""
+def uses_library(script_text: str) -> bool:
+    """The script sources the box library (scripts/box/boxlib.sh)."""
+    return _SOURCES_LIBRARY.search(script_text) is not None
+
+
+@dataclass
+class OnstartPlan:
+    """What the box will fetch, as the preflight found it on HF."""
+    stage: str | None            # the code stage; None for --stage none
+    library: str | None          # the stage's library side copy, for a script on the library
+
+
+def staging_problems(staging, script: str, stage: str | None) -> tuple[list[str], OnstartPlan | None]:
+    """(problems, plan): why the script, its code stage or its box library
+    would be missing on the box, and otherwise what the onstart fetches. The
+    onstart downloads the script (or, for a script on the box library, the
+    library's bring-up), and the script downloads its stage."""
+    if not _SHELL_SAFE.match(script):
+        return [f"the script name {script!r} holds characters the onstart cannot carry"], None
     script_path = STAGING + script
     if not api_call(f"HF lookup of {script_path}", staging.exists, script_path):
         return [f"the onstart script {script_path} is not on HF (or this token cannot "
-                f"read {HF_REPO}): upload it first"]
+                f"read {HF_REPO}): upload it first"], None
     print(f"preflight: {script_path} is on HF")
+    text = api_call(f"HF download of {script_path}", staging.read_text, script_path)
+    on_library = uses_library(text)
     source = "given"
     if stage is None:
-        text = api_call(f"HF download of {script_path}", staging.read_text, script_path)
         stage, source = stage_default(text), "the script's default"
         if stage is None:
             return [f"{script} names no STAGE default: pass --stage PATH, "
-                    f"or --stage none if it downloads no code"]
+                    f"or --stage none if it downloads no code"], None
     if stage == "none":
+        if on_library:
+            return [f"{script} runs on the box library, which comes with its code stage: "
+                    f"pass --stage PATH"], None
         print("preflight: no code stage to check (--stage none)")
-        return []
+        return [], OnstartPlan(None, None)
+    if not _SHELL_SAFE.match(stage):
+        return [f"the code stage {stage!r} holds characters the onstart cannot carry"], None
     if not api_call(f"HF lookup of {stage}", staging.exists, stage):
         return [f"the code stage {stage} ({source}) is not on HF: build and upload it "
-                f"(tools/stage_code.py --upload)"]
+                f"(tools/stage_code.py --upload)"], None
     print(f"preflight: code stage {stage} ({source}) is on HF")
-    return []
+    if not on_library:
+        return [], OnstartPlan(stage, None)
+    try:
+        library = library_dir(stage)
+    except ValueError:
+        return [f"the code stage {stage} is not a .tar.gz, so it has no box library"], None
+    missing = [name for name in LIBRARY_FILES
+               if not api_call(f"HF lookup of {library}/{name}", staging.exists, f"{library}/{name}")]
+    if missing:
+        return [f"the box library of {stage} lacks {', '.join(missing)} on HF ({library}/): "
+                f"`tools/stage_code.py --upload` writes it beside the stage"], None
+    print(f"preflight: the stage's box library is on HF ({library}/)")
+    return [], OnstartPlan(stage, library)
+
+
+def onstart_command(script: str, library: str | None) -> str:
+    """The onstart for `script`: its box library's bring-up when `library`
+    is the library's HF folder, otherwise the script from HF staging."""
+    if library is None:
+        return ONSTART_FETCH.format(source=STAGING + script, target=script, arguments="")
+    return ONSTART_FETCH.format(source=f"{library}/box_onstart.sh", target="box_onstart.sh",
+                                arguments=f" {script} {library}")
 
 
 def spendable(user) -> float | None:
@@ -302,18 +362,24 @@ def create(args) -> int:
         env[k] = val
         if _SECRET_FIELD.search(k):
             remember_secret(val)
+    if args.stage and "STAGE" in env and env["STAGE"] != args.stage:
+        print(f"refusing to rent: --stage {args.stage} and --env STAGE={env['STAGE']} disagree",
+              file=sys.stderr)
+        return 1
     v = _vast()
     stage = args.stage or env.get("STAGE") or None
-    problems = (staging_problems(_staging(tok), args.onstart, stage)
-                + budget_problems(v, args.offer_id, args.hours, args.disk))
+    problems, plan = staging_problems(_staging(tok), args.onstart, stage)
+    problems += budget_problems(v, args.offer_id, args.hours, args.disk)
     if problems:
         print("refusing to rent:", file=sys.stderr)
         for p in problems:
             print(f"  {p}", file=sys.stderr)
         return 1
+    if plan.stage:
+        env["STAGE"] = plan.stage          # the box downloads the stage the preflight checked
     res = api_call("create", v.create_instance, id=args.offer_id, image=IMAGE, disk=args.disk,
                    runtype="ssh_direc", env=env, label=args.onstart,
-                   onstart_cmd=ONSTART.format(script=args.onstart))
+                   onstart_cmd=onstart_command(args.onstart, plan.library))
     print(json.dumps(redacted(res), default=str))
     iid = res.get("new_contract") if isinstance(res, dict) else None
     if not (isinstance(res, dict) and res.get("success") is True):
@@ -403,8 +469,9 @@ def parser() -> argparse.ArgumentParser:
                    help="the run's estimated hours; the funds and the offer's rental "
                         "window must cover 1.5x this")
     c.add_argument("--stage",
-                   help="HF path of the code tarball the script downloads (default: STAGE "
-                        "from --env, else the script's STAGE default); none if it downloads none")
+                   help="HF path of the code tarball the script downloads, passed to the box "
+                        "as STAGE (default: STAGE from --env, else the script's STAGE "
+                        "default); none if it downloads none")
     c.add_argument("--disk", type=int, default=40)
     c.add_argument("--env", action="append")
     c.set_defaults(fn=create)

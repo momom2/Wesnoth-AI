@@ -21,6 +21,13 @@ This tool makes the payload a checked artifact:
     ship. That is usually what you want while iterating, but it means
     the box can run code that is in no commit -- so every staged file
     that differs from HEAD is listed under "NOT IN ANY COMMIT".
+  * every payload carries the box library (scripts/box/), and
+    `--upload DEST` writes, in one commit, the tarball at DEST, the
+    library beside it at `<DEST without .tar.gz>.box/` (a box needs it
+    before its code stage: docs/box_runbook.md "Bring-up"), and with
+    `--script` the run script under tier-b/staging/. The library and the
+    script are read back from the tarball, so they are the stage's own
+    bytes; a shell file with CR line endings is refused.
 
 Quickstart
 ----------
@@ -31,10 +38,10 @@ Quickstart
     python tools/stage_code.py --out /tmp/stage_20260913d.tar.gz \\
         --require tools/diff_replay.py tools/diff_core.py tools/bench_pool.py
 
-    # build and upload in one step (needs HF_TOKEN or a cached login)
-    python tools/stage_code.py --out /tmp/stage_20260913d.tar.gz \\
-        --require scripts/postreview_box.sh \\
-        --upload tier-b/staging/stage_20260913d.tar.gz
+    # build and stage a run in one step (needs HF_TOKEN or a cached login)
+    python tools/stage_code.py --out /tmp/stage_20260926a.tar.gz \\
+        --script scripts/unit_vocab_retrain_box.sh \\
+        --upload tier-b/staging/stage_20260926a.tar.gz
 
 Dependencies: git, stdlib; huggingface_hub only for --upload.
 Dependents:   every scripts/*_box.sh, via the tarball they download.
@@ -50,7 +57,14 @@ from pathlib import Path
 from typing import List, Sequence, Set
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scripts.box.box_stage import LIBRARY_FILES, library_dir  # noqa: E402
+
 log = logging.getLogger("stage_code")
+REPO = "momom2/wesnoth-model-checkpoints"
+STAGING = "tier-b/staging/"
+# The box library: in every payload, since every box script needs it.
+LIBRARY_REQUIRED = tuple(f"scripts/box/{name}" for name in LIBRARY_FILES)
 
 # Directories that are tracked but are DATA, not code. A box run
 # downloads what it needs from the model host; shipping them in every
@@ -144,6 +158,40 @@ def write_tarball(out: Path, paths: Sequence[str]) -> int:
     return out.stat().st_size
 
 
+def staging_files(tarball: Path, dest: str, script: str | None) -> list[tuple[str, bytes]]:
+    """(path in repo, bytes) of what goes up beside the tarball: the box
+    library at library_dir(dest) and, when given, the run script under
+    tier-b/staging/, each read from the tarball."""
+    wanted = [(f"scripts/box/{name}", f"{library_dir(dest)}/{name}") for name in LIBRARY_FILES]
+    if script:
+        rel = _relative(script)
+        wanted.append((rel, STAGING + rel.rsplit("/", 1)[-1]))
+    files = []
+    with tarfile.open(tarball, "r:gz") as tf:
+        names = set(tf.getnames())
+        for member, target in wanted:
+            if member not in names:
+                raise SystemExit(f"{member} is not in the payload; it cannot be staged")
+            data = tf.extractfile(member).read()
+            if member.endswith(".sh") and b"\r" in data:
+                raise SystemExit(f"{member} has CR line endings: bash on the box fails on them")
+            files.append((target, data))
+    return files
+
+
+def upload_stage(api, tarball: Path, dest: str, script: str | None) -> None:
+    """One commit: the tarball at `dest`, its box library, the run script."""
+    beside = staging_files(tarball, dest, script)
+    from huggingface_hub import CommitOperationAdd
+    operations = [CommitOperationAdd(path_in_repo=dest, path_or_fileobj=str(tarball))]
+    operations += [CommitOperationAdd(path_in_repo=target, path_or_fileobj=data)
+                   for target, data in beside]
+    api.create_commit(repo_id=REPO, operations=operations,
+                      commit_message=f"stage {dest}" + (f" for {script}" if script else ""))
+    for op in operations:
+        log.info("uploaded %s", op.path_in_repo)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("Quickstart")[0],
@@ -160,8 +208,12 @@ def main(argv=None) -> int:
                     default=list(DEFAULT_EXCLUDE_PREFIXES),
                     help="Tracked path prefixes to leave out (data, not code).")
     ap.add_argument("--upload", default=None,
-                    help="path_in_repo on momom2/wesnoth-model-checkpoints. "
-                         "Needs HF_TOKEN or a cached login.")
+                    help="path_in_repo of the tarball on momom2/wesnoth-model-checkpoints "
+                         "(a .tar.gz); its box library goes beside it. Needs HF_TOKEN or "
+                         "a cached login.")
+    ap.add_argument("--script", default=None,
+                    help="The run script (e.g. scripts/unit_vocab_retrain_box.sh), required "
+                         "in the payload and uploaded with it to tier-b/staging/.")
     ap.add_argument("--dry-run", action="store_true",
                     help="List what would ship and stop.")
     ap.add_argument("--log-level", default="INFO")
@@ -169,8 +221,11 @@ def main(argv=None) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(levelname)s %(message)s")
 
+    required = [*LIBRARY_REQUIRED, *args.require, *([args.script] if args.script else [])]
+    if args.upload and not args.upload.endswith(".tar.gz"):
+        raise SystemExit(f"--upload {args.upload}: a code stage is a .tar.gz")
     paths = build_payload(args.extra, args.exclude_prefix)
-    check_required(paths, args.require)
+    check_required(paths, required)
 
     dirty = differs_from_head(paths)
     log.info("payload: %d files", len(paths))
@@ -185,12 +240,9 @@ def main(argv=None) -> int:
         log.info("  required files present: %s", ", ".join(sorted(args.require)))
 
     if args.dry_run:
-        if not args.out:
-            return 0
+        return 0
     if not args.out:
         raise SystemExit("--out is required unless --dry-run")
-    if args.dry_run:
-        return 0
 
     size = write_tarball(args.out, paths)
     log.info("wrote %s (%.1f MB)", args.out, size / 1024 ** 2)
@@ -200,7 +252,7 @@ def main(argv=None) -> int:
     # whole tool exists to prevent, so it is worth the second read.
     with tarfile.open(args.out, "r:gz") as tf:
         names = set(tf.getnames())
-    check_required(sorted(names), args.require)
+    check_required(sorted(names), required)
     if len(names) != len(paths):
         raise SystemExit(f"tarball holds {len(names)} entries, expected "
                          f"{len(paths)} -- do not ship it")
@@ -208,10 +260,9 @@ def main(argv=None) -> int:
 
     if args.upload:
         from huggingface_hub import HfApi
-        HfApi().upload_file(path_or_fileobj=str(args.out),
-                            path_in_repo=args.upload,
-                            repo_id="momom2/wesnoth-model-checkpoints")
-        log.info("uploaded to %s", args.upload)
+        upload_stage(HfApi(), args.out, args.upload, args.script)
+    elif args.script:
+        staging_files(args.out, "unused.tar.gz", args.script)   # the same checks, nothing sent
     return 0
 
 

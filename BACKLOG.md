@@ -119,6 +119,13 @@ the same night:
   drawn from such a game fails (only reachable with
   `--midgame-dataset replays_dataset_imitation`, or after the value
   corpus rebuild).
+- **Box scripts not on the library (0.7.11):** about 40 `scripts/*_box.sh`
+  are records of past runs and keep unbounded steps, no exit trap, stops
+  that accept any 2xx and `ALL_DONE`-first uploads; port any of them to
+  `scripts/box/boxlib.sh` (docs/box_runbook.md) before running it again.
+  The unit-vocab retrain's script is ported. A progress line during the
+  trainer's resume skip would let its stall window drop from 100 minutes
+  to 30.
 - **Legacy box path:** `scripts/box_stop_on_abort.py` (the quarantined
   campaign flow) puts the Vast ACCOUNT key on the box and logs requests
   that carry it. Retire it with the user's word.

@@ -5,6 +5,9 @@ and HF staging are fakes, and one test drives the real SDK against a stub
 server on 127.0.0.1."""
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 import scripts.rent_box as rent_box
+from scripts.box.box_stage import LIBRARY_FILES, library_dir
 
 KEY = "SENTINEL0account0key0never0printed0beef"
 KEYED_PATH = f"/api/v0/instances/7/?owner=me&api_key={KEY}"
@@ -227,3 +231,60 @@ def test_printed_answers_carry_no_secret(monkeypatch, capsys):
     assert "555" in out and "container up" in out
     assert "k" * 40 not in out + err
     assert KEY not in out + err
+
+
+# ---- the box library ---------------------------------------------------------
+LIBRARY = library_dir(STAGE)
+LIBRARY_SCRIPT = ('#!/usr/bin/env bash\nset -uo pipefail\nSTAGE="${STAGE:-}"\n'
+                  '. "${BOX_LIB:-/workspace/box}/boxlib.sh" || exit 1\nbox_init\n')
+LIBRARY_ON_HF = {rent_box.STAGING + SCRIPT: LIBRARY_SCRIPT, STAGE: "<tarball>",
+                 **{f"{LIBRARY}/{name}": "<file>" for name in LIBRARY_FILES}}
+
+
+def bash_parses(command: str) -> bool:
+    bash = shutil.which("bash")
+    if bash is None or (sys.platform == "win32" and "system32" in bash.lower()):
+        pytest.skip("no POSIX bash on this machine")
+    return subprocess.run([bash, "-n", "-c", command]).returncode == 0
+
+
+def test_a_library_script_boots_through_its_stages_library(monkeypatch):
+    sdk = market()
+    use(monkeypatch, sdk, LIBRARY_ON_HF)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 0
+    (created,) = sdk.called("create_instance")
+    assert created["env"]["STAGE"] == STAGE
+    onstart = created["onstart_cmd"]
+    assert f"'{LIBRARY}/box_onstart.sh'" in onstart
+    assert f"bash /workspace/box_onstart.sh {SCRIPT} {LIBRARY} >" in onstart
+    assert bash_parses(onstart)
+
+
+def test_any_other_script_is_fetched_and_run_as_before(monkeypatch):
+    sdk = market()
+    assert rent(monkeypatch, sdk) == 0
+    (created,) = sdk.called("create_instance")
+    onstart = created["onstart_cmd"]
+    assert f"'{rent_box.STAGING}{SCRIPT}'" in onstart
+    assert f"bash /workspace/{SCRIPT} >" in onstart and "box_onstart" not in onstart
+    assert created["env"]["STAGE"] == STAGE          # the script's default, checked on HF
+    assert bash_parses(onstart)
+
+
+@pytest.mark.parametrize("on_hf, argv, reason", [
+    ({k: v for k, v in LIBRARY_ON_HF.items() if not k.endswith("/boxlib.sh")},
+     ["--stage", STAGE], "lacks boxlib.sh"),
+    (LIBRARY_ON_HF, ["--stage", "none"], "runs on the box library"),
+    (LIBRARY_ON_HF, [], "names no STAGE default"),
+    (LIBRARY_ON_HF, ["--stage", STAGE, "--env", "STAGE=tier-b/staging/other.tar.gz"], "disagree"),
+    ({**LIBRARY_ON_HF, "tier-b/staging/stage_$(reboot).tar.gz": "<tarball>"},
+     ["--stage", "tier-b/staging/stage_$(reboot).tar.gz"], "cannot carry"),
+], ids=["library file missing", "no stage", "no default", "two stages", "unsafe stage"])
+def test_a_library_script_without_its_whole_library_is_refused(on_hf, argv, reason, monkeypatch,
+                                                               capsys):
+    sdk = market()
+    use(monkeypatch, sdk, on_hf)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", *argv]) == 1
+    assert sdk.called("create_instance") == []
+    err = capsys.readouterr().err
+    assert "refusing to rent" in err and reason in err
