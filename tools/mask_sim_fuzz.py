@@ -31,7 +31,7 @@ log = logging.getLogger("mask_sim_fuzz")
 
 def autopsy(gs, action, sim) -> None:
     """Rebuild both contexts on the SAME state and diff."""
-    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
 
     side = gs.global_info.current_side
     start = action["start_hex"]

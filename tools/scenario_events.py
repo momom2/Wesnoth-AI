@@ -299,7 +299,7 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
         # Invalidate the reach-planner's per-map terrain cache
         # (pathfind_sim keys on this epoch). Once per event, on THIS
         # gs only.
-        from tools.pathfind_sim import next_terrain_epoch
+        from wesnoth_ai.sim.pathfind_sim import next_terrain_epoch
         setattr(gs.global_info, "_terrain_epoch", next_terrain_epoch())
 
     if raw_cells:

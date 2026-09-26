@@ -46,7 +46,7 @@ def _acting(gs, side):
 
 
 def test_relevant_set_and_landable_rows_equal_the_python_originals():
-    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
     from wesnoth_ai.visibility import relevant_hex_positions
     checked_sets = checked_rows = nonempty_rows = 0
     for gs, side, _fog in _both_sides(_states()):
@@ -117,7 +117,7 @@ _FIELDS = ("actor_valid", "target_valid", "target_valid_attack", "target_valid_m
 
 def test_subset_masks_equal_the_python_mask_path():
     import wesnoth_ai.action_sampler as sampler
-    from tools import pathfind_sim as pf
+    from wesnoth_ai.sim import pathfind_sim as pf
     from wesnoth_ai.action_sampler import _build_legality_masks
     from wesnoth_ai.encoder import GameStateEncoder
     enc = GameStateEncoder(relevant_set_hexes=True)

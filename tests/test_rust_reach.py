@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 wesnoth_core = pytest.importorskip("wesnoth_core")
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
-from tools import pathfind_sim as pf  # noqa: E402
+from wesnoth_ai.sim import pathfind_sim as pf  # noqa: E402
 
 
 def _both(unit, gs, ctx, budget=None):

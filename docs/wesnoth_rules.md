@@ -272,7 +272,7 @@ Petrified (`STATE_PETRIFIED`) → `incapacitated()` is true →
 emits no ZoC. Also has `attacks_left() = 0` and `movement_left() = 0`
 (unit.hpp:998 and 1299).
 
-Sim: `tools/pathfind_sim.emits_zoc` is the one predicate; the planner
+Sim: `wesnoth_ai/sim/pathfind_sim.emits_zoc` is the one predicate; the planner
 (`ReachContext.for_side`), the walker (`walk_move_path`), the legality
 mask's reach context (`action_sampler`) and the observation's unit flags
 (`wesnoth_ai/observe.py`) ask it. The Rust observation kernel

@@ -265,7 +265,7 @@ def test_boundary_frame_mover_keeps_pre_flip_state():
 def _first_move_cmds(sim):
     """(move a->d, move a->b) for some unit with 2+ reachable hexes:
     the second command's start hex is STALE after the first."""
-    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
     from wesnoth_ai.sim.classes import Position
     gs = sim.gs
     side = gs.global_info.current_side

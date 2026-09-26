@@ -27,8 +27,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tests.test_visibility import _hexes_grid, _state, _unit  # noqa: E402
 from wesnoth_ai.sim.abilities import hex_neighbors  # noqa: E402
-from tools.pathfind_sim import (ReachContext, emits_zoc, route_to,  # noqa: E402
-                                unit_reach, walk_move_path)
+from wesnoth_ai.sim.pathfind_sim import (ReachContext, emits_zoc, route_to,  # noqa: E402
+                                         unit_reach, walk_move_path)
 from wesnoth_ai.sim.classes import Position  # noqa: E402
 from wesnoth_ai.visibility import is_scenery_unit  # noqa: E402
 

@@ -66,7 +66,7 @@ log = logging.getLogger("pathfind_sim")
 # silence. A kernel is served only by a wheel of the phase it needs
 # (`reach_kernel`, `enumerate_kernel`); tools/kernel_status.py reports
 # each through these gates.
-import os as _os
+import os as _os  # noqa: E402 -- kept beside the kernel-gate comment above
 _RUST = None
 if _os.environ.get("WESNOTH_RUST", "1") != "0":
     try:
@@ -301,8 +301,8 @@ _TERRAIN_MAPS_CACHE: Dict[Tuple[int, str, bool, int],
 # loss -- would serve map A's cached movement/defense tables for map
 # B's states. 62 random bits make cross-process collision
 # negligible while staying a plain int (deepcopy/pickle-safe).
-import itertools as _itertools
-import secrets as _secrets
+import itertools as _itertools  # noqa: E402 -- kept beside the terrain-epoch comment above
+import secrets as _secrets  # noqa: E402 -- kept beside the terrain-epoch comment above
 _TERRAIN_EPOCH = _itertools.count(_secrets.randbits(62))
 
 

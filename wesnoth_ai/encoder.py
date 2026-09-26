@@ -1570,13 +1570,13 @@ _warned_stale_kernel = False
 
 def _rust_encode_kernel():
     """The wheel's `encode_raw_streams`, selected exactly as
-    tools.pathfind_sim selects its kernels (wheel importable and
+    wesnoth_ai.sim.pathfind_sim selects its kernels (wheel importable and
     WESNOTH_RUST != 0), else None for the Python builders. A wheel
     built before phase 2b lacks the function, and one built before
     `_ENCODE_KERNEL_PHASE` composes the wrong widths; both take the
     Python path."""
     global _warned_stale_kernel
-    from tools import pathfind_sim
+    from wesnoth_ai.sim import pathfind_sim
     kernel = getattr(pathfind_sim._RUST, "encode_raw_streams", None)
     if kernel is None:
         return None

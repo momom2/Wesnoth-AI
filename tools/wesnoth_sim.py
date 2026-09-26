@@ -1030,7 +1030,7 @@ class WesnothSim:
         player clicks an enemy from a non-adjacent unit.
 
         Knowledge level: the plan runs on the ACTING SIDE'S
-        OBSERVABLE state (tools/pathfind_sim.ReachContext), exactly
+        OBSERVABLE state (wesnoth_ai/sim/pathfind_sim.ReachContext), exactly
         like a player's own attack order -- hidden units neither
         block nor ZoC the approach; they resolve during the nested
         move's execution walk (blocked/ambush truncation aborts the
@@ -1042,7 +1042,7 @@ class WesnothSim:
         preference order Wesnoth's own pathfinder applies.
         """
         from wesnoth_ai.sim.abilities import hex_neighbors
-        from tools.pathfind_sim import ReachContext, unit_reach
+        from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
 
         target_neighbors = set(hex_neighbors(target.x, target.y))
         ctx = ReachContext.for_side(
@@ -1528,7 +1528,7 @@ class WesnothSim:
                     "explicit `path` field in move action dict not "
                     "supported; the sim plans the route itself "
                     "(Wesnoth-default cost model, see "
-                    "tools/pathfind_sim.py). Pass (start_hex, "
+                    "wesnoth_ai/sim/pathfind_sim.py). Pass (start_hex, "
                     "target_hex)."
                 )
             mover = next(
@@ -1546,7 +1546,7 @@ class WesnothSim:
             # get_route). Hidden units neither block nor ZoC here;
             # they resolve at execution (walk_move_path: blocked /
             # ambush truncation).
-            from tools.pathfind_sim import (
+            from wesnoth_ai.sim.pathfind_sim import (
                 ReachContext, unit_reach, route_to)
             ctx = ReachContext.for_side(
                 self.gs, self.current_side, exclude_unit=mover)

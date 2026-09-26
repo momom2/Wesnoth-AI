@@ -1,5 +1,5 @@
 //! Phase 4: the move command on the Rust-owned state, a transcription
-//! of `tools/pathfind_sim.walk_move_path` and of the move branch of
+//! of `wesnoth_ai/sim/pathfind_sim.walk_move_path` and of the move branch of
 //! `tools/replay_dataset._apply_command` (the landing, the village
 //! capture), with the visibility rules they consume from
 //! `wesnoth_ai/visibility.py`: the hide cover, discovery by adjacency

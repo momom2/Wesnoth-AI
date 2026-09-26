@@ -272,7 +272,7 @@ class CoreState:
         """The movement class of a unit: the pathfinder's arrays and
         the resolver's defense per hex, registered once per (type,
         slowed, defense table)."""
-        from tools.pathfind_sim import _terrain_arrays_for
+        from wesnoth_ai.sim.pathfind_sim import _terrain_arrays_for
         from tools.replay_dataset import _rebuild_unit, _stats_for, _terrain_def_pct
         from wesnoth_ai.observe import map_geometry
         def_table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})

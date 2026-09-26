@@ -30,7 +30,7 @@ def _python_reach_sets(state, side):
     ._build_legality_masks): visible units by position, ally/enemy/
     occupied/ZoC as coordinate sets."""
     from wesnoth_ai.sim.abilities import hex_neighbors
-    from tools.pathfind_sim import emits_zoc
+    from wesnoth_ai.sim.pathfind_sim import emits_zoc
     from wesnoth_ai.visibility import units_visible_to
     unit_at = {}
     for u in units_visible_to(state, side):

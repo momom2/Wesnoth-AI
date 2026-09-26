@@ -843,7 +843,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
     # Terrain epoch: reach-planner cache key that survives deepcopy
     # (MCTS forks share entries) and is BUMPED by terrain-morph
     # events (see pathfind_sim._terrain_maps_for).
-    from tools.pathfind_sim import next_terrain_epoch
+    from wesnoth_ai.sim.pathfind_sim import next_terrain_epoch
     setattr(gs.global_info, "_terrain_epoch", next_terrain_epoch())
     # ToD start offset for random_start_time scenarios. 0 means turn-1
     # is dawn (the default 2p case). Other values shift the cycle so
@@ -2215,7 +2215,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if unit is None:
             return
         # Execute the recorded/planned path with the shared
-        # Wesnoth-faithful walk (tools/pathfind_sim.walk_move_path):
+        # Wesnoth-faithful walk (wesnoth_ai/sim/pathfind_sim.walk_move_path):
         # replays record the FULL planned path, and the engine
         # re-truncates at runtime -- blocked (hidden unit ON a path
         # hex: stop before it, KEEP remaining MP), ambush (hidden
@@ -2227,7 +2227,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # off: the engine already validated this move when it was
         # played, so a budget overrun can only mean OUR reconstructed
         # MP drifted -- never truncate a human path for it.
-        from tools.pathfind_sim import walk_move_path
+        from wesnoth_ai.sim.pathfind_sim import walk_move_path
         track_side(gs, unit.side)
         out = walk_move_path(gs, unit, xs, ys, enforce_budget=False)
         # Side-channel for the sim's command recorder (mirrors
@@ -2930,7 +2930,7 @@ def move_label_hex(gs: GameState, unit: Unit, cmd: list) -> Tuple[Tuple[int, int
     if order.get("stopped_early") is False:
         return stop, "turn_end"
     clicked = (int(order["clicked"][0]), int(order["clicked"][1]))
-    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
     reach = unit_reach(unit, gs, ReachContext.for_side(gs, unit.side))
     if clicked in reach.landable:
         return clicked, "clicked"

@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 wesnoth_core = pytest.importorskip("wesnoth_core")
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
-from tools import pathfind_sim as pf  # noqa: E402
+from wesnoth_ai.sim import pathfind_sim as pf  # noqa: E402
 
 # The kernel's current contract (its arguments and its token bound) is
 # the one the mask builder takes, from `ENUMERATE_KERNEL_PHASE` on.

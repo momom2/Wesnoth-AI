@@ -59,12 +59,12 @@ def source_phase() -> Optional[int]:
 
 
 def _reach() -> bool:
-    from tools.pathfind_sim import reach_kernel
+    from wesnoth_ai.sim.pathfind_sim import reach_kernel
     return reach_kernel() is not None
 
 
 def _enumeration() -> bool:
-    from tools.pathfind_sim import enumerate_kernel
+    from wesnoth_ai.sim.pathfind_sim import enumerate_kernel
     return enumerate_kernel() is not None
 
 

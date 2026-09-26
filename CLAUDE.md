@@ -1052,7 +1052,7 @@ stays at the root. So a bare name like `classes.py` below means
 - `rust/wesnoth_core/` — the kernels, installed with `pip install
   ./rust/wesnoth_core`. `lib.rs` declares `__phase__`; a wheel of an
   older phase serves only the kernels it has, and the rest run in
-  Python. The Python side of each kernel lives in `tools/pathfind_sim.py`
+  Python. The Python side of each kernel lives in `wesnoth_ai/sim/pathfind_sim.py`
   (reach, enumeration), `wesnoth_ai/observe.py`, `wesnoth_ai/sim/combat.py`,
   `wesnoth_ai/encoder.py` and `wesnoth_ai/game_core.py` (`GameCore`);
   docs/rust_port_plan.md records the port.

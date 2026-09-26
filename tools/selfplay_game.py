@@ -372,7 +372,7 @@ def play_one_game(
         # anymore (2026-07-17): the sim resolves them Wesnoth-
         # faithfully inside step() -- the unit walks the planned
         # route and stops per the engine's blocked/ambush rules
-        # (tools/pathfind_sim.walk_move_path), revealing the hidden
+        # (wesnoth_ai/sim/pathfind_sim.walk_move_path), revealing the hidden
         # unit. A real partial move, real information gained; no
         # re-decide loop needed. (The recruit bounce above stays: a
         # recruit has no partial-execution semantics to fall back

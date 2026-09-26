@@ -156,7 +156,7 @@ class Brawler:
 
     def select_action(self, gs, **kw):
         from wesnoth_ai.sim.abilities import hex_neighbors
-        from tools.pathfind_sim import ReachContext, unit_reach
+        from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
         from wesnoth_ai.sim.classes import Position
         from wesnoth_ai.rewards import hex_distance
         from wesnoth_ai.visibility import is_scenery_unit

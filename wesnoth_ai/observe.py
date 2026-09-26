@@ -251,7 +251,7 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
     fn = fns.get("observe_side")
     if fn is None:
         return None
-    from tools.pathfind_sim import emits_zoc
+    from wesnoth_ai.sim.pathfind_sim import emits_zoc
     from wesnoth_ai.visibility import is_scenery_unit
     geom = map_geometry(state)
     units = list(state.map.units)
@@ -325,7 +325,7 @@ def _stacks(rows: List[tuple]) -> Tuple[np.ndarray, np.ndarray]:
 def _add_reach(state: GameState, side: int, units: List[Unit], upetrified: np.ndarray,
                uleader: np.ndarray, obs: Observation, reach_fn) -> None:
     """The acting units' landable rows and the relevant hex set."""
-    from tools.pathfind_sim import _terrain_arrays_for
+    from wesnoth_ai.sim.pathfind_sim import _terrain_arrays_for
     geom = obs.geometry
     n, H = len(units), len(geom.keys)
     acting = np.zeros(n, dtype=np.uint8)

@@ -114,7 +114,7 @@ def test_a_stale_wheel_is_refused_rather_than_silently_narrow(monkeypatch):
     where the encoder expects eight. numpy would broadcast or raise far
     from the cause, so the phase is checked and the Python builders
     take over."""
-    from tools import pathfind_sim
+    from wesnoth_ai.sim import pathfind_sim
 
     class _Stale:
         __phase__ = enc_mod._ENCODE_KERNEL_PHASE - 1

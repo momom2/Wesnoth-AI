@@ -38,7 +38,7 @@ from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
 from tools.replay_dataset import (_build_initial_gamestate, _setup_scenario_events, _apply_command,
                                   _lawful_bonus_for_turn, illuminated_lawful_bonus_at, _stats_for,
                                   _find_unit_at)
-from tools.pathfind_sim import ReachContext, unit_reach, emits_zoc
+from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach, emits_zoc
 from wesnoth_ai.sim.abilities import hex_neighbors
 from wesnoth_ai.sim.classes import PLAYER_SIDES, opponent_of
 from wesnoth_ai.visibility import units_visible_to, is_scenery_unit, relevant_hex_positions, visible_hexes_for

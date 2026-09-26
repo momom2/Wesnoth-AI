@@ -28,7 +28,7 @@ if not hasattr(wesnoth_core, "encode_raw_streams"):
     pytest.skip("wesnoth_core wheel predates phase 2b: rebuild it",
                 allow_module_level=True)
 
-from tools import pathfind_sim as pf  # noqa: E402
+from wesnoth_ai.sim import pathfind_sim as pf  # noqa: E402
 from wesnoth_ai.sim.abilities import hex_neighbors  # noqa: E402
 from wesnoth_ai import encoder  # noqa: E402
 from wesnoth_ai.sim.classes import Terrain, TerrainModifiers  # noqa: E402

@@ -37,7 +37,7 @@ from wesnoth_ai.sim.abilities import (                                      # no
 from tools.combat_outcomes import (                                # noqa: E402
     OutcomeDistribution, enumerate_attack_outcomes,
 )
-from tools.pathfind_sim import ReachContext, unit_reach            # noqa: E402
+from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach            # noqa: E402
 from tools.replay_extract import extract_replay                    # noqa: E402
 from tools.replay_dataset import (                                 # noqa: E402
     _build_initial_gamestate, _setup_scenario_events,

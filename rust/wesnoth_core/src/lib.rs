@@ -1,7 +1,7 @@
 //! wesnoth_core — Rust hot-path kernels (docs/rust_port_plan.md).
 //!
 //! Phase 1: single-turn reachability Dijkstra, a line-for-line port
-//! of `tools/pathfind_sim.py::unit_reach`'s array loop. BIT-EXACT
+//! of `wesnoth_ai/sim/pathfind_sim.py::unit_reach`'s array loop. BIT-EXACT
 //! contract: identical float composition (f64, same op order),
 //! identical heap semantics (total order on (cost, seq) — seq makes
 //! keys unique, so ANY correct min-heap pops the same sequence),

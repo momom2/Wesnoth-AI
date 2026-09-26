@@ -3,7 +3,7 @@
 
 The two-level contract:
   - The MASK offers what the policy may ATTEMPT, computed from the
-    acting side's observable state via tools/pathfind_sim.
+    acting side's observable state via wesnoth_ai/sim/pathfind_sim.
   - The SIM translates orders with the SAME planner on the SAME
     observable state, so every mask-offered (actor, move-target)
     must be accepted by `_action_to_command` (no silent end_turn, no
@@ -41,7 +41,7 @@ def test_every_masked_move_target_is_sim_landable():
     are exercised."""
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.action_sampler import _build_legality_masks
-    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
     from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
 

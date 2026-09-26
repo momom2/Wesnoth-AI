@@ -63,7 +63,7 @@ Each is optional; the default is the behaviour with the variable unset.
 
 | variable | default | effect |
 |---|---|---|
-| `WESNOTH_RUST` | 1 | 0 forces the Python reach, legal-move and encoding paths (`tools/pathfind_sim.py`, `wesnoth_ai/encoder.py`) |
+| `WESNOTH_RUST` | 1 | 0 forces the Python reach, legal-move and encoding paths (`wesnoth_ai/sim/pathfind_sim.py`, `wesnoth_ai/encoder.py`) |
 | `WESNOTH_RUST_OBSERVE` | 1 | 0 forces the Python observation and relevant-set rows (`wesnoth_ai/observe.py`) |
 | `WESNOTH_RUST_COMBAT` | 1 | 0 forces the Python combat resolver (`wesnoth_ai/sim/combat.py`) |
 | `WESNOTH_RUST_CORE` | 0 | 1 makes the Rust-owned state (`GameCore`) the simulator's state of record (`tools/wesnoth_sim.py`) |

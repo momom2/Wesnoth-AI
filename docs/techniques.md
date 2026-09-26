@@ -641,7 +641,7 @@ infinite-loop). Full contract in `CLAUDE.md` §6 and
   `_build_legality_masks`, `wesnoth_ai/action_sampler.py:1030`.
 - **TRUE single-turn reachability for MOVE** **[ON]**. Replaced
   crow-flies `dist ≤ moves` with the shared Wesnoth-default planner
-  (`tools/pathfind_sim.unit_reach`) on a `ReachContext` built from the
+  (`wesnoth_ai/sim/pathfind_sim.unit_reach`) on a `ReachContext` built from the
   acting side's OBSERVABLE state: terrain costs, visible-enemy
   blocking, ZoC, ally pass-through. `wesnoth_ai/action_sampler.py:1166-1232`.
 - **ATTACK legality = adjacent now, or can land adjacent this turn**

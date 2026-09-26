@@ -285,7 +285,7 @@ def test_visible_fraction_in_unit_interval():
 # (2026-07-17: replaces the retired harness-side fog-bounce
 # pre-check `_would_move_bounce_on_fog` -- moves onto hidden enemies
 # now EXECUTE with the engine's partial-move resolution via
-# tools/pathfind_sim.walk_move_path.)
+# wesnoth_ai/sim/pathfind_sim.walk_move_path.)
 
 def test_walk_blocked_by_hidden_enemy_keeps_mp():
     """A hidden unit ON a path hex stops the mover on the hex
@@ -296,7 +296,7 @@ def test_walk_blocked_by_hidden_enemy_keeps_mp():
     Setup note: the mover gets max_moves=1, so it sees x <= 2 (its
     reach and the ring around it) and the lurker at distance 3 is
     fog-hidden and exerts no ZoC; the walk budget is an explicit 4."""
-    from tools.pathfind_sim import walk_move_path
+    from wesnoth_ai.sim.pathfind_sim import walk_move_path
     units = [
         _unit('mover', x=0, side=1, max_moves=1),
         _unit('lurker', x=3, side=2),      # on the path, fog-hidden
@@ -316,7 +316,7 @@ def test_walk_ambush_by_hidden_hider_zeroes_mp():
     """Entering a hex adjacent to a hidden `hides` enemy stops the
     mover AT that hex, zeroes MP, and reveals the ambusher
     (check_for_ambushers, move.cpp:422-440)."""
-    from tools.pathfind_sim import walk_move_path
+    from wesnoth_ai.sim.pathfind_sim import walk_move_path
     units = [
         _unit('mover', x=0, side=1, max_moves=4),
         # Ambusher OFF the path (y=1) but adjacent to path hex (2,0).
@@ -351,7 +351,7 @@ def test_walk_passes_through_ally_and_backtracks_off_it():
     """Own-side units are pass-through (pathfind.cpp:777-786), but
     a move may not END on one: the walk backtracks off occupied end
     hexes (plot_turn, move.cpp:776-780) with MP refunded."""
-    from tools.pathfind_sim import walk_move_path
+    from wesnoth_ai.sim.pathfind_sim import walk_move_path
     units = [
         _unit('mover', x=0, side=1, max_moves=4),
         _unit('buddy', x=2, side=1),

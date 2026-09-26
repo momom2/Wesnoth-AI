@@ -227,7 +227,7 @@ def _check_units_are_stationary(gs, side: int, scenario_id: str = "") -> bool:
     Anything else is a unit the real AI would walk and we would not,
     silently. So it warns, and raises under `WESNOTH_STRICT_WML`.
     """
-    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
     from wesnoth_ai.visibility import is_scenery_unit
 
     movers = [u for u in gs.map.units

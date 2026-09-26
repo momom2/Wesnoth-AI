@@ -26,7 +26,7 @@ Masking rules (shared between the two paths):
   - Target hex mask per actor:
       * Unit actor MOVE: TRUE single-turn reachability from the
         acting side's observable state, via the shared Wesnoth-
-        default planner (tools/pathfind_sim.unit_reach): terrain
+        default planner (wesnoth_ai/sim/pathfind_sim.unit_reach): terrain
         costs, visible-enemy blocking + ZoC, ally pass-through.
         Landing hexes exclude visibly-occupied ones; hexes under
         HIDDEN units stay offered (a human could order that move
@@ -1228,7 +1228,7 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
     doesn't apply (WESNOTH_RUST=0 or no wheel, a wheel too old for the
     kernel, relevant-set stream — its debug invariant lives on the
     Python path — or no acting units)."""
-    from tools import pathfind_sim as _pf
+    from wesnoth_ai.sim import pathfind_sim as _pf
     if _pf._RUST is None:
         return None
     if (observation is not None and observation.landable is not None
@@ -1558,7 +1558,7 @@ def _build_legality_masks(
     # `ReachContext.for_side` on the same observable state, which is
     # what makes "mask offers it => sim can route it" hold.
     from wesnoth_ai.sim.abilities import hex_neighbors as _hex_neighbors
-    from tools.pathfind_sim import ReachContext, emits_zoc, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, emits_zoc, unit_reach
     reach_ctx = ReachContext(
         side=current_side,
 
@@ -1615,7 +1615,7 @@ def _build_legality_masks(
         else:
             _finish = False
         # TRUE single-turn reachability via the shared Wesnoth-
-        # default planner (tools/pathfind_sim), replacing the old
+        # default planner (wesnoth_ai/sim/pathfind_sim), replacing the old
         # crow-flies `dist <= moves` approximation -- which offered
         # hexes across impassable terrain / through ZoC that the
         # unit could never reach, and whose failed orders used to

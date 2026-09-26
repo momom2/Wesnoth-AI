@@ -50,7 +50,7 @@ def test_a_wheel_too_old_for_one_kernel_still_serves_the_others(monkeypatch):
     and the report follows the gates: a wheel one phase short of the
     enumeration's contract is refused for it and still serves the reach
     Dijkstra."""
-    from tools import pathfind_sim as pf
+    from wesnoth_ai.sim import pathfind_sim as pf
 
     class _Wheel:
         __phase__ = pf.ENUMERATE_KERNEL_PHASE - 1

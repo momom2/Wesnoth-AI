@@ -120,7 +120,7 @@ def _vision_area(nbrs, mcost, dsub, start: int, budget: int) -> Iterable[int]:
     plus their neighbours: through the Rust reach kernel with an empty
     context when the wheel serves it (its reached set is the hexes whose
     cheapest route costs at most `budget`), else by the search below."""
-    from tools import pathfind_sim
+    from wesnoth_ai.sim import pathfind_sim
     kernel = pathfind_sim.reach_kernel()
     if kernel is not None:
         import numpy as np
@@ -176,7 +176,7 @@ def unit_vision(state: GameState, unit: Unit, at: Optional[Hex] = None) -> Froze
     movement costs, since no default-era type declares
     `[vision_costs]`, doubled when the unit is slowed
     (src/movetype.hpp:69-72, through `_move_cost_at_hex`)."""
-    from tools.pathfind_sim import _terrain_arrays_for
+    from wesnoth_ai.sim.pathfind_sim import _terrain_arrays_for
     pos_to_idx, positions, nbrs, mcost, dsub = _terrain_arrays_for(unit, state)
     start = pos_to_idx.get(at if at is not None else (unit.position.x, unit.position.y))
     if start is None:
@@ -587,7 +587,7 @@ def relevant_hex_positions(state: GameState,
         rel.add((leader.position.x, leader.position.y))
     # Lazy import (codebase pattern: action_sampler does the same) --
     # visibility must not pull tools.* at module load.
-    from tools.pathfind_sim import ReachContext, unit_reach
+    from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
     ctx = ReachContext.for_side(state, side)
     for u in state.map.units:
         if u.side != side or "petrified" in (u.statuses or set()):

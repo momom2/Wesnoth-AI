@@ -238,7 +238,7 @@ class MCTSExperience:
     # experiences built without them: step_mcts then rebuilds the
     # masks on the host (`_host_packed_masks`): 4-13 ms per
     # experience with warm terrain caches, 55-97 ms when the
-    # per-(map, unit type) caches of tools/pathfind_sim.py thrash
+    # per-(map, unit type) caches of wesnoth_ai/sim/pathfind_sim.py thrash
     # (their 512-entry drop-all bound; the bench's 200 states and a
     # learner's working set both exceed it).
     masks: Optional[PackedMasks] = None
