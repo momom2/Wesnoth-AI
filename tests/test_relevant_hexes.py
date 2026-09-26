@@ -15,8 +15,8 @@ import random
 import pytest
 import torch
 
-from tools.scenario_pool import (random_setup, build_scenario_gamestate,
-                                 load_factions)
+from wesnoth_ai.rules.scenario_pool import (random_setup, build_scenario_gamestate,
+                                            load_factions)
 from wesnoth_ai.visibility import (hexes_in_slot_order,
                                    relevant_hex_positions,
                                    relevant_hexes_in_slot_order)
@@ -96,8 +96,8 @@ def test_degenerate_no_units(pool_state):
 
 def _pool_state(seed=901):
     import random
-    from tools.scenario_pool import (random_setup, build_scenario_gamestate,
-                                     load_factions)
+    from wesnoth_ai.rules.scenario_pool import (random_setup, build_scenario_gamestate,
+                                                load_factions)
     from tools.wesnoth_sim import WesnothSim
     load_factions()
     setup = random_setup(random.Random(seed), forced_faction=None)

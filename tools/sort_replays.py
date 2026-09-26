@@ -46,7 +46,7 @@ Each worker imports `tools.replay_extract` once (~200 MB), then
 processes a chunk of bz2 paths. For ~46k inputs at ~0.08s each,
 expect 8-15 min wall on 4 workers.
 
-Dependencies: tools.replay_extract, tools.scenarios,
+Dependencies: tools.replay_extract, wesnoth_ai.rules.scenarios,
               tools.purge_mod_replays
 Dependents: standalone CLI.
 """
@@ -182,7 +182,7 @@ def _process_one(args: Tuple[str, str]) -> Dict:
     # first call rather than at fork time on Windows where workers
     # are spawn).
     from tools.replay_extract import extract_replay
-    from tools.scenarios import COMPETITIVE_2P_SCENARIOS
+    from wesnoth_ai.rules.scenarios import COMPETITIVE_2P_SCENARIOS
 
     bz2_path = Path(bz2_path_str)
     raw_root = Path(raw_root_str)

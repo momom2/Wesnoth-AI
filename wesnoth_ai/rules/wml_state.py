@@ -2,7 +2,7 @@
 
 Two pipelines build an initial `GameState`: reconstruction parses a
 replay's starting snapshot (`tools/replay_extract.py`), and generation
-parses a multiplayer scenario `.cfg` (`tools/scenario_pool.py`). They
+parses a multiplayer scenario `.cfg` (`wesnoth_ai/rules/scenario_pool.py`). They
 end at the same builder, `replay_dataset._build_initial_gamestate`,
 but each used to parse the WML itself, and a save and a `.cfg` spell
 these parameters identically: the same `[side]` tag with the same
@@ -502,7 +502,7 @@ def map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
     Border cells are skipped: a marker there would otherwise come back
     with a negative coordinate.
     """
-    from tools.terrain_resolver import split_start_position, start_position_side
+    from wesnoth_ai.rules.terrain_resolver import split_start_position, start_position_side
 
     out: Dict[int, Tuple[int, int]] = {}
     rows, border = split_map_grid(map_data)

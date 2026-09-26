@@ -5,12 +5,12 @@ swap in our [replay] commands) with a clean assembly from canonical
 inputs:
 
   - The scenario .cfg in `wesnoth_src/data/multiplayer/scenarios/2p_*.cfg`
-    -- parsed via `tools.scenario_events.load_scenario_wml`.
+    -- parsed via `wesnoth_ai.rules.scenario_cfg.load_scenario_wml`.
   - The .map file referenced by the .cfg's `map_file=` attr.
   - Our `ScenarioSetup` (faction1/leader1/faction2/leader2 picks).
   - The default era's faction definitions
     (wesnoth_src/data/multiplayer/factions/*-default.cfg via
-     tools.scenario_pool.load_factions).
+     wesnoth_ai.rules.scenario_pool.load_factions).
   - The sim's `command_history`.
 
 No source replay involvement. Output is byte-for-byte determined
@@ -33,8 +33,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from tools.replay_extract import WMLNode
-from tools.wml_state import (MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT,
-                             resolve_map_file, village_economy)
+from wesnoth_ai.rules.wml_state import (MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT,
+                                        resolve_map_file, village_economy)
 
 # Reuse the existing replay-command emitter; the [replay] block at
 # the end is the same shape as before.
@@ -168,7 +168,7 @@ def _build_scenario_node(
       4. Add the map_data attr from the loaded .map file.
     """
     # Lazy import to avoid cycles.
-    from tools.scenario_pool import load_factions
+    from wesnoth_ai.rules.scenario_pool import load_factions
 
     src = (scenario_root.first("multiplayer")
            or scenario_root.first("scenario"))
@@ -360,12 +360,12 @@ def export_scenario_replay(
     using it would emit final gold/villages/HP/etc. as the
     starting values, divorced from the [replay] sequence).
 
-    `setup` is the `tools.scenario_pool.ScenarioSetup` used to
+    `setup` is the `wesnoth_ai.rules.scenario_pool.ScenarioSetup` used to
     seed the sim. `sim` is the post-game `WesnothSim` (with a
     populated `command_history`). `out_path` is where the .bz2
     is written.
     """
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 
     scenario_root = load_scenario_wml(setup.scenario_id)
     if scenario_root is None:
@@ -394,7 +394,7 @@ def export_scenario_replay(
     # Fresh turn-1 GameState (deterministic given setup). This is
     # what Wesnoth needs in the [scenario] block; it then applies
     # sim.command_history to advance forward.
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     initial_gs = build_scenario_gamestate(setup)
 
     text = _build_file_wml(setup, initial_gs, sim, raw_map, scenario_root)

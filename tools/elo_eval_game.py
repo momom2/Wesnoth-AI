@@ -73,8 +73,8 @@ from tools.inference_seam import RemoteEncoder
 from tools.eval_provenance import (_pt_config, basis_refusal, checkpoint_refusal,
                                    faction_refusal, file_sha256, forced_faction_tag,
                                    terrain_refusal)
-from tools import scenario_pool
-from tools.scenario_pool import build_scenario_gamestate, random_setup
+from wesnoth_ai.rules import scenario_pool
+from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
 
 log = logging.getLogger("elo_eval_game")

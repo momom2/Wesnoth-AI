@@ -46,9 +46,9 @@ from wesnoth_ai.paths import UNIT_STATS_PATH
 from wesnoth_ai.visibility import clear_fog, refog, track_side
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
-from tools.terrain_resolver import strip_start_position, terrain_mask
-from tools.wml_state import split_map_grid          # noqa: F401 (re-export)
-from tools.wml_state import fix_time_index, village_economy
+from wesnoth_ai.rules.terrain_resolver import strip_start_position, terrain_mask
+from wesnoth_ai.rules.wml_state import split_map_grid          # noqa: F401 (re-export)
+from wesnoth_ai.rules.wml_state import fix_time_index, village_economy
 
 
 log = logging.getLogger("replay_dataset")
@@ -963,7 +963,7 @@ def _terrain_def_pct(gs: GameState, x: int, y: int,
     ^Fmf / ^Fma summer/dwarven/morning forests, etc.). Falls back
     to flat-defense (the unit's def_table['flat'] or 50) for hexes
     with no recorded terrain code (synthetic tests, partial state)."""
-    from tools.terrain_resolver import def_pct as _resolve_def
+    from wesnoth_ai.rules.terrain_resolver import def_pct as _resolve_def
     codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes_dict.get((x, y))
     if not code:
@@ -1149,7 +1149,7 @@ def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes.get((x, y))
     if code:
-        from tools.terrain_resolver import terrain_light_bonus
+        from wesnoth_ai.rules.terrain_resolver import terrain_light_bonus
         return terrain_light_bonus(strip_start_position(code), base)
     return base
 
@@ -1929,7 +1929,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         from tools.abilities import (
             healer_heal_amount, adjacent_curer, build_pos_index,
         )
-        from tools.terrain_resolver import terrain_heals
+        from wesnoth_ai.rules.terrain_resolver import terrain_heals
         codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
         # init_side queries adjacency O(N_units) times within a single
         # snapshot of gs.map.units (we read here, mutate the
@@ -3076,9 +3076,9 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     """
     try:
         from tools.scenario_events import (
-            apply_side_unit_modifications, load_scenario_wml, fire_event,
-            setup_static_time_areas,
+            apply_side_unit_modifications, fire_event, setup_static_time_areas,
         )
+        from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     except ImportError:
         # If scenario_events isn't importable for some reason, silently
         # skip — the reconstruction still runs, just without events.
@@ -3213,7 +3213,7 @@ def filter_competitive_2p(dataset_dir: Path) -> List[Path]:
     """
     # Import here to keep replay_dataset importable even if tools/ isn't
     # on sys.path (the main training entry point does the insert).
-    from tools.scenarios import is_competitive_2p
+    from wesnoth_ai.rules.scenarios import is_competitive_2p
 
     PLAYER_FACTIONS = {"Drakes", "Knalgan Alliance", "Rebels",
                        "Loyalists", "Northerners", "Undead"}

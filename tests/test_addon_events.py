@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 from tools.scenario_events import (  # noqa: E402
     fire_event, load_events_for_scenario,

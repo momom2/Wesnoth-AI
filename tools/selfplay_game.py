@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 
 from wesnoth_ai.classes import GameState, Unit
 from wesnoth_ai.paths import UNIT_STATS_PATH
-from tools.scenario_pool import classify_scenario as _classify_scenario
+from wesnoth_ai.rules.scenario_pool import classify_scenario as _classify_scenario
 from wesnoth_ai.rewards import (
     OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,
     StepDelta, compute_delta, hex_distance,
@@ -635,11 +635,11 @@ def _play_one_game_safe(
     Pre-pivot this used `WesnothSim.from_replay(<replay_path>)`.
     Post-pivot (2026-04-30) it builds the GameState directly from
     scenario .cfg + map + faction data via
-    `tools.scenario_pool.build_scenario_gamestate`. No replay
+    `wesnoth_ai.rules.scenario_pool.build_scenario_gamestate`. No replay
     file involved. Scenario events fire in `WesnothSim.__init__`
     (CoB neutrals, Aethermaw morph, etc.).
     """
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     # Mid-game start: `setup` is ("__midgame__", gs, scenario_id,
     # cut_turn, begin_side, provenance) from sample_midgame_start
     # (see _worker_loop).
@@ -747,7 +747,7 @@ def _worker_loop(
     index only, whichever worker plays it: a per-worker generator made
     the game depend on which thread won the race for the index, so a
     seeded run did not repeat (2026-09-18)."""
-    from tools.scenario_pool import random_setup, roll_mix
+    from wesnoth_ai.rules.scenario_pool import random_setup, roll_mix
     while True:
         with shared["lock"]:
             if shared["next_game"] >= shared["target_games"]:

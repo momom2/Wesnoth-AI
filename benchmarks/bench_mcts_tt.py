@@ -11,7 +11,7 @@ in identical end-of-turn states).
 Usage:
     python benchmarks/bench_mcts_tt.py [--games N] [--sims K]
 
-Dependencies: tools.mcts, tools.scenario_pool, transformer_policy
+Dependencies: tools.mcts, wesnoth_ai.rules.scenario_pool, transformer_policy
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def main() -> int:
     import torch
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import mcts_search, MCTSConfig
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,
     )
     from tools.wesnoth_sim import WesnothSim, PvPDefaults

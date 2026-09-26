@@ -2,7 +2,7 @@
 (trainer._batched_factored_policy_loss) against the per-state
 reference (trainer._mcts_factored_policy_loss_reference) on SYNTHETIC
 positions, so the pin holds on any machine: a mini scenario from
-tools/scenario_pool (as tests/test_encode_raw_cache.py builds them),
+wesnoth_ai/rules/scenario_pool (as tests/test_encode_raw_cache.py builds them),
 advanced by a scripted charger until attacks are legal. Covers every
 term kind (actor, type, attack / move / recruit targets, weapons,
 end_turn), a legacy 4-tuple experience, an empty (value-only)

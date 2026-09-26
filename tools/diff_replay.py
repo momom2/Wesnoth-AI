@@ -569,7 +569,7 @@ def main(argv: List[str]) -> int:
         # 2-player game_ids but spawn AI-controlled wave units via
         # scenario events we don't model -- divergences on those are
         # NOT sim bugs.
-        from tools.scenarios import is_competitive_2p
+        from wesnoth_ai.rules.scenarios import is_competitive_2p
         # Default-era player factions; non-default factions (Dunefolk,
         # Dunefolk-only, etc.) trip our trait/stat lookups and are
         # filtered out.

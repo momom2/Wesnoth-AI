@@ -20,11 +20,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import tools.scenario_events as se  # noqa: E402
+from wesnoth_ai.rules import scenario_cfg as cfg  # noqa: E402
 
 
 def _eval(text, defines=("MULTIPLAYER",)):
-    return se.evaluate_conditionals(text, set(defines)).splitlines()
+    return cfg.evaluate_conditionals(text, set(defines)).splitlines()
 
 
 def test_a_branch_is_live_only_when_its_symbol_is_defined():
@@ -61,8 +61,8 @@ def test_a_macro_counts_as_defined_from_the_line_that_defines_it():
 def test_the_define_set_carries_across_files():
     """One set passed through several files is one engine map."""
     defines = {"MULTIPLAYER"}
-    se.evaluate_conditionals("#define FROM_FILE_A\nx\n#enddef\n", defines)
-    assert se.evaluate_conditionals(
+    cfg.evaluate_conditionals("#define FROM_FILE_A\nx\n#enddef\n", defines)
+    assert cfg.evaluate_conditionals(
         "#ifdef FROM_FILE_A\nseen\n#endif\n", defines).splitlines() == ["seen"]
 
 
@@ -72,14 +72,14 @@ def test_the_define_set_carries_across_files():
     "#ifdef\nx\n#endif\n",
 ])
 def test_malformed_or_unsupported_conditionals_fail_loudly(text):
-    with pytest.raises(se.PreprocessorError):
-        se.evaluate_conditionals(text, {"MULTIPLAYER"})
+    with pytest.raises(cfg.PreprocessorError):
+        cfg.evaluate_conditionals(text, {"MULTIPLAYER"})
 
 
 def test_a_scenario_defines_its_own_symbol():
     raw = (Path(__file__).parent.parent / "wesnoth_src" / "data" / "multiplayer"
            / "scenarios" / "2p_Hornshark_Island.cfg").read_text(encoding="utf-8")
-    assert se.scenario_defines(raw) == {"MULTIPLAYER_HORNSHARK_ISLAND_LOAD"}
+    assert cfg.scenario_defines(raw) == {"MULTIPLAYER_HORNSHARK_ISLAND_LOAD"}
 
 
 def test_difficulty_branches_are_gone_from_a_multiplayer_expansion():
@@ -87,8 +87,8 @@ def test_difficulty_branches_are_gone_from_a_multiplayer_expansion():
     multiplayer game defines no difficulty, so the engine's QUANTITY
     expands to nothing; ours used to keep all three assignments, the
     last of which won."""
-    se._CORE_MACROS_CACHE = None
-    body = se._load_core_macros()["QUANTITY"].body
+    cfg._CORE_MACROS_CACHE = None
+    body = cfg._load_core_macros()["QUANTITY"].body
     assert "{NAME}=" not in body, body
 
 
@@ -96,10 +96,10 @@ def test_hornshark_still_builds_what_it_did():
     """Its conditionals test its own define, which is set when the
     scenario loads, so every one of them is live: MODIFY_BOWMAN is
     still defined and the Loyalist Bowmen still get firststrike."""
-    from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
 
-    se._CORE_MACROS_CACHE = None
+    cfg._CORE_MACROS_CACHE = None
     gs = build_scenario_gamestate(ScenarioSetup(
         scenario_id="multiplayer_Hornshark_Island", faction1="Loyalists",
         leader1="Lieutenant", faction2="Loyalists", leader2="Lieutenant",
@@ -113,14 +113,14 @@ def test_hornshark_still_builds_what_it_did():
 
 def test_no_directive_survives_into_a_parsed_scenario():
     """Nothing downstream should ever see a conditional again."""
-    from tools.analysis.scenario_surface import CORPUS_SCENARIOS
+    from wesnoth_ai.rules.scenario_surface import CORPUS_SCENARIOS
 
     for scenario_id in CORPUS_SCENARIOS:
-        path = se.find_scenario_cfg_path(scenario_id)
+        path = cfg.find_scenario_cfg_path(scenario_id)
         assert path is not None, scenario_id
-        text = se._preprocess_text(
+        text = cfg._preprocess_text(
             path.read_text(encoding="utf-8", errors="replace"),
-            {"MULTIPLAYER"} | se.scenario_defines(
+            {"MULTIPLAYER"} | cfg.scenario_defines(
                 path.read_text(encoding="utf-8", errors="replace")))
-        survivors = [ln for ln in text.splitlines() if se._COND_RE.match(ln)]
+        survivors = [ln for ln in text.splitlines() if cfg._COND_RE.match(ln)]
         assert not survivors, (scenario_id, survivors)

@@ -32,7 +32,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from tools.wml_state import MP_VILLAGE_GOLD  # noqa: E402
+from wesnoth_ai.rules.wml_state import MP_VILLAGE_GOLD  # noqa: E402
 
 # Generous village bound: no 2p ladder map lets one side hold more
 # villages by turn 2 (most allow 2-4; Cynsaun's 30+ villages are not

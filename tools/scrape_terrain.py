@@ -16,7 +16,7 @@ or highest cost across aliases). Pre-2026-05 our sim hand-rolled
 poisoned every game's movement validation.
 
 This scraper produces an exhaustive DB. The runtime resolver
-(`tools/terrain_resolver.py`) consumes it.
+(`wesnoth_ai/rules/terrain_resolver.py`) consumes it.
 
 Wesnoth source paths
 --------------------
@@ -46,7 +46,7 @@ The scraper parses terrain.cfg with a tiny WML parser tuned for the
 machinery.
 
 Dependencies: stdlib only (json, re, pathlib)
-Dependents: tools.terrain_resolver (consumes terrain_db.json)
+Dependents: wesnoth_ai.rules.terrain_resolver (consumes terrain_db.json)
 """
 from __future__ import annotations
 

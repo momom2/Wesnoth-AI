@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
 
 # scenario id -> expected 0-indexed side-3 tentacle positions

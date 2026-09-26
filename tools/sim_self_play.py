@@ -66,7 +66,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from tools.scenario_pool import LADDER_SCENARIO_IDS
+from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
 from wesnoth_ai.rewards import WeightedReward, load_reward_config
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.wesnoth_sim import PvPDefaults
@@ -294,7 +294,7 @@ def run_iteration(
             policy._queue.extend(pool_exps)
     elif workers <= 0:
         # Serial path -- simplest, used for tests and smoke runs.
-        from tools.scenario_pool import random_setup, roll_mix
+        from wesnoth_ai.rules.scenario_pool import random_setup, roll_mix
         for g_idx in range(games_per_iter):
             cat = roll_mix(rng, midgame=midgame_ratio,
                            mini=mini_ratio,
@@ -2249,7 +2249,7 @@ def main(argv: List[str]) -> int:
         os.environ["WESNOTH_MINI_RANDOM_TOD"] = "1"
     # Mix guard (2026-07-20): the five category ratios are absolute
     # proportions and must account for the full distribution.
-    from tools.scenario_pool import validate_mix
+    from wesnoth_ai.rules.scenario_pool import validate_mix
     try:
         validate_mix(midgame=args.midgame_ratio, mini=args.mini_ratio,
                      fogless=args.fogless_ratio,
@@ -2356,8 +2356,8 @@ def main(argv: List[str]) -> int:
     cost_lookup = _recruit_cost_lookup()
     # Eagerly load factions to surface any setup issue NOW rather
     # than on the first worker thread.
-    from tools.scenario_pool import (load_factions, LADDER_SCENARIO_IDS,
-                                     MINI_MAP_SCENARIO_IDS)
+    from wesnoth_ai.rules.scenario_pool import (load_factions, LADDER_SCENARIO_IDS,
+                                                MINI_MAP_SCENARIO_IDS)
     factions = load_factions()
     active_pool = (MINI_MAP_SCENARIO_IDS if args.mini_maps
                    else LADDER_SCENARIO_IDS)

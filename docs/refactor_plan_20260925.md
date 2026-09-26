@@ -218,6 +218,66 @@ tests import them from there and test_actor_pool_lifecycle patches
 `elo_eval_game._load_policy` by hand, a patch of the importer's binding
 that no dry run on the defining module lists.
 
+## Step 3, delivered (2026-09-26, branch refactor/step3-rules)
+
+`wesnoth_ai/rules/` holds the rules system; its README lists the modules,
+their entry points, their invariants and their tests. Every move is a
+pure move: the bodies are byte-identical; what changed is imports,
+`sys.path` bootstraps, the split module's docstring and `__all__`, and
+the docs and docstrings that named a moved file by path.
+
+- Moved whole by the codemod, with no refusal: `terrain_resolver`,
+  `wml_state`, `scenarios`, `scenario_pool`, and the three modules that
+  are both a command line and a library, `build_scenario_templates`,
+  `expansion_diff` and `scenario_surface` (unit_vocab and
+  scenario_init_oracle import them). Those three keep their `main`, with
+  its argparse, in the package; `tools/build_scenario_templates.py`,
+  `tools/analysis/expansion_diff.py` and `tools/analysis/scenario_surface.py`
+  are wrappers that call it, so every command line and `--help` text is
+  unchanged. Splitting `main` to leave argparse in the wrapper would have
+  broken the pure-move rule. The moves are committed as plain renames,
+  which history follows, and the wrappers in a commit of their own.
+- Split out of `tools/scenario_events.py`: the scenario `.cfg` reader
+  (the old file's first 694 lines: the preprocessor, the macro expansion,
+  the lookup and the parse) and `UnmodelledWML`, into `rules/scenario_cfg.py`. Both
+  files were cut from the old one by line ranges, and every top-level
+  statement and comment line of the old file is in exactly one of them.
+  One module rather than the plan's `preprocessor.py` plus
+  `scenario_cfg.py`: the parser is the preprocessor's only production
+  caller, and two modules would have shared six private names. Its macro
+  warnings log under "scenario_cfg".
+- `tools/scrape_unit_stats.py` and `tools/scrape_terrain.py` stay as they
+  are: command lines that nothing imports.
+- `tests/data/scenario_surface.json` names its readers by path, and so do
+  two parameters of `test_scenario_surface`: a reader in a file that no
+  longer exists is reported missing too, so the tests that a wrong reader
+  and a deleted reader are caught would keep passing, for the wrong
+  reason, if those paths stayed behind. They move with their module.
+- The codemod now keeps a multi-line import's names under the opening
+  parenthesis when the module name before it changes length.
+
+For the simulator step:
+
+- `tools/scenario_events.py` is the event interpreter alone (its logger,
+  "scenario_events", is captured by tests). It imports `UnmodelledWML`
+  and `load_scenario_wml` from `rules.scenario_cfg` and `wml_int` from
+  `rules.wml_state`.
+- `replay_dataset._setup_scenario_events` imports the event functions
+  inside `try/except ImportError: return`: a name that no longer resolves
+  there drops every scenario event of every game, reconstruction and
+  generation alike, without a word. Check that import by hand after any
+  move or split that touches it.
+- The rules modules still import `tools`: `scenario_pool` imports
+  `replay_dataset._build_initial_gamestate` (two tests patch it through
+  scenario_pool), and `scenario_cfg`, `build_scenario_templates` and
+  `expansion_diff` import `parse_wml`/`WMLNode` from `replay_extract`
+  (the plan's `rules/wml.py`). The one unit_db is still to come.
+- The manifest names 52 readers in `tools/scenario_events.py`, and
+  `test_scenario_surface` passes `tools/traits.py:roll_traits` and
+  `tools/scenario_events.py:_lua_action` as wrong readers; move them with
+  their modules. `tests/data/expansion_diff_expected.json`'s `stands_in`
+  names `tools/traits.py`, which its test checks exists.
+
 ## Moving a module (step 3 onwards)
 
 1. Create the destination package: an `__init__.py` with a docstring and
@@ -244,10 +304,13 @@ that no dry run on the defining module lists.
    readers of `tests/data/scenario_surface.json`, Rust doc comments, live
    docs. Records (docs/archive, quarantine, dated docs) stay as written.
 6. A module with a command line keeps a thin wrapper at its `tools/` path:
-   argparse, then one call into the package. A library-only module keeps
-   nothing in `tools/`: the codemod has rewritten every importer, and a
-   re-export shim at the old path would take `monkeypatch.setattr(shim,
-   ...)` into the shim's namespace, not the module's.
+   argparse, then one call into the package; when the module moves whole,
+   its `main` keeps its argparse and the wrapper only calls it. Move first
+   and add the wrapper in a later commit, so the move stays a rename that
+   history follows. A library-only module keeps nothing in `tools/`: the
+   codemod has rewritten every importer, and a re-export shim at the old
+   path would take `monkeypatch.setattr(shim, ...)` into the shim's
+   namespace, not the module's.
 7. `ruff check .`, the fast tier, the branch's CI run.
 
 The codemod moves whole modules. Extractions (step 1) and function

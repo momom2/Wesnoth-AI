@@ -21,9 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import tools.build_scenario_templates as builder  # noqa: E402
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
-                                 MINI_MAP_SCENARIO_IDS)
+import wesnoth_ai.rules.build_scenario_templates as builder  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
+                                            MINI_MAP_SCENARIO_IDS)
 
 ROOT = Path(__file__).parent.parent
 TEMPLATES = ROOT / "tools" / "templates" / "scenarios"
@@ -40,7 +40,7 @@ def test_every_scenario_the_builder_would_build_has_a_source():
     production resolver, because a scenario's id is NOT its filename:
     `2p_mini_edited` lives in `2p_mini_1.cfg` and
     `Modified_Tiny_Close_Relation` in `Modified_Close_Relation.cfg`."""
-    from tools.scenario_events import find_scenario_cfg_path
+    from wesnoth_ai.rules.scenario_cfg import find_scenario_cfg_path
 
     for scenario_id in sorted(set(LADDER_SCENARIO_IDS)
                               | set(builder.MINI_TEMPLATE_IDS)):
@@ -77,5 +77,5 @@ def test_around_mini_keeps_its_template_and_its_source():
     assert "around_mini" in builder.MINI_TEMPLATE_IDS
     assert (TEMPLATES / "around_mini.wml").is_file()
 
-    from tools.scenario_events import find_scenario_cfg_path
+    from wesnoth_ai.rules.scenario_cfg import find_scenario_cfg_path
     assert find_scenario_cfg_path("around_mini") is not None

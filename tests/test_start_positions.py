@@ -36,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.terrain_resolver import (  # noqa: E402
+from wesnoth_ai.rules.terrain_resolver import (  # noqa: E402
     split_start_position, start_position_side, strip_start_position,
 )
 
@@ -85,7 +85,7 @@ def test_only_a_side_s_own_spelling_names_a_side():
 
 
 def test_scenario_pool_reads_a_two_digit_side_and_skips_a_name():
-    from tools.scenario_pool import extract_player_starts
+    from wesnoth_ai.rules.scenario_pool import extract_player_starts
     from wesnoth_ai.classes import Position
 
     starts = extract_player_starts(MAP_DATA)

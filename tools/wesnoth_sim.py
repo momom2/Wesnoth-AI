@@ -271,7 +271,7 @@ def _describe_action(action: dict) -> str:
 def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
     """Resolve the movement cost for `unit` entering hex (x, y).
 
-    Delegates to `tools.terrain_resolver.mvt_cost`, which scrapes
+    Delegates to `wesnoth_ai.rules.terrain_resolver.mvt_cost`, which scrapes
     `wesnoth_src/data/core/terrain.cfg` into `terrain_db.json` and
     walks the alias graph exactly as Wesnoth does (see
     `wesnoth_src/src/movetype.cpp:276-369` for `calc_value` and
@@ -284,8 +284,8 @@ def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
     See `docs/wesnoth_rules.md` ("Movement / mvt_alias resolution")
     for the rule statement and source quotes.
     """
-    from tools.terrain_resolver import mvt_cost as _resolve_mvt
-    from tools.terrain_resolver import strip_start_position
+    from wesnoth_ai.rules.terrain_resolver import mvt_cost as _resolve_mvt
+    from wesnoth_ai.rules.terrain_resolver import strip_start_position
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     code = codes.get((x, y))
     # Honor "slowed" status: doubles each terrain cost (except

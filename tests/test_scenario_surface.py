@@ -23,7 +23,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.analysis import scenario_surface as ss  # noqa: E402
+from wesnoth_ai.rules import scenario_surface as ss  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +55,7 @@ def test_every_modelled_entry_names_a_reader_that_reads_it(manifest):
 @pytest.mark.parametrize("pair, wrong_reader", [
     # The 2026-09-23 audit found these bound to real functions that do
     # not read them. Rebinding each to its old reader must be caught.
-    ("scenario/side.gold", "tools/wml_state.py:read_tod"),
+    ("scenario/side.gold", "wesnoth_ai/rules/wml_state.py:read_tod"),
     ("scenario/event/unit.variation", "tools/traits.py:roll_traits"),
     ("scenario/event/switch.variable", "tools/scenario_events.py:_lua_action"),
 ])
@@ -156,7 +156,7 @@ def test_a_reader_that_is_deleted_is_caught(manifest):
     """The other half of the binding: the entry stays, the code goes."""
     broken = copy.deepcopy(manifest)
     broken["pairs"]["scenario/side.gold"]["reader"] = \
-        "tools/wml_state.py:read_side_that_does_not_exist"
+        "wesnoth_ai/rules/wml_state.py:read_side_that_does_not_exist"
     assert ss.missing_readers(broken)
 
 

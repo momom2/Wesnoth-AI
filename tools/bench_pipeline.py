@@ -75,7 +75,7 @@ def select_holdout_ladder(rows: Sequence[dict], scenario_of: Callable[[dict], st
 def build_state_manifest(dataset_dir: Path, n: int, seed: int) -> dict:
     """Pick n holdout ladder positions: uniform game, uniform cut turn
     in [2, n_turns - 1]; every entry is verified to reconstruct."""
-    from tools.scenario_pool import LADDER_SCENARIO_IDS
+    from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
     rows = [json.loads(ln) for ln in
             (dataset_dir / "manifest.jsonl").open(encoding="utf-8") if ln.strip()]
     hold = [r for r in rows if r.get("holdout") and r.get("n_turns", 0) >= 4]

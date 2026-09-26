@@ -412,7 +412,7 @@ def test_every_recruitable_unit_has_real_stats():
     (1.19's Ghoul gained a resistance override that overdamaged units).
     """
     from tools.replay_dataset import _stats_for, unknown_unit_types
-    from tools.scenario_pool import load_factions
+    from wesnoth_ai.rules.scenario_pool import load_factions
 
     factions = load_factions()
     assert factions, "the default era must parse"

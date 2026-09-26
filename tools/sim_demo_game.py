@@ -197,7 +197,7 @@ def main(argv) -> int:
         # leaders and build the GameState directly from wesnoth_src.
         # No source bz2 needed -- export_replay_from_scratch composes
         # the save WML from templates + the .cfg + .map.
-        from tools.scenario_pool import (
+        from wesnoth_ai.rules.scenario_pool import (
             random_setup, build_scenario_gamestate, LADDER_SCENARIO_IDS,
         )
         if args.scenario:
@@ -214,7 +214,7 @@ def main(argv) -> int:
             # mirror that training can never generate; caught by the
             # user 2026-08-15).
             import dataclasses
-            from tools.scenario_pool import sample_tod_start
+            from wesnoth_ai.rules.scenario_pool import sample_tod_start
             setup = random_setup(
                 rng, category="fogless" if args.fogless else "ladder")
             setup = dataclasses.replace(

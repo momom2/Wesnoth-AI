@@ -50,7 +50,7 @@ def _mcts_policy_and_sim(seed: int):
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,
     )
     from tools.wesnoth_sim import WesnothSim

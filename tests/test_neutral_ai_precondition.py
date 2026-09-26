@@ -41,9 +41,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import tools.neutral_ai as neutral_ai  # noqa: E402
 from tools.pathfind_sim import ReachContext, unit_reach  # noqa: E402
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
-                                 MINI_MAP_SCENARIO_IDS, ScenarioSetup,
-                                 build_scenario_gamestate)
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
+                                            MINI_MAP_SCENARIO_IDS, ScenarioSetup,
+                                            build_scenario_gamestate)
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 
 POOL = list(LADDER_SCENARIO_IDS) + list(MINI_MAP_SCENARIO_IDS)

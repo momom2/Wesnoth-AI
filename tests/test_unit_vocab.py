@@ -27,7 +27,7 @@ def test_every_recruit_of_every_faction_reads_its_own_row():
     shared one row in the vocabularies seeded from all of unit_stats.json,
     encode to seven distinct ids, none on the overflow row."""
     from sim_test_helpers import require_scenario_data
-    from tools.scenario_pool import build_scenario_gamestate, load_factions, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, load_factions, random_setup
     require_scenario_data()
     enc = GameStateEncoder(d_model=8)
     unit_vocab.seed_vocab(enc)
@@ -49,7 +49,7 @@ def test_a_plague_corpses_variation_reads_its_base_row_on_every_path(caplog):
     names as it meets them; a name the vocabulary lacks takes the
     overflow row on both paths instead of a row training never updates."""
     from sim_test_helpers import require_scenario_data
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     require_scenario_data()
     enc = GameStateEncoder(d_model=8)
     unit_vocab.seed_vocab(enc)

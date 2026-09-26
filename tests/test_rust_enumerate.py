@@ -36,8 +36,8 @@ def _mid_states(n_games=2, per_game=4):
     bench_infer harvest pattern): real fights, captures, fog."""
     from tools.elo_ladder import _ScriptedAdapter
     from tools.eval_players import _PolicyPair, _play_one_eval_game
-    from tools.scenario_pool import (build_scenario_gamestate,
-                                     random_setup)
+    from wesnoth_ai.rules.scenario_pool import (build_scenario_gamestate,
+                                                random_setup)
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.dummy_policy import DummyPolicy
     import random as _r

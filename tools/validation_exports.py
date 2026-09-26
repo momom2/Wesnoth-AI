@@ -64,7 +64,7 @@ def category_of(sim) -> str:
     "midgame" -- its replay shape is the spliced one)."""
     if getattr(sim, "_midgame_start", False):
         return "midgame"
-    from tools.scenario_pool import classify_scenario
+    from wesnoth_ai.rules.scenario_pool import classify_scenario
     cls = classify_scenario(getattr(sim, "scenario_id", "") or "")
     if cls == "ladder" and not getattr(sim.gs.global_info, "_fog", True):
         return "ladder_fogless"
@@ -122,8 +122,8 @@ def side_economy_from_dataset(starting_sides: list) -> dict:
     team.hpp:179). A default stands in only for a MISSING value: a
     declared 0 is the game's own setting, which the reconstruction
     plays (`_build_initial_gamestate`) and the export must declare."""
-    from tools.wml_state import (ENGINE_BASE_INCOME, MP_VILLAGE_GOLD,
-                                 MP_VILLAGE_SUPPORT, wml_int)
+    from wesnoth_ai.rules.wml_state import (ENGINE_BASE_INCOME, MP_VILLAGE_GOLD,
+                                            MP_VILLAGE_SUPPORT, wml_int)
     econ = {}
     for i, s in enumerate(starting_sides):
         side = wml_int(s.get("side")) or (i + 1)

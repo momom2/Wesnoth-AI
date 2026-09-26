@@ -62,7 +62,7 @@ the quote to find the file again. Paraphrases drift; quotes don't.
 
 ### Terrain resolver: scrape terrain.cfg, walk the alias graph
 
-Our runtime resolver (`tools/terrain_resolver.py`, fed by
+Our runtime resolver (`wesnoth_ai/rules/terrain_resolver.py`, fed by
 `tools/scrape_terrain.py` → `terrain_db.json`) IS the
 implementation of the rules in this section. Use it for any
 movement / defense lookup. Don't add hand-rolled overlay tables
@@ -997,7 +997,7 @@ Isar 38859: turn-4 heal 15→23; our former +2 rest produced a 1-HP
 survivor whose ZoC forked the whole game). Sim port:
 `tools/replay_dataset.py` end_turn handler + `turn refresh` firing
 at the end of init_side; MODIFY_UNIT expands to `[modify_unit]` in
-`tools/scenario_events.py::_load_core_macros`.
+`wesnoth_ai/rules/scenario_cfg.py::_load_core_macros`.
 
 ### End of a side's turn: the same for every controller, AI included
 
@@ -1121,7 +1121,7 @@ if ( !patient.get_state(unit::STATE_POISONED) ) {
 Our sim's port lives in `tools/replay_dataset.py` (init_side
 healing loop) and matches every branch above; oasis (`^Do`,
 `heals=8`, not a village, cures poison like one) resolves via
-`tools/terrain_resolver.terrain_heals` mirroring
+`wesnoth_ai/rules/terrain_resolver.terrain_heals` mirroring
 `terrain.cpp:230`'s `max(base.heals_, overlay.heals_)`.
 
 ### Default (RCA) AI combat rating
@@ -2005,7 +2005,7 @@ from every record's `starting_sides` on 2026-09-25. Until then both appliers rea
 "not set" and paid the multiplayer default (`village_gold or 2` in
 Python, `!= 0` in the Rust core), which gave those games more gold
 than the engine did; no recorded recruit could fail on it, so the
-replay sweep could not see it. Ours: `tools/wml_state.village_economy`
+replay sweep could not see it. Ours: `wesnoth_ai/rules/wml_state.village_economy`
 (the default only for None) and `apply_init_side` in
 `rust/wesnoth_core/src/core_step.rs`. Tests:
 `tests/test_scenario_economy.py::test_a_declared_zero_village_economy_is_paid_as_zero`,
@@ -2032,7 +2032,7 @@ multiplayer setup copies onto every side --
 `wesnoth_src/data/multiplayer/scenarios/2p_Clearing_Gushes.cfg:15`
 and `2p_The_Walls_of_Pyrennis.cfg:15` (both 2),
 `2p_Cynsaun_Battlefield.cfg:14` (2), `2p_Dark_Forecast.cfg:16` and
-`2p_Isle_of_Mists.cfg:19` (both 1). `tools/scenario_pool.
+`2p_Isle_of_Mists.cfg:19` (both 1). `wesnoth_ai/rules/scenario_pool.
 scenario_economy` reads both, the per-side form winning.
 
 **The 1v1 multiplayer default is 2, not 5.** An earlier revision of
@@ -3057,7 +3057,7 @@ stripper that drops every line starting with `#` removes the `#arg`
 and `#endarg` markers but leaves the default value behind as a bare
 stray line in the body, and `{OVERLAY}` is never substituted.
 
-Both are read by `tools/scenario_events.py`
+Both are read by `wesnoth_ai/rules/scenario_cfg.py`
 (`_MACRO_DEFINE_RE`, `_MACRO_INVOKE_RE`, `_split_optional_args`).
 
 ## `random_start_time` has three forms, not two (added 2026-09-22)
@@ -3074,7 +3074,7 @@ yes/no parser folds the list form onto `False`, which reads as "no
 random start" and silently begins the game at dawn. Our reconstruction
 path did exactly this: the guard meant to drop such replays sat inside
 the branch only a plain `yes` could enter. No corpus replay uses the
-list form, so nothing had diverged; `tools/wml_state.wml_bool_or_none`
+list form, so nothing had diverged; `wesnoth_ai/rules/wml_state.wml_bool_or_none`
 now distinguishes the third form and the caller drops it.
 
 ## A time area keeps its own slot (added 2026-09-26)
@@ -3155,7 +3155,7 @@ No difficulty symbol (`EASY`, `NORMAL`, `HARD`, `NIGHTMARE`) is
 defined, so `{QUANTITY ...}` (`data/core/macros/utils.cfg:8`) expands
 to nothing in multiplayer.
 
-Implemented by `tools/scenario_events.evaluate_conditionals`.
+Implemented by `wesnoth_ai/rules/scenario_cfg.evaluate_conditionals`.
 
 ## Vision and fog: what a side sees, and when it is recomputed (added 2026-09-24)
 

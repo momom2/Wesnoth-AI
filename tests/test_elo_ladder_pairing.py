@@ -209,7 +209,7 @@ def test_run_ladder_smoke_real_sim():
     """Production-path smoke: run_ladder end-to-end through the real
     sim (dummy vs random-init policy, 1 mirror pair, 2-turn horizon).
     Guards the plumbing the stub tests deliberately bypass."""
-    from tools.scenario_events import SCENARIO_DIR
+    from wesnoth_ai.rules.scenario_cfg import SCENARIO_DIR
     if not SCENARIO_DIR.exists():
         pytest.skip("wesnoth_src scenario dir not present")
     from tools.device_select import select_inference_device

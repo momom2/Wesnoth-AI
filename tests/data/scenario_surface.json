@@ -76,12 +76,12 @@
  "pairs": {
   "scenario.current_time": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_tod",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_tod",
    "why": ""
   },
   "scenario.define": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:scenario_defines",
+   "reader": "wesnoth_ai/rules/scenario_cfg.py:scenario_defines",
    "why": "the scenario's own preprocessor symbol, added to the define set its #ifdef lines are evaluated against",
    "generic": "read by a regex over the RAW file, because Wesnoth applies define= before preprocessing and no parsed node exists yet"
   },
@@ -91,28 +91,28 @@
   },
   "scenario.experience_modifier": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:scenario_economy",
+   "reader": "wesnoth_ai/rules/wml_state.py:scenario_economy",
    "why": ""
   },
   "scenario.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:find_scenario_cfg_path",
+   "reader": "wesnoth_ai/rules/scenario_cfg.py:find_scenario_cfg_path",
    "why": "selects the scenario",
    "generic": "the id is the lookup KEY: the function is called with it and matches it against each cfg, it does not read it off a node"
   },
   "scenario.map_data": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_pool.py:build_scenario_gamestate",
+   "reader": "wesnoth_ai/rules/scenario_pool.py:build_scenario_gamestate",
    "why": "read at the call site and handed to wml_state.resolve_map_file"
   },
   "scenario.map_file": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_pool.py:build_scenario_gamestate",
+   "reader": "wesnoth_ai/rules/scenario_pool.py:build_scenario_gamestate",
    "why": "read at the call site and handed to wml_state.resolve_map_file"
   },
   "scenario.mp_village_gold": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:scenario_economy",
+   "reader": "wesnoth_ai/rules/wml_state.py:scenario_economy",
    "why": ""
   },
   "scenario.name": {
@@ -121,7 +121,7 @@
   },
   "scenario.random_start_time": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_tod",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_tod",
    "why": ""
   },
   "scenario.turns": {
@@ -241,7 +241,7 @@
   },
   "scenario/event/object/effect/abilities/hides.affect_self": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD. The hider rule assumes affect_self=yes, which every mainline {ABILITY_*} hides macro sets; a scenario-written [hides] with affect_self=no would be mis-modelled"
   },
   "scenario/event/object/effect/abilities/hides.description": {
@@ -267,7 +267,7 @@
   },
   "scenario/event/object/effect/abilities/hides/filter/filter_location.terrain": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD. hides_cover transcribes the MACRO globs by ability id (*^F*, *^V*, Wo*^*), not the scenario's filter; exact only while scenarios use the mainline hides macros unchanged"
   },
   "scenario/event/object/effect/set_specials/firststrike.description": {
@@ -488,7 +488,7 @@
   },
   "scenario/event/unit/abilities/hides.affect_self": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD, as the [object] form"
   },
   "scenario/event/unit/abilities/hides.description": {
@@ -514,7 +514,7 @@
   },
   "scenario/event/unit/abilities/hides/filter/filter_location.terrain": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD, as the [object] form: macro globs by ability id"
   },
   "scenario/event/unit/modifications/object.duration": {
@@ -584,7 +584,7 @@
   },
   "scenario/side.canrecruit": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_unit",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_unit",
    "why": "read on the side [unit] block, which is what marks the leader"
   },
   "scenario/side.color": {
@@ -593,7 +593,7 @@
   },
   "scenario/side.controller": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_side",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_side",
    "why": "controller=null is the engine skip_empty_sides rule"
   },
   "scenario/side.controller_lock": {
@@ -610,12 +610,12 @@
   },
   "scenario/side.fog": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_side",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_side",
    "why": "the scenario supplies the default in generation and reconstruction alike; setup.fogless turns fog off in generation"
   },
   "scenario/side.gold": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_side",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_side",
    "why": ""
   },
   "scenario/side.gold_lock": {
@@ -632,7 +632,7 @@
   },
   "scenario/side.income": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_side",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_side",
    "why": "an OFFSET on the engine base income"
   },
   "scenario/side.income_lock": {
@@ -649,12 +649,12 @@
   },
   "scenario/side.shroud": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_side",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_side",
    "why": "the scenario supplies the default in generation and reconstruction alike; setup.fogless turns fog off in generation"
   },
   "scenario/side.side": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_side",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_side",
    "why": ""
   },
   "scenario/side.team_lock": {
@@ -671,7 +671,7 @@
   },
   "scenario/side.village_gold": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_side",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_side",
    "why": ""
   },
   "scenario/side/unit.description": {
@@ -697,7 +697,7 @@
   },
   "scenario/side/unit.type": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_unit",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_unit",
    "why": ""
   },
   "scenario/side/unit.unrenamable": {
@@ -706,12 +706,12 @@
   },
   "scenario/side/unit.x": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_unit",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_unit",
    "why": ""
   },
   "scenario/side/unit.y": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_unit",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_unit",
    "why": ""
   },
   "scenario/side/unit/modifications/trait.description": {
@@ -729,17 +729,17 @@
   },
   "scenario/side/unit/status.petrified": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_unit",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_unit",
    "why": "petrified units are scenery: unattackable, and they never act"
   },
   "scenario/side/village.x": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_villages",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_villages",
    "why": "a village this side owns before turn 1"
   },
   "scenario/side/village.y": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:read_villages",
+   "reader": "wesnoth_ai/rules/wml_state.py:read_villages",
    "why": "a village this side owns before turn 1"
   },
   "scenario/time.blue": {
@@ -760,7 +760,7 @@
   },
   "scenario/time.lawful_bonus": {
    "classification": "MODELLED",
-   "reader": "tools/wml_state.py:board_cycle",
+   "reader": "wesnoth_ai/rules/wml_state.py:board_cycle",
    "why": "compared against the cycle both engines hardcode, by check_board_cycle"
   },
   "scenario/time.name": {

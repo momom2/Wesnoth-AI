@@ -56,15 +56,16 @@ def test_kesorak_time_areas_parse_from_tracked_files_only(tmp_path,
         dst.write_text(_git_show(rel), encoding="utf-8")
 
     import tools.scenario_events as se
-    monkeypatch.setattr(se, "WESNOTH_SRC", tmp_path / "wesnoth_src")
-    monkeypatch.setattr(se, "_CORE_MACROS_CACHE", None)
+    from wesnoth_ai.rules import scenario_cfg
+    monkeypatch.setattr(scenario_cfg, "WESNOTH_SRC", tmp_path / "wesnoth_src")
+    monkeypatch.setattr(scenario_cfg, "_CORE_MACROS_CACHE", None)
     # load_scenario_wml caches parsed roots; clear anything keyed on
     # the real tree so the scratch tree is actually consulted.
     for cache_attr in ("_SCENARIO_WML_CACHE", "_WML_CACHE"):
-        if hasattr(se, cache_attr):
-            getattr(se, cache_attr).clear()
+        if hasattr(scenario_cfg, cache_attr):
+            getattr(scenario_cfg, cache_attr).clear()
 
-    root = se.load_scenario_wml("multiplayer_Tombs_of_Kesorak")
+    root = scenario_cfg.load_scenario_wml("multiplayer_Tombs_of_Kesorak")
     assert root is not None, "scenario cfg not found in scratch tree"
 
     cycles = {}

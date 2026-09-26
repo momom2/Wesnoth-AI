@@ -100,7 +100,7 @@ def profile_rollout(
 ) -> Dict:
     """Run `n_games` profiled games and return the timing breakdown."""
     import tools.mcts as mcts_mod
-    from tools.scenario_pool import random_setup
+    from wesnoth_ai.rules.scenario_pool import random_setup
     from tools.selfplay_game import _play_one_game_safe, _recruit_cost_lookup
     from tools.wesnoth_sim import PvPDefaults
 
@@ -135,7 +135,7 @@ def profile_rollout(
                             category=cat)
 
     probe = _mixed_setup()
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
     SimCls = type(WesnothSim(build_scenario_gamestate(probe),
                              scenario_id=probe.scenario_id, max_turns=2))

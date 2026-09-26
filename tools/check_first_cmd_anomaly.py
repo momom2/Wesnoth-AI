@@ -102,7 +102,7 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--show-examples", type=int, default=3,
                     help="Per-bucket example replays to dump.")
     ap.add_argument("--filter-competitive-2p", action="store_true",
-                    help="Filter to scenarios in tools.scenarios."
+                    help="Filter to scenarios in wesnoth_ai.rules.scenarios."
                          "COMPETITIVE_2P_SCENARIOS — the Ladder Era "
                          "whitelist used by training. Only counts "
                          "anomalies that would actually affect self-play.")
@@ -110,7 +110,7 @@ def main(argv: List[str]) -> int:
 
     competitive: set = set()
     if args.filter_competitive_2p:
-        from tools.scenarios import COMPETITIVE_2P_SCENARIOS
+        from wesnoth_ai.rules.scenarios import COMPETITIVE_2P_SCENARIOS
         competitive = set(COMPETITIVE_2P_SCENARIOS)
         log.warning(f"Filtering to {len(competitive)} competitive 2p scenarios")
 

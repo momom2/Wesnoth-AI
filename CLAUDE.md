@@ -906,7 +906,7 @@ legacy sampler (no raw temperature) is `raw` and never mixes with them
 in one outdir; searched players carry `mcts:<sims>` (Gumbel root) or
 `tcs:<sims>`. Every game draws a map from the 21-map Ladder pool with
 fog and puts the Knalgan Alliance on one side (`FORCED_FACTION` in
-`tools/scenario_pool.py`, described with the scenario pool under
+`wesnoth_ai/rules/scenario_pool.py`, described with the scenario pool under
 Architecture), which each result records as `forced_faction`. Run on a
 4090 box with `--device cuda --jobs 20 --persistent-workers
 --shared-inference` (docs/box_specs.md; every match script since
@@ -983,7 +983,7 @@ stays at the root. So a bare name like `classes.py` below means
   (`wesnoth_ai/rewards.py`, `configs/reward_selfplay.json`: gold,
   damage and village deltas, per-turn penalty, unit-type and
   turn-conditional bonuses). The actor pool plays with a zero reward.
-- `tools/scenario_pool.py` / `tools/scenarios.py` — scenario
+- `wesnoth_ai/rules/scenario_pool.py` / `wesnoth_ai/rules/scenarios.py` — scenario
   randomization: the Ladder Era 21-map whitelist (fogged or fogless),
   the mini maps, the factions and leaders. `random_setup` forces one
   faction onto one side of the game unless its caller passes
@@ -1088,8 +1088,8 @@ stays at the root. So a bare name like `classes.py` below means
 - The ±1 conversion happens where Wesnoth data enters or leaves Python:
   the live bridge (`wesnoth_ai/state_converter.py`, both directions),
   the WML and replay readers (`tools/replay_extract.py`,
-  `tools/scenario_pool.py`, `tools/scenario_events.py`,
-  `tools/wml_state.py`) and the writers that emit WML or feed the
+  `wesnoth_ai/rules/scenario_pool.py`, `tools/scenario_events.py`,
+  `wesnoth_ai/rules/wml_state.py`) and the writers that emit WML or feed the
   engine (`tools/sim_to_replay.py`, `tools/dump_savestate.py`,
   `tools/hidden_units_oracle.py`, `tools/scenario_init_oracle.py`).
   Keep it at those boundaries; game logic, the encoder and the model

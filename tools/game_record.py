@@ -369,7 +369,7 @@ def start_state(rec: Dict[str, Any], *, verify: bool = True):
         gs.global_info._last_advance_events = []
         gs.global_info._last_checkup_strikes = None
     else:
-        from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+        from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
         gs = build_scenario_gamestate(ScenarioSetup(**setup), **rec.get("build", {}))
         _setup_scenario_events(gs, rec["scenario_id"])
     if rec.get("uniform_advancement"):

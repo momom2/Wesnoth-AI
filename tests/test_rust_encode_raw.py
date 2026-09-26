@@ -51,7 +51,7 @@ def _dummy_game_states(seed: int, per_game: int, max_turns: int):
     default stops at 3 units)."""
     from tools.elo_ladder import _ScriptedAdapter
     from tools.eval_players import _PolicyPair, _play_one_eval_game
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from tools.wesnoth_sim import WesnothSim
     import wesnoth_ai.dummy_policy as dummy_policy
     from wesnoth_ai.dummy_policy import DummyPolicy
@@ -168,7 +168,7 @@ def _with_petrified_enemy(gs):
 
 @pytest.fixture(scope="module")
 def states():
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     starts = [build_scenario_gamestate(random_setup(random.Random(s)))
               for s in (11, 12, 13)]
     mids = _dummy_game_states(500, per_game=24, max_turns=16)

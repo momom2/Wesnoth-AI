@@ -135,7 +135,7 @@ def test_pack_on_another_basis_than_the_encoding_is_refused(stubbed_enumeration)
 
 def _sim(seed: int):
     from sim_test_helpers import require_scenario_data
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         build_scenario_gamestate, load_factions, random_setup,
     )
     from tools.wesnoth_sim import WesnothSim

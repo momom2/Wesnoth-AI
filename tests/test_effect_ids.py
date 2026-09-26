@@ -25,7 +25,7 @@ not dispatched at all.
 its side-3 Tentacle in a `prestart` `[object]` (351 corpus games play
 this map), so these ran wrong in every game on it.
 
-Dependencies: tools.scenario_events, tools.scenario_pool, wesnoth_sim
+Dependencies: tools.scenario_events, wesnoth_ai.rules.scenario_pool, wesnoth_sim
 Dependents:   pytest only
 """
 from __future__ import annotations
@@ -73,9 +73,9 @@ def test_silverhead_grants_a_working_submerge_and_magical():
     Both assertions fail against the pre-2026-09-13 code, which stored
     `hides` and `chance_to_hit`.
     """
-    from tools.scenario_pool import (ScenarioSetup, build_scenario_gamestate,
-                                     load_factions)
-    from tools.terrain_resolver import hides_cover
+    from wesnoth_ai.rules.scenario_pool import (ScenarioSetup, build_scenario_gamestate,
+                                                load_factions)
+    from wesnoth_ai.rules.terrain_resolver import hides_cover
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.visibility import units_visible_to
 

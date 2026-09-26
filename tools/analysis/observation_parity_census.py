@@ -34,7 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wesnoth_ai.paths import IMITATION_DATASET_DIR
-from tools.scenario_pool import LADDER_SCENARIO_IDS
+from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
 from tools.replay_dataset import (_build_initial_gamestate, _setup_scenario_events, _apply_command,
                                   _lawful_bonus_for_turn, illuminated_lawful_bonus_at, _stats_for,
                                   _find_unit_at)
@@ -42,7 +42,7 @@ from tools.pathfind_sim import ReachContext, unit_reach, emits_zoc
 from tools.abilities import hex_neighbors
 from wesnoth_ai.classes import PLAYER_SIDES, opponent_of
 from wesnoth_ai.visibility import units_visible_to, is_scenery_unit, relevant_hex_positions, visible_hexes_for
-from tools.terrain_resolver import strip_start_position
+from wesnoth_ai.rules.terrain_resolver import strip_start_position
 
 
 def conflated(code):

@@ -35,7 +35,7 @@ from wesnoth_ai.paths import UNIT_STATS_PATH  # noqa: E402
 
 def _faction_types() -> Set[str]:
     """Every recruit and every possible leader of the default era."""
-    from tools.scenario_pool import load_factions
+    from wesnoth_ai.rules.scenario_pool import load_factions
     factions = load_factions()
     names: Set[str] = set()
     for f in (factions if isinstance(factions, list) else factions.values()):
@@ -47,10 +47,10 @@ def _faction_types() -> Set[str]:
 
 def _placed_types() -> Set[str]:
     """Every unit type a [unit] or [side] of a scenario we build or
-    rebuild names (tools/analysis/scenario_surface.py's list)."""
-    from tools.analysis.expansion_diff import _scenario_block
-    from tools.analysis.scenario_surface import CORPUS_SCENARIOS
-    from tools.scenario_events import load_scenario_wml
+    rebuild names (wesnoth_ai/rules/scenario_surface.py's list)."""
+    from wesnoth_ai.rules.expansion_diff import _scenario_block
+    from wesnoth_ai.rules.scenario_surface import CORPUS_SCENARIOS
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     names: Set[str] = set()
 
     def walk(node) -> None:

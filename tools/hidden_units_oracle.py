@@ -42,7 +42,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.replay_dataset import _apply_command, _build_initial_gamestate  # noqa: E402
-from tools.terrain_resolver import hides_cover  # noqa: E402
+from wesnoth_ai.rules.terrain_resolver import hides_cover  # noqa: E402
 from wesnoth_ai.constants import GAMES_PATH  # noqa: E402
 from wesnoth_ai.visibility import units_visible_to  # noqa: E402
 

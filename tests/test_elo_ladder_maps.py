@@ -21,8 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import pytest
 
-from tools.scenario_events import SCENARIO_DIR
-from tools.scenario_pool import LADDER_SCENARIO_IDS, random_setup
+from wesnoth_ai.rules.scenario_cfg import SCENARIO_DIR
+from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS, random_setup
 
 pytestmark = pytest.mark.skipif(
     not SCENARIO_DIR.exists(),

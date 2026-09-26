@@ -140,7 +140,7 @@ def main(argv: List[str]) -> int:
     from tools.draw_tiebreak import DrawTiebreakConfig
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from tools.selfplay_game import (_recruit_cost_lookup, _roll_max_turns,
                                      play_one_game)
     from wesnoth_ai.transformer_policy import TransformerPolicy

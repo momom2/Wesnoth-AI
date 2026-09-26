@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 def _leaves(n=3):
     from tools.inference_seam import build_light_encoded
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from wesnoth_ai.encoder import encode_raw
     from wesnoth_ai.server_priors import pack_masks
     cpu = torch.device("cpu")

@@ -66,12 +66,12 @@ Each is optional; the default is the behaviour with the variable unset.
 | `WESNOTH_RUST_OBSERVE` | 1 | 0 forces the Python observation and relevant-set rows (`wesnoth_ai/observe.py`) |
 | `WESNOTH_RUST_COMBAT` | 1 | 0 forces the Python combat resolver (`wesnoth_ai/combat.py`) |
 | `WESNOTH_RUST_CORE` | 0 | 1 makes the Rust-owned state (`GameCore`) the simulator's state of record (`tools/wesnoth_sim.py`) |
-| `WESNOTH_STRICT_WML` | unset | set, an unmodelled WML construct raises instead of warning (`tools/scenario_events.py`, `tools/wml_state.py`, `tools/neutral_ai.py`) |
+| `WESNOTH_STRICT_WML` | unset | set, an unmodelled WML construct raises instead of warning (`wesnoth_ai/rules/scenario_cfg.py`, `tools/scenario_events.py`, `wesnoth_ai/rules/wml_state.py`, `tools/neutral_ai.py`) |
 | `WESNOTH_GAME_RECORD_DIR` | unset | the default of `sim_self_play --game-record-dir` (else `training/game_records`); the test suite points it at a temporary directory |
 | `WESNOTH_EXE` | the Steam install's `wesnoth.exe` | the Wesnoth executable for the live bridge, the engine oracles and the template builder (`wesnoth_ai/constants.py`) |
 | `WESNOTH_ENUM_REFERENCE` | unset | 1 uses the reference legal-action enumerator instead of the vectorized one (`wesnoth_ai/action_sampler.py`) |
 | `WESNOTH_PRIOR_BIAS_END_TURN_MINI` | unset | a number added to the end_turn actor logit in mini-map games only (`wesnoth_ai/action_sampler.py`) |
-| `WESNOTH_MINI_RANDOM_TOD` | unset | set, the fixed-time mini maps start at a random time of day (`tools/scenario_pool.py`; `sim_self_play --mini-random-tod` sets it) |
+| `WESNOTH_MINI_RANDOM_TOD` | unset | set, the fixed-time mini maps start at a random time of day (`wesnoth_ai/rules/scenario_pool.py`; `sim_self_play --mini-random-tod` sets it) |
 | `WESNOTH_RUN_TAG` | the launch time | the run's provenance tag, which `sim_self_play` sets for every process it spawns (`tools/validation_exports.py`) |
 | `WESNOTH_PROF` | 0 | 1 times the imitation trainer's stages and writes `<checkpoint>_prof.json` at each evaluation (`tools/supervised_train.py`) |
 | `WESNOTH_GRAPHED_DUMP` | unset | a directory where the graphed inference server saves a batch it failed on (`tools/inference_seam.py`) |
@@ -85,6 +85,6 @@ The box scripts read the Hugging Face settings (`HF_TOKEN`, `HF_REPO`,
 `scripts/hf_upload_loop.py`) and Vast's `CONTAINER_ID` and
 `CONTAINER_API_KEY`, with which a box stops its own instance.
 `WESNOTH_SRC` and `WESNOTH_PATH` are Python constants, not
-environment variables: the data tree's path (`tools/scenarios.py`,
-`tools/scenario_events.py`) and the executable's path, which
+environment variables: the data tree's path (`wesnoth_ai/rules/scenarios.py`,
+`wesnoth_ai/rules/scenario_cfg.py`) and the executable's path, which
 `WESNOTH_EXE` overrides (`wesnoth_ai/constants.py`).

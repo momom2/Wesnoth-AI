@@ -25,8 +25,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.analysis.expansion_diff import (POOL, clusters,  # noqa: E402
-                                           compare, expected_clusters)
+from wesnoth_ai.rules.expansion_diff import (POOL, clusters,  # noqa: E402
+                                             compare, expected_clusters)
 
 ACCEPTED = {"SUBSTITUTED", "IGNORED"}
 
@@ -76,8 +76,8 @@ def test_the_board_schedule_is_read_from_the_scenario():
     Pinned separately from the cluster comparison because this is the
     bug that motivated the check, and it should fail loudly and by
     name if the macro is ever muted again."""
-    from tools.analysis.expansion_diff import _scenario_block
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.expansion_diff import _scenario_block
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 
     block = _scenario_block(load_scenario_wml("multiplayer_Hamlets"))
     times = block.all("time")

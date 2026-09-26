@@ -17,7 +17,7 @@ import torch  # noqa: E402
 
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
-from tools.scenario_pool import (  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (  # noqa: E402
     random_setup, build_scenario_gamestate, load_factions,
 )
 from tools.wesnoth_sim import WesnothSim  # noqa: E402

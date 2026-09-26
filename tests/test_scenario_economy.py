@@ -1,6 +1,6 @@
 """The village economy and the experience modifier come from the
 scenario, and reach the game through the same fields a replay record
-uses (tools/scenario_pool.build_scenario_gamestate).
+uses (wesnoth_ai/rules/scenario_pool.build_scenario_gamestate).
 
 Before 2026-09-21 the pool hardcoded 2 gold per village and a 70%
 experience modifier and patched them onto `global_info` after the
@@ -20,7 +20,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools import scenario_pool as sp  # noqa: E402
+from wesnoth_ai.rules import scenario_pool as sp  # noqa: E402
 from tools.replay_dataset import _build_initial_gamestate  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 
@@ -190,7 +190,7 @@ def test_every_side_emitter_declares_a_zero_village_economy():
     happened; the other two read `wml_state.village_economy`."""
     from tools import replay_builder
     from tools.dump_savestate import dump_savestate
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     from tools.sim_to_replay import build_save_wml
 
     setup = _setup("2p_mini_edited")
@@ -221,9 +221,9 @@ def test_both_spellings_of_the_village_economy_are_read():
 
 def test_the_scenario_reader_is_the_shared_one(monkeypatch):
     """`scenario_economy` must not grow a second parser: it loads the
-    scenario and hands the node to tools/wml_state, which the replay
+    scenario and hands the node to wesnoth_ai/rules/wml_state, which the replay
     path reads with too."""
-    from tools import wml_state
+    from wesnoth_ai.rules import wml_state
 
     seen = []
     monkeypatch.setattr(sp, "_read_scenario_economy",

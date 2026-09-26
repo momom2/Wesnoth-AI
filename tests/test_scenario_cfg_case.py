@@ -23,8 +23,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import pytest
 
-from tools.scenario_events import SCENARIO_DIR, find_scenario_cfg_path
-from tools.scenario_pool import LADDER_SCENARIO_IDS
+from wesnoth_ai.rules.scenario_cfg import SCENARIO_DIR, find_scenario_cfg_path
+from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
 
 pytestmark = pytest.mark.skipif(
     not SCENARIO_DIR.exists(),
@@ -51,7 +51,7 @@ def test_all_ladder_ids_resolve_with_exact_casing():
 
 
 def test_the_scenario_id_is_the_scenario_tags_own_not_a_macro_bodys():
-    from tools.scenario_events import scenario_id_of_cfg
+    from wesnoth_ai.rules.scenario_cfg import scenario_id_of_cfg
     text = ("#define STATUE X Y\n"
             "    [unit]\n        [modifications]\n            [trait]\n"
             "                id=remove_hp\n            [/trait]\n"
@@ -65,7 +65,7 @@ def test_every_addon_scenario_id_resolves_to_a_file_declaring_it():
     """WL_Troll_Toll (5 corpus games) resolved to no file, so its
     replays were rebuilt without the scenario: the first `id=` of its
     .cfg sits inside a #define."""
-    from tools.scenario_events import scenario_id_of_cfg
+    from wesnoth_ai.rules.scenario_cfg import scenario_id_of_cfg
     addons = SCENARIO_DIR.parent.parent / "add-ons"
     files = sorted(addons.glob("*/scenarios/*.cfg"))
     assert files, f"no add-on scenario under {addons}"

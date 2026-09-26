@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools import scenario_pool as sp  # noqa: E402
+from wesnoth_ai.rules import scenario_pool as sp  # noqa: E402
 
 
 def _build(scenario_id: str, fogless: bool = False):

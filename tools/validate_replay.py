@@ -101,7 +101,7 @@ def validate_replay(path: Path) -> List[str]:
     scen_id = scn.attrs.get("id", "").strip().strip('"')
     if scen_id:
         try:
-            from tools.scenario_events import load_scenario_wml
+            from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
             root_wml = load_scenario_wml(scen_id)
             mp_node = (root_wml.first("multiplayer")
                        or root_wml.first("scenario")

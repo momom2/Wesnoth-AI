@@ -3,7 +3,7 @@
 Replaces the retired corpus bootstrap (tests used to seed sims from
 `replays_dataset/*.json.gz`; the corpus is permanently retired, user
 decision 2026-06-12). Sims are built the same way production
-self-play builds them: `tools.scenario_pool` setup + gamestate from
+self-play builds them: `wesnoth_ai.rules.scenario_pool` setup + gamestate from
 the scenario .cfg / .map under `wesnoth_src/data/`.
 
 Not a test module (name deliberately not `test_*`); imported by
@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tools.scenario_pool import (   # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (   # noqa: E402
     ScenarioSetup, build_scenario_gamestate, load_factions,
     random_setup,
 )

@@ -1317,10 +1317,10 @@ note at the top. It applies to the REINFORCE path only.
   *Why not replay-as-seed:* replays carry idiosyncratic starting
   states, and self-play wants a clean canonical start with random
   matchups so the policy doesn't overfit to popular pairings.
-  `tools/scenario_pool.py:1-27`.
+  `wesnoth_ai/rules/scenario_pool.py:1-27`.
 - **Forced faction** **[ON — Knalgan Alliance]** ⚠ surprising
   default. `FORCED_FACTION = "Knalgan Alliance"`
-  (`tools/scenario_pool.py:360`, user request 2026-04-30): every
+  (`wesnoth_ai/rules/scenario_pool.py:360`, user request 2026-04-30): every
   game has at least one Knalgan side; the other samples uniformly, so
   mirrors still occur ~16.7% of the time. Disable with
   `--forced-faction none`; `--forced-faction <name>` locks another.

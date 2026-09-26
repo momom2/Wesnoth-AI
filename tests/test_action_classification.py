@@ -22,10 +22,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import tools.scenario_events as se  # noqa: E402
+from wesnoth_ai.rules.scenario_cfg import UnmodelledWML  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
-                                 MINI_MAP_SCENARIO_IDS, ScenarioSetup,
-                                 build_scenario_gamestate)
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
+                                            MINI_MAP_SCENARIO_IDS, ScenarioSetup,
+                                            build_scenario_gamestate)
 
 POOL = list(LADDER_SCENARIO_IDS) + list(MINI_MAP_SCENARIO_IDS)
 TRIGGERS = ("prestart", "start", "turn refresh", "turn 1",
@@ -119,7 +120,7 @@ def test_an_empty_heals_block_heals_nothing_and_says_so(caplog, monkeypatch):
         assert se._heals_ability(_heals("")) is None
     assert any("no value" in r.getMessage() for r in caplog.records)
     monkeypatch.setenv("WESNOTH_STRICT_WML", "1")
-    with pytest.raises(se.UnmodelledWML):
+    with pytest.raises(UnmodelledWML):
         se._heals_ability(_heals(""))
 
 
@@ -146,7 +147,7 @@ def test_strict_mode_refuses_an_unknown_tag(monkeypatch):
     gs = _build("multiplayer_Hamlets")
     node = parse_wml("[teleport_everyone]\n[/teleport_everyone]\n").first(
         "teleport_everyone")
-    with pytest.raises(se.UnmodelledWML):
+    with pytest.raises(UnmodelledWML):
         se._apply_action(gs, node, "multiplayer_Hamlets")
     se.reset_unmodelled_actions()
 
@@ -184,7 +185,7 @@ def test_the_end_turn_substitution_precondition_holds():
     a turn. That is a claim about the scenarios, so it is checked
     against them: if a scenario ever ends the turn of a side we DO run,
     the classification is wrong and this fails."""
-    from tools.analysis.expansion_diff import TEMPLATES, _scenario_block
+    from wesnoth_ai.rules.expansion_diff import TEMPLATES, _scenario_block
 
     checked = 0
     for scenario_id in POOL:

@@ -31,7 +31,7 @@ def _play(out: Path, seed: int):
 
 
 def test_the_forced_faction_is_recorded_as_played(tmp_path, monkeypatch):
-    from tools import scenario_pool
+    from wesnoth_ai.rules import scenario_pool
     result, setup = _play(tmp_path / "knalgan", 7)
     assert result["forced_faction"] == "Knalgan Alliance"
     assert "Knalgan Alliance" in (setup["faction1"], setup["faction2"])

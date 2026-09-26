@@ -70,8 +70,12 @@ docs/turn_proposer_design_20260905.md.
   reading tests, shared fixtures, the unpickler, the codemod) and step 1
   (0.8.1: the game loop, the eval players, the provenance helpers, the
   az trainer recipe, the benchmark states and the actor protocol out of
-  their modules; two import cycles gone). Next: step 2, the deletions the
-  user approves, then the moves (step 3 on), one system per branch.
+  their modules; two import cycles gone) and step 3 (0.8.8: the rules
+  package, `wesnoth_ai/rules/`: the terrain table, the WML state reader,
+  the scenario lists, the scenario builder and the scenario .cfg reader,
+  with its README; `tools/scenario_events.py` keeps the event
+  interpreter). Next: step 2, the deletions the user approves, and step
+  4, the simulator with the `replay_dataset` split, one system per branch.
 
 ## Open after the 2026-09-25 night crawls
 
