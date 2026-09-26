@@ -159,3 +159,21 @@ def test_midgame_export_carries_source_economy():
     assert 'income="1"' in s1 and 'gold="150"' in s1 \
         and 'village_gold="1"' in s1
     assert 'income="2"' in s2 and 'gold="200"' in s2
+
+
+def test_midgame_export_keeps_a_declared_zero():
+    """A declared 0 is the source game's setting, not a missing value:
+    the reconstruction plays village_gold=0 as 0
+    (`_build_initial_gamestate` defaults only a missing key), so the
+    export must declare 0 too, or playback pays villages the game
+    never paid. `or 2` turned every 0 into the default."""
+    from tools.validation_exports import side_economy_from_dataset
+    econ = side_economy_from_dataset([
+        {"side": 1, "gold": 0, "village_income": 0, "village_support": 0,
+         "base_income": 0},
+        {"side": 2},
+    ])
+    assert econ[1] == {"gold": 0, "village_gold": 0, "village_support": 0,
+                       "income_offset": -2}
+    assert econ[2] == {"gold": 100, "village_gold": 2, "village_support": 1,
+                       "income_offset": 0}

@@ -135,11 +135,39 @@ def test_a_unit_reads_its_position_leader_flag_and_petrified_status():
 
 
 def test_the_time_of_day_attributes_are_read_not_resolved():
-    n = node('[scenario]\ncurrent_time=5\nrandom_start_time=yes\n'
+    n = node('[scenario]\ncurrent_time=1\nrandom_start_time=yes\n'
              '[time]\nid=dawn\n[/time]\n[time]\nid=day\n[/time]\n[/scenario]\n')
-    assert ws.read_tod(n) == (5, True, 2)
+    assert ws.read_tod(n) == (1, True, 2)
     # No schedule: the caller's slot count stands.
     assert ws.read_tod(node('[scenario]\n[/scenario]\n')) == (None, False, 6)
+
+
+@pytest.mark.parametrize("declared, slots, start", [
+    (-1, 6, 5), (7, 6, 1), (5, 2, 1), (0, 6, 0), (-13, 6, 5),
+])
+def test_the_start_slot_wraps_as_the_engine_wraps_it(declared, slots, start):
+    """The tod_manager constructor wraps `current_time` into the
+    schedule with a modulo that is never negative (`fix_time_index`,
+    src/tod_manager.cpp:66, 1.18.4). The raw value reached the
+    simulator unchecked: the default-cycle index clamped a negative
+    one to dawn, the time-area index wrapped it, and the Rust core
+    panicked on it (core_step.rs, a signed `%` cast to usize)."""
+    times = "".join(f"[time]\nid=t{i}\n[/time]\n" for i in range(slots))
+    n = node(f"[scenario]\ncurrent_time={declared}\n{times}[/scenario]\n")
+    assert ws.read_tod(n) == (start, False, slots)
+
+
+def test_a_record_start_slot_reaches_the_state_wrapped():
+    """A replay record's `tod_start_index` is read the same way, and
+    the board cycle and a time area then agree on the phase: before,
+    -1 put the board at dawn (a clamp) and the area at second watch
+    (a wrap)."""
+    from tools.replay_dataset import _build_initial_gamestate, _lawful_bonus_at
+    gs = _build_initial_gamestate({"map_data": "Gg, Gg\nGg, Gg", "tod_start_index": -1})
+    assert gs.global_info._tod_start_offset == 5
+    assert gs.global_info.time_of_day == "second_watch"
+    gs.global_info._time_areas = {(0, 0): [0, 25, 25, 0, -25, -25]}
+    assert _lawful_bonus_at(gs, 0, 0, 1) == _lawful_bonus_at(gs, 1, 1, 1) == -25
 
 
 def test_a_time_area_does_not_contribute_its_own_schedule():

@@ -91,10 +91,12 @@ def test_village_capture_counts_as_progress():
     sim.no_progress_turns = 4
 
     def capture(s):
-        vo = dict(getattr(s.gs.global_info, "_village_owner", None)
-                  or {})
-        vo[(1, 1)] = 1
-        s.gs.global_info._village_owner = vo
+        # Through the game's own transfer, so side 1's village count
+        # follows the owner map (the simulator asserts they agree).
+        from tools.replay_dataset import set_village_owner
+        s.gs.global_info._village_owner = dict(
+            getattr(s.gs.global_info, "_village_owner", None) or {})
+        set_village_owner(s.gs, 1, 1, 1)
     _hook_mutation_into_step(sim, 8, capture)
     _spin_turns(sim, 3)
     _spin_turns(sim, 3)

@@ -76,10 +76,9 @@ log = logging.getLogger("visibility")
 Hex = Tuple[int, int]
 
 # Cover abilities -- a unit with one of these CAN hide on the
-# matching terrain / ToD. Match `WesnothSim._AMBUSH_ABILITIES`
-# (kept verbatim so a future engine change touches one place
-# only -- if these diverge, the sim's `_uncovered_units` set
-# will get out of sync with our visibility check).
+# matching terrain / ToD (`_hide_cover_active` decides when). The
+# Rust core keeps the same list as `HIDE_ABILITIES` in core_move.rs
+# and core_observe.rs; tests/test_rust_constants.py compares them.
 _AMBUSH_ABILITIES = frozenset({
     "ambush", "nightstalk", "concealment", "submerge",
 })

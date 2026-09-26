@@ -84,12 +84,25 @@ the same night:
   and carried by the Rust core but written by nothing (a blocked move
   stops next to the blocker, which it then sees); comments claim an
   encoder bit that does not exist. Delete it in both languages.
-- **Rust owed** (after the player-side fix lands): `rem_euclid` for a
-  negative time-of-day offset (a panic today, unreachable in the
-  corpus); error messages that name the array and its sizes; the
-  village-count invariant and the zone-of-control predicate once the
-  Python side settles them (branch `fix/sim-fidelity-python`); a phase
-  gate on the reach and enumeration kernels.
+- **Rust owed** (the Python side landed in 0.7.10): `rem_euclid` in
+  `core_step.rs` `tod_index` and `lawful_bonus_at` (a panic on a negative
+  start slot, which the Python side now wraps as the engine does); the
+  village-count check in `core_sim.rs` `invariant_violation`; the
+  zone-of-control skip in `observe.rs:141` drops its scenery test (the
+  engine's rule is `zoc=`, default level > 0, and not incapacitated;
+  `core_move.rs` already follows it); the stale routing comment in
+  `core_step.rs`; error messages that name the array and its sizes; a
+  phase gate on the reach and enumeration kernels.
+- **WL_Troll_Toll's scenario is never found:** `find_scenario_cfg_path`
+  reads the first `id=` line, which sits inside a `#define`, so its 5
+  corpus games load no scenario WML and their petrified trolls keep full
+  hit points (model input only).
+- **Time areas and a random start slot (unverified against a replay):**
+  `_lawful_bonus_at` and the Rust `lawful_bonus_at` shift an area's cycle
+  by the board's start slot, where the engine keeps each area's own
+  `current_time` (default 0, `tod_manager.cpp:393`); three Tombs of
+  Kesorak corpus games start on slots 1, 3 and 4. Self-play is unaffected.
+
 - **Every eval game has a Knalgan Alliance side**
   (`scenario_pool.FORCED_FACTION`; the in-process `sim_self_play` games
   too, `az_loop`'s actors not), so every Elo number since 2026-07-04 is
@@ -118,6 +131,46 @@ the same night:
   through silently today); the advancement carriers want one explicit
   context (the replay-side carrier ignores a game's pick-advance
   override). Refactor step 9 (docs/refactor_plan_20260925.md).
+
+## The imitation corpus's labels (2026-09-26 crawl; each changes the corpus)
+
+A crawl of the data path from raw replays to the trainer's pairs (every
+label slot checked on 23,043 pairs of 85 games, 0 mismatches) found five
+problems that only a re-extraction fixes; the retrain that would carry
+them is the user's decision.
+
+- **A move's label is where the unit stopped, not the hex clicked.**
+  `extract_replay` cuts each `[move]` at the checkup's `final_hex`, and
+  the label takes the last hex: 192,575 of 3,017,162 player moves
+  (12,194 games; 191,697 of them in fog games) are labelled with a hex
+  the player never chose, 2.8 hexes short on average, where the engine
+  stopped the move on sighting an enemy. The simulator does not model
+  sighting interrupts (docs/wesnoth_rules.md "Replay [move] playback:
+  skip_sighted"), so in our games the chosen hex is where the unit goes;
+  the label should be the clicked hex, the state still the stop.
+- **Play after a surrender is trained as a game.** 2,669 games keep a
+  player's actions after the other surrendered or left, when one player
+  controls both sides: 94,655 winner-side commands (71,672 after a
+  surrender message alone; 702 games with 20 or more). Cut each game at a
+  player's first surrender, and at a leave once the side changes hands.
+- **433 surrender games name as winner the side the server says
+  surrendered** (16 holdout, 66,442 winner actions), and the script that
+  wrote `training/logs/replay_outcomes.jsonl.gz` is in no commit, so its
+  rule cannot be audited. Commit a labeller in which the surrendering
+  side loses, and treat a surrender by the side ahead on material as
+  abandoned (no labels). Leader-death winners check out (200 of 200).
+- **Reloaded games escape the dedup:** 9 clusters (19 games) share their
+  first 30 or more commands and then diverge (the key hashes 200); none
+  straddles the holdout. Cluster on a 30-command prefix, keep the longest.
+- **Model input:** village gold is never observed (3, 4, 5 or 8 in 3,210
+  of 17,019 games); global feature 3, "income", holds `base_income`.
+- Free guards owed: `encode_game` could assert each label's slot points
+  at the command's hexes and recruit type (checks the Python labels
+  against the Rust tokens at every pre-encoding, which no test does on a
+  three-side, statue, hider or fog-off state); `iter_replay_pairs` could
+  count the player commands that produced no pair (0 expected, measured 0
+  in 85 games).
+
 
 ## Open after the 2026-09-25 audits
 

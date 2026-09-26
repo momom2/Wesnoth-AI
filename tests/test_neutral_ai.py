@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.classes import Position
-from wesnoth_ai.game_core import game_core_class, states_equal
+from wesnoth_ai.game_core import game_core_class, state_differences
 from tests.test_neutral_ai_precondition import EXPECTED_ACTORS
 from tools.abilities import hex_neighbors
 from tools.replay_dataset import _apply_command, _rebuild_unit
@@ -288,6 +288,6 @@ def test_a_neutral_turn_leaves_the_state_its_record_rebuilds(scenario_id, use_co
     rebuilt = start
     for rc in sim.command_history[n_played:]:
         _apply_command(rebuilt, rc.cmd)
-    diffs = [d for d in states_equal(rebuilt, sim.gs, stash=False)
+    diffs = [d for d in state_differences(rebuilt, sim.gs, stash=False)
              if not d.startswith(_TRANSIENT)]
     assert not diffs, diffs[:3]

@@ -77,6 +77,7 @@ from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
     _setup_scenario_events,
+    village_count_mismatches,
 )
 from wesnoth_ai.paths import UNIT_STATS_PATH
 
@@ -343,9 +344,10 @@ def request_seed(request_id: int) -> str:
 # Wesnoth's recruit handler refuses a recruit if the side can't afford
 # the unit's cost (see wesnoth_src/src/synced_commands.cpp recruit
 # handler around the `u_type->cost() > beginning_gold` check). Our
-# `_apply_command` is permissive (clamps gold to 0), so the sim's
-# move-validation layer needs the cost to gate recruits before they
-# reach _apply_command.
+# `_apply_command` accepts any recruit and deducts its cost without a
+# floor, as `team::spend_gold` does, so the sim's move-validation
+# layer needs the cost to gate recruits before they reach
+# _apply_command.
 
 _RECRUIT_COSTS_CACHE: Dict[str, int] = {}
 
@@ -1335,17 +1337,9 @@ class WesnothSim:
 
     # ----- internals -------------------------------------------------
 
-    # Cover abilities -- units with one of these CAN be hidden in
-    # the matching terrain/ToD, but only if not already revealed.
-    # `_hide_cover_active` and the per-turn `_uncovered_units` set
-    # together gate when ambush actually fires.
     # Loop guard: max consecutive planner-rejected steps before the
     # sim forces end_turn (mask-less caller protection; see step()).
     _MAX_CONSECUTIVE_REJECTS = 8
-
-    _AMBUSH_ABILITIES = frozenset({
-        "ambush", "nightstalk", "concealment", "submerge",
-    })
 
     def _begin_side_turn(self, side: int) -> None:
         """Fire init_side(side). Replay-recon's _apply_command for
@@ -1395,6 +1389,14 @@ class WesnothSim:
               recoverable via `_check_game_over`'s heuristic but
               indicates a recruit/recall logic bug.
 
+          (e) Each side's `nb_villages_controlled` equals the villages
+              `_village_owner` gives it. The engine has no separate
+              count (a team's villages are a set, src/team.cpp:437-468)
+              and income reads ours, so a transfer that moved one and
+              not the other paid the wrong income every turn after:
+              `[capture_village]` did, on WL Cold War and Summer Frosts,
+              until 2026-09-26.
+
         Raises AssertionError with enough context to debug.
         """
         if self.core is not None:
@@ -1436,6 +1438,12 @@ class WesnothSim:
                     f"sim invariant: side {side} has {len(leaders)} "
                     f"leaders ({leaders!r}); at most one allowed "
                     f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
+        # (e) Village counts follow the owners.
+        bad = village_count_mismatches(self.gs)
+        if bad:
+            raise AssertionError(
+                f"sim invariant: village counts disagree with the owners "
+                f"{bad} (after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
 
     def _check_game_over(self) -> None:
         if self.done:
@@ -1643,9 +1651,9 @@ class WesnothSim:
             # side can't afford the unit or the target hex isn't part
             # of the leader's castle, playback errors with "cannot
             # recruit unit: ...". Our `_apply_command` is permissive --
-            # it deducts cost and clamps gold to 0, then accepts the
-            # recruit -- so without this gate the sim emits illegal
-            # recruits that Wesnoth rejects.
+            # it accepts the recruit and deducts the cost with no floor,
+            # so gold can go negative -- so without this gate the sim
+            # emits illegal recruits that Wesnoth rejects.
             # Leader-on-keep + castle-network connectivity, via the
             # SHARED helper the legality mask consumes
             # (visibility.leader_castle_network) -- audit 2026-07-17

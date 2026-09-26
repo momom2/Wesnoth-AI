@@ -233,16 +233,17 @@ class Map:
 
         Treats the following as IMMUTABLE for the purposes of cloning:
           - mask, fog: never mutated by self-play (no side moves them).
-          - hexes: terrain_types and modifiers ARE Sets that *could*
-            mutate (scenario events like Aethermaw morph), but the
-            self-play step path no longer touches them: village
+          - hexes: nothing mutates a Hex or the hex set in place. A
+            terrain morph (Aethermaw's turn-4 to 6 events,
+            `scenario_events._terrain_action`) is copy-on-write: it
+            builds a new hex set and a new terrain-code dict and
+            rebinds them on the one state it runs on, so a fork that
+            crosses a morph leaves its parent's terrain alone. Village
             capture historically did `modifiers.add(VILLAGE)` on the
             shared hex, which leaked hypothetical MCTS-search captures
             into the parent's encoding (found 2026-07-29 via the flaky
-            seam-determinism test; ownership now lives ONLY in the
-            per-fork `_village_owner`). **Non-self-play callers that
-            run terrain-mutating events should `copy.deepcopy` each
-            hex explicitly OR use `Map.deep_clone()` (slow path).**
+            seam-determinism test); ownership lives ONLY in the
+            per-fork `_village_owner`.
 
         Treats `units` as MUTABLE: the set is rebuilt every step via
         `_replace_unit` (new frozen-style Unit, set membership
@@ -273,27 +274,11 @@ class Map:
             size_y = self.size_y,
             mask   = self.mask,    # alias (immutable in self-play)
             fog    = self.fog,     # alias
-            hexes  = self.hexes,   # alias (see docstring caveat)
+            hexes  = self.hexes,   # alias (replaced, never mutated)
             units  = set(self.units),  # NEW set, same Unit refs
         )
         memo[id(self)] = new
         return new
-
-    def deep_clone(self) -> "Map":
-        """Slow-path full deepcopy that copies hexes too. Use for
-        scenarios where terrain or hex modifiers actually mutate
-        (Aethermaw morph events, terrain `[modify_terrain]` events,
-        etc.). ~10x slower than __deepcopy__ but correct for those
-        cases."""
-        import copy as _copy
-        return Map(
-            size_x = self.size_x,
-            size_y = self.size_y,
-            mask   = set(self.mask),
-            fog    = set(self.fog),
-            hexes  = {_copy.deepcopy(h) for h in self.hexes},
-            units  = set(self.units),
-        )
 
 @dataclass
 class GlobalInfo:
@@ -367,12 +352,11 @@ class GlobalInfo:
                         [ev if getattr(ev, "fired", False)
                          else _copy.copy(ev) for ev in v])
             elif k == "_terrain_codes":
-                # ALIAS (don't copy). Terrain codes are immutable during
-                # 2p-ladder self-play -- only terrain-MORPH events mutate
-                # them in place (scenario_events._terrain_action), the
-                # same class of mutation as the `hexes` set, which
-                # Map.__deepcopy__ also aliases (morph scenarios already
-                # require the slow deep_clone path). Copying this dict
+                # ALIAS (don't copy). Nothing mutates the dict in place:
+                # a terrain-MORPH event (scenario_events._terrain_action)
+                # builds a new dict and rebinds it on its own state, as
+                # it does the `hexes` set, which Map.__deepcopy__ also
+                # aliases. Copying this dict
                 # every step gave it a fresh id() each time, which (a)
                 # wasted a full dict copy and (b) defeated the rewards
                 # MP-distance Dijkstra cache that keys on

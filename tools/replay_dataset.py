@@ -47,7 +47,7 @@ from wesnoth_ai.visibility import clear_fog, refog, track_side
 # stripped (the engine's string_to_number_); never re-implement it here.
 from tools.terrain_resolver import strip_start_position, terrain_mask
 from tools.wml_state import split_map_grid          # noqa: F401 (re-export)
-from tools.wml_state import village_economy
+from tools.wml_state import fix_time_index, village_economy
 
 
 log = logging.getLogger("replay_dataset")
@@ -764,6 +764,13 @@ def _build_initial_gamestate(data: dict) -> GameState:
     else:
         village_gold = 2
         village_support = 1
+    # The turn-1 slot, wrapped the engine's way (`fix_time_index`) into
+    # the default schedule, the only one the simulator models (a
+    # scenario declaring another is flagged by
+    # `wml_state.check_board_cycle`): the Rust core indexes its cycle
+    # with this value and panics on a negative one.
+    tod_start = fix_time_index(len(cb.TOD_DEFAULT_CYCLE),
+                               int(data.get("tod_start_index", 0) or 0))
     gs = GameState(
         game_id=data.get("game_id", "?"),
         map=Map(size_x=size_x, size_y=size_y,
@@ -771,8 +778,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
                 hexes=hexes, units=units),
         global_info=GlobalInfo(
             current_side=current_side, turn_number=0,
-            time_of_day=_tod_for_turn(
-                1, int(data.get("tod_start_index", 0) or 0)),
+            time_of_day=_tod_for_turn(1, tod_start),
             village_gold=village_gold,
             village_upkeep=village_support, base_income=2,
         ),
@@ -795,8 +801,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
     # that turn-1 reads as e.g. afternoon (offset=2) — matching the
     # server-side `tod_manager::resolve_random` decision recorded in
     # the replay's [scenario] / [replay_start] `current_time` attr.
-    setattr(gs.global_info, "_tod_start_offset",
-            int(data.get("tod_start_index", 0) or 0))
+    setattr(gs.global_info, "_tod_start_offset", tod_start)
     setattr(gs.global_info, "_raw_starting_sides",
             list(data.get("starting_sides", [])))
     # wesnoth_ai.visibility reads it: the encoder hides enemy units
@@ -853,7 +858,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
         # do NOT stamp TerrainModifiers.VILLAGE on the hexes -- Hex
         # objects are aliased across MCTS forks (Map.__deepcopy__), and
         # the modifier-as-ownership-cache pattern is what caused the
-        # 2026-07-29 fork-isolation leak (see _capture_village).
+        # 2026-07-29 fork-isolation leak (see set_village_owner).
         # Bump nb_villages_controlled per side.
         for sn, n in side_increments.items():
             old = gs.sides[sn - 1]
@@ -865,8 +870,8 @@ def _build_initial_gamestate(data: dict) -> GameState:
                 faction=old.faction,
             )
         # Stash the owner map so subsequent moves into these hexes
-        # don't double-credit ownership (the move-time _capture_village
-        # checks _village_owner before incrementing).
+        # don't double-credit ownership (set_village_owner checks
+        # _village_owner before incrementing).
         setattr(gs.global_info, "_village_owner", owner_map)
     return gs
 
@@ -983,8 +988,12 @@ def _tod_cycle_index(turn_number: int, start_offset: int = 0) -> int:
     """Compute the cycle index (0..5) for `turn_number` given a starting
     offset. `start_offset` defaults to 0 (turn 1 = dawn). For replays
     with `random_start_time=yes` resolved server-side, the offset
-    encodes which ToD the server picked."""
-    return (max(1, turn_number) - 1 + max(0, start_offset)) % 6
+    encodes which ToD the server picked. The readers hand over an
+    offset already in range (`wml_state.read_tod`,
+    `_build_initial_gamestate`); the wrap is the engine's modulo
+    (`tod_manager::calculate_time_index_at_turn`), as the time-area
+    path in `_lawful_bonus_at` wraps, never a clamp to dawn."""
+    return (max(1, turn_number) - 1 + start_offset) % len(cb.TOD_DEFAULT_CYCLE)
 
 
 def _lawful_bonus_for_turn(turn_number: int, start_offset: int = 0) -> int:
@@ -1001,13 +1010,20 @@ def _tod_for_turn(turn_number: int, start_offset: int = 0) -> str:
     return cb.TOD_DEFAULT_CYCLE[_tod_cycle_index(turn_number, start_offset)][0]
 
 
+# The [illuminates] ability's value and max_value, both 25 in
+# `{ABILITY_ILLUMINATES}` (data/core/macros/abilities.cfg:232-236), the
+# only definition of it in the default era. The Rust core keeps it as
+# `ILLUMINATION` (core_attack.rs); tests/test_rust_constants.py compares.
+ILLUMINATES_VALUE = 25
+
+
 def apply_unit_illumination(base: int, illuminated: bool) -> int:
     """`bounded_add(base, 25, max_sum=25, min_sum=0)`'s positive branch
     (tod_manager.cpp:265-281): the [illuminates] ability on top of the
     terrain-lit time of day, `min(base + 25, max(base, 25))`."""
     if not illuminated:
         return base
-    return min(base + 25, max(base, 25))
+    return min(base + ILLUMINATES_VALUE, max(base, ILLUMINATES_VALUE))
 
 
 def illuminated_lawful_bonus_at(gs: GameState, unit: Unit, turn: int) -> int:
@@ -1798,6 +1814,16 @@ def _apply_command(gs: GameState, cmd: list) -> None:
 
     if kind == "init_side":
         side = cmd[1]
+        # Side 1 opens every turn here (the turn counter below), so its
+        # init_side first ends the turn before: the engine fires "turn
+        # end" and "turn N end" once the last side's turn is over, while
+        # that side is still the current one (finish_turn,
+        # play_controller.cpp:597-604).
+        from tools.scenario_events import (side_turn_event_names,
+                                           turn_end_event_names,
+                                           turn_refresh_event_names)
+        if side == 1 and gs.global_info.turn_number >= 1:
+            _fire_turn_events(gs, turn_end_event_names(gs.global_info.turn_number))
         gs.global_info.current_side = side
         # Per-turn rejection history clears at init_side. Per the
         # legality-mask contract (CLAUDE.md): rejection history is
@@ -1829,10 +1855,13 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             gs.global_info.time_of_day = _tod_for_turn(
                 gs.global_info.turn_number, tod_offset
             )
-        # Fire scenario-script side/turn events for whichever scenario
-        # we're in. For Aethermaw this morphs impassable terrain into
-        # water at side N turn 4/5/6.
-        _fire_turn_events(gs, side, gs.global_info.turn_number)
+        # The scenario's turn events (Aethermaw's side N turn 4/5/6
+        # morph impassable terrain into water), in the engine's order:
+        # "turn N" and "new turn" once per turn, at the side that opens
+        # it, then the four side forms (do_init_side,
+        # play_controller.cpp:473-482).
+        _fire_turn_events(gs, side_turn_event_names(
+            side, gs.global_info.turn_number, new_turn=(side == 1)))
 
         # Apply per-turn healing for `side`'s units. Direct port of
         # Wesnoth's wesnoth_src/src/actions/heal.cpp::calculate_healing.
@@ -2073,16 +2102,14 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 current_gold=new_gold, base_income=s.base_income,
                 nb_villages_controlled=owned, faction=s.faction,
             )
-        # "turn refresh" fires LAST in do_init_side (play_controller.
-        # cpp, 1.18.4: calculate_healing → set_resting(true) →
-        # pump().fire("turn_refresh")) — i.e. after the MP refresh and
-        # healing it is allowed to override. Mini Maps' repeating
+        # The four refresh forms fire LAST in do_init_side (play_controller.
+        # cpp:519-522, 1.18.4: calculate_healing → set_resting(true) →
+        # pump().fire("turn_refresh") ...) — i.e. after the MP refresh and
+        # healing they are allowed to override. Mini Maps' repeating
         # {MODIFY_UNIT (role=monster) moves 0} runs here every side
         # turn, re-zeroing tentacle MP right after the refresh.
-        events = getattr(gs.global_info, "_scenario_events", None)
-        if events:
-            from tools.scenario_events import fire_event
-            fire_event(gs, events, "turn refresh")
+        _fire_turn_events(gs, turn_refresh_event_names(
+            side, gs.global_info.turn_number))
         # "Make sure vision is accurate": clear_shroud(side, reset_fog)
         # after the refresh events (play_controller.cpp:524-525).
         refog(gs, side)
@@ -2120,6 +2147,11 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             ended = _rebuild_unit(u, statuses=set(u.statuses) - drop)
             new_units.add(ended)
         gs.map.units = new_units
+        # The side's four end forms, after its units end their turn
+        # (finish_side_turn_events, play_controller.cpp:585-588).
+        from tools.scenario_events import side_turn_end_event_names
+        _fire_turn_events(gs, side_turn_end_event_names(
+            ending_side, gs.global_info.turn_number))
         # "This is where we refog, after all of a side's events are
         # done" (play_controller.cpp:582-590).
         refog(gs, ending_side)
@@ -2733,18 +2765,39 @@ def _build_plague_corpse(dead_name: str, side: int, x: int, y: int,
 
 
 def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None:
-    """Mark the village at (x,y) as belonging to `capturing_side` and
-    update side village counts. We track ownership via a per-game
-    `_village_owner: Dict[(x,y) -> side]` we stash on gs.global_info
-    (lightweight; survives within iter_replay_pairs).
+    """A unit of `capturing_side` ends its move on the village at (x, y)
+    (`actions::get_village`, src/actions/move.cpp:139-184, 1.18.4): the
+    village changes hands through `set_village_owner`."""
+    by_xy_hex, _ = _hex_lookup(gs)
+    if (x, y) not in by_xy_hex:
+        return
+    set_village_owner(gs, x, y, capturing_side)
 
-    FORK ISOLATION (2026-07-29): this function must NEVER mutate the
-    Hex object. `Map.__deepcopy__` ALIASES `hexes` across MCTS forks,
-    so the historical `hex_obj.modifiers.add(TerrainModifiers.VILLAGE)`
-    here leaked every HYPOTHETICAL capture inside a search back into
-    the real game's state -- the parent's encoder input changed
-    (~1e-3 prior shift on every root action via softmax renorm),
-    which is what made
+
+def set_village_owner(gs: GameState, x: int, y: int, side: int) -> None:
+    """Hand the village at (x, y) to `side`, or to nobody when `side`
+    is 0, keeping each side's `nb_villages_controlled` equal to the
+    villages it owns: the engine's count IS the size of the side's
+    village set (team::get_village / lose_village, src/team.cpp:437-468),
+    and income and upkeep read ours (`side_income`). Both ways a village
+    changes hands go through here, a move's capture (`_capture_village`)
+    and a scenario's `[capture_village]` (`wesnoth.map.set_owner`,
+    src/scripting/game_lua_kernel.cpp:1142-1193). A side beyond
+    `gs.sides` (a scenery side, which has no SideInfo) owns the village
+    without a count. The Rust core's twin is `GameCore::capture_village`
+    (core_move.rs).
+
+    Same owner: nothing changes. `actions::get_village` returns early
+    when the side already owns the village; the pre-2026-05-02 code
+    decremented the previous owner anyway and dropped side 1's count
+    from 8 to 6 after two leader revisits, underpaying income for turns.
+
+    FORK ISOLATION (2026-07-29): this must NEVER mutate the Hex object.
+    `Map.__deepcopy__` ALIASES `hexes` across MCTS forks, so the
+    historical `hex_obj.modifiers.add(TerrainModifiers.VILLAGE)` here
+    leaked every HYPOTHETICAL capture inside a search back into the real
+    game's state -- the parent's encoder input changed (~1e-3 prior
+    shift on every root action via softmax renorm), which is what made
     test_inference_seam::test_mcts_search_through_seam_matches_direct
     flaky. Ownership lives ONLY in the per-fork `_village_owner`
     (deep-copied by GlobalInfo.__deepcopy__ and hashed by state_key);
@@ -2752,54 +2805,50 @@ def _capture_village(gs: GameState, x: int, y: int, capturing_side: int) -> None
     encode_raw). Regression guard:
     test_village_ownership::test_fork_capture_does_not_mutate_parent_encoding.
     """
-    by_xy_hex, _ = _hex_lookup(gs)
-    hex_obj = by_xy_hex.get((x, y))
-    if hex_obj is None:
-        return
-
-    # Per-replay village-owner map. Lazy-initialize on first call.
     owner_map: Dict[Tuple[int, int], int] = getattr(
         gs.global_info, "_village_owner", None
     ) or {}
-    prev_owner = owner_map.get((x, y), 0)
-
-    # Same-side revisit: no ownership change, no count update. Wesnoth's
-    # `actions::get_village` (game_board.cpp ~line 200, called from
-    # try_actual_movement / place_recruit) checks `village_owner ==
-    # side` and returns without touching team village lists when the
-    # mover already owns the village. Our pre-2026-05-02 code
-    # decremented the prev owner unconditionally then guarded the
-    # increment on `prev != capturing_side`, leaving a -1 net count
-    # whenever a unit walked back onto its own village. That dropped
-    # side 1's village count from 8 -> 6 mid-turn after two leader
-    # revisits and underpaid income by 4 gold/turn for several turns.
-    if prev_owner == capturing_side:
-        owner_map[(x, y)] = capturing_side  # idempotent
-        setattr(gs.global_info, "_village_owner", owner_map)
-        return
-
-    owner_map[(x, y)] = capturing_side
     setattr(gs.global_info, "_village_owner", owner_map)
+    prev_owner = owner_map.get((x, y), 0)
+    if prev_owner == side:
+        return
+    if side:
+        owner_map[(x, y)] = side
+    else:
+        owner_map.pop((x, y), None)
+    if prev_owner:
+        _add_villages(gs, prev_owner, -1)
+    if side:
+        _add_villages(gs, side, +1)
 
-    # Decrement old owner's count (if any), increment new.
-    if prev_owner and 1 <= prev_owner <= len(gs.sides):
-        s = gs.sides[prev_owner - 1]
-        gs.sides[prev_owner - 1] = SideInfo(
-            player=s.player, recruits=s.recruits,
-            current_gold=s.current_gold,
-            base_income=s.base_income,
-            nb_villages_controlled=max(0, s.nb_villages_controlled - 1),
-            faction=s.faction,
-        )
-    if 1 <= capturing_side <= len(gs.sides):
-        s = gs.sides[capturing_side - 1]
-        gs.sides[capturing_side - 1] = SideInfo(
-            player=s.player, recruits=s.recruits,
-            current_gold=s.current_gold,
-            base_income=s.base_income,
-            nb_villages_controlled=s.nb_villages_controlled + 1,
-            faction=s.faction,
-        )
+
+def _add_villages(gs: GameState, side: int, delta: int) -> None:
+    """Move `side`'s village count by `delta`; a side without a
+    SideInfo keeps none."""
+    if not 1 <= side <= len(gs.sides):
+        return
+    s = gs.sides[side - 1]
+    gs.sides[side - 1] = SideInfo(
+        player=s.player, recruits=s.recruits,
+        current_gold=s.current_gold,
+        base_income=s.base_income,
+        nb_villages_controlled=max(0, s.nb_villages_controlled + delta),
+        faction=s.faction,
+    )
+
+
+def village_count_mismatches(gs: GameState) -> Dict[int, Tuple[int, int]]:
+    """{side: (its count, the villages the owner map gives it)} for
+    every side whose two disagree; empty when the state is consistent.
+    The invariant `set_village_owner` keeps."""
+    owners = getattr(gs.global_info, "_village_owner", None) or {}
+    owned: Dict[int, int] = {}
+    for side in owners.values():
+        if side:
+            owned[side] = owned.get(side, 0) + 1
+    return {i: (s.nb_villages_controlled, owned.get(i, 0))
+            for i, s in enumerate(gs.sides, start=1)
+            if s.nb_villages_controlled != owned.get(i, 0)}
 
 
 def _action_indices(gs: GameState, cmd: list, *,
@@ -2972,18 +3021,15 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
         fire_event(gs, events, "start")
 
 
-def _fire_turn_events(gs: GameState, side: int, turn: int) -> None:
-    """Fire the side/turn events Wesnoth would dispatch at this moment.
-    Triggers we recognize: 'side N turn M', 'turn M', 'new turn'.
-    """
+def _fire_turn_events(gs: GameState, names: List[str]) -> None:
+    """Fire the scenario's events on `names`, in order: one of the
+    engine's turn-event sequences (tools/scenario_events, "The events
+    the engine fires around a side's turn")."""
     events = getattr(gs.global_info, "_scenario_events", None)
     if not events:
         return
-    from tools.scenario_events import fire_event
-    fire_event(gs, events, f"side {side} turn {turn}")
-    fire_event(gs, events, f"turn {turn}")
-    fire_event(gs, events, "new turn")
-    fire_event(gs, events, "side turn")
+    from tools.scenario_events import fire_events
+    fire_events(gs, events, names)
 
 
 def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False

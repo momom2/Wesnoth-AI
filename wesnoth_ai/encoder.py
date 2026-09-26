@@ -1907,7 +1907,9 @@ def _static_hex_arrays(game_state) -> _StaticHexArrays:
 def _first_terrain_id(terrain_types) -> int:
     """Pick one terrain id per hex; Hex.terrain_types can have several.
 
-    Priority: VILLAGE > CASTLE > special-unwalkable > first.
+    Priority: VILLAGE > CASTLE > the first member the set yields, FLAT
+    for an empty set. The set holds IntEnum members, whose hash is their
+    value, so "first" does not depend on the process's hash seed.
     """
     if not terrain_types:
         return Terrain.FLAT.value

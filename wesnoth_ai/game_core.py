@@ -7,12 +7,21 @@ static arrays once per hex set (`map_static`), the unit types it needs
 and the terrain resolver's defense percentages per hex, per unit type
 and slowed status), then the units, sides, globals and the stash the
 simulator keeps on `global_info`. `to_state()` rebuilds a GameState
-whose modeled content equals the original (tests/test_game_core.py);
-the hex set, the terrain codes, the time areas, the scenario events
-and every stash key the core does not model are shared by reference,
-as `GlobalInfo.__deepcopy__` shares them across forks. Per-unit stash
-attributes (`_defense_table`, `_pickadvance`, `_trait_order`,
-`_feeding_count`) live in `unit_stash`, replaced never mutated.
+whose modeled content equals the original (tests/test_game_core.py).
+
+What the core does not model -- the hex set, the mask and fog, the
+terrain codes, the time areas, the scenario events and every other
+stash key -- stays Python in `statics`. `to_state()` hands those
+objects to the GameState it builds by reference, and `reload()` takes
+them back after a command the Python applier ran. A search fork
+(`fork()`) copies them by `GlobalInfo.__deepcopy__`'s rules
+(`_fork_statics`): the hex set, the mask, the fog and the terrain
+codes stay aliased, unfired scenario events are copied per fork (their
+`fired` latch is state), and dict, set and list values are copied
+shallowly. Per-unit stash attributes (every underscore attribute of a
+unit, such as `_defense_table`, `_pickadvance`, `_trait_order`,
+`_feeding_count` and `_wml_role`) live in `unit_stash`, replaced never
+mutated.
 """
 from __future__ import annotations
 
@@ -412,13 +421,13 @@ class CoreState:
         """One replay or simulator command (`_apply_command`'s
         vocabulary). Returns "rust" when the core applied it, "python"
         when it went through a Python state (a kind the core does not
-        apply yet, or an init_side while the scenario still has an
-        event that can fire)."""
+        apply yet, or an init_side or end_turn that would fire a
+        scenario event: the core runs no events)."""
         kind = cmd[0] if cmd else ""
-        if kind == "init_side" and not self._events_pending():
+        if kind == "init_side" and not self._events_pending(cmd):
             self.core.apply_init_side(int(cmd[1]))
             return "rust"
-        if kind == "end_turn":
+        if kind == "end_turn" and not self._events_pending(cmd):
             self.core.apply_end_turn()
             return "rust"
         if kind == "move":
@@ -642,10 +651,22 @@ class CoreState:
                                          game_over=False, winner=None)
         return self._view_cache
 
-    def _events_pending(self) -> bool:
+    def _events_pending(self, cmd: list) -> bool:
+        """Whether this init_side or end_turn would fire one of the
+        scenario's events: the names the Python applier fires for it
+        (tools/scenario_events, the engine's turn-event order) against
+        the events that can still fire."""
         events = self.statics.get("_scenario_events") or []
-        return any(not (getattr(ev, "first_time_only", True) and getattr(ev, "fired", False))
-                   for ev in events)
+        if not events:
+            return False
+        from tools.scenario_events import (any_can_fire, init_side_event_names,
+                                           side_turn_end_event_names)
+        g = self.core.globals_export()
+        if cmd[0] == "init_side":
+            names = init_side_event_names(int(cmd[1]), int(g["turn_number"]))
+        else:
+            names = side_turn_end_event_names(int(g["current_side"]), int(g["turn_number"]))
+        return any_can_fire(events, names)
 
     def _python_path(self, cmd: list) -> None:
         from tools.replay_dataset import _apply_command
@@ -801,7 +822,7 @@ def units_equal(a: Unit, b: Unit) -> bool:
     return True
 
 
-def states_equal(a: GameState, b: GameState, *, stash: bool = True) -> List[str]:
+def state_differences(a: GameState, b: GameState, *, stash: bool = True) -> List[str]:
     """The differences between two states over the modeled content, as
     strings (empty when equal)."""
     diffs: List[str] = []
@@ -859,4 +880,4 @@ def states_equal(a: GameState, b: GameState, *, stash: bool = True) -> List[str]
 
 
 __all__ = ["CoreState", "map_static", "type_fields", "unit_fields", "unit_from_fields",
-           "units_equal", "states_equal", "game_core_class"]
+           "units_equal", "state_differences", "game_core_class"]

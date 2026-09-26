@@ -1,26 +1,30 @@
-"""Adjacency-based ability evaluators for replay reconstruction.
+"""Hex adjacency and the abilities that act on adjacent units.
 
-Combat outcomes and turn-start healing both depend on which units are
-adjacent to whom. Wesnoth uses pointy-top offset hexes — adjacency is
-direction-dependent on column parity. This module centralizes that
-geometry plus the bookkeeping for the four most gameplay-significant
-adjacency abilities:
+Wesnoth's hexes are flat-topped and laid out in columns, every odd
+column (0-indexed) half a hex lower than its neighbours, so which hexes
+touch depends on the column's parity. `hex_neighbors` gives the six
+neighbours in the order N, NE, SE, S, SW, NW, and `opposite_hex` the
+hex across a unit from one of them. On that geometry:
 
-  - Leadership : adjacent same-side ally with leadership[N] gives the
-                 attacker +25%·(N − defender_level) damage when N >
-                 defender's level. Caps at +25% × Lmax.
-  - Illuminates: adjacent allies (any side same team) treat ToD as one
-                 step lighter (lawful_bonus shifted up by +25 capped at
-                 +25; chaotic effect inverted).
-  - Healers    : `heals=N` adjacent same-side ally heals N HP/turn at
-                 init_side, capped at 8 total per healed unit. `cures`
-                 also clears poison.
-  - Backstab   : melee weapon special; defender is flanked when an
-                 enemy of the defender stands on the opposite hex from
-                 the attacker (six-hex check).
+  - Leadership (`leadership_bonus`): an adjacent same-side unit with
+    `leadership` and a HIGHER level adds 25% x (its level - the unit's
+    level) to the unit's damage. Several leaders do not stack, the best
+    one counts, and the opponent's level plays no part.
+  - Illumination (`illuminate_step`): the unit's hex is lit when the
+    unit itself or any adjacent unit, of any side, has `illuminates`.
+  - Healing (`healer_heal_amount`, `adjacent_curer`): the best adjacent
+    same-side healer counts, 8 for `cures` or `heals+8` and 4 for
+    `heals+4`, without stacking; `cures` also clears poison.
+  - Backstab (`is_backstab_active`): the hex opposite the attacker
+    holds an enemy of the defender.
+
+A petrified unit projects none of these abilities, and a petrified
+flanker does not enable backstab.
 
 Dependencies: classes
-Dependents:   tools.replay_dataset, combat (via flag passing)
+Dependents:   tools.replay_dataset, pathfind_sim, wesnoth_sim,
+              neutral_ai; wesnoth_ai.visibility, observe,
+              action_sampler, rewards (the geometry)
 """
 from __future__ import annotations
 
@@ -30,14 +34,17 @@ from wesnoth_ai.classes import Unit
 
 
 # ----------------------------------------------------------------------
-# Hex geometry — pointy-top, "odd-q" offset (matching Wesnoth 1.18)
+# Hex geometry — flat-top, "odd-q" offset (matching Wesnoth 1.18)
 # ----------------------------------------------------------------------
 
-# In Wesnoth, even-x columns are LOW (slightly higher rendered), odd-x
-# are HIGH. The neighbor pattern depends on column parity. Reference:
+# Odd columns (0-indexed, as the engine's own map_location) sit half a
+# hex lower than even ones, so the neighbour pattern depends on the
+# column's parity: map_location::get_direction's NORTH_EAST is
+# `map_location(x + n, y - (n+is_even(x))/2 )` (src/map/location.cpp:391,
+# 1.18.4). Reference:
 # https://wiki.wesnoth.org/Coordinates_in_Wesnoth
 def hex_neighbors(x: int, y: int) -> List[Tuple[int, int]]:
-    """Return the 6 neighbors of (x, y) in pointy-top odd-q layout."""
+    """Return the 6 neighbors of (x, y) in flat-top odd-q layout."""
     if x % 2 == 0:
         # even column
         return [

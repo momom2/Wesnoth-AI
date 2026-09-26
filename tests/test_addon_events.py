@@ -53,6 +53,57 @@ def test_summer_frosts_prestart_capture_village():
     assert owner.get((39, 6)) == 2, owner
 
 
+def test_a_captured_village_is_counted_for_its_owner():
+    """Income reads each side's village count, and the engine's count
+    is the side's village set, so a [capture_village] moves both. The
+    handler wrote the owner only: Cold War started at counts 1 and 1
+    with 2 and 3 villages owned, Summer Frosts at 1 and 1 with 1 and 2,
+    and every turn paid side 2 short."""
+    from tools.replay_dataset import village_count_mismatches
+    for sid, counts in (("WL_Cold_War", [2, 3]), ("WL_Summer_Frosts", [1, 2])):
+        sim = _fresh_sim(sid)
+        assert [s.nb_villages_controlled for s in sim.gs.sides] == counts, sid
+        assert village_count_mismatches(sim.gs) == {}, sid
+
+
+def _capture(gs, wml):
+    from tools.replay_extract import parse_wml
+    from tools.scenario_events import _capture_village_action
+    _capture_village_action(gs, parse_wml(wml).first("capture_village"))
+
+
+def test_capture_village_moves_releases_and_skips_what_is_not_a_village():
+    """wesnoth.map.set_owner (game_lua_kernel.cpp:1142-1193, 1.18.4):
+    the old owner loses the village and the new one gains it, no side
+    leaves it to nobody, and a location that is not a village is
+    skipped."""
+    from tools.replay_dataset import _terrain_at, village_count_mismatches
+    sim = _fresh_sim("WL_Cold_War")
+    gs = sim.gs
+    owner = gs.global_info._village_owner
+    _capture(gs, "[capture_village]\nside=1\nx=48\ny=19\n[/capture_village]\n")
+    assert owner[(47, 18)] == 1
+    assert [s.nb_villages_controlled for s in gs.sides] == [3, 2]
+    _capture(gs, "[capture_village]\nx=48\ny=19\n[/capture_village]\n")
+    assert (47, 18) not in owner
+    assert [s.nb_villages_controlled for s in gs.sides] == [2, 2]
+    field = next(h.position for h in gs.map.hexes
+                 if _terrain_at(gs, h.position.x, h.position.y) != "village")
+    _capture(gs, f"[capture_village]\nside=2\nx={field.x + 1}\ny={field.y + 1}\n[/capture_village]\n")
+    assert (field.x, field.y) not in owner
+    assert village_count_mismatches(gs) == {}
+
+
+def test_the_sim_invariant_catches_a_village_count_off_its_owners():
+    import pytest
+    from dataclasses import replace
+    sim = _fresh_sim("WL_Summer_Frosts")
+    sim._assert_invariants(after_cmd="setup")
+    sim.gs.sides[1] = replace(sim.gs.sides[1], nb_villages_controlled=1)
+    with pytest.raises(AssertionError, match="village counts"):
+        sim._assert_invariants(after_cmd="setup")
+
+
 def _marshy_leader(gs):
     """Side 1's leader at WML (18,1), read fresh from the unit set.
 

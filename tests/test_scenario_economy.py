@@ -96,13 +96,26 @@ def test_the_economy_travels_in_the_record_fields_not_a_post_build_patch(monkeyp
     assert _economy(built) == (3, sp.MP_VILLAGE_SUPPORT, sp.MP_EXPERIENCE_MODIFIER)
 
 
+def _own_a_village(gs, side: int) -> None:
+    """Give `side` one village nobody owns, the way the game does
+    (`set_village_owner`), so its count and the owner map agree, as
+    the simulator's invariant requires."""
+    from tools.replay_dataset import _terrain_at, set_village_owner
+    owners = getattr(gs.global_info, "_village_owner", None) or {}
+    x, y = min((h.position.x, h.position.y) for h in gs.map.hexes
+               if _terrain_at(gs, h.position.x, h.position.y) == "village"
+               and not owners.get((h.position.x, h.position.y)))
+    set_village_owner(gs, x, y, side)
+
+
 def test_a_village_actually_pays_the_scenario_rate():
     """The field reaches the turn's income, not just `global_info`.
     One village on a mini map pays base_income + 3 = 5; under the
     hardcoded 2 it paid 4."""
     gs = sp.build_scenario_gamestate(_setup("2p_mini_edited"))
     sim = WesnothSim(gs, scenario_id="2p_mini_edited", max_turns=6)
-    sim.gs.sides[0] = replace(sim.gs.sides[0], nb_villages_controlled=1)
+    _own_a_village(sim.gs, 1)
+    assert sim.gs.sides[0].nb_villages_controlled == 1
     before = sim.gs.sides[0].current_gold
     sim.step({"type": "end_turn"})            # side 1 -> 2
     sim.step({"type": "end_turn"})            # side 2 -> 1: side 1's income lands
@@ -138,13 +151,61 @@ def test_a_declared_zero_village_economy_is_paid_as_zero():
                                      village_gold=0, village_upkeep=0)
     assert _economy(gs)[:2] == (0, 0)
     sim = WesnothSim(gs, scenario_id="2p_mini_edited", max_turns=6)
-    sim.gs.sides[0] = replace(sim.gs.sides[0], nb_villages_controlled=1)
+    _own_a_village(sim.gs, 1)
+    assert sim.gs.sides[0].nb_villages_controlled == 1
     _with_upkeep_unit(sim.gs, 1, "Spearman")
     before = sim.gs.sides[0].current_gold
     sim.step({"type": "end_turn"})            # side 1 -> 2
     sim.step({"type": "end_turn"})            # side 2 -> 1: side 1's income lands
     gained = sim.gs.sides[0].current_gold - before
     assert gained == sim.gs.sides[0].base_income - 1
+
+
+def _player_side_economies(text: str):
+    """{side number: (village_gold, village_support)} of the player
+    [side] blocks anywhere in an emitted WML document."""
+    from tools.replay_extract import parse_wml
+
+    found = {}
+
+    def walk(node):
+        for child in node.children:
+            if child.tag == "side":
+                side = child.attrs.get("side", "").strip('"')
+                if side in ("1", "2"):
+                    found[int(side)] = tuple(child.attrs.get(k, "").strip('"')
+                                             for k in ("village_gold", "village_support"))
+            walk(child)
+
+    walk(parse_wml(text))
+    return found
+
+
+def test_every_side_emitter_declares_a_zero_village_economy():
+    """A game played at village_gold=0 and village_support=0 is
+    exported at 0 by all three [side] emitters: the replay exporter
+    (`sim_to_replay.build_save_wml`), the scenario replay builder and
+    the save dump. The exporter read `gi.village_gold or default`,
+    which wrote a declared 0 as the default 2, a game that never
+    happened; the other two read `wml_state.village_economy`."""
+    from tools import replay_builder
+    from tools.dump_savestate import dump_savestate
+    from tools.scenario_events import load_scenario_wml
+    from tools.sim_to_replay import build_save_wml
+
+    setup = _setup("2p_mini_edited")
+    gs = sp.build_scenario_gamestate(setup, village_gold=0, village_upkeep=0)
+    sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=4)
+    scenario = replay_builder._build_scenario_node(
+        setup, gs, "", load_scenario_wml(setup.scenario_id))
+    emitted = {
+        "sim_to_replay": build_save_wml(sim),
+        "replay_builder": replay_builder.emit_wml(scenario),
+        "dump_savestate": dump_savestate(gs),
+    }
+    declared = {name: _player_side_economies(text) for name, text in emitted.items()}
+    want = {1: ("0", "0"), 2: ("0", "0")}
+    assert declared == {name: want for name in emitted}
 
 
 def test_both_spellings_of_the_village_economy_are_read():

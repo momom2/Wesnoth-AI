@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from tools import game_record  # noqa: E402
-from wesnoth_ai.game_core import game_core_class, states_equal  # noqa: E402
+from wesnoth_ai.game_core import game_core_class, state_differences  # noqa: E402
 
 # What the simulator keeps on the state for its own bookkeeping and the
 # applier does not: the seed counter and the last command's side
@@ -32,7 +32,7 @@ CORRIDOR = "Xv, Xv, Xv, Xv, Xv\nXv, Gg, Gg, Gg, Xv\nXv, Xv, Xv, Xv, Xv"
 
 
 def _differences(a, b):
-    return [d for d in states_equal(a, b, stash=False)
+    return [d for d in state_differences(a, b, stash=False)
             if not any(k in d for k in SIM_ONLY)]
 
 
