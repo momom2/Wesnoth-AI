@@ -188,7 +188,7 @@ def test_in_process_encoder_ships_no_masks():
 
 
 def test_server_priors_pack_reaches_the_experience_and_the_trainer(monkeypatch):
-    from tools.bench_train_step import configure_trainer_like_az_loop
+    from tools.az_recipe import configure_az_trainer
     from wesnoth_ai import trainer as trainer_module
     policy = _learner()
     exps = _play_and_seal(_seam_base(policy), _sim(seed=3), n_decisions=3)
@@ -198,7 +198,7 @@ def test_server_priors_pack_reaches_the_experience_and_the_trainer(monkeypatch):
     def no_build(*a, **k):
         raise AssertionError("step_mcts rebuilt masks an experience already carried")
     monkeypatch.setattr(trainer_module, "_host_packed_masks", no_build)
-    configure_trainer_like_az_loop(policy._trainer)
+    configure_az_trainer(policy._trainer)
     policy._trainer.config.train_batch_size = 2
     stats = policy._trainer.step_mcts(exps)
     assert np.isfinite(float(stats.policy_loss))

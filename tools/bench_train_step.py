@@ -67,6 +67,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import torch  # noqa: E402
 
+from tools.az_recipe import configure_az_trainer  # noqa: E402
 from wesnoth_ai.trainer import STEP_MCTS_STAGES  # noqa: E402
 
 log = logging.getLogger("bench_train_step")
@@ -294,27 +295,8 @@ def cycle_to(exps: Sequence, n: int) -> List:
 
 
 # ---------------------------------------------------------------------
-# Trainer setup (az_loop's), parity, compile
+# Parity, compile
 # ---------------------------------------------------------------------
-
-def configure_trainer_like_az_loop(trainer, *, lr: float = 1e-4, value_coef: float = 1.0,
-                                   step_cap: int = 4000) -> None:
-    """The loss the loop trains (tools/az_loop.py main): squared error
-    on the value mean, no auxiliary terms, clip 1."""
-    cfg = trainer.config
-    cfg.value_loss_form = "mse_mean"
-    cfg.value_coef = float(value_coef)
-    cfg.learning_rate = float(lr)
-    for g in trainer.optimizer.param_groups:
-        g["lr"] = float(lr)
-    cfg.aux_coef = 0.0
-    cfg.gbc_coef = 0.0
-    cfg.moves_left_coef = 0.0
-    cfg.value_label_smoothing = 0.0
-    cfg.trust_lambda = 0.0
-    cfg.grad_clip = 1.0
-    cfg.max_transitions_per_step = int(step_cap)
-
 
 def _params(trainer) -> List[torch.nn.Parameter]:
     return list(trainer.model.parameters()) + list(trainer.encoder.parameters())
@@ -527,7 +509,9 @@ def run_benchmark(policy, exps: List, *, device: torch.device, n_list: Sequence[
                 {"partial": True, "parity": parity, "rows": rows,
                  "compile": compile_info}, indent=1), encoding="utf-8")
     tr = policy._trainer
-    configure_trainer_like_az_loop(tr, step_cap=max(loop.step_cap, max(n_list)))
+    configure_az_trainer(tr)
+    # The largest timed step must fit in one trainer step.
+    tr.config.max_transitions_per_step = int(max(loop.step_cap, max(n_list)))
     configs = [(p, b) for p in precisions for b in batch_sizes]
     parity_batch = cycle_to(exps, parity_n)
     # Parity first, on the checkpoint's weights (the timed steps move them).

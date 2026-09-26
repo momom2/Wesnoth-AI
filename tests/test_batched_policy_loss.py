@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from helpers.policy_loss_parity import (  # noqa: E402
     _assert_parity, _bench_states, batched_policy_step, reference_policy_step,
 )
-from tools.bench_train_step import configure_trainer_like_az_loop  # noqa: E402
+from tools.az_recipe import configure_az_trainer  # noqa: E402
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
 from wesnoth_ai.trainer import STEP_MCTS_STAGES, MCTSExperience  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
@@ -49,7 +49,7 @@ def case():
     torch.manual_seed(0)
     policy = TransformerPolicy(device=torch.device("cpu"),
                                d_model=64, num_layers=2, num_heads=4, d_ff=128)
-    configure_trainer_like_az_loop(policy._trainer)
+    configure_az_trainer(policy._trainer)
     enc, mdl = policy._inference_encoder, policy._inference_model
     rng = random.Random(0)
     exps = []

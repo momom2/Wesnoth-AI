@@ -24,9 +24,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 from helpers.policy_loss_parity import (  # noqa: E402
     _assert_parity, _bench_states, batched_policy_step, reference_policy_step,
 )
-from tools.bench_train_step import (  # noqa: E402
-    configure_trainer_like_az_loop, experiences_from_states,
-)
+from tools.az_recipe import configure_az_trainer  # noqa: E402
+from tools.bench_train_step import experiences_from_states  # noqa: E402
 from tools.inference_seam import build_light_encoded  # noqa: E402
 from wesnoth_ai import trainer as trainer_module  # noqa: E402
 from wesnoth_ai.server_priors import pack_masks  # noqa: E402
@@ -50,7 +49,7 @@ def case():
     torch.manual_seed(0)
     policy = TransformerPolicy(device=torch.device("cpu"),
                                d_model=64, num_layers=2, num_heads=4, d_ff=128)
-    configure_trainer_like_az_loop(policy._trainer)
+    configure_az_trainer(policy._trainer)
     # Without masks on purpose: the test ships them itself below and
     # compares against the host rebuild.
     exps = experiences_from_states(policy, states, sims=32, rng=random.Random(0), masks=False)

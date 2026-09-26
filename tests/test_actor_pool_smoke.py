@@ -103,7 +103,7 @@ def test_actor_pool_server_priors_end_to_end(monkeypatch):
     and every experience comes back with the root's pack -- the one
     pack_masks builds on its state -- which step_mcts stages as it is."""
     from tools.actor_pool import ActorPool
-    from tools.bench_train_step import configure_trainer_like_az_loop
+    from tools.az_recipe import configure_az_trainer
     from wesnoth_ai import trainer as trainer_module
 
     policy = TransformerPolicy(device=torch.device("cpu"), d_model=32,
@@ -132,7 +132,7 @@ def test_actor_pool_server_priors_end_to_end(monkeypatch):
     def no_build(*a, **k):
         raise AssertionError("step_mcts rebuilt masks an experience already carried")
     monkeypatch.setattr(trainer_module, "_host_packed_masks", no_build)
-    configure_trainer_like_az_loop(policy._trainer)
+    configure_az_trainer(policy._trainer)
     policy._trainer.config.train_batch_size = 4
     stats = policy._trainer.step_mcts(exps)
     assert math.isfinite(float(stats.policy_loss))

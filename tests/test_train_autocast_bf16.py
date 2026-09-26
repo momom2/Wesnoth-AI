@@ -25,8 +25,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from sim_test_helpers import require_scenario_data  # noqa: E402
+from tools.az_recipe import configure_az_trainer  # noqa: E402
 from tools.bench_train_step import (  # noqa: E402
-    configure_trainer_like_az_loop, experiences_from_states, parity_row, stubbed_step,
+    experiences_from_states, parity_row, stubbed_step,
 )
 from tools.scenario_pool import build_scenario_gamestate, random_setup  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
@@ -67,7 +68,7 @@ def test_switch_is_a_no_op_on_cpu(autocast_calls):
     device = torch.device("cpu")
     torch.manual_seed(0)
     policy = TransformerPolicy(device=device, d_model=32, num_layers=1, num_heads=2, d_ff=64)
-    configure_trainer_like_az_loop(policy._trainer)
+    configure_az_trainer(policy._trainer)
     exps = _mini_map_experiences(policy)
     cfg = policy._trainer.config
     assert cfg.train_autocast_bf16 is False
@@ -102,7 +103,7 @@ def test_bf16_step_matches_fp32_within_the_parity_band_on_cuda(autocast_calls):
     states = _bench_states(n_states)
     ckpt = SEED_CHECKPOINT if SEED_CHECKPOINT.exists() else None
     policy = _load_policy(ckpt, device, label="test_train_bf16")
-    configure_trainer_like_az_loop(policy._trainer)
+    configure_az_trainer(policy._trainer)
     exps = experiences_from_states(policy, states, sims=32, rng=random.Random(0))
     assert len(exps) == n_states
 

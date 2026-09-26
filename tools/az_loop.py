@@ -389,6 +389,7 @@ def main(argv) -> int:
 
     import torch
     from tools.actor_pool import ActorPool
+    from tools.az_recipe import configure_az_trainer
     from tools.eval_players import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
@@ -417,18 +418,8 @@ def main(argv) -> int:
         if args.compile_packed:
             inference_base.infer_compile_packed = True
             inference_base.warmup_packed_compile()
+    configure_az_trainer(base._trainer, lr=args.lr, value_coef=args.value_coef)
     cfg = base._trainer.config
-    cfg.value_loss_form = "mse_mean"
-    cfg.value_coef = float(args.value_coef)
-    cfg.learning_rate = float(args.lr)
-    for g in base._trainer.optimizer.param_groups:
-        g["lr"] = float(args.lr)
-    cfg.aux_coef = 0.0
-    cfg.gbc_coef = 0.0
-    cfg.moves_left_coef = 0.0
-    cfg.value_label_smoothing = 0.0
-    cfg.trust_lambda = 0.0
-    cfg.grad_clip = 1.0
     # Sixteen experiences per forward+backward: docs/box_specs.md
     # "Training path cost (2026-09-05)" -- fp32 batch 16 matched batch
     # 1 exactly (gradient within 1e-4) on one batch of 64, at 57 vs 68

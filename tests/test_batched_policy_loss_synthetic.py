@@ -33,7 +33,7 @@ from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 from helpers.policy_loss_parity import (  # noqa: E402
     _assert_parity, batched_policy_step, reference_policy_step,
 )
-from tools.bench_train_step import configure_trainer_like_az_loop  # noqa: E402
+from tools.az_recipe import configure_az_trainer  # noqa: E402
 from wesnoth_ai import trainer as trainer_module  # noqa: E402
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
 from wesnoth_ai.rewards import hex_distance  # noqa: E402
@@ -102,7 +102,7 @@ def case():
     torch.manual_seed(0)
     policy = TransformerPolicy(device=torch.device("cpu"),
                                d_model=64, num_layers=2, num_heads=4, d_ff=128)
-    configure_trainer_like_az_loop(policy._trainer)
+    configure_az_trainer(policy._trainer)
     states = _synthetic_states(policy, N_STATES, seed=11)
     assert len(states) == N_STATES, f"only {len(states)} synthetic states reached"
     rng = random.Random(0)
