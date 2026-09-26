@@ -4,22 +4,21 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-09-25)
+## NEXT (2026-09-26)
 
 **1. `obs8` is the reference** (user ruling 2026-09-25): +73 +- 13 Elo
 over `terrain` (docs/observation_retrain_prereg_20260924.md). Every
 number from here is measured against it.
 
-**Running: the turn-ranking value function** (approved in principle
-2026-09-24; branch `exp/turn-value`, its pre-registration
-docs/turn_value_prereg_20260925.md there; box 52605483 since
-2026-09-25): a value function that ranks candidate turns from one
-position, trained on within-position contrasts from branched `obs8`
-playouts, its own weights (no gradient into the policy). First arm: a
-head on `obs8`'s frozen trunk (`tools/value_head_fit.py` caches the
-trunk's features); a fine-tuned copy of the trunk only if it fails; the
-pass bar is the pre-grader check of docs/turn_gap_ref_prereg_20260921.md
-on fresh confirmed pairs under `obs8`.
+**Done: the turn-ranking value function FAILS** (2026-09-26,
+docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game
+positions a linear arm on `obs8`'s trunk features reads 0.274, a head arm
+0.269 and a rollout read 3 half-turns ahead 0.422 (corrected
+within-position correlation; bar 0.7, kill 0.5), with the crash barrier
+passed. By its rule the next proposal is a fine-tuned copy of the trunk
+on the better labels; the reported readings (the HP margin after the
+turn 0.397, a rollout read 7 half-turns ahead 0.532) belong in that
+design. The code stays on `exp/turn-value`.
 
 **Waiting on the user: the unit-vocabulary retrain**
 (docs/unit_vocab_retrain_prereg_20260925.md): `obs8`'s recipe with every
@@ -27,10 +26,18 @@ reachable unit type on its own embedding row, 800 decisive games against
 `obs8`, about 4.5 box-hours. On the current code it also carries the
 player-side correction (0.7.7: the enemy's faction and villages right in
 the quarter of the corpus played on maps with a third side), and its
-match cannot separate the two corrections.
+match cannot separate the two corrections. It also carries 0.7.12 (each
+plague corpse's variation on its base type's row). Whether the corpus
+corrections (BACKLOG "The imitation corpus's labels") go into the same
+retrain or their own is the user's call.
 
 **2. Phase 2: turn search without a pre-grader.** The turn-level gap
-under the reference is RICH (7 of 60 confirmed) and neither forward-only
+under the reference is RICH (7 of 60 confirmed; caveat 2026-09-26: the
+confirmation replayed each turn with the screen's in-turn dice, and two
+of the seven, positions 15 and 57, carry luck in the alternative's
+favour, +14 and +17 HP of the mover's: re-realize them under a second
+turn salt, cents on a box, before building on RICH, which stands on 7
+against a bar of 6) and neither forward-only
 grader passes the section-6 check (both 2026-09-23,
 docs/turn_gap_ref_prereg_20260921.md), so by the design's rules the
 pipeline is built from rows 1 to 6 of

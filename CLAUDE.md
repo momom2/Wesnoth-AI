@@ -847,6 +847,18 @@ State of play:
   engine (docs/wesnoth_rules.md "Side order within a turn").
   `OBSERVATION_EPOCH` is 10: matches from here do not chain onto earlier
   ones, although a match game plays identically before and after.
+- 2026-09-26 (0.7.13): **no turn grader passes.** The turn-ranking value
+  function (docs/turn_value_prereg_20260925.md "Measured", box
+  52605483, about 9.7 box-hours, $6.1) scored its three judged graders
+  on 199 human-game positions, each against 28 playouts of 5 candidate
+  turns: a linear arm on `obs8`'s trunk features 0.274 +- 0.041
+  (corrected within-position correlation), a head arm 0.269 +- 0.045, a
+  rollout of 8 playouts read 3 half-turns ahead 0.422 +- 0.051: all FAIL
+  (bar 0.7, kill 0.5), with the crash barrier passed on the proxy games.
+  `obs8`'s own value head reads 0.220; the HP margin after the turn
+  0.397 and a rollout read 7 half-turns ahead 0.532 (reported, not
+  judged). By the rule the next proposal is a fine-tuned trunk on the
+  better labels. The experiment's code stays on `exp/turn-value`.
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

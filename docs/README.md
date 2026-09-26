@@ -26,6 +26,7 @@ leg records and runbooks (index in `archive/README.md`).
 
 | document | result |
 |---|---|
+| turn_value_prereg_20260925.md | the turn-ranking value function: every judged grader FAILS (linear 0.274, head 0.269, rollout 0.422 against a bar of 0.7), barrier passed (2026-09-26) |
 | unit_vocab_retrain_prereg_20260925.md | `obs8`'s recipe with every unit type on its own embedding row; waiting on the user (BACKLOG.md, "NEXT") |
 | observation_retrain_prereg_20260924.md | `obs8`, the recipe on the current observation, beat `terrain` +73 +- 13 Elo and is the reference since 2026-09-25 |
 | time_of_day_prereg_20260922.md | not run alone: batched into the observation retrain |

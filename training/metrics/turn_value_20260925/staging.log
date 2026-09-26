@@ -1,0 +1,4 @@
+code staged from tier-b/staging/stage_20260925w.tar.gz
+/workspace/Wesnoth-AI/training/checkpoints/obs8.pt
+corpus staged 17039
+games staged from tier-b/observation_retrain_20260924/games_obs_e1_vs_terrain.tar.gz

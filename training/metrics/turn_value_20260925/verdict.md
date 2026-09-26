@@ -1,0 +1,29 @@
+validation: /workspace/turn_value/validation.json
+
+| grader | corrected r | SE | observed r | reliability | positions | against raw outcomes | large gaps above / below | verdict |
+|---|---|---|---|---|---|---|---|---|
+| linear | 0.274 | 0.041 | 0.208 | 0.577 | 199 | 0.298 +- 0.042 | 49 / 50 | FAIL |
+| head | 0.269 | 0.045 | 0.204 | 0.577 | 199 | 0.304 +- 0.046 | 51 / 48 | FAIL |
+| value_reference | 0.220 | 0.046 | 0.167 | 0.577 | 199 | 0.249 +- 0.046 | 60 / 39 | (reported) |
+| value_pre | 0.220 | 0.046 | 0.167 | 0.577 | 199 | 0.249 +- 0.046 | 60 / 39 | (reported) |
+| value_post | 0.226 | 0.096 | 0.171 | 0.577 | 199 | 0.272 +- 0.091 | 50 / 38 | (reported) |
+| hp_margin_post | 0.397 | 0.088 | 0.302 | 0.577 | 199 | 0.471 +- 0.077 | 46 / 20 | (reported) |
+| rollout | 0.422 | 0.051 | 0.302 | 0.511 | 199 | 0.449 +- 0.051 | - | FAIL |
+| rollout_r4_h3 | 0.413 | 0.050 | 0.305 | 0.545 | 199 | 0.442 +- 0.050 | - | (reported) |
+| rollout_r8_h1 | 0.266 | 0.052 | 0.190 | 0.511 | 199 | 0.311 +- 0.054 | - | (reported) |
+| rollout_r8_h7 | 0.532 | 0.050 | 0.380 | 0.511 | 199 | 0.588 +- 0.050 | - | (reported) |
+
+proxy games (in distribution):
+
+| grader | corrected r | SE | observed r | SE | barrier |
+|---|---|---|---|---|---|
+| linear | 0.211 | 0.057 | 0.072 | 0.016 | passes |
+| head | 0.289 | 0.066 | 0.099 | 0.017 | passes |
+| value_reference | 0.081 | 0.048 | 0.028 | 0.016 | FAILS |
+| value_pre | 0.081 | 0.049 | 0.028 | 0.016 | FAILS |
+| value_post | 0.090 | 0.054 | 0.031 | 0.018 | FAILS |
+| hp_margin_post | 0.241 | 0.052 | 0.082 | 0.014 | passes |
+
+selected: {"linear": {"lam": 0.25, "luck": false, "rank_weight": 10.0, "ridge": 10.0, "stop_score": 0.08442405825855445}, "head": {"lam": 0.75, "luck": false, "rank_weight": 0.0, "epoch": 18, "stop_score": 0.09551752293217464}}
+luck: {"beta": [0.002837253861866259, 0.03137160142858194, 0.0026591795988232026, 0.023802965371854383], "r2": 0.07168786684120343, "playouts": 36209}
+counts: {"validation": {"positions": {"validation": 200}, "games": {"validation": 200}}, "validation_skipped": {"terminal_in_turn": 5}, "validation_errors": [], "train": {"positions": {"fit": 9438, "stop": 1046, "proxy": 1496}, "games": {"fit": 630, "stop": 70, "proxy": 100}}, "train_skipped": {"terminal_in_turn": 675}, "train_errors": []}

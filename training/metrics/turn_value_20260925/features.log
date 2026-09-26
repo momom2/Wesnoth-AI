@@ -1,0 +1,143 @@
+2026-09-25 18:42:50,138 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-25 18:42:52,909 transformer_policy INFO Loaded checkpoint from /workspace/Wesnoth-AI/training/checkpoints/obs8.pt (decision_step=0)
+2026-09-25 18:42:52,918 eval_sim INFO [turn_value] loaded obs8.pt
+2026-09-25 18:42:55,392 turn_value INFO /workspace/turn_value/validation.json: 200 positions
+2026-09-25 18:42:59,143 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,203 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,272 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,281 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,350 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,497 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,518 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,528 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,580 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,615 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,623 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,627 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,639 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,684 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,735 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,744 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,747 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,765 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,782 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,821 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,832 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,868 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,871 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,873 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:42:59,928 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,005 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,061 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,167 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,296 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,307 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,324 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,349 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,361 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,368 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,392 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,427 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,456 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,518 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,520 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,531 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,559 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,683 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,816 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,827 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,866 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,954 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,962 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:00,974 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,037 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,049 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,234 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,295 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,446 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,456 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,594 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:01,678 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-25 18:43:08,748 turn_value INFO features: 50/199 sources, 247 candidates, 13 s
+2026-09-25 18:43:09,328 turn_value INFO features: 100/199 sources, 488 candidates, 14 s
+2026-09-25 18:43:09,813 turn_value INFO features: 150/199 sources, 725 candidates, 14 s
+2026-09-25 18:43:11,516 turn_value INFO features: 966 candidates in 16 s; left out {'terminal_in_turn': 5}
+2026-09-25 18:43:11,784 turn_value INFO wrote /workspace/turn_value/tmp/validation_features/validation.pt: 966 candidates, splits {'validation': 966}
+2026-09-26 00:13:43,605 transformer_policy INFO TransformerPolicy device: cuda
+2026-09-26 00:13:45,284 transformer_policy INFO Loaded checkpoint from /workspace/Wesnoth-AI/training/checkpoints/obs8.pt (decision_step=0)
+2026-09-26 00:13:45,300 eval_sim INFO [turn_value] loaded obs8.pt
+2026-09-26 00:13:57,741 turn_value INFO /workspace/turn_value/data.jsonl.gz: 11980 positions
+2026-09-26 00:14:01,180 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,223 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,291 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,384 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,435 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,445 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,694 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,700 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,708 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,736 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,773 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,789 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,821 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,838 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,858 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,870 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,975 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:01,997 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,005 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,021 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,035 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,035 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,086 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,110 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,111 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,115 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,153 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,186 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,186 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,192 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,220 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,264 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,293 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,367 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,427 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,436 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,452 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,470 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,505 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,552 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,557 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,579 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,674 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,681 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,761 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,801 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,831 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:02,859 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,080 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,120 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,138 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,395 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,454 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,847 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,878 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:03,921 replay_dataset INFO Loaded 356 unit types from unit_stats.json
+2026-09-26 00:14:40,443 turn_value INFO features: 50/800 sources, 2869 candidates, 43 s
+2026-09-26 00:15:25,089 turn_value INFO features: 100/800 sources, 5745 candidates, 87 s
+2026-09-26 00:15:32,594 turn_value INFO features: 150/800 sources, 8608 candidates, 95 s
+2026-09-26 00:15:36,854 turn_value INFO features: 200/800 sources, 11483 candidates, 99 s
+2026-09-26 00:15:41,110 turn_value INFO features: 250/800 sources, 14360 candidates, 103 s
+2026-09-26 00:15:44,880 turn_value INFO features: 300/800 sources, 17226 candidates, 107 s
+2026-09-26 00:15:49,142 turn_value INFO features: 350/800 sources, 20088 candidates, 111 s
+2026-09-26 00:15:53,749 turn_value INFO features: 400/800 sources, 22975 candidates, 116 s
+2026-09-26 00:15:57,894 turn_value INFO features: 450/800 sources, 25879 candidates, 120 s
+2026-09-26 00:16:01,764 turn_value INFO features: 500/800 sources, 28753 candidates, 124 s
+2026-09-26 00:16:05,790 turn_value INFO features: 550/800 sources, 31641 candidates, 128 s
+2026-09-26 00:16:09,528 turn_value INFO features: 600/800 sources, 34517 candidates, 132 s
+2026-09-26 00:16:13,754 turn_value INFO features: 650/800 sources, 37394 candidates, 136 s
+2026-09-26 00:16:17,616 turn_value INFO features: 700/800 sources, 40265 candidates, 140 s
+2026-09-26 00:16:21,308 turn_value INFO features: 750/800 sources, 43133 candidates, 143 s
+2026-09-26 00:16:30,446 turn_value INFO features: 800/800 sources, 45989 candidates, 153 s
+2026-09-26 00:16:31,637 turn_value INFO features: 45989 candidates in 154 s; left out {'terminal_in_turn': 675}
+2026-09-26 00:16:32,616 turn_value INFO wrote /workspace/turn_value/tmp/train_features/train.pt: 45989 candidates, splits {'fit': 36209, 'stop': 4046, 'proxy': 5734}

@@ -1,0 +1,421 @@
+{
+ "rule": "docs/turn_value_prereg_20260925.md",
+ "records": "/workspace/turn_value/validation.json",
+ "selected": {
+  "linear": {
+   "lam": 0.25,
+   "luck": false,
+   "rank_weight": 10.0,
+   "ridge": 10.0,
+   "stop_score": 0.08442405825855445
+  },
+  "head": {
+   "lam": 0.75,
+   "luck": false,
+   "rank_weight": 0.0,
+   "epoch": 18,
+   "stop_score": 0.09551752293217464
+  }
+ },
+ "luck": {
+  "beta": [
+   0.002837253861866259,
+   0.03137160142858194,
+   0.0026591795988232026,
+   0.023802965371854383
+  ],
+  "r2": 0.07168786684120343,
+  "playouts": 36209
+ },
+ "validation": {
+  "linear": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.20833209726932964,
+   "reliability": 0.5772349270944217,
+   "corrected": 0.27420785104683904,
+   "observed_se": 0.032890787533429194,
+   "corrected_se": 0.0414041945419458,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.2238752661508602,
+    "reliability": 0.5627177590675643,
+    "corrected": 0.29844259283026603,
+    "observed_se": 0.03343690612018371,
+    "corrected_se": 0.041639848478671054
+   },
+   "large_gaps": {
+    "above": 49,
+    "below": 50,
+    "tied": 0
+   },
+   "verdict": "FAIL"
+  },
+  "head": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.20404700917173385,
+   "reliability": 0.5772349270944217,
+   "corrected": 0.2685677945495961,
+   "observed_se": 0.03554502109040594,
+   "corrected_se": 0.045283640961051155,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.2283721677553522,
+    "reliability": 0.5627177590675643,
+    "corrected": 0.30443730139107156,
+    "observed_se": 0.03493772697731279,
+    "corrected_se": 0.04571958267848941
+   },
+   "large_gaps": {
+    "above": 51,
+    "below": 48,
+    "tied": 0
+   },
+   "verdict": "FAIL"
+  },
+  "value_reference": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.1668325940456326,
+   "reliability": 0.5772349270944217,
+   "corrected": 0.21958597689669287,
+   "observed_se": 0.03428676128911359,
+   "corrected_se": 0.0459135902496334,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.1867205924624056,
+    "reliability": 0.5627177590675643,
+    "corrected": 0.24891261418638694,
+    "observed_se": 0.03543338423227109,
+    "corrected_se": 0.04626124244211198
+   },
+   "large_gaps": {
+    "above": 60,
+    "below": 39,
+    "tied": 0
+   }
+  },
+  "value_pre": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.1667875266256392,
+   "reliability": 0.5772349270944217,
+   "corrected": 0.21952665891088755,
+   "observed_se": 0.03422877335983378,
+   "corrected_se": 0.0458883208009561,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.18660696716568065,
+    "reliability": 0.5627177590675643,
+    "corrected": 0.2487611431072064,
+    "observed_se": 0.03523492171246574,
+    "corrected_se": 0.04629889004547859
+   },
+   "large_gaps": {
+    "above": 60,
+    "below": 39,
+    "tied": 0
+   }
+  },
+  "value_post": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.17140632579794035,
+   "reliability": 0.5772349270944217,
+   "corrected": 0.22560594775813744,
+   "observed_se": 0.07579829480607032,
+   "corrected_se": 0.09632388368496847,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.20400879105276806,
+    "reliability": 0.5627177590675643,
+    "corrected": 0.2719590851136198,
+    "observed_se": 0.07050307508156362,
+    "corrected_se": 0.09084258971786553
+   },
+   "large_gaps": {
+    "above": 50,
+    "below": 38,
+    "tied": 11
+   }
+  },
+  "hp_margin_post": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.30196957101453287,
+   "reliability": 0.5772349270944217,
+   "corrected": 0.3974540084545147,
+   "observed_se": 0.07276519941670301,
+   "corrected_se": 0.08781095996257612,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.35362252985430354,
+    "reliability": 0.5627177590675643,
+    "corrected": 0.4714054683548659,
+    "observed_se": 0.06447850264588945,
+    "corrected_se": 0.07741910875602667
+   },
+   "large_gaps": {
+    "above": 46,
+    "below": 20,
+    "tied": 33
+   }
+  },
+  "rollout": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.3018967898007117,
+   "reliability": 0.5110511532930206,
+   "corrected": 0.422305082894572,
+   "observed_se": 0.03907032097788593,
+   "corrected_se": 0.0513233848720184,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.31593816433156924,
+    "reliability": 0.4958398533373316,
+    "corrected": 0.44867448734097654,
+    "observed_se": 0.037473703095640576,
+    "corrected_se": 0.05052404565808219
+   },
+   "verdict": "FAIL"
+  },
+  "rollout_r4_h3": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.30523360013595663,
+   "reliability": 0.5449425018733707,
+   "corrected": 0.4134823714618238,
+   "observed_se": 0.038338506852294285,
+   "corrected_se": 0.0501846526828475,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.32038365953352127,
+    "reliability": 0.5249819207712869,
+    "corrected": 0.4421790720835388,
+    "observed_se": 0.037583360035231134,
+    "corrected_se": 0.0502994702018312
+   }
+  },
+  "rollout_r8_h1": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.1902226871677124,
+   "reliability": 0.5110511532930206,
+   "corrected": 0.2660909634905951,
+   "observed_se": 0.03699175154122486,
+   "corrected_se": 0.05173891198860968,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.21934092779188308,
+    "reliability": 0.4958398533373316,
+    "corrected": 0.3114934801818866,
+    "observed_se": 0.037423228681107715,
+    "corrected_se": 0.053701026517814915
+   }
+  },
+  "rollout_r8_h7": {
+   "positions": 199,
+   "clusters": 199,
+   "observed": 0.3800501289736381,
+   "reliability": 0.5110511532930206,
+   "corrected": 0.5316290422506728,
+   "observed_se": 0.043191879582482245,
+   "corrected_se": 0.05029642172628468,
+   "raw": {
+    "positions": 199,
+    "clusters": 199,
+    "observed": 0.4138285675932996,
+    "reliability": 0.4958398533373316,
+    "corrected": 0.58769196435893,
+    "observed_se": 0.04080317368090733,
+    "corrected_se": 0.05014893136627241
+   }
+  }
+ },
+ "counts": {
+  "validation": {
+   "positions": {
+    "validation": 200
+   },
+   "games": {
+    "validation": 200
+   }
+  },
+  "validation_skipped": {
+   "terminal_in_turn": 5
+  },
+  "validation_errors": [],
+  "train": {
+   "positions": {
+    "fit": 9438,
+    "stop": 1046,
+    "proxy": 1496
+   },
+   "games": {
+    "fit": 630,
+    "stop": 70,
+    "proxy": 100
+   }
+  },
+  "train_skipped": {
+   "terminal_in_turn": 675
+  },
+  "train_errors": []
+ },
+ "proxy": {
+  "linear": {
+   "positions": 1471,
+   "clusters": 100,
+   "observed": 0.0721247055914718,
+   "reliability": 0.11631195425318264,
+   "corrected": 0.21148125405139528,
+   "observed_se": 0.01636430163076165,
+   "corrected_se": 0.05663991685179144,
+   "raw": {
+    "positions": 1471,
+    "clusters": 100,
+    "observed": 0.07807103511603009,
+    "reliability": 0.08991393265270142,
+    "corrected": 0.26036130575814626,
+    "observed_se": 0.01592434370206722,
+    "corrected_se": 0.07165988008510257
+   },
+   "large_gaps": {
+    "above": 357,
+    "below": 497,
+    "tied": 0
+   },
+   "barrier_passes": true
+  },
+  "head": {
+   "positions": 1471,
+   "clusters": 100,
+   "observed": 0.09861193784123985,
+   "reliability": 0.11631195425318264,
+   "corrected": 0.28914608535427483,
+   "observed_se": 0.016971522560322853,
+   "corrected_se": 0.06571411233031262,
+   "raw": {
+    "positions": 1471,
+    "clusters": 100,
+    "observed": 0.10930148797751148,
+    "reliability": 0.08991393265270142,
+    "corrected": 0.36451262736351303,
+    "observed_se": 0.016151659182511414,
+    "corrected_se": 0.08249385366613313
+   },
+   "large_gaps": {
+    "above": 388,
+    "below": 466,
+    "tied": 0
+   },
+   "barrier_passes": true
+  },
+  "value_reference": {
+   "positions": 1471,
+   "clusters": 100,
+   "observed": 0.027677405986207052,
+   "reliability": 0.11631195425318264,
+   "corrected": 0.08115461240156197,
+   "observed_se": 0.015663954090615266,
+   "corrected_se": 0.04849121312495352,
+   "raw": {
+    "positions": 1471,
+    "clusters": 100,
+    "observed": 0.0367746205826171,
+    "reliability": 0.08991393265270142,
+    "corrected": 0.12264072353364569,
+    "observed_se": 0.01573159713592858,
+    "corrected_se": 0.05726536420176052
+   },
+   "large_gaps": {
+    "above": 497,
+    "below": 357,
+    "tied": 0
+   },
+   "barrier_passes": false
+  },
+  "value_pre": {
+   "positions": 1471,
+   "clusters": 100,
+   "observed": 0.02760089948939554,
+   "reliability": 0.11631195425318264,
+   "corrected": 0.08093028302987035,
+   "observed_se": 0.015689734938569115,
+   "corrected_se": 0.04881335612840487,
+   "raw": {
+    "positions": 1471,
+    "clusters": 100,
+    "observed": 0.03664537269280016,
+    "reliability": 0.08991393265270142,
+    "corrected": 0.1222096910859625,
+    "observed_se": 0.015633574095990976,
+    "corrected_se": 0.05746322821920727
+   },
+   "large_gaps": {
+    "above": 496,
+    "below": 357,
+    "tied": 1
+   },
+   "barrier_passes": false
+  },
+  "value_post": {
+   "positions": 1471,
+   "clusters": 100,
+   "observed": 0.03053727372194114,
+   "reliability": 0.11631195425318264,
+   "corrected": 0.08954020524681973,
+   "observed_se": 0.017948231992292226,
+   "corrected_se": 0.05426981077086976,
+   "raw": {
+    "positions": 1471,
+    "clusters": 100,
+    "observed": 0.037155991107071545,
+    "reliability": 0.08991393265270142,
+    "corrected": 0.12391256689497754,
+    "observed_se": 0.017442526422892325,
+    "corrected_se": 0.06193314093346156
+   },
+   "large_gaps": {
+    "above": 421,
+    "below": 377,
+    "tied": 56
+   },
+   "barrier_passes": false
+  },
+  "hp_margin_post": {
+   "positions": 1471,
+   "clusters": 100,
+   "observed": 0.08231483451392305,
+   "reliability": 0.11631195425318264,
+   "corrected": 0.2413603533945779,
+   "observed_se": 0.014292269281582476,
+   "corrected_se": 0.05180015613416056,
+   "raw": {
+    "positions": 1471,
+    "clusters": 100,
+    "observed": 0.09098416322551506,
+    "reliability": 0.08991393265270142,
+    "corrected": 0.30342566235353363,
+    "observed_se": 0.013626541132319245,
+    "corrected_se": 0.06550959636216051
+   },
+   "large_gaps": {
+    "above": 260,
+    "below": 284,
+    "tied": 310
+   },
+   "barrier_passes": true
+  }
+ }
+}

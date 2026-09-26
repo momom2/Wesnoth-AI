@@ -1,5 +1,17 @@
 # Pre-registration: the turn-level value gap under the reference player (2026-09-21)
 
+Status (2026-09-26): the RICH verdict below (7 of 60 confirmed, bar 6)
+carries a caveat. The confirmation replayed each turn under the screen's
+turn salt, so the in-turn dice of the best-of-four selection survived
+into it; comparing every fight of the 7 confirmed turns with its exact
+distribution, positions 15 and 57 carry luck in the alternative's favour
+(+14.2 and +16.8 HP of the mover's), the other five none that explains
+them. Re-realizing 15 and 57 under a second turn salt (the design's own
+control, docs/turn_proposer_design_20260905.md 2.2; cents on a box)
+decides whether RICH stands. Separately, 5 of the 16 replayed positions
+of the pre-grader check came from maps with a third side, where the code
+of the day read side 3's value after the turn (fixed in 0.7.7).
+
 Phase 2's first measurement (docs/plan_20260904.md 5), taken again
 against the current reference. Run 1 (docs/turn_gap_prereg_20260904.md,
 2026-09-05) measured the seed at `raw:t0`; two of its three confirmed

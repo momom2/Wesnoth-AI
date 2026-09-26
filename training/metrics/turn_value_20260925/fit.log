@@ -1,0 +1,31 @@
+2026-09-26 00:16:37,447 transformer_policy INFO TransformerPolicy device: cpu
+2026-09-26 00:16:39,146 transformer_policy INFO Loaded checkpoint from /workspace/Wesnoth-AI/training/checkpoints/obs8.pt (decision_step=0)
+2026-09-26 00:16:39,147 eval_sim INFO [turn_value] loaded obs8.pt
+2026-09-26 00:16:39,452 turn_value_fit INFO fit 36209 candidates, stop 4046; luck beta [0.00283725 0.0313716  0.00265918 0.02380297] explains 0.072 of the outcome variance over 36209 playouts
+2026-09-26 00:17:50,223 turn_value_fit INFO linear arm: {'lam': 0.25, 'luck': False, 'rank_weight': 10.0, 'ridge': 10.0, 'stop_score': 0.08442405825855445}
+2026-09-26 00:17:55,687 turn_value_fit INFO head arm: {'lam': 0.0, 'luck': False, 'rank_weight': 0.0, 'epoch': 8, 'stop_score': 0.08076642233059796}
+2026-09-26 00:18:00,042 turn_value_fit INFO head arm: {'lam': 0.0, 'luck': False, 'rank_weight': 1.0, 'epoch': 8, 'stop_score': 0.07448948634021595}
+2026-09-26 00:18:02,387 turn_value_fit INFO head arm: {'lam': 0.0, 'luck': False, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.07907718842320631}
+2026-09-26 00:18:09,711 turn_value_fit INFO head arm: {'lam': 0.25, 'luck': False, 'rank_weight': 0.0, 'epoch': 17, 'stop_score': 0.08822239256213896}
+2026-09-26 00:18:14,999 turn_value_fit INFO head arm: {'lam': 0.25, 'luck': False, 'rank_weight': 1.0, 'epoch': 11, 'stop_score': 0.07933645544911894}
+2026-09-26 00:18:17,404 turn_value_fit INFO head arm: {'lam': 0.25, 'luck': False, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.08119563391789972}
+2026-09-26 00:18:24,578 turn_value_fit INFO head arm: {'lam': 0.5, 'luck': False, 'rank_weight': 0.0, 'epoch': 18, 'stop_score': 0.09208920609103895}
+2026-09-26 00:18:29,534 turn_value_fit INFO head arm: {'lam': 0.5, 'luck': False, 'rank_weight': 1.0, 'epoch': 11, 'stop_score': 0.08463792641225909}
+2026-09-26 00:18:31,582 turn_value_fit INFO head arm: {'lam': 0.5, 'luck': False, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.0824821219438436}
+2026-09-26 00:18:38,639 turn_value_fit INFO head arm: {'lam': 0.75, 'luck': False, 'rank_weight': 0.0, 'epoch': 18, 'stop_score': 0.09551752293217464}
+2026-09-26 00:18:46,081 turn_value_fit INFO head arm: {'lam': 0.75, 'luck': False, 'rank_weight': 1.0, 'epoch': 18, 'stop_score': 0.09324288755815541}
+2026-09-26 00:18:48,273 turn_value_fit INFO head arm: {'lam': 0.75, 'luck': False, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.08214971239945022}
+2026-09-26 00:18:52,532 turn_value_fit INFO head arm: {'lam': 0.0, 'luck': True, 'rank_weight': 0.0, 'epoch': 8, 'stop_score': 0.07957860450995528}
+2026-09-26 00:18:56,737 turn_value_fit INFO head arm: {'lam': 0.0, 'luck': True, 'rank_weight': 1.0, 'epoch': 8, 'stop_score': 0.07393387897882751}
+2026-09-26 00:18:58,828 turn_value_fit INFO head arm: {'lam': 0.0, 'luck': True, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.07951023591862223}
+2026-09-26 00:19:05,588 turn_value_fit INFO head arm: {'lam': 0.25, 'luck': True, 'rank_weight': 0.0, 'epoch': 17, 'stop_score': 0.08781376135109688}
+2026-09-26 00:19:10,318 turn_value_fit INFO head arm: {'lam': 0.25, 'luck': True, 'rank_weight': 1.0, 'epoch': 11, 'stop_score': 0.07903017397692513}
+2026-09-26 00:19:12,384 turn_value_fit INFO head arm: {'lam': 0.25, 'luck': True, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.0815190182511923}
+2026-09-26 00:19:19,131 turn_value_fit INFO head arm: {'lam': 0.5, 'luck': True, 'rank_weight': 0.0, 'epoch': 18, 'stop_score': 0.09189057049023473}
+2026-09-26 00:19:24,048 turn_value_fit INFO head arm: {'lam': 0.5, 'luck': True, 'rank_weight': 1.0, 'epoch': 11, 'stop_score': 0.08411438902785276}
+2026-09-26 00:19:26,223 turn_value_fit INFO head arm: {'lam': 0.5, 'luck': True, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.08251740828653654}
+2026-09-26 00:19:33,070 turn_value_fit INFO head arm: {'lam': 0.75, 'luck': True, 'rank_weight': 0.0, 'epoch': 18, 'stop_score': 0.09505263477772805}
+2026-09-26 00:19:38,996 turn_value_fit INFO head arm: {'lam': 0.75, 'luck': True, 'rank_weight': 1.0, 'epoch': 18, 'stop_score': 0.0923300607566799}
+2026-09-26 00:19:40,781 turn_value_fit INFO head arm: {'lam': 0.75, 'luck': True, 'rank_weight': 10.0, 'epoch': 1, 'stop_score': 0.08189444215101577}
+2026-09-26 00:19:40,781 turn_value_fit INFO head arm: selected {'lam': 0.75, 'luck': False, 'rank_weight': 0.0, 'epoch': 18, 'stop_score': 0.09551752293217464}
+2026-09-26 00:19:40,787 turn_value_fit INFO wrote /workspace/turn_value/tmp/fit/arms.pt
