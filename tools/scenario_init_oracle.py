@@ -45,7 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools.build_scenario_templates import (LADDER_SRC, MINI_SRC,  # noqa: E402
+from wesnoth_ai.rules.build_scenario_templates import (LADDER_SRC, MINI_SRC,  # noqa: E402
                                             index_preprocessed, run_preprocessor)
 from tools.replay_dataset import _lawful_bonus_at, side_income  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402

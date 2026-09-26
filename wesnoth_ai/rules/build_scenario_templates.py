@@ -86,9 +86,6 @@ import time
 from pathlib import Path
 from typing import Dict, List
 
-if str(Path(__file__).resolve().parents[1]) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from wesnoth_ai.constants import WESNOTH_PATH
 from wesnoth_ai.paths import SCENARIO_TEMPLATES_DIR, WESNOTH_SRC_DIR
 from wesnoth_ai.rules.scenario_pool import (

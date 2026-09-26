@@ -18,6 +18,7 @@ from typing import Any, BinaryIO, Dict
 # Old module path -> the path the module moved to; one entry per move.
 # tools/dev/move_module.py --apply adds the entry for the module it moves.
 MOVED_MODULES: Dict[str, str] = {
+    "tools.build_scenario_templates": "wesnoth_ai.rules.build_scenario_templates",
     "tools.scenario_pool": "wesnoth_ai.rules.scenario_pool",
     "tools.scenarios": "wesnoth_ai.rules.scenarios",
     "tools.terrain_resolver": "wesnoth_ai.rules.terrain_resolver",
