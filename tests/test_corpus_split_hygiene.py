@@ -40,7 +40,7 @@ def test_manifest_split_drops_unlisted_rows_and_keeps_holdout_flags(tmp_path):
 
 
 def test_match_key_identifies_a_game_saved_at_two_turns_but_not_two_games():
-    early = _game(250)                      # the key reads the first 200 commands
+    early = _game(250)                      # no seeds: the key reads the first 200 commands
     late = {**early, "commands": early["commands"] + [{"turn": 20, "i": 999}]}
     other = _game(250, seed=8)
     assert match_key(early) == match_key(late)

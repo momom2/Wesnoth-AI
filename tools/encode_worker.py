@@ -51,8 +51,9 @@ import functools
 import logging
 import sys
 import traceback
+from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from wesnoth_ai.paths import REPO_ROOT, TOOLS_DIR
 from tools.mp_teardown import ParentGone, get_while_parent_lives, put_while_parent_lives
@@ -62,9 +63,44 @@ from tools.mp_teardown import ParentGone, get_while_parent_lives, put_while_pare
 _PARENT_POLL = 2.0
 
 
+class LabelSlotMismatch(ValueError):
+    """A label's slot does not point at what its command names."""
+
+
+def label_slot_mismatch(raw, ai) -> Optional[str]:
+    """Why `ai`'s slots do not point at its command's source hex, target
+    hex and recruited type in the encoded tokens `raw`, or None. The
+    label builder (replay_dataset._action_indices) and the encoder
+    (Python or Rust) enumerate slots separately; this is where they
+    meet. Labels without the command's hexes (pickled before they were
+    carried) are not checked."""
+    n_units, n_recruits = len(raw.unit_positions), len(raw.recruit_types)
+    if ai.action_type == "end_turn":
+        if ai.actor_idx != n_units + n_recruits:
+            return f"end_turn at actor {ai.actor_idx}, the sentinel is {n_units + n_recruits}"
+        return None
+    if ai.source_hex is not None:
+        if not 0 <= ai.actor_idx < n_units:
+            return f"{ai.action_type} actor {ai.actor_idx} outside {n_units} units"
+        p = raw.unit_positions[ai.actor_idx]
+        if (p.x, p.y) != tuple(ai.source_hex):
+            return f"{ai.action_type} actor at {(p.x, p.y)}, the command's unit is at {ai.source_hex}"
+    if ai.recruit_type is not None:
+        j = ai.actor_idx - n_units
+        if not 0 <= j < n_recruits or raw.recruit_types[j] != ai.recruit_type:
+            return f"recruit slot {ai.actor_idx} is not a {ai.recruit_type}"
+    if ai.target_hex is not None and ai.target_idx is not None:
+        if not 0 <= ai.target_idx < len(raw.hex_positions):
+            return f"{ai.action_type} target {ai.target_idx} outside {len(raw.hex_positions)} hexes"
+        h = raw.hex_positions[ai.target_idx]
+        if (h.x, h.y) != tuple(ai.target_hex):
+            return f"{ai.action_type} target at {(h.x, h.y)}, the command's is {ai.target_hex}"
+    return None
+
+
 def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                 relevant_set: bool, fog_hides_enemy_villages: bool = False,
-                terrain_multi_hot: bool = False) -> List:
+                terrain_multi_hot: bool = False, stats: Optional[Counter] = None) -> List:
     """One replay's (RawEncoded, ActionIndices) pairs: the per-file work
     of a worker, and of tools/preencode_corpus.py.
 
@@ -73,15 +109,24 @@ def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[s
     subset; the encoder has no entry point that accepts a precomputed
     one). `fog_hides_enemy_villages` and `terrain_multi_hot` are the
     trainer encoder's own switches: a worker must encode exactly what
-    the encoder would, else the pairs carry another observation."""
+    the encoder would, else the pairs carry another observation.
+
+    Every pair's slots are checked against its command
+    (`label_slot_mismatch`); a mismatch raises LabelSlotMismatch, so
+    the game is reported and left out rather than trained on wrong
+    labels. `stats` receives the file's counts (`iter_replay_pairs`)."""
     from tools.replay_dataset import iter_replay_pairs
     from wesnoth_ai.encoder import encode_raw
     pairs = []
-    for state, ai in iter_replay_pairs(gz_path, relevant_set=relevant_set):
-        pairs.append((encode_raw(state, type_to_id=type_to_id, faction_to_id=faction_to_id,
-                                 relevant_set=relevant_set,
-                                 fog_hides_enemy_villages=fog_hides_enemy_villages,
-                                 terrain_multi_hot=terrain_multi_hot), ai))
+    for state, ai in iter_replay_pairs(gz_path, relevant_set=relevant_set, stats=stats):
+        raw = encode_raw(state, type_to_id=type_to_id, faction_to_id=faction_to_id,
+                         relevant_set=relevant_set,
+                         fog_hides_enemy_villages=fog_hides_enemy_villages,
+                         terrain_multi_hot=terrain_multi_hot)
+        why = label_slot_mismatch(raw, ai)
+        if why is not None:
+            raise LabelSlotMismatch(f"{Path(gz_path).name}, pair {len(pairs)}: {why}")
+        pairs.append((raw, ai))
     return pairs
 
 

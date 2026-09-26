@@ -11,11 +11,13 @@ reads those files in its usual seeded file order; the recipe (which
 pairs, in which order, with which weights) is unchanged because only
 the "replay this file" step is replaced.
 
-The vocab (unit types, factions) and the hex basis are part of the
-encoding: `--vocab-from CKPT` takes the checkpoint's dicts (what a
-warm start trains with), and `preencoded_manifest.json` records a
-fingerprint of them; the trainer refuses a corpus whose fingerprint
-is not its encoder's.
+The vocab (unit types, factions), the hex basis and the corpus's
+version are part of the encoding: `--vocab-from CKPT` takes the
+checkpoint's dicts (what a warm start trains with), and
+`preencoded_manifest.json` records a fingerprint of them; the trainer
+refuses records whose fingerprint is not its encoder's and its
+corpus's, so records encoded from one corpus never train with another
+corpus's manifest.
 
 Idempotent and resumable: existing records are skipped, so a killed
 pass continues where it stopped. Progress is logged on the run.
@@ -35,6 +37,7 @@ import pickle
 import sys
 import time
 import zlib
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -45,6 +48,7 @@ from wesnoth_ai import unpickle  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.paths import IMITATION_DATASET_DIR  # noqa: E402
 from tools.encode_worker import encode_game  # noqa: E402
+from tools.replay_dataset import corpus_version_of  # noqa: E402
 
 log = logging.getLogger("preencode")
 
@@ -54,15 +58,18 @@ MANIFEST_NAME = "preencoded_manifest.json"
 
 def vocab_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                       relevant_set: bool, fog_hides_enemy_villages: bool = False,
-                      terrain_multi_hot: bool = False) -> str:
+                      terrain_multi_hot: bool = False, corpus_version: int = 1) -> str:
     """One string for everything the encoding depends on: the unit and
     faction vocabs, the hex basis, the fog gate of global feature 5,
-    and the sim's observation epoch.
+    the sim's observation epoch and the corpus's version.
 
     The epoch is what makes a cache from before a visibility rule
     change refuse to mix with encodings made after it; the four
     vocab/basis terms do not move when the sim's own rules do. See
-    `constants.OBSERVATION_EPOCH`."""
+    `constants.OBSERVATION_EPOCH`. The corpus version
+    (`replay_dataset.corpus_version_of`) does the same for the corpus's
+    labels and cuts; version 1, every corpus before it, adds no term,
+    so records made from one keep their fingerprint."""
     h = hashlib.sha1()
     h.update(json.dumps(sorted(type_to_id.items())).encode("utf-8"))
     h.update(b"|")
@@ -73,6 +80,8 @@ def vocab_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
     if terrain_multi_hot:
         h.update(b"|tmh=1")
     h.update(b"|obs=%d" % int(OBSERVATION_EPOCH))
+    if int(corpus_version) != 1:
+        h.update(b"|corpus=%d" % int(corpus_version))
     return h.hexdigest()
 
 
@@ -111,17 +120,19 @@ def _worker_init(type_to_id, faction_to_id, relevant_set, out_dir, fog_hides_ene
 
 
 def _worker_encode(gz_path_str: str):
+    """(name, pairs written or None, status, the file's label counts)."""
     gz_path = Path(gz_path_str)
     dst = record_path(_W["out_dir"], gz_path.name)
     if dst.exists():
-        return gz_path.name, None, "exists"
+        return gz_path.name, None, "exists", {}
+    stats: Counter = Counter()
     try:
         pairs = encode_game(gz_path, _W["type_to_id"], _W["faction_to_id"], _W["relevant_set"],
-                            _W["fog_hides_enemy_villages"], _W["terrain_multi_hot"])
+                            _W["fog_hides_enemy_villages"], _W["terrain_multi_hot"], stats=stats)
     except Exception as e:  # noqa: BLE001 - one bad game must not stop the pass
-        return gz_path.name, None, f"error: {type(e).__name__}: {e}"[:200]
+        return gz_path.name, None, f"error: {type(e).__name__}: {e}"[:200], {}
     write_record(dst, pairs)
-    return gz_path.name, len(pairs), "ok"
+    return gz_path.name, len(pairs), "ok", dict(stats)
 
 
 def check_manifest_epoch(preencoded_dir) -> None:
@@ -167,12 +178,13 @@ def main(argv=None) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     type_to_id, faction_to_id = vocab_from_checkpoint(args.vocab_from)
+    corpus = corpus_version_of(args.dataset)
     fp = vocab_fingerprint(type_to_id, faction_to_id, args.relevant_set_hexes,
-                           args.fog_hides_enemy_villages, args.terrain_multi_hot)
+                           args.fog_hides_enemy_villages, args.terrain_multi_hot, corpus)
     args.out.mkdir(parents=True, exist_ok=True)
     existing = load_manifest(args.out)
     if existing and existing.get("fingerprint") != fp:
-        raise SystemExit(f"{args.out} was encoded with another vocab or basis "
+        raise SystemExit(f"{args.out} was encoded with another vocab, basis or corpus "
                          f"({existing.get('fingerprint')} against {fp}); use another --out")
     rows = [json.loads(line) for line in
             (args.dataset / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
@@ -180,6 +192,10 @@ def main(argv=None) -> int:
     files = [str(args.dataset / r["file"]) for r in rows]
     counts: Dict[str, int] = dict((existing or {}).get("pairs_per_file", {}))
     errors: Dict[str, str] = dict((existing or {}).get("errors", {}))
+    # Player commands that yielded no pair, per file (0 expected), and
+    # the move labels' sources over the pass (replay_dataset.move_label_hex).
+    unpaired: Dict[str, int] = dict((existing or {}).get("unpaired_per_file", {}))
+    label_sources: Counter = Counter((existing or {}).get("move_label_sources", {}))
     t0 = time.time()
     done = skipped = 0
 
@@ -190,8 +206,10 @@ def main(argv=None) -> int:
             "relevant_set_hexes": bool(args.relevant_set_hexes),
             "fog_hides_enemy_villages": bool(args.fog_hides_enemy_villages),
             "terrain_multi_hot": bool(args.terrain_multi_hot),
-            "dataset": str(args.dataset), "n_files": len(counts),
+            "dataset": str(args.dataset), "corpus_version": corpus,
+            "n_files": len(counts),
             "n_pairs": int(sum(counts.values())), "pairs_per_file": counts,
+            "unpaired_per_file": unpaired, "move_label_sources": dict(label_sources),
             "errors": errors, "unit_types": len(type_to_id), "factions": len(faction_to_id),
         }, indent=0), encoding="utf-8")
 
@@ -202,11 +220,14 @@ def main(argv=None) -> int:
             args.workers, initializer=_worker_init,
             initargs=(type_to_id, faction_to_id, args.relevant_set_hexes, str(args.out),
                       args.fog_hides_enemy_villages, args.terrain_multi_hot)) as pool:
-        for i, (name, n, status) in enumerate(pool.imap_unordered(_worker_encode, files,
-                                                                    chunksize=4), 1):
+        for i, (name, n, status, stats) in enumerate(pool.imap_unordered(_worker_encode, files,
+                                                                           chunksize=4), 1):
             if status == "ok":
                 counts[name] = n
                 done += 1
+                if stats.get("unpaired"):
+                    unpaired[name] = int(stats["unpaired"])
+                label_sources.update({k: v for k, v in stats.items() if k.startswith("move_label_")})
             elif status == "exists":
                 skipped += 1
                 if name not in counts:
