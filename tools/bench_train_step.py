@@ -237,7 +237,7 @@ def experiences_from_states(policy, states: Sequence, *, sims: int, rng: random.
 
 def bench_state_experiences(policy, manifest: Path, dataset: Path, *, limit: Optional[int],
                             sims: int, rng: random.Random, masks: bool = True) -> Tuple[List, dict]:
-    from tools.bench_pipeline import load_states
+    from tools.bench_states import load_states
     if not (dataset / "manifest.jsonl").exists():
         raise SystemExit(f"--dataset {dataset} has no manifest.jsonl (pack it with "
                          f"tools/bench_pipeline.py --pack-states, or use --source pool)")

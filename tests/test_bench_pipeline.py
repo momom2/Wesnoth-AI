@@ -81,7 +81,7 @@ def test_markdown_report_lists_every_section():
 @pytest.mark.skipif(not (DATASET / "manifest.jsonl").exists(),
                     reason="imitation dataset not present")
 def test_reconstruct_boundary_begins_the_cut_side_turn():
-    from tools.bench_pipeline import reconstruct_boundary
+    from tools.bench_states import reconstruct_boundary
     rows = [json.loads(ln) for ln in (DATASET / "manifest.jsonl").open(encoding="utf-8")]
     row = next(r for r in rows if r.get("holdout") and r["n_turns"] >= 6)
     with gzip.open(DATASET / row["file"], "rt", encoding="utf-8") as f:

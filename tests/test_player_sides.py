@@ -76,7 +76,7 @@ def test_a_side_that_is_not_a_player_has_no_encoding():
 def _continued(record):
     """The record cut at side 2's turn start of turn 2 and continued in
     the simulator, as tools/turn_gap continues its positions."""
-    from tools.bench_pipeline import reconstruct_boundary
+    from tools.bench_states import reconstruct_boundary
     from tools.turn_gap import sim_from_state
     gs, begin_side = reconstruct_boundary(record, 2)
     assert begin_side == 2 and len(gs.sides) == 3

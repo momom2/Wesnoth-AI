@@ -68,7 +68,7 @@ def _time_ms(fn, device: torch.device, repeats: int, warmup: int = 5) -> Dict[st
 
 def load_pairs(policy, manifest: Path, dataset: Path, limit: int, device: torch.device):
     """(RawEncoded, PackedMasks) per bench state, as the actor ships them."""
-    from tools.bench_pipeline import load_states
+    from tools.bench_states import load_states
     from tools.inference_seam import build_light_encoded
     from wesnoth_ai.encoder import encode_raw
     from wesnoth_ai.server_priors import pack_masks

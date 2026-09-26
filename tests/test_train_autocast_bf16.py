@@ -89,7 +89,7 @@ def _bench_states(n: int):
     first = json.loads(MANIFEST.read_text(encoding="utf-8"))["states"][0]["file"]
     if not (DATASET / first).exists():
         pytest.skip(f"bench dataset not at {DATASET} (WESNOTH_BENCH_DATASET)")
-    from tools.bench_pipeline import load_states
+    from tools.bench_states import load_states
     return [gs for gs, _scenario in load_states(MANIFEST, DATASET, n)]
 
 

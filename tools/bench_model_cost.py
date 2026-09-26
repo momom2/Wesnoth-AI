@@ -41,7 +41,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools.bench_pipeline import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states, n_tokens
+from tools.bench_pipeline import n_tokens
+from tools.bench_states import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states
 
 log = logging.getLogger("bench_model_cost")
 

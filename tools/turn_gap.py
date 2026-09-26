@@ -75,7 +75,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools import reference_player
-from tools.bench_pipeline import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states
+from tools.bench_states import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states
 from tools.eval_procedure import procedure_of
 from tools.eval_players import _PolicyPair, _play_one_eval_game
 from tools.mcts import fork_guard
@@ -183,7 +183,7 @@ class PolicySpec:
 class BoundaryPosition:
     """A side-turn boundary as the mover sees it: `gs` already carries
     the mover's init_side (income, healing, refreshed moves), as
-    tools/bench_pipeline.reconstruct_boundary returns it."""
+    tools/bench_states.reconstruct_boundary returns it."""
     index: int
     gs: GameState
     scenario_id: str

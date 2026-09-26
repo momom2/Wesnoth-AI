@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from tools.bench_pipeline import load_states
+from tools.bench_states import load_states
 from wesnoth_ai.paths import CONFIGS_DIR, IMITATION_DATASET_DIR
 from wesnoth_ai.trainer import _mcts_factored_policy_loss_reference
 
