@@ -171,10 +171,10 @@ NUM_HEX_MODIFIERS = 3
 #                          AND its hex is currently visible to the
 #                          side to move (a hex it sees, or fog
 #                          is off). A fogged enemy-owned village has
-#                          BOTH flags 0 = appears neutral (user spec
-#                          2026-07-11; deliberate small deviation
-#                          from Wesnoth's stale last-seen display,
-#                          which would need per-side memory).
+#                          BOTH flags 0 = appears neutral, as the
+#                          game draws it: `display::get_flag` shows
+#                          an enemy's flag only on an unfogged hex
+#                          (src/display.cpp:339-356, 1.18.4).
 #   Neutral / non-village hexes carry 0/0.
 #
 # Moves have no rejection flag: a move onto a hex a hidden unit holds

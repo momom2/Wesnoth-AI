@@ -20,6 +20,7 @@ leg records and runbooks (index in `archive/README.md`).
 | turn_proposer_design_20260905.md | the design of the turn-level search pipeline that phase 2 builds (rows 1 to 6 without a pre-grader) |
 | techniques.md | catalog of every learning technique the training system implements beyond bare REINFORCE, with its default and a code citation |
 | corpus_v2_20260926.md | the corrected imitation corpus (version 2): what each correction changes, its measured reach, and the rebuild |
+| observation_parity_20260926.md | what the network observes against what a player sees: the parity table, eight input gaps with their frequency in corpus games, two facts a player does not have |
 | refactor_plan_20260925.md | the refactor into one package per system: what is wrong now, the target layout, what a move must not break, the order of steps |
 | refactor_inventory_20260925.md | the inventory the refactor plan rests on: the system map, dead code with evidence, structure problems (commit 90ff321) |
 
