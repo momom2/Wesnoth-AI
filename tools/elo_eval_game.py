@@ -376,6 +376,9 @@ def _build_player(spec: str, label: str, sims: int, device,
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
+    `raw_seed`: this side's seed for the game. It seeds the raw
+    player's sampler, or a searched player's generators (`rng_seed`),
+    so a game repeats from its slot either way.
     `relevant_set`: encode this side with the relevant hex subset
     whatever the checkpoint carries (main passes the EFFECTIVE basis,
     `_effective_basis`). `inference_address`: play the raw player
@@ -423,13 +426,15 @@ def _build_player(spec: str, label: str, sims: int, device,
             # the checkpoint's loop centered its search on.
             value_center=float(value_center))
         if plan_tournament:
-            return cls(policy, mc, tournament_config=pt_cfg), counter
+            return cls(policy, mc, tournament_config=pt_cfg,
+                       rng_seed=raw_seed), counter
         if turn_search:
             # No config = dataclass defaults = a DIFFERENT estimand
             # than the leg trained (round-32 C3: boundary_frame
             # defaults to "opponent" while leg 5+ trains "mover").
-            return cls(policy, mc, turn_config=ts_cfg), counter
-        return cls(policy, mc), counter
+            return cls(policy, mc, turn_config=ts_cfg,
+                       rng_seed=raw_seed), counter
+        return cls(policy, mc, rng_seed=raw_seed), counter
     if raw_temperature is not None:
         from tools.raw_player import RawPolicyPlayer
         return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,

@@ -566,3 +566,14 @@ def test_certified_mass_matches_midgame_floor(monkeypatch):
         gw = 1.0 / (2.0 * side_weight_divisor(2, midgame))
         assert abs(states[0].policy_weight * gw - beta / 2) < 1e-9, \
             (midgame, states[0].policy_weight, gw)
+
+
+def test_a_seeded_tournament_repeats_its_draws():
+    """The tournament's own generator follows the policy's `rng_seed`,
+    so a seeded searched player repeats its game from its slot."""
+    def draws(seed):
+        pol = PlanTournamentPolicy(_tiny(), MCTSConfig(n_simulations=2),
+                                   tournament_config=_cfg(), rng_seed=seed)
+        return pol._t_rng.integers(2 ** 62, size=4).tolist()
+    assert draws(7) == draws(7)
+    assert draws(7) != draws(8)

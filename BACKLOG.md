@@ -156,9 +156,10 @@ bases are disjoint except the documented offset-sweep overlap. Open:
   same dice while their variance is treated as independent;
   `TurnCommitPolicy._ground_rng` is identical in every actor. The
   quarantined human anchor seeds each game from a salted `str` hash.
-- Searched eval players (MCTS, TCS, plan tournament) are built without
-  `rng_seed`, so their games are not reproducible from their slot
-  (independence is unaffected; the verdict path uses raw players).
+- Done: searched eval players (MCTS, TCS, plan tournament) take their
+  side's per-game seed in `elo_eval_game`, the plan tournament's own
+  generator included. `elo_ladder` still builds its searched player once
+  for the whole ladder, unseeded.
 - `scripts/endturn_offset_sweep_box.sh` still steps its seed base by 100
   between 800-game matches, and `endturn_readout.py` computes an
   independent-arms SE without checking the (side, seed) overlap: a guard
