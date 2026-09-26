@@ -48,3 +48,33 @@ def test_all_ladder_ids_resolve_with_exact_casing():
     assert not miscased, (
         f"ladder ids resolving only by case-accident (would be "
         f"SILENTLY SKIPPED on Linux): {miscased}")
+
+
+def test_the_scenario_id_is_the_scenario_tags_own_not_a_macro_bodys():
+    from tools.scenario_events import scenario_id_of_cfg
+    text = ("#define STATUE X Y\n"
+            "    [unit]\n        [modifications]\n            [trait]\n"
+            "                id=remove_hp\n            [/trait]\n"
+            "        [/modifications]\n    [/unit]\n#enddef\n"
+            "[multiplayer]\n    [side]\n        id=1\n    [/side]\n"
+            "    id=\"My_Map\"\n[/multiplayer]\n")
+    assert scenario_id_of_cfg(text) == "My_Map"
+
+
+def test_every_addon_scenario_id_resolves_to_a_file_declaring_it():
+    """WL_Troll_Toll (5 corpus games) resolved to no file, so its
+    replays were rebuilt without the scenario: the first `id=` of its
+    .cfg sits inside a #define."""
+    from tools.scenario_events import scenario_id_of_cfg
+    addons = SCENARIO_DIR.parent.parent / "add-ons"
+    files = sorted(addons.glob("*/scenarios/*.cfg"))
+    assert files, f"no add-on scenario under {addons}"
+    unresolved = []
+    for path in files:
+        sid = scenario_id_of_cfg(path.read_text(encoding="utf-8", errors="ignore"))
+        found = find_scenario_cfg_path(sid) if sid else None
+        declared = (scenario_id_of_cfg(found.read_text(encoding="utf-8", errors="ignore"))
+                    if found else None)
+        if sid is None or declared != sid:
+            unresolved.append((path.name, sid, found))
+    assert unresolved == []
