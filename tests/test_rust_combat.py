@@ -13,7 +13,7 @@ import random
 
 import pytest
 
-from wesnoth_ai import combat as cb
+from wesnoth_ai.sim import combat as cb
 
 try:
     import wesnoth_core as _core

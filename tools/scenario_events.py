@@ -1329,7 +1329,7 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
     """
     apply_to = (eff.attrs.get("apply_to", "") or "").strip().strip('"')
     from wesnoth_ai.sim.classes import Attack
-    from wesnoth_ai.combat import DAMAGE_TYPES
+    from wesnoth_ai.sim.combat import DAMAGE_TYPES
 
     if apply_to == "attack":
         weapon_range = (eff.attrs.get("range", "") or "").strip().strip('"')
@@ -1500,7 +1500,7 @@ def _effect_member_ids(container: Optional[WMLNode]) -> set:
 
     OUR model names an ability and a weapon special by the engine's
     `id=`: `unit_stats.json` scrapes them that way, combat asks
-    `"magical" in weapon.specials` (wesnoth_ai/combat.py) and the fog
+    `"magical" in weapon.specials` (wesnoth_ai/sim/combat.py) and the fog
     gate asks `"submerge" in unit.abilities` (wesnoth_ai/visibility.py).
     So an `[effect]`'s children must be read by `id=`, not by the tag
     carrying them. Three specials share the `[chance_to_hit]` tag

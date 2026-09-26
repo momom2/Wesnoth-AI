@@ -453,7 +453,7 @@ def test_petrified_unit_gets_no_init_side_healing_or_poison():
     fix (replay_dataset.py)."""
     from sim_test_helpers import fresh_scenario_sim
     from tools.replay_dataset import _rebuild_unit
-    from wesnoth_ai.combat import POISON_AMOUNT
+    from wesnoth_ai.sim.combat import POISON_AMOUNT
     sim = fresh_scenario_sim(seed=7, max_turns=10,
                              scenario_id="multiplayer_The_Freelands")
     sim.gs.map.units.clear()

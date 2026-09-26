@@ -79,7 +79,7 @@ def _rows_from_reach() -> bool:
 
 
 def _combat() -> bool:
-    from wesnoth_ai.combat import rust_combat_kernel
+    from wesnoth_ai.sim.combat import rust_combat_kernel
     return rust_combat_kernel() is not None
 
 

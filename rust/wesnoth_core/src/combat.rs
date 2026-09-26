@@ -1,5 +1,5 @@
 //! Phase 3a: one attack resolved in Rust (docs/rust_port_plan.md).
-//! A transcription of `wesnoth_ai/combat.py`: std::mt19937 with the
+//! A transcription of `wesnoth_ai/sim/combat.py`: std::mt19937 with the
 //! Knuth seeding (Wesnoth's `mt_rng`), `_compute_battle_stats`,
 //! `resolve_attack` and `_perform_hit`, over the two units' snapshots
 //! as flat integers. The Python module stays the diff oracle

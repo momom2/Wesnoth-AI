@@ -16,7 +16,7 @@ ability is likewise `[hides] id=submerge`, `[hides] id=ambush`
 Until 2026-09-13 `_apply_effect_to_unit` read the child TAG, so a
 granted `magical` was stored as `chance_to_hit` and a granted
 `submerge` as `hides`. Nothing consumes those names -- combat asks
-`"magical" in weapon.specials` (`wesnoth_ai/combat.py`) and the fog
+`"magical" in weapon.specials` (`wesnoth_ai/sim/combat.py`) and the fog
 gate asks `"submerge" in unit.abilities` (`wesnoth_ai/visibility.py`)
 -- so both were created and silently inert. `apply_to=new_ability` was
 not dispatched at all.

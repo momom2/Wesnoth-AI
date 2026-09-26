@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from wesnoth_ai import combat as cb
+from wesnoth_ai.sim import combat as cb
 
 
 # ---------------------------------------------------------------------
@@ -446,7 +446,7 @@ def test_the_unknown_type_fallback_is_reported():
 
 # ---------------------------------------------------------------------
 # the Rust combat bridge and the Python oracle agree about the
-# defender weapon index (wesnoth_ai/combat.py::_resolve_attack_rust)
+# defender weapon index (wesnoth_ai/sim/combat.py::_resolve_attack_rust)
 # ---------------------------------------------------------------------
 #
 # The bridge used to fold "index past the end of the weapon list" into

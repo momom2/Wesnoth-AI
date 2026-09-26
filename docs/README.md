@@ -64,7 +64,7 @@ Each is optional; the default is the behaviour with the variable unset.
 |---|---|---|
 | `WESNOTH_RUST` | 1 | 0 forces the Python reach, legal-move and encoding paths (`tools/pathfind_sim.py`, `wesnoth_ai/encoder.py`) |
 | `WESNOTH_RUST_OBSERVE` | 1 | 0 forces the Python observation and relevant-set rows (`wesnoth_ai/observe.py`) |
-| `WESNOTH_RUST_COMBAT` | 1 | 0 forces the Python combat resolver (`wesnoth_ai/combat.py`) |
+| `WESNOTH_RUST_COMBAT` | 1 | 0 forces the Python combat resolver (`wesnoth_ai/sim/combat.py`) |
 | `WESNOTH_RUST_CORE` | 0 | 1 makes the Rust-owned state (`GameCore`) the simulator's state of record (`tools/wesnoth_sim.py`) |
 | `WESNOTH_STRICT_WML` | unset | set, an unmodelled WML construct raises instead of warning (`wesnoth_ai/rules/scenario_cfg.py`, `tools/scenario_events.py`, `wesnoth_ai/rules/wml_state.py`, `tools/neutral_ai.py`) |
 | `WESNOTH_GAME_RECORD_DIR` | unset | the default of `sim_self_play --game-record-dir` (else `training/game_records`); the test suite points it at a temporary directory |

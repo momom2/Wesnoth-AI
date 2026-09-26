@@ -43,7 +43,7 @@ from tools.replay_dataset import (                                 # noqa: E402
     _build_initial_gamestate, _setup_scenario_events,
     _apply_command, _stats_for, _rebuild_unit,
 )
-from wesnoth_ai import combat as _cb                               # noqa: E402
+from wesnoth_ai.sim import combat as _cb                               # noqa: E402
 from wesnoth_ai.sim.classes import GameState, Position                 # noqa: E402
 
 _EPS = 1e-9

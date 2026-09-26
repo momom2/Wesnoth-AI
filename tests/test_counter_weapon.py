@@ -25,7 +25,7 @@ from tools.combat_outcomes import (   # noqa: E402
     _strike_dp,
     choose_counter_weapon,
 )
-from wesnoth_ai import combat as cb   # noqa: E402
+from wesnoth_ai.sim import combat as cb   # noqa: E402
 
 
 def test_better_combat_kill_probability_dominates():

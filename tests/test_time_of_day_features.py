@@ -3,7 +3,7 @@
 Until this landed, `GLOBAL_FEAT_DIM` was 6 -- turn, side to move, our
 gold, our income, our villages, theirs -- and no time-of-day or lawful
 bonus signal appeared anywhere in the global, unit or hex features,
-while combat applied the bonus in `wesnoth_ai/combat.py` and in the
+while combat applied the bonus in `wesnoth_ai/sim/combat.py` and in the
 Rust kernel. A lawful unit's damage swung by half for reasons the
 policy could not observe.
 

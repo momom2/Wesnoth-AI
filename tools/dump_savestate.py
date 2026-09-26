@@ -69,7 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from wesnoth_ai.sim.classes import (
     GameState, Hex, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
-from wesnoth_ai import combat as cb
+from wesnoth_ai.sim import combat as cb
 from tools.replay_dataset import (
     iter_replay_pairs_with_state, _stats_for,
 )

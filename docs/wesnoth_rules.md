@@ -1309,7 +1309,7 @@ strike that landed the kill, so the reverse-plague case reads as the
 forward one. And the `attacker_dies` branch looks like a live
 both-die path until you trace the floor 100 lines earlier.
 
-Our mirrors: `wesnoth_ai/combat.py::_perform_hit_body` (`heal =
+Our mirrors: `wesnoth_ai/sim/combat.py::_perform_hit_body` (`heal =
 max(heal, 1 - striker.hp)`) and `rust/wesnoth_core/src/combat.rs`;
 both fight loops break on the first death, so `resolve_attack` cannot
 return `attacker_alive=False` together with `defender_alive=False`.

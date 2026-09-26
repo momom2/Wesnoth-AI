@@ -162,7 +162,7 @@ def map_static(gs: GameState) -> dict:
 def type_fields(name: str) -> dict:
     """A unit type's fields for `GameCore.register_type`."""
     from tools.replay_dataset import _stats_for
-    from wesnoth_ai import combat as cb
+    from wesnoth_ai.sim import combat as cb
     stats = _stats_for(name)
     res = stats.get("resistance", {})
     attacks = []
@@ -439,7 +439,7 @@ class CoreState:
         fight killed, slowed or petrified it, and its advancement, the
         corpse of a defender killed by plague."""
         from tools.engagement_stats import emit_event
-        from wesnoth_ai.combat import seed_int_of
+        from wesnoth_ai.sim.combat import seed_int_of
         ax, ay, dx, dy, a_weapon = (int(v) for v in cmd[1:6])
         d_weapon = int(cmd[6]) if len(cmd) > 6 else -1
         seed_hex = cmd[7] if len(cmd) > 7 else ""

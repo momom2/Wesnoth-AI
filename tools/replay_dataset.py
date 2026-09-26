@@ -39,7 +39,7 @@ from wesnoth_ai.sim.classes import (
     PLAYER_SIDES, Alignment as AlignmentEnum, Attack, DamageType, GameState, GlobalInfo,
     Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
-from wesnoth_ai import combat as cb
+from wesnoth_ai.sim import combat as cb
 from wesnoth_ai.paths import UNIT_STATS_PATH
 # The fog each command clears or recalculates (docs/wesnoth_rules.md
 # "Vision and fog").
@@ -1459,7 +1459,7 @@ def _draw_uniform_advance(gs: GameState, n: int) -> int:
     of the live game's pick (same god-view protection combat has). All
     state lives on gs.global_info, so it survives fork()/deepcopy."""
     import hashlib
-    from wesnoth_ai import combat as cb
+    from wesnoth_ai.sim import combat as cb
     gi = gs.global_info
     counter = int(getattr(gi, "_advance_counter", 0) or 0) + 1
     setattr(gi, "_advance_counter", counter)

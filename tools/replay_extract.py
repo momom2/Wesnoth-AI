@@ -1978,7 +1978,7 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
                     # fall back to the first synced draw -- right for
                     # zero-pre-draw games, and a no-attack game can't
                     # diverge on ToD-modified combat anyway.
-                    from wesnoth_ai.combat import MTRng
+                    from wesnoth_ai.sim.combat import MTRng
                     _rng = MTRng(seed_hex, call_count=calls)
                     tod_start_index = _rng.get_next_random() % n_times
                 log.debug(

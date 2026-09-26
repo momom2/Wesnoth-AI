@@ -177,7 +177,7 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    attack resolved in Rust from the two snapshots as flat integers:
    std::mt19937 with the Knuth seeding (Wesnoth's `mt_rng`),
    `_compute_battle_stats`, the strike loop and the hit body of
-   `wesnoth_ai/combat.py`, returning the outcome and the per-strike
+   `wesnoth_ai/sim/combat.py`, returning the outcome and the per-strike
    checkup records. `combat.resolve_attack` takes it behind
    `WESNOTH_RUST_COMBAT` (default off until certified; the Python
    body stays as `_resolve_attack_python`, the oracle). `random_int`
