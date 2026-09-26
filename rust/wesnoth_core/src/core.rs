@@ -3,7 +3,7 @@
 //! `GameCore` holds what `wesnoth_ai.classes.GameState` holds and the
 //! per-fork stash the simulator keeps on `global_info`: the units, the
 //! sides, the turn scalars, the village owners, the uncovered hiders,
-//! the per-turn rejection sets and each side's cleared hexes. What
+//! the turn's recruit rejections and each side's cleared hexes. What
 //! never changes within a game is shared across forks behind `Arc`:
 //! the map (`MapStatic`, built once by `wesnoth_ai.game_core` from the
 //! hex set, the terrain codes and the time areas), the unit-type table
@@ -200,7 +200,6 @@ pub struct GameCore {
     pub uncovered: Vec<String>,      // sorted
     pub fog_cleared: Vec<Vec<u8>>,   // per side (index side - 1): [H] cleared hexes, empty = untracked
     pub recruit_rejected: Vec<u8>,   // [H]
-    pub move_rejected: Vec<u8>,      // [H]
     pub advance_choices: Vec<i64>,
     pub pickadvance_game: Vec<(i64, String, Vec<String>)>,
     pub last_advance_events: Vec<(i64, i64)>,
@@ -332,7 +331,6 @@ impl GameCore {
             uncovered: Vec::new(),
             fog_cleared: Vec::new(),
             recruit_rejected: vec![0; h],
-            move_rejected: vec![0; h],
             advance_choices: Vec::new(),
             pickadvance_game: Vec::new(),
             last_advance_events: Vec::new(),
@@ -633,21 +631,17 @@ impl GameCore {
         self.uncovered.clone()
     }
 
-    fn set_rejected(&mut self, recruit: Vec<(i64, i64)>, moves: Vec<(i64, i64)>) {
+    /// The hexes a recruit bounced on this turn (`_recruit_rejected_hexes`).
+    fn set_recruit_rejected(&mut self, hexes: Vec<(i64, i64)>) {
         self.recruit_rejected = vec![0; self.map.h];
-        self.move_rejected = vec![0; self.map.h];
-        for (x, y) in recruit {
+        for (x, y) in hexes {
             if let Some(&i) = self.map.pos_index.get(&(x, y)) { self.recruit_rejected[i] = 1; }
-        }
-        for (x, y) in moves {
-            if let Some(&i) = self.map.pos_index.get(&(x, y)) { self.move_rejected[i] = 1; }
         }
     }
 
-    fn rejected_export(&self) -> (Vec<(i64, i64)>, Vec<(i64, i64)>) {
-        let pick = |v: &Vec<u8>| (0..self.map.h).filter(|&i| v[i] != 0)
-            .map(|i| (self.map.hx[i], self.map.hy[i])).collect::<Vec<_>>();
-        (pick(&self.recruit_rejected), pick(&self.move_rejected))
+    fn recruit_rejected_hexes(&self) -> Vec<(i64, i64)> {
+        (0..self.map.h).filter(|&i| self.recruit_rejected[i] != 0)
+            .map(|i| (self.map.hx[i], self.map.hy[i])).collect()
     }
 
     fn set_advance_state(&mut self, choices: Vec<i64>, pickadvance: Vec<(i64, String, Vec<String>)>,
@@ -686,7 +680,7 @@ impl GameCore {
 
     /// `classes.state_key`'s content over the same fields: the units
     /// (by id, sorted), the sides, the village owners, the uncovered
-    /// and rejected sets, the cleared hexes, the turn scalars. Equal
+    /// set, the recruit rejections, the cleared hexes, the turn scalars. Equal
     /// states hash equal; a changed field changes it
     /// (tests/test_game_core.py).
     fn state_key(&self) -> i64 {

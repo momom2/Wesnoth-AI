@@ -177,13 +177,8 @@ NUM_HEX_MODIFIERS = 3
 #                          which would need per-side memory).
 #   Neutral / non-village hexes carry 0/0.
 #
-# Move-bounce (fog-hidden enemy) rejection is tracked on
-# `global_info._move_rejected_hexes` (parallel to the recruit set)
-# but intentionally NOT mirrored into a dynamic_flag bit. The
-# action_sampler's legality mask zeros out those hexes from the
-# move_row so the policy literally can't re-pick them; the
-# observation-level signal (a token bit) would only duplicate
-# information the mask already encodes. Keeping
+# Moves have no rejection flag: a move onto a hex a hidden unit holds
+# stops next to it and reveals it (pathfind_sim.walk_move_path).
 # (Historical: the flag count was held at 1 for a while for
 # checkpoint compatibility of dynamic_flag_proj; it has been 3
 # since the fog/ZoC flags landed -- pad_legacy_encoder_state
@@ -1327,10 +1322,6 @@ def encode_raw(
     # Per-turn rejection set (hexes a previous recruit attempt
     # bounced this turn). Stashed on global_info by the harness;
     # absent on fresh states. See CLAUDE.md legality-mask contract.
-    # The parallel `_move_rejected_hexes` set (move-bounce on a
-    # fog-hidden enemy) is consumed by the action_sampler's
-    # legality mask, NOT mirrored into the encoder -- a token bit
-    # would duplicate the mask's hard constraint.
     rejected_hexes = (
         getattr(game_state.global_info, "_recruit_rejected_hexes", None)
         or set()

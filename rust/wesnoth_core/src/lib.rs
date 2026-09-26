@@ -227,9 +227,8 @@ fn unit_reach_arrays<'py>(
 /// not an acting unit): the hexes a unit can end a move on this turn,
 /// reached by the Dijkstra, not its own hex, not visibly occupied
 /// (pathfind_sim.UnitReach.landable). An all-zero row for a unit that
-/// cannot move. Move rejection is applied at mask time
-/// (`rows_from_landable`), so a row is a fact of the terrain and the
-/// reach context alone; the relevant hex set is the union of the rows
+/// cannot move. A row is a fact of the terrain and the reach context
+/// alone; the relevant hex set is the union of the rows
 /// (visibility.relevant_hex_positions, part a).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn landable_rows(
@@ -311,11 +310,10 @@ pub(crate) fn landable_rows(
 
 /// The move and attack rows in token space from landable rows, the
 /// semantics of `_build_legality_masks`: a move row is the landable
-/// row minus the move-rejected hexes; an enemy token is attackable
-/// when a map neighbour of its hex is the unit's own hex or a landable
-/// hex (rejection not applied). Units with `unit_hexidx` < 0 get
-/// empty rows. `tok_of_hex[i]` maps a map hex to its token slot or -1
-/// (the full board or the relevant subset).
+/// row; an enemy token is attackable when a map neighbour of its hex is
+/// the unit's own hex or a landable hex. Units with `unit_hexidx` < 0
+/// get empty rows. `tok_of_hex[i]` maps a map hex to its token slot or
+/// -1 (the full board or the relevant subset).
 ///
 /// Every non-negative `tok_of_hex` entry must be < `ht`. The caller
 /// builds the two from the same hex-position list, so the invariant
@@ -334,7 +332,6 @@ fn rows_from_landable(
     unit_hexidx: &[i64],
     unit_can_move: &[u8],
     unit_can_attack: &[u8],
-    move_rej: &[u8],
     enemy_hexids: &[i64],
     ht: usize,
 ) -> PyResult<(Vec<u8>, Vec<u8>)> {
@@ -344,7 +341,6 @@ fn rows_from_landable(
         &[
             ("landable", landable.len(), un * h),
             ("nbrs", nbrs.len(), h * 6),
-            ("move_rej", move_rej.len(), h),
             ("unit_can_move", unit_can_move.len(), un),
             ("unit_can_attack", unit_can_attack.len(), un),
         ],
@@ -371,7 +367,7 @@ fn rows_from_landable(
         let row = &landable[u * h..(u + 1) * h];
         if unit_can_move[u] != 0 {
             for i in 0..h {
-                if row[i] != 0 && move_rej[i] == 0 {
+                if row[i] != 0 {
                     let tok = tok_of_hex[i];
                     if tok >= 0 {
                         move_rows[u * ht + tok as usize] = 1;
@@ -449,7 +445,6 @@ fn rows_from_reach<'py>(
     unit_hexidx: PyReadonlyArray1<'py, i64>,
     unit_can_move: PyReadonlyArray1<'py, u8>,
     unit_can_attack: PyReadonlyArray1<'py, u8>,
-    move_rej: PyReadonlyArray1<'py, u8>,
     enemy_hexids: PyReadonlyArray1<'py, i64>,
     ht: usize,
 ) -> PyResult<(Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>)> {
@@ -460,7 +455,6 @@ fn rows_from_reach<'py>(
         unit_hexidx.as_slice()?,
         unit_can_move.as_slice()?,
         unit_can_attack.as_slice()?,
-        move_rej.as_slice()?,
         enemy_hexids.as_slice()?,
         ht,
     )?;
@@ -496,7 +490,6 @@ fn enumerate_moves<'py>(
     enemy: PyReadonlyArray1<'py, u8>,
     ally: PyReadonlyArray1<'py, u8>,
     occupied: PyReadonlyArray1<'py, u8>,
-    move_rej: PyReadonlyArray1<'py, u8>,
     enemy_hexids: PyReadonlyArray1<'py, i64>,
     ht: usize,
 ) -> PyResult<(Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>)> {
@@ -530,7 +523,6 @@ fn enumerate_moves<'py>(
         unit_hexidx,
         unit_can_move,
         unit_can_attack,
-        move_rej.as_slice()?,
         enemy_hexids.as_slice()?,
         ht,
     )?;
@@ -564,7 +556,10 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 16: GameCore wraps a negative start slot into the cycle and its
     // invariant check compares each side's village count with the owner
     // map; observe_side gives a scenery unit the zone of control its flag
-    // says; a length error names the array and both lengths.
+    // says; a length error names the array and both lengths;
+    // rows_from_reach and enumerate_moves take no move-rejection row, and
+    // GameCore keeps the recruit rejections only (set_recruit_rejected,
+    // recruit_rejected_hexes).
     m.add("__phase__", 16)?;
     Ok(())
 }

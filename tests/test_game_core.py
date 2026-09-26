@@ -2,8 +2,8 @@
 
 `CoreState.from_state(gs).to_state()` must equal `gs` over every modeled
 field (units field for field including statuses, traits, abilities and
-attacks; sides; the turn scalars; the village owners, the uncovered and
-rejected sets, the advancement queue, the last walk and strikes) and
+attacks; sides; the turn scalars; the village owners, the uncovered set,
+the recruit rejections, the advancement queue, the last walk and strikes) and
 share the hex set by identity. A fork must not share dynamic state
 with its parent. The core's state key must agree with itself on equal
 states and change with any modeled field. Skipped without the phase-16
@@ -50,7 +50,6 @@ def _decorate(gs):
     gi = gs.global_info
     hexes = sorted(gs.map.hexes, key=lambda h: (h.position.y, h.position.x))
     gi._recruit_rejected_hexes = {(hexes[3].position.x, hexes[3].position.y)}
-    gi._move_rejected_hexes = {(hexes[5].position.x, hexes[5].position.y)}
     units = sorted(gs.map.units, key=lambda u: u.id)
     gi._uncovered_units = {units[0].id} if units else set()
     gi._last_move_walk = {"ordered": (1, 2), "landed": (1, 3), "stop_reason": "ambush"}

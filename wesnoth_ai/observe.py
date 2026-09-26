@@ -48,7 +48,7 @@ def _kernels() -> Dict[str, object]:
                 wesnoth_core = None
             # Phase 16: observe_side takes the side's seen hexes (12) and
             # reads every unit's zone of control from `uzoc`, scenery
-            # included (16).
+            # included; rows_from_reach takes no move-rejection row (16).
             if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 16:
                 for name in ("observe_side", "reach_rows", "rows_from_reach"):
                     _KERNELS[name] = getattr(wesnoth_core, name)

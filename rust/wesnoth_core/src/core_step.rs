@@ -103,16 +103,15 @@ impl GameCore {
 #[pymethods]
 impl GameCore {
     /// `_apply_command(["init_side", side])` without the scenario
-    /// events: the side to move, the rejection sets, the turn counter
-    /// and time of day at side 1, healing (heal.cpp::calculate_healing
-    /// as the Python transcribes it), the move refresh, income and
-    /// upkeep (play_controller.cpp:524-534), the side's revealed hiders
-    /// hidden again after turn 1, and the side's fog recalculated.
+    /// events: the side to move, the recruit rejections cleared, the
+    /// turn counter and time of day at side 1, healing
+    /// (heal.cpp::calculate_healing as the Python transcribes it), the
+    /// move refresh, income and upkeep (play_controller.cpp:524-534), the
+    /// side's revealed hiders hidden again after turn 1, and the side's
+    /// fog recalculated.
     fn apply_init_side(&mut self, side: i64) -> PyResult<()> {
-        let h = self.map.h;
         self.global.current_side = side;
-        self.recruit_rejected = vec![0; h];
-        self.move_rejected = vec![0; h];
+        self.recruit_rejected = vec![0; self.map.h];
         if side == 1 {
             self.global.turn_number += 1;
             self.global.time_of_day = TOD_NAMES[self.tod_index(self.global.turn_number)].to_string();

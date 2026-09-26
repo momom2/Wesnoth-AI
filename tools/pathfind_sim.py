@@ -80,9 +80,10 @@ if _os.environ.get("WESNOTH_RUST", "1") != "0":
 
 # The wheel phase (`wesnoth_core.__phase__`, rust/wesnoth_core/src/lib.rs)
 # each kernel needs: the reach Dijkstra keeps phase 1's contract;
-# `enumerate_moves` refuses a token index past the row width from phase 9.
+# `enumerate_moves` refuses a token index past the row width from phase 9
+# and takes its current arguments (no move-rejection row) from phase 16.
 REACH_KERNEL_PHASE = 1
-ENUMERATE_KERNEL_PHASE = 9
+ENUMERATE_KERNEL_PHASE = 16
 _warned_stale_kernels: Set[str] = set()
 
 
