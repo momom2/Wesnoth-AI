@@ -31,7 +31,7 @@ import contextlib
 import random
 import time
 from dataclasses import dataclass
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -78,6 +78,16 @@ _OOB_INDEX_EVENTS = 0
 # consistency, trust, aux, moves-left, GBC).
 STEP_MCTS_STAGES = ("encode_raw", "encode", "forward", "policy_loss",
                     "value_loss", "backward", "clip", "optimizer")
+
+# The terms of the loss step_mcts backpropagates, as `mcts_loss_terms`
+# hands them out: the factored policy cross-entropy split by head, then
+# the value-side terms at their coefficients in the order the step sums
+# them (the value loss, arm VG2's consistency and trust-region terms,
+# the aux margin, moves-left and GBC). A term the batch does not
+# exercise is a zero.
+MCTS_POLICY_TERMS = ("actor", "type", "target", "weapon")
+MCTS_VALUE_TERMS = ("value", "consistency", "trust", "aux", "moves_left", "gbc")
+MCTS_LOSS_TERMS = MCTS_POLICY_TERMS + MCTS_VALUE_TERMS
 
 _CPU = torch.device("cpu")
 
@@ -1350,14 +1360,22 @@ def _stage_policy_targets(
                           n_rows=n_rows, visits=visits)
 
 
-def _batched_factored_policy_loss(
-    padded, targets: _PolicyTargets,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Device side. `padded` is the chunk's model.PaddedOutput. Returns
-    (the chunk's policy loss, already weighted and normalized; the
-    detached sum of count x -log p(actor) for the "entropy" log
-    field). A row whose mask has no legal entry is left unmasked
-    within its state, as the reference does."""
+@dataclass
+class _PolicyLoss:
+    """One chunk's factored policy loss: `loss` (weighted and
+    normalized, minus the sum of `head_logp`), each head's summed
+    coefficient x log-probability (a head no visit term reaches is
+    absent), and the detached sum of count x -log p(actor) for the
+    "entropy" log field."""
+    loss: torch.Tensor
+    head_logp: Dict[str, torch.Tensor]
+    actor_nlp: torch.Tensor
+
+
+def _batched_factored_policy_loss(padded, targets: _PolicyTargets) -> _PolicyLoss:
+    """Device side. `padded` is the chunk's model.PaddedOutput. A row
+    whose mask has no legal entry is left unmasked within its state,
+    as the reference does."""
     dev = padded.actor_logits.device
     mv = targets.mask_layout.torch_views(targets.mask_host.to(dev, non_blocking=True))
     tv = targets.term_layout.torch_views(targets.term_host.to(dev, non_blocking=True))
@@ -1367,7 +1385,8 @@ def _batched_factored_policy_loss(
     al = (padded.actor_logits + mv["actor_bias"]).masked_fill(
         mv["actor_mask"] == 0, _NEG_INF)
     a_vals = F.log_softmax(al, dim=-1).reshape(-1)[tv["actor_idx"]]
-    logp_sum = (tv["actor_coef"] * a_vals).sum()
+    head_logp = {"actor": (tv["actor_coef"] * a_vals).sum()}
+    logp_sum = head_logp["actor"]
     actor_nlp = -(tv["actor_cnt"] * a_vals.detach()).sum()
 
     if tv["type_idx"].numel():
@@ -1377,7 +1396,8 @@ def _batched_factored_policy_loss(
         if "type_bias" in mv:
             tl = tl + mv["type_bias"]
         t_vals = F.log_softmax(tl.masked_fill(~ok, _NEG_INF), dim=-1).reshape(-1)[tv["type_idx"]]
-        logp_sum = logp_sum + (tv["type_coef"] * t_vals).sum()
+        head_logp["type"] = (tv["type_coef"] * t_vals).sum()
+        logp_sum = logp_sum + head_logp["type"]
 
     if targets.n_rows:
         rb, ra, rk = tv["row_b"], tv["row_a"], tv["row_kind"]
@@ -1392,16 +1412,18 @@ def _batched_factored_policy_loss(
         ok = torch.where(valid.any(dim=-1, keepdim=True), valid, in_state)
         g_vals = F.log_softmax(rows.masked_fill(~ok, _NEG_INF),
                                dim=-1).reshape(-1)[tv["tgt_idx"]]
-        logp_sum = logp_sum + (tv["tgt_coef"] * g_vals).sum()
+        head_logp["target"] = (tv["tgt_coef"] * g_vals).sum()
+        logp_sum = logp_sum + head_logp["target"]
 
     if tv["wpn_idx"].numel():
         ok = (torch.arange(W, device=dev).view(1, 1, W)
               < mv["n_attacks"].unsqueeze(-1))                           # [B, A_max, W]
         w_vals = F.log_softmax(padded.weapon_logits.masked_fill(~ok, _NEG_INF),
                                dim=-1).reshape(-1)[tv["wpn_idx"]]
-        logp_sum = logp_sum + (tv["wpn_coef"] * w_vals).sum()
+        head_logp["weapon"] = (tv["wpn_coef"] * w_vals).sum()
+        logp_sum = logp_sum + head_logp["weapon"]
 
-    return -logp_sum, actor_nlp
+    return _PolicyLoss(loss=-logp_sum, head_logp=head_logp, actor_nlp=actor_nlp)
 
 
 class _StageTimer:
@@ -1492,6 +1514,9 @@ def _trainer_step_mcts(
 
     `timings`: seconds per stage (keys STEP_MCTS_STAGES) are ADDED to
     this dict; defaults to `self.stage_timings`. None = no timing.
+
+    `mcts_loss_terms` hands out the same loss split by term, without
+    stepping (the signal telemetry's probe).
     """
     if not experiences:
         return TrainStats()
@@ -1515,15 +1540,187 @@ def _trainer_step_mcts(
     B = max(1, self.config.train_batch_size)
     # cuda only: the cpu path stays the fp32 reference (TrainerConfig).
     autocast_bf16 = bool(self.config.train_autocast_bf16) and dev.type == "cuda"
+    batch = _mcts_batch(self, experiences, dev)
 
+    if not no_grad:
+        self.optimizer.zero_grad()
+
+    sum_policy_loss = 0.0
+    sum_value_loss  = 0.0
+    sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0}
+    sum_total_visits = 0.0
+    sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
+
+    # Optimization #7 (2026-06-14): run the training forwards in eval()
+    # (not train()), mirroring the REINFORCE step(). The model's 9
+    # Dropout(p=1e-4) layers exist only to disable a torch fast path
+    # (see model.py) and are a statistical no-op, so eval() loses no
+    # meaningful regularization while skipping the dropout ops and
+    # making the value-head training forward deterministic. The
+    # unconditional eval() at function end already leaves the model in
+    # eval() for the caller, so the post-condition is unchanged.
+    self.model.eval()
+    self.encoder.eval()
+
+    timer = _StageTimer(dev, timings if timings is not None
+                        else self.stage_timings)
+
+    # One encode_raw per experience: encode_from_raw_batch runs per
+    # chunk below to produce the grad-tracked tensors, and the policy
+    # targets are staged from the same RawEncoded.
+    with timer.stage("encode_raw"):
+        raw_cache = self._mcts_raw_cache(experiences)
+
+    for start in range(0, N, B):
+        loss = self._mcts_chunk_loss(experiences[start:start + B],
+                                     raw_cache[start:start + B], start, batch,
+                                     timer, autocast_bf16)
+        sum_total_visits += loss.visits
+        for name, value in loss.sums.items():
+            sums[name] += value
+
+        if not no_grad:
+            with timer.stage("backward"):
+                loss.total.backward()
+
+        sum_policy_loss += float(loss.policy.loss.item())
+        sum_value_loss  += float(loss.value_loss.item())
+        sum_actor_nlp_weighted += float(loss.policy.actor_nlp.item())
+        # Released before the next chunk's forward.
+        del loss
+
+    if no_grad:
+        grad_norm = torch.tensor(0.0)
+    else:
+        with timer.stage("clip"):
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                list(self.model.parameters()) + list(self.encoder.parameters()),
+                self.config.grad_clip,
+            )
+        with timer.stage("optimizer"):
+            self.optimizer.step()
+    timer.flush()
+
+    self.model.eval()
+    self.encoder.eval()
+
+    # "Entropy" slot reports mean -log p(actor | s), weighted by
+    # visits, for logging continuity with the REINFORCE path.
+    mean_actor_nlp = (
+        sum_actor_nlp_weighted / sum_total_visits
+        if sum_total_visits > 0 else 0.0
+    )
+
+    return TrainStats(
+        policy_loss    = float(sum_policy_loss),
+        value_loss     = float(sum_value_loss),
+        entropy        = float(mean_actor_nlp),  # see comment above
+        # The loss the backward ran from: the consistency and trust terms
+        # carry their weights already.
+        total_loss     = float(
+            sum_policy_loss
+            + self.config.value_coef * sum_value_loss
+            + sums["consist"] + sums["trust"]
+            + self.config.aux_coef   * sums["aux"]
+            + self.config.moves_left_coef * sums["ml"]
+            + self.config.gbc_coef   * sums["gbc"]
+        ),
+        grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
+                         else float(grad_norm.item()),
+        mean_return    = float(batch.zs.mean().item()),
+        n_transitions  = int(N),
+        n_trajectories = int(N),  # one experience = one root state
+        aux_loss       = float(sums["aux"]),
+        consist_loss   = float(sums["consist"]),
+        trust_loss     = float(sums["trust"]),
+        gbc_loss       = float(sums["gbc"]),
+        moves_left_loss = float(sums["ml"]),
+        value_signal_states = batch.n_value_signal,
+    )
+
+
+def _trainer_mcts_loss_terms(
+    self,                                     # Trainer (method injected below)
+    experiences: Sequence[MCTSExperience],
+    on_chunk: Callable[[Dict[str, torch.Tensor]], None],
+) -> None:
+    """The loss step_mcts backpropagates on `experiences`, split by
+    term, without stepping: `on_chunk(terms)` receives MCTS_LOSS_TERMS
+    -> scalar tensor (`_ChunkLoss.terms`) for each chunk of
+    `train_batch_size` experiences. Summed over the chunks a term is the
+    batch's, and the terms add up to the loss the step optimizes: the
+    same batch weights, forward (bf16 autocast included), loss code and
+    coefficients.
+
+    Nothing is backpropagated here and no gradient buffer, optimizer
+    state or generator is touched: `on_chunk` takes its gradients with
+    `torch.autograd.grad` and lets go of the terms before returning,
+    since the next chunk's forward follows. The experiences are used as
+    given (no `max_transitions_per_step` subsample, which would draw the
+    trainer's generator); a name the encoder's vocabulary lacks is
+    registered, as the step registers it. The model and the encoder run
+    in eval() as in the step and get their modes back afterwards."""
+    if not experiences:
+        return
+    dev = self.device or next(self.model.parameters()).device
+    autocast_bf16 = bool(self.config.train_autocast_bf16) and dev.type == "cuda"
+    batch = _mcts_batch(self, experiences, dev)
+    modes = (self.model.training, self.encoder.training)
+    self.model.eval()
+    self.encoder.eval()
+    try:
+        timer = _StageTimer(dev, None)
+        raw_cache = self._mcts_raw_cache(experiences)
+        B = max(1, self.config.train_batch_size)
+        for start in range(0, len(experiences), B):
+            terms = self._mcts_chunk_loss(experiences[start:start + B],
+                                          raw_cache[start:start + B], start, batch,
+                                          timer, autocast_bf16).terms()
+            on_chunk(terms)
+            del terms
+    finally:
+        self.model.train(modes[0])
+        self.encoder.train(modes[1])
+
+
+@dataclass
+class _MCTSBatch:
+    """The batch-level half of step_mcts's loss: the labels, the
+    per-experience weights and the gates of the optional terms. Every
+    chunk's terms are normalized by these batch totals, so a term summed
+    over the chunks is the batch's."""
+    device: torch.device
+    zs: torch.Tensor                  # [N] labels, clipped to the head's range
+    gws: torch.Tensor                 # [N] game weights
+    vws: torch.Tensor                 # [N] value weights, zero on consistency states
+    consist_mask: torch.Tensor        # [N] states the consistency term trains
+    anchor_mask: torch.Tensor         # [N] states inside the trust region
+    anchor_t: torch.Tensor            # [N] their anchors, 0 elsewhere
+    n_consist: int
+    n_anchor: int
+    total_gw: float
+    total_value_w: float
+    n_value_signal: int               # states whose weight feeds the value loss
+    policy_coef: List[float]          # each experience's weight on the policy loss
+    aux_on: bool
+    aux_t_full: Optional[torch.Tensor]
+    ml_on: bool
+    ml_t_full: Optional[torch.Tensor]
+    gbc_on: bool
+
+
+def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
+                dev: torch.device) -> _MCTSBatch:
+    """The batch-level tensors of `experiences` under `trainer`'s config."""
+    config, model = trainer.config, trainer.model
     # Clamp z values to the value head's range (matches REINFORCE
     # path's value_clip handling).
     zs = torch.tensor(
         [e.z for e in experiences], device=dev, dtype=torch.float32,
     )
-    if self.config.value_clip is not None:
-        zs.clamp_(min=-float(self.config.value_clip),
-                  max=+float(self.config.value_clip))
+    if config.value_clip is not None:
+        zs.clamp_(min=-float(config.value_clip),
+                  max=+float(config.value_clip))
 
     # Per-game normalization (see MCTSExperience.game_weight): every
     # loss term below is a weighted mean over states with these
@@ -1577,8 +1774,8 @@ def _trainer_step_mcts(
     # carries a margin target -- otherwise the head/term is skipped
     # entirely (mixed or aux-off data trains exactly as before).
     aux_on = (
-        self.config.aux_coef > 0
-        and getattr(self.model, "has_aux_score", False)
+        config.aux_coef > 0
+        and getattr(model, "has_aux_score", False)
         and all(getattr(e, "aux_target", None) is not None
                 for e in experiences)
     )
@@ -1592,8 +1789,8 @@ def _trainer_step_mcts(
     # the aux head -- head present + weight positive + every
     # experience carries a target, else the term vanishes entirely.
     ml_on = (
-        self.config.moves_left_coef > 0
-        and getattr(self.model, "has_moves_left", False)
+        config.moves_left_coef > 0
+        and getattr(model, "has_moves_left", False)
         and all(getattr(e, "moves_left_target", None) is not None
                 for e in experiences)
     )
@@ -1607,190 +1804,148 @@ def _trainer_step_mcts(
     # experience gate (labels may be absent on legacy/mixed data —
     # unlike aux, absence skips the EXPERIENCE, not the whole term).
     gbc_on = (
-        self.config.gbc_coef > 0
-        and getattr(self.model, "has_gbc", False)
+        config.gbc_coef > 0
+        and getattr(model, "has_gbc", False)
         and any(getattr(e, "gbc_labels", None) for e in experiences)
     )
 
-    if not no_grad:
-        self.optimizer.zero_grad()
-
-    sum_policy_loss = 0.0
-    sum_value_loss  = 0.0
-    sum_aux_loss    = 0.0
-    sum_ml_loss     = 0.0
-    sum_gbc_loss    = 0.0
-    sum_consist_loss = 0.0
-    sum_trust_loss  = 0.0
-    sum_total_visits = 0.0
     # Full-batch value-weight normalizer + "how many states actually
     # feed the value head" (dashboard starvation watch).
     # vws already carries the winnerless weight -- finalize_game is
     # the ONE authority (project round-1 C3: this second gate
     # multiplied it by draw_value_weight AGAIN, so the knob and the
     # tiebreak z were both nullified whenever finalize sealed 0).
-    _w_full = gws * vws
-    total_value_w = float(_w_full.sum().item())
-    n_value_signal = int((_w_full > 0).sum().item())
-    sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
+    w_full = gws * vws
+    return _MCTSBatch(
+        device=dev, zs=zs, gws=gws, vws=vws, consist_mask=consist_mask,
+        anchor_mask=anchor_mask, anchor_t=anchor_t,
+        n_consist=n_consist, n_anchor=n_anchor, total_gw=total_gw,
+        total_value_w=float(w_full.sum().item()),
+        n_value_signal=int((w_full > 0).sum().item()),
+        # Each experience's weight on the policy loss (see
+        # MCTSExperience.game_weight / policy_weight).
+        policy_coef=(gws * pws / total_gw).tolist(),
+        aux_on=aux_on, aux_t_full=aux_t_full,
+        ml_on=ml_on, ml_t_full=ml_t_full, gbc_on=gbc_on)
 
-    # Optimization #7 (2026-06-14): run the training forwards in eval()
-    # (not train()), mirroring the REINFORCE step(). The model's 9
-    # Dropout(p=1e-4) layers exist only to disable a torch fast path
-    # (see model.py) and are a statistical no-op, so eval() loses no
-    # meaningful regularization while skipping the dropout ops and
-    # making the value-head training forward deterministic. The
-    # unconditional eval() at function end already leaves the model in
-    # eval() for the caller, so the post-condition is unchanged.
-    self.model.eval()
-    self.encoder.eval()
 
-    timer = _StageTimer(dev, timings if timings is not None
-                        else self.stage_timings)
+class _LossTerms:
+    """Loss terms by name and their running sum, each term added to the
+    sum as it is recorded: the order the step has always summed them
+    in, so the sum and the backward through it are the step's own."""
 
-    # Pre-compute the raw-encoded cache (one encode_raw per experience):
-    # encode_from_raw_batch runs per chunk below to produce the grad-
-    # tracked tensors, and the policy targets are staged from the same
-    # RawEncoded (no second state walk).
-    with timer.stage("encode_raw"):
-        register_names = self.encoder.register_names
-        for e in experiences:
-            register_names(e.game_state)
-        type_to_id    = self.encoder.unit_type_to_id
-        faction_to_id = self.encoder.faction_to_id
-        raw_cache = [
-            self.encoder.raw_of(e.game_state, type_to_id=type_to_id,
-                                faction_to_id=faction_to_id)
-            for e in experiences
-        ]
-    # Each experience's weight on the policy loss (see
-    # MCTSExperience.game_weight / policy_weight).
-    policy_coef = (gws * pws / total_gw).tolist()
+    def __init__(self) -> None:
+        self.by_name: Dict[str, torch.Tensor] = {}
+        self.total: Optional[torch.Tensor] = None
 
-    for start in range(0, N, B):
-        chunk = experiences[start:start + B]
-        L = len(chunk)
-        raw_chunk = raw_cache[start:start + B]
-        # The bf16 region (config.train_autocast_bf16): the encoder's
-        # projections, then the trunk and the heads. The model's own
-        # inference switches (infer_autocast_bf16, the packed trunk)
-        # do not apply to the training forward: this switch is the
-        # only authority over its precision, and the padded trunk is
-        # the one the backward runs through. Every output the losses
-        # read is cast back to float32 as the region's last op, so
-        # the loss stages below run in fp32 whatever the forward ran
-        # in; a cast's backward runs in the dtype its forward used, so
-        # the backward needs no context.
-        with _training_autocast(autocast_bf16):
-            with timer.stage("encode"):
-                encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
-            with timer.stage("forward"):
-                padded = self.model.forward_padded(
-                    encoded_chunk, autocast_bf16=False, packed=False)
-                if autocast_bf16:
-                    padded = padded.float32()
-        # Staged on the host while the device runs the forward.
-        with timer.stage("policy_loss"):
-            targets = _stage_policy_targets(
-                chunk, raw_chunk, padded.sizes,
-                A_max=padded.actor_logits.shape[1],
-                H_max=padded.target_logits.shape[2],
-                T=padded.type_logits.shape[2],
-                W=padded.weapon_logits.shape[2],
-                coef=policy_coef[start:start + L],
-                pin=dev.type == "cuda")
-            policy_loss_t, actor_nlp_t = _batched_factored_policy_loss(
-                padded, targets)
-        sum_total_visits += targets.visits
+    def add(self, name: str, term: torch.Tensor) -> None:
+        self.by_name[name] = term
+        self.total = term if self.total is None else self.total + term
 
-        with timer.stage("value_loss"):
-            chunk_loss, value_loss, chunk_sums = self._value_side_losses(
-                padded, chunk, encoded_chunk, start, L,
-                zs=zs, gws=gws, vws=vws, pws=pws, consist_mask=consist_mask,
-                anchor_mask=anchor_mask, anchor_t=anchor_t,
-                n_consist=n_consist, n_anchor=n_anchor,
-                total_gw=total_gw, total_value_w=total_value_w,
-                aux_on=aux_on, aux_t_full=aux_t_full,
-                ml_on=ml_on, ml_t_full=ml_t_full, gbc_on=gbc_on)
-            chunk_loss = policy_loss_t + chunk_loss
-        sum_consist_loss += chunk_sums["consist"]
-        sum_trust_loss += chunk_sums["trust"]
-        sum_aux_loss += chunk_sums["aux"]
-        sum_ml_loss += chunk_sums["ml"]
-        sum_gbc_loss += chunk_sums["gbc"]
 
-        if not no_grad:
-            with timer.stage("backward"):
-                chunk_loss.backward()
+@dataclass
+class _ChunkLoss:
+    """One chunk of step_mcts: the loss its backward runs from
+    (`total`, the policy loss plus the value side) and its parts."""
+    total: torch.Tensor
+    policy: _PolicyLoss
+    value_terms: Dict[str, torch.Tensor]   # the value-side terms present, at their coefficients
+    value_loss: torch.Tensor               # the plain value loss, for the log
+    visits: float
+    sums: Dict[str, float]                 # the value-side terms' floats, for TrainStats
 
-        sum_policy_loss += float(policy_loss_t.item())
-        sum_value_loss  += float(value_loss.item())
-        sum_actor_nlp_weighted += float(actor_nlp_t.item())
+    def terms(self) -> Dict[str, torch.Tensor]:
+        """Every term of MCTS_LOSS_TERMS as the step weighs it: each
+        policy head's part of the policy loss (minus its summed
+        coefficient x log-probability) and each value-side term at its
+        coefficient. A term the chunk does not exercise is a zero
+        without a gradient. The terms add up to `total` up to float
+        rounding."""
+        unknown = set(self.value_terms) - set(MCTS_VALUE_TERMS)
+        if unknown:
+            raise KeyError(f"value-side terms missing from MCTS_VALUE_TERMS: {sorted(unknown)}")
+        zero = torch.zeros((), device=self.total.device)
+        terms = {head: (-self.policy.head_logp[head] if head in self.policy.head_logp else zero)
+                 for head in MCTS_POLICY_TERMS}
+        terms.update({name: self.value_terms.get(name, zero) for name in MCTS_VALUE_TERMS})
+        return terms
 
-        del chunk_loss, policy_loss_t, value_loss, targets
-        del encoded_chunk, padded
 
-    if no_grad:
-        grad_norm = torch.tensor(0.0)
-    else:
-        with timer.stage("clip"):
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                list(self.model.parameters()) + list(self.encoder.parameters()),
-                self.config.grad_clip,
-            )
-        with timer.stage("optimizer"):
-            self.optimizer.step()
-    timer.flush()
+def _trainer_mcts_raw_cache(self, experiences: Sequence[MCTSExperience]) -> List[RawEncoded]:
+    """One RawEncoded per experience under this encoder's switches and
+    vocabulary, after registering any name the vocabulary lacks. The
+    chunks' grad-tracked encodings and the policy targets are both
+    built from it (no second state walk)."""
+    register_names = self.encoder.register_names
+    for e in experiences:
+        register_names(e.game_state)
+    type_to_id    = self.encoder.unit_type_to_id
+    faction_to_id = self.encoder.faction_to_id
+    return [
+        self.encoder.raw_of(e.game_state, type_to_id=type_to_id,
+                            faction_to_id=faction_to_id)
+        for e in experiences
+    ]
 
-    self.model.eval()
-    self.encoder.eval()
 
-    # "Entropy" slot reports mean -log p(actor | s), weighted by
-    # visits, for logging continuity with the REINFORCE path.
-    mean_actor_nlp = (
-        sum_actor_nlp_weighted / sum_total_visits
-        if sum_total_visits > 0 else 0.0
-    )
-
-    return TrainStats(
-        policy_loss    = float(sum_policy_loss),
-        value_loss     = float(sum_value_loss),
-        entropy        = float(mean_actor_nlp),  # see comment above
-        total_loss     = float(
-            sum_policy_loss
-            + self.config.value_coef * sum_value_loss
-            + self.config.aux_coef   * sum_aux_loss
-            + self.config.moves_left_coef * sum_ml_loss
-            + self.config.gbc_coef   * sum_gbc_loss
-        ),
-        grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
-                         else float(grad_norm.item()),
-        mean_return    = float(zs.mean().item()),
-        n_transitions  = int(N),
-        n_trajectories = int(N),  # one experience = one root state
-        aux_loss       = float(sum_aux_loss),
-        consist_loss   = float(sum_consist_loss),
-        trust_loss     = float(sum_trust_loss),
-        gbc_loss       = float(sum_gbc_loss),
-        moves_left_loss = float(sum_ml_loss),
-        value_signal_states = n_value_signal,
-    )
+def _trainer_mcts_chunk_loss(
+    self, chunk: Sequence[MCTSExperience], raw_chunk: Sequence[RawEncoded],
+    start: int, batch: _MCTSBatch, timer: _StageTimer, autocast_bf16: bool,
+) -> _ChunkLoss:
+    """The forward and the loss of one chunk: experiences `start` to
+    `start + len(chunk)` of the batch."""
+    L = len(chunk)
+    # The bf16 region (config.train_autocast_bf16): the encoder's
+    # projections, then the trunk and the heads. The model's own
+    # inference switches (infer_autocast_bf16, the packed trunk)
+    # do not apply to the training forward: this switch is the
+    # only authority over its precision, and the padded trunk is
+    # the one the backward runs through. Every output the losses
+    # read is cast back to float32 as the region's last op, so
+    # the loss stages below run in fp32 whatever the forward ran
+    # in; a cast's backward runs in the dtype its forward used, so
+    # the backward needs no context.
+    with _training_autocast(autocast_bf16):
+        with timer.stage("encode"):
+            encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
+        with timer.stage("forward"):
+            padded = self.model.forward_padded(
+                encoded_chunk, autocast_bf16=False, packed=False)
+            if autocast_bf16:
+                padded = padded.float32()
+    # Staged on the host while the device runs the forward.
+    with timer.stage("policy_loss"):
+        targets = _stage_policy_targets(
+            chunk, raw_chunk, padded.sizes,
+            A_max=padded.actor_logits.shape[1],
+            H_max=padded.target_logits.shape[2],
+            T=padded.type_logits.shape[2],
+            W=padded.weapon_logits.shape[2],
+            coef=batch.policy_coef[start:start + L],
+            pin=batch.device.type == "cuda")
+        policy = _batched_factored_policy_loss(padded, targets)
+    with timer.stage("value_loss"):
+        value_terms, value_loss, sums = self._value_side_losses(
+            padded, chunk, encoded_chunk, start, batch)
+        total = policy.loss + value_terms.total
+    return _ChunkLoss(total=total, policy=policy, value_terms=value_terms.by_name,
+                      value_loss=value_loss, visits=targets.visits, sums=sums)
 
 
 def _trainer_value_side_losses(
-    self, padded, chunk, encoded_chunk, start: int, L: int, *,
-    zs, gws, vws, pws, consist_mask, anchor_mask, anchor_t,
-    n_consist: int, n_anchor: int, total_gw: float, total_value_w: float,
-    aux_on: bool, aux_t_full, ml_on: bool, ml_t_full, gbc_on: bool,
-) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
+    self, padded, chunk: Sequence[MCTSExperience], encoded_chunk, start: int,
+    batch: _MCTSBatch,
+) -> Tuple[_LossTerms, torch.Tensor, Dict[str, float]]:
     """Every value-side term of one chunk of step_mcts (value,
-    consistency, trust region, aux margin, moves-left, GBC), summed
-    with their coefficients. Returns (chunk sum, the plain value
-    loss, the per-term floats for the step's running sums)."""
-    gw_chunk = gws[start:start + L]
+    consistency, trust region, aux margin, moves-left, GBC), each at
+    its coefficient and summed in that order. Returns (the terms and
+    their sum, the plain value loss, the per-term floats for the step's
+    running sums)."""
+    L = len(chunk)
+    gw_chunk = batch.gws[start:start + L]
     val_t = padded.value.squeeze(-1)                 # [L]
     vl_t  = padded.value_logits                      # [L, K]
-    z_t   = zs[start:start + L]
+    z_t   = batch.zs[start:start + L]
     sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0}
     # Distributional value loss: categorical CE on the projected
     # terminal-z target (z ∈ {-1, 0, +1} for win/draw/loss),
@@ -1802,17 +1957,18 @@ def _trainer_value_side_losses(
     # share; an all-draw batch at weight 0 contributes no value
     # gradient at all.
     atoms = self.model._value_atoms
-    w_t = gw_chunk * vws[start:start + L]
+    w_t = gw_chunk * batch.vws[start:start + L]
     if self.config.value_loss_form == "mse_mean":
         value_loss = ((val_t - z_t).pow(2) * w_t).sum() \
-            / max(float(total_value_w), 1e-9)
+            / max(float(batch.total_value_w), 1e-9)
     else:
         value_loss = _categorical_value_loss(
             vl_t, z_t, atoms,
             label_smoothing=self.config.value_label_smoothing,
-            weights=w_t) / max(float(total_value_w), 1e-9)
+            weights=w_t) / max(float(batch.total_value_w), 1e-9)
 
-    chunk_loss = self.config.value_coef * value_loss
+    terms = _LossTerms()
+    terms.add("value", self.config.value_coef * value_loss)
     # Arm VG2 consistency term: Gaussian NLL of the head's MEAN
     # prediction against the bias-corrected search estimate,
     # (v - (z - b))^2 / (2 sigma2), b and sigma2 ESTIMATED from
@@ -1820,51 +1976,51 @@ def _trainer_value_side_losses(
     # linear in the gap (no categorical blow-up), and the
     # term's strength IS the measured precision -- no weight.
     # Game-weight normalized like every other term.
-    cm = consist_mask[start:start + L]
+    cm = batch.consist_mask[start:start + L]
     if bool(cm.any()):
         tgt = z_t - float(self.config.consist_bias)
         sq = (val_t - tgt).pow(2) * gw_chunk * cm.float()
         consist_loss = sq.sum() / (
             2.0 * max(float(self.config.consist_sigma2), 1e-4)
-            * n_consist)
-        chunk_loss = chunk_loss + consist_loss
+            * batch.n_consist)
+        terms.add("consistency", consist_loss)
         sums["consist"] = float(consist_loss.item())
     # Trust region on consulted states: lambda * (v - v_anchor)^2,
     # lambda driven by dual ascent on the live dv_consult against
     # trust_delta (docs/design_constants.md).
-    am = anchor_mask[start:start + L]
+    am = batch.anchor_mask[start:start + L]
     if self.config.trust_lambda > 0 and bool(am.any()):
-        tr = ((val_t - anchor_t[start:start + L]).pow(2)
-              * am.float()).sum() / n_anchor
+        tr = ((val_t - batch.anchor_t[start:start + L]).pow(2)
+              * am.float()).sum() / batch.n_anchor
         trust_loss = self.config.trust_lambda * tr
-        chunk_loss = chunk_loss + trust_loss
+        terms.add("trust", trust_loss)
         sums["trust"] = float(trust_loss.item())
     # Auxiliary margin loss (KataGo §3.5): MSE of the predicted vs
     # final material margin, summed over the chunk and normalized by
     # N (matching the value-loss normalization), weighted by
     # aux_coef. Regularizes the shared trunk with a denser signal.
-    if aux_on:
+    if batch.aux_on:
         aux_pred_t = padded.aux_score.squeeze(-1)
-        aux_tgt_t  = aux_t_full[start:start + L]
+        aux_tgt_t  = batch.aux_t_full[start:start + L]
         aux_loss = ((aux_pred_t - aux_tgt_t) ** 2
-                    * gw_chunk).sum() / total_gw
-        chunk_loss = chunk_loss + self.config.aux_coef * aux_loss
+                    * gw_chunk).sum() / batch.total_gw
+        terms.add("aux", self.config.aux_coef * aux_loss)
         sums["aux"] = float(aux_loss.item())
     # Moves-left loss (Lc0-style): MSE of the predicted vs actual
     # remaining-turn fraction; same normalization/weighting shape
     # as the aux term.
-    if ml_on:
+    if batch.ml_on:
         ml_pred_t = padded.moves_left.squeeze(-1)
-        ml_tgt_t  = ml_t_full[start:start + L]
+        ml_tgt_t  = batch.ml_t_full[start:start + L]
         ml_loss = ((ml_pred_t - ml_tgt_t) ** 2
-                   * gw_chunk).sum() / total_gw
-        chunk_loss = chunk_loss + self.config.moves_left_coef * ml_loss
+                   * gw_chunk).sum() / batch.total_gw
+        terms.add("moves_left", self.config.moves_left_coef * ml_loss)
         sums["ml"] = float(ml_loss.item())
     # GBC event-supervision loss (2026-08-14, docs/archive/gbc_spec.md):
     # per-experience BCE of the dies/flips heads vs hindsight
     # labels, weighted by game_weight and normalized by total_gw
     # like every other term.
-    if gbc_on:
+    if batch.gbc_on:
         from wesnoth_ai.gbc import gbc_loss_for_output
         chunk_gbc: List[Tuple[torch.Tensor, torch.Tensor]] = []
         for ei, e in enumerate(chunk):
@@ -1873,10 +2029,10 @@ def _trainer_value_side_losses(
                 gl = gbc_loss_for_output(
                     self.model, encoded_chunk[ei], padded.sample(ei), rows)
                 if gl is not None:
-                    chunk_gbc.append((gl, gws[start + ei]))
+                    chunk_gbc.append((gl, batch.gws[start + ei]))
         if chunk_gbc:
-            gbc_loss = sum(gl * w for gl, w in chunk_gbc) / total_gw
-            chunk_loss = chunk_loss + self.config.gbc_coef * gbc_loss
+            gbc_loss = sum(gl * w for gl, w in chunk_gbc) / batch.total_gw
+            terms.add("gbc", self.config.gbc_coef * gbc_loss)
             sums["gbc"] = float(gbc_loss.item())
         elif any(getattr(e, "gbc_labels", None) for e in chunk):
             # THIS CHUNK's labels are present but nothing computed a
@@ -1893,7 +2049,7 @@ def _trainer_value_side_losses(
                     "gbc_on but no GBC loss computed for this chunk "
                     "(ctx tap None? entities unresolvable?) -- the "
                     "aux signal is NOT training; investigate")
-    return chunk_loss, value_loss, sums
+    return terms, value_loss, sums
 
 
 def _trainer_step_value_from_raw(
@@ -2196,6 +2352,9 @@ def _trainer_eval_value_loss(
 # Inject as a method on Trainer. Gives users `trainer.step_mcts(exps)`
 # alongside the REINFORCE `trainer.step(trajectories)`.
 Trainer.step_mcts = _trainer_step_mcts
+Trainer.mcts_loss_terms = _trainer_mcts_loss_terms
+Trainer._mcts_raw_cache = _trainer_mcts_raw_cache
+Trainer._mcts_chunk_loss = _trainer_mcts_chunk_loss
 Trainer._value_side_losses = _trainer_value_side_losses
 Trainer.eval_value_loss = _trainer_eval_value_loss
 Trainer.eval_value_metrics = _trainer_eval_value_metrics
