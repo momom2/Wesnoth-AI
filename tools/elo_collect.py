@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tools.elo_ladder import PairRecord, fit_elo
-from tools.run_elo_batch import LEGACY_FORCED_FACTION, bases_of, terrain_views_of
+from tools.eval_provenance import LEGACY_FORCED_FACTION, bases_of, terrain_views_of
 
 
 # Estimand fields carried by every result file, with the value an
@@ -51,7 +51,7 @@ from tools.run_elo_batch import LEGACY_FORCED_FACTION, bases_of, terrain_views_o
 #   value_center_*     MCTSConfig.value_center per side (search only)
 #   moves_left_utility ELO_MOVES_LEFT_UTILITY (search only)
 #   forced_faction     the faction forced onto one side of every game,
-#                      or "none" (run_elo_batch.forced_faction_tag)
+#                      or "none" (eval_provenance.forced_faction_tag)
 # A None default means "legacy files cannot say": the field then
 # constrains nothing, the same silence-unconstrained rule the turn
 # horizon uses.

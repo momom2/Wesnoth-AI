@@ -70,8 +70,9 @@ from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_players import (_PolicyPair, _load_policy,
                                 _play_one_eval_game, peek_checkpoint_arch)
 from tools.inference_seam import RemoteEncoder
-from tools.run_elo_batch import (basis_refusal, checkpoint_refusal, faction_refusal,
-                                 file_sha256, forced_faction_tag, terrain_refusal)
+from tools.eval_provenance import (_pt_config, basis_refusal, checkpoint_refusal,
+                                   faction_refusal, file_sha256, forced_faction_tag,
+                                   terrain_refusal)
 from tools import scenario_pool
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
@@ -103,21 +104,6 @@ from tools.eval_procedure import end_turn_refusal, procedure_of as _procedure_of
 from tools.turn_search_config import (  # noqa: E402
     TS_CHOICES, ts_config_from_args as _ts_config,
 )
-
-
-def _pt_config(args):
-    """TournamentConfig for eval: explicit --pt-* knobs override the
-    code defaults so a match can play the SAME config the leg
-    trained with (review C16)."""
-    from tools.plan_tournament import PT_KNOB_KEYS, config_from_args
-    from types import SimpleNamespace
-    ns = SimpleNamespace(plan_tournament=True)
-    for key in PT_KNOB_KEYS:          # single source (round-11 C2)
-        k = "pt_" + key
-        v = getattr(args, k, None)
-        if v is not None:
-            setattr(ns, k, v)
-    return config_from_args(ns)
 
 
 class _CountingModel:
@@ -202,7 +188,7 @@ _TERRAIN_CACHE: dict = {}
 
 
 def _effective_terrain(spec, inference_address) -> str:
-    """The terrain view this side's encoder plays in (run_elo_batch.
+    """The terrain view this side's encoder plays in (eval_provenance.
     TERRAIN_VIEWS): 'set' when the checkpoint carries terrain_multi_hot
     or the shared inference server's hello says so, else 'class'; a
     fresh net ('random') is 'set', 'dummy' has no encoder. Recorded as
@@ -231,7 +217,7 @@ def _checkpoint_sha(spec, inference_address):
     shared inference server loaded (the server's hello), else the file at
     `spec`, read once per spec in worker mode like the policy the worker
     keeps; None for 'dummy' and 'random', which load none. Recorded as
-    checkpoint_sha256_a/_b (run_elo_batch.checkpoint_refusal)."""
+    checkpoint_sha256_a/_b (eval_provenance.checkpoint_refusal)."""
     if spec in (None, "dummy", "random"):
         return None
     if inference_address is not None:
@@ -245,7 +231,7 @@ def _checkpoint_sha(spec, inference_address):
 
 
 def _effective_basis(spec, relevant_set: bool, inference_address) -> str:
-    """The hex basis this side's encoder plays in (run_elo_batch.BASES):
+    """The hex basis this side's encoder plays in (eval_provenance.BASES):
     'relset' when the CLI flag, the checkpoint's relevant_set_hexes or
     the shared inference server's hello says so, else 'full'. Recorded
     in the result as basis_a/basis_b and guarded per outdir."""
@@ -1036,18 +1022,18 @@ def main(argv) -> int:
         "relevant_set_a": bool(args.relevant_set_a),
         "relevant_set_b": bool(args.relevant_set_b),
         # The EFFECTIVE hex basis per side (flag, checkpoint or server;
-        # run_elo_batch.BASES): an estimand field, guarded per outdir.
+        # eval_provenance.BASES): an estimand field, guarded per outdir.
         "basis_a": basis_a,
         "basis_b": basis_b,
         # The EFFECTIVE terrain view per side (checkpoint or server;
-        # run_elo_batch.TERRAIN_VIEWS): an estimand field, guarded per outdir.
+        # eval_provenance.TERRAIN_VIEWS): an estimand field, guarded per outdir.
         "terrain_a": terrain_a,
         "terrain_b": terrain_b,
         # The checkpoint each side played (SHA-256 of the file; None for
         # 'dummy' and 'random'): a label names it only by convention.
         "checkpoint_sha256_a": ckpt_a,
         "checkpoint_sha256_b": ckpt_b,
-        # The faction forced onto one side (run_elo_batch.forced_faction_tag):
+        # The faction forced onto one side (eval_provenance.forced_faction_tag):
         # an estimand field, compared between dirs by the catalog.
         "forced_faction": forced_faction_tag(forced_faction),
         "gumbel_root_a": (bool(args.gumbel_root_a) if sims_a > 0 and not args.plan_a
