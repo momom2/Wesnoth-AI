@@ -28,8 +28,9 @@ player-side correction (0.7.7: the enemy's faction and villages right in
 the quarter of the corpus played on maps with a third side), and its
 match cannot separate the two corrections. It also carries 0.7.12 (each
 plague corpse's variation on its base type's row). Whether the corpus
-corrections (BACKLOG "The imitation corpus's labels") go into the same
-retrain or their own is the user's call.
+corrections (BACKLOG "The imitation corpus's labels") and any of the
+observation gaps (BACKLOG "What the network observes against what a
+player sees") go into the same retrain or their own is the user's call.
 
 **2. Phase 2: turn search without a pre-grader.** The turn-level gap
 under the reference is RICH (7 of 60 confirmed; caveat 2026-09-26: the

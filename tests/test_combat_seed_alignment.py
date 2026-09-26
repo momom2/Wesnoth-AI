@@ -114,3 +114,21 @@ def test_strict_sync_combat_bit_exact():
         "no individual strikes were verified -- combat oracle is "
         "effectively a no-op"
     )
+
+
+def test_a_replay_without_strike_data_is_refused_not_mismatched(tmp_path, capsys):
+    """A replay recorded without oos_debug carries its [attack] commands
+    but no [mp_checkup] strikes. The verifier says so and exits with its
+    own code; it used to compare every attack against zero recorded
+    strikes and report each as a mismatch."""
+    import bz2
+    import re
+
+    from tools.diff_combat_strike import NO_STRIKE_DATA, main
+    text = bz2.decompress(FIXTURE.read_bytes()).decode("utf-8")
+    stripped = re.sub(r"\[mp_checkup\][\s\S]*?\[/mp_checkup\]", "", text)
+    assert stripped.count("[attack]") == text.count("[attack]") > 0
+    replay = tmp_path / "no_strikes.wml"
+    replay.write_text(stripped, encoding="utf-8")
+    assert main(["diff_combat_strike", str(replay), str(tmp_path / "unused.json.gz")]) == NO_STRIKE_DATA
+    assert "0 with strike data" in capsys.readouterr().out
