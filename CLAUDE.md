@@ -875,6 +875,15 @@ State of play:
   labels"); every reference so far trained on version 1. The value
   corpus names the surrendering side as the winner in all 1,334 of its
   surrender games (fixed in the builder, not rebuilt).
+- 2026-09-26 (0.8.3): **what the network observes, against what a player
+  sees.** A crawl compared `obs8`'s observation with the 1.18.4 interface
+  over 70 Ladder corpus games (docs/observation_parity_20260926.md). The
+  largest gap is a unit's own combat numbers: traits change the weapons
+  of 161,919 of 455,569 unit observations and the network sees only the
+  type's; poisoned and slowed are not observed either (4,812 of 26,789
+  decisions have such a unit in view). Each fix changes the input and
+  waits for a retrain (BACKLOG "What the network observes against what a
+  player sees").
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

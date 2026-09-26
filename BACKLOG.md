@@ -234,6 +234,36 @@ no commit.
   in 85 games).
 
 
+## What the network observes against what a player sees (2026-09-26 crawl)
+
+docs/observation_parity_20260926.md compares `obs8`'s observation with
+the 1.18.4 interface and counts each difference over 70 Ladder corpus
+games (26,789 decisions). Every item changes the network's input: a
+checkpoint flag, a retrain and a match each. Which of them ride with the
+unit-vocabulary retrain, and which get their own arm, is the user's call.
+In the order the counts suggest:
+- **A unit's own weapons, resistances and traits** (161,919 of 455,569
+  unit observations have weapons other than their type's; 3,254 of 5,331
+  attacks involve one): about 79 unit columns, or 4 (damage and strikes
+  per range) plus trait bits as a minimal form.
+- **Poisoned and slowed** (4,812 decisions): 2 unit columns.
+- **The fog overlay** (a "seen" hex flag) and **memory of enemies seen**
+  (at 6,975 of 25,667 fog decisions an enemy seen this turn or last is
+  hidden now): the flag is small; the memory is a per-side sighting record
+  through the simulator, reconstruction, the Rust core and game records.
+- **The relevant set's reach**: 30,648 of 142,848 hexes from which a
+  visible enemy could hit an own unit next turn have no token; adding own
+  units' neighbours costs 4% more hexes, the enemies' reach 52%.
+- **Mushroom grove and reef** have no class of their own (cave, shallow
+  water): two terrain classes.
+- **The time of day at a unit's hex** (668 of 1,488 decisions on
+  Elensefar Courtyard): one per-hex column.
+- **The enemy's economy with fog off** and **water villages under fog**:
+  small, batch with village gold.
+- **Information a player lacks:** the enemy's faction from turn 1 when the
+  opponent chose Random (96 of 188 sampled player sides; eval unaffected);
+  scenery shown on fogged hexes (recorded, not changed).
+
 ## Open after the 2026-09-25 audits
 
 Found by five audits (rules, observation, training, evaluation, tests
