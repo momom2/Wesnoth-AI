@@ -296,8 +296,8 @@ State of play:
   `magical` sets. Fixed at
   the root with tests (tests/test_effect_ids.py); an unmodelled
   `apply_to` now warns instead of vanishing. The combat half owes the
-  corpus sweep on the next box (BACKLOG.md "Scenario [effect] members
-  are named by id="; resolved 2026-09-14: the post-review box's sweep
+  corpus sweep on the next box (docs/archive/backlog_closed_20260926.md
+  "Scenario [effect] members are named by id="; resolved 2026-09-14: the post-review box's sweep
   is clean, below). Two further findings there are NOT fixed: the
   encoder's terrain one-hot labels 1356 of the 1,572 forest-overlay
   Ladder hexes (86%) as something other than forest
@@ -537,8 +537,8 @@ State of play:
   self-play had been paying a third less village income than its maps
   specify and mini games after this are not comparable with those
   before. The values now travel in the same dict fields a replay
-  record carries (BACKLOG.md "The scenario's economy is read from the
-  scenario"). `tools/analysis/corpus_census.py` reads era, layout,
+  record carries (docs/archive/backlog_closed_20260926.md "The
+  scenario's economy is read from the scenario"). `tools/analysis/corpus_census.py` reads era, layout,
   factions and host settings out of all 17,019 raw replay headers:
   the corpus is default-era play (29% declare `era_dunefolk`, which
   is the default era plus one faction, and no game fields a Dunefolk
@@ -875,6 +875,15 @@ State of play:
   labels"); every reference so far trained on version 1. The value
   corpus names the surrendering side as the winner in all 1,334 of its
   surrender games (fixed in the builder, not rebuilt).
+- 2026-09-26 (0.8.3): **what the network observes, against what a player
+  sees.** A crawl compared `obs8`'s observation with the 1.18.4 interface
+  over 70 Ladder corpus games (docs/observation_parity_20260926.md). The
+  largest gap is a unit's own combat numbers: traits change the weapons
+  of 161,919 of 455,569 unit observations and the network sees only the
+  type's; poisoned and slowed are not observed either (4,812 of 26,789
+  decisions have such a unit in view). Each fix changes the input and
+  waits for a retrain (BACKLOG "What the network observes against what a
+  player sees").
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

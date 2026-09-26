@@ -3077,6 +3077,50 @@ the branch only a plain `yes` could enter. No corpus replay uses the
 list form, so nothing had diverged; `wesnoth_ai/rules/wml_state.wml_bool_or_none`
 now distinguishes the third form and the caller drops it.
 
+## A time area keeps its own slot (added 2026-09-26)
+
+A `[time_area]` starts at its own `current_time` (0 when absent) on the
+turn it is placed, and a random start moves only the board's slot. At
+turn t an area placed on turn p reads slot
+`(current_time + t - p) mod len(area times)`; the board reads
+`(start slot + t - 1) mod 6`.
+
+**Source (1.18.4):** `src/tod_manager.cpp:393` (`add_time_area`, the
+form a scenario's top-level `[time_area]` uses; `:406` is the same for
+the Lua `wesnoth.map.place_area` behind the `[time_area]` action):
+
+    area.currentTime = cfg["current_time"].to_int(0);
+
+`:88-92` (`resolve_random`) writes the board's slot and nothing else:
+
+    currentTime_ = fix_time_index(times_.size(), chosen);
+    ...
+    currentTime_ = fix_time_index(times_.size(), r.next_random());
+
+and `:205` (`get_time_of_day` at a location) reads the area's own slot:
+
+    return get_time_of_day_turn(i->times, n_turn, i->currentTime);
+
+each area advancing from its own slot every turn (`:517`,
+`set_new_current_times`; `:536`, `calculate_time_index_at_turn`).
+
+**Why non-obvious:** Tombs of Kesorak's two six-slot areas are written
+to track the default cycle (the dark area reads second watch at dawn,
+dusk at morning), which only holds when the game starts at dawn. A host
+who ticks "random start time" puts the board on another slot while the
+areas stay at theirs, so the tombs no longer track the sky. The
+simulator shifted the areas along with the board until 2026-09-26. The
+attack record's `tod=` label is the board's time of day
+(`mouse_events.cpp`: `tod_man.get_time_of_day()`, the overload without a
+location), so the start-slot recovery from that label in
+`replay_extract` is unaffected. Our cycles are stored rotated to turn 1
+when the area is placed (`scenario_events._area_cycle_from_turn_one`).
+Three corpus games start Tombs of Kesorak off dawn (slots 1, 3 and 4);
+none of their 123 attacks lands on an area hex at a turn where the two
+rules disagree, and their attacks carry no strike data, so no replay
+confirms the rule either way. Self-play never starts that map off dawn.
+Pinned by `tests/test_time_areas.py`.
+
 ## Preprocessor conditionals, and what a multiplayer game defines (added 2026-09-23)
 
 `#ifdef SYM` keeps its branch when SYM is defined, `#ifndef` negates,

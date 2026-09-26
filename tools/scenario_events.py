@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.classes import GameState, Hex, Position, SideInfo
 from wesnoth_ai.rules.scenario_cfg import UnmodelledWML, load_scenario_wml
+from wesnoth_ai.rules.wml_state import wml_int
 from tools.replay_extract import WMLNode
 
 
@@ -523,14 +524,30 @@ def _parse_time_cycle(ta_node: WMLNode) -> List[int]:
     return cycle
 
 
+def _area_cycle_from_turn_one(cycle: List[int], action: WMLNode,
+                              turn_number: int) -> List[int]:
+    """The area's cycle rotated so that turn t reads index (t - 1) % len.
+
+    An area keeps its own slot: `tod_manager::add_time_area` starts it at
+    the area's `current_time` (default 0) on the turn it is placed, and
+    `resolve_random` moves only the board's slot (src/tod_manager.cpp,
+    1.18.4; docs/wesnoth_rules.md "Time areas keep their own slot"). At
+    turn t the area reads slot (current_time + t - placed) mod len."""
+    placed = max(1, int(turn_number or 0))
+    shift = (wml_int(action.attrs.get("current_time"), 0) - (placed - 1)) % len(cycle)
+    return cycle[shift:] + cycle[:shift]
+
+
 def _time_area_action(gs: GameState, action: WMLNode) -> None:
     """[time_area] x=… y=… (or find_in=VAR) [time]…[/time] [/time_area]
-    Stamps a per-hex lawful_bonus cycle onto `gs.global_info._time_areas`.
+    Stamps a per-hex lawful_bonus cycle onto `gs.global_info._time_areas`,
+    phased so that turn t reads index (t - 1) % len.
     Multiple time_areas can stack; later writes win on overlapping hexes,
     matching Wesnoth's "last [time_area] applied wins" rule."""
     cycle = _parse_time_cycle(action)
     if not cycle:
         return
+    cycle = _area_cycle_from_turn_one(cycle, action, gs.global_info.turn_number)
 
     # Resolve the hex set: either explicit x=/y=, or find_in=variable.
     map_w, map_h = gs.map.size_x, gs.map.size_y

@@ -14,12 +14,14 @@ leg records and runbooks (index in `archive/README.md`).
 | plan_20260904.md | the plan in force: engineering first (phase 1, closed), then search over turns (phase 2) |
 | wesnoth_rules.md | the engine rules the simulator follows, each with its source citation |
 | design_constants.md | where the derived numerical constants come from |
+| box_runbook.md | how a run goes on a rented box, from the checks before renting to the destroy, with the box library's quickstart |
 | box_specs.md | the current box shape, the worksheet that derives it, and every throughput measurement |
 | checkpoint_naming.md | the checkpoint naming scheme and the lineage of named checkpoints |
 | rust_port_plan.md | the Rust kernels: rules of the port, phases and status |
 | turn_proposer_design_20260905.md | the design of the turn-level search pipeline that phase 2 builds (rows 1 to 6 without a pre-grader) |
 | techniques.md | catalog of every learning technique the training system implements beyond bare REINFORCE, with its default and a code citation |
 | corpus_v2_20260926.md | the corrected imitation corpus (version 2): what each correction changes, its measured reach, and the rebuild |
+| observation_parity_20260926.md | what the network observes against what a player sees: the parity table, eight input gaps with their frequency in corpus games, two facts a player does not have |
 | refactor_plan_20260925.md | the refactor into one package per system: what is wrong now, the target layout, what a move must not break, the order of steps |
 | refactor_inventory_20260925.md | the inventory the refactor plan rests on: the system map, dead code with evidence, structure problems (commit 90ff321) |
 

@@ -8,8 +8,8 @@ The generation path (`scenario_pool.build_scenario_gamestate`, .cfg +
 separate code. A bit-exact replay sweep proves the reconstruction
 path; it says nothing about generation, which is how a hardcoded
 village gold survived four months after the rule was pinned in the
-catalog (BACKLOG.md "The scenario's economy is read from the
-scenario"). This test is the other half: it fingerprints the built
+catalog (docs/archive/backlog_closed_20260926.md "The scenario's economy
+is read from the scenario"). This test is the other half: it fingerprints the built
 state of all 28 pool scenarios under fixed setups.
 
 When a fingerprint changes, the diff of `scenario_state_snapshot.json`

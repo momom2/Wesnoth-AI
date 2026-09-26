@@ -1117,8 +1117,9 @@ def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     """Per-hex lawful_bonus. Honors scenario-defined [time_area] zones
     (Tombs of Kesorak's dark/illuminated regions, Elensefar Courtyard's
     underground keeps, etc.) — those override the global ToD cycle on
-    their hexes, and the override has its own per-position cycle.
-    Falls back to the default 6-step cycle when no [time_area] applies.
+    their hexes with a cycle of their own, whose slot does not follow a
+    random start of the board's. Falls back to the default 6-step cycle,
+    shifted by the board's start slot, when no [time_area] applies.
 
     On top of the base ToD, applies terrain-level light bonus per
     `terrain.hpp:132`: the campfire overlay (^Ecf), wallfire (^Efs),
@@ -1135,16 +1136,12 @@ def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
     """
     start_offset = int(getattr(gs.global_info, "_tod_start_offset", 0) or 0)
     areas = getattr(gs.global_info, "_time_areas", None)
-    if areas:
-        cycle = areas.get((x, y))
-        if cycle:
-            # Area cycles index from turn 1 too — apply the same offset
-            # so a random-start-time scenario sees the area cycle in
-            # the right phase relative to the global one.
-            idx = (max(1, turn_number) - 1 + start_offset) % len(cycle)
-            base = int(cycle[idx])
-        else:
-            base = _lawful_bonus_for_turn(turn_number, start_offset)
+    cycle = areas.get((x, y)) if areas else None
+    if cycle:
+        # An area keeps its own slot, stored phased to turn 1
+        # (`scenario_events._time_area_action`); the board's start slot
+        # moves the board's cycle only (`tod_manager::resolve_random`).
+        base = int(cycle[(max(1, turn_number) - 1) % len(cycle)])
     else:
         base = _lawful_bonus_for_turn(turn_number, start_offset)
     # Apply terrain light_bonus: bounded_add(base, light, max_light,

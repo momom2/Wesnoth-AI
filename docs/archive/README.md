@@ -11,6 +11,7 @@ and `docs/plan_20260904.md`.
 |---|---|
 | claude_status_history.md | every "Current status" block CLAUDE.md carried from 2026-06-11 to 2026-09-04 |
 | backlog_20260904.md | the pre-restart BACKLOG.md, 1,055 lines of rulings and open items |
+| backlog_closed_20260926.md | BACKLOG.md's sections closed between 2026-09-12 and 2026-09-24 (fixes that landed, phase 1's record, the time of day, the scenario builder, the 2026-09-14 review), verbatim |
 
 ## Plans that were followed and superseded
 

@@ -45,6 +45,10 @@ from tools.replay_dataset import (
 from tools.abilities import leadership_bonus, is_backstab_active
 from tools.verify_mp_checkup import parse_replay
 
+# Exit code for a replay whose attacks carry no per-strike [mp_checkup]
+# data (recorded without oos_debug): nothing to compare, not a mismatch.
+NO_STRIKE_DATA = 3
+
 
 @dataclass
 class StrikeMismatch:
@@ -184,7 +188,12 @@ def main(argv: List[str]) -> int:
 
     print(f"parsing strict-sync replay: {args.strict_replay.name}")
     wesnoth_attacks = parse_replay(args.strict_replay)
-    print(f"  {len(wesnoth_attacks)} attacks with strike data")
+    with_data = sum(1 for a in wesnoth_attacks if a.strikes)
+    print(f"  {len(wesnoth_attacks)} attacks, {with_data} with strike data")
+    if not with_data:
+        print("  no per-strike [mp_checkup] data in this replay (recorded "
+              "without oos_debug): nothing to compare")
+        return NO_STRIKE_DATA
 
     with gzip.open(args.extracted, "rt", encoding="utf-8") as f:
         data = json.load(f)
@@ -198,6 +207,7 @@ def main(argv: List[str]) -> int:
     attack_idx = 0
     n_checked = 0
     n_clean = 0
+    n_without_data = 0
     first_mismatch: Optional[StrikeMismatch] = None
 
     for i, cmd in enumerate(cmds):
@@ -211,6 +221,11 @@ def main(argv: List[str]) -> int:
                       f"{len(wesnoth_attacks)}; stopping")
                 break
             recorded = wesnoth_attacks[attack_idx]
+            if not recorded.strikes:
+                n_without_data += 1
+                attack_idx += 1
+                _apply_command(gs, cmd)
+                continue
             mismatches = _verify_attack(gs, cmd, recorded.strikes)
             if mismatches:
                 first_mismatch = mismatches[0]
@@ -235,7 +250,8 @@ def main(argv: List[str]) -> int:
 
     print()
     print(f"checked {n_checked} attacks, {n_clean} clean, "
-          f"{n_checked - n_clean} with mismatches")
+          f"{n_checked - n_clean} with mismatches, "
+          f"{n_without_data} without strike data")
     if first_mismatch is None:
         print("ALL COMBATS BIT-EXACT MATCH WESNOTH")
         return 0

@@ -158,16 +158,17 @@ def test_the_start_slot_wraps_as_the_engine_wraps_it(declared, slots, start):
 
 
 def test_a_record_start_slot_reaches_the_state_wrapped():
-    """A replay record's `tod_start_index` is read the same way, and
-    the board cycle and a time area then agree on the phase: before,
-    -1 put the board at dawn (a clamp) and the area at second watch
-    (a wrap)."""
+    """A replay record's `tod_start_index` is read the same way: -1
+    puts the board at second watch (the engine's wrap; a clamp put it at
+    dawn), while a time area keeps its own slot (docs/wesnoth_rules.md
+    "A time area keeps its own slot")."""
     from tools.replay_dataset import _build_initial_gamestate, _lawful_bonus_at
     gs = _build_initial_gamestate({"map_data": "Gg, Gg\nGg, Gg", "tod_start_index": -1})
     assert gs.global_info._tod_start_offset == 5
     assert gs.global_info.time_of_day == "second_watch"
     gs.global_info._time_areas = {(0, 0): [0, 25, 25, 0, -25, -25]}
-    assert _lawful_bonus_at(gs, 0, 0, 1) == _lawful_bonus_at(gs, 1, 1, 1) == -25
+    assert _lawful_bonus_at(gs, 1, 1, 1) == -25
+    assert [_lawful_bonus_at(gs, 0, 0, t) for t in (1, 2, 5)] == [0, 25, -25]
 
 
 def test_a_time_area_does_not_contribute_its_own_schedule():

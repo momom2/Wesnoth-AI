@@ -560,6 +560,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // rows_from_reach and enumerate_moves take no move-rejection row, and
     // GameCore keeps the recruit rejections only (set_recruit_rejected,
     // recruit_rejected_hexes).
-    m.add("__phase__", 16)?;
+    // 17: a time area's slot ignores the board's start slot (its cycle
+    // arrives phased to turn 1).
+    m.add("__phase__", 17)?;
     Ok(())
 }
