@@ -118,15 +118,15 @@ _VISION_CACHE_MAX = 8192
 def _vision_area(nbrs, mcost, dsub, start: int, budget: int) -> Iterable[int]:
     """Hex indices reachable from `start` within `budget` (vertex costs),
     plus their neighbours: through the Rust reach kernel with an empty
-    context when the wheel is loaded (its reached set is the hexes whose
+    context when the wheel serves it (its reached set is the hexes whose
     cheapest route costs at most `budget`), else by the search below."""
     from tools import pathfind_sim
-    if pathfind_sim._RUST is not None:
+    kernel = pathfind_sim.reach_kernel()
+    if kernel is not None:
         import numpy as np
         flat, mcost_a, dsub_a = pathfind_sim.rust_arrays(nbrs, mcost, dsub)
         empty = _empty_context(len(mcost))
-        mp, _cost, _prev = pathfind_sim._RUST.unit_reach_arrays(
-            flat, mcost_a, dsub_a, empty, empty, empty, start, budget, False)
+        mp, _cost, _prev = kernel(flat, mcost_a, dsub_a, empty, empty, empty, start, budget, False)
         reached = np.nonzero(mp >= 0)[0]
         ring = flat.reshape(-1, 6)[reached].ravel()
         return np.union1d(reached, ring[ring >= 0]).tolist()

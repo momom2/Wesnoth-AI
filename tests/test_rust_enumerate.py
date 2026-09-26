@@ -22,6 +22,12 @@ wesnoth_core = pytest.importorskip("wesnoth_core")
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 from tools import pathfind_sim as pf  # noqa: E402
 
+_PHASE = getattr(wesnoth_core, "__phase__", 0)
+_served = pytest.mark.skipif(
+    _PHASE < pf.ENUMERATE_KERNEL_PHASE,
+    reason=f"wheel is phase {_PHASE}; the mask builder takes enumerate_moves "
+           f"from phase {pf.ENUMERATE_KERNEL_PHASE}")
+
 
 def _mid_states(n_games=2, per_game=4):
     """Deep-copied mid-game states from dummy-policy games (the
@@ -98,6 +104,7 @@ def _assert_equal(py, rs, tag):
             f"(sum py={a.sum().item()} rs={b.sum().item()})")
 
 
+@_served
 def test_rust_enumeration_matches_python_masks():
     from wesnoth_ai.action_sampler import _rust_enumerate_rows
     from wesnoth_ai.encoder import GameStateEncoder
@@ -143,7 +150,6 @@ def test_rust_enumeration_matches_python_masks():
 # invariant holds by construction -- this pins the kernel's own
 # contract so a future basis change cannot break it quietly.
 
-_PHASE = getattr(wesnoth_core, "__phase__", 0)
 _needs_bounds_check = pytest.mark.skipif(
     _PHASE < 9, reason=f"wheel is phase {_PHASE}; the token bounds check landed in 9")
 

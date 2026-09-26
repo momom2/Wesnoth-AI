@@ -3502,10 +3502,8 @@ def main(argv: List[str]) -> int:
         )
         pt_cfg = pt_config_from_args(args)
         turn_cfg = turn_config_from_args(args)
-        # Report every kernel, not just reach/enumeration. `rust_active()`
-        # answers "did the import succeed", so a wheel several phases
-        # behind the source bannered RUST while observe, combat and
-        # GameCore ran Python (tools/kernel_status.py).
+        # Report every kernel through its own phase gate: a wheel that
+        # imports may be too old for some of them (tools/kernel_status.py).
         from tools.kernel_status import banner as _kernel_banner
         log.info("%s (WESNOTH_RUST=%s)", _kernel_banner(),
                  os.environ.get("WESNOTH_RUST", "1"))

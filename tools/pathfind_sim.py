@@ -63,7 +63,9 @@ log = logging.getLogger("pathfind_sim")
 # build; "pure benefit"). WESNOTH_RUST=0 forces the Python path
 # (the permanent diff oracle). Import failure = Python path, with a
 # WARNING so a box that never built the wheel cannot be slow in
-# silence; `rust_active()` lets launchers banner the live path.
+# silence. A kernel is served only by a wheel of the phase it needs
+# (`reach_kernel`, `enumerate_kernel`); tools/kernel_status.py reports
+# each through these gates.
 import os as _os
 _RUST = None
 if _os.environ.get("WESNOTH_RUST", "1") != "0":
@@ -76,19 +78,40 @@ if _os.environ.get("WESNOTH_RUST", "1") != "0":
                     "rust/wesnoth_core (needs rustup + maturin), or "
                     "set WESNOTH_RUST=0 to silence this.")
 
+# The wheel phase (`wesnoth_core.__phase__`, rust/wesnoth_core/src/lib.rs)
+# each kernel needs: the reach Dijkstra keeps phase 1's contract;
+# `enumerate_moves` refuses a token index past the row width from phase 9.
+REACH_KERNEL_PHASE = 1
+ENUMERATE_KERNEL_PHASE = 9
+_warned_stale_kernels: Set[str] = set()
 
-def rust_active() -> bool:
-    """True when the Rust kernels serve REACH AND ENUMERATION.
 
-    This answers one kernel, not "is the Rust path on". It is
-    `wesnoth_core` imported successfully, and the wheel exposes its
-    kernels by PHASE -- a wheel several phases behind the source
-    imports cleanly while observe, combat and GameCore fall back to
-    Python. A launcher bannered "RUST (wesnoth_core)" off this and was
-    wrong about four kernels out of five. Use
-    `tools.kernel_status.banner()` for the whole picture.
-    """
-    return _RUST is not None
+def _kernel(name: str, phase: int):
+    """`wesnoth_core.<name>` when the wheel is loaded and of `phase` or
+    later, else None (the Python path). A wheel too old for the kernel
+    is named once in a warning."""
+    if _RUST is None:
+        return None
+    have = int(getattr(_RUST, "__phase__", 0) or 0)
+    if have < phase:
+        if name not in _warned_stale_kernels:
+            _warned_stale_kernels.add(name)
+            log.warning("wesnoth_core is phase %d and its %s needs phase %d: "
+                        "using the PYTHON path. Rebuild the wheel: pip install "
+                        "rust/wesnoth_core.", have, name, phase)
+        return None
+    return getattr(_RUST, name, None)
+
+
+def reach_kernel():
+    """The Rust reach Dijkstra (`wesnoth_core.unit_reach_arrays`), or None."""
+    return _kernel("unit_reach_arrays", REACH_KERNEL_PHASE)
+
+
+def enumerate_kernel():
+    """The Rust move and attack enumeration (`wesnoth_core.enumerate_moves`),
+    or None."""
+    return _kernel("enumerate_moves", ENUMERATE_KERNEL_PHASE)
 
 # id(nbrs-list) -> (source ref, numpy bundles) for the Rust call.
 # The source ref pins the id; bounded by the same drop-all backstop
@@ -433,10 +456,11 @@ def unit_reach(unit, gs, ctx: ReachContext,
         if i is not None:
             ally[i] = 1
 
-    if _RUST is not None:
+    kernel = reach_kernel()
+    if kernel is not None:
         import numpy as _np
         flat_nbrs, mcost_a, dsub_a = rust_arrays(nbrs, mcost, dsub)
-        mp_a, cost_a, prev_a = _RUST.unit_reach_arrays(
+        mp_a, cost_a, prev_a = kernel(
             flat_nbrs, mcost_a, dsub_a,
             _np.frombuffer(bytes(zoc), dtype=_np.uint8),
             _np.frombuffer(bytes(enemy), dtype=_np.uint8),

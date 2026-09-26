@@ -1225,8 +1225,9 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
     rust_port_plan.md phase 2 — the state-granularity boundary the
     phase-1 marshaling measurement demanded). Returns (move_rows,
     attack_rows) as bool [U, H] arrays, or None when the fast path
-    doesn't apply (no wheel, relevant-set stream — its debug
-    invariant lives on the Python path — or no acting units)."""
+    doesn't apply (WESNOTH_RUST=0 or no wheel, a wheel too old for the
+    kernel, relevant-set stream — its debug invariant lives on the
+    Python path — or no acting units)."""
     from tools import pathfind_sim as _pf
     if _pf._RUST is None:
         return None
@@ -1234,7 +1235,8 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
             and observation.tok_of_hex is not None):
         return _rows_from_observation(observation, encoded, game_state, U, H,
                                       hex_xs, hex_ys, enemy_mask)
-    if getattr(encoded, "hex_subset", False):
+    enumerate_moves = _pf.enumerate_kernel()
+    if enumerate_moves is None or getattr(encoded, "hex_subset", False):
         return None
     eligible = []      # (slot, unit)
     for i in range(U):
@@ -1365,7 +1367,7 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
         _RUST_TYPE_CACHE[_stack_key] = _stacked = (
             tuple(type_bundles), tm, td)
     tm, td = _stacked[1], _stacked[2]
-    mv, at = _pf._RUST.enumerate_moves(
+    mv, at = enumerate_moves(
         nbrs_flat, tok_of_hex, tm, td,
         unit_hexidx, unit_type, unit_budget, unit_skirm,
         unit_can_move, unit_can_attack,

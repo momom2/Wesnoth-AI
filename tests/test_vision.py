@@ -107,8 +107,8 @@ def test_the_rust_and_python_vision_areas_agree():
     """The reach kernel with an empty context and the Python search give
     one area, on mixed terrain, for every start hex."""
     from tools import pathfind_sim
-    if pathfind_sim._RUST is None:
-        pytest.skip("wesnoth_core is not importable")
+    if pathfind_sim.reach_kernel() is None:
+        pytest.skip("the Rust reach kernel is not available")
     rows = ["Gg Gs^Fp Hh Mm Ww Gg Gg Xu Gg Hh",
             "Gg Gg Wo Ww Gs^Fp Mm Gg Xu Gg Gg",
             "Hh Gg Gg Ww Gg Gs^Fp Hh Gg Mm Gg",
