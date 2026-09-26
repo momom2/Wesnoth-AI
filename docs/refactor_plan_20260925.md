@@ -258,9 +258,10 @@ the docs and docstrings that named a moved file by path.
 
 For the simulator step:
 
-- `tools/scenario_events.py` is the event interpreter alone (1,794 lines,
-  logger "scenario_events", which tests capture). It imports
-  `UnmodelledWML` and `load_scenario_wml` from `rules.scenario_cfg`.
+- `tools/scenario_events.py` is the event interpreter alone (its logger,
+  "scenario_events", is captured by tests). It imports `UnmodelledWML`
+  and `load_scenario_wml` from `rules.scenario_cfg` and `wml_int` from
+  `rules.wml_state`.
 - `replay_dataset._setup_scenario_events` imports the event functions
   inside `try/except ImportError: return`: a name that no longer resolves
   there drops every scenario event of every game, reconstruction and
