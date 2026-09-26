@@ -468,3 +468,28 @@ def test_micro_isar_tentacle_never_rest_heals():
     assert t.current_hp == 21, \
         f"regen-only heal expected (13+8=21), got {t.current_hp}"
     assert t.current_moves == 0, "turn-2 refresh must be re-zeroed"
+
+
+def test_a_scenario_without_wml_is_said_once_and_an_import_failure_is_not_swallowed(
+        monkeypatch, caplog):
+    """A scenario whose WML is not found runs without its events, time
+    areas and side modifications: that is warned about, once per id (the
+    WL_Troll_Toll lookup bug ran silent this way). And if the event
+    interpreter cannot be imported the setup raises instead of returning
+    with no events, which played every game without its scenario."""
+    import logging
+    import sys
+
+    import pytest
+
+    from tools import replay_dataset as rd
+    gs = rd._build_initial_gamestate({"map_data": "Gg, Gg\nGg, Gg"})
+    monkeypatch.setattr(rd, "_SCENARIOS_WITHOUT_WML", set())
+    with caplog.at_level(logging.WARNING, logger="replay_dataset"):
+        rd._setup_scenario_events(gs, "no_such_scenario_id")
+        rd._setup_scenario_events(gs, "no_such_scenario_id")
+    assert gs.global_info._scenario_events == []
+    assert sum("no_such_scenario_id" in r.getMessage() for r in caplog.records) == 1
+    monkeypatch.setitem(sys.modules, "tools.scenario_events", None)
+    with pytest.raises(ImportError):
+        rd._setup_scenario_events(gs, "multiplayer_Hamlets")

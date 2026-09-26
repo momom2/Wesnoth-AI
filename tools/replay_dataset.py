@@ -3066,6 +3066,20 @@ def _action_indices(gs: GameState, cmd: list, *,
 # Public Iterator
 # ---------------------------------------------------------------------
 
+# Scenario ids whose WML was not found, each warned about once per process.
+_SCENARIOS_WITHOUT_WML: set = set()
+
+
+def _warn_scenario_without_wml(scenario_id: str) -> None:
+    """Say once per id that a scenario's WML is missing: the game then
+    runs without its events, time areas and side modifications."""
+    if scenario_id in _SCENARIOS_WITHOUT_WML:
+        return
+    _SCENARIOS_WITHOUT_WML.add(scenario_id)
+    log.warning(f"no scenario WML found for {scenario_id!r}: the game runs "
+                f"without its events, time areas and side modifications")
+
+
 def _setup_scenario_events(gs: GameState, scenario_id: str):
     """Load scenario WML for `scenario_id` (if present in our wesnoth_src
     tree) and stash the event list on `gs.global_info` for use during
@@ -3073,21 +3087,19 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     (these run before turn 1 in Wesnoth). Also processes any top-level
     [time_area] blocks (e.g., Tombs of Kesorak's dark/illuminated zones)
     so per-hex lawful_bonus overrides are in place before turn 1.
+    A scenario whose WML is not found is warned about once.
     """
-    try:
-        from tools.scenario_events import (
-            apply_side_unit_modifications, fire_event, setup_static_time_areas,
-        )
-        from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
-    except ImportError:
-        # If scenario_events isn't importable for some reason, silently
-        # skip — the reconstruction still runs, just without events.
-        return
+    from tools.scenario_events import (
+        apply_side_unit_modifications, collect_events, fire_event,
+        setup_static_time_areas,
+    )
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     if not scenario_id:
         setattr(gs.global_info, "_scenario_events", [])
         return
     root = load_scenario_wml(scenario_id)
     if root is None:
+        _warn_scenario_without_wml(scenario_id)
         setattr(gs.global_info, "_scenario_events", [])
         return
     # Top-level [time_area]s (declared outside any event) apply from
@@ -3097,7 +3109,6 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     setup_static_time_areas(gs, root)
     # [side]-placed units exist, modifications applied, before prestart.
     apply_side_unit_modifications(gs, root)
-    from tools.scenario_events import collect_events
     events = collect_events(root, scenario_id)
     setattr(gs.global_info, "_scenario_events", events)
     # Pre-populate WML variables for `pN_faction` so scenarios that
