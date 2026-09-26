@@ -161,9 +161,10 @@ bases are disjoint except the documented offset-sweep overlap. Open:
   generator included. `elo_ladder` still builds its searched player once
   for the whole ladder, unseeded.
 - `scripts/endturn_offset_sweep_box.sh` still steps its seed base by 100
-  between 800-game matches, and `endturn_readout.py` computes an
-  independent-arms SE without checking the (side, seed) overlap: a guard
-  that refuses or pairs overlapping slots.
+  between 800-game matches (a record of a past run; port it to the box
+  library before running it again). `endturn_readout.py` refuses the
+  independent-arms SE for arms that share (side, seed) slots and says how
+  many they share; a paired per-slot comparison is not built.
 
 ## The imitation corpus's labels (2026-09-26 crawl; each changes the corpus)
 

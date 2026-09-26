@@ -8,10 +8,10 @@ player makes one forward per decision, so forwards over turns).
 Two arms are compared on the standard error of their difference,
 sqrt(se_a^2 + se_b^2), which holds for independent matches: disjoint
 seed sets, as the rule's match (seed base 42000) and the offset arm's
-(43000) are. Arms that share game slots (the same seeds, hence the
-same maps, factions, sides and luck salt) are correlated, and comparing
-them needs the paired per-slot difference, which this tool does not
-compute.
+(43000) are. Arms that share game slots (the same side and seed, hence
+the same maps, factions, sides and luck salt) are correlated; the tool
+reads each game's (side_a, seed) slot and refuses that standard error
+for them, since comparing them needs the paired per-slot difference.
 
     python tools/analysis/endturn_readout.py GAMES_DIR [GAMES_DIR ...]
         [--require-fire 1.03]   exit 1 unless A's decisions per side-turn
@@ -29,7 +29,7 @@ import statistics
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import FrozenSet, List, Optional, Tuple
 
 
 @dataclass
@@ -44,6 +44,7 @@ class Readout:
     dps_b: float
     procedure_a: str
     procedure_b: str
+    slots: FrozenSet[Tuple[int, int]] = frozenset()   # (side_a, seed) per game
 
     @property
     def decisive(self) -> int:
@@ -88,16 +89,24 @@ def read_dir(path: Path) -> Readout:
     if len(procs) > 1:
         raise SystemExit(f"{path}: mixed procedures {sorted(procs)}")
     pa, pb = next(iter(procs)) if procs else ("?", "?")
+    slots = frozenset((int(g["side_a"]), int(g["seed"])) for g in games
+                      if "side_a" in g and "seed" in g)
     return Readout(name=path.name, games=len(games), wins=wins, losses=losses, draws=draws,
                    capped=capped, dps_a=statistics.fmean(dps_a) if dps_a else 0.0,
                    dps_b=statistics.fmean(dps_b) if dps_b else 0.0,
-                   procedure_a=str(pa), procedure_b=str(pb))
+                   procedure_a=str(pa), procedure_b=str(pb), slots=slots)
+
+
+def shared_slots(a: Readout, b: Readout) -> int:
+    """Game slots (side_a, seed) the two arms both played."""
+    return len(a.slots & b.slots)
 
 
 def diff_se(a: Readout, b: Readout) -> Optional[float]:
-    """Standard error of a.p - b.p for two independent matches (see the
-    module docstring for arms that share seeds)."""
-    if a.se is None or b.se is None:
+    """Standard error of a.p - b.p for two independent matches; None when
+    either has no decisive game or the arms share a game slot (see the
+    module docstring)."""
+    if a.se is None or b.se is None or shared_slots(a, b):
         return None
     return math.hypot(a.se, b.se)
 
@@ -107,6 +116,11 @@ def attribution(name: str, offset: Readout, rule: Readout) -> str:
     within 1 SE of the rule says the lever is "act more"; any other
     offset differs from the rule. The SE is that of the difference."""
     d = offset.p - rule.p
+    shared = shared_slots(offset, rule)
+    if shared:
+        return (f"attribution {name}: p {offset.p:.3f} against the rule's {rule.p:.3f}, "
+                f"{d:+.3f}; the arms share {shared} game slots, so the independent-arms "
+                f"SE does not apply (compare them paired per slot)")
     se = diff_se(offset, rule) or 0.0
     distance = f"{d / se:+.1f} SE of the difference" if se else "no spread"
     reading = "within 1 SE, the lever is act more" if abs(d) <= se else "differs, rule-specific"
