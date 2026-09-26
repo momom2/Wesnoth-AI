@@ -43,6 +43,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.paths import UNIT_STATS_PATH  # noqa: E402
+from tools.replay_control import find_game_end  # noqa: E402
 from tools.wml_state import (check_board_cycle,  # noqa: E402
                              check_quick_leader_gates, map_starting_positions,
                              read_side, read_tod, read_unit, read_villages,
@@ -50,6 +51,12 @@ from tools.wml_state import (check_board_cycle,  # noqa: E402
 
 
 log = logging.getLogger("replay_extract")
+
+# The rules a record was extracted under. 2 (2026-09-26): a stopped
+# move keeps the hex its player clicked (`replay_dataset.move_order_of`)
+# and the record says where the game ended (`game_end`). Records without
+# the key are version 1.
+EXTRACTION_VERSION = 2
 
 
 # --------------------------------------------------------------------
@@ -315,6 +322,9 @@ class SideState:
     # quarantined by the dataset builder.
     fog: bool = True
     shroud: bool = False
+    # Who played the side when the game started: "human", "ai" or
+    # "null" ([side] controller=).
+    controller: str = ""
 
 
 def _wml_bool(v, default: bool) -> bool:
@@ -474,6 +484,7 @@ def build_initial_state(root: WMLNode) -> GameState:
             recruit_list=fields["recruit"],
             leader_type=fields["leader_type"],
             color=fields["color"],
+            controller=str(side_node.attrs.get("controller", "") or "").strip().strip('"'),
         )
         gs.sides[side_num] = ss
         # Pre-owned [village] children. The replay's [scenario] /
@@ -766,6 +777,28 @@ def _first_player_action_sig(cmd_nodes) -> Optional[Tuple]:
     return None
 
 
+def _move_checkup_result(node) -> Optional[Tuple[int, int, Optional[bool]]]:
+    """(final_hex_x, final_hex_y, stopped_early) from a move's [checkup]
+    or [mp_checkup] block, WML 1-indexed, or None when the block records
+    no final hex. The engine writes all three from its `unit_mover`
+    (src/actions/move.cpp:1180-1182, 1.18.4); `stopped_early` is
+    `expected_end_ != real_end_` (move.cpp:221): the unit stopped short
+    of where this turn's portion of the ordered route ends -- a sighted
+    enemy, an ambush, a blocked hex. None when the block does not say."""
+    if node is None:
+        return None
+    for holder in [*node.all("result"), node]:
+        if "final_hex_x" not in holder.attrs:
+            continue
+        try:
+            fx = int(holder.attrs.get("final_hex_x", 0))
+            fy = int(holder.attrs.get("final_hex_y", 0))
+        except ValueError:
+            continue
+        return fx, fy, wml_bool_or_none(holder.attrs.get("stopped_early"))
+    return None
+
+
 def _compact_action_sig(compact_entry) -> Optional[Tuple]:
     """Mirror of `_first_player_action_sig` for our compact-format
     entries; used at the boundary to compare a dropped trailer
@@ -783,7 +816,7 @@ def _compact_action_sig(compact_entry) -> Optional[Tuple]:
     return None
 
 
-def extract_replay(path: Path) -> Optional[dict]:
+def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dict]:
     """Parse one replay file into a compact per-game dict.
 
     Contains everything the DataLoader needs to reconstruct (state, action)
@@ -791,7 +824,15 @@ def extract_replay(path: Path) -> Optional[dict]:
     initial state. No redundant intermediate states — 100-1000× smaller
     than emitting one record per action.
 
+    The record's `game_end` says how the server recorded the game's end
+    (`replay_control.find_game_end`: a surrender, or one name holding
+    both player sides). `cut_at_game_end` leaves out every command from
+    there on, as the imitation corpus wants; tools that check the
+    simulator against the whole recorded stream keep the default.
+
     Returns None if the file has no player commands (just a save game).
+    A game cut before its first action (one name on both sides) keeps a
+    record with no commands.
     """
     root = parse_replay_file(path)
     # Saves emitted by tools/sim_to_replay carry this marker (set in
@@ -999,7 +1040,12 @@ def extract_replay(path: Path) -> Optional[dict]:
     # trailer-drop below. Keyed by list-object identity so pops of
     # other entries can't shift the marker.
     full_checkup_recruit_ids: set = set()
+    snap = root.first("replay_start") or root.first("snapshot") or root.first("scenario")
+    game_end = find_game_end(commands_list, snap)
+    stop_at = game_end.cut_index if cut_at_game_end else None
     for cmd_idx, cmd in enumerate(commands_list):
+        if stop_at is not None and cmd_idx >= stop_at:
+            break
         # Server-emitted [random_seed] commands attach to the most
         # recent player action that consumed RNG (recruit with trait
         # roll, or attack). The seed in the WML block is the seed
@@ -1098,36 +1144,14 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # which name varies by replay (singleplayer / older
                 # replays use `[checkup]`; recent multiplayer replays
                 # use `[mp_checkup]`). Both have `[result]` children
-                # carrying `final_hex_x/y`.
-                final_x: Optional[int] = None
-                final_y: Optional[int] = None
-                # Wesnoth records the move's actual final hex in a
-                # `[checkup]` or `[mp_checkup]` block. The block can
-                # be either a CHILD of the move's [command] (older /
-                # singleplayer replays), OR a SEPARATE follow-up
-                # [command] right after (multiplayer replays:
-                # `[command] dependent="yes" [mp_checkup] ... [/mp_checkup]
-                # [/command]`). Search both locations.
-                def _read_final(node):
-                    if node is None:
-                        return None, None
-                    for r in node.all("result"):
-                        if "final_hex_x" in r.attrs:
-                            try:
-                                return (int(r.attrs.get("final_hex_x", 0)),
-                                        int(r.attrs.get("final_hex_y", 0)))
-                            except ValueError:
-                                pass
-                    if "final_hex_x" in node.attrs:
-                        try:
-                            return (int(node.attrs.get("final_hex_x", 0)),
-                                    int(node.attrs.get("final_hex_y", 0)))
-                        except ValueError:
-                            pass
-                    return None, None
-
-                checkup = cmd.first("checkup") or cmd.first("mp_checkup")
-                final_x, final_y = _read_final(checkup)
+                # carrying `final_hex_x/y`. The block can be either a
+                # CHILD of the move's [command] (older / singleplayer
+                # replays), OR a SEPARATE follow-up [command] right
+                # after (multiplayer replays: `[command] dependent="yes"
+                # [mp_checkup] ... [/mp_checkup] [/command]`). Search
+                # both locations.
+                final = _move_checkup_result(
+                    cmd.first("checkup") or cmd.first("mp_checkup"))
                 # If not found as child, look at the next [command] in
                 # the stream -- it often carries the mp_checkup block.
                 # Window of 3 commands to skip past intervening
@@ -1167,7 +1191,7 @@ def extract_replay(path: Path) -> Optional[dict]:
                     if cmd_idx <= b:
                         next_block_boundary = b
                         break
-                while (final_x is None
+                while (final is None
                        and lookahead_idx < len(commands_list)
                        and lookahead_idx <= cmd_idx + 3
                        and (next_block_boundary is None
@@ -1189,7 +1213,7 @@ def extract_replay(path: Path) -> Optional[dict]:
                         break
                     nxt_chk = nxt.first("checkup") or nxt.first("mp_checkup")
                     if nxt_chk is not None:
-                        final_x, final_y = _read_final(nxt_chk)
+                        final = _move_checkup_result(nxt_chk)
                         break
                     lookahead_idx += 1
                 # Empty-checkup move (ack never recorded): the engine
@@ -1197,14 +1221,20 @@ def extract_replay(path: Path) -> Optional[dict]:
                 # verified empirically 2026-08-06: dropping these
                 # strands the mover and every later command
                 # referencing the path end goes src_missing (10/10
-                # files). With final_x = None the code below simply
+                # files). With no final hex the code below simply
                 # keeps the whole path, which is the correct reading.
                 if xs and len(xs) == len(ys):
                     # If we got an explicit final_hex from [checkup] that
                     # disagrees with the path's last cell, truncate the
-                    # path at the recorded stopping point.
-                    if (final_x is not None and final_y is not None
-                            and (xs[-1], ys[-1]) != (final_x, final_y)):
+                    # path at the recorded stopping point: the state
+                    # is rebuilt from where the unit stopped. The hex
+                    # the player clicked stays with the move as its
+                    # order (`move_order_of`), which the label reads.
+                    order = None
+                    if final is not None and (xs[-1], ys[-1]) != final[:2]:
+                        final_x, final_y, stopped_early = final
+                        order = {"clicked": [max(0, xs[-1] - 1), max(0, ys[-1] - 1)],
+                                 "stopped_early": stopped_early}
                         try:
                             stop = next(
                                 i for i, (x, y) in enumerate(zip(xs, ys))
@@ -1222,8 +1252,11 @@ def extract_replay(path: Path) -> Optional[dict]:
                     xs = [max(0, x - 1) for x in xs]
                     ys = [max(0, y - 1) for y in ys]
                     # 4th slot reserved for from_side (matched against
-                    # the moving unit's side at apply time).
+                    # the moving unit's side at apply time); the 5th,
+                    # present only on a stopped move, is its order.
                     new_move = ["move", xs, ys, from_side]
+                    if order is not None:
+                        new_move.append(order)
                     # In-block consecutive-duplicate dedup: if the
                     # most recent compact entry is an EXACT duplicate
                     # of this move (same path, same side), drop this
@@ -1812,7 +1845,9 @@ def extract_replay(path: Path) -> Optional[dict]:
                         last_attack_slot -= 1
             last_move_slot = None
 
-    if not compact_commands:
+    # A game cut before its first action keeps its record, so the
+    # caller can say why it holds no play (`game_end.cut_before_play`).
+    if not compact_commands and not (stop_at is not None and game_end.cut_before_play):
         return None
 
     # Initial state — no hex map, loader re-parses map_data from here.
@@ -1827,6 +1862,7 @@ def extract_replay(path: Path) -> Optional[dict]:
             "recruit": list(s.recruit_list),
             "leader_type": s.leader_type,
             "color": s.color,
+            "controller": s.controller,
         }
         for s in sorted(gs.sides.values(), key=lambda s: s.side_num)
     ]
@@ -1842,7 +1878,6 @@ def extract_replay(path: Path) -> Optional[dict]:
 
     # Pull map_data from the snapshot (same block we parsed initial
     # state from). Downstream DataLoader will split it into a hex grid.
-    snap = root.first("replay_start") or root.first("snapshot") or root.first("scenario")
     map_data = snap.attrs.get("map_data", "") if snap else ""
 
     # ToD start cycle index. Wesnoth's tod_manager stores `current_time`
@@ -1993,6 +2028,8 @@ def extract_replay(path: Path) -> Optional[dict]:
         "starting_units": starting_units,
         "starting_villages": starting_villages,
         "commands": compact_commands,
+        "extraction_version": EXTRACTION_VERSION,
+        "game_end": {**game_end.as_record(), "cut": stop_at is not None},
     }
 
 

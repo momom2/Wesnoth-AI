@@ -72,9 +72,15 @@ log = logging.getLogger("build_value_corpus")
 # verbatim in 1.18 server replays (2026-07-07 sample):
 #   message="arketiyo has left the game."
 _LEFT_RE = re.compile(r'message="([^"]+) has left the game\.?"')
-# A [surrender] command carries the surrendering side INSIDE the tag
-# (verified on a 2026-07-01 sample file):
-#   [command] undo=no [surrender] side_number=1 [/surrender] [/command]
+# A [surrender] command carries the surrendering side INSIDE the tag,
+# 0-based: the client sends its viewing team's index
+# (src/quit_confirmation.cpp:78, 1.18.4) and the server accepts it only
+# when `sides_[side_number]` is the sender (src/server/wesnothd/game.cpp:
+# 927-935). `side_number=1` is side 2 surrendering; read as a side
+# number, it named the surrendering side 2 as the winner of all 1,334
+# surrender games of the 2026-07 value corpus (300 of 300 checked,
+# 2026-09-26), and a surrender by side 1 (`side_number=0`) was never
+# read at all.
 _SURRENDER_RE = re.compile(
     r'\[surrender\]\s*\n\s*side_number="?(\d)"?', re.MULTILINE)
 
@@ -120,7 +126,7 @@ def _raw_outcome_scan(raw_text: str,
     over BOTH is applied by the caller.)"""
     m = _SURRENDER_RE.search(raw_text)
     if m:
-        loser = int(m.group(1))
+        loser = int(m.group(1)) + 1
         if loser in (1, 2):
             return 3 - loser, "surrender"
     for m in _LEFT_RE.finditer(raw_text):

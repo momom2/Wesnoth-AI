@@ -25,13 +25,15 @@ _INDEX = Path(__file__).parent.parent / "replays_dataset" \
     / "value_corpus_index.jsonl"
 
 
-def test_surrender_scan_names_the_other_side_winner():
+@pytest.mark.parametrize("side_number, winner", [(0, 2), (1, 1)])
+def test_surrender_scan_names_the_other_side_winner(side_number, winner):
+    """side_number is the surrendering client's 0-based viewing team:
+    0 is side 1 surrendering."""
     raw = (
-        '[command]\n\tundo=no\n\t[surrender]\n\t\tside_number=1\n'
+        f'[command]\n\tundo=no\n\t[surrender]\n\t\tside_number={side_number}\n'
         '\t[/surrender]\n[/command]\n'
     )
-    winner, source = _raw_outcome_scan(raw, {})
-    assert (winner, source) == (2, "surrender")
+    assert _raw_outcome_scan(raw, {}) == (winner, "surrender")
 
 
 def test_leaver_scan_maps_player_name_to_side():

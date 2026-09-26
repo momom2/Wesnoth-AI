@@ -169,6 +169,34 @@ label slot checked on 23,043 pairs of 85 games, 0 mismatches) found five
 problems that only a re-extraction fixes; the retrain that would carry
 them is the user's decision.
 
+**The corrected pipeline landed in 0.8.0** (docs/corpus_v2_20260926.md;
+`CORPUS_VERSION` 2; today's corpus files and records load and label as
+before, 6,850 pairs identical): a move the engine stopped early is
+labelled with the clicked hex when it is a legal target (5.7% of move
+labels; a move whose order simply ran past the turn keeps its stop,
+which was right); a game is cut where a side's turn is played by the
+other side's player after a surrender or a control change
+(`tools/replay_control.py`, 6.4% of winner actions on a sample); winners
+come from a committed labeller (`tools/replay_outcome.py`: leader death,
+then the surrendering side loses; a surrender by the side more than 5%
+ahead on material is abandoned, no labels); dedup on a 30-command
+prefix; label-slot guards at pre-encoding; games where the AI played a
+player side are left out at build (`quarantine_ai_player_sides`: 53 of
+600 sampled games, 7.9% of winner actions, the AI the labelled winner in
+12). **The rebuild is a box job:** the raw replays and the dispositions
+ledger (0.23 GiB) must first go to HF (`tools/stage_raw_corpus.py`), then
+`scripts/corpus_v2_rebuild_box.sh` runs on the box library, about 5-7
+minutes on 16 cores; the pre-encoding and the retrain follow. The script
+that wrote the dispositions ledger, like the old outcomes labeller, is in
+no commit.
+- **The value corpus's surrender winners are inverted:**
+  `tools/build_value_corpus.py` read the [surrender] command's side number
+  as 1-based when it is 0-based, so all 1,334 surrender games of
+  `replays_dataset/value_corpus_index.jsonl` name the surrendering side as
+  the winner (fixed in 0.8.0 with a test; the index is not rebuilt; its
+  readers: mid-game starts, `value_finetune`, `probe_value_head`;
+  `value_head_fit` reads the imitation corpus and is not affected).
+
 - **A move's label is where the unit stopped, not the hex clicked.**
   `extract_replay` cuts each `[move]` at the checkup's `final_hex`, and
   the label takes the last hex: 192,575 of 3,017,162 player moves

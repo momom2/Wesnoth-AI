@@ -492,6 +492,39 @@ def _load_core_macros() -> Dict[str, MacroDef]:
 
 _CORE_MACROS_CACHE: Optional[Dict[str, MacroDef]] = None
 
+_MACRO_DEFINITION_RE = re.compile(r"^[ \t]*#define\b.*?^[ \t]*#enddef\b",
+                                  re.MULTILINE | re.DOTALL)
+_TAG_LINE_RE = re.compile(r"^\s*\[(\+|/)?([a-zA-Z_][a-zA-Z0-9_]*)\]\s*$")
+_ID_LINE_RE = re.compile(r'^\s*id\s*=\s*"?([^"\s]+)"?\s*$')
+_SCENARIO_TAGS = ("multiplayer", "scenario", "test")
+
+
+def scenario_id_of_cfg(text: str) -> Optional[str]:
+    """The `id=` of the file's own [multiplayer], [scenario] or [test]
+    tag: the first id that tag holds directly, macro definitions left
+    out. The first `id=` of the text can belong to anything else: in
+    WL_Mappack's 2p_Troll_Toll.cfg it is `id=remove_hp`, a [trait]
+    inside the file's `#define UNIT_PETRIFY`."""
+    depth = 0
+    in_scenario = False
+    for line in _MACRO_DEFINITION_RE.sub("", text).splitlines():
+        tag = _TAG_LINE_RE.match(line)
+        if tag is not None:
+            closing = tag.group(1) == "/"
+            if closing:
+                depth -= 1
+                in_scenario = in_scenario and depth > 0
+            else:
+                depth += 1
+                if depth == 1:
+                    in_scenario = tag.group(2) in _SCENARIO_TAGS
+            continue
+        if in_scenario and depth == 1:
+            m = _ID_LINE_RE.match(line)
+            if m:
+                return m.group(1)
+    return None
+
 
 def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
     """Locate the scenario .cfg whose WML id is `scenario_id`.
@@ -546,8 +579,10 @@ def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
     # userdata for the real game). Mini-map / drill scenarios often
     # have raw ids like "2p_mini" or "drill_duel" that don't match
     # either prefix convention; look up by both filename and by the
-    # [multiplayer]/[scenario] id attribute.
-    import re as _re
+    # [multiplayer]/[scenario] id attribute. Directories and files are
+    # walked in sorted order, so every filesystem picks the same file
+    # when two declare one id (WL_Troll_Toll: WL_Mappack and
+    # Seamless_Map_Picker, whose scenario bodies are identical).
     addon_roots = [
         SCENARIO_DIR.parent.parent / "add-ons",        # wesnoth_src/data
         ADDONS_DIR,                                     # project
@@ -555,7 +590,7 @@ def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
     for addons_dir in addon_roots:
         if not addons_dir.is_dir():
             continue
-        for addon in addons_dir.iterdir():
+        for addon in sorted(addons_dir.iterdir()):
             sc_root = addon / "scenarios"
             if not sc_root.is_dir():
                 continue
@@ -569,19 +604,16 @@ def find_scenario_cfg_path(scenario_id: str) -> Optional[Path]:
                     p = sc_dir / fname
                     if p.is_file():
                         return p
-                # Fall through: scan every .cfg's id= attribute.
+                # Fall through: scan every .cfg's scenario id.
                 # Add-on scenarios often pick non-filename-matching
                 # ids (e.g. file Modified_Close_Relation.cfg has
                 # id=Modified_Tiny_Close_Relation).
-                for p in sc_dir.glob("*.cfg"):
+                for p in sorted(sc_dir.glob("*.cfg")):
                     try:
-                        head = p.read_text(encoding="utf-8",
-                                           errors="ignore")[:2000]
+                        text = p.read_text(encoding="utf-8", errors="ignore")
                     except OSError:
                         continue
-                    m = _re.search(r"^\s*id\s*=\s*(\S+)\s*$",
-                                   head, _re.MULTILINE)
-                    if m and m.group(1).strip() == scenario_id:
+                    if scenario_id_of_cfg(text) == scenario_id:
                         return p
     return None
 

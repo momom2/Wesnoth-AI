@@ -29,6 +29,7 @@ import hashlib
 import json
 import logging
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -432,6 +433,14 @@ class ActionIndices:
     # and the trainer counts these -- by construction of the subset
     # they should never occur (docs/model_cost_study_20260905.md 2.3).
     target_off_subset: bool = False
+    # What the slots must point at: the acting unit's hex, the label's
+    # target hex and the recruited type, from the command itself.
+    # `encode_worker.label_slot_mismatch` checks them against the
+    # encoded tokens. None on end_turn, and on records pickled before
+    # the fields existed (the class defaults serve those).
+    source_hex: Optional[Tuple[int, int]] = None
+    target_hex: Optional[Tuple[int, int]] = None
+    recruit_type: Optional[str] = None
 
 
 def _alignment_from_str(s: str) -> AlignmentEnum:
@@ -670,6 +679,22 @@ def fog_on_for(starting_sides) -> bool:
     return any(bool(s.get("fog", True)) or bool(s.get("shroud", False)) for s in sides)
 
 
+def corpus_version_of(dataset_dir: Path) -> int:
+    """The version of the rules a corpus was built under, from its
+    manifest's rows (tools/build_imitation_dataset.CORPUS_VERSION);
+    1 for a corpus whose rows do not say, or without a manifest. A
+    corpus mixing versions raises ValueError: its labels follow two
+    sets of rules."""
+    man = Path(dataset_dir) / "manifest.jsonl"
+    if not man.exists():
+        return 1
+    versions = {int(json.loads(line).get("corpus_version", 1))
+                for line in man.read_text(encoding="utf-8").splitlines() if line.strip()}
+    if len(versions) > 1:
+        raise ValueError(f"{man} mixes corpus versions {sorted(versions)}")
+    return versions.pop() if versions else 1
+
+
 def manifest_holdout_split(rows, dataset_dir: Path):
     """(train_rows, holdout_rows) of index rows (dicts with "file") by
     the dataset manifest's holdout flag, or None without a manifest.
@@ -688,13 +713,37 @@ def manifest_holdout_split(rows, dataset_dir: Path):
     return train, hold
 
 
-def match_key(data: dict, prefix: int = 200) -> str:
-    """One string per MATCH: the first `prefix` commands (with their
-    engine random seeds), the map and the starting units. Copies of
-    the same game saved at different turns share it; a re-upload
-    under another date shares it; two different games never do."""
+# Commands a match key reads at least. A game reloaded from a save and
+# played on differently shares its history up to the reload: 9 clusters
+# (19 games) of the 2026-09 corpus share 30 or more commands and differ
+# within 200, each between the same two players (2026-09-26 crawl).
+MATCH_KEY_PREFIX = 30
+# ... and at most: the key's length before 2026-09-26, reached only by a
+# game with no seed in its first 30 commands (5 of 2,000 sampled).
+MATCH_KEY_PREFIX_MAX = 200
+
+
+def _seeded(cmd) -> bool:
+    """Whether a command carries an engine random seed (a recruit's
+    trait roll, an attack's strikes): no two games share one."""
+    if not isinstance(cmd, list) or not cmd:
+        return False
+    return ((cmd[0] == "recruit" and len(cmd) > 4 and bool(cmd[4]))
+            or (cmd[0] == "attack" and len(cmd) > 7 and bool(cmd[7])))
+
+
+def match_key(data: dict, prefix: int = MATCH_KEY_PREFIX) -> str:
+    """One string per MATCH: the map, the starting units and the first
+    `prefix` commands, read on to the first command carrying an engine
+    random seed when those have none (up to MATCH_KEY_PREFIX_MAX).
+    Copies of the same game saved at different turns share it, a
+    re-upload under another date shares it, and so does a game reloaded
+    and played on differently; two different games never do."""
+    commands = data.get("commands", [])
+    first_seed = next((i for i, c in enumerate(commands) if _seeded(c)), len(commands))
+    head = commands[:min(max(prefix, first_seed + 1), MATCH_KEY_PREFIX_MAX)]
     h = hashlib.sha1()
-    h.update(json.dumps(data.get("commands", [])[:prefix], separators=(",", ":")).encode("utf-8"))
+    h.update(json.dumps(head, separators=(",", ":")).encode("utf-8"))
     h.update(b"|")
     h.update(str(data.get("map_data", "")).encode("utf-8"))
     h.update(b"|")
@@ -2844,8 +2893,56 @@ def village_count_mismatches(gs: GameState) -> Dict[int, Tuple[int, int]]:
             if s.nb_villages_controlled != owned.get(i, 0)}
 
 
+def move_order_of(cmd: list) -> Optional[dict]:
+    """The order a compact move carries beside its path when the engine
+    stopped the unit short of the hex the player clicked:
+    {"clicked": [x, y] (0-indexed), "stopped_early": bool or None}
+    (`replay_extract.extract_replay` writes it). None for a move that
+    went where it was ordered, and for every move of a record extracted
+    before the field existed."""
+    if len(cmd) > 4 and isinstance(cmd[4], dict):
+        return cmd[4]
+    return None
+
+
+def move_label_hex(gs: GameState, unit: Unit, cmd: list) -> Tuple[Tuple[int, int], str]:
+    """The hex a move's label names, and why: (hex, source).
+
+    The label is the player's choice. The path's end is where the unit
+    stopped, which differs from the hex clicked when the engine cut the
+    move short (`move_order_of`); the simulator does not stop a move on
+    sighting an enemy, so in our games the unit heads for the clicked
+    hex, and the label names it:
+      "path_end"   the move went where it was ordered (or the record
+                   predates orders): the path's end;
+      "turn_end"   the engine says the unit reached the end of this
+                   turn's part of the order (`stopped_early` no: a
+                   multi-turn order, or an end hex another unit held):
+                   the path's end, which is the turn's target;
+      "clicked"    stopped early, and the clicked hex is one this unit
+                   can end a move on in the pre-move observable state
+                   (the legality mask's move targets): the clicked hex;
+      "clicked_unreachable"  stopped early, but the clicked hex is not
+                   such a target (an order longer than a turn): the path's
+                   end, where the unit stopped.
+    """
+    stop = (cmd[1][-1], cmd[2][-1])
+    order = move_order_of(cmd)
+    if order is None:
+        return stop, "path_end"
+    if order.get("stopped_early") is False:
+        return stop, "turn_end"
+    clicked = (int(order["clicked"][0]), int(order["clicked"][1]))
+    from tools.pathfind_sim import ReachContext, unit_reach
+    reach = unit_reach(unit, gs, ReachContext.for_side(gs, unit.side))
+    if clicked in reach.landable:
+        return clicked, "clicked"
+    return stop, "clicked_unreachable"
+
+
 def _action_indices(gs: GameState, cmd: list, *,
-                    relevant_set: bool = False) -> Optional[ActionIndices]:
+                    relevant_set: bool = False,
+                    stats: Optional[Counter] = None) -> Optional[ActionIndices]:
     """Convert a compact replay command into slot indices the model's
     heads should predict.
 
@@ -2859,6 +2956,9 @@ def _action_indices(gs: GameState, cmd: list, *,
     pair and flags it (`target_off_subset`); an off-board target
     drops the pair exactly as in the full-board basis, so both bases
     yield the same pair stream.
+
+    `stats`, when given, counts each move label's source
+    (`move_label_hex`).
     """
     if not cmd:
         return None
@@ -2899,7 +2999,6 @@ def _action_indices(gs: GameState, cmd: list, *,
     if kind == "move":
         xs, ys = cmd[1], cmd[2]
         sx, sy = xs[0], ys[0]
-        tx, ty = xs[-1], ys[-1]
         # Find actor = the unit at (sx, sy).
         actor = None
         for i, u in enumerate(units_sorted):
@@ -2908,9 +3007,12 @@ def _action_indices(gs: GameState, cmd: list, *,
                 break
         if actor is None:
             return None
+        (tx, ty), source = move_label_hex(gs, units_sorted[actor], cmd)
         target, on_board, off_subset = _target(tx, ty)
         if not on_board:
             return None
+        if stats is not None:
+            stats[f"move_label_{source}"] += 1
         # type_idx=1 (MOVE) for the action-type head; lazy import
         # of model.UnitActionType to avoid a hard dep cycle (model
         # already imports replay_dataset transitively via the
@@ -2918,7 +3020,8 @@ def _action_indices(gs: GameState, cmd: list, *,
         from wesnoth_ai.model import UnitActionType
         return ActionIndices("move", actor_idx=actor, target_idx=target,
                              type_idx=UnitActionType.MOVE,
-                             target_off_subset=off_subset)
+                             target_off_subset=off_subset,
+                             source_hex=(sx, sy), target_hex=(tx, ty))
 
     if kind == "attack":
         ax, ay, dx, dy, weapon = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
@@ -2936,7 +3039,8 @@ def _action_indices(gs: GameState, cmd: list, *,
         return ActionIndices("attack", actor_idx=actor,
                              target_idx=target, weapon_idx=weapon,
                              type_idx=UnitActionType.ATTACK,
-                             target_off_subset=off_subset)
+                             target_off_subset=off_subset,
+                             source_hex=(ax, ay), target_hex=(dx, dy))
 
     if kind == "recruit":
         unit_type = cmd[1]
@@ -2954,7 +3058,8 @@ def _action_indices(gs: GameState, cmd: list, *,
         if not on_board:
             return None
         return ActionIndices("recruit", actor_idx=actor, target_idx=target,
-                             target_off_subset=off_subset)
+                             target_off_subset=off_subset,
+                             target_hex=(tx, ty), recruit_type=unit_type)
 
     # recall / init_side / unknown → skip.
     return None
@@ -3025,22 +3130,50 @@ def _fire_turn_events(gs: GameState, names: List[str]) -> None:
     fire_events(gs, events, names)
 
 
-def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False
+# The command kinds that are a player's decision and must each yield a
+# pair; a recall (not in the action space) and the mod's pick-advance
+# input yield none by design.
+PAIRED_KINDS = frozenset({"move", "attack", "recruit", "end_turn"})
+
+
+def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
+                      stats: Optional[Counter] = None
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
     """Yield (state_before, action_indices) for each command a player
     side (1 or 2) made in one .json.gz replay; the neutral side's are
     its AI's, not a player's to imitate. `relevant_set` selects the
     label's hex basis (see `_action_indices`); it must match the
-    encoder's."""
+    encoder's.
+
+    `stats`, when given, receives this file's counts: each move label's
+    source (`move_label_hex`) and `unpaired`, the player commands of a
+    `PAIRED_KINDS` kind that yielded no pair -- the record and its
+    reconstruction disagree on an actor or a target, so the game lost a
+    decision. A file with any is logged as a warning."""
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
+    counts: Counter = Counter()
+    yield from iter_record_pairs(data, relevant_set=relevant_set, stats=counts)
+    if counts["unpaired"]:
+        log.warning(f"{Path(gz_path).name}: {counts['unpaired']} player commands "
+                    f"yielded no pair")
+    if stats is not None:
+        stats.update(counts)
+
+
+def iter_record_pairs(data: dict, *, relevant_set: bool = False,
+                      stats: Optional[Counter] = None
+                      ) -> Iterator[Tuple[GameState, ActionIndices]]:
+    """`iter_replay_pairs` over an extracted record already in memory."""
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
     for cmd in data.get("commands", []):
         if gs.global_info.current_side in PLAYER_SIDES:
-            ai = _action_indices(gs, cmd, relevant_set=relevant_set)
+            ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
             if ai is not None:
                 yield gs, ai
+            elif stats is not None and cmd and cmd[0] in PAIRED_KINDS:
+                stats["unpaired"] += 1
         _apply_command(gs, cmd)
 
 

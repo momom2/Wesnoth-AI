@@ -862,6 +862,19 @@ State of play:
   0.397 and a rollout read 7 half-turns ahead 0.532 (reported, not
   judged). By the rule the next proposal is a fine-tuned trunk on the
   better labels. The experiment's code stays on `exp/turn-value`.
+- 2026-09-26 (0.8.0): **the imitation corpus's labels, corrected in code,
+  wait for a rebuild.** A crawl of the path from raw replays to the
+  trainer's pairs found moves labelled with where the engine stopped the
+  unit on sighting an enemy rather than the hex the player clicked (5.7%
+  of move labels), games played on by one person for both sides after a
+  surrender or a disconnect (6.4% of winner actions on a sample),
+  surrender winners that contradict the server's own message (433 games),
+  and games where the AI played a player side (7.9% of winner actions),
+  none of which a label check could see. `CORPUS_VERSION` 2 builds them
+  right (docs/corpus_v2_20260926.md, BACKLOG "The imitation corpus's
+  labels"); every reference so far trained on version 1. The value
+  corpus names the surrendering side as the winner in all 1,334 of its
+  surrender games (fixed in the builder, not rebuilt).
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

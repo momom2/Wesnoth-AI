@@ -650,6 +650,65 @@ Our exports always emit `skip_sighted="all"` (the sim doesn't model
 sighting interrupts, so exports must not re-check them —
 sim_to_replay._wml_for_command).
 
+### Replay [move] checkup: final_hex and stopped_early
+
+`src/actions/move.cpp:1178-1182` (1.18.4, `move_unit_internal`):
+```cpp
+config cn {
+    "stopped_early", mover.stopped_early(),
+    "final_hex_x", mover.final_hex().wml_x(),
+    "final_hex_y", mover.final_hex().wml_y(),
+};
+```
+and `move.cpp:221`:
+```cpp
+bool stopped_early() const  { return expected_end_ != real_end_; }
+```
+`expected_end_` is the end of this turn's part of the ordered route
+(`plot_turn`, 726-780: movement points, entering a visible enemy's zone
+of control, the backtrack off a hex holding a visible unit);
+`real_end_` is where the unit stopped. A [move] whose `final_hex`
+differs from the last hex of its `x=`/`y=` path therefore comes in two
+kinds: `stopped_early=no`, an order longer than this turn (the unit went
+as far as the order planned for the turn), and `stopped_early=yes`, a
+unit cut short of that (a sighted enemy, an ambush, a blocked hex).
+On 150 corpus games (2026-09-26), 305 of the 1,753 stopped moves were the
+first kind; `replay_dataset.move_label_hex` labels the second kind with
+the clicked hex (the path's last hex, kept as the move's order by
+`replay_extract`).
+
+**Why non-obvious:** the path is the player's order, not the unit's
+route; the unit's route ends at `final_hex`.
+
+### Surrender and control changes in a server replay
+
+The server records each change of a side's controller as a chat line
+from "server" and never as a [change_controller] the replay keeps
+(`src/server/wesnothd/game.cpp`, 1.18.4):
+```cpp
+send_and_record_server_message(player_name + " takes control of side " + side + ".");   // 590
+send_and_record_server_message(user->info().name()
+    + (disconnect ? " has disconnected." : " has left the game."), player);           // 1492-1493
+change_controller(side_index, owner_, username(owner_));                               // 1517
+send_and_record_server_message(username(user) + " has surrendered.");                  // 1054
+```
+A leaver's sides go to the host (1517), announced as "takes control".
+A surrendering player's first side goes to the host, or to the next
+side's player when the surrenderer is the host (1034-1052), and that
+"takes control" line comes BEFORE "has surrendered.". The [surrender]
+command the replay keeps carries the client's viewing team, 0-based:
+`pmc->surrender(display::get_singleton()->viewing_team());`
+(`src/quit_confirmation.cpp:78`), `std::size_t viewing_team() const {
+return currentTeam_; }` (`src/display.hpp:121`), accepted only when
+`sides_[side_number] == user` (game.cpp:927-935). So `side_number=0`
+is side 1 surrendering. `tools/replay_control.py` reads these lines.
+
+**Why non-obvious:** read as a side number, `side_number=1` makes side 1
+the loser when side 2 surrendered; `tools/build_value_corpus.py` read it
+so, and named the surrendering side as the winner of every surrender game
+of the 2026-07 value corpus (fixed 2026-09-26). And by the time "X has surrendered."
+appears, X no longer holds the side they surrendered.
+
 ### Recruit `place_recruit` zeroes MP and attacks
 
 `wesnoth_src/src/actions/create.cpp:626-631`:

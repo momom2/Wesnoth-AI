@@ -396,16 +396,28 @@ def _pair_stream_preencoded(files: List[Path], preencoded_dir: Path):
 
 
 def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
-                     relevant_set: bool) -> None:
+                     relevant_set: bool, dataset_dir: Optional[Path] = None) -> None:
     """Refuse a pre-encoded corpus that is not this run's encoding:
-    other vocab, hex basis or observation epoch, or records missing for
-    files of the pass (the pre-encoder is resumable; finish it first)."""
+    other vocab, hex basis, observation epoch or corpus version (the
+    training corpus's, read from `dataset_dir`, by default the files'
+    directory), or records missing for files of the pass (the
+    pre-encoder is resumable; finish it first)."""
     from tools.preencode_corpus import check_manifest_epoch, load_manifest, record_path, vocab_fingerprint
+    from tools.replay_dataset import corpus_version_of
     # The epoch is checked first so a stale-world corpus does not read
     # as a vocab mismatch: what is wrong is the OBSERVATIONS, not the
-    # encoding of them.
+    # encoding of them. The corpus version next, for the same reason:
+    # what is wrong is the LABELS.
     check_manifest_epoch(preencoded_dir)
     man = load_manifest(preencoded_dir)
+    if dataset_dir is None and files:
+        dataset_dir = Path(files[0]).parent
+    corpus = corpus_version_of(dataset_dir) if dataset_dir is not None else 1
+    if int(man.get("corpus_version", 1)) != corpus:
+        raise RuntimeError(f"--preencoded {preencoded_dir} was encoded from a corpus of version "
+                           f"{man.get('corpus_version', 1)}; the training corpus {dataset_dir} is "
+                           f"version {corpus}, whose labels and cuts differ. Re-run "
+                           f"tools/preencode_corpus.py on this corpus into a fresh --out")
     # The vocab is append-only and grows during a run (the holdout
     # eval registers names the corpus seeding lacked), so the records'
     # vocab is a prefix of this run's: compare on that prefix. Names
@@ -417,7 +429,7 @@ def check_preencoded(preencoded_dir: Path, files: List[Path], encoder,
     factions = {k: v for k, v in encoder.faction_to_id.items() if v < n_factions}
     fp = vocab_fingerprint(types, factions, relevant_set,
                            bool(getattr(encoder, "fog_hides_enemy_villages", False)),
-                           bool(getattr(encoder, "terrain_multi_hot", False)))
+                           bool(getattr(encoder, "terrain_multi_hot", False)), corpus)
     if man.get("fingerprint") != fp:
         raise RuntimeError(f"--preencoded {preencoded_dir} was encoded with another vocab or "
                            f"hex basis ({man.get('fingerprint')}; this run {fp}); "
@@ -2258,7 +2270,7 @@ def train(
         # (does encoding inline) or parallel (workers prefetch the
         # encode_raw side; main does encode_from_raw + forward + back).
         if preencoded is not None:
-            check_preencoded(preencoded, epoch_files, encoder, relevant_set_hexes)
+            check_preencoded(preencoded, epoch_files, encoder, relevant_set_hexes, dataset_dir)
             log.info(f"Pairs from the pre-encoded corpus {preencoded} "
                      f"(workers ignored; the per-replay cap does not apply)")
             stream = _pair_stream_preencoded(epoch_files, preencoded)
