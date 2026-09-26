@@ -192,9 +192,10 @@ def test_lawful_bonus_equals_the_python_helper():
 def test_a_negative_start_slot_wraps_on_the_board_and_in_a_time_area():
     """The engine wraps `current_time` into the schedule with a modulo
     that is never negative (`fix_time_index`, src/tod_manager.cpp:66,
-    1.18.4), and so do the Python board index (`_tod_cycle_index`) and
-    time-area index (`_lawful_bonus_at`). The readers wrap the slot
-    before it reaches a state, so this state carries one set by hand."""
+    1.18.4), and so does the Python board index (`_tod_cycle_index`); a
+    time area reads its own slot, not the board's. The readers wrap the
+    slot before it reaches a state, so this state carries one set by
+    hand, and the core must agree with `_lawful_bonus_at` on both hexes."""
     from tests.sim_test_helpers import replayed_state, three_side_record
     from tools.replay_dataset import _lawful_bonus_at
     gs = replayed_state(three_side_record(), 0)

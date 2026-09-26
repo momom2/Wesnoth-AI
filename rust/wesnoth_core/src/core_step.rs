@@ -31,12 +31,13 @@ impl GameCore {
     /// time area's cycle or the default one, then the terrain light
     /// (`terrain_resolver.terrain_light_bonus`, the engine's bounded_add).
     /// An area's cycle is never empty (`game_core.map_static` registers
-    /// only non-empty ones).
+    /// only non-empty ones) and comes phased to turn 1: an area keeps its
+    /// own slot, and the board's start slot moves the default cycle only.
     pub fn lawful_bonus_at(&self, hex: i64, turn: i64) -> i64 {
         let map = &self.map;
         let base = if hex >= 0 && map.area_cycle[hex as usize] >= 0 {
             let cyc = &map.cycles[map.area_cycle[hex as usize] as usize];
-            let idx = (turn.max(1) - 1 + self.global.tod_start_offset).rem_euclid(cyc.len() as i64) as usize;
+            let idx = (turn.max(1) - 1).rem_euclid(cyc.len() as i64) as usize;
             cyc[idx]
         } else {
             DEFAULT_CYCLE[self.tod_index(turn)]

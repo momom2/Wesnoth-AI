@@ -14,6 +14,7 @@ leg records and runbooks (index in `archive/README.md`).
 | plan_20260904.md | the plan in force: engineering first (phase 1, closed), then search over turns (phase 2) |
 | wesnoth_rules.md | the engine rules the simulator follows, each with its source citation |
 | design_constants.md | where the derived numerical constants come from |
+| box_runbook.md | how a run goes on a rented box, from the checks before renting to the destroy, with the box library's quickstart |
 | box_specs.md | the current box shape, the worksheet that derives it, and every throughput measurement |
 | checkpoint_naming.md | the checkpoint naming scheme and the lineage of named checkpoints |
 | rust_port_plan.md | the Rust kernels: rules of the port, phases and status |
