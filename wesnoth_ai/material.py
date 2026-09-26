@@ -29,7 +29,7 @@ def material_of_units(units: Iterable, side: int) -> float:
 
 def material_score(game_state, side: int) -> float:
     """Material from `side`'s point of view over the units it can see
-    (wesnoth_ai.visibility: own units, enemies on hexes it sees,
+    (wesnoth_ai.sim.visibility: own units, enemies on hexes it sees,
     hidden units excluded; every unit when the game has fog off)."""
-    from wesnoth_ai.visibility import units_visible_to
+    from wesnoth_ai.sim.visibility import units_visible_to
     return material_of_units(units_visible_to(game_state, side), side)

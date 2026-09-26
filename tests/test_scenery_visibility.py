@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 import torch
 
 from helpers.tiny_state import _gs, _u
-from wesnoth_ai.visibility import units_visible_to
+from wesnoth_ai.sim.visibility import units_visible_to
 
 
 def _with_extra(gs, unit):
@@ -80,7 +80,7 @@ def test_armed_side3_unit_is_a_fog_gated_combatant():
     vis_ids = {u.id for u in units_visible_to(gs, 1)}
     assert "tent" not in vis_ids,         "armed side-3 units respect the fog gate"
 
-    from wesnoth_ai.visibility import is_scenery_unit
+    from wesnoth_ai.sim.visibility import is_scenery_unit
     assert not is_scenery_unit(tentacle)
     petrified = _u("statue", 3, 9, 1)
     petrified.statuses.add("petrified")

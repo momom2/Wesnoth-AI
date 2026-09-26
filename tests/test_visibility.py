@@ -22,7 +22,7 @@ import pytest
 
 from wesnoth_ai.sim.classes import (GameState, Map, GlobalInfo, Unit, Hex, Position,
                      SideInfo, Terrain, Alignment)
-from wesnoth_ai import visibility
+from wesnoth_ai.sim import visibility
 
 
 # ---- helpers ------------------------------------------------------

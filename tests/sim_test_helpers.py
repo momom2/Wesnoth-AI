@@ -159,7 +159,7 @@ class Brawler:
         from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
         from wesnoth_ai.sim.classes import Position
         from wesnoth_ai.rewards import hex_distance
-        from wesnoth_ai.visibility import is_scenery_unit
+        from wesnoth_ai.sim.visibility import is_scenery_unit
         side = gs.global_info.current_side
         units = sorted(gs.map.units, key=lambda u: u.id)
         mine = [u for u in units if u.side == side]

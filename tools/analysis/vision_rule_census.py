@@ -43,7 +43,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.replay_dataset import (_apply_command, _build_initial_gamestate,  # noqa: E402
                                   _setup_scenario_events)
-from wesnoth_ai.visibility import unit_vision  # noqa: E402
+from wesnoth_ai.sim.visibility import unit_vision  # noqa: E402
 
 CORPUS = ROOT / "replays_dataset_imitation"
 DECISIONS = ("move", "attack", "recruit", "end_turn")

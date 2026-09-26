@@ -3008,7 +3008,7 @@ income columns; `src/team.cpp:704-716`:
 
 **Why non-obvious:** the encoder's global feature 5 was the enemy's
 true village count on every path (found by the 2026-09-08 contamination
-review); `wesnoth_ai/visibility.enemy_villages_visible_to` counts the
+review); `wesnoth_ai/sim/visibility.enemy_villages_visible_to` counts the
 enemy villages on hexes the mover sees instead, behind the
 checkpoint flag `fog_hides_enemy_villages` (the seed was trained with
 the true count). With fog off every side's statistics are visible, so
@@ -3280,7 +3280,7 @@ view and 3,341 only by the disc
 (`tools/analysis/vision_rule_census.py`,
 `training/metrics/fidelity/vision_rule_census_20260924.json`).
 
-**Implemented by** `wesnoth_ai/visibility.py` (`unit_vision`, and the
+**Implemented by** `wesnoth_ai/sim/visibility.py` (`unit_vision`, and the
 fog each side has cleared on `global_info._fog_cleared`, kept by the
 hooks in `tools/replay_dataset._apply_command`) and, for the Rust core,
 `rust/wesnoth_core/src/core_fog.rs`; pinned by tests/test_vision.py.

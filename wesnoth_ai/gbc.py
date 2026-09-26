@@ -122,7 +122,7 @@ def _observable_hexes(gs, side):
     branch (unlike units_visible_to and the encoder's gates), and
     docs/archive/gbc_spec.md defines the label as what the observer
     SEES."""
-    from wesnoth_ai.visibility import visible_hexes_for
+    from wesnoth_ai.sim.visibility import visible_hexes_for
     if not getattr(gs.global_info, "_fog", True):
         return {(h.position.x, h.position.y) for h in gs.map.hexes}
     return visible_hexes_for(gs, side)
@@ -213,7 +213,7 @@ def labels_for_game_states(
     construction, capped for cost (nearest-N is unnecessary: rosters
     are ~10-40 entities).
     """
-    from wesnoth_ai.visibility import (
+    from wesnoth_ai.sim.visibility import (
         units_visible_to,
     )
 

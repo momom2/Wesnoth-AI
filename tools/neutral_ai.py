@@ -228,7 +228,7 @@ def _check_units_are_stationary(gs, side: int, scenario_id: str = "") -> bool:
     silently. So it warns, and raises under `WESNOTH_STRICT_WML`.
     """
     from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
-    from wesnoth_ai.visibility import is_scenery_unit
+    from wesnoth_ai.sim.visibility import is_scenery_unit
 
     movers = [u for u in gs.map.units
               if u.side == side and not is_scenery_unit(u)
@@ -265,7 +265,7 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
     before calling this and closes it with the side's end_turn after
     (`WesnothSim._play_neutral_turn`)."""
     from wesnoth_ai.sim.abilities import hex_neighbors
-    from wesnoth_ai.visibility import is_scenery_unit
+    from wesnoth_ai.sim.visibility import is_scenery_unit
     from wesnoth_ai.sim.classes import Position
 
     gs = sim.gs

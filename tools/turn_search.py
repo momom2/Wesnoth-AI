@@ -37,7 +37,7 @@ from wesnoth_ai.action_sampler import (
     LegalActionPrior, enumerate_legal_actions_with_priors,
 )
 from wesnoth_ai.sim.classes import state_key
-from wesnoth_ai.visibility import units_visible_to
+from wesnoth_ai.sim.visibility import units_visible_to
 from tools.mcts import MCTSConfig, _gumbel_sigma, _terminal_value
 from tools.turn_search_config import (  # noqa: F401
     TS_KNOB_KEYS, TurnSearchConfig, turn_knobs_dict,

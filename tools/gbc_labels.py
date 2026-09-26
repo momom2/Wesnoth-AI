@@ -41,7 +41,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_ai.visibility import (  # noqa: E402
+from wesnoth_ai.sim.visibility import (  # noqa: E402
     units_visible_to, visible_hexes_for,
 )
 # The event/fingerprint/diff core moved to wesnoth_ai/gbc.py

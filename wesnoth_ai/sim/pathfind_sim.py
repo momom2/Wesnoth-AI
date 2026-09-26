@@ -180,7 +180,7 @@ class ReachContext:
     def for_side(cls, gs, side: int, *, god_view: bool = False,
                  exclude_unit=None) -> "ReachContext":
         from wesnoth_ai.sim.abilities import hex_neighbors
-        from wesnoth_ai.visibility import units_visible_to
+        from wesnoth_ai.sim.visibility import units_visible_to
 
         # `playable` is read nowhere (project round-2 C12: its
         # per-call rebuild was pure overhead under every move
@@ -680,8 +680,8 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     # hider also breaks its hiding) or already uncovered don't
     # ambush; the snapshot is NOT updated as the mover walks (engine
     # reads the pre-move invisibility cache, unit.cpp:2613-2618).
-    from wesnoth_ai.visibility import _hide_cover_active as _cover_active
-    from wesnoth_ai.visibility import is_scenery_unit as _is_scenery
+    from wesnoth_ai.sim.visibility import _hide_cover_active as _cover_active
+    from wesnoth_ai.sim.visibility import is_scenery_unit as _is_scenery
     def _is_hidden_hider(u) -> bool:
         if u.side == side or u.id in uncovered:
             return False
@@ -714,7 +714,7 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     # engine's plot).
     zoc_hexes: Set[Coord] = set()
     if not skirmisher:
-        from wesnoth_ai.visibility import units_visible_to
+        from wesnoth_ai.sim.visibility import units_visible_to
         for u in units_visible_to(gs, side):
             if u.side != side and emits_zoc(u):
                 zoc_hexes.update(

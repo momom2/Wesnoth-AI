@@ -95,7 +95,7 @@ def test_hide_cover_active_uses_the_engine_rule():
     both consume."""
     from sim_test_helpers import fresh_scenario_sim
     from tools.replay_dataset import _rebuild_unit
-    from wesnoth_ai.visibility import _hide_cover_active
+    from wesnoth_ai.sim.visibility import _hide_cover_active
 
     sim = fresh_scenario_sim(0, max_turns=6, use_core=False)
     gs = sim.gs

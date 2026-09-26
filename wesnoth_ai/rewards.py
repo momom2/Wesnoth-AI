@@ -769,7 +769,7 @@ def hex_distance(a_x: int, a_y: int, b_x: int, b_y: int) -> int:
 
 # Visibility lives in `visibility.py` so encoder, action_sampler and
 # rewards share one implementation of the fog-of-war contract.
-from wesnoth_ai.visibility import (  # noqa: E402 -- late import documented above
+from wesnoth_ai.sim.visibility import (  # noqa: E402 -- late import documented above
     visible_fraction_for as _visible_fraction,
 )
 

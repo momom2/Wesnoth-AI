@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.sim.pathfind_sim import (ReachContext, unit_reach,
                                          _unit_reach_reference)
-from wesnoth_ai.visibility import is_scenery_unit
+from wesnoth_ai.sim.visibility import is_scenery_unit
 from sim_test_helpers import fresh_scenario_sim
 
 CORPUS = Path("replays_dataset")

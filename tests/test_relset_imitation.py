@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from tools.replay_dataset import (_action_indices, filter_competitive_2p,
                                   iter_replay_pairs)
-from wesnoth_ai.visibility import (hexes_in_slot_order,
-                                   relevant_hexes_in_slot_order)
+from wesnoth_ai.sim.visibility import (hexes_in_slot_order,
+                                       relevant_hexes_in_slot_order)
 
 _DATASET = Path(__file__).parent.parent / "replays_dataset"
 _ARCH = dict(d_model=32, num_layers=1, num_heads=2, d_ff=64)
@@ -75,7 +75,7 @@ def test_off_subset_target_keeps_the_pair_and_flags_it(replay, monkeypatch):
     assert _action_indices(gs, off_board, relevant_set=True) is None
 
     # On-board target with no subset slot: pair kept, flagged.
-    import wesnoth_ai.visibility as vis
+    import wesnoth_ai.sim.visibility as vis
     monkeypatch.setattr(vis, "relevant_hexes_in_slot_order", lambda _gs: [])
     on_board = ["move", [lx, lx], [ly, ly]]
     ai = _action_indices(gs, on_board, relevant_set=True)

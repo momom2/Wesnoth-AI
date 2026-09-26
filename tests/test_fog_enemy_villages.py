@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 from wesnoth_ai.encoder import _static_hex_arrays, encode_raw  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
-from wesnoth_ai.visibility import enemy_villages_visible_to, visible_hexes_for  # noqa: E402
+from wesnoth_ai.sim.visibility import enemy_villages_visible_to, visible_hexes_for  # noqa: E402
 
 THEIR_VILLAGES_FEATURE = 5
 

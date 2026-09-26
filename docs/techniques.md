@@ -1121,7 +1121,7 @@ the values below.
   visible-unit hexes, leader castle network + leader hex, all
   villages, and all castles/keeps. *Measured:* mean 0.30 of the
   board, zero superset violations over 1,840 decisions, ~4.3-4.8×
-  rollout forward speedup. `wesnoth_ai/visibility.py:470-534`.
+  rollout forward speedup. `wesnoth_ai/sim/visibility.py:470-534`.
 - **Why it is off:** it changes the action space's INDEX BASIS, so
   checkpoints and replay buffers are not interchangeable across the
   flag. Guarded three ways: a `hex_subset` marker making a slot miss
@@ -1134,7 +1134,7 @@ the values below.
   derive from the same canonical row-major `(y,x)` sort; the relevant
   set FILTERS rather than re-sorts, so slot indices are reproducible
   when the trainer re-encodes stored states and replays `target_idx`.
-  `wesnoth_ai/visibility.py:523-534`.
+  `wesnoth_ai/sim/visibility.py:523-534`.
 
 ### 5.6 Vocabulary handling
 

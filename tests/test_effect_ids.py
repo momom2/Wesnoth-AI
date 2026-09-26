@@ -17,7 +17,7 @@ Until 2026-09-13 `_apply_effect_to_unit` read the child TAG, so a
 granted `magical` was stored as `chance_to_hit` and a granted
 `submerge` as `hides`. Nothing consumes those names -- combat asks
 `"magical" in weapon.specials` (`wesnoth_ai/sim/combat.py`) and the fog
-gate asks `"submerge" in unit.abilities` (`wesnoth_ai/visibility.py`)
+gate asks `"submerge" in unit.abilities` (`wesnoth_ai/sim/visibility.py`)
 -- so both were created and silently inert. `apply_to=new_ability` was
 not dispatched at all.
 
@@ -77,7 +77,7 @@ def test_silverhead_grants_a_working_submerge_and_magical():
                                                 load_factions)
     from wesnoth_ai.rules.terrain_resolver import hides_cover
     from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai.visibility import units_visible_to
+    from wesnoth_ai.sim.visibility import units_visible_to
 
     factions = load_factions()
     setup = ScenarioSetup(scenario_id="multiplayer_Silverhead_Crossing",

@@ -61,7 +61,7 @@ def autopsy(gs, action, sim) -> None:
           f"{tpos in sim_ctx.occupied_visible} | mover-hex occ: {occ}")
     print(f"    target in zoc(sim view): {tpos in sim_ctx.zoc_hexes}")
     # Who is on the target hex, and is it visible to `side`?
-    from wesnoth_ai.visibility import units_visible_to
+    from wesnoth_ai.sim.visibility import units_visible_to
     vis_ids = {u.id for u in units_visible_to(gs, side)}
     on_t = [u for u in gs.map.units
             if (u.position.x, u.position.y) == tpos]

@@ -52,7 +52,7 @@ def test_extractor_records_the_sides_fog_and_the_encoder_honours_it():
     switch, and on a fog-off copy the mover sees every enemy unit."""
     from tools.replay_dataset import _build_initial_gamestate
     from tools.replay_extract import extract_replay
-    from wesnoth_ai.visibility import units_visible_to
+    from wesnoth_ai.sim.visibility import units_visible_to
     raws = sorted(glob.glob("replays_raw/*/2p_*.bz2"))[:40]
     if not raws:
         pytest.skip("replays_raw not present")

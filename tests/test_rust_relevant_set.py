@@ -47,7 +47,7 @@ def _acting(gs, side):
 
 def test_relevant_set_and_landable_rows_equal_the_python_originals():
     from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach
-    from wesnoth_ai.visibility import relevant_hex_positions
+    from wesnoth_ai.sim.visibility import relevant_hex_positions
     checked_sets = checked_rows = nonempty_rows = 0
     for gs, side, _fog in _both_sides(_states()):
         obs = _obs.observe(gs, side, reach=True)

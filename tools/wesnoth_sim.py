@@ -1618,7 +1618,7 @@ class WesnothSim:
                 (u for u in self.gs.map.units
                  if u.position.x == target.x and u.position.y == target.y),
                 None)
-            from wesnoth_ai.visibility import is_scenery_unit
+            from wesnoth_ai.sim.visibility import is_scenery_unit
             if dfd_u is not None and is_scenery_unit(dfd_u):
                 # Wesnoth-as-played refuses attacks on incapacitated
                 # or scenery units (UI gate, mouse_events.cpp:753 --
@@ -1662,7 +1662,7 @@ class WesnothSim:
             # rejects ("cannot recruit unit: ..."). Violation = the
             # caller ignored the mask -> loud reject + re-decide
             # (bounded by the consecutive-reject guard).
-            from wesnoth_ai.visibility import leader_castle_network
+            from wesnoth_ai.sim.visibility import leader_castle_network
             _leader = next(
                 (u for u in self.gs.map.units
                  if u.side == self.current_side and u.is_leader), None)

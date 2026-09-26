@@ -2,7 +2,7 @@
 //! of `wesnoth_ai/sim/pathfind_sim.walk_move_path` and of the move branch of
 //! `tools/replay_dataset._apply_command` (the landing, the village
 //! capture), with the visibility rules they consume from
-//! `wesnoth_ai/visibility.py`: the hide cover, discovery by adjacency
+//! `wesnoth_ai/sim/visibility.py`: the hide cover, discovery by adjacency
 //! and the units a side can see, and the fog the mover clears along its
 //! path (core_fog.rs). tools/diff_core.py replays the corpus through
 //! both and is the oracle.

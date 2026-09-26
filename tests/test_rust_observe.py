@@ -31,7 +31,7 @@ def _python_reach_sets(state, side):
     occupied/ZoC as coordinate sets."""
     from wesnoth_ai.sim.abilities import hex_neighbors
     from wesnoth_ai.sim.pathfind_sim import emits_zoc
-    from wesnoth_ai.visibility import units_visible_to
+    from wesnoth_ai.sim.visibility import units_visible_to
     unit_at = {}
     for u in units_visible_to(state, side):
         unit_at[(u.position.x, u.position.y)] = u
@@ -48,7 +48,7 @@ def _python_reach_sets(state, side):
 
 
 def _python_recruit_set(state, side, unit_at, rejected):
-    from wesnoth_ai.visibility import leader_castle_network
+    from wesnoth_ai.sim.visibility import leader_castle_network
     leader = next((u for u in state.map.units if u.side == side and u.is_leader), None)
     if leader is None:
         return set(), False
@@ -63,7 +63,7 @@ def _as_set(obs, arr):
 
 @pytest.mark.parametrize("fog_on", [True, False])
 def test_observation_equals_the_python_originals(fog_on):
-    from wesnoth_ai.visibility import units_visible_to, visible_hexes_for
+    from wesnoth_ai.sim.visibility import units_visible_to, visible_hexes_for
     checked = 0
     for state in _states():
         state.global_info._fog = fog_on
@@ -83,7 +83,7 @@ def test_observation_equals_the_python_originals(fog_on):
             assert _as_set(obs, obs.ally) == ally & keys_on_map
             assert _as_set(obs, obs.enemy) == enemy & keys_on_map
             assert _as_set(obs, obs.zoc) == zoc & keys_on_map
-            from wesnoth_ai.visibility import is_scenery_unit
+            from wesnoth_ai.sim.visibility import is_scenery_unit
             inert = {p for p, u in unit_at.items() if is_scenery_unit(u)}
             assert _as_set(obs, obs.inert) == inert & keys_on_map
             # the recruit row

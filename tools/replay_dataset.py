@@ -43,7 +43,7 @@ from wesnoth_ai.sim import combat as cb
 from wesnoth_ai.paths import UNIT_STATS_PATH
 # The fog each command clears or recalculates (docs/wesnoth_rules.md
 # "Vision and fog").
-from wesnoth_ai.visibility import clear_fog, refog, track_side
+from wesnoth_ai.sim.visibility import clear_fog, refog, track_side
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
 from wesnoth_ai.rules.terrain_resolver import strip_start_position, terrain_mask
@@ -853,7 +853,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
     setattr(gs.global_info, "_tod_start_offset", tod_start)
     setattr(gs.global_info, "_raw_starting_sides",
             list(data.get("starting_sides", [])))
-    # wesnoth_ai.visibility reads it: the encoder hides enemy units
+    # wesnoth_ai.sim.visibility reads it: the encoder hides enemy units
     # outside the mover's sight only in fog games (18.9% of the corpus
     # was played fog-off, tabulated 2026-09-06).
     setattr(gs.global_info, "_fog", fog_on_for(data.get("starting_sides", [])))
@@ -2967,7 +2967,7 @@ def _action_indices(gs: GameState, cmd: list, *,
     # copy silently rotted when the encoder became fog-filtered,
     # mislabeling 19%+ of behavior-cloning pairs; root-caused and
     # de-mirrored 2026-07-16.)
-    from wesnoth_ai.visibility import (hexes_in_slot_order, own_recruit_types,
+    from wesnoth_ai.sim.visibility import (hexes_in_slot_order, own_recruit_types,
                             relevant_hexes_in_slot_order,
                             visible_units_in_slot_order)
     current_side = gs.global_info.current_side

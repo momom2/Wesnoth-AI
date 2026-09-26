@@ -23,7 +23,7 @@ flanker does not enable backstab.
 
 Dependencies: classes
 Dependents:   tools.replay_dataset, pathfind_sim, wesnoth_sim,
-              neutral_ai; wesnoth_ai.visibility, observe,
+              neutral_ai; wesnoth_ai.sim.visibility, observe,
               action_sampler, rewards (the geometry)
 """
 from __future__ import annotations

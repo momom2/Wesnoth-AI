@@ -19,8 +19,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.replay_dataset import _apply_command, _build_initial_gamestate  # noqa: E402
-from wesnoth_ai import visibility  # noqa: E402
-from wesnoth_ai.visibility import units_visible_to, visible_hexes_for  # noqa: E402
+from wesnoth_ai.sim import visibility  # noqa: E402
+from wesnoth_ai.sim.visibility import units_visible_to, visible_hexes_for  # noqa: E402
 
 
 def _game(rows, units, *, recruits=()):

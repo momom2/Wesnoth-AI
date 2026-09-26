@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
-from wesnoth_ai.visibility import visible_hexes_for  # noqa: E402
+from wesnoth_ai.sim.visibility import visible_hexes_for  # noqa: E402
 from tools.gbc_labels import (  # noqa: E402
     Anchor, Event, _diff_events, _unit_fp, _village_fp,
     labels_for_anchor, scan_game,

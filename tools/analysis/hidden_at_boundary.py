@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.bench_states import DEFAULT_DATASET, DEFAULT_MANIFEST, reconstruct_boundary
-from wesnoth_ai.visibility import units_visible_to
+from wesnoth_ai.sim.visibility import units_visible_to
 
 
 def position_row(index: int, entry: dict, dataset: Path) -> dict:

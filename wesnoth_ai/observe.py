@@ -222,7 +222,7 @@ _SEEN_ARRAYS: Dict[int, tuple] = {}
 
 def seen_array(state: GameState, side: int, geom: MapGeometry) -> np.ndarray:
     """[H] u8 in map space: the hexes `side` sees."""
-    from wesnoth_ai.visibility import visible_hexes_for
+    from wesnoth_ai.sim.visibility import visible_hexes_for
     seen = visible_hexes_for(state, side)
     hit = _SEEN_ARRAYS.get(id(seen))
     if hit is not None and hit[0] is seen and hit[1] is geom:
@@ -237,7 +237,7 @@ def seen_array(state: GameState, side: int, geom: MapGeometry) -> np.ndarray:
 
 
 def _hider_hidden(state: GameState, u: Unit, uncovered) -> bool:
-    from wesnoth_ai.visibility import _AMBUSH_ABILITIES, _hide_cover_active
+    from wesnoth_ai.sim.visibility import _AMBUSH_ABILITIES, _hide_cover_active
     if not ((u.abilities or set()) & _AMBUSH_ABILITIES):
         return False
     return _hide_cover_active(state, u) and u.id not in uncovered
@@ -252,7 +252,7 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
     if fn is None:
         return None
     from wesnoth_ai.sim.pathfind_sim import emits_zoc
-    from wesnoth_ai.visibility import is_scenery_unit
+    from wesnoth_ai.sim.visibility import is_scenery_unit
     geom = map_geometry(state)
     units = list(state.map.units)
     n = len(units)

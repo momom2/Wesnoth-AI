@@ -1,7 +1,7 @@
 //! Fog of war over the core (docs/wesnoth_rules.md "Vision and fog:
 //! what a side sees"): a unit's vision area, each side's cleared hexes
 //! as the engine keeps them, and the hooks the commands call.
-//! `wesnoth_ai.visibility` is the oracle (tests/test_game_core.py
+//! `wesnoth_ai.sim.visibility` is the oracle (tests/test_game_core.py
 //! compares the two after every command).
 //!
 //! A side's cleared hexes are tracked once the side has been refogged

@@ -74,7 +74,7 @@ NUM_SIDE_CODES  = 3     # 0 = ours, 1 = theirs, 2 = neutral
 # "unknown/unset" -> id 0.
 from wesnoth_ai.constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS  # noqa: E402 -- re-export point documented above
 from wesnoth_ai.material import material_of_units  # noqa: E402
-from wesnoth_ai.visibility import (  # noqa: E402
+from wesnoth_ai.sim.visibility import (  # noqa: E402
     relevant_hexes_in_slot_order, hexes_in_slot_order, own_recruit_types,
                         visible_units_in_slot_order, is_scenery_unit)
 
@@ -1342,7 +1342,7 @@ def encode_raw(
             if observation is not None:
                 _seen_cache.append(observation.seen_set())
             else:
-                from wesnoth_ai.visibility import visible_hexes_for
+                from wesnoth_ai.sim.visibility import visible_hexes_for
                 _seen_cache.append(
                     visible_hexes_for(game_state, current_side))
         return _seen_cache[0]
@@ -1435,7 +1435,7 @@ def encode_raw(
         # never sees it (visibility.enemy_villages_visible_to cites
         # the engine). Behind a checkpoint flag: the seed was trained
         # with the count, its encoding stays byte-identical.
-        from wesnoth_ai.visibility import enemy_villages_visible_to
+        from wesnoth_ai.sim.visibility import enemy_villages_visible_to
         their_villages = enemy_villages_visible_to(game_state, current_side, _seen_hexes())
 
     our_fac  = us.faction if us else ""

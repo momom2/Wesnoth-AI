@@ -17,9 +17,9 @@ import torch
 
 from wesnoth_ai.rules.scenario_pool import (random_setup, build_scenario_gamestate,
                                             load_factions)
-from wesnoth_ai.visibility import (hexes_in_slot_order,
-                                   relevant_hex_positions,
-                                   relevant_hexes_in_slot_order)
+from wesnoth_ai.sim.visibility import (hexes_in_slot_order,
+                                       relevant_hex_positions,
+                                       relevant_hexes_in_slot_order)
 
 
 @pytest.fixture(scope="module")
@@ -142,7 +142,7 @@ def test_relevant_encoding_is_deterministic_across_reencode():
 def test_default_encoder_still_emits_the_full_board():
     """Regression guard: the flag must not perturb the default path."""
     from wesnoth_ai.encoder import GameStateEncoder
-    from wesnoth_ai.visibility import hexes_in_slot_order
+    from wesnoth_ai.sim.visibility import hexes_in_slot_order
     gs = _pool_state()
     e = GameStateEncoder(d_model=32).encode(gs)
     assert e.hex_tokens.size(1) == len(hexes_in_slot_order(gs))
@@ -172,7 +172,7 @@ def test_superset_assert_FIRES_when_the_set_is_short(monkeypatch):
     import wesnoth_ai.observe as observe_mod
     from wesnoth_ai.model import WesnothModel
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
-    import wesnoth_ai.visibility as vis
+    import wesnoth_ai.sim.visibility as vis
 
     monkeypatch.setattr(observe_mod, "observe", lambda *args, **kwargs: None)
     gs = _pool_state()

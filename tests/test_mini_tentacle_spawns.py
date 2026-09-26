@@ -75,7 +75,7 @@ def test_mainline_statue_maps_spawn_scenery_exactly_once():
     corpus replays clean, both failures a pre-existing
     Ladder_Random side-numbering quirk.
     """
-    from wesnoth_ai.visibility import is_scenery_unit
+    from wesnoth_ai.sim.visibility import is_scenery_unit
     expected_statues = {
         "multiplayer_Sullas_Ruins": 5,               # Sulla + 4 servants
         "multiplayer_Basilisk": 15,                  # basilisk victims

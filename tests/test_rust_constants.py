@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools import replay_dataset  # noqa: E402
 from wesnoth_ai.sim import pathfind_sim  # noqa: E402
 from wesnoth_ai.rules import terrain_resolver  # noqa: E402
-from wesnoth_ai import visibility  # noqa: E402
+from wesnoth_ai.sim import visibility  # noqa: E402
 from wesnoth_ai.sim import combat  # noqa: E402
 from wesnoth_ai.sim import classes  # noqa: E402
 

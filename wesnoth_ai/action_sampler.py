@@ -1512,7 +1512,7 @@ def _build_legality_masks(
         visible_unit_ids = encoded.visible_unit_ids   # by u.id
         _use_obj_id = False
     else:
-        from wesnoth_ai.visibility import units_visible_to as _units_visible_to
+        from wesnoth_ai.sim.visibility import units_visible_to as _units_visible_to
         visible_unit_ids = {id(u) for u in _units_visible_to(
             game_state, current_side)}
         _use_obj_id = True
@@ -1533,7 +1533,7 @@ def _build_legality_masks(
         j = pos_to_hex.get(key)
         if j is None:
             continue
-        from wesnoth_ai.visibility import is_scenery_unit
+        from wesnoth_ai.sim.visibility import is_scenery_unit
         if is_scenery_unit(u):
             # Statues AND attackless scenery-side objects: occupy
             # the hex, never attackable. Checked BEFORE the own-side
@@ -1869,7 +1869,7 @@ def _recruit_hex_mask(
     handled by the harness retry loop, not the mask).
     """
     rejected_hexes = rejected_hexes or set()
-    from wesnoth_ai.visibility import leader_castle_network
+    from wesnoth_ai.sim.visibility import leader_castle_network
     _on_keep, network = leader_castle_network(game_state, leader)
     valid = {
         pos for pos in network
