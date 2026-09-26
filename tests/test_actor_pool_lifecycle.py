@@ -36,10 +36,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from helpers.actor_pool_fakes import _FakeProc, _FakeQ, _pool  # noqa: E402
 from tools import actor_worker  # noqa: E402
-from tools.actor_pool import _R_DONE, _R_EXPS, _R_FATAL, ActorFatalError  # noqa: E402
+from tools.actor_protocol import (  # noqa: E402
+    _CMD_PLAY, _R_DONE, _R_EXPS, _R_FATAL, _TICKET_END, ActorFatalError,
+)
 from tools.actor_worker import (  # noqa: E402
-    _CMD_PLAY, _TICKET_END, _IPCInferenceClient, _take_ticket,
-    _TicketSource, _wait_for_command,
+    _IPCInferenceClient, _take_ticket, _TicketSource, _wait_for_command,
 )
 from tools.mp_teardown import parent_gone  # noqa: E402
 from tools.serve_worker import _Waiting, _serve_loop  # noqa: E402

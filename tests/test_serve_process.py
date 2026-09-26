@@ -24,9 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from test_actor_pool_smoke import (  # noqa: E402
     assert_publication_straddled, collect_across_publication,
 )
-from tools.actor_pool import (  # noqa: E402
-    _S_ERROR, _IPCInferenceClient, _RID_SERVER_DEAD, ServeProcessDied,
-)
+from tools.actor_pool import _IPCInferenceClient, ServeProcessDied  # noqa: E402
+from tools.actor_protocol import _S_ERROR, _RID_SERVER_DEAD  # noqa: E402
 from tools.inference_seam import (  # noqa: E402
     build_inference_pair, inference_blueprint, load_inference_state,
     pack_inference_state,

@@ -74,8 +74,10 @@ so the actor entry + all Process args must be picklable -- they are
 Module layout (2026-09-05 split): this module holds the manager
 (ActorPool) and the standalone smoke; tools/actor_worker.py the actor
 process body and its transport; tools/serve_worker.py the serve threads,
-the batch picker and the serve-process body. The workers' names that
-tests and scripts import from this module are re-exported below.
+the batch picker and the serve-process body; tools/actor_protocol.py
+the messages between the processes and ActorFatalError. The workers'
+names that tests and scripts import from this module are re-exported
+below.
 """
 
 from __future__ import annotations
@@ -91,28 +93,26 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 
-from tools.actor_worker import (
-    _CMD_DRAIN, _CMD_PLAY, _CMD_UPDATE, _TICKET_END, _CMD_STOP, _R_DONE, _R_ERROR, _R_EXPS,
-    _R_FATAL, _R_GAME, _R_OUTCOME, _RID_SERVER_DEAD, _IPCInferenceClient, _actor_loop,
-    _done_report, _set_fd_safe_sharing, _zero_reward,
+from tools.actor_protocol import (
+    _CMD_DRAIN, _CMD_PLAY, _CMD_STOP, _R_DONE, _R_ERROR, _R_EXPS, _R_FATAL, _R_GAME,
+    _R_OUTCOME, _RID_SERVER_DEAD, _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED,
+    _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE, _SRV_STATS, _SRV_STOP, _SRV_SYNC, _TICKET_END,
+    ActorFatalError, _done_report,
 )
+from tools.actor_worker import _IPCInferenceClient, _actor_loop, _set_fd_safe_sharing, _zero_reward
 from tools.mp_teardown import close_queue, discarding, end_stragglers, join_all, start_child
 from tools.serve_worker import (
-    _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED, _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE,
-    _SRV_STATS, _SRV_STOP, _SRV_SYNC, _BatchPicker, _best_window_rate, _merge_timelines,
-    _picker_stats, _request_lengths, _serve_loop, _server_loop,
+    _BatchPicker, _best_window_rate, _merge_timelines, _picker_stats, _request_lengths,
+    _serve_loop, _server_loop,
 )
 
 __all__ = [
-    "ActorPool", "ActorFatalError", "ServeProcessDied",
+    "ActorPool", "ServeProcessDied",
     # Re-exported from tools.actor_worker and tools.serve_worker: tests
     # and scripts import these from here.
-    "_CMD_DRAIN", "_CMD_PLAY", "_CMD_STOP", "_CMD_UPDATE", "_R_DONE", "_R_ERROR", "_R_EXPS",
-    "_R_FATAL", "_R_GAME", "_R_OUTCOME", "_RID_SERVER_DEAD", "_IPCInferenceClient", "_actor_loop",
-    "_set_fd_safe_sharing", "_zero_reward",
-    "_S_ERROR", "_S_PROBE", "_S_READY", "_S_STATS", "_S_SYNCED", "_SRV_PAUSE", "_SRV_PROBE",
-    "_SRV_SERVE", "_SRV_STATS", "_SRV_STOP", "_SRV_SYNC", "_BatchPicker", "_best_window_rate",
-    "_merge_timelines", "_picker_stats", "_request_lengths", "_serve_loop", "_server_loop",
+    "_IPCInferenceClient", "_actor_loop", "_set_fd_safe_sharing", "_zero_reward",
+    "_BatchPicker", "_best_window_rate", "_merge_timelines", "_picker_stats", "_request_lengths",
+    "_serve_loop", "_server_loop",
 ]
 
 log = logging.getLogger("actor_pool")
@@ -120,14 +120,6 @@ log = logging.getLogger("actor_pool")
 # The intra-op pools torch and its BLAS size at import from these
 # (start() caps them before every spawn; see the PID-limit note there).
 _THREAD_ENV_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
-
-
-class ActorFatalError(BaseException):
-    """An actor died on a non-swallowable error (round-35 C0: the
-    actor's `finally` reported a clean _R_DONE even when a
-    ForkGuardViolation escaped, so the pool topology exited 0 on a
-    real fork violation). BaseException for the round-34 reason:
-    no log-and-continue handler may eat it."""
 
 
 class ServeProcessDied(ActorFatalError):

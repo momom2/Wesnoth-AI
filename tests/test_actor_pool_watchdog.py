@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from helpers.actor_pool_fakes import _FakeProc, _FakeQ, _pool  # noqa: E402
-from tools.actor_pool import (   # noqa: E402
+from tools.actor_protocol import (   # noqa: E402
     _R_DONE, _R_EXPS, _R_OUTCOME,
 )
 
@@ -30,7 +30,7 @@ def test_dead_actor_with_nonzero_exit_aborts_loudly():
     from the run's exit code. The loop still must not wedge: the
     abort is how it terminates."""
     import pytest
-    from tools.actor_pool import ActorFatalError
+    from tools.actor_protocol import ActorFatalError
     procs = [_FakeProc(True, name="actor-0"),
              _FakeProc(False, exitcode=-9, name="actor-1")]
     results = [
@@ -110,7 +110,8 @@ def test_tickets_are_shared_and_stale_ones_skipped():
     actor; an actor takes games in order, skips another iteration's
     leftovers, stops at the end marker, and honours DRAIN and STOP
     while waiting."""
-    from tools.actor_worker import _CMD_DRAIN, _CMD_STOP, _TICKET_END, _take_ticket
+    from tools.actor_protocol import _CMD_DRAIN, _CMD_STOP, _TICKET_END
+    from tools.actor_worker import _take_ticket
     pool = _pool([_FakeProc(True), _FakeProc(True)], results=[])
     pool._post_tickets(iter_idx=4, games_per_iter=3, base_seed=100)
     posted = list(pool._game_q._items)

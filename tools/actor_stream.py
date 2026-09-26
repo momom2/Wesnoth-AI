@@ -26,8 +26,9 @@ tail, and this module removes it:
     on the record. With as many actors as games per window a game
     straddles about one publication on average.
 
-The actor-side contract (tools/actor_worker.py): one PLAY for the
-whole stream with the `stream` flag; per game the actor reports
+The actor-side contract (tools/actor_worker.py, its messages in
+tools/actor_protocol.py): one PLAY for the whole stream with the
+`stream` flag; per game the actor reports
 _R_START (index, start time, tag) as the game begins, then _R_OUTCOME,
 _R_EXPS and _R_GAME (index, decisions, start and end times, its
 drained distill stats, tag) as it ends, so the stream knows which games
@@ -51,19 +52,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from tools.actor_worker import (
+from tools.actor_protocol import (
     _CMD_DRAIN, _CMD_UPDATE, _R_DONE, _R_ERROR, _R_EXPS, _R_FATAL, _R_GAME, _R_OUTCOME,
-    _R_START, _done_report,
+    _R_START, ActorFatalError, _done_report,
 )
 
 log = logging.getLogger("actor_stream")
-
-
-def _fatal_error_class():
-    """tools.actor_pool.ActorFatalError, imported late: the pool module
-    imports this one."""
-    from tools.actor_pool import ActorFatalError as cls
-    return cls
 
 
 @dataclass
@@ -383,7 +377,7 @@ class ActorStream:
         elif kind == _R_ERROR:
             log.error(f"actor {aid} error:\n{payload}")
         elif kind == _R_FATAL:
-            raise _fatal_error_class()(
+            raise ActorFatalError(
                 f"actor {aid} died on a non-swallowable error (round-35 C0):\n{payload}")
         if pool._server_procs:
             failed = pool._drain_server_replies()

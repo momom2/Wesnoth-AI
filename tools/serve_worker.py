@@ -1,7 +1,7 @@
 """Serving side of the actor pool (tools/actor_pool.py holds the design
-overview and the manager).
+overview and the manager; tools/actor_protocol.py the manager <->
+serve-process messages, _SRV_* commands and _S_* replies).
 
-- The manager <-> serve-process protocol (_SRV_* commands, _S_* replies).
 - _BatchPicker (with _request_lengths, _Waiting): which queued requests
   share a batch, shared by the serve threads.
 - _serve_loop: one serving thread, in the learner process or a serve
@@ -27,25 +27,14 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 
+from tools.actor_protocol import (
+    _S_ERROR, _S_PROBE, _S_READY, _S_STATS, _S_SYNCED, _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE,
+    _SRV_STATS, _SRV_STOP, _SRV_SYNC,
+)
 from tools.actor_worker import _set_fd_safe_sharing
 from tools.mp_teardown import parent_gone
 
 log = logging.getLogger("actor_pool")
-
-# Serve-process control commands (main -> serve process).
-_SRV_SYNC = "sync"        # (version, state bytes): load these weights
-_SRV_SERVE = "serve"      # (iter_idx,): start the serve threads
-_SRV_PAUSE = "pause"      # (): stop the serve threads, reply their stats
-_SRV_STATS = "stats"      # (): reply the serve threads' live stats, serving on
-_SRV_PROBE = "probe"      # (payload,): one infer_batch outside serving
-_SRV_STOP = "stop"
-# Serve-process replies (serve process -> main), on the shared server queue.
-_S_READY = "ready"        # model built
-_S_SYNCED = "synced"      # payload: the version loaded
-_S_STATS = "stats"        # payload: {"threads": [stats dicts], "picker": {...},
-                          #           "packed_compile": model.packed_compile_stats()}
-_S_PROBE = "probe"        # payload: wire outputs
-_S_ERROR = "error"        # payload: traceback string
 
 
 def _request_lengths(payload) -> List[int]:
