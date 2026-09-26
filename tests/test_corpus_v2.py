@@ -334,3 +334,29 @@ def test_the_builder_keeps_decided_human_games_and_says_why_it_leaves_out_the_re
     index = [json.loads(line) for line in (out / "value_corpus_index.jsonl").read_text().splitlines()]
     assert index == [{"file": row["file"], "winner": 1, "n_commands": row["n_commands"]}]
 
+
+def test_the_staged_raw_corpus_is_what_the_builder_reads(tmp_path):
+    """tools/stage_raw_corpus.py packs the ledger and its candidates at
+    their ledger paths; unpacked elsewhere, the builder finds them."""
+    import tarfile
+
+    from tools.build_imitation_dataset import DISPOSITIONS, build, load_candidates
+    from tools.stage_raw_corpus import write_tarball
+    laptop, box = tmp_path / "laptop", tmp_path / "box"
+    ledger = laptop / DISPOSITIONS
+    ledger.parent.mkdir(parents=True)
+    rows = [{"path": "replays_raw\\2026-09-26\\won.bz2", "era_class": "accept", "mod_class": "mod_free"},
+            {"path": "replays_raw\\2026-09-26\\other_era.bz2", "era_class": "set_aside_other_era",
+             "mod_class": "mod_free"}]
+    with gzip.open(ledger, "wt", encoding="utf-8") as f:
+        f.write("".join(json.dumps(r) + "\n" for r in rows))
+    commands = _two_turns_then(server("alice takes control of side 2."),
+                               server("bob has surrendered."), surrender(2))
+    write_replay(laptop / "replays_raw" / "2026-09-26" / "won.bz2", two_sides(), commands)
+    assert write_tarball(tmp_path / "raw.tar", laptop, ledger) == 1
+    with tarfile.open(tmp_path / "raw.tar") as tf:
+        tf.extractall(box, filter="data")
+    candidates = load_candidates(box / DISPOSITIONS)
+    config = {"outcome_classes": ["surrender"], "holdout_fraction": 0.0}
+    counts = build(candidates, box, tmp_path / "corpus", config, workers=1)
+    assert (candidates, counts["games"], counts["errors"]) == ([rows[0]["path"]], 1, 0)
