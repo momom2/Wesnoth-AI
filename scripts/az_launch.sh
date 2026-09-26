@@ -88,7 +88,7 @@ echo "[az] launching daemons + loop..."
 mkdir -p "$WORKDIR/pins" "$WORKDIR/probes" "$WORKDIR/profiles"
 CAMPAIGN_FILE="$CAMPAIGN_FILE" HF_PREFIX="$HF_PREFIX" WORKDIR="$WORKDIR" \
     GAME_RECORD_DIR="$WORKDIR/game_records" \
-    HF_EXTRA_FILES="$WORKDIR/az_history.csv:az_history.csv,$WORKDIR/train.log:train.log" \
+    HF_EXTRA_FILES="$WORKDIR/az_history.csv:az_history.csv,$WORKDIR/az_signal.jsonl:az_signal.jsonl,$WORKDIR/train.log:train.log" \
     setsid nohup "$PY" scripts/hf_upload_loop.py > "$WORKDIR/upload.log" 2>&1 < /dev/null &
 HF_PREFIX="$HF_PREFIX" WORKDIR="$WORKDIR" \
     setsid nohup "$PY" scripts/probe_escrow_loop.py > "$WORKDIR/probe_escrow.log" 2>&1 < /dev/null &

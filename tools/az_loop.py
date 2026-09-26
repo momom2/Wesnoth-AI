@@ -14,9 +14,12 @@ Three data streams, every iteration, to az_history.csv:
                 mix, and -- every --pin-every iterations -- raw net
                 vs raw seed and net+search vs seed+search matches;
   signal      : policy vs value gradient norm and share (unclipped,
-                on a 128-state subsample), target-vs-prior KL/TV,
-                value CE / floor / AUC by turn decade, plus the deep
-                profile on every pin (signal_profiler v2);
+                on a 128-state subsample), the loss split by term in
+                gradient and update space after the step (a row per
+                iteration in az_signal.jsonl, tools/az_signal.py),
+                target-vs-prior KL/TV, value CE / floor / AUC by turn
+                decade, plus the deep profile on every pin
+                (signal_profiler v2);
   time        : generation seconds, forwards served, decisions,
                 forwards/s, train seconds, probe/profile seconds.
 
@@ -65,6 +68,10 @@ COLUMNS = [
     # signal
     "policy_loss", "value_loss", "grad_norm",
     "sig_policy_norm", "sig_value_norm", "sig_value_share",
+    # the loss split by term after the step (tools/az_signal.py,
+    # AZ_SIGNAL_COLUMNS; the whole reading is in az_signal.jsonl)
+    "sig_trunk_policy_value_cos_gradient", "sig_trunk_policy_value_cos_update",
+    "sig_trunk_value_share_update", "sig_probe_states", "sig_probe_failures",
     "target_kl_median", "target_kl_mean", "target_tv_mean",
     "target_end_turn_delta", "target_attack_delta",
     "fresh_value_ce", "fresh_ce_floor", "fresh_value_auc",
@@ -395,6 +402,7 @@ def main(argv) -> int:
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.selfplay_game import k_median_of
     from tools.wesnoth_sim import PvPDefaults
+    from tools.az_signal import AZ_SIGNAL_FILE, SelfPlaySignal
     from tools.signal_telemetry import signal_grad_norms
     from tools.step_control import (
         action_priors, backtracking_step, split_holdout,
@@ -538,6 +546,9 @@ def main(argv) -> int:
     writer = csv.DictWriter(fh, fieldnames=COLUMNS, extrasaction="ignore")
     if new_csv:
         writer.writeheader()
+    signal = SelfPlaySignal(workdir / AZ_SIGNAL_FILE, base._trainer,
+                            start_iter=args.start_iter,
+                            decision_step=int(base._decision_step), seed=args.rng_seed)
     rng = random.Random(args.rng_seed + int(base._decision_step))
     gc_meter = _GcMeter()
     # Fixed reference states for the search value center: the level
@@ -745,6 +756,9 @@ def main(argv) -> int:
                        sig_value_share=((vn ** 2) / (pn ** 2 + vn ** 2)
                                         if pn is not None and vn is not None
                                         and (pn or vn) else None))
+            # the loss split by term, in gradient and update space, at
+            # the weights the step left (its own generator: `rng` untouched)
+            row.update(signal.record(kept, it=it, decision_step=int(base._decision_step)))
             row["telemetry_seconds"] = (time.monotonic() - t_tel) - row["train_seconds"]
             base.save_checkpoint(args.campaign)
 
@@ -794,6 +808,8 @@ def main(argv) -> int:
                 f"K {km} atk% {row['action_attack_pct']:.1f} | "
                 f"loss p {stats.policy_loss:.4f} v {stats.value_loss:.4f} "
                 f"| sig p/v {pn} {vn} share_v {row['sig_value_share']} "
+                f"trunk cos p.v {row['sig_trunk_policy_value_cos_update']} "
+                f"share_v {row['sig_trunk_value_share_update']} (update space) "
                 f"| kl {row.get('target_kl_median')} "
                 f"| gen {row['gen_seconds']:.0f}s train {row['train_seconds']:.1f}s")
             # "other" = the inference snapshot, the policy-shift
