@@ -12,7 +12,7 @@ def recruit_action_for(unit_type: str):
     tests use it to engineer deterministic recruit actions.)"""
     from typing import Dict, Optional
     from wesnoth_ai.sim.classes import GameState, Position, TerrainModifiers
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
 
     def _move(state: GameState, side: int) -> Optional[Dict]:
         leader = next(

@@ -940,7 +940,7 @@ def _dijkstra_mp_field_to_adjacent(
     """
     import heapq
     from tools.wesnoth_sim import _move_cost_at_hex
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
 
     terrain = getattr(state.global_info, "_terrain_codes", None)
     terrain_id = id(terrain) if terrain else id(state.map.hexes)

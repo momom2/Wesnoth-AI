@@ -1041,7 +1041,7 @@ class WesnothSim:
         cheapest approach preferring defensible terrain -- the same
         preference order Wesnoth's own pathfinder applies.
         """
-        from tools.abilities import hex_neighbors
+        from wesnoth_ai.sim.abilities import hex_neighbors
         from tools.pathfind_sim import ReachContext, unit_reach
 
         target_neighbors = set(hex_neighbors(target.x, target.y))
@@ -1135,7 +1135,7 @@ class WesnothSim:
         # then strike), so this branch fires only on actions the mask
         # already approved.
         if action.get("type") == "attack":
-            from tools.abilities import hex_neighbors
+            from wesnoth_ai.sim.abilities import hex_neighbors
             start = action.get("start_hex")
             target = action.get("target_hex")
             if (start is not None and target is not None
@@ -1499,7 +1499,7 @@ class WesnothSim:
         constructed a cmd directly would silently underdeduct MP.
         """
         # Lazy import to avoid a circular dep at module-load time.
-        from tools.abilities import hex_neighbors
+        from wesnoth_ai.sim.abilities import hex_neighbors
 
         atype = action.get("type")
         if atype == "end_turn":

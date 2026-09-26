@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.sim.classes import Position
-from tools.abilities import hex_neighbors
+from wesnoth_ai.sim.abilities import hex_neighbors
 from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
 

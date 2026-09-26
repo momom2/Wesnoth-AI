@@ -264,7 +264,7 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
     executed. The simulator opens the turn with the side's init_side
     before calling this and closes it with the side's end_turn after
     (`WesnothSim._play_neutral_turn`)."""
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     from wesnoth_ai.visibility import is_scenery_unit
     from wesnoth_ai.sim.classes import Position
 

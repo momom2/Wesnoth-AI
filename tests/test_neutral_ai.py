@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.sim.classes import Position
 from wesnoth_ai.game_core import game_core_class, state_differences
 from tests.test_neutral_ai_precondition import EXPECTED_ACTORS
-from tools.abilities import hex_neighbors
+from wesnoth_ai.sim.abilities import hex_neighbors
 from tools.replay_dataset import _apply_command, _rebuild_unit
 from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim

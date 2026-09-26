@@ -154,7 +154,7 @@ def test_fork_capture_does_not_mutate_parent_encoding():
     flaky (the direct search leaked before the seam search ran)."""
     import dataclasses
     from sim_test_helpers import fresh_scenario_sim
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
 
     captured = False
     for seed in (21, 20, 22, 23, 24):

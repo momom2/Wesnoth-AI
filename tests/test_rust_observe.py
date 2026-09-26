@@ -29,7 +29,7 @@ def _python_reach_sets(state, side):
     """The mask builder's reach context, rebuilt its way (action_sampler
     ._build_legality_masks): visible units by position, ally/enemy/
     occupied/ZoC as coordinate sets."""
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     from tools.pathfind_sim import emits_zoc
     from wesnoth_ai.visibility import units_visible_to
     unit_at = {}

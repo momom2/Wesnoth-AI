@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tools.abilities import hex_neighbors, opposite_hex           # noqa: E402
+from wesnoth_ai.sim.abilities import hex_neighbors, opposite_hex           # noqa: E402
 from tools.combat_outcomes import enumerate_attack_outcomes       # noqa: E402
 from tools.replay_dataset import _build_recruit_unit, _stats_for  # noqa: E402
 from wesnoth_ai.rules.scenario_pool import (                                 # noqa: E402

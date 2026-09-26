@@ -39,7 +39,7 @@ from tools.replay_dataset import (_build_initial_gamestate, _setup_scenario_even
                                   _lawful_bonus_for_turn, illuminated_lawful_bonus_at, _stats_for,
                                   _find_unit_at)
 from tools.pathfind_sim import ReachContext, unit_reach, emits_zoc
-from tools.abilities import hex_neighbors
+from wesnoth_ai.sim.abilities import hex_neighbors
 from wesnoth_ai.sim.classes import PLAYER_SIDES, opponent_of
 from wesnoth_ai.visibility import units_visible_to, is_scenery_unit, relevant_hex_positions, visible_hexes_for
 from wesnoth_ai.rules.terrain_resolver import strip_start_position

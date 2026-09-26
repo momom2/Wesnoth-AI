@@ -127,7 +127,7 @@ def test_poison_damage_net_of_rest():
 
 def test_sim_gate_rejects_statue_attack_and_counts():
     from sim_test_helpers import fresh_scenario_sim
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     sim = fresh_scenario_sim(seed=5, max_turns=5, mini=True)
     es = sim.enable_engagement_stats()
     side = sim.gs.global_info.current_side

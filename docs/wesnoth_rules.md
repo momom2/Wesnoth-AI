@@ -1380,7 +1380,7 @@ Without the area-illumination credit, the Netcaster's club did
 5/hit (lawful −25%) instead of 7/hit, leaving the MoL at 4 hp
 where Wesnoth had it dead. Cascade: cmd[760] attacker_missing.
 
-`tools/abilities.py::illuminate_step` no longer filters by side.
+`wesnoth_ai/sim/abilities.py::illuminate_step` no longer filters by side.
 Test: `test_combat_rules.py::test_illuminate_lights_enemy_too`.
 
 ### Petrified/incapacitated units project NO adjacent abilities
@@ -1407,7 +1407,7 @@ flanker). Note this is the SOURCE-side rule; the RECIPIENT-side rule
 **Why non-obvious**: `heal.cpp` itself has no source-side check — the
 filtering is delegated to `unit::get_abilities`, so grepping the
 healing code alone misses it. Verified 2026-07-01 against the 1.18.4
-tag while fixing a review finding: all four `tools/abilities.py`
+tag while fixing a review finding: all four `wesnoth_ai/sim/abilities.py`
 scanners (`illuminate_step`, `leadership_bonus`, `healer_heal_amount`,
 `adjacent_curer`) now skip `"petrified" in source.statuses`.
 

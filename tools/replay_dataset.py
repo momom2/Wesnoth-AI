@@ -1083,7 +1083,7 @@ def illuminated_lawful_bonus_at(gs: GameState, unit: Unit, turn: int) -> int:
     reads for both combatants and what a [hides] filter reads for
     nightstalk (abilities.cpp:447-450 evaluates it with
     use_flat_tod=false, filter.cpp:268-273)."""
-    from tools.abilities import illuminate_step
+    from wesnoth_ai.sim.abilities import illuminate_step
     base = _lawful_bonus_at(gs, unit.position.x, unit.position.y, turn)
     return apply_unit_illumination(base, illuminate_step(unit, gs.map.units) > 0)
 
@@ -1790,7 +1790,7 @@ def build_attack_context(gs: GameState, att: Unit, dfd: Unit,
         d_weapon = -1
 
     # Adjacency-based effects: leadership, illuminate, backstab.
-    from tools.abilities import (
+    from wesnoth_ai.sim.abilities import (
         leadership_bonus, illuminate_step, is_backstab_active,
     )
     a_stats_db = _stats_for(att.name)
@@ -1926,7 +1926,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         #   4. After healing, set resting=True for all side-N units
         #      (Wesnoth does this in play_controller.cpp:548 right
         #      after calculate_healing).
-        from tools.abilities import (
+        from wesnoth_ai.sim.abilities import (
             healer_heal_amount, adjacent_curer, build_pos_index,
         )
         from wesnoth_ai.rules.terrain_resolver import terrain_heals

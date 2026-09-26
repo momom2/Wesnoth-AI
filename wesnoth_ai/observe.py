@@ -90,7 +90,7 @@ def map_geometry(state: GameState) -> MapGeometry:
     hit = _GEOMETRY.get(id(hexes))
     if hit is not None and hit.hexes is hexes and len(hit.keys) == len(hexes):
         return hit
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     from wesnoth_ai.sim.classes import Terrain, TerrainModifiers
     keys = [(h.position.x, h.position.y) for h in hexes]
     pos_index = {p: i for i, p in enumerate(keys)}

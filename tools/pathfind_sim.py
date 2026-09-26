@@ -179,7 +179,7 @@ class ReachContext:
     @classmethod
     def for_side(cls, gs, side: int, *, god_view: bool = False,
                  exclude_unit=None) -> "ReachContext":
-        from tools.abilities import hex_neighbors
+        from wesnoth_ai.sim.abilities import hex_neighbors
         from wesnoth_ai.visibility import units_visible_to
 
         # `playable` is read nowhere (project round-2 C12: its
@@ -361,7 +361,7 @@ def _terrain_arrays_for(unit, gs):
     this (map, unit-type) pair. nbr_idx column order == hex_neighbors
     order (unit_reach's push order -- and therefore its heap
     tie-break behavior -- depends on it). -1 = off-map."""
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
 
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
     thash = getattr(gs.global_info, "_terrain_epoch", None)
@@ -558,7 +558,7 @@ def _unit_reach_reference(unit, gs, ctx: ReachContext,
     always leave a ZoC it starts in -- plot_turn only stops on
     ENTERED hexes, move.cpp:741-770).
     """
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
 
     start = (unit.position.x, unit.position.y)
     if budget is None:
@@ -658,7 +658,7 @@ def walk_move_path(gs, unit, xs: List[int], ys: List[int],
     Does NOT mutate gs -- the caller applies the outcome (position,
     MP, `_uncovered_units`, village capture).
     """
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     from tools.wesnoth_sim import _move_cost_at_hex
 
     side = unit.side

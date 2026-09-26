@@ -13,7 +13,7 @@
 //!
 //! Map space throughout: hex index = position in `gs.map.hexes`
 //! (pathfind_sim's ordering); `nbrs` columns follow
-//! `tools.abilities.hex_neighbors` (N, NE, SE, S, SW, NW). Every
+//! `wesnoth_ai.sim.abilities.hex_neighbors` (N, NE, SE, S, SW, NW). Every
 //! rule is a transcription of the Python, which stays the diff
 //! oracle (tests/test_rust_observe.py). `observe_slices` is the
 //! computation over slices; `observe_side` is its numpy entry and
@@ -23,7 +23,7 @@ use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use std::collections::VecDeque;
 
-/// The six neighbours of (x, y), `tools.abilities.hex_neighbors` order.
+/// The six neighbours of (x, y), `wesnoth_ai.sim.abilities.hex_neighbors` order.
 #[inline]
 pub(crate) fn neighbours(x: i64, y: i64) -> [(i64, i64); 6] {
     if x % 2 == 0 {

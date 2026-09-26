@@ -53,11 +53,11 @@ _BOOTSTRAP_UNITS = 3
 # starting-keep layouts on 2p_Caves_of_the_Basilisk.
 _CASTLE_SEARCH_RADIUS = 3
 
-# Hex adjacency (offset/odd-q layout) -- imported from tools.abilities
+# Hex adjacency (offset/odd-q layout) -- imported from wesnoth_ai.sim.abilities
 # so the dummy policy can't generate moves that exist in Cartesian
 # space but not on Wesnoth's hex grid (Wesnoth's replay engine
 # rejects those as 'corrupt movement').
-from tools.abilities import hex_neighbors as _hex_neighbors  # noqa: E402 -- kept beside the hex-grid caveat comment above
+from wesnoth_ai.sim.abilities import hex_neighbors as _hex_neighbors  # noqa: E402 -- kept beside the hex-grid caveat comment above
 
 
 class DummyPolicy:

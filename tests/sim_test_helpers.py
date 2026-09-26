@@ -155,7 +155,7 @@ class Brawler:
         self.dummy = DummyPolicy()
 
     def select_action(self, gs, **kw):
-        from tools.abilities import hex_neighbors
+        from wesnoth_ai.sim.abilities import hex_neighbors
         from tools.pathfind_sim import ReachContext, unit_reach
         from wesnoth_ai.sim.classes import Position
         from wesnoth_ai.rewards import hex_distance

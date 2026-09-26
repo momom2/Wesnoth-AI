@@ -341,7 +341,7 @@ def leader_castle_network(state: GameState,
     start = (leader.position.x, leader.position.y)
     if TerrainModifiers.KEEP not in (mods_by_pos.get(start) or set()):
         return False, set()
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     visited = {start}
     q = deque([start])
     network: Set[Tuple[int, int]] = set()
@@ -373,7 +373,7 @@ def _discovered_by_adjacency(state: GameState, hider: Unit,
     counted). The engine additionally requires the discoverer to be
     itself visible to the hider's team; we accept that reduction
     (documented sight-model simplification)."""
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     adj = set(hex_neighbors(hider.position.x, hider.position.y))
     for u in state.map.units:
         if u.side == hider.side:

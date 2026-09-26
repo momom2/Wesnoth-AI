@@ -31,7 +31,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from tools.abilities import (                                      # noqa: E402
+from wesnoth_ai.sim.abilities import (                                      # noqa: E402
     is_backstab_active, opposite_hex, hex_neighbors, leadership_bonus,
 )
 from tools.combat_outcomes import (                                # noqa: E402

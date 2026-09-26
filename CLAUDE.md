@@ -1119,7 +1119,7 @@ touches combat, healing, or advancement must keep that parity.
 `tools/diff_replay.py` is the regression check (runs the simulator
 over a corpus, compares against the recorded WML command stream). New
 scenario events go in `tools/scenario_events.py`; new abilities in
-`tools/abilities.py`; both with citations: `src/<path>:<line>` at the
+`wesnoth_ai/sim/abilities.py`; both with citations: `src/<path>:<line>` at the
 1.18.4 tag for C++, `wesnoth_src/data/<path>:<line>` for WML and Lua.
 
 Any mismatch between the simulator and Wesnoth (usually surfaced

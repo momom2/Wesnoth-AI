@@ -42,7 +42,7 @@ from tools.replay_dataset import (
     _stats_for, _to_combat_unit, _terrain_keys_at, _terrain_def_pct,
     _lawful_bonus_at,
 )
-from tools.abilities import leadership_bonus, is_backstab_active
+from wesnoth_ai.sim.abilities import leadership_bonus, is_backstab_active
 from tools.verify_mp_checkup import parse_replay
 
 # Exit code for a replay whose attacks carry no per-strike [mp_checkup]

@@ -1557,7 +1557,7 @@ def _build_legality_masks(
     # `_action_to_command` rebuilds the equivalent context via
     # `ReachContext.for_side` on the same observable state, which is
     # what makes "mask offers it => sim can route it" hold.
-    from tools.abilities import hex_neighbors as _hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors as _hex_neighbors
     from tools.pathfind_sim import ReachContext, emits_zoc, unit_reach
     reach_ctx = ReachContext(
         side=current_side,

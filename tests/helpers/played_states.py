@@ -6,7 +6,7 @@ import random
 
 def _has_attack(gs):
     """Any own unit adjacent to a visible enemy it may still attack."""
-    from tools.abilities import hex_neighbors
+    from wesnoth_ai.sim.abilities import hex_neighbors
     side = gs.global_info.current_side
     enemies = {(u.position.x, u.position.y) for u in gs.map.units if u.side != side}
     for u in gs.map.units:

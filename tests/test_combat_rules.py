@@ -10,11 +10,11 @@ from upstream during the 2026-05-08 100%-clean push:
     arcane=140` override after movetype switch
 
 These don't run a full replay — they exercise small surfaces in
-combat.py / tools.replay_dataset / tools.abilities / unit_stats.json
+combat.py / tools.replay_dataset / wesnoth_ai.sim.abilities / unit_stats.json
 so a future scrape regression or refactor catches the same bugs
 immediately.
 
-Dependencies: combat, tools.abilities, tools.replay_dataset, classes
+Dependencies: combat, wesnoth_ai.sim.abilities, tools.replay_dataset, classes
 Dependents:   pytest only
 """
 
@@ -129,7 +129,7 @@ def test_illuminate_lights_enemy_too():
     tod_manager.cpp:237-262 the scan iterates all 7 hexes regardless
     of side."""
     from wesnoth_ai.sim.classes import Position, Unit
-    from tools.abilities import illuminate_step
+    from wesnoth_ai.sim.abilities import illuminate_step
 
     illuminator = Unit(
         id="u1", name="Mage of Light", name_id=0, side=1,
@@ -180,8 +180,8 @@ def test_petrified_source_projects_no_adjacency_abilities():
     get_abilities skips adjacent units where it->incapacitated()
     (abilities.cpp; illuminate via tod_manager.cpp:443). Verified vs
     the 1.18.4 tag 2026-07-01. Covers illuminate + heals + cures."""
-    from tools.abilities import (illuminate_step, healer_heal_amount,
-                                 adjacent_curer)
+    from wesnoth_ai.sim.abilities import (illuminate_step, healer_heal_amount,
+                                          adjacent_curer)
 
     # Illuminate: a petrified illuminator lights neither itself nor a
     # neighbor (the reachable statue-map case; illuminate is side-agnostic).
