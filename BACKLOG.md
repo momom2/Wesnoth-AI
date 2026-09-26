@@ -42,7 +42,11 @@ against a bar of 6) and neither forward-only
 grader passes the section-6 check (both 2026-09-23,
 docs/turn_gap_ref_prereg_20260921.md), so by the design's rules the
 pipeline is built from rows 1 to 6 of
-docs/turn_proposer_design_20260905.md.
+docs/turn_proposer_design_20260905.md. **Found 2026-09-26: every search
+and playout runs on the true state under fog**
+(docs/hidden_information_20260926.md), the turn-gap grading included, so
+RICH carries a second caveat and a turn search needs a determinized root,
+drawn from a belief model, before it meets the 800-game gate.
 
 **Standing, taken whenever there is room (user, 2026-09-25):**
 
@@ -50,12 +54,16 @@ docs/turn_proposer_design_20260905.md.
   learner (`az_loop`, since 2026-09-03), the imitation trainer (0.7.0),
   the value-head fit on cached features, the value pre-training and
   `sim_self_play` (on by default, its cost in `sig_seconds`; 0.7.3;
-  `tools/signal_telemetry.py`). Still without it: the turn-value
-  fitter's head arm (branch `exp/turn-value`: a level term and a
-  ranking term; after its verdict) and the quarantined policy anchor's
-  rehearsal steps. The self-play learner's per-source norms are
-  gradient norms only; `GradientProbe` would add the update space and
-  the cross terms.
+  `tools/signal_telemetry.py`), and since 0.8.11 the self-play learner's
+  full reading, gradient and update space with the cross terms, every
+  iteration on 128 kept experiences (`tools/az_signal.py`,
+  `<workdir>/az_signal.jsonl`; 1.67 s a probe against 1.11 s for the
+  train step, a tiny network on the laptop CPU). Still without it: the
+  turn-value fitter's head arm (branch `exp/turn-value`) and the
+  quarantined policy anchor's rehearsal steps. Open: `az_loop`'s norm
+  telemetry draws its subsample from the loop's own generator
+  (`tools/az_loop.py:752`), so switching it off would change the
+  held-out split and every later iteration's seed.
 - **Refactor for navigation, documentation and separation of
   systems.** Library modules live in `tools/` beside one-off scripts
   (165 Python files there against 30 in `wesnoth_ai/`); nine files
@@ -237,6 +245,27 @@ no commit.
   count the player commands that produced no pair (0 expected, measured 0
   in 85 games).
 
+
+## Hidden information in the search (2026-09-26 crawl)
+
+docs/hidden_information_20260926.md. The mask and the encoder respect
+fog; MCTS, the turn-commit search, the plan tournament, the turn-gap
+playouts and the turn-value playout reads run on the true state. Open:
+- **Decision: the belief model** a determinized root draws from (last
+  seen hexes advanced by reach, uniform over reachable fogged hexes, or
+  learned from the corpus), and PIMC (one search per sampled world)
+  against information-set MCTS (one world per simulation). Phase 2's
+  turn search needs it before its gate.
+- **Decision: principle 6's scope.** CLAUDE.md bars god view in the
+  mask only; extending it to search and playouts that choose or grade
+  actions (a training-time critic stays allowed) is the user's wording.
+- Tag searched procedures on fogged games (for example `mcts:32+godview`)
+  until the root is determinized, so their numbers are not read as fair
+  strength.
+- Re-grade the seven confirmed turn-gap pairs from sampled worlds once a
+  belief model exists (with the second-salt re-realization of 15 and 57).
+- `Observation.detached()` (`wesnoth_ai/observe.py:202-208`) keeps rows
+  for hidden units; no consumer reads them. Drop them.
 
 ## What the network observes against what a player sees (2026-09-26 crawl)
 

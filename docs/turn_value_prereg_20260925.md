@@ -223,6 +223,14 @@ box-hours, $9.5.
 
 ## Measured (2026-09-26)
 
+Caveat (2026-09-26, docs/hidden_information_20260926.md): the truth was
+read from playouts on the true state, while the graders read the mover's
+observation; fog was on in 197 of the 200 positions and 686 of 2,061
+enemy units were hidden from the mover. A grader limited to the mover's
+view cannot reach a correlation of 1 even with exact playouts, and the
+rollout grader shares the hidden information with the truth. The
+verdicts below stand.
+
 Box 52605483 (RTX 4090, 56 jobs) on the branch's code as staged
 (`exp/turn-value` at ce7621b, version 0.6.0, `OBSERVATION_EPOCH` 8, the
 reference's own), from about 14:40 on 2026-09-25 to 00:20 UTC: about 9.7

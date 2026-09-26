@@ -1279,10 +1279,10 @@ def encode_raw(
     # contract in CLAUDE.md, we want fog hexes attemptable; the
     # rejection-history feature handles the bounce case.
     #
-    # We DON'T need to filter units in fog -- Wesnoth's state
-    # collector already excludes invisible enemy units from
-    # `gs.map.units` for the side we're encoding for, so any
-    # hidden unit isn't in the input we see anyway.
+    # Units in fog are filtered by the observation below (its visible
+    # units, wesnoth_ai/observe.py); `gs.map.units` holds every unit in
+    # the simulator, and only the live bridge's state collector leaves
+    # hidden enemies out of it.
     # Hex stream: the FULL board, or (opt-in) only the hexes that can
     # matter this decision. T2-A measured the relevant set at mean 0.30 of
     # the board with ZERO superset violations over 1,840 decisions, which

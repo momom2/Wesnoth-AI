@@ -10,7 +10,13 @@ them. Re-realizing 15 and 57 under a second turn salt (the design's own
 control, docs/turn_proposer_design_20260905.md 2.2; cents on a box)
 decides whether RICH stands. Separately, 5 of the 16 replayed positions
 of the pre-grader check came from maps with a third side, where the code
-of the day read side 3's value after the turn (fixed in 0.7.7).
+of the day read side 3's value after the turn (fixed in 0.7.7). A second
+caveat (2026-09-26, docs/hidden_information_20260926.md): the candidates
+were graded by playouts from the true post-turn state, the mover's hidden
+enemies and the opponent's gold included; five of the seven confirmed
+positions hold 2 to 4 enemy units hidden from the mover (the leader at 15
+and 42), so a searcher limited to its own view may confirm fewer.
+Re-grading the seven from sampled worlds needs a belief model first.
 
 Phase 2's first measurement (docs/plan_20260904.md 5), taken again
 against the current reference. Run 1 (docs/turn_gap_prereg_20260904.md,
@@ -180,8 +186,9 @@ enough to pre-grade them? This run recorded both graders the tool reads
 for every candidate, so the check is an analysis of the files above,
 with nothing played and no box.
 
-- Graders: `value_post`, the value head on the post-turn state from the
-  mover's side, and `hp_margin_post`, the mover's HP minus the
+- Graders: `value_post`, the value head on the post-turn state (read
+  from the opponent's observation, the side to move after the turn, and
+  signed for the mover), and `hp_margin_post`, the mover's HP minus the
   opponent's. The design's other two (the value after one argmax reply,
   the expected material swing) were not recorded and are not measured
   here.

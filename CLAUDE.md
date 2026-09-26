@@ -884,6 +884,18 @@ State of play:
   decisions have such a unit in view). Each fix changes the input and
   waits for a retrain (BACKLOG "What the network observes against what a
   player sees").
+- 2026-09-26 (0.8.10): **every search and playout runs on the true
+  state under fog.** The legality mask and the encoder read only what the
+  side sees, but MCTS, the turn-commit search, the plan tournament and
+  the playouts that graded the turn-level gap and the turn-value
+  experiment fork the live simulator, hidden units and the enemy's gold
+  included, with nothing sampled in their place
+  (docs/hidden_information_20260926.md). Raw players never read it, so
+  the reference and every verdict against it are unaffected. The
+  turn-gap RICH verdict carries a second caveat (five of its seven
+  confirmed positions hold 2 to 4 enemy units hidden from the mover),
+  and a turn search needs a determinized root, drawn from a belief model
+  that is the user's design decision, before it meets the 800-game gate.
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

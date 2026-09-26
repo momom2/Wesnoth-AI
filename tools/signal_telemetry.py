@@ -11,7 +11,9 @@ dv_consult: how far the just-applied update moved the value head's
 predictions on THIS iteration's search-consulted states (the erosion
 gauge; search accepts plans on ~2-atom ≈ 0.08 differences). Cost: 4
 extra backward passes on <=128 states + <=64*2 value forwards ≈ a
-few percent of an iteration.
+few percent of an iteration. The az loop also probes its loss split
+by term, in gradient space and in update space, with `GradientProbe`
+(tools/az_signal.py).
 
 The imitation trainer (tools/supervised_train.py): `ImitationSignal`,
 a row every IMITATION_SIGNAL_EVERY trained pairs in
@@ -302,15 +304,29 @@ class GradientProbe:
         (each loss times `scale`), in gradient space and in update space
         (None before the optimizer has stepped), and per group the count
         of parameters with a gradient but no optimizer state."""
-        terms = list(losses)
-        grads = {}
-        for k, term in enumerate(terms):
-            loss = losses[term]
+        return self.grams_of(self.gradients(losses, scale))
+
+    def gradients(self, losses: Dict[str, torch.Tensor], scale: float
+                  ) -> Dict[str, List[Optional[torch.Tensor]]]:
+        """Each term's gradient (its loss times `scale`) over the probed
+        parameters, None where a parameter gets none. The graph is kept
+        until the last term that has one."""
+        with_grad = [term for term, loss in losses.items() if loss.requires_grad]
+        grads: Dict[str, List[Optional[torch.Tensor]]] = {}
+        for term, loss in losses.items():
             if not loss.requires_grad:
                 grads[term] = [None] * len(self._params)
                 continue
-            grads[term] = torch.autograd.grad(loss * scale, self._params,
-                                              retain_graph=k + 1 < len(terms), allow_unused=True)
+            grads[term] = list(torch.autograd.grad(loss * scale, self._params,
+                                                   retain_graph=term != with_grad[-1],
+                                                   allow_unused=True))
+        return grads
+
+    def grams_of(self, grads: Dict[str, List[Optional[torch.Tensor]]]
+                 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], List[int]]:
+        """`grams` of gradients already taken: `gradients`, or its sum over
+        a batch's chunks (`add_gradients`)."""
+        terms = list(grads)
         n = len(terms)
         device = self._params[0].device
         gradient = torch.zeros(len(self.groups), n, n, dtype=torch.float64, device=device)
@@ -344,6 +360,23 @@ class GradientProbe:
         second = state["max_exp_avg_sq"] if hyper.get("amsgrad") else state["exp_avg_sq"]
         v_hat = second.float() / (1.0 - beta2 ** float(state["step"]))
         return float(hyper["lr"]) / v_hat.sqrt().add_(eps)
+
+
+def add_gradients(total: Optional[Dict[str, List[Optional[torch.Tensor]]]],
+                  grads: Dict[str, List[Optional[torch.Tensor]]]
+                  ) -> Dict[str, List[Optional[torch.Tensor]]]:
+    """`GradientProbe.gradients` summed term by term and parameter by
+    parameter (None: no gradient); `total` None starts the sum. The
+    additions are out of place, since autograd may hand out expanded
+    views that cannot take an in-place add."""
+    if total is None:
+        return grads
+    for term, rows in grads.items():
+        sums = total[term]
+        for j, g in enumerate(rows):
+            if g is not None:
+                sums[j] = g if sums[j] is None else sums[j] + g
+    return total
 
 
 class StepNorms:
@@ -546,30 +579,43 @@ class ImitationSignal:
                                               [zw[i] for i in pick])
             gradient, update, stateless = self._probe.grams(parts.source_losses(), 1.0 / len(pick))
             del parts
-        readings = dict(terms=IMITATION_SOURCES, groups=SIGNAL_GROUPS,
-                        policy_terms=POLICY_SOURCES, shared_groups=("encoder", "trunk"))
-        gradient_gram = gradient.cpu().tolist()
         weighted = numpy.asarray(targets.policy_w) > 0
         fired = {head: int(numpy.sum(numpy.asarray(flags) & (weighted if head in POLICY_SOURCES
                                                                else True)))
                  for head, flags in targets.ok.items()}
-        row = {"probe_pairs": len(pick), "fired": fired,
-               "gradient": summarize_gram(gradient_gram, **readings),
-               "gradient_gram": dict(zip(SIGNAL_GROUPS, gradient_gram))}
-        if update is not None:
-            update_gram = update.cpu().tolist()
-            row["update"] = summarize_gram(update_gram, **readings)
-            row["update_gram"] = dict(zip(SIGNAL_GROUPS, update_gram))
-            partial = {g: n for g, n in zip(SIGNAL_GROUPS, stateless) if n}
-            if partial:
-                row["update_stateless"] = partial
-        return row
+        return {"probe_pairs": len(pick), "fired": fired,
+                **probe_readings(gradient, update, stateless,
+                                 terms=IMITATION_SOURCES, policy_terms=POLICY_SOURCES)}
 
     def _write(self, row: Dict) -> None:
         if write_signal_row(self.path, row):
             self.rows += 1
         else:
             self.failures += 1
+
+
+def probe_readings(gradient: torch.Tensor, update: Optional[torch.Tensor],
+                   stateless: Sequence[int], *, terms: Sequence[str],
+                   policy_terms: Sequence[str]) -> Dict:
+    """A probe row's readings over SIGNAL_GROUPS (`GradientProbe.grams`'
+    output): `gradient` and `update` (`summarize_gram`, with the
+    policy-value cosine over the encoder and the trunk), the matrices
+    they come from (`*_gram`, terms in `terms`' order), and
+    `update_stateless`, the groups whose update total leaves out
+    never-stepped parameters."""
+    readings = dict(terms=terms, groups=SIGNAL_GROUPS, policy_terms=policy_terms,
+                    shared_groups=("encoder", "trunk"))
+    gradient_gram = gradient.cpu().tolist()
+    row = {"gradient": summarize_gram(gradient_gram, **readings),
+           "gradient_gram": dict(zip(SIGNAL_GROUPS, gradient_gram))}
+    if update is not None:
+        update_gram = update.cpu().tolist()
+        row["update"] = summarize_gram(update_gram, **readings)
+        row["update_gram"] = dict(zip(SIGNAL_GROUPS, update_gram))
+        partial = {g: n for g, n in zip(SIGNAL_GROUPS, stateless) if n}
+        if partial:
+            row["update_stateless"] = partial
+    return row
 
 
 def write_signal_row(path: Path, row: Dict) -> bool:
@@ -591,11 +637,13 @@ def check_signal_cadence(every: int, probe_pairs: int = IMITATION_PROBE_PAIRS) -
                          f"probe_pairs >= 1, got {every} and {probe_pairs}")
 
 
-def read_signal_rows(path: Path) -> List[Dict]:
+def read_signal_rows(path: Path, progress: str = "pairs") -> List[Dict]:
     """The rows of a signal file that describe the training as it went:
-    after a "start" row at pair count P, earlier rows past P are dropped
-    (their run was cut and resumed from an earlier checkpoint). A last
-    line cut short (the trainer killed mid-write) is skipped."""
+    after a "start" row at progress P (the imitation trainer's pair
+    count; the az loop's "decision_step", which its campaign checkpoint
+    carries), earlier rows past P are dropped (their run was cut and
+    resumed from an earlier checkpoint). A last line cut short (the
+    trainer killed mid-write) is skipped."""
     rows: List[Dict] = []
     lines = path.read_text(encoding="utf-8").splitlines()
     for k, line in enumerate(lines):
@@ -606,7 +654,7 @@ def read_signal_rows(path: Path) -> List[Dict]:
                 break
             raise
         if row.get("kind") == "start":
-            rows = [r for r in rows if r["pairs"] <= row["pairs"]]
+            rows = [r for r in rows if r[progress] <= row[progress]]
         rows.append(row)
     return rows
 
