@@ -43,6 +43,12 @@ def _run(tmp_path: Path, *extra: str) -> list:
         rows = list(csv.DictReader(fh))
     assert len(rows) == 2, rows
     assert (tmp_path / "campaign.pt").exists()
+    # One signal row per iteration after the start row, none failed.
+    from tools.signal_telemetry import read_signal_rows
+    signal_rows = read_signal_rows(workdir / "az_signal.jsonl", progress="decision_step")
+    assert [r["kind"] for r in signal_rows] == ["start", "probe", "probe"], signal_rows
+    assert not any("probe_error" in r for r in signal_rows), signal_rows
+    assert all(row["sig_probe_failures"] == "0" for row in rows)
     return rows
 
 

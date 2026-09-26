@@ -54,12 +54,16 @@ drawn from a belief model, before it meets the 800-game gate.
   learner (`az_loop`, since 2026-09-03), the imitation trainer (0.7.0),
   the value-head fit on cached features, the value pre-training and
   `sim_self_play` (on by default, its cost in `sig_seconds`; 0.7.3;
-  `tools/signal_telemetry.py`). Still without it: the turn-value
-  fitter's head arm (branch `exp/turn-value`: a level term and a
-  ranking term; after its verdict) and the quarantined policy anchor's
-  rehearsal steps. The self-play learner's per-source norms are
-  gradient norms only; `GradientProbe` would add the update space and
-  the cross terms.
+  `tools/signal_telemetry.py`), and since 0.8.11 the self-play learner's
+  full reading, gradient and update space with the cross terms, every
+  iteration on 128 kept experiences (`tools/az_signal.py`,
+  `<workdir>/az_signal.jsonl`; 1.67 s a probe against 1.11 s for the
+  train step, a tiny network on the laptop CPU). Still without it: the
+  turn-value fitter's head arm (branch `exp/turn-value`) and the
+  quarantined policy anchor's rehearsal steps. Open: `az_loop`'s norm
+  telemetry draws its subsample from the loop's own generator
+  (`tools/az_loop.py:752`), so switching it off would change the
+  held-out split and every later iteration's seed.
 - **Refactor for navigation, documentation and separation of
   systems.** Library modules live in `tools/` beside one-off scripts
   (165 Python files there against 30 in `wesnoth_ai/`); nine files
