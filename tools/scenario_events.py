@@ -964,7 +964,7 @@ _TRAIT_MACRO_RE = re.compile(r'^TRAIT_(\w+)$')
 def own_modification_effects(mods: Optional[WMLNode]) -> List[WMLNode]:
     """The [effect]s a placed [unit] carries in its own [modifications]:
     those of every [object], and of every CUSTOM [trait] (one outside the
-    named traits, tools/traits.TRAITS, whose effects
+    named traits, wesnoth_ai/sim/traits.TRAITS, whose effects
     `apply_traits_to_unit` applies; applying those twice cost Hornshark's
     Sergeants and Drake Fighters a movement point). The statues of Caves
     of the Basilisk and Sullas Ruins carry a `remove_hp` trait, those of
@@ -972,7 +972,7 @@ def own_modification_effects(mods: Optional[WMLNode]) -> List[WMLNode]:
     moves."""
     if mods is None:
         return []
-    from tools.traits import TRAITS
+    from wesnoth_ai.sim.traits import TRAITS
     out: List[WMLNode] = []
     for node in mods.children:
         tid = (node.attrs.get("id", "") or "").strip().strip('"').lower()
@@ -1119,7 +1119,7 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
         composite = f"{utype}:{variation}"
         if composite in _rd._UNIT_DB:
             utype = composite
-    from tools.traits import apply_traits_to_unit
+    from wesnoth_ai.sim.traits import apply_traits_to_unit
 
     # Generate a fresh uid: max existing (numeric) uid + 1.
     max_uid = 0

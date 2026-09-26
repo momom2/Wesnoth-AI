@@ -35,7 +35,7 @@
   "scenario/event/unit/modifications/trait/effect": {
    "classification": "MODELLED",
    "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
+   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from wesnoth_ai/sim/traits.py instead"
   },
   "scenario/item": {
    "classification": "IGNORED",
@@ -49,12 +49,12 @@
   "scenario/side/unit/modifications/object/effect": {
    "classification": "MODELLED",
    "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
+   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from wesnoth_ai/sim/traits.py instead"
   },
   "scenario/side/unit/modifications/trait/effect": {
    "classification": "MODELLED",
    "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
+   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from wesnoth_ai/sim/traits.py instead"
   },
   "scenario/terrain_graphics": {
    "classification": "IGNORED",
@@ -408,7 +408,7 @@
   },
   "scenario/event/unit.random_traits": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/traits.py:roll_traits",
+   "stands_in": "wesnoth_ai/sim/traits.py:roll_traits",
    "why": "UNREAD. Inert where measured: the only event-placed units with random_traits=yes are Tentacles, and race=monster has num_traits=0 (data/core/units.cfg:300), so Wesnoth rolls none either"
   },
   "scenario/event/unit.role": {
@@ -692,7 +692,7 @@
   },
   "scenario/side/unit.random_traits": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/traits.py:roll_traits",
+   "stands_in": "wesnoth_ai/sim/traits.py:roll_traits",
    "why": "UNREAD. Side units carrying it are petrified scenery statues, which never act"
   },
   "scenario/side/unit.type": {
@@ -721,7 +721,7 @@
   "scenario/side/unit/modifications/trait.id": {
    "classification": "MODELLED",
    "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "decides whether the trait is named (tools/traits.py applies it) or custom (its effects apply here)"
+   "why": "decides whether the trait is named (wesnoth_ai/sim/traits.py applies it) or custom (its effects apply here)"
   },
   "scenario/side/unit/modifications/trait.name": {
    "classification": "IGNORED",

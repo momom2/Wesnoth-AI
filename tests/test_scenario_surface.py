@@ -56,7 +56,7 @@ def test_every_modelled_entry_names_a_reader_that_reads_it(manifest):
     # The 2026-09-23 audit found these bound to real functions that do
     # not read them. Rebinding each to its old reader must be caught.
     ("scenario/side.gold", "wesnoth_ai/rules/wml_state.py:read_tod"),
-    ("scenario/event/unit.variation", "tools/traits.py:roll_traits"),
+    ("scenario/event/unit.variation", "wesnoth_ai/sim/traits.py:roll_traits"),
     ("scenario/event/switch.variable", "tools/scenario_events.py:_lua_action"),
 ])
 def test_a_reader_that_does_not_read_its_attribute_is_caught(manifest, pair,

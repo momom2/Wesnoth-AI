@@ -269,7 +269,7 @@ def test_a_time_area_schedule_is_not_the_board_schedule():
 
 
 def test_the_quick_leader_gates_are_seen_even_though_they_are_not_modelled():
-    """`tools/traits.py` gives every 4-MP leader the quick trait
+    """`wesnoth_ai/sim/traits.py` gives every 4-MP leader the quick trait
     unconditionally. The era gates that on a WML variable and on a
     per-unit one (eras.lua:5-22), and real scenarios use the second --
     Dark Forecast and Isle of Mists set `dont_make_me_quick`. Neither

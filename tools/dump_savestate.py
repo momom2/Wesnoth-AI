@@ -202,7 +202,7 @@ def _unit_block(u: Unit) -> List[str]:
       - All attribute values quoted (even numbers) — matches what
         real saves produce.
 
-    Trait IDs come from `u.traits` (populated by tools.traits during
+    Trait IDs come from `u.traits` (populated by wesnoth_ai.sim.traits during
     recruit/leader-spawn).
     """
     stats = _stats_for(u.name)

@@ -52,7 +52,7 @@ from tools.replay_extract import parse_wml  # noqa: E402
 from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,  # noqa: E402
                                             ScenarioSetup, _scenario_tod_info,
                                             build_scenario_gamestate, classify_scenario)
-from tools.traits import TRAITS  # noqa: E402
+from wesnoth_ai.sim.traits import TRAITS  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 from wesnoth_ai.sim.classes import PLAYER_SIDES  # noqa: E402
 
@@ -265,7 +265,7 @@ def engine_statuses(statuses: List[str]) -> List[str]:
 
 
 def engine_named_traits(traits: List[str]) -> List[str]:
-    """The engine's traits that our units carry by name (tools/traits.TRAITS).
+    """The engine's traits that our units carry by name (wesnoth_ai/sim/traits.TRAITS).
     A custom [trait], such as the statues' remove_hp, exists in our state
     only through its effects, which the unit's numbers compare."""
     return sorted(t for t in traits if t in TRAITS)

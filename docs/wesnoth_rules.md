@@ -776,7 +776,7 @@ Quick-then-Resilient: `28 → 27 → 32` (28 + div100rounded(28×-5) =
 27, then +5 = 32). The order matters because `apply_modifier` works
 on the CURRENT value, not the base.
 
-Our port: `tools/traits.py:apply_traits_to_unit` uses running
+Our port: `wesnoth_ai/sim/traits.py:apply_traits_to_unit` uses running
 `max_hp` (not original `u.max_hp`) and `(raw + 50) // 100` (not
 Python's `int()` which truncates toward zero). Same fix applied to
 `max_xp` for the intelligent / dim trait paths.

@@ -13,7 +13,7 @@
 //! dynamic part copies, the static part is a reference count.
 //!
 //! Python constructs units (recruits, advancements, plague corpses:
-//! `tools/replay_dataset.py` and `tools/traits.py`) and runs scenario
+//! `tools/replay_dataset.py` and `wesnoth_ai/sim/traits.py`) and runs scenario
 //! events on a Python view; everything else about a command applies
 //! here (core_step.rs). Map space throughout: hex index = position in
 //! `gs.map.hexes` (the observation kernels' order).

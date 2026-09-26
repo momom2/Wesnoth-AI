@@ -341,7 +341,7 @@ def quick_leader_gates(node) -> List[str]:
     `wesnoth_src/data/multiplayer/eras.lua:5-22`: the era gives every
     `max_moves=4` leader the quick trait at prestart, UNLESS the WML
     variable `make_4mp_leaders_quick` is false, and skipping any unit
-    whose own `dont_make_me_quick` variable is set. `tools/traits.py`
+    whose own `dont_make_me_quick` variable is set. `wesnoth_ai/sim/traits.py`
     applies the rule with neither gate, which is exact only while no
     scenario sets either. Dark Forecast and Isle of Mists DO set
     `dont_make_me_quick` on units
@@ -372,13 +372,13 @@ def check_quick_leader_gates(node, scenario_id: str = "") -> bool:
         return True
     if os.environ.get("WESNOTH_STRICT_WML"):
         raise UnmodelledGate(
-            f"{scenario_id or 'scenario'} sets {hits}; tools/traits.py "
+            f"{scenario_id or 'scenario'} sets {hits}; wesnoth_ai/sim/traits.py "
             f"applies the era quick-leader rule unconditionally")
     key = (scenario_id, tuple(hits))
     if key not in _SCHEDULE_WARNED:
         _SCHEDULE_WARNED.add(key)
         log.warning(
-            "%s touches the quick-leader gates %s, which tools/traits.py "
+            "%s touches the quick-leader gates %s, which wesnoth_ai/sim/traits.py "
             "does not model: it gives every 4-MP leader the quick trait "
             "unconditionally. See wml_state.check_quick_leader_gates.",
             scenario_id or "scenario", hits)

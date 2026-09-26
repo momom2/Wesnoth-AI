@@ -565,7 +565,7 @@ def _build_unit(u: dict, apply_leader_traits: bool = False,
     defense_table = dict(stats.get("defense", {}))
     setattr(base, "_defense_table", defense_table)
     if apply_leader_traits and base.is_leader:
-        from tools.traits import roll_traits, apply_traits_to_unit
+        from wesnoth_ai.sim.traits import roll_traits, apply_traits_to_unit
         race = stats.get("race", "")
         trait_ids = roll_traits(
             u["type"], race,
@@ -610,7 +610,7 @@ def _build_recruit_unit(unit_type: str, side: int, x: int, y: int,
         "uid": next_uid, "type": unit_type, "side": side,
         "x": x, "y": y, "is_leader": False,
     }, exp_modifier=exp_modifier)
-    from tools.traits import roll_traits, apply_traits_to_unit
+    from wesnoth_ai.sim.traits import roll_traits, apply_traits_to_unit
     stats = _stats_for(unit_type)
     race = stats.get("race", "")
     trait_ids = roll_traits(
@@ -1703,7 +1703,7 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
     else:
         trait_ids = list(u.traits)
     if trait_ids:
-        from tools.traits import apply_traits_to_unit
+        from wesnoth_ai.sim.traits import apply_traits_to_unit
         advanced = apply_traits_to_unit(
             fresh, trait_ids, level=new_level,
             defense_table=advanced_def_table,

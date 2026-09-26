@@ -152,7 +152,7 @@ def test_a_quick_defender_keeps_its_extra_move_through_advancement(fresh_sim, mo
     not moved (6/6) and levels while defending stays at 6/6 as any of
     its three advancements, all of base movement 5. Clamping to that 5
     before quick came back left it at 5/6 for the rest of the turn."""
-    import tools.traits as traits
+    import wesnoth_ai.sim.traits as traits
     from tools.replay_dataset import _rebuild_unit
     sim = fresh_sim
     xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
