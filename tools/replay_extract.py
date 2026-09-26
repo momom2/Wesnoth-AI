@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.paths import UNIT_STATS_PATH  # noqa: E402
 from tools.replay_control import find_game_end  # noqa: E402
-from tools.wml_state import (check_board_cycle,  # noqa: E402
+from wesnoth_ai.rules.wml_state import (check_board_cycle,  # noqa: E402
                              check_quick_leader_gates, map_starting_positions,
                              read_side, read_tod, read_unit, read_villages,
                              wml_bool, wml_bool_or_none, wml_int)

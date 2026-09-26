@@ -122,7 +122,7 @@ def side_economy_from_dataset(starting_sides: list) -> dict:
     team.hpp:179). A default stands in only for a MISSING value: a
     declared 0 is the game's own setting, which the reconstruction
     plays (`_build_initial_gamestate`) and the export must declare."""
-    from tools.wml_state import (ENGINE_BASE_INCOME, MP_VILLAGE_GOLD,
+    from wesnoth_ai.rules.wml_state import (ENGINE_BASE_INCOME, MP_VILLAGE_GOLD,
                                  MP_VILLAGE_SUPPORT, wml_int)
     econ = {}
     for i, s in enumerate(starting_sides):

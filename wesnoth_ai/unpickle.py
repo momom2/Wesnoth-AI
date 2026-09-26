@@ -19,6 +19,7 @@ from typing import Any, BinaryIO, Dict
 # tools/dev/move_module.py --apply adds the entry for the module it moves.
 MOVED_MODULES: Dict[str, str] = {
     "tools.terrain_resolver": "wesnoth_ai.rules.terrain_resolver",
+    "tools.wml_state": "wesnoth_ai.rules.wml_state",
 }
 
 

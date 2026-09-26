@@ -66,7 +66,7 @@ sys.path.insert(0, str(_THIS.parent))
 from wesnoth_ai.paths import (REPO_ROOT, SCENARIO_TEMPLATES_DIR, TEMPLATES_DIR,
                               UNIT_STATS_PATH, WESNOTH_SRC_DIR)
 from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim
-from tools.wml_state import (read_unit, read_villages, resolve_map_file,
+from wesnoth_ai.rules.wml_state import (read_unit, read_villages, resolve_map_file,
                              village_economy, wml_int)
 
 

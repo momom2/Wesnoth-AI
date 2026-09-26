@@ -2005,7 +2005,7 @@ from every record's `starting_sides` on 2026-09-25. Until then both appliers rea
 "not set" and paid the multiplayer default (`village_gold or 2` in
 Python, `!= 0` in the Rust core), which gave those games more gold
 than the engine did; no recorded recruit could fail on it, so the
-replay sweep could not see it. Ours: `tools/wml_state.village_economy`
+replay sweep could not see it. Ours: `wesnoth_ai/rules/wml_state.village_economy`
 (the default only for None) and `apply_init_side` in
 `rust/wesnoth_core/src/core_step.rs`. Tests:
 `tests/test_scenario_economy.py::test_a_declared_zero_village_economy_is_paid_as_zero`,
@@ -3074,7 +3074,7 @@ yes/no parser folds the list form onto `False`, which reads as "no
 random start" and silently begins the game at dawn. Our reconstruction
 path did exactly this: the guard meant to drop such replays sat inside
 the branch only a plain `yes` could enter. No corpus replay uses the
-list form, so nothing had diverged; `tools/wml_state.wml_bool_or_none`
+list form, so nothing had diverged; `wesnoth_ai/rules/wml_state.wml_bool_or_none`
 now distinguishes the third form and the caller drops it.
 
 ## Preprocessor conditionals, and what a multiplayer game defines (added 2026-09-23)

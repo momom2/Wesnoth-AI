@@ -73,8 +73,8 @@ from wesnoth_ai import combat as cb
 from tools.replay_dataset import (
     iter_replay_pairs_with_state, _stats_for,
 )
-from tools.wml_state import MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT
-from tools.wml_state import village_economy as declared_village_economy
+from wesnoth_ai.rules.wml_state import MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT
+from wesnoth_ai.rules.wml_state import village_economy as declared_village_economy
 
 
 # ----------------------------------------------------------------------

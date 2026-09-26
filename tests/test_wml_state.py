@@ -1,4 +1,4 @@
-"""tools/wml_state: the one reader of the WML that describes a game's
+"""wesnoth_ai/rules/wml_state: the one reader of the WML that describes a game's
 starting state, shared by the replay path and the generation path.
 
 The cases here are the ones the two former parsers each handled alone:
@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools import wml_state as ws  # noqa: E402
+from wesnoth_ai.rules import wml_state as ws  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
 
 
@@ -346,4 +346,4 @@ def test_no_second_parser_of_the_side_block_survives():
             offenders[module.__name__] = hits
     assert offenders == {}, (
         f"a second parser of the side block appeared: {offenders}. "
-        f"Read it through tools/wml_state instead.")
+        f"Read it through wesnoth_ai/rules/wml_state instead.")

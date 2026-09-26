@@ -221,9 +221,9 @@ def test_both_spellings_of_the_village_economy_are_read():
 
 def test_the_scenario_reader_is_the_shared_one(monkeypatch):
     """`scenario_economy` must not grow a second parser: it loads the
-    scenario and hands the node to tools/wml_state, which the replay
+    scenario and hands the node to wesnoth_ai/rules/wml_state, which the replay
     path reads with too."""
-    from tools import wml_state
+    from wesnoth_ai.rules import wml_state
 
     seen = []
     monkeypatch.setattr(sp, "_read_scenario_economy",

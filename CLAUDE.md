@@ -1080,7 +1080,7 @@ stays at the root. So a bare name like `classes.py` below means
   the live bridge (`wesnoth_ai/state_converter.py`, both directions),
   the WML and replay readers (`tools/replay_extract.py`,
   `tools/scenario_pool.py`, `tools/scenario_events.py`,
-  `tools/wml_state.py`) and the writers that emit WML or feed the
+  `wesnoth_ai/rules/wml_state.py`) and the writers that emit WML or feed the
   engine (`tools/sim_to_replay.py`, `tools/dump_savestate.py`,
   `tools/hidden_units_oracle.py`, `tools/scenario_init_oracle.py`).
   Keep it at those boundaries; game logic, the encoder and the model

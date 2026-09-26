@@ -40,12 +40,12 @@ from tools.replay_dataset import (
     _build_initial_gamestate,
 )
 from tools.scenario_events import load_scenario_wml
-from tools.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
+from wesnoth_ai.rules.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
                              MP_VILLAGE_SUPPORT, check_board_cycle,
                              check_quick_leader_gates, map_starting_positions,
                              read_side, read_tod, read_villages,
                              resolve_map_file, wml_int)
-from tools.wml_state import scenario_economy as _read_scenario_economy
+from wesnoth_ai.rules.wml_state import scenario_economy as _read_scenario_economy
 
 
 log = logging.getLogger("scenario_pool")
@@ -538,7 +538,7 @@ def scenario_economy(scenario_id: str) -> Tuple[Optional[int], Optional[int],
     """(village_gold, village_support, experience_modifier) as the
     scenario declares them, each None when it does not.
 
-    One line of parsing, in `tools/wml_state`, shared with the replay
+    One line of parsing, in `wesnoth_ai/rules/wml_state`, shared with the replay
     reader: a save and a .cfg spell these the same way, and two
     parsers of one grammar is how the generation path came to hardcode
     the village economy while the bit-exact sweep certified only the

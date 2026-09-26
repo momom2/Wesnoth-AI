@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from wesnoth_ai.paths import REPO_ROOT, SCENARIO_TEMPLATES_DIR  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
 from tools.scenario_events import load_scenario_wml  # noqa: E402
-from tools.wml_state import (map_starting_positions, resolve_map_file,  # noqa: E402
+from wesnoth_ai.rules.wml_state import (map_starting_positions, resolve_map_file,  # noqa: E402
                              split_map_grid)
 from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
                                  MINI_MAP_SCENARIO_IDS)

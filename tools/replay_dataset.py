@@ -47,8 +47,8 @@ from wesnoth_ai.visibility import clear_fog, refog, track_side
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
 from wesnoth_ai.rules.terrain_resolver import strip_start_position, terrain_mask
-from tools.wml_state import split_map_grid          # noqa: F401 (re-export)
-from tools.wml_state import fix_time_index, village_economy
+from wesnoth_ai.rules.wml_state import split_map_grid          # noqa: F401 (re-export)
+from wesnoth_ai.rules.wml_state import fix_time_index, village_economy
 
 
 log = logging.getLogger("replay_dataset")
