@@ -1,5 +1,7 @@
 # Sample-efficient search-based self-play for games with exact simulators, large or factored action spaces, and small compute budgets
 
+Correction (2026-09-26): the Ladder games this project plays have fog (197 of the 200 benchmark positions), so Wesnoth as played here is an imperfect-information game, and a search or playout run on the true state sees through it (docs/hidden_information_20260926.md).
+
 Scope note. Primary sources were fetched where possible (arXiv/ar5iv full text, author-hosted PDFs, the first author's PhD thesis for the Gumbel paper because OpenReview is CAPTCHA-gated). Where only an abstract or a secondary write-up was reachable, the finding says so. Years are publication years. "Target" below means the caller's application: a two-player turn-based hex wargame with a bit-exact simulator, about 350 legal atomic actions per decision, about 10 decisions per side-turn, a strong imitation seed from about 17,000 human games, sparse outcomes, tens of dollars of single-GPU rental per experiment, and a prior negative result for Gumbel MCTS with 32 simulations over atomic actions.
 
 ---
