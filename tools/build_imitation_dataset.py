@@ -206,6 +206,11 @@ def build(candidates: List[str], raw_root: Path, out_dir: Path, config: dict,
           workers: int) -> Counter:
     """Build the corpus into out_dir from the candidates' raw replays;
     returns the counts the summary line prints."""
+    from tools.replay_outcome import WINNING_CLASSES
+    unknown = set(config["outcome_classes"]) - set(WINNING_CLASSES)
+    if unknown:
+        raise ValueError(f"outcome_classes {sorted(unknown)}: a kept game's class is one of "
+                         f"{WINNING_CLASSES}")
     out_dir.mkdir(parents=True, exist_ok=True)
     jobs = [(p, str(raw_root), str(out_dir), config) for p in candidates]
     kept, outcomes, quarantined, errors = [], [], [], []

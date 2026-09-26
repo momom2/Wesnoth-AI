@@ -335,6 +335,13 @@ def test_the_builder_keeps_decided_human_games_and_says_why_it_leaves_out_the_re
     assert index == [{"file": row["file"], "winner": 1, "n_commands": row["n_commands"]}]
 
 
+def test_the_builder_refuses_an_outcome_class_the_labeller_never_gives(tmp_path):
+    """The version-1 config's "explicit" would keep no game at all."""
+    from tools.build_imitation_dataset import build
+    with pytest.raises(ValueError, match="explicit"):
+        build([], tmp_path, tmp_path / "corpus",
+              {"outcome_classes": ["explicit"], "holdout_fraction": 0.02}, workers=1)
+
 def test_the_staged_raw_corpus_is_what_the_builder_reads(tmp_path):
     """tools/stage_raw_corpus.py packs the ledger and its candidates at
     their ledger paths; unpacked elsewhere, the builder finds them."""

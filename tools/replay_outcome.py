@@ -36,6 +36,8 @@ LEADER_DEATH = "leader_death"
 ABANDONED = "abandoned"
 LEFT = "left"
 INCONCLUSIVE = "inconclusive"
+# The classes that name a winner, the ones a corpus may keep.
+WINNING_CLASSES = (LEADER_DEATH, SURRENDER, LEFT)
 
 # A surrendering side counts as ahead when its material exceeds the
 # other side's by this factor (the 2026-09-26 crawl's threshold).
