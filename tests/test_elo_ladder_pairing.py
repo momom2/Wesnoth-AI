@@ -46,13 +46,15 @@ def _run_play_pair(monkeypatch, games, outcomes):
     (PairRecord, MirrorStats, calls) where calls is a list of
     (setup, pi_side, game_label)."""
     calls = []
+    salts = _run_play_pair.salts = []
     it = iter(outcomes)
 
     monkeypatch.setattr(elo_ladder, "random_setup",
                         lambda rng, forced_faction=None: _Setup())
 
-    def fake_game(pi, pj, pi_side, setup, max_turns, game_label):
+    def fake_game(pi, pj, pi_side, setup, max_turns, game_label, luck_salt):
         calls.append((setup, pi_side, game_label))
+        salts.append(luck_salt)
         return next(it)
 
     monkeypatch.setattr(elo_ladder, "_play_single_game", fake_game)
@@ -81,6 +83,19 @@ def test_even_games_are_mirrored_setup_pairs(monkeypatch):
     # Game labels are unique (per-game policy state scoping).
     labels = [c[2] for c in calls]
     assert len(set(labels)) == len(labels)
+
+
+def test_a_mirrored_pair_shares_its_dice_and_pairs_do_not(monkeypatch):
+    """Unsalted, every game of a ladder replayed one luck vector (the
+    2026-09-13 defect elo_eval_game fixed): the two games of a pair
+    share their dice like their setup, and no two pairs, nor the odd
+    game, share them."""
+    _run_play_pair(monkeypatch, games=7, outcomes=["win"] * 7)
+    salts = _run_play_pair.salts
+    assert len(salts) == 7
+    pairs = [salts[k] for k in range(0, 6, 2)]
+    assert all(salts[k] == salts[k + 1] for k in range(0, 6, 2))
+    assert len(set(pairs + [salts[6]])) == 4
 
 
 def test_odd_game_plays_fresh_setup_side2(monkeypatch):

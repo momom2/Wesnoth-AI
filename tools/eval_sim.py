@@ -533,6 +533,10 @@ def main(argv: List[str]) -> int:
             gs = build_scenario_gamestate(setup)
             sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                              max_turns=args.max_turns)
+            # Each game its own dice (the 2026-09-13 luck-stream fix of
+            # tools/elo_eval_game.py): unsalted, every game replayed one
+            # luck vector.
+            sim._seed_salt = f"eval_sim:{args.seed}:g{g_idx}"
         except Exception as e:
             log.warning(f"skipping {setup.label()}: {e}")
             continue

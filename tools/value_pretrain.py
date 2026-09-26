@@ -243,10 +243,11 @@ def main(argv: List[str]) -> int:
             exps = rng.sample(exps, cap)
         return exps
 
-    def iter_exps_parallel(rows, stride, epoch):
-        """Yield per-game experience lists from a worker pool (order-
-        free). Per-(epoch, game) seeds keep subsampling deterministic
-        for a given --seed regardless of arrival order."""
+    def iter_exps_parallel(rows, stride, epoch, ordered=False):
+        """Yield per-game experience lists from a worker pool, in arrival
+        order unless `ordered` (a consumer that stops early must not keep
+        the games that happened to reconstruct fastest). Per-(epoch,
+        game) seeds keep subsampling deterministic for a given --seed."""
         tasks = [(str(args.dataset_dir), r["file"], r["winner"],
                   stride, args.max_states_per_game,
                   args.seed * 1_000_003 + epoch * 131 + i)
@@ -260,7 +261,8 @@ def main(argv: List[str]) -> int:
         else:
             import multiprocessing as mp
             with mp.get_context("spawn").Pool(args.loader_jobs) as pool:
-                for exps, error in pool.imap_unordered(_load_worker, tasks, chunksize=8):
+                mapper = pool.imap if ordered else pool.imap_unordered
+                for exps, error in mapper(_load_worker, tasks, chunksize=8):
                     failures.note(error)
                     yield exps
         failures.summary(len(tasks))
@@ -269,7 +271,7 @@ def main(argv: List[str]) -> int:
     # stride is high so the probe spans MANY games at few states.
     probe = []
     for exps in iter_exps_parallel(holdout_rows, max(args.stride, 16),
-                                   epoch=-1):
+                                   epoch=-1, ordered=True):
         probe.extend(exps)
         if len(probe) >= args.probe_states:
             break
