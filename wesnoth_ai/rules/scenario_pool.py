@@ -39,7 +39,7 @@ from wesnoth_ai.paths import REPO_ROOT, WESNOTH_SRC_DIR
 from tools.replay_dataset import (
     _build_initial_gamestate,
 )
-from tools.scenario_events import load_scenario_wml
+from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 from wesnoth_ai.rules.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
                              MP_VILLAGE_SUPPORT, check_board_cycle,
                              check_quick_leader_gates, map_starting_positions,

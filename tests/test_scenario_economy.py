@@ -190,7 +190,7 @@ def test_every_side_emitter_declares_a_zero_village_economy():
     happened; the other two read `wml_state.village_economy`."""
     from tools import replay_builder
     from tools.dump_savestate import dump_savestate
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     from tools.sim_to_replay import build_save_wml
 
     setup = _setup("2p_mini_edited")

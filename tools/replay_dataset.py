@@ -3079,9 +3079,9 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     """
     try:
         from tools.scenario_events import (
-            apply_side_unit_modifications, load_scenario_wml, fire_event,
-            setup_static_time_areas,
+            apply_side_unit_modifications, fire_event, setup_static_time_areas,
         )
+        from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     except ImportError:
         # If scenario_events isn't importable for some reason, silently
         # skip — the reconstruction still runs, just without events.

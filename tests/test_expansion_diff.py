@@ -77,7 +77,7 @@ def test_the_board_schedule_is_read_from_the_scenario():
     bug that motivated the check, and it should fail loudly and by
     name if the macro is ever muted again."""
     from tools.analysis.expansion_diff import _scenario_block
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 
     block = _scenario_block(load_scenario_wml("multiplayer_Hamlets"))
     times = block.all("time")

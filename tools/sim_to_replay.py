@@ -850,14 +850,14 @@ _CFG_BY_SCENARIO_ID_CACHE: Dict[str, Path] = {}
 
 def _scenario_cfg_path(scenario_id: str) -> Optional[Path]:
     """Find the scenario .cfg whose WML id is `scenario_id`.
-    Delegates to scenario_events.find_scenario_cfg_path (one shared
+    Delegates to scenario_cfg.find_scenario_cfg_path (one shared
     search across mainline, vendored add-ons, and the project's own
     add-on drills) and memoizes -- the scrapers below hit this once
     per export. Previously this only resolved `multiplayer_*` ids,
     so mini/drill exports silently fell back to PvP-default gold
     instead of the cfg's `gold=` (sim/playback gold mismatch)."""
     if scenario_id not in _CFG_BY_SCENARIO_ID_CACHE:
-        from tools.scenario_events import find_scenario_cfg_path
+        from wesnoth_ai.rules.scenario_cfg import find_scenario_cfg_path
         _CFG_BY_SCENARIO_ID_CACHE[scenario_id] = (
             find_scenario_cfg_path(scenario_id))
     return _CFG_BY_SCENARIO_ID_CACHE.get(scenario_id)
@@ -1056,7 +1056,7 @@ def _scenario_sides(cfg_path: Path):
     """The `[side]` nodes of a scenario .cfg, through the same parser
     and the same macro expansion the pool uses. Empty when the file
     will not parse, which keeps every caller's fallback intact."""
-    from tools.scenario_events import parse_scenario_cfg
+    from wesnoth_ai.rules.scenario_cfg import parse_scenario_cfg
 
     root = parse_scenario_cfg(cfg_path)
     if root is None:

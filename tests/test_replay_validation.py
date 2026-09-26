@@ -179,7 +179,7 @@ def test_event_unit_scan_reaches_switch_case_spawns():
     starters). WMLNode.all() is non-recursive, so the flat
     ev.all("unit") scan finds ZERO of them -- the recursive walk
     (validate_replay.py, 2026-07-15) must find them all."""
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     root = load_scenario_wml("multiplayer_Hornshark_Island")
     assert root is not None
     mp = root.first("multiplayer") or root.first("scenario")

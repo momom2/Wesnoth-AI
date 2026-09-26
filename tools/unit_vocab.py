@@ -50,7 +50,7 @@ def _placed_types() -> Set[str]:
     rebuild names (tools/analysis/scenario_surface.py's list)."""
     from tools.analysis.expansion_diff import _scenario_block
     from tools.analysis.scenario_surface import CORPUS_SCENARIOS
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     names: Set[str] = set()
 
     def walk(node) -> None:

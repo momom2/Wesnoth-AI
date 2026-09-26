@@ -81,7 +81,7 @@
   },
   "scenario.define": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:scenario_defines",
+   "reader": "wesnoth_ai/rules/scenario_cfg.py:scenario_defines",
    "why": "the scenario's own preprocessor symbol, added to the define set its #ifdef lines are evaluated against",
    "generic": "read by a regex over the RAW file, because Wesnoth applies define= before preprocessing and no parsed node exists yet"
   },
@@ -96,7 +96,7 @@
   },
   "scenario.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:find_scenario_cfg_path",
+   "reader": "wesnoth_ai/rules/scenario_cfg.py:find_scenario_cfg_path",
    "why": "selects the scenario",
    "generic": "the id is the lookup KEY: the function is called with it and matches it against each cfg, it does not read it off a node"
   },

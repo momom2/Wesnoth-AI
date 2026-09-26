@@ -5,7 +5,7 @@ swap in our [replay] commands) with a clean assembly from canonical
 inputs:
 
   - The scenario .cfg in `wesnoth_src/data/multiplayer/scenarios/2p_*.cfg`
-    -- parsed via `tools.scenario_events.load_scenario_wml`.
+    -- parsed via `wesnoth_ai.rules.scenario_cfg.load_scenario_wml`.
   - The .map file referenced by the .cfg's `map_file=` attr.
   - Our `ScenarioSetup` (faction1/leader1/faction2/leader2 picks).
   - The default era's faction definitions
@@ -365,7 +365,7 @@ def export_scenario_replay(
     populated `command_history`). `out_path` is where the .bz2
     is written.
     """
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 
     scenario_root = load_scenario_wml(setup.scenario_id)
     if scenario_root is None:

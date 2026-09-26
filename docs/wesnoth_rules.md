@@ -997,7 +997,7 @@ Isar 38859: turn-4 heal 15→23; our former +2 rest produced a 1-HP
 survivor whose ZoC forked the whole game). Sim port:
 `tools/replay_dataset.py` end_turn handler + `turn refresh` firing
 at the end of init_side; MODIFY_UNIT expands to `[modify_unit]` in
-`tools/scenario_events.py::_load_core_macros`.
+`wesnoth_ai/rules/scenario_cfg.py::_load_core_macros`.
 
 ### End of a side's turn: the same for every controller, AI included
 
@@ -3057,7 +3057,7 @@ stripper that drops every line starting with `#` removes the `#arg`
 and `#endarg` markers but leaves the default value behind as a bare
 stray line in the body, and `{OVERLAY}` is never substituted.
 
-Both are read by `tools/scenario_events.py`
+Both are read by `wesnoth_ai/rules/scenario_cfg.py`
 (`_MACRO_DEFINE_RE`, `_MACRO_INVOKE_RE`, `_split_optional_args`).
 
 ## `random_start_time` has three forms, not two (added 2026-09-22)
@@ -3111,7 +3111,7 @@ No difficulty symbol (`EASY`, `NORMAL`, `HARD`, `NIGHTMARE`) is
 defined, so `{QUANTITY ...}` (`data/core/macros/utils.cfg:8`) expands
 to nothing in multiplayer.
 
-Implemented by `tools/scenario_events.evaluate_conditionals`.
+Implemented by `wesnoth_ai/rules/scenario_cfg.evaluate_conditionals`.
 
 ## Vision and fog: what a side sees, and when it is recomputed (added 2026-09-24)
 

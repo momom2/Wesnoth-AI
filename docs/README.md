@@ -64,7 +64,7 @@ Each is optional; the default is the behaviour with the variable unset.
 | `WESNOTH_RUST_OBSERVE` | 1 | 0 forces the Python observation and relevant-set rows (`wesnoth_ai/observe.py`) |
 | `WESNOTH_RUST_COMBAT` | 1 | 0 forces the Python combat resolver (`wesnoth_ai/combat.py`) |
 | `WESNOTH_RUST_CORE` | 0 | 1 makes the Rust-owned state (`GameCore`) the simulator's state of record (`tools/wesnoth_sim.py`) |
-| `WESNOTH_STRICT_WML` | unset | set, an unmodelled WML construct raises instead of warning (`tools/scenario_events.py`, `wesnoth_ai/rules/wml_state.py`, `tools/neutral_ai.py`) |
+| `WESNOTH_STRICT_WML` | unset | set, an unmodelled WML construct raises instead of warning (`wesnoth_ai/rules/scenario_cfg.py`, `tools/scenario_events.py`, `wesnoth_ai/rules/wml_state.py`, `tools/neutral_ai.py`) |
 | `WESNOTH_GAME_RECORD_DIR` | unset | the default of `sim_self_play --game-record-dir` (else `training/game_records`); the test suite points it at a temporary directory |
 | `WESNOTH_EXE` | the Steam install's `wesnoth.exe` | the Wesnoth executable for the live bridge, the engine oracles and the template builder (`wesnoth_ai/constants.py`) |
 | `WESNOTH_ENUM_REFERENCE` | unset | 1 uses the reference legal-action enumerator instead of the vectorized one (`wesnoth_ai/action_sampler.py`) |
@@ -84,5 +84,5 @@ The box scripts read the Hugging Face settings (`HF_TOKEN`, `HF_REPO`,
 `CONTAINER_API_KEY`, with which a box stops its own instance.
 `WESNOTH_SRC` and `WESNOTH_PATH` are Python constants, not
 environment variables: the data tree's path (`wesnoth_ai/rules/scenarios.py`,
-`tools/scenario_events.py`) and the executable's path, which
+`wesnoth_ai/rules/scenario_cfg.py`) and the executable's path, which
 `WESNOTH_EXE` overrides (`wesnoth_ai/constants.py`).

@@ -2,7 +2,7 @@
 """Our macro expansion of a scenario against the game's own.
 
 The generation path expands a scenario `.cfg` with our expander
-(`tools/scenario_events.load_scenario_wml`), while the committed
+(`wesnoth_ai/rules/scenario_cfg.load_scenario_wml`), while the committed
 templates under `tools/templates/scenarios/` hold the same scenarios
 as Wesnoth's own preprocessor expanded them. Two renderings of one
 file, and nothing compared them, which is how `{DEFAULT_SCHEDULE}`
@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from wesnoth_ai.paths import REPO_ROOT, SCENARIO_TEMPLATES_DIR  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
-from tools.scenario_events import load_scenario_wml  # noqa: E402
+from wesnoth_ai.rules.scenario_cfg import load_scenario_wml  # noqa: E402
 from wesnoth_ai.rules.wml_state import (map_starting_positions, resolve_map_file,  # noqa: E402
                              split_map_grid)
 from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402

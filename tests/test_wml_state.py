@@ -306,7 +306,7 @@ def test_nothing_we_build_touches_a_quick_leader_gate():
     """The precondition itself, over every scenario we build: the pool
     plus the two off-whitelist mainline maps in the corpus."""
     from tools.analysis.expansion_diff import POOL, _scenario_block
-    from tools.scenario_events import load_scenario_wml
+    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 
     for scenario_id in list(POOL) + ["multiplayer_Cynsaun_Battlefield",
                                      "multiplayer_Hornshark_Island"]:

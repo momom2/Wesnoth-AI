@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 from tools.analysis.expansion_diff import POOL, _scenario_block  # noqa: E402
-from tools.scenario_events import load_scenario_wml  # noqa: E402
+from wesnoth_ai.rules.scenario_cfg import load_scenario_wml  # noqa: E402
 
 MANIFEST = REPO_ROOT / "tests" / "data" / "scenario_surface.json"
 CLASSES = ("MODELLED", "IGNORED", "SUBSTITUTED")

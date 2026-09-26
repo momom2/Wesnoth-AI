@@ -104,7 +104,7 @@ def _side_aggression(scenario_id: str, side: int) -> float:
         return _AI_PARAM_CACHE[key]
     aggr = DEFAULT_AGGRESSION
     try:
-        from tools.scenario_events import load_scenario_wml
+        from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
         root = load_scenario_wml(scenario_id)
         mp = (root.first("multiplayer") or root.first("scenario")
               if root is not None else None)
