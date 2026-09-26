@@ -190,6 +190,48 @@ def test_lawful_bonus_equals_the_python_helper():
     assert n > 100
 
 
+def test_a_negative_start_slot_wraps_on_the_board_and_in_a_time_area():
+    """The engine wraps `current_time` into the schedule with a modulo
+    that is never negative (`fix_time_index`, src/tod_manager.cpp:66,
+    1.18.4), and so do the Python board index (`_tod_cycle_index`) and
+    time-area index (`_lawful_bonus_at`). The readers wrap the slot
+    before it reaches a state, so this state carries one set by hand."""
+    from tests.sim_test_helpers import replayed_state, three_side_record
+    from tools.replay_dataset import _lawful_bonus_at
+    gs = replayed_state(three_side_record(), 0)
+    gs.global_info._tod_start_offset = -1
+    area, plain = (0, 1), (4, 4)
+    gs.global_info._time_areas = {area: [25, 0, -25, 0]}
+    cs = gc.CoreState.from_state(gs)
+    for turn in range(8):
+        for x, y in (area, plain):
+            assert cs.core.lawful_bonus(x, y, turn) == _lawful_bonus_at(gs, x, y, turn), ((x, y), turn)
+    py, cs, path = _apply_both(gs, ["init_side", 1])
+    assert path == "rust"
+    assert cs.to_state().global_info.time_of_day == py.global_info.time_of_day == "second_watch"
+
+
+def test_the_invariant_check_holds_each_side_to_the_villages_it_owns():
+    """`WesnothSim._assert_invariants` (e) on the core: each side's
+    village count equals the villages the owner map gives it
+    (`replay_dataset.village_count_mismatches`). A count off its owners
+    and an owner off its count are both violations."""
+    from dataclasses import replace
+    from tests.sim_test_helpers import replayed_state, three_side_record
+    from tools.replay_dataset import village_count_mismatches
+    gs = replayed_state(three_side_record(), 1)
+    assert not village_count_mismatches(gs)
+    assert gc.CoreState.from_state(gs).core.invariant_violation() is None
+    count_off = copy.deepcopy(gs)
+    count_off.sides[2] = replace(count_off.sides[2], nb_villages_controlled=1)
+    owner_off = copy.deepcopy(gs)
+    del owner_off.global_info._village_owner[(9, 3)]
+    for bad in (count_off, owner_off):
+        assert village_count_mismatches(bad)
+        found = gc.CoreState.from_state(bad).core.invariant_violation()
+        assert found is not None and "village counts" in found, found
+
+
 def test_move_and_attack_equal_the_python_applier():
     """Whole replays through both appliers, compared every fifth
     command and after every init_side and attack (tools/diff_core)."""

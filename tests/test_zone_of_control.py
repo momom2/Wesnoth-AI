@@ -9,7 +9,10 @@ The engine's rule is the unit's own: `unit::emits_zoc()` is
 walker (`walk_move_path`) skipped only petrified and level-0 units, so a
 move the mask offered past an attackless level-1 unit was stopped by the
 walk at its first hex: the mask/sim contract broken on that board. All
-of them now ask `pathfind_sim.emits_zoc`.
+of them now ask `pathfind_sim.emits_zoc`. The observation's zone flags,
+which the mask's Rust reach rows read, come from the Rust kernel
+(observe.rs), fed that predicate by `wesnoth_ai.observe` and the unit's
+level by the Rust core.
 """
 from __future__ import annotations
 
@@ -17,9 +20,13 @@ import dataclasses
 import sys
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tests.test_visibility import _hexes_grid, _state, _unit  # noqa: E402
+from tools.abilities import hex_neighbors  # noqa: E402
 from tools.pathfind_sim import (ReachContext, emits_zoc, route_to,  # noqa: E402
                                 unit_reach, walk_move_path)
 from wesnoth_ai.classes import Position  # noqa: E402
@@ -67,3 +74,45 @@ def test_every_planned_move_is_walked_to_its_end():
         path = route_to(reach, target)
         out = walk_move_path(s, mover, [p[0] for p in path], [p[1] for p in path])
         assert out.final_idx == len(path) - 1, (target, out)
+
+
+def _replayed_board():
+    """A replayed three-side state, fog off, side 1 to move, whose side-3
+    Dwarvish Fighter (level 1) is neither petrified nor armed: scenery by
+    our classification, a zone of control by the engine's. A replayed
+    state carries the real unit types and sides the Rust core needs."""
+    from tests.sim_test_helpers import replayed_state, three_side_record
+    s = replayed_state(three_side_record(fog=False), 1)
+    stone = next(u for u in s.map.units if u.side == 3)
+    stone.statuses = set(stone.statuses) - {"petrified"}
+    stone.attacks = []
+    assert is_scenery_unit(stone) and emits_zoc(stone)
+    return s, stone
+
+
+def _zones(s, stone, observation):
+    """(the observation's zone of control, the planner's), on the map;
+    the planner's must hold the stone's."""
+    keys = observation.geometry.keys
+    on_map = set(keys)
+    planner = ReachContext.for_side(s, 1).zoc_hexes & on_map
+    assert set(hex_neighbors(stone.position.x, stone.position.y)) & on_map <= planner
+    return {keys[j] for j in np.flatnonzero(observation.zoc).tolist()}, planner
+
+
+def test_the_observation_holds_the_zone_the_planner_sees():
+    from wesnoth_ai import observe as obs_mod
+    if obs_mod.kernel() is None:
+        pytest.skip("wesnoth_core.observe_side is not available")
+    s, stone = _replayed_board()
+    got, want = _zones(s, stone, obs_mod.observe(s, 1))
+    assert got == want
+
+
+def test_the_core_observation_holds_the_zone_the_planner_sees():
+    from wesnoth_ai import game_core as gc
+    if gc.game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore is not available")
+    s, stone = _replayed_board()
+    got, want = _zones(s, stone, gc.CoreState.from_state(s).observe(1))
+    assert got == want
