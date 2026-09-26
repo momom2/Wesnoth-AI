@@ -15,7 +15,7 @@
 | distinct alternatives per position | 3.85 of 4 |
 | playouts played | 27048, capped 929 (0.034) |
 | decisions per turn, base / alternatives | 9.6 / 11.8 |
-| wall | 3.75 h, $1.80 |
+| wall | 3.75 h, $1.80 at the planned $0.48/h (the box cost $0.628/h: about $2.4) |
 
 | gap bin | positions |
 |---|---|

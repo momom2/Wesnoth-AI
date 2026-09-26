@@ -26,7 +26,7 @@ bottleneck.
   under `training/metrics/bench_pipeline/`).
 - **An imitation retrain with its match**
   (`scripts/unit_vocab_retrain_box.sh`): at least 32 effective cores,
-  64 GB of memory and 60 GB of disk, about 4.5 box-hours
+  64 GB of memory and 60 GB of disk, about 4.5-6 box-hours
   (docs/unit_vocab_retrain_prereg_20260925.md, "Cost").
 - **Self-play generation through the actor pool:** the serve batch cap
   64 and the automatic actor count are the defaults; 3,222-3,237

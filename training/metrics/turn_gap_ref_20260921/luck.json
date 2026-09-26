@@ -1,0 +1,145 @@
+{
+ "record": "confirm.json",
+ "positions": [
+  {
+   "position": 11,
+   "scenario_id": "multiplayer_Sablestone_Delta",
+   "gap": 0.35,
+   "base": {
+    "hp_luck": 9.800000000000004,
+    "kill_luck": 0.0,
+    "fights": 6,
+    "fights_enumerated": 6,
+    "hp_margin_after": -63
+   },
+   "alternative": {
+    "hp_luck": 2.9819999999999975,
+    "kill_luck": -0.4730000000000001,
+    "fights": 9,
+    "fights_enumerated": 9,
+    "hp_margin_after": -68
+   },
+   "hp_luck_difference": -6.818000000000007
+  },
+  {
+   "position": 15,
+   "scenario_id": "multiplayer_Aethermaw",
+   "gap": 0.41666666666666663,
+   "base": {
+    "hp_luck": 4.2919,
+    "kill_luck": 0.29279999999999995,
+    "fights": 3,
+    "fights_enumerated": 3,
+    "hp_margin_after": 16
+   },
+   "alternative": {
+    "hp_luck": 18.446299999999994,
+    "kill_luck": -0.3360000000000002,
+    "fights": 5,
+    "fights_enumerated": 5,
+    "hp_margin_after": 45
+   },
+   "hp_luck_difference": 14.154399999999994
+  },
+  {
+   "position": 20,
+   "scenario_id": "multiplayer_elensefar_courtyard",
+   "gap": 1.0,
+   "base": {
+    "hp_luck": 0.7499999999999964,
+    "kill_luck": 0.25,
+    "fights": 3,
+    "fights_enumerated": 3,
+    "hp_margin_after": 46
+   },
+   "alternative": {
+    "hp_luck": -16.342000000000006,
+    "kill_luck": 0.2195999999999999,
+    "fights": 8,
+    "fights_enumerated": 8,
+    "hp_margin_after": 30
+   },
+   "hp_luck_difference": -17.092000000000002
+  },
+  {
+   "position": 24,
+   "scenario_id": "multiplayer_Fallenstar_Lake",
+   "gap": 0.4666666666666666,
+   "base": {
+    "hp_luck": 7.076799999999997,
+    "kill_luck": 0.21309999999999996,
+    "fights": 4,
+    "fights_enumerated": 4,
+    "hp_margin_after": -93
+   },
+   "alternative": {
+    "hp_luck": -1.6732,
+    "kill_luck": -0.036900000000000044,
+    "fights": 3,
+    "fights_enumerated": 3,
+    "hp_margin_after": -108
+   },
+   "hp_luck_difference": -8.749999999999996
+  },
+  {
+   "position": 42,
+   "scenario_id": "multiplayer_The_Freelands",
+   "gap": 0.29375,
+   "base": {
+    "hp_luck": -1.8499999999999979,
+    "kill_luck": 0.25,
+    "fights": 2,
+    "fights_enumerated": 2,
+    "hp_margin_after": 70
+   },
+   "alternative": {
+    "hp_luck": -3.537500000000005,
+    "kill_luck": 0.25,
+    "fights": 3,
+    "fights_enumerated": 3,
+    "hp_margin_after": 91
+   },
+   "hp_luck_difference": -1.687500000000007
+  },
+  {
+   "position": 47,
+   "scenario_id": "multiplayer_Ruphus_Isle",
+   "gap": 0.9,
+   "base": {
+    "hp_luck": -3.4575999999999993,
+    "kill_luck": -0.1376,
+    "fights": 4,
+    "fights_enumerated": 4,
+    "hp_margin_after": 68
+   },
+   "alternative": {
+    "hp_luck": -4.984799999999995,
+    "kill_luck": -0.0736,
+    "fights": 7,
+    "fights_enumerated": 7,
+    "hp_margin_after": 89
+   },
+   "hp_luck_difference": -1.5271999999999952
+  },
+  {
+   "position": 57,
+   "scenario_id": "multiplayer_Weldyn_Channel",
+   "gap": 0.8,
+   "base": {
+    "hp_luck": -15.300000000000004,
+    "kill_luck": -0.36,
+    "fights": 2,
+    "fights_enumerated": 2,
+    "hp_margin_after": 37
+   },
+   "alternative": {
+    "hp_luck": 1.5046097805338499,
+    "kill_luck": -0.0005635647364143951,
+    "fights": 2,
+    "fights_enumerated": 2,
+    "hp_margin_after": 39
+   },
+   "hp_luck_difference": 16.804609780533855
+  }
+ ]
+}

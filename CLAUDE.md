@@ -60,7 +60,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-09-25)
+## Current status (2026-09-04, entries through 2026-09-26)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -751,11 +751,12 @@ State of play:
   went through `unit::end_turn`: they stayed slowed and kept `resting`
   at 0 movement, healing 2 more than the engine and diverging from
   their own replay (docs/wesnoth_rules.md "End of a side's turn"). With
-  a scripted player that hunts tentacles, 10 games per map: every game
-  diverged on Micro Isar and both Fallenstar variants (225/527, 294/494
-  and 484/641 decisions), 6 and 7 of 10 on the two 2p minis, 1 on
-  Modified_Tiny_Close_Relation; 0 after (the probe's output was not
-  kept in the repo; commit 4d0d6ba's message has the decision counts).
+  a scripted player that hunts tentacles, 10 games per map, the
+  decisions where the simulator's state differed from the rebuild of its
+  own stream: 225/527 on Micro Isar, 294/494 and 484/641 on the two
+  Fallenstar variants, 96/400 and 55/412 on the two 2p minis, 1/357 on
+  Modified_Tiny_Close_Relation; 0 after on all six (commit 4d0d6ba's
+  message; the probe's output was not kept in the repo).
   Every command now records
   through one path (`WesnothSim._apply_and_record`). Elo matches are
   unaffected (no Ladder map has an acting neutral side; Silverhead's
@@ -774,7 +775,8 @@ State of play:
   (docs/observation_retrain_prereg_20260924.md "Measured"). The share
   of the time of day against the corrections is not measured (batched
   by user order). Holdout proxies equal terrain's. Vast stopped the box
-  at 1.79M pairs when the account's credit ran out; the trainer now
+  after 1.85M pairs when the account's credit ran out, and the run
+  resumed from the 1.79M checkpoint; the trainer now
   continues a cut pass exactly (0.5.10, `supervised_train`
   `PassPosition`), and the box stopped itself at the end through Vast's
   API. About 6.4 box-hours, $4.3. The 800 games are recorded whole (HF
@@ -800,8 +802,8 @@ State of play:
     `scripts/unit_vocab_retrain_box.sh`).
   - **Engine rules** (0.6.6, `OBSERVATION_EPOCH` 9, Rust core phase 14):
     the defender's counter weapon scores a levelling unit at full HP as
-    the engine's prediction does (733 of 737 recorded corpus choices
-    match, against 730; the other 4 are exact ties the engine breaks by
+    the engine's prediction does (733 of 737 recorded choices in 149
+    corpus games of turn 20 or later match, against 730; the other 4 are exact ties the engine breaks by
     its summation order); a declared zero village gold or support is paid
     as zero (16 corpus games); a levelling unit keeps its trait movement.
     Matches from here do not chain onto earlier ones.
@@ -829,14 +831,15 @@ State of play:
   trainers will use: BACKLOG.md "Standing"). The probe is built to
   leave training unchanged and tests hold it bit-identical on CPU.
 - 2026-09-26 (0.7.7): **the encoder gave the mover's own faction as the
-  enemy's in a quarter of the corpus.** It chose the enemy side by
+  enemy's in a quarter of the corpus's decisions.** It chose the enemy side by
   counting sides (`them = 1 - us if len(sides) == 2 else us`), and a
   replayed game carries one side per recorded side, statue and neutral
   sides included. In the 7,118 corpus games that declare a third side
   (Caves of the Basilisk, Silverhead Crossing, Sullas Ruins, Thousand
-  Stings Garrison, WL_Troll_Toll and the six tentacle minis), 1,287,662
-  of the 4,986,924 player decisions (25.8%), the enemy faction was the
-  mover's own (all but 290 mirror-game decisions) and global feature 5
+  Stings Garrison, WL_Troll_Toll and the six tentacle minis), which hold
+  1,287,662 of the 4,986,924 player decisions (25.8%), the enemy faction
+  was the mover's own at 1,215,830 (24.4%; the 290 mirror games read
+  right) and global feature 5
   the mover's own village count wherever the fog gate did not recompute
   it (268,627 decisions under the gate). seed2, relset, terrain and
   `obs8` trained on it, and play builds two-side states, so training and
@@ -853,8 +856,9 @@ State of play:
 - 2026-09-26 (0.7.13): **no turn grader passes.** The turn-ranking value
   function (docs/turn_value_prereg_20260925.md "Measured", box
   52605483, about 9.7 box-hours, $6.1) scored its three judged graders
-  on 199 human-game positions, each against 28 playouts of 5 candidate
-  turns: a linear arm on `obs8`'s trunk features 0.274 +- 0.041
+  on 199 human-game positions, each against 28 playouts of each of up
+  to 5 candidate turns (the rollout grader's truth is the 20 it does not
+  read): a linear arm on `obs8`'s trunk features 0.274 +- 0.041
   (corrected within-position correlation), a head arm 0.269 +- 0.045, a
   rollout of 8 playouts read 3 half-turns ahead 0.422 +- 0.051: all FAIL
   (bar 0.7, kill 0.5), with the crash barrier passed on the proxy games.
@@ -866,8 +870,9 @@ State of play:
   wait for a rebuild.** A crawl of the path from raw replays to the
   trainer's pairs found moves labelled with where the engine stopped the
   unit on sighting an enemy rather than the hex the player clicked (5.7%
-  of move labels), games played on by one person for both sides after a
-  surrender or a disconnect (6.4% of winner actions on a sample),
+  of move labels in a 150-game sample), games played on by one person
+  for both sides after a surrender or a disconnect (6.4% of winner
+  actions in a 300-game sample),
   surrender winners that contradict the server's own message (433 games),
   and games where the AI played a player side (7.9% of winner actions),
   none of which a label check could see. `CORPUS_VERSION` 2 builds them
@@ -945,7 +950,8 @@ ms per batch against 27 ms there. They are `raw:t0` against itself,
 whose games stall at the cap. At the reference decode few games are
 capped: the 800-decisive matches of 2026-09-19 and 2026-09-24 took
 489-491 s with both players at `raw:t0+eo-1.5` and 511-536 s against a
-`raw:t0` opponent, 20 workers on 4090 hosts (the `match.walls` records
+`raw:t0` opponent, 20 workers on whole-CPU 4090 hosts (the offset
+sweep's matches on a 20.5-core slice took 839-903 s; the `match.walls` records
 in training/metrics/bench_pipeline/composed_levers_20260919/,
 endturn_rule_20260919/ and observation_retrain_20260924/).
 

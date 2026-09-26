@@ -7,7 +7,7 @@ archived verbatim at `docs/archive/backlog_20260904.md`.
 ## NEXT (2026-09-26)
 
 **1. `obs8` is the reference** (user ruling 2026-09-25): +73 +- 13 Elo
-over `terrain` (docs/observation_retrain_prereg_20260924.md). Every
+over `terrain` (800 decisive games) (docs/observation_retrain_prereg_20260924.md). Every
 number from here is measured against it.
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
@@ -23,9 +23,10 @@ design. The code stays on `exp/turn-value`.
 **Waiting on the user: the unit-vocabulary retrain**
 (docs/unit_vocab_retrain_prereg_20260925.md): `obs8`'s recipe with every
 reachable unit type on its own embedding row, 800 decisive games against
-`obs8`, about 4.5 box-hours. On the current code it also carries the
+`obs8`, about 4.5-6 box-hours. On the current code it also carries the
 player-side correction (0.7.7: the enemy's faction and villages right in
-the quarter of the corpus played on maps with a third side), and its
+the quarter of the corpus's decisions, 42% of its games, played on maps
+with a third side), and its
 match cannot separate the two corrections. It also carries 0.7.12 (each
 plague corpse's variation on its base type's row). Whether the corpus
 corrections (BACKLOG "The imitation corpus's labels") and any of the
@@ -65,12 +66,9 @@ drawn from a belief model, before it meets the 800-game gate.
   (`tools/az_loop.py:752`), so switching it off would change the
   held-out split and every later iteration's seed.
 - **Refactor for navigation, documentation and separation of
-  systems.** Library modules live in `tools/` beside one-off scripts
-  (165 Python files there against 30 in `wesnoth_ai/`); nine files
-  are more than three times the 600-line target
-  (`tools/sim_self_play.py` 4,088 lines, `tools/replay_dataset.py`
-  3,081, `tools/supervised_train.py` 2,845); this file holds 1,900
-  lines, most of them closed sections. Target: one package per system
+  systems.** Library modules live in `tools/` beside one-off scripts,
+  and ten files are more than three times the 600-line target (counts in
+  docs/refactor_inventory_20260925.md, taken 2026-09-25). Target: one package per system
   with a README each (what it does, entry points, invariants, tests),
   scripts as thin entry points whose documented command lines keep
   working, closed backlog sections archived. Plan:
@@ -123,7 +121,8 @@ the same night:
   too, `az_loop`'s actors not), so every Elo number since 2026-07-04 is
   Knalgan against the six factions. Decision: keep it, or lift it for
   eval.
-- **`obs8` has no self-pin on record** (terrain has +2 +- 12). Decision:
+- **`obs8` has no self-pin on record** (terrain has +2 +- 12 at `raw:t0`,
+  800 of 1,029 games decisive). Decision:
   run one on the next box, or record that none is needed.
 - **The value corpus has no game of the four eval maps with a third
   side** (`build_value_corpus` counted `[side]` blocks; fixed in 0.7.7):
@@ -134,7 +133,7 @@ the same night:
   drawn from such a game fails (only reachable with
   `--midgame-dataset replays_dataset_imitation`, or after the value
   corpus rebuild).
-- **Box scripts not on the library (0.7.11):** about 40 `scripts/*_box.sh`
+- **Box scripts not on the library (0.7.11):** 34 of the 36 `scripts/*_box.sh`
   are records of past runs and keep unbounded steps, no exit trap, stops
   that accept any 2xx and `ALL_DONE`-first uploads; port any of them to
   `scripts/box/boxlib.sh` (docs/box_runbook.md) before running it again.
@@ -181,9 +180,12 @@ bases are disjoint except the documented offset-sweep overlap. Open:
 ## The imitation corpus's labels (2026-09-26 crawl; each changes the corpus)
 
 A crawl of the data path from raw replays to the trainer's pairs (every
-label slot checked on 23,043 pairs of 85 games, 0 mismatches) found five
+label slot checked on 23,043 pairs of 85 games, 0 mismatches; the
+committed guard's own run read 0 of 22,318 pairs of 84 games) found five
 problems that only a re-extraction fixes; the retrain that would carry
-them is the user's decision.
+them is the user's decision. The corpus-wide counts below are the
+crawl's and were not recorded; docs/corpus_v2_20260926.md's samples
+are.
 
 **The corrected pipeline landed in 0.8.0** (docs/corpus_v2_20260926.md;
 `CORPUS_VERSION` 2; today's corpus files and records load and label as
@@ -216,16 +218,19 @@ no commit.
 - **A move's label is where the unit stopped, not the hex clicked.**
   `extract_replay` cuts each `[move]` at the checkup's `final_hex`, and
   the label takes the last hex: 192,575 of 3,017,162 player moves
-  (12,194 games; 191,697 of them in fog games) are labelled with a hex
-  the player never chose, 2.8 hexes short on average, where the engine
-  stopped the move on sighting an enemy. The simulator does not model
+  (12,194 games; 191,697 of them in fog games) stopped short of the
+  clicked hex, 2.8 hexes on average. About 82% of them stopped on
+  sighting an enemy (1,437 of 1,753 in the doc's 150-game sample); the
+  rest ran past the turn's movement, where the stop is the right label. The simulator does not model
   sighting interrupts (docs/wesnoth_rules.md "Replay [move] playback:
   skip_sighted"), so in our games the chosen hex is where the unit goes;
   the label should be the clicked hex, the state still the stop.
 - **Play after a surrender is trained as a game.** 2,669 games keep a
   player's actions after the other surrendered or left, when one player
   controls both sides: 94,655 winner-side commands (71,672 after a
-  surrender message alone; 702 games with 20 or more). Cut each game at a
+  surrender message alone; 702 games with 20 or more; the corpus total
+  was not counted, and in the doc's 300-game sample the cut removes
+  3,015 of 47,199 winner actions). Cut each game at a
   player's first surrender, and at a leave once the side changes hands.
 - **433 surrender games name as winner the side the server says
   surrendered** (16 holdout, 66,442 winner actions), and the script that
@@ -236,14 +241,11 @@ no commit.
 - **Reloaded games escape the dedup:** 9 clusters (19 games) share their
   first 30 or more commands and then diverge (the key hashes 200); none
   straddles the holdout. Cluster on a 30-command prefix, keep the longest.
-- **Model input:** village gold is never observed (3, 4, 5 or 8 in 3,210
-  of 17,019 games); global feature 3, "income", holds `base_income`.
-- Free guards owed: `encode_game` could assert each label's slot points
-  at the command's hexes and recruit type (checks the Python labels
-  against the Rust tokens at every pre-encoding, which no test does on a
-  three-side, statue, hider or fog-off state); `iter_replay_pairs` could
-  count the player commands that produced no pair (0 expected, measured 0
-  in 85 games).
+- **Model input:** village gold is never observed (other than 2 in
+  3,210 of 17,019 games by the crawl's count; the host's `mp_village_gold`
+  alone is 3, 4, 5 or 8 in 167, training/metrics/corpus_census.json, and
+  map settings such as 2p_mini_edited's village_gold=3 carry the rest);
+  global feature 3, "income", holds `base_income`.
 
 
 ## Hidden information in the search (2026-09-26 crawl)
@@ -286,15 +288,17 @@ In the order the counts suggest:
   through the simulator, reconstruction, the Rust core and game records.
 - **The relevant set's reach**: 30,648 of 142,848 hexes from which a
   visible enemy could hit an own unit next turn have no token; adding own
-  units' neighbours costs 4% more hexes, the enemies' reach 52%.
+  units' neighbours costs 4% more hexes, the enemies' reach 52% (a
+  separate, unrecorded count; the doc's Provenance section).
 - **Mushroom grove and reef** have no class of their own (cave, shallow
   water): two terrain classes.
 - **The time of day at a unit's hex** (668 of 1,488 decisions on
-  Elensefar Courtyard): one per-hex column.
+  Elensefar Courtyard in an unrecorded 4-game count; in the recorded
+  census, 146 of 26,789 decisions over all maps): one per-hex column.
 - **The enemy's economy with fog off** and **water villages under fog**:
   small, batch with village gold.
 - **Information a player lacks:** the enemy's faction from turn 1 when the
-  opponent chose Random (96 of 188 sampled player sides; eval unaffected);
+  opponent chose Random (96 of 188 sampled player sides, unrecorded; eval unaffected);
   scenery shown on fogged hexes (recorded, not changed).
 
 ## Open after the 2026-09-25 audits

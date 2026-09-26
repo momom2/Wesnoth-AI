@@ -6,7 +6,9 @@ turn salt, so the in-turn dice of the best-of-four selection survived
 into it; comparing every fight of the 7 confirmed turns with its exact
 distribution, positions 15 and 57 carry luck in the alternative's favour
 (+14.2 and +16.8 HP of the mover's), the other five none that explains
-them. Re-realizing 15 and 57 under a second turn salt (the design's own
+them (`tools/analysis/turn_gap_luck.py`, record
+training/metrics/turn_gap_ref_20260921/luck.json: -6.8, -17.1, -8.7,
+-1.7 and -1.5 at positions 11, 20, 24, 42 and 47). Re-realizing 15 and 57 under a second turn salt (the design's own
 control, docs/turn_proposer_design_20260905.md 2.2; cents on a box)
 decides whether RICH stands. Separately, 5 of the 16 replayed positions
 of the pre-grader check came from maps with a third side, where the code
