@@ -304,7 +304,7 @@ def test_a_search_policy_attaches_the_exact_distribution_of_the_attack_it_played
 
 
 def test_a_refused_step_keeps_the_previous_attacks_search_distribution():
-    from tools.combat_outcomes import enumerate_attack_outcomes
+    from wesnoth_ai.sim.combat_outcomes import enumerate_attack_outcomes
     from tools.replay_dataset import _build_initial_gamestate
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.sim.classes import Position

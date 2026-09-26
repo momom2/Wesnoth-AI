@@ -345,7 +345,7 @@ def rung0c(args) -> Dict:
             pk = 0.0
             if a.action.get("type") == "attack":
                 try:
-                    from tools.combat_outcomes import (
+                    from wesnoth_ai.sim.combat_outcomes import (
                         enumerate_attack_outcomes,
                     )
                     enum = enumerate_attack_outcomes(

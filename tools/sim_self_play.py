@@ -2020,7 +2020,7 @@ def main(argv: List[str]) -> int:
                          "(2026-08-12 diagnosis).")
     ap.add_argument("--mcts-no-exact-outcomes", action="store_true",
                     help="Disable exact combat-outcome enumeration "
-                         "at chance nodes (tools/combat_outcomes "
+                         "at chance nodes (wesnoth_ai/sim/combat_outcomes "
                          "prob-matrix DP); falls back to pure "
                          "sampled outcomes.")
     ap.add_argument("--mcts-no-tree-reuse", action="store_true",

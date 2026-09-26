@@ -66,7 +66,7 @@ def probe_game(task) -> Optional[Dict]:
     `task` = (gz_path, winner_side) -- winners live in the dataset
     MANIFEST (manifest.jsonl), not in the game records."""
     gz_path, winner = task
-    from tools.combat_outcomes import enumerate_attack_outcomes
+    from wesnoth_ai.sim.combat_outcomes import enumerate_attack_outcomes
     from tools.replay_dataset import (
         _apply_command, _build_initial_gamestate, _find_unit_at,
         _setup_scenario_events,

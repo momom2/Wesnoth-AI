@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.sim.abilities import hex_neighbors, opposite_hex           # noqa: E402
-from tools.combat_outcomes import enumerate_attack_outcomes       # noqa: E402
+from wesnoth_ai.sim.combat_outcomes import enumerate_attack_outcomes       # noqa: E402
 from tools.replay_dataset import _build_recruit_unit, _stats_for  # noqa: E402
 from wesnoth_ai.rules.scenario_pool import (                                 # noqa: E402
     random_setup, build_scenario_gamestate, load_factions,
@@ -242,7 +242,7 @@ def test_enumerate_children_via_sim_matches_dp():
     any post-combat bookkeeping."""
     from tools.swap_detector import (
         enumerate_children_via_sim, hex_neighbors)
-    from tools.combat_outcomes import (
+    from wesnoth_ai.sim.combat_outcomes import (
         enumerate_attack_outcomes, outcome_key_for_child,
         choose_counter_weapon)
     from sim_test_helpers import fresh_scenario_sim
@@ -295,7 +295,7 @@ def test_reconstruct_side_turn_and_compare_backstab():
     from tools.swap_detector import (
         reconstruct_side_turn_dist, compare_state_distributions,
         hex_neighbors, opposite_hex)
-    from tools.combat_outcomes import choose_counter_weapon
+    from wesnoth_ai.sim.combat_outcomes import choose_counter_weapon
     from sim_test_helpers import fresh_scenario_sim
     from tools.replay_dataset import _build_recruit_unit
 
@@ -354,7 +354,7 @@ def test_enumerate_children_via_sim_matches_dp_with_advancement():
     enumerate_attack_outcomes(advancement_choice='uniform')."""
     from tools.swap_detector import (
         enumerate_children_via_sim, hex_neighbors, _advance_targets)
-    from tools.combat_outcomes import (
+    from wesnoth_ai.sim.combat_outcomes import (
         enumerate_attack_outcomes, outcome_key_for_child,
         choose_counter_weapon)
     from sim_test_helpers import fresh_scenario_sim
@@ -439,7 +439,7 @@ def test_strong_attacker_first_flags_weaker_lead():
     strong_attacker_first must fire, naming the Grunt as the better lead."""
     from tools.swap_detector import (
         strong_attacker_first_findings, SideTurn, hex_neighbors)
-    from tools.combat_outcomes import choose_counter_weapon
+    from wesnoth_ai.sim.combat_outcomes import choose_counter_weapon
     from sim_test_helpers import fresh_scenario_sim
     from tools.replay_dataset import _build_recruit_unit
 

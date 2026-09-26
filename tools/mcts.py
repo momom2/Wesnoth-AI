@@ -97,7 +97,7 @@ from tools.wesnoth_sim import WesnothSim
 from tools.draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
-from tools.combat_outcomes import (
+from wesnoth_ai.sim.combat_outcomes import (
     enumerate_attack_outcomes, outcome_key_for_child,
 )
 
@@ -427,7 +427,7 @@ class MCTSConfig:
     # determinization).
     chance_nodes: bool = True
 
-    # Exact outcome enumeration (Tier 1, see tools/combat_outcomes):
+    # Exact outcome enumeration (Tier 1, see wesnoth_ai/sim/combat_outcomes):
     # attack edges lazily compute the exact outcome distribution via
     # the prob_matrix-style DP (same parameters as the bit-exact
     # resolver). While unseen mass remains, traversals keep sampling

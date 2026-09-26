@@ -40,7 +40,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools import combat_outcomes as co  # noqa: E402
+from wesnoth_ai.sim import combat_outcomes as co  # noqa: E402
 from tools.replay_dataset import (_apply_command, _build_initial_gamestate,  # noqa: E402
                                   _find_unit_at, _setup_scenario_events, _stats_for,
                                   build_attack_context)

@@ -1,4 +1,4 @@
-"""Exact counter-weapon chooser (tools/combat_outcomes).
+"""Exact counter-weapon chooser (wesnoth_ai/sim/combat_outcomes).
 
 Port of battle_context::choose_defender_weapon + better_combat +
 calculate_probability_of_debuff (1.18.4). The unit tests pin the
@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from sim_test_helpers import fresh_scenario_sim   # noqa: E402
-from tools.combat_outcomes import (   # noqa: E402
+from wesnoth_ai.sim.combat_outcomes import (   # noqa: E402
     _CombatantMarginals as M,
     _better_combat,
     _engine_marginals,

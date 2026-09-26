@@ -1739,7 +1739,7 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
 class AttackContext:
     """Everything `combat.resolve_attack` needs, fixed at fight
     start. Built by `build_attack_context` -- shared by the replay/
-    sim attack application AND tools.combat_outcomes' exact
+    sim attack application AND wesnoth_ai.sim.combat_outcomes' exact
     outcome enumeration, so the two can never drift on combat
     parameters."""
     att_cu:       "cb.CombatUnit"

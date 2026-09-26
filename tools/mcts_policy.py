@@ -311,7 +311,7 @@ class MCTSPolicy:
         # and rebuilds). See MCTSConfig.tree_reuse.
         self._reuse: Dict[str, Tuple] = {}
         # game_label -> the exact outcome distribution the search
-        # computed for the attack it just played (tools/combat_outcomes),
+        # computed for the attack it just played (wesnoth_ai/sim/combat_outcomes),
         # taken by the game loop into the game record.
         self._played_outcomes: Dict[str, object] = {}
         # game_label -> whether the LAST select_action recorded a pending

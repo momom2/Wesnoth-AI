@@ -1603,13 +1603,13 @@ class WesnothSim:
             # seed slot consumed by replay_dataset._apply_command.
             seed = self._next_seed()
             # Resolve the defender's counter-weapon NOW (exact
-            # engine-rating port, tools/combat_outcomes): the
+            # engine-rating port, wesnoth_ai/sim/combat_outcomes): the
             # command must carry a concrete index so the sim applies
             # retaliation and Wesnoth playback uses the same counter
             # we resolved. Lazy import: combat_outcomes pulls in
             # replay_dataset, which this module must not import at
             # module level.
-            from tools.combat_outcomes import counter_weapon_choice
+            from wesnoth_ai.sim.combat_outcomes import counter_weapon_choice
             att_u = next(
                 (u for u in self.gs.map.units
                  if u.position.x == start.x and u.position.y == start.y),

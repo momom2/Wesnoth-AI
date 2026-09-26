@@ -206,7 +206,7 @@ Active only under `--mcts-classic-root`.
   no sim fork. *Why:* zero Monte-Carlo noise and cheaper traversals in
   the common ~10-outcome case. Fights the DP refuses (petrify,
   possible advancement, berserk/complexity caps) fall back to sampling
-  automatically. `tools/combat_outcomes.py:1-30`;
+  automatically. `wesnoth_ai/sim/combat_outcomes.py:1-30`;
   coverage threshold `_EXACT_COVERAGE_EPSILON = 1e-3`,
   `tools/mcts.py:178` (parallels the engine's own truncations).
 - **Adaptive outcome bucketing (Tier 2)** **[OFF]**

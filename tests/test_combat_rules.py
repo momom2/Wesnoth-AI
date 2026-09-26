@@ -378,7 +378,7 @@ def test_outcome_dp_enumerates_petrified_states():
     """combat_outcomes._strike_dp models petrify exactly (no None bail):
     a petrifying weapon yields d_petrified outcomes with the defender
     alive and the attacker unharmed (fight ended before any counter)."""
-    from tools import combat_outcomes as co
+    from wesnoth_ai.sim import combat_outcomes as co
     gaze = cb.Weapon("gaze", damage=5, number=2, range="ranged",
                      type="cold", specials=["petrifies"])
     claw = cb.Weapon("claw", damage=6, number=2, range="melee",

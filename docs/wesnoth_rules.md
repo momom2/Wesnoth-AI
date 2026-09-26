@@ -1235,7 +1235,7 @@ floating-point residue our strike DP does not reproduce
 (`training/metrics/fidelity/counter_weapon_census_20260925.json`,
 `tools/analysis/counter_weapon_census.py`).
 
-Ours: `tools/combat_outcomes._levelup_average_hp` and
+Ours: `wesnoth_ai/sim/combat_outcomes._levelup_average_hp` and
 `_is_one_strike_fight`, applied in `_engine_marginals`. Tests:
 `tests/test_counter_weapon.py::test_an_attacker_the_fight_levels_is_scored_at_full_hp`,
 `test_levelup_scoring_follows_the_engine_fight_paths`.

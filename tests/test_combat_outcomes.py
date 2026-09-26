@@ -1,4 +1,4 @@
-"""Validation for tools/combat_outcomes.py: the exact outcome DP
+"""Validation for wesnoth_ai/sim/combat_outcomes.py: the exact outcome DP
 must agree with the bit-exact sim sampled under independent seed
 salts -- the strongest available cross-check, since the two paths
 share parameters (build_attack_context) but compute the
@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.sim.abilities import hex_neighbors  # noqa: E402
-from tools.combat_outcomes import (  # noqa: E402
+from wesnoth_ai.sim.combat_outcomes import (  # noqa: E402
     enumerate_attack_outcomes, outcome_key_for_child,
 )
 from wesnoth_ai.rules.scenario_pool import (  # noqa: E402

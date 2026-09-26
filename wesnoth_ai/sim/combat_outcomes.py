@@ -37,12 +37,7 @@ from __future__ import annotations
 import logging
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
-_THIS = Path(__file__).resolve()
-sys.path.insert(0, str(_THIS.parent.parent))
-sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.sim import combat as cb
 from wesnoth_ai.sim.classes import GameState, Unit

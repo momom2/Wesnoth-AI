@@ -22,6 +22,7 @@ MOVED_MODULES: Dict[str, str] = {
     "tools.analysis.expansion_diff": "wesnoth_ai.rules.expansion_diff",
     "tools.analysis.scenario_surface": "wesnoth_ai.rules.scenario_surface",
     "tools.build_scenario_templates": "wesnoth_ai.rules.build_scenario_templates",
+    "tools.combat_outcomes": "wesnoth_ai.sim.combat_outcomes",
     "tools.engagement_stats": "wesnoth_ai.sim.engagement_stats",
     "tools.pathfind_sim": "wesnoth_ai.sim.pathfind_sim",
     "tools.scenario_pool": "wesnoth_ai.rules.scenario_pool",

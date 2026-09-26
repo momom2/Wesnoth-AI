@@ -34,7 +34,7 @@ sys.path.insert(0, str(_THIS.parent))
 from wesnoth_ai.sim.abilities import (                                      # noqa: E402
     is_backstab_active, opposite_hex, hex_neighbors, leadership_bonus,
 )
-from tools.combat_outcomes import (                                # noqa: E402
+from wesnoth_ai.sim.combat_outcomes import (                                # noqa: E402
     OutcomeDistribution, enumerate_attack_outcomes,
 )
 from wesnoth_ai.sim.pathfind_sim import ReachContext, unit_reach            # noqa: E402

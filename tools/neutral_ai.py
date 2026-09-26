@@ -59,7 +59,7 @@ attack_analysis::rating (1.18.4, lines ~298-345; fetched and pinned
                       value *= 5.0
 
 Inputs come from the sim's EXACT combat distributions
-(tools/combat_outcomes.enumerate_attack_outcomes), not
+(wesnoth_ai/sim/combat_outcomes.enumerate_attack_outcomes), not
 approximations:
     chance_to_kill        = P(defender hp 0)
     avg_damage_inflicted  = E[defender hp lost]
@@ -141,8 +141,8 @@ def _defender_cth_vs(gs, attacker, defender, a_weapon: int) -> float:
     to 0.3 (typical open-terrain CTH is 30-40%) when the defender
     has no counter-weapon."""
     try:
-        from tools.combat_outcomes import (_stats_pair,
-                                           choose_counter_weapon)
+        from wesnoth_ai.sim.combat_outcomes import (_stats_pair,
+                                                    choose_counter_weapon)
         from tools.replay_dataset import build_attack_context
         d_w = choose_counter_weapon(gs, attacker, defender, a_weapon)
         ctx = build_attack_context(gs, attacker, defender,
@@ -160,7 +160,7 @@ def rate_attack(gs, attacker, defender, action: dict,
     """1.18.4 attack_analysis::rating for a single stationary
     attacker. None when the outcome distribution is unavailable
     (caller skips the option)."""
-    from tools.combat_outcomes import enumerate_attack_outcomes
+    from wesnoth_ai.sim.combat_outcomes import enumerate_attack_outcomes
     dist = enumerate_attack_outcomes(gs, action)
     if dist is None:
         return None
