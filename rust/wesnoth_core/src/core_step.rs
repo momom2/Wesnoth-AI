@@ -5,9 +5,11 @@
 //! compares after every command). Rules cite the Python, which cites
 //! the engine.
 //!
-//! Scenario events are Python's: the wrapper (`wesnoth_ai.game_core`)
-//! routes an init_side to the Python state when the scenario still has
-//! an event that can fire.
+//! Scenario events are Python's: the wrapper
+//! (`wesnoth_ai.game_core.CoreState.apply_command`) sends an init_side
+//! or an end_turn to the Python applier when one of the event names the
+//! command fires (`scenario_events.init_side_event_names`,
+//! `side_turn_end_event_names`) has an event that can still fire.
 
 use pyo3::prelude::*;
 
@@ -19,18 +21,22 @@ pub const POISON_AMOUNT: i64 = 8;
 
 impl GameCore {
     /// `_tod_cycle_index`: the phase of the default cycle for a turn.
+    /// The start slot wraps as the engine wraps `current_time`
+    /// (`fix_time_index`, a modulo that is never negative).
     pub fn tod_index(&self, turn: i64) -> usize {
-        ((turn.max(1) - 1 + self.global.tod_start_offset.max(0)) % 6) as usize
+        (turn.max(1) - 1 + self.global.tod_start_offset).rem_euclid(6) as usize
     }
 
     /// `_lawful_bonus_at`: the hex's lawful bonus for a turn, from its
     /// time area's cycle or the default one, then the terrain light
     /// (`terrain_resolver.terrain_light_bonus`, the engine's bounded_add).
+    /// An area's cycle is never empty (`game_core.map_static` registers
+    /// only non-empty ones).
     pub fn lawful_bonus_at(&self, hex: i64, turn: i64) -> i64 {
         let map = &self.map;
         let base = if hex >= 0 && map.area_cycle[hex as usize] >= 0 {
             let cyc = &map.cycles[map.area_cycle[hex as usize] as usize];
-            let idx = ((turn.max(1) - 1 + self.global.tod_start_offset) % cyc.len() as i64) as usize;
+            let idx = (turn.max(1) - 1 + self.global.tod_start_offset).rem_euclid(cyc.len() as i64) as usize;
             cyc[idx]
         } else {
             DEFAULT_CYCLE[self.tod_index(turn)]

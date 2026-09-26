@@ -22,7 +22,7 @@ import torch
 from wesnoth_ai import observe as _obs
 
 pytestmark = pytest.mark.skipif(_obs.kernel() is None or _obs.kernel_rows_from_reach() is None,
-                                reason="wesnoth_core phase 5 kernels not available")
+                                reason="the wheel serves no observation kernels (wesnoth_ai.observe)")
 
 
 def _states():

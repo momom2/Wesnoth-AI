@@ -388,15 +388,15 @@ pub fn resolve_attack<'py>(
 ) -> PyResult<(Vec<i64>, Bound<'py, PyArray1<i64>>)> {
     let (a_ints, a_flags, d_ints, d_flags) =
         (a_ints.as_slice()?, a_flags.as_slice()?, d_ints.as_slice()?, d_flags.as_slice()?);
-    if a_ints.len() != UNIT_INTS
-        || d_ints.len() != UNIT_INTS
-        || a_flags.len() != UNIT_FLAGS
-        || d_flags.len() != UNIT_FLAGS
-    {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "inconsistent array lengths",
-        ));
-    }
+    crate::check_lengths(
+        &[
+            ("a_ints", a_ints.len(), UNIT_INTS),
+            ("d_ints", d_ints.len(), UNIT_INTS),
+            ("a_flags", a_flags.len(), UNIT_FLAGS),
+            ("d_flags", d_flags.len(), UNIT_FLAGS),
+        ],
+        || String::from("a combatant's snapshot, the module doc's layout"),
+    )?;
     let (out, record) = resolve_fight(
         a_ints, a_flags, d_ints, d_flags, d_has_weapon, a_lawful_bonus, d_lawful_bonus,
         a_leadership_bonus, d_leadership_bonus, a_backstab_active, d_backstab_active, seed,

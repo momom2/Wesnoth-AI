@@ -61,10 +61,12 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 15: the core tracks each side's fog, re-hides hiders at
-        # init_side, pays a declared 0 village gold or support as 0, and
-        # its encoding counts the other player's side as the enemy.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 15:
+        # Phase 16: the core tracks each side's fog, re-hides hiders at
+        # init_side, pays a declared 0 village gold or support as 0, counts
+        # the other player's side as the enemy, wraps a negative start
+        # slot, checks village counts against their owners, and gives a
+        # scenery unit its zone of control.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 16:
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
 
@@ -247,7 +249,7 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 15 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 16 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}

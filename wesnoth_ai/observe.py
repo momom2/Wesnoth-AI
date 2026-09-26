@@ -46,8 +46,10 @@ def _kernels() -> Dict[str, object]:
                 import wesnoth_core
             except ImportError:
                 wesnoth_core = None
-            # Phase 12: observe_side takes the side's seen hexes.
-            if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 12:
+            # Phase 16: observe_side takes the side's seen hexes (12) and
+            # reads every unit's zone of control from `uzoc`, scenery
+            # included (16).
+            if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 16:
                 for name in ("observe_side", "reach_rows", "rows_from_reach"):
                     _KERNELS[name] = getattr(wesnoth_core, name)
     return _KERNELS
@@ -269,9 +271,7 @@ def observe(state: GameState, side: int, *, reach: bool = False) -> Optional[Obs
     uleader = np.fromiter((bool(u.is_leader) for u in units), dtype=np.uint8, count=n)
     uhider = np.fromiter((_hider_hidden(state, u, uncovered) for u in units),
                          dtype=np.uint8, count=n)
-    # The one zone-of-control predicate. observe.rs still skips scenery
-    # before reading this flag, which the engine does not do; the kernel
-    # change is owed with the next Rust phase.
+    # The one zone-of-control predicate, the planner's and the walker's.
     uzoc = np.fromiter((emits_zoc(u) for u in units), dtype=np.uint8, count=n)
     H = len(geom.keys)
     recruit_rej = np.zeros(H, dtype=np.uint8)

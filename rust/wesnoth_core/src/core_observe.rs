@@ -57,7 +57,7 @@ impl GameCore {
             uleader[i] = u.is_leader as u8;
             let hides = u.abilities.iter().any(|a| HIDE_ABILITIES.contains(&a.as_str()));
             uhider[i] = (hides && self.hide_cover_active(i) && !self.is_uncovered(&u.id)) as u8;
-            uzoc[i] = (self.unit_level(i) >= 1) as u8;
+            uzoc[i] = (self.unit_level(i) >= 1) as u8;      // the type's zoc=, level > 0 by default
         }
         let facts = UnitFacts {
             ux: &ux, uy: &uy, uhex: &uhex, uside: &uside, uscenery: &uscenery,
