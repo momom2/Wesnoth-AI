@@ -57,7 +57,7 @@ from wesnoth_ai.rewards import hex_distance
 from tools.scenario_pool import build_scenario_gamestate, random_setup
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.wesnoth_sim import WesnothSim
-from tools.sim_self_play import _would_recruit_bounce, _recruit_cost_lookup
+from tools.selfplay_game import _would_recruit_bounce, _recruit_cost_lookup
 
 
 log = logging.getLogger("diagnose_selfplay")

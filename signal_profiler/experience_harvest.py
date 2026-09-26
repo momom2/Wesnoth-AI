@@ -25,7 +25,7 @@ def harvest_experiences(policy, n_games: int, seed: int,
     (fork-guard decisions, bounce retries, finalize_game with GBC
     labels and value weights)."""
     from tools.scenario_pool import build_scenario_gamestate, random_setup
-    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.rewards import WeightedReward
 
@@ -62,7 +62,7 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
     factory (fresh policy per call — gradient_tree needs isolation
     across term variants)."""
     from tools.draw_tiebreak import DrawTiebreakConfig
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.turn_policy import TurnCommitPolicy

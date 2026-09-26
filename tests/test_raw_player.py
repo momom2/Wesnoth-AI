@@ -71,7 +71,7 @@ def test_argmax_player_drives_the_eval_loop():
     drop_pending at game end) and the forward counter sees its
     forwards."""
     from tools.elo_eval_game import _CountingModel
-    from tools.eval_sim import _PolicyPair, _play_one_eval_game
+    from tools.eval_players import _PolicyPair, _play_one_eval_game
     from tools.raw_player import RawPolicyPlayer
     from tools.scenario_pool import build_scenario_gamestate, random_setup
     from tools.wesnoth_sim import WesnothSim

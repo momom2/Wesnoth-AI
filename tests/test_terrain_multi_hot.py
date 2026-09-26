@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
-from tools.eval_sim import peek_checkpoint_arch  # noqa: E402
+from tools.eval_players import peek_checkpoint_arch  # noqa: E402
 from tools.inference_seam import RemoteEncoder, inference_blueprint  # noqa: E402
 from tools.scenario_pool import LADDER_SCENARIO_IDS, build_scenario_gamestate, random_setup  # noqa: E402
 from tools.terrain_resolver import strip_start_position, terrain_mask, terrain_members  # noqa: E402

@@ -103,7 +103,7 @@ def test_policy_pair_exposes_drop_last_pending():
     """The eval bounce-retry loop drops the bounced decision AND any
     cached plan before re-selecting (mirroring play_one_game); the
     pair must delegate to the policy when it has the hook."""
-    from tools.eval_sim import _PolicyPair
+    from tools.eval_players import _PolicyPair
 
     class _Stub:
         def __init__(self):
@@ -345,7 +345,7 @@ def test_a_checkpoint_whose_arch_does_not_load_is_refused(tmp_path):
     checkpoint's name; it raises. Control: the intact file loads its own
     weights."""
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from wesnoth_ai.transformer_policy import TransformerPolicy
     torch.manual_seed(3)
     saved = TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1,

@@ -68,7 +68,7 @@ def _time_ms(fn, device: torch.device, repeats: int, warmup: int = 5) -> Dict[st
 
 def load_pairs(policy, manifest: Path, dataset: Path, limit: int, device: torch.device):
     """(RawEncoded, PackedMasks) per bench state, as the actor ships them."""
-    from tools.bench_pipeline import load_states
+    from tools.bench_states import load_states
     from tools.inference_seam import build_light_encoded
     from wesnoth_ai.encoder import encode_raw
     from wesnoth_ai.server_priors import pack_masks
@@ -406,7 +406,7 @@ def main(argv: Sequence[str]) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.inference_seam import InferenceServer
     from wesnoth_ai.packed_trunk import check_packed_trunk_supported, flash_varlen_applies
 

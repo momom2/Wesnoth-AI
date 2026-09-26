@@ -134,9 +134,9 @@ def test_evaluate_reports_masked_target_ce(replay, relevant_set):
 @_needs_corpus
 def test_relevant_set_checkpoint_is_peeked_and_loaded_in_that_basis(tmp_path):
     """train(--init-from full-board seed, --relevant-set-hexes) writes a
-    checkpoint that eval_sim's loader builds in the subset basis; the
+    checkpoint that eval_players' loader builds in the subset basis; the
     warm start copies the weights and resets the counters."""
-    from tools.eval_sim import _load_policy, peek_checkpoint_arch
+    from tools.eval_players import _load_policy, peek_checkpoint_arch
     from tools.supervised_train import _save_checkpoint, train
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.model import WesnothModel

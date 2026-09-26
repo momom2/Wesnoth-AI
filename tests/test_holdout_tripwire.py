@@ -239,7 +239,7 @@ def test_outcome_carries_map_class():
     so the per-class split is the metric that matters."""
     from sim_test_helpers import fresh_scenario_sim
     from tools.scenario_pool import classify_scenario
-    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
 
     assert classify_scenario("multiplayer_Den_of_Onis") == "ladder"
     assert classify_scenario("multiplayer_elensefar_courtyard") == "ladder"

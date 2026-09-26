@@ -446,6 +446,6 @@ def test_fork_guard_violation_is_not_swallowable():
 def test_actor_fatal_error_is_not_swallowable():
     """Round-35 C0: the pool's fatal channel must not be catchable
     by log-and-continue handlers either."""
-    from tools.actor_pool import ActorFatalError
+    from tools.actor_protocol import ActorFatalError
     assert issubclass(ActorFatalError, BaseException)
     assert not issubclass(ActorFatalError, Exception)

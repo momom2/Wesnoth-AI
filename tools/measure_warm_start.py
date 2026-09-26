@@ -111,7 +111,7 @@ def collect_states(
         while (not sim.done and len(states) < n_states
                and (max_decisions <= 0 or decisions < max_decisions)):
             # Stable snapshot for select_action — the same load-bearing
-            # deepcopy documented in sim_self_play.play_one_game.
+            # deepcopy documented in selfplay_game.play_one_game.
             pre_state = copy.deepcopy(sim.gs)
             if decisions % stride == 0:
                 states.append(copy.deepcopy(pre_state))

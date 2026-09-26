@@ -643,9 +643,9 @@ def main(argv: List[str]) -> int:
                          f"random-init net under a checkpoint's label)")
 
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.inference_seam import InferenceServer
-    from tools.run_elo_batch import file_sha256
+    from tools.eval_provenance import file_sha256
     from wesnoth_ai.packed_trunk import check_packed_trunk_supported, flash_varlen_applies
     torch.set_num_threads(max(1, args.torch_threads))
     device = _resolve_device(args.device)

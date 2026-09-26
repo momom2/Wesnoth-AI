@@ -16,11 +16,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from helpers.actor_pool_fakes import _FakeProc, _pool  # noqa: E402
-from tools.actor_pool import (  # noqa: E402
-    _CMD_DRAIN, _CMD_PLAY, _CMD_UPDATE, _R_DONE, _R_EXPS, _R_GAME, _R_OUTCOME,
+from tools.actor_protocol import (  # noqa: E402
+    _CMD_DRAIN, _CMD_PLAY, _CMD_UPDATE, _R_DONE, _R_EXPS, _R_GAME, _R_OUTCOME, _R_START,
     ActorFatalError,
 )
-from tools.actor_worker import _R_START  # noqa: E402
 from tools.actor_stream import _window_delta  # noqa: E402
 from tools.inference_seam import ServeGate  # noqa: E402
 

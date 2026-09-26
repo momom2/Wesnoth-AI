@@ -177,7 +177,7 @@ def main(argv) -> int:
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=args.log_level)
 
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     policies = {}
     for spec in args.checkpoints:
         label, _, path = spec.partition("=")

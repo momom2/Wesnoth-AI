@@ -27,7 +27,7 @@ def _game(**over) -> dict:
 
 
 def test_basis_guard_logic():
-    from tools.run_elo_batch import BASES, bases_of, basis_refusal
+    from tools.eval_provenance import BASES, bases_of, basis_refusal
     assert bases_of({}) == ("full", "full")                      # absent = full board
     assert bases_of({"basis_a": "relset"}) == ("relset", "full")
     assert bases_of({"basis_a": None, "basis_b": "relset"}) == ("full", "relset")

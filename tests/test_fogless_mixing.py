@@ -106,7 +106,7 @@ def test_outcome_carries_fog_flag_and_village_metrics():
     from sim_test_helpers import fresh_scenario_sim
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
-    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     pol = TransformerPolicy(device=torch.device("cpu"), d_model=32,
@@ -183,7 +183,7 @@ def test_the_training_path_overrides_no_scenario_setting(monkeypatch):
     previous version of this test grepped `_play_one_game_safe` for
     the literal `"sg = None"`, which passes or fails on how the line
     is spelled."""
-    from tools import scenario_pool, sim_self_play
+    from tools import scenario_pool, selfplay_game
     from tools.wesnoth_sim import PvPDefaults
 
     seen = {}
@@ -198,7 +198,7 @@ def test_the_training_path_overrides_no_scenario_setting(monkeypatch):
     monkeypatch.setattr(scenario_pool, "build_scenario_gamestate", spy)
     loud = PvPDefaults(starting_gold=100, base_income=2, village_gold=2,
                        village_support=1, experience_modifier=70)
-    out = sim_self_play._play_one_game_safe(
+    out = selfplay_game._play_one_game_safe(
         setup=random_setup(random.Random(3), mini_maps=True), max_turns=4,
         pvp_defaults=loud, policy=None, reward_fn=None, cost_lookup=None,
         game_label="t")

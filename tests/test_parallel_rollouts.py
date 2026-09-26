@@ -50,7 +50,7 @@ def _build_policy_and_reward():
 
 
 def _cost_lookup():
-    from tools.sim_self_play import _recruit_cost_lookup
+    from tools.selfplay_game import _recruit_cost_lookup
     return _recruit_cost_lookup()
 
 

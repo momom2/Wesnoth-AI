@@ -44,18 +44,18 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
-from wesnoth_ai.paths import (CONFIGS_DIR, IMITATION_DATASET_DIR,  # noqa: E402
-                              REPO_ROOT, TOOLS_DIR)
+from wesnoth_ai.paths import REPO_ROOT, TOOLS_DIR  # noqa: E402
+from tools.bench_states import (  # noqa: E402
+    DEFAULT_DATASET, DEFAULT_MANIFEST, load_states, reconstruct_boundary,
+)
 
 log = logging.getLogger("bench_pipeline")
 
-DEFAULT_MANIFEST = CONFIGS_DIR / "bench_states.json"
-DEFAULT_DATASET = IMITATION_DATASET_DIR
 COMPONENTS = ("deepcopy", "fork", "encode_raw", "encode_from_raw",
               "legality_masks", "enumerate_priors", "sim_step", "state_key",
               "pack_masks", "unpack_compact")
@@ -70,36 +70,6 @@ def select_holdout_ladder(rows: Sequence[dict], scenario_of: Callable[[dict], st
     """Manifest rows flagged holdout whose scenario is a ladder map."""
     ladder = set(ladder_ids)
     return [r for r in rows if r.get("holdout") and scenario_of(r) in ladder]
-
-
-def reconstruct_boundary(data: dict, cut_turn: int):
-    """Walk a replay's commands to the first init_side of a player
-    side with turn_number >= cut_turn and return (state, begin_side)
-    with the side's turn begun (income, healing applied), i.e. the
-    position the side to move faces. None when the game ends first
-    or a leader is dead."""
-    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
-                                      _setup_scenario_events)
-    from tools.wesnoth_sim import WesnothSim
-    gs = _build_initial_gamestate(data)
-    scenario_id = data.get("scenario_id", "")
-    _setup_scenario_events(gs, scenario_id)
-    for cmd in data.get("commands", []):
-        if (cmd and cmd[0] == "init_side"
-                and gs.global_info.turn_number >= cut_turn
-                and gs.global_info.current_side in (1, 2)
-                and len(cmd) > 1 and cmd[1] in (1, 2)):
-            if not {1, 2} <= {u.side for u in gs.map.units if u.is_leader}:
-                return None
-            for attr in ("_last_advance_events", "_last_checkup_strikes"):
-                if hasattr(gs.global_info, attr):
-                    setattr(gs.global_info, attr, [] if attr.endswith("events") else None)
-            begin_side = int(cmd[1])
-            sim = WesnothSim(gs, scenario_id, max_turns=200,
-                             apply_scenario_events=False, begin_side=begin_side)
-            return sim.gs, begin_side
-        _apply_command(gs, cmd)
-    return None
 
 
 def build_state_manifest(dataset_dir: Path, n: int, seed: int) -> dict:
@@ -152,23 +122,6 @@ def pack_states(manifest_path: Path, dataset_dir: Path, out_dir: Path) -> int:
     for name in files:
         shutil.copy2(dataset_dir / name, out_dir / name)
     return len(files)
-
-
-def load_states(manifest_path: Path, dataset_dir: Path,
-                limit: Optional[int] = None) -> List[Tuple[object, str]]:
-    """(GameState, scenario_id) for every manifest entry, rebuilt from
-    the dataset (bit-exact reconstruction, so every box sees the same
-    positions)."""
-    man = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
-    out = []
-    for e in man["states"][:limit]:
-        with gzip.open(dataset_dir / e["file"], "rt", encoding="utf-8") as f:
-            data = json.load(f)
-        res = reconstruct_boundary(data, e["cut_turn"])
-        if res is None or res[1] != e["begin_side"]:
-            raise RuntimeError(f"benchmark state failed to reconstruct: {e}")
-        out.append((res[0], e["scenario_id"]))
-    return out
 
 
 # ---------------------------------------------------------------------
@@ -510,7 +463,7 @@ def main(argv) -> int:
         return 0
 
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     cuda = args.device == "cuda"
     if cuda and not torch.cuda.is_available():
         raise SystemExit("--device cuda requested but no CUDA device is visible")

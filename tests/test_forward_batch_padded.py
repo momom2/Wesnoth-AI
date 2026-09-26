@@ -24,7 +24,7 @@ def _policy():
 
 
 def _encoded(policy, n=3):
-    from tools.bench_infer import harvest_states
+    from tools.bench_states import harvest_states
     from tools.scenario_pool import build_scenario_gamestate, random_setup
     states = [build_scenario_gamestate(random_setup(random.Random(7)))]
     states += harvest_states(n - 1, seed=11)
@@ -71,7 +71,7 @@ def test_batched_priors_match_single(policy=None):
     """The enumeration reads the batched outputs exactly as it reads
     single ones: same legal actions and priors."""
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
-    from tools.bench_infer import harvest_states
+    from tools.bench_states import harvest_states
     from tools.scenario_pool import build_scenario_gamestate, random_setup
     policy = _policy()
     model, enc = policy._inference_model, policy._inference_encoder

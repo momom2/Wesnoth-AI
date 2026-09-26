@@ -2,7 +2,7 @@
 
 `relevant_set_hexes` is not restored by `TransformerPolicy.load_checkpoint`
 (the policy is BUILT in a basis); the eval path reads it with the other
-structural flags (`tools.eval_sim.peek_checkpoint_arch`). The demo built
+structural flags (`tools.eval_players.peek_checkpoint_arch`). The demo built
 its policy from the arch alone, so a relevant-set checkpoint such as the
 reference player chose its hex targets in the full-board basis."""
 from __future__ import annotations

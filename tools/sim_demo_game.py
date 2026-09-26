@@ -1,7 +1,7 @@
 """Play one game in the simulator and export it as a Wesnoth replay.
 
 Both sides play the same checkpoint, loaded as the evaluation path loads
-it (`tools.eval_sim._load_policy`: its architecture and every structural
+it (`tools.eval_players._load_policy`: its architecture and every structural
 flag, the hex basis included). Each side decides with the reference
 player's decode by default (configs/reference_player.json: argmax with
 its end_turn logit offset); `--temperature` and `--end-turn-offset`
@@ -36,7 +36,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from tools import reference_player
-from tools.eval_sim import _load_policy
+from tools.eval_players import _load_policy
 from tools.sim_to_replay import export_replay, find_source_bz2
 from tools.wesnoth_sim import PvPDefaults, WesnothSim
 

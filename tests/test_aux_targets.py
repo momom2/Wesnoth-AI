@@ -107,7 +107,7 @@ def _cfg():
 
 
 def _play_and_finalize(mp, seed=21):
-    # Drive the REAL production rollout (tools.sim_self_play.play_one_game)
+    # Drive the REAL production rollout (tools.selfplay_game.play_one_game)
     # rather than re-implementing the select_action/step/finalize loop:
     # mirroring the loop by hand is exactly what previously got the
     # snapshot-deepcopy contract wrong. play_one_game deepcopies the
@@ -115,7 +115,7 @@ def _play_and_finalize(mp, seed=21):
     # MCTSExperiences land in mp._queue. Seed the search RNG for
     # reproducibility. (MCTS ignores per-step rewards -> a zero reward_fn.)
     import numpy as np
-    from tools.sim_self_play import play_one_game, _recruit_cost_lookup
+    from tools.selfplay_game import play_one_game, _recruit_cost_lookup
     mp._rng = np.random.default_rng(seed)
     sim = fresh_scenario_sim(seed=seed, max_turns=8, mini=True)
     play_one_game(sim, mp, lambda delta: 0.0,

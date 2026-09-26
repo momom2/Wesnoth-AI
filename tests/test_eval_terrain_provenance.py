@@ -25,7 +25,7 @@ def _game(**over) -> dict:
 
 
 def test_terrain_guard_logic():
-    from tools.run_elo_batch import TERRAIN_VIEWS, terrain_refusal, terrain_views_of
+    from tools.eval_provenance import TERRAIN_VIEWS, terrain_refusal, terrain_views_of
     assert terrain_views_of({}) == ("class", "class")                 # absent = one class
     assert terrain_views_of({"terrain_a": "set"}) == ("set", "class")
     assert terrain_refusal("g.json", {}, ("class", "class")) is None

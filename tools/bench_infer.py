@@ -24,7 +24,6 @@ Usage (GPU box):
 from __future__ import annotations
 
 import argparse
-import copy
 import dataclasses
 import logging
 import statistics
@@ -34,57 +33,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools.bench_states import harvest_states
+
 log = logging.getLogger("bench_infer")
-
-
-def harvest_states(n: int, seed: int):
-    """Deep-copied GameStates from dummy-vs-dummy sim games -- the
-    sim's real shape stream, no network involved."""
-    from tools.elo_ladder import _ScriptedAdapter
-    from tools.eval_sim import _PolicyPair, _play_one_eval_game
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
-    from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai.dummy_policy import DummyPolicy
-    import random as _random
-
-    sink: list = []
-    cap_per_game = max(4, n // 8)   # force >=8 games' worth of maps
-    stride = 3                      # skip adjacent near-identical shapes
-
-    class _Recorder:
-        def __init__(self, inner):
-            self._inner = inner
-            self._seen = 0
-            self._taken = 0
-
-        def select_action(self, gs, **kw):
-            self._seen += 1
-            if (len(sink) < n and self._taken < cap_per_game
-                    and self._seen % stride == 0):
-                sink.append(copy.deepcopy(gs))
-                self._taken += 1
-            return self._inner.select_action(gs, **kw)
-
-        def __getattr__(self, name):
-            return getattr(self._inner, name)
-
-    g = 0
-    while len(sink) < n and g < 50:
-        rng = _random.Random(seed + g)
-        g += 1
-        setup = random_setup(rng)
-        gs = build_scenario_gamestate(setup)
-        sim = WesnothSim(gs, scenario_id=setup.scenario_id,
-                         max_turns=30)
-        _play_one_eval_game(
-            sim,
-            _PolicyPair(policy=_Recorder(_ScriptedAdapter(DummyPolicy())),
-                        label="a", side=1),
-            _PolicyPair(policy=_Recorder(_ScriptedAdapter(DummyPolicy())),
-                        label="b", side=2),
-            game_label=f"bench{g}")
-    log.info("harvested %d states from %d dummy games", len(sink), g)
-    return sink[:n]
 
 
 def pad_to_buckets(enc, mult: int):
@@ -144,7 +95,7 @@ def main(argv) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level))
 
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
 
     device = (torch.device("cuda") if args.device == "cuda"
               else None)

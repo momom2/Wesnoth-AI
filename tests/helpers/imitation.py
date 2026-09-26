@@ -10,7 +10,7 @@ TYPE_W = {"move": 0.189, "attack": 0.628, "recruit": 1.748, "end_turn": 1.435}
 
 
 def states(n):
-    from tools.bench_infer import harvest_states
+    from tools.bench_states import harvest_states
     from tools.scenario_pool import build_scenario_gamestate, random_setup
     out = [build_scenario_gamestate(random_setup(random.Random(7)))]
     out += harvest_states(n - 1, seed=11)

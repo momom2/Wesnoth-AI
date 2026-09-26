@@ -41,7 +41,7 @@ log = logging.getLogger("step_scale")
 
 
 def game_stats(outcomes) -> Dict:
-    from tools.sim_self_play import k_median_of
+    from tools.selfplay_game import k_median_of
     tot = sum(sum(o.action_counts.values()) for o in outcomes) or 1
     return {"n_games": len(outcomes),
             "decisive": sum(1 for o in outcomes if o.winner != 0),
@@ -82,7 +82,7 @@ def main(argv) -> int:
 
     import torch
     from tools.actor_pool import ActorPool
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.wesnoth_sim import PvPDefaults

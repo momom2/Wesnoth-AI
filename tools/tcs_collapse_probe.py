@@ -35,7 +35,7 @@ def harvest(n_states: int, seed: int):
     """(gs, scenario_id) midstates from dummy games -- real armies,
     fog, contact -- so plan_turn has actual turns to build."""
     from tools.elo_ladder import _ScriptedAdapter
-    from tools.eval_sim import _PolicyPair, _play_one_eval_game
+    from tools.eval_players import _PolicyPair, _play_one_eval_game
     from tools.scenario_pool import build_scenario_gamestate, random_setup
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.dummy_policy import DummyPolicy
@@ -98,7 +98,7 @@ def main(argv) -> int:
     import numpy as np
     import torch
     from tools import turn_search as ts
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.mcts import MCTSConfig
     from tools.turn_search_config import TurnSearchConfig
     from tools.wesnoth_sim import WesnothSim

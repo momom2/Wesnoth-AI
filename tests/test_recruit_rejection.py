@@ -272,7 +272,7 @@ def test_sim_recruit_on_occupied_hex_signals_retry():
 # ---------------------------------------------------------------------
 
 def test_harness_would_recruit_bounce_detects_occupied():
-    from tools.sim_self_play import _would_recruit_bounce
+    from tools.selfplay_game import _would_recruit_bounce
 
     gs = _full_gs(extra_units=(_u("intruder", 2, 3, 2),))
     occupied_action = {
@@ -284,7 +284,7 @@ def test_harness_would_recruit_bounce_detects_occupied():
 
 
 def test_harness_would_recruit_bounce_passes_empty():
-    from tools.sim_self_play import _would_recruit_bounce
+    from tools.selfplay_game import _would_recruit_bounce
 
     gs = _full_gs()
     free_action = {
@@ -296,7 +296,7 @@ def test_harness_would_recruit_bounce_passes_empty():
 
 
 def test_harness_would_recruit_bounce_ignores_non_recruit():
-    from tools.sim_self_play import _would_recruit_bounce
+    from tools.selfplay_game import _would_recruit_bounce
 
     gs = _full_gs()
     move_action = {

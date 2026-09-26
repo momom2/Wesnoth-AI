@@ -41,7 +41,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools.bench_pipeline import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states, n_tokens
+from tools.bench_pipeline import n_tokens
+from tools.bench_states import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states
 
 log = logging.getLogger("bench_model_cost")
 
@@ -176,7 +177,7 @@ def main(argv) -> int:
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     cuda = args.device == "cuda"
     if cuda and not torch.cuda.is_available():
         raise SystemExit("--device cuda requested but no CUDA device is visible")

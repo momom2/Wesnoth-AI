@@ -235,7 +235,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     import torch
     torch.set_num_threads(4)
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     device = torch.device(args.device)
     policy = _load_policy(args.checkpoint, device, label="value_by_phase")
     enc = policy._inference_encoder

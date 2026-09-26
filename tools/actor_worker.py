@@ -1,9 +1,6 @@
 """Actor-process side of the actor pool (tools/actor_pool.py holds the
-design overview and the manager).
+design overview and the manager; tools/actor_protocol.py the messages).
 
-- The manager -> actor control commands (_CMD_*), the actor -> manager
-  result messages (_R_*) and the dead-server reply marker
-  (_RID_SERVER_DEAD).
 - _IPCInferenceClient: the RemoteModel transport inside an actor.
 - _zero_reward, _set_fd_safe_sharing: also used by the manager, the
   serve process and the anatomy tools (through tools.actor_pool).
@@ -27,8 +24,12 @@ import threading
 import time
 import traceback
 from types import SimpleNamespace
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
+from tools.actor_protocol import (
+    _CMD_DRAIN, _CMD_PLAY, _CMD_STOP, _CMD_UPDATE, _R_DONE, _R_ERROR, _R_EXPS, _R_FATAL,
+    _R_GAME, _R_OUTCOME, _R_START, _RID_SERVER_DEAD, _TICKET_END,
+)
 from tools.mp_teardown import parent_gone
 
 log = logging.getLogger("actor_pool")
@@ -37,60 +38,6 @@ log = logging.getLogger("actor_pool")
 # is still alive (seconds); same guard and same period as the serve
 # process (tools/serve_worker._server_loop).
 _PARENT_POLL = 2.0
-
-# Control-queue commands (main -> actor).
-_CMD_PLAY = "play"        # (iter_idx, games_per_iter, base_seed, t2i, f2i, decision_step, ...)
-_CMD_STOP = "stop"
-_CMD_DRAIN = "drain"      # finish the current game, take no new ones
-# (value_center, decision_step): the continuous pool's per-step update,
-# applied between games -- the search's value center and the global
-# anneal counter, which the barrier pool re-sends with every PLAY.
-_CMD_UPDATE = "update"
-
-# Game tickets (main -> actors, one shared queue): (iter_idx, game
-# index, seed); the manager posts every game of the iteration, then
-# one end marker per actor. Actors pull until they meet an end
-# marker, so an iteration's tail is one game long instead of one
-# actor's whole share (2026-09-06; the median game used to finish at
-# 40% of the wall with the even split).
-_TICKET_END = -1
-
-# Result-queue message kinds (actor -> main).
-_R_OUTCOME = "outcome"    # a GameOutcome
-_R_EXPS    = "experiences"  # List[MCTSExperience]
-_R_DONE    = "iter_done"   # (local_decisions, distill stats, iter_idx)
-# One per completed game, after its _R_OUTCOME and _R_EXPS: (game index,
-# decisions made in it, time.time() at its start and end, the distill
-# stats drained for it under the continuous pool, else None, the
-# iteration or stream tag of the PLAY it was played under). The tag is
-# how a stream tells its own games from those of an iteration that
-# ended without collecting them, whose reports reach it on the same
-# queue (tools/actor_stream.ActorStream._close_game).
-_R_GAME    = "game"
-# Under the continuous pool only, one per game right after its start
-# stamp: (game index, time.time() at its start, the tag). The stream
-# keeps the games in flight from it; the barrier pool has no use for it.
-_R_START   = "start"
-_R_ERROR   = "error"       # traceback string (non-fatal; logged)
-_R_FATAL   = "fatal"       # non-swallowable death (fork guard, ...)
-def _done_report(payload) -> Tuple[int, Optional[Dict], Optional[int]]:
-    """An actor's _R_DONE payload as (decisions, distill stats,
-    iteration). The iteration is None for the older two-field and
-    plain-int shapes, which the manager then cannot date."""
-    if isinstance(payload, tuple):
-        if len(payload) >= 3:
-            return payload[0], payload[1], int(payload[2])
-        return payload[0], payload[1], None
-    return payload, None, None
-
-
-# Reply marker the manager puts on an actor's reply queue when the
-# serve process that actor was assigned to died: (_RID_SERVER_DEAD, the
-# tag of the iteration or stream it aborted). The client raises on it
-# whatever request it is waiting for under that tag. A marker the actor
-# reads under a later PLAY is dropped: the aborted iteration left it
-# behind, and the pool starts nothing while a serve process is dead.
-_RID_SERVER_DEAD = -1
 
 
 # =====================================================================
@@ -335,7 +282,7 @@ def _actor_loop(
     # Heavy imports happen here (post-spawn), not at module import time.
     from tools.inference_seam import RemoteEncoder, RemoteModel
     from tools.mcts_policy import MCTSPolicy
-    from tools.sim_self_play import _play_one_game_safe, _recruit_cost_lookup
+    from tools.selfplay_game import _play_one_game_safe, _recruit_cost_lookup
     from tools.scenario_pool import random_setup, roll_mix
     from tools.wesnoth_sim import PvPDefaults
     from tools.game_record import configure as configure_records
@@ -485,7 +432,7 @@ def _actor_loop(
                 # The game's setup depends on (base seed, game index)
                 # only, whichever actor plays it.
                 rng = random.Random(seed)
-                from tools.sim_self_play import _roll_max_turns
+                from tools.selfplay_game import _roll_max_turns
                 mt = _roll_max_turns(rng, max_turns, max_turns_min)
                 cat = roll_mix(rng, **mix)
                 setup = None

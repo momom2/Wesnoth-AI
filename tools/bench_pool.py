@@ -114,7 +114,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
     from tools.actor_pool import ActorPool
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
-    from tools.sim_self_play import k_median_of
+    from tools.selfplay_game import k_median_of
     from tools.wesnoth_sim import PvPDefaults
     if games < actors and not stream_rounds:
         raise ValueError(f"games ({games}) < actors ({actors}): the surplus actors "
@@ -314,7 +314,7 @@ def main(argv) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     # The server process runs two serve threads and a GPU; torch's
     # default intra-op pool (64 threads on the 128-thread Vast hosts,
     # against a ~17-core cgroup quota) only burns quota. 2026-09-04:

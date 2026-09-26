@@ -65,8 +65,12 @@ docs/turn_proposer_design_20260905.md.
   with a README each (what it does, entry points, invariants, tests),
   scripts as thin entry points whose documented command lines keep
   working, closed backlog sections archived. Plan:
-  docs/refactor_plan_20260925.md (steps 0-2 conflict with no open branch;
-  the moves wait for `exp/turn-value` to land).
+  docs/refactor_plan_20260925.md. Done: step 0 (0.7.9: paths, source-
+  reading tests, shared fixtures, the unpickler, the codemod) and step 1
+  (0.8.1: the game loop, the eval players, the provenance helpers, the
+  az trainer recipe, the benchmark states and the actor protocol out of
+  their modules; two import cycles gone). Next: step 2, the deletions the
+  user approves, then the moves (step 3 on), one system per branch.
 
 ## Open after the 2026-09-25 night crawls
 

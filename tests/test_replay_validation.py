@@ -85,7 +85,7 @@ def _export_and_validate(mini: bool, tmp_path: Path,
     minis desynced; never let the verified path diverge from the
     production path again)."""
     from sim_test_helpers import fresh_scenario_sim
-    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
     from tools.sim_to_replay import export_replay_from_scratch
     from tools.validate_replay import validate_replay
 

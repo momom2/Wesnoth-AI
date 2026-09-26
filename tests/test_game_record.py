@@ -279,7 +279,7 @@ def test_a_search_policy_attaches_the_exact_distribution_of_the_attack_it_played
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
     from tools.replay_dataset import _build_initial_gamestate
-    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.transformer_policy import TransformerPolicy
     torch.manual_seed(0)
