@@ -1637,7 +1637,8 @@ does not. The same host also runs the eager pool 1.5x faster than the
 actors: the serve threads waited 302-507 s of a 315-427 s iteration
 for requests, the queue held 9-12 leaves, so 48 actors on 24 cores
 fill about 55-65% of the server here (the actor count is bound by
-`--games-per-iter`, BACKLOG.md "more games per iteration").
+`--games-per-iter`; docs/archive/backlog_closed_20260926.md "Phase 1
+status", the item on the iteration's tail).
 
 **The eval path** (40 games of `relset` against itself at raw:t0, 20
 workers, max batch 20, seeds 20000-20039, `--max-extra-games 0`):
