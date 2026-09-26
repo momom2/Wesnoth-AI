@@ -31,6 +31,7 @@ MOVED_MODULES: Dict[str, str] = {
     "tools.wml_state": "wesnoth_ai.rules.wml_state",
     "wesnoth_ai.classes": "wesnoth_ai.sim.classes",
     "wesnoth_ai.combat": "wesnoth_ai.sim.combat",
+    "wesnoth_ai.observe": "wesnoth_ai.sim.observe",
     "wesnoth_ai.visibility": "wesnoth_ai.sim.visibility",
 }
 

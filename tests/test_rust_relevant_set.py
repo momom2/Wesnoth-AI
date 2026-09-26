@@ -1,6 +1,6 @@
 """The relevant-set basis on the Rust path equals the Python originals.
 
-`observe(state, side, reach=True)` (wesnoth_ai/observe.py, kernels
+`observe(state, side, reach=True)` (wesnoth_ai/sim/observe.py, kernels
 `reach_rows` and `observe_side`'s castle network) must reproduce
 `visibility.relevant_hex_positions` and every acting unit's
 `pathfind_sim.unit_reach(...).landable`; `encode_raw(relevant_set=True)`
@@ -19,10 +19,10 @@ import numpy as np
 import pytest
 import torch
 
-from wesnoth_ai import observe as _obs
+from wesnoth_ai.sim import observe as _obs
 
 pytestmark = pytest.mark.skipif(_obs.kernel() is None or _obs.kernel_rows_from_reach() is None,
-                                reason="the wheel serves no observation kernels (wesnoth_ai.observe)")
+                                reason="the wheel serves no observation kernels (wesnoth_ai.sim.observe)")
 
 
 def _states():

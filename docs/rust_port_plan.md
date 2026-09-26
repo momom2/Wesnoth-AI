@@ -115,7 +115,7 @@ macros actually shipped. Records: eval_games/rust_corpus_cert/.
    only for owned villages; terrain ids still mark them. Unchanged by
    the port, recorded so the next reader does not rediscover it.
 2c. **The observation** (2026-09-11, `rust/wesnoth_core/src/observe.rs`,
-   `wesnoth_ai/observe.py`): one call per decision over a flat
+   `wesnoth_ai/sim/observe.py`): one call per decision over a flat
    snapshot of the observable state (map geometry cached per hex
    container; per-unit arrays built in Python, O(units)) returns
    the vision disc, unit visibility with the hide-cover gate and

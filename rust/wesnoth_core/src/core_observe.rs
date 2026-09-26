@@ -1,5 +1,5 @@
 //! Phase 4: the observation over the core's own arrays (docs/
-//! rust_port_plan.md), what `wesnoth_ai.observe.observe(state, side,
+//! rust_port_plan.md), what `wesnoth_ai.sim.observe.observe(state, side,
 //! reach)` computes from a Python state: the per-unit facts straight
 //! from the unit records into `observe_slices` (observe.rs), the
 //! acting units' landable rows through `landable_rows` (lib.rs) over

@@ -331,7 +331,7 @@ class EncodedState:
     material: Optional[torch.Tensor] = None
 
     # The side's observation computed once per decision by the Rust
-    # kernel (wesnoth_ai/observe.py): the seen hexes, unit visibility,
+    # kernel (wesnoth_ai/sim/observe.py): the seen hexes, unit visibility,
     # the reach-context flags and the recruit row. The legality mask
     # builder reads it instead of rebuilding the same sets; None on
     # the Python path.
@@ -1280,7 +1280,7 @@ def encode_raw(
     # rejection-history feature handles the bounce case.
     #
     # Units in fog are filtered by the observation below (its visible
-    # units, wesnoth_ai/observe.py); `gs.map.units` holds every unit in
+    # units, wesnoth_ai/sim/observe.py); `gs.map.units` holds every unit in
     # the simulator, and only the live bridge's state collector leaves
     # hidden enemies out of it.
     # Hex stream: the FULL board, or (opt-in) only the hexes that can
@@ -1292,11 +1292,11 @@ def encode_raw(
     # it rather than re-sorting), so slot indices stay deterministic --
     # load-bearing, because the trainer replays target_idx against
     # re-encoded states.
-    # One observation per decision through the Rust kernels (wesnoth_ai/
+    # One observation per decision through the Rust kernels (wesnoth_ai/sim/
     # observe.py): the seen hexes, the visible units, the mask builder's
     # reach context and, in the relevant-set basis, the acting units'
     # landable rows and the relevant hex set; None on the Python path.
-    from wesnoth_ai.observe import observe as _observe
+    from wesnoth_ai.sim.observe import observe as _observe
     observation = _observe(game_state, current_side, reach=relevant_set)
     if relevant_set:
         if observation is not None and observation.relevant is not None:
@@ -1856,7 +1856,7 @@ def _subset_static(full: _StaticHexArrays, idx: np.ndarray) -> _StaticHexArrays:
 
 def _relevant_subset_static(game_state, observation) -> Tuple[_StaticHexArrays, np.ndarray]:
     """The relevant subset's static arrays and the map-to-token index
-    from the observation's relevant mask (wesnoth_ai/observe.py): the
+    from the observation's relevant mask (wesnoth_ai/sim/observe.py): the
     subset in the full board's slot order, as
     `visibility.relevant_hexes_in_slot_order` filters it."""
     full = _static_hex_arrays(game_state)

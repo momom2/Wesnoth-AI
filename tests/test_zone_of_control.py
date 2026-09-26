@@ -11,7 +11,7 @@ move the mask offered past an attackless level-1 unit was stopped by the
 walk at its first hex: the mask/sim contract broken on that board. All
 of them now ask `pathfind_sim.emits_zoc`. The observation's zone flags,
 which the mask's Rust reach rows read, come from the Rust kernel
-(observe.rs), fed that predicate by `wesnoth_ai.observe` and the unit's
+(observe.rs), fed that predicate by `wesnoth_ai.sim.observe` and the unit's
 level by the Rust core.
 """
 from __future__ import annotations
@@ -101,7 +101,7 @@ def _zones(s, stone, observation):
 
 
 def test_the_observation_holds_the_zone_the_planner_sees():
-    from wesnoth_ai import observe as obs_mod
+    from wesnoth_ai.sim import observe as obs_mod
     if obs_mod.kernel() is None:
         pytest.skip("wesnoth_core.observe_side is not available")
     s, stone = _replayed_board()

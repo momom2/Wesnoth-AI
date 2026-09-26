@@ -96,11 +96,11 @@ def _light_params(code: str) -> Tuple[int, int, int, bool]:
 
 def map_static(gs: GameState) -> dict:
     """The core's static map arrays from the state: geometry from
-    `wesnoth_ai.observe.map_geometry`, terrain facts from the terrain
+    `wesnoth_ai.sim.observe.map_geometry`, terrain facts from the terrain
     codes and the time areas the scenario set up."""
     from wesnoth_ai.rules.terrain_resolver import hides_cover, strip_start_position, terrain_heals
     from wesnoth_ai.encoder import _first_terrain_id
-    from wesnoth_ai.observe import map_geometry
+    from wesnoth_ai.sim.observe import map_geometry
     geom = map_geometry(gs)
     H = len(geom.keys)
     codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
@@ -274,7 +274,7 @@ class CoreState:
         slowed, defense table)."""
         from wesnoth_ai.sim.pathfind_sim import _terrain_arrays_for
         from tools.replay_dataset import _rebuild_unit, _stats_for, _terrain_def_pct
-        from wesnoth_ai.observe import map_geometry
+        from wesnoth_ai.sim.observe import map_geometry
         def_table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})
         # Keyed on the table's CONTENT, not its address: a freed
         # table's id can be recycled by a different table, which would
@@ -518,7 +518,7 @@ class CoreState:
     # ---- the observation and the encoding over the core ----------------
 
     def geometry(self):
-        from wesnoth_ai.observe import map_geometry
+        from wesnoth_ai.sim.observe import map_geometry
         return map_geometry(self._view())
 
     def observe(self, side: int, reach: bool = False):
@@ -753,7 +753,7 @@ def _require_global_width(global_feats) -> None:
 
 def _observation_from_dict(d: dict, geometry):
     """`observe.Observation` from the core's dict of arrays."""
-    from wesnoth_ai.observe import Observation
+    from wesnoth_ai.sim.observe import Observation
     return Observation(int(d["side"]), bool(d["fog_on"]), geometry, list(d["unit_ids"]), d["unit_hex"],
                        d["seen"], d["visible"], d["zoc"], d["enemy"], d["ally"], d["occupied"], d["inert"],
                        d["recruit_row"], d["network"], bool(d["leader_on_keep"]), d.get("acting"),

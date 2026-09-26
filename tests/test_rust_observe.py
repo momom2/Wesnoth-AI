@@ -1,4 +1,4 @@
-"""The observation kernel (wesnoth_ai/observe.py, rust/wesnoth_core/src/
+"""The observation kernel (wesnoth_ai/sim/observe.py, rust/wesnoth_core/src/
 observe.rs) against the Python originals it replaces, on harvested
 states: the seen hexes it was given, unit visibility, the reach-context
 flags and the recruit row must be identical for both sides, with fog on
@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from wesnoth_ai import observe as obs_mod  # noqa: E402
+from wesnoth_ai.sim import observe as obs_mod  # noqa: E402
 
 pytestmark = pytest.mark.skipif(obs_mod.kernel() is None,
                                 reason="wesnoth_core.observe_side not available")

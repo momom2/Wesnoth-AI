@@ -263,7 +263,7 @@ def _vocab_of(states):
 def _assert_observations_equal(py_obs, core_obs):
     """Observation records equal up to the unit order (the Python one
     follows the unit set's iteration order)."""
-    from wesnoth_ai.observe import _ARRAY_FIELDS
+    from wesnoth_ai.sim.observe import _ARRAY_FIELDS
     assert (py_obs.side, py_obs.fog_on, py_obs.leader_on_keep) == \
         (core_obs.side, core_obs.fog_on, core_obs.leader_on_keep)
     assert sorted(py_obs.unit_ids) == sorted(core_obs.unit_ids)
@@ -280,7 +280,7 @@ def _assert_observations_equal(py_obs, core_obs):
 
 
 def test_observation_from_core_equals_observe():
-    from wesnoth_ai.observe import observe
+    from wesnoth_ai.sim.observe import observe
     n = 0
     for gs in _states_for_encoding():
         for fog in (True, False):

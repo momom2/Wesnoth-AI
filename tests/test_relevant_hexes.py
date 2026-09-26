@@ -169,7 +169,7 @@ def test_superset_assert_FIRES_when_the_set_is_short(monkeypatch):
     import pytest
     import torch
     import wesnoth_ai.encoder as enc_mod
-    import wesnoth_ai.observe as observe_mod
+    import wesnoth_ai.sim.observe as observe_mod
     from wesnoth_ai.model import WesnothModel
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     import wesnoth_ai.sim.visibility as vis

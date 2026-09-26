@@ -69,12 +69,12 @@ def _enumeration() -> bool:
 
 
 def _observe() -> bool:
-    from wesnoth_ai import observe
+    from wesnoth_ai.sim import observe
     return observe.kernel() is not None
 
 
 def _rows_from_reach() -> bool:
-    from wesnoth_ai import observe
+    from wesnoth_ai.sim import observe
     return observe.kernel_rows_from_reach() is not None
 
 

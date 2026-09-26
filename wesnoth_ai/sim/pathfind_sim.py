@@ -144,7 +144,7 @@ def emits_zoc(unit) -> bool:
     an enemy of the mover, visible to the mover's side, which the callers
     decide. The planner (`ReachContext.for_side`), the walker
     (`walk_move_path`), the legality mask (`action_sampler`) and the
-    observation (`wesnoth_ai.observe`) all ask this."""
+    observation (`wesnoth_ai.sim.observe`) all ask this."""
     if "petrified" in (unit.statuses or set()):
         return False
     from tools.replay_dataset import _stats_for

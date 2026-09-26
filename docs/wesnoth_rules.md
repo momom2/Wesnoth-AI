@@ -275,7 +275,7 @@ emits no ZoC. Also has `attacks_left() = 0` and `movement_left() = 0`
 Sim: `wesnoth_ai/sim/pathfind_sim.emits_zoc` is the one predicate; the planner
 (`ReachContext.for_side`), the walker (`walk_move_path`), the legality
 mask's reach context (`action_sampler`) and the observation's unit flags
-(`wesnoth_ai/observe.py`) ask it. The Rust observation kernel
+(`wesnoth_ai/sim/observe.py`) ask it. The Rust observation kernel
 (`observe.rs`, from phase 16) reads those flags for every visible enemy,
 scenery included, and the Rust core's walk (`core_move.rs`) applies the
 same rule. Every non-own side counts as an enemy.

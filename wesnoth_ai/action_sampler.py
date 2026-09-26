@@ -1314,7 +1314,7 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
 
     if observation is not None:
         # The kernel's flags, map space = these positions (both follow
-        # gs.map.hexes; wesnoth_ai/observe.py).
+        # gs.map.hexes; wesnoth_ai/sim/observe.py).
         zoc_a, enemy_a, ally_a, occ_a = (observation.zoc, observation.enemy,
                                          observation.ally, observation.occupied)
         if len(occ_a) != Hm:
@@ -1375,12 +1375,12 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
 
 def _rows_from_observation(observation, encoded, U, H, hex_xs, hex_ys, enemy_mask):
     """The move/attack rows in token space from the observation's
-    landable rows (wesnoth_ai/observe.py, `observe(reach=True)`): the
+    landable rows (wesnoth_ai/sim/observe.py, `observe(reach=True)`): the
     encoded unit slots pick their rows by unit id, and the kernel
     carries the rows into the basis the observation's `tok_of_hex`
     names (the full board or the relevant subset) and finds the
     attackable enemies there."""
-    from wesnoth_ai.observe import kernel_rows_from_reach
+    from wesnoth_ai.sim.observe import kernel_rows_from_reach
     fn = kernel_rows_from_reach()
     if fn is None:
         return None
@@ -1498,7 +1498,7 @@ def _build_legality_masks(
     # recompute (keyed by python id()) when the field is absent --
     # hand-built EncodedState / tests -- so behavior is unchanged
     # there. Both paths identify the same hidden enemies.
-    # The encoder's observation (wesnoth_ai/observe.py, the Rust
+    # The encoder's observation (wesnoth_ai/sim/observe.py, the Rust
     # kernel): occupancy, the reach context and the recruit network
     # come from its map-space arrays instead of the passes below.
     observation = getattr(encoded, "observation", None)
