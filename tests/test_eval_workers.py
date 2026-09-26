@@ -98,6 +98,29 @@ def test_worker_cache_is_per_side(tmp_path):
         g._POLICY_CACHE.clear()
 
 
+def test_a_searched_player_takes_its_sides_seed(tmp_path):
+    """A searched player is built with the side's per-game seed, so its
+    search repeats from the game's slot like the raw player's sampler;
+    it used to draw fresh entropy every game."""
+    import torch
+    from tools import elo_eval_game as g
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    spec = str(tmp_path / "tiny.pt")
+    TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1,
+                      num_heads=2, d_ff=64).save_checkpoint(spec)
+    g._POLICY_CACHE.clear()
+
+    def first_draws(seed):
+        player, _ = g._build_player(spec, "A", 1, torch.device("cpu"), raw_seed=seed)
+        assert player._rng_seeded
+        return player._rng.integers(2 ** 62, size=3).tolist()
+    try:
+        assert first_draws(10) == first_draws(10)
+        assert first_draws(10) != first_draws(11)
+    finally:
+        g._POLICY_CACHE.clear()
+
+
 def test_random_reference_is_never_cached_and_refusals_keep_their_reason(capsys):
     """`random` draws a fresh net per game in worker mode too, and a
     refusal's reason reaches the worker's stderr."""

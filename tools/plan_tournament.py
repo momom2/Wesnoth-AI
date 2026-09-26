@@ -860,7 +860,10 @@ class PlanTournamentPolicy(MCTSPolicy):
         self._t_spend: Dict[str, Tuple[int, int, int]] = {}
         self._t_half_ema: Optional[float] = None
         self._t_seq = 0
-        self._t_rng = np.random.default_rng()
+        # Drawn from the policy's own generator when it is seeded
+        # (`rng_seed`), so a seeded game repeats; fresh entropy otherwise.
+        self._t_rng = (np.random.default_rng(int(self._rng.integers(2 ** 63)))
+                       if self._rng_seeded else np.random.default_rng())
         self._t_acc: Dict[str, float] = {}
         self._t_betas: List[float] = []
 
