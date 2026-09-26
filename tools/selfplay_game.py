@@ -115,7 +115,7 @@ class GameOutcome:
     # Game began from a human-corpus mid-game position (2026-07-12
     # backward-curriculum starts) rather than a fresh scenario.
     midgame: bool = False
-    # Full per-game engagement telemetry (tools/engagement_stats.py,
+    # Full per-game engagement telemetry (wesnoth_ai/sim/engagement_stats.py,
     # user spec 2026-07-12): attacks (attempted / Wesnoth-invalid /
     # sim-rejected), damage, kills by unit type + value, healing by
     # source, advancements, first contact, scouting, unused MP,

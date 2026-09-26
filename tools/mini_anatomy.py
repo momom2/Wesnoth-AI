@@ -16,7 +16,7 @@ can be compared mechanically and stall symmetry measured:
     left unused and units fully idle (no move, no attack).
   - per game: winner, ended_by (max_turns / max_actions /
     leader_killed / ...), the game's actual jittered cap, end state,
-    engagement telemetry (tools/engagement_stats.py), noprogress
+    engagement telemetry (wesnoth_ai/sim/engagement_stats.py), noprogress
     quiet-streak summary.
 
 Chunk-friendly: --append + --seed let successive short invocations

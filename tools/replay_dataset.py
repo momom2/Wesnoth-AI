@@ -2064,7 +2064,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             # poisoned branches heal via rest alone, so main_applied
             # is 0 there by construction.
             if healing > 0:
-                from tools.engagement_stats import emit_event
+                from wesnoth_ai.sim.engagement_stats import emit_event
                 _rest_part = cb.REST_HEAL_AMOUNT if rest_eligible else 0
                 _rest_applied = min(_rest_part, healing)
                 _main_applied = healing - _rest_applied
@@ -2080,13 +2080,13 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                            ability=_ability_part,
                            rest=_rest_applied)
             if cure_poison:
-                from tools.engagement_stats import emit_event
+                from wesnoth_ai.sim.engagement_stats import emit_event
                 emit_event("poison", side=u.side, cured=True, damage=0)
             elif poisoned and healing < 0:
                 # Poison-normal turn: NET actual HP loss (rest folded
                 # in; single combined clamp, so -6 when resting, -8
                 # otherwise, less at the 1-HP floor).
-                from tools.engagement_stats import emit_event
+                from wesnoth_ai.sim.engagement_stats import emit_event
                 emit_event("poison", side=u.side, cured=False,
                            damage=-healing)
 
@@ -2391,7 +2391,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # Engagement telemetry (no-op unless a sink is installed --
         # only the live training sim installs one). att/dfd still
         # hold PRE-combat HP here; outcomes are written back below.
-        from tools.engagement_stats import emit_event
+        from wesnoth_ai.sim.engagement_stats import emit_event
         emit_event(
             "combat",
             a_side=att.side, d_side=dfd.side,

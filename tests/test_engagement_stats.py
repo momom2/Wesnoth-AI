@@ -27,7 +27,7 @@ import torch
 
 from wesnoth_ai.sim.classes import Position
 from helpers.tiny_state import _gs, _u
-from tools.engagement_stats import clear_event_sink, set_event_sink
+from wesnoth_ai.sim.engagement_stats import clear_event_sink, set_event_sink
 from tools.replay_dataset import _apply_command
 
 
@@ -207,7 +207,7 @@ def test_first_contact_is_player_vs_player_only():
     first_contact_turn only sets when the target is the OPPOSING
     PLAYER side. Attacking side 3 still counts as an attempted (and
     Wesnoth-valid) attack."""
-    from tools.engagement_stats import EngagementStats
+    from wesnoth_ai.sim.engagement_stats import EngagementStats
     gs = _gs()
     gs.map.units.add(_u("tent", 3, 3, 4, name="Tentacle of the Deep"))
     es = EngagementStats()

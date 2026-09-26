@@ -837,7 +837,7 @@ class WesnothSim:
         """Attach a per-game EngagementStats accumulator to THIS sim.
         fork() never carries it, so MCTS search forks stay
         instrumentation-free (zero cost in rollouts)."""
-        from tools.engagement_stats import EngagementStats
+        from wesnoth_ai.sim.engagement_stats import EngagementStats
         self._engagement = EngagementStats()
         return self._engagement
 
@@ -853,8 +853,8 @@ class WesnothSim:
             else:
                 _apply_command(self.gs, cmd)
             return
-        from tools.engagement_stats import (clear_event_sink,
-                                            set_event_sink)
+        from wesnoth_ai.sim.engagement_stats import (clear_event_sink,
+                                                     set_event_sink)
         set_event_sink(es.on_event)
         try:
             if self.core is None:

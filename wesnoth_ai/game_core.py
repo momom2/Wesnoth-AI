@@ -438,7 +438,7 @@ class CoreState:
         counter, the defender's feeding, its side's refog when the
         fight killed, slowed or petrified it, and its advancement, the
         corpse of a defender killed by plague."""
-        from tools.engagement_stats import emit_event
+        from wesnoth_ai.sim.engagement_stats import emit_event
         from wesnoth_ai.sim.combat import seed_int_of
         ax, ay, dx, dy, a_weapon = (int(v) for v in cmd[1:6])
         d_weapon = int(cmd[6]) if len(cmd) > 6 else -1
