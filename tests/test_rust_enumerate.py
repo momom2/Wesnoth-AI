@@ -27,7 +27,7 @@ def _mid_states(n_games=2, per_game=4):
     """Deep-copied mid-game states from dummy-policy games (the
     bench_infer harvest pattern): real fights, captures, fog."""
     from tools.elo_ladder import _ScriptedAdapter
-    from tools.eval_sim import _PolicyPair, _play_one_eval_game
+    from tools.eval_players import _PolicyPair, _play_one_eval_game
     from tools.scenario_pool import (build_scenario_gamestate,
                                      random_setup)
     from tools.wesnoth_sim import WesnothSim

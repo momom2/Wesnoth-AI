@@ -50,7 +50,7 @@ def _dummy_game_states(seed: int, per_game: int, max_turns: int):
     dummy's recruit cap is lifted for the game so armies form (its
     default stops at 3 units)."""
     from tools.elo_ladder import _ScriptedAdapter
-    from tools.eval_sim import _PolicyPair, _play_one_eval_game
+    from tools.eval_players import _PolicyPair, _play_one_eval_game
     from tools.scenario_pool import build_scenario_gamestate, random_setup
     from tools.wesnoth_sim import WesnothSim
     import wesnoth_ai.dummy_policy as dummy_policy

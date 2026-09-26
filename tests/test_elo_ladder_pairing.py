@@ -163,7 +163,7 @@ def test_load_policy_builds_checkpoint_structural_flags(tmp_path):
     if anything was dropped, some key differs."""
     import torch
     from wesnoth_ai.transformer_policy import TransformerPolicy
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
 
     src = TransformerPolicy(d_model=32, num_layers=1, num_heads=2,
                             d_ff=32, aux_score=True, moves_left=True)

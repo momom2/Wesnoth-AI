@@ -711,7 +711,7 @@ def main(argv) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     device = (torch.device("cuda") if args.device == "cuda" and torch.cuda.is_available()
               else torch.device("cpu"))
     if args.device == "cuda" and device.type != "cuda":

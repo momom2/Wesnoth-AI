@@ -89,7 +89,7 @@ def test_loader_refuses_a_missing_checkpoint_path(tmp_path):
     """A wrong path must not measure a random-init net under the
     checkpoint's name (2026-09-06); random init is explicit (None)."""
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     with pytest.raises(FileNotFoundError):
         _load_policy(tmp_path / "missing.pt", torch.device("cpu"), label="t")
 

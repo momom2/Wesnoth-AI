@@ -96,7 +96,7 @@ def _bench_states(n: int):
 def test_bf16_step_matches_fp32_within_the_parity_band_on_cuda(autocast_calls):
     """The seed checkpoint when it is on this machine (the benchmark's
     subject), else a random init at the production architecture."""
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     device = torch.device("cuda")
     n_states, batch = 32, 16
     states = _bench_states(n_states)

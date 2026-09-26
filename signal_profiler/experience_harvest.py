@@ -62,7 +62,7 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
     factory (fresh policy per call — gradient_tree needs isolation
     across term variants)."""
     from tools.draw_tiebreak import DrawTiebreakConfig
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.turn_policy import TurnCommitPolicy

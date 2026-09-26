@@ -161,7 +161,7 @@ def _save_checkpoint(
     back to counting per-epoch snapshot files when it's absent.
 
     `relevant_set_hexes` is a top-level key (kept OUT of `arch`, which
-    the policy loader compares strictly): `eval_sim.peek_checkpoint_arch`
+    the policy loader compares strictly): `eval_players.peek_checkpoint_arch`
     reads it with the other CHECKPOINT_STRUCT_FLAGS so every eval
     entry point builds the encoder in the hex basis this checkpoint
     was trained in. `training_meta` is provenance (init_from, seed,

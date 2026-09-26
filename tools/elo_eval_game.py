@@ -67,8 +67,8 @@ import torch
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
-from tools.eval_sim import (_PolicyPair, _load_policy,
-                            _play_one_eval_game, peek_checkpoint_arch)
+from tools.eval_players import (_PolicyPair, _load_policy,
+                                _play_one_eval_game, peek_checkpoint_arch)
 from tools.inference_seam import RemoteEncoder
 from tools.run_elo_batch import (basis_refusal, checkpoint_refusal, faction_refusal,
                                  file_sha256, forced_faction_tag, terrain_refusal)

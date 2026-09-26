@@ -510,7 +510,7 @@ def main(argv) -> int:
         return 0
 
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     cuda = args.device == "cuda"
     if cuda and not torch.cuda.is_available():
         raise SystemExit("--device cuda requested but no CUDA device is visible")

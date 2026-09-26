@@ -297,7 +297,7 @@ def match_status(outdir: Path, label_a: str, label_b: str, games: int, seed_base
 
 _PEEK_FLAGS = (
     "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[2]); "
-    "from tools.eval_sim import peek_checkpoint_arch; "
+    "from tools.eval_players import peek_checkpoint_arch; "
     "f = peek_checkpoint_arch(Path(sys.argv[1]), sys.argv[1]); "
     "print(('relset' if f.get('relevant_set_hexes') else 'full') + ' ' "
     "+ ('set' if f.get('terrain_multi_hot') else 'class'))")

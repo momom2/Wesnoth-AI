@@ -129,7 +129,8 @@ class fork_guard:
     path -- TCS and plan-tournament fully OVERRIDE select_action,
     so the launch smoke certified procedures the guard never ran
     on). Used by the game loops (selfplay_game.play_one_game,
-    eval_sim) so every decision procedure is covered uniformly.
+    eval_players._play_one_eval_game) so every decision procedure is
+    covered uniformly.
     Free when the env flag is off."""
 
     def __init__(self, sim):

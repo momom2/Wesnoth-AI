@@ -73,7 +73,7 @@ def test_encoder_gates_feature_5_only_behind_the_flag():
 
 
 def test_flag_rides_the_checkpoint_the_encoder_and_the_remote_encoder(tmp_path):
-    from tools.eval_sim import _load_policy, peek_checkpoint_arch
+    from tools.eval_players import _load_policy, peek_checkpoint_arch
     from tools.inference_seam import RemoteEncoder
     on = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64,
                            device=torch.device("cpu"), fog_hides_enemy_villages=True)

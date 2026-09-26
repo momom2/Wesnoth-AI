@@ -98,7 +98,7 @@ def test_the_projection_learns_and_changes_the_value(states):
 
 
 def test_flag_rides_the_checkpoint_and_a_flagless_seed_warm_starts(tmp_path, states):
-    from tools.eval_sim import _load_policy, peek_checkpoint_arch
+    from tools.eval_players import _load_policy, peek_checkpoint_arch
     on = _policy(True)
     on.save_checkpoint(tmp_path / "on.pt")
     assert peek_checkpoint_arch(tmp_path / "on.pt")["value_material"] is True

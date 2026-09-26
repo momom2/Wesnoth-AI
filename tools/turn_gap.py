@@ -77,7 +77,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from tools import reference_player
 from tools.bench_pipeline import DEFAULT_DATASET, DEFAULT_MANIFEST, load_states
 from tools.eval_procedure import procedure_of
-from tools.eval_sim import _PolicyPair, _play_one_eval_game
+from tools.eval_players import _PolicyPair, _play_one_eval_game
 from tools.mcts import fork_guard
 from tools.raw_player import END_TURN_RULES, RawPolicyPlayer
 from tools.selfplay_game import _would_recruit_bounce
@@ -205,7 +205,7 @@ def load_reference_policy(spec: PolicySpec):
     if spec.inference_address is not None:
         return remote_policy(spec.inference_address)
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     ckpt = None if spec.checkpoint in (None, "random") else Path(spec.checkpoint)
     return _load_policy(ckpt, torch.device(spec.device), label="turn_gap",
                         infer_bf16=spec.infer_bf16, infer_compile=spec.infer_compile)
@@ -270,7 +270,7 @@ def sim_from_state(gs: GameState, scenario_id: str, max_turns: int,
 
 def _select(player, sim: WesnothSim, game_label: str) -> Dict:
     # The player sees a stable snapshot; the guard checks it did not
-    # touch the live state (as in tools/eval_sim._play_one_eval_game).
+    # touch the live state (as in tools/eval_players._play_one_eval_game).
     pre_state = copy.deepcopy(sim.gs)
     with fork_guard(sim):
         return player.select_action(pre_state, game_label=game_label, sim=sim)
@@ -407,7 +407,7 @@ def _value_read(policy, gs: GameState, mover: int) -> Optional[float]:
 def outcome_for(sim: WesnothSim, mover: int) -> Tuple[int, bool]:
     """(+1 / 0 / -1 from the mover's side, capped). Capped = undecided
     at the turn or action limit; a draw (mutual elimination) is 0 and
-    not capped, as tools/eval_sim maps it."""
+    not capped, as tools/eval_players maps it."""
     if sim.winner == mover:
         return 1, False
     if sim.winner == 0:

@@ -203,7 +203,7 @@ def cmd_collect(args) -> int:
     from tools.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions)
     from tools.wesnoth_sim import WesnothSim
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
 
     torch.set_num_threads(args.threads)
     load_factions()
@@ -279,7 +279,7 @@ def load_snapshots(snapdir: pathlib.Path) -> List[dict]:
 def cmd_compare(args) -> int:
     import torch
     from tools.scenario_pool import load_factions
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
 
     torch.set_num_threads(args.threads)
     load_factions()

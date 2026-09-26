@@ -21,7 +21,7 @@ def _states(n_attack=4, n_plain=6):
     states, some of which have legal attacks."""
     import copy
     from tools.elo_ladder import _ScriptedAdapter
-    from tools.eval_sim import _PolicyPair, _play_one_eval_game
+    from tools.eval_players import _PolicyPair, _play_one_eval_game
     from tools.scenario_pool import build_scenario_gamestate, random_setup
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.dummy_policy import DummyPolicy

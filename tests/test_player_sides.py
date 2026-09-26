@@ -132,11 +132,11 @@ class _EndTurns:
 def test_the_eval_loop_counts_and_reports_a_turn_no_policy_plays(caplog):
     """A side to move that neither policy plays is a defect: its turn is
     ended, counted in the result and logged."""
-    from tools.eval_sim import _PolicyPair, _play_one_eval_game
+    from tools.eval_players import _PolicyPair, _play_one_eval_game
     from tools.wesnoth_sim import WesnothSim
     gs = replayed_state(three_side_record(third_side_acts=True), 5)
     sim = WesnothSim(gs, "", max_turns=2, apply_scenario_events=False, begin_turn=False)
-    with caplog.at_level(logging.WARNING, logger="eval_sim"):
+    with caplog.at_level(logging.WARNING, logger="eval_players"):
         result = _play_one_eval_game(sim, _PolicyPair(_EndTurns(), "a", 1),
                                      _PolicyPair(_EndTurns(), "b", 2), game_label="sides")
     assert result.unplayed_side_turns == 1

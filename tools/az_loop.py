@@ -389,7 +389,7 @@ def main(argv) -> int:
 
     import torch
     from tools.actor_pool import ActorPool
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from tools.selfplay_game import k_median_of

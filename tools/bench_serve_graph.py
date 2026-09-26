@@ -406,7 +406,7 @@ def main(argv: Sequence[str]) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     from tools.inference_seam import InferenceServer
     from wesnoth_ai.packed_trunk import check_packed_trunk_supported, flash_varlen_applies
 

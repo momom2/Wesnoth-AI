@@ -314,7 +314,7 @@ def main(argv) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     import torch
-    from tools.eval_sim import _load_policy
+    from tools.eval_players import _load_policy
     # The server process runs two serve threads and a GPU; torch's
     # default intra-op pool (64 threads on the 128-thread Vast hosts,
     # against a ~17-core cgroup quota) only burns quota. 2026-09-04:
