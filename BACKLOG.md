@@ -101,11 +101,9 @@ the same night:
   reads the first `id=` line, which sits inside a `#define`, so its 5
   corpus games load no scenario WML and their petrified trolls keep full
   hit points (model input only).
-- **Time areas and a random start slot (unverified against a replay):**
-  `_lawful_bonus_at` and the Rust `lawful_bonus_at` shift an area's cycle
-  by the board's start slot, where the engine keeps each area's own
-  `current_time` (default 0, `tod_manager.cpp:393`); three Tombs of
-  Kesorak corpus games start on slots 1, 3 and 4. Self-play is unaffected.
+- Done (fix/time-area-slots, Rust phase 17): a time area keeps its own
+  slot under a random start (docs/wesnoth_rules.md "A time area keeps its
+  own slot"); no corpus game or self-play game moves.
 
 - **Every eval game has a Knalgan Alliance side**
   (`scenario_pool.FORCED_FACTION`; the in-process `sim_self_play` games
@@ -127,9 +125,8 @@ the same night:
   are records of past runs and keep unbounded steps, no exit trap, stops
   that accept any 2xx and `ALL_DONE`-first uploads; port any of them to
   `scripts/box/boxlib.sh` (docs/box_runbook.md) before running it again.
-  The unit-vocab retrain's script is ported. A progress line during the
-  trainer's resume skip would let its stall window drop from 100 minutes
-  to 30.
+  The unit-vocab retrain's script is ported, with a 30-minute stall
+  window since the trainer logs its resume skip (0.7.15).
 - **Legacy box path:** `scripts/box_stop_on_abort.py` (the quarantined
   campaign flow) puts the Vast ACCOUNT key on the box and logs requests
   that carry it. Retire it with the user's word.
