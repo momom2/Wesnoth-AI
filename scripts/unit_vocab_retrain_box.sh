@@ -46,8 +46,9 @@ EVAL=(--eval-every 50000 --eval-pairs 1200 --eval-pairs-per-game 8 --eval-sample
 PREENCODE_CUT_MIN="${PREENCODE_CUT_MIN:-60}"     # estimated 20
 TRAIN_CUT_MIN="${TRAIN_CUT_MIN:-480}"            # the pass: 3-5 hours
 TRAIN_STALL_MIN="${TRAIN_STALL_MIN:-30}"         # the trainer logs every 100 steps, about 40 s
-RESUME_STALL_MIN="${RESUME_STALL_MIN:-100}"      # a resumed pass re-reads its trained pairs without a
-                                                 # line: 1.79M pairs took 49 minutes on 2026-09-25
+RESUME_STALL_MIN="${RESUME_STALL_MIN:-30}"       # a resumed pass re-reads its trained pairs and logs
+                                                 # every 50,000 (about 80 s; the whole 1.79M-pair skip
+                                                 # took 49 minutes on 2026-09-25)
 PHASE_CUT_MIN="${PHASE_CUT_MIN:-20}"             # estimated 5
 MATCH_CUT_MIN="${MATCH_CUT_MIN:-75}"             # the match stops itself at 60 (--time-budget-min)
 BOX_MAX_H="${BOX_MAX_H:-9}"                      # twice the 4.5 box-hours estimated
