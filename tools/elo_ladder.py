@@ -385,7 +385,7 @@ class MirrorStats:
 
 def _play_single_game(
     pi: Player, pj: Player, pi_side: int, setup, max_turns: int,
-    game_label: str,
+    game_label: str, luck_salt: str,
 ) -> Optional[str]:
     """Build a fresh sim from `setup` and play one game with pi as
     pair_a on `pi_side`. Returns the outcome from pi's perspective
@@ -395,6 +395,7 @@ def _play_single_game(
         gs = build_scenario_gamestate(setup)
         sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                          max_turns=max_turns)
+        sim._seed_salt = luck_salt
     except Exception as e:
         log.warning(f"skip {setup.label()}: {e}")
         return None
@@ -453,12 +454,16 @@ def _play_pair(
     n_pairs = games // 2
     for g in range(n_pairs):
         setup = random_setup(rng, forced_faction=forced_faction)
+        # The two games of a mirrored pair share their dice (common random
+        # numbers, like their setup); pairs do not (unsalted, every game
+        # of the ladder replayed one luck vector).
+        pair_luck = f"elo_ladder:{pi.label}:{pj.label}:p{g}:{setup.label()}"
         out_1 = _play_single_game(
             pi, pj, 1, setup, max_turns,
-            game_label=f"elo_{pi.label}_{pj.label}_p{g}a")
+            game_label=f"elo_{pi.label}_{pj.label}_p{g}a", luck_salt=pair_luck)
         out_2 = _play_single_game(
             pi, pj, 2, setup, max_turns,
-            game_label=f"elo_{pi.label}_{pj.label}_p{g}b")
+            game_label=f"elo_{pi.label}_{pj.label}_p{g}b", luck_salt=pair_luck)
         _count_outcome(rec, out_1)
         _count_outcome(rec, out_2)
         if out_1 == "win" and out_2 == "win":
@@ -473,7 +478,8 @@ def _play_pair(
         setup = random_setup(rng, forced_faction=forced_faction)
         _count_outcome(rec, _play_single_game(
             pi, pj, 2, setup, max_turns,
-            game_label=f"elo_{pi.label}_{pj.label}_odd"))
+            game_label=f"elo_{pi.label}_{pj.label}_odd",
+            luck_salt=f"elo_ladder:{pi.label}:{pj.label}:odd:{setup.label()}"))
     sys.stderr.write(
         f"  {progress_prefix} {pi.label} vs {pj.label}: "
         f"{rec.wins_i}-{rec.draws}-{rec.wins_j} (W-D-L)  "

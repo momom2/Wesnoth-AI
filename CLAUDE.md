@@ -459,8 +459,11 @@ State of play:
   plan policies) and the trainer's own subsampling generator (it
   drew from the global module); a rollout worker's game draws come
   from the iteration seed and the game index, not from which thread
-  won the race for it. A seeded run now repeats byte for byte across
-  processes and hash seeds. Consequence for old numbers: eval
+  won the race for it. A seeded run on the serial CPU path now repeats
+  byte for byte across processes and hash seeds (verified again
+  2026-09-26; not with threaded workers, the actor pool, the plan
+  tournament, searched eval players or training on CUDA, whose
+  atomic-add backward is not deterministic). Consequence for old numbers: eval
   workers and pool actors are separate processes, so before this fix
   no game was reproducible across processes; the estimands and the
   standard errors are untouched (each game was still one draw), and

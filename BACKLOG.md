@@ -146,6 +146,29 @@ the same night:
   context (the replay-side carrier ignores a game's pick-advance
   override). Refactor step 9 (docs/refactor_plan_20260925.md).
 
+## Reproducibility (2026-09-26 crawl; fixed in 0.7.14: eval_sim and elo_ladder dice, the pretrain probe's order)
+
+The match path holds: each game is a function of its slot, up to the
+documented bf16 batch-composition noise, and the recorded 800-game seed
+bases are disjoint except the documented offset-sweep overlap. Open:
+- The turn-gap confirmation's in-turn dice (docs/turn_gap_ref_prereg_20260921.md
+  status line): re-realize positions 15 and 57 under a second turn salt,
+  and re-realize the turn per playout in any future confirmation.
+- Relaunched `sim_self_play` legs replay the first segment's setups and
+  dice (`random.Random(args.seed)` and the iteration counter restart; the
+  salt ignores the run seed); quarantined legs only, `az_loop` is sound.
+- Quarantined VG grounding: a state's rollouts fork one sim and roll the
+  same dice while their variance is treated as independent;
+  `TurnCommitPolicy._ground_rng` is identical in every actor. The
+  quarantined human anchor seeds each game from a salted `str` hash.
+- Searched eval players (MCTS, TCS, plan tournament) are built without
+  `rng_seed`, so their games are not reproducible from their slot
+  (independence is unaffected; the verdict path uses raw players).
+- `scripts/endturn_offset_sweep_box.sh` still steps its seed base by 100
+  between 800-game matches, and `endturn_readout.py` computes an
+  independent-arms SE without checking the (side, seed) overlap: a guard
+  that refuses or pairs overlapping slots.
+
 ## The imitation corpus's labels (2026-09-26 crawl; each changes the corpus)
 
 A crawl of the data path from raw replays to the trainer's pairs (every
