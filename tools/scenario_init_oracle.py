@@ -54,7 +54,7 @@ from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS, MINI_MAP_SCENAR
                                             build_scenario_gamestate, classify_scenario)
 from tools.traits import TRAITS  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
-from wesnoth_ai.classes import PLAYER_SIDES  # noqa: E402
+from wesnoth_ai.sim.classes import PLAYER_SIDES  # noqa: E402
 
 log = logging.getLogger("scenario_init_oracle")
 

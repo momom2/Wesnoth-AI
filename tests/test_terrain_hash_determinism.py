@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from wesnoth_ai.classes import Terrain, TerrainModifiers   # noqa: E402
+from wesnoth_ai.sim.classes import Terrain, TerrainModifiers   # noqa: E402
 
 
 def test_terrain_enums_hash_by_value_not_identity():
@@ -54,7 +54,7 @@ def test_terrain_set_iteration_order_is_stable_across_processes():
     """
     snippet = (
         "import sys; sys.path.insert(0, r'%s');"
-        "from wesnoth_ai.classes import Terrain;"
+        "from wesnoth_ai.sim.classes import Terrain;"
         "s={Terrain.FOREST,Terrain.HILLS,Terrain.FLAT,"
         "Terrain.SHALLOWWATER};"
         "print(','.join(t.name for t in s))" % ROOT

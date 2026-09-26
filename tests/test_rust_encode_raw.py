@@ -31,7 +31,7 @@ if not hasattr(wesnoth_core, "encode_raw_streams"):
 from tools import pathfind_sim as pf  # noqa: E402
 from tools.abilities import hex_neighbors  # noqa: E402
 from wesnoth_ai import encoder  # noqa: E402
-from wesnoth_ai.classes import Terrain, TerrainModifiers  # noqa: E402
+from wesnoth_ai.sim.classes import Terrain, TerrainModifiers  # noqa: E402
 from wesnoth_ai.encoder import RawEncoded, encode_raw  # noqa: E402
 
 if encoder._rust_encode_kernel() is None:

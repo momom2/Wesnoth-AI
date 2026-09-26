@@ -63,7 +63,7 @@ def test_ordering_stable_and_row_major(pool_state):
 
 def test_statics_always_included(pool_state):
     """Villages and castles/keeps are in the set regardless of reach."""
-    from wesnoth_ai.classes import Terrain, TerrainModifiers
+    from wesnoth_ai.sim.classes import Terrain, TerrainModifiers
     gs = pool_state
     rel = relevant_hex_positions(gs, gs.global_info.current_side)
     for h in gs.map.hexes:

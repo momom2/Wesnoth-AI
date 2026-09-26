@@ -128,7 +128,7 @@ def test_illuminate_lights_enemy_too():
     at adjacent (2,1) should also count as illuminated. Per
     tod_manager.cpp:237-262 the scan iterates all 7 hexes regardless
     of side."""
-    from wesnoth_ai.classes import Position, Unit
+    from wesnoth_ai.sim.classes import Position, Unit
     from tools.abilities import illuminate_step
 
     illuminator = Unit(
@@ -164,7 +164,7 @@ def test_illuminate_lights_enemy_too():
 
 def _mk_unit(uid, name, side, x, y, *, abilities=frozenset(),
              statuses=frozenset()):
-    from wesnoth_ai.classes import Position, Unit
+    from wesnoth_ai.sim.classes import Position, Unit
     return Unit(
         id=uid, name=name, name_id=0, side=side, is_leader=False,
         position=Position(x, y), max_hp=30, max_moves=5, max_exp=50,
@@ -216,9 +216,9 @@ def test_amla_increases_max_exp_20pct():
     """After each AMLA, max_experience grows by div100rounded(max*20),
     matching apply_modifier with `increase=20%`. Compounds across
     AMLAs (string_utils.cpp:401-403, math.hpp:39-41)."""
-    from wesnoth_ai.classes import Position, Unit
+    from wesnoth_ai.sim.classes import Position, Unit
     from tools.replay_dataset import _maybe_advance_unit
-    from wesnoth_ai.classes import GameState, GlobalInfo, Map, SideInfo
+    from wesnoth_ai.sim.classes import GameState, GlobalInfo, Map, SideInfo
 
     sharpshooter = Unit(
         id="u1", name="Elvish Sharpshooter", name_id=0, side=1,
@@ -259,9 +259,9 @@ def test_amla_increases_max_exp_20pct():
 def test_amla_clears_slowed():
     """Same as above but with `slowed`. Both statuses are removed by
     distinct [effect][status][remove=...] entries in AMLA_DEFAULT."""
-    from wesnoth_ai.classes import Position, Unit
+    from wesnoth_ai.sim.classes import Position, Unit
     from tools.replay_dataset import _maybe_advance_unit
-    from wesnoth_ai.classes import GameState, GlobalInfo, Map, SideInfo
+    from wesnoth_ai.sim.classes import GameState, GlobalInfo, Map, SideInfo
 
     u = Unit(
         id="u1", name="Elvish Sharpshooter", name_id=0, side=1,

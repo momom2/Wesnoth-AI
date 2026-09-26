@@ -34,7 +34,7 @@ import torch
 
 from wesnoth_ai.action_sampler import sample_action
 from wesnoth_ai.constants import OBSERVATION_EPOCH
-from wesnoth_ai.classes import GameState
+from wesnoth_ai.sim.classes import GameState
 from wesnoth_ai.device import describe
 from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.model import WesnothModel

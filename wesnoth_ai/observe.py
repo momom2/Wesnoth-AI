@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
-from wesnoth_ai.classes import GameState, Unit
+from wesnoth_ai.sim.classes import GameState, Unit
 
 _ENABLED = os.environ.get("WESNOTH_RUST_OBSERVE", "1") != "0"
 _KERNELS: Optional[Dict[str, object]] = None
@@ -91,7 +91,7 @@ def map_geometry(state: GameState) -> MapGeometry:
     if hit is not None and hit.hexes is hexes and len(hit.keys) == len(hexes):
         return hit
     from tools.abilities import hex_neighbors
-    from wesnoth_ai.classes import Terrain, TerrainModifiers
+    from wesnoth_ai.sim.classes import Terrain, TerrainModifiers
     keys = [(h.position.x, h.position.y) for h in hexes]
     pos_index = {p: i for i, p in enumerate(keys)}
     H = len(keys)

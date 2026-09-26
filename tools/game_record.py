@@ -86,7 +86,7 @@ def game_record(sim, setup, *, game_label: str, build: Optional[Dict[str, Any]] 
     `build` holds the keyword arguments `build_scenario_gamestate` was
     given; `players` names who played each side and how."""
     from wesnoth_ai import __version__
-    from wesnoth_ai.classes import state_digest
+    from wesnoth_ai.sim.classes import state_digest
     from wesnoth_ai.constants import OBSERVATION_EPOCH
     history = sim.command_history
     outcomes = {str(k): rc.extras["outcomes"] for k, rc in enumerate(history)
@@ -380,7 +380,7 @@ def start_state(rec: Dict[str, Any], *, verify: bool = True):
 
 
 def _check(rec: Dict[str, Any], gs, want: Optional[str], where: str) -> None:
-    from wesnoth_ai.classes import state_digest
+    from wesnoth_ai.sim.classes import state_digest
     if want is not None and state_digest(gs) != want:
         raise RecordMismatch(
             f"{rec.get('game_label')}: the rebuilt position {where} "

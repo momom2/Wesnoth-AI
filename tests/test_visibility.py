@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from wesnoth_ai.classes import (GameState, Map, GlobalInfo, Unit, Hex, Position,
+from wesnoth_ai.sim.classes import (GameState, Map, GlobalInfo, Unit, Hex, Position,
                      SideInfo, Terrain, Alignment)
 from wesnoth_ai import visibility
 

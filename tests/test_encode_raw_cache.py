@@ -47,7 +47,7 @@ def test_warm_cache_matches_cold_and_is_hit():
 
 
 def test_ownership_and_rejection_bits_follow_the_state():
-    from wesnoth_ai.classes import Terrain
+    from wesnoth_ai.sim.classes import Terrain
     gs = _state()
     side = gs.global_info.current_side
     villages = [h for h in gs.map.hexes if Terrain.VILLAGE in h.terrain_types]
@@ -73,7 +73,7 @@ def test_ownership_and_rejection_bits_follow_the_state():
 
 
 def test_fog_hides_enemy_ownership_outside_vision():
-    from wesnoth_ai.classes import Terrain
+    from wesnoth_ai.sim.classes import Terrain
     gs = _state()
     side = gs.global_info.current_side
     # The village farthest from every own unit is on a hex the side does not see.
@@ -93,7 +93,7 @@ def test_fog_hides_enemy_ownership_outside_vision():
 
 def test_replaced_hex_set_invalidates_cache():
     from wesnoth_ai import encoder
-    from wesnoth_ai.classes import Terrain
+    from wesnoth_ai.sim.classes import Terrain
     encoder._STATIC_HEX_CACHE.clear()
     gs = _state()
     before = _encode(gs)

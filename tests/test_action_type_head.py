@@ -37,7 +37,7 @@ from wesnoth_ai.action_sampler import (
     _build_legality_masks, sample_action,
     reforward_logprob_entropy,
 )
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map, Position,
     SideInfo, Terrain, Unit,
 )

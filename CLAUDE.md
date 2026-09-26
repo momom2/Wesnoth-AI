@@ -956,7 +956,7 @@ below now live in the **`wesnoth_ai/`** package (imported as
 their `tools/` prefix; the test suite moved to **`tests/`**
 (`tests/conftest.py` bootstraps `sys.path`); `main.py` (the setup CLI)
 stays at the root. So a bare name like `classes.py` below means
-`wesnoth_ai/classes.py`.
+`wesnoth_ai/sim/classes.py`.
 
 **Production path: in-process simulator.**
 - `tools/wesnoth_sim.py` — the game logic, in Python, with Rust kernels
@@ -1065,7 +1065,7 @@ stays at the root. So a bare name like `classes.py` below means
   from `wesnoth_src/` templates, no replays_raw/ dependency).
 
 **Shared by both paths (all under `wesnoth_ai/`):**
-- `wesnoth_ai/classes.py` — `GameState`, `Unit`, `Hex`, `Map`,
+- `wesnoth_ai/sim/classes.py` — `GameState`, `Unit`, `Hex`, `Map`,
   `SideInfo`, `state_key`.
 - `wesnoth_ai/encoder.py` — `GameState` → tensors (per-unit, per-hex,
   recruit phantom features, global features).

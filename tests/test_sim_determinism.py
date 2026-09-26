@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from wesnoth_ai.classes import state_key
+from wesnoth_ai.sim.classes import state_key
 from wesnoth_ai.dummy_policy import DummyPolicy
 from sim_test_helpers import fresh_scenario_sim, twin_scenario_sims
 from tools.wesnoth_sim import WesnothSim

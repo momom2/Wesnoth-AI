@@ -29,7 +29,7 @@ from tools.swap_detector import (                                 # noqa: E402
     compare_distributions, Verdict,
 )
 from tools.wesnoth_sim import WesnothSim                          # noqa: E402
-from wesnoth_ai.classes import Position                           # noqa: E402
+from wesnoth_ai.sim.classes import Position                           # noqa: E402
 
 
 def _thief_vs_leader(with_flanker: bool):

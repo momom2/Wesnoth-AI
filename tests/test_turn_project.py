@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
-from wesnoth_ai.classes import state_key  # noqa: E402
+from wesnoth_ai.sim.classes import state_key  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 from tools.mcts import MCTSConfig  # noqa: E402
 from tools.turn_policy import TurnCommitPolicy  # noqa: E402

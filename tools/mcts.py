@@ -88,7 +88,7 @@ from wesnoth_ai.action_sampler import (
     LegalActionPrior,
     enumerate_legal_actions_with_priors,
 )
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     deep_state_fingerprint, state_key,
 )
 from wesnoth_ai.encoder import GameStateEncoder

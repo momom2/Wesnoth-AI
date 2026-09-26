@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.state_converter import StateConverter
-from wesnoth_ai.classes import Position
+from wesnoth_ai.sim.classes import Position
 
 
 def print_header(text):

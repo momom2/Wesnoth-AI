@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 # Re-use existing game-state dataclasses.
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     PLAYER_SIDES, Alignment as AlignmentEnum, Attack, DamageType, GameState, GlobalInfo,
     Hex, Map, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )

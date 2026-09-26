@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from wesnoth_ai.classes import GameState, state_key
+from wesnoth_ai.sim.classes import GameState, state_key
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks

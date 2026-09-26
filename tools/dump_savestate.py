@@ -66,7 +66,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 # root or the tools/ subdir.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     GameState, Hex, Position, SideInfo, Terrain, TerrainModifiers, Unit,
 )
 from wesnoth_ai import combat as cb

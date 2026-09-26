@@ -266,7 +266,7 @@ def _first_move_cmds(sim):
     """(move a->d, move a->b) for some unit with 2+ reachable hexes:
     the second command's start hex is STALE after the first."""
     from tools.pathfind_sim import ReachContext, unit_reach
-    from wesnoth_ai.classes import Position
+    from wesnoth_ai.sim.classes import Position
     gs = sim.gs
     side = gs.global_info.current_side
     ctx = ReachContext.for_side(gs, side)
@@ -313,7 +313,7 @@ def test_prefix_resume_is_bit_identical():
     same executed list, same dice consumption, same boundary
     state."""
     from tools.turn_search import materialize
-    from wesnoth_ai.classes import state_key
+    from wesnoth_ai.sim.classes import state_key
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
     cmds = _first_move_cmds(sim)

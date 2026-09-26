@@ -142,7 +142,7 @@ def terrain_members(code: str):
     not know (or an alias outside ALIAS_TO_TERRAIN_NAME) is logged
     once and contributes nothing: a hex with no member is visible to
     the encoder as a fallback, never as a silent default."""
-    from wesnoth_ai.classes import Terrain
+    from wesnoth_ai.sim.classes import Terrain
     code = strip_start_position(code or "")
     if not code:
         return set()

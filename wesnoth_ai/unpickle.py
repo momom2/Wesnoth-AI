@@ -25,6 +25,7 @@ MOVED_MODULES: Dict[str, str] = {
     "tools.scenarios": "wesnoth_ai.rules.scenarios",
     "tools.terrain_resolver": "wesnoth_ai.rules.terrain_resolver",
     "tools.wml_state": "wesnoth_ai.rules.wml_state",
+    "wesnoth_ai.classes": "wesnoth_ai.sim.classes",
 }
 
 

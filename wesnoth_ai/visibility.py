@@ -69,7 +69,7 @@ import logging
 from heapq import heappop, heappush
 from typing import AbstractSet, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
-from wesnoth_ai.classes import GameState, Unit
+from wesnoth_ai.sim.classes import GameState, Unit
 
 log = logging.getLogger("visibility")
 
@@ -332,7 +332,7 @@ def leader_castle_network(state: GameState,
     skipping connectivity entirely (audit 2026-07-17).
     """
     from collections import deque
-    from wesnoth_ai.classes import TerrainModifiers
+    from wesnoth_ai.sim.classes import TerrainModifiers
 
     mods_by_pos = {
         (h.position.x, h.position.y): h.modifiers
@@ -569,7 +569,7 @@ def relevant_hex_positions(state: GameState,
     yield identical slot orderings -- required because the trainer
     re-encodes stored states and replays target indices."""
     rel: Set[Tuple[int, int]] = set()
-    from wesnoth_ai.classes import Terrain, TerrainModifiers
+    from wesnoth_ai.sim.classes import Terrain, TerrainModifiers
     for h in state.map.hexes:
         p = (h.position.x, h.position.y)
         if Terrain.VILLAGE in h.terrain_types:

@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from wesnoth_ai.classes import GameState, Position
+from wesnoth_ai.sim.classes import GameState, Position
 from wesnoth_ai.paths import REPO_ROOT, WESNOTH_SRC_DIR
 from tools.replay_dataset import (
     _build_initial_gamestate,

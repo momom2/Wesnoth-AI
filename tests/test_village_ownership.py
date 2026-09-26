@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 import numpy as np
 import torch
 
-from wesnoth_ai.classes import (Hex, Position,
+from wesnoth_ai.sim.classes import (Hex, Position,
                      Terrain, TerrainModifiers)
 from wesnoth_ai.encoder import NUM_HEX_DYNAMIC_FLAGS, encode_raw
 from helpers.tiny_state import _gs

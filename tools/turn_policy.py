@@ -43,7 +43,7 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from wesnoth_ai.classes import GameState, state_key
+from wesnoth_ai.sim.classes import GameState, state_key
 from tools.mcts import MCTSConfig
 from tools.mcts_policy import MCTSPolicy, _PendingMCTSState
 from tools.turn_search import TurnPlan, TurnSearchConfig, plan_turn

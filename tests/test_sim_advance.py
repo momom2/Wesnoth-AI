@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import pytest
-from wesnoth_ai.classes import Position, Unit
+from wesnoth_ai.sim.classes import Position, Unit
 from tools.replay_dataset import _build_recruit_unit
 from tools.sim_to_replay import _build_replay_wml
 from tools.wesnoth_sim import RecordedCommand

@@ -127,7 +127,7 @@ def _xp_scaled_cost(u) -> float:
 
 
 def _attacker_on_village(gs, u) -> bool:
-    from wesnoth_ai.classes import Terrain
+    from wesnoth_ai.sim.classes import Terrain
     for h in gs.map.hexes:
         if h.position.x == u.position.x and h.position.y == u.position.y:
             return Terrain.VILLAGE in h.terrain_types
@@ -266,7 +266,7 @@ def run_neutral_side_turn(sim, side: int = 3) -> int:
     (`WesnothSim._play_neutral_turn`)."""
     from tools.abilities import hex_neighbors
     from wesnoth_ai.visibility import is_scenery_unit
-    from wesnoth_ai.classes import Position
+    from wesnoth_ai.sim.classes import Position
 
     gs = sim.gs
     aggression = _side_aggression(sim.scenario_id, side)

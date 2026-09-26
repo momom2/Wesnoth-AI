@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from wesnoth_ai.classes import PLAYER_SIDES, opponent_of
+from wesnoth_ai.sim.classes import PLAYER_SIDES, opponent_of
 
 TAKES_CONTROL_RE = re.compile(r"^(.+) takes control of side (\d+)\.$")
 SURRENDERED_RE = re.compile(r"^(.+) has surrendered\.$")

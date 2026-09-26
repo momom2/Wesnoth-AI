@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
-from wesnoth_ai.classes import GameState
+from wesnoth_ai.sim.classes import GameState
 from tools.selfplay_game import _update_closest_approach, _would_recruit_bounce
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.game_record import note_search_outcomes

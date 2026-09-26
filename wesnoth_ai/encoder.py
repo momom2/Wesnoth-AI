@@ -31,7 +31,7 @@ import torch.nn as nn
 
 from wesnoth_ai.packed_trunk import EmbeddedStreams, FlatLayout
 
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment,
     GameState,
     Position,

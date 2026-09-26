@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from wesnoth_ai.classes import GameState, Unit
+from wesnoth_ai.sim.classes import GameState, Unit
 from wesnoth_ai.paths import UNIT_STATS_PATH
 from wesnoth_ai.rules.scenario_pool import classify_scenario as _classify_scenario
 from wesnoth_ai.rewards import (
@@ -276,7 +276,7 @@ def play_one_game(
     # Count via TERRAIN (map-build truth): the VILLAGE *modifier* is
     # only stamped on owned villages at capture time
     # (replay_dataset._parse_hex_code vs _capture_village).
-    from wesnoth_ai.classes import Terrain as _T
+    from wesnoth_ai.sim.classes import Terrain as _T
     map_total_villages = sum(
         1 for h in sim.gs.map.hexes if _T.VILLAGE in h.terrain_types)
     start_gold = {i + 1: int(sd.current_gold)

@@ -52,7 +52,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_ai.classes import GameState, Unit
+from wesnoth_ai.sim.classes import GameState, Unit
 from wesnoth_ai.rewards import hex_distance
 from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
 from wesnoth_ai.transformer_policy import TransformerPolicy

@@ -7,7 +7,7 @@ the whole sequence of atomic actions `raw:t0` (tools/raw_player.py at
 temperature 0, the reference player) plays until it ends the turn.
 K ALTERNATIVE whole turns come from the same weights at temperature T
 with distinct sampling seeds. An alternative whose post-turn position
-equals the base's or an earlier alternative's (wesnoth_ai.classes
+equals the base's or an earlier alternative's (wesnoth_ai.sim.classes
 .state_key) is dropped. Every remaining post-turn position is played
 out P times to the end of the game with `raw:t0` on both sides;
 playouts of one position differ by the simulator's combat seed only.
@@ -82,7 +82,7 @@ from tools.mcts import fork_guard
 from tools.raw_player import END_TURN_RULES, RawPolicyPlayer
 from tools.selfplay_game import _would_recruit_bounce
 from tools.wesnoth_sim import WesnothSim
-from wesnoth_ai.classes import GameState, opponent_of, state_key
+from wesnoth_ai.sim.classes import GameState, opponent_of, state_key
 
 log = logging.getLogger("turn_gap")
 
@@ -324,7 +324,7 @@ def play_side_turn(sim: WesnothSim, player, game_label: str,
 
 def _action_from_json(action: Dict) -> Dict:
     """Inverse of _action_to_json for the keys the simulator reads."""
-    from wesnoth_ai.classes import Position
+    from wesnoth_ai.sim.classes import Position
     out = {}
     for k, v in action.items():
         if isinstance(v, list) and len(v) == 2 and all(isinstance(x, int) for x in v) \

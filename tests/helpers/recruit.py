@@ -11,7 +11,7 @@ def recruit_action_for(unit_type: str):
     `recruit_type` -- 2026-08-10 F6 ruling -- because two RNG/chance
     tests use it to engineer deterministic recruit actions.)"""
     from typing import Dict, Optional
-    from wesnoth_ai.classes import GameState, Position, TerrainModifiers
+    from wesnoth_ai.sim.classes import GameState, Position, TerrainModifiers
     from tools.abilities import hex_neighbors
 
     def _move(state: GameState, side: int) -> Optional[Dict]:

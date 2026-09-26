@@ -38,7 +38,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.classes import GameState, Hex, Position, SideInfo
+from wesnoth_ai.sim.classes import GameState, Hex, Position, SideInfo
 from wesnoth_ai.rules.scenario_cfg import UnmodelledWML, load_scenario_wml
 from wesnoth_ai.rules.wml_state import wml_int
 from tools.replay_extract import WMLNode
@@ -765,7 +765,7 @@ def _swap_unit(gs: GameState, old, new) -> None:
     swap it in -- assigning to the shared object's attributes rewrites
     the live game from inside a search (tests/test_fork_isolation.py).
     Unit eq/hash is (id, side), so discard+add replaces the right
-    element however many fields changed (wesnoth_ai/classes.py:120).
+    element however many fields changed (wesnoth_ai/sim/classes.py:120).
     """
     gs.map.units.discard(old)
     gs.map.units.add(new)
@@ -1328,7 +1328,7 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
     Anything else is logged once and dropped -- see `_COSMETIC_APPLY_TO`.
     """
     apply_to = (eff.attrs.get("apply_to", "") or "").strip().strip('"')
-    from wesnoth_ai.classes import Attack
+    from wesnoth_ai.sim.classes import Attack
     from wesnoth_ai.combat import DAMAGE_TYPES
 
     if apply_to == "attack":
@@ -1400,7 +1400,7 @@ def _apply_effect_to_unit(u, eff: WMLNode) -> None:
             type_id_idx = DAMAGE_TYPES.index(wtype.lower())
         except ValueError:
             type_id_idx = 0  # fallback to blade
-        from wesnoth_ai.classes import DamageType
+        from wesnoth_ai.sim.classes import DamageType
         try:
             type_id = list(DamageType)[type_id_idx]
         except (ValueError, IndexError):

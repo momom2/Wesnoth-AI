@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment, GameState, GlobalInfo, Map, Position, SideInfo,
     Unit, state_key,
 )

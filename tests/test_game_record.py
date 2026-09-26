@@ -119,7 +119,7 @@ def _advancing_duel(tmp_path):
     then end a turn, so the record holds two turn starts after the
     fight. Commands: init_side 2, end_turn, init_side 1, attack,
     end_turn, init_side 2, end_turn, init_side 1."""
-    from wesnoth_ai.classes import Position
+    from wesnoth_ai.sim.classes import Position
     sim, setup, _data = _corpus_start(tmp_path, _duel_data(attacker_max_exp=1))
     sim._seed_salt = "record-test"        # its first uniform draw is index 2 of 3
     sim.enable_uniform_advancement()
@@ -307,7 +307,7 @@ def test_a_refused_step_keeps_the_previous_attacks_search_distribution():
     from tools.combat_outcomes import enumerate_attack_outcomes
     from tools.replay_dataset import _build_initial_gamestate
     from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai.classes import Position
+    from wesnoth_ai.sim.classes import Position
     sim = WesnothSim(_build_initial_gamestate(_duel_data()), scenario_id="rec", max_turns=4,
                      use_core=False)
     spear, javelin = ({"type": "attack", "start_hex": Position(0, 0),

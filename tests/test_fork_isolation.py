@@ -45,7 +45,7 @@ from tools.replay_extract import WMLNode  # noqa: E402
 from tools.scenario_events import (  # noqa: E402
     _modify_unit_action, _object_action,
 )
-from wesnoth_ai.classes import deep_state_fingerprint  # noqa: E402
+from wesnoth_ai.sim.classes import deep_state_fingerprint  # noqa: E402
 
 
 # Aethermaw's `side 1 turn 4` [terrain] event morphs WML (13,13) ->
@@ -349,7 +349,7 @@ def test_deep_fingerprint_covers_surfaces_state_key_misses():
     `state_key` deliberately ignores (state_key answers 'same MCTS
     node?'; the fingerprint answers 'did anything leak?'). Each of
     the three real leak instances lived on such a surface."""
-    from wesnoth_ai.classes import state_key
+    from wesnoth_ai.sim.classes import state_key
 
     sim = fresh_scenario_sim(0, scenario_id=_AETHERMAW)
     fp0 = deep_state_fingerprint(sim.gs)
@@ -376,7 +376,7 @@ def test_deep_fingerprint_covers_surfaces_state_key_misses():
 
     # (c) Hex modifiers (the village-bit surface, fa95da5).
     h = next(iter(sim.gs.map.hexes))
-    from wesnoth_ai.classes import TerrainModifiers
+    from wesnoth_ai.sim.classes import TerrainModifiers
     added = TerrainModifiers.ILLUMINATED not in h.modifiers
     if added:
         h.modifiers.add(TerrainModifiers.ILLUMINATED)

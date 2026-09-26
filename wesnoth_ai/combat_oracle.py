@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from wesnoth_ai.classes import DamageType, Unit
+from wesnoth_ai.sim.classes import DamageType, Unit
 
 
 # Placeholder defense chance when we can't look up the defender's

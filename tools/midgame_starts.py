@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 from wesnoth_ai.paths import REPO_ROOT
 
 if TYPE_CHECKING:
-    from wesnoth_ai.classes import GameState
+    from wesnoth_ai.sim.classes import GameState
 
 log = logging.getLogger("midgame_starts")
 

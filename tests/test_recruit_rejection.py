@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import pytest
 
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment, GameState, GlobalInfo, Hex, Map, Position, SideInfo,
     Terrain, TerrainModifiers, Unit,
 )

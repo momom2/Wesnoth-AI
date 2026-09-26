@@ -208,7 +208,7 @@ def test_observe_is_thread_safe():
     don't corrupt _pending / _queue. Uses the simplest possible
     sequence: select_action -> observe(done=True) repeated."""
     from wesnoth_ai.transformer_policy import TransformerPolicy
-    from wesnoth_ai.classes import (
+    from wesnoth_ai.sim.classes import (
         Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map,
         Position, SideInfo, Terrain, Unit,
     )

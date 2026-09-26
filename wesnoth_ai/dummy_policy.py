@@ -37,7 +37,7 @@ Action format is the *internal* shape: a dict with `start_hex` /
 
 from typing import Dict, Iterable, List, Optional
 
-from wesnoth_ai.classes import GameState, Position, SideInfo, TerrainModifiers, Unit
+from wesnoth_ai.sim.classes import GameState, Position, SideInfo, TerrainModifiers, Unit
 
 # Cheapest dwarvish/saurian recruit is 14g. Pad so we don't try to
 # recruit without the cash.

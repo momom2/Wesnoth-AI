@@ -126,7 +126,7 @@ def test_mask_less_caller_cannot_hang_the_sim():
     caught live as an infinite no-op loop with DummyPolicy)."""
     from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai.classes import Position
+    from wesnoth_ai.sim.classes import Position
 
     rng = random.Random(5)
     setup = random_setup(rng, forced_faction=None, mini_maps=False,

@@ -143,7 +143,7 @@ def component_costs(states: Sequence[Tuple[object, str]], policy,
     import torch
     from wesnoth_ai.action_sampler import (_build_legality_masks,
                                            enumerate_legal_actions_with_priors)
-    from wesnoth_ai.classes import state_key
+    from wesnoth_ai.sim.classes import state_key
     from tools.wesnoth_sim import WesnothSim
     enc = policy._inference_encoder
     model = policy._inference_model

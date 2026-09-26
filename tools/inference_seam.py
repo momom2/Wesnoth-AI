@@ -57,7 +57,7 @@ from typing import Dict, List, Optional, Protocol, Tuple
 
 import torch
 
-from wesnoth_ai.classes import GameState
+from wesnoth_ai.sim.classes import GameState
 from wesnoth_ai.encoder import EncodedState, RawEncoded, encode_raw
 from wesnoth_ai.model import ModelOutput
 

@@ -142,7 +142,7 @@ def test_serving_plan_tracks_live_dice_stream(monkeypatch):
     Certification statistics are pinned elsewhere; here `certify` is
     patched to isolate the respine property on a certified plan."""
     import tools.plan_tournament as pt
-    from wesnoth_ai.classes import state_key
+    from wesnoth_ai.sim.classes import state_key
     monkeypatch.setattr(pt, "certify",
                         lambda *a, **k: (0.2, 0.2, 2))
     net = _tiny()

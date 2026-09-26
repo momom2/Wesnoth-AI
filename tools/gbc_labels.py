@@ -86,7 +86,7 @@ def _village_hexes(gs) -> List[Tuple[int, int]]:
     """All village positions from terrain truth (owned or not) --
     the goal roster must include never-captured villages, or first
     captures would be unlabelable."""
-    from wesnoth_ai.classes import Terrain
+    from wesnoth_ai.sim.classes import Terrain
     return [(h.position.x, h.position.y) for h in gs.map.hexes
             if Terrain.VILLAGE in h.terrain_types]
 

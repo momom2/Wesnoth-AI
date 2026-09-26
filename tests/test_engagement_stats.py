@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 import numpy as np
 import torch
 
-from wesnoth_ai.classes import Position
+from wesnoth_ai.sim.classes import Position
 from helpers.tiny_state import _gs, _u
 from tools.engagement_stats import clear_event_sink, set_event_sink
 from tools.replay_dataset import _apply_command

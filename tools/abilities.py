@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional, Tuple
 
-from wesnoth_ai.classes import Unit
+from wesnoth_ai.sim.classes import Unit
 
 
 # ----------------------------------------------------------------------

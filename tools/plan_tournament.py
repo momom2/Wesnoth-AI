@@ -80,7 +80,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from wesnoth_ai.classes import GameState, state_key  # noqa: E402
+from wesnoth_ai.sim.classes import GameState, state_key  # noqa: E402
 from tools.mcts import MCTSConfig  # noqa: E402
 from tools.mcts_policy import MCTSPolicy, _PendingMCTSState  # noqa: E402
 from tools.turn_search import (  # noqa: E402

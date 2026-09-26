@@ -1,5 +1,5 @@
 """The Rust-owned game state (docs/rust_port_plan.md phase 4): the
-adapter between `wesnoth_ai.classes.GameState` and `wesnoth_core.GameCore`.
+adapter between `wesnoth_ai.sim.classes.GameState` and `wesnoth_core.GameCore`.
 
 `CoreState.from_state(gs)` builds a core from a Python state: the map's
 static arrays once per hex set (`map_static`), the unit types it needs
@@ -31,8 +31,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from wesnoth_ai.classes import (Attack, GameState, GlobalInfo, Map, Position, SideInfo,
-                                TerrainModifiers, Unit, opponent_of)
+from wesnoth_ai.sim.classes import (Attack, GameState, GlobalInfo, Map, Position, SideInfo,
+                                    TerrainModifiers, Unit, opponent_of)
 
 _KERNEL_CHECKED = False
 _GAME_CORE = None
@@ -208,7 +208,7 @@ def unit_fields(u: Unit) -> dict:
 
 def unit_from_fields(d: dict, stash: Optional[dict]) -> Unit:
     """The dataclass back from the core's export (`GameCore.unit_export`)."""
-    from wesnoth_ai.classes import Alignment, DamageType
+    from wesnoth_ai.sim.classes import Alignment, DamageType
     u = Unit(
         id=d["id"], name=d["name"], name_id=int(d["name_id"]), side=int(d["side"]),
         is_leader=bool(d["is_leader"]), position=Position(x=int(d["x"]), y=int(d["y"])),

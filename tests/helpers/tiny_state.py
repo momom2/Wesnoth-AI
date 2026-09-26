@@ -1,7 +1,7 @@
 """A minimal hand-built game state: two sides on a 10x10 flat board, a
 Spearman and a leader each, built without the simulator or scenario
 data."""
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map,
     Position, SideInfo, Terrain, Unit,
 )

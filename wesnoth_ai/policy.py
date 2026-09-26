@@ -53,7 +53,7 @@ Then `python main.py --policy my_name` picks it up.
 
 from typing import Callable, Dict, List, Protocol
 
-from wesnoth_ai.classes import GameState
+from wesnoth_ai.sim.classes import GameState
 
 
 class Policy(Protocol):

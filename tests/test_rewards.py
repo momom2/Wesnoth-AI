@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment, GameState, GlobalInfo, Map, Position, SideInfo, Unit,
 )
 from wesnoth_ai.rewards import (

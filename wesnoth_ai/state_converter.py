@@ -7,7 +7,7 @@
 import json
 from typing import Dict, Set
 
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     GameState, Map, Unit, Attack, Position, Hex, GlobalInfo, SideInfo,
     Alignment, UnitAbility, UnitTrait, UnitStatus, DamageType, Terrain,
     TerrainModifiers, AttackSpecial

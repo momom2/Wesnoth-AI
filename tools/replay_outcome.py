@@ -29,7 +29,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Dict, Optional, Set
 
 from tools.replay_control import PLAYED_BY_OPPONENT, SURRENDER
-from wesnoth_ai.classes import PLAYER_SIDES, opponent_of
+from wesnoth_ai.sim.classes import PLAYER_SIDES, opponent_of
 from wesnoth_ai.material import material_of_units
 
 LEADER_DEATH = "leader_death"

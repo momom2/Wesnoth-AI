@@ -16,7 +16,7 @@ import logging
 from typing import List
 
 
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment, GameState, GlobalInfo, Map, Position, SideInfo, Unit,
 )
 from wesnoth_ai.encoder import GameStateEncoder

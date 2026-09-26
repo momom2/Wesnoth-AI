@@ -39,7 +39,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
-from wesnoth_ai.classes import Attack, Unit
+from wesnoth_ai.sim.classes import Attack, Unit
 
 
 # ----------------------------------------------------------------------

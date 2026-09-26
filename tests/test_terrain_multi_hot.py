@@ -26,7 +26,7 @@ from tools.eval_players import peek_checkpoint_arch  # noqa: E402
 from tools.inference_seam import RemoteEncoder, inference_blueprint  # noqa: E402
 from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS, build_scenario_gamestate, random_setup  # noqa: E402
 from wesnoth_ai.rules.terrain_resolver import strip_start_position, terrain_mask, terrain_members  # noqa: E402
-from wesnoth_ai.classes import Terrain  # noqa: E402
+from wesnoth_ai.sim.classes import Terrain  # noqa: E402
 from wesnoth_ai.encoder import NUM_TERRAINS, GameStateEncoder, _first_terrain_id, encode_raw  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 

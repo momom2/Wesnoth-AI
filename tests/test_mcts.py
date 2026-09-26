@@ -381,7 +381,7 @@ def test_transposition_shares_node_across_paths():
     `transpositions=` is provided.
     """
     from tools.mcts import _select_one
-    from wesnoth_ai.classes import (
+    from wesnoth_ai.sim.classes import (
         GameState, GlobalInfo, Map, SideInfo, state_key,
     )
 
@@ -467,7 +467,7 @@ def test_transposition_disabled_creates_separate_nodes():
     their state_keys collide, confirming that the TT is what
     makes sharing happen (not some other code path)."""
     from tools.mcts import _select_one
-    from wesnoth_ai.classes import (
+    from wesnoth_ai.sim.classes import (
         GameState, GlobalInfo, Map, SideInfo,
     )
 
@@ -535,7 +535,7 @@ def test_noop_resample_does_not_self_loop():
     bounded path and a terminal leaf.
     """
     from tools.mcts import _select_one, _NOOP_KEY
-    from wesnoth_ai.classes import GameState, GlobalInfo, Map, SideInfo, state_key
+    from wesnoth_ai.sim.classes import GameState, GlobalInfo, Map, SideInfo, state_key
 
     def _mk_gs():
         return GameState(
@@ -758,7 +758,7 @@ def test_tree_reuse_inherits_subtree_for_deterministic_actions():
 
     import numpy as np
     import torch
-    from wesnoth_ai.classes import state_key
+    from wesnoth_ai.sim.classes import state_key
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import MCTSConfig, mcts_search
     from wesnoth_ai.rules.scenario_pool import (
@@ -908,7 +908,7 @@ def test_seed_salt_samples_distinct_recruit_outcomes():
     unsalted forks reproduce one predetermined outcome -- the frozen
     single-sample behavior chance nodes exist to fix."""
     import random as _random
-    from wesnoth_ai.classes import state_key
+    from wesnoth_ai.sim.classes import state_key
     from helpers.recruit import recruit_action_for as recruit_type
     from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,
@@ -948,7 +948,7 @@ def test_seed_salt_samples_distinct_recruit_outcomes():
 def _chance_stub_root():
     """Root with ONE stochastic edge whose stub sim produces a NEW
     distinct state on every fork+step (monotone counter)."""
-    from wesnoth_ai.classes import GameState, GlobalInfo, Map, SideInfo
+    from wesnoth_ai.sim.classes import GameState, GlobalInfo, Map, SideInfo
 
     counter = {"n": 10}
 

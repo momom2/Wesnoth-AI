@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from wesnoth_ai.classes import GameState
+    from wesnoth_ai.sim.classes import GameState
 
 
 @dataclass
@@ -97,7 +97,7 @@ def _map_total_villages(gs: "GameState") -> int:
     and the hex scan runs once per game."""
     n = getattr(gs.global_info, "_map_total_villages", None)
     if n is None:
-        from wesnoth_ai.classes import Terrain
+        from wesnoth_ai.sim.classes import Terrain
         n = sum(1 for h in gs.map.hexes
                 if Terrain.VILLAGE in h.terrain_types)
         try:

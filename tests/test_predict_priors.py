@@ -31,7 +31,7 @@ import torch
 from wesnoth_ai.action_sampler import (
     _build_legality_masks, predict_priors,
 )
-from wesnoth_ai.classes import (
+from wesnoth_ai.sim.classes import (
     Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map, Position,
     SideInfo, Terrain, TerrainModifiers, Unit,
 )

@@ -86,7 +86,7 @@ def test_only_a_side_s_own_spelling_names_a_side():
 
 def test_scenario_pool_reads_a_two_digit_side_and_skips_a_name():
     from wesnoth_ai.rules.scenario_pool import extract_player_starts
-    from wesnoth_ai.classes import Position
+    from wesnoth_ai.sim.classes import Position
 
     starts = extract_player_starts(MAP_DATA)
     assert starts == {10: Position(x=0, y=0)}, \
@@ -108,7 +108,7 @@ def test_a_terrain_event_keeps_the_start_label():
     map_data we export."""
     from tools.replay_extract import WMLNode
     from tools.scenario_events import _terrain_action
-    from wesnoth_ai.classes import GameState, GlobalInfo, Hex, Map, Position
+    from wesnoth_ai.sim.classes import GameState, GlobalInfo, Hex, Map, Position
 
     gi = GlobalInfo(current_side=1, turn_number=1, time_of_day="dawn",
                     village_gold=2, village_upkeep=1, base_income=2)

@@ -1,6 +1,6 @@
 //! Phase 4: the game state owned by Rust (docs/rust_port_plan.md).
 //!
-//! `GameCore` holds what `wesnoth_ai.classes.GameState` holds and the
+//! `GameCore` holds what `wesnoth_ai.sim.classes.GameState` holds and the
 //! per-fork stash the simulator keeps on `global_info`: the units, the
 //! sides, the turn scalars, the village owners, the uncovered hiders,
 //! the turn's recruit rejections and each side's cleared hexes. What

@@ -357,7 +357,7 @@ def test_object_effects_survive_advancement():
     the HP ledger forked (16349, engine playback clean, user viewer
     frames 2026-08-07)."""
     from tools import replay_dataset as rd
-    from wesnoth_ai.classes import AttackSpecial  # noqa: F401
+    from wesnoth_ai.sim.classes import AttackSpecial  # noqa: F401
     gs = rd._build_initial_gamestate({
         "game_id": "t", "scenario_id": "multiplayer_Hornshark_Island",
         "factions": ["Rebels", "Loyalists"],

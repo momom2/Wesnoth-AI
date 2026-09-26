@@ -72,7 +72,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, SideInfo, state_digest
+from wesnoth_ai.sim.classes import PLAYER_SIDES, GameState, Position, SideInfo, state_digest
 from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,

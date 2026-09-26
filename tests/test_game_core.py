@@ -405,7 +405,7 @@ def test_simulator_on_the_core_plays_the_python_game():
     untouched. One game fights (`Brawler`), one random-walks."""
     import wesnoth_ai.dummy_policy as dummy_policy
     from tests.sim_test_helpers import Brawler
-    from wesnoth_ai.classes import state_key
+    from wesnoth_ai.sim.classes import state_key
     from wesnoth_ai.dummy_policy import DummyPolicy
     total = attacks = 0
     cap = dummy_policy._BOOTSTRAP_UNITS

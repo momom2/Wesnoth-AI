@@ -37,7 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Protocol, Tuple
 
-from wesnoth_ai.classes import GameState
+from wesnoth_ai.sim.classes import GameState
 
 
 # Outcome of a game as seen from ONE side's perspective.
@@ -266,7 +266,7 @@ class TurnConditionalBonus:
             # Owned villages live in the per-fork _village_owner map
             # (sim path); TerrainModifiers.VILLAGE covers converter-
             # built states. Same disjunction as encoder.encode_raw.
-            from wesnoth_ai.classes import TerrainModifiers
+            from wesnoth_ai.sim.classes import TerrainModifiers
             owner_map = getattr(state.global_info,
                                 "_village_owner", None) or {}
             for u in state.map.units:
@@ -1320,7 +1320,7 @@ def _pred_leader_on_village(state: GameState, side: int) -> bool:
     honored for live-Wesnoth-converter states. Standing on a village
     captures it, so 'on a village' and 'on an owned village' coincide
     by the time this predicate is evaluated."""
-    from wesnoth_ai.classes import TerrainModifiers
+    from wesnoth_ai.sim.classes import TerrainModifiers
     leader = next((u for u in state.map.units
                    if u.side == side and u.is_leader), None)
     if leader is None:
@@ -1340,7 +1340,7 @@ def _pred_leader_on_keep(state: GameState, side: int) -> bool:
     recruit). Useful as a 'don't wander the leader off' bonus that's
     less harsh than `leader_move_penalty` -- only credits while the
     leader CAN recruit, vs. always-on regardless of position."""
-    from wesnoth_ai.classes import TerrainModifiers
+    from wesnoth_ai.sim.classes import TerrainModifiers
     leader = next((u for u in state.map.units
                    if u.side == side and u.is_leader), None)
     if leader is None:

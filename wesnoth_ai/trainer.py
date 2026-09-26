@@ -48,7 +48,7 @@ from wesnoth_ai.action_sampler import (
     _unit_by_id,
     reforward_logprob_entropy,
 )
-from wesnoth_ai.classes import GameState
+from wesnoth_ai.sim.classes import GameState
 from wesnoth_ai.device import dml_sync
 from wesnoth_ai.encoder import RawEncoded
 from wesnoth_ai.model import UnitActionType

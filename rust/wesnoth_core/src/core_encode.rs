@@ -23,7 +23,7 @@ fn clamp_pos(v: i64, limit: i64) -> i64 {
     if v < 0 { 0 } else if v > limit { limit } else { v }
 }
 
-/// The other player's side (`wesnoth_ai.classes.opponent_of`). The
+/// The other player's side (`wesnoth_ai.sim.classes.opponent_of`). The
 /// sides a scenario declares beyond the players (statues, a neutral
 /// AI) are nobody's opponent, and a side that is not a player's has
 /// none.

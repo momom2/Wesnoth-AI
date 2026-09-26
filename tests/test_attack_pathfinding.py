@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from wesnoth_ai.classes import (   # noqa: E402
+from wesnoth_ai.sim.classes import (   # noqa: E402
     Alignment, Attack, DamageType, GameState, GlobalInfo, Hex, Map,
     Position, SideInfo, Terrain, Unit,
 )
