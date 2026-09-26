@@ -2,11 +2,11 @@
 
 `CoreState.from_state(gs).to_state()` must equal `gs` over every modeled
 field (units field for field including statuses, traits, abilities and
-attacks; sides; the turn scalars; the village owners, the uncovered and
-rejected sets, the advancement queue, the last walk and strikes) and
+attacks; sides; the turn scalars; the village owners, the uncovered set,
+the recruit rejections, the advancement queue, the last walk and strikes) and
 share the hex set by identity. A fork must not share dynamic state
 with its parent. The core's state key must agree with itself on equal
-states and change with any modeled field. Skipped without the phase-15
+states and change with any modeled field. Skipped without the phase-16
 wheel.
 """
 from __future__ import annotations
@@ -50,7 +50,6 @@ def _decorate(gs):
     gi = gs.global_info
     hexes = sorted(gs.map.hexes, key=lambda h: (h.position.y, h.position.x))
     gi._recruit_rejected_hexes = {(hexes[3].position.x, hexes[3].position.y)}
-    gi._move_rejected_hexes = {(hexes[5].position.x, hexes[5].position.y)}
     units = sorted(gs.map.units, key=lambda u: u.id)
     gi._uncovered_units = {units[0].id} if units else set()
     gi._last_move_walk = {"ordered": (1, 2), "landed": (1, 3), "stop_reason": "ambush"}
@@ -188,6 +187,48 @@ def test_lawful_bonus_equals_the_python_helper():
                     _lawful_bonus_at(gs, h.position.x, h.position.y, turn), (h.position, turn)
                 n += 1
     assert n > 100
+
+
+def test_a_negative_start_slot_wraps_on_the_board_and_in_a_time_area():
+    """The engine wraps `current_time` into the schedule with a modulo
+    that is never negative (`fix_time_index`, src/tod_manager.cpp:66,
+    1.18.4), and so do the Python board index (`_tod_cycle_index`) and
+    time-area index (`_lawful_bonus_at`). The readers wrap the slot
+    before it reaches a state, so this state carries one set by hand."""
+    from tests.sim_test_helpers import replayed_state, three_side_record
+    from tools.replay_dataset import _lawful_bonus_at
+    gs = replayed_state(three_side_record(), 0)
+    gs.global_info._tod_start_offset = -1
+    area, plain = (0, 1), (4, 4)
+    gs.global_info._time_areas = {area: [25, 0, -25, 0]}
+    cs = gc.CoreState.from_state(gs)
+    for turn in range(8):
+        for x, y in (area, plain):
+            assert cs.core.lawful_bonus(x, y, turn) == _lawful_bonus_at(gs, x, y, turn), ((x, y), turn)
+    py, cs, path = _apply_both(gs, ["init_side", 1])
+    assert path == "rust"
+    assert cs.to_state().global_info.time_of_day == py.global_info.time_of_day == "second_watch"
+
+
+def test_the_invariant_check_holds_each_side_to_the_villages_it_owns():
+    """`WesnothSim._assert_invariants` (e) on the core: each side's
+    village count equals the villages the owner map gives it
+    (`replay_dataset.village_count_mismatches`). A count off its owners
+    and an owner off its count are both violations."""
+    from dataclasses import replace
+    from tests.sim_test_helpers import replayed_state, three_side_record
+    from tools.replay_dataset import village_count_mismatches
+    gs = replayed_state(three_side_record(), 1)
+    assert not village_count_mismatches(gs)
+    assert gc.CoreState.from_state(gs).core.invariant_violation() is None
+    count_off = copy.deepcopy(gs)
+    count_off.sides[2] = replace(count_off.sides[2], nb_villages_controlled=1)
+    owner_off = copy.deepcopy(gs)
+    del owner_off.global_info._village_owner[(9, 3)]
+    for bad in (count_off, owner_off):
+        assert village_count_mismatches(bad)
+        found = gc.CoreState.from_state(bad).core.invariant_violation()
+        assert found is not None and "village counts" in found, found
 
 
 def test_move_and_attack_equal_the_python_applier():

@@ -1225,16 +1225,17 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
     rust_port_plan.md phase 2 — the state-granularity boundary the
     phase-1 marshaling measurement demanded). Returns (move_rows,
     attack_rows) as bool [U, H] arrays, or None when the fast path
-    doesn't apply (no wheel, relevant-set stream — its debug
-    invariant lives on the Python path — or no acting units)."""
+    doesn't apply (WESNOTH_RUST=0 or no wheel, a wheel too old for the
+    kernel, relevant-set stream — its debug invariant lives on the
+    Python path — or no acting units)."""
     from tools import pathfind_sim as _pf
     if _pf._RUST is None:
         return None
     if (observation is not None and observation.landable is not None
             and observation.tok_of_hex is not None):
-        return _rows_from_observation(observation, encoded, game_state, U, H,
-                                      hex_xs, hex_ys, enemy_mask)
-    if getattr(encoded, "hex_subset", False):
+        return _rows_from_observation(observation, encoded, U, H, hex_xs, hex_ys, enemy_mask)
+    enumerate_moves = _pf.enumerate_kernel()
+    if enumerate_moves is None or getattr(encoded, "hex_subset", False):
         return None
     eligible = []      # (slot, unit)
     for i in range(U):
@@ -1323,8 +1324,6 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
         enemy_a = _flags(reach_ctx.enemy_hexes)
         ally_a = _flags(reach_ctx.ally_hexes)
         occ_a = _flags(reach_ctx.occupied_visible)
-    rej_a = _flags(getattr(game_state.global_info,
-                           "_move_rejected_hexes", None) or set())
 
     unit_hexidx = np.full(U, -1, dtype=np.int64)
     unit_type = np.zeros(U, dtype=np.int64)
@@ -1365,23 +1364,22 @@ def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
         _RUST_TYPE_CACHE[_stack_key] = _stacked = (
             tuple(type_bundles), tm, td)
     tm, td = _stacked[1], _stacked[2]
-    mv, at = _pf._RUST.enumerate_moves(
+    mv, at = enumerate_moves(
         nbrs_flat, tok_of_hex, tm, td,
         unit_hexidx, unit_type, unit_budget, unit_skirm,
         unit_can_move, unit_can_attack,
-        zoc_a, enemy_a, ally_a, occ_a, rej_a, enemy_hexids, H)
+        zoc_a, enemy_a, ally_a, occ_a, enemy_hexids, H)
     return (mv.reshape(U, H).astype(bool),
             at.reshape(U, H).astype(bool))
 
 
-def _rows_from_observation(observation, encoded, game_state, U, H,
-                           hex_xs, hex_ys, enemy_mask):
+def _rows_from_observation(observation, encoded, U, H, hex_xs, hex_ys, enemy_mask):
     """The move/attack rows in token space from the observation's
     landable rows (wesnoth_ai/observe.py, `observe(reach=True)`): the
-    encoded unit slots pick their rows by unit id, the kernel applies
-    the move rejections and finds the attackable enemies in the
-    basis the observation's `tok_of_hex` names (the full board or the
-    relevant subset)."""
+    encoded unit slots pick their rows by unit id, and the kernel
+    carries the rows into the basis the observation's `tok_of_hex`
+    names (the full board or the relevant subset) and finds the
+    attackable enemies there."""
     from wesnoth_ai.observe import kernel_rows_from_reach
     fn = kernel_rows_from_reach()
     if fn is None:
@@ -1401,18 +1399,13 @@ def _rows_from_observation(observation, encoded, game_state, U, H,
         can_move[i] = observation.unit_can_move[k]
         can_attack[i] = observation.unit_can_attack[k]
         landable[i] = observation.landable[k]
-    rej = np.zeros(Hm, dtype=np.uint8)
-    for p in (getattr(game_state.global_info, "_move_rejected_hexes", None) or ()):
-        mi = geom.pos_index.get(p)
-        if mi is not None:
-            rej[mi] = 1
     enemy_hexids = []
     for j in np.flatnonzero(enemy_mask).tolist():
         mi = geom.pos_index.get((int(hex_xs[j]), int(hex_ys[j])))
         if mi is not None:
             enemy_hexids.append(mi)
     mv, at = fn(landable.reshape(-1), geom.nbrs, observation.tok_of_hex, unit_hexidx,
-                can_move, can_attack, rej, np.asarray(enemy_hexids, dtype=np.int64), H)
+                can_move, can_attack, np.asarray(enemy_hexids, dtype=np.int64), H)
     return (np.asarray(mv).reshape(U, H).astype(bool),
             np.asarray(at).reshape(U, H).astype(bool))
 
@@ -1531,9 +1524,9 @@ def _build_legality_masks(
         if u.side != current_side and _vis_key not in visible_unit_ids:
             # Hidden enemy: leave occupancy=0 and DON'T add to
             # unit_at. The hex looks empty to the legality mask;
-            # the policy may attempt to move into it; the sim
-            # bounces / reveals on contact when it executes the
-            # action.
+            # the policy may attempt to move into it, and the walk
+            # then stops next to the unit and reveals it
+            # (pathfind_sim.walk_move_path).
             continue
         key = (u.position.x, u.position.y)
         unit_at[key] = u
@@ -1660,23 +1653,6 @@ def _build_legality_masks(
                     f"but absent from the hex stream")
                 if _j is not None:
                     move_row[_j] = True
-            # Per-turn move-rejection set: hexes that bounced an
-            # earlier move this turn because the sim's god-view said
-            # they were occupied by a unit invisible to the acting
-            # side. The bounce isn't the policy's fault (fair-
-            # information principle) but we DO want to stop offering
-            # the hex as legal -- the policy has now observed
-            # "there's something there" via hex_dynamic_flags bit 1.
-            # Mirrors the recruit-rejected mechanism. Cleared at
-            # init_side; see replay_dataset._apply_command.
-            move_rej_hexes = getattr(
-                game_state.global_info, "_move_rejected_hexes",
-                None) or set()
-            if move_rej_hexes:
-                for hex_idx, (hx, hy) in enumerate(
-                        zip(hex_xs, hex_ys)):
-                    if (int(hx), int(hy)) in move_rej_hexes:
-                        move_row[hex_idx] = False
         if not _finish and can_attack:
             # An enemy is attackable iff the unit is ALREADY adjacent
             # or can LAND on a hex adjacent to it this turn (the

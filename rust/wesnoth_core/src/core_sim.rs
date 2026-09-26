@@ -1,11 +1,37 @@
 //! Phase 4: what the simulator (tools/wesnoth_sim.py) asks the core
 //! between commands: a recruit rejection,
 //! the progress fingerprint of the no-progress tracker, the sides
-//! with a leader, the structural invariants, the advancement salt.
+//! with a leader, the state invariants, the advancement salt.
 
 use pyo3::prelude::*;
 
 use crate::core::{GameCore, Hasher};
+
+impl GameCore {
+    /// `replay_dataset.village_count_mismatches` as text: every side
+    /// whose count differs from the villages the owner map gives it, as
+    /// {side: (count, owned)}. An owner without a side record (a scenery
+    /// side) is counted for nobody.
+    fn village_count_violation(&self) -> Option<String> {
+        let mut owned = vec![0i64; self.sides.len()];
+        for &owner in &self.village_owner {
+            if owner >= 1 && (owner as usize) <= owned.len() {
+                owned[owner as usize - 1] += 1;
+            }
+        }
+        let mut off: Vec<String> = Vec::new();
+        for (i, s) in self.sides.iter().enumerate() {
+            if s.nb_villages != owned[i] {
+                off.push(format!("{}: ({}, {})", i + 1, s.nb_villages, owned[i]));
+            }
+        }
+        if off.is_empty() {
+            None
+        } else {
+            Some(format!("village counts disagree with the owners {{{}}}", off.join(", ")))
+        }
+    }
+}
 
 #[pymethods]
 impl GameCore {
@@ -38,8 +64,9 @@ impl GameCore {
     }
 
     /// `WesnothSim._assert_invariants`: hit points and movement within
-    /// range, one unit per hex, at most one leader per side; the first
-    /// violation as text, or None.
+    /// range, one unit per hex, at most one leader per side, each side's
+    /// village count equal to the villages the owner map gives it; the
+    /// first violation as text, or None.
     fn invariant_violation(&self) -> Option<String> {
         let mut seen = vec![-1i64; self.map.h];
         let mut leaders: std::collections::HashMap<i64, Vec<String>> = std::collections::HashMap::new();
@@ -72,7 +99,7 @@ impl GameCore {
                 return Some(format!("side {} has {} leaders ({:?}); at most one allowed", side, l.len(), l));
             }
         }
-        None
+        self.village_count_violation()
     }
 
     /// The recorder consumed the last attack's advancement events.

@@ -22,6 +22,14 @@ wesnoth_core = pytest.importorskip("wesnoth_core")
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 from tools import pathfind_sim as pf  # noqa: E402
 
+# The kernel's current contract (its arguments and its token bound) is
+# the one the mask builder takes, from `ENUMERATE_KERNEL_PHASE` on.
+_PHASE = getattr(wesnoth_core, "__phase__", 0)
+_served = pytest.mark.skipif(
+    _PHASE < pf.ENUMERATE_KERNEL_PHASE,
+    reason=f"wheel is phase {_PHASE}; enumerate_moves has its current contract "
+           f"from phase {pf.ENUMERATE_KERNEL_PHASE}")
+
 
 def _mid_states(n_games=2, per_game=4):
     """Deep-copied mid-game states from dummy-policy games (the
@@ -98,6 +106,7 @@ def _assert_equal(py, rs, tag):
             f"(sum py={a.sum().item()} rs={b.sum().item()})")
 
 
+@_served
 def test_rust_enumeration_matches_python_masks():
     from wesnoth_ai.action_sampler import _rust_enumerate_rows
     from wesnoth_ai.encoder import GameStateEncoder
@@ -143,14 +152,11 @@ def test_rust_enumeration_matches_python_masks():
 # invariant holds by construction -- this pins the kernel's own
 # contract so a future basis change cannot break it quietly.
 
-_PHASE = getattr(wesnoth_core, "__phase__", 0)
-_needs_bounds_check = pytest.mark.skipif(
-    _PHASE < 9, reason=f"wheel is phase {_PHASE}; the token bounds check landed in 9")
-
 
 def _line_map_call(tok_of_hex, ht, un=2):
     """Three hexes in a line (0-1-2), unit 0 on hex 0 with the moves to
-    reach both others, unit 1 parked on hex 2 and unable to move."""
+    reach both others, unit 1 parked on hex 2 and unable to move; no
+    zone of control, enemy, ally or occupant anywhere."""
     import numpy as np
     nbrs = np.array([1, -1, -1, -1, -1, -1,
                      0, 2, -1, -1, -1, -1,
@@ -162,10 +168,10 @@ def _line_map_call(tok_of_hex, ht, un=2):
         np.array([0, 2][:un], dtype=np.int64), np.zeros(un, dtype=np.int64),
         np.full(un, 5, dtype=np.int64), np.zeros(un, dtype=np.uint8),
         np.array([1, 0][:un], dtype=np.uint8), np.zeros(un, dtype=np.uint8),
-        flat, flat, flat, flat, flat, np.zeros(0, dtype=np.int64), ht)
+        flat, flat, flat, flat, np.zeros(0, dtype=np.int64), ht)
 
 
-@_needs_bounds_check
+@_served
 def test_token_index_past_the_row_width_is_rejected():
     """tok 1 with ht 1 used to write into unit 1's row and come back
     clean; it must raise instead."""
@@ -173,12 +179,11 @@ def test_token_index_past_the_row_width_is_rejected():
         _line_map_call([0, 0, 1], ht=1)
 
 
+@_served
 def test_the_same_arrays_enumerate_normally_when_the_width_fits():
     """Positive control: identical inputs with ht 2 must succeed and
     produce the real rows, so the rejection above is about the bound
-    and not about a malformed call the kernel would refuse anyway.
-    Ungated on purpose -- it holds on every wheel, so it keeps proving
-    the fixture is a real enumeration even where the test above skips."""
+    and not about a malformed call the kernel would refuse anyway."""
     mv, at = _line_map_call([0, 0, 1], ht=2)
     # unit 0 reaches hexes 1 and 2 (tokens 0 and 1); unit 1 cannot move.
     assert mv.tolist() == [1, 1, 0, 0], mv.tolist()

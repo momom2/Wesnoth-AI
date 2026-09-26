@@ -35,7 +35,9 @@ pub(crate) fn neighbours(x: i64, y: i64) -> [(i64, i64); 6] {
 
 /// Per unit i (N, `gs.map.units` order): ux, uy, uhex (map index or
 /// -1), uside, uscenery, upetrified, uleader, uhider (hide-cover
-/// active and not uncovered), uzoc (level >= 1).
+/// active and not uncovered), uzoc (the unit holds a zone of control:
+/// `pathfind_sim.emits_zoc` from Python, the type's level of 1 or more
+/// from the core; a petrified unit holds none either way).
 pub(crate) struct UnitFacts<'a> {
     pub ux: &'a [i64],
     pub uy: &'a [i64],
@@ -118,7 +120,9 @@ pub(crate) fn observe_slices(
     // 2. The reach context of the visible units, map space. `inert`
     // marks hexes of visible scenery (statues, attackless side>=3
     // furniture): occupied, never an attack target (the mask
-    // builder's occupancy code 3).
+    // builder's occupancy code 3). A zone of control is the engine's
+    // `unit::emits_zoc()` (docs/wesnoth_rules.md "ZoC and
+    // incapacitation"): the zone flag and not petrified, scenery or not.
     let mut zoc = vec![0u8; h];
     let mut enemy = vec![0u8; h];
     let mut ally = vec![0u8; h];
@@ -138,7 +142,7 @@ pub(crate) fn observe_slices(
             continue;
         }
         enemy[hi] = 1;
-        if uscenery[i] != 0 || upetrified[i] != 0 || uzoc[i] == 0 {
+        if upetrified[i] != 0 || uzoc[i] == 0 {
             continue;
         }
         for &nb in &nbrs[hi * 6..hi * 6 + 6] {
@@ -238,17 +242,27 @@ pub fn observe_side<'py>(
     };
     let h = seen.len();
     let n = facts.ux.len();
-    if nbrs.len() != h * 6
-        || [castle_or_keep, keep, recruit_rej].iter().any(|a| a.len() != h)
-        || [facts.uy, facts.uhex, facts.uside].iter().any(|a| a.len() != n)
-        || [facts.uscenery, facts.upetrified, facts.uleader, facts.uhider, facts.uzoc]
-            .iter()
-            .any(|a| a.len() != n)
-        || facts.uhex.iter().any(|&i| i >= h as i64)
-    {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "inconsistent array lengths",
-        ));
+    crate::check_lengths(
+        &[
+            ("nbrs", nbrs.len(), h * 6),
+            ("castle_or_keep", castle_or_keep.len(), h),
+            ("keep", keep.len(), h),
+            ("recruit_rej", recruit_rej.len(), h),
+            ("uy", facts.uy.len(), n),
+            ("uhex", facts.uhex.len(), n),
+            ("uside", facts.uside.len(), n),
+            ("uscenery", facts.uscenery.len(), n),
+            ("upetrified", facts.upetrified.len(), n),
+            ("uleader", facts.uleader.len(), n),
+            ("uhider", facts.uhider.len(), n),
+            ("uzoc", facts.uzoc.len(), n),
+        ],
+        || format!("{h} hexes from seen, {n} units from ux"),
+    )?;
+    if let Some(&i) = facts.uhex.iter().find(|&&i| i >= h as i64) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "uhex holds the hex index {i}, out of range for {h} hexes"
+        )));
     }
     let v = observe_slices(nbrs, castle_or_keep, keep, recruit_rej, seen.to_vec(), &facts, side, fog_on);
     Ok((

@@ -368,67 +368,20 @@ def test_walk_passes_through_ally_and_backtracks_off_it():
     assert out2.mp_left == 3                # only 1 MP charged
 
 
-def test_move_rejected_set_clears_at_init_side():
-    """The per-turn _move_rejected_hexes mirrors the recruit set:
-    populated by the harness on each bounce, cleared at init_side
-    so the next side's turn (or our next turn after the cycle)
-    starts fresh."""
-    from tools.replay_dataset import _apply_command
-    units = [_unit('mine', x=0, side=1)]
-    s = _state(units, _hexes_grid(5))
-    # Populate as if the harness bounced a move this turn.
-    s.global_info._move_rejected_hexes = {(3, 0), (4, 0)}
-    # init_side fires at side transition; replay_dataset's
-    # _apply_command clears both rejection sets.
-    _apply_command(s, ["init_side", 2])
-    assert s.global_info._move_rejected_hexes == set()
-
-
-def test_legality_mask_zeros_move_rejected_hex():
-    """After a fog-bounce, the rejected hex must drop out of the
-    MOVE legality mask -- otherwise the policy could re-pick the
-    same hex and the retry loop would never converge.
-
-    Sets up a minimal state where our unit has a single legal move
-    target, marks that target in _move_rejected_hexes, builds the
-    legality mask, and asserts that the move row for our unit is
-    entirely zero (no legal moves remain).
-    """
+def test_legality_mask_offers_a_reachable_empty_hex():
+    """Our unit on (0,0) with 2 MP on a two-hex line: the empty (1,0)
+    is a legal target."""
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.action_sampler import _build_legality_masks
 
-    # Two-hex line: our unit on (0,0), empty hex at (1,0). Move
-    # range = 2 so (1,0) is reachable.
-    hexes = _hexes_grid(2)
-    units = [_unit('mine', x=0, side=1, max_moves=2)]
-    s = _state(units, hexes, current_side=1)
-
+    s = _state([_unit('mine', x=0, side=1, max_moves=2)], _hexes_grid(2), current_side=1)
     enc = GameStateEncoder(d_model=8)
     enc.register_names(s)
     encoded = enc.encode(s)
     masks = _build_legality_masks(encoded, s)
-
-    # Locate our unit's actor slot and (1,0)'s hex index.
-    mine_slot = encoded.unit_ids.index('mine')
-    j_target = encoded.pos_to_hex[(1, 0)]
-
-    # Sanity: (1,0) is a legal move target BEFORE we blacklist it.
-    # `masks.target_valid` is [A, H] (no batch dim) -- A actors,
-    # H map hexes; mine_slot indexes the unit's row, j_target the
-    # hex column.
-    move_mask = masks.target_valid[mine_slot]
-    assert float(move_mask[j_target].item()) > 0.0
-
-    # Blacklist (1,0) via _move_rejected_hexes + re-encode + re-mask.
-    s.global_info._move_rejected_hexes = {(1, 0)}
-    encoded2 = enc.encode(s)
-    masks2 = _build_legality_masks(encoded2, s)
-    j_target2 = encoded2.pos_to_hex[(1, 0)]
-    move_mask2 = masks2.target_valid[mine_slot]
-    assert float(move_mask2[j_target2].item()) == 0.0, (
-        f"rejected move target should be masked out; "
-        f"got mask={float(move_mask2[j_target2].item())}"
-    )
+    # `target_valid` is [A, H]: the unit's actor row, the hex's column.
+    row = masks.target_valid[encoded.unit_ids.index('mine')]
+    assert float(row[encoded.pos_to_hex[(1, 0)]].item()) > 0.0
 
 
 def test_empty_state_zero_visibility():

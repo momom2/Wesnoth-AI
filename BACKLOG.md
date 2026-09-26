@@ -87,19 +87,12 @@ the same night:
   branches, about 3,800 lines. Its encoder, observation and state key
   have no production caller either way, and its encoder cannot serve a
   checkpoint with the terrain set (obs8).
-- **Dead mirror:** `_move_rejected_hexes` is read by the legality mask
-  and carried by the Rust core but written by nothing (a blocked move
-  stops next to the blocker, which it then sees); comments claim an
-  encoder bit that does not exist. Delete it in both languages.
-- **Rust owed** (the Python side landed in 0.7.10): `rem_euclid` in
-  `core_step.rs` `tod_index` and `lawful_bonus_at` (a panic on a negative
-  start slot, which the Python side now wraps as the engine does); the
-  village-count check in `core_sim.rs` `invariant_violation`; the
-  zone-of-control skip in `observe.rs:141` drops its scenery test (the
-  engine's rule is `zoc=`, default level > 0, and not incapacitated;
-  `core_move.rs` already follows it); the stale routing comment in
-  `core_step.rs`; error messages that name the array and its sizes; a
-  phase gate on the reach and enumeration kernels.
+- Done in 0.7.16 (Rust phase 16): the dead mirror `_move_rejected_hexes`
+  deleted in both languages; `rem_euclid` for a negative start slot; the
+  core's village-count invariant; the Rust observation's zone of control
+  follows the engine's rule; array-length errors name the array and the
+  sizes; the reach and enumeration kernels each gated on the phase they
+  need (`tools/kernel_status.py` reports them apart). No measurement moves.
 - **WL_Troll_Toll's scenario is never found:** `find_scenario_cfg_path`
   reads the first `id=` line, which sits inside a `#define`, so its 5
   corpus games load no scenario WML and their petrified trolls keep full

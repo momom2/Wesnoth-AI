@@ -275,14 +275,18 @@ emits no ZoC. Also has `attacks_left() = 0` and `movement_left() = 0`
 Sim: `tools/pathfind_sim.emits_zoc` is the one predicate; the planner
 (`ReachContext.for_side`), the walker (`walk_move_path`), the legality
 mask's reach context (`action_sampler`) and the observation's unit flags
-(`wesnoth_ai/observe.py`) ask it. Every non-own side counts as an enemy.
+(`wesnoth_ai/observe.py`) ask it. The Rust observation kernel
+(`observe.rs`, from phase 16) reads those flags for every visible enemy,
+scenery included, and the Rust core's walk (`core_move.rs`) applies the
+same rule. Every non-own side counts as an enemy.
 
 **Why non-obvious:** our "scenery" class (`visibility.is_scenery_unit`:
 petrified, or attackless on a side past 2) reads like "inert", and the
 planner skipped scenery for ZoC while the walker did not, so on a board
 with an attackless level-1 side-3 unit the mask offered moves that the
-walk cut short at the unit's zone (to 2026-09-26). No pool or corpus
-board has such a unit: every scenery unit there is a petrified statue.
+walk cut short at the unit's zone (to 2026-09-26; the Rust observation
+kernel likewise to phase 15). No pool or corpus board has such a unit:
+every scenery unit there is a petrified statue.
 
 ### controller=null sides get no turn, ever
 
@@ -2126,7 +2130,9 @@ negative remainder: on the six-slot schedule `current_time=-1` starts
 at second watch and `current_time=7` at morning. `wml_state.read_tod`
 applies `wml_state.fix_time_index` where the slot is read, and
 `_build_initial_gamestate` wraps a record's `tod_start_index` the same
-way. Before, the raw value went through: the default-cycle index
+way; the cycle indices (`_tod_cycle_index`, `_lawful_bonus_at`, and
+`rem_euclid` in the Rust core's `core_step.rs` from phase 16) wrap
+whatever slot they are given. Before, the raw value went through: the default-cycle index
 clamped a negative one to dawn, the time-area index wrapped it, and the
 Rust core panicked on it. No pool scenario or corpus record holds one
 out of range (measured 2026-09-26).

@@ -41,7 +41,7 @@ _GAME_CORE = None
 # is shared by reference through `CoreState.statics`.
 MODELED_GLOBALS = (
     "_fog", "_village_owner", "_uncovered_units", "_recruit_rejected_hexes",
-    "_move_rejected_hexes", "_tod_start_offset", "_experience_modifier",
+    "_tod_start_offset", "_experience_modifier",
     "_next_uid_counter", "_rng_request_counter", "_advance_choices", "_pickadvance_game",
     "_did_first_init_side", "_last_move_walk", "_last_checkup_strikes", "_last_advance_events",
     "_advance_uniform", "_advance_salt", "_advance_counter", "_fog_cleared",
@@ -61,10 +61,12 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 15: the core tracks each side's fog, re-hides hiders at
-        # init_side, pays a declared 0 village gold or support as 0, and
-        # its encoding counts the other player's side as the enemy.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 15:
+        # Phase 16: the core tracks each side's fog, re-hides hiders at
+        # init_side, pays a declared 0 village gold or support as 0, counts
+        # the other player's side as the enemy, wraps a negative start
+        # slot, checks village counts against their owners, and gives a
+        # scenery unit its zone of control.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 16:
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
 
@@ -247,7 +249,7 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 15 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 16 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}
@@ -258,45 +260,7 @@ class CoreState:
         cs = cls(core=core, game_id=gs.game_id, statics=statics, hexes_holder=gs.map.hexes)
         for u in gs.map.units:
             cs._add_unit(u, gs)
-        core.set_sides([(s.player, list(s.recruits), int(s.current_gold), int(s.base_income),
-                         int(s.nb_villages_controlled), s.faction or "") for s in gs.sides])
-        core.set_globals({
-            "current_side": int(gi.current_side), "turn_number": int(gi.turn_number),
-            "time_of_day": str(gi.time_of_day), "village_gold": int(gi.village_gold),
-            "village_upkeep": int(gi.village_upkeep), "base_income": int(gi.base_income),
-            "fog_on": bool(getattr(gi, "_fog", True)),
-            "did_first_init_side": bool(getattr(gi, "_did_first_init_side", False)),
-            "tod_start_offset": int(getattr(gi, "_tod_start_offset", 0) or 0),
-            "experience_modifier": int(getattr(gi, "_experience_modifier", 100) or 100),
-            "next_uid_counter": int(getattr(gi, "_next_uid_counter", 1) or 1),
-            "rng_request_counter": int(getattr(gi, "_rng_request_counter", 0) or 0),
-            "advance_uniform": bool(getattr(gi, "_advance_uniform", False)),
-            "advance_salt": str(getattr(gi, "_advance_salt", "") or ""),
-            "advance_counter": int(getattr(gi, "_advance_counter", 0) or 0),
-            "game_over": bool(gs.game_over), "winner": -1 if gs.winner is None else int(gs.winner),
-        })
-        owner = getattr(gi, "_village_owner", None) or {}
-        core.set_village_owner([(int(x), int(y), int(s)) for (x, y), s in owner.items() if s])
-        core.set_uncovered([str(i) for i in (getattr(gi, "_uncovered_units", None) or ())])
-        core.set_rejected([tuple(p) for p in (getattr(gi, "_recruit_rejected_hexes", None) or ())],
-                          [tuple(p) for p in (getattr(gi, "_move_rejected_hexes", None) or ())])
-        pick = getattr(gi, "_pickadvance_game", None) or {}
-        core.set_advance_state(
-            [int(c) if isinstance(c, int) else -1 for c in (getattr(gi, "_advance_choices", None) or [])],
-            [(int(side), str(t), [str(x) for x in lst]) for (side, t), lst in pick.items()],
-            [(int(a), int(b)) for a, b in (getattr(gi, "_last_advance_events", None) or [])])
-        walk = getattr(gi, "_last_move_walk", None)
-        if walk:
-            core.set_last_move_walk((int(walk["ordered"][0]), int(walk["ordered"][1]),
-                                     int(walk["landed"][0]), int(walk["landed"][1]),
-                                     str(walk["stop_reason"])))
-        strikes = getattr(gi, "_last_checkup_strikes", None) or []
-        flat: List[int] = []
-        for k in range(0, len(strikes) - 1, 2):
-            s, d = strikes[k], strikes[k + 1]
-            flat += [int(s["chance"]), int(bool(s["hits"])), int(s["damage"]), int(bool(d["dies"]))]
-        core.set_last_checkup_strikes(flat)
-        core.set_fog_cleared(_fog_cleared_rows(gi))
+        cs._load_scalars(gs)
         return cs
 
     def _register_type(self, name: str) -> None:
@@ -371,9 +335,7 @@ class CoreState:
         gi._advance_counter = g["advance_counter"]
         gi._village_owner = {(x, y): s for (x, y, s) in core.village_owner_export()}
         gi._uncovered_units = set(core.uncovered_export())
-        rec, mov = core.rejected_export()
-        gi._recruit_rejected_hexes = set(rec)
-        gi._move_rejected_hexes = set(mov)
+        gi._recruit_rejected_hexes = set(core.recruit_rejected_hexes())
         choices, pick, last_events = core.advance_state_export()
         gi._advance_choices = list(choices)
         gi._pickadvance_game = {(side, t): list(lst) for (side, t, lst) in pick}
@@ -719,8 +681,7 @@ class CoreState:
         owner = getattr(gi, "_village_owner", None) or {}
         core.set_village_owner([(int(x), int(y), int(s)) for (x, y), s in owner.items() if s])
         core.set_uncovered([str(i) for i in (getattr(gi, "_uncovered_units", None) or ())])
-        core.set_rejected([tuple(p) for p in (getattr(gi, "_recruit_rejected_hexes", None) or ())],
-                          [tuple(p) for p in (getattr(gi, "_move_rejected_hexes", None) or ())])
+        core.set_recruit_rejected([tuple(p) for p in (getattr(gi, "_recruit_rejected_hexes", None) or ())])
         pick = getattr(gi, "_pickadvance_game", None) or {}
         core.set_advance_state(
             [int(c) if isinstance(c, int) else -1 for c in (getattr(gi, "_advance_choices", None) or [])],
@@ -859,7 +820,7 @@ def state_differences(a: GameState, b: GameState, *, stash: bool = True) -> List
             va, vb = int(va or 100), int(vb or 100)
         if k == "_next_uid_counter":
             va, vb = int(va or 1), int(vb or 1)
-        if k in ("_uncovered_units", "_recruit_rejected_hexes", "_move_rejected_hexes"):
+        if k in ("_uncovered_units", "_recruit_rejected_hexes"):
             va, vb = set(va or ()), set(vb or ())
         if k in ("_village_owner", "_pickadvance_game"):
             va = {kk: v for kk, v in (va or {}).items() if v}

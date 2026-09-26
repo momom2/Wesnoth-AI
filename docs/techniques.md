@@ -651,14 +651,14 @@ infinite-loop). Full contract in `CLAUDE.md` §6 and
   so the policy never burns a decision on an unaffordable recruit.
   `_recruit_hex_mask`, `wesnoth_ai/action_sampler.py:1449`;
   affordability `:1344-1396`.
-- **Per-turn rejection sets on `gs.global_info`** **[ON]** —
-  `_recruit_rejected_hexes` and `_move_rejected_hexes`. Cleared at
-  `init_side`. *Why per-turn:* persisting across turns would model
-  knowledge a human doesn't have (the enemy may have moved).
-  The recruit set is ALSO mirrored into the encoder as a per-hex bit
-  (§5.3) so mask and model read the same state; the move set is
-  deliberately mask-only. `wesnoth_ai/action_sampler.py:1233-1249`,
-  `:1463-1481`.
+- **Per-turn recruit rejection set on `gs.global_info`** **[ON]** —
+  `_recruit_rejected_hexes`. Cleared at `init_side`. *Why per-turn:*
+  persisting across turns would model knowledge a human doesn't have
+  (the enemy may have moved). It is ALSO mirrored into the encoder as a
+  per-hex bit (§5.3) so mask and model read the same state. Moves need
+  no such set: a move onto a hex a hidden unit holds stops next to it
+  and reveals it (`pathfind_sim.walk_move_path`).
+  `wesnoth_ai/action_sampler.py:1233-1249`, `:1463-1481`.
 - **Hidden enemies are treated as empty hexes** **[ON]** — you may
   attempt to MOVE into a fog-hidden hex (the engine reveals on
   contact) but may NOT click-to-attack an unseen unit.

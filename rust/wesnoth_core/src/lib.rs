@@ -35,6 +35,20 @@ const UNREACHABLE: i64 = 99;
 /// compose EXACTLY like Python's `subcost * (1.0 / 10000.0)`.
 const SUBCOST_SCALE: f64 = 1.0 / 10000.0;
 
+/// A ValueError for the first array whose length is not the one the
+/// other arrays give it. Each check is (name, length, expected length);
+/// `basis` says where the expected lengths come from, and is built only
+/// on a mismatch.
+pub(crate) fn check_lengths(checks: &[(&str, usize, usize)], basis: impl FnOnce() -> String) -> PyResult<()> {
+    match checks.iter().find(|c| c.1 != c.2) {
+        Some(&(name, got, want)) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "inconsistent array lengths: {name} has {got}, expected {want} ({})",
+            basis()
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Min-heap entry ordered by (cost, seq) — strict total order
 /// because seq is unique per push. BinaryHeap is a max-heap, so the
 /// Ord impl is reversed. cost is never NaN (finite sums of finite
@@ -178,16 +192,20 @@ fn unit_reach_arrays<'py>(
     let enemy = enemy.as_slice()?;
     let ally = ally.as_slice()?;
     let h = mcost.len();
-    if nbrs.len() != h * 6
-        || dsub.len() != h
-        || zoc.len() != h
-        || enemy.len() != h
-        || ally.len() != h
-        || s_idx >= h
-    {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "inconsistent array lengths",
-        ));
+    check_lengths(
+        &[
+            ("nbrs", nbrs.len(), h * 6),
+            ("dsub", dsub.len(), h),
+            ("zoc", zoc.len(), h),
+            ("enemy", enemy.len(), h),
+            ("ally", ally.len(), h),
+        ],
+        || format!("{h} hexes from mcost"),
+    )?;
+    if s_idx >= h {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "s_idx {s_idx} is out of range for {h} hexes"
+        )));
     }
 
     let mut mp = vec![0i64; h];
@@ -209,9 +227,8 @@ fn unit_reach_arrays<'py>(
 /// not an acting unit): the hexes a unit can end a move on this turn,
 /// reached by the Dijkstra, not its own hex, not visibly occupied
 /// (pathfind_sim.UnitReach.landable). An all-zero row for a unit that
-/// cannot move. Move rejection is applied at mask time
-/// (`rows_from_landable`), so a row is a fact of the terrain and the
-/// reach context alone; the relevant hex set is the union of the rows
+/// cannot move. A row is a fact of the terrain and the reach context
+/// alone; the relevant hex set is the union of the rows
 /// (visibility.relevant_hex_positions, part a).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn landable_rows(
@@ -231,17 +248,21 @@ pub(crate) fn landable_rows(
     let h = zoc.len();
     let un = unit_hexidx.len();
     let t = if h == 0 { 0 } else { type_mcost.len() / h };
-    if nbrs.len() != h * 6
-        || type_mcost.len() != t * h
-        || type_dsub.len() != type_mcost.len()
-        || [enemy, ally, occupied].iter().any(|a| a.len() != h)
-        || [unit_type, unit_budget].iter().any(|a| a.len() != un)
-        || [unit_skirm, unit_can_move].iter().any(|a| a.len() != un)
-    {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "inconsistent array lengths",
-        ));
-    }
+    check_lengths(
+        &[
+            ("nbrs", nbrs.len(), h * 6),
+            ("type_mcost", type_mcost.len(), t * h),
+            ("type_dsub", type_dsub.len(), type_mcost.len()),
+            ("enemy", enemy.len(), h),
+            ("ally", ally.len(), h),
+            ("occupied", occupied.len(), h),
+            ("unit_type", unit_type.len(), un),
+            ("unit_budget", unit_budget.len(), un),
+            ("unit_skirm", unit_skirm.len(), un),
+            ("unit_can_move", unit_can_move.len(), un),
+        ],
+        || format!("{h} hexes from zoc, {un} units from unit_hexidx, the type stacks in whole rows of {h}"),
+    )?;
     let mut rows = vec![0u8; un * h];
     let mut mp = vec![0i64; h];
     let mut cost = vec![0f64; h];
@@ -253,16 +274,17 @@ pub(crate) fn landable_rows(
         }
         let s = s as usize;
         if s >= h {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "unit hex index out of range",
-            ));
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unit {u}'s hex index {s} is out of range for {h} hexes"
+            )));
         }
-        let ty = unit_type[u] as usize;
-        if ty >= t {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "unit type index out of range",
-            ));
+        let ty = unit_type[u];
+        if ty < 0 || ty as usize >= t {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unit {u}'s type row {ty} is out of range for {t} rows"
+            )));
         }
+        let ty = ty as usize;
         dijkstra_reach(
             nbrs,
             &type_mcost[ty * h..(ty + 1) * h],
@@ -288,11 +310,10 @@ pub(crate) fn landable_rows(
 
 /// The move and attack rows in token space from landable rows, the
 /// semantics of `_build_legality_masks`: a move row is the landable
-/// row minus the move-rejected hexes; an enemy token is attackable
-/// when a map neighbour of its hex is the unit's own hex or a landable
-/// hex (rejection not applied). Units with `unit_hexidx` < 0 get
-/// empty rows. `tok_of_hex[i]` maps a map hex to its token slot or -1
-/// (the full board or the relevant subset).
+/// row; an enemy token is attackable when a map neighbour of its hex is
+/// the unit's own hex or a landable hex. Units with `unit_hexidx` < 0
+/// get empty rows. `tok_of_hex[i]` maps a map hex to its token slot or
+/// -1 (the full board or the relevant subset).
 ///
 /// Every non-negative `tok_of_hex` entry must be < `ht`. The caller
 /// builds the two from the same hex-position list, so the invariant
@@ -311,25 +332,24 @@ fn rows_from_landable(
     unit_hexidx: &[i64],
     unit_can_move: &[u8],
     unit_can_attack: &[u8],
-    move_rej: &[u8],
     enemy_hexids: &[i64],
     ht: usize,
 ) -> PyResult<(Vec<u8>, Vec<u8>)> {
     let h = tok_of_hex.len();
     let un = unit_hexidx.len();
-    if landable.len() != un * h
-        || nbrs.len() != h * 6
-        || move_rej.len() != h
-        || [unit_can_move, unit_can_attack].iter().any(|a| a.len() != un)
-    {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "inconsistent array lengths",
-        ));
-    }
-    if tok_of_hex.iter().any(|&t| t >= 0 && t as usize >= ht) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "token index out of range for the row width",
-        ));
+    check_lengths(
+        &[
+            ("landable", landable.len(), un * h),
+            ("nbrs", nbrs.len(), h * 6),
+            ("unit_can_move", unit_can_move.len(), un),
+            ("unit_can_attack", unit_can_attack.len(), un),
+        ],
+        || format!("{h} hexes from tok_of_hex, {un} units from unit_hexidx"),
+    )?;
+    if let Some(&t) = tok_of_hex.iter().find(|&&t| t >= 0 && t as usize >= ht) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "token index out of range for the row width: tok_of_hex holds {t}, the row width is {ht}"
+        )));
     }
     let mut move_rows = vec![0u8; un * ht];
     let mut attack_rows = vec![0u8; un * ht];
@@ -340,14 +360,14 @@ fn rows_from_landable(
         }
         let s = s as usize;
         if s >= h {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "unit hex index out of range",
-            ));
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unit {u}'s hex index {s} is out of range for {h} hexes"
+            )));
         }
         let row = &landable[u * h..(u + 1) * h];
         if unit_can_move[u] != 0 {
             for i in 0..h {
-                if row[i] != 0 && move_rej[i] == 0 {
+                if row[i] != 0 {
                     let tok = tok_of_hex[i];
                     if tok >= 0 {
                         move_rows[u * ht + tok as usize] = 1;
@@ -425,7 +445,6 @@ fn rows_from_reach<'py>(
     unit_hexidx: PyReadonlyArray1<'py, i64>,
     unit_can_move: PyReadonlyArray1<'py, u8>,
     unit_can_attack: PyReadonlyArray1<'py, u8>,
-    move_rej: PyReadonlyArray1<'py, u8>,
     enemy_hexids: PyReadonlyArray1<'py, i64>,
     ht: usize,
 ) -> PyResult<(Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>)> {
@@ -436,7 +455,6 @@ fn rows_from_reach<'py>(
         unit_hexidx.as_slice()?,
         unit_can_move.as_slice()?,
         unit_can_attack.as_slice()?,
-        move_rej.as_slice()?,
         enemy_hexids.as_slice()?,
         ht,
     )?;
@@ -472,7 +490,6 @@ fn enumerate_moves<'py>(
     enemy: PyReadonlyArray1<'py, u8>,
     ally: PyReadonlyArray1<'py, u8>,
     occupied: PyReadonlyArray1<'py, u8>,
-    move_rej: PyReadonlyArray1<'py, u8>,
     enemy_hexids: PyReadonlyArray1<'py, i64>,
     ht: usize,
 ) -> PyResult<(Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>)> {
@@ -482,11 +499,9 @@ fn enumerate_moves<'py>(
     let unit_can_move = unit_can_move.as_slice()?;
     let unit_can_attack = unit_can_attack.as_slice()?;
     let zoc = zoc.as_slice()?;
-    if zoc.len() != tok_of_hex.len() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "inconsistent array lengths",
-        ));
-    }
+    check_lengths(&[("zoc", zoc.len(), tok_of_hex.len())], || {
+        format!("{} hexes from tok_of_hex", tok_of_hex.len())
+    })?;
     let rows = landable_rows(
         nbrs,
         type_mcost.as_slice()?,
@@ -508,7 +523,6 @@ fn enumerate_moves<'py>(
         unit_hexidx,
         unit_can_move,
         unit_can_attack,
-        move_rej.as_slice()?,
         enemy_hexids.as_slice()?,
         ht,
     )?;
@@ -539,6 +553,13 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 14: apply_init_side pays a declared 0 village gold or support as 0.
     // 15: GameCore.encode_streams reads the other player's side as the
     // enemy and refuses a side that is not a player's.
-    m.add("__phase__", 15)?;
+    // 16: GameCore wraps a negative start slot into the cycle and its
+    // invariant check compares each side's village count with the owner
+    // map; observe_side gives a scenery unit the zone of control its flag
+    // says; a length error names the array and both lengths;
+    // rows_from_reach and enumerate_moves take no move-rejection row, and
+    // GameCore keeps the recruit rejections only (set_recruit_rejected,
+    // recruit_rejected_hexes).
+    m.add("__phase__", 16)?;
     Ok(())
 }

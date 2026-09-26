@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Which Rust kernels are ACTUALLY live, not merely importable.
 
-`pathfind_sim.rust_active()` answers "did `import wesnoth_core`
-succeed", and a launcher bannered "RUST (wesnoth_core)" off it. That is
-narrowly true about reach and enumeration and misleading about
-everything else: the wheel exposes its kernels by PHASE, and a wheel
-several phases behind the source imports cleanly while observe, combat
-and the Rust-owned state all fall back to Python. Measured on this
-laptop 2026-09-13: the wheel is phase 3, `rust_active()` is True, and
-four of the five kernels are Python.
+A wheel that imports is not a wheel that serves every kernel: each
+kernel needs the wheel phase that gave it its current contract, and a
+wheel several phases behind the source imports cleanly while the
+kernels it is too old for fall back to Python. Measured on this laptop
+2026-09-13: the wheel was phase 3 and imported, and four of the five
+kernels then gated were Python.
 
 Each kernel here is asked through the SAME gate production uses, so
 this cannot drift from what actually runs.
@@ -61,8 +59,13 @@ def source_phase() -> Optional[int]:
 
 
 def _reach() -> bool:
-    from tools.pathfind_sim import rust_active
-    return bool(rust_active())
+    from tools.pathfind_sim import reach_kernel
+    return reach_kernel() is not None
+
+
+def _enumeration() -> bool:
+    from tools.pathfind_sim import enumerate_kernel
+    return enumerate_kernel() is not None
 
 
 def _observe() -> bool:
@@ -98,7 +101,8 @@ def _game_core() -> bool:
 # name -> the production gate. Add a kernel here when you add a gate,
 # or this file starts lying the way the banner did.
 _GATES = {
-    "reach/enumeration": _reach,
+    "reach": _reach,
+    "enumeration": _enumeration,
     "observation": _observe,
     "rows_from_reach": _rows_from_reach,
     "combat": _combat,
