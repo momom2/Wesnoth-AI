@@ -283,6 +283,9 @@ def _pass_position(ckpt: Dict, resumed_epoch: int, resumed_pairs: int, resumed_s
     return None, None
 
 
+SKIP_LOG_EVERY = 50_000     # pairs between progress lines of a resume's skip
+
+
 def _log_pass_reentry(position: PassPosition, t_epoch: float) -> None:
     """The skip of a resumed pass is over: say so, and check that the
     replayed draws land on the state the checkpoint saw."""
@@ -2405,6 +2408,12 @@ def train(
                     skip_left -= 1
                     if skip_left == 0:
                         _log_pass_reentry(position, t_epoch)
+                    elif skip_left % SKIP_LOG_EVERY == 0:
+                        # The skip trains nothing and can take most of an
+                        # hour; a box's stall watch reads the log's growth.
+                        log.info(f"  resume skip: {position.skip_pairs - skip_left} of "
+                                 f"{position.skip_pairs} pairs read again "
+                                 f"({time.time() - t_epoch:.0f} s)")
                     continue
 
                 if use_batched:

@@ -146,7 +146,7 @@ def test_a_failed_file_costs_only_its_own_pairs(tmp_path, monkeypatch):
     assert len(probes) >= 3 and all("probe_error" in r for r in probes)
 
 @pytest.mark.parametrize("batched", [True, False], ids=["batched", "per_pair"])
-def test_a_run_cut_in_its_last_epoch_resumes_on_the_uncut_pass(tmp_path, monkeypatch, batched):
+def test_a_run_cut_in_its_last_epoch_resumes_on_the_uncut_pass(tmp_path, monkeypatch, caplog, batched):
     """Cut in the third epoch after the epoch's file failures and a lost
     batch (or pair), then resumed: the pairs, their value draws and the
     learning rate are the uncut run's. The same from the second epoch's
@@ -168,9 +168,12 @@ def test_a_run_cut_in_its_last_epoch_resumes_on_the_uncut_pass(tmp_path, monkeyp
     saved = torch.load(tmp_path / "cut.pt", map_location="cpu", weights_only=False)
     probes = [r for r in read_signal_rows(tmp_path / "cut_signal.jsonl") if r["kind"] == "probe"]
     assert saved["supervised_resume"]["signal"]["last_row_pairs"] == probes[-1]["pairs"]
-    rest = _train_scripted(ds, tmp_path / "cut.pt", monkeypatch, batched=batched,
-                           resume=tmp_path / "cut.pt")
+    monkeypatch.setattr(st, "SKIP_LOG_EVERY", 5)
+    with caplog.at_level("INFO", logger="supervised_train"):
+        rest = _train_scripted(ds, tmp_path / "cut.pt", monkeypatch, batched=batched,
+                               resume=tmp_path / "cut.pt")
     assert cut.trained + rest.trained == full.trained
+    assert "resume skip:" in caplog.text, "the skip must show progress to a stall watch"
     shutil.copyfile(tmp_path / "full_epoch1.pt", tmp_path / "snapshot.pt")
     last = _train_scripted(ds, tmp_path / "snapshot.pt", monkeypatch, batched=batched,
                            resume=tmp_path / "snapshot.pt")
