@@ -31,8 +31,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
-                                 MINI_MAP_SCENARIO_IDS, ScenarioSetup,
-                                 build_scenario_gamestate)
+                                            MINI_MAP_SCENARIO_IDS, ScenarioSetup,
+                                            build_scenario_gamestate)
 
 SNAPSHOT = Path(__file__).parent / "data" / "scenario_state_snapshot.json"
 # Fixed on purpose: the factions and leaders a scenario is built with

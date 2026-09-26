@@ -229,6 +229,27 @@ def from_module_span(src: Source, node: ast.ImportFrom) -> Optional[Tuple[int, i
     return None
 
 
+def realigned(tail: str, paren_column: int, shift: int) -> str:
+    """`tail`, the rest of a `from` import after its module name, with its
+    continuation lines moved `shift` columns: the names stay under the
+    opening parenthesis at `paren_column` of the first line when the
+    module name before it changes length. Unchanged unless every
+    continuation line starts right after that parenthesis's column (a
+    hanging indent, or any other layout, is left as written)."""
+    first, newline, rest = tail.partition("\n")
+    opened = first.find("(")
+    if not shift or not newline or opened < 0:
+        return tail
+    after = first[opened + 1:].strip()
+    if not after or after.startswith("#"):
+        return tail
+    column = paren_column + 1
+    lines = rest.split("\n")
+    if any(len(line) - len(line.lstrip(" ")) != column for line in lines):
+        return tail
+    return first + newline + "\n".join(" " * (column + shift) + line[column:] for line in lines)
+
+
 # ---------------------------------------------------------------------
 # One file
 # ---------------------------------------------------------------------
@@ -326,7 +347,11 @@ class FilePlanner:
                                      "after `from`: rewrite it by hand")
             return
         old_text = self.src.text[span[0]:span[1]]
-        self.edit(span[0], span[1], new_module, node.lineno,
+        _, end = self.src.span(node)
+        tail = self.src.text[span[1]:end]
+        paren_column = span[1] - self.src.starts[node.lineno - 1] + tail.find("(")
+        tail = realigned(tail, paren_column, len(new_module) - len(old_text))
+        self.edit(span[0], end, new_module + tail, node.lineno,
                   f"from {old_text} import ... -> from {new_module} import ...")
 
     def split_from(self, node: ast.ImportFrom, module: str, taken: List[ast.alias]) -> None:

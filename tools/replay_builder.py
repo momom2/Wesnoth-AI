@@ -34,7 +34,7 @@ from typing import List, Optional
 
 from tools.replay_extract import WMLNode
 from wesnoth_ai.rules.wml_state import (MP_VILLAGE_GOLD, MP_VILLAGE_SUPPORT,
-                             resolve_map_file, village_economy)
+                                        resolve_map_file, village_economy)
 
 # Reuse the existing replay-command emitter; the [replay] block at
 # the end is the same shape as before.

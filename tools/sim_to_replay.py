@@ -67,7 +67,7 @@ from wesnoth_ai.paths import (REPO_ROOT, SCENARIO_TEMPLATES_DIR, TEMPLATES_DIR,
                               UNIT_STATS_PATH, WESNOTH_SRC_DIR)
 from tools.wesnoth_sim import PvPDefaults, RecordedCommand, WesnothSim
 from wesnoth_ai.rules.wml_state import (read_unit, read_villages, resolve_map_file,
-                             village_economy, wml_int)
+                                        village_economy, wml_int)
 
 
 log = logging.getLogger("sim_to_replay")

@@ -123,7 +123,7 @@ def side_economy_from_dataset(starting_sides: list) -> dict:
     declared 0 is the game's own setting, which the reconstruction
     plays (`_build_initial_gamestate`) and the export must declare."""
     from wesnoth_ai.rules.wml_state import (ENGINE_BASE_INCOME, MP_VILLAGE_GOLD,
-                                 MP_VILLAGE_SUPPORT, wml_int)
+                                            MP_VILLAGE_SUPPORT, wml_int)
     econ = {}
     for i, s in enumerate(starting_sides):
         side = wml_int(s.get("side")) or (i + 1)

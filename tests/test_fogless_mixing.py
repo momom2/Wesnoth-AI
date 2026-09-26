@@ -23,8 +23,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 import pytest
 
 from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,
-                                 build_scenario_gamestate, random_setup,
-                                 roll_mix, validate_mix)
+                                            build_scenario_gamestate, random_setup,
+                                            roll_mix, validate_mix)
 
 
 def test_fogless_category_marks_every_ladder_game_fogless():
@@ -140,7 +140,7 @@ def test_outcome_carries_fog_flag_and_village_metrics():
 
 def test_scenario_gold_is_ground_truth():
     from wesnoth_ai.rules.scenario_pool import (ScenarioSetup,
-                                     build_scenario_gamestate)
+                                                build_scenario_gamestate)
     s = ScenarioSetup(scenario_id="multiplayer_Arcanclave_Citadel",
                       faction1="Rebels", leader1="Elvish Captain",
                       faction2="Loyalists", leader2="Lieutenant",
@@ -159,7 +159,7 @@ def test_side_income_offset_does_not_leak_across_sides():
     mechanism is dormant; this pins that side-3 attrs don't leak
     and the default stays correct."""
     from wesnoth_ai.rules.scenario_pool import (ScenarioSetup,
-                                     build_scenario_gamestate)
+                                                build_scenario_gamestate)
     s = ScenarioSetup(
         scenario_id="multiplayer_Thousand_Stings_Garrison",
         faction1="Rebels", leader1="Elvish Captain",

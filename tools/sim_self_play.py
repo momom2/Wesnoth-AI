@@ -2357,7 +2357,7 @@ def main(argv: List[str]) -> int:
     # Eagerly load factions to surface any setup issue NOW rather
     # than on the first worker thread.
     from wesnoth_ai.rules.scenario_pool import (load_factions, LADDER_SCENARIO_IDS,
-                                     MINI_MAP_SCENARIO_IDS)
+                                                MINI_MAP_SCENARIO_IDS)
     factions = load_factions()
     active_pool = (MINI_MAP_SCENARIO_IDS if args.mini_maps
                    else LADDER_SCENARIO_IDS)

@@ -75,6 +75,15 @@ TREE = {
 
         RESULT = importlib.import_module("tools.old_mod").THING
         """,
+    "tools/user_lines.py": """
+        from tools.old_mod import (THING,  # noqa: E402
+                                   bump)
+        from tools.old_mod import (
+            THING as T,
+        )
+
+        RESULT = bump(THING) + T
+        """,
     "tests/test_user.py": """
         import tools.old_mod as om
 
@@ -89,7 +98,7 @@ TREE = {
     "tests/data/manifest.json": '{"reader": "tools/old_mod.py:bump"}\n',
 }
 USERS = ("tools.user_from", "tools.user_plain", "tools.user_split", "tools.user_func",
-         "tools.user_dynamic", "wesnoth_ai.rel_user")
+         "tools.user_dynamic", "tools.user_lines", "wesnoth_ai.rel_user")
 
 
 def _write(root: Path, files: dict) -> None:
@@ -159,6 +168,12 @@ def test_apply_moves_the_module_and_every_importer_computes_what_it_did(tree, ca
     assert split.startswith("from tools import other_mod as om  # noqa: E402\n"
                             "from wesnoth_ai.sim import old_mod  # noqa: E402\n")
     assert "from tools.old_mod_extra import EXTRA" in (tree / "tools/user_from.py").read_text(encoding="utf-8")
+    lines = (tree / "tools/user_lines.py").read_text(encoding="utf-8")
+    assert lines.startswith("from wesnoth_ai.sim.old_mod import (THING,  # noqa: E402\n"
+                            "                                    bump)\n"
+                            "from wesnoth_ai.sim.old_mod import (\n"
+                            "    THING as T,\n"
+                            ")\n"), "names aligned under the parenthesis stay under it; a hanging indent stays"
     patched = (tree / "tests/test_user.py").read_text(encoding="utf-8")
     assert 'monkeypatch.setattr("wesnoth_ai.sim.old_mod.THING", 1)' in patched
     table = (tree / "wesnoth_ai/unpickle.py").read_text(encoding="utf-8")

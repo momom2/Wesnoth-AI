@@ -25,8 +25,8 @@ import tools.scenario_events as se  # noqa: E402
 from wesnoth_ai.rules.scenario_cfg import UnmodelledWML  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
 from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
-                                 MINI_MAP_SCENARIO_IDS, ScenarioSetup,
-                                 build_scenario_gamestate)
+                                            MINI_MAP_SCENARIO_IDS, ScenarioSetup,
+                                            build_scenario_gamestate)
 
 POOL = list(LADDER_SCENARIO_IDS) + list(MINI_MAP_SCENARIO_IDS)
 TRIGGERS = ("prestart", "start", "turn refresh", "turn 1",

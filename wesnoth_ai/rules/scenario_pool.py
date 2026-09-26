@@ -41,10 +41,10 @@ from tools.replay_dataset import (
 )
 from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 from wesnoth_ai.rules.wml_state import (MP_EXPERIENCE_MODIFIER, MP_VILLAGE_GOLD,
-                             MP_VILLAGE_SUPPORT, check_board_cycle,
-                             check_quick_leader_gates, map_starting_positions,
-                             read_side, read_tod, read_villages,
-                             resolve_map_file, wml_int)
+                                        MP_VILLAGE_SUPPORT, check_board_cycle,
+                                        check_quick_leader_gates, map_starting_positions,
+                                        read_side, read_tod, read_villages,
+                                        resolve_map_file, wml_int)
 from wesnoth_ai.rules.wml_state import scenario_economy as _read_scenario_economy
 
 

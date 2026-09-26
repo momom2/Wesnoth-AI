@@ -18,7 +18,7 @@ ROOT = pathlib.Path(r"C:\Users\amaur\Desktop\Perso\projects\Wesnoth_AI")
 sys.path.insert(0, str(ROOT))
 
 from wesnoth_ai.rules.scenario_pool import (random_setup, build_scenario_gamestate,
-                                 load_factions)
+                                            load_factions)
 from tools.wesnoth_sim import WesnothSim
 from wesnoth_ai.transformer_policy import TransformerPolicy
 

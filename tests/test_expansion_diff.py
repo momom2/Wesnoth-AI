@@ -26,7 +26,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.rules.expansion_diff import (POOL, clusters,  # noqa: E402
-                                           compare, expected_clusters)
+                                             compare, expected_clusters)
 
 ACCEPTED = {"SUBSTITUTED", "IGNORED"}
 
