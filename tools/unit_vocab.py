@@ -8,6 +8,15 @@ row: the default era's recruits and leaders, the units the scenarios of
 the pool and of the corpus place, and every type they advance into.
 Seeding refuses a set that would reach the overflow row.
 
+A variation of a reachable type (`Walking Corpse:swimmer`, raised by a
+plague kill of a merman; `Soulless:bat`) shares its base type's row: the
+unit features carry its hit points and moves, and the 48 variations of
+unit_stats.json would not fit the rows left. The seeded vocabulary is
+then frozen, so a name it does not know takes the overflow row, with a
+warning, on every encode path; before 2026-09-26 the pre-encoder sent a
+plague corpse's variation to the overflow row while the live path gave
+it a fresh row that training never updated.
+
     python tools/unit_vocab.py        # the set's size and the rows left
 """
 from __future__ import annotations
@@ -81,11 +90,22 @@ def reachable_unit_types(unit_stats: Path = UNIT_STATS_PATH) -> List[str]:
     return sorted(advancement_closure(_faction_types() | _placed_types(), units))
 
 
+def variation_aliases(names: Iterable[str], units: Dict[str, Dict]) -> Dict[str, str]:
+    """Each `Base:variation` type of `units` whose base is in `names`, to
+    its base."""
+    bases = set(names)
+    return {name: name.split(":", 1)[0] for name in units
+            if ":" in name and name.split(":", 1)[0] in bases}
+
+
 def seed_vocab(encoder, unit_stats: Path = UNIT_STATS_PATH) -> None:
     """Give every reachable unit type of a fresh encoder its own row, in
-    name order. Refuses a set that would reach the overflow row."""
+    name order, point each variation of one at its base type's row, and
+    freeze the vocabulary. Refuses a set that would reach the overflow
+    row."""
     type_to_id = encoder.unit_type_to_id
-    for name in reachable_unit_types(unit_stats):
+    names = reachable_unit_types(unit_stats)
+    for name in names:
         if name not in type_to_id:
             type_to_id[name] = len(type_to_id)
     shared = names_on_overflow_row(type_to_id)
@@ -93,12 +113,19 @@ def seed_vocab(encoder, unit_stats: Path = UNIT_STATS_PATH) -> None:
         raise ValueError(f"{len(type_to_id)} unit types for {MAX_UNIT_TYPES - 1} rows of the "
                          f"type embedding: {len(shared)} would share the overflow row "
                          f"({', '.join(shared[:5])}, ...)")
+    units = json.loads(Path(unit_stats).read_text(encoding="utf-8"))["units"]
+    for alias, base in sorted(variation_aliases(names, units).items()):
+        type_to_id.setdefault(alias, type_to_id[base])
+    encoder.freeze_vocab()
 
 
 def main() -> int:
     names = reachable_unit_types()
+    units = json.loads(UNIT_STATS_PATH.read_text(encoding="utf-8"))["units"]
+    aliases = variation_aliases(names, units)
     print(f"{len(names)} reachable unit types; {MAX_UNIT_TYPES - 1 - len(names)} of the "
-          f"{MAX_UNIT_TYPES - 1} named rows left")
+          f"{MAX_UNIT_TYPES - 1} named rows left; {len(aliases)} variations share their "
+          f"base type's row")
     return 0
 
 

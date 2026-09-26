@@ -34,7 +34,9 @@ match cannot separate the two; the first is expected to dominate.
 - Arm: `obs8`'s recipe from scratch on `main` as staged at rental (0.7.0
   or later; the run records its stage and version)
   (`tools/unit_vocab.py`: a fresh vocabulary of the 190 reachable unit
-  types in name order, none on the overflow row; player-side imitation
+  types in name order, none on the overflow row, each of their 47
+  variations (a plague corpse raised from a merman) on its base type's
+  row, the vocabulary frozen (0.7.12); player-side imitation
   pairs only), `scripts/observation_retrain_box.sh` to the letter
   otherwise: the relevant-set basis, `--terrain-multi-hot`,
   `configs/imitation.json`, batch 64, lr 1e-4, cosine over 4 epochs
