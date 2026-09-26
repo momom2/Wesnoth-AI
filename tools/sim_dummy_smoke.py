@@ -47,7 +47,7 @@ sys.path.insert(0, str(_ROOT / "tools"))
 
 from wesnoth_ai.dummy_policy import DummyPolicy
 from wesnoth_ai.rewards import WeightedReward
-from tools.sim_self_play import (
+from tools.selfplay_game import (
     GameOutcome, _recruit_cost_lookup, play_one_game,
 )
 from tools.scenario_pool import (
@@ -240,9 +240,9 @@ def main(argv: List[str]) -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
-    # Suppress per-game crash tracebacks from sim_self_play's logger;
-    # we collect them into the summary instead.
-    logging.getLogger("sim_self_play").setLevel(logging.CRITICAL)
+    # Suppress per-game crash tracebacks from the game loop's logger
+    # (tools/selfplay_game); we collect them into the summary instead.
+    logging.getLogger("selfplay_game").setLevel(logging.CRITICAL)
 
     factions = load_factions()
     log.info(
@@ -282,7 +282,7 @@ def main(argv: List[str]) -> int:
                          f"({rate:.1f} games/s)")
     else:
         # Workers each pull from a shared atomic counter, identical
-        # pattern to sim_self_play._worker_loop. DummyPolicy is
+        # pattern to selfplay_game._worker_loop. DummyPolicy is
         # stateless so we can share it across threads safely.
         import threading
         shared = {

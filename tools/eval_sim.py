@@ -72,7 +72,7 @@ sys.path.insert(0, str(_THIS.parent))
 from wesnoth_ai.classes import GameState
 from tools.device_select import select_inference_device, describe_device
 from tools.scenario_pool import build_scenario_gamestate, random_setup
-from tools.sim_self_play import (
+from tools.selfplay_game import (
     _recruit_cost_lookup,
     _update_closest_approach,
     _would_recruit_bounce,
@@ -178,8 +178,8 @@ def _play_one_eval_game(
             unplayed_side_turns += 1
             sim.step({"type": "end_turn"})
             continue
-        # Stable snapshot for select_action (see play_one_game's
-        # docstring in sim_self_play.py for why this deepcopy is
+        # Stable snapshot for select_action (see play_one_game in
+        # tools/selfplay_game.py for why this deepcopy is
         # load-bearing).
         pre_state = copy.deepcopy(sim.gs)
         from tools.mcts import fork_guard
@@ -187,7 +187,7 @@ def _play_one_eval_game(
             action = actor.select_action(pre_state, game_label, sim)
 
         # Recruit-bounce retry (god-view occupied hex). Same pattern
-        # as play_one_game in sim_self_play.py.
+        # as play_one_game in tools/selfplay_game.py.
         while _would_recruit_bounce(action, sim.gs):
             tgt = action["target_hex"]
             sim.reject_recruit_hex(tgt.x, tgt.y)
@@ -196,7 +196,7 @@ def _play_one_eval_game(
             # serves from a cached plan -- PlanTournamentPolicy,
             # TurnCommitPolicy -- kept serving the SAME plan and
             # silently forfeited the recruit; play_one_game in
-            # sim_self_play.py has always done this).
+            # tools/selfplay_game.py has always done this).
             actor.drop_last_pending(game_label)
             pre_state = copy.deepcopy(sim.gs)
             action = actor.select_action(pre_state, game_label, sim)

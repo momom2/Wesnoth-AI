@@ -392,7 +392,7 @@ def main(argv) -> int:
     from tools.eval_sim import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
-    from tools.sim_self_play import k_median_of
+    from tools.selfplay_game import k_median_of
     from tools.wesnoth_sim import PvPDefaults
     from tools.signal_telemetry import signal_grad_norms
     from tools.step_control import (

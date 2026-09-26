@@ -335,7 +335,7 @@ def _actor_loop(
     # Heavy imports happen here (post-spawn), not at module import time.
     from tools.inference_seam import RemoteEncoder, RemoteModel
     from tools.mcts_policy import MCTSPolicy
-    from tools.sim_self_play import _play_one_game_safe, _recruit_cost_lookup
+    from tools.selfplay_game import _play_one_game_safe, _recruit_cost_lookup
     from tools.scenario_pool import random_setup, roll_mix
     from tools.wesnoth_sim import PvPDefaults
     from tools.game_record import configure as configure_records
@@ -485,7 +485,7 @@ def _actor_loop(
                 # The game's setup depends on (base seed, game index)
                 # only, whichever actor plays it.
                 rng = random.Random(seed)
-                from tools.sim_self_play import _roll_max_turns
+                from tools.selfplay_game import _roll_max_turns
                 mt = _roll_max_turns(rng, max_turns, max_turns_min)
                 cat = roll_mix(rng, **mix)
                 setup = None

@@ -101,7 +101,7 @@ def profile_rollout(
     """Run `n_games` profiled games and return the timing breakdown."""
     import tools.mcts as mcts_mod
     from tools.scenario_pool import random_setup
-    from tools.sim_self_play import _play_one_game_safe, _recruit_cost_lookup
+    from tools.selfplay_game import _play_one_game_safe, _recruit_cost_lookup
     from tools.wesnoth_sim import PvPDefaults
 
     sync = (device.type == "cuda")

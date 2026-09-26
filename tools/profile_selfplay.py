@@ -77,10 +77,8 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from tools.sim_self_play import (
-    _recruit_cost_lookup,
-    run_iteration,
-)
+from tools.selfplay_game import _recruit_cost_lookup
+from tools.sim_self_play import run_iteration
 from wesnoth_ai.rewards import WeightedReward, load_reward_config
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.wesnoth_sim import PvPDefaults

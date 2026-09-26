@@ -114,7 +114,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
     from tools.actor_pool import ActorPool
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
-    from tools.sim_self_play import k_median_of
+    from tools.selfplay_game import k_median_of
     from tools.wesnoth_sim import PvPDefaults
     if games < actors and not stream_rounds:
         raise ValueError(f"games ({games}) < actors ({actors}): the surplus actors "

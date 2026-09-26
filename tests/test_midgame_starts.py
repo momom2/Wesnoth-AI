@@ -51,7 +51,7 @@ def test_midgame_continuation_through_production_path():
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
     from tools.midgame_starts import sample_midgame_start
-    from tools.sim_self_play import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.wesnoth_sim import WesnothSim
 

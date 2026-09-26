@@ -80,7 +80,7 @@ from tools.eval_procedure import procedure_of
 from tools.eval_sim import _PolicyPair, _play_one_eval_game
 from tools.mcts import fork_guard
 from tools.raw_player import END_TURN_RULES, RawPolicyPlayer
-from tools.sim_self_play import _would_recruit_bounce
+from tools.selfplay_game import _would_recruit_bounce
 from tools.wesnoth_sim import WesnothSim
 from wesnoth_ai.classes import GameState, opponent_of, state_key
 

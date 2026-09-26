@@ -128,7 +128,7 @@ class fork_guard:
     (round-32 C4: the in-mcts_search guard covers only the raw-MCTS
     path -- TCS and plan-tournament fully OVERRIDE select_action,
     so the launch smoke certified procedures the guard never ran
-    on). Used by the game loops (sim_self_play.play_one_game,
+    on). Used by the game loops (selfplay_game.play_one_game,
     eval_sim) so every decision procedure is covered uniformly.
     Free when the env flag is off."""
 

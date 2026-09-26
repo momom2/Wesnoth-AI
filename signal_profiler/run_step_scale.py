@@ -41,7 +41,7 @@ log = logging.getLogger("step_scale")
 
 
 def game_stats(outcomes) -> Dict:
-    from tools.sim_self_play import k_median_of
+    from tools.selfplay_game import k_median_of
     tot = sum(sum(o.action_counts.values()) for o in outcomes) or 1
     return {"n_games": len(outcomes),
             "decisive": sum(1 for o in outcomes if o.winner != 0),

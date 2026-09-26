@@ -66,7 +66,7 @@ def test_k_median_of_matches_csv_statistic():
     counts, lower median) and return None with no data -- the
     tripwire must not fire on an empty iteration."""
     from types import SimpleNamespace
-    from tools.sim_self_play import k_median_of
+    from tools.selfplay_game import k_median_of
 
     games = [SimpleNamespace(turn_action_counts=[12, 2, 15]),
              SimpleNamespace(turn_action_counts=[3, 14]),

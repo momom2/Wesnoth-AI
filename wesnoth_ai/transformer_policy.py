@@ -381,7 +381,7 @@ class TransformerPolicy:
              reward delta is zero and the policy receives no shaping
              signal.
 
-        Both `tools/sim_self_play.py:play_one_game` and
+        Both `tools/selfplay_game.py:play_one_game` and
         `tools/sim_demo_game.py` deepcopy `sim.gs` before each call.
 
         In debug mode (PYTHONOPTIMIZE not set / -O not passed) we keep an
