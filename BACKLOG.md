@@ -42,7 +42,11 @@ against a bar of 6) and neither forward-only
 grader passes the section-6 check (both 2026-09-23,
 docs/turn_gap_ref_prereg_20260921.md), so by the design's rules the
 pipeline is built from rows 1 to 6 of
-docs/turn_proposer_design_20260905.md.
+docs/turn_proposer_design_20260905.md. **Found 2026-09-26: every search
+and playout runs on the true state under fog**
+(docs/hidden_information_20260926.md), the turn-gap grading included, so
+RICH carries a second caveat and a turn search needs a determinized root,
+drawn from a belief model, before it meets the 800-game gate.
 
 **Standing, taken whenever there is room (user, 2026-09-25):**
 
@@ -237,6 +241,27 @@ no commit.
   count the player commands that produced no pair (0 expected, measured 0
   in 85 games).
 
+
+## Hidden information in the search (2026-09-26 crawl)
+
+docs/hidden_information_20260926.md. The mask and the encoder respect
+fog; MCTS, the turn-commit search, the plan tournament, the turn-gap
+playouts and the turn-value playout reads run on the true state. Open:
+- **Decision: the belief model** a determinized root draws from (last
+  seen hexes advanced by reach, uniform over reachable fogged hexes, or
+  learned from the corpus), and PIMC (one search per sampled world)
+  against information-set MCTS (one world per simulation). Phase 2's
+  turn search needs it before its gate.
+- **Decision: principle 6's scope.** CLAUDE.md bars god view in the
+  mask only; extending it to search and playouts that choose or grade
+  actions (a training-time critic stays allowed) is the user's wording.
+- Tag searched procedures on fogged games (for example `mcts:32+godview`)
+  until the root is determinized, so their numbers are not read as fair
+  strength.
+- Re-grade the seven confirmed turn-gap pairs from sampled worlds once a
+  belief model exists (with the second-salt re-realization of 15 and 57).
+- `Observation.detached()` (`wesnoth_ai/observe.py:202-208`) keeps rows
+  for hidden units; no consumer reads them. Drop them.
 
 ## What the network observes against what a player sees (2026-09-26 crawl)
 

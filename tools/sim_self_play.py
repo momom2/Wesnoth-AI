@@ -1871,8 +1871,9 @@ def main(argv: List[str]) -> int:
                          "OPPONENT's fogged view -- structurally "
                          "blind to whatever the opponent cannot see "
                          "of the mover's turn. 'mover' grades the "
-                         "PRE-end_turn state from the mover's own "
-                         "information set. Default stays 'opponent' "
+                         "PRE-end_turn state encoded from the mover's "
+                         "own observation (the state itself holds the "
+                         "true hidden units). Default stays 'opponent' "
                          "until the probes re-baseline; leg-5 config "
                          "must assert this explicitly.")
     ap.add_argument("--turn-target-link", choices=("linear", "exp"),

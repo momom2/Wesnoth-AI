@@ -74,9 +74,11 @@ class TurnSearchConfig:
     # value to 16 digits; fogless control spread 0.24-0.63).
     #   opponent -- post-flip state, sign-flipped (status quo;
     #               assumes fog symmetry that does not exist).
-    #   mover    -- the PRE-end_turn state, mover still acting: the
-    #               mover's own information set. Terminal flips
-    #               still grade by exact outcome.
+    #   mover    -- the PRE-end_turn state, mover still acting,
+    #               encoded from the mover's own observation (the
+    #               state itself was reached against the true hidden
+    #               units, docs/hidden_information_20260926.md).
+    #               Terminal flips still grade by exact outcome.
     # Default stays "opponent" until the A/B probes re-baseline;
     # leg-5 config must assert this explicitly.
     #   mover_mp0 -- mover frame with the boundary NEUTRALIZED
