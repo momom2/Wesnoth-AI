@@ -859,7 +859,7 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
     # bookkeeping and to update Hex.terrain_types/modifiers on the
     # parsed grid (so combat defense queries see the change).
     from tools.replay_dataset import _parse_hex_code
-    from tools.terrain_resolver import split_start_position, terrain_mask
+    from wesnoth_ai.rules.terrain_resolver import split_start_position, terrain_mask
     new_terr, new_mods = _parse_hex_code(new_code)
     new_mask = terrain_mask(new_code)
 

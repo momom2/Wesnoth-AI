@@ -31,7 +31,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.terrain_resolver import hides_cover  # noqa: E402
+from wesnoth_ai.rules.terrain_resolver import hides_cover  # noqa: E402
 
 # Codes that appear on the shipped maps and gave NO cover before the fix.
 REGRESSED_FOREST = ["Gs^Fms", "Hh^Fms", "Gg^Fms", "Gs^Fmw", "Gs^Ftd",

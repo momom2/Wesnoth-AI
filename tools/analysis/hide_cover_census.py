@@ -34,7 +34,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.scenario_pool import LADDER_SCENARIO_IDS, build_scenario_gamestate, random_setup  # noqa: E402
-from tools.terrain_resolver import hides_cover, strip_start_position  # noqa: E402
+from wesnoth_ai.rules.terrain_resolver import hides_cover, strip_start_position  # noqa: E402
 from wesnoth_ai.classes import Terrain  # noqa: E402
 from wesnoth_ai.encoder import _first_terrain_id  # noqa: E402
 

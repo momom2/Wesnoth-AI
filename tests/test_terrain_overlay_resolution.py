@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tools.terrain_resolver import def_pct, mvt_cost
+from wesnoth_ai.rules.terrain_resolver import def_pct, mvt_cost
 
 _DB = json.loads(
     (Path(__file__).parent.parent / "unit_stats.json").read_text(

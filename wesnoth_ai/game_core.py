@@ -78,7 +78,7 @@ def game_core_class():
 def _light_params(code: str) -> Tuple[int, int, int, bool]:
     """(light, max_light, min_light, any) of a terrain code, the
     composite rule of `terrain_resolver.terrain_light_bonus`."""
-    from tools.terrain_resolver import load_terrain_db
+    from wesnoth_ai.rules.terrain_resolver import load_terrain_db
     db = load_terrain_db()
     base_str, _, overlay = code.partition("^")
     b = db.get(base_str) or {}
@@ -97,7 +97,7 @@ def map_static(gs: GameState) -> dict:
     """The core's static map arrays from the state: geometry from
     `wesnoth_ai.observe.map_geometry`, terrain facts from the terrain
     codes and the time areas the scenario set up."""
-    from tools.terrain_resolver import hides_cover, strip_start_position, terrain_heals
+    from wesnoth_ai.rules.terrain_resolver import hides_cover, strip_start_position, terrain_heals
     from wesnoth_ai.encoder import _first_terrain_id
     from wesnoth_ai.observe import map_geometry
     geom = map_geometry(gs)

@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools import terrain_resolver  # noqa: E402
+from wesnoth_ai.rules import terrain_resolver  # noqa: E402
 
 HIDE_ABILITIES = ("ambush", "concealment", "submerge", "nightstalk")
 _OLD_KEY = {"ambush": "forest", "concealment": "village", "submerge": "deep_water"}

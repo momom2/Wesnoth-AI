@@ -17,7 +17,7 @@ def _terrain_mask(code: str) -> int:
     """The hex's terrain set from the engine's aliases (the same source
     as the sim's map parse); imported late because tools/ imports this
     package."""
-    from tools.terrain_resolver import terrain_mask
+    from wesnoth_ai.rules.terrain_resolver import terrain_mask
     return terrain_mask(code)
 
 

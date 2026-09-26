@@ -241,7 +241,7 @@
   },
   "scenario/event/object/effect/abilities/hides.affect_self": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD. The hider rule assumes affect_self=yes, which every mainline {ABILITY_*} hides macro sets; a scenario-written [hides] with affect_self=no would be mis-modelled"
   },
   "scenario/event/object/effect/abilities/hides.description": {
@@ -267,7 +267,7 @@
   },
   "scenario/event/object/effect/abilities/hides/filter/filter_location.terrain": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD. hides_cover transcribes the MACRO globs by ability id (*^F*, *^V*, Wo*^*), not the scenario's filter; exact only while scenarios use the mainline hides macros unchanged"
   },
   "scenario/event/object/effect/set_specials/firststrike.description": {
@@ -488,7 +488,7 @@
   },
   "scenario/event/unit/abilities/hides.affect_self": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD, as the [object] form"
   },
   "scenario/event/unit/abilities/hides.description": {
@@ -514,7 +514,7 @@
   },
   "scenario/event/unit/abilities/hides/filter/filter_location.terrain": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/terrain_resolver.py:hides_cover",
+   "stands_in": "wesnoth_ai/rules/terrain_resolver.py:hides_cover",
    "why": "UNREAD, as the [object] form: macro globs by ability id"
   },
   "scenario/event/unit/modifications/object.duration": {

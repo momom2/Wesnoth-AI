@@ -302,7 +302,7 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
     # cold tests and cluster start. The lookup is per-unit-with-
     # hide-ability, which is a rare hot path.
     from tools.replay_dataset import illuminated_lawful_bonus_at
-    from tools.terrain_resolver import hides_cover
+    from wesnoth_ai.rules.terrain_resolver import hides_cover
     codes = getattr(state.global_info, "_terrain_codes", None) or {}
     code = codes.get((unit.position.x, unit.position.y), "")
     for ability in ("ambush", "concealment", "submerge"):

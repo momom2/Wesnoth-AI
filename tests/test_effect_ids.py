@@ -75,7 +75,7 @@ def test_silverhead_grants_a_working_submerge_and_magical():
     """
     from tools.scenario_pool import (ScenarioSetup, build_scenario_gamestate,
                                      load_factions)
-    from tools.terrain_resolver import hides_cover
+    from wesnoth_ai.rules.terrain_resolver import hides_cover
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.visibility import units_visible_to
 

@@ -17,7 +17,9 @@ from typing import Any, BinaryIO, Dict
 
 # Old module path -> the path the module moved to; one entry per move.
 # tools/dev/move_module.py --apply adds the entry for the module it moves.
-MOVED_MODULES: Dict[str, str] = {}
+MOVED_MODULES: Dict[str, str] = {
+    "tools.terrain_resolver": "wesnoth_ai.rules.terrain_resolver",
+}
 
 
 def current_module(module: str) -> str:

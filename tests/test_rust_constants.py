@@ -19,7 +19,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools import pathfind_sim, replay_dataset, terrain_resolver  # noqa: E402
+from tools import pathfind_sim, replay_dataset  # noqa: E402
+from wesnoth_ai.rules import terrain_resolver  # noqa: E402
 from wesnoth_ai import classes, combat, visibility  # noqa: E402
 
 RUST_SRC = Path(__file__).parent.parent / "rust" / "wesnoth_core" / "src"

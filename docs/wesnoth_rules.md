@@ -62,7 +62,7 @@ the quote to find the file again. Paraphrases drift; quotes don't.
 
 ### Terrain resolver: scrape terrain.cfg, walk the alias graph
 
-Our runtime resolver (`tools/terrain_resolver.py`, fed by
+Our runtime resolver (`wesnoth_ai/rules/terrain_resolver.py`, fed by
 `tools/scrape_terrain.py` → `terrain_db.json`) IS the
 implementation of the rules in this section. Use it for any
 movement / defense lookup. Don't add hand-rolled overlay tables
@@ -1121,7 +1121,7 @@ if ( !patient.get_state(unit::STATE_POISONED) ) {
 Our sim's port lives in `tools/replay_dataset.py` (init_side
 healing loop) and matches every branch above; oasis (`^Do`,
 `heals=8`, not a village, cures poison like one) resolves via
-`tools/terrain_resolver.terrain_heals` mirroring
+`wesnoth_ai/rules/terrain_resolver.terrain_heals` mirroring
 `terrain.cpp:230`'s `max(base.heals_, overlay.heals_)`.
 
 ### Default (RCA) AI combat rating

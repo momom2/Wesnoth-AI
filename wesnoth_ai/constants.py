@@ -203,7 +203,7 @@ DEFAULT_FACTIONS = (
 #
 #   1  (up to 2026-09-12) the rules as they stood.
 #   2  (2026-09-13) hide cover is the engine's [hides] terrain globs
-#      (tools/terrain_resolver.hides_cover) instead of a defense-key
+#      (wesnoth_ai/rules/terrain_resolver.hides_cover) instead of a defense-key
 #      table, so ambush, concealment and submerge hide units on a
 #      different set of hexes (docs/wesnoth_rules.md, "Hide cover is a
 #      terrain-CODE filter").

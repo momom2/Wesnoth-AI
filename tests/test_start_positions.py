@@ -36,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.terrain_resolver import (  # noqa: E402
+from wesnoth_ai.rules.terrain_resolver import (  # noqa: E402
     split_start_position, start_position_side, strip_start_position,
 )
 

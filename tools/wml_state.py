@@ -502,7 +502,7 @@ def map_starting_positions(map_data: str) -> Dict[int, Tuple[int, int]]:
     Border cells are skipped: a marker there would otherwise come back
     with a negative coordinate.
     """
-    from tools.terrain_resolver import split_start_position, start_position_side
+    from wesnoth_ai.rules.terrain_resolver import split_start_position, start_position_side
 
     out: Dict[int, Tuple[int, int]] = {}
     rows, border = split_map_grid(map_data)
