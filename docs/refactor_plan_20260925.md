@@ -178,6 +178,46 @@ revived. Steps 0 to 2 conflict with neither.
   reads a pickle any other way.
 - `tools/dev/move_module.py` is the codemod.
 
+## Step 1, delivered (2026-09-26, branch refactor/step1-extractions)
+
+Six extractions, one commit each. The names keep their spelling, private
+ones included, and their bodies byte for byte; every importer imports
+from the new module and the old one re-exports nothing.
+
+- `tools/selfplay_game.py`: the game loop out of sim_self_play
+  (`GameOutcome`, `play_one_game`, `_play_one_game_safe`, `_worker_loop`,
+  `k_median_of`, `_roll_max_turns`, the recruit-cost and bounce helpers,
+  `_leader_of`, `_update_closest_approach`, `_outcome_for`) and
+  `VALIDATION_EXPORTER`, which sim_self_play's main sets on the module
+  (`from tools import selfplay_game`).
+- `tools/eval_players.py`: `_load_policy`, `peek_checkpoint_arch`,
+  `CHECKPOINT_STRUCT_FLAGS`, `_PolicyPair`, `_play_one_eval_game` and
+  `GameResult` out of eval_sim.
+- `tools/eval_provenance.py`, torch-free: the estimand fields and their
+  refusals, `file_sha256` and `spec_sha256` out of run_elo_batch,
+  `_pt_config` out of elo_eval_game.
+- `tools/az_recipe.py`: `configure_az_trainer`, the one copy of the az
+  loop's loss settings (az_loop, bench_train_step, six tests).
+- `tools/bench_states.py`: `load_states`, `reconstruct_boundary` and the
+  default manifest and dataset out of bench_pipeline, `harvest_states`
+  out of bench_infer.
+- `tools/actor_protocol.py`, standard library only: the actor and serve
+  messages and `ActorFatalError`.
+
+Cycles 4 (the actor modules) and 5 (the eval driver) of the inventory's
+(c2) are gone; 1 to 3 remain. The one unit_db of step 1 waits: another
+branch edits replay_dataset and replay_extract.
+
+For the moves: the new modules log under their own names
+("selfplay_game", "eval_players", "bench_states"), which
+tools/sim_dummy_smoke.py and tests/test_player_sides.py spell. actor_pool
+still re-exports the workers' other names (`_IPCInferenceClient`,
+`_actor_loop`, `_serve_loop`, `_BatchPicker`, ...) through `__all__`;
+tests import them from there and test_actor_pool_lifecycle patches
+`actor_pool._serve_loop`. test_plan_tournament assigns
+`elo_eval_game._load_policy` by hand, a patch of the importer's binding
+that no dry run on the defining module lists.
+
 ## Moving a module (step 3 onwards)
 
 1. Create the destination package: an `__init__.py` with a docstring and
@@ -199,7 +239,7 @@ revived. Steps 0 to 2 conflict with neither.
    with the module (graphed_serve, packed_trunk and inference_seam use
    one; tests/test_packed_compile.py spells `wesnoth_ai.packed_trunk`).
 5. Go through the other mentions: Python code inside strings
-   (`run_elo_batch._PEEK_FLAGS` imports `tools.eval_sim` in a child
+   (`run_elo_batch._PEEK_FLAGS` imports `tools.eval_players` in a child
    interpreter), `sys.modules` keys and `__import__` lists in strings, the
    readers of `tests/data/scenario_surface.json`, Rust doc comments, live
    docs. Records (docs/archive, quarantine, dated docs) stay as written.
