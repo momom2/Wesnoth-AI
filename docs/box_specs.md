@@ -1478,7 +1478,7 @@ now attaches the masks to its bench-state experiences too
 box: on the 200 bench states, which come from 200 replays, the
 learner's `encode_raw` stage read 34 ms per experience against 0.47
 on the pool's 16 games -- the terrain and reach caches of
-tools/pathfind_sim.py (512 entries, drop-all) thrash across that many
+wesnoth_ai/sim/pathfind_sim.py (512 entries, drop-all) thrash across that many
 maps and unit types. A production iteration of 48 games on the 21
 Ladder maps sits between the two; it is measured next
 (`train_pool48`), and if it thrashes the cure is the actor shipping
