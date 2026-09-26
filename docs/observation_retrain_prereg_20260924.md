@@ -156,7 +156,8 @@ measured yet: the two maps whose turn number misleads about the time of
 day and the decisions per side-turn, both readable from the recorded
 games.
 
-**The run was cut and resumed.** At 1.79M pairs Vast stopped the
+**The run was cut and resumed.** After 1.85M pairs (its last holdout
+evaluation, 1,851,776 pairs, arm_eval.jsonl) Vast stopped the
 instance because the account's credit ran out (balance -$0.19 against
 its -$0.01 threshold). The trainer's `--resume` restarted an epoch in a
 new order, which would have broken the one-pass recipe; the trainer now
@@ -165,14 +166,15 @@ continues a cut pass (`fix/exact-resume`, tools/supervised_train.py
 small run). The box's checkpoint predated that change, so it resumed
 through the first-epoch path: the same file order from the seed, the
 1,792,000 pairs already trained read again and skipped in 2,936 s,
-training continued at step 28,000, and the pass ended at the same pair
-count as the terrain arm. Two things differ from an uncut run: the
+training continued at step 28,000 (the last checkpoint, 1,792,000 pairs;
+the pairs trained after it before the cut, and their holdout rows, were
+discarded), and the pass ended at the same pair count as the terrain arm. Two things differ from an uncut run: the
 dropout draws (probability 1e-4) after the cut, and the holdout
 evaluation points after it. The restarted box re-staged its code, and
 at the end stopped itself through Vast's API (`stop_self`, 00:20:51 UTC).
 
 Cost: 3.9 box-hours for the first run and 2.5 for the resumed one, 6.4
 in all, about $4.3 at $0.67/h, against the pre-registered $2.5-3.6: a
-slower pass than the terrain arm's (153-160 pairs/s against 221 on the
-same host class), the 49-minute skip and the restart's bring-up.
+slower pass than the terrain arm's (156 pairs/s before the cut and 200
+after it, against 221 on the same host class), the 49-minute skip and the restart's bring-up.
 
