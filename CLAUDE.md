@@ -974,7 +974,7 @@ stays at the root. So a bare name like `classes.py` below means
   (`wesnoth_ai/rewards.py`, `configs/reward_selfplay.json`: gold,
   damage and village deltas, per-turn penalty, unit-type and
   turn-conditional bonuses). The actor pool plays with a zero reward.
-- `tools/scenario_pool.py` / `tools/scenarios.py` — scenario
+- `tools/scenario_pool.py` / `wesnoth_ai/rules/scenarios.py` — scenario
   randomization: the Ladder Era 21-map whitelist (fogged or fogless),
   the mini maps, the factions and leaders. `random_setup` forces one
   faction onto one side of the game unless its caller passes

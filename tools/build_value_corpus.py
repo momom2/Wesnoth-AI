@@ -63,7 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tools.filter_replays import parse_header
 from tools.replay_dataset import _player_sides
-from tools.scenarios import COMPETITIVE_2P_SCENARIOS
+from wesnoth_ai.rules.scenarios import COMPETITIVE_2P_SCENARIOS
 from wesnoth_ai.classes import PLAYER_SIDES
 
 log = logging.getLogger("build_value_corpus")

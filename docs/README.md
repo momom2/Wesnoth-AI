@@ -83,6 +83,6 @@ The box scripts read the Hugging Face settings (`HF_TOKEN`, `HF_REPO`,
 `scripts/hf_upload_loop.py`) and Vast's `CONTAINER_ID` and
 `CONTAINER_API_KEY`, with which a box stops its own instance.
 `WESNOTH_SRC` and `WESNOTH_PATH` are Python constants, not
-environment variables: the data tree's path (`tools/scenarios.py`,
+environment variables: the data tree's path (`wesnoth_ai/rules/scenarios.py`,
 `tools/scenario_events.py`) and the executable's path, which
 `WESNOTH_EXE` overrides (`wesnoth_ai/constants.py`).
