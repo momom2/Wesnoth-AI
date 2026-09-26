@@ -1947,15 +1947,16 @@ def _trainer_value_side_losses(
     vl_t  = padded.value_logits                      # [L, K]
     z_t   = batch.zs[start:start + L]
     sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0}
-    # Distributional value loss: categorical CE on the projected
-    # terminal-z target (z ∈ {-1, 0, +1} for win/draw/loss),
-    # consistent with the REINFORCE path. `zs` was already
-    # clipped to [V_MIN, V_MAX] by the value_clip block above.
-    # Draws are down-weighted by config.draw_value_weight and the
-    # loss normalizes by TOTAL WEIGHT (not N), so decisive states
-    # keep full-strength gradient regardless of the batch's draw
-    # share; an all-draw batch at weight 0 contributes no value
-    # gradient at all.
+    # The value loss against the terminal outcome z (clipped to the
+    # head's range in _mcts_batch): the categorical CE on the projected
+    # target, consistent with the REINFORCE path, or under
+    # value_loss_form "mse_mean" the squared error of the head's mean.
+    # A state counts at game weight x value weight (MCTSPolicy.
+    # finalize_game seals a winnerless game's states at its
+    # draw_value_weight) and the loss normalizes by the batch's TOTAL
+    # value weight (not N), so decisive states keep full-strength
+    # gradient regardless of the batch's draw share; an all-draw batch
+    # at weight 0 contributes no value gradient at all.
     atoms = self.model._value_atoms
     w_t = gw_chunk * batch.vws[start:start + L]
     if self.config.value_loss_form == "mse_mean":
@@ -2190,9 +2191,10 @@ def _trainer_eval_value_metrics(
 
     - "ce": categorical value CE as a GAME-WEIGHTED mean (same
       game_weight normalization as `step_mcts`, so mixed-length
-      batches compare; NOTE step_mcts's value term additionally
-      applies draw_value_weight, which this probe deliberately does
-      NOT -- an all-draw holdout must still produce a number).
+      batches compare; NOTE step_mcts's value term also weighs each
+      state by its value_weight, 0 on a winnerless game's states by
+      default, which this probe deliberately does NOT -- an all-draw
+      holdout must still produce a number).
     - "pred_entropy": mean entropy of the predicted Z(s) distribution
       (nats; uniform over K=51 atoms = ln 51 ~ 3.93). The continuous
       overconfidence curve -- the 2026-07-07 diagnosis needed offline
