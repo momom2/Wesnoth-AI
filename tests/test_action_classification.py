@@ -185,7 +185,7 @@ def test_the_end_turn_substitution_precondition_holds():
     a turn. That is a claim about the scenarios, so it is checked
     against them: if a scenario ever ends the turn of a side we DO run,
     the classification is wrong and this fails."""
-    from tools.analysis.expansion_diff import TEMPLATES, _scenario_block
+    from wesnoth_ai.rules.expansion_diff import TEMPLATES, _scenario_block
 
     checked = 0
     for scenario_id in POOL:

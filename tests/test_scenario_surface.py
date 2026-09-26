@@ -23,7 +23,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.analysis import scenario_surface as ss  # noqa: E402
+from wesnoth_ai.rules import scenario_surface as ss  # noqa: E402
 
 
 @pytest.fixture(scope="module")

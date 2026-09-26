@@ -47,9 +47,9 @@ def _faction_types() -> Set[str]:
 
 def _placed_types() -> Set[str]:
     """Every unit type a [unit] or [side] of a scenario we build or
-    rebuild names (tools/analysis/scenario_surface.py's list)."""
-    from tools.analysis.expansion_diff import _scenario_block
-    from tools.analysis.scenario_surface import CORPUS_SCENARIOS
+    rebuild names (wesnoth_ai/rules/scenario_surface.py's list)."""
+    from wesnoth_ai.rules.expansion_diff import _scenario_block
+    from wesnoth_ai.rules.scenario_surface import CORPUS_SCENARIOS
     from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     names: Set[str] = set()
 

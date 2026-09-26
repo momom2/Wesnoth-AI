@@ -34,14 +34,11 @@ import ast
 import collections
 import json
 import sys
-from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
-from tools.analysis.expansion_diff import POOL, _scenario_block  # noqa: E402
-from wesnoth_ai.rules.scenario_cfg import load_scenario_wml  # noqa: E402
+from wesnoth_ai.paths import REPO_ROOT
+from wesnoth_ai.rules.expansion_diff import POOL, _scenario_block
+from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 
 MANIFEST = REPO_ROOT / "tests" / "data" / "scenario_surface.json"
 CLASSES = ("MODELLED", "IGNORED", "SUBSTITUTED")

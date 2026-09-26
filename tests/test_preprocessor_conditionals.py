@@ -113,7 +113,7 @@ def test_hornshark_still_builds_what_it_did():
 
 def test_no_directive_survives_into_a_parsed_scenario():
     """Nothing downstream should ever see a conditional again."""
-    from tools.analysis.scenario_surface import CORPUS_SCENARIOS
+    from wesnoth_ai.rules.scenario_surface import CORPUS_SCENARIOS
 
     for scenario_id in CORPUS_SCENARIOS:
         path = cfg.find_scenario_cfg_path(scenario_id)

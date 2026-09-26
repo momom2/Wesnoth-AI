@@ -305,7 +305,7 @@ def test_a_quick_leader_gate_is_refused_under_strict(monkeypatch):
 def test_nothing_we_build_touches_a_quick_leader_gate():
     """The precondition itself, over every scenario we build: the pool
     plus the two off-whitelist mainline maps in the corpus."""
-    from tools.analysis.expansion_diff import POOL, _scenario_block
+    from wesnoth_ai.rules.expansion_diff import POOL, _scenario_block
     from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
 
     for scenario_id in list(POOL) + ["multiplayer_Cynsaun_Battlefield",

@@ -41,15 +41,13 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-from wesnoth_ai.paths import REPO_ROOT, SCENARIO_TEMPLATES_DIR  # noqa: E402
-from tools.replay_extract import parse_wml  # noqa: E402
-from wesnoth_ai.rules.scenario_cfg import load_scenario_wml  # noqa: E402
-from wesnoth_ai.rules.wml_state import (map_starting_positions, resolve_map_file,  # noqa: E402
-                             split_map_grid)
-from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
-                                 MINI_MAP_SCENARIO_IDS)
+from wesnoth_ai.paths import REPO_ROOT, SCENARIO_TEMPLATES_DIR
+from tools.replay_extract import parse_wml
+from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
+from wesnoth_ai.rules.wml_state import (map_starting_positions, resolve_map_file,
+                                        split_map_grid)
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,
+                                            MINI_MAP_SCENARIO_IDS)
 
 TEMPLATES = SCENARIO_TEMPLATES_DIR
 POOL = list(LADDER_SCENARIO_IDS) + list(MINI_MAP_SCENARIO_IDS)
