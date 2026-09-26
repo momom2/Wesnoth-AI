@@ -12,13 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools" / "analysis"))
 from endturn_readout import Readout, main, read_dir, verdict  # noqa: E402
 
 
-def _write(path: Path, outcomes, fwd_a=12, fwd_b=10, turns=2, pa="raw:t0+endm", pb="raw:t0"):
+def _write(path: Path, outcomes, fwd_a=12, fwd_b=10, turns=2, pa="raw:t0+endm", pb="raw:t0",
+           seed_base=0):
     path.mkdir(parents=True, exist_ok=True)
     for i, o in enumerate(outcomes):
         (path / f"game_a_b_s1_{i}.json").write_text(json.dumps({
             "label_a": "a", "label_b": "b", "procedure_a": pa, "procedure_b": pb,
             "outcome_a": o, "turns": turns, "forwards_a": fwd_a, "forwards_b": fwd_b,
-            "side_a": 1 + i % 2, "seed": i}), encoding="utf-8")
+            "side_a": 1 + i % 2, "seed": seed_base + i}), encoding="utf-8")
 
 
 def test_readout_scores_and_fire_ratio(tmp_path):
@@ -51,8 +52,10 @@ def test_exit_codes_key_the_box_script(tmp_path, capsys):
 
 def test_verdict_applies_the_bars(tmp_path):
     _write(tmp_path / "games_screen_endm", ["win"] * 20 + ["loss"] * 20, fwd_a=11, fwd_b=10)
-    _write(tmp_path / "games_endm", ["win"] * 440 + ["loss"] * 360 + ["timeout"] * 300)
-    _write(tmp_path / "games_eo-0.75", ["win"] * 430 + ["loss"] * 370, pa="raw:t0+eo-0.75")
+    _write(tmp_path / "games_endm", ["win"] * 440 + ["loss"] * 360 + ["timeout"] * 300,
+           seed_base=42000)
+    _write(tmp_path / "games_eo-0.75", ["win"] * 430 + ["loss"] * 370, pa="raw:t0+eo-0.75",
+           seed_base=44000)
     text = verdict([read_dir(tmp_path / n) for n in ("games_screen_endm", "games_endm", "games_eo-0.75")],
                    fire=1.03, pass_p=0.535)
     assert "kill 1 (screen fire >= 1.03x): pass" in text
@@ -100,3 +103,15 @@ def test_mixed_procedures_are_refused(tmp_path):
         "turns": 2, "forwards_a": 4, "forwards_b": 4}), encoding="utf-8")
     with pytest.raises(SystemExit, match="mixed procedures"):
         read_dir(d)
+
+
+def test_arms_that_share_game_slots_get_no_independent_se(tmp_path):
+    """Two arms that replayed the same (side, seed) slots are correlated:
+    the readout says so instead of quoting sqrt(se_a^2 + se_b^2)."""
+    from endturn_readout import diff_se
+    _write(tmp_path / "games_endm", ["win"] * 30 + ["loss"] * 20)
+    _write(tmp_path / "games_eo-1.5", ["win"] * 28 + ["loss"] * 22, pa="raw:t0+eo-1.5")
+    rule, offset = read_dir(tmp_path / "games_endm"), read_dir(tmp_path / "games_eo-1.5")
+    assert diff_se(offset, rule) is None
+    text = verdict([rule, offset], fire=1.03, pass_p=0.535)
+    assert "share 50 game slots" in text and "within 1 SE" not in text
