@@ -97,7 +97,7 @@ command line that reproduces each slice).
    enemies, 30,648 of 142,848 hexes from which a visible enemy could hit
    an own unit next turn (3.4 a decision), and a neighbour of 33,497 of
    89,656 own units. The basis measured as a net gain (the relevant-set
-   twin, +56 +- 12 Elo at one pass), so widening it is a cheap arm, not a
+   twin, +56 +- 12 Elo over 800 decisive games at one pass), so widening it is a cheap arm, not a
    verdict: own units' neighbours cost 10 more hexes a decision (+4%), both
    sides' neighbours 25 (+10%), the enemies' full reach 130 (+52%).
    *Fix:* a relevant-set version flag (slot indices change) in
@@ -116,10 +116,12 @@ command line that reproduces each slice).
    builder.
 
 6. **The time of day at a unit's hex.** Only 146 of 26,789 decisions have
-   a visible unit whose hex reads another time of day than the board, but
-   they concentrate: 668 of 1,488 decisions on Elensefar Courtyard (the lit
+   a visible unit whose hex reads another time of day than the board
+   (in the census, 137 such unit observations on Elensefar Courtyard and
+   20 on Den of Onis), but they concentrate: in a separate count of 4
+   games per map, 668 of 1,488 decisions on Elensefar Courtyard (the lit
    cave area), 131 of 1,055 on Tombs of Kesorak, 0 of 990 on Thousand
-   Stings Garrison (4 games each). *Fix:* one per-hex value, the hex's
+   Stings Garrison. *Fix:* one per-hex value, the hex's
    lawful bonus minus the board's, as a dynamic column.
 
 7. **The enemy's economy with fog off.** The status table shows the

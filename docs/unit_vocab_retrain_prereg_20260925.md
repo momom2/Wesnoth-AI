@@ -121,11 +121,12 @@ against it, and nothing is chained across the two references.
 ## Cost
 
 As `obs8`'s retrain ran on 2026-09-24/25 (6.4 box-hours with a cut and
-a resume, $4.3; an uncut run is about 4.5 box-hours): bring-up and wheel
+a resume, $4.3; an uncut run at its measured 156-200 pairs/s is about 5-6
+box-hours): bring-up and wheel
 5-10 minutes, the tests a few minutes, pre-encoding about 20 minutes,
 one pass of about 2.8M pairs 3-5 hours at 153-221 pairs/s, the per-phase
 evaluation 5 minutes, the 800-decisive match 15-30 minutes (cut at 60).
-About 4.5 box-hours, $2.5-3.6 at $0.55-0.80 per hour, on a single-tenant
+About 4.5-6 box-hours, $2.5-4.8 at $0.55-0.80 per hour, on a single-tenant
 host with an RTX 4090, at least 32 effective cores, 64 GB of memory and
 60 GB of disk. The balance is checked before renting. Every exit, clean
 or not, leaves ALL_DONE on HF and stops the instance.
