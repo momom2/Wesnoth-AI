@@ -283,7 +283,7 @@ def _actor_loop(
     from tools.inference_seam import RemoteEncoder, RemoteModel
     from tools.mcts_policy import MCTSPolicy
     from tools.selfplay_game import _play_one_game_safe, _recruit_cost_lookup
-    from tools.scenario_pool import random_setup, roll_mix
+    from wesnoth_ai.rules.scenario_pool import random_setup, roll_mix
     from tools.wesnoth_sim import PvPDefaults
     from tools.game_record import configure as configure_records
     if game_records_dir is not None:

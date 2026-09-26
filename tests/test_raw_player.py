@@ -48,7 +48,7 @@ def _tiny_policy():
 def test_argmax_player_picks_max_joint_prior():
     import torch
     from tools.raw_player import RawPolicyPlayer
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     policy = _tiny_policy()
     gs = build_scenario_gamestate(random_setup(random.Random(3)))
@@ -73,7 +73,7 @@ def test_argmax_player_drives_the_eval_loop():
     from tools.elo_eval_game import _CountingModel
     from tools.eval_players import _PolicyPair, _play_one_eval_game
     from tools.raw_player import RawPolicyPlayer
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from tools.wesnoth_sim import WesnothSim
     policy = _tiny_policy()
     counter = _CountingModel(policy._inference_model)

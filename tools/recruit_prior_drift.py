@@ -200,7 +200,7 @@ def cmd_collect(args) -> int:
     """Snapshot recruit-offered states by PLAYING games through the
     production select_action path, so states are on-distribution."""
     import torch
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions)
     from tools.wesnoth_sim import WesnothSim
     from tools.eval_players import _load_policy
@@ -278,7 +278,7 @@ def load_snapshots(snapdir: pathlib.Path) -> List[dict]:
 
 def cmd_compare(args) -> int:
     import torch
-    from tools.scenario_pool import load_factions
+    from wesnoth_ai.rules.scenario_pool import load_factions
     from tools.eval_players import _load_policy
 
     torch.set_num_threads(args.threads)

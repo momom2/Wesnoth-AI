@@ -16,7 +16,7 @@ from tools.scenario_init_oracle import (  # noqa: E402
     Declared, compare, engine_statuses, lobby_experience_modifier, lobby_parms, our_record,
     our_state,
 )
-from tools.scenario_pool import ScenarioSetup, classify_scenario  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import ScenarioSetup, classify_scenario  # noqa: E402
 
 
 def test_lobby_writes_fill_only_what_a_side_does_not_declare():

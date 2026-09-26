@@ -26,7 +26,7 @@ from wesnoth_ai.game_core import game_core_class, state_differences
 from tests.test_neutral_ai_precondition import EXPECTED_ACTORS
 from tools.abilities import hex_neighbors
 from tools.replay_dataset import _apply_command, _rebuild_unit
-from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
 
 
@@ -69,7 +69,7 @@ def test_tentacle_attacks_weak_adjacent_unit_and_order_survives():
 
 
 def test_no_neutral_turn_without_side3_combatants():
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     setup = ScenarioSetup(
         scenario_id="Benji_Autumn_Siege_small",
         faction1="Knalgan Alliance", leader1="Dwarvish Steelclad",

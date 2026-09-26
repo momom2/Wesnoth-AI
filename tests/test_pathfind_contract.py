@@ -42,7 +42,7 @@ def test_every_masked_move_target_is_sim_landable():
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.action_sampler import _build_legality_masks
     from tools.pathfind_sim import ReachContext, unit_reach
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
 
     rng = random.Random(11)
@@ -90,7 +90,7 @@ def test_masked_moves_never_crowfly_unreachable():
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.action_sampler import _build_legality_masks
     from wesnoth_ai.rewards import hex_distance
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
 
     rng = random.Random(3)
@@ -124,7 +124,7 @@ def test_mask_less_caller_cannot_hang_the_sim():
     action must NOT hang: after _MAX_CONSECUTIVE_REJECTS rejected
     steps the sim degrades to end_turn (loop guard, 2026-07-17 --
     caught live as an infinite no-op loop with DummyPolicy)."""
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.classes import Position
 

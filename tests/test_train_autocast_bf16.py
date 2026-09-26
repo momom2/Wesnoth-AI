@@ -29,7 +29,7 @@ from tools.az_recipe import configure_az_trainer  # noqa: E402
 from tools.bench_train_step import (  # noqa: E402
     experiences_from_states, parity_row, stubbed_step,
 )
-from tools.scenario_pool import build_scenario_gamestate, random_setup  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 
 MANIFEST = ROOT / "configs" / "bench_states.json"

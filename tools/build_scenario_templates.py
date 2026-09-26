@@ -10,7 +10,7 @@ cfg gives byte-faithful macro expansion -- {DEFAULT_SCHEDULE},
 {DEFAULT_MUSIC_PLAYLIST}, add-on map inclusions, even scenario-local
 #define blocks -- because the actual game binary does the expanding.
 
-Covers ALL THREE scenario pools (tools/scenario_pool.py):
+Covers ALL THREE scenario pools (wesnoth_ai/rules/scenario_pool.py):
   - LADDER_SCENARIO_IDS  -- mainline 2p maps under
     wesnoth_src/data/multiplayer/scenarios/
   - MINI_MAP_SCENARIO_IDS -- the Mini Maps Collection add-on under
@@ -91,7 +91,7 @@ if str(Path(__file__).resolve().parents[1]) not in sys.path:
 
 from wesnoth_ai.constants import WESNOTH_PATH
 from wesnoth_ai.paths import SCENARIO_TEMPLATES_DIR, WESNOTH_SRC_DIR
-from tools.scenario_pool import (
+from wesnoth_ai.rules.scenario_pool import (
     LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,
 )
 from tools.replay_extract import parse_wml

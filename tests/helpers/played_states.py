@@ -22,7 +22,7 @@ def _states(n_attack=4, n_plain=6):
     import copy
     from tools.elo_ladder import _ScriptedAdapter
     from tools.eval_players import _PolicyPair, _play_one_eval_game
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.dummy_policy import DummyPolicy
     starts = [build_scenario_gamestate(random_setup(random.Random(s))) for s in (1, 2)]

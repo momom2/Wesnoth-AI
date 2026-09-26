@@ -93,7 +93,7 @@ def main(argv) -> int:
     logging.basicConfig(level=logging.WARNING)
 
     import torch
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from tools.turn_search import forward_state
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.transformer_policy import TransformerPolicy

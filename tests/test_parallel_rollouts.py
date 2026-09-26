@@ -27,7 +27,7 @@ import pytest
 def small_replay_pool() -> None:
     """Legacy fixture name, now a None pool marker: `run_iteration`
     ignores its pool argument and seeds games from
-    tools.scenario_pool (scenarios are always exactly 2 player
+    wesnoth_ai.rules.scenario_pool (scenarios are always exactly 2 player
     sides, so the "trajectories == 2 * outcomes" parity assertions
     hold by construction). The fixture survives only to guard on
     the vendored scenario data being present."""

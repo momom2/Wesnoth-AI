@@ -25,7 +25,7 @@ Counts as a calibration result: low simulations + small N produce a
 quick smoke; bump both for a real headline number once a trained
 checkpoint is available.
 
-Dependencies: transformer_policy, tools.mcts, tools.scenario_pool,
+Dependencies: transformer_policy, tools.mcts, wesnoth_ai.rules.scenario_pool,
               tools.wesnoth_sim, classes.
 Dependents: standalone CLI; reported in BACKLOG / readiness scorecard.
 """
@@ -49,7 +49,7 @@ if str(_ROOT) not in sys.path:
 
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.mcts import MCTSConfig, best_action, mcts_search
-from tools.scenario_pool import random_setup, build_scenario_gamestate
+from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim, PvPDefaults
 
 log = logging.getLogger("eval_mcts_vs_reinforce")

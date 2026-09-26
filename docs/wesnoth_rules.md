@@ -2032,7 +2032,7 @@ multiplayer setup copies onto every side --
 `wesnoth_src/data/multiplayer/scenarios/2p_Clearing_Gushes.cfg:15`
 and `2p_The_Walls_of_Pyrennis.cfg:15` (both 2),
 `2p_Cynsaun_Battlefield.cfg:14` (2), `2p_Dark_Forecast.cfg:16` and
-`2p_Isle_of_Mists.cfg:19` (both 1). `tools/scenario_pool.
+`2p_Isle_of_Mists.cfg:19` (both 1). `wesnoth_ai/rules/scenario_pool.
 scenario_economy` reads both, the per-side form winning.
 
 **The 1v1 multiplayer default is 2, not 5.** An earlier revision of

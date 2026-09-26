@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
 
 
@@ -53,7 +53,7 @@ def test_global_tod_scan_leaves_zones_intact():
     """The start-slot reader excludes [time_area] blocks (engine
     reads current_time/random_start_time as top-level attrs only)
     -- but the zones must still land on the sim."""
-    from tools.scenario_pool import _scenario_tod_info
+    from wesnoth_ai.rules.scenario_pool import _scenario_tod_info
     ct, rand, n = _scenario_tod_info("multiplayer_Tombs_of_Kesorak")
     assert ct is None and rand is False and n == 6
     sim = _fresh_sim("multiplayer_Tombs_of_Kesorak")

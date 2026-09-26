@@ -21,7 +21,7 @@ from tools.abilities import hex_neighbors  # noqa: E402
 from tools.combat_outcomes import (  # noqa: E402
     enumerate_attack_outcomes, outcome_key_for_child,
 )
-from tools.scenario_pool import (  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (  # noqa: E402
     random_setup, build_scenario_gamestate, load_factions,
 )
 from tools.wesnoth_sim import WesnothSim  # noqa: E402

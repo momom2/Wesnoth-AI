@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import pytest
 
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,
                                  build_scenario_gamestate, random_setup,
                                  roll_mix, validate_mix)
 
@@ -139,7 +139,7 @@ def test_outcome_carries_fog_flag_and_village_metrics():
 # start at a different value than the one specified").
 
 def test_scenario_gold_is_ground_truth():
-    from tools.scenario_pool import (ScenarioSetup,
+    from wesnoth_ai.rules.scenario_pool import (ScenarioSetup,
                                      build_scenario_gamestate)
     s = ScenarioSetup(scenario_id="multiplayer_Arcanclave_Citadel",
                       faction1="Rebels", leader1="Elvish Captain",
@@ -158,7 +158,7 @@ def test_side_income_offset_does_not_leak_across_sides():
     ladder-pool map sets player-side income, so the offset
     mechanism is dormant; this pins that side-3 attrs don't leak
     and the default stays correct."""
-    from tools.scenario_pool import (ScenarioSetup,
+    from wesnoth_ai.rules.scenario_pool import (ScenarioSetup,
                                      build_scenario_gamestate)
     s = ScenarioSetup(
         scenario_id="multiplayer_Thousand_Stings_Garrison",
@@ -183,7 +183,8 @@ def test_the_training_path_overrides_no_scenario_setting(monkeypatch):
     previous version of this test grepped `_play_one_game_safe` for
     the literal `"sg = None"`, which passes or fails on how the line
     is spelled."""
-    from tools import scenario_pool, selfplay_game
+    from tools import selfplay_game
+    from wesnoth_ai.rules import scenario_pool
     from tools.wesnoth_sim import PvPDefaults
 
     seen = {}

@@ -205,7 +205,8 @@ def test_both_pipelines_read_the_time_of_day_through_this_module():
     import inspect
     import re
 
-    from tools import replay_extract, scenario_pool
+    from tools import replay_extract
+    from wesnoth_ai.rules import scenario_pool
 
     for module in (scenario_pool, replay_extract):
         src, name = inspect.getsource(module), module.__name__
@@ -329,8 +330,8 @@ def test_no_second_parser_of_the_side_block_survives():
     import inspect
     import re
 
-    from tools import (dump_savestate, replay_builder, replay_extract, scenario_pool,
-                       sim_to_replay)
+    from tools import dump_savestate, replay_builder, replay_extract, sim_to_replay
+    from wesnoth_ai.rules import scenario_pool
 
     watched = [scenario_pool, replay_extract, sim_to_replay, replay_builder, dump_savestate]
     # A regex that reaches into a [side] block or its economy attrs.

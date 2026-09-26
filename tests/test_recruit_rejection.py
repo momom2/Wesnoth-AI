@@ -41,7 +41,7 @@ from wesnoth_ai.classes import (
 from wesnoth_ai.dummy_policy import DummyPolicy
 from wesnoth_ai.game_core import game_core_class
 from sim_test_helpers import scenario_setup
-from tools.scenario_pool import build_scenario_gamestate
+from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
 
 

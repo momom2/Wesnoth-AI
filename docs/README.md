@@ -69,7 +69,7 @@ Each is optional; the default is the behaviour with the variable unset.
 | `WESNOTH_EXE` | the Steam install's `wesnoth.exe` | the Wesnoth executable for the live bridge, the engine oracles and the template builder (`wesnoth_ai/constants.py`) |
 | `WESNOTH_ENUM_REFERENCE` | unset | 1 uses the reference legal-action enumerator instead of the vectorized one (`wesnoth_ai/action_sampler.py`) |
 | `WESNOTH_PRIOR_BIAS_END_TURN_MINI` | unset | a number added to the end_turn actor logit in mini-map games only (`wesnoth_ai/action_sampler.py`) |
-| `WESNOTH_MINI_RANDOM_TOD` | unset | set, the fixed-time mini maps start at a random time of day (`tools/scenario_pool.py`; `sim_self_play --mini-random-tod` sets it) |
+| `WESNOTH_MINI_RANDOM_TOD` | unset | set, the fixed-time mini maps start at a random time of day (`wesnoth_ai/rules/scenario_pool.py`; `sim_self_play --mini-random-tod` sets it) |
 | `WESNOTH_RUN_TAG` | the launch time | the run's provenance tag, which `sim_self_play` sets for every process it spawns (`tools/validation_exports.py`) |
 | `WESNOTH_PROF` | 0 | 1 times the imitation trainer's stages and writes `<checkpoint>_prof.json` at each evaluation (`tools/supervised_train.py`) |
 | `WESNOTH_GRAPHED_DUMP` | unset | a directory where the graphed inference server saves a batch it failed on (`tools/inference_seam.py`) |

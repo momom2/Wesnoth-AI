@@ -30,7 +30,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
                                  MINI_MAP_SCENARIO_IDS, ScenarioSetup,
                                  build_scenario_gamestate)
 
@@ -102,7 +102,7 @@ def test_the_snapshot_covers_every_pool_scenario():
 def test_the_fingerprint_notices_an_economy_change(monkeypatch):
     """The pin has to be able to fail: a village-gold change of the
     kind this file exists to catch must move the fingerprint."""
-    import tools.scenario_pool as sp
+    import wesnoth_ai.rules.scenario_pool as sp
     before = fingerprint("2p_mini_edited")
     monkeypatch.setattr(sp, "scenario_economy", lambda sid: (None, None, None))
     assert fingerprint("2p_mini_edited") != before

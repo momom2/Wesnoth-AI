@@ -92,7 +92,7 @@ def collect_states(
     sample toward early/midgame states — stated because it matters for
     reading the result, not hidden.
     """
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         build_scenario_gamestate, load_factions, random_setup,
     )
     from tools.wesnoth_sim import WesnothSim

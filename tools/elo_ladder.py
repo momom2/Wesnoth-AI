@@ -77,7 +77,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from tools.device_select import select_inference_device, describe_device
-from tools.scenario_pool import build_scenario_gamestate, random_setup
+from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
 from tools.selfplay_game import _recruit_cost_lookup
 from tools.eval_players import (_PolicyPair, _load_policy,
                                 _play_one_eval_game)

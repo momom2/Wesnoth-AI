@@ -344,7 +344,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
 # ---------------------------------------------------------------------
 
 def run_probe(args) -> int:
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
 
     cfg = ProbeConfig(
         n_alt=args.n_alt, rounds=args.rounds,

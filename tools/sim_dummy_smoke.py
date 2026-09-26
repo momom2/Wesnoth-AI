@@ -50,7 +50,7 @@ from wesnoth_ai.rewards import WeightedReward
 from tools.selfplay_game import (
     GameOutcome, _recruit_cost_lookup, play_one_game,
 )
-from tools.scenario_pool import (
+from wesnoth_ai.rules.scenario_pool import (
     LADDER_SCENARIO_IDS, build_scenario_gamestate, load_factions,
     random_setup,
 )

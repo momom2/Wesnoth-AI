@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 
 def _state(seed=3):
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     return build_scenario_gamestate(random_setup(random.Random(seed)))
 
 

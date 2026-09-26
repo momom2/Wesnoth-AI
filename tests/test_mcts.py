@@ -761,7 +761,7 @@ def test_tree_reuse_inherits_subtree_for_deterministic_actions():
     from wesnoth_ai.classes import state_key
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import MCTSConfig, mcts_search
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,
     )
     from tools.wesnoth_sim import WesnothSim
@@ -867,7 +867,7 @@ def test_gumbel_root_search_integration():
     from tools.mcts import (
         MCTSConfig, mcts_search, extract_gumbel_policy_target,
     )
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,
     )
     from tools.wesnoth_sim import WesnothSim
@@ -910,7 +910,7 @@ def test_seed_salt_samples_distinct_recruit_outcomes():
     import random as _random
     from wesnoth_ai.classes import state_key
     from helpers.recruit import recruit_action_for as recruit_type
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate, load_factions,
     )
     from tools.wesnoth_sim import WesnothSim
@@ -1110,7 +1110,7 @@ def test_infer_bf16_flag_noop_on_cpu():
     import torch
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.model import WesnothModel
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     import random as _r
     enc = GameStateEncoder(d_model=64)
     mdl = WesnothModel(d_model=64, num_layers=1, num_heads=2, d_ff=128)
@@ -1210,7 +1210,7 @@ def test_mini_random_tod_env_lever(monkeypatch):
     fixed-ToD mini templates only (env-inherited by workers; no CLI
     forwarding to forget)."""
     import random as _r
-    from tools.scenario_pool import sample_tod_start
+    from wesnoth_ai.rules.scenario_pool import sample_tod_start
 
     monkeypatch.delenv("WESNOTH_MINI_RANDOM_TOD", raising=False)
     assert sample_tod_start("2p_mini_edited", _r.Random(1)) == 0

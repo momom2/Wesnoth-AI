@@ -238,7 +238,7 @@ def test_outcome_carries_map_class():
     (2026-07-03: ~50% aggregate while ladder maps were 0/8 decisive),
     so the per-class split is the metric that matters."""
     from sim_test_helpers import fresh_scenario_sim
-    from tools.scenario_pool import classify_scenario
+    from wesnoth_ai.rules.scenario_pool import classify_scenario
     from tools.selfplay_game import _recruit_cost_lookup, play_one_game
 
     assert classify_scenario("multiplayer_Den_of_Onis") == "ladder"

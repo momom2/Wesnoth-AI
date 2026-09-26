@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import tools.scenario_events as se  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
                                  MINI_MAP_SCENARIO_IDS, ScenarioSetup,
                                  build_scenario_gamestate)
 

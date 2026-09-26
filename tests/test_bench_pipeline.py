@@ -24,7 +24,7 @@ def _tiny_policy():
 
 
 def _scenario_states(n):
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     out = []
     for i in range(n):
         setup = random_setup(random.Random(10 + i))

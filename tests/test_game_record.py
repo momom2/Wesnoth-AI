@@ -43,7 +43,7 @@ def _played_game(max_turns=8, use_core=False):
     turn records end_turn and the next init_side)."""
     import wesnoth_ai.dummy_policy as dummy_policy
     from sim_test_helpers import Brawler, scenario_setup
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
     setup = scenario_setup(3, mini=True)
     sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id,
@@ -165,7 +165,7 @@ def test_a_game_with_an_acting_neutral_side_rebuilds_from_its_record(tmp_path):
     resting status; a record whose stream holds that end_turn without
     the simulator having applied it rebuilds to another position and is
     refused at the next turn start."""
-    from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
     setup = ScenarioSetup(scenario_id="enclave_micro_isar",
                           faction1="Knalgan Alliance", leader1="Dwarvish Steelclad",

@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import tools.build_scenario_templates as builder  # noqa: E402
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
                                  MINI_MAP_SCENARIO_IDS)
 
 ROOT = Path(__file__).parent.parent

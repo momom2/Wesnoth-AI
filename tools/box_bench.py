@@ -51,7 +51,7 @@ def main(argv):
     import torch
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
 
     n_cores = os.cpu_count() or 1
     # A bench on a busy box measures contention, not the box (the

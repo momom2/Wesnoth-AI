@@ -48,7 +48,7 @@ def main(argv) -> int:
 
     import torch
     from tools.eval_players import _load_policy
-    from tools.scenario_pool import random_setup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
 
     policy = _load_policy(args.checkpoint, torch.device(args.device),

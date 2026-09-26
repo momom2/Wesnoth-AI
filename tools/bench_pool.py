@@ -233,7 +233,7 @@ def _server_parity(pool, seed: int) -> list:
     difference of each serve process's value and value logits from
     the learner process's."""
     import random
-    from tools.scenario_pool import build_scenario_gamestate, load_factions, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, load_factions, random_setup
     load_factions()
     gs = build_scenario_gamestate(random_setup(random.Random(seed), forced_faction=None,
                                                category="ladder"))

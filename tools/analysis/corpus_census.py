@@ -42,7 +42,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.scenario_pool import LADDER_SCENARIO_IDS  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS  # noqa: E402
 
 # The map name is the replay file name minus its date prefix and its
 # turn/command suffix: "2024-03-22_2p__Hamlets_Turn_14_(335).json.gz".

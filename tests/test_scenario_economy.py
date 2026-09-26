@@ -1,6 +1,6 @@
 """The village economy and the experience modifier come from the
 scenario, and reach the game through the same fields a replay record
-uses (tools/scenario_pool.build_scenario_gamestate).
+uses (wesnoth_ai/rules/scenario_pool.build_scenario_gamestate).
 
 Before 2026-09-21 the pool hardcoded 2 gold per village and a 70%
 experience modifier and patched them onto `global_info` after the
@@ -20,7 +20,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools import scenario_pool as sp  # noqa: E402
+from wesnoth_ai.rules import scenario_pool as sp  # noqa: E402
 from tools.replay_dataset import _build_initial_gamestate  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 

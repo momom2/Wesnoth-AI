@@ -816,7 +816,7 @@ def main(argv: List[str]) -> int:
     # (see checkpoint_refusal, faction_refusal).
     _sha_of = {spec: spec_sha256(spec) for spec in {args.spec_a, args.spec_b}}
     want_ckpts = (_sha_of[args.spec_a], _sha_of[args.spec_b])
-    from tools import scenario_pool
+    from wesnoth_ai.rules import scenario_pool
     want_faction = forced_faction_tag(scenario_pool.FORCED_FACTION)
     for f in sorted(args.outdir.glob("game_*.json")):
         try:

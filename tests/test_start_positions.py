@@ -85,7 +85,7 @@ def test_only_a_side_s_own_spelling_names_a_side():
 
 
 def test_scenario_pool_reads_a_two_digit_side_and_skips_a_name():
-    from tools.scenario_pool import extract_player_starts
+    from wesnoth_ai.rules.scenario_pool import extract_player_starts
     from wesnoth_ai.classes import Position
 
     starts = extract_player_starts(MAP_DATA)

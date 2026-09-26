@@ -139,7 +139,7 @@ def test_init_side_pays_a_declared_zero_village_economy():
     pays base_income minus 1."""
     import random
     from dataclasses import replace
-    from tools import scenario_pool as sp
+    from wesnoth_ai.rules import scenario_pool as sp
     from tests.test_scenario_economy import _with_upkeep_unit
     gs = sp.build_scenario_gamestate(sp.random_setup(random.Random(1)),
                                      village_gold=0, village_upkeep=0)
@@ -375,7 +375,7 @@ def test_encode_raw_from_core_reads_the_other_player_on_a_three_side_state():
 
 def _one_sim(seed: int, *, mini: bool, max_turns: int, use_core: bool):
     from tests.sim_test_helpers import scenario_setup
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
     setup = scenario_setup(seed, mini=mini)
     return WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id,
@@ -386,7 +386,7 @@ def _twin_sims(seed: int, *, mini: bool, max_turns: int):
     """Two simulators from one starting state: the Python state of
     record and the core as the state of record."""
     from tests.sim_test_helpers import scenario_setup
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
     setup = scenario_setup(seed, mini=mini)
     gs = build_scenario_gamestate(setup)

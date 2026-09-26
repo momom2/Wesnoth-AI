@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 import pytest
 
 from tools.replay_dataset import split_map_grid
-from tools.scenario_pool import extract_player_starts
+from wesnoth_ai.rules.scenario_pool import extract_player_starts
 from tools.sim_to_replay import _scrape_map_keep_positions
 
 _HEADERFUL = """border_size=1

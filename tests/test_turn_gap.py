@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from tools import turn_gap as tg
-from tools.scenario_pool import build_scenario_gamestate, random_setup
+from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
 from wesnoth_ai.classes import state_key
 from wesnoth_ai.transformer_policy import TransformerPolicy

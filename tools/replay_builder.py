@@ -10,7 +10,7 @@ inputs:
   - Our `ScenarioSetup` (faction1/leader1/faction2/leader2 picks).
   - The default era's faction definitions
     (wesnoth_src/data/multiplayer/factions/*-default.cfg via
-     tools.scenario_pool.load_factions).
+     wesnoth_ai.rules.scenario_pool.load_factions).
   - The sim's `command_history`.
 
 No source replay involvement. Output is byte-for-byte determined
@@ -168,7 +168,7 @@ def _build_scenario_node(
       4. Add the map_data attr from the loaded .map file.
     """
     # Lazy import to avoid cycles.
-    from tools.scenario_pool import load_factions
+    from wesnoth_ai.rules.scenario_pool import load_factions
 
     src = (scenario_root.first("multiplayer")
            or scenario_root.first("scenario"))
@@ -360,7 +360,7 @@ def export_scenario_replay(
     using it would emit final gold/villages/HP/etc. as the
     starting values, divorced from the [replay] sequence).
 
-    `setup` is the `tools.scenario_pool.ScenarioSetup` used to
+    `setup` is the `wesnoth_ai.rules.scenario_pool.ScenarioSetup` used to
     seed the sim. `sim` is the post-game `WesnothSim` (with a
     populated `command_history`). `out_path` is where the .bz2
     is written.
@@ -394,7 +394,7 @@ def export_scenario_replay(
     # Fresh turn-1 GameState (deterministic given setup). This is
     # what Wesnoth needs in the [scenario] block; it then applies
     # sim.command_history to advance forward.
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     initial_gs = build_scenario_gamestate(setup)
 
     text = _build_file_wml(setup, initial_gs, sim, raw_map, scenario_root)

@@ -25,7 +25,7 @@ Wesnoth subprocess), but the user-verification path is documented:
 generate a fresh export, copy to the saves dir, load via
 File -> Load Game -> Replays.
 
-Dependencies: tools.sim_to_replay, tools.scenario_pool,
+Dependencies: tools.sim_to_replay, wesnoth_ai.rules.scenario_pool,
               tools.wesnoth_sim, tools.replay_extract.
 Dependents: regression CI.
 """
@@ -33,7 +33,7 @@ from __future__ import annotations
 
 
 
-from tools.scenario_pool import (
+from wesnoth_ai.rules.scenario_pool import (
     LADDER_SCENARIO_IDS, ScenarioSetup,
     build_scenario_gamestate, load_factions,
 )
@@ -372,7 +372,7 @@ def test_the_export_reads_the_gold_a_macro_declares():
 
     Both sides now read the same way, which is the point of sharing one
     reader: these values must equal what the pool builds."""
-    from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 
     for scenario_id, gold in (("enclave_micro_isar", 50),
                               ("enclave_mini_fallenstar_1v1", 75),
@@ -399,7 +399,7 @@ def test_the_export_declares_the_economy_the_game_was_played_under(tmp_path):
     import re
     from dataclasses import replace as _replace
 
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from tools.sim_to_replay import export_replay_from_scratch
     from tools.wesnoth_sim import WesnothSim
 
@@ -429,7 +429,7 @@ def test_all_mini_maps_emit_without_error(tmp_path):
     own cfg + the game's own preprocessor) -- no human replays exist
     for these scenarios, so the retired replay-extraction path never
     covered them."""
-    from tools.scenario_pool import MINI_MAP_SCENARIO_IDS
+    from wesnoth_ai.rules.scenario_pool import MINI_MAP_SCENARIO_IDS
     load_factions()
     failures = []
     for sid in MINI_MAP_SCENARIO_IDS:
@@ -463,7 +463,7 @@ def test_exported_save_pins_tod_start_slot():
     # Second-watch map ({DEFAULT_SCHEDULE_SECOND_WATCH} emits
     # current_time=5): the fresh build must START there and the
     # export must pin the same slot.
-    from tools.scenario_pool import _scenario_tod_start
+    from wesnoth_ai.rules.scenario_pool import _scenario_tod_start
     assert _scenario_tod_start("multiplayer_Fallenstar_Lake") == 5
     assert _scenario_tod_start("multiplayer_Hamlets") == 0
     sim2 = _build_sim_for("multiplayer_Fallenstar_Lake")
@@ -483,7 +483,7 @@ def test_tod_start_policy_mirrors_engine():
     map (general capability). Human-derived midgame starts read the
     replay's own current_time via _build_initial_gamestate."""
     import random as _random
-    from tools.scenario_pool import sample_tod_start
+    from wesnoth_ai.rules.scenario_pool import sample_tod_start
 
     rng = _random.Random(123)
     # Set-time maps: constant, whatever the rng says.
@@ -498,7 +498,7 @@ def test_tod_start_policy_mirrors_engine():
     assert draws == {0, 1, 2, 3, 4, 5}, draws
     # random_setup stamps the draw on the setup, and the built game
     # carries it end to end (offset + global time_of_day + export).
-    from tools.scenario_pool import random_setup
+    from wesnoth_ai.rules.scenario_pool import random_setup
     setup = None
     rng2 = _random.Random(7)
     while setup is None or setup.tod_start in (None, 0):

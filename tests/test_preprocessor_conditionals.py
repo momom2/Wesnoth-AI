@@ -96,7 +96,7 @@ def test_hornshark_still_builds_what_it_did():
     """Its conditionals test its own define, which is set when the
     scenario loads, so every one of them is live: MODIFY_BOWMAN is
     still defined and the Loyalist Bowmen still get firststrike."""
-    from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
 
     se._CORE_MACROS_CACHE = None

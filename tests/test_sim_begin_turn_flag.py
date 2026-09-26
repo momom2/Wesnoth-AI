@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sim_test_helpers import scenario_setup            # noqa: E402
-from tools.scenario_pool import build_scenario_gamestate  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate  # noqa: E402
 from tools.wesnoth_sim import WesnothSim               # noqa: E402
 
 

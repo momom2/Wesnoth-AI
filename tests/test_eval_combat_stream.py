@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tools.elo_eval_game import combat_salt          # noqa: E402
-from tools.scenario_pool import (                    # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (                    # noqa: E402
     build_scenario_gamestate, random_setup,
 )
 from tools.wesnoth_sim import WesnothSim             # noqa: E402

@@ -30,7 +30,7 @@ from wesnoth_ai.encoder import UNIT_FEAT_DIM  # noqa: E402
 def _raws(n_states=3, relevant_set=False):
     """RawEncodeds from real scenario states, one per side."""
     from sim_test_helpers import scenario_setup
-    from tools.scenario_pool import build_scenario_gamestate
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
     from wesnoth_ai.encoder import encode_raw
     enc = GameStateEncoder(d_model=32, relevant_set_hexes=relevant_set)
     raws = []

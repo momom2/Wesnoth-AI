@@ -21,7 +21,7 @@ from sim_test_helpers import require_scenario_data  # noqa: E402
 from tools.bench_train_step import (  # noqa: E402
     PER_EXP_STAGES, LoopShape, experiences_from_states, markdown_report, run_benchmark,
 )
-from tools.scenario_pool import build_scenario_gamestate, random_setup  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 
 

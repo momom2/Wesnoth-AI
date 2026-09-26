@@ -102,7 +102,7 @@ def test_player_refuses_an_unknown_rule():
 
 def test_actor_rule_player_matches_the_rule_on_a_real_state():
     import torch
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     from wesnoth_ai.transformer_policy import TransformerPolicy
     torch.manual_seed(0)
@@ -139,7 +139,7 @@ def test_actor_rule_on_the_compact_arrays_matches_the_list_path():
     from types import SimpleNamespace
     import torch
     from tools.inference_seam import InferenceServer, RemoteEncoder, RemoteModel
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from wesnoth_ai.transformer_policy import TransformerPolicy
     torch.manual_seed(0)
     policy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64,

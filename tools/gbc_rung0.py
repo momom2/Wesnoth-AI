@@ -279,7 +279,7 @@ def rung0d(args) -> Dict:
 # ---------------------------------------------------------------------
 
 def rung0c(args) -> Dict:
-    from tools.scenario_pool import (
+    from wesnoth_ai.rules.scenario_pool import (
         random_setup, build_scenario_gamestate,
     )
     from tools.turn_search import forward_state, _value_for

@@ -49,7 +49,7 @@ from tools.build_scenario_templates import (LADDER_SRC, MINI_SRC,  # noqa: E402
                                             index_preprocessed, run_preprocessor)
 from tools.replay_dataset import _lawful_bonus_at, side_income  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
-from tools.scenario_pool import (LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,  # noqa: E402
                                  ScenarioSetup, _scenario_tod_info,
                                  build_scenario_gamestate, classify_scenario)
 from tools.traits import TRAITS  # noqa: E402

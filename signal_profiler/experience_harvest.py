@@ -24,7 +24,7 @@ def harvest_experiences(policy, n_games: int, seed: int,
     tools.sim_self_play.play_one_game — the production loop
     (fork-guard decisions, bounce retries, finalize_game with GBC
     labels and value weights)."""
-    from tools.scenario_pool import build_scenario_gamestate, random_setup
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
     from tools.selfplay_game import _recruit_cost_lookup, play_one_game
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.rewards import WeightedReward

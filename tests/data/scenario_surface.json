@@ -102,12 +102,12 @@
   },
   "scenario.map_data": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_pool.py:build_scenario_gamestate",
+   "reader": "wesnoth_ai/rules/scenario_pool.py:build_scenario_gamestate",
    "why": "read at the call site and handed to wml_state.resolve_map_file"
   },
   "scenario.map_file": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_pool.py:build_scenario_gamestate",
+   "reader": "wesnoth_ai/rules/scenario_pool.py:build_scenario_gamestate",
    "why": "read at the call site and handed to wml_state.resolve_map_file"
   },
   "scenario.mp_village_gold": {

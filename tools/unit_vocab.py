@@ -35,7 +35,7 @@ from wesnoth_ai.paths import UNIT_STATS_PATH  # noqa: E402
 
 def _faction_types() -> Set[str]:
     """Every recruit and every possible leader of the default era."""
-    from tools.scenario_pool import load_factions
+    from wesnoth_ai.rules.scenario_pool import load_factions
     factions = load_factions()
     names: Set[str] = set()
     for f in (factions if isinstance(factions, list) else factions.values()):

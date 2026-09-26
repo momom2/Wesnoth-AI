@@ -64,7 +64,7 @@ def category_of(sim) -> str:
     "midgame" -- its replay shape is the spliced one)."""
     if getattr(sim, "_midgame_start", False):
         return "midgame"
-    from tools.scenario_pool import classify_scenario
+    from wesnoth_ai.rules.scenario_pool import classify_scenario
     cls = classify_scenario(getattr(sim, "scenario_id", "") or "")
     if cls == "ladder" and not getattr(sim.gs.global_info, "_fog", True):
         return "ladder_fogless"

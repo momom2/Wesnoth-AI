@@ -20,7 +20,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.scenario_pool import ScenarioSetup, build_scenario_gamestate  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate  # noqa: E402
 from wesnoth_ai import encoder as enc_mod  # noqa: E402
 from wesnoth_ai.encoder import (GLOBAL_FEAT_DIM, LAWFUL_BONUS_NORM,  # noqa: E402
                                 GameStateEncoder)

@@ -48,7 +48,7 @@ from tools.replay_extract import parse_wml  # noqa: E402
 from tools.scenario_events import load_scenario_wml  # noqa: E402
 from wesnoth_ai.rules.wml_state import (map_starting_positions, resolve_map_file,  # noqa: E402
                              split_map_grid)
-from tools.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
+from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS,  # noqa: E402
                                  MINI_MAP_SCENARIO_IDS)
 
 TEMPLATES = SCENARIO_TEMPLATES_DIR
