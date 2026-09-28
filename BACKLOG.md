@@ -138,9 +138,10 @@ the same night:
   `scripts/box/boxlib.sh` (docs/box_runbook.md) before running it again.
   The unit-vocab retrain's script is ported, with a 30-minute stall
   window since the trainer logs its resume skip (0.7.15).
-- **Legacy box path:** `scripts/box_stop_on_abort.py` (the quarantined
-  campaign flow) puts the Vast ACCOUNT key on the box and logs requests
-  that carry it. Retire it with the user's word.
+- Done (user ruling 2026-09-28): `scripts/box_stop_on_abort.py` is
+  retired; its escrow is `scripts/abort_escrow.py`, the launch flows stop
+  boxes with the per-box key, and no provisioning places the account key
+  on a box.
   `scripts/observation_retrain_box.sh`'s stop could have written the
   instance key to `stop.log` on a network error (a record of a past run;
   the unit-vocab script's stop does not).

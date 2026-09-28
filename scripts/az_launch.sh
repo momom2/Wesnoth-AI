@@ -32,7 +32,10 @@ fatal_stop() {
     echo "[az] terminal failure ($1) -- escrow + stop box"
     WORKDIR="$WORKDIR" REPO_ROOT=/workspace/wai \
         CAMPAIGN_FILE="$CAMPAIGN_FILE" HF_PREFIX="$HF_PREFIX" \
-        "$PY" scripts/box_stop_on_abort.py >> "$WORKDIR/train.log" 2>&1
+        "$PY" scripts/abort_escrow.py >> "$WORKDIR/train.log" 2>&1
+    # Stopped with the key Vast puts in each box's environment.
+    "$PY" scripts/box/box_stop.py --outcome "$WORKDIR/box_stop.jsonl" \
+        >> "$WORKDIR/train.log" 2>&1
 }
 
 stage="${1:-all}"

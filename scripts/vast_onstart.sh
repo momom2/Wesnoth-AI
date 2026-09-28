@@ -881,8 +881,9 @@ fi
 # Terminal-failure handler (user ruling 2026-09-02): after a
 # tripwire abort or relaunch-cap exhaustion, escrow a final sweep
 # and STOP the instance (GPU billing off, disk kept). Disable with
-# -e STOP_ON_ABORT=0. Needs $WORKDIR/.vast_api_key + .instance_id.
-_STOP_CMD="[ '${STOP_ON_ABORT:-1}' = 1 ] && WORKDIR='$WORKDIR' REPO_ROOT='$PWD' CAMPAIGN_FILE='$CAMPAIGN_FILE' HF_PREFIX='${HF_PREFIX:-tier-b/}' '$PY' scripts/box_stop_on_abort.py >> '$WORKDIR/train.log' 2>&1"
+# -e STOP_ON_ABORT=0. The stop uses the box's own CONTAINER_ID and
+# CONTAINER_API_KEY (scripts/box/box_stop.py).
+_STOP_CMD="[ '${STOP_ON_ABORT:-1}' = 1 ] && { WORKDIR='$WORKDIR' REPO_ROOT='$PWD' CAMPAIGN_FILE='$CAMPAIGN_FILE' HF_PREFIX='${HF_PREFIX:-tier-b/}' '$PY' scripts/abort_escrow.py >> '$WORKDIR/train.log' 2>&1; '$PY' scripts/box/box_stop.py --outcome '$WORKDIR/box_stop.jsonl' >> '$WORKDIR/train.log' 2>&1; }"
 _TRAIN_BODY="
   RESET='$RESET'
   tries=0
