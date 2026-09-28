@@ -17,6 +17,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+from tests.helpers.eval_records import current_forced_faction  # noqa: E402
 
 STUB = r'''
 import json
@@ -50,7 +51,8 @@ else:
 # 'dummy' at sims 0 on the cpu.
 TEMPLATE = {"procedure_a": "raw", "procedure_b": "raw", "max_turns": 200,
             "margin_a": 0.0, "combat_stream": "per_game",
-            "observation_epoch": int(OBSERVATION_EPOCH)}
+            "observation_epoch": int(OBSERVATION_EPOCH),
+            "forced_faction": current_forced_faction()}
 
 
 def _stub_games(tmp_path, monkeypatch, *, fail=(), outcome="win") -> Path:

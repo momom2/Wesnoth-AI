@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+from tests.helpers.eval_records import current_forced_faction  # noqa: E402
 
 
 def _tiny_checkpoint(path: Path, seed: int) -> str:
@@ -37,6 +38,7 @@ def _result(**over) -> dict:
     rec = {"label_a": "A", "label_b": "B", "outcome_a": "win", "margin_a": 0.5,
            "procedure_a": "raw:t0", "procedure_b": "raw", "max_turns": 200,
            "combat_stream": "per_game", "observation_epoch": int(OBSERVATION_EPOCH),
+           "forced_faction": current_forced_faction(),
            "side_a": 1, "seed": 10000}
     rec.update(over)
     return rec
