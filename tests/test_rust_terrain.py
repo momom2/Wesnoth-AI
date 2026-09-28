@@ -18,7 +18,7 @@ import pytest
 from wesnoth_ai import game_core as gc
 from wesnoth_ai.paths import UNIT_STATS_PATH, WESNOTH_SRC_DIR
 
-pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core phase 21 not available")
+pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="the installed wesnoth_core wheel is older than game_core needs")
 
 
 def _map_codes():

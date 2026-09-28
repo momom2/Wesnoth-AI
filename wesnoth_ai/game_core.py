@@ -75,12 +75,13 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 21: the core reads the unit and terrain databases, resolves
+        # Phase 22: the core reads the unit and terrain databases, resolves
         # every terrain fact and movement class from the terrain codes, keeps
         # each unit's underscore attributes in its record, builds units
         # itself (recruits, plague corpses, advancement), runs the
-        # scenario's events and encodes the terrain set.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 21:
+        # scenario's events, encodes the terrain set, and answers the
+        # defender's weapon choice and an attack's exact outcomes.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 22:
             load_databases(wesnoth_core)
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
@@ -316,7 +317,7 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 21 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 22 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}

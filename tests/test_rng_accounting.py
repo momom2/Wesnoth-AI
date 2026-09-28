@@ -61,6 +61,7 @@ def _teleport_adjacent(sim, attacker, defender):
     if spot is None:
         pytest.skip("no free hex adjacent to the defender")
     attacker.position.x, attacker.position.y = spot
+    commit_view(sim)
 
 
 def _leaders(sim):

@@ -141,15 +141,10 @@ def _defender_cth_vs(gs, attacker, defender, a_weapon: int) -> float:
     to 0.3 (typical open-terrain CTH is 30-40%) when the defender
     has no counter-weapon."""
     try:
-        from tools.combat_outcomes import (_stats_pair,
-                                           choose_counter_weapon)
-        from tools.replay_dataset import build_attack_context
-        d_w = choose_counter_weapon(gs, attacker, defender, a_weapon)
-        ctx = build_attack_context(gs, attacker, defender,
-                                   a_weapon, d_w)
-        _a, d_stats = _stats_pair(ctx)
-        if d_stats is not None:
-            return float(d_stats.cth) / 100.0
+        from tools.combat_outcomes import defender_chance_to_hit
+        cth = defender_chance_to_hit(gs, attacker, defender, a_weapon)
+        if cth is not None:
+            return float(cth) / 100.0
     except Exception:                                 # noqa: BLE001
         pass
     return 0.3

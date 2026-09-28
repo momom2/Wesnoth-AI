@@ -17,11 +17,12 @@
 //! the terrain codes by terrain.rs). `fork` is a clone: the dynamic part
 //! copies, the static part is a reference count.
 //!
-//! Python constructs units (recruits, advancements, plague corpses:
-//! `tools/replay_dataset.py` and `tools/traits.py`) and runs scenario
-//! events on a Python view; everything else about a command applies
-//! here (core_step.rs). Map space throughout: hex index = position in
-//! `gs.map.hexes` (the observation kernels' order).
+//! Every command applies here: turns (core_step.rs), moves
+//! (core_move.rs), attacks (core_attack.rs), units built and advanced
+//! (core_units.rs, units.rs, effects.rs), the scenario's events
+//! (events.rs); the core also answers fight outcomes (outcomes.rs),
+//! observations and encodings. Map space throughout: hex index =
+//! position in `gs.map.hexes` (the observation kernels' order).
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};

@@ -8,12 +8,14 @@
 //! the corpse its death raises, the defender's feeding, its side's refog
 //! and its advancement, or the corpse and the refog of its death
 //! (core_units.rs); it reports the fight for the engagement telemetry.
+//! The fight's setup (`fight_inputs`) and the combatants' write-back
+//! (`write_back`) serve the outcome enumeration too (outcomes.rs).
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::combat::{resolve_fight, UNIT_FLAGS, UNIT_INTS};
-use crate::core::{BaseAttack, GameCore};
+use crate::combat::{resolve_fight_with, FightInputs, Mt19937, ScriptedRng, StrikeRng, UNIT_FLAGS, UNIT_INTS};
+use crate::core::{BaseAttack, GameCore, UnitRec};
 use crate::observe::neighbours;
 
 /// `combat.DAMAGE_TYPES`: the resistance order of a unit type.
@@ -31,10 +33,11 @@ const UNPLAGUEABLE_TRAITS: [&str; 3] = ["undead", "mechanical", "elemental"];
 const ILLUMINATION: i64 = 25;
 
 /// `combat.Weapon` as `_to_combat_unit` builds it: the type's attack
-/// by index (damage type, specials, accuracy, parry) with the unit's
-/// numbers and its own specials unioned in.
-struct WeaponView {
+/// by index (damage type, range, specials, accuracy, parry) with the
+/// unit's numbers and its own specials unioned in.
+pub(crate) struct WeaponView {
     type_idx: Option<usize>,         // into DAMAGE_TYPES; None = a type no resistance names
+    pub ranged: bool,
     damage: i64,
     number: i64,
     accuracy: i64,
@@ -46,34 +49,75 @@ fn dt_index(name: &str) -> Option<usize> {
     DAMAGE_TYPES.iter().position(|d| *d == name)
 }
 
+/// An attacker's weapon index as the applier reads it: past the end is
+/// weapon 0, a negative one counts from the end (Python indexing).
+pub(crate) fn attacker_weapon(n: usize, a_weapon: i64) -> PyResult<usize> {
+    if a_weapon >= n as i64 {
+        return Ok(0);
+    }
+    if a_weapon >= 0 {
+        return Ok(a_weapon as usize);
+    }
+    let k = n as i64 + a_weapon;
+    if k < 0 {
+        return Err(pyo3::exceptions::PyIndexError::new_err("attacker weapon"));
+    }
+    Ok(k as usize)
+}
+
+/// A combatant's record after the fight, as the attack command writes it
+/// back before any advancement: "resting" gone (attack.cpp:1279-80), the
+/// statuses the fight gave added, and for a survivor its hit points and
+/// experience, with a fed kill's +1 hit point, +1 maximum and one more on
+/// the feeding count advancement adds back.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_back(u: &mut UnitRec, hp: i64, xp: i64, slowed: bool, poisoned: bool, petrified: bool,
+                         fed: bool) {
+    u.drop_status("resting");
+    if slowed { u.add_status("slowed"); }
+    if poisoned { u.add_status("poisoned"); }
+    if petrified { u.add_status("petrified"); }
+    if hp > 0 {
+        u.max_hp += fed as i64;
+        u.current_hp = hp + fed as i64;
+        u.current_exp = xp;
+        if fed {
+            u.feeding_count = Some(u.feeding_count.unwrap_or(0) + 1);
+        }
+    }
+}
+
 /// `apply_unit_illumination`: bounded_add(base, 25, max 25, min 0), positive branch.
 pub(crate) fn apply_illumination(base: i64, illuminated: bool) -> i64 {
     if illuminated { (base + ILLUMINATION).min(base.max(ILLUMINATION)) } else { base }
 }
 
 impl GameCore {
-    fn weapons_of(&self, i: usize) -> Vec<WeaponView> {
+    pub(crate) fn weapons_of(&self, i: usize) -> Vec<WeaponView> {
         let u = &self.units[i];
         let types = self.types.read().unwrap();
         let base: &[BaseAttack] = if u.type_idx >= 0 { &types[u.type_idx as usize].attacks } else { &[] };
         let mut out = Vec::with_capacity(u.attacks.len());
         for (k, a) in u.attacks.iter().enumerate() {
-            let (type_idx, mut specials, accuracy, parry) = if k < base.len() {
-                (dt_index(&base[k].type_name), base[k].specials.clone(), base[k].accuracy, base[k].parry)
+            let (type_idx, ranged, mut specials, accuracy, parry) = if k < base.len() {
+                let b = &base[k];
+                (dt_index(&b.type_name), b.ranged, b.specials.clone(), b.accuracy, b.parry)
             } else {
                 let t = if (0..6).contains(&a.type_id) { a.type_id as usize } else { 0 };
-                (Some(t), Vec::new(), 0, 0)
+                (Some(t), a.ranged, Vec::new(), 0, 0)
             };
             for s in &a.specials {
                 if !specials.contains(s) {
                     specials.push(s.clone());
                 }
             }
-            out.push(WeaponView { type_idx, damage: a.damage, number: a.strikes, accuracy, parry, specials });
+            out.push(WeaponView { type_idx, ranged, damage: a.damage, number: a.strikes, accuracy, parry, specials });
         }
         if out.is_empty() {
             // `Weapon("none", 1, 1, "melee", "blade", [])`
-            out.push(WeaponView { type_idx: Some(0), damage: 1, number: 1, accuracy: 0, parry: 0, specials: Vec::new() });
+            out.push(WeaponView {
+                type_idx: Some(0), ranged: false, damage: 1, number: 1, accuracy: 0, parry: 0, specials: Vec::new(),
+            });
         }
         out
     }
@@ -111,7 +155,7 @@ impl GameCore {
                 "undrainable" => u.has_status("undrainable") || unplagueable_trait,
                 "unpoisonable" => u.has_status("unpoisonable") || unplagueable_trait,
                 "steadfast" => u.has_ability("steadfast"),
-                special => weapon.map_or(false, |w| w.specials.iter().any(|s| s == special)),
+                special => weapon.is_some_and(|w| w.specials.iter().any(|s| s == special)),
             };
             flags[k] = on as u8;
         }
@@ -175,8 +219,43 @@ impl GameCore {
         self.units.iter().any(|f| (f.x, f.y) == opp && f.side != d.side && !f.has_status("petrified"))
     }
 
+    /// `build_attack_context`: the fight's inputs for unit `a` attacking
+    /// `d` with weapon `a_weapon` (`attacker_weapon`) and `d` answering
+    /// with `d_weapon` (-1: no answer; past its weapons: weapon 0; never
+    /// when petrified, whose attacks the engine strips).
+    pub(crate) fn fight_inputs(&self, a: usize, d: usize, a_weapon: i64, d_weapon: i64) -> PyResult<FightInputs> {
+        let aw = self.weapons_of(a);
+        let dw = self.weapons_of(d);
+        let a_idx = attacker_weapon(aw.len(), a_weapon)?;
+        let mut d_idx = d_weapon;
+        if d_idx >= 0 && d_idx >= dw.len() as i64 {
+            d_idx = 0;
+        }
+        if self.units[d].has_status("petrified") {
+            d_idx = -1;
+        }
+        let d_has = d_idx >= 0;
+        let d_wv = if d_has { Some(&dw[d_idx as usize]) } else { None };
+        let (a_ints, a_flags) = self.combat_arrays(a, d, Some(&aw[a_idx]), self.defense_at(a));
+        let (d_ints, d_flags) = self.combat_arrays(d, a, d_wv, self.defense_at(d));
+        let turn = self.global.turn_number;
+        Ok(FightInputs {
+            a_ints,
+            a_flags,
+            d_ints,
+            d_flags,
+            d_has_weapon: d_has,
+            a_lawful_bonus: apply_illumination(self.lawful_bonus_at(self.units[a].hex, turn), self.illuminated(a)),
+            d_lawful_bonus: apply_illumination(self.lawful_bonus_at(self.units[d].hex, turn), self.illuminated(d)),
+            a_leadership_bonus: self.leadership(a),
+            d_leadership_bonus: self.leadership(d),
+            a_backstab_active: self.backstab_active(a, d),
+            d_backstab_active: self.backstab_active(d, a),
+        })
+    }
+
     /// `_is_unplagueable`: the status, or a trait whose macro adds it.
-    fn unplagueable(&self, i: usize) -> bool {
+    pub(crate) fn unplagueable(&self, i: usize) -> bool {
         let u = &self.units[i];
         u.has_status("unplagueable") || u.traits.iter().any(|t| UNPLAGUEABLE_TRAITS.contains(&t.as_str()))
     }
@@ -220,6 +299,37 @@ impl GameCore {
         if !has_seed {
             return Ok(None);
         }
+        self.attack(py, a, d, a_weapon, d_weapon, &mut Mt19937::new(seed, 0)).map(Some)
+    }
+
+    /// The attack command with its strike draws scripted
+    /// (`swap_detector._apply_attack_scripted`): `prefix` forces the
+    /// first strikes to hit (true) or miss (false), every later one
+    /// hits. Non-empty `choices` become the advancement queue. Returns
+    /// the number of draws the fight took, or None when a hex holds no
+    /// unit.
+    #[allow(clippy::too_many_arguments)]
+    fn apply_attack_scripted(&mut self, py: Python<'_>, ax: i64, ay: i64, dx: i64, dy: i64, a_weapon: i64,
+                             d_weapon: i64, prefix: Vec<bool>, choices: Vec<i64>) -> PyResult<Option<u64>> {
+        if !choices.is_empty() {
+            self.advance_choices = choices;
+        }
+        let (a, d) = match (self.unit_at(ax, ay), self.unit_at(dx, dy)) {
+            (Some(a), Some(d)) => (a, d),
+            _ => return Ok(None),
+        };
+        let mut rng = ScriptedRng::new(prefix);
+        self.attack(py, a, d, a_weapon, d_weapon, &mut rng)?;
+        Ok(Some(rng.calls()))
+    }
+}
+
+impl GameCore {
+    /// The attack of unit `a` on unit `d` with the strike draws of `rng`,
+    /// and the fight's facts for the telemetry.
+    #[allow(clippy::too_many_arguments)]
+    fn attack<'py>(&mut self, py: Python<'py>, a: usize, d: usize, a_weapon: i64, d_weapon: i64,
+                   rng: &mut dyn StrikeRng) -> PyResult<Bound<'py, PyDict>> {
         let att_id = self.units[a].id.clone();
         let dfd_id = self.units[d].id.clone();
         let (att_side, dfd_side) = (self.units[a].side, self.units[d].side);
@@ -228,38 +338,8 @@ impl GameCore {
         let dfd_was_slowed = self.units[d].has_status("slowed");
         let dfd_was_petrified = self.units[d].has_status("petrified");
         self.uncover(&att_id);                  // attack.cpp:1378
-        let aw = self.weapons_of(a);
-        let dw = self.weapons_of(d);
-        let a_idx = if a_weapon >= aw.len() as i64 {
-            0
-        } else if a_weapon < 0 {
-            let k = aw.len() as i64 + a_weapon;
-            if k < 0 {
-                return Err(pyo3::exceptions::PyIndexError::new_err("attacker weapon"));
-            }
-            k as usize
-        } else {
-            a_weapon as usize
-        };
-        let mut d_idx = d_weapon;
-        if d_idx >= 0 && d_idx >= dw.len() as i64 {
-            d_idx = 0;
-        }
-        if self.units[d].has_status("petrified") {
-            d_idx = -1;
-        }
-        let d_has = d_idx >= 0;
-        let d_wv = if d_has { Some(&dw[d_idx as usize]) } else { None };
-        let (a_ints, a_flags) = self.combat_arrays(a, d, Some(&aw[a_idx]), self.defense_at(a));
-        let (d_ints, d_flags) = self.combat_arrays(d, a, d_wv, self.defense_at(d));
-        let turn = self.global.turn_number;
-        let a_lawful = apply_illumination(self.lawful_bonus_at(self.units[a].hex, turn), self.illuminated(a));
-        let d_lawful = apply_illumination(self.lawful_bonus_at(self.units[d].hex, turn), self.illuminated(d));
-        let (out, record) = resolve_fight(
-            &a_ints, &a_flags, &d_ints, &d_flags, d_has, a_lawful, d_lawful,
-            self.leadership(a), self.leadership(d), self.backstab_active(a, d), self.backstab_active(d, a),
-            seed, 0,
-        );
+        let inputs = self.fight_inputs(a, d, a_weapon, d_weapon)?;
+        let (out, record) = resolve_fight_with(&inputs, rng);
         self.last_checkup_strikes = record;
         let (a_hp, d_hp, a_xp, d_xp) = (out[0], out[1], out[2], out[3]);
         let (a_alive, d_alive) = (a_hp > 0, d_hp > 0);
@@ -293,32 +373,13 @@ impl GameCore {
             r.set_item("dmg_to_defender", (dfd.current_hp - d_hp).max(0))?;
             r.set_item("dmg_to_attacker", (att.current_hp - a_hp).max(0))?;
         }
-        {
+        write_back(&mut self.units[a], a_hp, a_xp, out[4] != 0, out[5] != 0, out[6] != 0, att_feed);
+        if a_alive {
             let u = &mut self.units[a];
-            u.drop_status("resting");           // attack.cpp:1279-80
-            if out[4] != 0 { u.add_status("slowed"); }
-            if out[5] != 0 { u.add_status("poisoned"); }
-            if out[6] != 0 { u.add_status("petrified"); }
-            if a_alive {
-                u.has_attacked = true;
-                u.current_moves = 0;            // attack.cpp:1372, movement_used = everything
-                u.max_hp += att_feed as i64;
-                u.current_hp = a_hp + att_feed as i64;
-                u.current_exp = a_xp;
-            }
+            u.has_attacked = true;
+            u.current_moves = 0;                // attack.cpp:1372, movement_used = everything
         }
-        {
-            let u = &mut self.units[d];
-            u.drop_status("resting");
-            if out[7] != 0 { u.add_status("slowed"); }
-            if out[8] != 0 { u.add_status("poisoned"); }
-            if out[9] != 0 { u.add_status("petrified"); }
-            if d_alive {
-                u.max_hp += dfd_feed as i64;
-                u.current_hp = d_hp + dfd_feed as i64;
-                u.current_exp = d_xp;
-            }
-        }
+        write_back(&mut self.units[d], d_hp, d_xp, out[7] != 0, out[8] != 0, out[9] != 0, dfd_feed);
         let att_advances = a_alive && a_xp >= self.units[a].max_exp;
         let dfd_advances = d_alive && d_xp >= self.units[d].max_exp;
         let dfd_refog = !d_alive || (out[7] != 0 && !dfd_was_slowed) || (out[9] != 0 && !dfd_was_petrified);
@@ -331,21 +392,14 @@ impl GameCore {
             self.remove_unit(&dfd_id)?;
         }
         if a_alive {
-            let i = self.unit_pos(&att_id).expect("the attacker lives");
-            if att_feed {
-                self.feed(i);
-            }
             if att_advances {
+                let i = self.unit_pos(&att_id).expect("the attacker lives");
                 self.advance_unit(i);
             }
         } else if plague_reverse {
             self.spawn_corpse(att_pos.0, att_pos.1, dfd_side, &att_name)?;
         }
         if d_alive {
-            let i = self.unit_pos(&dfd_id).expect("the defender lives");
-            if dfd_feed {
-                self.feed(i);
-            }
             // attack.cpp:1150-1185 and 1456-1458: the defender's side
             // refogs when the defender was slowed or petrified, before
             // its advancement.
@@ -362,6 +416,6 @@ impl GameCore {
             }
             self.refog(dfd_side);
         }
-        Ok(Some(r))
+        Ok(r)
     }
 }

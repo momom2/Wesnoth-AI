@@ -29,6 +29,7 @@ mod core_units;
 mod db;
 mod effects;
 mod events;
+mod outcomes;
 mod terrain;
 mod units;
 mod wml;
@@ -91,7 +92,7 @@ impl Ord for Entry {
 /// Shared Dijkstra core: fills mp/cost/prev in MAP space. Exact
 /// contract as documented on `unit_reach_arrays`.
 #[allow(clippy::too_many_arguments)]
-fn dijkstra_reach(
+pub(crate) fn dijkstra_reach(
     nbrs: &[i64],
     mcost: &[i64],
     dsub: &[i64],
@@ -601,6 +602,11 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // geometry_export feed the Python view.
     // 21: GameCore.encode_streams takes terrain_multi_hot (the hex terrain
     // stream as each hex's terrain set).
-    m.add("__phase__", 21)?;
+    // 22: GameCore computes the defender's weapon choice, an attack's exact
+    // outcome distribution with its advancement branches, and a fight's
+    // statistics (counter_weapon_choice, attack_outcomes, fight_stats;
+    // outcomes.rs), a unit's single-turn reach, a side's reach context and
+    // the units a side sees (unit_reach, side_context, visible_ids).
+    m.add("__phase__", 22)?;
     Ok(())
 }

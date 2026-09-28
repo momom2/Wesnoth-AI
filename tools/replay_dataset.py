@@ -1392,6 +1392,8 @@ def enumerate_advancement_outcomes(
     from types import SimpleNamespace
     exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
 
+    pick_game = getattr(gs.global_info, "_pickadvance_game", None) or {}
+
     def _advance_one(u: Unit, forced_idx: int) -> Unit:
         # Reuse the sim's single-step advance on an isolated carrier: it
         # only mutates carrier.map.units (discard/add) and a few
@@ -1403,7 +1405,8 @@ def enumerate_advancement_outcomes(
             global_info=SimpleNamespace(
                 _experience_modifier=exp_mod,
                 _advance_choices=[forced_idx],
-                _last_advance_events=[]),
+                _last_advance_events=[],
+                _pickadvance_game=pick_game),
         )
         return _advance_unit_once(carrier, u_copy)
 
@@ -1415,6 +1418,11 @@ def enumerate_advancement_outcomes(
         targets = list(_stats_for(u.name).get("advances_to", []))
         if not targets:                               # AMLA: one deterministic link
             return _enum(_advance_one(u, 0))
+        # The types the unit is offered, its pick-advance list narrowing
+        # them as `_advance_unit_once` does; a forced index is into these.
+        pick = [x for x in (getattr(u, "_pickadvance", None) or []) if x in targets]
+        if pick:
+            targets = pick
         probs = _advancement_choice_probs(choice, gs, u, targets)
         out: Dict[Tuple[str, int], float] = {}
         for i, p_i in enumerate(probs):

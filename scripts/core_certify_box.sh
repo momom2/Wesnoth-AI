@@ -4,10 +4,12 @@
 # the Python applier over the whole imitation corpus on a CPU box. Every
 # replay is set up and applied by both (tools/diff_core.py), the two states
 # compared after the setup and every command (the map and the event state at
-# each init_side and end_turn), and every tenth player decision encoded by
-# both in three views (the full board, the full board with the terrain set,
-# and obs8's). Then the core's answers are compared with the engine's answers
-# the hidden-unit oracle recorded (tools/hidden_units_oracle.py --recorded).
+# each init_side and end_turn), every tenth player decision encoded by both
+# in three views (the full board, the full board with the terrain set, and
+# obs8's), and before every attack the defender's weapon choice and the
+# attack's outcome distributions compared. Then the core's answers are
+# compared with the engine's answers the hidden-unit oracle recorded
+# (tools/hidden_units_oracle.py --recorded).
 # Nothing is trained and no GPU is used.
 #
 # Before renting, from the laptop's repository root:
@@ -79,9 +81,10 @@ export OMP_NUM_THREADS=1
 ls replays_dataset_imitation/*.json.gz > "$OUT/files.txt"
 rm -f "$OUT"/shard_??*
 split -n "l/$SHARDS" -d -a 3 "$OUT/files.txt" "$OUT/shard_"
+# shellcheck disable=SC2016 # expanded by the inner shell, which gets them as $0 and $1
 box_bounded sweep "$DIFF_CUT_MIN" sweep.log bash -c '
     for f in "$0"/shard_[0-9][0-9][0-9]; do
-        ( xargs -a "$f" python tools/diff_core.py --every 1 --encode-every "$1" > "$f.log" 2>&1;
+        ( xargs -a "$f" python tools/diff_core.py --every 1 --encode-every "$1" --outcomes > "$f.log" 2>&1;
           echo "$(date -u +%FT%TZ) $(basename "$f") rc=$?" >> "$0/progress.log" ) &
     done
     wait' "$OUT" "$ENCODE_EVERY"
@@ -114,6 +117,7 @@ open(f"{out}/summary.txt", "w", encoding="utf-8").write(text + "\n")
 EOF
 
 # ---- the engine's recorded answers on hidden units and vision
+# shellcheck disable=SC2016 # expanded by the inner shell, which gets the output directory as $0
 box_bounded oracle 10 oracle.log bash -c '
     python tools/hidden_units_oracle.py --recorded training/metrics/fidelity/hidden_units_oracle_20260920.json \
         --log-level WARNING --out "$0/hidden_units_recorded.json"

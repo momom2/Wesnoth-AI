@@ -1,6 +1,6 @@
 //! Units made and changed on the core: a recruit
 //! (`_apply_command(["recruit", ...])`), the pick-advance command, a
-//! plague corpse (`_spawn_plague_corpse`), a fed kill, and advancement
+//! plague corpse (`_spawn_plague_corpse`) and advancement
 //! (`_maybe_advance_unit` / `_advance_unit_once`: the choice queue, the
 //! pick-advance narrowing, the uniform self-play draw, AMLA, variation
 //! persistence, the feeding bonus, traits and [object] effects re-applied
@@ -25,6 +25,20 @@ const CLEARED_ON_ADVANCE: [&str; 4] = ["poisoned", "slowed", "petrified", "stunn
 /// `pickadvance`'s type list: comma-separated, blanks and "null" dropped.
 fn split_types(s: &str) -> Vec<String> {
     s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty() && *x != "null").map(String::from).collect()
+}
+
+/// AMLA_DEFAULT (data/core/macros/amla.cfg): +3 maximum hit points and a
+/// full heal, the experience cap raised 20% (compounding, div100rounded),
+/// poison and slow cured.
+pub(crate) fn amla(u: &mut UnitRec) {
+    let new_max = u.max_hp + 3;
+    let new_exp = u.max_exp + (u.max_exp * 20 + 50).div_euclid(100);
+    u.current_exp = (u.current_exp - u.max_exp).max(0);
+    u.max_hp = new_max;
+    u.current_hp = new_max;
+    u.max_exp = new_exp;
+    u.drop_status("poisoned");
+    u.drop_status("slowed");
 }
 
 impl GameCore {
@@ -59,45 +73,50 @@ impl GameCore {
             .map(|(_, _, l)| l.clone())
     }
 
-    /// `_advance_unit_once` on a detached record.
-    fn advance_once(&mut self, u: &mut UnitRec) {
-        let t = self.db.get(&u.name);
-        let mut targets = t.advances_to.clone();
-        if targets.is_empty() {
-            // AMLA_DEFAULT: +3 max hp and a full heal, +20% experience cap,
-            // poison and slow cured; its [choose] still pops the queue, and
-            // the recorded value is what its event reports.
-            let choice = self.pop_choice().unwrap_or(0);
-            self.last_advance_events.push((u.side, choice));
-            let new_max = u.max_hp + 3;
-            let new_exp = u.max_exp + (u.max_exp * 20 + 50).div_euclid(100);
-            u.current_exp = (u.current_exp - u.max_exp).max(0);
-            u.max_hp = new_max;
-            u.current_hp = new_max;
-            u.max_exp = new_exp;
-            u.drop_status("poisoned");
-            u.drop_status("slowed");
-            return;
-        }
+    /// The types `u` is offered when it advances: its type's list,
+    /// narrowed by its pick-advance list to the types still in it. Empty
+    /// for a unit at its last level (AMLA).
+    pub(crate) fn advance_targets(&self, u: &UnitRec) -> Vec<String> {
+        let targets = self.db.get(&u.name).advances_to.clone();
         let pick: Vec<String> = u.pickadvance.as_ref()
             .map(|p| p.iter().filter(|x| targets.contains(x)).cloned().collect())
             .unwrap_or_default();
-        if !pick.is_empty() {
-            targets = pick;
+        if pick.is_empty() { targets } else { pick }
+    }
+
+    /// `_advance_unit_once` on a detached record: the choice (the queue,
+    /// else the self-play draw, else the first type) and its event, then
+    /// the advance.
+    fn advance_once(&mut self, u: &mut UnitRec) {
+        let targets = self.advance_targets(u);
+        if targets.is_empty() {
+            // AMLA's [choose] still pops the queue, and the recorded
+            // value is what its event reports.
+            let choice = self.pop_choice().unwrap_or(0);
+            self.last_advance_events.push((u.side, choice));
+            amla(u);
+            return;
         }
-        let mut new_type = match self.pop_choice() {
-            Some(v) if v >= 0 && (v as usize) < targets.len() => targets[v as usize].clone(),
-            Some(_) => targets[0].clone(),
-            None if targets.len() > 1 && self.global.advance_uniform => {
-                let k = self.draw_uniform_advance(targets.len());
-                targets[k].clone()
-            }
-            None => targets[0].clone(),
+        let k = match self.pop_choice() {
+            Some(v) if v >= 0 && (v as usize) < targets.len() => v as usize,
+            Some(_) => 0,
+            None if targets.len() > 1 && self.global.advance_uniform => self.draw_uniform_advance(targets.len()),
+            None => 0,
         };
-        let index = targets.iter().position(|x| *x == new_type).unwrap_or(0) as i64;
+        let index = targets.iter().position(|x| *x == targets[k]).unwrap_or(0) as i64;
         self.last_advance_events.push((u.side, index));
+        self.advance_to(u, &targets[k]);
+    }
+
+    /// One advance of `u` to `new_type` (one of `advance_targets`): the
+    /// new type's statistics at full health, the experience past the cap
+    /// kept, the cap scaled by the game's modifier, the moves left kept,
+    /// the feeding bonus, the traits in their rolled order and the
+    /// [object] effects re-applied, the statuses advancement cures gone.
+    pub(crate) fn advance_to(&self, u: &mut UnitRec, new_type: &str) {
         // The advanced unit re-initializes under the pick-advance mod.
-        u.pickadvance = self.game_pick(u.side, &new_type);
+        u.pickadvance = self.game_pick(u.side, new_type);
+        let mut new_type = new_type.to_string();
         if let Some((_, var)) = u.name.split_once(':') {
             if !var.is_empty() {
                 let candidate = format!("{new_type}:{var}");
@@ -168,12 +187,6 @@ impl GameCore {
             self.clear_fog_from(i, &[hex as usize]);
         }
         true
-    }
-
-    /// One more fed kill: +1 to the count advancement adds back.
-    pub fn feed(&mut self, i: usize) {
-        let u = &mut self.units[i];
-        u.feeding_count = Some(u.feeding_count.unwrap_or(0) + 1);
     }
 
     /// The corpse a plague kill of `dead_name` raises for `side` on

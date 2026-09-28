@@ -1,6 +1,13 @@
 """Exact combat-outcome enumeration for MCTS chance nodes (Tier 1)
 and exact counter-weapon selection (`choose_counter_weapon`).
 
+A view bound to the Rust core (`game_core.bind_view`: the simulator's
+state, reconstruction's snapshots) is answered by the core
+(rust/wesnoth_core/src/outcomes.rs, the same DP, rules and float
+operations; tests/test_rust_outcomes.py compares the two exactly); the
+code below answers any other state and is the core's oracle until the
+Python applier's retirement (docs/rust_core_port_20260928.md).
+
 Mirrors Wesnoth's own attack-prediction approach (see
 docs/wesnoth_rules.md "Combat-outcome prediction": a sparse DP over
 (attacker_hp, defender_hp) with slow-state planes), but implemented
@@ -295,10 +302,11 @@ def _strike_dp(
     return states
 
 
-def _kill_xp(level: int) -> int:
-    """XP for KILLING an opponent of `level` (mirrors
-    combat.resolve_attack: level*KILL_EXPERIENCE, level-0 halved)."""
-    return cb.KILL_EXPERIENCE * level if level else cb.KILL_EXPERIENCE // 2
+def _bound_core(gs: GameState):
+    """The Rust core behind a bound view (`game_core.core_of`), or None."""
+    from wesnoth_ai.game_core import core_of
+    cs = core_of(gs)
+    return None if cs is None else cs.core
 
 
 def _side_outcome_branches(gs, unit, cu, hp, sl, po, pe, *,
@@ -369,6 +377,16 @@ def enumerate_attack_outcomes(
     target = action.get("target_hex")
     if start is None or target is None:
         return None
+    core = _bound_core(gs)
+    if core is not None and advancement_choice in (None, "uniform"):
+        res = core.attack_outcomes(start.x, start.y, target.x, target.y,
+                                   int(action.get("attack_index", 0)),
+                                   advancement_choice == "uniform")
+        if res is None:
+            return None
+        probs, attacker_id, defender_id = res
+        return OutcomeDistribution(probs=probs, attacker_id=attacker_id,
+                                   defender_id=defender_id)
     att = next((u for u in gs.map.units
                 if u.position.x == start.x and u.position.y == start.y),
                None)
@@ -730,16 +748,10 @@ def fallback_counter_weapon_count() -> int:
     return _FALLBACK_COUNTER_WEAPONS
 
 
-def _fallback_counter_weapon(d_stats_by_idx: Dict[int, object]) -> int:
-    """DP-overflow fallback (huge berserk/swarm fights the engine
-    itself would hand to Monte-Carlo): max damage x strikes among
-    the candidates, ties to the lowest index -- the pre-port v1
-    heuristic, kept deterministic where the engine is randomized.
-
-    This is a KNOWN divergence from `choose_defender_weapon`, so it
-    counts itself and warns the first time (see
-    `fallback_counter_weapon_count`).
-    """
+def _count_fallback() -> None:
+    """Count a counter-weapon choice made by the fallback heuristic, a
+    KNOWN divergence from `choose_defender_weapon`; warn the first time
+    (see `fallback_counter_weapon_count`)."""
     global _FALLBACK_COUNTER_WEAPONS
     _FALLBACK_COUNTER_WEAPONS += 1
     if _FALLBACK_COUNTER_WEAPONS == 1:
@@ -749,6 +761,15 @@ def _fallback_counter_weapon(d_stats_by_idx: Dict[int, object]) -> int:
             "than Wesnoth's choose_defender_weapon. Fights resolved this "
             "way diverge from the engine. Further occurrences are counted "
             "silently (combat_outcomes.fallback_counter_weapon_count).")
+
+
+def _fallback_counter_weapon(d_stats_by_idx: Dict[int, object]) -> int:
+    """DP-overflow fallback (huge berserk/swarm fights the engine
+    itself would hand to Monte-Carlo): max damage x strikes among
+    the candidates, ties to the lowest index -- the pre-port v1
+    heuristic, kept deterministic where the engine is randomized.
+    Counted (`_count_fallback`)."""
+    _count_fallback()
     best_idx, best_score = -1, -1
     for i in sorted(d_stats_by_idx):
         st = d_stats_by_idx[i]
@@ -803,6 +824,17 @@ def counter_weapon_choice(gs: GameState, att: Unit, dfd: Unit,
     """
     from tools.replay_dataset import build_attack_context
 
+    core = _bound_core(gs)
+    if core is not None:
+        res = core.counter_weapon_choice(att.position.x, att.position.y,
+                                         dfd.position.x, dfd.position.y,
+                                         a_weapon_idx)
+        if res is None:
+            return -1, {}
+        weapon, tables, fallback = res
+        if fallback:
+            _count_fallback()
+        return weapon, tables
     if (not getattr(att, "attacks", None)
             or not getattr(dfd, "attacks", None)):
         return -1, {}
@@ -877,3 +909,22 @@ def counter_weapon_choice(gs: GameState, att: Unit, dfd: Unit,
                                   1.0)):
             best_idx = i
     return best_idx, tables
+
+
+def defender_chance_to_hit(gs: GameState, att: Unit, dfd: Unit,
+                           a_weapon_idx: int) -> Optional[int]:
+    """The defender's chance to hit the attacker, in percent, with the
+    weapon it answers with (`choose_counter_weapon`); None when it does
+    not answer."""
+    d_weapon = choose_counter_weapon(gs, att, dfd, a_weapon_idx)
+    core = _bound_core(gs)
+    if core is not None:
+        res = core.fight_stats(att.position.x, att.position.y,
+                               dfd.position.x, dfd.position.y,
+                               a_weapon_idx, d_weapon)
+        if res is None or res[1] is None:
+            return None
+        return int(res[1]["cth"])
+    from tools.replay_dataset import build_attack_context
+    _a, d_stats = _stats_pair(build_attack_context(gs, att, dfd, a_weapon_idx, d_weapon))
+    return None if d_stats is None else int(d_stats.cth)

@@ -125,6 +125,8 @@ def test_advancement_risk_refuses_enumeration():
     att = next(u for u in sim.gs.map.units
                if u.position is action["start_hex"])
     att.current_exp = max(0, att.max_exp - 1)
+    from sim_test_helpers import commit_view
+    commit_view(sim)
     assert enumerate_attack_outcomes(sim.gs, action) is None, (
         "a fight that could advance a unit must fall back to sampling"
     )

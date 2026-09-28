@@ -121,6 +121,7 @@ def test_rating_gate_declines_bad_fight():
             sim.gs.map.units.discard(u)
     lead = next(u for u in sim.gs.map.units if u.side == 1)
     _park_adjacent(sim, lead, tent)     # full HP leader (Steelclad)
+    commit_view(sim)
     sim.step({"type": "end_turn"})
     sim.step({"type": "end_turn"})
     s3_attacks = [rc for rc in sim.command_history
@@ -137,6 +138,7 @@ def test_rating_gate_declines_bad_fight():
     # ~zero kill chance).
     tent2 = next(u for u in sim.gs.map.units if u.side == 3)
     tent2.current_hp = 1
+    commit_view(sim)
     action = {"type": "attack", "start_hex": tent2.position,
               "target_hex": after.position, "attack_index": 0}
     r = rate_attack(sim.gs, tent2, after, action, aggression=0.3)

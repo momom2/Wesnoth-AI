@@ -20,7 +20,11 @@ phase 4).
 With `--encode-every N`, every Nth player decision is also encoded by
 the Python encoder and by the core (`encoding_differences`) in three
 views: the full board, the full board with the terrain set, and obs8's
-(the relevant set, the enemy-village gate, the terrain set).
+(the relevant set, the enemy-village gate, the terrain set). With
+`--outcomes`, before every attack command the defender's weapon choice
+with its strike tables and the attack's outcome distributions, without
+and with advancement branches, are computed by `tools/combat_outcomes.py`
+on the Python state and by the core, and must be equal to the last bit.
 
 Prints one summary line: `diff_core: N replays, M clean, K with
 divergences; commands rust=A python=B`, then the divergences.
@@ -93,8 +97,38 @@ def encoding_divergences(gs, cs) -> List[str]:
     return out
 
 
+def outcome_divergences(gs, cs, cmd: list) -> List[str]:
+    """Before an attack command: the Python's and the core's defender
+    weapon choice, strike tables and outcome distributions that differ."""
+    from tools import combat_outcomes as co
+    from wesnoth_ai.classes import Position
+    ax, ay, dx, dy, a_weapon = (int(v) for v in cmd[1:6])
+    units = {(u.position.x, u.position.y): u for u in gs.map.units}
+    att, dfd = units.get((ax, ay)), units.get((dx, dy))
+    if att is None or dfd is None:
+        return []
+    out: List[str] = []
+    weapon, tables = co.counter_weapon_choice(gs, att, dfd, a_weapon)
+    rs = cs.core.counter_weapon_choice(ax, ay, dx, dy, a_weapon)
+    if rs is None or rs[0] != weapon or \
+            [(i, list(t.items())) for i, t in rs[1].items()] != [(i, list(t.items())) for i, t in tables.items()]:
+        out.append(f"counter weapon: python {weapon} core {None if rs is None else rs[0]}")
+    action = {"type": "attack", "start_hex": Position(ax, ay), "target_hex": Position(dx, dy),
+              "attack_index": a_weapon}
+    for choice in (None, "uniform"):
+        py = co.enumerate_attack_outcomes(gs, action, advancement_choice=choice)
+        rs = cs.core.attack_outcomes(ax, ay, dx, dy, a_weapon, choice == "uniform")
+        same = (py is None and rs is None) or (
+            py is not None and rs is not None and list(py.probs.items()) == list(rs[0].items()))
+        if not same:
+            out.append(f"outcomes ({choice}): python {None if py is None else len(py.probs)} keys, "
+                       f"core {None if rs is None else len(rs[0])}")
+    return out
+
+
 def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
-              counts: Optional[Counter] = None, encode_every: int = 0) -> List[str]:
+              counts: Optional[Counter] = None, encode_every: int = 0,
+              outcomes: bool = False) -> List[str]:
     from tools.replay_dataset import _apply_command, _build_initial_gamestate, _setup_scenario_events
     from wesnoth_ai.core_compare import state_differences
     from wesnoth_ai.game_core import CoreState
@@ -125,6 +159,14 @@ def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
                     if stop_on_first:
                         break
             decisions += 1
+        if outcomes and kind == "attack" and len(cmd) > 5:
+            diffs = outcome_divergences(gs, cs, cmd)
+            if counts is not None:
+                counts[("outcomes", "rust")] += 1
+            if diffs:
+                out.append(f"{gz_path.name}#{idx} before attack: " + " | ".join(diffs))
+                if stop_on_first:
+                    break
         _apply_command(gs, list(cmd))
         try:
             path = cs.apply_command(list(cmd))
@@ -161,6 +203,8 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--stop-on-first", action="store_true")
     ap.add_argument("--encode-every", type=int, default=0,
                     help="compare the two encodings every N player decisions (0: never)")
+    ap.add_argument("--outcomes", action="store_true",
+                    help="compare the counter weapon and the outcome distributions before every attack")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING),
@@ -174,7 +218,7 @@ def main(argv: List[str]) -> int:
     for gz in files:
         try:
             d = diff_core(gz, every=args.every, stop_on_first=args.stop_on_first, counts=counts,
-                          encode_every=args.encode_every)
+                          encode_every=args.encode_every, outcomes=args.outcomes)
         except BaseException as e:  # noqa: BLE001 - one bad file, panic included, must not end the sweep
             d = [f"{gz.name}: harness {_describe_failure(e)}"]
         if d:
