@@ -165,8 +165,7 @@ def _recruit_cost_lookup() -> Dict[str, int]:
 
 def _leader_of(gs: GameState, side: int) -> Optional[Unit]:
     """First is_leader=True unit for `side`, or None if the leader
-    is dead / hasn't been placed yet. Shared with
-    `tools/diagnose_selfplay.py` (which imports this)."""
+    is dead / hasn't been placed yet."""
     for u in gs.map.units:
         if u.side == side and u.is_leader:
             return u

@@ -28,7 +28,6 @@ training/profiles/
 training/metrics/*.csv
 # Exception: committed measurement records (small, evidential --
 # probe verdicts cite them; the elo catalog precedent).
-!training/metrics/luck_probe.csv
 training/replays/
 training/spool/
 

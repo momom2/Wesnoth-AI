@@ -1182,8 +1182,8 @@ def build_save_wml(
 
     pvp = pvp_defaults or PvPDefaults()
     # The economy the GAME was played under, read the way the applier
-    # pays it (`wml_state.village_economy`, shared with `dump_savestate`
-    # and `replay_builder`): the scenario's own village gold, which is 3
+    # pays it (`wml_state.village_economy`, shared with
+    # `dump_savestate`): the scenario's own village gold, which is 3
     # on five of the seven mini scenarios, and a declared 0 exported as
     # 0 -- the engine takes the default only for a missing value
     # (team.cpp:236 and :239-244, 1.18.4).

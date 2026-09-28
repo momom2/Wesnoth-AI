@@ -1015,7 +1015,7 @@ class TransformerPolicy:
             # the whole optimizer state and let AdamW initialize
             # fresh momentum buffers at C51 shape. Cost: one warm-
             # up's worth of momentum lost; trivial vs the train
-            # crash. (Surfaced by tools/profile_selfplay.py.)
+            # crash.
             self._logger.warning(
                 "skipping optimizer-state restore on pre-C51 "
                 "checkpoint (shape mismatch would crash AdamW "
@@ -1036,10 +1036,3 @@ class TransformerPolicy:
             f"Loaded checkpoint from {path} "
             f"(decision_step={self._decision_step})")
 
-
-def _register() -> None:
-    from wesnoth_ai import policy
-    policy.register("transformer", TransformerPolicy)
-
-
-_register()

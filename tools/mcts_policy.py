@@ -229,8 +229,8 @@ class MCTSPolicy:
         from collections import OrderedDict
         self._value_memory: "OrderedDict[str, list]" = OrderedDict()
         # Optional diagnostic hook: called with the search ROOT after
-        # every mcts_search (see tools/ladder_anatomy.py -- root
-        # child-Q spread is the value signal PUCT actually compares).
+        # every mcts_search (root child-Q spread is the value signal
+        # PUCT actually compares).
         # None (default) = zero overhead.
         self.search_stats_sink = None
         # Per-game search diagnostics (engagement telemetry,

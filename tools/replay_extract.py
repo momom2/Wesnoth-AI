@@ -1683,8 +1683,8 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
         #     (= save-mid-recruit redo). If next-block first action
         #     differs, keep the recruit.
         #
-        # Verification: tools/verify_trailer_drop.py audited 500
-        # raw replays; all 3 dropper-fires were attacks with
+        # Verification: a May 2026 audit of 500
+        # raw replays found all 3 dropper-fires were attacks with
         # legitimate undo/redo on load (block-1 first action was a
         # different action). No false-drop musthave-recruit cases
         # surfaced in that sample, but the risk is real -- 75

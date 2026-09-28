@@ -6,8 +6,8 @@ counted SEPARATELY per category -- "mini", "ladder",
 "ladder_fogless", "midgame" (plus any category that is ever
 mixed in) -- and export each pick as a Wesnoth-loadable .bz2
 replay while training runs. The box's HF uploader ships the
-exports; `tools/run_validation_batch.py` plays each back in real
-Wesnoth under strict sync locally and reports OOS.
+exports; playing each back in real Wesnoth under strict sync reports
+any OOS.
 
 Counters are per process. Filenames carry pid + counter
 so parallel workers never collide.
