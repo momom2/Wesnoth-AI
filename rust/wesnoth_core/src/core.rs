@@ -25,7 +25,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 
 pub use crate::db::{TypeAttack as BaseAttack, UnitType as TypeRec};
@@ -148,8 +148,9 @@ pub struct ClassRec {
 /// slowed status and the defense table's content, sorted.
 pub type ClassKey = (String, bool, DefTable);
 
-/// The map's static facts in map space.
-#[derive(Debug)]
+/// The map's facts in map space. Shared by forks; an event that changes
+/// terrain or places a time area gives its core a copy (`Arc::make_mut`).
+#[derive(Clone, Debug)]
 pub struct MapStatic {
     pub h: usize,
     pub hx: Vec<i64>,
@@ -162,6 +163,7 @@ pub struct MapStatic {
     pub village_terrain: Vec<u8>,    // Terrain.VILLAGE in the hex's types
     pub village_mod: Vec<u8>,        // TerrainModifiers.VILLAGE (capturable)
     pub terrain_type_id: Vec<i64>,   // the encoder's one terrain id per hex
+    pub terrain_mask: Vec<i64>,      // the hex's terrain classes (terrain_resolver.terrain_mask)
     pub heal: Vec<i64>,              // terrain_resolver.terrain_heals
     pub light_mod: Vec<i64>,
     pub light_max: Vec<i64>,
@@ -211,6 +213,18 @@ pub struct GameCore {
     pub last_checkup_strikes: Vec<i64>,                          // (chance, hits, damage, dies) per strike
     pub game_over: bool,
     pub winner: i64,                 // -1 none
+    // Scenario events (events.rs): the scenario's events, shared by
+    // forks, and per fork their latches, the WML variables, the stored
+    // locations, the terrain writes and the map's version.
+    pub events: Arc<Vec<crate::events::EventDef>>,
+    pub fired: Vec<bool>,
+    pub wml_vars: BTreeMap<String, String>,
+    pub scenario_vars: BTreeMap<String, BTreeSet<(i64, i64)>>,
+    pub terrain_log: Vec<(i64, i64, String)>,
+    pub map_version: i64,
+    pub strict_wml: bool,
+    pub firing_scenario: String,
+    pub last_heal_events: Vec<(i64, i64, i64, i64, i64)>,   // core_step.rs heal_events
 }
 
 fn get<'py, T: FromPyObject<'py>>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<T> {
@@ -324,29 +338,37 @@ impl GameCore {
     /// defense subcost `defense_pct_at` and the combat defense
     /// `_terrain_def_pct`; a hex with no terrain code reads the flat key.
     fn compute_class(&self, t: &TypeRec, slowed: bool, table: &DefTable) -> ClassRec {
+        let all: Vec<usize> = (0..self.map.h).collect();
+        let (mcost, dsub, defense_pct) = self.compute_class_at(t, slowed, table, &all);
+        ClassRec { mcost, dsub, defense_pct }
+    }
+
+    /// `compute_class` on the listed hexes only, in their order.
+    pub fn compute_class_at(&self, t: &TypeRec, slowed: bool, table: &DefTable, hexes: &[usize])
+        -> (Vec<i64>, Vec<i64>, Vec<i64>) {
         let costs: DefTable = t.movement_costs.iter()
             .map(|(k, v)| (k.clone(), if slowed && *v < terrain::UNREACHABLE_COST { 2 * v } else { *v }))
             .collect();
-        let h = self.map.h;
-        let mut rec = ClassRec { mcost: vec![0; h], dsub: vec![0; h], defense_pct: vec![0; h] };
+        let n = hexes.len();
+        let (mut mcost, mut dsub, mut defense) = (vec![0; n], vec![0; n], vec![0; n]);
         let mut memo: HashMap<&str, (i64, i64)> = HashMap::new();
         let flat = |tab: &DefTable| tab.iter().find(|(k, _)| k == "flat").map(|(_, v)| *v);
-        for i in 0..h {
+        for (k, &i) in hexes.iter().enumerate() {
             let code = self.map.codes[i].as_str();
             if code.is_empty() {
-                rec.mcost[i] = match flat(&costs) { Some(v) if v != 0 => v, _ => 1 };
-                rec.dsub[i] = match flat(table) { Some(v) if v != 0 => v, _ => 50 };
-                rec.defense_pct[i] = flat(table).unwrap_or(50);
+                mcost[k] = match flat(&costs) { Some(v) if v != 0 => v, _ => 1 };
+                dsub[k] = match flat(table) { Some(v) if v != 0 => v, _ => 50 };
+                defense[k] = flat(table).unwrap_or(50);
                 continue;
             }
             let (m, d) = *memo.entry(code).or_insert_with(|| {
                 (terrain::mvt_cost(&self.tdb, code, &costs), terrain::def_pct(&self.tdb, code, table))
             });
-            rec.mcost[i] = m;
-            rec.dsub[i] = d;
-            rec.defense_pct[i] = d;
+            mcost[k] = m;
+            dsub[k] = d;
+            defense[k] = d;
         }
-        rec
+        (mcost, dsub, defense)
     }
 
     /// Set the unit's type index, hex and movement classes from its
@@ -448,6 +470,7 @@ impl GameCore {
             village_terrain: get(map, "village_terrain")?,
             village_mod: get(map, "village_mod")?,
             terrain_type_id: get(map, "terrain_type_id")?,
+            terrain_mask: get(map, "terrain_mask")?,
             heal,
             light_mod,
             light_max,
@@ -467,6 +490,7 @@ impl GameCore {
             ("castle_or_keep", map_static.castle_or_keep.len()), ("keep", map_static.keep.len()),
             ("village_terrain", map_static.village_terrain.len()), ("village_mod", map_static.village_mod.len()),
             ("terrain_type_id", map_static.terrain_type_id.len()), ("area_cycle", map_static.area_cycle.len()),
+            ("terrain_mask", map_static.terrain_mask.len()),
             ("full_slot", map_static.full_slot.len()), ("castle_mod", map_static.castle_mod.len()),
         ] {
             if v != h {
@@ -499,6 +523,15 @@ impl GameCore {
             last_checkup_strikes: Vec::new(),
             game_over: false,
             winner: -1,
+            events: Arc::new(Vec::new()),
+            fired: Vec::new(),
+            wml_vars: BTreeMap::new(),
+            scenario_vars: BTreeMap::new(),
+            terrain_log: Vec::new(),
+            map_version: 0,
+            strict_wml: false,
+            firing_scenario: String::new(),
+            last_heal_events: Vec::new(),
         })
     }
 
@@ -532,6 +565,22 @@ impl GameCore {
     fn class_arrays(&self, id: usize) -> (Vec<i64>, Vec<i64>, Vec<i64>) {
         let c = &self.classes.read().unwrap()[id];
         (c.mcost.clone(), c.dsub.clone(), c.defense_pct.clone())
+    }
+
+    /// The map's geometry in the core's hex order, as
+    /// `observe.map_geometry` gives it: (hx, hy, neighbours [H*6],
+    /// castle_or_keep, keep, village, full_slot); the flags follow the
+    /// terrain events.
+    #[allow(clippy::type_complexity)]
+    fn geometry_export<'py>(&self, py: Python<'py>) -> (
+        Bound<'py, numpy::PyArray1<i64>>, Bound<'py, numpy::PyArray1<i64>>, Bound<'py, numpy::PyArray1<i64>>,
+        Bound<'py, numpy::PyArray1<u8>>, Bound<'py, numpy::PyArray1<u8>>, Bound<'py, numpy::PyArray1<u8>>,
+        Bound<'py, numpy::PyArray1<i64>>) {
+        use numpy::IntoPyArray;
+        let m = &self.map;
+        (m.hx.clone().into_pyarray(py), m.hy.clone().into_pyarray(py), m.nbrs.clone().into_pyarray(py),
+         m.castle_or_keep.clone().into_pyarray(py), m.keep.clone().into_pyarray(py),
+         m.village_terrain.clone().into_pyarray(py), m.full_slot.clone().into_pyarray(py))
     }
 
     /// The resolved terrain facts per hex: (heal, light_mod, light_max,

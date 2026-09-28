@@ -3,9 +3,10 @@
 
 Every command of each replay goes to the Python state through
 `replay_dataset._apply_command` and to a `wesnoth_ai.game_core.CoreState`
-built from a copy of the initial state; after every command (or every
-`--every` commands) the two states are compared over their modeled
-content (`game_core.state_differences`). A difference is a divergence,
+built from a copy of the initial state, the scenario set up by each
+(`_setup_scenario_events`, `CoreState.setup_scenario`); after the setup
+and after every command (or every `--every` commands) the two states
+are compared over their modeled content (`core_compare.state_differences`). A difference is a divergence,
 reported with the command's index and kind and the path the core took
 ("rust" or the Python fallback). A replay on which the core raises or
 panics (a Rust panic reaches Python as pyo3's PanicException, a
@@ -58,13 +59,22 @@ def _describe_failure(exc: BaseException) -> str:
 def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
               counts: Optional[Counter] = None) -> List[str]:
     from tools.replay_dataset import _apply_command, _build_initial_gamestate, _setup_scenario_events
-    from wesnoth_ai.game_core import CoreState, state_differences
+    from wesnoth_ai.core_compare import state_differences
+    from wesnoth_ai.game_core import CoreState
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
-    cs = CoreState.from_state(copy.deepcopy(gs))
+    scenario_id = data.get("scenario_id", "")
+    try:
+        cs = CoreState.from_state(copy.deepcopy(gs))
+        cs.setup_scenario(scenario_id)
+    except BaseException as e:  # noqa: BLE001 - a panic is a divergence too
+        return [f"{gz_path.name}#setup: core {_describe_failure(e)}"]
+    _setup_scenario_events(gs, scenario_id)
     out: List[str] = []
+    diffs = state_differences(gs, cs.to_state(), stash=False)
+    if diffs:
+        return [f"{gz_path.name}#setup: " + " | ".join(diffs[:4])]
     for idx, cmd in enumerate(data.get("commands", [])):
         kind = cmd[0] if cmd else "?"
         _apply_command(gs, list(cmd))

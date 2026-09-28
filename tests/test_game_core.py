@@ -16,6 +16,7 @@ import copy
 import numpy as np
 import pytest
 
+from wesnoth_ai import core_compare as cc
 from wesnoth_ai import game_core as gc
 
 pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
@@ -69,7 +70,7 @@ def test_round_trip_equals_the_state():
         gs = _decorate(gs)
         cs = gc.CoreState.from_state(gs)
         back = cs.to_state()
-        diffs = gc.state_differences(gs, back)
+        diffs = cc.state_differences(gs, back)
         assert not diffs, "\n".join(diffs[:8])
         assert back.map.hexes is gs.map.hexes and back.map.mask is gs.map.mask
         assert back.global_info._terrain_codes is gs.global_info._terrain_codes
@@ -101,7 +102,7 @@ def test_fork_is_isolated_and_keys_follow_content():
     fork.core.remove_unit(uid)
     assert cs.core.n_units() == fork.core.n_units() + 1
     assert uid in cs.core.unit_ids() and uid not in fork.core.unit_ids()
-    assert not gc.state_differences(gs, cs.to_state())
+    assert not cc.state_differences(gs, cs.to_state())
 
 
 def _apply_both(gs, cmd):
@@ -121,11 +122,11 @@ def test_init_side_and_end_turn_equal_the_python_applier():
         for side in (1, 2):
             py, cs, path = _apply_both(gs, ["init_side", side])
             rust += path == "rust"
-            diffs = gc.state_differences(py, cs.to_state(), stash=False)
+            diffs = cc.state_differences(py, cs.to_state(), stash=False)
             assert not diffs, (side, "\n".join(diffs[:6]))
             py2, cs2, path2 = _apply_both(py, ["end_turn"])
             assert path2 == "rust"
-            diffs = gc.state_differences(py2, cs2.to_state(), stash=False)
+            diffs = cc.state_differences(py2, cs2.to_state(), stash=False)
             assert not diffs, (side, "end_turn", "\n".join(diffs[:6]))
             checked += 1
     assert checked >= 16 and rust >= 8
@@ -433,7 +434,7 @@ def _twin_game(seed, mini, max_turns, pol, state_key, total, attacks):
                 forked = True
             py.step(action)
             core.step(action)
-            assert not gc.state_differences(py.gs, core.gs, stash=False), (seed, len(py.command_history))
+            assert not cc.state_differences(py.gs, core.gs, stash=False), (seed, len(py.command_history))
         assert core.done and (py.winner, py.ended_by) == (core.winner, core.ended_by)
         assert state_key(py.gs) == state_key(core.gs)
         assert len(py.command_history) == len(core.command_history) > 10

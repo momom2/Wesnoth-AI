@@ -5,17 +5,49 @@
 //! compares after every command). Rules cite the Python, which cites
 //! the engine.
 //!
-//! Scenario events are Python's: the wrapper
-//! (`wesnoth_ai.game_core.CoreState.apply_command`) sends an init_side
-//! or an end_turn to the Python applier when one of the event names the
-//! command fires (`scenario_events.init_side_event_names`,
-//! `side_turn_end_event_names`) has an event that can still fire.
+//! The scenario's turn events fire at the engine's moments (events.rs;
+//! docs/wesnoth_rules.md "Turn events"): at side 1's init_side the end
+//! of the turn before, then the side's turn forms, after the refresh,
+//! healing and income the four refresh forms; at end_turn the four end
+//! forms.
 
 use pyo3::prelude::*;
 
 use crate::core::{GameCore, DEFAULT_CYCLE, TOD_NAMES};
 
 pub const REST_HEAL_AMOUNT: i64 = 2;
+
+/// Engagement telemetry kinds of `last_heal_events` rows.
+pub const HEAL_EVENT: i64 = 0;
+pub const POISON_CURED_EVENT: i64 = 1;
+pub const POISON_DAMAGE_EVENT: i64 = 2;
+
+/// `scenario_events.side_turn_event_names`.
+fn side_turn_names(side: i64, turn: i64, new_turn: bool) -> Vec<String> {
+    let mut names = if new_turn { vec![format!("turn {turn}"), "new turn".to_string()] } else { Vec::new() };
+    names.extend([
+        "side turn".to_string(), format!("side {side} turn"), format!("side turn {turn}"),
+        format!("side {side} turn {turn}"),
+    ]);
+    names
+}
+
+/// `scenario_events.turn_refresh_event_names`.
+fn turn_refresh_names(side: i64, turn: i64) -> Vec<String> {
+    vec!["turn refresh".to_string(), format!("side {side} turn refresh"), format!("turn {turn} refresh"),
+         format!("side {side} turn {turn} refresh")]
+}
+
+/// `scenario_events.side_turn_end_event_names`.
+fn side_turn_end_names(side: i64, turn: i64) -> Vec<String> {
+    vec!["side turn end".to_string(), format!("side {side} turn end"), format!("side turn {turn} end"),
+         format!("side {side} turn {turn} end")]
+}
+
+/// `scenario_events.turn_end_event_names`.
+fn turn_end_names(turn: i64) -> Vec<String> {
+    vec!["turn end".to_string(), format!("turn {turn} end")]
+}
 pub const REGENERATE_AMOUNT: i64 = 8;
 pub const POISON_AMOUNT: i64 = 8;
 
@@ -103,14 +135,18 @@ impl GameCore {
 
 #[pymethods]
 impl GameCore {
-    /// `_apply_command(["init_side", side])` without the scenario
-    /// events: the side to move, the recruit rejections cleared, the
-    /// turn counter and time of day at side 1, healing
-    /// (heal.cpp::calculate_healing as the Python transcribes it), the
-    /// move refresh, income and upkeep (play_controller.cpp:524-534), the
-    /// side's revealed hiders hidden again after turn 1, and the side's
-    /// fog recalculated.
+    /// `_apply_command(["init_side", side])`: at side 1 the end of the
+    /// turn before (its events), the side to move, the recruit rejections
+    /// cleared, the turn counter and time of day at side 1, the side's
+    /// turn events, healing (heal.cpp::calculate_healing as the Python
+    /// transcribes it, its telemetry in `last_heal_events`), the move
+    /// refresh, income and upkeep (play_controller.cpp:524-534), the
+    /// side's revealed hiders hidden again after turn 1, the refresh
+    /// events, and the side's fog recalculated.
     fn apply_init_side(&mut self, side: i64) -> PyResult<()> {
+        if side == 1 && self.global.turn_number >= 1 {
+            self.fire_all(&turn_end_names(self.global.turn_number))?;
+        }
         self.global.current_side = side;
         self.recruit_rejected = vec![0; self.map.h];
         if side == 1 {
@@ -118,6 +154,8 @@ impl GameCore {
             self.global.time_of_day = TOD_NAMES[self.tod_index(self.global.turn_number)].to_string();
         }
         let turn = self.global.turn_number;
+        self.fire_all(&side_turn_names(side, turn, side == 1))?;
+        self.last_heal_events.clear();
         let first_turn = turn <= 1;
         let do_healing = self.global.did_first_init_side;
         self.global.did_first_init_side = true;
@@ -157,8 +195,8 @@ impl GameCore {
                 let rest_eligible = u.has_status("resting") || u.has_trait("healthy");
                 let mut healing = if rest_eligible { REST_HEAL_AMOUNT } else { 0 };
                 let mut cure = false;
+                let mut main = 0;
                 if !poisoned {
-                    let mut main = 0;
                     if terrain_heal > 0 {
                         main = main.max(terrain_heal);
                     }
@@ -177,6 +215,20 @@ impl GameCore {
                 let max_heal = (u.max_hp - u.current_hp).max(0);
                 let min_heal = (1 - u.current_hp).min(0);
                 healing = healing.clamp(min_heal, max_heal);
+                // The engagement telemetry of the applied heal: rest first,
+                // the rest to the village or the ability that gave the most.
+                if healing > 0 {
+                    let rest = (if rest_eligible { REST_HEAL_AMOUNT } else { 0 }).min(healing);
+                    let main_applied = healing - rest;
+                    let village = main_applied > 0 && terrain_heal > 0 && terrain_heal == main;
+                    self.last_heal_events.push((HEAL_EVENT, u.side, if village { main_applied } else { 0 },
+                                                if village { 0 } else { main_applied }, rest));
+                }
+                if cure {
+                    self.last_heal_events.push((POISON_CURED_EVENT, u.side, 0, 0, 0));
+                } else if poisoned && healing < 0 {
+                    self.last_heal_events.push((POISON_DAMAGE_EVENT, u.side, -healing, 0, 0));
+                }
                 plan.push((i, u.current_hp + healing, cure, !first_turn));
             }
             for (i, new_hp, cure, refresh) in plan {
@@ -218,13 +270,21 @@ impl GameCore {
             let s = &mut self.sides[side as usize - 1];
             s.current_gold += income - net_upkeep;
         }
+        self.fire_all(&turn_refresh_names(side, turn))?;
         self.refog(side);                       // play_controller.cpp:524-525
         Ok(())
     }
 
+    /// The last init_side's engagement telemetry: (kind, side, a, b, c)
+    /// rows, kind 0 a heal (village, ability, rest), 1 a cured poison, 2
+    /// a poison's damage (a).
+    fn heal_events(&self) -> Vec<(i64, i64, i64, i64, i64)> {
+        self.last_heal_events.clone()
+    }
+
     /// `_apply_command(["end_turn"])`: the ending side's units lose
-    /// `slowed`, and `resting` when they moved; then its fog is
-    /// recalculated.
+    /// `slowed`, and `resting` when they moved; its end events fire; then
+    /// its fog is recalculated.
     fn apply_end_turn(&mut self) -> PyResult<()> {
         let side = self.global.current_side;
         for u in self.units.iter_mut() {
@@ -236,6 +296,7 @@ impl GameCore {
                 u.drop_status("resting");
             }
         }
+        self.fire_all(&side_turn_end_names(side, self.global.turn_number))?;
         self.refog(side);                       // play_controller.cpp:582-590
         Ok(())
     }

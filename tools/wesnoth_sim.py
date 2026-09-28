@@ -145,14 +145,14 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     # -- so without this rescale a leader/pre-placed unit would advance
     # on a different xp threshold than its own recruits in the same game.
     # Idempotent: recomputing at the same modifier yields the same value.
-    import dataclasses
-    from tools.replay_dataset import _stats_for, _scaled_max_exp
+    # `_rebuild_unit` keeps the units' underscore attributes, which
+    # `dataclasses.replace` drops.
+    from tools.replay_dataset import _rebuild_unit, _stats_for, _scaled_max_exp
     target_mod = int(defaults.experience_modifier)
     rescaled = set()
     for u in gs.map.units:
         base_exp = int(_stats_for(u.name).get("experience", 50))
-        rescaled.add(dataclasses.replace(
-            u, max_exp=_scaled_max_exp(base_exp, target_mod)))
+        rescaled.add(_rebuild_unit(u, max_exp=_scaled_max_exp(base_exp, target_mod)))
     gs.map.units = rescaled
 
 
@@ -523,12 +523,16 @@ class WesnothSim:
         # Aethermaw morph, etc.) -- mirrors what replay_dataset does
         # at the top of iter_replay_pairs. Mid-game starts pass
         # False: reconstruction already fired them, and prestart
-        # unit placement (CoB statues) must not double-apply.
-        if apply_scenario_events:
-            _setup_scenario_events(self.gs, scenario_id)
+        # unit placement (CoB statues) must not double-apply. On the
+        # core the setup runs in Rust.
         if use_core if use_core is not None else core_enabled():
             from wesnoth_ai.game_core import CoreState
             self.core = CoreState.from_state(self._gs)
+            if apply_scenario_events:
+                self.core.setup_scenario(scenario_id)
+                self._refresh_view()
+        elif apply_scenario_events:
+            _setup_scenario_events(self.gs, scenario_id)
 
         self.done:      bool = False
         self.winner:    int  = 0
@@ -896,8 +900,6 @@ class WesnothSim:
         try:
             if self.core is None:
                 _apply_command(self.gs, cmd)
-            elif cmd[0] == "init_side":
-                self.core._python_path(cmd)     # the heal events fire in the Python applier
             else:
                 self.core.apply_command(cmd)
         finally:

@@ -28,6 +28,7 @@ mod core_sim;
 mod core_units;
 mod db;
 mod effects;
+mod events;
 mod terrain;
 mod units;
 mod wml;
@@ -558,6 +559,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(units::seed_int, m)?)?;
     m.add_function(wrap_pyfunction!(effects::apply_effect_fields, m)?)?;
     m.add_function(wrap_pyfunction!(effects::drain_warnings, m)?)?;
+    m.add_function(wrap_pyfunction!(events::unmodelled_action_counts, m)?)?;
+    m.add_function(wrap_pyfunction!(events::reset_unmodelled_actions, m)?)?;
     // 9: rows_from_landable rejects a token index >= the row width
     // instead of writing it into the next unit's row.
     // 10: nightstalk's cover reads the illuminated time of day; the
@@ -591,6 +594,11 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // apply_pickadvance; apply_attack finishes its fed kills, advancements
     // and corpses. The builders and the [effect] applier are exposed for
     // the differential tests.
-    m.add("__phase__", 19)?;
+    // 20: the core runs the scenario's events (events.rs): setup_scenario
+    // or load_events, the turn events fired inside apply_init_side and
+    // apply_end_turn, terrain changes and time areas on its own copy of
+    // the map; heal_events, terrain_log, time_areas_export and
+    // geometry_export feed the Python view.
+    m.add("__phase__", 20)?;
     Ok(())
 }

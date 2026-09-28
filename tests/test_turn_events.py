@@ -126,32 +126,18 @@ def test_a_comma_separated_name_answers_to_each_name():
     assert _variables(gs)["both"] == "2"
 
 
-def test_the_core_hands_a_command_to_python_only_when_it_would_fire_an_event():
-    """GameCore runs no scenario events, so the wrapper routes an
-    init_side or end_turn to the Python applier exactly when one of
-    the names that command fires has an event that can still fire."""
-    from wesnoth_ai.game_core import CoreState
-
-    class Globals:
-        def __init__(self, turn, side):
-            self.g = {"turn_number": turn, "current_side": side}
-
-        def globals_export(self):
-            return self.g
-
-    root = parse_wml("[multiplayer]\n"
-                     "[event]\nname=turn 3 end\n[/event]\n"
-                     "[event]\nname=side 2 turn 4 end\n[/event]\n"
-                     "[event]\nname=side 3 turn\nfirst_time_only=no\n[/event]\n"
-                     "[/multiplayer]\n")
-    events = collect_events(root, "synthetic")
-    core = CoreState(core=Globals(3, 2), game_id="", statics={"_scenario_events": events})
-    assert core._events_pending(["init_side", 1])          # ends turn 3
-    assert not core._events_pending(["init_side", 2])
-    assert not core._events_pending(["end_turn"])          # side 2, turn 3
-    assert core._events_pending(["init_side", 3])          # "side 3 turn"
-    core.core = Globals(4, 2)
-    assert core._events_pending(["end_turn"])              # side 2, turn 4
-    events[0].fired = True
-    core.core = Globals(3, 2)
-    assert not core._events_pending(["init_side", 1])      # latched
+def test_the_core_fires_the_turn_events_as_the_python_applier():
+    """The Rust core runs the scenario's events itself (events.rs): over
+    the same two turns, every name fires as often and in the same order
+    as in the Python applier (the counts and the log they leave)."""
+    import pytest
+    from wesnoth_ai.game_core import CoreState, game_core_class
+    if game_core_class() is None:
+        pytest.skip("wesnoth_core phase 20 not available")
+    py = _game()
+    core = CoreState.from_state(_game())
+    for cmd in TWO_TURNS:
+        _apply_command(py, cmd)
+        assert core.apply_command(cmd) == "rust"
+        assert core.to_state().global_info._wml_variables == _variables(py), cmd
+    assert int(_variables(py)["count_new_turn"]) == 3
