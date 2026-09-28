@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.classes import Position
 from wesnoth_ai.core_compare import state_differences
+from sim_test_helpers import commit_view
 from wesnoth_ai.game_core import game_core_class
 from tests.test_neutral_ai_precondition import EXPECTED_ACTORS
 from tools.abilities import hex_neighbors
@@ -58,6 +59,7 @@ def test_tentacle_attacks_weak_adjacent_unit_and_order_survives():
     # rates > 0 deterministically.
     lead.current_hp = 30
     lead.attacks.clear()
+    commit_view(sim)
     sim.step({"type": "end_turn"})
     sim.step({"type": "end_turn"})
     after = next((u for u in sim.gs.map.units if u.id == lead.id), None)
@@ -157,6 +159,7 @@ def test_tentacle_attacks_again_on_later_turns():
     _park_adjacent(sim, lead, tent)
     lead.current_hp = 30                  # wounded: rating > 0
     lead.attacks.clear()                  # no retaliation
+    commit_view(sim)
     for _ in range(2):                    # two full turn cycles
         sim.step({"type": "end_turn"})
         sim.step({"type": "end_turn"})
@@ -174,6 +177,7 @@ def _run_leader_kill(victim_side: int):
     lead = next(u for u in sim.gs.map.units if u.side == victim_side)
     _park_adjacent(sim, lead, tent)
     lead.current_hp = 1                   # any hit kills
+    commit_view(sim)
     for _ in range(4):
         if sim.done:
             break

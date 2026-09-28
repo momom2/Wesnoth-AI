@@ -89,12 +89,12 @@ def _encode_streams() -> bool:
 
 
 def _game_core() -> bool:
-    # `core_enabled()` is what WesnothSim actually consults, and it
-    # honours WESNOTH_RUST_CORE as well as the phase gate -- unset is
-    # the default and means OFF. Asking `game_core_class()` instead
-    # (phase only) reports RUST for a kernel production is not using,
-    # which is the exact failure this file exists to correct.
-    from tools.wesnoth_sim import core_enabled
+    # `core_enabled()` is what WesnothSim and replay reconstruction
+    # consult, and it honours WESNOTH_RUST_CORE as well as the phase
+    # gate (unset means ON). Asking `game_core_class()` instead (phase
+    # only) would report RUST for a switch set to 0, the failure this
+    # file exists to correct.
+    from wesnoth_ai.game_core import core_enabled
     return bool(core_enabled())
 
 

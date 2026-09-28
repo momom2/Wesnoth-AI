@@ -81,6 +81,16 @@ def game_core_class():
     return _GAME_CORE
 
 
+def core_enabled() -> bool:
+    """The Rust-owned state as the state of record of the simulator and
+    of replay reconstruction: the wheel carries GameCore and
+    WESNOTH_RUST_CORE is not 0 (on by default since 2026-09-28; 0 keeps
+    the Python applier, the port's oracle, until its retirement)."""
+    if os.environ.get("WESNOTH_RUST_CORE", "1") == "0":
+        return False
+    return game_core_class() is not None
+
+
 def load_databases(wesnoth_core) -> None:
     """The committed `unit_stats.json` and `terrain_db.json` into the
     extension, for every core this process builds."""
@@ -723,4 +733,4 @@ def _observation_from_dict(d: dict, geometry):
 
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
-           "game_core_class", "load_databases", "MODELED_GLOBALS", "UNIT_STASH_KEYS"]
+           "game_core_class", "core_enabled", "load_databases", "MODELED_GLOBALS", "UNIT_STASH_KEYS"]

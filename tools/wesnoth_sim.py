@@ -2,11 +2,11 @@
 
 Wesnoth's game logic reimplemented in-process: no engine subprocess,
 no rendering, no IPC, and no Wesnoth install on a GPU box (the WML it
-reads is committed under wesnoth_src/). The logic is Python; when the
-wheel is installed, Rust kernels (rust/wesnoth_core) compute reach and
-legal moves, the observation, the encoding and combat, and
-`WESNOTH_RUST_CORE=1` makes the Rust-owned state (`GameCore`) the
-state of record (CLAUDE.md, Architecture).
+reads is committed under wesnoth_src/). The state of record is
+the Rust-owned `GameCore` (rust/wesnoth_core, `wesnoth_ai.game_core`)
+when the wheel is installed and `WESNOTH_RUST_CORE` is not 0; the
+Python applier is the other state of record until the port retires it
+(docs/rust_core_port_20260928.md).
 
 The simulator reuses the replay-reconstruction machinery of
 tools/replay_dataset.py, which reads a replay's WML command stream and
@@ -59,7 +59,6 @@ Or for AI-vs-AI (the turn cap is the constructor's max_turns):
 from __future__ import annotations
 
 import gzip
-import os
 import json
 import logging
 import sys
@@ -352,14 +351,7 @@ def request_seed(request_id: int) -> str:
 _RECRUIT_COSTS_CACHE: Dict[str, int] = {}
 
 
-def core_enabled() -> bool:
-    """The Rust-owned state as the simulator's state of record
-    (docs/rust_port_plan.md phase 4): the wheel carries GameCore and
-    WESNOTH_RUST_CORE is not 0. Off by default until certified."""
-    if os.environ.get("WESNOTH_RUST_CORE", "0") == "0":
-        return False
-    from wesnoth_ai.game_core import game_core_class
-    return game_core_class() is not None
+from wesnoth_ai.game_core import core_enabled  # noqa: E402  (the one switch)
 
 
 def nearest_vacant_castle(gs: GameState, leader) -> Optional[Tuple[int, int]]:

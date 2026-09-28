@@ -96,6 +96,11 @@ def test_the_economy_travels_in_the_record_fields_not_a_post_build_patch(monkeyp
     assert _economy(built) == (3, sp.MP_VILLAGE_SUPPORT, sp.MP_EXPERIENCE_MODIFIER)
 
 
+def _commit(sim) -> None:
+    from sim_test_helpers import commit_view
+    commit_view(sim)
+
+
 def _own_a_village(gs, side: int) -> None:
     """Give `side` one village nobody owns, the way the game does
     (`set_village_owner`), so its count and the owner map agree, as
@@ -116,6 +121,7 @@ def test_a_village_actually_pays_the_scenario_rate():
     sim = WesnothSim(gs, scenario_id="2p_mini_edited", max_turns=6)
     _own_a_village(sim.gs, 1)
     assert sim.gs.sides[0].nb_villages_controlled == 1
+    _commit(sim)
     before = sim.gs.sides[0].current_gold
     sim.step({"type": "end_turn"})            # side 1 -> 2
     sim.step({"type": "end_turn"})            # side 2 -> 1: side 1's income lands
@@ -154,6 +160,7 @@ def test_a_declared_zero_village_economy_is_paid_as_zero():
     _own_a_village(sim.gs, 1)
     assert sim.gs.sides[0].nb_villages_controlled == 1
     _with_upkeep_unit(sim.gs, 1, "Spearman")
+    _commit(sim)
     before = sim.gs.sides[0].current_gold
     sim.step({"type": "end_turn"})            # side 1 -> 2
     sim.step({"type": "end_turn"})            # side 2 -> 1: side 1's income lands

@@ -225,6 +225,8 @@ def _castle_sim(castles, units):
                             _u("ldr2", 2, 8, 8, is_leader=True), *units})
     sim.gs.sides[0] = SideInfo(player="S1", recruits=["Spearman"], current_gold=100,
                                base_income=2, nb_villages_controlled=0)
+    from sim_test_helpers import commit_view
+    commit_view(sim)
     sim._begin_side_turn(1)
     return sim
 

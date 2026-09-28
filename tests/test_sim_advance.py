@@ -81,9 +81,11 @@ def fresh_sim():
 
 def _run_attack(sim, *units):
     """Place units, set side 1's turn, run a (10,10)->(11,10) attack."""
+    from sim_test_helpers import commit_view
     for u in units:
         sim.gs.map.units.add(u)
     sim.gs.global_info.current_side = 1
+    commit_view(sim)
     sim._begin_side_turn(1)
     sim.step({
         "type": "attack",
@@ -466,6 +468,8 @@ def test_petrified_unit_gets_no_init_side_healing_or_poison():
               _make("Skeleton", 1, 20, 20, 100, is_leader=True),
               _make("Skeleton", 2, 21, 20, 101, is_leader=True)):
         sim.gs.map.units.add(u)
+    from sim_test_helpers import commit_view
+    commit_view(sim)
 
     sim._begin_side_turn(1)                                  # fires init_side
     post = {u.id: u for u in sim.gs.map.units}
