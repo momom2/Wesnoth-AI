@@ -40,16 +40,19 @@ log = logging.getLogger("bench_leaf")
 
 
 def midgame_state(corpus: Path, index: int, skip: int):
-    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
-                                      _setup_scenario_events, filter_competitive_2p)
+    """A corpus game's position after `skip` commands, a view bound to
+    the Rust core that rebuilt it."""
+    from tools.replay_dataset import filter_competitive_2p, record_core
+    from wesnoth_ai.game_core import bind_view
     files = filter_competitive_2p(corpus)
     gz = files[index % len(files)]
     with gzip.open(gz, "rt", encoding="utf-8") as f:
         data = json.load(f)
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    cs = record_core(data)
     for cmd in data.get("commands", [])[:skip]:
-        _apply_command(gs, list(cmd))
+        cs.apply_command(list(cmd))
+    gs = cs.to_state()
+    bind_view(gs, cs)
     return gs
 
 
