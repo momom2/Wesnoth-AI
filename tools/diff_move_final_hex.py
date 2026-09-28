@@ -41,6 +41,8 @@ random_calls — separate tool needed).
 
 Dependencies: tools.replay_extract, tools.replay_dataset.
 """
+# Audit before use (user ruling 2026-09-28; BACKLOG "Fidelity tools to
+# audit"): not validated since the September 2026 simulator fidelity fixes.
 from __future__ import annotations
 
 import argparse

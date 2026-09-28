@@ -92,7 +92,7 @@ def test_every_project_pickle_is_read_through_the_unpickler():
     """The production trees hold no other reader of pickles, so none
     skips the table of moved modules."""
     home = Path(inspect.getsourcefile(unpickle)).resolve()
-    files = source_files("wesnoth_ai", "tools", "scripts", "signal_profiler", "benchmarks")
+    files = source_files("wesnoth_ai", "tools", "scripts", "signal_profiler")
     assert home in files, "the scan must reach the unpickler itself"
     assert list(_pickle_loads(home)), "the scan must see the unpickler's own pickle.Unpickler"
     bypass = [f"{path}:{line}: {text}" for path in files if path != home

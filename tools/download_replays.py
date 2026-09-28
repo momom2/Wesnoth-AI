@@ -12,8 +12,9 @@ filename starts with a token. Replay filenames are the GAME TITLE
 wanted maps and skips everything else BEFORE download -- custom-titled
 or localized-title games on wanted maps are lost (recall trade-off,
 accepted 2026-08-06; skip counts are printed per day so the loss is
-visible). Mods are invisible at filename level: run
-tools/sort_replays.py after download for the mod/era quarantine.
+visible). Mods and eras are invisible at filename level: a downloaded
+replay reaches the corpus only through the dispositions ledger's era and
+mod classes, whose builder is not yet committed (BACKLOG).
 
 Output layout: replays_raw/YYYY-MM-DD/<filename>.bz2
 

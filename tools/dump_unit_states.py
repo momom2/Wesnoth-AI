@@ -24,6 +24,8 @@ The internal trace uses 0-indexed (matches our sim).
 Dependencies: tools.replay_dataset.
 Dependents: standalone CLI.
 """
+# Audit before use (user ruling 2026-09-28; BACKLOG "Fidelity tools to
+# audit"): not validated since the September 2026 simulator fidelity fixes.
 from __future__ import annotations
 
 import argparse

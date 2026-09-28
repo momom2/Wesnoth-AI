@@ -1500,8 +1500,7 @@ def _evaluate(
     out["target_off_subset"] = off_subset
     out["mask_errors"] = mask_errors
     # Value discrimination: P(E[V]_winner-to-move > E[V]_loser-to-
-    # move) over holdout states -- the same AUC probe_value_head
-    # reports, cheap enough to ride every eval so trunk-drift damage
+    # move) over holdout states, cheap enough to ride every eval so trunk-drift damage
     # (epoch-0 lesson: late AUC 0.79 -> 0.63) shows up in the CURVE.
     def _auc(w, ls):
         wins = sum(1 for a in w for b in ls if a > b)

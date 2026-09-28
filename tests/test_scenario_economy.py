@@ -183,24 +183,19 @@ def _player_side_economies(text: str):
 
 def test_every_side_emitter_declares_a_zero_village_economy():
     """A game played at village_gold=0 and village_support=0 is
-    exported at 0 by all three [side] emitters: the replay exporter
-    (`sim_to_replay.build_save_wml`), the scenario replay builder and
-    the save dump. The exporter read `gi.village_gold or default`,
-    which wrote a declared 0 as the default 2, a game that never
-    happened; the other two read `wml_state.village_economy`."""
-    from tools import replay_builder
+    exported at 0 by both [side] emitters: the replay exporter
+    (`sim_to_replay.build_save_wml`) and the save dump. The exporter
+    read `gi.village_gold or default`, which wrote a declared 0 as the
+    default 2, a game that never happened; the dump reads
+    `wml_state.village_economy`."""
     from tools.dump_savestate import dump_savestate
-    from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     from tools.sim_to_replay import build_save_wml
 
     setup = _setup("2p_mini_edited")
     gs = sp.build_scenario_gamestate(setup, village_gold=0, village_upkeep=0)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=4)
-    scenario = replay_builder._build_scenario_node(
-        setup, gs, "", load_scenario_wml(setup.scenario_id))
     emitted = {
         "sim_to_replay": build_save_wml(sim),
-        "replay_builder": replay_builder.emit_wml(scenario),
         "dump_savestate": dump_savestate(gs),
     }
     declared = {name: _player_side_economies(text) for name, text in emitted.items()}

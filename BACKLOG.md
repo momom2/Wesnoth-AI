@@ -317,26 +317,29 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   hex goes to the vacant castle hex nearest the leader, gold spent, as in
   the engine; the ordered hex is still rejected for the turn
   (docs/wesnoth_rules.md "A recruit onto an occupied hex").
-- **Decision: deletions.** About 20 fast-tier test files test quarantined
-  mechanisms (`test_rewards`, `test_plan_tournament`, `test_swap_detector`,
-  `test_holdout_tripwire`, the gbc and vg tests, ...); tests that restate
-  the code (`test_boundary_telemetry.py:25-50`,
-  `test_distributional_value.py:69-118`, `test_action_type_head.py:281-324`),
-  read source text instead of behaviour, or pin defaults; dead modules
-  (`wesnoth_ai/policy.py`, `wesnoth_ai/profiling.py`,
-  `tools/replay_builder.py`) and about 20 one-shot probe scripts with no
-  user. Each needs the user's word. Extended by the 2026-09-25 inventory
-  (docs/refactor_inventory_20260925.md, section b, with the evidence for
-  each): 48 entry points that nothing imports, runs or documents (10,111
-  lines: probes whose results live in archived docs, corpus-rebuild tools,
-  fidelity oracles worth keeping for the next fidelity bug, legacy loops
-  and dashboards); `benchmarks/` (3 files named nowhere); 23 functions and
-  6 methods with no caller; argparse flags no caller passes; unread
-  constants and configs (`configs/replay_map_whitelist.txt`,
-  `map_whitelist_1v1.json`, `vendored_addon_ids.txt`); about 29 more test
-  files that test only quarantined or dead code. Moving or deleting
-  quarantined code also needs a ruling on quarantine/README.md's "the code
-  stays where it is".
+- **Deletions (user review 2026-09-28, one item at a time).** Done: the
+  42 files the user approved (the old policy registry, profiling,
+  replay_builder, benchmarks/, four signal_profiler drivers, the
+  July-September probes, smokes, dashboards and corpus one-shots). Kept:
+  `download_replays` (corpus growth) and `eval_daily` (to rework, below).
+  Not yet reviewed: the functions and methods with no caller, the unused
+  argparse flags, dataclass fields, constants and configs, and the tests of
+  dead code (docs/refactor_inventory_20260925.md section b); the review
+  stopped at the file level. Quarantined code may be
+  moved or archived (user ruling 2026-09-28).
+- **Fidelity tools to audit before use** (user ruling 2026-09-28):
+  `diff_move_final_hex`, `diff_unit_counter`, `dump_unit_states`,
+  `make_strict_replay` and `check_mask_coverage` predate the September
+  simulator fidelity fixes; each is to be validated before its next use.
+- **`eval_daily` becomes an on-demand eval against Wesnoth's RCA AI**
+  (user 2026-09-28), and the latest checkpoint is to be played against the
+  RCA AI some time (live Wesnoth: a box, or the laptop with the user's word).
+- **The corpus's candidate list has no committed builder:**
+  `build_imitation_dataset` reads `training/logs/replay_dispositions.jsonl.gz`
+  (36,309 raw replays classed by era and mods on 2026-08-07), and the script
+  that wrote it is in no commit, so a replay downloaded later cannot enter
+  the corpus. Commit a builder that reproduces the ledger's classes on the
+  existing pool.
 - **A lever to measure: the attack hex.** For an attack on a unit the
   attacker is not next to, the simulator picks the hex by route cost
   (`wesnoth_sim.py:1016`), in effect the nearest; ranking by the

@@ -59,7 +59,7 @@ log = logging.getLogger("player_ratings")
 # usernames cannot contain brackets, so it collides with no human.
 AI_PLAYER_ID = "[ai]"
 # Bytes of decompressed replay read for the header; the [side] blocks
-# of the start snapshot sit inside it (tools/replay_manifest.py).
+# of the start snapshot sit inside it.
 HEADER_BYTES = 400_000
 # Elo per natural-log rating unit, as tools/whr.py.
 ELO_PER_NATURAL = 400.0 / math.log(10.0)

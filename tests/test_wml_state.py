@@ -324,17 +324,17 @@ def test_no_second_parser_of_the_side_block_survives():
     a replay sweep nobody runs locally.
 
     Scope: the files that build or emit a starting state. Diagnostics
-    that scan raw text on purpose (`check_replay_consistency`,
-    `filter_replays`) and the census are out of scope, and the census
+    that scan raw text on purpose (`filter_replays`) and the census
+    are out of scope, and the census
     reads headers the pipelines never parse.
     """
     import inspect
     import re
 
-    from tools import dump_savestate, replay_builder, replay_extract, sim_to_replay
+    from tools import dump_savestate, replay_extract, sim_to_replay
     from wesnoth_ai.rules import scenario_pool
 
-    watched = [scenario_pool, replay_extract, sim_to_replay, replay_builder, dump_savestate]
+    watched = [scenario_pool, replay_extract, sim_to_replay, dump_savestate]
     # A regex that reaches into a [side] block or its economy attrs.
     suspicious = re.compile(
         r"re\.(compile|search|match|finditer|findall)\([^)]*"

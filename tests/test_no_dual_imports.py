@@ -42,7 +42,7 @@ TOOLS_DIR = _ROOT / "tools"
 # walked recursively and required to hold Python files. tmp_scratch/ is
 # deliberately excluded (throwaway probes), as is wesnoth_src/ (vendored
 # engine data, not ours).
-LINTED_DIRS = ("tools", "tests", "wesnoth_ai", "benchmarks", "scripts", "signal_profiler")
+LINTED_DIRS = ("tools", "tests", "wesnoth_ai", "scripts", "signal_profiler")
 
 
 def _tools_module_names() -> set:

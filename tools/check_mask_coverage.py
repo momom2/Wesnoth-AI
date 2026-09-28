@@ -18,6 +18,8 @@ Usage:
     python tools/check_mask_coverage.py [--games 100] [--seed 0]
         [--dataset replays_dataset]
 """
+# Audit before use (user ruling 2026-09-28; BACKLOG "Fidelity tools to
+# audit"): not validated since the September 2026 simulator fidelity fixes.
 
 from __future__ import annotations
 
