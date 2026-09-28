@@ -73,6 +73,23 @@ The Python planner still assembles the core's arrays into `UnitReach` and
 picks routes and attack hexes from it (`route_to`, `_find_attack_hex`): data
 handling, no rule.
 
+Records are replayed on the core by the simulator's mid-game starts, game-record
+rebuilds (`game_record.start_core`, `walk`, `rebuild`), the value corpus and its
+builder, the replay outcome labeller, the validation exports, `diff_replay`,
+the benches and `value_head_by_phase` / `probe_teacher_advantage`. Still on the
+Python applier, each to be deleted, quarantined or moved to the core at the
+retirement (the user's call, tool by tool):
+
+| tool | what it does on the applier |
+|---|---|
+| `tools/diff_core.py`, `tools/bench_core.py` | compares or times the core against the applier (they go with it) |
+| `tools/swap_detector.py` | its side-turn particles (a bound view's scripted fights already run on the core) |
+| `tools/diff_combat_strike.py`, `diff_unit_counter.py`, `diff_move_final_hex.py`, `dump_unit_states.py` | debugging walks of one replay against its strict-sync record |
+| `tools/analysis/counter_weapon_census.py`, `hider_rule_sample.py`, `vision_rule_census.py`, `observation_parity_census.py` | analyses of a Python rule or of a rule change, measured on the applier |
+
+`tools/wesnoth_sim.py` and `tools/hidden_units_oracle.py` keep a Python path for
+`WESNOTH_RUST_CORE=0` only.
+
 Then the deletions: the applier and its builders (the initial state's units
 built by the core's `build_unit_fields`), `tools/traits.py`, the handlers of
 `tools/scenario_events.py` (its parsing, `collect_events` and
