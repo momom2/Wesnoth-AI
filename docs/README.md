@@ -23,6 +23,7 @@ leg records and runbooks (index in `archive/README.md`).
 | corpus_v2_20260926.md | the corrected imitation corpus (version 2): what each correction changes, its measured reach, and the rebuild |
 | hidden_information_20260926.md | every search and playout runs on the true state under fog: where, what it means for the turn-gap and turn-value verdicts, and the determinization the fix needs |
 | observation_parity_20260926.md | what the network observes against what a player sees: the parity table, eight input gaps with their frequency in corpus games, two facts a player does not have |
+| rust_core_port_20260928.md | finishing the Rust game core and retiring the Python one: what Python still does, the end state, the decisions, the steps |
 | refactor_plan_20260925.md | the refactor into one package per system: what is wrong now, the target layout, what a move must not break, the order of steps |
 | refactor_inventory_20260925.md | the inventory the refactor plan rests on: the system map, dead code with evidence, structure problems (commit 90ff321) |
 

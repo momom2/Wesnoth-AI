@@ -49,6 +49,13 @@ and playout runs on the true state under fog**
 RICH carries a second caveat and a turn search needs a determinized root,
 drawn from a belief model, before it meets the 800-game gate.
 
+**3. The Rust core replaces the Python one** (user order 2026-09-28;
+docs/rust_core_port_20260928.md): units, events and the encoding move to
+the core, which becomes the state of record, is certified on the full
+corpus, and the Python applier is retired. Two design decisions await the
+user (events through core methods; the applier as the last oracle).
+Refactor step 4a is parked meanwhile.
+
 **Standing, taken whenever there is room (user, 2026-09-25):**
 
 - **Signal telemetry in every trainer.** Recorded by the self-play
