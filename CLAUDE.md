@@ -1190,9 +1190,13 @@ Concretely:
   - Fog castle hexes ARE legal recruit targets (the model can
     attempt them; like a human, it can't see what's there until
     it tries).
-  - After a rejection, that hex becomes illegal AND a per-hex
-    "recruit_rejected" bit appears in the encoder feature -- the
-    mask consults the rejection set, the model sees the bit; both
+  - A recruit ordered onto a hex a hidden unit holds goes where the
+    engine puts it: the vacant castle hex nearest the leader, gold
+    spent (docs/wesnoth_rules.md "A recruit onto an occupied hex");
+    only with no vacant castle hex is it refused. Either way the
+    ordered hex is rejected for the turn: it becomes illegal AND a
+    per-hex "recruit_rejected" bit appears in the encoder feature --
+    the mask consults the rejection set, the model sees the bit; both
     read the same state.
   - Next turn, rejection history clears. The hex is legal again
     (the enemy may have moved away).

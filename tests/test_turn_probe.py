@@ -87,10 +87,11 @@ def test_materialize_identity_and_bounce(tiny_policy, mini_sim):
     assert math.isfinite(m.value)
     assert -1.0 <= m.value <= 1.0
 
-    # Doubling a non-end_turn command: the duplicate must bounce
-    # cleanly (unit already moved / hex taken), never crash, and the
-    # turn still terminates at a real boundary.
-    non_et = [a for a in incumbent if a.get("type") != "end_turn"]
+    # Doubling a move or an attack: the duplicate must bounce cleanly
+    # (unit already moved or already attacked), never crash, and the
+    # turn still terminates at a real boundary. A doubled recruit is not
+    # a bounce: the engine places it on the next vacant castle hex.
+    non_et = [a for a in incumbent if a.get("type") in ("move", "attack")]
     if non_et:  # a policy could legitimately open with end_turn
         doubled = [non_et[0], non_et[0]] + incumbent[1:]
         m2 = materialize(tiny_policy, mini_sim, side, doubled,

@@ -362,6 +362,43 @@ def core_enabled() -> bool:
     return game_core_class() is not None
 
 
+def nearest_vacant_castle(gs: GameState, leader) -> Optional[Tuple[int, int]]:
+    """The hex the engine recruits onto when the ordered hex is occupied.
+
+    An order onto an occupied hex counts as an order with no hex
+    (`actions/create.cpp:419-421`), and the recruit goes to
+    `pathfind::find_vacant_castle(leader)` (`pathfind/pathfind.cpp:54-121`,
+    1.18.4): a search outward from the leader's hex through castle and keep
+    hexes, one distance at a time, whose first vacant hex in (x, y) order
+    wins (`std::set<map_location>` order, `map/location.hpp:100`). Vacant
+    means no unit of any side, hidden ones included. None when every
+    castle hex the search reaches is taken, where the engine refuses."""
+    from tools.abilities import hex_neighbors
+    from wesnoth_ai.classes import TerrainModifiers
+    castle = {(h.position.x, h.position.y) for h in gs.map.hexes
+              if TerrainModifiers.CASTLE in h.modifiers
+              or TerrainModifiers.KEEP in h.modifiers}
+    occupied = {(u.position.x, u.position.y) for u in gs.map.units}
+    ring = {(leader.position.x, leader.position.y)}
+    seen = set(ring)
+    for _distance in range(50):             # the engine searches 50 hexes out
+        vacant = sorted(p for p in ring if p in castle and p not in occupied)
+        if vacant:
+            return vacant[0]
+        nearer = set()
+        for x, y in ring:
+            if (x, y) not in castle:        # a non-castle hex is not expanded
+                continue
+            for n in hex_neighbors(x, y):
+                if n not in seen:
+                    seen.add(n)
+                    nearer.add(n)
+        if not nearer:
+            return None
+        ring = nearer
+    return None
+
+
 def _recruit_cost_for(unit_type: str) -> int:
     """Look up the recruit cost (gold) for a unit type from
     `unit_stats.json`. Returns 14 (the smallfoot/orcishfoot Footpad
@@ -1696,33 +1733,28 @@ class WesnothSim:
                         f"sim: refusing recruit {unit_type!r} (cost={cost} "
                         f"> gold={gold})")
                     return None, None
-            # God-view occupancy check. The sampler's mask only sees
-            # what the model can see (visible units); the sim has
-            # ground truth and knows about fog-hidden enemies on
-            # castle hexes. If we'd be recruiting on top of an
-            # actually-occupied hex, signal "rejected for retry"
-            # rather than "rejected for end_turn fallback":
-            #   - Add hex to gs.global_info._recruit_rejected_hexes.
-            #   - Return ("__retry_recruit__", None) -- a sentinel
-            #     step() recognizes and turns into a no-op (no apply,
-            #     no end_turn, no history append). The harness sees
-            #     `last_step_rejected=True` and re-decides with the
-            #     new rejection state.
-            for u in self.gs.map.units:
-                if u.position.x == target.x and u.position.y == target.y:
-                    # Through the sim's own writer: with the Rust-owned
-                    # state `self.gs` is a VIEW that the next command
-                    # rebuilds, so writing the rejection there loses it
-                    # and the mask offers the same bounced hex again in
-                    # the same turn (the legality contract in CLAUDE.md
-                    # makes the history per TURN, not per command).
-                    self.reject_recruit_hex(target.x, target.y)
-                    log.debug(
-                        f"sim: recruit on ({target.x},{target.y}) "
-                        f"rejected (occupied by {u.id!r}, side {u.side}); "
-                        f"adding to rejection set, harness should retry"
-                    )
+            # An order onto an occupied hex (the mask sees only visible
+            # units, so a fog-hidden enemy on a castle hex): the engine
+            # puts the recruit on the vacant castle hex nearest the
+            # leader and spends the gold, and refuses only when none is
+            # vacant (`nearest_vacant_castle`). The ordered hex joins the
+            # turn's rejection set either way: the player sees the
+            # recruit land elsewhere. Through the sim's own writer: with
+            # the Rust-owned state `self.gs` is a VIEW that the next
+            # command rebuilds, so a rejection written there is lost.
+            occupant = next((u for u in self.gs.map.units
+                             if u.position.x == target.x and u.position.y == target.y),
+                            None)
+            if occupant is not None:
+                self.reject_recruit_hex(target.x, target.y)
+                placed = nearest_vacant_castle(self.gs, _leader)
+                log.debug(
+                    f"sim: recruit ordered onto ({target.x},{target.y}), "
+                    f"occupied by {occupant.id!r} (side {occupant.side}): "
+                    f"{'placed on ' + str(placed) if placed else 'no vacant castle hex, refused'}")
+                if placed is None:
                     return ["__retry_recruit__"], None
+                target = Position(*placed)
             # Allocate a synced-RNG seed for the trait roll. Without
             # this both sides diverge: the sim might give the recruit
             # `quick` (+1 MP) while Wesnoth's playback rolls a

@@ -306,11 +306,10 @@ In the order the counts suggest:
 Found by five audits (rules, observation, training, evaluation, tests
 and hygiene) and not fixed in 0.6.1-0.6.7.
 
-- **Decision: a recruit onto an occupied castle hex.** The engine places
-  the recruit on another castle hex and spends the gold
-  (`actions/create.cpp:419-421`: an occupied location is treated as none
-  given); the simulator refuses at no cost, as CLAUDE.md principle 6
-  assumes. Rare (an enemy hidden inside the recruiter's own castle).
+- Done (user ruling 2026-09-28): a recruit ordered onto an occupied
+  hex goes to the vacant castle hex nearest the leader, gold spent, as in
+  the engine; the ordered hex is still rejected for the turn
+  (docs/wesnoth_rules.md "A recruit onto an occupied hex").
 - **Decision: deletions.** About 20 fast-tier test files test quarantined
   mechanisms (`test_rewards`, `test_plan_tournament`, `test_swap_detector`,
   `test_holdout_tripwire`, the gbc and vg tests, ...); tests that restate
