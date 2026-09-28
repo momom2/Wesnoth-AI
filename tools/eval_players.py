@@ -131,8 +131,9 @@ def _play_one_eval_game(
         with fork_guard(sim):
             action = actor.select_action(pre_state, game_label, sim)
 
-        # Recruit-bounce retry (god-view occupied hex). Same pattern
-        # as play_one_game in tools/selfplay_game.py.
+        # A recruit the engine refuses (its hex occupied and no castle
+        # hex vacant) is re-decided. Same pattern as play_one_game in
+        # tools/selfplay_game.py.
         while _would_recruit_bounce(action, sim.gs):
             tgt = action["target_hex"]
             sim.reject_recruit_hex(tgt.x, tgt.y)

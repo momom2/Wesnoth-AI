@@ -215,25 +215,24 @@ def _update_closest_approach(
 
 
 def _would_recruit_bounce(action: Dict, gs: "GameState") -> bool:
-    """True if `action` is a recruit on a hex the SIM (god-view)
-    knows is occupied. The action sampler's mask only knows visible
-    units, so the model can pick a fog-hidden castle hex -- the sim
-    has ground truth and would reject. We use this to detect
-    bounces in the harness BEFORE calling sim.step, so the side's
-    turn isn't consumed by a no-op.
-
-    Cheap: linear over gs.map.units (~10-30 entries on a typical
-    mid-game state); fires only on recruit actions.
-    """
+    """True if the engine would refuse `action`, a recruit: its hex is
+    occupied (the god view knows fog-hidden units the mask cannot see)
+    and no castle hex of the leader is vacant. An occupied hex with a
+    vacant castle hex left is not refused: the simulator places the
+    recruit there, as the engine does (`wesnoth_sim.nearest_vacant_castle`).
+    Checked in the harness BEFORE calling sim.step, so a refused order
+    is re-decided without consuming the side's turn."""
     if action.get("type") != "recruit":
         return False
     tgt = action.get("target_hex")
     if tgt is None:
         return False
-    for u in gs.map.units:
-        if u.position.x == tgt.x and u.position.y == tgt.y:
-            return True
-    return False
+    if not any(u.position.x == tgt.x and u.position.y == tgt.y for u in gs.map.units):
+        return False
+    from tools.wesnoth_sim import nearest_vacant_castle
+    leader = next((u for u in gs.map.units
+                   if u.side == gs.global_info.current_side and u.is_leader), None)
+    return leader is None or nearest_vacant_castle(gs, leader) is None
 
 
 def play_one_game(

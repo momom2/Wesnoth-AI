@@ -3077,6 +3077,37 @@ the branch only a plain `yes` could enter. No corpus replay uses the
 list form, so nothing had diverged; `wesnoth_ai/rules/wml_state.wml_bool_or_none`
 now distinguishes the third form and the caller drops it.
 
+## A recruit onto an occupied hex (added 2026-09-28)
+
+An order to recruit onto a hex a unit already holds (in play, one hidden
+in fog) is carried out as an order with no hex: the recruit goes to the
+vacant castle hex nearest the leader and the gold is spent. It is refused
+only when no castle hex the leader reaches is vacant.
+
+**Source (1.18.4):** `src/actions/create.cpp:419-421`
+(`check_recruit_location`):
+
+    // If the specified location is occupied, proceed as if no location was specified.
+    if ( resources::gameboard->units().count(recruit_location) != 0 )
+        check_location = map_location::null_location();
+
+then `:392` (`check_unit_recruit_location`) takes
+`pathfind::find_vacant_castle(recruiter)`, which is
+`src/pathfind/pathfind.cpp:54-121`: a search outward from the leader's hex,
+one distance at a time up to 50, through castle and keep hexes only (a
+non-castle hex is skipped and not expanded), returning the first hex with
+no unit on it. Each distance is walked as a `std::set<map_location>`,
+ordered by x then y (`src/map/location.hpp:100`), so a tie goes to the
+lowest (x, y).
+
+**Why non-obvious:** the vacant hex is the one nearest the leader, not the
+one nearest the hex that was ordered, and "vacant" counts every unit, the
+hidden ones included. The simulator refused such a recruit at no cost
+until 2026-09-28 (`wesnoth_sim.nearest_vacant_castle` follows the engine
+now; the ordered hex still joins the turn's rejection set, since the
+player sees the recruit land elsewhere). A replay records the hex the
+recruit was placed on, so reconstruction never meets the case.
+
 ## A time area keeps its own slot (added 2026-09-26)
 
 A `[time_area]` starts at its own `current_time` (0 when absent) on the

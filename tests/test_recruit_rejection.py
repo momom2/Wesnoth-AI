@@ -11,12 +11,13 @@ Behaviors verified:
   3. `_recruit_rejected_hexes` state lives on `gs.global_info` and
      gates the recruit-hex mask (its encoder bit is asserted in
      tests/test_encode_raw_cache.py).
-  4. Sim's `_action_to_command` for recruit detects god-view
-     occupancy: returns the retry sentinel + adds to the rejection
-     set. `step()` honors the sentinel as a no-op (no history
-     append, no side advance, last_step_rejected=True).
-  5. Harness `_would_recruit_bounce` correctly classifies recruit
-     actions targeting occupied hexes.
+  4. A recruit ordered onto a hex a hidden unit holds goes, as in the
+     engine, to the vacant castle hex nearest the leader (gold spent),
+     and the ordered hex joins the rejection set; with no vacant castle
+     hex the order is refused (retry sentinel, no history append, no
+     side advance, last_step_rejected=True).
+  5. Harness `_would_recruit_bounce` flags exactly the orders the
+     engine refuses.
   6. A bounce survives the rest of the turn and clears at the next
      init_side on both states of record: the Python state and the
      Rust-owned core, whose `sim.gs` is a view rebuilt after every
@@ -206,51 +207,72 @@ def test_rejected_hex_blocked_by_recruit_mask():
 # Sim retry-recruit sentinel
 # ---------------------------------------------------------------------
 
-def test_sim_recruit_on_occupied_hex_signals_retry():
-    """sim._action_to_command for recruit on an occupied hex adds
-    to the rejection set and returns the retry sentinel; step()
-    sets last_step_rejected and doesn't consume the turn."""
+def _castle_sim(castles, units):
+    """A fresh sim whose map is a keep at (2, 2) with side 1's leader on
+    it, the given castle hexes, and the given extra units; side 1 has
+    100 gold and Spearman to recruit, and its turn is begun."""
     from sim_test_helpers import fresh_scenario_sim
 
     sim = fresh_scenario_sim(seed=8, max_turns=5, mini=True)
-    # The state surgery below replaces the whole map; make sure no
-    # game-over latch from the bootstrap state survives it.
     sim.done = False
     sim.winner = 0
     sim.ended_by = ""
-    # Build a controlled scenario: leader on keep, fog-hidden enemy
-    # on adjacent castle.
-    gs = sim.gs
-    gs.map.units.clear()
-    keep_pos = (2, 2)
-    enemy_pos = (3, 2)
-    keep = _hex(*keep_pos, mods=[TerrainModifiers.KEEP],
-                terrain=Terrain.CASTLE)
-    castle = _hex(*enemy_pos, mods=[TerrainModifiers.CASTLE],
-                  terrain=Terrain.CASTLE)
-    other_castle = _hex(2, 3, mods=[TerrainModifiers.CASTLE],
-                        terrain=Terrain.CASTLE)
-    # Use a fresh hex set with our castle network.
-    gs.map = Map(
-        size_x=10, size_y=10, mask=set(), fog=set(),
-        hexes={keep, castle, other_castle},
-        units={
-            _u("ldr1", 1, *keep_pos, is_leader=True),
-            _u("hidden_enemy", 2, *enemy_pos),
-            _u("ldr2", 2, 8, 8, is_leader=True),
-        },
-    )
-    # Side 1 has gold + recruits.
-    gs.sides[0] = SideInfo(player="S1", recruits=["Spearman"],
-                           current_gold=100, base_income=2,
-                           nb_villages_controlled=0)
+    keep = _hex(2, 2, mods=[TerrainModifiers.KEEP], terrain=Terrain.CASTLE)
+    hexes = {keep} | {_hex(x, y, mods=[TerrainModifiers.CASTLE], terrain=Terrain.CASTLE)
+                      for x, y in castles}
+    sim.gs.map = Map(size_x=10, size_y=10, mask=set(), fog=set(), hexes=hexes,
+                     units={_u("ldr1", 1, 2, 2, is_leader=True),
+                            _u("ldr2", 2, 8, 8, is_leader=True), *units})
+    sim.gs.sides[0] = SideInfo(player="S1", recruits=["Spearman"], current_gold=100,
+                               base_income=2, nb_villages_controlled=0)
     sim._begin_side_turn(1)
+    return sim
+
+
+def test_a_recruit_onto_a_hidden_unit_lands_on_the_vacant_castle_nearest_the_leader():
+    """The engine treats an order onto an occupied hex as an order with no
+    hex and places the recruit on the vacant castle hex nearest the leader,
+    spending the gold (actions/create.cpp:419-421, find_vacant_castle). The
+    ordered hex joins the turn's rejection set. (4, 3) is next to the
+    ordered hex (3, 2) and two steps from the leader; (1, 2) is two steps
+    from the ordered hex and next to the leader, so the engine takes it."""
+    sim = _castle_sim(castles=[(1, 2), (3, 2), (4, 3)],
+                      units=[_u("hidden_enemy", 2, 3, 2)])
+    gold = sim.gs.sides[0].current_gold
+    sim.step({"type": "recruit", "unit_type": "Spearman", "target_hex": Position(3, 2)})
+    assert sim.last_step_rejected is False
+    recruits = [rc for rc in sim.command_history if rc.kind == "recruit"]
+    assert [tuple(rc.cmd[2:4]) for rc in recruits] == [(1, 2)]
+    assert sim.gs.sides[0].current_gold < gold
+    assert (3, 2) in getattr(sim.gs.global_info, "_recruit_rejected_hexes", set())
+
+
+def test_the_vacant_castle_search_follows_the_engine_order():
+    """Nearest the leader through castle hexes first, then the lowest
+    (x, y): the engine walks each distance as a std::set<map_location>."""
+    from tools.wesnoth_sim import nearest_vacant_castle
+    sim = _castle_sim(castles=[(1, 2), (2, 3), (3, 2), (3, 3)],
+                      units=[_u("a", 2, 1, 2)])
+    leader = next(u for u in sim.gs.map.units if u.id == "ldr1")
+    assert nearest_vacant_castle(sim.gs, leader) == (2, 3)     # (1, 2) taken; (2, 3) < (3, 2)
+    sim.gs.map.units.add(_u("b", 2, 2, 3))
+    sim.gs.map.units.add(_u("c", 2, 3, 2))
+    assert nearest_vacant_castle(sim.gs, leader) == (3, 3)     # two steps out, through (2, 3) or (3, 2)
+    sim.gs.map.units.add(_u("d", 2, 3, 3))
+    assert nearest_vacant_castle(sim.gs, leader) is None
+
+
+def test_a_recruit_is_refused_when_no_castle_hex_is_vacant():
+    """With every castle hex taken the engine refuses; the simulator
+    re-decides without consuming the turn."""
+    sim = _castle_sim(castles=[(3, 2)], units=[_u("hidden_enemy", 2, 3, 2)])
+    enemy_pos = (3, 2)
 
     pre_history_len = len(sim.command_history)
     pre_actions = dict(sim._actions_by_side)
     pre_side = sim.gs.global_info.current_side
 
-    # Try to recruit on the occupied hex. Step should be a no-op.
+    # The only castle hex is taken: the step is a no-op.
     sim.step({
         "type":       "recruit",
         "unit_type":  "Spearman",
