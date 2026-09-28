@@ -52,9 +52,8 @@ def main(argv):
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import MCTSConfig, mcts_search
     from tools.draw_tiebreak import DrawTiebreakConfig
-    from tools.replay_dataset import (_apply_command,
-                                      _build_initial_gamestate,
-                                      _setup_scenario_events)
+    from tools.replay_dataset import record_core
+    from wesnoth_ai.game_core import bind_view
     from tools.value_corpus import _DECISION_KINDS
     from tools.midgame_starts import _load_index as load_index
     from tools.wesnoth_sim import WesnothSim
@@ -89,9 +88,8 @@ def main(argv):
                 with gzip.open(args.dataset_dir / r["file"], "rt",
                                encoding="utf-8") as f:
                     data = json.load(f)
-                gs = _build_initial_gamestate(data)
+                cs = record_core(data)
                 sid = data.get("scenario_id", "")
-                _setup_scenario_events(gs, sid)
             except Exception:                    # noqa: BLE001
                 continue
             offset = rng.randrange(max(1, args.stride))
@@ -100,13 +98,15 @@ def main(argv):
             for cmd in data.get("commands", []):
                 kind = cmd[0] if cmd else "?"
                 if kind in _DECISION_KINDS:
-                    side = gs.global_info.current_side
+                    side = int(cs.core.current_side)
                     if side in (1, 2) and k % args.stride == offset:
-                        states.append((copy.deepcopy(gs), side,
-                                       gs.global_info.turn_number))
+                        snapshot = cs.fork()
+                        view = snapshot.to_state()
+                        bind_view(view, snapshot)
+                        states.append((view, side, int(cs.core.turn_number)))
                     k += 1
                 try:
-                    _apply_command(gs, cmd)
+                    cs.apply_command(list(cmd))
                 except Exception:                # noqa: BLE001
                     break
             for st, side, turn in states:

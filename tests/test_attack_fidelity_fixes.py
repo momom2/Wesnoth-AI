@@ -34,6 +34,7 @@ from wesnoth_ai.classes import Position
 from tools.abilities import hex_neighbors
 from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
+from sim_test_helpers import commit_view
 
 
 def _sim():
@@ -58,6 +59,7 @@ def _park_enemies_adjacent(sim):
     l2.position = Position(*nb)
     l2.attacks.clear()
     l2.current_hp = l2.max_hp
+    commit_view(sim)
     return l1, l2
 
 
@@ -93,6 +95,7 @@ def test_amla_advancement_emits_choose_event():
     sim.gs.map.units.add(lord)
     lord.current_exp = lord.max_exp - 1
     pre_max_hp = lord.max_hp
+    commit_view(sim)
     sim.step({"type": "attack",
               "start_hex": lord.position,
               "target_hex": l2.position,

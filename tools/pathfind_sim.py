@@ -13,6 +13,12 @@ Two layers, two knowledge levels (user contract 2026-07-17):
   order-to-path translation BOTH use this layer, so anything the mask
   offers, the sim can route.
 
+  For a view bound to the Rust core (`game_core.bind_view`) the planner's
+  context and each unit's reach come from the core (`side_context`,
+  `unit_reach`), the same rules over its own terrain classes and
+  visibility; the Python code below answers any other state and is the
+  core's oracle (tests/test_rust_moves.py).
+
   EXECUTION (`walk_move_path`) runs GOD-VIEW and resolves what
   actually happens when the planned path meets hidden reality,
   mirroring `unit_mover` (actions/move.cpp):
@@ -175,20 +181,47 @@ class ReachContext:
     ally_hexes: Set[Coord] = field(default_factory=set)
     # Hexes covered by a visible enemy's ZoC.
     zoc_hexes: Set[Coord] = field(default_factory=set)
+    # The core behind the view the context was built from (observable
+    # contexts of a bound view only): `unit_reach` asks it.
+    core: object = field(default=None, repr=False, compare=False)
 
     @classmethod
     def for_side(cls, gs, side: int, *, god_view: bool = False,
                  exclude_unit=None) -> "ReachContext":
-        from tools.abilities import hex_neighbors
+        from wesnoth_ai.game_core import core_of
         from wesnoth_ai.visibility import units_visible_to
 
         # `playable` is read nowhere (project round-2 C12: its
         # per-call rebuild was pure overhead under every move
         # command); the field keeps a default for ctor compat.
         if god_view:
-            units = list(gs.map.units)
-        else:
-            units = units_visible_to(gs, side)
+            return cls.from_units(side, list(gs.map.units), exclude_unit)
+        cs = core_of(gs)
+        if cs is not None and (exclude_unit is None or exclude_unit.side == side):
+            return cls._from_core(cs, gs, side, exclude_unit)
+        return cls.from_units(side, units_visible_to(gs, side), exclude_unit)
+
+    @classmethod
+    def _from_core(cls, cs, gs, side: int, exclude_unit) -> "ReachContext":
+        """The observable context of a bound view, from its core. An
+        excluded mover of `side` leaves its hex unoccupied."""
+        import numpy as _np
+        positions = hex_positions(gs)
+        occupied, enemy, ally, zoc = cs.core.side_context(side)
+        ctx = cls(side=side, core=cs)
+        for flags, target in ((occupied, ctx.occupied_visible), (enemy, ctx.enemy_hexes),
+                              (ally, ctx.ally_hexes), (zoc, ctx.zoc_hexes)):
+            target.update(positions[i] for i in _np.flatnonzero(flags))
+        if exclude_unit is not None:
+            pos = (exclude_unit.position.x, exclude_unit.position.y)
+            ctx.occupied_visible.discard(pos)
+            ctx.ally_hexes.discard(pos)
+        return ctx
+
+    @classmethod
+    def from_units(cls, side: int, units, exclude_unit=None) -> "ReachContext":
+        """The context over the units `side` sees (`units`)."""
+        from tools.abilities import hex_neighbors
 
         ctx = cls(side=side)
         for u in units:
@@ -348,6 +381,23 @@ def _terrain_maps_for(unit, gs) -> Dict[Coord, Tuple[int, int]]:
     return m
 
 
+# The hex positions of a hex set in its order (the core's hex index
+# order), per hex set object.
+_POSITIONS_CACHE: Dict[int, tuple] = {}
+
+
+def hex_positions(gs) -> List[Coord]:
+    """(x, y) of every hex of `gs`, in `gs.map.hexes` order."""
+    hexes = gs.map.hexes
+    hit = _POSITIONS_CACHE.get(id(hexes))
+    if hit is None or hit[0] is not hexes:
+        if len(_POSITIONS_CACHE) > 64:
+            _POSITIONS_CACHE.clear()
+        hit = (hexes, [(h.position.x, h.position.y) for h in hexes])
+        _POSITIONS_CACHE[id(hexes)] = hit
+    return hit[1]
+
+
 # Array-form terrain cache (2026-07-22 enumerate optimization): same
 # key discipline as _TERRAIN_MAPS_CACHE, but flat numpy arrays indexed
 # by hex id so unit_reach's inner loop does array reads instead of
@@ -434,6 +484,12 @@ def unit_reach(unit, gs, ctx: ReachContext,
     start = (unit.position.x, unit.position.y)
     if budget is None:
         budget = int(unit.current_moves)
+    if ctx.core is not None and unit.side == ctx.side:
+        arrays = ctx.core.core.unit_reach(start[0], start[1], int(budget))
+        if arrays is not None:
+            mp_a, cost_a, prev_a = arrays
+            return _reach_from_arrays(start, hex_positions(gs), mp_a.tolist(),
+                                      cost_a.tolist(), prev_a.tolist(), ctx)
     skirmisher = "skirmisher" in (unit.abilities or set())
     pos_to_idx, positions, nbrs, mcost, dsub = \
         _terrain_arrays_for(unit, gs)

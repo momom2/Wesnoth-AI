@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
+from sim_test_helpers import commit_view                          # noqa: E402
 from tools.abilities import hex_neighbors, opposite_hex           # noqa: E402
 from tools.combat_outcomes import enumerate_attack_outcomes       # noqa: E402
 from tools.replay_dataset import _build_recruit_unit, _stats_for  # noqa: E402
@@ -75,6 +76,7 @@ def _thief_vs_leader(with_flanker: bool):
         gs.map.units.add(_build_recruit_unit(
             "Thief", side=side, x=opp_hex[0], y=opp_hex[1], next_uid=8002,
             game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
+    commit_view(sim)
     action = {"type": "attack",
               "start_hex": Position(a_hex[0], a_hex[1]),
               "target_hex": dfd.position, "attack_index": 0}
@@ -154,6 +156,7 @@ def _spearman_with_optional_leader(with_leader: bool):
         gs.map.units.add(_build_recruit_unit(
             "Lieutenant", side=side, x=l_hex[0], y=l_hex[1], next_uid=8101,
             game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
+    commit_view(sim)
     action = {"type": "attack", "start_hex": Position(a_hex[0], a_hex[1]),
               "target_hex": dfd.position, "attack_index": 0}
     return gs, action
@@ -263,6 +266,7 @@ def test_enumerate_children_via_sim_matches_dp():
                               exp_modifier=xpmod)
     gs.map.units.add(att)
     gs.map.units.add(dfd)
+    commit_view(sim)
     d_weapon = choose_counter_weapon(gs, att, dfd, 0)
     attack_cmd = ["attack", ax, ay, dx, dy, 0, d_weapon, "deadbeef"]
     action = {"type": "attack", "start_hex": Position(ax, ay),
@@ -329,6 +333,7 @@ def test_reconstruct_side_turn_and_compare_backstab():
                               exp_modifier=xpmod)
     for u in (dfd, att, flk):
         gs.map.units.add(u)
+    commit_view(sim)
 
     dw = choose_counter_weapon(gs, att, dfd, 0)
     attack_cmd = ["attack", A[0], A[1], dx, dy, 0, dw, "deadbeef"]
@@ -378,6 +383,7 @@ def test_enumerate_children_via_sim_matches_dp_with_advancement():
                               exp_modifier=xpmod)
     gs.map.units.add(att)
     gs.map.units.add(dfd)
+    commit_view(sim)
     d_weapon = choose_counter_weapon(gs, att, dfd, 0)
     attack_cmd = ["attack", ax, ay, dx, dy, 0, d_weapon, "deadbeef"]
     action = {"type": "attack", "start_hex": Position(ax, ay),
@@ -466,6 +472,7 @@ def test_strong_attacker_first_flags_weaker_lead():
                                 trait_seed_hex="00000003", exp_modifier=xpmod)
     for u in (tgt, thief, grunt):
         gs.map.units.add(u)
+    commit_view(sim)
 
     dw_t = choose_counter_weapon(gs, thief, tgt, 0)
     dw_g = choose_counter_weapon(gs, grunt, tgt, 0)

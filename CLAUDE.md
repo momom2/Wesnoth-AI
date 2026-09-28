@@ -60,7 +60,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-09-26)
+## Current status (2026-09-04, entries through 2026-09-28)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -901,6 +901,35 @@ State of play:
   confirmed positions hold 2 to 4 enemy units hidden from the mover),
   and a turn search needs a determinized root, drawn from a belief model
   that is the user's design decision, before it meets the 800-game gate.
+- 2026-09-28 (0.9.0, user order): **the Rust core is the state of record
+  of the simulator and of replay reconstruction, and answers every rule
+  asked of a position.** The core (`rust/wesnoth_core`, adapter
+  `wesnoth_ai/game_core.py`) reads the unit and terrain databases,
+  resolves every terrain fact and movement class from the hexes' codes,
+  builds units itself (recruits with their trait roll, plague corpses,
+  advancement with AMLA, pick-advance, traits and [object] effects
+  re-applied), runs the scenario's events in Rust (user ruling), and for
+  a view bound to it (`game_core.bind_view`) computes the encoding, the
+  defender's weapon choice, exact fight outcomes, move routes and the
+  units a side sees. Mid-game starts, game-record rebuilds, the value
+  corpus, validation exports and `diff_replay` replay records on it.
+  `WESNOTH_RUST_CORE=0` brings the Python applier back; it stays as the
+  last oracle until the full-corpus certification (user ruling), for
+  which `scripts/core_certify_box.sh` is ready (about 13 minutes on 32
+  cores; a box, the user's word). Checked against the Python code:
+  every terrain code, unit type, trait roll, [effect] form and 476
+  advancement cases; `diff_core` over 134 imitation replays clean after
+  the setup and every command (49,650 commands), with the encodings in
+  three views byte-identical on 395 decisions; on 61 replays every
+  attack's counter weapon, strike tables and outcome distributions equal
+  to the last bit (3,906 attacks); randomized boards and games for the
+  outcomes, the reach and the visibility; all 31 scenarios set up alike;
+  and, offline, the engine's recorded answers on hidden units (54 of 54)
+  and vision (3 of 3). Reconstruction runs 2.2x faster (0.93 against
+  2.01 ms per command). The port found an oracle bug, fixed in both: a
+  scenario-placed [unit] lost its defense table and trait order to
+  `dataclasses.replace`, so an advancing Hornshark hero re-applied its
+  traits in a set's order.
 
 Standing rules (full list in the plan): the reference player is
 `obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint

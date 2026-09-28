@@ -100,6 +100,8 @@ def test_the_sim_invariant_catches_a_village_count_off_its_owners():
     sim = _fresh_sim("WL_Summer_Frosts")
     sim._assert_invariants(after_cmd="setup")
     sim.gs.sides[1] = replace(sim.gs.sides[1], nb_villages_controlled=1)
+    from sim_test_helpers import commit_view
+    commit_view(sim)
     with pytest.raises(AssertionError, match="village counts"):
         sim._assert_invariants(after_cmd="setup")
 

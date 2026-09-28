@@ -450,7 +450,9 @@ def units_visible_to(
     Callers that already hold the side's seen hexes (e.g. the
     encoder, which may have read them for the village-ownership
     fog gate) can pass them as `vis_set`; when omitted they are read
-    lazily, at most once per call.
+    lazily, at most once per call. A view bound to the Rust core
+    (`game_core.bind_view`) is answered by the core, from its own seen
+    hexes (`vis_set` unread), in the view's unit order.
 
     Fog can be disabled per-game via `global_info._fog = False`
     (underscore attr so `GlobalInfo.__deepcopy__` carries it through
@@ -462,6 +464,20 @@ def units_visible_to(
     """
     if not state.map.units:
         return []
+    from wesnoth_ai.game_core import core_of
+    cs = core_of(state)
+    if cs is not None:
+        ids = set(cs.core.visible_ids(side))
+        return [u for u in state.map.units if u.id in ids]
+    return units_visible_to_python(state, side, vis_set)
+
+
+def units_visible_to_python(
+    state: GameState, side: int,
+    vis_set: Optional[Set[Tuple[int, int]]] = None,
+) -> List[Unit]:
+    """`units_visible_to` computed here from the view, the core's
+    oracle (tests/test_rust_moves.py)."""
     uncovered = getattr(state.global_info, "_uncovered_units", None) or set()
     fog_on = getattr(state.global_info, "_fog", True)
     out: List[Unit] = []

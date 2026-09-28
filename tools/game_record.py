@@ -11,8 +11,9 @@ to move observes but apply no command, are kept beside it.
 A record also carries fingerprints of the game it was written from:
 the `state_digest` of the position each side's turn started from (the
 neutral side's included) and of the final position. `walk` and
-`rebuild` check them and raise `RecordMismatch` when the rebuild leaves
-the played game.
+`rebuild` replay the record on the Rust core (`start_core`), check the
+fingerprints and raise `RecordMismatch` when the rebuild leaves the
+played game.
 
 Fight outcome distributions ride along as optional data, keyed by the
 index of the attack command they describe (`outcomes`): training writes
@@ -26,8 +27,8 @@ rebuild the game.
     rec = game_record(sim, setup, game_label=..., build={...}, players={...})
     GameRecordLog(path).write(rec)                        # one gzip member
     for rec in read_records(path): ...
-    for k, gs, cmd in walk(rec): ...                      # the state before each command
-    gs = rebuild(rec)                                     # the final state
+    for k, gs, cmd in walk(rec): ...                      # a view of the state before each command
+    gs = rebuild(rec)                                     # a view of the final state
 
 A log is a sequence of gzip members, one record each, so a log grows as
 games finish, a crash damages at most the member being written, and
@@ -354,53 +355,55 @@ def _corpus_game(rec: Dict[str, Any], verify: bool) -> dict:
     return json.loads(content)
 
 
-def start_state(rec: Dict[str, Any], *, verify: bool = True):
-    """The position before the record's first command, built as the
-    simulator built it."""
-    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
-                                      _setup_scenario_events)
+def start_core(rec: Dict[str, Any], *, verify: bool = True):
+    """The position before the record's first command on the Rust core
+    (a `game_core.CoreState`), built as the simulator built it: a
+    scenario set up, or a corpus game replayed to its cut and loaded
+    into a fresh core without the prefix's per-command side channels
+    (`midgame_starts.sample_midgame_start`)."""
+    from tools.replay_dataset import record_core
+    from wesnoth_ai.game_core import CoreState
     setup = rec["setup"]
     if "midgame" in setup:
         data = _corpus_game(rec, verify)
-        gs = _build_initial_gamestate(data)
-        _setup_scenario_events(gs, data.get("scenario_id", ""))
+        cs = record_core(data)
         for cmd in data["commands"][:int(setup["midgame"]["boundary_idx"])]:
-            _apply_command(gs, cmd)
+            cs.apply_command(list(cmd))
+        gs = cs.to_state()
         gs.global_info._last_advance_events = []
         gs.global_info._last_checkup_strikes = None
+        cs = CoreState.from_state(gs)
     else:
         from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
-        gs = build_scenario_gamestate(ScenarioSetup(**setup), **rec.get("build", {}))
-        _setup_scenario_events(gs, rec["scenario_id"])
+        cs = CoreState.from_state(build_scenario_gamestate(ScenarioSetup(**setup), **rec.get("build", {})))
+        cs.setup_scenario(rec["scenario_id"])
     if rec.get("uniform_advancement"):
-        gs.global_info._advance_uniform = True
-        gs.global_info._advance_counter = 0
-        gs.global_info._advance_salt = rec.get("seed_salt", "")
-    return gs
+        cs.core.set_global_int("advance_uniform", 1)
+        cs.core.set_global_int("advance_counter", 0)
+        cs.core.set_advance_salt(rec.get("seed_salt", ""))
+    return cs
 
 
-def _check(rec: Dict[str, Any], gs, want: Optional[str], where: str) -> None:
+def _check(rec: Dict[str, Any], cs, want: Optional[str], where: str) -> None:
     from wesnoth_ai.classes import state_digest
-    if want is not None and state_digest(gs) != want:
+    if want is None:
+        return
+    gs = cs.to_state()
+    if state_digest(gs) != want:
         raise RecordMismatch(
             f"{rec.get('game_label')}: the rebuilt position {where} "
             f"(turn {gs.global_info.turn_number}, side {gs.global_info.current_side}) "
             f"is not the played game's")
 
 
-def walk(rec: Dict[str, Any], gs=None, *, verify: bool = True) -> Iterator[Tuple[int, Any, list]]:
-    """(index, state before the command, command) for every command of
-    the record, the recruit rejections applied where they happened.
-    The state is the one the walk mutates: copy it to keep it. When the
-    walk is exhausted, `gs` (if given, the start state to mutate) holds
-    the final position, pointed at the side the game ended on.
-
-    With `verify`, each position a player side's turn started from and
-    the final position are checked against the record's fingerprints
-    (format 2 on), and a difference raises `RecordMismatch`."""
-    from tools.replay_dataset import _apply_command
-    if gs is None:
-        gs = start_state(rec, verify=verify)
+def _walk_core(rec: Dict[str, Any], verify: bool, end: Optional[list] = None
+               ) -> Iterator[Tuple[int, Any, list]]:
+    """(index, the core before the command, command) for every command
+    of the record, the recruit rejections applied where they happened;
+    the core moves on after each step. When exhausted, the core holds
+    the final position, pointed at the side the game ended on, and is
+    appended to `end`. With `verify`, see `walk`."""
+    cs = start_core(rec, verify=verify)
     rejections: Dict[int, List[Tuple[int, int]]] = {}
     for k, x, y in rec.get("rejections", ()):
         rejections.setdefault(int(k), []).append((int(x), int(y)))
@@ -408,28 +411,41 @@ def walk(rec: Dict[str, Any], gs=None, *, verify: bool = True) -> Iterator[Tuple
     n = len(rec["commands"])
     for k, cmd in enumerate(rec["commands"]):
         for x, y in rejections.get(k, ()):
-            _reject_recruit(gs, x, y)
-        yield k, gs, cmd
-        _apply_command(gs, cmd)
-        _check(rec, gs, digests.get(k), f"after command {k} ({cmd[0]})")
+            cs.core.add_recruit_rejected(x, y)
+        yield k, cs, cmd
+        cs.apply_command(list(cmd))
+        _check(rec, cs, digests.get(k), f"after command {k} ({cmd[0]})")
     for x, y in rejections.get(n, ()):
-        _reject_recruit(gs, x, y)
+        cs.core.add_recruit_rejected(x, y)
     if "final_side" in rec:
-        gs.global_info.current_side = int(rec["final_side"])
-    _check(rec, gs, rec.get("final_digest") if verify else None, "at the end")
+        cs.core.set_global_int("current_side", int(rec["final_side"]))
+    _check(rec, cs, rec.get("final_digest") if verify else None, "at the end")
+    if end is not None:
+        end.append(cs)
 
 
-def _reject_recruit(gs, x: int, y: int) -> None:
-    rejected = set(getattr(gs.global_info, "_recruit_rejected_hexes", None) or ())
-    rejected.add((x, y))
-    gs.global_info._recruit_rejected_hexes = rejected
+def walk(rec: Dict[str, Any], *, verify: bool = True) -> Iterator[Tuple[int, Any, list]]:
+    """(index, the state before the command, command) for every command
+    of the record, the recruit rejections applied where they happened.
+    Each state is a view of a snapshot of the core (bound to it,
+    `game_core.bind_view`), the caller's to keep.
+
+    With `verify`, each position a player side's turn started from and
+    the final position are checked against the record's fingerprints
+    (format 2 on), and a difference raises `RecordMismatch`."""
+    from wesnoth_ai.game_core import bind_view
+    for k, cs, cmd in _walk_core(rec, verify):
+        snapshot = cs.fork()
+        gs = snapshot.to_state()
+        bind_view(gs, snapshot)
+        yield k, gs, cmd
 
 
 def rebuild(rec: Dict[str, Any], *, verify: bool = True):
-    """The position the game ended in: after the record's last command,
-    pointed at the side the simulator left it at. With `verify`, see
-    `walk`."""
-    gs = start_state(rec, verify=verify)
-    for _step in walk(rec, gs, verify=verify):
+    """A view of the position the game ended in: after the record's last
+    command, pointed at the side the simulator left it at. With
+    `verify`, see `walk`."""
+    end: list = []
+    for _step in _walk_core(rec, verify, end):
         pass
-    return gs
+    return end[0].to_state()

@@ -50,11 +50,16 @@ RICH carries a second caveat and a turn search needs a determinized root,
 drawn from a belief model, before it meets the 800-game gate.
 
 **3. The Rust core replaces the Python one** (user order 2026-09-28;
-docs/rust_core_port_20260928.md): units, events and the encoding move to
-the core, which becomes the state of record, is certified on the full
-corpus, and the Python applier is retired. Two design decisions await the
-user (events through core methods; the applier as the last oracle).
-Refactor step 4a is parked meanwhile.
+docs/rust_core_port_20260928.md). Done (0.9.0): units, events, the
+encoding and every rule asked of a position are the core's, and it is
+the state of record of the simulator, reconstruction and the pipeline
+tools. Next: the certification on a CPU box
+(`scripts/core_certify_box.sh`, the user's word, after the discussion of
+keys in transcripts the user asked for before the next rental); then the
+retirement: the Python applier, builders and rule versions go, and for
+each analysis or debugging tool still replaying records on the applier
+(the list in the plan) the user decides between deletion, the
+quarantine and a move to the core. Refactor step 4a is parked meanwhile.
 
 **Standing, taken whenever there is room (user, 2026-09-25):**
 
@@ -97,18 +102,10 @@ operations, dead code and structure, the simulator and its Rust core)
 ran while the turn-value box worked; what they found and was not fixed
 the same night:
 
-- **Decision: the Rust core (`GameCore`).** It is the state of record
-  nowhere (`WESNOTH_RUST_CORE` defaults off and measured no gain on eval
-  or the pool, 2026-09-12), yet ten commits since have had to change it,
-  and nothing has compared it with the Python applier on replays since
-  phase 10 (the corpus test skips on CI, the laptop's wheel is phase 3).
-  Keep it: run `scripts/diff_core_box.sh --every 1` before anyone turns
-  it on, and give CI replay coverage with a few committed game records of
-  our own chosen for their engagements. Retire it: `core*.rs`,
-  `game_core.py`, `diff_core.py`, `test_game_core.py` and the `use_core`
-  branches, about 3,800 lines. Its encoder, observation and state key
-  have no production caller either way, and its encoder cannot serve a
-  checkpoint with the terrain set (obs8).
+- Decided 2026-09-28 (user order): the Rust core replaces the Python
+  one (item 3 above). `scripts/diff_core_box.sh` is superseded by
+  `scripts/core_certify_box.sh`; CI still has no replay coverage (a few
+  committed game records chosen for their engagements would give it).
 - Done in 0.7.16 (Rust phase 16): the dead mirror `_move_rejected_hexes`
   deleted in both languages; `rem_euclid` for a negative start slot; the
   core's village-count invariant; the Rust observation's zone of control
@@ -353,8 +350,7 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   ability names by `id=` against the scrape's macro names; `apply_to=
   hitpoints` forms; `[modify_side] income=` as an offset; a recruit on a
   castle-village capturing it; an out-of-range weapon index replaced by 0
-  without a warning; a `[time_area]` added after the Rust core is built;
-  the order of turn events.
+  without a warning; the order of turn events.
 - **Live-Wesnoth observation** (eval against the built-in AI only): the
   converted state has no `_fog_cleared`, our own fogged villages lose
   their owner bit, and the time-of-day start offset is not set.

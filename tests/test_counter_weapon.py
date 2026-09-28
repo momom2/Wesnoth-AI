@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from sim_test_helpers import fresh_scenario_sim   # noqa: E402
+from sim_test_helpers import commit_view, fresh_scenario_sim   # noqa: E402
 from tools.combat_outcomes import (   # noqa: E402
     _CombatantMarginals as M,
     _better_combat,
@@ -94,6 +94,7 @@ def _surgical_matchup(sim, att_type: str, dfd_type: str):
         u.statuses.discard("slowed")
         if hasattr(u, "_defense_table"):
             del u._defense_table     # stale pre-rename stash
+    commit_view(sim)
     return gs, att, dfd
 
 
@@ -152,6 +153,7 @@ def test_an_attacker_the_fight_levels_is_scored_at_full_hp():
     att.current_hp, att.max_hp, att.current_exp, att.max_exp = 33, 34, 26, 27
     dfd.current_hp, dfd.max_hp, dfd.current_exp, dfd.max_exp = 22, 38, 3, 32
     dfd.statuses.add("poisoned")
+    commit_view(sim)
     assert choose_counter_weapon(gs, att, dfd, 0) == 0
 
 

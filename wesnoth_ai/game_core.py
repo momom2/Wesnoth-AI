@@ -1,38 +1,42 @@
-"""The Rust-owned game state (docs/rust_port_plan.md phase 4): the
-adapter between `wesnoth_ai.classes.GameState` and `wesnoth_core.GameCore`.
+"""The Rust-owned game state (docs/rust_port_plan.md phase 4,
+docs/rust_core_port_20260928.md): the adapter between
+`wesnoth_ai.classes.GameState` and `wesnoth_core.GameCore`.
 
 `CoreState.from_state(gs)` builds a core from a Python state: the map's
-static arrays once per hex set (`map_static`), the unit types it needs
-(`type_fields`), the movement classes (the pathfinder's cost arrays
-and the terrain resolver's defense percentages per hex, per unit type
-and slowed status), then the units, sides, globals and the stash the
-simulator keeps on `global_info`. `to_state()` rebuilds a GameState
-whose modeled content equals the original (tests/test_game_core.py).
+geometry, one-class view and terrain codes once per hex set
+(`map_static`; the core resolves every terrain fact and movement class
+from the codes itself), then the units, sides, globals, the stash the
+simulator keeps on `global_info` and any scenario events a Python setup
+left. `setup_scenario` runs a scenario's setup on the core itself. The
+unit and terrain databases are loaded into the extension once per
+process (`load_databases`). `to_state()` builds a GameState view whose
+modeled content equals the original (tests/test_game_core.py).
 
-What the core does not model -- the hex set, the mask and fog, the
-terrain codes, the time areas, the scenario events and every other
-stash key -- stays Python in `statics`. `to_state()` hands those
-objects to the GameState it builds by reference, and `reload()` takes
-them back after a command the Python applier ran. A search fork
-(`fork()`) copies them by `GlobalInfo.__deepcopy__`'s rules
-(`_fork_statics`): the hex set, the mask, the fog and the terrain
-codes stay aliased, unfired scenario events are copied per fork (their
-`fired` latch is state), and dict, set and list values are copied
-shallowly. Per-unit stash attributes (every underscore attribute of a
-unit, such as `_defense_table`, `_pickadvance`, `_trait_order`,
-`_feeding_count` and `_wml_role`) live in `unit_stash`, replaced never
-mutated.
+What the core does not model -- the mask and fog, the raw map data and
+every other stash key -- stays Python in `statics`, handed to the views
+by reference. The hex set, the terrain codes and the time areas are the
+core's and are brought into `statics` when an event changed them
+(`_sync_map`). A search fork (`fork()`) copies `statics` by
+`GlobalInfo.__deepcopy__`'s rules (`_fork_statics`): the hex set, the
+mask, the fog and the terrain codes stay aliased, dict, set and list
+values are copied shallowly. A unit's underscore attributes are fields
+of its core record (`unit_fields`, `unit_from_fields`).
 """
 from __future__ import annotations
 
+import copy
+import logging
+import os
+import weakref
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 from wesnoth_ai.classes import (Attack, GameState, GlobalInfo, Map, Position, SideInfo,
                                 TerrainModifiers, Unit, opponent_of)
+
+log = logging.getLogger("game_core")
 
 _KERNEL_CHECKED = False
 _GAME_CORE = None
@@ -46,14 +50,24 @@ MODELED_GLOBALS = (
     "_did_first_init_side", "_last_move_walk", "_last_checkup_strikes", "_last_advance_events",
     "_advance_uniform", "_advance_salt", "_advance_counter", "_fog_cleared",
 )
-# Per-unit stash keys the state comparison checks (every underscore
-# attribute of a unit travels beside the core, shared across forks).
+# The unit underscore attributes the state comparison checks; the core
+# also keeps `_object_effects` (WML nodes) and `_ai_guardian`.
 UNIT_STASH_KEYS = ("_defense_table", "_pickadvance", "_trait_order", "_feeding_count", "_wml_role")
 _DROPPED_GLOBALS = ("_hex_lookup_cache_id", "_hex_lookup_by_xy", "_hex_lookup_by_wml")
 
+# Scenario WML in the core's tuple form, per scenario id (the WML a
+# process reads for a scenario never changes).
+_WML_TUPLES: Dict[str, tuple] = {}
+
+# The core behind each bound view: id(view) -> (weak reference to the
+# view, CoreState, the view's fingerprint when WESNOTH_CHECK_VIEWS is set).
+_VIEW_CORES: Dict[int, tuple] = {}
+
 
 def game_core_class():
-    """`wesnoth_core.GameCore`, or None (wheel absent or older)."""
+    """`wesnoth_core.GameCore`, or None (wheel absent or older). The
+    unit and terrain databases are loaded into the extension on the
+    first call."""
     global _KERNEL_CHECKED, _GAME_CORE
     if not _KERNEL_CHECKED:
         _KERNEL_CHECKED = True
@@ -61,44 +75,90 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 17: the core tracks each side's fog, re-hides hiders at
-        # init_side, pays a declared 0 village gold or support as 0, counts
-        # the other player's side as the enemy, wraps a negative start
-        # slot, checks village counts against their owners, gives a
-        # scenery unit its zone of control, and reads a time area's slot
-        # apart from the board's.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 17:
+        # Phase 22: the core reads the unit and terrain databases, resolves
+        # every terrain fact and movement class from the terrain codes, keeps
+        # each unit's underscore attributes in its record, builds units
+        # itself (recruits, plague corpses, advancement), runs the
+        # scenario's events, encodes the terrain set, and answers the
+        # defender's weapon choice and an attack's exact outcomes.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 22:
+            load_databases(wesnoth_core)
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
+
+
+def core_enabled() -> bool:
+    """The Rust-owned state as the state of record of the simulator and
+    of replay reconstruction: the wheel carries GameCore and
+    WESNOTH_RUST_CORE is not 0 (on by default since 2026-09-28; 0 keeps
+    the Python applier, the port's oracle, until its retirement)."""
+    if os.environ.get("WESNOTH_RUST_CORE", "1") == "0":
+        return False
+    return game_core_class() is not None
+
+
+def _view_fingerprint(gs: GameState) -> tuple:
+    from wesnoth_ai.classes import state_key
+    return (state_key(gs), bool(getattr(gs.global_info, "_fog", True)), id(gs.map.hexes))
+
+
+def bind_view(gs: GameState, cs: "CoreState") -> None:
+    """Record that `gs` is a view of `cs`, so that what is computed from
+    the view (its encoding, `encoder.encode_raw`) comes from the core. A
+    bound view is read-only: an edit made in it is not in the core.
+    With WESNOTH_CHECK_VIEWS set (the test suite sets it) `core_of`
+    refuses a view edited after its binding."""
+    key = id(gs)
+
+    def _drop(ref, key=key):
+        hit = _VIEW_CORES.get(key)
+        if hit is not None and hit[0] is ref:
+            _VIEW_CORES.pop(key, None)
+
+    fp = _view_fingerprint(gs) if os.environ.get("WESNOTH_CHECK_VIEWS") else None
+    _VIEW_CORES[key] = (weakref.ref(gs, _drop), cs, fp)
+
+
+def core_of(gs: GameState) -> Optional["CoreState"]:
+    """The core a view is bound to (`bind_view`), or None for a state
+    built another way."""
+    hit = _VIEW_CORES.get(id(gs))
+    if hit is None or hit[0]() is not gs:
+        return None
+    if hit[2] is not None and _view_fingerprint(gs) != hit[2]:
+        raise AssertionError(
+            "a view of the Rust core was edited in place after it was bound: the core does not "
+            "see the edit. Hand the edited view back (`sim.gs = view`) or edit a copy.")
+    return hit[1]
+
+
+def load_databases(wesnoth_core) -> None:
+    """The committed `unit_stats.json` and `terrain_db.json` into the
+    extension, for every core this process builds."""
+    import json
+    from wesnoth_ai.paths import TERRAIN_DB_PATH, UNIT_STATS_PATH
+    with UNIT_STATS_PATH.open(encoding="utf-8") as f:
+        units = json.load(f)
+    with TERRAIN_DB_PATH.open(encoding="utf-8") as f:
+        terrain = json.load(f)
+    wesnoth_core.load_databases(units, terrain)
+
+
+def _strict_wml() -> bool:
+    """`WESNOTH_STRICT_WML`: an unmodelled event action or value raises."""
+    return bool(os.environ.get("WESNOTH_STRICT_WML"))
 
 
 # ---------------------------------------------------------------------
 # Static tables
 # ---------------------------------------------------------------------
 
-def _light_params(code: str) -> Tuple[int, int, int, bool]:
-    """(light, max_light, min_light, any) of a terrain code, the
-    composite rule of `terrain_resolver.terrain_light_bonus`."""
-    from wesnoth_ai.rules.terrain_resolver import load_terrain_db
-    db = load_terrain_db()
-    base_str, _, overlay = code.partition("^")
-    b = db.get(base_str) or {}
-    o = db.get("^" + overlay) if overlay else None
-    light = int(b.get("light", 0) or 0)
-    max_l = int(b.get("max_light", 0) or 0)
-    min_l = int(b.get("min_light", 0) or 0)
-    if o:
-        light += int(o.get("light", 0) or 0)
-        max_l = max(max_l, int(o.get("max_light", 0) or 0))
-        min_l = min(min_l, int(o.get("min_light", 0) or 0))
-    return light, max_l, min_l, not (light == 0 and max_l == 0 and min_l == 0)
-
-
 def map_static(gs: GameState) -> dict:
     """The core's static map arrays from the state: geometry from
-    `wesnoth_ai.observe.map_geometry`, terrain facts from the terrain
-    codes and the time areas the scenario set up."""
-    from wesnoth_ai.rules.terrain_resolver import hides_cover, strip_start_position, terrain_heals
+    `wesnoth_ai.observe.map_geometry`, the hex set's one-class view and
+    terrain classes, the terrain codes (the core resolves heal, light,
+    hide cover and the movement classes from them) and the time areas the
+    scenario set up."""
     from wesnoth_ai.encoder import _first_terrain_id
     from wesnoth_ai.observe import map_geometry
     geom = map_geometry(gs)
@@ -109,35 +169,17 @@ def map_static(gs: GameState) -> dict:
     village_mod = np.zeros(H, dtype=np.uint8)
     castle_mod = np.zeros(H, dtype=np.uint8)
     terrain_type_id = np.zeros(H, dtype=np.int64)
+    terrain_mask = np.zeros(H, dtype=np.int64)
     for i, key in enumerate(geom.keys):
         h = by_pos[key]
         village_mod[i] = 1 if TerrainModifiers.VILLAGE in h.modifiers else 0
         castle_mod[i] = 1 if TerrainModifiers.CASTLE in h.modifiers else 0
         terrain_type_id[i] = _first_terrain_id(h.terrain_types)
-    heal = np.zeros(H, dtype=np.int64)
-    light_mod = np.zeros(H, dtype=np.int64)
-    light_max = np.zeros(H, dtype=np.int64)
-    light_min = np.zeros(H, dtype=np.int64)
-    has_light = np.zeros(H, dtype=np.uint8)
-    hides_ambush = np.zeros(H, dtype=np.uint8)
-    hides_concealment = np.zeros(H, dtype=np.uint8)
-    hides_submerge = np.zeros(H, dtype=np.uint8)
+        terrain_mask[i] = int(getattr(h, "terrain_mask", 0) or 0)
     area_cycle = np.full(H, -1, dtype=np.int64)
     cycles: List[List[int]] = []
     cycle_index: Dict[tuple, int] = {}
     for i, (x, y) in enumerate(geom.keys):
-        raw = codes.get((x, y))
-        code = strip_start_position(raw)
-        if code:
-            heal[i] = terrain_heals(code)
-            lm, lx, ln, any_light = _light_params(code)
-            light_mod[i], light_max[i], light_min[i], has_light[i] = lm, lx, ln, int(any_light)
-        # The hide-ability cover flags the core's `hide_cover_active`
-        # reads are the ENGINE's terrain filters, not defense keys
-        # (see `terrain_resolver.hides_cover`).
-        hides_ambush[i] = hides_cover(raw or "", "ambush")
-        hides_concealment[i] = hides_cover(raw or "", "concealment")
-        hides_submerge[i] = hides_cover(raw or "", "submerge")
         cyc = areas.get((x, y))
         if cyc:
             key = tuple(int(v) for v in cyc)
@@ -149,43 +191,48 @@ def map_static(gs: GameState) -> dict:
         "hx": geom.hx.tolist(), "hy": geom.hy.tolist(), "nbrs": geom.nbrs.tolist(),
         "castle_or_keep": geom.castle_or_keep.tolist(), "keep": geom.keep.tolist(),
         "village_terrain": geom.village.tolist(), "village_mod": village_mod.tolist(),
-        "terrain_type_id": terrain_type_id.tolist(), "heal": heal.tolist(),
-        "light_mod": light_mod.tolist(), "light_max": light_max.tolist(),
-        "light_min": light_min.tolist(), "has_light": has_light.tolist(),
+        "terrain_type_id": terrain_type_id.tolist(), "terrain_mask": terrain_mask.tolist(),
+        "codes": [codes.get(key) or "" for key in geom.keys],
         "area_cycle": area_cycle.tolist(), "cycles": cycles,
-        "hides_ambush": hides_ambush.tolist(), "hides_concealment": hides_concealment.tolist(),
-        "hides_submerge": hides_submerge.tolist(), "full_slot": geom.full_slot.tolist(),
-        "castle_mod": castle_mod.tolist(),
+        "full_slot": geom.full_slot.tolist(), "castle_mod": castle_mod.tolist(),
     }
 
 
-def type_fields(name: str) -> dict:
-    """A unit type's fields for `GameCore.register_type`."""
-    from tools.replay_dataset import _stats_for
-    from wesnoth_ai import combat as cb
-    stats = _stats_for(name)
-    res = stats.get("resistance", {})
-    attacks = []
-    for a in stats.get("attacks", []):
-        attacks.append((str(a.get("type", "blade")), a.get("range") == "ranged",
-                        [str(s) for s in a.get("specials", [])],
-                        int(a.get("accuracy", 0) or 0), int(a.get("parry", 0) or 0)))
-    return {
-        "name": name,
-        "level": int(stats.get("level", 1)),
-        "alignment": int(cb.alignment_from_str(stats.get("alignment", "neutral"))),
-        "resist": [int(res.get(dt, 100)) for dt in cb.DAMAGE_TYPES],
-        "abilities": [str(a) for a in stats.get("abilities", [])],
-        "attacks": attacks,
-        "cost": int(stats.get("cost", 14)),
-        "race": str(stats.get("race", "") or ""),
-        "undead_variation": str(stats.get("undead_variation", "") or ""),
-        "advances_to": [str(t) for t in stats.get("advances_to", [])],
-    }
+def wml_tuple(node) -> tuple:
+    """A `tools.replay_extract.WMLNode` as the core's nested
+    `(tag, [(key, value)], [children])` tuple."""
+    return (node.tag, [(str(k), str(v)) for k, v in node.attrs.items()],
+            [wml_tuple(c) for c in node.children])
+
+
+def wml_node(t):
+    """The WMLNode back from the core's tuple form."""
+    from tools.replay_extract import WMLNode
+    tag, attrs, children = t
+    node = WMLNode(tag)
+    node.attrs = dict(attrs)
+    node.children = [wml_node(c) for c in children]
+    return node
+
+
+def _event_actions(ev) -> list:
+    """A Python ScenarioEvent's actions in tuple form, converted once per
+    event object (copies share the conversion)."""
+    cached = getattr(ev, "_core_actions", None)
+    if cached is None:
+        cached = [wml_tuple(a) for a in ev.actions]
+        setattr(ev, "_core_actions", cached)
+    return cached
 
 
 def unit_fields(u: Unit) -> dict:
-    """A unit's dataclass fields for `GameCore.add_unit`."""
+    """A unit's dataclass fields and underscore attributes for
+    `GameCore.add_unit`."""
+    table = getattr(u, "_defense_table", None)
+    pick = getattr(u, "_pickadvance", None)
+    order = getattr(u, "_trait_order", None)
+    feeding = getattr(u, "_feeding_count", None)
+    role = getattr(u, "_wml_role", None)
     return {
         "id": u.id, "name": u.name, "name_id": int(u.name_id), "side": int(u.side),
         "is_leader": bool(u.is_leader), "x": int(u.position.x), "y": int(u.position.y),
@@ -203,11 +250,19 @@ def unit_fields(u: Unit) -> dict:
         "abilities": [str(a) for a in (u.abilities or ())],
         "traits": [str(t) for t in (u.traits or ())],
         "statuses": [str(s) for s in (u.statuses or ())],
+        "defense_table": None if table is None else [(str(k), int(v)) for k, v in table.items()],
+        "pickadvance": None if pick is None else [str(t) for t in pick],
+        "trait_order": None if order is None else [str(t) for t in order],
+        "feeding_count": None if feeding is None else int(feeding),
+        "wml_role": None if role is None else str(role),
+        "object_effects": [wml_tuple(n) for n in (getattr(u, "_object_effects", None) or ())],
+        "ai_guardian": bool(getattr(u, "_ai_guardian", False)),
     }
 
 
-def unit_from_fields(d: dict, stash: Optional[dict]) -> Unit:
-    """The dataclass back from the core's export (`GameCore.unit_export`)."""
+def unit_from_fields(d: dict) -> Unit:
+    """The dataclass back from the core's export (`GameCore.unit_export`),
+    its record fields set as the underscore attributes they stand for."""
     from wesnoth_ai.classes import Alignment, DamageType
     u = Unit(
         id=d["id"], name=d["name"], name_id=int(d["name_id"]), side=int(d["side"]),
@@ -224,8 +279,19 @@ def unit_from_fields(d: dict, stash: Optional[dict]) -> Unit:
         movement_costs=list(d["movement_costs"]),
         abilities=set(d["abilities"]), traits=set(d["traits"]), statuses=set(d["statuses"]),
     )
-    for k, v in (stash or {}).items():
-        setattr(u, k, v)
+    if d["defense_table"] is not None:
+        u._defense_table = dict(d["defense_table"])
+    for attr, key in (("_pickadvance", "pickadvance"), ("_trait_order", "trait_order")):
+        if d[key] is not None:
+            setattr(u, attr, list(d[key]))
+    if d["feeding_count"] is not None:
+        u._feeding_count = int(d["feeding_count"])
+    if d["wml_role"] is not None:
+        u._wml_role = d["wml_role"]
+    if d["object_effects"]:
+        u._object_effects = [wml_node(t) for t in d["object_effects"]]
+    if d["ai_guardian"]:
+        u._ai_guardian = True
     return u
 
 
@@ -235,22 +301,23 @@ def unit_from_fields(d: dict, stash: Optional[dict]) -> Unit:
 
 @dataclass
 class CoreState:
-    """A GameCore plus what stays Python: the aliased statics, the
-    per-unit stash and the movement-class registry keys."""
+    """A GameCore plus what stays Python: the aliased statics, and how far
+    they follow the core's map."""
     core: object
     game_id: str
     statics: Dict[str, object]                  # aliased GlobalInfo stash and map fields
-    unit_stash: Dict[str, dict] = field(default_factory=dict)
-    class_ids: Dict[tuple, int] = field(default_factory=dict)   # (name, slowed, defense id) -> class
     hexes_holder: object = None                 # the Python hex set (identity keeps the cache)
     _view_cache: Optional[GameState] = None     # the statics as a unit-less GameState
     caches: Dict[tuple, object] = field(default_factory=dict)   # vocab and recruit rows, shared by forks
+    map_synced: int = 0                         # the core's map version `statics` reflects
+    terrain_synced: int = 0                     # the terrain writes `statics` reflects
+    _geometry: Optional[tuple] = None           # (map version, MapGeometry in the core's hex order)
 
     @classmethod
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 17 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 22 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}
@@ -260,61 +327,52 @@ class CoreState:
         statics["size_x"], statics["size_y"] = int(gs.map.size_x), int(gs.map.size_y)
         cs = cls(core=core, game_id=gs.game_id, statics=statics, hexes_holder=gs.map.hexes)
         for u in gs.map.units:
-            cs._add_unit(u, gs)
+            cs._add_unit(u)
         cs._load_scalars(gs)
+        cs._load_events(gi)
         return cs
 
-    def _register_type(self, name: str) -> None:
-        if self.core.type_index_of(name) < 0:
-            self.core.register_type(type_fields(name))
+    def _add_unit(self, u: Unit) -> None:
+        self.core.add_unit(unit_fields(u))
 
-    def _class_id(self, u: Unit, gs: GameState, slowed: bool) -> int:
-        """The movement class of a unit: the pathfinder's arrays and
-        the resolver's defense per hex, registered once per (type,
-        slowed, defense table)."""
-        from tools.pathfind_sim import _terrain_arrays_for
-        from tools.replay_dataset import _rebuild_unit, _stats_for, _terrain_def_pct
-        from wesnoth_ai.observe import map_geometry
-        def_table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})
-        # Keyed on the table's CONTENT, not its address: a freed
-        # table's id can be recycled by a different table, which would
-        # hand a unit another unit's defense percentages (the same
-        # hazard `encoder._static_hex_arrays` and
-        # `pathfind_sim._terrain_arrays_for` guard against). Content
-        # keying also collapses every recruit of a type onto one
-        # registered class -- each recruit builds a fresh defense dict,
-        # and the class registry is shared by every fork and never
-        # freed, so address keying grew it without bound.
-        key = (u.name, slowed, hash(frozenset(def_table.items())))
-        hit = self.class_ids.get(key)
-        if hit is not None:
-            return hit
-        probe = u
-        if slowed != ("slowed" in (u.statuses or set())):
-            st = set(u.statuses or set())
-            (st.add if slowed else st.discard)("slowed")
-            probe = _rebuild_unit(u, statuses=st)
-        _pos_to_idx, positions, _nbrs, mcost, dsub = _terrain_arrays_for(probe, gs)
-        geom = map_geometry(gs)
-        if list(positions) != list(geom.keys):
-            raise ValueError("pathfinder map and geometry disagree")
-        defense = [int(_terrain_def_pct(gs, x, y, def_table)) for (x, y) in geom.keys]
-        cid = self.core.register_class([int(c) for c in mcost], [int(c) for c in dsub], defense)
-        self.class_ids[key] = cid
-        return cid
+    def _load_events(self, gi) -> None:
+        """The scenario events a Python setup left on `gi`, with their
+        latches and variables, into the core."""
+        events = getattr(gi, "_scenario_events", None) or []
+        wml = getattr(gi, "_wml_variables", None) or {}
+        stored = getattr(gi, "_scenario_vars", None) or {}
+        if not (events or wml or stored):
+            return
+        self.core.load_events(
+            [(ev.name, bool(ev.first_time_only), _event_actions(ev), ev.scenario_id, bool(ev.fired))
+             for ev in events],
+            [(str(k), str(v)) for k, v in wml.items()],
+            [(str(k), sorted((int(x), int(y)) for x, y in v)) for k, v in stored.items()],
+            _strict_wml())
 
-    def _add_unit(self, u: Unit, gs: GameState) -> None:
-        self._register_type(u.name)
-        fields = unit_fields(u)
-        fields["class_id"] = self._class_id(u, gs, False)
-        fields["class_slowed_id"] = self._class_id(u, gs, True)
-        self.core.add_unit(fields)
-        stash = {k: v for k, v in u.__dict__.items() if k.startswith("_")}
-        if stash:
-            self.unit_stash[u.id] = stash
+    def setup_scenario(self, scenario_id: str) -> None:
+        """`_setup_scenario_events` on the core: the scenario's WML read
+        here, its time areas, [side] modifications, events and prestart
+        and start run in the core. A scenario without WML is warned about
+        once and runs without events."""
+        from tools.scenario_events import collect_events
+        from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
+        root = load_scenario_wml(scenario_id) if scenario_id else None
+        if scenario_id and root is None:
+            from tools.replay_dataset import _warn_scenario_without_wml
+            _warn_scenario_without_wml(scenario_id)
+        tup = None
+        if root is not None:
+            tup = _WML_TUPLES.get(scenario_id)
+            if tup is None:
+                tup = _WML_TUPLES[scenario_id] = wml_tuple(root)
+        self.core.setup_scenario(tup, scenario_id, _strict_wml())
+        self.statics["_scenario_events"] = collect_events(root, scenario_id) if root is not None else []
+        _log_core_warnings()
 
     def to_state(self) -> GameState:
-        """A GameState with the core's content; statics by reference."""
+        """A GameState view with the core's content; statics by reference."""
+        self._sync_map()
         core = self.core
         g = core.globals_export()
         gi = GlobalInfo(current_side=g["current_side"], turn_number=g["turn_number"],
@@ -352,7 +410,8 @@ class CoreState:
             strikes.append({"dies": bool(flat[k + 3])})
         gi._last_checkup_strikes = strikes or None
         gi._fog_cleared = {side: frozenset(map(tuple, hexes)) for side, hexes in core.fog_cleared_export()}
-        units = {unit_from_fields(d, self.unit_stash.get(d["id"])) for d in core.units_export()}
+        self._events_into(gi)
+        units = {unit_from_fields(d) for d in core.units_export()}
         sides = [SideInfo(player=p, recruits=list(r), current_gold=gold, base_income=b,
                           nb_villages_controlled=v, faction=f)
                  for (p, r, gold, b, v, f) in core.sides_export()]
@@ -363,34 +422,77 @@ class CoreState:
                          game_over=bool(g["game_over"]),
                          winner=None if g["winner"] < 0 else int(g["winner"]))
 
+    def _events_into(self, gi) -> None:
+        """The event latches and variables of the core on a view: each
+        Python event a copy carrying the core's latch."""
+        fired, wml, stored = self.core.events_export()
+        events = self.statics.get("_scenario_events")
+        if events is not None and len(events) == len(fired):
+            copies = []
+            for ev, f in zip(events, fired):
+                c = copy.copy(ev)
+                c.fired = bool(f)
+                copies.append(c)
+            gi._scenario_events = copies
+        if wml or getattr(gi, "_wml_variables", None) is not None:
+            gi._wml_variables = dict(wml)
+        if stored or getattr(gi, "_scenario_vars", None) is not None:
+            gi._scenario_vars = {k: set(map(tuple, v)) for k, v in stored}
+
+    def _sync_map(self) -> None:
+        """Bring the core's map changes (terrain writes, time areas) into
+        `statics`: new containers, never the aliased ones."""
+        version = self.core.map_version
+        if version == self.map_synced:
+            return
+        terrain_log = self.core.terrain_log()
+        writes = terrain_log[self.terrain_synced:]
+        st = self.statics
+        if writes:
+            from tools.pathfind_sim import next_terrain_epoch
+            from tools.scenario_events import terrain_writes_applied
+            hexes, codes, raw = terrain_writes_applied(
+                st["hexes"], st.get("_terrain_codes"), st.get("_raw_map_data", "") or "", writes)
+            st["hexes"] = hexes
+            if codes is not None:
+                st["_terrain_codes"] = codes
+                st["_terrain_epoch"] = next_terrain_epoch()
+            if raw:
+                st["_raw_map_data"] = raw
+            self.hexes_holder = hexes
+            self._view_cache = None
+        st["_time_areas"] = {(x, y): list(c) for x, y, c in self.core.time_areas_export()}
+        self.terrain_synced = len(terrain_log)
+        self.map_synced = version
+
     def fork(self) -> "CoreState":
         """A search fork: the core cloned, the statics copied as
-        `GlobalInfo.__deepcopy__` copies them (the unfired scenario
-        events per fork, since their `fired` latch is mutable state;
-        dicts, sets and lists shallow; the terrain codes and the
-        hex set aliased)."""
+        `GlobalInfo.__deepcopy__` copies them (dicts, sets and lists
+        shallow; the terrain codes and the hex set aliased)."""
         return CoreState(core=self.core.fork(), game_id=self.game_id, statics=_fork_statics(self.statics),
-                         unit_stash=dict(self.unit_stash), class_ids=self.class_ids,
-                         hexes_holder=self.hexes_holder, caches=self.caches)
+                         hexes_holder=self.hexes_holder, caches=self.caches, map_synced=self.map_synced,
+                         terrain_synced=self.terrain_synced, _geometry=self._geometry)
 
     def state_key(self) -> int:
         return int(self.core.state_key())
 
     # ---- commands ----------------------------------------------------
 
-    RUST_KINDS = ("init_side", "end_turn", "move", "attack", "recruit")
-
     def apply_command(self, cmd: list) -> str:
         """One replay or simulator command (`_apply_command`'s
-        vocabulary). Returns "rust" when the core applied it, "python"
-        when it went through a Python state (a kind the core does not
-        apply yet, or an init_side or end_turn that would fire a
-        scenario event: the core runs no events)."""
+        vocabulary). Returns "rust" when the core applied it, "python" for
+        the recall bookkeeping and the kinds the applier ignores."""
+        path = self._apply(cmd)
+        _log_core_warnings()
+        return path
+
+    def _apply(self, cmd: list) -> str:
         kind = cmd[0] if cmd else ""
-        if kind == "init_side" and not self._events_pending(cmd):
+        if kind == "init_side":
             self.core.apply_init_side(int(cmd[1]))
+            self._emit_heal_events()
             return "rust"
-        if kind == "end_turn" and not self._events_pending(cmd):
+        if kind == "end_turn":
             self.core.apply_end_turn()
             return "rust"
         if kind == "move":
@@ -401,43 +503,21 @@ class CoreState:
             self._apply_attack(cmd)
             return "rust"
         if kind == "recruit":
-            self._apply_recruit(cmd)
+            seed = cmd[4] if len(cmd) > 4 else ""
+            self.core.apply_recruit(str(cmd[1]), int(cmd[2]), int(cmd[3]), str(seed or ""))
             return "rust"
-        self._python_path(cmd)
+        if kind == "pickadvance":
+            self.core.apply_pickadvance(int(cmd[1]), int(cmd[2]), str(cmd[3] or ""), str(cmd[4] or ""),
+                                        bool(cmd[5]), bool(cmd[6]))
+            return "rust"
+        if kind == "recall":
+            self._recall(cmd)
         return "python"
 
-    def _apply_recruit(self, cmd: list) -> None:
-        """The recruit branch of the applier: the unit from the Python
-        builder (`_build_recruit_unit`, the trait roll from the seed),
-        placed unable to act this turn, the game's pick-advance
-        override on it, the uid counter and the side's gold."""
-        from tools.replay_dataset import _build_recruit_unit, _rebuild_unit, _stats_for
-        unit_type, tx, ty = str(cmd[1]), int(cmd[2]), int(cmd[3])
-        trait_seed = cmd[4] if len(cmd) > 4 else ""
-        core = self.core
-        g = core.globals_export()
-        side = int(g["current_side"])
-        ids = core.unit_ids()
-        next_uid = max((int(i[1:]) for i in ids if i.startswith("u") and i[1:].isdigit()), default=0) + 1
-        new_unit = _build_recruit_unit(unit_type, side, tx, ty, next_uid, game_id=self.game_id,
-                                       trait_seed_hex=trait_seed, exp_modifier=int(g["experience_modifier"]))
-        spawned = _rebuild_unit(new_unit, current_moves=0, has_attacked=True)
-        _choices, pick, _events = core.advance_state_export()
-        for (pside, ptype, lst) in pick:
-            if pside == side and ptype == unit_type and lst:
-                setattr(spawned, "_pickadvance", list(lst))
-        self._add_unit(spawned, self._view())
-        core.clear_unit_fog(spawned.id)
-        core.set_global_int("next_uid_counter", int(g["next_uid_counter"]) + 1)
-        core.spend_gold(side, int(_stats_for(unit_type).get("cost", 14)))
-
     def _apply_attack(self, cmd: list) -> None:
-        """The attack on the core, then what the kernel leaves to the
-        Python builders in the applier's order: the attacker's feeding
-        and advancement, the corpse of an attacker killed by a plague
-        counter, the defender's feeding, its side's refog when the
-        fight killed, slowed or petrified it, and its advancement, the
-        corpse of a defender killed by plague."""
+        """The attack on the core, which finishes its fed kills,
+        advancements and plague corpses; the fight goes to the
+        engagement telemetry."""
         from tools.engagement_stats import emit_event
         from wesnoth_ai.combat import seed_int_of
         ax, ay, dx, dy, a_weapon = (int(v) for v in cmd[1:6])
@@ -453,73 +533,50 @@ class CoreState:
                    defender_died=not out["dfd_alive"], attacker_died=not out["att_alive"],
                    attacker_name=out["att_name"], defender_name=out["dfd_name"],
                    attacker_cost=out["att_cost"], defender_cost=out["dfd_cost"])
-        if out["att_alive"]:
-            if out["att_feed"]:
-                self._feed(out["att_id"])
-            if out["att_advances"]:
-                self._advance(out["att_id"])
-        elif out["plague_reverse"]:
-            self._spawn_corpse(out["att_x"], out["att_y"], out["dfd_side"], out["att_name"])
-        if out["dfd_alive"]:
-            if out["dfd_feed"]:
-                self._feed(out["dfd_id"])
-            if out["dfd_refog"]:
-                self.core.refog_side(out["dfd_side"])
-            if out["dfd_advances"]:
-                self._advance(out["dfd_id"])
-        else:
-            if out["plague_forward"]:
-                self._spawn_corpse(out["dfd_x"], out["dfd_y"], out["att_side"], out["dfd_name"])
-            self.core.refog_side(out["dfd_side"])
 
-    def _feed(self, uid: str) -> None:
-        """One more fed kill on the unit's stash (a new dict: the stash
-        is shared across forks)."""
-        st = self.unit_stash.get(uid) or {}
-        self.unit_stash[uid] = {**st, "_feeding_count": int(st.get("_feeding_count", 0) or 0) + 1}
+    def _emit_heal_events(self) -> None:
+        """The init_side's heal and poison telemetry (no-op without a sink)."""
+        from tools.engagement_stats import emit_event
+        for kind, side, a, b, c in self.core.heal_events():
+            if kind == 0:
+                emit_event("heal", side=side, village=a, ability=b, rest=c)
+            elif kind == 1:
+                emit_event("poison", side=side, cured=True, damage=0)
+            else:
+                emit_event("poison", side=side, cured=False, damage=a)
 
-    def _advance(self, uid: str) -> None:
-        """`_maybe_advance_unit` on a carrier holding the unit and the
-        advancement globals; the result replaces the unit, the queue,
-        the events and the counter go back to the core."""
-        from tools.replay_dataset import _maybe_advance_unit
-        core = self.core
-        g = core.globals_export()
-        choices, pick, events = core.advance_state_export()
-        unit = unit_from_fields(core.unit_export(uid), self.unit_stash.get(uid))
-        gi = SimpleNamespace(
-            _experience_modifier=int(g["experience_modifier"]), _advance_choices=list(choices),
-            _last_advance_events=[tuple(e) for e in events], _advance_uniform=bool(g["advance_uniform"]),
-            _advance_salt=g["advance_salt"], _advance_counter=int(g["advance_counter"]),
-            _pickadvance_game={(side, t): list(lst) for (side, t, lst) in pick})
-        carrier = SimpleNamespace(game_id=self.game_id, map=SimpleNamespace(units={unit}), global_info=gi)
-        advanced = _maybe_advance_unit(carrier, unit)
-        core.remove_unit(uid)
-        self.unit_stash.pop(uid, None)
-        if advanced is not None:
-            self._add_unit(advanced, self._view())
-            core.clear_unit_fog(advanced.id)
-        core.set_advance_state([int(c) if isinstance(c, int) else -1 for c in gi._advance_choices],
-                               list(pick), [(int(a), int(b)) for a, b in gi._last_advance_events])
-        core.set_global_int("advance_counter", int(gi._advance_counter))
-
-    def _spawn_corpse(self, x: int, y: int, side: int, dead_name: str) -> None:
-        """The plague corpse (`_build_plague_corpse`) with the next unit
-        id of the units left, and the uid counter bumped."""
-        from tools.replay_dataset import _build_plague_corpse
-        ids = self.core.unit_ids()
-        next_uid = max((int(i[1:]) for i in ids if i.startswith("u") and i[1:].isdigit()), default=0) + 1
-        g = self.core.globals_export()
-        corpse = _build_plague_corpse(dead_name, int(side), int(x), int(y), next_uid, self.game_id,
-                                      int(g["experience_modifier"]))
-        self._add_unit(corpse, self._view())
-        self.core.set_global_int("next_uid_counter", int(g["next_uid_counter"]) + 1)
+    def _recall(self, cmd: list) -> None:
+        """A recall in a PvP replay: logged and noted for
+        tools/flag_replays_with_recalls.py, the state unchanged (the
+        Python applier's recall branch)."""
+        unit_id = cmd[1] if len(cmd) > 1 else "<unknown>"
+        tx = cmd[2] if len(cmd) > 2 else -1
+        ty = cmd[3] if len(cmd) > 3 else -1
+        side, turn = int(self.core.current_side), int(self.core.turn_number)
+        log.error(f"recall in PvP replay {self.game_id!r} (turn={turn}, side={side}, "
+                  f"unit_id={unit_id!r}, hex=({tx},{ty})). Run tools/flag_replays_with_recalls.py "
+                  f"to surface for inspection / removal from the supervised corpus.")
+        recall_log = list(self.statics.get("_recall_log") or [])
+        recall_log.append({"turn": turn, "side": side, "unit_id": unit_id, "x": tx, "y": ty})
+        self.statics["_recall_log"] = recall_log
+        self.statics["_has_recall"] = True
 
     # ---- the observation and the encoding over the core ----------------
 
     def geometry(self):
-        from wesnoth_ai.observe import map_geometry
-        return map_geometry(self._view())
+        """The map's geometry in the core's hex order (the order of its
+        map-space arrays), rebuilt when an event changed the terrain."""
+        version = self.core.map_version
+        if self._geometry is not None and self._geometry[0] == version:
+            return self._geometry[1]
+        self._sync_map()
+        from wesnoth_ai.observe import MapGeometry
+        hx, hy, nbrs, castle_or_keep, keep, village, full_slot = self.core.geometry_export()
+        keys = list(zip(hx.tolist(), hy.tolist()))
+        geom = MapGeometry(self.statics["hexes"], keys, {p: i for i, p in enumerate(keys)}, hx, hy, nbrs,
+                           castle_or_keep, keep, village, full_slot)
+        self._geometry = (version, geom)
+        return geom
 
     def observe(self, side: int, reach: bool = False):
         """`observe.observe(state, side, reach)` over the core: the same
@@ -541,17 +598,13 @@ class CoreState:
         our_fac = sides[us][5] if 0 <= us < len(sides) else ""
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []
-        if terrain_multi_hot:
-            raise NotImplementedError(
-                "GameCore serves the one-class terrain view; the core's map bakes "
-                "one terrain id per hex, not the mask a terrain_multi_hot encoder reads")
         r_ids, r_stats = self._recruit_rows(own_recruits, type_to_id)
         d = core.encode_streams(
             side, bool(relevant_set), self._type_vocab(type_to_id), r_ids, r_stats,
             bool(fog_hides_enemy_villages),
             (enc.HP_NORM, enc.MOVES_NORM, enc.EXP_NORM, enc.COST_NORM, enc.GOLD_NORM,
              enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
-            enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS)
+            enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, bool(terrain_multi_hot))
         _require_global_width(d["global_feats"])
         static = enc._static_hex_arrays(self._view())
         if relevant_set:
@@ -599,8 +652,9 @@ class CoreState:
         return hit
 
     def _view(self) -> GameState:
-        """The statics as a GameState without units: what the movement
-        class registration reads (hexes, terrain codes, time areas)."""
+        """The statics as a GameState without units: the hex set, terrain
+        codes and time areas the encoder's static arrays read."""
+        self._sync_map()
         if self._view_cache is None:
             gi = GlobalInfo(current_side=0, turn_number=0, time_of_day="", village_gold=0,
                             village_upkeep=0, base_income=0)
@@ -613,52 +667,6 @@ class CoreState:
             self._view_cache = GameState(game_id=self.game_id, map=m, global_info=gi, sides=[],
                                          game_over=False, winner=None)
         return self._view_cache
-
-    def _events_pending(self, cmd: list) -> bool:
-        """Whether this init_side or end_turn would fire one of the
-        scenario's events: the names the Python applier fires for it
-        (tools/scenario_events, the engine's turn-event order) against
-        the events that can still fire."""
-        events = self.statics.get("_scenario_events") or []
-        if not events:
-            return False
-        from tools.scenario_events import (any_can_fire, init_side_event_names,
-                                           side_turn_end_event_names)
-        g = self.core.globals_export()
-        if cmd[0] == "init_side":
-            names = init_side_event_names(int(cmd[1]), int(g["turn_number"]))
-        else:
-            names = side_turn_end_event_names(int(g["current_side"]), int(g["turn_number"]))
-        return any_can_fire(events, names)
-
-    def _python_path(self, cmd: list) -> None:
-        from tools.replay_dataset import _apply_command
-        gs = self.to_state()
-        _apply_command(gs, list(cmd))
-        self.reload(gs)
-
-    def reload(self, gs: GameState) -> None:
-        """Take the content of `gs` (a state derived from `to_state`)
-        back into the core: units, sides, globals and the stash."""
-        if gs.map.hexes is not self.hexes_holder:
-            # A terrain morph replaced the hex set: a new core, new
-            # statics, new movement classes, and the unit-less view
-            # the builders read is rebuilt on its next use.
-            fresh = CoreState.from_state(gs)
-            self.core, self.statics, self.unit_stash = fresh.core, fresh.statics, fresh.unit_stash
-            self.class_ids, self.hexes_holder = fresh.class_ids, fresh.hexes_holder
-            self._view_cache = None
-            return
-        core = self.core
-        core.clear_units()
-        self.unit_stash = {}
-        for u in gs.map.units:
-            self._add_unit(u, gs)
-        gi = gs.global_info
-        for k, v in gi.__dict__.items():
-            if k.startswith("_") and k not in MODELED_GLOBALS and k not in _DROPPED_GLOBALS:
-                self.statics[k] = v
-        self._load_scalars(gs)
 
     def _load_scalars(self, gs: GameState) -> None:
         core, gi = self.core, gs.global_info
@@ -701,6 +709,14 @@ class CoreState:
         core.set_fog_cleared(_fog_cleared_rows(gi))
 
 
+def _log_core_warnings() -> None:
+    """The warnings the extension recorded (an unmodelled [effect]
+    apply_to or event action), each once per process."""
+    import wesnoth_core
+    for text in wesnoth_core.drain_warnings():
+        log.warning("%s", text)
+
+
 def _fog_cleared_rows(gi) -> List[Tuple[int, List[Tuple[int, int]]]]:
     """`global_info._fog_cleared` as the core's (side, [(x, y)]) rows."""
     cleared = getattr(gi, "_fog_cleared", None) or {}
@@ -710,12 +726,9 @@ def _fog_cleared_rows(gi) -> List[Tuple[int, List[Tuple[int, int]]]]:
 def _fork_statics(statics: Dict[str, object]) -> Dict[str, object]:
     """The per-fork copy of the aliased stash (the rules of
     `classes.GlobalInfo.__deepcopy__`)."""
-    import copy as _copy
     out: Dict[str, object] = {}
     for k, v in statics.items():
-        if k == "_scenario_events":
-            out[k] = [ev if getattr(ev, "fired", False) else _copy.copy(ev) for ev in v]
-        elif k == "_terrain_codes" or not k.startswith("_"):
+        if k == "_terrain_codes" or not k.startswith("_"):
             out[k] = v
         elif isinstance(v, dict):
             out[k] = dict(v)
@@ -726,7 +739,6 @@ def _fork_statics(statics: Dict[str, object]) -> Dict[str, object]:
         else:
             out[k] = v
     return out
-
 
 
 def _require_global_width(global_feats) -> None:
@@ -761,85 +773,6 @@ def _observation_from_dict(d: dict, geometry):
                        d.get("relevant"), d.get("tok_of_hex"))
 
 
-def units_equal(a: Unit, b: Unit) -> bool:
-    """Field-level equality of two units (the dataclass compares ids only)."""
-    if a.__dict__.keys() - {k for k in a.__dict__ if k.startswith("_")} != \
-            b.__dict__.keys() - {k for k in b.__dict__ if k.startswith("_")}:
-        return False
-    for k, v in a.__dict__.items():
-        if k.startswith("_"):
-            continue
-        w = getattr(b, k)
-        if k == "attacks":
-            if len(v) != len(w) or any(
-                    (p.type_id, p.number_strikes, p.damage_per_strike, p.is_ranged, set(p.weapon_specials or ()))
-                    != (q.type_id, q.number_strikes, q.damage_per_strike, q.is_ranged, set(q.weapon_specials or ()))
-                    for p, q in zip(v, w)):
-                return False
-        elif isinstance(v, (set, frozenset)):
-            if set(map(str, v)) != set(map(str, w)):
-                return False
-        elif v != w:
-            return False
-    return True
-
-
-def state_differences(a: GameState, b: GameState, *, stash: bool = True) -> List[str]:
-    """The differences between two states over the modeled content, as
-    strings (empty when equal)."""
-    diffs: List[str] = []
-    ua = {u.id: u for u in a.map.units}
-    ub = {u.id: u for u in b.map.units}
-    if ua.keys() != ub.keys():
-        diffs.append(f"units: {sorted(ua.keys() ^ ub.keys())}")
-    for uid in ua.keys() & ub.keys():
-        if not units_equal(ua[uid], ub[uid]):
-            diffs.append(f"unit {uid}: {ua[uid]} != {ub[uid]}")
-        if stash:
-            for k in UNIT_STASH_KEYS:
-                if getattr(ua[uid], k, None) != getattr(ub[uid], k, None):
-                    diffs.append(f"unit {uid} stash {k}")
-    if len(a.sides) != len(b.sides):
-        diffs.append("sides count")
-    for i, (s, t) in enumerate(zip(a.sides, b.sides)):
-        if (s.player, list(s.recruits), s.current_gold, s.base_income, s.nb_villages_controlled, s.faction) != \
-                (t.player, list(t.recruits), t.current_gold, t.base_income, t.nb_villages_controlled, t.faction):
-            diffs.append(f"side {i + 1}: {s} != {t}")
-    ga, gb = a.global_info, b.global_info
-    for k in ("current_side", "turn_number", "time_of_day", "village_gold", "village_upkeep", "base_income"):
-        if getattr(ga, k) != getattr(gb, k):
-            diffs.append(f"global {k}: {getattr(ga, k)} != {getattr(gb, k)}")
-    for k in MODELED_GLOBALS:
-        va, vb = getattr(ga, k, None), getattr(gb, k, None)
-        if k in ("_advance_uniform", "_did_first_init_side", "_fog"):
-            va, vb = bool(va), bool(vb)
-        if k in ("_tod_start_offset", "_rng_request_counter", "_advance_counter"):
-            va, vb = int(va or 0), int(vb or 0)
-        if k == "_advance_salt":
-            va, vb = str(va or ""), str(vb or "")
-        if k == "_experience_modifier":
-            va, vb = int(va or 100), int(vb or 100)
-        if k == "_next_uid_counter":
-            va, vb = int(va or 1), int(vb or 1)
-        if k in ("_uncovered_units", "_recruit_rejected_hexes"):
-            va, vb = set(va or ()), set(vb or ())
-        if k in ("_village_owner", "_pickadvance_game"):
-            va = {kk: v for kk, v in (va or {}).items() if v}
-            vb = {kk: v for kk, v in (vb or {}).items() if v}
-        if k in ("_advance_choices", "_last_advance_events"):
-            va, vb = [tuple(x) if isinstance(x, (list, tuple)) else x for x in (va or [])], \
-                [tuple(x) if isinstance(x, (list, tuple)) else x for x in (vb or [])]
-        if k == "_last_checkup_strikes":
-            va, vb = va or None, vb or None
-        if k == "_fog_cleared":
-            va = {s: frozenset(h) for s, h in (va or {}).items()}
-            vb = {s: frozenset(h) for s, h in (vb or {}).items()}
-        if va != vb:
-            diffs.append(f"global {k}: {va!r} != {vb!r}")
-    if (a.game_over, a.winner) != (b.game_over, b.winner):
-        diffs.append("game over / winner")
-    return diffs
-
-
-__all__ = ["CoreState", "map_static", "type_fields", "unit_fields", "unit_from_fields",
-           "units_equal", "state_differences", "game_core_class"]
+__all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
+           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of",
+           "MODELED_GLOBALS", "UNIT_STASH_KEYS"]

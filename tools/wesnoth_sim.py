@@ -2,11 +2,11 @@
 
 Wesnoth's game logic reimplemented in-process: no engine subprocess,
 no rendering, no IPC, and no Wesnoth install on a GPU box (the WML it
-reads is committed under wesnoth_src/). The logic is Python; when the
-wheel is installed, Rust kernels (rust/wesnoth_core) compute reach and
-legal moves, the observation, the encoding and combat, and
-`WESNOTH_RUST_CORE=1` makes the Rust-owned state (`GameCore`) the
-state of record (CLAUDE.md, Architecture).
+reads is committed under wesnoth_src/). The state of record is
+the Rust-owned `GameCore` (rust/wesnoth_core, `wesnoth_ai.game_core`)
+when the wheel is installed and `WESNOTH_RUST_CORE` is not 0; the
+Python applier is the other state of record until the port retires it
+(docs/rust_core_port_20260928.md).
 
 The simulator reuses the replay-reconstruction machinery of
 tools/replay_dataset.py, which reads a replay's WML command stream and
@@ -59,7 +59,6 @@ Or for AI-vs-AI (the turn cap is the constructor's max_turns):
 from __future__ import annotations
 
 import gzip
-import os
 import json
 import logging
 import sys
@@ -145,14 +144,14 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     # -- so without this rescale a leader/pre-placed unit would advance
     # on a different xp threshold than its own recruits in the same game.
     # Idempotent: recomputing at the same modifier yields the same value.
-    import dataclasses
-    from tools.replay_dataset import _stats_for, _scaled_max_exp
+    # `_rebuild_unit` keeps the units' underscore attributes, which
+    # `dataclasses.replace` drops.
+    from tools.replay_dataset import _rebuild_unit, _stats_for, _scaled_max_exp
     target_mod = int(defaults.experience_modifier)
     rescaled = set()
     for u in gs.map.units:
         base_exp = int(_stats_for(u.name).get("experience", 50))
-        rescaled.add(dataclasses.replace(
-            u, max_exp=_scaled_max_exp(base_exp, target_mod)))
+        rescaled.add(_rebuild_unit(u, max_exp=_scaled_max_exp(base_exp, target_mod)))
     gs.map.units = rescaled
 
 
@@ -352,14 +351,7 @@ def request_seed(request_id: int) -> str:
 _RECRUIT_COSTS_CACHE: Dict[str, int] = {}
 
 
-def core_enabled() -> bool:
-    """The Rust-owned state as the simulator's state of record
-    (docs/rust_port_plan.md phase 4): the wheel carries GameCore and
-    WESNOTH_RUST_CORE is not 0. Off by default until certified."""
-    if os.environ.get("WESNOTH_RUST_CORE", "0") == "0":
-        return False
-    from wesnoth_ai.game_core import game_core_class
-    return game_core_class() is not None
+from wesnoth_ai.game_core import core_enabled  # noqa: E402  (the one switch)
 
 
 def nearest_vacant_castle(gs: GameState, leader) -> Optional[Tuple[int, int]]:
@@ -523,12 +515,16 @@ class WesnothSim:
         # Aethermaw morph, etc.) -- mirrors what replay_dataset does
         # at the top of iter_replay_pairs. Mid-game starts pass
         # False: reconstruction already fired them, and prestart
-        # unit placement (CoB statues) must not double-apply.
-        if apply_scenario_events:
-            _setup_scenario_events(self.gs, scenario_id)
+        # unit placement (CoB statues) must not double-apply. On the
+        # core the setup runs in Rust.
         if use_core if use_core is not None else core_enabled():
             from wesnoth_ai.game_core import CoreState
             self.core = CoreState.from_state(self._gs)
+            if apply_scenario_events:
+                self.core.setup_scenario(scenario_id)
+                self._refresh_view()
+        elif apply_scenario_events:
+            _setup_scenario_events(self.gs, scenario_id)
 
         self.done:      bool = False
         self.winner:    int  = 0
@@ -694,15 +690,18 @@ class WesnothSim:
         mutate it (the mutating entry points are methods of this
         class)."""
         if self.core is not None and self._gs is None:
+            from wesnoth_ai.game_core import bind_view
             self._gs = self.core.to_state()
+            bind_view(self._gs, self.core)
         return self._gs
 
     @gs.setter
     def gs(self, value: GameState) -> None:
         self._gs = value
         if getattr(self, "core", None) is not None:
-            from wesnoth_ai.game_core import CoreState
+            from wesnoth_ai.game_core import CoreState, bind_view
             self.core = CoreState.from_state(value)
+            bind_view(value, self.core)
 
     def _refresh_view(self) -> None:
         """After a core command: the view object takes the core's
@@ -720,6 +719,8 @@ class WesnothSim:
         view.global_info.__dict__.clear()
         view.global_info.__dict__.update(fresh.global_info.__dict__)
         view.game_over, view.winner = fresh.game_over, fresh.winner
+        from wesnoth_ai.game_core import bind_view
+        bind_view(view, self.core)
 
     @property
     def state(self) -> GameState:
@@ -860,7 +861,7 @@ class WesnothSim:
         replay reconstruction / diff_replay keep the deterministic path
         ([choose] queue, else targets[0]). The channel takes the
         current `_seed_salt` at once, as a game record's rebuild does
-        (tools/game_record.start_state)."""
+        (tools/game_record.start_core)."""
         if self.core is not None:
             self.core.core.set_global_int("advance_uniform", 1)
             self._refresh_view()
@@ -896,8 +897,6 @@ class WesnothSim:
         try:
             if self.core is None:
                 _apply_command(self.gs, cmd)
-            elif cmd[0] == "init_side":
-                self.core._python_path(cmd)     # the heal events fire in the Python applier
             else:
                 self.core.apply_command(cmd)
         finally:

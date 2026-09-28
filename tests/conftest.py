@@ -26,6 +26,11 @@ for _p in (_ROOT, _ROOT / "tools", _TESTS):
     if _s not in sys.path:
         sys.path.insert(0, _s)
 
+# A view of the Rust core edited in place after its binding is refused
+# where its core is read (`wesnoth_ai.game_core.core_of`), not silently
+# encoded from the core's unedited state.
+os.environ.setdefault("WESNOTH_CHECK_VIEWS", "1")
+
 
 @pytest.fixture(autouse=True, scope="session")
 def _game_records_in_tmp(tmp_path_factory):

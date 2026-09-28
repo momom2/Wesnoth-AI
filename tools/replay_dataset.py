@@ -1392,6 +1392,8 @@ def enumerate_advancement_outcomes(
     from types import SimpleNamespace
     exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
 
+    pick_game = getattr(gs.global_info, "_pickadvance_game", None) or {}
+
     def _advance_one(u: Unit, forced_idx: int) -> Unit:
         # Reuse the sim's single-step advance on an isolated carrier: it
         # only mutates carrier.map.units (discard/add) and a few
@@ -1403,7 +1405,8 @@ def enumerate_advancement_outcomes(
             global_info=SimpleNamespace(
                 _experience_modifier=exp_mod,
                 _advance_choices=[forced_idx],
-                _last_advance_events=[]),
+                _last_advance_events=[],
+                _pickadvance_game=pick_game),
         )
         return _advance_unit_once(carrier, u_copy)
 
@@ -1415,6 +1418,11 @@ def enumerate_advancement_outcomes(
         targets = list(_stats_for(u.name).get("advances_to", []))
         if not targets:                               # AMLA: one deterministic link
             return _enum(_advance_one(u, 0))
+        # The types the unit is offered, its pick-advance list narrowing
+        # them as `_advance_unit_once` does; a forced index is into these.
+        pick = [x for x in (getattr(u, "_pickadvance", None) or []) if x in targets]
+        if pick:
+            targets = pick
         probs = _advancement_choice_probs(choice, gs, u, targets)
         out: Dict[Tuple[str, int], float] = {}
         for i, p_i in enumerate(probs):
@@ -3172,7 +3180,14 @@ def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
 def iter_record_pairs(data: dict, *, relevant_set: bool = False,
                       stats: Optional[Counter] = None
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
-    """`iter_replay_pairs` over an extracted record already in memory."""
+    """`iter_replay_pairs` over an extracted record already in memory.
+    On the Rust core (`game_core.core_enabled`) each pair's state is a
+    fresh view; on the Python applier it is the one state the next
+    command mutates."""
+    from wesnoth_ai.game_core import core_enabled
+    if core_enabled():
+        yield from _iter_record_pairs_on_core(data, relevant_set=relevant_set, stats=stats)
+        return
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
     for cmd in data.get("commands", []):
@@ -3185,14 +3200,52 @@ def iter_record_pairs(data: dict, *, relevant_set: bool = False,
         _apply_command(gs, cmd)
 
 
+def record_core(data: dict):
+    """The Rust core of an extracted record's initial state, its
+    scenario set up (`CoreState.setup_scenario`)."""
+    from wesnoth_ai.game_core import CoreState
+    cs = CoreState.from_state(_build_initial_gamestate(data))
+    cs.setup_scenario(data.get("scenario_id", ""))
+    return cs
+
+
+def _iter_record_pairs_on_core(data: dict, *, relevant_set: bool,
+                               stats: Optional[Counter]) -> Iterator[Tuple[GameState, ActionIndices]]:
+    from wesnoth_ai.game_core import bind_view
+    cs = record_core(data)
+    for cmd in data.get("commands", []):
+        if int(cs.core.current_side) in PLAYER_SIDES:
+            gs = cs.to_state()
+            bind_view(gs, cs.fork())
+            ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
+            if ai is not None:
+                yield gs, ai
+            elif stats is not None and cmd and cmd[0] in PAIRED_KINDS:
+                stats["unpaired"] += 1
+        cs.apply_command(list(cmd))
+
+
 def iter_replay_pairs_with_state(gz_path: Path
                                  ) -> Iterator[Tuple[GameState, Optional[ActionIndices]]]:
     """Like iter_replay_pairs but yields the running state for EVERY
     command (including init_side / recall) and yields the FINAL state
     after the last command. Useful for tools that want to inspect or
     dump the state at any point in the replay (e.g. save-state dumper)."""
+    from wesnoth_ai.game_core import core_enabled
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
+    if core_enabled():
+        from wesnoth_ai.game_core import bind_view
+        cs = record_core(data)
+        for cmd in data.get("commands", []):
+            gs = cs.to_state()
+            bind_view(gs, cs.fork())
+            yield gs, _action_indices(gs, cmd)
+            cs.apply_command(list(cmd))
+        gs = cs.to_state()
+        bind_view(gs, cs)
+        yield gs, None
+        return
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
     for cmd in data.get("commands", []):

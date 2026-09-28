@@ -30,18 +30,17 @@ def reconstruct_boundary(data: dict, cut_turn: int):
     side with turn_number >= cut_turn and return (state, begin_side)
     with the side's turn begun (income, healing applied), i.e. the
     position the side to move faces. None when the game ends first
-    or a leader is dead."""
-    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
-                                      _setup_scenario_events)
+    or a leader is dead. The game is rebuilt on the Rust core."""
+    from tools.replay_dataset import record_core
     from tools.wesnoth_sim import WesnothSim
-    gs = _build_initial_gamestate(data)
+    cs = record_core(data)
     scenario_id = data.get("scenario_id", "")
-    _setup_scenario_events(gs, scenario_id)
     for cmd in data.get("commands", []):
         if (cmd and cmd[0] == "init_side"
-                and gs.global_info.turn_number >= cut_turn
-                and gs.global_info.current_side in (1, 2)
+                and int(cs.core.turn_number) >= cut_turn
+                and int(cs.core.current_side) in (1, 2)
                 and len(cmd) > 1 and cmd[1] in (1, 2)):
+            gs = cs.to_state()
             if not {1, 2} <= {u.side for u in gs.map.units if u.is_leader}:
                 return None
             for attr in ("_last_advance_events", "_last_checkup_strikes"):
@@ -51,7 +50,7 @@ def reconstruct_boundary(data: dict, cut_turn: int):
             sim = WesnothSim(gs, scenario_id, max_turns=200,
                              apply_scenario_events=False, begin_side=begin_side)
             return sim.gs, begin_side
-        _apply_command(gs, cmd)
+        cs.apply_command(list(cmd))
     return None
 
 

@@ -51,12 +51,16 @@ impl GameCore {
     /// `type_vocab[t]` is the vocab id of registered type t (already
     /// clamped to the overflow bucket); the recruit ids and stats are
     /// the side's own recruit list in order (`encoder._recruit_rows`).
+    /// With `terrain_multi_hot` the hex terrain stream carries each hex's
+    /// terrain set as a bitmask (its one class's bit when the set is
+    /// unresolved), as `encoder.encode_raw` does under the flag.
     #[pyo3(signature = (side, relevant_set, type_vocab, recruit_type_ids, recruit_stats,
-                        fog_hides_enemy_villages, norms, map_limit, num_alignments))]
+                        fog_hides_enemy_villages, norms, map_limit, num_alignments, terrain_multi_hot=false))]
     #[allow(clippy::too_many_arguments)]
     fn encode_streams<'py>(&self, py: Python<'py>, side: i64, relevant_set: bool, type_vocab: Vec<i64>,
                            recruit_type_ids: Vec<i64>, recruit_stats: Vec<f64>, fog_hides_enemy_villages: bool,
-                           norms: [f64; NUM_NORMS], map_limit: i64, num_alignments: usize)
+                           norms: [f64; NUM_NORMS], map_limit: i64, num_alignments: usize,
+                           terrain_multi_hot: bool)
         -> PyResult<Bound<'py, PyDict>> {
         let them_side = opponent_of(side)?;
         let obs = self.observe_core(side, relevant_set)?;
@@ -88,7 +92,13 @@ impl GameCore {
             static_flags[t * NUM_HEX_MODIFIERS + 2] = if m.castle_mod[mh] != 0 { 1.0 } else { 0.0 };
             hex_xs[t] = clamp_pos(m.hx[mh], map_limit);
             hex_ys[t] = clamp_pos(m.hy[mh], map_limit);
-            hex_tids[t] = m.terrain_type_id[mh];
+            hex_tids[t] = if terrain_multi_hot && m.terrain_mask[mh] != 0 {
+                m.terrain_mask[mh]
+            } else if terrain_multi_hot {
+                1 << m.terrain_type_id[mh]
+            } else {
+                m.terrain_type_id[mh]
+            };
         }
 
         // Village entries (encoder._village_entries): the hexes with the

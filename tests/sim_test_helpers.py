@@ -43,6 +43,14 @@ def require_scenario_data() -> None:
                     "Steam install (see CLAUDE.md)")
 
 
+def commit_view(sim) -> None:
+    """Hand a test's in-place edits of `sim.gs` to the simulator's state
+    of record. On the Rust core `sim.gs` is a view the next command
+    rebuilds, so an edit made there is lost unless the view is loaded
+    back, which the `gs` setter does."""
+    sim.gs = sim.gs
+
+
 def scenario_setup(seed: int = 0, *, mini: bool = False,
                    scenario_id: Optional[str] = None) -> ScenarioSetup:
     """Deterministic-for-a-seed scenario + faction/leader draw, with

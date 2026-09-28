@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.dummy_policy import DummyPolicy   # noqa: E402
-from sim_test_helpers import fresh_scenario_sim   # noqa: E402
+from sim_test_helpers import commit_view, fresh_scenario_sim   # noqa: E402
 from tools.abilities import hex_neighbors   # noqa: E402
 
 _HEX8 = re.compile(r"^[0-9a-f]{8}$")
@@ -61,6 +61,7 @@ def _teleport_adjacent(sim, attacker, defender):
     if spot is None:
         pytest.skip("no free hex adjacent to the defender")
     attacker.position.x, attacker.position.y = spot
+    commit_view(sim)
 
 
 def _leaders(sim):
@@ -164,6 +165,7 @@ def test_advancement_pins_choice_in_history_and_export():
     # Survival surgery: the counter-attack must not kill the
     # attacker before XP is awarded (dead units don't advance).
     att.current_hp = 80
+    commit_view(sim)
 
     sim.step({"type": "attack", "start_hex": att.position,
               "target_hex": dfd.position, "attack_index": 0})
@@ -209,6 +211,7 @@ def test_export_every_rng_consumer_has_followup():
     if not sim.done:
         att, dfd = _leaders(sim)
         _teleport_adjacent(sim, att, dfd)
+        commit_view(sim)
         sim.step({"type": "attack", "start_hex": att.position,
                   "target_hex": dfd.position, "attack_index": 0})
 

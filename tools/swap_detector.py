@@ -45,6 +45,7 @@ from tools.replay_dataset import (                                 # noqa: E402
 )
 from wesnoth_ai import combat as _cb                               # noqa: E402
 from wesnoth_ai.classes import GameState, Position                 # noqa: E402
+from wesnoth_ai.game_core import bind_view, core_of                # noqa: E402
 
 _EPS = 1e-9
 
@@ -516,27 +517,39 @@ def enumerate_children_via_sim(
         return None
     pre_type = {att0.id: att0.name, dfd0.id: dfd0.name}
     order = (att0.id, dfd0.id)             # attacker-first choice consumption
+    cs = core_of(gs)
 
     def _run(prefix: List[bool], choices: Optional[list] = None):
-        g = _copy.deepcopy(gs)
-        if choices:
-            g.global_info._advance_choices = list(choices)
-        rng = _EnumRNG(prefix)
-        _apply_attack_scripted(g, attack_cmd, rng)
+        """The fight with `prefix` forced: (child state, draws taken, the
+        strike records). A bound view's fight runs on a fork of its core."""
+        if cs is not None:
+            fork = cs.fork()
+            calls = fork.core.apply_attack_scripted(
+                ax, ay, dx, dy, int(attack_cmd[5]), int(attack_cmd[6]), list(prefix),
+                [int(c) for c in choices or ()])
+            g = fork.to_state()
+            bind_view(g, fork)
+        else:
+            g = _copy.deepcopy(gs)
+            if choices:
+                g.global_info._advance_choices = list(choices)
+            rng = _EnumRNG(prefix)
+            _apply_attack_scripted(g, attack_cmd, rng)
+            calls = rng.calls
         strikes = [s for s in
                    (getattr(g.global_info, "_last_checkup_strikes", []) or [])
                    if "chance" in s]
-        return g, rng, strikes
+        return g, calls, strikes
 
     leaves: List[Tuple[GameState, float]] = []
     stack: List[List[bool]] = [[]]
     while stack:
         prefix = stack.pop()
-        g2, rng, strikes = _run(prefix)
-        if rng.calls != len(strikes):
+        g2, calls, strikes = _run(prefix)
+        if calls != len(strikes):
             return None                    # unexpected extra draws (defensive)
         k = len(prefix)
-        if rng.calls > k:                  # a strike past the prefix exists
+        if calls > k:                      # a strike past the prefix exists
             c = float(strikes[k]["chance"])
             if c >= 100.0:
                 stack.append(prefix + [True])

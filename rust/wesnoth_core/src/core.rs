@@ -1,27 +1,38 @@
 //! Phase 4: the game state owned by Rust (docs/rust_port_plan.md).
 //!
 //! `GameCore` holds what `wesnoth_ai.classes.GameState` holds and the
-//! per-fork stash the simulator keeps on `global_info`: the units, the
+//! per-fork stash the simulator keeps on `global_info`: the units (with
+//! the per-unit facts Python kept as underscore attributes: the defense
+//! table, the pick-advance list, the feeding count, the trait order, the
+//! persistent [object] effects, the WML role and the guardian flag), the
 //! sides, the turn scalars, the village owners, the uncovered hiders,
 //! the turn's recruit rejections and each side's cleared hexes. What
-//! never changes within a game is shared across forks behind `Arc`:
-//! the map (`MapStatic`, built once by `wesnoth_ai.game_core` from the
-//! hex set, the terrain codes and the time areas), the unit-type table
-//! and the movement classes (per unit type and slowed status: movement
-//! cost, defense subcost and defense percentage per hex, resolved by
-//! Python's terrain resolver once per map). `fork` is a clone: the
-//! dynamic part copies, the static part is a reference count.
+//! never changes within a game is shared across forks behind `Arc`: the
+//! map (`MapStatic`: the hex set's geometry and one-class view from
+//! `wesnoth_ai.game_core`, every terrain fact resolved here from the
+//! hexes' terrain codes), the unit types (the process's unit database,
+//! db.rs, registered per core on first use) and the movement classes
+//! (per unit type, slowed status and defense table: movement cost,
+//! defense subcost and defense percentage per hex, computed here from
+//! the terrain codes by terrain.rs). `fork` is a clone: the dynamic part
+//! copies, the static part is a reference count.
 //!
-//! Python constructs units (recruits, advancements, plague corpses:
-//! `tools/replay_dataset.py` and `tools/traits.py`) and runs scenario
-//! events on a Python view; everything else about a command applies
-//! here (core_step.rs). Map space throughout: hex index = position in
-//! `gs.map.hexes` (the observation kernels' order).
+//! Every command applies here: turns (core_step.rs), moves
+//! (core_move.rs), attacks (core_attack.rs), units built and advanced
+//! (core_units.rs, units.rs, effects.rs), the scenario's events
+//! (events.rs); the core also answers fight outcomes (outcomes.rs),
+//! observations and encodings. Map space throughout: hex index =
+//! position in `gs.map.hexes` (the observation kernels' order).
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
+
+pub use crate::db::{TypeAttack as BaseAttack, UnitType as TypeRec};
+use crate::db::{terrain_db, unit_db, TerrainDb, UnitDb};
+use crate::terrain;
+use crate::wml::Wml;
 
 #[derive(Clone, Debug)]
 pub struct AttackRec {
@@ -32,11 +43,14 @@ pub struct AttackRec {
     pub specials: Vec<String>,
 }
 
+/// A defense table: chance to be hit per terrain id, in its dict order.
+pub type DefTable = Vec<(String, i64)>;
+
 #[derive(Clone, Debug)]
 pub struct UnitRec {
     pub id: String,
     pub name: String,
-    pub type_idx: i64,               // into TypeTable, -1 unknown
+    pub type_idx: i64,               // into the core's type table
     pub name_id: i64,
     pub side: i64,
     pub is_leader: bool,
@@ -60,8 +74,16 @@ pub struct UnitRec {
     pub abilities: Vec<String>,      // sorted
     pub traits: Vec<String>,         // sorted
     pub statuses: Vec<String>,       // sorted
-    pub class_id: i64,               // movement class, -1 unknown
+    pub class_id: i64,               // movement class
     pub class_slowed_id: i64,
+    // The per-unit facts Python kept as underscore attributes.
+    pub def_table: Option<Arc<DefTable>>,        // `_defense_table`
+    pub pickadvance: Option<Vec<String>>,        // `_pickadvance`
+    pub feeding_count: Option<i64>,              // `_feeding_count`
+    pub trait_order: Option<Vec<String>>,        // `_trait_order`
+    pub object_effects: Vec<Arc<Wml>>,           // `_object_effects`
+    pub wml_role: Option<String>,                // `_wml_role`
+    pub ai_guardian: bool,                       // `_ai_guardian`
 }
 
 impl UnitRec {
@@ -114,31 +136,6 @@ pub struct GlobalRec {
     pub advance_counter: i64,
 }
 
-/// A base attack of a unit type (`unit_stats.json`): what the combat
-/// snapshot takes from the type rather than from the unit.
-#[derive(Clone, Debug)]
-pub struct BaseAttack {
-    pub type_name: String,
-    pub ranged: bool,
-    pub specials: Vec<String>,
-    pub accuracy: i64,
-    pub parry: i64,
-}
-
-#[derive(Clone, Debug)]
-pub struct TypeRec {
-    pub name: String,
-    pub level: i64,
-    pub alignment: i64,
-    pub resist: [i64; 6],            // combat.DAMAGE_TYPES order
-    pub abilities: Vec<String>,
-    pub attacks: Vec<BaseAttack>,
-    pub cost: i64,
-    pub race: String,
-    pub undead_variation: String,
-    pub advances_to: Vec<String>,
-}
-
 /// Per (unit type, slowed, defense table) and per map: the pathfinder's
 /// arrays and the defense percentage on every hex.
 #[derive(Clone, Debug)]
@@ -148,19 +145,26 @@ pub struct ClassRec {
     pub defense_pct: Vec<i64>,
 }
 
-/// The map's static facts in map space.
-#[derive(Debug)]
+/// A movement class's identity: the type (its movement costs), the
+/// slowed status and the defense table's content, sorted.
+pub type ClassKey = (String, bool, DefTable);
+
+/// The map's facts in map space. Shared by forks; an event that changes
+/// terrain or places a time area gives its core a copy (`Arc::make_mut`).
+#[derive(Clone, Debug)]
 pub struct MapStatic {
     pub h: usize,
     pub hx: Vec<i64>,
     pub hy: Vec<i64>,
     pub nbrs: Vec<i64>,              // [H*6]
     pub pos_index: HashMap<(i64, i64), usize>,
+    pub codes: Vec<String>,          // the hex's terrain code, start label dropped; "" = none
     pub castle_or_keep: Vec<u8>,
     pub keep: Vec<u8>,
     pub village_terrain: Vec<u8>,    // Terrain.VILLAGE in the hex's types
     pub village_mod: Vec<u8>,        // TerrainModifiers.VILLAGE (capturable)
     pub terrain_type_id: Vec<i64>,   // the encoder's one terrain id per hex
+    pub terrain_mask: Vec<i64>,      // the hex's terrain classes (terrain_resolver.terrain_mask)
     pub heal: Vec<i64>,              // terrain_resolver.terrain_heals
     pub light_mod: Vec<i64>,
     pub light_max: Vec<i64>,
@@ -186,9 +190,12 @@ pub const TOD_NAMES: [&str; 6] = ["dawn", "morning", "afternoon", "dusk", "first
 #[derive(Clone)]
 pub struct GameCore {
     pub map: Arc<MapStatic>,
-    pub types: Arc<RwLock<Vec<TypeRec>>>,
+    pub db: Arc<UnitDb>,
+    pub tdb: Arc<TerrainDb>,
+    pub types: Arc<RwLock<Vec<Arc<TypeRec>>>>,
     pub type_index: Arc<RwLock<HashMap<String, usize>>>,
     pub classes: Arc<RwLock<Vec<ClassRec>>>,
+    pub class_index: Arc<RwLock<HashMap<ClassKey, usize>>>,
     pub game_id: String,
     pub size_x: i64,
     pub size_y: i64,
@@ -207,6 +214,18 @@ pub struct GameCore {
     pub last_checkup_strikes: Vec<i64>,                          // (chance, hits, damage, dies) per strike
     pub game_over: bool,
     pub winner: i64,                 // -1 none
+    // Scenario events (events.rs): the scenario's events, shared by
+    // forks, and per fork their latches, the WML variables, the stored
+    // locations, the terrain writes and the map's version.
+    pub events: Arc<Vec<crate::events::EventDef>>,
+    pub fired: Vec<bool>,
+    pub wml_vars: BTreeMap<String, String>,
+    pub scenario_vars: BTreeMap<String, BTreeSet<(i64, i64)>>,
+    pub terrain_log: Vec<(i64, i64, String)>,
+    pub map_version: i64,
+    pub strict_wml: bool,
+    pub firing_scenario: String,
+    pub last_heal_events: Vec<(i64, i64, i64, i64, i64)>,   // core_step.rs heal_events
 }
 
 fn get<'py, T: FromPyObject<'py>>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<T> {
@@ -223,7 +242,14 @@ fn get_or<'py, T: FromPyObject<'py>>(d: &Bound<'py, PyDict>, key: &str, default:
     }
 }
 
-fn sorted(mut v: Vec<String>) -> Vec<String> {
+fn get_opt<'py, T: FromPyObject<'py>>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<Option<T>> {
+    match d.get_item(key)? {
+        Some(v) if !v.is_none() => Ok(Some(v.extract()?)),
+        _ => Ok(None),
+    }
+}
+
+pub(crate) fn sorted(mut v: Vec<String>) -> Vec<String> {
     v.sort();
     v.dedup();
     v
@@ -254,14 +280,165 @@ impl Hasher {
     }
 }
 
+impl GameCore {
+    /// The index of a unit type in this core's table, registered from
+    /// the unit database on first use (`_stats_for`: the fallback under
+    /// its own name for a type the scrape lacks).
+    pub fn type_idx(&self, name: &str) -> usize {
+        if let Some(&i) = self.type_index.read().unwrap().get(name) {
+            return i;
+        }
+        let mut index = self.type_index.write().unwrap();
+        if let Some(&i) = index.get(name) {
+            return i;
+        }
+        let mut types = self.types.write().unwrap();
+        types.push(self.db.get(name));
+        index.insert(name.to_string(), types.len() - 1);
+        types.len() - 1
+    }
+
+    pub fn type_rec(&self, idx: i64) -> Arc<TypeRec> {
+        self.types.read().unwrap()[idx as usize].clone()
+    }
+
+    /// The defense table a unit's class reads: its own, or its type's
+    /// when it has none (`getattr(u, "_defense_table", None) or
+    /// _stats_for(u.name)["defense"]`).
+    pub fn class_table(&self, u: &UnitRec) -> DefTable {
+        match &u.def_table {
+            Some(t) if !t.is_empty() => t.as_ref().clone(),
+            _ => self.type_rec(u.type_idx).defense.clone(),
+        }
+    }
+
+    /// The movement class of (type, slowed, defense table), computed
+    /// once per content and shared by every fork (`_class_id`: the
+    /// pathfinder's `_terrain_arrays_for` and `_terrain_def_pct`).
+    pub fn class_for(&self, type_idx: i64, slowed: bool, table: &DefTable) -> i64 {
+        let t = self.type_rec(type_idx);
+        let mut content = table.clone();
+        content.sort();
+        let key: ClassKey = (t.name.clone(), slowed, content);
+        if let Some(&c) = self.class_index.read().unwrap().get(&key) {
+            return c as i64;
+        }
+        let rec = self.compute_class(&t, slowed, table);
+        let mut index = self.class_index.write().unwrap();
+        if let Some(&c) = index.get(&key) {
+            return c as i64;
+        }
+        let mut classes = self.classes.write().unwrap();
+        classes.push(rec);
+        index.insert(key, classes.len() - 1);
+        (classes.len() - 1) as i64
+    }
+
+    /// One class's arrays over the map: `_move_cost_at_hex` (the type's
+    /// movement costs, doubled below UNREACHABLE when slowed), the
+    /// defense subcost `defense_pct_at` and the combat defense
+    /// `_terrain_def_pct`; a hex with no terrain code reads the flat key.
+    fn compute_class(&self, t: &TypeRec, slowed: bool, table: &DefTable) -> ClassRec {
+        let all: Vec<usize> = (0..self.map.h).collect();
+        let (mcost, dsub, defense_pct) = self.compute_class_at(t, slowed, table, &all);
+        ClassRec { mcost, dsub, defense_pct }
+    }
+
+    /// `compute_class` on the listed hexes only, in their order.
+    pub fn compute_class_at(&self, t: &TypeRec, slowed: bool, table: &DefTable, hexes: &[usize])
+        -> (Vec<i64>, Vec<i64>, Vec<i64>) {
+        let costs: DefTable = t.movement_costs.iter()
+            .map(|(k, v)| (k.clone(), if slowed && *v < terrain::UNREACHABLE_COST { 2 * v } else { *v }))
+            .collect();
+        let n = hexes.len();
+        let (mut mcost, mut dsub, mut defense) = (vec![0; n], vec![0; n], vec![0; n]);
+        let mut memo: HashMap<&str, (i64, i64)> = HashMap::new();
+        let flat = |tab: &DefTable| tab.iter().find(|(k, _)| k == "flat").map(|(_, v)| *v);
+        for (k, &i) in hexes.iter().enumerate() {
+            let code = self.map.codes[i].as_str();
+            if code.is_empty() {
+                mcost[k] = match flat(&costs) { Some(v) if v != 0 => v, _ => 1 };
+                dsub[k] = match flat(table) { Some(v) if v != 0 => v, _ => 50 };
+                defense[k] = flat(table).unwrap_or(50);
+                continue;
+            }
+            let (m, d) = *memo.entry(code).or_insert_with(|| {
+                (terrain::mvt_cost(&self.tdb, code, &costs), terrain::def_pct(&self.tdb, code, table))
+            });
+            mcost[k] = m;
+            dsub[k] = d;
+            defense[k] = d;
+        }
+        (mcost, dsub, defense)
+    }
+
+    /// Set the unit's type index, hex and movement classes from its
+    /// name, position and defense table.
+    pub fn place_unit_facts(&self, u: &mut UnitRec) {
+        u.type_idx = self.type_idx(&u.name) as i64;
+        u.hex = self.map.pos_index.get(&(u.x, u.y)).map(|&i| i as i64).unwrap_or(-1);
+        let table = self.class_table(u);
+        u.class_id = self.class_for(u.type_idx, false, &table);
+        u.class_slowed_id = self.class_for(u.type_idx, true, &table);
+    }
+
+    /// Add a unit record (its type, hex and classes set here).
+    pub fn insert_unit(&mut self, mut rec: UnitRec) -> PyResult<usize> {
+        if self.unit_index.contains_key(&rec.id) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!("duplicate unit id {}", rec.id)));
+        }
+        self.place_unit_facts(&mut rec);
+        let id = rec.id.clone();
+        self.units.push(rec);
+        let idx = self.units.len() - 1;
+        self.unit_index.insert(id, idx);
+        Ok(idx)
+    }
+}
+
+/// The terrain facts of a map resolved from its codes (heal, light,
+/// hide cover) into `MapStatic`'s arrays.
+fn resolve_terrain_facts(tdb: &TerrainDb, codes: &[String]) -> [Vec<i64>; 8] {
+    let h = codes.len();
+    let mut out: [Vec<i64>; 8] = Default::default();
+    for v in out.iter_mut() {
+        *v = vec![0; h];
+    }
+    for (i, code) in codes.iter().enumerate() {
+        if code.is_empty() {
+            continue;
+        }
+        let (light, max_l, min_l, any) = terrain::light_params(tdb, code);
+        out[0][i] = terrain::terrain_heals(tdb, code);
+        out[1][i] = light;
+        out[2][i] = max_l;
+        out[3][i] = min_l;
+        out[4][i] = any as i64;
+        out[5][i] = terrain::hides_cover(code, "ambush") as i64;
+        out[6][i] = terrain::hides_cover(code, "concealment") as i64;
+        out[7][i] = terrain::hides_cover(code, "submerge") as i64;
+    }
+    out
+}
+
+fn as_u8(v: &[i64]) -> Vec<u8> {
+    v.iter().map(|&x| x as u8).collect()
+}
+
+fn table_of(v: Option<Vec<(String, i64)>>) -> Option<Arc<DefTable>> {
+    v.map(Arc::new)
+}
+
 #[pymethods]
 impl GameCore {
-    /// The core of one game over a map: `map` carries the static arrays
-    /// (wesnoth_ai.game_core.map_static). Units, sides and globals are
-    /// added by the setters below.
+    /// The core of one game over a map: `map` carries the geometry, the
+    /// one-class view and the terrain codes (wesnoth_ai.game_core.map_static).
+    /// Units, sides and globals are added by the setters below. The unit
+    /// and terrain databases must be loaded (`load_databases`).
     #[new]
-    #[allow(clippy::too_many_arguments)]
     fn new(map: &Bound<'_, PyDict>, game_id: String, size_x: i64, size_y: i64) -> PyResult<Self> {
+        let db = unit_db()?;
+        let tdb = terrain_db()?;
         let hx: Vec<i64> = get(map, "hx")?;
         let hy: Vec<i64> = get(map, "hy")?;
         let h = hx.len();
@@ -278,37 +455,43 @@ impl GameCore {
             }
             hex_of_slot[t as usize] = m;
         }
+        let raw_codes: Vec<String> = get(map, "codes")?;
+        let codes: Vec<String> = raw_codes.iter().map(|c| terrain::strip_start_position(c).to_string()).collect();
+        let [heal, light_mod, light_max, light_min, has_light, ambush, concealment, submerge] =
+            resolve_terrain_facts(&tdb, &codes);
         let map_static = MapStatic {
             h,
             hx,
             hy,
             nbrs: get(map, "nbrs")?,
             pos_index,
+            codes,
             castle_or_keep: get(map, "castle_or_keep")?,
             keep: get(map, "keep")?,
             village_terrain: get(map, "village_terrain")?,
             village_mod: get(map, "village_mod")?,
             terrain_type_id: get(map, "terrain_type_id")?,
-            heal: get(map, "heal")?,
-            light_mod: get(map, "light_mod")?,
-            light_max: get(map, "light_max")?,
-            light_min: get(map, "light_min")?,
-            has_light: get(map, "has_light")?,
+            terrain_mask: get(map, "terrain_mask")?,
+            heal,
+            light_mod,
+            light_max,
+            light_min,
+            has_light: as_u8(&has_light),
             area_cycle: get(map, "area_cycle")?,
             cycles,
-            hides_ambush: get(map, "hides_ambush")?,
-            hides_concealment: get(map, "hides_concealment")?,
-            hides_submerge: get(map, "hides_submerge")?,
+            hides_ambush: as_u8(&ambush),
+            hides_concealment: as_u8(&concealment),
+            hides_submerge: as_u8(&submerge),
             full_slot,
             castle_mod: get(map, "castle_mod")?,
             hex_of_slot,
         };
         for (name, v) in [
-            ("nbrs", map_static.nbrs.len() / 6), ("castle_or_keep", map_static.castle_or_keep.len()),
-            ("keep", map_static.keep.len()), ("village_terrain", map_static.village_terrain.len()),
-            ("village_mod", map_static.village_mod.len()), ("terrain_type_id", map_static.terrain_type_id.len()),
-            ("heal", map_static.heal.len()), ("light_mod", map_static.light_mod.len()),
-            ("area_cycle", map_static.area_cycle.len()), ("hides_ambush", map_static.hides_ambush.len()),
+            ("nbrs", map_static.nbrs.len() / 6), ("codes", map_static.codes.len()),
+            ("castle_or_keep", map_static.castle_or_keep.len()), ("keep", map_static.keep.len()),
+            ("village_terrain", map_static.village_terrain.len()), ("village_mod", map_static.village_mod.len()),
+            ("terrain_type_id", map_static.terrain_type_id.len()), ("area_cycle", map_static.area_cycle.len()),
+            ("terrain_mask", map_static.terrain_mask.len()),
             ("full_slot", map_static.full_slot.len()), ("castle_mod", map_static.castle_mod.len()),
         ] {
             if v != h {
@@ -317,9 +500,12 @@ impl GameCore {
         }
         Ok(GameCore {
             map: Arc::new(map_static),
+            db,
+            tdb,
             types: Arc::new(RwLock::new(Vec::new())),
             type_index: Arc::new(RwLock::new(HashMap::new())),
             classes: Arc::new(RwLock::new(Vec::new())),
+            class_index: Arc::new(RwLock::new(HashMap::new())),
             game_id,
             size_x,
             size_y,
@@ -338,6 +524,15 @@ impl GameCore {
             last_checkup_strikes: Vec::new(),
             game_over: false,
             winner: -1,
+            events: Arc::new(Vec::new()),
+            fired: Vec::new(),
+            wml_vars: BTreeMap::new(),
+            scenario_vars: BTreeMap::new(),
+            terrain_log: Vec::new(),
+            map_version: 0,
+            strict_wml: false,
+            firing_scenario: String::new(),
+            last_heal_events: Vec::new(),
         })
     }
 
@@ -356,108 +551,52 @@ impl GameCore {
         self.global.turn_number
     }
 
-    /// A unit type (`tools.replay_dataset._stats_for`), once per name;
-    /// returns its index. Shared by every fork of this core.
-    fn register_type(&mut self, t: &Bound<'_, PyDict>) -> PyResult<usize> {
-        let name: String = get(t, "name")?;
-        if let Some(&i) = self.type_index.read().unwrap().get(&name) {
-            return Ok(i);
-        }
-        let resist_v: Vec<i64> = get(t, "resist")?;
-        if resist_v.len() != 6 {
-            return Err(pyo3::exceptions::PyValueError::new_err("resist needs 6 entries"));
-        }
-        let mut resist = [100i64; 6];
-        resist.copy_from_slice(&resist_v);
-        let attacks_in: Vec<(String, bool, Vec<String>, i64, i64)> = get(t, "attacks")?;
-        let rec = TypeRec {
-            name: name.clone(),
-            level: get(t, "level")?,
-            alignment: get(t, "alignment")?,
-            resist,
-            abilities: sorted(get(t, "abilities")?),
-            attacks: attacks_in.into_iter().map(|(ty, r, sp, acc, par)| BaseAttack {
-                type_name: ty, ranged: r, specials: sp, accuracy: acc, parry: par,
-            }).collect(),
-            cost: get(t, "cost")?,
-            race: get_or(t, "race", String::new())?,
-            undead_variation: get_or(t, "undead_variation", String::new())?,
-            advances_to: get_or(t, "advances_to", Vec::new())?,
-        };
-        let mut types = self.types.write().unwrap();
-        types.push(rec);
-        let idx = types.len() - 1;
-        self.type_index.write().unwrap().insert(name, idx);
-        Ok(idx)
-    }
-
-    fn type_index_of(&self, name: &str) -> i64 {
-        self.type_index.read().unwrap().get(name).map(|&i| i as i64).unwrap_or(-1)
-    }
-
-    /// A movement class: the pathfinder's cost and subcost per hex and
-    /// the defense percentage per hex for one (type, slowed, defense
-    /// table). Returns its id; shared by every fork.
-    fn register_class(&mut self, mcost: Vec<i64>, dsub: Vec<i64>, defense_pct: Vec<i64>) -> PyResult<usize> {
-        let h = self.map.h;
-        if mcost.len() != h || dsub.len() != h || defense_pct.len() != h {
-            return Err(pyo3::exceptions::PyValueError::new_err("class arrays must have H entries"));
-        }
-        let mut classes = self.classes.write().unwrap();
-        classes.push(ClassRec { mcost, dsub, defense_pct });
-        Ok(classes.len() - 1)
+    /// The index of a unit type, registered on first use; shared by
+    /// every fork of this core.
+    fn type_index_of(&self, name: &str) -> usize {
+        self.type_idx(name)
     }
 
     fn n_classes(&self) -> usize {
         self.classes.read().unwrap().len()
     }
 
+    /// One movement class's (mcost, dsub, defense_pct) arrays: the
+    /// differential tests' handle on `class_for`.
+    fn class_arrays(&self, id: usize) -> (Vec<i64>, Vec<i64>, Vec<i64>) {
+        let c = &self.classes.read().unwrap()[id];
+        (c.mcost.clone(), c.dsub.clone(), c.defense_pct.clone())
+    }
+
+    /// The map's geometry in the core's hex order, as
+    /// `observe.map_geometry` gives it: (hx, hy, neighbours [H*6],
+    /// castle_or_keep, keep, village, full_slot); the flags follow the
+    /// terrain events.
+    #[allow(clippy::type_complexity)]
+    fn geometry_export<'py>(&self, py: Python<'py>) -> (
+        Bound<'py, numpy::PyArray1<i64>>, Bound<'py, numpy::PyArray1<i64>>, Bound<'py, numpy::PyArray1<i64>>,
+        Bound<'py, numpy::PyArray1<u8>>, Bound<'py, numpy::PyArray1<u8>>, Bound<'py, numpy::PyArray1<u8>>,
+        Bound<'py, numpy::PyArray1<i64>>) {
+        use numpy::IntoPyArray;
+        let m = &self.map;
+        (m.hx.clone().into_pyarray(py), m.hy.clone().into_pyarray(py), m.nbrs.clone().into_pyarray(py),
+         m.castle_or_keep.clone().into_pyarray(py), m.keep.clone().into_pyarray(py),
+         m.village_terrain.clone().into_pyarray(py), m.full_slot.clone().into_pyarray(py))
+    }
+
+    /// The resolved terrain facts per hex: (heal, light_mod, light_max,
+    /// light_min, has_light, ambush, concealment, submerge).
+    #[allow(clippy::type_complexity)]
+    fn terrain_arrays(&self) -> (Vec<i64>, Vec<i64>, Vec<i64>, Vec<i64>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
+        let m = &self.map;
+        (m.heal.clone(), m.light_mod.clone(), m.light_max.clone(), m.light_min.clone(), m.has_light.clone(),
+         m.hides_ambush.clone(), m.hides_concealment.clone(), m.hides_submerge.clone())
+    }
+
     /// Add a unit from its field dict (wesnoth_ai.game_core.unit_fields).
     fn add_unit(&mut self, u: &Bound<'_, PyDict>) -> PyResult<usize> {
-        let id: String = get(u, "id")?;
-        if self.unit_index.contains_key(&id) {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!("duplicate unit id {id}")));
-        }
-        let x: i64 = get(u, "x")?;
-        let y: i64 = get(u, "y")?;
-        let attacks_in: Vec<(i64, i64, i64, bool, Vec<String>)> = get(u, "attacks")?;
-        let name: String = get(u, "name")?;
-        let rec = UnitRec {
-            type_idx: self.type_index_of(&name),
-            id: id.clone(),
-            name,
-            name_id: get(u, "name_id")?,
-            side: get(u, "side")?,
-            is_leader: get(u, "is_leader")?,
-            x,
-            y,
-            hex: self.map.pos_index.get(&(x, y)).map(|&i| i as i64).unwrap_or(-1),
-            max_hp: get(u, "max_hp")?,
-            max_moves: get(u, "max_moves")?,
-            max_exp: get(u, "max_exp")?,
-            cost: get(u, "cost")?,
-            alignment: get(u, "alignment")?,
-            levelup_names: get(u, "levelup_names")?,
-            current_hp: get(u, "current_hp")?,
-            current_moves: get(u, "current_moves")?,
-            current_exp: get(u, "current_exp")?,
-            has_attacked: get(u, "has_attacked")?,
-            attacks: attacks_in.into_iter().map(|(t, n, d, r, sp)| AttackRec {
-                type_id: t, strikes: n, damage: d, ranged: r, specials: sorted(sp),
-            }).collect(),
-            resistances: get(u, "resistances")?,
-            defenses: get(u, "defenses")?,
-            movement_costs: get(u, "movement_costs")?,
-            abilities: sorted(get(u, "abilities")?),
-            traits: sorted(get(u, "traits")?),
-            statuses: sorted(get(u, "statuses")?),
-            class_id: get_or(u, "class_id", -1)?,
-            class_slowed_id: get_or(u, "class_slowed_id", -1)?,
-        };
-        self.units.push(rec);
-        let idx = self.units.len() - 1;
-        self.unit_index.insert(id, idx);
-        Ok(idx)
+        let rec = unit_from_dict(u)?;
+        self.insert_unit(rec)
     }
 
     pub fn remove_unit(&mut self, id: &str) -> PyResult<()> {
@@ -522,13 +661,13 @@ impl GameCore {
         if let Some(v) = changes.get_item("statuses")? { u.statuses = sorted(v.extract()?); }
         if let Some(v) = changes.get_item("traits")? { u.traits = sorted(v.extract()?); }
         if let Some(v) = changes.get_item("abilities")? { u.abilities = sorted(v.extract()?); }
-        if let Some(v) = changes.get_item("class_id")? { u.class_id = v.extract()?; }
-        if let Some(v) = changes.get_item("class_slowed_id")? { u.class_slowed_id = v.extract()?; }
+        if let Some(v) = changes.get_item("pickadvance")? { u.pickadvance = v.extract()?; }
+        if let Some(v) = changes.get_item("feeding_count")? { u.feeding_count = v.extract()?; }
         Ok(())
     }
 
     /// `team::spend_gold`: bare subtraction, no clamp (a recruit's cost).
-    fn spend_gold(&mut self, side: i64, amount: i64) {
+    pub fn spend_gold(&mut self, side: i64, amount: i64) {
         if side >= 1 && (side as usize) <= self.sides.len() {
             self.sides[side as usize - 1].current_gold -= amount;
         }
@@ -749,7 +888,54 @@ impl GameCore {
     }
 }
 
-fn unit_dict<'py>(py: Python<'py>, u: &UnitRec) -> PyResult<Bound<'py, PyDict>> {
+/// A unit record from its field dict (`game_core.unit_fields`, or
+/// `unit_dict`'s own output): the type index, hex and classes are left
+/// for the core that takes it.
+pub(crate) fn unit_from_dict(u: &Bound<'_, PyDict>) -> PyResult<UnitRec> {
+    let attacks_in: Vec<(i64, i64, i64, bool, Vec<String>)> = get(u, "attacks")?;
+    let effects: Vec<Wml> = get_or(u, "object_effects", Vec::new())?;
+    Ok(UnitRec {
+        type_idx: -1,
+        id: get(u, "id")?,
+        name: get(u, "name")?,
+        name_id: get(u, "name_id")?,
+        side: get(u, "side")?,
+        is_leader: get(u, "is_leader")?,
+        x: get(u, "x")?,
+        y: get(u, "y")?,
+        hex: -1,
+        max_hp: get(u, "max_hp")?,
+        max_moves: get(u, "max_moves")?,
+        max_exp: get(u, "max_exp")?,
+        cost: get(u, "cost")?,
+        alignment: get(u, "alignment")?,
+        levelup_names: get(u, "levelup_names")?,
+        current_hp: get(u, "current_hp")?,
+        current_moves: get(u, "current_moves")?,
+        current_exp: get(u, "current_exp")?,
+        has_attacked: get(u, "has_attacked")?,
+        attacks: attacks_in.into_iter().map(|(t, n, d, r, sp)| AttackRec {
+            type_id: t, strikes: n, damage: d, ranged: r, specials: sorted(sp),
+        }).collect(),
+        resistances: get(u, "resistances")?,
+        defenses: get(u, "defenses")?,
+        movement_costs: get(u, "movement_costs")?,
+        abilities: sorted(get(u, "abilities")?),
+        traits: sorted(get(u, "traits")?),
+        statuses: sorted(get(u, "statuses")?),
+        class_id: -1,
+        class_slowed_id: -1,
+        def_table: table_of(get_opt(u, "defense_table")?),
+        pickadvance: get_opt(u, "pickadvance")?,
+        feeding_count: get_opt(u, "feeding_count")?,
+        trait_order: get_opt(u, "trait_order")?,
+        object_effects: effects.into_iter().map(Arc::new).collect(),
+        wml_role: get_opt(u, "wml_role")?,
+        ai_guardian: get_or(u, "ai_guardian", false)?,
+    })
+}
+
+pub(crate) fn unit_dict<'py>(py: Python<'py>, u: &UnitRec) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("id", &u.id)?;
     d.set_item("name", &u.name)?;
@@ -779,5 +965,16 @@ fn unit_dict<'py>(py: Python<'py>, u: &UnitRec) -> PyResult<Bound<'py, PyDict>> 
     d.set_item("statuses", u.statuses.clone())?;
     d.set_item("class_id", u.class_id)?;
     d.set_item("class_slowed_id", u.class_slowed_id)?;
+    d.set_item("defense_table", u.def_table.as_ref().map(|t| t.as_ref().clone()))?;
+    d.set_item("pickadvance", u.pickadvance.clone())?;
+    d.set_item("feeding_count", u.feeding_count)?;
+    d.set_item("trait_order", u.trait_order.clone())?;
+    let effects = PyList::empty(py);
+    for e in &u.object_effects {
+        effects.append(e.to_py(py)?)?;
+    }
+    d.set_item("object_effects", effects)?;
+    d.set_item("wml_role", u.wml_role.clone())?;
+    d.set_item("ai_guardian", u.ai_guardian)?;
     Ok(d)
 }
