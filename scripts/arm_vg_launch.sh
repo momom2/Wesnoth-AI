@@ -55,12 +55,16 @@ ulimit -n 65536 2>/dev/null || true
 
 # Terminal-failure handler (user ruling 2026-09-02): final escrow,
 # then STOP the box so a tripwire saves credit as well as the model.
-# Needs $WORKDIR/.vast_api_key + .instance_id (written at provision).
+# Needs $WORKDIR/.hf_token for the escrow; the stop reads the box's own
+# CONTAINER_ID and CONTAINER_API_KEY.
 fatal_stop() {
     echo "[armVG] terminal failure ($1) -- escrow + stop box"
     WORKDIR="$WORKDIR" REPO_ROOT=/workspace/wai \
         CAMPAIGN_FILE="$CAMPAIGN_FILE" HF_PREFIX="$HF_PREFIX" \
-        "$PY" scripts/box_stop_on_abort.py >> "$WORKDIR/train.log" 2>&1
+        "$PY" scripts/abort_escrow.py >> "$WORKDIR/train.log" 2>&1
+    # Stopped with the key Vast puts in each box's environment.
+    "$PY" scripts/box/box_stop.py --outcome "$WORKDIR/box_stop.jsonl" \
+        >> "$WORKDIR/train.log" 2>&1
 }
 
 stage="${1:-all}"

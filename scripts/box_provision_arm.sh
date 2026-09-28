@@ -1,7 +1,7 @@
 #!/bin/bash
 # One-shot box provisioning for an arm launch (2026-09-02).
 # Run ON the box after uploading to /workspace: the repo tarball,
-# datasets.tar.gz, hf_token.txt, vast_api_key.txt, and the probe
+# datasets.tar.gz, hf_token.txt, and the probe
 # reference seed. Usage:
 #   bash box_provision_arm.sh <instance_id> <repo_tarball> \
 #        [hf_path_of_calibrated_seed]
@@ -12,7 +12,6 @@ cd /workspace
 mkdir -p wai && tar xzf "$TAR" -C wai
 cd wai && tar xzf /workspace/datasets.tar.gz
 mv -f /workspace/hf_token.txt /workspace/.hf_token && chmod 600 /workspace/.hf_token
-mv -f /workspace/vast_api_key.txt /workspace/.vast_api_key && chmod 600 /workspace/.vast_api_key
 echo "$IID" > /workspace/.instance_id
 mkdir -p training/checkpoints
 [ -f /workspace/seed_imit_tierb_start.pt ] && \
