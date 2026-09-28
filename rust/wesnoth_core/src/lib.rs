@@ -599,6 +599,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // apply_end_turn, terrain changes and time areas on its own copy of
     // the map; heal_events, terrain_log, time_areas_export and
     // geometry_export feed the Python view.
-    m.add("__phase__", 20)?;
+    // 21: GameCore.encode_streams takes terrain_multi_hot (the hex terrain
+    // stream as each hex's terrain set).
+    m.add("__phase__", 21)?;
     Ok(())
 }

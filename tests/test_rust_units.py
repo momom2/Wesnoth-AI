@@ -21,7 +21,7 @@ import pytest
 from wesnoth_ai import game_core as gc
 from wesnoth_ai.paths import UNIT_STATS_PATH
 
-pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core phase 19 not available")
+pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core phase 21 not available")
 
 
 @pytest.fixture(scope="module")

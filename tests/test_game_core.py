@@ -297,6 +297,8 @@ def test_observation_from_core_equals_observe():
 
 
 BASES_AND_GATES = ((False, False), (True, False), (True, True), (False, True))
+# (relevant set, enemy-village gate, terrain multi-hot) per encoding checked.
+ENCODINGS = tuple((r, g, False) for r, g in BASES_AND_GATES) + ((False, False, True), (True, True, True))
 
 
 def _assert_raws_equal(py, core, label):
@@ -319,7 +321,8 @@ def _assert_raws_equal(py, core, label):
 
 def test_encode_raw_from_core_is_byte_identical():
     """Every RawEncoded field from the core equals the encoder's on the
-    Python state: both bases, fog on and off, the enemy-village gate."""
+    Python state: both bases, fog on and off, the enemy-village gate,
+    the one-class and the multi-hot terrain view."""
     from wesnoth_ai.encoder import encode_raw
     states = _states_for_encoding()
     type_to_id, faction_to_id = _vocab_of(states)
@@ -330,13 +333,14 @@ def test_encode_raw_from_core_is_byte_identical():
             for side in (1, 2):
                 gs.global_info.current_side = side
                 cs = gc.CoreState.from_state(gs)
-                for relevant, gate in BASES_AND_GATES:
+                for relevant, gate, multi in ENCODINGS:
                     kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id,
-                              relevant_set=relevant, fog_hides_enemy_villages=gate)
+                              relevant_set=relevant, fog_hides_enemy_villages=gate,
+                              terrain_multi_hot=multi)
                     _assert_raws_equal(encode_raw(gs, **kw), cs.encode_raw(**kw),
-                                       (side, fog, relevant, gate))
+                                       (side, fog, relevant, gate, multi))
                     n += 1
-    assert n >= 64
+    assert n >= 96
 
 
 def test_encode_raw_from_core_reads_the_other_player_on_a_three_side_state():
@@ -444,3 +448,61 @@ def _twin_game(seed, mini, max_turns, pol, state_key, total, attacks):
         total += len(py.command_history)
         attacks += sum(1 for c in py.command_history if c.kind == "attack")
     return total, attacks
+
+
+def test_an_event_terrain_change_reaches_everything_the_core_derives():
+    """A [terrain] event rewrites hexes to a keep, a village, a forest
+    and deep water at side 1's turn 2. The core's per-hex facts after it
+    must equal what the Python state rebuilds from the new codes: the
+    encoding in both terrain views, the observation, and each unit's
+    movement class against the pathfinder's arrays."""
+    from tools.pathfind_sim import _terrain_arrays_for
+    from tools.replay_dataset import _apply_command, _terrain_def_pct, _stats_for
+    from tools.replay_extract import parse_wml
+    from tools.scenario_events import collect_events
+    from wesnoth_ai.encoder import encode_raw
+    from wesnoth_ai.observe import map_geometry, observe
+    gs = _harvested()[0]
+    gs.global_info.turn_number, gs.global_info.current_side = 1, 2
+    keys = sorted((h.position.x, h.position.y) for h in gs.map.hexes)
+    picks = keys[3:8]
+    codes = ["Kh", "Gg^Vh", "Hh^Fp", "Wo", "Ss^Vhs"]
+    xs = ",".join(str(x + 1) for x, _ in picks)
+    ys = ",".join(str(y + 1) for _, y in picks)
+    body = "".join(f"[terrain]\nx={x + 1}\ny={y + 1}\nterrain={c}\n[/terrain]\n"
+                   for (x, y), c in zip(picks, codes))
+    root = parse_wml(f"[multiplayer]\n[event]\nname=side 1 turn 2\n{body}"
+                     f"[store_locations]\nvariable=zone\nx={xs}\ny={ys}\n[/store_locations]\n"
+                     "[time_area]\nfind_in=zone\n[time]\nlawful_bonus=-25\n[/time]\n[/time_area]\n"
+                     "[/event]\n[/multiplayer]\n")
+    gs.global_info._scenario_events = collect_events(root, "synthetic")
+    gs.global_info._wml_variables = {}
+    cs = gc.CoreState.from_state(copy.deepcopy(gs))
+    type_to_id, faction_to_id = _vocab_of([gs])
+    before = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, terrain_multi_hot=True)
+    for cmd in (["end_turn"], ["init_side", 1]):
+        _apply_command(gs, list(cmd))
+        cs.apply_command(list(cmd))
+    view = cs.to_state()
+    assert not cc.state_differences(gs, view, stash=False)
+    assert {view.global_info._terrain_codes[p] for p in picks} == set(codes)
+    after = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, terrain_multi_hot=True)
+    assert after.hex_terrain_ids.tobytes() != before.hex_terrain_ids.tobytes()
+    for multi in (False, True):
+        for relevant in (False, True):
+            kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id, relevant_set=relevant,
+                      terrain_multi_hot=multi)
+            _assert_raws_equal(encode_raw(gs, **kw), cs.encode_raw(**kw), (multi, relevant))
+    for side in (1, 2):
+        _assert_observations_equal(observe(gs, side, reach=True), cs.observe(side, reach=True))
+    geom_keys = cs.geometry().keys
+    for u in gs.map.units:
+        d = cs.core.unit_export(u.id)
+        mcost, dsub, defense = cs.core.class_arrays(d["class_id"])
+        _p, positions, _n, py_mcost, py_dsub = _terrain_arrays_for(u, gs)
+        at = {p: i for i, p in enumerate(positions)}
+        table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})
+        for k, p in enumerate(geom_keys):
+            assert (mcost[k], dsub[k]) == (py_mcost[at[p]], py_dsub[at[p]]), (u.name, p)
+            assert defense[k] == _terrain_def_pct(gs, p[0], p[1], table), (u.name, p)
+    assert map_geometry(view).keys  # the view's own geometry still builds

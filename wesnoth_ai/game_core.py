@@ -70,12 +70,12 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 20: the core reads the unit and terrain databases, resolves
+        # Phase 21: the core reads the unit and terrain databases, resolves
         # every terrain fact and movement class from the terrain codes, keeps
         # each unit's underscore attributes in its record, builds units
-        # itself (recruits, plague corpses, advancement) and runs the
-        # scenario's events.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 20:
+        # itself (recruits, plague corpses, advancement), runs the
+        # scenario's events and encodes the terrain set.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 21:
             load_databases(wesnoth_core)
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
@@ -266,7 +266,7 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 20 wheel)")
+            raise RuntimeError("wesnoth_core.GameCore is not available (phase 21 wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}
@@ -547,17 +547,13 @@ class CoreState:
         our_fac = sides[us][5] if 0 <= us < len(sides) else ""
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []
-        if terrain_multi_hot:
-            raise NotImplementedError(
-                "GameCore serves the one-class terrain view; the core's map bakes "
-                "one terrain id per hex, not the mask a terrain_multi_hot encoder reads")
         r_ids, r_stats = self._recruit_rows(own_recruits, type_to_id)
         d = core.encode_streams(
             side, bool(relevant_set), self._type_vocab(type_to_id), r_ids, r_stats,
             bool(fog_hides_enemy_villages),
             (enc.HP_NORM, enc.MOVES_NORM, enc.EXP_NORM, enc.COST_NORM, enc.GOLD_NORM,
              enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
-            enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS)
+            enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, bool(terrain_multi_hot))
         _require_global_width(d["global_feats"])
         static = enc._static_hex_arrays(self._view())
         if relevant_set:

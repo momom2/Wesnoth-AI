@@ -133,7 +133,7 @@ def test_the_core_fires_the_turn_events_as_the_python_applier():
     import pytest
     from wesnoth_ai.game_core import CoreState, game_core_class
     if game_core_class() is None:
-        pytest.skip("wesnoth_core phase 20 not available")
+        pytest.skip("wesnoth_core phase 21 not available")
     py = _game()
     core = CoreState.from_state(_game())
     for cmd in TWO_TURNS:
