@@ -42,20 +42,16 @@ changed since (phases 11 to 17) with CI tests only (docs/rust_port_plan.md
   commands' legality and their recorded strike data), the scenario-init and
   hidden-unit oracles, and the Rust tests.
 
-## Decisions for the user
+## Decisions (user rulings 2026-09-28)
 
-1. **Scenario events.** Recommended: the WML event interpreter stays in Python
-   and acts through core methods (place, modify or remove a unit, change a
-   hex's terrain, add a time area, set a variable), with no view round trip and
-   no core rebuild. Events concern a minority of maps and turns (61,331 of
-   about 5.5M corpus commands took the Python path on 2026-09-12), so speed
-   does not argue for Rust, and the interpreter is about 1,600 lines of WML
-   handling.
-   The alternative is a Rust interpreter.
-2. **The Python applier as the last oracle.** Recommended: it stays until the
-   full-corpus comparison (a CPU box, about $1) certifies the finished core,
-   then goes. After that the core is checked only against the engine's records
-   and oracles, which is what fidelity means anyway.
+1. **Scenario events: the interpreter moves to Rust.** A scenario's WML is
+   still read, preprocessed and parsed in Python when the scenario is built
+   (data); the core receives the parsed events and interprets them at run
+   time: their filters, variables and actions, terrain changes included.
+2. **The Python applier is the last oracle.** It stays until the full-corpus
+   comparison (a CPU box, about $1) certifies the finished core, then goes.
+   After that the core is checked only against the engine's records and
+   oracles.
 
 Refactor step 4a (moving the simulator's Python modules into
 `wesnoth_ai/sim/`) is parked: the port deletes much of what it moves, and the
@@ -74,9 +70,10 @@ run locally and on CI; the Python code it replaces stays until step 6.
    applier, since a trait is a list of effects and an advancement re-applies
    the unit's `[object]` effects; recruit construction with the trait roll;
    advancement (choice, AMLA, pick-advance); plague corpses; feeding. The core
-   then needs no Python for any command, and the Python event interpreter
-   applies its effects through the same Rust applier.
-2. Events through core methods (decision 1), terrain changes included.
+   then needs no Python for any command.
+2. The event interpreter in Rust (decision 1), on the effect applier of step
+   1: events fired at their engine moments, filters, variables, the actions
+   the pool and corpus scenarios use, terrain changes and time areas.
 3. The core's encoding serves `obs8` (the terrain set) and becomes the only
    encoding; observation additions for the next retrain are built there.
 4. Replay reconstruction and the simulator run on the core by default.
