@@ -25,6 +25,9 @@ mod core_observe;
 mod core_fog;
 mod core_encode;
 mod core_sim;
+mod db;
+mod terrain;
+mod wml;
 
 /// Movement cost >= this is Wesnoth's UNREACHABLE sentinel
 /// (movetype.hpp: UNREACHABLE = 99).
@@ -540,6 +543,11 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(combat::resolve_attack, m)?)?;
     m.add_function(wrap_pyfunction!(combat::random_int, m)?)?;
     m.add_class::<core::GameCore>()?;
+    m.add_function(wrap_pyfunction!(db::load_databases, m)?)?;
+    m.add_function(wrap_pyfunction!(db::databases_loaded, m)?)?;
+    m.add_function(wrap_pyfunction!(terrain::terrain_mvt_cost, m)?)?;
+    m.add_function(wrap_pyfunction!(terrain::terrain_def_pct, m)?)?;
+    m.add_function(wrap_pyfunction!(terrain::terrain_facts, m)?)?;
     // 9: rows_from_landable rejects a token index >= the row width
     // instead of writing it into the next unit's row.
     // 10: nightstalk's cover reads the illuminated time of day; the
@@ -562,6 +570,11 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // recruit_rejected_hexes).
     // 17: a time area's slot ignores the board's start slot (its cycle
     // arrives phased to turn 1).
-    m.add("__phase__", 17)?;
+    // 18: the unit and terrain databases load into the extension
+    // (load_databases); GameCore resolves the terrain facts and the
+    // movement classes from the hexes' terrain codes, registers unit
+    // types itself, and keeps each unit's underscore attributes in its
+    // record.
+    m.add("__phase__", 18)?;
     Ok(())
 }
