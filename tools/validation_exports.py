@@ -16,7 +16,7 @@ Fresh games export via `export_replay_from_scratch` (the path
 engine-verified on the tentacle maps, 2026-07-15). Midgame games
 (human-corpus starts) need the HUMAN PREFIX spliced in front of
 the sim's continuation: we re-walk the source dataset commands up
-to the cut boundary through `_apply_command`, harvesting the same
+to the cut boundary on the Rust core, harvesting the same
 side-channels `WesnothSim.step` records (checkup strikes,
 advancement choices, recruit [from] positions), wrap them as
 RecordedCommands, and compose the save with the dataset's own
@@ -139,19 +139,16 @@ def side_economy_from_dataset(starting_sides: list) -> dict:
 
 def _walk_prefix_commands(data: dict, boundary_idx: int):
     """Re-apply the source game's commands[:boundary_idx] on a fresh
-    reconstruction, harvesting per-command extras exactly like
-    `WesnothSim.step` does. Returns (RecordedCommand list, final gs).
+    reconstruction on the Rust core, harvesting per-command extras
+    exactly like `WesnothSim.step` does. Returns (RecordedCommand list,
+    a view of the final position).
     """
-    from wesnoth_ai.classes import Position  # noqa: F401  (Position via gs)
-    from tools.replay_dataset import (_apply_command,
-                                      _build_initial_gamestate,
-                                      _setup_scenario_events)
+    from tools.replay_dataset import record_core
     from tools.wesnoth_sim import RecordedCommand
 
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    cs = record_core(data)
     history = []
-    side_now = gs.global_info.current_side or 1
+    side_now = int(cs.core.current_side) or 1
     for cmd in data.get("commands", [])[:boundary_idx]:
         if not cmd:
             continue
@@ -160,30 +157,28 @@ def _walk_prefix_commands(data: dict, boundary_idx: int):
             side_now = int(cmd[1])
         extras: dict = {}
         if kind in ("recruit", "recall"):
-            for u in gs.map.units:
+            for u in cs.to_state().map.units:
                 if u.is_leader and u.side == side_now:
                     extras["leader_pos"] = (u.position.x, u.position.y)
                     break
-        _apply_command(gs, cmd)
+        cs.apply_command(list(cmd))
         if kind == "attack":
-            # Advancement [choose] events from the applier's
-            # side-channel: exact per-step records incl. AMLA and
-            # multi-advance chains, carrying the HUMAN's recorded
-            # choice indices (the queue values _advance_unit_once
-            # consumed), not a guessed 0.
-            advance_choices = list(getattr(
-                gs.global_info, "_last_advance_events", []) or [])
+            # Advancement [choose] events from the core's side channel:
+            # exact per-step records incl. AMLA and multi-advance chains,
+            # carrying the HUMAN's recorded choice indices (the queue
+            # values the advancement consumed), not a guessed 0.
+            gi = cs.to_state().global_info
+            advance_choices = list(getattr(gi, "_last_advance_events", []) or [])
             if advance_choices:
-                setattr(gs.global_info, "_last_advance_events", [])
+                cs.core.clear_last_advance_events()
                 extras["advance_choices"] = advance_choices
-            strikes = getattr(gs.global_info,
-                              "_last_checkup_strikes", None)
+            strikes = getattr(gi, "_last_checkup_strikes", None)
             if strikes:
                 extras["checkup_strikes"] = strikes
-                setattr(gs.global_info, "_last_checkup_strikes", None)
+                cs.core.set_last_checkup_strikes([])
         history.append(RecordedCommand(
             kind=kind, side=side_now, cmd=list(cmd), extras=extras))
-    return history, gs
+    return history, cs.to_state()
 
 
 def export_midgame_replay(sim, out_path: Path) -> None:

@@ -861,7 +861,7 @@ class WesnothSim:
         replay reconstruction / diff_replay keep the deterministic path
         ([choose] queue, else targets[0]). The channel takes the
         current `_seed_salt` at once, as a game record's rebuild does
-        (tools/game_record.start_state)."""
+        (tools/game_record.start_core)."""
         if self.core is not None:
             self.core.core.set_global_int("advance_uniform", 1)
             self._refresh_view()
