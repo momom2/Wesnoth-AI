@@ -32,6 +32,7 @@ def _play(out: Path, seed: int):
 
 def test_the_forced_faction_is_recorded_as_played(tmp_path, monkeypatch):
     from wesnoth_ai.rules import scenario_pool
+    monkeypatch.setattr(scenario_pool, "FORCED_FACTION", "Knalgan Alliance")
     result, setup = _play(tmp_path / "knalgan", 7)
     assert result["forced_faction"] == "Knalgan Alliance"
     assert "Knalgan Alliance" in (setup["faction1"], setup["faction2"])
@@ -72,18 +73,20 @@ def test_dirs_under_different_forced_factions_do_not_pool(tmp_path):
         elo_collect.main(["x", str(uniform), "--catalog-path", str(cat)])
 
 
-def test_one_outdir_holds_one_forced_faction(tmp_path):
+def test_one_outdir_holds_one_forced_faction(tmp_path, monkeypatch):
     """The batch pre-scan and elo_collect refuse a dir that would mix."""
     from tools import elo_collect
     from tools.run_elo_batch import main
-    out = _write_dir(tmp_path / "games", (10000,), forced_faction="none")
+    from wesnoth_ai.rules import scenario_pool
+    monkeypatch.setattr(scenario_pool, "FORCED_FACTION", None)
+    out = _write_dir(tmp_path / "games", (10000,), forced_faction="Knalgan Alliance")
     with pytest.raises(SystemExit, match="forced"):
         main(["x", "--label-a", "A", "--spec-a", "dummy", "--label-b", "B",
               "--spec-b", "dummy", "--outdir", str(out), "--games", "1",
               "--mcts-sims", "0", "--raw-temperature-a", "0", "--raw-temperature-b", "0",
               "--device", "cpu", "--jobs", "1", "--max-extra-games", "0",
               "--time-budget-min", "5", "--min-free-mb", "0"])
-    (out / "game_A_B_s2_10001.json").write_text(json.dumps(_decisive(10001)),
-                                                encoding="utf-8")
+    (out / "game_A_B_s2_10001.json").write_text(
+        json.dumps(_decisive(10001, forced_faction="none")), encoding="utf-8")
     with pytest.raises(SystemExit, match="mixed forced_faction"):
         elo_collect.main(["x", str(out), "--no-catalog"])

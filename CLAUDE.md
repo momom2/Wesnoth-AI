@@ -922,9 +922,10 @@ procedure tag is `raw:t0`, or `raw:t0+eo-1.5` with the offset; the
 legacy sampler (no raw temperature) is `raw` and never mixes with them
 in one outdir; searched players carry `mcts:<sims>` (Gumbel root) or
 `tcs:<sims>`. Every game draws a map from the 21-map Ladder pool with
-fog and puts the Knalgan Alliance on one side (`FORCED_FACTION` in
-`wesnoth_ai/rules/scenario_pool.py`, described with the scenario pool under
-Architecture), which each result records as `forced_faction`. Run on a
+fog and both factions uniformly (`FORCED_FACTION` in
+`wesnoth_ai/rules/scenario_pool.py` is None since 2026-09-28; described
+with the scenario pool under Architecture), which each result records as
+`forced_faction`. Run on a
 4090 box with `--device cuda --jobs 20 --persistent-workers
 --shared-inference` (docs/box_specs.md; every match script since
 2026-09-19 runs 20 workers). The last two are `store_true` and default
@@ -1003,20 +1004,17 @@ stays at the root. So a bare name like `classes.py` below means
   turn-conditional bonuses). The actor pool plays with a zero reward.
 - `wesnoth_ai/rules/scenario_pool.py` / `wesnoth_ai/rules/scenarios.py` — scenario
   randomization: the Ladder Era 21-map whitelist (fogged or fogless),
-  the mini maps, the factions and leaders. `random_setup` forces one
-  faction onto one side of the game unless its caller passes
-  `forced_faction=None`: `FORCED_FACTION` is the Knalgan Alliance (user
-  request 2026-04-30), put on side 1 or side 2 at random, and the other
-  side draws uniformly from the six default-era factions, Knalgan
-  included (a mirror in about one game in six). The eval games
-  (`tools/elo_eval_game.py`, which every `run_elo_batch` match plays,
-  and the older `elo_ladder` and `eval_sim` unless told otherwise), the
-  in-process `sim_self_play` games (`--forced-faction none` turns it
-  off, another name forces that faction) and the demo all have a
-  Knalgan side; `az_loop`'s actors pass `forced_faction=None` and draw
-  both factions uniformly. Every `run_elo_batch` match since 2026-07-04
-  was played this way (`run_elo_batch.LEGACY_FORCED_FACTION`), the
-  reference players' numbers included.
+  the mini maps, the factions and leaders. `random_setup` puts
+  `FORCED_FACTION` on one side of the game when it is set, and both
+  sides draw uniformly from the six default-era factions when it is None,
+  its value since 2026-09-28 (user ruling). From 2026-07-04 to
+  2026-09-27 it was the Knalgan Alliance (user request 2026-04-30), so
+  every `run_elo_batch` match of that period, the reference players'
+  numbers included, had a Knalgan side (`LEGACY_FORCED_FACTION` for
+  records without the field); a match under the uniform draw does not
+  chain onto them. `sim_self_play --forced-faction NAME` still forces a
+  faction for its in-process games; `az_loop`'s actors always drew both
+  factions uniformly.
 - `tools/mcts.py` / `tools/mcts_policy.py` — MCTS implementation
   and the MCTSPolicy adapter that wraps TransformerPolicy.
 - The actor pool (self-play generation): `tools/az_loop.py` drives

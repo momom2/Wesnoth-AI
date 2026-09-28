@@ -61,9 +61,10 @@ python tools/run_elo_batch.py \
 python tools/elo_collect.py eval_games/cand_vs_ref --no-catalog
 ```
 
-Every match game is drawn from the 21-map Ladder pool with fog, and one
-of its sides plays the Knalgan Alliance (`FORCED_FACTION` in
-`wesnoth_ai/rules/scenario_pool.py`; CLAUDE.md, "Eval procedure").
+Every match game is drawn from the 21-map Ladder pool with fog, and both
+factions are drawn uniformly from the six default-era factions
+(`FORCED_FACTION` in `wesnoth_ai/rules/scenario_pool.py`; CLAUDE.md,
+"Eval procedure").
 
 Imitation training is `tools/supervised_train.py` (its docstring gives
 the reference recipe); self-play legs run through `tools/az_loop.py`

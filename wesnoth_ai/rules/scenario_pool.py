@@ -306,15 +306,12 @@ class ScenarioSetup:
                 f"vs {self.faction2} ({self.leader2})")
 
 
-# Faction that MUST appear on at least one side every game.
-# Set to None to fall back to fully-uniform faction sampling.
-# Currently locked to Knalgan Alliance per user request 2026-04-30:
-# every self-play game has at least one side playing Knalgan, so the
-# policy gets concentrated training as / against that faction. The
-# OTHER side samples uniformly from all 6 factions including
-# Knalgan, so Knalgan-vs-Knalgan mirror matches still happen
-# (~16.7% of games); cross-faction Knalgan matches are ~83.3%.
-FORCED_FACTION: Optional[str] = "Knalgan Alliance"
+# A faction to put on one side of every game (the other side samples
+# uniformly from the six default-era factions), or None for both sides
+# uniform. None since 2026-09-28 (user ruling, lifting the Knalgan
+# Alliance lock of 2026-04-30); every eval result records it as
+# `forced_faction`.
+FORCED_FACTION: Optional[str] = None
 
 
 def classify_scenario(scenario_id: str) -> str:
