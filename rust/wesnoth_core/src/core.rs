@@ -545,47 +545,7 @@ impl GameCore {
 
     /// Add a unit from its field dict (wesnoth_ai.game_core.unit_fields).
     fn add_unit(&mut self, u: &Bound<'_, PyDict>) -> PyResult<usize> {
-        let attacks_in: Vec<(i64, i64, i64, bool, Vec<String>)> = get(u, "attacks")?;
-        let effects: Vec<Wml> = get_or(u, "object_effects", Vec::new())?;
-        let rec = UnitRec {
-            type_idx: -1,
-            id: get(u, "id")?,
-            name: get(u, "name")?,
-            name_id: get(u, "name_id")?,
-            side: get(u, "side")?,
-            is_leader: get(u, "is_leader")?,
-            x: get(u, "x")?,
-            y: get(u, "y")?,
-            hex: -1,
-            max_hp: get(u, "max_hp")?,
-            max_moves: get(u, "max_moves")?,
-            max_exp: get(u, "max_exp")?,
-            cost: get(u, "cost")?,
-            alignment: get(u, "alignment")?,
-            levelup_names: get(u, "levelup_names")?,
-            current_hp: get(u, "current_hp")?,
-            current_moves: get(u, "current_moves")?,
-            current_exp: get(u, "current_exp")?,
-            has_attacked: get(u, "has_attacked")?,
-            attacks: attacks_in.into_iter().map(|(t, n, d, r, sp)| AttackRec {
-                type_id: t, strikes: n, damage: d, ranged: r, specials: sorted(sp),
-            }).collect(),
-            resistances: get(u, "resistances")?,
-            defenses: get(u, "defenses")?,
-            movement_costs: get(u, "movement_costs")?,
-            abilities: sorted(get(u, "abilities")?),
-            traits: sorted(get(u, "traits")?),
-            statuses: sorted(get(u, "statuses")?),
-            class_id: -1,
-            class_slowed_id: -1,
-            def_table: table_of(get_opt(u, "defense_table")?),
-            pickadvance: get_opt(u, "pickadvance")?,
-            feeding_count: get_opt(u, "feeding_count")?,
-            trait_order: get_opt(u, "trait_order")?,
-            object_effects: effects.into_iter().map(Arc::new).collect(),
-            wml_role: get_opt(u, "wml_role")?,
-            ai_guardian: get_or(u, "ai_guardian", false)?,
-        };
+        let rec = unit_from_dict(u)?;
         self.insert_unit(rec)
     }
 
@@ -657,7 +617,7 @@ impl GameCore {
     }
 
     /// `team::spend_gold`: bare subtraction, no clamp (a recruit's cost).
-    fn spend_gold(&mut self, side: i64, amount: i64) {
+    pub fn spend_gold(&mut self, side: i64, amount: i64) {
         if side >= 1 && (side as usize) <= self.sides.len() {
             self.sides[side as usize - 1].current_gold -= amount;
         }
@@ -876,6 +836,53 @@ impl GameCore {
         hs.add_i(g.rng_request_counter);
         hs.value()
     }
+}
+
+/// A unit record from its field dict (`game_core.unit_fields`, or
+/// `unit_dict`'s own output): the type index, hex and classes are left
+/// for the core that takes it.
+pub(crate) fn unit_from_dict(u: &Bound<'_, PyDict>) -> PyResult<UnitRec> {
+    let attacks_in: Vec<(i64, i64, i64, bool, Vec<String>)> = get(u, "attacks")?;
+    let effects: Vec<Wml> = get_or(u, "object_effects", Vec::new())?;
+    Ok(UnitRec {
+        type_idx: -1,
+        id: get(u, "id")?,
+        name: get(u, "name")?,
+        name_id: get(u, "name_id")?,
+        side: get(u, "side")?,
+        is_leader: get(u, "is_leader")?,
+        x: get(u, "x")?,
+        y: get(u, "y")?,
+        hex: -1,
+        max_hp: get(u, "max_hp")?,
+        max_moves: get(u, "max_moves")?,
+        max_exp: get(u, "max_exp")?,
+        cost: get(u, "cost")?,
+        alignment: get(u, "alignment")?,
+        levelup_names: get(u, "levelup_names")?,
+        current_hp: get(u, "current_hp")?,
+        current_moves: get(u, "current_moves")?,
+        current_exp: get(u, "current_exp")?,
+        has_attacked: get(u, "has_attacked")?,
+        attacks: attacks_in.into_iter().map(|(t, n, d, r, sp)| AttackRec {
+            type_id: t, strikes: n, damage: d, ranged: r, specials: sorted(sp),
+        }).collect(),
+        resistances: get(u, "resistances")?,
+        defenses: get(u, "defenses")?,
+        movement_costs: get(u, "movement_costs")?,
+        abilities: sorted(get(u, "abilities")?),
+        traits: sorted(get(u, "traits")?),
+        statuses: sorted(get(u, "statuses")?),
+        class_id: -1,
+        class_slowed_id: -1,
+        def_table: table_of(get_opt(u, "defense_table")?),
+        pickadvance: get_opt(u, "pickadvance")?,
+        feeding_count: get_opt(u, "feeding_count")?,
+        trait_order: get_opt(u, "trait_order")?,
+        object_effects: effects.into_iter().map(Arc::new).collect(),
+        wml_role: get_opt(u, "wml_role")?,
+        ai_guardian: get_or(u, "ai_guardian", false)?,
+    })
 }
 
 pub(crate) fn unit_dict<'py>(py: Python<'py>, u: &UnitRec) -> PyResult<Bound<'py, PyDict>> {

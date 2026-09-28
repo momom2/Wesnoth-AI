@@ -2,11 +2,12 @@
 //! of the attack branch of `tools/replay_dataset._apply_command` and of
 //! `build_attack_context` / `_to_combat_unit` (the snapshots, the
 //! terrain defense, the lawful bonus with illumination, leadership,
-//! backstab) over the combat kernel (combat.rs). The kernel applies the
-//! outcome to the two units (hit points, experience, statuses, feeding,
-//! deaths) and reports what stays Python's: the advancement of a
-//! survivor at its experience cap and the corpse a plague kill raises
-//! (`wesnoth_ai.game_core.CoreState._apply_attack`).
+//! backstab) over the combat kernel (combat.rs). The command applies the
+//! outcome to the two units (hit points, experience, statuses, deaths),
+//! then in the applier's order the attacker's feeding and advancement or
+//! the corpse its death raises, the defender's feeding, its side's refog
+//! and its advancement, or the corpse and the refog of its death
+//! (core_units.rs); it reports the fight for the engagement telemetry.
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -202,10 +203,10 @@ impl GameCore {
     /// `_apply_command(["attack", ax, ay, dx, dy, a_weapon, d_weapon,
     /// seed, choices])`. The choices join the advancement queue first;
     /// no unit on either hex or no seed (an attack aborted mid-way)
-    /// ends the command there. Returns None then, else the facts the
-    /// wrapper finishes with: ids, names, sides, costs, positions
-    /// before the fight, who lives, who feeds, who advances, whether
-    /// a plague corpse rises on either hex, the damage each took.
+    /// ends the command there. Returns None then, else the fight's facts
+    /// for the telemetry: ids, names, sides, costs, positions before the
+    /// fight, who lives, who fed, who reached its experience cap, whether
+    /// a plague corpse rose on either hex, the damage each took.
     #[pyo3(signature = (ax, ay, dx, dy, a_weapon, d_weapon, seed, has_seed, choices))]
     #[allow(clippy::too_many_arguments)]
     fn apply_attack<'py>(&mut self, py: Python<'py>, ax: i64, ay: i64, dx: i64, dy: i64, a_weapon: i64,
@@ -288,11 +289,6 @@ impl GameCore {
             r.set_item("att_advances", a_alive && a_xp >= att.max_exp)?;
             r.set_item("dfd_advances", d_alive && d_xp >= dfd.max_exp)?;
             r.set_item("plague_forward", plague_forward)?;
-            // attack.cpp:1456-1458: the defender's side refogs when the
-            // defender died, was slowed or was petrified in the fight;
-            // the wrapper does it after the corpses rise.
-            r.set_item("dfd_refog", !d_alive || (out[7] != 0 && !dfd_was_slowed)
-                                    || (out[9] != 0 && !dfd_was_petrified))?;
             r.set_item("plague_reverse", plague_reverse)?;
             r.set_item("dmg_to_defender", (dfd.current_hp - d_hp).max(0))?;
             r.set_item("dmg_to_attacker", (att.current_hp - a_hp).max(0))?;
@@ -323,11 +319,48 @@ impl GameCore {
                 u.current_exp = d_xp;
             }
         }
+        let att_advances = a_alive && a_xp >= self.units[a].max_exp;
+        let dfd_advances = d_alive && d_xp >= self.units[d].max_exp;
+        let dfd_refog = !d_alive || (out[7] != 0 && !dfd_was_slowed) || (out[9] != 0 && !dfd_was_petrified);
+        let (att_name, dfd_name) = (self.units[a].name.clone(), self.units[d].name.clone());
+        let (att_pos, dfd_pos) = ((self.units[a].x, self.units[a].y), (self.units[d].x, self.units[d].y));
         if !a_alive {
             self.remove_unit(&att_id)?;
         }
         if !d_alive {
             self.remove_unit(&dfd_id)?;
+        }
+        if a_alive {
+            let i = self.unit_pos(&att_id).expect("the attacker lives");
+            if att_feed {
+                self.feed(i);
+            }
+            if att_advances {
+                self.advance_unit(i);
+            }
+        } else if plague_reverse {
+            self.spawn_corpse(att_pos.0, att_pos.1, dfd_side, &att_name)?;
+        }
+        if d_alive {
+            let i = self.unit_pos(&dfd_id).expect("the defender lives");
+            if dfd_feed {
+                self.feed(i);
+            }
+            // attack.cpp:1150-1185 and 1456-1458: the defender's side
+            // refogs when the defender was slowed or petrified, before
+            // its advancement.
+            if dfd_refog {
+                self.refog(dfd_side);
+            }
+            if dfd_advances {
+                let i = self.unit_pos(&dfd_id).expect("the defender lives");
+                self.advance_unit(i);
+            }
+        } else {
+            if plague_forward {
+                self.spawn_corpse(dfd_pos.0, dfd_pos.1, att_side, &dfd_name)?;
+            }
+            self.refog(dfd_side);
         }
         Ok(Some(r))
     }

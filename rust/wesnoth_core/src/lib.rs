@@ -25,8 +25,11 @@ mod core_observe;
 mod core_fog;
 mod core_encode;
 mod core_sim;
+mod core_units;
 mod db;
+mod effects;
 mod terrain;
+mod units;
 mod wml;
 
 /// Movement cost >= this is Wesnoth's UNREACHABLE sentinel
@@ -548,6 +551,13 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(terrain::terrain_mvt_cost, m)?)?;
     m.add_function(wrap_pyfunction!(terrain::terrain_def_pct, m)?)?;
     m.add_function(wrap_pyfunction!(terrain::terrain_facts, m)?)?;
+    m.add_function(wrap_pyfunction!(units::build_unit_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(units::build_recruit_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(units::build_corpse_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(units::roll_type_traits, m)?)?;
+    m.add_function(wrap_pyfunction!(units::seed_int, m)?)?;
+    m.add_function(wrap_pyfunction!(effects::apply_effect_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(effects::drain_warnings, m)?)?;
     // 9: rows_from_landable rejects a token index >= the row width
     // instead of writing it into the next unit's row.
     // 10: nightstalk's cover reads the illuminated time of day; the
@@ -575,6 +585,12 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // movement classes from the hexes' terrain codes, registers unit
     // types itself, and keeps each unit's underscore attributes in its
     // record.
-    m.add("__phase__", 18)?;
+    // 19: the core builds units itself: recruits with their trait roll,
+    // plague corpses, advancement (the choice queue, pick-advance, AMLA,
+    // traits and [object] effects re-applied), feeding; apply_recruit and
+    // apply_pickadvance; apply_attack finishes its fed kills, advancements
+    // and corpses. The builders and the [effect] applier are exposed for
+    // the differential tests.
+    m.add("__phase__", 19)?;
     Ok(())
 }

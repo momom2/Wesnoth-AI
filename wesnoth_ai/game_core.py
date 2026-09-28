@@ -25,13 +25,16 @@ shallowly. A unit's underscore attributes are fields of its core record
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
+
+import logging
 
 import numpy as np
 
 from wesnoth_ai.classes import (Attack, GameState, GlobalInfo, Map, Position, SideInfo,
                                 TerrainModifiers, Unit, opponent_of)
+
+log = logging.getLogger("game_core")
 
 _KERNEL_CHECKED = False
 _GAME_CORE = None
@@ -62,10 +65,11 @@ def game_core_class():
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
-        # Phase 18: the core reads the unit and terrain databases, resolves
-        # every terrain fact and movement class from the terrain codes, and
-        # keeps each unit's underscore attributes in its record.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 18:
+        # Phase 19: the core reads the unit and terrain databases, resolves
+        # every terrain fact and movement class from the terrain codes, keeps
+        # each unit's underscore attributes in its record, and builds units
+        # itself (recruits, plague corpses, advancement).
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 19:
             load_databases(wesnoth_core)
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
@@ -315,7 +319,7 @@ class CoreState:
 
     # ---- commands ----------------------------------------------------
 
-    RUST_KINDS = ("init_side", "end_turn", "move", "attack", "recruit")
+    RUST_KINDS = ("init_side", "end_turn", "move", "attack", "recruit", "pickadvance")
 
     def apply_command(self, cmd: list) -> str:
         """One replay or simulator command (`_apply_command`'s
@@ -323,6 +327,11 @@ class CoreState:
         when it went through a Python state (a kind the core does not
         apply yet, or an init_side or end_turn that would fire a
         scenario event: the core runs no events)."""
+        path = self._apply(cmd)
+        _log_core_warnings()
+        return path
+
+    def _apply(self, cmd: list) -> str:
         kind = cmd[0] if cmd else ""
         if kind == "init_side" and not self._events_pending(cmd):
             self.core.apply_init_side(int(cmd[1]))
@@ -338,43 +347,20 @@ class CoreState:
             self._apply_attack(cmd)
             return "rust"
         if kind == "recruit":
-            self._apply_recruit(cmd)
+            seed = cmd[4] if len(cmd) > 4 else ""
+            self.core.apply_recruit(str(cmd[1]), int(cmd[2]), int(cmd[3]), str(seed or ""))
+            return "rust"
+        if kind == "pickadvance":
+            self.core.apply_pickadvance(int(cmd[1]), int(cmd[2]), str(cmd[3] or ""), str(cmd[4] or ""),
+                                        bool(cmd[5]), bool(cmd[6]))
             return "rust"
         self._python_path(cmd)
         return "python"
 
-    def _apply_recruit(self, cmd: list) -> None:
-        """The recruit branch of the applier: the unit from the Python
-        builder (`_build_recruit_unit`, the trait roll from the seed),
-        placed unable to act this turn, the game's pick-advance
-        override on it, the uid counter and the side's gold."""
-        from tools.replay_dataset import _build_recruit_unit, _rebuild_unit, _stats_for
-        unit_type, tx, ty = str(cmd[1]), int(cmd[2]), int(cmd[3])
-        trait_seed = cmd[4] if len(cmd) > 4 else ""
-        core = self.core
-        g = core.globals_export()
-        side = int(g["current_side"])
-        ids = core.unit_ids()
-        next_uid = max((int(i[1:]) for i in ids if i.startswith("u") and i[1:].isdigit()), default=0) + 1
-        new_unit = _build_recruit_unit(unit_type, side, tx, ty, next_uid, game_id=self.game_id,
-                                       trait_seed_hex=trait_seed, exp_modifier=int(g["experience_modifier"]))
-        spawned = _rebuild_unit(new_unit, current_moves=0, has_attacked=True)
-        _choices, pick, _events = core.advance_state_export()
-        for (pside, ptype, lst) in pick:
-            if pside == side and ptype == unit_type and lst:
-                setattr(spawned, "_pickadvance", list(lst))
-        self._add_unit(spawned)
-        core.clear_unit_fog(spawned.id)
-        core.set_global_int("next_uid_counter", int(g["next_uid_counter"]) + 1)
-        core.spend_gold(side, int(_stats_for(unit_type).get("cost", 14)))
-
     def _apply_attack(self, cmd: list) -> None:
-        """The attack on the core, then what the kernel leaves to the
-        Python builders in the applier's order: the attacker's feeding
-        and advancement, the corpse of an attacker killed by a plague
-        counter, the defender's feeding, its side's refog when the
-        fight killed, slowed or petrified it, and its advancement, the
-        corpse of a defender killed by plague."""
+        """The attack on the core, which finishes its fed kills,
+        advancements and plague corpses; the fight goes to the
+        engagement telemetry."""
         from tools.engagement_stats import emit_event
         from wesnoth_ai.combat import seed_int_of
         ax, ay, dx, dy, a_weapon = (int(v) for v in cmd[1:6])
@@ -390,65 +376,6 @@ class CoreState:
                    defender_died=not out["dfd_alive"], attacker_died=not out["att_alive"],
                    attacker_name=out["att_name"], defender_name=out["dfd_name"],
                    attacker_cost=out["att_cost"], defender_cost=out["dfd_cost"])
-        if out["att_alive"]:
-            if out["att_feed"]:
-                self._feed(out["att_id"])
-            if out["att_advances"]:
-                self._advance(out["att_id"])
-        elif out["plague_reverse"]:
-            self._spawn_corpse(out["att_x"], out["att_y"], out["dfd_side"], out["att_name"])
-        if out["dfd_alive"]:
-            if out["dfd_feed"]:
-                self._feed(out["dfd_id"])
-            if out["dfd_refog"]:
-                self.core.refog_side(out["dfd_side"])
-            if out["dfd_advances"]:
-                self._advance(out["dfd_id"])
-        else:
-            if out["plague_forward"]:
-                self._spawn_corpse(out["dfd_x"], out["dfd_y"], out["att_side"], out["dfd_name"])
-            self.core.refog_side(out["dfd_side"])
-
-    def _feed(self, uid: str) -> None:
-        """One more fed kill on the unit's count."""
-        n = self.core.unit_export(uid)["feeding_count"]
-        self.core.update_unit(uid, {"feeding_count": int(n or 0) + 1})
-
-    def _advance(self, uid: str) -> None:
-        """`_maybe_advance_unit` on a carrier holding the unit and the
-        advancement globals; the result replaces the unit, the queue,
-        the events and the counter go back to the core."""
-        from tools.replay_dataset import _maybe_advance_unit
-        core = self.core
-        g = core.globals_export()
-        choices, pick, events = core.advance_state_export()
-        unit = unit_from_fields(core.unit_export(uid))
-        gi = SimpleNamespace(
-            _experience_modifier=int(g["experience_modifier"]), _advance_choices=list(choices),
-            _last_advance_events=[tuple(e) for e in events], _advance_uniform=bool(g["advance_uniform"]),
-            _advance_salt=g["advance_salt"], _advance_counter=int(g["advance_counter"]),
-            _pickadvance_game={(side, t): list(lst) for (side, t, lst) in pick})
-        carrier = SimpleNamespace(game_id=self.game_id, map=SimpleNamespace(units={unit}), global_info=gi)
-        advanced = _maybe_advance_unit(carrier, unit)
-        core.remove_unit(uid)
-        if advanced is not None:
-            self._add_unit(advanced)
-            core.clear_unit_fog(advanced.id)
-        core.set_advance_state([int(c) if isinstance(c, int) else -1 for c in gi._advance_choices],
-                               list(pick), [(int(a), int(b)) for a, b in gi._last_advance_events])
-        core.set_global_int("advance_counter", int(gi._advance_counter))
-
-    def _spawn_corpse(self, x: int, y: int, side: int, dead_name: str) -> None:
-        """The plague corpse (`_build_plague_corpse`) with the next unit
-        id of the units left, and the uid counter bumped."""
-        from tools.replay_dataset import _build_plague_corpse
-        ids = self.core.unit_ids()
-        next_uid = max((int(i[1:]) for i in ids if i.startswith("u") and i[1:].isdigit()), default=0) + 1
-        g = self.core.globals_export()
-        corpse = _build_plague_corpse(dead_name, int(side), int(x), int(y), next_uid, self.game_id,
-                                      int(g["experience_modifier"]))
-        self._add_unit(corpse)
-        self.core.set_global_int("next_uid_counter", int(g["next_uid_counter"]) + 1)
 
     # ---- the observation and the encoding over the core ----------------
 
@@ -632,6 +559,14 @@ class CoreState:
             flat += [int(s["chance"]), int(bool(s["hits"])), int(s["damage"]), int(bool(d["dies"]))]
         core.set_last_checkup_strikes(flat)
         core.set_fog_cleared(_fog_cleared_rows(gi))
+
+
+def _log_core_warnings() -> None:
+    """The warnings the extension recorded (an unmodelled [effect]
+    apply_to), each once per process."""
+    import wesnoth_core
+    for text in wesnoth_core.drain_warnings():
+        log.warning("%s", text)
 
 
 def _fog_cleared_rows(gi) -> List[Tuple[int, List[Tuple[int, int]]]]:
