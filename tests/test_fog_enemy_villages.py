@@ -28,7 +28,8 @@ def _state_with_enemy_villages():
     and on hexes we do not (the owner map is what the sim keeps; the
     hexes need no village terrain for either count); returns how many
     lie inside and outside our view."""
-    gs = fresh_scenario_sim(seed=2, mini=False).gs
+    import copy
+    gs = copy.deepcopy(fresh_scenario_sim(seed=2, mini=False).gs)   # a copy to edit
     side = gs.global_info.current_side
     enemy = 3 - side
     seen = visible_hexes_for(gs, side)

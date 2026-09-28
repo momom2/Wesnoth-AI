@@ -36,13 +36,30 @@ What Python still does, and step 6 removes:
 
 A view (`CoreState.to_state`) is a copy: editing it changes nothing in the
 core, and the tests that did (ten files) now hand an edited view back
-(`sim_test_helpers.commit_view`). For the encoding, the observation and the
-legality mask to come from the core, a view must reach its core. The
-simulator's view mirrors the live core (it is refreshed in place after every
-command); a reconstruction view needs a snapshot (`core.fork()`, a clone of the
-unit records), since the core moves on while a consumer may keep the view. A
-state built by hand (tests, the live bridge) gets a core built from it
-(`CoreState.from_state`, a few milliseconds). With every state reaching a core,
-the Python encoding, observation and reach references and the applier go,
-with the differential tests that compared against them; the core is then
+(`sim_test_helpers.commit_view`). A view reaches its core through
+`game_core.bind_view`: the simulator's view mirrors the live core (refreshed in
+place after every command), a reconstruction view is bound to a snapshot
+(`CoreState.fork`), and `encoder.encode_raw` encodes a bound view from its
+core, the observation and the legality mask's reach rows included. With
+`WESNOTH_CHECK_VIEWS` set (the test suite sets it) a bound view edited in
+place is refused. A state built by hand (tests, the live bridge) gets a core
+built from it (`CoreState.from_state`, a few milliseconds).
+
+Rules Python still computes from a view, each to become a core method with a
+differential test first, then to lose its Python version:
+
+| rule | Python | production callers |
+|---|---|---|
+| the defender's weapon choice (the engine's rating) | `combat_outcomes.counter_weapon_choice`, `choose_counter_weapon` | the simulator's attack, the neutral AI |
+| exact fight outcomes, advancement branches included | `combat_outcomes.enumerate_attack_outcomes`, `replay_dataset.enumerate_advancement_outcomes` | MCTS chance nodes, the neutral AI, the swap detector |
+| the route of a move order and the hex to attack from | `pathfind_sim.unit_reach`, `route_to` (over `_terrain_arrays_for`) | `WesnothSim` order translation and `_find_attack_hex`, the neutral AI |
+| the units a side sees | `visibility.units_visible_to` | the sampler's fallback, `material`, `gbc`, `turn_search` |
+
+Then the deletions: the applier and its builders (the initial state's units
+built by the core's `build_unit_fields`), `tools/traits.py`, the handlers of
+`tools/scenario_events.py` (its parsing, `collect_events` and
+`terrain_writes_applied` stay for the views), the Python combat resolver, the
+Python reach and observation and `encoder.encode_raw`'s Python body; about 25
+tools that replay a record move to `replay_dataset.record_core`. The
+differential tests that compared against the deleted code go; the core is then
 checked against the engine's records and oracles only.

@@ -27,6 +27,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import weakref
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -57,6 +58,10 @@ _DROPPED_GLOBALS = ("_hex_lookup_cache_id", "_hex_lookup_by_xy", "_hex_lookup_by
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
 _WML_TUPLES: Dict[str, tuple] = {}
+
+# The core behind each bound view: id(view) -> (weak reference to the
+# view, CoreState, the view's fingerprint when WESNOTH_CHECK_VIEWS is set).
+_VIEW_CORES: Dict[int, tuple] = {}
 
 
 def game_core_class():
@@ -89,6 +94,41 @@ def core_enabled() -> bool:
     if os.environ.get("WESNOTH_RUST_CORE", "1") == "0":
         return False
     return game_core_class() is not None
+
+
+def _view_fingerprint(gs: GameState) -> tuple:
+    from wesnoth_ai.classes import state_key
+    return (state_key(gs), bool(getattr(gs.global_info, "_fog", True)), id(gs.map.hexes))
+
+
+def bind_view(gs: GameState, cs: "CoreState") -> None:
+    """Record that `gs` is a view of `cs`, so that what is computed from
+    the view (its encoding, `encoder.encode_raw`) comes from the core. A
+    bound view is read-only: an edit made in it is not in the core.
+    With WESNOTH_CHECK_VIEWS set (the test suite sets it) `core_of`
+    refuses a view edited after its binding."""
+    key = id(gs)
+
+    def _drop(ref, key=key):
+        hit = _VIEW_CORES.get(key)
+        if hit is not None and hit[0] is ref:
+            _VIEW_CORES.pop(key, None)
+
+    fp = _view_fingerprint(gs) if os.environ.get("WESNOTH_CHECK_VIEWS") else None
+    _VIEW_CORES[key] = (weakref.ref(gs, _drop), cs, fp)
+
+
+def core_of(gs: GameState) -> Optional["CoreState"]:
+    """The core a view is bound to (`bind_view`), or None for a state
+    built another way."""
+    hit = _VIEW_CORES.get(id(gs))
+    if hit is None or hit[0]() is not gs:
+        return None
+    if hit[2] is not None and _view_fingerprint(gs) != hit[2]:
+        raise AssertionError(
+            "a view of the Rust core was edited in place after it was bound: the core does not "
+            "see the edit. Hand the edited view back (`sim.gs = view`) or edit a copy.")
+    return hit[1]
 
 
 def load_databases(wesnoth_core) -> None:
@@ -733,4 +773,5 @@ def _observation_from_dict(d: dict, geometry):
 
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
-           "game_core_class", "core_enabled", "load_databases", "MODELED_GLOBALS", "UNIT_STASH_KEYS"]
+           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of",
+           "MODELED_GLOBALS", "UNIT_STASH_KEYS"]

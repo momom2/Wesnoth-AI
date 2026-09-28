@@ -690,15 +690,18 @@ class WesnothSim:
         mutate it (the mutating entry points are methods of this
         class)."""
         if self.core is not None and self._gs is None:
+            from wesnoth_ai.game_core import bind_view
             self._gs = self.core.to_state()
+            bind_view(self._gs, self.core)
         return self._gs
 
     @gs.setter
     def gs(self, value: GameState) -> None:
         self._gs = value
         if getattr(self, "core", None) is not None:
-            from wesnoth_ai.game_core import CoreState
+            from wesnoth_ai.game_core import CoreState, bind_view
             self.core = CoreState.from_state(value)
+            bind_view(value, self.core)
 
     def _refresh_view(self) -> None:
         """After a core command: the view object takes the core's
@@ -716,6 +719,8 @@ class WesnothSim:
         view.global_info.__dict__.clear()
         view.global_info.__dict__.update(fresh.global_info.__dict__)
         view.game_over, view.winner = fresh.game_over, fresh.winner
+        from wesnoth_ai.game_core import bind_view
+        bind_view(view, self.core)
 
     @property
     def state(self) -> GameState:

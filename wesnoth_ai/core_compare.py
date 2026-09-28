@@ -109,9 +109,61 @@ def event_differences(a: GameState, b: GameState) -> List[str]:
     return diffs
 
 
-def state_differences(a: GameState, b: GameState, *, stash: bool = True) -> List[str]:
+def observation_differences(a, b) -> List[str]:
+    """The fields of two `observe.Observation` records that differ, the
+    per-unit arrays compared by unit id (each side keeps its own unit
+    order)."""
+    import numpy as np
+    from wesnoth_ai.observe import _ARRAY_FIELDS
+    out: List[str] = []
+    if (a.side, a.fog_on, a.leader_on_keep) != (b.side, b.fog_on, b.leader_on_keep):
+        out.append("observation scalars")
+    if sorted(a.unit_ids) != sorted(b.unit_ids):
+        return out + ["observation unit ids"]
+    perm = [a.unit_ids.index(uid) for uid in b.unit_ids]
+    per_unit = ("unit_hex", "visible", "acting", "unit_can_move", "unit_can_attack", "landable")
+    for k in _ARRAY_FIELDS:
+        x, y = getattr(a, k), getattr(b, k)
+        if x is None or y is None:
+            if (x is None) != (y is None):
+                out.append(f"observation {k}")
+            continue
+        if k in per_unit:
+            x = x[perm]
+        if x.dtype != y.dtype or x.shape != y.shape or not np.array_equal(x, y):
+            out.append(f"observation {k}")
+    return out
+
+
+def encoding_differences(a, b) -> List[str]:
+    """The fields of two `encoder.RawEncoded` records that differ,
+    arrays byte for byte."""
+    import dataclasses
+    import numpy as np
+    from wesnoth_ai.encoder import RawEncoded
+    out: List[str] = []
+    for f in dataclasses.fields(RawEncoded):
+        x, y = getattr(a, f.name), getattr(b, f.name)
+        if f.name == "observation":
+            if (x is None) != (y is None):
+                out.append("observation")
+            elif x is not None:
+                out += observation_differences(x, y)
+        elif isinstance(x, np.ndarray):
+            if not (isinstance(y, np.ndarray) and x.dtype == y.dtype and x.shape == y.shape
+                    and x.tobytes() == y.tobytes()):
+                out.append(f.name)
+        elif x != y:
+            out.append(f.name)
+    return out
+
+
+def state_differences(a: GameState, b: GameState, *, stash: bool = True,
+                      map_and_events: bool = True) -> List[str]:
     """The differences between two states over the modeled content, as
-    strings (empty when equal)."""
+    strings (empty when equal). `map_and_events` False leaves out the map
+    and the event state, which only a setup, an init_side or an end_turn
+    changes."""
     diffs: List[str] = []
     ua = {u.id: u for u in a.map.units}
     ub = {u.id: u for u in b.map.units}
@@ -140,7 +192,10 @@ def state_differences(a: GameState, b: GameState, *, stash: bool = True) -> List
             diffs.append(f"global {k}: {va!r} != {vb!r}")
     if (a.game_over, a.winner) != (b.game_over, b.winner):
         diffs.append("game over / winner")
+    if not map_and_events:
+        return diffs
     return diffs + map_differences(a, b) + event_differences(a, b)
 
 
-__all__ = ["units_equal", "state_differences", "map_differences", "event_differences"]
+__all__ = ["units_equal", "state_differences", "map_differences", "event_differences",
+           "observation_differences", "encoding_differences"]

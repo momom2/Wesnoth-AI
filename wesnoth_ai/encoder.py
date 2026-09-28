@@ -1235,7 +1235,8 @@ def encode_raw(
 ) -> RawEncoded:
     """Build a `RawEncoded` from a GameState using read-only vocab.
     `terrain_multi_hot`: the hex stream carries each hex's terrain
-    mask (Hex.terrain_mask) instead of its one class id.
+    mask (Hex.terrain_mask) instead of its one class id. A view of the
+    Rust core (`game_core.bind_view`) is encoded by its core.
 
     Self-contained: no torch, no nn modules, no GPU. The result is
     picklable, so workers can call this and ship results back to the
@@ -1262,6 +1263,12 @@ def encode_raw(
     global features describe the other player's side as the enemy.
     A state whose side to move is not a player's raises ValueError.
     """
+    from wesnoth_ai.game_core import core_of
+    core = core_of(game_state)
+    if core is not None:
+        return core.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id,
+                               relevant_set=relevant_set, fog_hides_enemy_villages=fog_hides_enemy_villages,
+                               terrain_multi_hot=terrain_multi_hot)
     current_side = game_state.global_info.current_side
     them_side = opponent_of(current_side)
     sides = game_state.sides

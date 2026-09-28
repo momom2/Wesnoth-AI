@@ -3203,10 +3203,12 @@ def record_core(data: dict):
 
 def _iter_record_pairs_on_core(data: dict, *, relevant_set: bool,
                                stats: Optional[Counter]) -> Iterator[Tuple[GameState, ActionIndices]]:
+    from wesnoth_ai.game_core import bind_view
     cs = record_core(data)
     for cmd in data.get("commands", []):
         if int(cs.core.current_side) in PLAYER_SIDES:
             gs = cs.to_state()
+            bind_view(gs, cs.fork())
             ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
             if ai is not None:
                 yield gs, ai
@@ -3225,12 +3227,16 @@ def iter_replay_pairs_with_state(gz_path: Path
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     if core_enabled():
+        from wesnoth_ai.game_core import bind_view
         cs = record_core(data)
         for cmd in data.get("commands", []):
             gs = cs.to_state()
+            bind_view(gs, cs.fork())
             yield gs, _action_indices(gs, cmd)
             cs.apply_command(list(cmd))
-        yield cs.to_state(), None
+        gs = cs.to_state()
+        bind_view(gs, cs)
+        yield gs, None
         return
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))

@@ -506,3 +506,39 @@ def test_an_event_terrain_change_reaches_everything_the_core_derives():
             assert (mcost[k], dsub[k]) == (py_mcost[at[p]], py_dsub[at[p]]), (u.name, p)
             assert defense[k] == _terrain_def_pct(gs, p[0], p[1], table), (u.name, p)
     assert map_geometry(view).keys  # the view's own geometry still builds
+
+
+def test_the_core_sets_up_every_scenario_as_the_python_setup():
+    """Every scenario generation or reconstruction loads, set up by the
+    core (`CoreState.setup_scenario`) and by the Python setup
+    (`_setup_scenario_events`): the same state, units' underscore
+    attributes included, then after two turns of turn events. Hornshark
+    Island's preplaced units depend on the factions, so it runs with
+    each of the six as side 1. The engine agrees with the Python setup
+    on the pool (tools/scenario_init_oracle.py, 28 of 28, 2026-09-23)."""
+    import dataclasses
+    import random
+    from tools.replay_dataset import _apply_command, _setup_scenario_events
+    from wesnoth_ai.rules import scenario_pool as sp
+    from wesnoth_ai.rules.scenario_surface import CORPUS_SCENARIOS
+    base = sp.random_setup(random.Random(4))
+    factions = sp.load_factions()
+    cases = [(sid, base) for sid in CORPUS_SCENARIOS]
+    for name, info in sorted(factions.items()):
+        cases.append(("multiplayer_Hornshark_Island",
+                      dataclasses.replace(base, faction1=name, leader1=info.random_leader_pool[0])))
+    turns = [["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"],
+             ["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1]]
+    for sid, setup in cases:
+        gs = sp.build_scenario_gamestate(dataclasses.replace(setup, scenario_id=sid))
+        py = copy.deepcopy(gs)
+        _setup_scenario_events(py, sid)
+        cs = gc.CoreState.from_state(gs)
+        cs.setup_scenario(sid)
+        diffs = cc.state_differences(py, cs.to_state())
+        assert not diffs, (sid, setup.faction1, diffs[:4])
+        for cmd in turns:
+            _apply_command(py, list(cmd))
+            cs.apply_command(list(cmd))
+        diffs = cc.state_differences(py, cs.to_state(), stash=False)
+        assert not diffs, (sid, setup.faction1, "turn 3", diffs[:4])

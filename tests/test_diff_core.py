@@ -63,7 +63,7 @@ def test_a_panic_inside_a_command_is_a_divergence(monkeypatch, tmp_path):
     monkeypatch.setattr(rd, "_setup_scenario_events", lambda gs, sid: None)
     monkeypatch.setattr(rd, "_apply_command", lambda gs, cmd: None)
     monkeypatch.setattr(gc, "CoreState", Core)
-    monkeypatch.setattr(cc, "state_differences", lambda a, b, stash=True: [])
+    monkeypatch.setattr(cc, "state_differences", lambda a, b, **_kw: [])
     replay = tmp_path / "x.json.gz"
     with gzip.open(replay, "wt", encoding="utf-8") as f:
         json.dump({"commands": [["init_side", 1], ["attack"], ["end_turn"]]}, f)
