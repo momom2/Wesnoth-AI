@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests.helpers.eval_records import current_forced_faction  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -19,7 +20,8 @@ def _game(**over) -> dict:
     from wesnoth_ai.constants import OBSERVATION_EPOCH
     g = {"label_a": "A", "label_b": "B", "outcome_a": "win", "margin_a": 0.5,
          "procedure_a": "raw", "procedure_b": "raw", "max_turns": 200,
-         "combat_stream": "per_game", "observation_epoch": int(OBSERVATION_EPOCH)}
+         "combat_stream": "per_game", "observation_epoch": int(OBSERVATION_EPOCH),
+         "forced_faction": current_forced_faction()}
     g.update(over)
     return g
 

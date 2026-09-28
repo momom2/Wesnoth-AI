@@ -116,14 +116,13 @@ the same night:
   slot under a random start (docs/wesnoth_rules.md "A time area keeps its
   own slot"); no corpus game or self-play game moves.
 
-- **Every eval game has a Knalgan Alliance side**
-  (`scenario_pool.FORCED_FACTION`; the in-process `sim_self_play` games
-  too, `az_loop`'s actors not), so every Elo number since 2026-07-04 is
-  Knalgan against the six factions. Decision: keep it, or lift it for
-  eval.
+- Done (user ruling 2026-09-28): no faction is forced on eval games;
+  both sides draw uniformly from the six default-era factions. Every Elo
+  number from 2026-07-04 to 2026-09-27 had a Knalgan side, and a match
+  under the uniform draw does not pool with them.
 - **`obs8` has no self-pin on record** (terrain has +2 +- 12 at `raw:t0`,
-  800 of 1,029 games decisive). Decision:
-  run one on the next box, or record that none is needed.
+  800 of 1,029 games decisive). Approved 2026-09-28: one rides on the
+  next box.
 - **The value corpus has no game of the four eval maps with a third
   side** (`build_value_corpus` counted `[side]` blocks; fixed in 0.7.7):
   a rebuild adds about 1,500 games and needs a CPU box.
