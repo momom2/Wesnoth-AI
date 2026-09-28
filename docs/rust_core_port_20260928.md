@@ -67,10 +67,15 @@ simulator package's layout comes out of the port. The branch
 Each step lands with differential tests against the Python code it replaces,
 run locally and on CI; the Python code it replaces stays until step 6.
 
-1. Units in Rust: the per-unit facts of the stash become record fields;
-   movement classes computed in Rust from the terrain and unit tables; recruit
-   construction with the trait roll; advancement (choice, AMLA, pick-advance);
-   plague corpses; feeding. The core then needs no Python for any command.
+1. Units in Rust: the per-unit facts of the stash become record fields (seven
+   are set today: `_defense_table`, `_pickadvance`, `_feeding_count`,
+   `_trait_order`, `_object_effects`, `_wml_role`, `_ai_guardian`); movement
+   classes computed in Rust from the terrain and unit tables; the `[effect]`
+   applier, since a trait is a list of effects and an advancement re-applies
+   the unit's `[object]` effects; recruit construction with the trait roll;
+   advancement (choice, AMLA, pick-advance); plague corpses; feeding. The core
+   then needs no Python for any command, and the Python event interpreter
+   applies its effects through the same Rust applier.
 2. Events through core methods (decision 1), terrain changes included.
 3. The core's encoding serves `obs8` (the terrain set) and becomes the only
    encoding; observation additions for the next retrain are built there.
