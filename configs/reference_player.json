@@ -3,6 +3,7 @@
   "label": "obs8",
   "checkpoint_local": "training/checkpoints/obs8.pt",
   "checkpoint_hf": "tier-b/observation_retrain_20260924/arm_epoch0.pt",
+  "checkpoint_sha256": "917f63a1249ba82049edfb05564c58583dc486dd1af3adc2bde42759aceceac7",
   "hf_repo": "momom2/wesnoth-model-checkpoints",
   "decode": {
     "mcts_sims": 0,

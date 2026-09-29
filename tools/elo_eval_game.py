@@ -341,6 +341,18 @@ class _VocabCheckedRemoteEncoder(RemoteEncoder):
         return super().encode(game_state)
 
 
+def _code_version() -> str:
+    """The code a game was played with (`wesnoth_ai.__version__`)."""
+    import wesnoth_ai
+    return str(getattr(wesnoth_ai, "__version__", "unknown"))
+
+
+def _rust_core_on() -> bool:
+    """Whether the simulator ran on the Rust core (`WESNOTH_RUST_CORE`)."""
+    from wesnoth_ai.game_core import core_enabled
+    return bool(core_enabled())
+
+
 def combat_salt(seed: int, shared_stream: bool = False) -> str:
     """The sim's combat-luck salt for the eval game on `seed`.
 
@@ -1054,6 +1066,9 @@ def main(argv) -> int:
         # The horizon decides decisive-vs-absence, the quantity
         # the PURE fit is built on (round-24 C9).
         "max_turns": args.max_turns,
+        # The second horizon: a side's action cap ends the game as a
+        # no-result (outcome "timeout", ended_by "max_actions").
+        "max_actions_per_side": int(sim.max_actions_per_side),
         # Leaf-batch provenance: batched (virtual-loss) search is a
         # slightly different explorer than sequential B=1.
         "mcts_batch": args.mcts_batch_size,
@@ -1090,6 +1105,17 @@ def main(argv) -> int:
             if (sims_a > 0 or sims_b > 0) else None),
         "side_a": args.side_a, "seed": args.seed,
         "scenario_id": setup.scenario_id,
+        # The draw and what the game did to each side: read per faction or
+        # leader, never estimands (2026-09-29 audit).
+        "faction_a": setup.faction1 if args.side_a == 1 else setup.faction2,
+        "faction_b": setup.faction2 if args.side_a == 1 else setup.faction1,
+        "leader_a": setup.leader1 if args.side_a == 1 else setup.leader2,
+        "leader_b": setup.leader2 if args.side_a == 1 else setup.leader1,
+        "unplayed_side_turns": int(getattr(r, "unplayed_side_turns", 0)),
+        "forced_end_turns_a": int(sim.forced_end_turns.get(args.side_a, 0)),
+        "forced_end_turns_b": int(sim.forced_end_turns.get(3 - args.side_a, 0)),
+        "code_version": _code_version(),
+        "rust_core": _rust_core_on(),
         "outcome_a": r.outcome,          # win/loss/draw/timeout from A
         "margin_a": float(margin_a),     # final material, A's view
         "turns": sim.gs.global_info.turn_number,
