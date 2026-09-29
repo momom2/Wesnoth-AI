@@ -44,7 +44,7 @@ retrain, owner named), **queued** (a fix to land before the box), and
 
 | id | finding | disposition |
 |---|---|---|
-| C1 | `core_compare.observation_differences` compares hex-indexed arrays position by position: after Aethermaw's terrain change the applier's hex order differs from the core's, so the certification would flag all 578 Aethermaw games while every model input is identical | queued, before the certification: compare by hex position |
+| C1 | `core_compare.observation_differences` compares hex-indexed arrays position by position: after Aethermaw's terrain change the applier's hex order differs from the core's, so the certification would flag all 578 Aethermaw games while every model input is identical | fixed, `fix/certify-sweep` 01d5e86 (by hex position, each side through its own geometry) |
 | C2 | The Rust unit database falls back to generic stats for an unknown type without a warning (0 unknown types in 2,762 games) | retrain: count and warn (owner: observation builder) |
 | C3 | An unknown type name takes the overflow embedding row without a warning on three encode paths (0 in 2,762 games) | retrain: count and warn (owner: observation builder) |
 | C4 | A command whose hex holds no unit is skipped without a warning or a count, and its label is still trained (0 cases in 16 games checked; 4 engine-aborted attacks in 294,276, correctly skipped) | queued: count, and warn once per game |
@@ -82,9 +82,9 @@ retrain, owner named), **queued** (a fix to land before the box), and
 
 | id | finding | disposition |
 |---|---|---|
-| X1 | A second entry of the certification run deleted its `ALL_DONE` and `FAILED` from the model host 10 s after they landed (cause unverified: most likely the container re-ran the onstart after its accepted self-stop); a re-run redoes the whole sweep, which has no done-marker | queued before the certification: an entry after a recent accepted stop stops again without touching the model host; a marker after the sweep; the laptop watches `status.txt` |
-| X2 | The certification sweep uploads about two files per shard, one commit each, every round: 3 x 128 + 30 commits in an hour risks the model host's hourly quota | queued before the certification: shard files in one folder, one commit |
-| X3 | The certification summary has no denominator: a crashed shard (killed, no summary line) reads as a complete, clean sweep | queued before the certification: replays compared with the file list, INCOMPLETE otherwise |
+| X1 | A second entry of the certification run deleted its `ALL_DONE` and `FAILED` from the model host 10 s after they landed (cause unverified: most likely the container re-ran the onstart after its accepted self-stop); a re-run redoes the whole sweep, which has no done-marker | fixed, `fix/certify-sweep` 01d5e86 (an entry within 30 minutes of a finished run's accepted stop stops again and touches nothing; a marker after the sweep) |
+| X2 | The certification sweep uploads about two files per shard, one commit each, every round: 3 x 128 + 30 commits in an hour risks the model host's hourly quota | fixed, 01d5e86 (one folder, one tarball a round) |
+| X3 | The certification summary has no denominator: a crashed shard (killed, no summary line) reads as a complete, clean sweep | fixed, 01d5e86 (CLEAN, DIVERGENT or INCOMPLETE against the file list; the run fails unless CLEAN with the oracle passing) |
 | X4 | The corpus rebuild's inputs step is skipped on re-entry when the tarball's first member exists, even after an interrupted extraction | retrain script: a marker after the step |
 | X5 | The corpus rebuild accepts a `BUILD_DONE` from a build log restored from an earlier entry | retrain script: only the new part of the log is read |
 | X6 | The corpus rebuild's default raw tarball is not on the model host | retrain script: `tier-b/corpus_v3/raw_corpus_20260929.tar`, uploaded 2026-09-29 |
