@@ -115,12 +115,28 @@ box_config_problem() {           # prints what is wrong with the configuration, 
         [ -f "$BOX_LIB/$f" ] || { echo "the library in $BOX_LIB lacks $f"; return; }
     done
 }
+box_just_stopped() {             # the previous entry finished and Vast accepted its stop less than BOX_RESTOP_MIN minutes ago
+    local line when
+    [ -f "$BOX_OUT/ALL_DONE" ] && [ -f "$BOX_OUT/stop.jsonl" ] || return 1
+    line=$(tail -n 1 "$BOX_OUT/stop.jsonl")
+    [[ $line == *'"event": "result"'* && $line == *'"stopped": true'* ]] || return 1
+    when=$(date -r "$BOX_OUT/stop.jsonl" +%s 2>/dev/null) || return 1
+    [ $(( $(box_now) - when )) -lt $(( ${BOX_RESTOP_MIN:-30} * 60 )) ]
+}
 box_init() {                     # the entry's bring-up; after it, every exit finishes through box_finish
     local token problem
     BOX_OUT_GIVEN=${BOX_OUT:-}
     BOX_OUT=${BOX_OUT:-$WORKDIR/box_out}
     mkdir -p "$BOX_OUT/tmp" "$BOX_STATE"
     box_take_entry_lock || exit 1
+    if box_just_stopped; then
+        # A container that restarted right after its run finished and
+        # stopped it: stop again, and leave the finished run's records alone.
+        box_log restart.log "the previous entry finished and stopped this instance; this entry stops it again"
+        timeout -k 1m 45m python "$BOX_LIB/box_stop.py" --outcome "$BOX_OUT/stop.jsonl" \
+            --max-attempts "$BOX_STOP_ATTEMPTS" --interval "$BOX_STOP_INTERVAL_S" >> "$BOX_OUT/stop.log" 2>&1
+        exit 0
+    fi
     trap box_on_exit EXIT
     trap 'exit 143' TERM
     trap 'exit 130' INT
