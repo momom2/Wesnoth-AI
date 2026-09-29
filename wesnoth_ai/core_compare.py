@@ -109,10 +109,29 @@ def event_differences(a: GameState, b: GameState) -> List[str]:
     return diffs
 
 
+# The observation's arrays over the map's hexes, in its geometry's hex order.
+_PER_HEX = ("seen", "zoc", "enemy", "ally", "occupied", "inert", "recruit_row", "network",
+            "relevant", "tok_of_hex")
+_PER_UNIT = ("unit_hex", "visible", "acting", "unit_can_move", "unit_can_attack", "landable")
+
+
+def _position_order(obs):
+    """(order, rank): the observation's hex indices sorted by position, and
+    each index's place in that sorted order."""
+    import numpy as np
+    keys = obs.geometry.keys
+    order = np.array(sorted(range(len(keys)), key=keys.__getitem__), dtype=np.int64)
+    rank = np.empty(len(keys), dtype=np.int64)
+    rank[order] = np.arange(len(keys), dtype=np.int64)
+    return order, rank
+
+
 def observation_differences(a, b) -> List[str]:
-    """The fields of two `observe.Observation` records that differ, the
-    per-unit arrays compared by unit id (each side keeps its own unit
-    order)."""
+    """The fields of two `observe.Observation` records that differ. The
+    per-unit arrays are compared by unit id (each side keeps its own unit
+    order), and everything over hexes by hex position, each side read
+    through its own geometry: after an event changes the terrain, the two
+    hex orders differ."""
     import numpy as np
     from wesnoth_ai.observe import _ARRAY_FIELDS
     out: List[str] = []
@@ -120,16 +139,26 @@ def observation_differences(a, b) -> List[str]:
         out.append("observation scalars")
     if sorted(a.unit_ids) != sorted(b.unit_ids):
         return out + ["observation unit ids"]
+    if sorted(a.geometry.keys) != sorted(b.geometry.keys):
+        return out + ["observation hex set"]
     perm = [a.unit_ids.index(uid) for uid in b.unit_ids]
-    per_unit = ("unit_hex", "visible", "acting", "unit_can_move", "unit_can_attack", "landable")
+    order_a, rank_a = _position_order(a)
+    order_b, rank_b = _position_order(b)
     for k in _ARRAY_FIELDS:
         x, y = getattr(a, k), getattr(b, k)
         if x is None or y is None:
             if (x is None) != (y is None):
                 out.append(f"observation {k}")
             continue
-        if k in per_unit:
+        if k in _PER_UNIT:
             x = x[perm]
+        if k in _PER_HEX:
+            x, y = x[order_a], y[order_b]
+        elif k == "landable":
+            x, y = x[:, order_a], y[:, order_b]
+        elif k == "unit_hex":
+            x = np.where(x >= 0, rank_a[np.maximum(x, 0)], -1)
+            y = np.where(y >= 0, rank_b[np.maximum(y, 0)], -1)
         if x.dtype != y.dtype or x.shape != y.shape or not np.array_equal(x, y):
             out.append(f"observation {k}")
     return out

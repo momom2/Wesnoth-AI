@@ -475,3 +475,33 @@ def test_box_cores_reads_the_quota_not_omp_num_threads(box, files, expected):
     if expected is not None and int(expected) > int(usable):
         want = usable
     assert answer.read_text().strip() == want
+
+
+def _finished_and_stopped(box, stopped_seconds_ago: int) -> None:
+    box.out.mkdir(parents=True)
+    (box.out / "ALL_DONE").write_text("2026-09-29T13:24:59Z RUN_DONE\n")
+    stop = box.out / "stop.jsonl"
+    stop.write_text('{"time": "t", "event": "result", "instance": "1", "stopped": true, "detail": "ok"}\n')
+    when = time.time() - stopped_seconds_ago
+    os.utime(stop, (when, when))
+
+
+def test_an_entry_right_after_a_finished_stopped_run_stops_again(box):
+    """2026-09-29: a second entry deleted a finished run's ALL_DONE from the
+    model host 10 s after it landed. An entry that starts minutes after the
+    previous one finished and stopped the instance stops it again and
+    touches nothing."""
+    _finished_and_stopped(box, stopped_seconds_ago=60)
+    assert box.run('echo "should not run" > "$BOX_OUT/ran"') == 0
+    assert not (box.out / "ran").exists()
+    assert (box.out / "ALL_DONE").exists()
+    box.index(STOP)
+    assert not any("box_upload.py" in args for _t, args in box.calls())
+
+
+def test_an_entry_long_after_a_stopped_run_starts_afresh(box):
+    _finished_and_stopped(box, stopped_seconds_ago=3 * 3600)
+    after_init = bash_path(box.tmp / "after_init.txt")
+    assert box.run(f'ls "$BOX_OUT" > "{after_init}"\nbox_finish "RUN_DONE"') == 0
+    assert "ALL_DONE" not in (box.tmp / "after_init.txt").read_text().split()
+    box.index(r"box_upload\.py .*--clear ALL_DONE FAILED")
