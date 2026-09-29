@@ -400,10 +400,29 @@ box_build_wheel() {              # the Rust wheel from BOX_REPO, once per stage 
     box_wheel_phase_ok >> "$log" 2>&1 || return 1
     box_mark "$BOX_STATE/WHEEL"
 }
+# The cores this container may use: the cgroup CPU quota (v2 cpu.max, else
+# v1 cfs quota) rounded up, capped by the CPUs the process may run on. Not
+# `nproc` alone: it honours OMP_NUM_THREADS, which the pytorch images set to
+# 1 (a 64-core box read 1 on 2026-09-29).
+box_cores() {
+    local root=${BOX_CGROUP_ROOT:-/sys/fs/cgroup} all q='' p=''
+    all=$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc 2>/dev/null) || all=1
+    read -r q p 2>/dev/null < "$root/cpu.max"
+    if ! [[ ${q%$'\r'} =~ ^[0-9]+$ && ${p%$'\r'} =~ ^[0-9]+$ ]]; then  # "max PERIOD", or cgroup v1
+        read -r q 2>/dev/null < "$root/cpu/cpu.cfs_quota_us"             # -1: no quota
+        read -r p 2>/dev/null < "$root/cpu/cpu.cfs_period_us"
+    fi
+    q=${q%$'\r'} p=${p%$'\r'}
+    if [[ $q =~ ^[0-9]+$ && $p =~ ^[0-9]+$ ]] && (( q > 0 && p > 0 )); then
+        q=$(( (q + p - 1) / p ))
+        (( q < all )) && all=$q
+    fi
+    echo "$all"
+}
 box_facts() {                    # what this box is and runs, for box.txt
     echo "stage ${STAGE:-none}"
     echo "instance $(box_instance_id), host $(hostname)"
-    echo "cores(all) $(nproc --all 2>/dev/null), usable $(nproc 2>/dev/null)"
+    echo "cores(all) $(nproc --all 2>/dev/null), usable $(box_cores)"
     grep -m1 "model name" /proc/cpuinfo 2>/dev/null
     echo "cpu.max $(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo n/a)"
     echo "pids.max $(cat /sys/fs/cgroup/pids.max 2>/dev/null || echo n/a)"
