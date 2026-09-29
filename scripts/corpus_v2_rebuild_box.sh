@@ -28,7 +28,7 @@ WORKDIR=/workspace
 OUT=$WORKDIR/corpus_v2
 STAGE="${STAGE:-}"
 RAW_TAR="${RAW_TAR:-tier-b/corpus_v2/raw_corpus_20260926.tar}"
-WORKERS="${WORKERS:-$(nproc)}"
+WORKERS="${WORKERS:-}"                    # default: box_cores, taken after box_init
 export HF_DIR="${HF_DIR:-tier-b/corpus_v2_20260926}"
 BUILD_CUT_MIN="${BUILD_CUT_MIN:-60}"             # estimated 7 on 16 cores
 BUILD_STALL_MIN="${BUILD_STALL_MIN:-15}"         # the builder logs every 1,000 candidates
@@ -40,6 +40,7 @@ BOX_OUT=$OUT
 CORPUS=$WORKDIR/corpus_v2_build/replays_dataset_imitation
 
 box_init
+[ -n "$WORKERS" ] || WORKERS=$(box_cores)
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
 box_restore build.log || box_finish "RESTORE_FAILED (restore.log)" 1
 box_pip huggingface_hub psutil pytest || echo "pip install failed (pip.log)"

@@ -307,8 +307,11 @@ def spendable(user) -> float | None:
 
 
 def find_offer(v, offer_id: int, disk: int) -> dict | None:
-    """The offer as it is on the market now, priced for `disk` GB."""
-    offers = api_call("offer lookup", v.search_offers, query=f"id={offer_id}",
+    """The offer as it is on the market now, priced for `disk` GB.
+
+    Vast answers an offer's id under `ask_contract_id`; a query on `id`
+    returns nothing (found 2026-09-29, when it refused every offer)."""
+    offers = api_call("offer lookup", v.search_offers, query=f"ask_contract_id={offer_id}",
                       no_default=True, storage=disk)
     for o in offers if isinstance(offers, list) else []:
         if isinstance(o, dict) and o.get("id") == offer_id:
