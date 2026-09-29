@@ -40,6 +40,15 @@ def settings_path() -> Path:
     return Path(os.environ.get("SECRET_GUARD_HOME") or Path.home()) / ".claude" / "settings.json"
 
 
+def find_bash() -> Optional[str]:
+    """The bash Claude Code runs commands with: CLAUDE_CODE_GIT_BASH_PATH
+    (on this laptop, the backslash shim), Git for Windows' own launcher, or
+    a bash on PATH."""
+    candidates = [os.environ.get("CLAUDE_CODE_GIT_BASH_PATH"),
+                  r"C:\Program Files\Git\bin\bash.exe", shutil.which("bash")]
+    return next((c for c in candidates if c and Path(c).is_file()), None)
+
+
 def install(target: Path) -> None:
     """Copy the guard, the shell script with LF line endings."""
     target.mkdir(parents=True, exist_ok=True)
@@ -65,9 +74,9 @@ def check(target: Path) -> List[str]:
     sentinel = "SGcheck" + os.urandom(12).hex()
     env = dict(os.environ, SECRET_GUARD_CHECK_TOKEN=sentinel)
     problems = []
-    bash = shutil.which("bash")
+    bash = find_bash()
     if bash is None:
-        return ["no bash on PATH"]
+        return ["no bash found (CLAUDE_CODE_GIT_BASH_PATH, Git for Windows, PATH)"]
     run = subprocess.run([bash, (target / "guard_shell.sh").as_posix(),
                           f"echo out {sentinel}; echo err {sentinel} >&2; exit 7"],
                          env=env, capture_output=True, timeout=60)

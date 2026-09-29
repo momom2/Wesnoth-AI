@@ -10,7 +10,7 @@ if [ ! -f "$guard" ]; then
     echo "secret_guard: $guard is missing, so the command was not run" >&2
     exit 126
 fi
-bash -c "$1" 2> >(python -I -S "$guard" filter >&2) | python -I -S "$guard" filter
+"$BASH" -c "$1" 2> >(python -I -S "$guard" filter >&2) | python -I -S "$guard" filter
 status=${PIPESTATUS[0]}
 wait "$!" 2>/dev/null
 exit "$status"
