@@ -38,7 +38,6 @@ from another checkpoint's weights.
 from __future__ import annotations
 
 import argparse
-import copy
 import gc
 import gzip
 import json
@@ -64,6 +63,7 @@ from tools.signal_telemetry import (
 )
 from tools.unit_vocab import seed_vocab
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
+from wesnoth_ai.game_core import snapshot_view
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.model import WesnothModel
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
@@ -345,23 +345,25 @@ def _pair_stream_serial(
         n = 0
         try:
             if rng is not None and max_pairs_per_replay:
-                # iter_replay_pairs yields ONE GameState object,
-                # mutated in place as the replay advances -- buffered
-                # entries MUST be deepcopied or the whole reservoir
-                # collapses onto the final state (caught 2026-08-25:
-                # every sampled game read as one-sided, n_auc_games
-                # 0/150).
+                # On the Python applier iter_replay_pairs yields ONE
+                # GameState object, mutated in place as the replay
+                # advances -- buffered entries MUST be copied or the
+                # whole reservoir collapses onto the final state (caught
+                # 2026-08-25: every sampled game read as one-sided,
+                # n_auc_games 0/150). snapshot_view copies a core's view
+                # as a view of a fork, which the encoder encodes through
+                # the core.
                 buf: List[Tuple] = []
                 seen = 0
                 for state, ai in iter_replay_pairs(
                         gz, relevant_set=relevant_set):
                     seen += 1
                     if len(buf) < max_pairs_per_replay:
-                        buf.append((copy.deepcopy(state), ai))
+                        buf.append((snapshot_view(state), ai))
                     else:
                         j = rng.randrange(seen)
                         if j < max_pairs_per_replay:
-                            buf[j] = (copy.deepcopy(state), ai)
+                            buf[j] = (snapshot_view(state), ai)
                 for state, ai in buf:
                     n += 1
                     yield ("pair", state, ai, gz.name)

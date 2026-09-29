@@ -177,7 +177,7 @@ fn round_damage(base_damage: i64, bonus: i64, divisor: i64) -> i64 {
 }
 
 /// `combat.combat_modifier`: percent points from alignment and time of day.
-fn combat_modifier(alignment: i64, lawful_bonus: i64, fearless: bool) -> i64 {
+pub(crate) fn combat_modifier(alignment: i64, lawful_bonus: i64, fearless: bool) -> i64 {
     let bonus = match alignment {
         0 => lawful_bonus,
         1 => 0,

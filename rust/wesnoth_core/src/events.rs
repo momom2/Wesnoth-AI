@@ -436,6 +436,7 @@ impl GameCore {
         let (light, max_l, min_l, any) = terrain::light_params(&tdb, &stripped);
         let heal = terrain::terrain_heals(&tdb, &stripped);
         let mask = terrain::terrain_mask(&tdb, code);
+        let mask_parity = terrain::terrain_mask_parity(&tdb, code);
         {
             let map = Arc::make_mut(&mut self.map);
             for &h in hexes {
@@ -447,6 +448,7 @@ impl GameCore {
                 map.village_mod[h] = 0;
                 map.terrain_type_id[h] = one;
                 map.terrain_mask[h] = mask;
+                map.terrain_mask_parity[h] = mask_parity;
                 map.heal[h] = heal;
                 map.light_mod[h] = light;
                 map.light_max[h] = max_l;

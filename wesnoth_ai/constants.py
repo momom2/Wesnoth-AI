@@ -184,6 +184,16 @@ DEFAULT_FACTIONS = (
     "Undead",
 )
 
+# The factions a side can draw in each era the corpus plays (a Random
+# choice draws uniformly among them); a game state carries its era's
+# list (`GameState.era_factions`). The Dunefolk era is the default era
+# plus the Dunefolk faction (data/multiplayer/factions/dunefolk-default.cfg).
+DEFAULT_ERA_FACTIONS = DEFAULT_FACTIONS[1:]
+ERA_FACTIONS = {
+    "era_default": DEFAULT_ERA_FACTIONS,
+    "era_dunefolk": DEFAULT_ERA_FACTIONS + ("Dunefolk",),
+}
+
 
 # ----------------------------------------------------------------------
 # Observation semantics epoch

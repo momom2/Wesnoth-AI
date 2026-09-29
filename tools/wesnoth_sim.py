@@ -1386,8 +1386,17 @@ class WesnothSim:
         checks; NB poison cannot kill -- healing clamps at 1 HP)."""
         self._apply_and_record(["init_side", side], side)
         if self._keeps_record:
-            self.turn_digests.append((len(self.command_history) - 1, state_digest(self.gs)))
+            self.turn_digests.append((len(self.command_history) - 1,
+                                      state_digest(self.gs, version=self.digest_version)))
         self._check_game_over()
+
+    @property
+    def digest_version(self) -> int:
+        """The `state_digest` version this game's fingerprints use: the
+        core's keeps each side's sighting record, which the Python
+        applier does not (classes.DIGEST_VERSION)."""
+        from wesnoth_ai.classes import DIGEST_VERSION
+        return DIGEST_VERSION if self.core is not None else 1
 
     def _assert_invariants(self, *, after_cmd: str) -> None:
         """Cheap structural sanity check on the unit set. Catches

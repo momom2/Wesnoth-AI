@@ -21,6 +21,7 @@ Phase 3.2 will pad and batch when the trainer needs it.
 from __future__ import annotations
 
 import threading
+from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -274,6 +275,61 @@ NUM_TERRAINS_PARITY = 16       # + FUNGUS (mushroom grove), REEF
 NUM_SIDE_CODES_PARITY = 4
 SIGHT_SIDE_CODE = 3
 SIGHT_FEAT_DIM = 2             # hp / max_hp, max_hp / HP_NORM
+LEADERSHIP_NORM = 25.0         # leadership gives 25 percent per level of difference
+VILLAGE_GOLD_NORM = 8.0
+VILLAGE_SUPPORT_NORM = 4.0
+
+# The parity unit row, column by column (GameCore.encode_streams builds it,
+# rust/wesnoth_core/src/core_parity.rs):
+#     0-12    obs8's 13 columns (UNIT_NUMERIC_FEATS, then the alignment one-hot)
+#    13-72    weapon slots 0, 1 and 2, the unit's attacks in attack order (the
+#             weapon head's index); slot k starts at 13 + 20k:
+#               +0      present
+#               +1      damage per strike after traits and objects / WEAPON_DAMAGE_NORM
+#               +2      strikes / WEAPON_STRIKES_NORM
+#               +3      ranged
+#               +4..9   damage type, one-hot in PARITY_DAMAGE_TYPES order
+#               +10..19 specials, multi-hot in PARITY_SPECIALS order
+#    73-78    resistances, (100 - damage percent) / 100, PARITY_DAMAGE_TYPES order
+#    79-91    traits, multi-hot in PARITY_TRAITS order
+#    92-104   abilities, multi-hot in PARITY_ABILITIES order
+#    105      poisoned
+#    106      slowed
+#    107      the combat modifier of the unit's alignment and fearless trait under
+#             the illuminated time of day at its hex / LAWFUL_BONUS_NORM
+#    108      the leadership bonus the unit fights with now / LEADERSHIP_NORM
+# A recruit row has the same layout from its type's base values: full hit
+# points, 0 moves, has_attacked 1, the experience cap scaled by the game's
+# experience modifier, the alignment coded as board units code it; the type's
+# weapons, resistances and abilities; traits (rolled when recruited),
+# statuses, time of day and leadership 0.
+PARITY_WEAPON_AT = UNIT_FEAT_DIM                                                   # 13
+PARITY_RESIST_AT = PARITY_WEAPON_AT + PARITY_WEAPON_SLOTS * PARITY_WEAPON_COLS      # 73
+PARITY_TRAIT_AT = PARITY_RESIST_AT + len(PARITY_DAMAGE_TYPES)                       # 79
+PARITY_ABILITY_AT = PARITY_TRAIT_AT + len(PARITY_TRAITS)                            # 92
+PARITY_POISONED_AT = PARITY_ABILITY_AT + len(PARITY_ABILITIES)                      # 105
+PARITY_SLOWED_AT = PARITY_POISONED_AT + 1                                           # 106
+PARITY_TOD_AT = PARITY_SLOWED_AT + 1                                                # 107
+PARITY_LEADERSHIP_AT = PARITY_TOD_AT + 1                                            # 108
+# The parity hex dynamic columns: 0-2 obs8's (the recruit-rejected column is
+# written 0), 3 the side sees the hex now (every hex with fog off), 4 the
+# hex's lawful bonus minus the board's (its time area, lit terrain, and the
+# illumination of the units the side sees) / LAWFUL_BONUS_NORM. The static
+# village column (hex_modifier_flags 0) is set on every village hex, and the
+# terrain stream is a mask over NUM_TERRAINS_PARITY classes.
+PARITY_HEX_SEEN_AT = NUM_HEX_DYNAMIC_FLAGS                                          # 3
+PARITY_HEX_TOD_AT = NUM_HEX_DYNAMIC_FLAGS + 1                                       # 4
+# The parity global row: 0-7 obs8's, then
+#     8   village gold / VILLAGE_GOLD_NORM
+#     9   village support / VILLAGE_SUPPORT_NORM
+#    10   own net income as the status table shows it / INCOME_NORM
+#    11   fog on
+#    12   the enemy's gold / GOLD_NORM            (fog off; 0 under fog)
+#    13   the enemy's net income / INCOME_NORM    (fog off; 0 under fog)
+#    14   the enemy's upkeep / INCOME_NORM        (fog off; 0 under fog)
+# The sighting stream (RawEncoded.sight_*): each enemy unit the side saw since
+# its last end_turn and does not see now, at the last hex it was seen on, in
+# the unit stream's (y, x, id) order.
 
 # Normalization divisors. Re-exported from `constants.py` so era
 # mods can override them in one place; see the comment block in
@@ -507,9 +563,16 @@ class GameStateEncoder(nn.Module):
         relevant_set_hexes: bool = False,
         fog_hides_enemy_villages: bool = False,
         terrain_multi_hot: bool = False,
+        observation_parity: bool = False,
+        relevant_set_version: int = 1,
     ):
         super().__init__()
         self.d_model = d_model
+        # The parity observation (docs/parity_memory_design_20260929.md),
+        # built by the Rust core only; rides the checkpoint like the flags
+        # below, with the relevant set's version (2 = the parity recipe's).
+        self.observation_parity = bool(observation_parity)
+        self.relevant_set_version = int(relevant_set_version)
         # The hex's terrain as its full SET from the engine's aliases
         # (Hex.terrain_mask), embedded as a multi-hot over the same
         # table, instead of one class picked by enum ordinal (which
@@ -615,6 +678,8 @@ class GameStateEncoder(nn.Module):
             relevant_set=self.relevant_set_hexes,
             fog_hides_enemy_villages=self.fog_hides_enemy_villages,
             terrain_multi_hot=self.terrain_multi_hot,
+            observation_parity=self.observation_parity,
+            relevant_set_version=self.relevant_set_version,
         )
 
     def terrain_tokens(self, hex_terrain: torch.Tensor) -> torch.Tensor:
@@ -1266,6 +1331,36 @@ def _lookup_id(name: str, table: Dict[str, int], maxn: int) -> int:
     return min(table.get(name, maxn - 1), maxn - 1)
 
 
+# Unit-type names absent from the vocabulary, looked up onto the overflow
+# row of the type embedding (where they share one row with each other),
+# with the number of lookups since the process started. Each name is
+# warned about once; the pre-encoding manifest reads the counts
+# (`unknown_type_counts`).
+_UNKNOWN_TYPE_LOOKUPS: Counter = Counter()
+
+
+def unknown_type_counts() -> Dict[str, int]:
+    """The unit-type names that took the overflow row for want of a
+    vocabulary entry, with their lookup counts, since the process
+    started."""
+    return dict(_UNKNOWN_TYPE_LOOKUPS)
+
+
+def type_row(name: str, type_to_id: Dict[str, int]) -> int:
+    """The type-embedding row of a unit type: its vocab id clamped to the
+    overflow row. A name absent from the vocabulary takes the overflow
+    row, is counted and is warned about once."""
+    overflow = MAX_UNIT_TYPES - 1
+    i = type_to_id.get(name)
+    if i is None:
+        if name not in _UNKNOWN_TYPE_LOOKUPS:
+            log.warning("unit type %r is not in the encoder's vocabulary: it takes the overflow "
+                        "row %d, which every unknown name shares", name, overflow)
+        _UNKNOWN_TYPE_LOOKUPS[name] += 1
+        return overflow
+    return min(i, overflow)
+
+
 def _side_info(sides: List[SideInfo], side: int) -> Optional[SideInfo]:
     """The SideInfo of side number `side`, or None when the state
     lists fewer sides."""
@@ -1280,11 +1375,17 @@ def encode_raw(
     relevant_set: bool = False,
     fog_hides_enemy_villages: bool = False,
     terrain_multi_hot: bool = False,
+    observation_parity: bool = False,
+    relevant_set_version: int = 1,
 ) -> RawEncoded:
     """Build a `RawEncoded` from a GameState using read-only vocab.
     `terrain_multi_hot`: the hex stream carries each hex's terrain
     mask (Hex.terrain_mask) instead of its one class id. A view of the
     Rust core (`game_core.bind_view`) is encoded by its core.
+    `observation_parity`: the parity observation (the layout above,
+    "The parity observation"), which only the core builds: a state not
+    bound to a core raises ValueError (encode a core's view; a deep copy
+    is unbound, `game_core.snapshot_view` keeps the binding).
 
     Self-contained: no torch, no nn modules, no GPU. The result is
     picklable, so workers can call this and ship results back to the
@@ -1316,7 +1417,14 @@ def encode_raw(
     if core is not None:
         return core.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id,
                                relevant_set=relevant_set, fog_hides_enemy_villages=fog_hides_enemy_villages,
-                               terrain_multi_hot=terrain_multi_hot)
+                               terrain_multi_hot=terrain_multi_hot, observation_parity=observation_parity,
+                               relevant_set_version=relevant_set_version)
+    if observation_parity or relevant_set_version != 1:
+        raise ValueError(
+            "observation_parity and relevant_set_version 2 are built by the Rust core only "
+            "(GameCore.encode_streams), and this "
+            "state is not a view bound to a core: encode the simulator's view or a replay pair's, or "
+            "keep a copy with game_core.snapshot_view (copy.deepcopy drops the binding)")
     current_side = game_state.global_info.current_side
     them_side = opponent_of(current_side)
     sides = game_state.sides
@@ -1686,12 +1794,11 @@ def _unit_rows(units, current_side, type_to_id):
     max_exp, current_exp, cost). Side code as `_python_unit_arrays`:
     scenery is neutral (2) even on our side; armed side>=3 units are
     enemies (1)."""
-    overflow = MAX_UNIT_TYPES - 1
     ints: List[int] = []
     stats: List[float] = []
     for u in units:
         p = u.position
-        ints += (min(type_to_id.get(u.name, overflow), overflow),
+        ints += (type_row(u.name, type_to_id),
                  2 if is_scenery_unit(u)
                  else (0 if u.side == current_side else 1),
                  p.x, p.y, u.alignment.value,
@@ -1703,9 +1810,7 @@ def _unit_rows(units, current_side, type_to_id):
 
 def _recruit_rows(own_recruits, type_to_id):
     """Per recruit option: the vocab id and `_recruit_stats_for`."""
-    overflow = MAX_UNIT_TYPES - 1
-    ids = [min(type_to_id.get(name, overflow), overflow)
-           for name in own_recruits]
+    ids = [type_row(name, type_to_id) for name in own_recruits]
     stats: List[float] = []
     for name in own_recruits:
         stats += _recruit_stats_for(name)
@@ -1744,7 +1849,6 @@ def _python_unit_arrays(units, current_side, type_to_id):
     unit_xs_np       = np.empty(U, dtype=np.int64)
     unit_ys_np       = np.empty(U, dtype=np.int64)
     unit_feats_np    = np.empty((U, UNIT_FEAT_DIM), dtype=np.float32)
-    type_overflow    = MAX_UNIT_TYPES - 1
     for i, u in enumerate(units):
         is_neutral = is_scenery_unit(u)
         # Scenery is board furniture even if nominally on our side:
@@ -1756,9 +1860,7 @@ def _python_unit_arrays(units, current_side, type_to_id):
         unit_is_ours_np[i]  = 1.0 if is_ours else 0.0
         unit_side_ids_np[i] = (2 if is_neutral
                                else (0 if is_ours else 1))
-        unit_type_ids_np[i] = min(
-            type_to_id.get(u.name, type_overflow), type_overflow
-        )
+        unit_type_ids_np[i] = type_row(u.name, type_to_id)
         ux, uy = u.position.x, u.position.y
         unit_xs_np[i] = 0 if ux < 0 else (MAP_LIMIT if ux > MAP_LIMIT else ux)
         unit_ys_np[i] = 0 if uy < 0 else (MAP_LIMIT if uy > MAP_LIMIT else uy)
@@ -1769,7 +1871,6 @@ def _python_unit_arrays(units, current_side, type_to_id):
 
 def _python_recruit_arrays(own_recruits, own_leader_xy, type_to_id):
     MAP_LIMIT = MAX_MAP_SIZE - 1
-    type_overflow = MAX_UNIT_TYPES - 1
     recruit_is_ours: List[float] = []
     recruit_type_ids: List[int]  = []
     recruit_side_ids: List[int]  = []
@@ -1782,9 +1883,7 @@ def _python_recruit_arrays(own_recruits, own_leader_xy, type_to_id):
         ly_clamped = 0 if ly < 0 else (MAP_LIMIT if ly > MAP_LIMIT else ly)
         for name in own_recruits:
             recruit_is_ours.append(1.0)
-            recruit_type_ids.append(
-                min(type_to_id.get(name, type_overflow), type_overflow)
-            )
+            recruit_type_ids.append(type_row(name, type_to_id))
             recruit_side_ids.append(0)   # 0 = ours
             recruit_xs.append(lx_clamped)
             recruit_ys.append(ly_clamped)

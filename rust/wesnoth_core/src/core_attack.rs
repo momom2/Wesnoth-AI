@@ -36,16 +36,16 @@ const ILLUMINATION: i64 = 25;
 /// by index (damage type, range, specials, accuracy, parry) with the
 /// unit's numbers and its own specials unioned in.
 pub(crate) struct WeaponView {
-    type_idx: Option<usize>,         // into DAMAGE_TYPES; None = a type no resistance names
+    pub type_idx: Option<usize>,     // into DAMAGE_TYPES; None = a type no resistance names
     pub ranged: bool,
-    damage: i64,
-    number: i64,
+    pub damage: i64,
+    pub number: i64,
     accuracy: i64,
     parry: i64,
-    specials: Vec<String>,
+    pub specials: Vec<String>,
 }
 
-fn dt_index(name: &str) -> Option<usize> {
+pub(crate) fn dt_index(name: &str) -> Option<usize> {
     DAMAGE_TYPES.iter().position(|d| *d == name)
 }
 
@@ -175,7 +175,7 @@ impl GameCore {
     /// `abilities.leadership_bonus`: 25 per level an adjacent,
     /// higher-level, unpetrified leader of the same side has over
     /// the unit; the best one, not cumulative.
-    fn leadership(&self, i: usize) -> i64 {
+    pub(crate) fn leadership(&self, i: usize) -> i64 {
         let u = &self.units[i];
         let level = self.unit_level(i);
         let adj = neighbours(u.x, u.y);
@@ -285,7 +285,8 @@ impl GameCore {
     /// ends the command there. Returns None then, else the fight's facts
     /// for the telemetry: ids, names, sides, costs, positions before the
     /// fight, who lives, who fed, who reached its experience cap, whether
-    /// a plague corpse rose on either hex, the damage each took.
+    /// a plague corpse rose on either hex, the damage each took. What each
+    /// side sees afterwards is recorded (core_sight.rs).
     #[pyo3(signature = (ax, ay, dx, dy, a_weapon, d_weapon, seed, has_seed, choices))]
     #[allow(clippy::too_many_arguments)]
     fn apply_attack<'py>(&mut self, py: Python<'py>, ax: i64, ay: i64, dx: i64, dy: i64, a_weapon: i64,
@@ -299,7 +300,9 @@ impl GameCore {
         if !has_seed {
             return Ok(None);
         }
-        self.attack(py, a, d, a_weapon, d_weapon, &mut Mt19937::new(seed, 0)).map(Some)
+        let out = self.attack(py, a, d, a_weapon, d_weapon, &mut Mt19937::new(seed, 0))?;
+        self.note_sightings();
+        Ok(Some(out))
     }
 
     /// The attack command with its strike draws scripted
@@ -320,6 +323,7 @@ impl GameCore {
         };
         let mut rng = ScriptedRng::new(prefix);
         self.attack(py, a, d, a_weapon, d_weapon, &mut rng)?;
+        self.note_sightings();
         Ok(Some(rng.calls()))
     }
 }

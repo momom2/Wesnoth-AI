@@ -13,7 +13,6 @@ and the probes build their players and play their games through here.
 
 from __future__ import annotations
 
-import copy
 import logging
 import time
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from wesnoth_ai.classes import GameState
+from wesnoth_ai.game_core import snapshot_view
 from tools.selfplay_game import _update_closest_approach, _would_recruit_bounce
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.game_record import note_search_outcomes
@@ -124,9 +124,10 @@ def _play_one_eval_game(
             sim.step({"type": "end_turn"})
             continue
         # Stable snapshot for select_action (see play_one_game in
-        # tools/selfplay_game.py for why this deepcopy is
-        # load-bearing).
-        pre_state = copy.deepcopy(sim.gs)
+        # tools/selfplay_game.py for why this copy is load-bearing): a
+        # view of a fork of the simulator's core, which the encoder
+        # encodes through the core (game_core.snapshot_view).
+        pre_state = snapshot_view(sim.gs)
         from tools.mcts import fork_guard
         with fork_guard(sim):
             action = actor.select_action(pre_state, game_label, sim)
@@ -144,7 +145,7 @@ def _play_one_eval_game(
             # silently forfeited the recruit; play_one_game in
             # tools/selfplay_game.py has always done this).
             actor.drop_last_pending(game_label)
-            pre_state = copy.deepcopy(sim.gs)
+            pre_state = snapshot_view(sim.gs)
             action = actor.select_action(pre_state, game_label, sim)
 
         atype = action.get("type", "end_turn")

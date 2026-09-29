@@ -7,8 +7,8 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// `combat.DAMAGE_TYPES`: the resistance order.
 pub const DAMAGE_TYPES: [&str; 6] = ["blade", "pierce", "impact", "fire", "cold", "arcane"];
@@ -154,12 +154,36 @@ impl UnitType {
     }
 }
 
+/// The lookups of a unit type the database lacks, per name, since the
+/// process started (`fallback_type_counts`).
+static FALLBACK_LOOKUPS: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+
+/// A lookup of a type the database lacks: counted, and warned about
+/// once (`effects::drain_warnings`, which the adapter logs).
+fn note_fallback(name: &str) {
+    *FALLBACK_LOOKUPS.lock().unwrap().entry(name.to_string()).or_insert(0) += 1;
+    crate::effects::warn_once(format!(
+        "unit type {name:?} is not in unit_stats.json: it takes the fallback statistics (33 hp, 5 moves, \
+         one 5x2 blade attack, no resistances)"));
+}
+
+/// The lookups of unit types the database lacks, per name (each took
+/// the fallback statistics), since the process started.
+#[pyfunction]
+pub fn fallback_type_counts() -> BTreeMap<String, u64> {
+    FALLBACK_LOOKUPS.lock().unwrap().clone()
+}
+
 impl UnitDb {
-    /// The type of `name`, or the fallback under that name.
+    /// The type of `name`, or the fallback under that name (counted and
+    /// warned about).
     pub fn get(&self, name: &str) -> Arc<UnitType> {
         match self.types.get(name) {
             Some(t) => t.clone(),
-            None => Arc::new(UnitType::fallback(name)),
+            None => {
+                note_fallback(name);
+                Arc::new(UnitType::fallback(name))
+            }
         }
     }
 
