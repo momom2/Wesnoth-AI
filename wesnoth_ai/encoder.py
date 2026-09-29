@@ -238,6 +238,43 @@ GLOBAL_FEAT_DIM = 8
 # pool; dividing by 25 puts the feature in [-1, 1] like the side term.
 LAWFUL_BONUS_NORM = 25.0
 
+# ---------------------------------------------------------------------
+# The parity observation: the widths a network built with the checkpoint
+# flag `observation_parity` reads (2026-09-29,
+# docs/parity_memory_design_20260929.md). Without the flag a network reads
+# the widths above, which are obs8's.
+# ---------------------------------------------------------------------
+PARITY_WEAPON_SLOTS = 3        # the most attacks of the 190 reachable unit types
+PARITY_DAMAGE_TYPES = ("blade", "pierce", "impact", "fire", "cold", "arcane")
+PARITY_SPECIALS = ("magical", "poison", "slow", "marksman", "firststrike",
+                   "drains", "backstab", "charge", "plague", "berserk")
+PARITY_TRAITS = ("strong", "quick", "intelligent", "resilient", "healthy", "dextrous",
+                 "weak", "slow", "dim", "fearless", "undead", "feral", "elemental")
+PARITY_ABILITIES = ("leadership", "skirmisher", "regenerate", "submerge", "cures",
+                    "ambush", "heals_4", "steadfast", "feeding", "illuminates",
+                    "nightstalk", "concealment", "teleport")
+# One weapon slot: present, damage, strikes, ranged, the damage type
+# (one-hot) and the specials (multi-hot).
+PARITY_WEAPON_COLS = 4 + len(PARITY_DAMAGE_TYPES) + len(PARITY_SPECIALS)      # 20
+# Weapon slots, resistances, traits, abilities, poisoned and slowed, the
+# time of day at the unit's hex, the leadership it receives.
+PARITY_UNIT_EXTRA = (PARITY_WEAPON_SLOTS * PARITY_WEAPON_COLS + len(PARITY_DAMAGE_TYPES)
+                     + len(PARITY_TRAITS) + len(PARITY_ABILITIES) + 2 + 1 + 1)  # 96
+UNIT_FEAT_DIM_PARITY = UNIT_FEAT_DIM + PARITY_UNIT_EXTRA                      # 109
+WEAPON_DAMAGE_NORM = 40.0      # Dwarvish Dragonguard, the most of the reachable types
+WEAPON_STRIKES_NORM = 6.0      # Inferno Drake, likewise
+# + the side sees the hex now (the fog overlay), + the hex's lawful bonus
+# minus the board's / LAWFUL_BONUS_NORM.
+NUM_HEX_DYNAMIC_FLAGS_PARITY = NUM_HEX_DYNAMIC_FLAGS + 2                      # 5
+# + village gold, village support, own net income, fog on, and with fog off
+# the enemy's gold, net income and upkeep.
+GLOBAL_FEAT_DIM_PARITY = GLOBAL_FEAT_DIM + 7                                   # 15
+NUM_TERRAINS_PARITY = 16       # + FUNGUS (mushroom grove), REEF
+# + 3: an enemy unit remembered from the watched turn (a sighting token).
+NUM_SIDE_CODES_PARITY = 4
+SIGHT_SIDE_CODE = 3
+SIGHT_FEAT_DIM = 2             # hp / max_hp, max_hp / HP_NORM
+
 # Normalization divisors. Re-exported from `constants.py` so era
 # mods can override them in one place; see the comment block in
 # constants.py for scale rationale.
@@ -440,6 +477,17 @@ class RawEncoded:
     # subset it would mean an action the mask offered has no token to point
     # at -- i.e. a silently shrunken action space.
     hex_subset: bool = False
+
+    # The parity observation's inputs; None without `observation_parity`.
+    # The posterior over the faction vocabulary for the opponent, and the
+    # sighting stream: enemy units the side saw during the enemy's last turn
+    # and cannot see now, each at the last hex it was seen on
+    # (docs/parity_memory_design_20260929.md "The watched turn").
+    their_faction_probs: Optional[np.ndarray] = None   # float32 [MAX_FACTIONS]
+    sight_type_ids:      Optional[np.ndarray] = None   # int64 [S]
+    sight_xs:            Optional[np.ndarray] = None   # int64 [S]
+    sight_ys:            Optional[np.ndarray] = None   # int64 [S]
+    sight_feats:         Optional[np.ndarray] = None   # float32 [S, SIGHT_FEAT_DIM]
 
 
 # torch's CUDA caching allocator rounds every block to this many
