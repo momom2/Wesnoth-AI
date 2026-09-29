@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import numpy as np
 
 from wesnoth_ai.classes import GameState, state_key
+from wesnoth_ai.memory import refuse_memory_model
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
@@ -181,6 +182,9 @@ class MCTSPolicy:
         # pre-state, so events land at action resolution even on
         # TCS fast turns that record no training state.
         self._gbc_obs: Dict[str, dict] = {}
+        # Search, turn search and plan tournaments fork states and
+        # evaluate them with no side's memory state to hand.
+        refuse_memory_model(getattr(base, "_inference_model", None), "MCTS and turn search")
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()

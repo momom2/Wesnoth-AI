@@ -92,6 +92,7 @@ from wesnoth_ai.classes import (
     deep_state_fingerprint, state_key,
 )
 from wesnoth_ai.encoder import GameStateEncoder
+from wesnoth_ai.memory import refuse_memory_model
 from wesnoth_ai.model import WesnothModel
 from tools.wesnoth_sim import WesnothSim
 from tools.draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
@@ -1591,6 +1592,7 @@ def mcts_search(
         config = MCTSConfig()
     if rng is None:
         rng = np.random.default_rng()
+    refuse_memory_model(model, "MCTS search")
     import time as _time
 
     # Opt-in leak detector: the caller's live state must be untouched

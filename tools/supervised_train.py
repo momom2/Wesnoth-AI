@@ -63,6 +63,7 @@ from tools.signal_telemetry import (
     IMITATION_PROBE_PAIRS, IMITATION_SIGNAL_EVERY, ImitationSignal, check_signal_cadence,
 )
 from tools.unit_vocab import seed_vocab
+from wesnoth_ai.checkpoint_structure import checkpoint_structure
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.model import WesnothModel
@@ -192,6 +193,9 @@ def _save_checkpoint(
         # The hex terrain view (encoder.terrain_tokens), read back by
         # the policy loader and the eval entry points like the basis.
         "terrain_multi_hot": bool(terrain_multi_hot),
+        # The parity-memory recipe's keys, read off the modules
+        # (wesnoth_ai/checkpoint_structure.py).
+        **checkpoint_structure(model, encoder),
         "training_meta":   dict(training_meta or {}),
         "model_state":     model.state_dict(),
         "encoder_state":   encoder.state_dict(),

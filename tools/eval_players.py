@@ -208,15 +208,21 @@ def _play_one_eval_game(
 # evaluates a different model than the one that trained.
 CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left",
                            "relevant_set_hexes", "gbc", "value_material",
-                           "fog_hides_enemy_villages", "terrain_multi_hot")
+                           "fog_hides_enemy_villages", "terrain_multi_hot",
+                           "observation_parity")
+# The same for the integer keys (wesnoth_ai/checkpoint_structure.py): the
+# memory's slot count sizes parameters; the relevant set's version selects
+# the hex stream the encoder builds.
+CHECKPOINT_STRUCT_INTS = ("memory_slots", "relevant_set_version")
 
 
 def peek_checkpoint_arch(
     ckpt_path: Optional[Path], label: str = "ckpt",
 ) -> Dict[str, object]:
     """Read the constructor kwargs a checkpoint was trained with:
-    the arch ints plus `CHECKPOINT_STRUCT_FLAGS`. ONE read, so every
-    eval entry point agrees on what a checkpoint is.
+    the arch ints plus `CHECKPOINT_STRUCT_FLAGS` and
+    `CHECKPOINT_STRUCT_INTS`. ONE read, so every eval entry point agrees
+    on what a checkpoint is.
 
     On an unreadable checkpoint this logs and returns {} -- callers
     then build default paths, which is the pre-2026-07-29 behaviour.
@@ -242,6 +248,9 @@ def peek_checkpoint_arch(
     for k in CHECKPOINT_STRUCT_FLAGS:
         if raw.get(k):
             out[k] = True
+    for k in CHECKPOINT_STRUCT_INTS:
+        if raw.get(k) is not None:
+            out[k] = int(raw[k])
     return out
 
 

@@ -6,6 +6,8 @@ module builds them and the padded trunk's index arrays:
 
 - pad_encoded_streams: EncodedStates -> the padded streams
   (forward_padded's input).
+- pad_sighting_streams: the parity observation's sighting stream of
+  EncodedStates, padded, with its per-sample counts.
 - padded_trunk_index: the key-padding mask, the compact actor gather
   index and the actor kinds of the padded trunk, host-side numpy.
 - random_padded_streams: random streams for given sizes
@@ -18,10 +20,40 @@ re-exports random_padded_streams.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import List, Optional
+
 import numpy as np
 import torch
 
+from wesnoth_ai.memory import MemoryBatch
 from wesnoth_ai.model_output import ActorKind
+
+
+@dataclass
+class ExtraStreams:
+    """The parity-memory recipe's two streams of one forward, between the
+    recruits and the global token: the sighting tokens ([B, S_max, d]
+    padded, None on the packed-embed path, where they are stream rows)
+    with their per-sample counts, and the memory states. None fields:
+    the model has no such stream."""
+    sighting: Optional[torch.Tensor]
+    sighting_counts: Optional[List[int]]
+    memory: Optional[MemoryBatch]
+
+    @property
+    def S_max(self) -> int:
+        if self.sighting is not None:
+            return int(self.sighting.size(1))
+        return max(self.sighting_counts, default=0) if self.sighting_counts else 0
+
+    @property
+    def K_max(self) -> int:
+        return self.memory.K_max if self.memory is not None else 0
+
+    @property
+    def memory_counts(self) -> Optional[List[int]]:
+        return self.memory.counts if self.memory is not None else None
 
 
 def material_batch(encoded_list):
@@ -57,29 +89,57 @@ def pad_encoded_streams(encoded_list, d_model: int):
             list(zip(Us, Rs, Hs)))
 
 
-def padded_trunk_index(sizes, H_max: int, U_max: int, R_max: int):
+def pad_sighting_streams(encoded_list, d_model: int):
+    """The padded sighting stream ([B, S_max, d], zeros at the pads) and
+    the per-sample counts S_b of states encoded with the parity
+    observation; (None, None) when no state carries sightings. A batch
+    that mixes the two encodings is refused."""
+    tokens = [getattr(e, "sighting_tokens", None) for e in encoded_list]
+    if all(t is None for t in tokens):
+        return None, None
+    if any(t is None for t in tokens):
+        raise ValueError("a batch mixes states with and without the sighting stream "
+                         "(encoders with and without observation_parity)")
+    counts = [t.size(1) for t in tokens]
+    if max(counts) == 0:
+        first = tokens[0]
+        return first.new_zeros(len(tokens), 0, d_model), counts
+    return torch.nn.utils.rnn.pad_sequence([t.squeeze(0) for t in tokens],
+                                           batch_first=True), counts
+
+
+def padded_trunk_index(sizes, H_max: int, U_max: int, R_max: int, *,
+                       sightings=None, S_max: int = 0, memory=None, K_max: int = 0):
     """Host-side index arrays of the padded trunk for per-sample sizes
-    (U_b, R_b, H_b) over the sequence [hex | unit | recruit | global |
-    end_turn] padded to H_max, U_max, R_max: the key-padding mask
-    [B, seq_len] (global and end_turn are never masked, so every row
-    keeps >= 1 real position), the compact actor gather index
-    [B, A_max] laying each sample's actors out as units | recruits |
-    end_turn (pad slots point at the end_turn row), and the actor
-    kinds [B, A_max]."""
+    (U_b, R_b, H_b) over the sequence [hex | unit | recruit | sighting |
+    memory | global | end_turn] padded to H_max, U_max, R_max, S_max,
+    K_max (the sighting and memory blocks are the parity-memory
+    recipe's; `sightings` and `memory` give their per-sample counts): the
+    key-padding mask [B, seq_len] (global and end_turn are never masked,
+    so every row keeps >= 1 real position), the compact actor gather
+    index [B, A_max] laying each sample's actors out as units |
+    recruits | end_turn (pad slots point at the end_turn row), and the
+    actor kinds [B, A_max]."""
     B = len(sizes)
     Us = [s[0] for s in sizes]
     Rs = [s[1] for s in sizes]
     Hs = [s[2] for s in sizes]
-    seq_len = H_max + U_max + R_max + 2
+    Ss = sightings if sightings is not None else [0] * B
+    Ks = memory if memory is not None else [0] * B
+    seq_len = H_max + U_max + R_max + S_max + K_max + 2
     A_max = U_max + R_max + 1
     pad_np = np.zeros((B, seq_len), dtype=bool)
-    idx_np = np.full((B, A_max), H_max + U_max + R_max + 1, dtype=np.int64)
+    idx_np = np.full((B, A_max), seq_len - 1, dtype=np.int64)
     kind_np = np.full((B, A_max), ActorKind.END_TURN, dtype=np.int64)
+    s0 = H_max + U_max + R_max              # the first sighting slot
+    k0 = s0 + S_max                         # the first memory slot
     for b in range(B):
         U_b, R_b, H_b = Us[b], Rs[b], Hs[b]
         pad_np[b, H_b:H_max] = True
         pad_np[b, H_max + U_b:H_max + U_max] = True
-        pad_np[b, H_max + U_max + R_b:H_max + U_max + R_max] = True
+        pad_np[b, H_max + U_max + R_b:s0] = True
+        pad_np[b, s0 + Ss[b]:k0] = True
+        pad_np[b, k0 + Ks[b]:k0 + K_max] = True
         idx_np[b, :U_b] = np.arange(H_max, H_max + U_b)
         idx_np[b, U_b:U_b + R_b] = np.arange(H_max + U_max, H_max + U_max + R_b)
         kind_np[b, :U_b] = ActorKind.UNIT
