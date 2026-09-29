@@ -4,11 +4,17 @@
 import copy as _copy
 import functools
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Set, Tuple
 from enum import IntEnum
 
-from wesnoth_ai.constants import DEFAULT_ERA_FACTIONS
+
+def _default_era_factions() -> Tuple[str, ...]:
+    """The default era's factions, read when a state is built: importing
+    constants here would make this module need a home directory."""
+    from wesnoth_ai.constants import DEFAULT_ERA_FACTIONS
+    return DEFAULT_ERA_FACTIONS
+
 
 class Alignment(IntEnum):
     """Unit alignment affecting ToD damage."""
@@ -406,7 +412,7 @@ class GameState:
     winner: Optional[int] = None
     # The factions of the game's era (constants.ERA_FACTIONS): what a side
     # that chose Random may have drawn.
-    era_factions: Tuple[str, ...] = DEFAULT_ERA_FACTIONS
+    era_factions: Tuple[str, ...] = field(default_factory=_default_era_factions)
 
 
 # The players' sides. A scenario may declare more (the statues of Caves
