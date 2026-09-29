@@ -86,7 +86,7 @@ def _load_policy(checkpoint: Path) -> TransformerPolicy:
     """Load a TransformerPolicy at the checkpoint's saved arch.
     Handles the pre-C51 -> C51 transition via partial load (value_head
     reset to random C51 init if checkpoint is pre-C51)."""
-    raw = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    raw = torch.load(checkpoint, map_location="cpu", weights_only=True)
     saved_arch = raw.get("arch", {})
     d_model    = int(saved_arch.get("d_model", 512))
     num_layers = int(saved_arch.get("num_layers", 6))
@@ -332,7 +332,7 @@ def main(argv):
     # Record whether the checkpoint had a C51-shaped value head; we
     # tag the label so `_format_report` can emit the right caveat.
     raw = torch.load(args.checkpoint, map_location="cpu",
-                     weights_only=False)
+                     weights_only=True)
     ms = raw.get("model_state", {})
     vh = ms.get("value_head.2.weight", None) if isinstance(ms, dict) else None
     ckpt_label = (

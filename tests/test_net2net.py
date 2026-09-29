@@ -129,7 +129,7 @@ def test_grow_checkpoint_roundtrip(tmp_path):
     # The grown checkpoint loads cleanly into a matching policy.
     wide = _pol(d_model=96)
     wide.load_checkpoint(out_p)
-    raw = torch.load(out_p, map_location="cpu", weights_only=False)
+    raw = torch.load(out_p, map_location="cpu", weights_only=True)
     assert raw["arch"]["d_model"] == 96
     with torch.no_grad():
         out = wide._inference_model(wide._inference_encoder.encode(sim.gs))
@@ -159,7 +159,7 @@ def test_grow_carries_optional_head_flags(tmp_path):
 
     # The flags rode along, so the heads still exist in the grown net.
     assert rep["flags"]["moves_left"] is True
-    raw = torch.load(out_p, map_location="cpu", weights_only=False)
+    raw = torch.load(out_p, map_location="cpu", weights_only=True)
     assert raw["moves_left"] is True
     assert any("moves_left" in k for k in raw["model_state"])
 

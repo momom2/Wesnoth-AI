@@ -138,7 +138,7 @@ def main(argv: List[str]) -> int:
     from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
     raw = torch.load(args.checkpoint, map_location="cpu",
-                     weights_only=False)
+                     weights_only=True)
     a = raw["arch"]
     device = (torch.device("cuda") if torch.cuda.is_available()
               else torch.device("cpu"))

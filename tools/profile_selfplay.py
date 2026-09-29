@@ -273,7 +273,7 @@ def _build_policy(
     if ckpt_path and ckpt_path.exists():
         try:
             raw = torch.load(ckpt_path, map_location="cpu",
-                             weights_only=False)
+                             weights_only=True)
             for k in ("d_model", "num_layers", "num_heads", "d_ff"):
                 v = (raw.get("arch") or {}).get(k)
                 if v is not None:

@@ -87,7 +87,7 @@ def vocab_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
 
 def vocab_from_checkpoint(path: Path) -> Tuple[Dict[str, int], Dict[str, int]]:
     import torch
-    ck = torch.load(path, map_location="cpu", weights_only=False)
+    ck = torch.load(path, map_location="cpu", weights_only=True)
     return dict(ck.get("unit_type_to_id", {})), dict(ck.get("faction_to_id", {}))
 
 

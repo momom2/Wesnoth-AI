@@ -100,7 +100,7 @@ def main(argv: List[str]) -> int:
                 else "mid(9-16)" if turn <= 16 else "late(17+)")
 
     for ck in args.checkpoints:
-        raw = torch.load(ck, map_location="cpu", weights_only=False)
+        raw = torch.load(ck, map_location="cpu", weights_only=True)
         a = raw["arch"]
         p = TransformerPolicy(
             device=torch.device("cpu"),

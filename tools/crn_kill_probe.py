@@ -137,7 +137,7 @@ def main(argv) -> int:
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     raw = torch.load(args.checkpoint, map_location="cpu",
-                     weights_only=False)
+                     weights_only=True)
     a = raw["arch"]
     policy = TransformerPolicy(
         d_model=a["d_model"], num_layers=a["num_layers"],

@@ -60,7 +60,7 @@ def main(argv):
     from tools.wesnoth_sim import WesnothSim
 
     raw = torch.load(args.checkpoint, map_location="cpu",
-                     weights_only=False)
+                     weights_only=True)
     a = raw["arch"]
     pol = TransformerPolicy(
         device=torch.device("cpu"), d_model=a["d_model"],

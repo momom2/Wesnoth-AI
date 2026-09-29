@@ -797,7 +797,7 @@ class TransformerPolicy:
         # slower (one extra CPU->device copy) but the alternative is
         # a torch-directml crash. Re-evaluate when torch-directml
         # ships a fix.
-        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        ckpt = torch.load(path, map_location="cpu", weights_only=True)
         # Continuation metadata (see save_checkpoint): stashed for
         # the policy layer, which decides whether it applies.
         self.last_loaded_meta = dict(ckpt.get("training_meta") or {})

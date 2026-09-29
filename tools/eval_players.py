@@ -229,7 +229,7 @@ def peek_checkpoint_arch(
     import torch
     try:
         raw = torch.load(ckpt_path, map_location="cpu",
-                         weights_only=False)
+                         weights_only=True)
     except Exception as e:
         log.warning(f"[{label}] couldn't peek arch from {ckpt_path}: "
                     f"{e!r}; building DEFAULT paths, which may not "

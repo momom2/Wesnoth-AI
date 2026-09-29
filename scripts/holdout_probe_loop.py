@@ -95,7 +95,7 @@ def _peek(ckpt: Path):
     """(decision_step, arch dict) or None if unreadable."""
     import torch
     try:
-        raw = torch.load(ckpt, map_location="cpu", weights_only=False)
+        raw = torch.load(ckpt, map_location="cpu", weights_only=True)
     except Exception as e:                          # noqa: BLE001
         print(f"probe: ckpt unreadable ({e!r})", flush=True)
         return None

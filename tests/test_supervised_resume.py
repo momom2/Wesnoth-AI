@@ -155,7 +155,7 @@ def test_a_run_cut_in_its_last_epoch_resumes_on_the_uncut_pass(tmp_path, monkeyp
     full = _train_scripted(ds, tmp_path / "full.pt", monkeypatch, batched=batched)
     assert len({lr for *_, lr in full.trained}) == 3, "each epoch must train at its own rate"
     two_epochs = torch.load(tmp_path / "full_epoch1.pt", map_location="cpu",
-                            weights_only=False)["supervised_pairs"]
+                            weights_only=True)["supervised_pairs"]
     cut = _train_scripted(ds, tmp_path / "cut.pt", monkeypatch, batched=batched,
                           max_pairs=two_epochs + SCRIPT_CUT)
     last_epoch = cut.events[len(cut.events) - cut.events[::-1].index("epoch"):]
@@ -165,7 +165,7 @@ def test_a_run_cut_in_its_last_epoch_resumes_on_the_uncut_pass(tmp_path, monkeyp
     assert cut.trained == full.trained[:len(cut.trained)]
     # The checkpoint keeps where the telemetry last probed, so the resumed
     # run probes where the uncut one does.
-    saved = torch.load(tmp_path / "cut.pt", map_location="cpu", weights_only=False)
+    saved = torch.load(tmp_path / "cut.pt", map_location="cpu", weights_only=True)
     probes = [r for r in read_signal_rows(tmp_path / "cut_signal.jsonl") if r["kind"] == "probe"]
     assert saved["supervised_resume"]["signal"]["last_row_pairs"] == probes[-1]["pairs"]
     monkeypatch.setattr(st, "SKIP_LOG_EVERY", 5)
@@ -265,7 +265,7 @@ def _signal_rows(*paths: Path):
 
 
 def _weights(ckpt: Path):
-    return torch.load(ckpt, map_location="cpu", weights_only=False)["model_state"]
+    return torch.load(ckpt, map_location="cpu", weights_only=True)["model_state"]
 
 
 @needs_corpus
@@ -295,7 +295,7 @@ def test_a_run_cut_in_its_second_epoch_trains_the_uncut_pass(corpus, tmp_path, m
     the weights end bit-identical."""
     full = _train(corpus, tmp_path / "full.pt", monkeypatch, epochs=2)
     first_epoch = torch.load(tmp_path / "full_epoch0.pt", map_location="cpu",
-                             weights_only=False)["supervised_pairs"]
+                             weights_only=True)["supervised_pairs"]
     assert len({lr for *_, lr in full}) == 2, "each epoch must train at its own rate"
     cut = _train(corpus, tmp_path / "cut.pt", monkeypatch, epochs=2, max_pairs=first_epoch + CUT)
     assert cut == full[:first_epoch + CUT]
@@ -316,7 +316,7 @@ def test_a_checkpoint_without_a_saved_position_continues_a_first_runs_first_epoc
     were saved, cut inside the first epoch of a first run."""
     full = _train(corpus, tmp_path / "full.pt", monkeypatch)
     cut = _train(corpus, tmp_path / "cut.pt", monkeypatch, max_pairs=CUT)
-    old = torch.load(tmp_path / "cut.pt", map_location="cpu", weights_only=False)
+    old = torch.load(tmp_path / "cut.pt", map_location="cpu", weights_only=True)
     old.pop("supervised_resume", None)
     torch.save(old, tmp_path / "old.pt")
     rest = _train(corpus, tmp_path / "old.pt", monkeypatch, resume=tmp_path / "old.pt")

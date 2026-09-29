@@ -24,7 +24,7 @@ from wesnoth_ai.transformer_policy import TransformerPolicy
 
 
 def load_policy(path):
-    raw = torch.load(path, map_location="cpu", weights_only=False)
+    raw = torch.load(path, map_location="cpu", weights_only=True)
     arch = raw.get("arch", {}) or {}
     kw = {k: int(arch[k]) for k in
           ("d_model", "num_layers", "num_heads", "d_ff") if k in arch}

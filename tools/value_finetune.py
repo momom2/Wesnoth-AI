@@ -109,7 +109,7 @@ def main(argv) -> int:
 
     dev = torch.device(args.device)
     raw = torch.load(args.checkpoint_in, map_location="cpu",
-                     weights_only=False)
+                     weights_only=True)
     a = raw["arch"]
     policy = TransformerPolicy(
         device=dev, d_model=a["d_model"], num_layers=a["num_layers"],

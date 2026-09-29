@@ -63,7 +63,7 @@ def _build_policy(args, device):
     relevant_set = False
     if args.checkpoint_in and args.checkpoint_in.exists():
         raw = torch.load(args.checkpoint_in, map_location="cpu",
-                         weights_only=False)
+                         weights_only=True)
         for k in ("d_model", "num_layers", "num_heads", "d_ff"):
             v = (raw.get("arch") or {}).get(k)
             if v is not None:

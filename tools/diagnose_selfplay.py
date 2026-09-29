@@ -431,7 +431,7 @@ def main(argv: List[str]) -> int:
     log.info(f"device: {describe_device(device)}")
     arch_kwargs: Dict[str, int] = {}
     try:
-        raw = torch.load(ckpt, map_location="cpu", weights_only=False)
+        raw = torch.load(ckpt, map_location="cpu", weights_only=True)
         for k in ("d_model", "num_layers", "num_heads", "d_ff"):
             v = (raw.get("arch") or {}).get(k)
             if v is not None:
