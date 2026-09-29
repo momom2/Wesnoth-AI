@@ -36,9 +36,9 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | id | finding | disposition |
 |---|---|---|
 | I1 | The core's reach and zone-of-control context were mapped to hexes through the view's hex-set order, which differs from the core's after a terrain change (Aethermaw from turn 4): in play the simulator refused 64 of 65 moves the mask offered and raised on one; pre-encoding raised on all 578 Aethermaw games | fixed, `fix/core-hex-order` e9eb76d, with a test that crosses the terrain change |
-| I2 | `unit_vocab_retrain_box.sh` asserts 190 vocabulary entries; the vocabulary holds 237 (47 variation aliases on their base rows): the box would stop before pre-encoding | queued: check distinct ids; the retrain's own script does so |
+| I2 | `unit_vocab_retrain_box.sh` asserts 190 vocabulary entries; the vocabulary holds 237 (47 variation aliases on their base rows): the box would stop before pre-encoding | fixed, `fix/audit-small` 8dfab62 (the rows are checked) |
 | I3 | The recruit-rejected hex flag is set in play and never in the corpus (a replay records where the recruit landed), so its weights are untrained | retrain: the input column is 0 under `observation_parity`; the mask keeps the rejection set (owner: observation builder) |
-| I4 | `load_checkpoint` restores the fog gate and the terrain view but not the relevant-set basis, silently: the value tools rebuild a relevant-set checkpoint on the full board and save it that way (not on the retrain or match path) | queued |
+| I4 | `load_checkpoint` restores the fog gate and the terrain view but not the relevant-set basis, silently: the value tools rebuild a relevant-set checkpoint on the full board and save it that way (not on the retrain or match path) | fixed, `fix/audit-small` 8dfab62 (the checkpoint's basis wins; the value fine-tune encodes in it); `value_pretrain` and `value_head_fit` read the policy's basis now but were not traced further |
 
 ## Capacities and silent failures
 
@@ -50,7 +50,7 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | C4 | A command whose hex holds no unit is skipped without a warning or a count, and its label is still trained (0 cases in 16 games checked; 4 engine-aborted attacks in 294,276, correctly skipped) | queued: count, and warn once per game |
 | C5 | An out-of-range advancement choice becomes the first option silently; the extractor's `choose_queue` is filled and never read | queued with C4 |
 | C6 | A label whose actor index is out of range adds nothing to the loss, value included, uncounted (the serial path and the holdout probe; the retrain uses checked pre-encoded records) | retrain: the sequence trainer refuses a slot mismatch |
-| C7 | Two default filters (competitive 2p, 1,500 commands) do nothing only because the corpus has no `index.jsonl`; with one they would drop the 4,936 mini games at INFO | queued: make the filters explicit options, off by default |
+| C7 | Two default filters (competitive 2p, 1,500 commands) do nothing only because the corpus has no `index.jsonl`; with one they would drop the 4,936 mini games at INFO | fixed, `fix/audit-small` 8dfab62 (opt-in) |
 | C8 | A recruit option's max experience is the type's unscaled value (1.43 times the recruited unit's at the 70% modifier 295 of 300 games use) | retrain (owner: observation builder) |
 | C9 | The pre-encoded cache's fingerprint covers neither the label builder's version nor the core's phase | retrain: the new pre-encoding records both |
 
@@ -65,7 +65,31 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | O5 | The village bit comes from a modifier no Ladder map sets: an unowned water village reads as water in every state (wider than the parity census's gap 8) | retrain: the static bit from the terrain (owner: observation builder) |
 | O6 | Shroud is treated as fog, so the terrain of never-explored hexes shows (89 games with shroud) | **accepted** pending the user: public maps, the reasoning of the statues ruling |
 
+## The match harness
+
+| id | finding | disposition |
+|---|---|---|
+| M1 | A move or attack the simulator refuses after the mask offered it is repeated by the argmax player: a move 8 times then the turn is forced to end, a distant attack without bound until the 20-minute kill; nothing recorded | fixed, `fix/match-harness` 8ee2934 (one bounded, counted refusal path; a match game raises on a mask/simulator disagreement) |
+| M2 | The unit-vocabulary pre-registration still describes the Knalgan-forced draw | superseded by docs/parity_memory_prereg_20260929.md (uniform draws) |
+| M3 | The approved `obs8` self-pin is in no box script | retrain: match 4 of the pre-registration |
+| M4 | The reference checkpoint is named by path only | fixed, 8ee2934 (pinned by SHA-256; the model host's copy agrees) |
+| M5 | A side's 2,000-action cap is a second, unrecorded horizon | fixed, 8ee2934 (recorded, refused on resume when changed) |
+| M6 | `--compile-packed` with shared inference records a value the resume and the fit refuse | **accepted** pending the user: used by one old profiling script only |
+| M7 | Results lack each side's faction and leader (the pre-registration reads p by faction), the unplayed turns, the code version and the core switch | fixed, 8ee2934; each checkpoint's training epoch is still only in the server log |
+| M8 | The retrain script re-derives the reference instead of taking the config's flags | retrain: the new script takes `reference_player.py --flags` |
+
+## Box operations
+
+| id | finding | disposition |
+|---|---|---|
+| X1 | A second entry of the certification run deleted its `ALL_DONE` and `FAILED` from the model host 10 s after they landed (cause unverified: most likely the container re-ran the onstart after its accepted self-stop); a re-run redoes the whole sweep, which has no done-marker | queued before the certification: an entry after a recent accepted stop stops again without touching the model host; a marker after the sweep; the laptop watches `status.txt` |
+| X2 | The certification sweep uploads about two files per shard, one commit each, every round: 3 x 128 + 30 commits in an hour risks the model host's hourly quota | queued before the certification: shard files in one folder, one commit |
+| X3 | The certification summary has no denominator: a crashed shard (killed, no summary line) reads as a complete, clean sweep | queued before the certification: replays compared with the file list, INCOMPLETE otherwise |
+| X4 | The corpus rebuild's inputs step is skipped on re-entry when the tarball's first member exists, even after an interrupted extraction | retrain script: a marker after the step |
+| X5 | The corpus rebuild accepts a `BUILD_DONE` from a build log restored from an earlier entry | retrain script: only the new part of the log is read |
+| X6 | The corpus rebuild's default raw tarball is not on the model host | retrain script: `tier-b/corpus_v3/raw_corpus_20260929.tar`, uploaded 2026-09-29 |
+| X7 | Smaller: offers show no memory column; `pull_box_records` skips a same-size rewrite; the onstart's first installs have no timeout; `is_absent` matches exception names; failures point at an empty `restore.log` | queued, low |
+
 ## Still running
 
-Box operations; the certification's power; the core binding; the match
-harness.
+The certification's power; the core binding.
