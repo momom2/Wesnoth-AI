@@ -26,8 +26,15 @@ The run is rented only when all of these hold:
    labels; what the network observes against a player; training against
    play; capacities and silent failures) have each finding fixed in this
    retrain or recorded as accepted by the user.
-3. A second review, of this retrain's own code, finds the same.
-4. CI is green on the commit that is staged.
+3. A targeted audit (user request, 2026-09-29) of the parts most at risk
+   for the coming boxes, before any box, the certification's included:
+   box operations (the scripts, the box library, renting and staging,
+   after three faults on the day); whether the certification can fail
+   when the core is wrong; the binding of Python views to the Rust core,
+   behind every encoding and rule the pipeline asks; and the match harness
+   that gives the verdict. Each finding fixed or recorded as accepted.
+4. A second review, of this retrain's own code, finds the same.
+5. CI is green on the commit that is staged.
 
 ## Estimand
 
