@@ -150,7 +150,8 @@ from tools.unit_vocab import seed_vocab
 from wesnoth_ai.encoder import GameStateEncoder, names_on_overflow_row
 enc = GameStateEncoder(d_model=32)
 seed_vocab(enc)                                 # refuses a set that reaches the overflow row
-assert len(enc.unit_type_to_id) == 190, len(enc.unit_type_to_id)
+# 190 unit types; the 47 variations share their base type's row
+assert len(set(enc.unit_type_to_id.values())) == 190, len(set(enc.unit_type_to_id.values()))
 assert names_on_overflow_row(enc.unit_type_to_id) == []
 torch.save({"unit_type_to_id": dict(enc.unit_type_to_id),
             "faction_to_id": dict(enc.faction_to_id)}, sys.argv[1] + ".tmp")

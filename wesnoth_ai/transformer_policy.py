@@ -757,6 +757,14 @@ class TransformerPolicy:
         self._encoder.terrain_multi_hot = bool(on)
         self._inference_encoder.terrain_multi_hot = bool(on)
 
+    def set_relevant_set_hexes(self, on: bool) -> None:
+        """The hex stream's basis, which is also the action space's index
+        basis: both encoders use the same (a checkpoint's setting wins on
+        load)."""
+        self._relevant_set_hexes = bool(on)
+        self._encoder.relevant_set_hexes = bool(on)
+        self._inference_encoder.relevant_set_hexes = bool(on)
+
     def set_fog_hides_enemy_villages(self, on: bool) -> None:
         """Both encoders read global feature 5 the same way."""
         self._fog_hides_enemy_villages = bool(on)
@@ -808,6 +816,15 @@ class TransformerPolicy:
         # Same contract: a checkpoint without the key was trained on the
         # one-class terrain view and keeps it.
         self.set_terrain_multi_hot(bool(ckpt.get("terrain_multi_hot", False)))
+        # And the hex basis: a policy built without it and loaded from a
+        # relevant-set checkpoint encoded the full board and saved the
+        # checkpoint that way (the 2026-09-29 train/serve review).
+        ck_basis = bool(ckpt.get("relevant_set_hexes", False))
+        if ck_basis != self._relevant_set_hexes:
+            self._logger.warning("%s uses the %s hex basis; the policy was built with the other, "
+                                 "and takes the checkpoint's", Path(path).name,
+                                 "relevant-set" if ck_basis else "full-board")
+        self.set_relevant_set_hexes(ck_basis)
         # A checkpoint's weights encode the observations the sim
         # produced while it trained. Loading one from an earlier epoch
         # is legitimate and necessary -- re-baselining a reference

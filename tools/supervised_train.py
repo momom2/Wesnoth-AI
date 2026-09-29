@@ -1600,14 +1600,14 @@ def train(
     log_every: int   = 100,
     ckpt_every: int  = 2000,        # steps between periodic checkpoints
     gc_every_files:  int = 16,      # gc.collect() this often (replay files)
-    max_replay_commands: int = 1500,    # skip a replay file if it exceeds
+    max_replay_commands: int = 0,    # skip a replay file if it exceeds
     max_starting_units:  int = 0,       # 0 = no cap (TSG ships with ~24
                                         #     statues for recruit-hex
                                         #     mechanics — legit)
     max_pairs_per_replay: int = 0,      # 0 = no cap (every replay
                                         #     weighted equally)
     device_str: str  = "cpu",
-    competitive_only: bool = True,
+    competitive_only: bool = False,
     resume: Optional[Path] = None,
     workers: int     = 0,            # >0 = prefetch encode_raw in N
                                      # subprocesses
@@ -2759,16 +2759,19 @@ def main(argv: List[str]) -> int:
                     help="Checkpoint every N gradient steps.")
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--device", type=str, default="cpu")
+    ap.add_argument("--competitive-only", action="store_true",
+                    help="Keep only replays index.jsonl names as competitive 2p games "
+                         "(a corpus without index.jsonl, the imitation corpus, is kept whole).")
     ap.add_argument("--all-scenarios", action="store_true",
-                    help="Skip the competitive-2p scenario filter.")
+                    help="The default; kept so older command lines run.")
     ap.add_argument("--resume", type=Path, default=None,
                     help="Checkpoint to resume from (model, encoder, optimizer "
                          "and where its pass stands): the run continues the "
                          "pass the checkpoint was cut from.")
-    ap.add_argument("--max-replay-commands", type=int, default=1500,
-                    help="Skip replays with > this many commands "
-                         "(catches the 4 corpus outliers at 2000+ that "
-                         "drove RAM use to 65%% on the first overnight).")
+    ap.add_argument("--max-replay-commands", type=int, default=0,
+                    help="Skip replays with > this many commands, read from index.jsonl "
+                         "(0 = no cap; 1500 caught the 4 outliers at 2000+ that drove RAM "
+                         "use to 65%% on the first overnight).")
     ap.add_argument("--max-starting-units", type=int, default=0,
                     help="Skip replays with > this many starting units "
                          "(0 = no cap; some legit maps like Thousand "
@@ -2931,7 +2934,7 @@ def main(argv: List[str]) -> int:
         max_starting_units=args.max_starting_units,
         max_pairs_per_replay=args.max_pairs_per_replay,
         device_str=args.device,
-        competitive_only=not args.all_scenarios,
+        competitive_only=args.competitive_only,
         resume=args.resume,
         workers=args.workers,
         prefetch_factor=args.prefetch_factor,
