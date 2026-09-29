@@ -450,3 +450,28 @@ def test_every_box_script_on_the_library_parses():
     for path in scripts + [LIB / "boxlib.sh", LIB / "box_onstart.sh"]:
         result = subprocess.run([BASH, "-n", bash_path(path)], capture_output=True, text=True)
         assert result.returncode == 0, f"{path.name}: {result.stderr}"
+
+
+@pytest.mark.parametrize("files, expected", [
+    ({"cpu.max": "400000 100000\n"}, "4"),
+    ({"cpu.max": "250000 100000\n"}, "3"),
+    ({"cpu.max": "max 100000\n", "cpu/cpu.cfs_quota_us": "200000\n", "cpu/cpu.cfs_period_us": "100000\n"}, "2"),
+    ({"cpu/cpu.cfs_quota_us": "-1\n", "cpu/cpu.cfs_period_us": "100000\n"}, None),
+    ({}, None),
+], ids=["v2 quota", "v2 fraction rounds up", "v1 quota", "v1 unlimited", "no cgroup"])
+def test_box_cores_reads_the_quota_not_omp_num_threads(box, files, expected):
+    """A 64-core box read 1 through `nproc`, which honours OMP_NUM_THREADS=1
+    (2026-09-29); the core count is the cgroup quota, else every usable CPU."""
+    root = box.tmp / "cgroup"
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(text.encode())   # LF, as the kernel writes it
+    answer = box.tmp / "cores.txt"
+    box.run(f'box_cores > "{bash_path(answer)}"', init=False,
+            OMP_NUM_THREADS=1, BOX_CGROUP_ROOT=bash_path(root))
+    usable = subprocess.run([BASH, "-c", "env -u OMP_NUM_THREADS nproc"],
+                            capture_output=True, text=True).stdout.strip()
+    want = expected if expected is not None else usable
+    if expected is not None and int(expected) > int(usable):
+        want = usable
+    assert answer.read_text().strip() == want
