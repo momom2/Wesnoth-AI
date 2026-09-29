@@ -197,7 +197,7 @@ def test_a_covered_run_is_rented_under_its_script_name(credit, balance, monkeypa
     (created,) = sdk.called("create_instance")
     assert created["id"] == 99 and created["label"] == SCRIPT
     (lookup,) = sdk.called("search_offers")
-    assert lookup["query"] == "id=99" and lookup["storage"] == 40
+    assert lookup["query"] == "ask_contract_id=99" and lookup["storage"] == 40
 
 
 @pytest.mark.parametrize("on_hf, account, reason", [
