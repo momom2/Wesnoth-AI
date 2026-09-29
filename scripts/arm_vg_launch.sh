@@ -190,7 +190,7 @@ while true; do
 import torch
 try:
     print(int(torch.load(\"'"$CAMPAIGN"'\", map_location=\"cpu\",
-                          weights_only=False).get(\"decision_step\", 0)))
+                          weights_only=True).get(\"decision_step\", 0)))
 except Exception:
     print(0)")
     if [ "$step" -gt 0 ] && [ $((step - last)) -ge 27000 ]; then

@@ -176,7 +176,7 @@ fi
 # ---- the pass: stopped once epoch STOP_AFTER_EPOCH's checkpoint and holdout eval are written
 arm_epochs_done() {              # the completed epochs arm.pt records; -1 when unreadable
     timeout 5m python -c 'import sys, torch
-print(int(torch.load(sys.argv[1], map_location="cpu", weights_only=False).get("supervised_epoch", -1)))' \
+print(int(torch.load(sys.argv[1], map_location="cpu", weights_only=True).get("supervised_epoch", -1)))' \
         "$OUT/arm.pt" 2>/dev/null || echo -1
 }
 train_attempt() {                # train_attempt MINUTES: the pass, continuing arm.pt when present; sets BOX_RC, BOX_WHY

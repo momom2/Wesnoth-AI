@@ -1491,3 +1491,16 @@ many line-coverage tests.
   someone could reasonably ask "why exactly that value?".
 - **Prefer removing over adding.** This codebase is recovering from
   bloat. When a feature is load-bearing, we'll re-add it with evidence.
+- **Credentials never reach a transcript** (user decision 2026-09-29).
+  What a tool returns to Claude is stored and sent to the model, so
+  `tools/secret_guard` redacts credentials from every tool result: Bash
+  output through the shell prefix, failed commands included, and the other
+  tools' results through a hook; a `<redacted>` in output is the guard at
+  work. A new key is created in the user's own terminal or browser and
+  saved to its store before any tool call touches it. Keys are restricted
+  (Vast: offers and instances; Hugging Face: write on the checkpoint
+  repository only), and every checkpoint load uses `weights_only=True`,
+  since a leaked Hugging Face token could otherwise plant code in a
+  checkpoint we download. Rejected (user, 2026-09-29): pinning by hash
+  the code and scripts boxes download from Hugging Face, against a
+  dishonest Vast host reusing the box's token; not worth the hardening.

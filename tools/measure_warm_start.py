@@ -260,7 +260,7 @@ def main(argv: List[str]) -> int:
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.net2net import grow_checkpoint
 
-    raw = torch.load(args.source, map_location="cpu", weights_only=False)
+    raw = torch.load(args.source, map_location="cpu", weights_only=True)
     src_arch = raw.get("arch", {}) or {}
     aux = bool(raw.get("aux_score", False))
     # Optional heads must be reproduced or the "source" being measured is
@@ -286,7 +286,7 @@ def main(argv: List[str]) -> int:
     if args.dest:
         # Two-checkpoint mode: no grow; flags/arch from the dest raw.
         draw = torch.load(args.dest, map_location="cpu",
-                          weights_only=False)
+                          weights_only=True)
         darch = draw.get("arch", {}) or {}
         dflags = {k: bool(draw.get(k, False))
                   for k in ("moves_left", "relevant_set_hexes")}

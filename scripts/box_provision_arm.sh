@@ -26,7 +26,7 @@ tok = open("/workspace/.hf_token").read().strip()
 p = hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1], token=tok)
 dst = "training/checkpoints/" + sys.argv[1].split("/")[-1]
 shutil.copy(p, dst)
-m = torch.load(dst, map_location="cpu", weights_only=False).get("training_meta", {}).get("vg2", {})
+m = torch.load(dst, map_location="cpu", weights_only=True).get("training_meta", {}).get("vg2", {})
 print("staged", dst, "| meta lambda", round(m.get("trust_lambda", 0), 2),
       "bias", round(m.get("consist_bias", 0), 3), "sigma2", round(m.get("consist_sigma2", 0), 3))
 PYEOF

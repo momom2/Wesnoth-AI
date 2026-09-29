@@ -97,7 +97,7 @@ def load_policy(ckpt: Path, device: str = "auto") -> TransformerPolicy:
         # 2026-08-17: the A4 bake-off ran a full judge on CPU because
         # the launch omitted --device -- 26 ms forwards vs 3 ms.
         device = "cuda" if torch.cuda.is_available() else "cpu"
-    raw = torch.load(ckpt, map_location="cpu", weights_only=False)
+    raw = torch.load(ckpt, map_location="cpu", weights_only=True)
     arch = raw.get("arch", {})
     policy = TransformerPolicy(
         device=device,

@@ -191,7 +191,7 @@ def test_legacy_side_embed_pads(tmp_path):
                            num_layers=1, num_heads=4, d_ff=64)
     ck = tmp_path / "legacy.pt"
     p1.save_checkpoint(ck)
-    raw = torch.load(ck, map_location="cpu", weights_only=False)
+    raw = torch.load(ck, map_location="cpu", weights_only=True)
     w = raw["encoder_state"]["side_embed.weight"]
     raw["encoder_state"]["side_embed.weight"] = w[:2, :].clone()
     torch.save(raw, ck)

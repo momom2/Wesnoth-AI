@@ -74,7 +74,7 @@ def test_sl_pass_round_trips_mcts_checkpoint(tmp_path):
     #    shape -- must not raise (arch header), must carry
     #    decision_step, and the aux head must ride through UNCHANGED
     #    (no SL loss touches it; AdamW skips grad-less params).
-    ckpt = torch.load(out, map_location="cpu", weights_only=False)
+    ckpt = torch.load(out, map_location="cpu", weights_only=True)
     assert ckpt["arch"] == _ARCH, f"arch header lies: {ckpt['arch']}"
     assert ckpt.get("decision_step") == 123_456
     assert ckpt.get("aux_score") is True
@@ -188,7 +188,7 @@ def test_batched_training_loop_actually_steps(tmp_path):
           holdout_games=20, eval_every=0, eval_pairs=5,
           value_loss_weight=0.5)
     import torch
-    ck = torch.load(out, map_location="cpu", weights_only=False)
+    ck = torch.load(out, map_location="cpu", weights_only=True)
     assert int(ck.get("supervised_step", 0)) >= 3, \
         "batched train() must land optimizer steps"
 

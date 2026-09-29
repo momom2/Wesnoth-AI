@@ -1725,7 +1725,7 @@ def train(
         ckpt_src = None
     if ckpt_src is not None:
         ckpt = torch.load(ckpt_src, map_location="cpu",
-                          weights_only=False)
+                          weights_only=True)
         saved_arch = ckpt.get("arch") or {}
         ours = {"d_model": d_model, "num_layers": num_layers,
                 "num_heads": num_heads, "d_ff": d_ff}

@@ -214,7 +214,7 @@ def main(argv: List[str]) -> int:
         import torch
         from wesnoth_ai.transformer_policy import TransformerPolicy
         raw = torch.load(args.eval_ckpt, map_location="cpu",
-                         weights_only=False)
+                         weights_only=True)
         a = raw["arch"]
         policy = TransformerPolicy(
             d_model=a["d_model"], num_layers=a["num_layers"],
