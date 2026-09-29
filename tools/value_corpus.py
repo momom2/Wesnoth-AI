@@ -111,7 +111,8 @@ def game_raw_experiences(gz_path: Path, winner: int, *,
                          rng: Optional[random.Random] = None,
                          moves_left_norm: Optional[float] = None,
                          fog_hides_enemy_villages: bool = False,
-                         terrain_multi_hot: bool = False):
+                         terrain_multi_hot: bool = False,
+                         relevant_set: bool = False):
     """Like game_experiences, but encode_raw each sampled state at
     sample time (no deepcopy) and return picklable
     (RawEncoded, z, moves_left) tuples — the worker-side producer for
@@ -135,6 +136,7 @@ def game_raw_experiences(gz_path: Path, winner: int, *,
             if side in (1, 2) and k % stride == offset:
                 raw = cs.encode_raw(type_to_id=type_to_id,
                                     faction_to_id=faction_to_id,
+                                    relevant_set=relevant_set,
                                     fog_hides_enemy_villages=fog_hides_enemy_villages,
                                     terrain_multi_hot=terrain_multi_hot)
                 sampled.append((raw, side, int(cs.core.turn_number)))
