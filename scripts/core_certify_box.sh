@@ -29,7 +29,7 @@ WORKDIR=/workspace
 OUT=$WORKDIR/core_certify
 STAGE="${STAGE:-}"
 CORPUS_TAR="${CORPUS_TAR:-tier-b/replays_dataset_imitation_dedup_20260908.tar.gz}"
-SHARDS="${SHARDS:-$(nproc)}"
+SHARDS="${SHARDS:-}"                      # default: box_cores, taken after bring-up
 ENCODE_EVERY="${ENCODE_EVERY:-10}"
 export HF_DIR="${HF_DIR:-tier-b/core_certify_20260928}"
 DIFF_CUT_MIN="${DIFF_CUT_MIN:-90}"
@@ -63,7 +63,8 @@ from huggingface_hub import hf_hub_download
 path = hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1])
 with tarfile.open(path, "r:gz") as tf:
     tf.extractall(".")
-print("corpus files", sum(1 for n in tf.getnames() if n.endswith(".json.gz")), flush=True)
+    n = sum(1 for name in tf.getnames() if name.endswith(".json.gz"))
+print("corpus files", n, flush=True)
 EOF
 fi
 [ -f replays_dataset_imitation/manifest.jsonl ] || box_finish "CORPUS_FAILED: no replays_dataset_imitation/manifest.jsonl (staging.log)" 1
@@ -78,7 +79,9 @@ fi
 
 # ---- the sweep, one diff_core per shard of the corpus
 export OMP_NUM_THREADS=1
-ls replays_dataset_imitation/*.json.gz > "$OUT/files.txt"
+[ -n "$SHARDS" ] || SHARDS=$(box_cores)
+echo "shards $SHARDS" >> "$OUT/box.txt"
+find replays_dataset_imitation -maxdepth 1 -name '*.json.gz' | sort > "$OUT/files.txt"
 rm -f "$OUT"/shard_??*
 split -n "l/$SHARDS" -d -a 3 "$OUT/files.txt" "$OUT/shard_"
 # shellcheck disable=SC2016 # expanded by the inner shell, which gets them as $0 and $1

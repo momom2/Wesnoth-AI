@@ -40,18 +40,32 @@ def local_path(ref: dict | None = None) -> Path:
     return REPO_ROOT / ref["checkpoint_local"]
 
 
+def verify_checkpoint(path: Path, ref: dict | None = None) -> Path:
+    """`path` when its SHA-256 is the adopted reference's; raises otherwise
+    (a changed file would silently measure another reference)."""
+    ref = ref or load()
+    want = ref.get("checkpoint_sha256")
+    if want:
+        from tools.eval_provenance import file_sha256
+        got = file_sha256(path)
+        if got != want:
+            raise SystemExit(f"{path} is not the adopted reference {ref['label']}: "
+                             f"SHA-256 {got}, expected {want}")
+    return path
+
+
 def ensure_checkpoint(ref: dict | None = None) -> Path:
-    """The local checkpoint, fetched from the model host when missing."""
+    """The local checkpoint, fetched from the model host when missing,
+    checked against the adopted reference's SHA-256 either way."""
     ref = ref or load()
     path = local_path(ref)
-    if path.exists():
-        return path
-    import shutil
-    from huggingface_hub import hf_hub_download
-    src = hf_hub_download(ref["hf_repo"], ref["checkpoint_hf"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, path)
-    return path
+    if not path.exists():
+        import shutil
+        from huggingface_hub import hf_hub_download
+        src = hf_hub_download(ref["hf_repo"], ref["checkpoint_hf"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, path)
+    return verify_checkpoint(path, ref)
 
 
 def batch_flags(side: str, ref: dict | None = None) -> list[str]:

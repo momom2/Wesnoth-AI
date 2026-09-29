@@ -608,9 +608,16 @@ class WesnothSim:
         # decision -- they'd typically just call step() again,
         # which is exactly the right behavior.
         self.last_step_rejected: bool = False
+        # Why: "recruit_occupied" (the hex held a unit the side could not
+        # see and no castle hex was vacant: re-decide) or
+        # "mask_disagreement" (the simulator refused what the legality
+        # mask offered: a defect, which a match fails on).
+        self.last_step_refusal: Optional[str] = None
         # Consecutive rejected-step counter for the mask-less-caller
         # loop guard (see step()). Reset whenever a command applies.
         self._consecutive_rejects: int = 0
+        # Turns the loop guard ended, per side (a match records them).
+        self.forced_end_turns: Dict[int, int] = {}
 
         # Turn 0 is pre-game. The first init_side(1) bumps to turn 1
         # AND fires turn-1 events / healing. Mirror that here.
@@ -1097,6 +1104,31 @@ class WesnothSim:
         return Position(x=best[0], y=best[1])
 
 
+    def _refused(self, action: dict, kind: str) -> bool:
+        """A refused action. The caller re-decides (`last_step_rejected`,
+        `last_step_refusal`) until _MAX_CONSECUTIVE_REJECTS refusals in a
+        row; then the side's turn ends instead, since a caller that does
+        not re-decide from the mask (a scripted policy, a buggy caller)
+        would repeat the same doomed action forever (caught 2026-07-17).
+        True while the caller should re-decide."""
+        self._consecutive_rejects += 1
+        if self._consecutive_rejects < self._MAX_CONSECUTIVE_REJECTS:
+            self.last_step_rejected = True
+            self.last_step_refusal = kind
+            return True
+        log.warning(
+            f"sim: {self._consecutive_rejects} consecutive "
+            f"rejected steps (last: {action!r}); caller is not "
+            f"re-deciding from the mask -- ending turn to "
+            f"guarantee progress")
+        self._forced_end_turn_note = (
+            f"attempted {_describe_action(action)}; "
+            f"{self._consecutive_rejects} consecutive rejects "
+            f"-> forced end_turn (loop guard)")
+        side = int(self.current_side)
+        self.forced_end_turns[side] = self.forced_end_turns.get(side, 0) + 1
+        return False
+
     def step(self, action: dict) -> bool:
         """Apply one action. Returns True if the game is over after
         this step. Wraps `_step_inner` with the no-progress tracker:
@@ -1207,8 +1239,9 @@ class WesnothSim:
                             f"{target.x},{target.y} has no landable "
                             f"attack hex; mask/sim reachability "
                             f"disagreement -- re-deciding")
-                        self.last_step_rejected = True
-                        return self.done
+                        if self._refused(action, "mask_disagreement"):
+                            return self.done
+                        action = {"type": "end_turn"}
                     else:
                         # Dispatch the move first; if it produces a
                         # game-over (e.g. capture-the-flag scenario),
@@ -1256,6 +1289,7 @@ class WesnothSim:
         # this AFTER step() to decide whether to re-decide rather than
         # advance.
         self.last_step_rejected = False
+        self.last_step_refusal = None
 
         cmd, terrain_cost = self._action_to_command(action)
         if cmd is not None and cmd[0] in ("__retry_recruit__",
@@ -1273,20 +1307,9 @@ class WesnothSim:
             # behavior) with a loud warning. Mask-consulting policies
             # never accumulate rejects (the mask and the planner
             # agree), so the bound only fires for mask-less callers.
-            self._consecutive_rejects = getattr(
-                self, "_consecutive_rejects", 0) + 1
-            if self._consecutive_rejects < self._MAX_CONSECUTIVE_REJECTS:
-                self.last_step_rejected = True
+            kind = "recruit_occupied" if cmd[0] == "__retry_recruit__" else "mask_disagreement"
+            if self._refused(action, kind):
                 return self.done
-            log.warning(
-                f"sim: {self._consecutive_rejects} consecutive "
-                f"rejected steps (last: {action!r}); caller is not "
-                f"re-deciding from the mask -- ending turn to "
-                f"guarantee progress")
-            self._forced_end_turn_note = (
-                f"attempted {_describe_action(action)}; "
-                f"{self._consecutive_rejects} consecutive rejects "
-                f"-> forced end_turn (loop guard)")
             cmd = ["end_turn"]
         self._consecutive_rejects = 0
         if cmd is None:

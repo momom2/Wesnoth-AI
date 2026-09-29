@@ -123,3 +123,39 @@ def test_reach_and_visibility_equal_the_python():
                     seen["landable"] += len(a.landable)
     assert seen["views"] > 100 and seen["reaches"] > 1000, seen
     assert seen["hidden"] > 50 and seen["zoc"] > 100 and seen["landable"] > 10000, seen
+
+
+def test_reach_after_a_terrain_change_names_the_core_hexes():
+    """Aethermaw's terrain changes from turn 4 give the view a new hex set,
+    which iterates in another order than the core's hex indices. The core's
+    context and reach must still name the right hexes: on 2026-09-29 they
+    were mapped through the view's order, named other hexes, and the
+    simulator refused the moves the legality mask offered from turn 4."""
+    from tools.pathfind_sim import ReachContext, unit_reach
+    from tools.wesnoth_sim import WesnothSim
+    from wesnoth_ai.rules import scenario_pool as sp
+    from wesnoth_ai.visibility import units_visible_to_python
+    seed = next(s for s in range(10_000)
+                if sp.random_setup(random.Random(s)).scenario_id == "multiplayer_Aethermaw")
+    setup = sp.random_setup(random.Random(seed))
+    sim = WesnothSim(sp.build_scenario_gamestate(setup), scenario_id=setup.scenario_id, max_turns=40)
+    while not (sim.gs.global_info.turn_number == 4 and sim.gs.global_info.current_side == 1):
+        sim.step({"type": "end_turn"})
+    view = _snapshot(sim)
+    core_order = list(gc.core_of(view).geometry().keys)
+    view_order = [(h.position.x, h.position.y) for h in view.map.hexes]
+    assert sorted(core_order) == sorted(view_order) and core_order != view_order, \
+        "the terrain change no longer reorders the view's hexes: this test tests nothing"
+    checked = 0
+    for u in sorted((u for u in view.map.units if u.side == 1), key=lambda u: u.id):
+        ctx_rs = ReachContext.for_side(view, 1, exclude_unit=u)
+        ctx_py = ReachContext.from_units(1, units_visible_to_python(view, 1), u)
+        assert ctx_rs.core is not None
+        for k in ("occupied_visible", "enemy_hexes", "ally_hexes", "zoc_hexes"):
+            assert getattr(ctx_rs, k) == getattr(ctx_py, k), (u.id, k)
+        a = unit_reach(u, view, ctx_rs)
+        b = unit_reach(u, view, ctx_py)
+        assert dict(a.mp) == dict(b.mp) and dict(a.prev) == dict(b.prev), u.id
+        assert set(a.landable) == set(b.landable) and a.landable, u.id
+        checked += 1
+    assert checked >= 1

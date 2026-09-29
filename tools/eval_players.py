@@ -155,6 +155,15 @@ def _play_one_eval_game(
 
         commands_before = len(sim.command_history)
         sim.step(action)
+        if (sim.last_step_refusal == "mask_disagreement"
+                and getattr(actor.policy, "consults_legality_mask", True)):
+            # The simulator refused an action the legality mask offered. A
+            # match does not play on: the argmax player would repeat it
+            # (8 times for a move, then lose the turn), and the verdict
+            # would silently count the damage (2026-09-29 audit). Scripted
+            # players pick without the mask and are refused by design.
+            raise RuntimeError(f"{game_label}: the simulator refused {action!r}, which the "
+                               f"legality mask offered (a mask/simulator disagreement)")
         note_search_outcomes(sim, actor.policy, game_label, commands_before)
         _update_closest_approach(sim.gs, closest_approach)
 
