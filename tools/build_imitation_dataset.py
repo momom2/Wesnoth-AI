@@ -56,8 +56,12 @@ log = logging.getLogger("build_imitation_dataset")
 # read back by `replay_dataset.corpus_version_of`. 2 (2026-09-26): a
 # stopped move is labelled with the hex its player clicked, games are cut
 # at their end, the outcome comes from tools/replay_outcome, and
-# reloaded games deduplicate on a 30-command prefix.
-CORPUS_VERSION = 2
+# reloaded games deduplicate on a 30-command prefix. 3 (2026-09-29): the
+# moves the engine makes for standing orders at a turn start and the
+# end_turn of a turn that ran out are marked and never paired
+# (tools/replay_engine_actions.py), and each side records whether its
+# player picked Random, with the game's era, for the faction prior.
+CORPUS_VERSION = 3
 
 ACCEPT_MOD_CLASSES = ("mod_free", "kept_cosmetic", "kept_plan_unit_advance")
 DISPOSITIONS = Path("training/logs/replay_dispositions.jsonl.gz")
@@ -91,20 +95,21 @@ def is_holdout(ledger_path: str, holdout_fraction: float) -> bool:
     return (h % 10_000) < holdout_fraction * 10_000
 
 
-def _winner_action_count(commands: list, winner_side: int) -> int:
+def _winner_action_count(commands: list, winner_side: int, engine_issued=frozenset()) -> int:
     """Static count of the winner's actionable commands (move / attack
-    / recruit / recall while it is the winner's turn). Approximates
+    / recruit / recall while it is the winner's turn), leaving out the
+    ones the engine made (`replay_dataset.engine_issued_of`). Approximates
     the trainer's pair count (which drops the rare unmappable action)
     closely enough for per-game weighting."""
     side = 0
     n = 0
-    for c in commands:
+    for i, c in enumerate(commands):
         if not c:
             continue
         if c[0] == "init_side":
             side = c[1]
         elif side == winner_side and c[0] in ("move", "attack",
-                                              "recruit", "recall"):
+                                              "recruit", "recall") and i not in engine_issued:
             n += 1
     return n
 
@@ -128,7 +133,7 @@ def build_one(job: Tuple[str, str, str, dict]) -> dict:
     """One candidate: extract, quarantine, label, and write the kept
     game. The returned row says which of those it came to."""
     ledger_path, raw_root, out_dir, config = job
-    from tools.replay_dataset import fog_on_for, match_key
+    from tools.replay_dataset import engine_issued_of, fog_on_for, match_key
     from tools.replay_extract import extract_replay
     from tools.replay_outcome import label_outcome
     row: dict = {"source": ledger_path}
@@ -153,7 +158,8 @@ def build_one(job: Tuple[str, str, str, dict]) -> dict:
     row.update({
         "file": fname,
         "n_commands": len(rec["commands"]),
-        "winner_actions": _winner_action_count(rec["commands"], outcome.winner_side),
+        "winner_actions": _winner_action_count(rec["commands"], outcome.winner_side,
+                                               engine_issued_of(rec)),
         "holdout": is_holdout(ledger_path, float(config["holdout_fraction"])),
         "fog": fog_on_for(sides),
         "shroud": any(bool(s.get("shroud", False)) for s in sides),

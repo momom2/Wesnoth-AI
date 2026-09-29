@@ -3190,14 +3190,31 @@ def iter_record_pairs(data: dict, *, relevant_set: bool = False,
         return
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
-    for cmd in data.get("commands", []):
-        if gs.global_info.current_side in PLAYER_SIDES:
+    engine = engine_issued_of(data)
+    for i, cmd in enumerate(data.get("commands", [])):
+        if i in engine:
+            _count_engine_issued(stats, engine[i])
+        elif gs.global_info.current_side in PLAYER_SIDES:
             ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
             if ai is not None:
                 yield gs, ai
             elif stats is not None and cmd and cmd[0] in PAIRED_KINDS:
                 stats["unpaired"] += 1
         _apply_command(gs, cmd)
+
+
+def engine_issued_of(data: dict) -> Dict[int, str]:
+    """The commands of a record that the engine made under a player side
+    (index -> "goto" or "timeout", tools/replay_engine_actions.py): applied
+    to the state, never paired as decisions. Empty for records extracted
+    before the field existed (extraction version 3)."""
+    marks = data.get("engine_issued") or {}
+    return {int(i): kind for kind, idx in marks.items() for i in idx}
+
+
+def _count_engine_issued(stats: Optional[Counter], kind: str) -> None:
+    if stats is not None:
+        stats[f"engine_{kind}"] += 1
 
 
 def record_core(data: dict):
@@ -3213,8 +3230,11 @@ def _iter_record_pairs_on_core(data: dict, *, relevant_set: bool,
                                stats: Optional[Counter]) -> Iterator[Tuple[GameState, ActionIndices]]:
     from wesnoth_ai.game_core import bind_view
     cs = record_core(data)
-    for cmd in data.get("commands", []):
-        if int(cs.core.current_side) in PLAYER_SIDES:
+    engine = engine_issued_of(data)
+    for i, cmd in enumerate(data.get("commands", [])):
+        if i in engine:
+            _count_engine_issued(stats, engine[i])
+        elif int(cs.core.current_side) in PLAYER_SIDES:
             gs = cs.to_state()
             bind_view(gs, cs.fork())
             ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)

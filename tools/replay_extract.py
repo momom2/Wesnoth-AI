@@ -44,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wesnoth_ai.paths import UNIT_STATS_PATH  # noqa: E402
 from tools.replay_control import find_game_end  # noqa: E402
+from tools.replay_engine_actions import engine_goto_moves, turn_timer  # noqa: E402
 from wesnoth_ai.rules.wml_state import (check_board_cycle,  # noqa: E402
                                         check_quick_leader_gates, map_starting_positions,
                                         read_side, read_tod, read_unit, read_villages,
@@ -56,7 +57,7 @@ log = logging.getLogger("replay_extract")
 # move keeps the hex its player clicked (`replay_dataset.move_order_of`)
 # and the record says where the game ended (`game_end`). Records without
 # the key are version 1.
-EXTRACTION_VERSION = 2
+EXTRACTION_VERSION = 3
 
 
 # --------------------------------------------------------------------
@@ -816,6 +817,20 @@ def _compact_action_sig(compact_entry) -> Optional[Tuple]:
     return None
 
 
+def _random_choices(snap) -> Dict[int, bool]:
+    """Each side whose player picked Random (`chose_random=yes` on its
+    [side] block): its faction was hidden from the other players."""
+    out: Dict[int, bool] = {}
+    for node in (snap.all("side") if snap is not None else []):
+        try:
+            side = int(str(node.attrs.get("side", "0")).strip('"') or 0)
+        except ValueError:
+            continue
+        if side:
+            out[side] = _wml_bool(node.attrs.get("chose_random", "no"), False)
+    return out
+
+
 def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dict]:
     """Parse one replay file into a compact per-game dict.
 
@@ -1042,6 +1057,19 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
     full_checkup_recruit_ids: set = set()
     snap = root.first("replay_start") or root.first("snapshot") or root.first("scenario")
     game_end = find_game_end(commands_list, snap)
+    mp_node = root.first("multiplayer")
+    timer = turn_timer(mp_node.attrs) if mp_node is not None else None
+    # The side-turn in progress: its end_turn entry and the new time the
+    # engine recorded for it, to find the turns that ran out
+    # (tools/replay_engine_actions.py).
+    side_turn: dict = {"side": 0, "end_turn": None, "recorded_ms": None}
+    timeout_ids: set = set()
+
+    def close_side_turn() -> None:
+        entry, ms = side_turn["end_turn"], side_turn["recorded_ms"]
+        if timer is not None and entry is not None and ms is not None and timer.is_timeout(ms):
+            timeout_ids.add(id(entry))
+
     stop_at = game_end.cut_index if cut_at_game_end else None
     for cmd_idx, cmd in enumerate(commands_list):
         if stop_at is not None and cmd_idx >= stop_at:
@@ -1112,10 +1140,23 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
             if t in ("init_side",):
                 side = int(sub.attrs.get("side_number", 0) or 0)
                 if side:
+                    close_side_turn()
+                    side_turn.update(side=side, end_turn=None, recorded_ms=None)
                     compact_commands.append(["init_side", side])
                 break
             if t == "end_turn":
-                compact_commands.append(["end_turn"])
+                entry = ["end_turn"]
+                side_turn["end_turn"] = entry
+                compact_commands.append(entry)
+                break
+            if t == "countdown_update":
+                try:
+                    team = int(sub.attrs.get("team", 0) or 0)
+                    value = int(sub.attrs.get("value", -1) or -1)
+                except ValueError:
+                    team, value = 0, -1
+                if team == side_turn["side"]:
+                    side_turn["recorded_ms"] = value
                 break
             if t == "fire_event" and sub.attrs.get(
                     "raise", "").strip('"') == "menu item pickadvance":
@@ -1845,11 +1886,14 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
                         last_attack_slot -= 1
             last_move_slot = None
 
+    close_side_turn()
+
     # A game cut before its first action keeps its record, so the
     # caller can say why it holds no play (`game_end.cut_before_play`).
     if not compact_commands and not (stop_at is not None and game_end.cut_before_play):
         return None
 
+    random_choice = _random_choices(snap)
     # Initial state — no hex map, loader re-parses map_data from here.
     starting_sides = [
         {
@@ -1863,6 +1907,9 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
             "leader_type": s.leader_type,
             "color": s.color,
             "controller": s.controller,
+            # The player picked Random, so the others did not see the
+            # faction chosen (the faction prior of the parity observation).
+            "chose_random": random_choice.get(s.side_num, False),
         }
         for s in sorted(gs.sides.values(), key=lambda s: s.side_num)
     ]
@@ -1992,7 +2039,7 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
     # Defaults to 100 (no modification). Replays use 30..100% commonly;
     # the Aethermaw replay we're auditing uses 50%.
     exp_mod = 100
-    mp = root.first("multiplayer")
+    mp = mp_node
     if mp is not None:
         try:
             exp_mod = int(mp.attrs.get("experience_modifier", 100) or 100)
@@ -2013,6 +2060,7 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
         for (x, y), side in sorted(gs.villages_owned.items())
     ]
 
+    era_id = (root.attrs.get("era_id") or (mp.attrs.get("mp_era") if mp is not None else "") or "").strip('"')
     return {
         "game_id": path.stem,
         "scenario_id": gs.scenario_id,
@@ -2028,6 +2076,15 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
         "starting_units": starting_units,
         "starting_villages": starting_villages,
         "commands": compact_commands,
+        # Commands under a player side that the engine made: never paired
+        # as decisions (tools/replay_engine_actions.py).
+        "engine_issued": {
+            "goto": engine_goto_moves(compact_commands),
+            "timeout": [i for i, c in enumerate(compact_commands) if id(c) in timeout_ids],
+        },
+        "era_id": era_id,
+        "turn_timer": None if timer is None else [timer.init_s, timer.turn_bonus_s,
+                                                  timer.action_bonus_s, timer.reservoir_s],
         "extraction_version": EXTRACTION_VERSION,
         "game_end": {**game_end.as_record(), "cut": stop_at is not None},
     }
