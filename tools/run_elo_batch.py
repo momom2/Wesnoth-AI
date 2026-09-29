@@ -425,6 +425,19 @@ def _log_server_stats(stats: dict) -> None:
                  st["gpu_ms"] / 1000.0)
 
 
+
+def _refuse_a_changed_reference(args, sha_of: dict) -> None:
+    """A side labelled as the reference player must play the adopted
+    checkpoint (configs/reference_player.json `checkpoint_sha256`): a file
+    replaced under the same path would silently measure another reference."""
+    from tools import reference_player
+    ref = reference_player.load()
+    want = ref.get("checkpoint_sha256")
+    for label, spec in ((args.label_a, args.spec_a), (args.label_b, args.spec_b)):
+        if want and label == ref["label"] and sha_of.get(spec) != want:
+            raise SystemExit(f"--label {label} names the reference player, but {spec} has SHA-256 "
+                             f"{sha_of.get(spec)}, not the adopted {want}")
+
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
@@ -816,6 +829,7 @@ def main(argv: List[str]) -> int:
     # (see checkpoint_refusal, faction_refusal).
     _sha_of = {spec: spec_sha256(spec) for spec in {args.spec_a, args.spec_b}}
     want_ckpts = (_sha_of[args.spec_a], _sha_of[args.spec_b])
+    _refuse_a_changed_reference(args, _sha_of)
     from wesnoth_ai.rules import scenario_pool
     want_faction = forced_faction_tag(scenario_pool.FORCED_FACTION)
     for f in sorted(args.outdir.glob("game_*.json")):
@@ -838,6 +852,13 @@ def main(argv: List[str]) -> int:
                 f"{args.max_turns}: the horizon decides decisive-"
                 f"vs-absence, so estimands don't mix -- fresh "
                 f"outdir (round-24 C9).")
+        # Absent field = the simulator's default then (2,000 since 2026-07).
+        from tools.wesnoth_sim import WesnothSim
+        _cap = WesnothSim.DEFAULT_MAX_ACTIONS_PER_SIDE
+        if prev.get("max_actions_per_side", _cap) != _cap:
+            raise SystemExit(
+                f"{f.name} was played with a {prev.get('max_actions_per_side')}-action cap per "
+                f"side, this run with {_cap}: the cap is a second horizon -- fresh outdir.")
         # Absent field = 1: every pre-flag result was B=1.
         if prev.get("mcts_batch", 1) != args.mcts_batch_size:
             raise SystemExit(
