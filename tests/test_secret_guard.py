@@ -49,7 +49,7 @@ def test_credential_shapes_are_redacted_whatever_their_value():
         "GET https://x/api?api_key=" + "f" * 40 + "&q=1": f"GET https://x/api?api_key={P}&q=1",  # not-a-secret
         "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.abcdef": f"Authorization: Bearer {P}",  # not-a-secret
         'CONTAINER_API_KEY="' + "9" * 32 + '"': f'CONTAINER_API_KEY="{P}"',      # not-a-secret
-        "a -----BEGIN RSA PRIVATE KEY-----\\nMIIE\\n-----END RSA PRIVATE KEY----- b": f"a {P} b",
+        "a -----BEGIN RSA PRIVATE KEY-----\\nMIIE\\n-----END RSA PRIVATE KEY----- b": f"a {P} b",  # not-a-secret
     }
     for text, expected in cases.items():
         assert r.redact(text) == expected, text
@@ -71,12 +71,21 @@ def test_a_credential_cut_between_two_reads_is_still_redacted():
 
 
 def test_a_private_key_block_across_lines_is_redacted_whole():
-    key = ["-----BEGIN OPENSSH PRIVATE KEY-----", "b3BlbnNzaC1rZXktdjEAAAAA", "AAAAC3NzaC1lZDI1",
+    key = ["-----BEGIN OPENSSH PRIVATE KEY-----", "b3BlbnNzaC1rZXktdjEAAAAA", "AAAAC3NzaC1lZDI1",  # not-a-secret
            "-----END OPENSSH PRIVATE KEY-----"]
     text = "before\n" + "\n".join(key) + "\nafter\n"
     out = _stream([text[:30], text[30:70], text[70:]], sg.Redactor([]))
     assert "b3BlbnNzaC1rZXktdjEAAAAA" not in out and "AAAAC3NzaC1lZDI1" not in out
     assert out.startswith("before\n") and out.endswith("after\n")
+
+
+def test_a_lone_key_marker_withholds_nothing_after_it():
+    """Code or a log line naming a private-key marker is not a key: the
+    lines after it that are not a key's body pass through."""
+    marker = "-----BEGIN " + "RSA PRIVATE KEY-----"
+    text = f'x = "{marker}"\nprint("ok")\n3 passed\n'
+    out = _stream([text], sg.Redactor([]))
+    assert out == f'x = "{P}\nprint("ok")\n3 passed\n'
 
 
 def test_the_filter_passes_invalid_utf8_and_carriage_returns_through():

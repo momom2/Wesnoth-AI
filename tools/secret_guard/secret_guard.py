@@ -59,10 +59,12 @@ SHAPES = [
     re.compile(r"api_key=(?P<v>[A-Za-z0-9_\-]{16,})"),
     re.compile(r"(?i:\bbearer)\s+(?P<v>[A-Za-z0-9_\-.~+/]{16,}=*)"),
     re.compile(r"CONTAINER_API_KEY['\"]?\s*[:=]\s*['\"]?(?P<v>[A-Za-z0-9_\-]{16,})"),
-    re.compile(r"(?P<v>-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----)", re.S),
+    re.compile(r"(?P<v>-----BEGIN [A-Z ]*PRIVATE KEY-----[A-Za-z0-9+/=\s:,\-\\]*?-----END [A-Z ]*PRIVATE KEY-----)"),
 ]
 KEY_BEGIN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 KEY_END = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
+# A line of a private key's body: base64, blank, or an encryption header.
+KEY_BODY = re.compile(r"[A-Za-z0-9+/=]*|(Proc-Type|DEK-Info|Comment):.*")
 
 
 # ---------------------------------------------------------------------
@@ -175,7 +177,8 @@ class StreamRedactor:
     `redactor.longest` characters are, and never across a credential, so
     a credential cut between two reads is still whole when redacted. A
     private-key block spanning lines is redacted from its first line to
-    its last."""
+    its END marker, or to the first line that is not part of a key's body
+    (a lone marker, as in code that names one, withholds nothing else)."""
 
     def __init__(self, redactor: Redactor):
         self.redactor = redactor
@@ -205,8 +208,6 @@ class StreamRedactor:
 
     def close(self) -> str:
         rest, self.pending = self.pending, ""
-        if self.in_key:
-            return PLACEHOLDER
         return self._lines(rest)
 
     def _lines(self, block: str) -> str:
@@ -223,9 +224,11 @@ class StreamRedactor:
                 if end:
                     self.in_key = False
                     out.append(PLACEHOLDER + self.redactor.redact(body[end.end():]) + ending)
-                else:
+                    continue
+                if KEY_BODY.fullmatch(body.strip()):
                     out.append(ending)
-                continue
+                    continue
+                self.in_key = False
             begin = KEY_BEGIN.search(body)
             if begin and not KEY_END.search(body, begin.end()):
                 self.in_key = True
