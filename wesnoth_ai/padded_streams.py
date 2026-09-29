@@ -8,6 +8,9 @@ module builds them and the padded trunk's index arrays:
   (forward_padded's input).
 - pad_sighting_streams: the parity observation's sighting stream of
   EncodedStates, padded, with its per-sample counts.
+- extra_streams (with check_sighting_stream and memory_batch): the
+  parity-memory recipe's sighting and memory streams of one forward,
+  checked against the model's flags.
 - padded_trunk_index: the key-padding mask, the compact actor gather
   index and the actor kinds of the padded trunk, host-side numpy.
 - random_padded_streams: random streams for given sizes
@@ -21,7 +24,7 @@ re-exports random_padded_streams.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import numpy as np
 import torch
@@ -54,6 +57,58 @@ class ExtraStreams:
     @property
     def memory_counts(self) -> Optional[List[int]]:
         return self.memory.counts if self.memory is not None else None
+
+
+def check_sighting_stream(model, counts: Optional[Sequence[int]], B: int) -> None:
+    """The sighting stream is present exactly when `model` reads the
+    parity observation (a parity encoder always builds it, empty or
+    not)."""
+    if counts is None:
+        if model.observation_parity:
+            raise ValueError("a model built with observation_parity needs the sighting "
+                             "stream: encode with an observation_parity encoder")
+        return
+    if not model.observation_parity:
+        raise ValueError("a sighting stream reached a model built without observation_parity")
+    if len(counts) != B:
+        raise ValueError(f"{len(counts)} sighting counts for {B} samples")
+
+
+def memory_batch(model, memory: Optional[Sequence[torch.Tensor]], B: int,
+                 device: torch.device) -> Optional[MemoryBatch]:
+    """A batch's memory states padded for the trunk, checked against
+    `model`: required by a model with memory slots, refused by one
+    without."""
+    if model.slot_memory is None:
+        if memory is not None:
+            raise ValueError("memory states passed to a model without memory slots")
+        return None
+    if memory is None:
+        raise ValueError(
+            f"this model has memory_slots={model.memory_slots}: every forward takes each "
+            f"sample's memory state (initial_memory(k) at a game-side's first decision, "
+            f"the returned memory after it; [0, d] for k = 0)")
+    if len(memory) != B:
+        raise ValueError(f"{len(memory)} memory states for {B} samples")
+    return model.slot_memory.batch(memory, device)
+
+
+def extra_streams(model, B: int, device: torch.device, sighting_batch: Optional[torch.Tensor],
+                  sighting_counts: Optional[Sequence[int]],
+                  memory: Optional[Sequence[torch.Tensor]]) -> Optional[ExtraStreams]:
+    """The parity-memory streams of a forward on padded streams, checked
+    against `model`; None for obs8's model."""
+    if (sighting_batch is None) != (sighting_counts is None):
+        raise ValueError("the sighting stream needs both its tokens and its counts")
+    check_sighting_stream(model, sighting_counts, B)
+    mem = memory_batch(model, memory, B, device)
+    if sighting_batch is not None and sighting_batch.size(1) < max(sighting_counts, default=0):
+        raise ValueError("sighting counts exceed the sighting stream's width")
+    if sighting_batch is None and mem is None:
+        return None
+    return ExtraStreams(sighting=sighting_batch,
+                        sighting_counts=None if sighting_counts is None else list(sighting_counts),
+                        memory=mem)
 
 
 def material_batch(encoded_list):

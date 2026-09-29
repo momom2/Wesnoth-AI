@@ -45,7 +45,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.encoder import EncodedState
-from wesnoth_ai.memory import MemoryBatch, SlotMemory
+from wesnoth_ai.memory import SlotMemory
 from wesnoth_ai.model_output import (
     MAX_ATTACKS, VALUE_N_ATOMS, VALUE_V_MAX, VALUE_V_MIN, ActorKind, ModelOutput,
     PaddedOutput, TokenKind, UnitActionType,
@@ -55,7 +55,8 @@ from wesnoth_ai.packed_trunk import (
     check_packed_trunk_supported, flash_varlen_applies, packed_trunk, padded_gather_index,
 )
 from wesnoth_ai.material import MATERIAL_SCALE
-from wesnoth_ai.padded_streams import (ExtraStreams, material_batch, pad_encoded_streams,
+from wesnoth_ai.padded_streams import (ExtraStreams, check_sighting_stream, extra_streams,
+                                       material_batch, memory_batch, pad_encoded_streams,
                                        pad_sighting_streams, padded_trunk_index,
                                        random_padded_streams)
 
@@ -240,55 +241,6 @@ class WesnothModel(nn.Module):
         if self.slot_memory is None:
             raise ValueError("this model has no memory (memory_slots=0)")
         return self.slot_memory.initial_state(k)
-
-    def _memory_batch(self, memory: Optional[Sequence[torch.Tensor]], B: int,
-                      device: torch.device) -> Optional[MemoryBatch]:
-        """The batch's memory states, checked against the model: required
-        by a model with memory slots, refused by one without."""
-        if self.slot_memory is None:
-            if memory is not None:
-                raise ValueError("memory states passed to a model without memory slots")
-            return None
-        if memory is None:
-            raise ValueError(
-                f"this model has memory_slots={self.memory_slots}: every forward takes each "
-                f"sample's memory state (initial_memory(k) at a game-side's first decision, "
-                f"the returned memory after it; [0, d] for k = 0)")
-        if len(memory) != B:
-            raise ValueError(f"{len(memory)} memory states for {B} samples")
-        return self.slot_memory.batch(memory, device)
-
-    def _check_sighting_stream(self, counts: Optional[Sequence[int]], B: int) -> None:
-        """The sighting stream is present exactly when the model reads the
-        parity observation (a parity encoder always builds it, empty or
-        not)."""
-        if counts is None:
-            if self.observation_parity:
-                raise ValueError("a model built with observation_parity needs the sighting "
-                                 "stream: encode with an observation_parity encoder")
-            return
-        if not self.observation_parity:
-            raise ValueError("a sighting stream reached a model built without observation_parity")
-        if len(counts) != B:
-            raise ValueError(f"{len(counts)} sighting counts for {B} samples")
-
-    def _extra_streams(self, B: int, device: torch.device,
-                       sighting_batch: Optional[torch.Tensor],
-                       sighting_counts: Optional[Sequence[int]],
-                       memory: Optional[Sequence[torch.Tensor]]) -> Optional[ExtraStreams]:
-        """The parity-memory streams of a forward on padded streams, or
-        None for obs8's model."""
-        if (sighting_batch is None) != (sighting_counts is None):
-            raise ValueError("the sighting stream needs both its tokens and its counts")
-        self._check_sighting_stream(sighting_counts, B)
-        mem = self._memory_batch(memory, B, device)
-        if sighting_batch is not None and sighting_batch.size(1) < max(sighting_counts, default=0):
-            raise ValueError("sighting counts exceed the sighting stream's width")
-        if sighting_batch is None and mem is None:
-            return None
-        return ExtraStreams(sighting=sighting_batch,
-                            sighting_counts=None if sighting_counts is None else list(sighting_counts),
-                            memory=mem)
 
     def _value_input(self, g: torch.Tensor, material: Optional[torch.Tensor]) -> torch.Tensor:
         """The value head's input: the global context, plus the
@@ -540,8 +492,8 @@ class WesnothModel(nn.Module):
         new states in `memory`."""
         if self.infer_compile_packed and not self.infer_packed_trunk:
             raise ValueError("infer_compile_packed requires infer_packed_trunk")
-        extras = self._extra_streams(len(sizes), hex_batch.device, sighting_batch,
-                                     sighting_counts, memory)
+        extras = extra_streams(self, len(sizes), hex_batch.device, sighting_batch,
+                               sighting_counts, memory)
         if packed is None:
             packed = self._packed_trunk_applies(hex_batch)
         if packed:
@@ -589,7 +541,8 @@ class WesnothModel(nn.Module):
             new_memory = self.slot_memory.write(x[:, o - K_max:o], extras.memory)
         return self._heads(actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
                            unit_ctx=x[:, H_max:H_max + U_max] if self.has_gbc else None,
-                           material=material, memory=new_memory)
+                           material=material, memory_padded=new_memory,
+                           memory_counts=extras.memory_counts if extras is not None else None)
 
     def _packed_trunk_applies(self, x: torch.Tensor) -> bool:
         """The packed trunk serves a call when it is switched on, the
@@ -657,7 +610,7 @@ class WesnothModel(nn.Module):
         B, d = len(sizes), self.d_model
         U_max, R_max, H_max = (max(s[i] for s in sizes) for i in (0, 1, 2))
         S_max = max(sight_counts, default=0) if sight_counts is not None else 0
-        self._check_sighting_stream(sight_counts, B)
+        check_sighting_stream(self, sight_counts, B)
         if packed is None:
             packed = self._packed_trunk_applies(tokens)
         if packed:
@@ -685,7 +638,7 @@ class WesnothModel(nn.Module):
         stream rows before the globals, one gather orders every row into
         the packed layout."""
         tokens, sizes = streams.tokens, streams.sizes
-        mem = self._memory_batch(memory, len(sizes), tokens.device)
+        mem = memory_batch(self, memory, len(sizes), tokens.device)
         if mem is not None and mem.K_max:
             n_before_globals = sum(u + r + h for u, r, h in sizes) + sum(streams.sighting_counts or ())
             tokens = torch.cat([tokens[:n_before_globals], self.slot_memory.stream_rows(mem),
@@ -728,7 +681,8 @@ class WesnothModel(nn.Module):
             h_memory = x.index_select(0, index.memory).view(B, extras.K_max, d)
             new_memory = self.slot_memory.write(h_memory, extras.memory)
         return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
-                           sizes, unit_ctx, material=material, memory=new_memory)
+                           sizes, unit_ctx, material=material, memory_padded=new_memory,
+                           memory_counts=extras.memory_counts if extras is not None else None)
 
     # ------------------------------------------------------------------
     # Compiled packed trunk (design note section 13)
@@ -818,11 +772,12 @@ class WesnothModel(nn.Module):
 
     def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
                unit_ctx, material: Optional[torch.Tensor] = None,
-               memory: Optional[List[torch.Tensor]] = None) -> "PaddedOutput":
+               memory_padded: Optional[torch.Tensor] = None,
+               memory_counts: Optional[List[int]] = None) -> "PaddedOutput":
         """The four heads on contextualized actor [B, A_max, d], hex
         [B, H_max, d] and global [B, 1, d] rows, whichever trunk produced
         them; the belief head on the hex rows when the model has one.
-        `memory`, the new states, rides along."""
+        The new memory states ride along."""
         d = self.d_model
         device, dtype = actor_ctx.device, actor_ctx.dtype
         B, A_max, _ = actor_ctx.shape
@@ -859,4 +814,5 @@ class WesnothModel(nn.Module):
             unit_ctx=unit_ctx,
             hex_ctx=hex_ctx if self.has_gbc else None,
             global_ctx=global_ctx if self.has_gbc else None,
-            belief_logits=belief_logits, memory=memory)
+            belief_logits=belief_logits, memory_padded=memory_padded,
+            memory_counts=None if memory_counts is None else list(memory_counts))

@@ -31,21 +31,23 @@ FIELDS = ("actor_logits", "type_logits", "target_logits", "weapon_logits", "valu
 CPU = torch.device("cpu")
 
 
-def _parity_pair(memory_slots: int = SLOTS, seed: int = 0):
+def _parity_pair(memory_slots: int = SLOTS, seed: int = 0, parity: bool = True):
+    """The recipe's encoder and model at the tiny width; `parity` False
+    gives obs8's observation, with or without a memory."""
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.model import WesnothModel
     torch.manual_seed(seed)
-    encoder = GameStateEncoder(d_model=D, terrain_multi_hot=True, observation_parity=True,
-                               relevant_set_version=2).eval()
-    model = WesnothModel(**ARCH, observation_parity=True, memory_slots=memory_slots).eval()
+    encoder = GameStateEncoder(d_model=D, terrain_multi_hot=True, observation_parity=parity,
+                               relevant_set_version=2 if parity else 1).eval()
+    model = WesnothModel(**ARCH, observation_parity=parity, memory_slots=memory_slots).eval()
     return encoder, model
 
 
-def _records():
+def _records(parity: bool = True):
     """Three decisions of different sizes: sightings, none, several."""
-    return [hand_raw(11, U=3, R=2, H=9, parity=True, S=2),
-            hand_raw(12, U=1, R=0, H=5, parity=True, S=0),
-            hand_raw(13, U=4, R=1, H=12, parity=True, S=3)]
+    return [hand_raw(11, U=3, R=2, H=9, parity=parity, S=2),
+            hand_raw(12, U=1, R=0, H=5, parity=parity, S=0),
+            hand_raw(13, U=4, R=1, H=12, parity=parity, S=3)]
 
 
 def _states(ks, seed=7, scale=0.5):
@@ -94,14 +96,18 @@ def test_outputs_have_one_logit_per_hex_and_one_state_per_sample():
         assert sample.memory.shape == (k, D)
 
 
-def test_every_forward_path_agrees():
+@pytest.mark.parametrize("parity, slots", [(True, SLOTS), (True, 0), (False, SLOTS)],
+                         ids=["parity-memory", "parity-only", "memory-only"])
+def test_every_forward_path_agrees(parity, slots):
     """Single state, padded and packed trunks, through EncodedStates and
-    through stream-ordered embeddings, at mixed slot counts."""
-    encoder, model = _parity_pair()
-    raws = _records()
-    states = _states([8, 0, 16])
+    through stream-ordered embeddings, at mixed slot counts; with either
+    stream alone too."""
+    encoder, model = _parity_pair(slots, parity=parity)
+    raws = _records(parity)
+    states = _states([8, 0, 16]) if slots else None
     with torch.no_grad():
-        singles = [model(encoder.encode_from_raw(r), memory=m) for r, m in zip(raws, states)]
+        singles = [model(encoder.encode_from_raw(r), memory=None if states is None else states[b])
+                   for b, r in enumerate(raws)]
         encoded = encoder.encode_from_raw_batch(raws)
         streams = encoder.encode_from_raw_embedded(raws)
         batched = {
@@ -114,8 +120,31 @@ def test_every_forward_path_agrees():
         for b, (sample, single) in enumerate(zip(out.samples(), singles)):
             for f in FIELDS + ("memory",):
                 x, y = getattr(sample, f), getattr(single, f)
+                if y is None:
+                    assert x is None, (name, b, f)
+                    continue
                 assert x.shape == y.shape, (name, b, f)
                 assert torch.allclose(x, y, atol=1e-5, rtol=1e-4), (name, b, f)
+
+
+def test_belief_logit_j_is_hex_token_js():
+    """Reordering a record's hex stream reorders its belief logits the
+    same way and leaves the actors' logits alone: the logits follow
+    `hex_positions`, the alignment the belief loss relies on."""
+    encoder, model = _parity_pair()
+    raw = _records()[2]
+    order = np.random.default_rng(5).permutation(len(raw.hex_positions))
+    shuffled = hand_raw(13, U=4, R=1, H=12, parity=True, S=3)
+    for name in ("hex_xs", "hex_ys", "hex_terrain_ids", "hex_modifier_flags", "hex_dynamic_flags"):
+        setattr(shuffled, name, getattr(raw, name)[order])
+    shuffled.hex_positions = [raw.hex_positions[j] for j in order]
+    state = _states([8])[0]
+    with torch.no_grad():
+        base = model(encoder.encode_from_raw(raw), memory=state)
+        moved = model(encoder.encode_from_raw(shuffled), memory=state)
+    assert not torch.allclose(base.belief_logits, base.belief_logits[:, order])
+    assert torch.allclose(moved.belief_logits, base.belief_logits[:, order], atol=1e-5)
+    assert torch.allclose(moved.actor_logits, base.actor_logits, atol=1e-5)
 
 
 def test_sightings_and_memory_reach_the_trunk():
@@ -134,8 +163,10 @@ def test_sightings_and_memory_reach_the_trunk():
 
 
 def test_a_loss_at_one_decision_reaches_the_write_of_the_decision_before():
-    """The write's parameters get gradient from step 2's heads only through
-    the memory written at step 1: none when that memory is detached."""
+    """Step 2's heads send gradient into every slot step 1 wrote, and
+    through the write into its parameters, only along the carried memory:
+    none when it is detached. The write's pad rows (sample 0 has 8 slots
+    beside a 16-slot partner) are no one's state and get none."""
     encoder, model = _parity_pair()
     first, second = _records()[:2], _records()[1:]
     write = (model.slot_memory.candidate.weight, model.slot_memory.gate.weight)
@@ -144,12 +175,18 @@ def test_a_loss_at_one_decision_reaches_the_write_of_the_decision_before():
         model.zero_grad()
         start = [model.initial_memory(8), model.initial_memory(16)]
         out1 = model.forward_embedded(encoder.encode_from_raw_embedded(first), memory=start)
+        out1.memory_padded.retain_grad()
         carried = [m.detach() if detach else m for m in out1.memory]
         out2 = model.forward_embedded(encoder.encode_from_raw_embedded(second), memory=carried)
         (out2.actor_logits.sum() + out2.value_logits.logsumexp(-1).sum()).backward()
-        return [_grad(p) for p in write]
-    assert all(g.abs().sum() > 0 for g in run(detach=False))
-    assert all(g.abs().sum() == 0 for g in run(detach=True))
+        return out1.memory_padded.grad, [_grad(p) for p in write]
+    written, params = run(detach=False)
+    per_slot = written.abs().sum(-1)                        # [2, 16]
+    assert bool((per_slot[0, :8] > 0).all()) and bool((per_slot[1] > 0).all())
+    assert float(per_slot[0, 8:].sum()) == 0.0
+    assert all(g.abs().sum() > 0 for g in params)
+    written, params = run(detach=True)
+    assert written is None and all(g.abs().sum() == 0 for g in params)
 
 
 def test_a_fresh_write_keeps_most_of_the_memory():
@@ -208,7 +245,7 @@ def test_the_memory_stays_float32_under_bfloat16_autocast():
         with torch.autocast("cpu", dtype=torch.bfloat16):
             inside = model.slot_memory.write(h, batch)
         outside = model.slot_memory.write(h.float(), batch)
-    assert all(torch.equal(a, b) for a, b in zip(inside, outside))
+    assert inside.dtype == torch.float32 and torch.equal(inside, outside)
 
 
 def test_the_faction_posterior_is_the_lookup_when_one_hot():

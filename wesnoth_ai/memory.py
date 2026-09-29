@@ -69,11 +69,13 @@ class SlotMemory(nn.Module):
 
     def initial_state(self, k: int) -> torch.Tensor:
         """float32 [k, d]: a game-side's memory before its first
-        decision, the first k rows of the learned initial memory (a view:
-        in training its gradient reaches the parameter)."""
+        decision, a copy of the first k rows of the learned initial
+        memory. The copy keeps the autograd link (in training the
+        gradient reaches the parameter) but not the storage, so a weight
+        publication never changes a state a player holds."""
         if not 0 <= int(k) <= self.slots:
             raise ValueError(f"{k} active slots asked of a memory of {self.slots}")
-        return self.initial[:int(k)].float()
+        return self.initial[:int(k)].float().clone()
 
     def batch(self, states: Sequence[torch.Tensor], device: torch.device) -> MemoryBatch:
         """The per-sample states ([k_b, d] float32 each) padded for the trunk."""
@@ -105,16 +107,16 @@ class SlotMemory(nn.Module):
             index = index.to(tokens.device)
         return tokens.index_select(0, index)
 
-    def write(self, h: torch.Tensor, batch: MemoryBatch) -> List[torch.Tensor]:
-        """The new state of every sample, float32 [k_b, d], from the trunk's
-        outputs h [B, K_max, d] at the memory tokens. Runs in float32
-        whatever autocast is active."""
+    def write(self, h: torch.Tensor, batch: MemoryBatch) -> torch.Tensor:
+        """The new states, float32 [B, K_max, d] padded like `batch` (rows
+        past a sample's count hold no state), from the trunk's outputs h
+        [B, K_max, d] at the memory tokens. Runs in float32 whatever
+        autocast is active."""
         with torch.autocast(h.device.type, enabled=False):
             m = batch.padded
             h = h.float()
             z = torch.sigmoid(self.gate(torch.cat([h, m], dim=-1)))
-            new = (1.0 - z) * m + z * torch.tanh(self.candidate(h))
-        return [new[b, :k] for b, k in enumerate(batch.counts)]
+            return (1.0 - z) * m + z * torch.tanh(self.candidate(h))
 
     def _check_state(self, s: torch.Tensor) -> None:
         if s.dim() != 2 or s.size(1) != self.d_model:
