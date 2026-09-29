@@ -78,28 +78,40 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
 fi
 
 # ---- the sweep, one diff_core per shard of the corpus
+# The shard lists and logs live in one folder, uploaded as one tarball a
+# round (a file each would cost a model-host commit each); a marker after
+# the sweep keeps a re-entry from redoing it.
 export OMP_NUM_THREADS=1
-[ -n "$SHARDS" ] || SHARDS=$(box_cores)
-echo "shards $SHARDS" >> "$OUT/box.txt"
-find replays_dataset_imitation -maxdepth 1 -name '*.json.gz' | sort > "$OUT/files.txt"
-rm -f "$OUT"/shard_??*
-split -n "l/$SHARDS" -d -a 3 "$OUT/files.txt" "$OUT/shard_"
-# shellcheck disable=SC2016 # expanded by the inner shell, which gets them as $0 and $1
-box_bounded sweep "$DIFF_CUT_MIN" sweep.log bash -c '
-    for f in "$0"/shard_[0-9][0-9][0-9]; do
-        ( xargs -a "$f" python tools/diff_core.py --every 1 --encode-every "$1" --outcomes > "$f.log" 2>&1;
-          echo "$(date -u +%FT%TZ) $(basename "$f") rc=$?" >> "$0/progress.log" ) &
-    done
-    wait' "$OUT" "$ENCODE_EVERY"
-[ "$BOX_WHY" = "ok" ] || box_finish "SWEEP_${BOX_WHY^^} rc=$BOX_RC (sweep.log, progress.log)" 1
-python - "$OUT" <<'EOF' || box_finish "SUMMARY_FAILED" 1
+SW=$OUT/shards
+mkdir -p "$SW"
+box_upload_dir shards "$SW"
+if ! box_marked_this_stage "$BOX_STATE/SWEPT"; then
+    [ -n "$SHARDS" ] || SHARDS=$(box_cores)
+    echo "shards $SHARDS" >> "$OUT/box.txt"
+    rm -f "$SW"/shard_* "$SW/progress.log"
+    find replays_dataset_imitation -maxdepth 1 -name '*.json.gz' | sort > "$SW/files.txt"
+    split -n "l/$SHARDS" -d -a 3 "$SW/files.txt" "$SW/shard_"
+    # shellcheck disable=SC2016 # expanded by the inner shell, which gets them as $0 and $1
+    box_bounded sweep "$DIFF_CUT_MIN" sweep.log bash -c '
+        for f in "$0"/shard_[0-9][0-9][0-9]; do
+            ( xargs -a "$f" python tools/diff_core.py --every 1 --encode-every "$1" --outcomes > "$f.log" 2>&1;
+              echo "$(date -u +%FT%TZ) $(basename "$f") rc=$?" >> "$0/progress.log" ) &
+        done
+        wait' "$SW" "$ENCODE_EVERY"
+    [ "$BOX_WHY" = "ok" ] || box_finish "SWEEP_${BOX_WHY^^} rc=$BOX_RC (sweep.log, shards/progress.log)" 1
+    box_mark "$BOX_STATE/SWEPT"
+fi
+# The summary counts replays against the file list: a shard that died
+# without its summary line reads INCOMPLETE, never clean.
+python - "$SW" "$OUT/summary.txt" <<'PYEOF' || box_finish "SUMMARY_FAILED" 1
 import glob, re, sys
 from collections import Counter
-out = sys.argv[1]
+shards, out = sys.argv[1:3]
+expected = sum(1 for line in open(f"{shards}/files.txt", encoding="utf-8") if line.strip())
 replays = clean = divergent = 0
 kinds = Counter()
 divergences = []
-for log in sorted(glob.glob(f"{out}/shard_[0-9][0-9][0-9].log")):
+for log in sorted(glob.glob(f"{shards}/shard_[0-9][0-9][0-9].log")):
     lines = open(log, encoding="utf-8", errors="replace").read().splitlines()
     for k, line in enumerate(lines):
         m = re.match(r"diff_core: (\d+) replays, (\d+) clean, (\d+) with divergences", line)
@@ -112,12 +124,14 @@ for log in sorted(glob.glob(f"{out}/shard_[0-9][0-9][0-9].log")):
                         kinds[name] += int(v)
         elif line.startswith("  ") and ".json.gz" in line:
             divergences.append(line.strip())
-text = "\n".join([f"core certification: {replays} replays, {clean} clean, {divergent} with divergences",
+verdict = "INCOMPLETE" if replays != expected else "DIVERGENT" if divergent else "CLEAN"
+text = "\n".join([f"core certification {verdict}: {replays} of {expected} replays, {clean} clean, "
+                  f"{divergent} with divergences",
                   "  " + ", ".join(f"{k}={v}" for k, v in sorted(kinds.items()))]
                  + ["  " + d[:400] for d in divergences[:300]])
 print(text)
-open(f"{out}/summary.txt", "w", encoding="utf-8").write(text + "\n")
-EOF
+open(out, "w", encoding="utf-8").write(text + "\n")
+PYEOF
 
 # ---- the engine's recorded answers on hidden units and vision
 # shellcheck disable=SC2016 # expanded by the inner shell, which gets the output directory as $0
@@ -126,4 +140,9 @@ box_bounded oracle 10 oracle.log bash -c '
         --log-level WARNING --out "$0/hidden_units_recorded.json"
     python tools/hidden_units_oracle.py --recorded training/metrics/fidelity/hidden_units_oracle_vision_20260924.json \
         --log-level WARNING --out "$0/vision_recorded.json"' "$OUT"
-box_finish "CORE_CERTIFY_DONE $(head -n 1 "$OUT/summary.txt"); oracle rc=$BOX_RC"
+oracle_rc=$BOX_RC
+summary=$(head -n 1 "$OUT/summary.txt")
+if [[ $summary == *" CLEAN:"* ]] && [ "$oracle_rc" -eq 0 ]; then
+    box_finish "CORE_CERTIFY_DONE $summary; oracle rc=0"
+fi
+box_finish "CORE_CERTIFY_FAILED $summary; oracle rc=$oracle_rc" 1
