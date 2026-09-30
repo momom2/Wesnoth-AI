@@ -142,7 +142,8 @@ def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path):
     common = ["--sequences", str(sequences), "--dataset", str(dataset), "--device", "cpu",
               "--streams", "2", "--window", "3", "--warmup-steps", "2", "--probe-every", "1000000",
               "--barrier-positions", "1000000", "--checkpoint-every", "1000000", "--log-level", "WARNING",
-              "--probe-ks", "0,8"]
+              "--probe-ks", "0,8", "--signal-every", "3",
+              "--d-model", "32", "--num-layers", "1", "--num-heads", "2", "--d-ff", "64"]
     uncut, cut = tmp_path / "uncut.pt", tmp_path / "cut.pt"
     assert sequence_train.main([*common, "--out", str(uncut)]) == 0
     assert sequence_train.main([*common, "--out", str(cut), "--max-positions", "4"]) == 0
@@ -157,3 +158,26 @@ def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path):
             assert torch.equal(tensor, b[key][name]), name
     probe = [json.loads(line) for line in uncut.with_suffix(".probe.jsonl").read_text().splitlines()]
     assert probe[-1]["k0"]["n_positions"] == probe[-1]["k8"]["n_positions"] > 0
+    # The telemetry rows leave the training untouched (the weights above
+    # match with rows written in both runs) and split the gradient by term.
+    signal = [json.loads(line) for line in uncut.with_suffix(".signal.jsonl").read_text().splitlines()]
+    assert signal and set(signal[-1]["gradient"]) == {"encoder", "trunk", "heads", "memory", "all"}
+    shares = [signal[-1]["gradient"]["all"][t]["share"] for t in
+              ("actor", "type", "target", "weapon", "value", "belief")]
+    assert sum(x for x in shares if x is not None) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_the_holdout_ce_of_a_checkpoint_without_a_memory_reads_every_holdout_decision(tmp_path):
+    from wesnoth_ai import game_core as gc
+    if gc.game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    from tools.holdout_ce import holdout_ce
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    dataset = _dataset(tmp_path)
+    spec = tmp_path / "net.pt"
+    TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2, d_ff=64,
+                      relevant_set_hexes=True).save_checkpoint(spec)
+    result = holdout_ce(spec, dataset, torch.device("cpu"))
+    assert result["n_games"] == 1 and result["skipped_games"] == 0
+    assert result["n_decisions"] == 6, "both sides' move and two end_turns of the held-out game"
+    assert result["ce_all"] > 0 and result["ce_winners"] > 0

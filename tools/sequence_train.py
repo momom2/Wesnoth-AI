@@ -13,6 +13,13 @@ summed over the window's positions and divided by streams x window, so a
 short last window steps at the same rate per position. AdamW, a linear
 warm-up, then a constant rate, one pass.
 
+Always-on telemetry (user ruling 2026-09-01): every `--signal-every`
+positions a row in <out>.signal.jsonl splits the last window's gradient on
+its first SIGNAL_STREAMS slots by loss term (the four policy heads, the
+value, the belief) over the encoder, the trunk, the heads and the memory, in
+gradient and in update space (`signal_telemetry.GradientProbe`); the log
+carries each step's gradient norm and the memory's.
+
 The holdout probe (`tools/sequence_probe.py`) runs every `--probe-every`
 positions and at the end; the first probe at or past `--barrier-positions`
 is the memory's crash barrier: unless the belief loss at 64 slots is below
@@ -45,6 +52,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from tools.preencode_sequences import (ENCODING, load_manifest, read_record,  # noqa: E402
                                        record_path)
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
+from tools.signal_telemetry import (POLICY_SOURCES, GradientProbe,  # noqa: E402
+                                    named_model_parameters, signal_group, summarize_gram)
 from wesnoth_ai.checkpoint_structure import checkpoint_structure  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.encoder import GameStateEncoder  # noqa: E402
@@ -55,19 +64,31 @@ from wesnoth_ai.sequence_streams import GameSide, StreamSchedule, epoch_order  #
 
 log = logging.getLogger("sequence_train")
 
+# The recipe's architecture; the flags of the same names change it (a smoke run).
 ARCH = {"d_model": 384, "num_layers": 8, "num_heads": 12, "d_ff": 1536}
 MEMORY_SLOTS = 64
 # The recipe (docs/parity_memory_design_20260929.md "Training").
 DEFAULTS = {"streams": 32, "window": 16, "lr": 2.8e-4, "warmup_steps": 300, "weight_decay": 1e-4,
             "grad_clip": 1.0, "value_states_per_game": 16, "belief_weight": 1.0,
             "seed": 20260929, "probe_every": 500_000, "barrier_positions": 500_000,
-            "checkpoint_every": 250_000, "probe_ks": (0, 16, 64)}
+            "checkpoint_every": 250_000, "probe_ks": (0, 16, 64), "signal_every": 25_000}
 # Game-sides the loader fetches ahead of the slots, and its threads.
 PREFETCH_SIDES = 64
 LOADER_THREADS = 4
 # Training game-sides the last-seen baseline's rates are fitted on.
 BASELINE_FIT_SIDES = 400
 EXIT_MEMORY_BARRIER = 3
+# The telemetry's slots, terms and parameter groups.
+SIGNAL_STREAMS = 4
+SIGNAL_TERMS = POLICY_SOURCES + ("value", "belief")
+SIGNAL_GROUPS = ("encoder", "trunk", "heads", "memory")
+
+
+def sequence_signal_group(name: str) -> str:
+    """The telemetry group of a namespaced parameter: the learned memory
+    (its initial state, slot embedding and write), else the encoder, the
+    trunk or the heads."""
+    return "memory" if name.startswith("model.slot_memory.") else signal_group(name)
 
 
 class SequenceLoader:
@@ -121,22 +142,22 @@ def game_facts(dataset: Path, games: Dict[str, Dict[str, int]]) -> Tuple[Dict[st
 
 
 def build_modules(unit_type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                  device: torch.device) -> Tuple[GameStateEncoder, WesnothModel]:
-    encoder = GameStateEncoder(d_model=ARCH["d_model"], relevant_set_hexes=True,
+                  device: torch.device, arch: Dict[str, int]) -> Tuple[GameStateEncoder, WesnothModel]:
+    encoder = GameStateEncoder(d_model=arch["d_model"], relevant_set_hexes=True,
                                fog_hides_enemy_villages=True, terrain_multi_hot=True,
                                observation_parity=True, relevant_set_version=2,
                                unit_type_to_id=unit_type_to_id, faction_to_id=faction_to_id).to(device)
     encoder.freeze_vocab()
-    model = WesnothModel(observation_parity=True, memory_slots=MEMORY_SLOTS, **ARCH).to(device)
+    model = WesnothModel(observation_parity=True, memory_slots=MEMORY_SLOTS, **arch).to(device)
     return encoder, model
 
 
 def save_checkpoint(path: Path, encoder, model, opt, state: Dict, schedule: StreamSchedule,
-                    memories: Dict[int, torch.Tensor], meta: Dict) -> None:
+                    memories: Dict[int, torch.Tensor], meta: Dict, arch: Dict[str, int]) -> None:
     """Atomic: a temporary file, then a rename. Loadable by the policy
     loader (`eval_players.peek_checkpoint_arch`, `TransformerPolicy`)."""
     payload = {
-        "observation_epoch": int(OBSERVATION_EPOCH), "arch": dict(ARCH),
+        "observation_epoch": int(OBSERVATION_EPOCH), "arch": dict(arch),
         "relevant_set_hexes": True, "fog_hides_enemy_villages": True, "terrain_multi_hot": True,
         **checkpoint_structure(model, encoder),
         "model_state": model.state_dict(), "encoder_state": encoder.state_dict(),
@@ -169,14 +190,19 @@ class Trainer:
         self.holdout = [GameSide(f, s) for f in holdout for s in (1, 2)
                         if int(man["games"][f].get(f"positions_side{s}", 0)) > 0]
         self.schedule = StreamSchedule(epoch_order(list(lengths), args.seed), lengths, args.streams, args.seed)
-        self.encoder, self.model = build_modules(man["unit_type_to_id"], man["faction_to_id"], device)
+        self.arch = {k: int(getattr(args, k)) for k in ARCH}
+        self.encoder, self.model = build_modules(man["unit_type_to_id"], man["faction_to_id"], device,
+                                                 self.arch)
         self.params = [p for p in list(self.encoder.parameters()) + list(self.model.parameters())
                        if p.requires_grad]
         self.opt = torch.optim.AdamW(self.params, lr=args.lr, weight_decay=args.weight_decay)
         self.loader = SequenceLoader(args.sequences)
         self.memories: Dict[int, torch.Tensor] = {}
         self.state = {"positions": 0, "steps": 0, "windows": 0, "next_probe": args.probe_every,
-                      "barrier_done": False, "next_checkpoint": args.checkpoint_every}
+                      "barrier_done": False, "next_checkpoint": args.checkpoint_every,
+                      "next_signal": args.signal_every}
+        self.signal = GradientProbe(named_model_parameters(self.model, self.encoder),
+                                    sequence_signal_group, SIGNAL_GROUPS, self.opt)
         self.rates: Optional[Tuple[float, float]] = None
         self.autocast = torch.bfloat16 if (device.type == "cuda" and not args.fp32) else None
         from tools.supervised_train import _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
@@ -185,7 +211,8 @@ class Trainer:
                                   .get("value_from_outcome_weight", 1.0))
         self.meta = {"seed": args.seed, "streams": args.streams, "window": args.window, "lr": args.lr,
                      "warmup_steps": args.warmup_steps, "sequences": str(args.sequences),
-                     "fingerprint": man["fingerprint"], "value_weight": self.value_weight}
+                     "fingerprint": man["fingerprint"], "value_weight": self.value_weight,
+                     "arch": dict(self.arch)}
         self.head_shapes: Optional[Tuple[int, int, int]] = None
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
@@ -195,7 +222,7 @@ class Trainer:
     def resume(self, path: Path) -> None:
         ck = torch.load(path, map_location="cpu", weights_only=True)
         meta = ck.get("training_meta", {})
-        for key in ("seed", "streams", "window", "fingerprint"):
+        for key in ("seed", "streams", "window", "fingerprint", "arch"):
             if meta.get(key) != self.meta[key]:
                 raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
                                  f"{self.meta[key]!r}")
@@ -235,29 +262,37 @@ class Trainer:
         bl = belief_loss(out.belief_logits, b_target, b_mask)
         return parts.total, bl.sum(), out.memory_padded, parts.log_tensor(), bl.detach()
 
+    def _prepare(self, steps, memories: Dict[int, torch.Tensor]):
+        """One time step's inputs: the staged batch, each slot's memory (the
+        learned initial one at a game-side's first decision), the imitation
+        targets and the belief targets."""
+        positions = [self.loader.sides(s.game_side)[s.offset] for s in steps]
+        staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
+        mems = [self.model.initial_memory(s.k).to(self.device) if s.starts else memories[s.slot]
+                for s in steps]
+        labels = step_labels(positions, steps, staged.sizes, self.games, seed=self.args.seed,
+                             value_states_per_game=self.args.value_states_per_game,
+                             value_weight=self.value_weight)
+        n_types, n_weapons, n_atoms = self._head_shapes(staged, mems)
+        targets = build_imitation_targets(labels.ais, labels.zw, staged.sizes, n_types=n_types,
+                                          n_weapons=n_weapons, n_atoms=n_atoms,
+                                          type_loss_weights=self.type_loss_weights, device=self.device)
+        b_target = labels.belief_target.to(self.device, non_blocking=True)
+        b_mask = labels.belief_mask.to(self.device, non_blocking=True)
+        return staged, mems, targets, b_target, b_mask
+
     def train_window(self) -> Dict[str, float]:
         window = self.schedule.window(self.args.window)
         if not window:
             return {}
         self.loader.prefetch(g.file for g in self.schedule.upcoming(PREFETCH_SIDES))
+        start_memories = {s: m for s, m in self.memories.items() if s < SIGNAL_STREAMS}
         total = torch.zeros((), device=self.device)
         sums = {"policy": 0.0, "policy_n": 0, "value": 0.0, "value_n": 0, "belief": 0.0, "belief_n": 0}
         logs = []
         n_positions = 0
         for steps in window:
-            positions = [self.loader.sides(s.game_side)[s.offset] for s in steps]
-            staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
-            mems = [self.model.initial_memory(s.k).to(self.device) if s.starts
-                    else self.memories[s.slot] for s in steps]
-            labels = step_labels(positions, steps, staged.sizes, self.games, seed=self.args.seed,
-                                 value_states_per_game=self.args.value_states_per_game,
-                                 value_weight=self.value_weight)
-            n_types, n_weapons, n_atoms = self._head_shapes(staged, mems)
-            targets = build_imitation_targets(labels.ais, labels.zw, staged.sizes, n_types=n_types,
-                                              n_weapons=n_weapons, n_atoms=n_atoms,
-                                              type_loss_weights=self.type_loss_weights, device=self.device)
-            b_target = labels.belief_target.to(self.device, non_blocking=True)
-            b_mask = labels.belief_mask.to(self.device, non_blocking=True)
+            staged, mems, targets, b_target, b_mask = self._prepare(steps, self.memories)
             pv, bsum, mem_padded, log_t, bl = checkpoint(self._step_forward, staged, mems, targets,
                                                          b_target, b_mask, use_reentrant=False)
             total = total + pv + self.args.belief_weight * bsum
@@ -290,10 +325,50 @@ class Trainer:
         self.state["positions"] += n_positions
         self.state["steps"] += 1
         self.state["windows"] += 1
+        if self.state["positions"] >= self.state["next_signal"]:
+            self.signal_row(window, start_memories)
+            self.state["next_signal"] += self.args.signal_every
         held = {g.file for g in self.schedule.upcoming(PREFETCH_SIDES)}
         self.loader.keep_only(held)
         return {"loss": float(loss.detach()), "grad_norm": float(norm), "memory_grad_norm": float(memory_norm),
                 "positions": n_positions, **sums}
+
+    def signal_row(self, window, start_memories: Dict[int, torch.Tensor]) -> None:
+        """The telemetry row: the window just trained, on its first
+        SIGNAL_STREAMS slots from the memories they started it with, its loss
+        split by term in gradient and update space (the optimizer's state
+        read, nothing written, the training's random stream untouched)."""
+        t0 = time.time()
+        memories = dict(start_memories)
+        terms = {t: torch.zeros((), device=self.device) for t in SIGNAL_TERMS}
+        n = 0
+        with self.signal.fork_rng():
+            for steps in window:
+                steps = [s for s in steps if s.slot < SIGNAL_STREAMS]
+                if not steps:
+                    continue
+                staged, mems, targets, b_target, b_mask = self._prepare(steps, memories)
+                with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
+                    out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems)
+                out = out.float32()
+                for term, loss in imitation_loss_parts(out, targets).source_losses().items():
+                    terms[term] = terms[term] + loss
+                terms["belief"] = terms["belief"] + self.args.belief_weight * \
+                    belief_loss(out.belief_logits, b_target, b_mask).sum()
+                for b, s in enumerate(steps):
+                    memories[s.slot] = out.memory_padded[b, :s.k]
+                n += len(steps)
+            if not n:
+                return
+            gradient, update, stateless = self.signal.grams(terms, 1.0 / n)
+        kw = dict(policy_terms=POLICY_SOURCES, shared_groups=("encoder", "trunk", "memory"))
+        row = {"positions": self.state["positions"], "steps": self.state["steps"], "probe_positions": n,
+               "gradient": summarize_gram(gradient.tolist(), SIGNAL_TERMS, SIGNAL_GROUPS, **kw),
+               "update": None if update is None else summarize_gram(update.tolist(), SIGNAL_TERMS,
+                                                                    SIGNAL_GROUPS, **kw),
+               "stateless": stateless, "seconds": round(time.time() - t0, 2)}
+        with open(self.args.out.with_suffix(".signal.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
 
     # ---- probe, checkpoints, the pass -----------------------------------
     def run_probe(self) -> Dict:
@@ -316,7 +391,7 @@ class Trainer:
 
     def save(self) -> None:
         save_checkpoint(self.args.out, self.encoder, self.model, self.opt, self.state, self.schedule,
-                        self.memories, self.meta)
+                        self.memories, self.meta, self.arch)
 
     def run(self) -> int:
         t0, last_log = time.time(), time.time()
@@ -375,8 +450,10 @@ def parse_args(argv=None):
     ap.add_argument("--max-positions", type=int, default=None, help="stop after this many (a smoke run)")
     ap.add_argument("--log-seconds", type=float, default=60.0)
     for key in ("streams", "window", "warmup_steps", "value_states_per_game", "seed", "probe_every",
-                "barrier_positions", "checkpoint_every"):
+                "barrier_positions", "checkpoint_every", "signal_every"):
         ap.add_argument("--" + key.replace("_", "-"), type=int, default=DEFAULTS[key])
+    for key, value in ARCH.items():
+        ap.add_argument("--" + key.replace("_", "-"), type=int, default=value)
     for key in ("lr", "weight_decay", "grad_clip", "belief_weight"):
         ap.add_argument("--" + key.replace("_", "-"), type=float, default=DEFAULTS[key])
     ap.add_argument("--probe-ks", type=lambda s: tuple(int(x) for x in s.split(",")),
