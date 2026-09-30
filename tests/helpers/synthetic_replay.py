@@ -48,21 +48,23 @@ def two_sides(p1: str = "alice", p2: str = "bob", *, controller2: str = "human",
 
 
 def replay_text(sides: Sequence[str], commands: Sequence[str],
-                scenario_id: str = "test_board", multiplayer: Optional[dict] = None) -> str:
+                scenario_id: str = "test_board", multiplayer: Optional[dict] = None,
+                header: Sequence[str] = ()) -> str:
     body = "\n".join(f"    [command]\n{c}\n    [/command]" for c in commands)
     mp = ([] if multiplayer is None else
           ["[multiplayer]", *(f"    {k}={v}" for k, v in multiplayer.items()), "[/multiplayer]"])
     return "\n".join([
-        'version="1.18.4"', 'era_id="era_default"', *mp,
+        'version="1.18.4"', 'era_id="era_default"', *header, *mp,
         "[replay_start]", f'    id="{scenario_id}"', '    random_start_time="no"',
         f'    map_data="{_map_data()}"', *sides, "[/replay_start]",
         "[replay]", body, "[/replay]", ""])
 
 
 def write_replay(path: Path, sides: Sequence[str], commands: Sequence[str],
-                 multiplayer: Optional[dict] = None) -> Path:
+                 multiplayer: Optional[dict] = None, header: Sequence[str] = ()) -> Path:
+    """`header`: top-level attribute lines, such as the active modifications."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = replay_text(sides, commands, multiplayer=multiplayer)
+    text = replay_text(sides, commands, multiplayer=multiplayer, header=header)
     path.write_bytes(bz2.compress(text.encode("utf-8")))
     return path
 
@@ -102,6 +104,15 @@ def auto_shroud(active: bool) -> str:
 def update_shroud() -> str:
     """The current side's "update shroud now"."""
     return "        [update_shroud]\n        [/update_shroud]"
+
+
+def menu_item(side: int, x: int, y: int, item: str = "pickadvance") -> str:
+    """A menu item's event on the hex (x, y), as the Plan Unit Advance
+    modification's menu fires it."""
+    return (f"        from_side={side}\n        [fire_event]\n"
+            f'            raise="menu item {item}"\n'
+            f"            [source]\n                x={x}\n                y={y}\n            [/source]\n"
+            f"        [/fire_event]")
 
 
 def countdown_update(side: int, value_ms: int) -> str:

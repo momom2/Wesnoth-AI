@@ -1178,6 +1178,10 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
                 break
             if t == "fire_event" and sub.attrs.get(
                     "raise", "").strip('"') == "menu item pickadvance":
+                # The menu's WML command runs with undo disabled, which
+                # commits a delaying side's vision, whatever the dialog
+                # then answers (docs/wesnoth_rules.md "Delayed shroud updates").
+                compact_commands.append(["menu_item", "pickadvance"])
                 src = sub.first("source")
                 if src is not None:
                     try:
@@ -2080,6 +2084,7 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
     ]
 
     era_id = (root.attrs.get("era_id") or (mp.attrs.get("mp_era") if mp is not None else "") or "").strip('"')
+    active_mods = [m.strip() for m in str(root.attrs.get("active_mods") or "").strip('"').split(",") if m.strip()]
     return {
         "game_id": path.stem,
         "scenario_id": gs.scenario_id,
@@ -2102,6 +2107,9 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
             "timeout": [i for i, c in enumerate(compact_commands) if id(c) in timeout_ids],
         },
         "era_id": era_id,
+        # The Plan Unit Advance modification: its handlers make a delaying
+        # side's actions final (wesnoth_ai/delayed_shroud.py).
+        "plan_unit_advance": "plan_unit_advance" in active_mods,
         "turn_timer": None if timer is None else [timer.init_s, timer.turn_bonus_s,
                                                   timer.action_bonus_s, timer.reservoir_s],
         "extraction_version": EXTRACTION_VERSION,

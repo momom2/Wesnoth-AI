@@ -624,6 +624,10 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // apply_update_shroud, shroud_state_export and set_shroud_state; a
     // delaying side's moves and recruits clear fog at the next commit,
     // its advancements clear none.
-    m.add("__phase__", 24)?;
+    // 25: the Plan Unit Advance modification's undo blocks (the first move of
+    // each side turn, apply_menu_item) commit a delaying side's vision; an
+    // attack aborted before its draw commits too. shroud_state_export and
+    // set_shroud_state carry the modification's two flags.
+    m.add("__phase__", 25)?;
     Ok(())
 }

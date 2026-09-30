@@ -6,8 +6,12 @@
 //! cleared from all of them at the next commit (an attack, a recruit that
 //! drew random numbers, a move that was ambushed or blocked,
 //! `[update_shroud]`, `[auto_shroud] active=yes`, the end of the turn).
-//! An advancement on the side's own turn clears nothing.
-//! `wesnoth_ai.visibility` is the oracle.
+//! An advancement on the side's own turn clears nothing. In a game with
+//! the Plan Unit Advance modification, its handlers make two more actions
+//! final: the first move of each side turn (the `moveto` handler calls
+//! `wesnoth.allow_undo(false)`, data/modifications/pick_advance/main.lua)
+//! and each Plan Advancement menu event (a WML command, which runs with
+//! undo disabled). `wesnoth_ai.delayed_shroud` is the oracle.
 
 use pyo3::prelude::*;
 
@@ -31,6 +35,10 @@ pub struct PendingVision {
 /// A pending entry as it crosses to Python: (side, route, unit id,
 /// vision points, slowed).
 type PendingRow = (i64, Vec<(i64, i64)>, String, i64, bool);
+/// The shroud state as it crosses to Python: the delaying sides, the
+/// pending vision, whether the Plan Unit Advance modification is on, and
+/// whether the current side turn has had its first move yet.
+type ShroudState = (Vec<i64>, Vec<PendingRow>, bool, bool);
 
 impl GameCore {
     /// Whether `side`'s fog clearing waits for a commit: fog is on, it is
@@ -96,6 +104,17 @@ impl GameCore {
         self.pending_vision.clear();
     }
 
+    /// After a move: in a game with the Plan Unit Advance modification the
+    /// first move of each side turn is made final by the modification's
+    /// `moveto` handler (move.cpp:1059 fires it before :1070-1079 read
+    /// undo_blocked), which commits the stack, this move's entry included.
+    pub fn after_move(&mut self) {
+        if self.pa_fresh_turn {
+            self.pa_fresh_turn = false;
+            self.clear_undo_stack();
+        }
+    }
+
     /// `undo_list::commit_vision` (undo.cpp:222-236): the pending vision
     /// committed; the stack empties when something was cleared.
     fn commit_vision(&mut self) -> bool {
@@ -134,17 +153,27 @@ impl GameCore {
         self.note_sightings();
     }
 
-    /// The sides that delay their shroud updates, and the pending vision.
-    fn shroud_state_export(&self) -> (Vec<i64>, Vec<PendingRow>) {
+    /// `_apply_command(["menu_item", id])`: a menu item's event, whose WML
+    /// command runs with undo disabled, so the `[fire_event]` synced
+    /// command clears the stack (synced_commands.cpp:337-345).
+    fn apply_menu_item(&mut self, _id: &str) {
+        self.clear_undo_stack();
+        self.note_sightings();
+    }
+
+    /// The shroud state (`ShroudState`).
+    fn shroud_state_export(&self) -> ShroudState {
         let rows = self.pending_vision.iter()
             .map(|p| (p.side, p.route.clone(), p.unit_id.clone(), p.vision, p.slowed))
             .collect();
-        (self.shroud_delayed.clone(), rows)
+        (self.shroud_delayed.clone(), rows, self.plan_unit_advance, self.pa_fresh_turn)
     }
 
-    /// Replace the delaying sides and the pending vision (a core built
-    /// from a view).
-    fn set_shroud_state(&mut self, delayed: Vec<i64>, pending: Vec<PendingRow>) {
+    /// Replace the shroud state (a core built from a view).
+    fn set_shroud_state(&mut self, delayed: Vec<i64>, pending: Vec<PendingRow>, plan_unit_advance: bool,
+                        pa_fresh_turn: bool) {
+        self.plan_unit_advance = plan_unit_advance;
+        self.pa_fresh_turn = pa_fresh_turn;
         let mut sides = delayed;
         sides.sort_unstable();
         sides.dedup();

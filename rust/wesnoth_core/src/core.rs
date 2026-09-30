@@ -239,6 +239,10 @@ pub struct GameCore {
     // sorted, and the current side's moves and recruits awaiting a commit.
     pub shroud_delayed: Vec<i64>,
     pub pending_vision: Vec<crate::core_shroud::PendingVision>,
+    // The Plan Unit Advance modification is on, and the current side turn
+    // has not moved yet (core_shroud.rs `after_move`).
+    pub plan_unit_advance: bool,
+    pub pa_fresh_turn: bool,
 }
 
 fn get<'py, T: FromPyObject<'py>>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<T> {
@@ -552,6 +556,8 @@ impl GameCore {
             seen_types: vec![BTreeSet::new(); crate::core_sight::RECORD_SIDES],
             shroud_delayed: Vec::new(),
             pending_vision: Vec::new(),
+            plan_unit_advance: false,
+            pa_fresh_turn: false,
         })
     }
 
@@ -897,6 +903,9 @@ impl GameCore {
         }
         for &side in &self.shroud_delayed {
             hs.add_i(-side);
+        }
+        if self.plan_unit_advance {
+            hs.add(1 + self.pa_fresh_turn as u64);
         }
         for p in &self.pending_vision {
             hs.add_str(&p.unit_id);

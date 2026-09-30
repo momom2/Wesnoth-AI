@@ -84,8 +84,7 @@ def engine_goto_moves(commands: List[list]) -> List[int]:
             opening_side = int(cmd[1])
             continue
         if kind != "move":
-            if kind in ("attack", "recruit", "recall", "end_turn", "pickadvance"):
-                opening_side = None
+            opening_side = None              # any other command is the player's: the turn start is over
             continue
         side = int(cmd[3]) if len(cmd) > 3 else 0
         start = (int(cmd[1][0]), int(cmd[2][0]))

@@ -320,6 +320,7 @@ impl GameCore {
             if undo_blocked {
                 self.clear_undo_stack();
             }
+            self.after_move();
             return Ok(());
         }
         let (tx, ty) = (xs[out.final_idx], ys[out.final_idx]);
@@ -349,6 +350,7 @@ impl GameCore {
         if undo_blocked {
             self.clear_undo_stack();
         }
+        self.after_move();
         Ok(())
     }
 }

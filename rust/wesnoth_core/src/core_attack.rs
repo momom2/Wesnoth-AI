@@ -303,6 +303,9 @@ impl GameCore {
             }
         };
         if !has_seed {
+            // Aborted before its first draw; the engine's handler has already
+            // cleared the stack (synced_commands.cpp:228).
+            self.clear_undo_stack();
             return Ok(None);
         }
         let out = self.attack(py, a, d, a_weapon, d_weapon, &mut Mt19937::new(seed, 0))?;
