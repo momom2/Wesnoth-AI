@@ -295,7 +295,9 @@ EO=$(timeout 1m python -c "import json; print(json.load(open('configs/reference_
     || box_finish "REFERENCE_CONFIG_UNREADABLE (configs/reference_player.json)" 1
 mapfile -t REF_B < <(timeout 1m python tools/reference_player.py --flags b | tr ' ' '\n')
 mapfile -t REF_A < <(timeout 1m python tools/reference_player.py --flags a | tr ' ' '\n')
-[ "${#REF_A[@]}" -ge 4 ] && [ "${#REF_B[@]}" -ge 4 ] || box_finish "REFERENCE_FLAGS_FAILED (tools/reference_player.py --flags)" 1
+if [ "${#REF_A[@]}" -lt 4 ] || [ "${#REF_B[@]}" -lt 4 ]; then
+    box_finish "REFERENCE_FLAGS_FAILED (tools/reference_player.py --flags)" 1
+fi
 MATCHES="arm64_vs_obs8 arm64_vs_arm0 arm16_vs_arm0 obs8a_vs_obs8b"
 restored=()
 for name in $MATCHES; do restored+=("$name.fit.json" "timing_$name.txt" "games_$name.tar.gz"); done
