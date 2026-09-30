@@ -270,6 +270,31 @@ def test_refuses_to_mix_shared_and_per_process(tmp_path):
                              "--shared-inference"])
 
 
+def test_the_resume_guard_reads_the_servers_compile_setting(tmp_path):
+    """A shared server's games record its compile_packed as infer_compile;
+    the driver expected False whatever the flag, so it could not tell a
+    compiled run from an eager one (2026-09-29 audit)."""
+    from tools.run_elo_batch import main as batch_main
+    spec = tmp_path / "unused.pt"
+    spec.write_bytes(b"")                       # existence check only
+    common = ["x", "--label-a", "A", "--spec-a", str(spec), "--label-b", "B",
+              "--spec-b", "dummy", "--games", "1", "--mcts-sims", "0",
+              "--raw-temperature-a", "0", "--max-turns", "2", "--device", "cpu",
+              "--jobs", "1", "--min-free-mb", "0", "--max-extra-games", "0",
+              "--persistent-workers", "--shared-inference"]
+    eager = tmp_path / "eager"
+    eager.mkdir()
+    (eager / "game_A_B_s1_10000.json").write_text(json.dumps(_prev(True, "raw")), encoding="utf-8")
+    with pytest.raises(SystemExit, match="infer_compile"):
+        batch_main(common + ["--outdir", str(eager), "--compile-packed"])
+    compiled = tmp_path / "compiled"
+    compiled.mkdir()
+    (compiled / "game_A_B_s1_10000.json").write_text(
+        json.dumps({**_prev(True, "raw"), "infer_compile": True}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="infer_compile"):
+        batch_main(common + ["--outdir", str(compiled)])
+
+
 def test_shared_inference_flag_needs_its_surface(tmp_path):
     """The driver refuses the combinations the server does not serve."""
     from tools.run_elo_batch import main

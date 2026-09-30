@@ -1,8 +1,9 @@
 """The corpus records each side's fog and shroud settings and the
 reconstruction sets the encoder's fog switch from them (2026-09-06:
 18.9% of the corpus was played fog-off while the encoder hid enemy
-units on every game). Rule: shroud counts as fog; fog off with shroud
-on is quarantined."""
+units on every game). Rule (user ruling 2026-09-30): a game in which a
+player side has shroud is quarantined, whatever its fog; the fog switch
+reads fog alone."""
 import bz2
 import copy
 import glob
@@ -26,17 +27,16 @@ def _sides(fog, shroud):
 def test_fog_switch_and_quarantine_from_the_recorded_sides():
     assert fog_on_for(_sides(True, False)) is True
     assert fog_on_for(_sides(False, False)) is False
-    assert fog_on_for(_sides(True, True)) is True
-    assert fog_on_for(_sides(False, True)) is True          # shroud counts as fog
     assert fog_on_for([{"side": 1}, {"side": 2}]) is True   # files from before the flags
     # A scenery side 3 without the attribute (default fog on) must
     # not turn a fog-off game into a fog game.
     assert fog_on_for(_sides(False, False) + [{"side": 3, "fog": True, "shroud": False}]) is False
-    assert quarantine_reason(_sides(False, True) + [{"side": 3, "fog": True}]) == "fog_off_shroud_on"
     assert fog_on_for([]) is True
-    assert quarantine_reason(_sides(False, True)) == "fog_off_shroud_on"
-    for fog, shroud in ((True, False), (False, False), (True, True)):
-        assert quarantine_reason(_sides(fog, shroud)) is None
+    for fog in (True, False):
+        assert quarantine_reason(_sides(fog, True)) == "shroud"
+        assert quarantine_reason(_sides(fog, False)) is None
+    # Only the players' sides count: a scenery side's settings do not.
+    assert quarantine_reason(_sides(True, False) + [{"side": 3, "fog": True, "shroud": True}]) is None
     assert quarantine_reason([{"side": 1}]) is None
 
 
@@ -120,7 +120,7 @@ def test_annotate_pass_writes_flags_and_quarantines(tmp_path):
     assert [(r["file"], r["fog"], r["shroud"]) for r in kept] == [
         ("a.json.gz", True, False), ("b.json.gz", False, False)]
     q = [json.loads(line) for line in (ds / "quarantined.jsonl").read_text().splitlines()]
-    assert [r["file"] for r in q] == ["c.json.gz"] and q[0]["quarantined"] == "fog_off_shroud_on"
+    assert [r["file"] for r in q] == ["c.json.gz"] and q[0]["quarantined"] == "shroud"
     idx = [json.loads(line)["file"] for line in (ds / "value_corpus_index.jsonl").read_text().splitlines()]
     assert idx == ["a.json.gz", "b.json.gz"]
     assert not (ds / "c.json.gz").exists()

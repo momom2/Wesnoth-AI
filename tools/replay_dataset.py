@@ -669,14 +669,14 @@ def extra_side_turns(data: dict) -> Tuple[frozenset, frozenset]:
 
 def fog_on_for(starting_sides) -> bool:
     """The encoder's fog switch for a replay: on when either player has
-    fog or shroud (a shroud game counts as a fog game, 2026-09-06
-    ruling), off when both players have both off. Files from before
-    the flags were recorded (no `fog` key) read as fog on, which is
-    what the encoder assumed for them all along."""
+    fog, off when both have it off (games with shroud never reach it:
+    `quarantine_reason`). Files from before the flags were recorded (no
+    `fog` key) read as fog on, which is what the encoder assumed for
+    them all along."""
     sides = _player_sides(starting_sides)
     if not sides or not any("fog" in s for s in sides):
         return True
-    return any(bool(s.get("fog", True)) or bool(s.get("shroud", False)) for s in sides)
+    return any(bool(s.get("fog", True)) for s in sides)
 
 
 def corpus_version_of(dataset_dir: Path) -> int:
@@ -759,15 +759,12 @@ def command_hash(data: dict) -> str:
 
 
 def quarantine_reason(starting_sides) -> Optional[str]:
-    """Why a replay is kept out of the imitation corpus: fog off with
-    shroud on (the humans saw everything except the unexplored map,
-    which the simulator does not model)."""
-    sides = _player_sides(starting_sides)
-    if not sides or not any("fog" in s for s in sides):
-        return None
-    if (not any(bool(s.get("fog", True)) for s in sides)
-            and any(bool(s.get("shroud", False)) for s in sides)):
-        return "fog_off_shroud_on"
+    """Why a replay is kept out of the imitation corpus: a player side
+    with shroud. The simulator does not model shroud (unexplored terrain
+    hidden until seen), and none of our games use it (user ruling
+    2026-09-30: 0.5% of the corpus is not worth the edge case)."""
+    if any(bool(s.get("shroud", False)) for s in _player_sides(starting_sides)):
+        return "shroud"
     return None
 
 
