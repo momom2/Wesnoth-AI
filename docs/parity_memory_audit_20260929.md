@@ -1,13 +1,15 @@
 # The audit before the parity-memory retrain (2026-09-29)
 
 The retrain runs only when this audit has nothing open
-(docs/parity_memory_prereg_20260929.md "Audit gate"). Eight independent
+(docs/parity_memory_prereg_20260929.md "Audit gate"). Ten independent
 reviewers, each given a scope and no hypotheses: four on the data path
 (the labels; what the network observes against a player; training
 against play; capacities and silent failures), and four targeted at the
 parts most at risk for the coming boxes, at the user's request (box
 operations; whether the certification can fail when the core is wrong;
-the binding of Python views to the Rust core; the match harness). Their
+the binding of Python views to the Rust core; the match harness), and
+two on the retrain's own code once it was written (its data path; its
+trainer, match path and box script). Their
 scripts and outputs are in the session's scratchpad (`review_*`,
 `audit_*`); the findings below are verified by their reviewers unless
 marked otherwise.
@@ -47,8 +49,8 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | C1 | `core_compare.observation_differences` compares hex-indexed arrays position by position: after Aethermaw's terrain change the applier's hex order differs from the core's, so the certification would flag all 578 Aethermaw games while every model input is identical | fixed, `fix/certify-sweep` 01d5e86 (by hex position, each side through its own geometry) |
 | C2 | The Rust unit database falls back to generic stats for an unknown type without a warning (0 unknown types in 2,762 games) | retrain: count and warn (owner: observation builder) |
 | C3 | An unknown type name takes the overflow embedding row without a warning on three encode paths (0 in 2,762 games) | retrain: count and warn (owner: observation builder) |
-| C4 | A command whose hex holds no unit is skipped without a warning or a count, and its label is still trained (0 cases in 16 games checked; 4 engine-aborted attacks in 294,276, correctly skipped) | queued: count, and warn once per game |
-| C5 | An out-of-range advancement choice becomes the first option silently; the extractor's `choose_queue` is filled and never read | queued with C4 |
+| C4 | A command whose hex holds no unit is skipped without a warning or a count, and its label is still trained (0 cases in 16 games checked; 4 engine-aborted attacks in 294,276, correctly skipped) | fixed, `feature/match-memory` 74750e1 (both appliers warn; the label builder leaves such a decision unpaired, and the sequence pre-encoding counts it) |
+| C5 | An out-of-range advancement choice becomes the first option silently; the extractor's `choose_queue` is filled and never read | fixed, 74750e1 (a warning in both appliers) |
 | C6 | A label whose actor index is out of range adds nothing to the loss, value included, uncounted (the serial path and the holdout probe; the retrain uses checked pre-encoded records) | retrain: the sequence trainer refuses a slot mismatch |
 | C7 | Two default filters (competitive 2p, 1,500 commands) do nothing only because the corpus has no `index.jsonl`; with one they would drop the 4,936 mini games at INFO | fixed, `fix/audit-small` 8dfab62 (opt-in) |
 | C8 | A recruit option's max experience is the type's unscaled value (1.43 times the recruited unit's at the 70% modifier 295 of 300 games use) | retrain (owner: observation builder) |
@@ -88,7 +90,7 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | X4 | The corpus rebuild's inputs step is skipped on re-entry when the tarball's first member exists, even after an interrupted extraction | retrain script: a marker after the step |
 | X5 | The corpus rebuild accepts a `BUILD_DONE` from a build log restored from an earlier entry | retrain script: only the new part of the log is read |
 | X6 | The corpus rebuild's default raw tarball is not on the model host | retrain script: `tier-b/corpus_v3/raw_corpus_20260929.tar`, uploaded 2026-09-29 |
-| X7 | Smaller: offers show no memory column; `pull_box_records` skips a same-size rewrite; the onstart's first installs have no timeout; `is_absent` matches exception names; failures point at an empty `restore.log` | queued, low |
+| X7 | Smaller: offers show no memory column; `pull_box_records` skips a same-size rewrite; the onstart's first installs have no timeout; `is_absent` matches exception names; failures point at an empty `restore.log` | fixed, 8c89a7d (the RAM column; content hashes; 10-minute bounds; restore messages reach restore.log); the name-based absence check stays: a new absent error type reads as unreachable, which fails the entry loudly |
 
 ## The certification's power (done 2026-09-30, by the main session)
 
@@ -112,3 +114,25 @@ goes through the core when it has one; `WesnothSim.fork` forks the core.
 | id | finding | disposition |
 |---|---|---|
 | K1 | A search fork lacked the refusal counters M1 added (the fork is built without `__init__`), so a refusal inside a search fork raised | fixed, `fix/fork-refusal-state` edb6ca9 |
+
+## The retrain's own code (done 2026-09-30, two independent reviewers)
+
+Gate item 4 of the pre-registration. One reviewer read the data path
+(delayed shroud updates in both appliers and the extractor, the sequence
+pre-encoding, the view and core transfer), the other the sequence trainer,
+the probe, memory in the match path and the box script. The data-path
+reviewer ran both appliers command by command on 6 corpus games that delay
+(2,947 decisions): seen hexes, pending entries, delaying sides and unit
+positions matched after every command. The other reviewer reproduced
+finding R1.
+
+| id | finding | disposition |
+|---|---|---|
+| R1 | The pre-encoder's record classes lived in the script, so its spawned workers pickled them as `__mp_main__.GameSequence`, which the trainer cannot import: the box's pass would have crashed at its first window, and re-entry would have kept the records | fixed, `feature/match-memory` 6e0df7b (wesnoth_ai/sequence_records.py; the end-to-end test runs the pre-encoder by path in a subprocess and fails under the old layout) |
+| R2 | A failed memory barrier was not kept: a re-entry resumed the pass past it | fixed, 6e0df7b (the checkpoint keeps the verdict; a resume stops at once, tested) |
+| R3 | A new stage replaces the staged repository, the raw replays and the corpus with it, while their markers survived; the barrier line was written from a missing input and never recomputed | fixed, 6e0df7b (stage-bound markers in both box scripts; the line only from its input, written whole) |
+| R4 | On a new machine the finished matches came back empty and were replayed over the first run's records | fixed, 6e0df7b (fits, timings and game tarballs restored; a match resumes in its directory) |
+| R5 | The memory barrier and match 2 compare 64 slots with 0: a memory that is not carried could pass through its extra tokens alone | recorded: the probe reads 64 slots carried against 64 slots reset at every decision (`belief_carried`); the barrier stays as pre-registered |
+| R6 | The pre-registered per-phase value AUC was not computed; nothing checked that the pass trains every pre-encoded position; the barrier's standard error treated a game's two sides as independent | fixed, 6e0df7b (the same-turn AUC by turn bucket; exit 4 on a short pass; the standard error across games) |
+| R7 | An event handler that leaves undo disabled makes its action final, which commits a delaying side's vision: in our games the Plan Unit Advance modification's first move of each side turn and its menu events. 6 of 400 sampled games both use it and delay; their seen hexes differed at 27 of 2,859 decisions | fixed, f5def12 (the record carries the modification and its menu events; both appliers commit there; wheel phase 25) |
+| R8 | An attack that a disconnect aborted before its first draw skipped the commit the engine's handler makes first | fixed, f5def12 |
