@@ -76,8 +76,8 @@ STAGING = "tier-b/staging/"
 # library its bring-up (scripts/box/box_onstart.sh), given the script and
 # the library's HF folder.
 ONSTART_FETCH = (
-    "cd /workspace && python -m pip install -q huggingface_hub >/dev/null 2>&1; "
-    "python -c \"from huggingface_hub import hf_hub_download as d; import shutil, os; "
+    "cd /workspace && timeout 600 python -m pip install -q huggingface_hub >/dev/null 2>&1; "
+    "timeout 600 python -c \"from huggingface_hub import hf_hub_download as d; import shutil, os; "
     "shutil.copyfile(d('momom2/wesnoth-model-checkpoints', '{source}', "
     "token=os.environ['HF_TOKEN']), '/workspace/{target}')\" && "
     "printf '%s' \"$HF_TOKEN\" > /workspace/.hf_token && chmod 600 /workspace/.hf_token && "
@@ -204,7 +204,8 @@ def search(args) -> int:
             continue
         rows.append(o)
         print(f"{o['id']:>10}  {o.get('gpu_name'):12s}  ${o.get('dph_total', 0):.3f}/h  "
-              f"{o.get('cpu_cores_effective', 0):5.1f} cores  {(o.get('cpu_name') or '')[:28]:28s}  "
+              f"{o.get('cpu_cores_effective', 0):5.1f} cores  {(o.get('cpu_ram') or 0) / 1024:5.0f} GB RAM  "
+              f"{(o.get('cpu_name') or '')[:28]:28s}  "
               f"{o.get('geolocation', ''):18s}  up {o.get('inet_up', 0):6.0f} Mb/s  "
               f"disk {o.get('disk_space', 0):5.0f}  {hours:6.1f} h left")
         if len(rows) >= args.limit:
