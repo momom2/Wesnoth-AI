@@ -199,9 +199,10 @@ assert man["n_games"] + len(man["errors"]) == man["n_manifest_games"], "games un
 assert len(man["errors"]) < 0.005 * man["n_manifest_games"], "0.5% or more of the games skipped"
 assert t.get("posterior_errors", 0) < 0.001 * max(1, t.get("posteriors", 0)), "posterior errors at 0.1% or more"
 EOF
-    cp -f "$SEQ/sequence_manifest.json" "$OUT/sequence_manifest.json.tmp" \
-        && mv -f "$OUT/sequence_manifest.json.tmp" "$OUT/sequence_manifest.json" \
-        || box_finish "SEQUENCE_MANIFEST_COPY_FAILED" 1
+    if ! { cp -f "$SEQ/sequence_manifest.json" "$OUT/sequence_manifest.json.tmp" \
+            && mv -f "$OUT/sequence_manifest.json.tmp" "$OUT/sequence_manifest.json"; }; then
+        box_finish "SEQUENCE_MANIFEST_COPY_FAILED" 1
+    fi
     box_mark "$SEQ/SEQUENCES_DONE"
 fi
 
