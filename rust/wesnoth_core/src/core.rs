@@ -181,6 +181,10 @@ pub struct MapStatic {
     pub full_slot: Vec<i64>,         // the full-board token slot of each hex
     pub castle_mod: Vec<u8>,         // TerrainModifiers.CASTLE (the encoder's static bit)
     pub hex_of_slot: Vec<usize>,     // the map hex of each full-board slot
+    // The terrain classes of the parity observation, mushroom grove and
+    // reef in classes of their own (terrain::terrain_mask_parity); 0 for
+    // a hex with no terrain code. Read by the encoding only.
+    pub terrain_mask_parity: Vec<i64>,
 }
 
 pub const DEFAULT_CYCLE: [i64; 6] = [0, 25, 25, 0, -25, -25];
@@ -226,6 +230,11 @@ pub struct GameCore {
     pub strict_wml: bool,
     pub firing_scenario: String,
     pub last_heal_events: Vec<(i64, i64, i64, i64, i64)>,   // core_step.rs heal_events
+    // What each player side saw of the other sides' units (core_sight.rs):
+    // per side (index side - 1), the units it saw since its last end_turn
+    // by id, and the (side, unit type) pairs it has seen in the game.
+    pub sightings: Vec<BTreeMap<String, crate::core_sight::SightRec>>,
+    pub seen_types: Vec<BTreeSet<(i64, String)>>,
 }
 
 fn get<'py, T: FromPyObject<'py>>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<T> {
@@ -459,6 +468,7 @@ impl GameCore {
         let codes: Vec<String> = raw_codes.iter().map(|c| terrain::strip_start_position(c).to_string()).collect();
         let [heal, light_mod, light_max, light_min, has_light, ambush, concealment, submerge] =
             resolve_terrain_facts(&tdb, &codes);
+        let terrain_mask_parity: Vec<i64> = codes.iter().map(|c| terrain::terrain_mask_parity(&tdb, c)).collect();
         let map_static = MapStatic {
             h,
             hx,
@@ -485,6 +495,7 @@ impl GameCore {
             full_slot,
             castle_mod: get(map, "castle_mod")?,
             hex_of_slot,
+            terrain_mask_parity,
         };
         for (name, v) in [
             ("nbrs", map_static.nbrs.len() / 6), ("codes", map_static.codes.len()),
@@ -533,6 +544,8 @@ impl GameCore {
             strict_wml: false,
             firing_scenario: String::new(),
             last_heal_events: Vec::new(),
+            sightings: vec![BTreeMap::new(); crate::core_sight::RECORD_SIDES],
+            seen_types: vec![BTreeSet::new(); crate::core_sight::RECORD_SIDES],
         })
     }
 

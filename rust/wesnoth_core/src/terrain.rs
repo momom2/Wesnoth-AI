@@ -261,10 +261,37 @@ fn alias_class(alias: &str) -> Option<i64> {
     })
 }
 
+/// The parity observation's classes past `classes.Terrain`: the
+/// mushroom grove (`Tt`) and reef (`Wrt`) aliases, which the one-class
+/// table files as cave and shallow water (encoder.NUM_TERRAINS_PARITY).
+pub const FUNGUS: i64 = 14;
+pub const REEF: i64 = 15;
+
+/// `alias_class` with mushroom grove and reef in classes of their own.
+fn alias_class_parity(alias: &str) -> Option<i64> {
+    match alias {
+        "Tt" => Some(FUNGUS),
+        "Wrt" => Some(REEF),
+        _ => alias_class(alias),
+    }
+}
+
 /// `terrain_resolver.terrain_mask`: the classes of the code's movement
 /// and defense aliases as a bitmask over `classes.Terrain`. A code
 /// terrain.cfg defines outright is found before any merge.
 pub fn terrain_mask(db: &TerrainDb, code: &str) -> i64 {
+    mask_with(db, code, alias_class)
+}
+
+/// `terrain_mask` over the parity observation's 16 classes: an alias of
+/// mushroom grove sets FUNGUS and one of reef sets REEF instead of cave
+/// and shallow water. Only the encoding under `observation_parity` reads
+/// it; no rule does.
+pub fn terrain_mask_parity(db: &TerrainDb, code: &str) -> i64 {
+    mask_with(db, code, alias_class_parity)
+}
+
+fn mask_with(db: &TerrainDb, code: &str, class_of: fn(&str) -> Option<i64>) -> i64 {
     let code = strip_start_position(code);
     if code.is_empty() {
         return 0;
@@ -279,7 +306,7 @@ pub fn terrain_mask(db: &TerrainDb, code: &str) -> i64 {
             if a == MARKER_PLUS || a == MARKER_MINUS || a == MARKER_BASE {
                 continue;
             }
-            let class = alias_class(a).or_else(|| {
+            let class = class_of(a).or_else(|| {
                 db.entries.get(a.as_str()).and_then(|e| {
                     (e.id == "off_map" || e.id == "off_map2").then_some(terrain_class::IMPASSABLE)
                 })

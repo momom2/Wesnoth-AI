@@ -35,6 +35,7 @@ import numpy as np
 
 from wesnoth_ai.classes import (Attack, GameState, GlobalInfo, Map, Position, SideInfo,
                                 TerrainModifiers, Unit, opponent_of)
+from wesnoth_ai.constants import DEFAULT_ERA_FACTIONS
 
 log = logging.getLogger("game_core")
 
@@ -54,6 +55,17 @@ MODELED_GLOBALS = (
 # also keeps `_object_effects` (WML nodes) and `_ai_guardian`.
 UNIT_STASH_KEYS = ("_defense_table", "_pickadvance", "_trait_order", "_feeding_count", "_wml_role")
 _DROPPED_GLOBALS = ("_hex_lookup_cache_id", "_hex_lookup_by_xy", "_hex_lookup_by_wml")
+# What each player side saw of the other sides' units, which the core keeps
+# (rust/wesnoth_core/src/core_sight.rs) and a view carries for
+# `classes.state_digest`: `_sightings` {side: ((id, type, hp, max hp, x,
+# y), ...)} and `_seen_types` {side: ((other side, type), ...)}. The Python
+# applier keeps neither, so the state comparisons leave them out.
+SIGHT_RECORDS = ("_sightings", "_seen_types")
+# The players' sides, the ones that keep a sighting record.
+_RECORD_SIDES = (1, 2)
+# The wheel phase this adapter reads: 23 keeps the sighting records and
+# builds the parity observation.
+_CORE_PHASE = 23
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -80,8 +92,10 @@ def game_core_class():
         # each unit's underscore attributes in its record, builds units
         # itself (recruits, plague corpses, advancement), runs the
         # scenario's events, encodes the terrain set, and answers the
-        # defender's weapon choice and an attack's exact outcomes.
-        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= 22:
+        # defender's weapon choice and an attack's exact outcomes. Phase
+        # 23: it keeps each side's sighting record and builds the parity
+        # observation.
+        if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= _CORE_PHASE:
             load_databases(wesnoth_core)
             _GAME_CORE = wesnoth_core.GameCore
     return _GAME_CORE
@@ -130,6 +144,27 @@ def core_of(gs: GameState) -> Optional["CoreState"]:
             "a view of the Rust core was edited in place after it was bound: the core does not "
             "see the edit. Hand the edited view back (`sim.gs = view`) or edit a copy.")
     return hit[1]
+
+
+def snapshot_view(gs: GameState) -> GameState:
+    """A copy of `gs` to keep while the game goes on: for a view bound to
+    a core, a view of a fork of that core (bound to it, so it is encoded
+    by the core, the parity observation included); for any other state,
+    `copy.deepcopy(gs)`, which is unbound."""
+    cs = core_of(gs)
+    if cs is None:
+        return copy.deepcopy(gs)
+    fork = cs.fork()
+    view = fork.to_state()
+    bind_view(view, fork)
+    return view
+
+
+def unit_db_fallbacks() -> Dict[str, int]:
+    """The lookups of unit types the core's database lacks, per name,
+    since the process started (each took the fallback statistics)."""
+    import wesnoth_core
+    return dict(wesnoth_core.fallback_type_counts())
 
 
 def load_databases(wesnoth_core) -> None:
@@ -317,20 +352,34 @@ class CoreState:
     def from_state(cls, gs: GameState) -> "CoreState":
         core_cls = game_core_class()
         if core_cls is None:
-            raise RuntimeError("wesnoth_core.GameCore is not available (phase 22 wheel)")
+            raise RuntimeError(f"wesnoth_core.GameCore is not available (phase {_CORE_PHASE} wheel)")
         core = core_cls(map_static(gs), gs.game_id, int(gs.map.size_x), int(gs.map.size_y))
         gi = gs.global_info
         statics: Dict[str, object] = {"hexes": gs.map.hexes, "mask": gs.map.mask, "fog": gs.map.fog}
         for k, v in gi.__dict__.items():
-            if k.startswith("_") and k not in MODELED_GLOBALS and k not in _DROPPED_GLOBALS:
+            if (k.startswith("_") and k not in MODELED_GLOBALS and k not in _DROPPED_GLOBALS
+                    and k not in SIGHT_RECORDS):
                 statics[k] = v
         statics["size_x"], statics["size_y"] = int(gs.map.size_x), int(gs.map.size_y)
+        # What the core does not keep and the faction posterior reads: who
+        # chose Random, and the era's factions.
+        statics["chose_random"] = tuple(bool(getattr(s, "chose_random", False)) for s in gs.sides)
+        statics["era_factions"] = tuple(getattr(gs, "era_factions", None) or DEFAULT_ERA_FACTIONS)
         cs = cls(core=core, game_id=gs.game_id, statics=statics, hexes_holder=gs.map.hexes)
         for u in gs.map.units:
             cs._add_unit(u)
         cs._load_scalars(gs)
         cs._load_events(gi)
+        cs._load_sight_records(gi)
+        _log_core_warnings()
         return cs
+
+    def _load_sight_records(self, gi) -> None:
+        """A view's sighting records (`SIGHT_RECORDS`) into the core."""
+        for side, rows in (getattr(gi, "_sightings", None) or {}).items():
+            self.core.set_sightings(int(side), [tuple(r) for r in rows])
+        for side, rows in (getattr(gi, "_seen_types", None) or {}).items():
+            self.core.set_seen_types(int(side), [(int(s), str(t)) for s, t in rows])
 
     def _add_unit(self, u: Unit) -> None:
         self.core.add_unit(unit_fields(u))
@@ -410,17 +459,22 @@ class CoreState:
             strikes.append({"dies": bool(flat[k + 3])})
         gi._last_checkup_strikes = strikes or None
         gi._fog_cleared = {side: frozenset(map(tuple, hexes)) for side, hexes in core.fog_cleared_export()}
+        gi._sightings = {side: tuple(core.sightings_export(side)) for side in _RECORD_SIDES}
+        gi._seen_types = {side: tuple(core.seen_types_export(side)) for side in _RECORD_SIDES}
         self._events_into(gi)
         units = {unit_from_fields(d) for d in core.units_export()}
+        chose_random = self.statics.get("chose_random") or ()
         sides = [SideInfo(player=p, recruits=list(r), current_gold=gold, base_income=b,
-                          nb_villages_controlled=v, faction=f)
-                 for (p, r, gold, b, v, f) in core.sides_export()]
+                          nb_villages_controlled=v, faction=f,
+                          chose_random=bool(chose_random[k]) if k < len(chose_random) else False)
+                 for k, (p, r, gold, b, v, f) in enumerate(core.sides_export())]
         m = Map(size_x=int(self.statics["size_x"]), size_y=int(self.statics["size_y"]),
                 mask=self.statics["mask"], fog=self.statics["fog"],
                 hexes=self.statics["hexes"], units=units)
         return GameState(game_id=self.game_id, map=m, global_info=gi, sides=sides,
                          game_over=bool(g["game_over"]),
-                         winner=None if g["winner"] < 0 else int(g["winner"]))
+                         winner=None if g["winner"] < 0 else int(g["winner"]),
+                         era_factions=tuple(self.statics.get("era_factions") or DEFAULT_ERA_FACTIONS))
 
     def _events_into(self, gi) -> None:
         """The event latches and variables of the core on a view: each
@@ -586,9 +640,15 @@ class CoreState:
 
     def encode_raw(self, *, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                    relevant_set: bool = False, fog_hides_enemy_villages: bool = False,
-                   terrain_multi_hot: bool = False):
+                   terrain_multi_hot: bool = False, observation_parity: bool = False,
+                   relevant_set_version: int = 1):
         """`encoder.encode_raw` over the core for the side to move: the
-        same RawEncoded, byte for byte (tests/test_game_core.py)."""
+        same RawEncoded, byte for byte (tests/test_game_core.py). With
+        `observation_parity` the parity observation (encoder.py's layout
+        "The parity observation"), which only the core builds, with the
+        faction posterior and the sighting stream. `relevant_set_version`
+        2 widens the relevant set (the parity recipe's; needs
+        `relevant_set`)."""
         from wesnoth_ai import encoder as enc
         core = self.core
         side = int(core.current_side)
@@ -599,19 +659,27 @@ class CoreState:
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []
         r_ids, r_stats = self._recruit_rows(own_recruits, type_to_id)
+        parity_norms = None
+        if observation_parity:
+            _check_parity_layout()
+            parity_norms = (enc.WEAPON_DAMAGE_NORM, enc.WEAPON_STRIKES_NORM, enc.LAWFUL_BONUS_NORM,
+                            enc.LEADERSHIP_NORM, enc.VILLAGE_GOLD_NORM, enc.VILLAGE_SUPPORT_NORM)
+            r_stats = []           # the core reads the recruits' types itself
         d = core.encode_streams(
             side, bool(relevant_set), self._type_vocab(type_to_id), r_ids, r_stats,
             bool(fog_hides_enemy_villages),
             (enc.HP_NORM, enc.MOVES_NORM, enc.EXP_NORM, enc.COST_NORM, enc.GOLD_NORM,
              enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
-            enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, bool(terrain_multi_hot))
-        _require_global_width(d["global_feats"])
+            enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, bool(terrain_multi_hot),
+            observation_parity=bool(observation_parity), parity_norms=parity_norms,
+            relevant_set_version=int(relevant_set_version))
+        _require_widths(d, bool(observation_parity))
         static = enc._static_hex_arrays(self._view())
         if relevant_set:
             hex_positions = [static.positions[t] for t in d["full_slots"].tolist()]
         else:
             hex_positions = static.positions
-        return enc.RawEncoded(
+        raw = enc.RawEncoded(
             hex_subset=bool(relevant_set), hex_positions=hex_positions,
             hex_xs=d["hex_xs"], hex_ys=d["hex_ys"], hex_terrain_ids=d["hex_terrain_ids"],
             hex_modifier_flags=d["hex_modifier_flags"], hex_dynamic_flags=d["hex_dynamic_flags"],
@@ -626,18 +694,34 @@ class CoreState:
             their_faction_id=enc._lookup_id(them_fac, faction_to_id, enc.MAX_FACTIONS),
             material=float(d["material"]),
             observation=_observation_from_dict(d["observation"], self.geometry()))
+        if observation_parity:
+            raw.their_faction_probs = self._faction_probs(side, them_fac, faction_to_id)
+            raw.sight_type_ids = d["sight_type_ids"]
+            raw.sight_xs = d["sight_xs"]
+            raw.sight_ys = d["sight_ys"]
+            raw.sight_feats = d["sight_feats"]
+        return raw
+
+    def _faction_probs(self, side: int, them_fac: str, faction_to_id: Dict[str, int]):
+        """The posterior over the opponent's faction (faction_posterior)."""
+        from wesnoth_ai.faction_posterior import faction_posterior
+        them = opponent_of(side)
+        chose_random = self.statics.get("chose_random") or ()
+        return faction_posterior(
+            them_fac, bool(chose_random[them - 1]) if them - 1 < len(chose_random) else False,
+            self.statics.get("era_factions") or DEFAULT_ERA_FACTIONS,
+            self.core.seen_types(side, them), faction_to_id)
 
     def _type_vocab(self, type_to_id: Dict[str, int]) -> List[int]:
-        """The vocab id of every registered type, the overflow bucket
-        for the unknown (`encoder._lookup_id`); cached per vocab and
-        type count."""
-        from wesnoth_ai.encoder import MAX_UNIT_TYPES
+        """The vocab row of every registered type (`encoder.type_row`: the
+        overflow row for a name the vocabulary lacks, counted); cached per
+        vocab and type count."""
+        from wesnoth_ai.encoder import type_row
         names = tuple(self.core.type_names())
         key = ("vocab", id(type_to_id), len(type_to_id))
         hit = self.caches.get(key)
         if hit is None or hit[0] != names:
-            overflow = MAX_UNIT_TYPES - 1
-            hit = (names, [min(type_to_id.get(n, overflow), overflow) for n in names])
+            hit = (names, [type_row(n, type_to_id) for n in names])
             self.caches[key] = hit
         return hit[1]
 
@@ -749,18 +833,61 @@ def _require_global_width(global_feats) -> None:
     Python kernel path has the same guard in
     `encoder._rust_encode_kernel`."""
     from wesnoth_ai import encoder as enc
+    _require_width("global_feats", global_feats, enc.GLOBAL_FEAT_DIM)
 
-    width = int(getattr(global_feats, "shape", (len(global_feats),))[-1])
-    if width != enc.GLOBAL_FEAT_DIM:
+
+def _require_widths(d: dict, parity: bool) -> None:
+    """`_require_global_width` for an encoding, and under the parity flag
+    every row the parity observation widens."""
+    from wesnoth_ai import encoder as enc
+    if not parity:
+        _require_global_width(d["global_feats"])
+        return
+    for key, width in (("global_feats", enc.GLOBAL_FEAT_DIM_PARITY), ("unit_feats", enc.UNIT_FEAT_DIM_PARITY),
+                       ("recruit_feats", enc.UNIT_FEAT_DIM_PARITY),
+                       ("hex_dynamic_flags", enc.NUM_HEX_DYNAMIC_FLAGS_PARITY),
+                       ("sight_feats", enc.SIGHT_FEAT_DIM)):
+        _require_width(key, d[key], width)
+
+
+def _require_width(key: str, array, width: int) -> None:
+    got = int(getattr(array, "shape", (len(array),))[-1])
+    if got != width:
         try:
             import wesnoth_core
         except ImportError:
             wesnoth_core = None
         raise RuntimeError(
-            f"wesnoth_core.GameCore encoded {width} global features where the "
-            f"encoder expects {enc.GLOBAL_FEAT_DIM}: the installed wheel is "
-            f"phase {getattr(wesnoth_core, '__phase__', '?')}. "
+            f"wesnoth_core.GameCore encoded {got} {key} columns where the encoder expects "
+            f"{width}: the installed wheel is phase {getattr(wesnoth_core, '__phase__', '?')}. "
             f"Rebuild the wheel from rust/wesnoth_core.")
+
+
+_PARITY_LAYOUT_CHECKED = False
+
+
+def _check_parity_layout() -> None:
+    """Once per process: the core's parity layout (vocabularies, widths,
+    terrain classes) is the encoder's, or RuntimeError."""
+    global _PARITY_LAYOUT_CHECKED
+    if _PARITY_LAYOUT_CHECKED:
+        return
+    import wesnoth_core
+    from wesnoth_ai import encoder as enc
+    got = wesnoth_core.parity_layout()
+    want = {
+        "damage_types": list(enc.PARITY_DAMAGE_TYPES), "specials": list(enc.PARITY_SPECIALS),
+        "traits": list(enc.PARITY_TRAITS), "abilities": list(enc.PARITY_ABILITIES),
+        "weapon_slots": enc.PARITY_WEAPON_SLOTS, "weapon_cols": enc.PARITY_WEAPON_COLS,
+        "unit_extra": enc.PARITY_UNIT_EXTRA,
+        "hex_extra": enc.NUM_HEX_DYNAMIC_FLAGS_PARITY - enc.NUM_HEX_DYNAMIC_FLAGS,
+        "global_extra": enc.GLOBAL_FEAT_DIM_PARITY - enc.GLOBAL_FEAT_DIM,
+        "sight_feat_dim": enc.SIGHT_FEAT_DIM, "terrain_classes": enc.NUM_TERRAINS_PARITY,
+    }
+    off = {k: (got.get(k), v) for k, v in want.items() if got.get(k) != v}
+    if off:
+        raise RuntimeError(f"the core's parity layout differs from the encoder's (core, encoder): {off}")
+    _PARITY_LAYOUT_CHECKED = True
 
 
 def _observation_from_dict(d: dict, geometry):
@@ -774,5 +901,5 @@ def _observation_from_dict(d: dict, geometry):
 
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
-           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of",
-           "MODELED_GLOBALS", "UNIT_STASH_KEYS"]
+           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of", "snapshot_view",
+           "unit_db_fallbacks", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]

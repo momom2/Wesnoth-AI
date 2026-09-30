@@ -142,7 +142,8 @@ impl GameCore {
     /// transcribes it, its telemetry in `last_heal_events`), the move
     /// refresh, income and upkeep (play_controller.cpp:524-534), the
     /// side's revealed hiders hidden again after turn 1, the refresh
-    /// events, and the side's fog recalculated.
+    /// events, the side's fog recalculated, and what each side sees
+    /// recorded (core_sight.rs).
     fn apply_init_side(&mut self, side: i64) -> PyResult<()> {
         if side == 1 && self.global.turn_number >= 1 {
             self.fire_all(&turn_end_names(self.global.turn_number))?;
@@ -272,6 +273,7 @@ impl GameCore {
         }
         self.fire_all(&turn_refresh_names(side, turn))?;
         self.refog(side);                       // play_controller.cpp:524-525
+        self.note_sightings();
         Ok(())
     }
 
@@ -284,7 +286,7 @@ impl GameCore {
 
     /// `_apply_command(["end_turn"])`: the ending side's units lose
     /// `slowed`, and `resting` when they moved; its end events fire; then
-    /// its fog is recalculated.
+    /// its fog is recalculated and its sighting record starts over.
     fn apply_end_turn(&mut self) -> PyResult<()> {
         let side = self.global.current_side;
         for u in self.units.iter_mut() {
@@ -298,6 +300,8 @@ impl GameCore {
         }
         self.fire_all(&side_turn_end_names(side, self.global.turn_number))?;
         self.refog(side);                       // play_controller.cpp:582-590
+        self.clear_sightings(side);
+        self.note_sightings();
         Ok(())
     }
 

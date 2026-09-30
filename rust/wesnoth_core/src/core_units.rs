@@ -210,7 +210,8 @@ impl GameCore {
     /// `_apply_command(["recruit", type, x, y, seed])`: the recruit with
     /// its rolled traits, unable to move or attack this turn, the game's
     /// pick-advance list for its type, its vision cleared, the uid counter
-    /// advanced and its cost spent. Returns the new unit's id.
+    /// advanced and its cost spent; then what each side sees is recorded
+    /// (core_sight.rs). Returns the new unit's id.
     #[pyo3(signature = (unit_type, x, y, seed=""))]
     fn apply_recruit(&mut self, unit_type: &str, x: i64, y: i64, seed: &str) -> PyResult<String> {
         let side = self.global.current_side;
@@ -231,6 +232,7 @@ impl GameCore {
         self.global.next_uid_counter += 1;
         let cost = self.db.get(unit_type).cost;
         self.spend_gold(side, cost);
+        self.note_sightings();
         Ok(id)
     }
 

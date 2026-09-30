@@ -24,6 +24,8 @@ mod core_attack;
 mod core_observe;
 mod core_fog;
 mod core_encode;
+mod core_parity;
+mod core_sight;
 mod core_sim;
 mod core_units;
 mod db;
@@ -550,6 +552,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<core::GameCore>()?;
     m.add_function(wrap_pyfunction!(db::load_databases, m)?)?;
     m.add_function(wrap_pyfunction!(db::databases_loaded, m)?)?;
+    m.add_function(wrap_pyfunction!(db::fallback_type_counts, m)?)?;
+    m.add_function(wrap_pyfunction!(core_parity::parity_layout, m)?)?;
     m.add_function(wrap_pyfunction!(terrain::terrain_mvt_cost, m)?)?;
     m.add_function(wrap_pyfunction!(terrain::terrain_def_pct, m)?)?;
     m.add_function(wrap_pyfunction!(terrain::terrain_facts, m)?)?;
@@ -607,6 +611,14 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // statistics (counter_weapon_choice, attack_outcomes, fight_stats;
     // outcomes.rs), a unit's single-turn reach, a side's reach context and
     // the units a side sees (unit_reach, side_context, visible_ids).
-    m.add("__phase__", 22)?;
+    // 23: GameCore keeps, per player side, the units it saw since its last
+    // end_turn and the unit types it has seen (core_sight.rs:
+    // sightings_export, seen_types and their setters), and
+    // encode_streams builds the parity observation under
+    // observation_parity (core_parity.rs, parity_layout) and the relevant
+    // set version 2 under relevant_set_version (relevant_positions);
+    // encode_raw_streams refuses the flag; a unit type the database lacks
+    // is counted and warned about (fallback_type_counts).
+    m.add("__phase__", 23)?;
     Ok(())
 }

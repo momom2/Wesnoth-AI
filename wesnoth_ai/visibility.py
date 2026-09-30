@@ -489,6 +489,10 @@ def units_visible_to_python(
         # the map itself (fog hides UNITS' presence, not board
         # furniture). Armed side>=3 combatants (tentacles) are NOT
         # scenery -- they fall through to the enemy fog gates below.
+        # The engine hides every non-own unit on a fogged hex, statues
+        # included (unit.cpp:2645-2676), so showing them there breaks
+        # principle 6 (CLAUDE.md); accepted by user ruling 2026-09-29: a
+        # player who knows the map knows where the statues stand.
         if is_scenery_unit(u):
             out.append(u)
             continue

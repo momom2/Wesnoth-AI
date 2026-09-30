@@ -37,7 +37,10 @@ uploads a log as such runs, scripts/hf_upload_loop.py).
 
 Formats: 1 has no fingerprints and no corpus digest; it is read and
 rebuilt without checks. 2 adds `turn_digests`, `final_digest` and the
-mid-game `sha256`.
+mid-game `sha256`. 3 adds `digest_version`, the `classes.state_digest`
+version its fingerprints use (a game played on the Rust core writes 2,
+which covers each side's sighting record; format 2 records verify under
+version 1).
 """
 from __future__ import annotations
 
@@ -60,7 +63,7 @@ from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 
 log = logging.getLogger("game_record")
 
-FORMAT = 2
+FORMAT = 3
 
 
 class RecordMismatch(Exception):
@@ -114,8 +117,9 @@ def game_record(sim, setup, *, game_label: str, build: Optional[Dict[str, Any]] 
         "final_side": int(gi.current_side),
         "commands": [list(rc.cmd) for rc in history],
         "rejections": [list(r) for r in getattr(sim, "recruit_rejections", ())],
+        "digest_version": int(sim.digest_version),
         "turn_digests": [[int(k), d] for k, d in getattr(sim, "turn_digests", ())],
-        "final_digest": state_digest(sim.gs),
+        "final_digest": state_digest(sim.gs, version=sim.digest_version),
         "outcomes": outcomes,
     }
     if extra:
@@ -389,7 +393,7 @@ def _check(rec: Dict[str, Any], cs, want: Optional[str], where: str) -> None:
     if want is None:
         return
     gs = cs.to_state()
-    if state_digest(gs) != want:
+    if state_digest(gs, version=int(rec.get("digest_version", 1))) != want:
         raise RecordMismatch(
             f"{rec.get('game_label')}: the rebuilt position {where} "
             f"(turn {gs.global_info.turn_number}, side {gs.global_info.current_side}) "

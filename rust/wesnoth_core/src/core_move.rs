@@ -86,7 +86,10 @@ impl GameCore {
     /// `visibility.units_visible_to(side)` as one flag per unit: own
     /// units and scenery always; a covered hider only when uncovered
     /// or discovered by adjacency; the rest on a hex the side sees
-    /// when fog is on.
+    /// when fog is on. Scenery on a fogged hex, which the engine hides
+    /// (unit.cpp:2645-2676), breaks principle 6 (CLAUDE.md); accepted by
+    /// user ruling 2026-09-29: a player who knows the map knows where the
+    /// statues stand.
     pub fn visible_to(&self, side: i64) -> Vec<bool> {
         let n = self.units.len();
         let mut out = vec![false; n];
@@ -262,12 +265,23 @@ impl GameCore {
     /// source hex (of `from_side` when given) walks the path; the walk
     /// record, the reveals, the landing (position, movement, resting
     /// dropped), the fog cleared from every entered hex and the village
-    /// capture follow the Python branch.
+    /// capture follow the Python branch. The other sides record the mover
+    /// on the path hexes they see, then what each side sees is recorded
+    /// (core_sight.rs).
     #[pyo3(signature = (xs, ys, from_side=0, enforce_budget=false))]
     fn apply_move(&mut self, xs: Vec<i64>, ys: Vec<i64>, from_side: i64, enforce_budget: bool) -> PyResult<()> {
         if xs.is_empty() || xs.len() != ys.len() {
             return Err(pyo3::exceptions::PyValueError::new_err("empty or uneven path"));
         }
+        self.move_along(&xs, &ys, from_side, enforce_budget)?;
+        self.note_sightings();
+        Ok(())
+    }
+}
+
+impl GameCore {
+    /// The move command's walk and landing (`apply_move`).
+    fn move_along(&mut self, xs: &[i64], ys: &[i64], from_side: i64, enforce_budget: bool) -> PyResult<()> {
         let i = match self.units.iter().position(|u| {
             u.x == xs[0] && u.y == ys[0] && (from_side == 0 || u.side == from_side)
         }) {
@@ -281,7 +295,7 @@ impl GameCore {
         }
         let mover_side = u.side;
         self.track_side(mover_side);
-        let out = self.walk_move_path(i, &xs, &ys, enforce_budget);
+        let out = self.walk_move_path(i, xs, ys, enforce_budget);
         let m = xs.len();
         self.last_move_walk = Some((xs[m - 1], ys[m - 1], xs[out.final_idx], ys[out.final_idx], out.reason.to_string()));
         for id in &out.uncovered {
@@ -305,6 +319,9 @@ impl GameCore {
             .filter_map(|j| self.map.pos_index.get(&(xs[j], ys[j])).copied())
             .collect();
         self.clear_fog_from(i, &entered);
+        let start = self.map.pos_index.get(&(xs[0], ys[0])).copied();
+        let walked: Vec<usize> = start.into_iter().chain(entered.iter().copied()).collect();
+        self.note_path_sightings(i, &walked);
         if hex >= 0 && self.map.village_terrain[hex as usize] != 0 {
             self.capture_village(hex as usize, side);
         }

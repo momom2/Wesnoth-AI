@@ -101,6 +101,10 @@ pub(crate) fn observe_slices(
     };
     let mut visible = vec![0u8; n];
     for i in 0..n {
+        // Scenery is visible on a fogged hex too, where the engine hides
+        // every non-own unit (unit.cpp:2645-2676): that breaks principle 6
+        // (CLAUDE.md) and is accepted by user ruling 2026-09-29, since a
+        // player who knows the map knows where the statues stand.
         if uside[i] == side || uscenery[i] != 0 {
             visible[i] = 1;
             continue;
