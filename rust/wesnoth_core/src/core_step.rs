@@ -150,6 +150,7 @@ impl GameCore {
         }
         self.global.current_side = side;
         self.recruit_rejected = vec![0; self.map.h];
+        self.pending_vision.clear();            // undo_list::new_side_turn, undo.cpp:243-262
         if side == 1 {
             self.global.turn_number += 1;
             self.global.time_of_day = TOD_NAMES[self.tod_index(self.global.turn_number)].to_string();
@@ -289,6 +290,7 @@ impl GameCore {
     /// its fog is recalculated and its sighting record starts over.
     fn apply_end_turn(&mut self) -> PyResult<()> {
         let side = self.global.current_side;
+        self.clear_undo_stack();                // play_controller.cpp:576-577
         for u in self.units.iter_mut() {
             if u.side != side {
                 continue;

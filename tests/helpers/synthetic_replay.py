@@ -18,13 +18,17 @@ def _map_data() -> str:
 
 def side_block(side: int, player: str, units: Sequence[Tuple[str, int, int, bool]], *,
                controller: str = "human", recruit: str = "Spearman,Cavalryman",
-               gold: int = 100, chose_random: Optional[bool] = None) -> str:
-    """A [side]: `units` are (type, x, y, is_leader)."""
+               gold: int = 100, chose_random: Optional[bool] = None,
+               auto_shroud: Optional[bool] = None) -> str:
+    """A [side]: `units` are (type, x, y, is_leader). `auto_shroud` is the
+    delay switch a save keeps."""
     lines = ["    [side]", f'        side="{side}"', f'        controller="{controller}"',
              f'        current_player="{player}"', f'        name="{player}"',
              f'        player_id="{player}"', '        faction="Loyalists"',
              f'        gold="{gold}"', '        fog="no"', '        shroud="no"',
              f'        recruit="{recruit}"']
+    if auto_shroud is not None:
+        lines.append(f'        auto_shroud="{"yes" if auto_shroud else "no"}"')
     if chose_random is not None:
         lines.append(f'        chose_random="{"yes" if chose_random else "no"}"')
     for unit_type, x, y, leader in units:
@@ -87,6 +91,17 @@ def move(side: int, path: Sequence[Tuple[int, int]],
             f"        [checkup]\n            [result]\n                final_hex_x={fx}\n"
             f"                final_hex_y={fy}{early}\n            [/result]\n"
             f"        [/checkup]")
+
+
+def auto_shroud(active: bool) -> str:
+    """The current side's "delay shroud updates" switch
+    (`replay_helper::get_auto_shroud`)."""
+    return f"        [auto_shroud]\n            active={'yes' if active else 'no'}\n        [/auto_shroud]"
+
+
+def update_shroud() -> str:
+    """The current side's "update shroud now"."""
+    return "        [update_shroud]\n        [/update_shroud]"
 
 
 def countdown_update(side: int, value_ms: int) -> str:

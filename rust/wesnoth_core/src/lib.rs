@@ -25,6 +25,7 @@ mod core_observe;
 mod core_fog;
 mod core_encode;
 mod core_parity;
+mod core_shroud;
 mod core_sight;
 mod core_sim;
 mod core_units;
@@ -619,6 +620,10 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // set version 2 under relevant_set_version (relevant_positions);
     // encode_raw_streams refuses the flag; a unit type the database lacks
     // is counted and warned about (fallback_type_counts).
-    m.add("__phase__", 23)?;
+    // 24: delayed shroud updates (core_shroud.rs): apply_auto_shroud,
+    // apply_update_shroud, shroud_state_export and set_shroud_state; a
+    // delaying side's moves and recruits clear fog at the next commit,
+    // its advancements clear none.
+    m.add("__phase__", 24)?;
     Ok(())
 }

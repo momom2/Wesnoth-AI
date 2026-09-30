@@ -55,9 +55,13 @@ log = logging.getLogger("replay_extract")
 
 # The rules a record was extracted under. 2 (2026-09-26): a stopped
 # move keeps the hex its player clicked (`replay_dataset.move_order_of`)
-# and the record says where the game ended (`game_end`). Records without
-# the key are version 1.
-EXTRACTION_VERSION = 3
+# and the record says where the game ended (`game_end`). 3 (2026-09-29):
+# the engine's own moves and timed-out turns are marked (`engine_issued`),
+# with each side's Random choice, the era and the turn timer. 4
+# (2026-09-30): a side's `[auto_shroud]` and `[update_shroud]` commands
+# are kept (docs/wesnoth_rules.md "Delayed shroud updates"). Records
+# without the key are version 1.
+EXTRACTION_VERSION = 4
 
 
 # --------------------------------------------------------------------
@@ -323,6 +327,9 @@ class SideState:
     # quarantined by the dataset builder.
     fog: bool = True
     shroud: bool = False
+    # Off when the game starts from a save of a side that delayed its
+    # shroud updates ([side] auto_shroud=).
+    auto_shroud: bool = True
     # Who played the side when the game started: "human", "ai" or
     # "null" ([side] controller=).
     controller: str = ""
@@ -481,6 +488,7 @@ def build_initial_state(root: WMLNode) -> GameState:
             village_support=fields["village_support"],
             fog=fields["fog"],
             shroud=fields["shroud"],
+            auto_shroud=fields["auto_shroud"],
             base_income=fields["base_income"],
             recruit_list=fields["recruit"],
             leader_type=fields["leader_type"],
@@ -1157,6 +1165,16 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
                     team, value = 0, -1
                 if team == side_turn["side"]:
                     side_turn["recorded_ms"] = value
+                break
+            if t == "auto_shroud":
+                # The current side's "delay shroud updates" switch and
+                # its "update shroud now" decide when its moves and
+                # recruits clear fog (src/synced_commands.cpp:367-398).
+                active = wml_bool_or_none(sub.attrs.get("active")) is True
+                compact_commands.append(["auto_shroud", 1 if active else 0])
+                break
+            if t == "update_shroud":
+                compact_commands.append(["update_shroud"])
                 break
             if t == "fire_event" and sub.attrs.get(
                     "raise", "").strip('"') == "menu item pickadvance":
@@ -1903,6 +1921,7 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
             "village_support": s.village_support,
             "fog": bool(s.fog),
             "shroud": bool(s.shroud),
+            "auto_shroud": bool(s.auto_shroud),
             "recruit": list(s.recruit_list),
             "leader_type": s.leader_type,
             "color": s.color,

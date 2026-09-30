@@ -55,6 +55,7 @@ the quote to find the file again. Paraphrases drift; quotes don't.
 - [`random_start_time` has three forms, not two (added 2026-09-22)](#random_start_time-has-three-forms-not-two-added-2026-09-22)
 - [Preprocessor conditionals, and what a multiplayer game defines (added 2026-09-23)](#preprocessor-conditionals-and-what-a-multiplayer-game-defines-added-2026-09-23)
 - [Vision and fog: what a side sees, and when it is recomputed (added 2026-09-24)](#vision-and-fog-what-a-side-sees-and-when-it-is-recomputed-added-2026-09-24)
+- [Delayed shroud updates (added 2026-09-30)](#delayed-shroud-updates-added-2026-09-30)
 
 ---
 
@@ -3292,8 +3293,9 @@ When fog is cleared and recalculated:
 
 A move and a recruit clear immediately only while the player's "delay
 shroud updates" preference is off (`current_uses_fog_(current_team_->fog_or_shroud() && current_team_->auto_shroud_updates())`,
-`src/actions/move.cpp:371`, and `create.cpp:697`); that is the default,
-and the simulator models it. A unit placed by WML (`[unit]`) or a
+`src/actions/move.cpp:371`, and `create.cpp:697`); that is the default.
+With the preference on they clear at the next commit ("Delayed shroud
+updates" below). A unit placed by WML (`[unit]`) or a
 plague corpse clears nothing (`src/actions/unit_creator.cpp` and
 `attack::unit_killed` have no clearing call).
 
@@ -3319,5 +3321,92 @@ hooks in `tools/replay_dataset._apply_command`) and, for the Rust core,
 **Not modelled.** `vision=` and `[vision_costs]` (declared by the Dune
 Falconer, the Dune Sky Hunter, the Dragonfly and the Grand Dragonfly,
 none of which is in the default era, the pool or the corpus; such a
-unit logs a warning and sees with its movement), jamming, shared vision
-between allies, and the delayed-shroud preference.
+unit logs a warning and sees with its movement), jamming, and shared
+vision between allies.
+
+## Delayed shroud updates (added 2026-09-30)
+
+A player can turn "delay shroud updates" on from the game menu. The
+side's switch starts on (`, auto_shroud_updates_(true)`,
+`src/team.cpp:336` at 1.18.4), a save keeps it
+(`auto_shroud_updates_ = cfg["auto_shroud"].to_bool(auto_shroud_updates_);`,
+`:362`), and the menu records each toggle as a synced command
+(`menu_handler::toggle_shroud_updates`, `src/menu_events.cpp:504-516`):
+turning the updates back on records `[update_shroud]` first, then
+`[auto_shroud] active=yes`.
+
+While a side delays and has fog, during its own turn:
+
+- a move clears no fog (`current_uses_fog_`, `src/actions/move.cpp:371`,
+  quoted in "Vision and fog"); it goes on the undo stack with every hex
+  the unit occupied, its start included, and the unit's vision:
+  `undo_stack->add_move(` / `move_it_.get_shared_ptr(), begin_, real_end_, orig_moves_,`
+  (`move.cpp:1070-1071`), the vision being `clearer_info(viewer)`'s
+  `sight_range(viewer.vision())` and `slowed(viewer.get_state(unit::STATE_SLOWED))`
+  (`src/actions/vision.cpp:100-106`);
+- a recruit clears nothing
+  (`if ( !wml_triggered && current_team.auto_shroud_updates() ) // To preserve current WML behavior.`,
+  `src/actions/create.cpp:697`) and goes on the stack (`:730`);
+- an advancement clears nothing and is not stacked:
+  `if ( can_delay  &&  !viewing_team.auto_shroud_updates()  &&` /
+  `viewer.side() == resources::controller->current_side()  )` / `return false;`
+  (`vision.cpp:467-469`).
+
+`undo_list::apply_shroud_changes` commits the stack: for each stacked
+action, over every hex of its route,
+`if ( clearer.clear_unit(*step, tm, action->view_info, true) ) {`
+(`src/actions/undo.cpp:455`), unless
+`if ( tm.auto_shroud_updates()  ||  !tm.fog_or_shroud() ) {` (`:436`).
+It runs when
+
+- the stack is cleared (`undo_list::clear`, `undo.cpp:201-215`) by an
+  action that cannot be undone: any command that draws a random number,
+  a fight included
+  (`// As soon as random or similar is involved, undoing is impossible.` /
+  `resources::undo_stack->clear();`, `src/synced_context.cpp:284-285`;
+  and `if(undo_blocked()) {` ... `resources::undo_stack->clear();`,
+  `:81-83`), a recruit whose traits drew one
+  (`if ( std::get<0>(res) || synced_context::undo_blocked()) {`,
+  `create.cpp:733`), and a move that was ambushed or blocked
+  (`bool undo_blocked() const` / `{ return ambushed_ || blocked() || ...`,
+  `move.cpp:259-260`, checked at `:1075-1079`);
+- the turn ends: `// Ending the turn commits all moves.` /
+  `undo_stack().clear();` (`src/play_controller.cpp:576-577`), before
+  the refog;
+- `[update_shroud]` (`bool res = resources::undo_stack->commit_vision();`,
+  `src/synced_commands.cpp:394`);
+- `[auto_shroud] active=yes` while delaying:
+  `if(active && !current_team.auto_shroud_updates()) {` /
+  `resources::undo_stack->commit_vision();` (`:373-374`).
+
+The recalculations at a side's turn start and end and for a defender
+after a fight ignore the switch
+(`* This function ignores the "delayed shroud updates" setting.`,
+`vision.cpp:697` and `:742`). When an AI takes control of a delaying
+side, the engine records `[auto_shroud] active=yes`
+(`src/playsingle_controller.cpp:647-654`).
+
+**In a replay** the two commands are recorded as
+`[command] from_side=N [auto_shroud] active=no|yes [/auto_shroud]` and
+`[update_shroud][/update_shroud]`, each with a checkup. A recruit drew a
+random number exactly when a `[random_seed]` follows it, which the
+extractor stores as the recruit's seed; a recruit of a musthave-only
+trait pool has none and stays on the stack.
+
+**Why non-obvious.** The replay's move path and final hex read the same
+with or without the switch; what differs is what the player saw when
+deciding. The side's fog is also what a move consults for zones of
+control (`pathfind::enemy_zoc` with the side's visibility in
+`plot_turn`, `move.cpp`), so an enemy standing in uncommitted vision
+exerts none. In the observation review's sample of 700 corpus games
+(docs/parity_memory_audit_20260929.md, O1), 59 turn the switch off;
+3,077 of their 25,728 decisions were taken with vision pending, and at
+550 an enemy stood in it.
+
+**Implemented by** `wesnoth_ai/delayed_shroud.py`, the hooks in
+`tools/replay_dataset._apply_command` and the Rust core's
+`core_shroud.rs`; the extractor keeps `["auto_shroud", 0|1]` and
+`["update_shroud"]` (extraction version 4) and a save's `[side]
+auto_shroud=`; a mid-game start hands a delaying side to the policy with
+`[auto_shroud] active=yes` at its first turn (`WesnothSim._begin_side_turn`).
+Pinned by tests/test_delayed_shroud.py.

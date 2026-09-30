@@ -71,6 +71,7 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
+from wesnoth_ai import delayed_shroud
 from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, SideInfo, state_digest
 from tools.replay_dataset import (
     _apply_command,
@@ -1413,6 +1414,11 @@ class WesnothSim:
         for `side`'s units. Game-over can also fire here (turn-limit
         checks; NB poison cannot kill -- healing clamps at 1 HP)."""
         self._apply_and_record(["init_side", side], side)
+        if side in delayed_shroud.delaying_sides(self.gs):
+            # A side a human left delaying its shroud updates (a mid-game
+            # start) updates them at once under the policy, as when an AI
+            # takes control (src/playsingle_controller.cpp:647-654).
+            self._apply_and_record(["auto_shroud", 1], side)
         if self._keeps_record:
             self.turn_digests.append((len(self.command_history) - 1,
                                       state_digest(self.gs, version=self.digest_version)))

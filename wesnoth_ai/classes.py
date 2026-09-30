@@ -496,6 +496,17 @@ def _state_content(gs: "GameState") -> tuple:
     return units_key, sides_key, villages_key, turn_key, uncovered, rejected, fog_cleared
 
 
+def _shroud_content(gs: "GameState") -> tuple:
+    """The sides that delay their shroud updates and the vision awaiting a
+    commit (`wesnoth_ai.delayed_shroud`); empty when no side delays, so
+    every other state keeps its key and digest."""
+    delayed = tuple(sorted(int(s) for s in (getattr(gs.global_info, "_shroud_delayed", None) or ())))
+    pending = tuple(getattr(gs.global_info, "_pending_vision", None) or ())
+    if not delayed and not pending:
+        return ()
+    return (delayed, pending)
+
+
 def state_key(gs: "GameState") -> int:
     """Return an order-independent 64-bit content hash of `gs`.
 
@@ -518,7 +529,7 @@ def state_key(gs: "GameState") -> int:
     hidden_state_key = (
         uncovered, rejected,
         tuple(sorted((side, hash(hexes)) for side, hexes in fog_cleared.items())),
-    )
+    ) + _shroud_content(gs)
     # Sim's RNG counter -- two states with the same unit layout but
     # different counter values would produce different downstream
     # traits / damage rolls, so they're NOT the same MCTS node. Pull
@@ -558,6 +569,7 @@ def state_digest(gs: "GameState", version: int = DIGEST_VERSION) -> str:
         seen_types = getattr(gi, "_seen_types", None) or {}
         content += (tuple(sorted((int(s), tuple(sorted(rows))) for s, rows in sightings.items())),
                     tuple(sorted((int(s), tuple(sorted(rows))) for s, rows in seen_types.items())))
+    content += _shroud_content(gs)
     text = repr(content)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
