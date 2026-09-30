@@ -155,7 +155,7 @@ hidden enemy units whose hex has no token.
 
 ## Training
 
-- **Data:** the corpus rebuilt at `CORPUS_VERSION` 3 (version 2's
+- **Data:** the corpus rebuilt at `CORPUS_VERSION` 4 (version 2's
   corrections, docs/corpus_v2_20260926.md, plus each side's `chose_random`
   and the era, which the faction prior needs), the fresh vocabulary of
   190 unit types (docs/unit_vocab_retrain_prereg_20260925.md), the

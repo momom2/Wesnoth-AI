@@ -58,7 +58,7 @@ retrain, owner named), **queued** (a fix to land before the box), and
 
 | id | finding | disposition |
 |---|---|---|
-| O1 | Delayed shroud updates (`[auto_shroud] active=no`, then `[update_shroud]`) are not modelled: reconstruction clears fog at every move, so the network sees what the player's client had not revealed. 59 of 700 sampled games use it; 3,077 of 25,728 of their decisions hold uncommitted vision and 550 show an enemy the player had not been shown (about 2% and 0.3% of training decisions) | queued: the engine's rule in the core and the extractor, after the observation builder lands (the same Rust files) |
+| O1 | Delayed shroud updates (`[auto_shroud] active=no`, then `[update_shroud]`) are not modelled: reconstruction clears fog at every move, so the network sees what the player's client had not revealed. 59 of 700 sampled games use it; 3,077 of 25,728 of their decisions hold uncommitted vision and 550 show an enemy the player had not been shown (about 2% and 0.3% of training decisions) | fixed, `feature/delayed-shroud` 37b4820 (the engine's rule in the core, the applier and the extractor; corpus version 4; docs/wesnoth_rules.md "Delayed shroud updates") |
 | O2 | Nothing tells the network whether fog is on, and with fog off `observation.seen` covers only the units' vision (3,229 fog-off games) | retrain: the fog-on global; "sees the hex now" is seen or fog off (owner: observation builder) |
 | O3 | Recruit rows read has-attacked 0 where a fresh recruit has no attacks left | retrain (owner: observation builder) |
 | O4 | = I3 | |
