@@ -235,6 +235,10 @@ pub struct GameCore {
     // by id, and the (side, unit type) pairs it has seen in the game.
     pub sightings: Vec<BTreeMap<String, crate::core_sight::SightRec>>,
     pub seen_types: Vec<BTreeSet<(i64, String)>>,
+    // Delayed shroud updates (core_shroud.rs): the sides that delay them,
+    // sorted, and the current side's moves and recruits awaiting a commit.
+    pub shroud_delayed: Vec<i64>,
+    pub pending_vision: Vec<crate::core_shroud::PendingVision>,
 }
 
 fn get<'py, T: FromPyObject<'py>>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<T> {
@@ -546,6 +550,8 @@ impl GameCore {
             last_heal_events: Vec::new(),
             sightings: vec![BTreeMap::new(); crate::core_sight::RECORD_SIDES],
             seen_types: vec![BTreeSet::new(); crate::core_sight::RECORD_SIDES],
+            shroud_delayed: Vec::new(),
+            pending_vision: Vec::new(),
         })
     }
 
@@ -887,6 +893,16 @@ impl GameCore {
                 if c != 0 {
                     hs.add_i(j as i64);
                 }
+            }
+        }
+        for &side in &self.shroud_delayed {
+            hs.add_i(-side);
+        }
+        for p in &self.pending_vision {
+            hs.add_str(&p.unit_id);
+            for &(x, y) in &p.route {
+                hs.add_i(x);
+                hs.add_i(y);
             }
         }
         let g = &self.global;

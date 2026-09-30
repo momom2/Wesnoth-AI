@@ -301,7 +301,20 @@ impl GameCore {
         for id in &out.uncovered {
             self.uncover(id);
         }
+        // A delaying side's move waits on the undo stack with every hex the
+        // unit occupied, its start included (move.cpp:1069-1073); an ambush
+        // or a block makes it final, which commits the stack (:1075-1079).
+        let delayed = self.vision_delayed(mover_side);
+        let undo_blocked = out.reason == "ambush" || out.reason == "blocked";
+        let start = self.map.pos_index.get(&(xs[0], ys[0])).copied();
         if out.final_idx < 1 {
+            if delayed {
+                let route: Vec<usize> = start.into_iter().collect();
+                self.defer_vision(i, &route);
+            }
+            if undo_blocked {
+                self.clear_undo_stack();
+            }
             return Ok(());
         }
         let (tx, ty) = (xs[out.final_idx], ys[out.final_idx]);
@@ -318,12 +331,18 @@ impl GameCore {
         let entered: Vec<usize> = (1..=out.final_idx)
             .filter_map(|j| self.map.pos_index.get(&(xs[j], ys[j])).copied())
             .collect();
-        self.clear_fog_from(i, &entered);
-        let start = self.map.pos_index.get(&(xs[0], ys[0])).copied();
         let walked: Vec<usize> = start.into_iter().chain(entered.iter().copied()).collect();
+        if delayed {
+            self.defer_vision(i, &walked);
+        } else {
+            self.clear_fog_from(i, &entered);
+        }
         self.note_path_sightings(i, &walked);
         if hex >= 0 && self.map.village_terrain[hex as usize] != 0 {
             self.capture_village(hex as usize, side);
+        }
+        if undo_blocked {
+            self.clear_undo_stack();
         }
         Ok(())
     }

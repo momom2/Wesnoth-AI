@@ -138,6 +138,21 @@ def _wml_for_command(rc: RecordedCommand,
             "\t[/command]\n"
         )
 
+    if rc.kind in ("auto_shroud", "update_shroud"):
+        # The side's "delay shroud updates" switch, or its "update shroud
+        # now" (replay_helper::get_auto_shroud / get_update_shroud).
+        body = f"\t\t\tactive={'yes' if rc.cmd[1] else 'no'}\n" if rc.kind == "auto_shroud" else ""
+        return (
+            "\t[command]\n"
+            f"\t\tfrom_side={rc.side}\n"
+            f"\t\t[{rc.kind}]\n"
+            f"{body}"
+            f"\t\t[/{rc.kind}]\n"
+            "\t\t[checkup]\n"
+            "\t\t[/checkup]\n"
+            "\t[/command]\n"
+        )
+
     if rc.kind == "end_turn":
         # CRITICAL: emit `next_player_number = side + 1`, NOT a
         # modulo'd value. Wesnoth's `skip_empty_sides` decides

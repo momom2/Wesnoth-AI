@@ -61,6 +61,11 @@ def _normalized_global(k: str, va, vb):
     if k == "_fog_cleared":
         return ({s: frozenset(h) for s, h in (va or {}).items()},
                 {s: frozenset(h) for s, h in (vb or {}).items()})
+    if k == "_shroud_delayed":
+        return frozenset(va or ()), frozenset(vb or ())
+    if k == "_pending_vision":
+        from wesnoth_ai.game_core import _pending_row
+        return tuple(map(_pending_row, va or ())), tuple(map(_pending_row, vb or ()))
     return va, vb
 
 
