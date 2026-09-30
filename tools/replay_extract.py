@@ -59,9 +59,11 @@ log = logging.getLogger("replay_extract")
 # the engine's own moves and timed-out turns are marked (`engine_issued`),
 # with each side's Random choice, the era and the turn timer. 4
 # (2026-09-30): a side's `[auto_shroud]` and `[update_shroud]` commands
-# are kept (docs/wesnoth_rules.md "Delayed shroud updates"). Records
-# without the key are version 1.
-EXTRACTION_VERSION = 4
+# are kept (docs/wesnoth_rules.md "Delayed shroud updates"). 5
+# (2026-09-30): the lobby's random faction mode, which decides what a
+# Random side can draw (wesnoth_ai/faction_posterior.py). Records without
+# the key are version 1.
+EXTRACTION_VERSION = 5
 
 
 # --------------------------------------------------------------------
@@ -2085,6 +2087,9 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
 
     era_id = (root.attrs.get("era_id") or (mp.attrs.get("mp_era") if mp is not None else "") or "").strip('"')
     active_mods = [m.strip() for m in str(root.attrs.get("active_mods") or "").strip('"').split(",") if m.strip()]
+    # "Independent" is the engine's default (mp_game_settings.cpp:89, 1.18.4).
+    random_faction_mode = str((mp.attrs.get("random_faction_mode") if mp is not None else None)
+                              or "Independent").strip('"')
     return {
         "game_id": path.stem,
         "scenario_id": gs.scenario_id,
@@ -2107,6 +2112,7 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
             "timeout": [i for i, c in enumerate(compact_commands) if id(c) in timeout_ids],
         },
         "era_id": era_id,
+        "random_faction_mode": random_faction_mode,
         # The Plan Unit Advance modification: its handlers make a delaying
         # side's actions final (wesnoth_ai/delayed_shroud.py).
         "plan_unit_advance": "plan_unit_advance" in active_mods,

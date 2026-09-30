@@ -41,8 +41,9 @@ The run is rented only when all of these hold:
 - **Arm:** the design's recipe from scratch, one pass, run seed 20260929,
   arch 384/8/12/1536, `observation_parity` and the relevant set version 2,
   the fog gate and the terrain set on, memory 64 slots trained at nested
-  sizes, `OBSERVATION_EPOCH` 11, on the corpus rebuilt at version 4
-  (version 3 plus delayed shroud updates, which the audit's O1 required;
+  sizes, `OBSERVATION_EPOCH` 11, on the corpus rebuilt at version 5
+  (version 3 plus delayed shroud updates, which the audit's O1 required,
+  and the lobby's random faction mode, which the faction prior needs;
   amended 2026-09-30, before any box).
   `scripts/parity_memory_box.sh` runs it; the run records its stage and
   code version.
@@ -63,8 +64,9 @@ The run is rented only when all of these hold:
   0, 16 and 64 slots (proxies, never verdicts); the per-phase value AUC.
 - **Recorded, not read for a verdict:** the signal telemetry, the memory
   write's gradient norms, the stage timing, the manifest's counts (games,
-  decisions, value states, sighting tokens, posterior errors, hidden
-  units with no token).
+  decisions, sighting tokens, posterior errors, hidden units with no
+  token, end_turn labels in games whose timer hides a timeout, lookups on
+  the overflow type row).
 
 Held fixed: `obs8` and its decode, bf16 packed serving on CUDA, one
 result directory per match.
@@ -78,8 +80,8 @@ result directory per match.
 - **Crash barrier, the corpus:** the rebuild's dispositions account for
   every raw replay, and fewer than 1% of games fail to build.
 - **Crash barrier, the pre-encoding:** fewer than 0.5% of games skipped;
-  posterior errors (a seen set no faction can field) below 0.1% of
-  decisions.
+  posterior errors (a seen set no candidate faction can field, or a
+  posterior that leaves out the true faction) below 0.1% of decisions.
 - **Crash barrier, the memory, after 500,000 positions:** on the holdout,
   the belief loss at 64 slots is below the belief loss at 0 slots, paired
   over game-sides, by more than two standard errors. If not, the memory is
@@ -128,7 +130,7 @@ On a single-tenant host with an RTX 4090, at least 32 effective cores,
 | step | estimate |
 |---|---|
 | bring-up, the wheel, the tests | 0.5 h |
-| the raw corpus and the version-3 rebuild | 0.3 h |
+| the raw corpus and the version-5 rebuild | 0.3 h |
 | the pre-encoding (about 5.6 million decisions, both sides) | 0.8-1.0 h |
 | the pass | 11-14 h |
 | five holdout probes | 0.4 h |

@@ -191,6 +191,7 @@ DEFAULT_FACTIONS = (
 DEFAULT_ERA_FACTIONS = DEFAULT_FACTIONS[1:]
 ERA_FACTIONS = {
     "era_default": DEFAULT_ERA_FACTIONS,
+    "default": DEFAULT_ERA_FACTIONS,              # the default era's id in older replays
     "era_dunefolk": DEFAULT_ERA_FACTIONS + ("Dunefolk",),
 }
 
@@ -262,4 +263,10 @@ ERA_FACTIONS = {
 #      the enemy: its faction id, and global feature 5 wherever the fog
 #      gate did not recount it. Games generated from a scenario list the
 #      two players only and read the right side.
-OBSERVATION_EPOCH = 10
+#  11  (2026-09-30) the parity observation, behind its checkpoint flag
+#      (docs/parity_memory_design_20260929.md "What the network observes"):
+#      the sightings of the watched turn, the posterior over the enemy's
+#      faction, statues on fogged hexes, the mushroom grove and reef rows,
+#      each hex's time of day; and a side that delays its shroud updates
+#      sees the fog it has committed (wesnoth_ai/delayed_shroud.py).
+OBSERVATION_EPOCH = 11

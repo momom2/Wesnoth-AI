@@ -19,12 +19,12 @@ def _map_data() -> str:
 def side_block(side: int, player: str, units: Sequence[Tuple[str, int, int, bool]], *,
                controller: str = "human", recruit: str = "Spearman,Cavalryman",
                gold: int = 100, chose_random: Optional[bool] = None,
-               auto_shroud: Optional[bool] = None) -> str:
+               auto_shroud: Optional[bool] = None, faction: str = "Loyalists") -> str:
     """A [side]: `units` are (type, x, y, is_leader). `auto_shroud` is the
     delay switch a save keeps."""
     lines = ["    [side]", f'        side="{side}"', f'        controller="{controller}"',
              f'        current_player="{player}"', f'        name="{player}"',
-             f'        player_id="{player}"', '        faction="Loyalists"',
+             f'        player_id="{player}"', f'        faction="{faction}"',
              f'        gold="{gold}"', '        fog="no"', '        shroud="no"',
              f'        recruit="{recruit}"']
     if auto_shroud is not None:
@@ -49,22 +49,23 @@ def two_sides(p1: str = "alice", p2: str = "bob", *, controller2: str = "human",
 
 def replay_text(sides: Sequence[str], commands: Sequence[str],
                 scenario_id: str = "test_board", multiplayer: Optional[dict] = None,
-                header: Sequence[str] = ()) -> str:
+                header: Sequence[str] = (), era_id: str = "era_default") -> str:
     body = "\n".join(f"    [command]\n{c}\n    [/command]" for c in commands)
     mp = ([] if multiplayer is None else
           ["[multiplayer]", *(f"    {k}={v}" for k, v in multiplayer.items()), "[/multiplayer]"])
     return "\n".join([
-        'version="1.18.4"', 'era_id="era_default"', *header, *mp,
+        'version="1.18.4"', f'era_id="{era_id}"', *header, *mp,
         "[replay_start]", f'    id="{scenario_id}"', '    random_start_time="no"',
         f'    map_data="{_map_data()}"', *sides, "[/replay_start]",
         "[replay]", body, "[/replay]", ""])
 
 
 def write_replay(path: Path, sides: Sequence[str], commands: Sequence[str],
-                 multiplayer: Optional[dict] = None, header: Sequence[str] = ()) -> Path:
+                 multiplayer: Optional[dict] = None, header: Sequence[str] = (),
+                 era_id: str = "era_default") -> Path:
     """`header`: top-level attribute lines, such as the active modifications."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = replay_text(sides, commands, multiplayer=multiplayer, header=header)
+    text = replay_text(sides, commands, multiplayer=multiplayer, header=header, era_id=era_id)
     path.write_bytes(bz2.compress(text.encode("utf-8")))
     return path
 

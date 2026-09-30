@@ -24,6 +24,7 @@ prints a summary of the first N replays.
 
 from __future__ import annotations
 
+import dataclasses
 import gzip
 import hashlib
 import json
@@ -769,6 +770,22 @@ def quarantine_reason(starting_sides) -> Optional[str]:
     return None
 
 
+def era_factions_of(era_id: Optional[str]) -> Tuple[str, ...]:
+    """The factions a Random choice can draw in the record's era; a record
+    without an era is the default era's. An era the table lacks keeps the
+    default era's factions, with a warning: the corpus plays only the
+    eras it lists."""
+    from wesnoth_ai.constants import DEFAULT_ERA_FACTIONS, ERA_FACTIONS
+    if not era_id:
+        return DEFAULT_ERA_FACTIONS
+    factions = ERA_FACTIONS.get(era_id)
+    if factions is None:
+        log.warning("era %r is not in constants.ERA_FACTIONS; a Random side's prior uses the "
+                    "default era's factions", era_id)
+        return DEFAULT_ERA_FACTIONS
+    return factions
+
+
 def _build_initial_gamestate(data: dict) -> GameState:
     raw_map = data.get("map_data", "")
     hexes = set(parse_map_data(raw_map))
@@ -790,6 +807,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
             # Faction name for encoder conditioning. Persisted in the
             # per-replay json.gz by replay_extract.extract_replay.
             faction=s.get("faction", ""),
+            chose_random=bool(s.get("chose_random", False)),
         )
         for s in data.get("starting_sides", [])
     ]
@@ -830,6 +848,8 @@ def _build_initial_gamestate(data: dict) -> GameState:
             village_upkeep=village_support, base_income=2,
         ),
         sides=sides,
+        era_factions=era_factions_of(data.get("era_id")),
+        random_faction_mode=str(data.get("random_faction_mode") or "Independent"),
     )
     # Stash the raw replay metadata for tools that need pixel-exact
     # round-tripping (the save-state dumper uses these to avoid
@@ -915,13 +935,8 @@ def _build_initial_gamestate(data: dict) -> GameState:
         # Bump nb_villages_controlled per side.
         for sn, n in side_increments.items():
             old = gs.sides[sn - 1]
-            gs.sides[sn - 1] = SideInfo(
-                player=old.player, recruits=old.recruits,
-                current_gold=old.current_gold,
-                base_income=old.base_income,
-                nb_villages_controlled=old.nb_villages_controlled + n,
-                faction=old.faction,
-            )
+            gs.sides[sn - 1] = dataclasses.replace(
+                old, nb_villages_controlled=old.nb_villages_controlled + n)
         # Stash the owner map so subsequent moves into these hexes
         # don't double-credit ownership (set_village_owner checks
         # _village_owner before incrementing).

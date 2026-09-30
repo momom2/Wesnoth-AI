@@ -413,6 +413,10 @@ class GameState:
     # The factions of the game's era (constants.ERA_FACTIONS): what a side
     # that chose Random may have drawn.
     era_factions: Tuple[str, ...] = field(default_factory=_default_era_factions)
+    # The lobby's random faction mode ("Independent", "No Mirror", "No Ally
+    # Mirror"): under "No Mirror" a Random side avoids the other side's
+    # faction (faction_posterior.random_draws).
+    random_faction_mode: str = "Independent"
 
 
 # The players' sides. A scenario may declare more (the statues of Caves

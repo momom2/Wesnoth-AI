@@ -82,15 +82,22 @@ upkeep / 50.
 **The enemy's faction.** The global token adds, in place of the enemy
 faction's embedding row, the posterior-weighted sum of the rows. The prior
 is one-hot when the opponent chose a faction openly and uniform over the
-era's factions when it chose Random (6 in the default era, 7 with
-Dunefolk). The likelihood of a faction is 1 when it can field every enemy
-unit type the side has seen, its leader included, and 0 otherwise. A
-faction can field its recruits, its leaders and random leaders, and every
-type they advance to (plague corpses are Walking Corpse variations, which
-the Undead recruit). With the faction chosen openly the vector is one-hot,
-which is `obs8`'s input; in eval the harness assigns factions openly.
-A seen set that no faction can field leaves the prior in place and counts
-as an error in the pre-encoding manifest.
+factions a Random choice could draw when it chose Random: the era's (6 in
+the default era, 7 with Dunefolk), less the side's own faction when the
+lobby's random faction mode is "No Mirror" (a Random side avoids the other
+side's faction, connect_engine.cpp:395-416, 1.18.4; 45 of 109 sampled
+replays of the default and Dunefolk eras play that mode). The likelihood of a faction is 1 when
+it can field every informative enemy unit type the side has seen, its
+leader included, and 0 otherwise. A faction can field its recruits, its
+leaders and random leaders, and every type they advance to (plague corpses
+are Walking Corpse variations, which the Undead recruit). A type no faction
+of the era fields is not informative: Hornshark Island gives each side
+units such as Young Ogres, Sergeants and Ruffians, which would otherwise
+exclude every faction. With the faction chosen openly the vector is
+one-hot, which is `obs8`'s input; in eval the harness assigns factions
+openly. The pre-encoding manifest counts two errors: a seen set that no
+candidate can field (the prior stays in place), and a posterior that
+leaves out the opponent's true faction.
 
 **The watched turn.** A player watches the enemy's turn and sees every
 enemy unit that crosses a hex the player can see, including units that end
@@ -155,7 +162,7 @@ hidden enemy units whose hex has no token.
 
 ## Training
 
-- **Data:** the corpus rebuilt at `CORPUS_VERSION` 4 (version 2's
+- **Data:** the corpus rebuilt at `CORPUS_VERSION` 5 (version 2's
   corrections, docs/corpus_v2_20260926.md, plus each side's `chose_random`
   and the era, which the faction prior needs), the fresh vocabulary of
   190 unit types (docs/unit_vocab_retrain_prereg_20260925.md), the
@@ -164,7 +171,8 @@ hidden enemy units whose hex has no token.
   at a turn start, and leaves out every game with shroud (user ruling
   2026-09-30: our games do without it). Version 4 keeps a player's delayed
   shroud updates, so a side that delays sees the fog it has committed
-  (docs/wesnoth_rules.md "Delayed shroud updates").
+  (docs/wesnoth_rules.md "Delayed shroud updates"). Version 5 records the
+  lobby's random faction mode, which decides what a Random side can draw.
 - **Pre-encoding:** every decision of both player sides, in order, per
   game, with the flag on; beside each pair its side, whether it is a value
   state, and the belief targets (the hex-token indices of hidden enemy
@@ -209,8 +217,10 @@ hidden enemy units whose hex has no token.
   every request; the inference server returns the new memory with the
   outputs. Requests carry float32 state; the server batches memory tokens
   like any other stream.
-- A recruit that bounces and is decided again is one more decision, one
-  more memory step, as in the corpus.
+- A recruit that bounces is decided again with the side's memory as it
+  was before the refused decision: the engine records nothing for a
+  refused recruit (`menu_handler::do_recruit`, src/menu_events.cpp:350-370,
+  1.18.4), so the corpus holds no position there.
 - Search, the self-play pool, the graphed server and the live bridge refuse
   a memory checkpoint until they carry the state (a fork copies both
   sides' memories with the simulator); this retrain's verdict needs only

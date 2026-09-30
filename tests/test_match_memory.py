@@ -58,6 +58,25 @@ def test_a_raw_player_feeds_each_side_its_own_memory_and_forgets_a_finished_game
     assert set(player._memories) == {("h", 1)}
 
 
+def test_a_refused_decision_leaves_the_memory_as_it_was():
+    """A bounced recruit is decided again from the memory its side had
+    before it: the engine records nothing for it, so training saw no
+    position there."""
+    spy = _SpyModel()
+    base = SimpleNamespace(_inference_model=spy, _inference_encoder=SimpleNamespace(encode=lambda gs: gs),
+                           _lock=threading.Lock(), _decision_step=0)
+    player = RawPolicyPlayer(base, 0.0, memory_slots=3)
+    player.select_action(_state(1), game_label="g")
+    player.select_action(_state(1), game_label="g")
+    player.drop_last_pending("g")
+    player.select_action(_state(1), game_label="g")
+    player.select_action(_state(2), game_label="g")
+    player.drop_last_pending("g")
+    player.select_action(_state(2), game_label="g")
+    states = [None if m.state is None else float(m.state[0, 0]) for m in spy.seen]
+    assert states == [None, 1.0, 1.0, None, None]
+
+
 def test_the_memory_size_is_an_estimand():
     assert effective_memory(0, None) is None and effective_memory(0, 0) is None
     assert effective_memory(64, None) == 64 and effective_memory(64, 16) == 16
@@ -146,6 +165,9 @@ def test_an_eval_game_between_memory_players_records_their_sizes(tmp_path):
                  "--memory-b", "0", "--max-turns", "2", "--device", "cpu"]) == 0
     rec = json.loads((out / "game_A_B_s1_7.json").read_text(encoding="utf-8"))
     assert (rec["memory_a"], rec["memory_b"]) == (8, 0)
+    from tools.game_record import read_records
+    game = next(read_records(out / "game_A_B_s1_7.game.jsonl.gz"))
+    assert (game["players"]["a"]["memory"], game["players"]["b"]["memory"]) == (8, 0)
     with pytest.raises(SystemExit, match="memor"):
         main(["x", "A", str(spec), "B", str(spec), "1", "7", str(out), "--mcts-sims", "0",
               "--raw-temperature-a", "0", "--raw-temperature-b", "0", "--memory-a", "4",

@@ -364,9 +364,10 @@ class CoreState:
                 statics[k] = v
         statics["size_x"], statics["size_y"] = int(gs.map.size_x), int(gs.map.size_y)
         # What the core does not keep and the faction posterior reads: who
-        # chose Random, and the era's factions.
+        # chose Random, the era's factions and the random faction mode.
         statics["chose_random"] = tuple(bool(getattr(s, "chose_random", False)) for s in gs.sides)
         statics["era_factions"] = tuple(getattr(gs, "era_factions", None) or DEFAULT_ERA_FACTIONS)
+        statics["random_faction_mode"] = str(getattr(gs, "random_faction_mode", None) or "Independent")
         cs = cls(core=core, game_id=gs.game_id, statics=statics, hexes_holder=gs.map.hexes)
         for u in gs.map.units:
             cs._add_unit(u)
@@ -481,7 +482,8 @@ class CoreState:
         return GameState(game_id=self.game_id, map=m, global_info=gi, sides=sides,
                          game_over=bool(g["game_over"]),
                          winner=None if g["winner"] < 0 else int(g["winner"]),
-                         era_factions=tuple(self.statics.get("era_factions") or DEFAULT_ERA_FACTIONS))
+                         era_factions=tuple(self.statics.get("era_factions") or DEFAULT_ERA_FACTIONS),
+                         random_faction_mode=str(self.statics.get("random_faction_mode") or "Independent"))
 
     def _events_into(self, gi) -> None:
         """The event latches and variables of the core on a view: each
@@ -711,14 +713,14 @@ class CoreState:
             material=float(d["material"]),
             observation=_observation_from_dict(d["observation"], self.geometry()))
         if observation_parity:
-            raw.their_faction_probs = self._faction_probs(side, them_fac, faction_to_id)
+            raw.their_faction_probs = self._faction_probs(side, our_fac, them_fac, faction_to_id)
             raw.sight_type_ids = d["sight_type_ids"]
             raw.sight_xs = d["sight_xs"]
             raw.sight_ys = d["sight_ys"]
             raw.sight_feats = d["sight_feats"]
         return raw
 
-    def _faction_probs(self, side: int, them_fac: str, faction_to_id: Dict[str, int]):
+    def _faction_probs(self, side: int, our_fac: str, them_fac: str, faction_to_id: Dict[str, int]):
         """The posterior over the opponent's faction (faction_posterior)."""
         from wesnoth_ai.faction_posterior import faction_posterior
         them = opponent_of(side)
@@ -726,7 +728,8 @@ class CoreState:
         return faction_posterior(
             them_fac, bool(chose_random[them - 1]) if them - 1 < len(chose_random) else False,
             self.statics.get("era_factions") or DEFAULT_ERA_FACTIONS,
-            self.core.seen_types(side, them), faction_to_id)
+            self.core.seen_types(side, them), faction_to_id, own_faction=our_fac,
+            random_faction_mode=str(self.statics.get("random_faction_mode") or "Independent"))
 
     def _type_vocab(self, type_to_id: Dict[str, int]) -> List[int]:
         """The vocab row of every registered type (`encoder.type_row`: the

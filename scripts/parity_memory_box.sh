@@ -4,7 +4,7 @@
 # and predictions in docs/parity_memory_prereg_20260929.md), on one box:
 #   the tests of the core, the encoding, the pre-encoding, the sequence
 #     trainer and memory serving, on the wheel built from the stage;
-#   the corpus rebuilt at version 4 from the raw replays (RAW_TAR);
+#   the corpus rebuilt at version 5 from the raw replays (RAW_TAR);
 #   the fresh vocabulary: 190 unit types, none on the overflow row;
 #   every decision of both sides pre-encoded, game by game
 #     (tools/preencode_sequences.py);
@@ -28,7 +28,11 @@
 # tarball. Re-entry, on this machine or a new one (files absent here come
 # back from HF), skips finished steps and continues the pass where its
 # checkpoint stood; a new machine rebuilds the corpus and the sequences,
-# which are deterministic. Every exit, clean or not, uploads the records
+# which are deterministic. A pass continues only under the code stage that
+# began it (PASS_STAGE): a new stage may change the data or the pass, so it
+# is refused unless RESUME_OTHER_STAGE=1 says it changes neither; a run
+# whose data or pass changed takes a new HF_DIR. Every exit, clean or not,
+# uploads the records
 # with ALL_DONE last and stops the instance. Never `set -x`: the HF token
 # and the instance key are in the environment.
 set -uo pipefail
@@ -92,8 +96,13 @@ box_on_round() {                 # progress.txt, before each upload round
 box_init
 [ -n "$WORKERS" ] || WORKERS=$(box_cores)
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
-box_restore DONE arm.pt arm.probe.jsonl arm.signal.jsonl train.log corpus_summary.json \
+box_restore DONE PASS_STAGE arm.pt arm.probe.jsonl arm.signal.jsonl train.log corpus_summary.json \
     sequence_summary.json obs8_holdout_ce.json barrier.txt || box_finish "RESTORE_FAILED (restore.log)" 1
+if [ -f "$CKPT" ] && [ ! -f "$OUT/DONE" ] && ! box_marked_this_stage "$OUT/PASS_STAGE" \
+        && [ "${RESUME_OTHER_STAGE:-0}" != 1 ]; then
+    box_finish "PASS_OF_ANOTHER_STAGE: arm.pt was trained under $(head -n 1 "$OUT/PASS_STAGE" 2>/dev/null); \
+RESUME_OTHER_STAGE=1 continues it, a new HF_DIR starts over" 1
+fi
 box_upload_hold DONE arm.pt
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
@@ -138,7 +147,7 @@ EOF
     box_mark "$BOX_STATE/INPUTS_DONE"
 fi
 
-# ---- the corpus at version 4; the crash barrier: every candidate accounted for, under 1% failed.
+# ---- the corpus at version 5; the crash barrier: every candidate accounted for, under 1% failed.
 # Once the pass is done it serves only obs8's holdout cross-entropy. The
 # raw replays and the corpus live in the staged repository, which a new
 # stage replaces, so both markers name their stage.
@@ -154,6 +163,7 @@ if ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE" \
         || box_finish "CORPUS_BARRIER rc=$BOX_RC (corpus_build.log, corpus_summary.json)" 1
 import json, pathlib, sys
 from tools.build_imitation_dataset import CORPUS_VERSION, DISPOSITIONS, load_candidates
+from tools.replay_dataset import corpus_version_of
 corpus, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 def rows(name):
     return [json.loads(l) for l in (corpus / name).read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -165,7 +175,10 @@ summary = {"candidates": candidates, "outcomes": len(rows("outcomes.jsonl")),
            "corpus_version": CORPUS_VERSION}
 out.write_text(json.dumps(summary, indent=1), encoding="utf-8")
 print("corpus", summary, flush=True)
-assert summary["outcomes"] == candidates, "the dispositions do not account for every candidate"
+# A candidate is kept or dropped with an outcome, quarantined, or failed.
+assert summary["outcomes"] + summary["quarantined"] + summary["errors"] == candidates, \
+    "the dispositions do not account for every candidate"
+assert corpus_version_of(corpus) == CORPUS_VERSION, f"the corpus is not at version {CORPUS_VERSION}"
 assert summary["errors"] < 0.01 * candidates, "1% or more of the candidates failed to build"
 EOF
     box_mark "$BOX_STATE/CORPUS_DONE"
@@ -183,6 +196,10 @@ EOF
 
 # ---- the sequences; the crash barrier: under 0.5% of games skipped, posterior errors under 0.1%
 if ! box_marked_this_stage "$SEQ/SEQUENCES_DONE" && [ ! -f "$OUT/DONE" ]; then
+    if ! box_marked_this_stage "$SEQ/STARTED"; then          # records another stage's code built
+        rm -rf "$SEQ"
+        box_mark "$SEQ/STARTED" || box_finish "SEQUENCES_UNWRITABLE ($SEQ)" 1
+    fi
     from=$(box_size "$OUT/preencode.log")
     box_bounded --stall "$OUT/preencode.log" "$PREENCODE_STALL_MIN" preencode "$PREENCODE_CUT_MIN" preencode.log \
         python tools/preencode_sequences.py --dataset "$CORPUS" --out "$SEQ" --workers "$WORKERS"
@@ -217,6 +234,8 @@ train_attempt() {                # train_attempt MINUTES: the pass, continuing a
         --seed "$RUN_SEED" --device cuda ${resume[@]+"${resume[@]}"}
 }
 if [ ! -f "$OUT/DONE" ]; then
+    box_marked_this_stage "$OUT/PASS_STAGE" || box_mark "$OUT/PASS_STAGE" \
+        || box_finish "PASS_STAGE_UNWRITABLE ($OUT)" 1
     deadline=$(( $(date +%s) + TRAIN_CUT_MIN * 60 ))
     train_attempt "$TRAIN_CUT_MIN"
     [ "$BOX_RC" -ne 3 ] || box_finish "MEMORY_BARRIER_FAILED (train.log, arm.probe.jsonl) $(notes)" 1
@@ -255,22 +274,24 @@ EOF
 cat "$OUT/barrier.txt" 2>/dev/null || echo "no barrier line: obs8's holdout cross-entropy is missing (holdout_ce.log)"
 
 # ---- the matches
-match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...: one attempt, resumed in its directory
+match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...: one attempt, resumed in its directory, then its fit
     local name="$1" games="$2" sb="$3" extra="$4" dir="$OUT/games_$1" t0 f
     shift 4
-    if [ -f "$OUT/$name.fit.json" ] || [ -f "$OUT/timing_$name.txt" ]; then echo "match $name done"; return 0; fi
-    t0=$(date +%s)
-    box_bounded "match $name" "$MATCH_CUT_MIN" "$name.log" \
-        python tools/run_elo_batch.py "$@" \
-        --outdir "$dir" --games "$games" --max-extra-games "$extra" --seed-base "$sb" \
-        --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
-        --persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$JOBS" \
-        --time-budget-min 60
-    echo "$name: $(( $(date +%s) - t0 )) s, $(find "$dir" -maxdepth 1 -name 'game_*.json' 2>/dev/null | wc -l) games," \
-         "$(decisive_results "$dir") decisive, rc=$BOX_RC $BOX_WHY" | tee "$OUT/timing_$name.txt" | tee -a "$OUT/match.walls"
-    for f in "$dir"/.inference_server_*.json; do
-        [ -f "$f" ] && cp -f "$f" "$OUT/$name.server_${f##*/.inference_server_}"
-    done
+    if [ -f "$OUT/$name.fit.json" ]; then echo "match $name done"; return 0; fi
+    if [ ! -f "$OUT/timing_$name.txt" ]; then          # the games; a re-entry after them redoes only the fit
+        t0=$(date +%s)
+        box_bounded "match $name" "$MATCH_CUT_MIN" "$name.log" \
+            python tools/run_elo_batch.py "$@" \
+            --outdir "$dir" --games "$games" --max-extra-games "$extra" --seed-base "$sb" \
+            --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
+            --persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$JOBS" \
+            --time-budget-min 60
+        echo "$name: $(( $(date +%s) - t0 )) s, $(find "$dir" -maxdepth 1 -name 'game_*.json' 2>/dev/null | wc -l) games," \
+             "$(decisive_results "$dir") decisive, rc=$BOX_RC $BOX_WHY" | tee "$OUT/timing_$name.txt" | tee -a "$OUT/match.walls"
+        for f in "$dir"/.inference_server_*.json; do
+            [ -f "$f" ] && cp -f "$f" "$OUT/$name.server_${f##*/.inference_server_}"
+        done
+    fi
     box_bounded "fit $name" 10 "$name.log" \
         python tools/elo_collect.py "$dir" --no-catalog --save-json "$OUT/$name.fit.json"
 }

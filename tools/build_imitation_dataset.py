@@ -63,8 +63,10 @@ log = logging.getLogger("build_imitation_dataset")
 # player picked Random, with the game's era, for the faction prior. 4
 # (2026-09-30): a side that delays its shroud updates sees the fog it
 # has committed, not the fog its moves would have cleared
-# (wesnoth_ai/delayed_shroud.py).
-CORPUS_VERSION = 4
+# (wesnoth_ai/delayed_shroud.py). 5 (2026-09-30): the record carries the
+# lobby's random faction mode, and the faction prior reads it with each
+# side's Random choice and the game's era (wesnoth_ai/faction_posterior.py).
+CORPUS_VERSION = 5
 
 ACCEPT_MOD_CLASSES = ("mod_free", "kept_cosmetic", "kept_plan_unit_advance")
 DISPOSITIONS = Path("training/logs/replay_dispositions.jsonl.gz")

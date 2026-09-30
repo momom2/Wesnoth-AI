@@ -81,11 +81,15 @@ def encode_game_sequence(data: dict, file: str, winner: int, type_to_id: Dict[st
     than trained on a wrong label."""
     from tools.encode_worker import LabelSlotMismatch, label_in_raw_basis, label_slot_mismatch
     from tools.replay_dataset import TIMEOUT, iter_record_pairs
+    from tools.replay_engine_actions import TurnTimer
     from wesnoth_ai.belief_targets import belief_targets
-    from wesnoth_ai.encoder import encode_raw
+    from wesnoth_ai.encoder import encode_raw, unknown_type_counts
     from wesnoth_ai.faction_posterior import posterior_counts
     stats: Counter = Counter()
     before = posterior_counts()
+    overflow_before = sum(unknown_type_counts().values())
+    timer = data.get("turn_timer")
+    timeouts_hidden = timer is not None and not TurnTimer(*timer).timeouts_detectable()
     seq = GameSequence(file=file, winner=int(winner), n_commands=len(data.get("commands", [])),
                        sides={s: [] for s in PLAYER_SIDES})
     for gs, ai in iter_record_pairs(data, relevant_set=False, stats=stats, timeouts=True):
@@ -94,6 +98,8 @@ def encode_game_sequence(data: dict, file: str, winner: int, type_to_id: Dict[st
         if ai.action_type == TIMEOUT:
             stats["timeout_positions"] += 1
         else:
+            if timeouts_hidden and ai.action_type == "end_turn":
+                stats["end_turn_timeout_undetectable"] += 1
             ai = label_in_raw_basis(ai, raw)
             why = label_slot_mismatch(raw, ai)
             if why is not None:
@@ -109,7 +115,10 @@ def encode_game_sequence(data: dict, file: str, winner: int, type_to_id: Dict[st
             turn=int(gs.global_info.turn_number)))
     after = posterior_counts()
     stats["posteriors"] += after["posteriors"] - before["posteriors"]
-    stats["posterior_errors"] += after["inconsistent"] - before["inconsistent"]
+    stats["posterior_inconsistent"] += after["inconsistent"] - before["inconsistent"]
+    stats["posterior_misses"] += after["excludes_truth"] - before["excludes_truth"]
+    stats["posterior_errors"] += stats["posterior_inconsistent"] + stats["posterior_misses"]
+    stats["overflow_type_lookups"] += sum(unknown_type_counts().values()) - overflow_before
     stats["positions"] = sum(len(v) for v in seq.sides.values())
     stats["n_commands"] = seq.n_commands
     for s, positions in seq.sides.items():
@@ -212,7 +221,8 @@ def main(argv=None) -> int:
         totals: Counter = Counter()
         for c in games.values():
             totals.update(c)
-        args.out.joinpath(MANIFEST_NAME).write_text(json.dumps({
+        tmp = args.out / (MANIFEST_NAME + ".tmp")
+        tmp.write_text(json.dumps({
             "fingerprint": fp, "encoding": ENCODING, "observation_epoch": int(OBSERVATION_EPOCH),
             "corpus_version": corpus, "core_phase": phase, "dataset": str(args.dataset),
             "vocab_from": str(args.vocab_from) if args.vocab_from else "fresh",
@@ -220,6 +230,7 @@ def main(argv=None) -> int:
             "n_manifest_games": len(rows), "n_games": len(games), "totals": dict(totals),
             "errors": errors, "games": games,
         }, indent=0), encoding="utf-8")
+        os.replace(tmp, args.out / MANIFEST_NAME)
 
     log.info("pre-encoding %d games with %d workers into %s (%d unit types, %d factions, core phase %d)",
              len(rows), args.workers, args.out, len(type_to_id), len(faction_to_id), phase)

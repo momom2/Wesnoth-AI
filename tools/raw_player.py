@@ -134,6 +134,8 @@ class RawPolicyPlayer:
         # decision). None: a model without a memory.
         self.memory_slots = None if memory_slots is None else int(memory_slots)
         self._memories: Dict[Tuple[str, int], object] = {}
+        # Per game, the last decision's (side key, memory before it).
+        self._undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
 
     def _select_compact(self, compact, encoded, decision_step: int) -> Optional[Dict]:
         """The choice on the compact arrays, or None when the list path
@@ -201,6 +203,7 @@ class RawPolicyPlayer:
                                                                    self._memories.get(key)))
         if output.memory is None:
             raise RuntimeError("a player with a memory got no memory back from its model")
+        self._undo[game_label] = (key, self._memories.get(key))
         self._memories[key] = output.memory
         return output
 
@@ -208,7 +211,19 @@ class RawPolicyPlayer:
         """The game is over: its sides' memories go."""
         for key in [k for k in self._memories if k[0] == game_label]:
             del self._memories[key]
+        self._undo.pop(game_label, None)
 
     def drop_last_pending(self, game_label: str) -> bool:
-        # Nothing recorded; the bounce retry just re-decides.
+        """The last decision was refused (a recruit the engine bounces) and
+        is decided again: the side's memory goes back to what it was
+        before it. The engine records nothing for a refused recruit
+        (`menu_handler::do_recruit`, src/menu_events.cpp:350-370, 1.18.4),
+        so the corpus holds no position there."""
+        undo = self._undo.pop(game_label, None)
+        if undo is not None:
+            key, before = undo
+            if before is None:
+                self._memories.pop(key, None)
+            else:
+                self._memories[key] = before
         return True

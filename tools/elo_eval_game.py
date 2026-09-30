@@ -444,6 +444,10 @@ def _build_player(spec: str, label: str, sims: int, device,
         return _remote_player(inference_address, raw_temperature, raw_seed,
                               relevant_set, infer_bf16, infer_packed_trunk,
                               raw_end_turn, raw_end_turn_offset, memory)
+    if memory is not None and infer_compile:
+        raise SystemExit(f"{spec} has a memory, which a player keeps from one call to the next, and a "
+                         f"compiled model may overwrite its outputs at its next call: play it with "
+                         f"--no-infer-compile")
     policy = _policy_for(spec, device, label, infer_bf16, infer_compile,
                          relevant_set)
     inner = policy._inference_model
@@ -1195,9 +1199,9 @@ def main(argv) -> int:
     GameRecordLog(_rec_tmp).write(game_record(
         sim, setup, game_label=game_label,
         players={"a": {"label": args.label_a, "spec": str(args.spec_a), "side": args.side_a,
-                       "procedure": result["procedure_a"]},
+                       "procedure": result["procedure_a"], "memory": memory_a},
                  "b": {"label": args.label_b, "spec": str(args.spec_b), "side": 3 - args.side_a,
-                       "procedure": result["procedure_b"]}},
+                       "procedure": result["procedure_b"], "memory": memory_b}},
         extra={"seed": args.seed}))
     os.replace(_rec_tmp, _rec_path)
     # Atomic publish (round-24 C11): a kill mid-write must never

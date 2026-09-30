@@ -36,10 +36,15 @@ class TurnTimer:
     action_bonus_s: int
     reservoir_s: int
 
+    def timeouts_detectable(self) -> bool:
+        """Whether a turn that ran out records a time no other turn can:
+        without an action bonus and with a turn bonus below the reservoir.
+        Otherwise a timeout's end_turn reads as the player's."""
+        return self.action_bonus_s == 0 and self.turn_bonus_s < self.reservoir_s
+
     def is_timeout(self, recorded_ms: int) -> bool:
         """The recorded new time can only follow a turn that ran out."""
-        return (self.action_bonus_s == 0 and self.turn_bonus_s < self.reservoir_s
-                and recorded_ms == 1000 * self.turn_bonus_s)
+        return self.timeouts_detectable() and recorded_ms == 1000 * self.turn_bonus_s
 
 
 def turn_timer(mp_attrs: dict) -> Optional[TurnTimer]:
