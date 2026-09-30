@@ -167,3 +167,41 @@ def test_a_unit_that_leaves_the_board_in_view_leaves_the_record():
     cs.apply_command(["update_shroud"])
     assert spearman not in {r[0] for r in cs.core.sightings_export(2)}
     assert cs.core.sightings_gone_export(2) == []
+
+
+def test_the_certification_compares_the_sighting_records(tmp_path, monkeypatch):
+    """diff_core --sightings holds the core's records against the oracle's
+    after every command: clean on a game where a unit crosses side 1's
+    view, and a divergence once the oracle forgets path sightings."""
+    import gzip
+    import json
+    from collections import Counter
+    from helpers.parity_games import core_of, record
+    from tools import sighting_oracle
+    from tools.diff_core import diff_core
+    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 7, 3, False),
+                   ("Lieutenant", 2, 18, 3, True), ("Cavalryman", 2, 17, 0, False)],
+                  fog=True, width=WIDTH, height=HEIGHT)
+    cs = core_of(data)
+    for command in (["init_side", 1], ["end_turn"], ["init_side", 2]):
+        cs.apply_command(command)
+    keys = cs.geometry().keys
+    seen = {keys[j] for j in np.flatnonzero(cs.core.seen_export(1))}
+    from tools.abilities import hex_neighbors
+    zoc = {n for u in ((1, 3), (7, 3)) for n in hex_neighbors(*u)} | {(1, 3), (7, 3)}
+    inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
+    leg1 = _path((17, 0), inside, zoc)
+    fog = [p for p in keys if p not in seen and p not in zoc and p not in leg1]
+    end = min(fog, key=lambda p: len(_path(inside, p, zoc | set(leg1[:-1]))))
+    route = leg1 + _path(inside, end, zoc | set(leg1[:-1]))[1:]
+    data["commands"] = [["init_side", 1], ["end_turn"], ["init_side", 2],
+                        ["move", [p[0] for p in route], [p[1] for p in route], 2],
+                        ["end_turn"], ["init_side", 1]]
+    path = tmp_path / "g.json.gz"
+    path.write_bytes(gzip.compress(json.dumps(data).encode()))
+    counts = Counter()
+    assert diff_core(path, sightings=True, counts=counts) == []
+    assert counts[("sightings", "rust")] == len(data["commands"])
+    monkeypatch.setattr(sighting_oracle.SightingOracle, "_note_path", lambda self, gs, cmd: None)
+    out = diff_core(path, sightings=True)
+    assert out and "sightings" in out[0]

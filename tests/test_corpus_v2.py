@@ -374,3 +374,18 @@ def test_the_staged_raw_corpus_is_what_the_builder_reads(tmp_path):
     config = {"outcome_classes": ["surrender"], "holdout_fraction": 0.0}
     counts = build(candidates, box, tmp_path / "corpus", config, workers=1)
     assert (candidates, counts["games"], counts["errors"]) == ([rows[0]["path"]], 1, 0)
+
+class _Panic(BaseException):
+    """What pyo3 raises for a Rust panic: a BaseException, not an Exception."""
+
+
+def test_a_panicking_replay_is_counted_not_fatal(tmp_path, monkeypatch):
+    import tools.replay_extract as replay_extract
+    from tools.build_imitation_dataset import build_one
+
+    def panics(*args, **kwargs):
+        raise _Panic("index out of bounds")
+
+    monkeypatch.setattr(replay_extract, "extract_replay", panics)
+    row = build_one(("replays_raw\\2026-09-26\\g.bz2", str(tmp_path), str(tmp_path), {}))
+    assert row["error"].startswith("_Panic")

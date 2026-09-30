@@ -273,13 +273,64 @@ def test_a_run_of_another_stage_is_refused_unless_told_to_continue_it(box):
     assert f"stage={STAGE}" in box.text("RUN_STAGE")
 
 
-def test_a_restarted_container_keeps_its_stages_deadline(box):
-    assert box.run('box_finish "RUN_DONE"') == 0
-    first = (box.work / "state" / "DEADLINE").read_text()
-    assert box.run('box_finish "RUN_DONE"') == 0
-    assert (box.work / "state" / "DEADLINE").read_text() == first
+def test_the_switch_charges_the_stages_running_time(box):
+    """A restarted container gets no new BOX_MAX_H: the switch charges the
+    stage's running time on the disk, and a new stage starts from zero. The
+    time between two entries (an instance stopped) is not charged."""
+    deadline = box.work / "state" / "DEADLINE"
+
+    def used() -> int:
+        return int(re.search(r"used=(\d+)", deadline.read_text()).group(1))
+
+    assert box.run('sleep 3\nbox_finish "RUN_DONE"', BOX_SWITCH_POLL_S=1) == 0
+    first = used()
+    assert first >= 2
+    time.sleep(3)                                   # the instance stopped between entries
+    assert box.run('sleep 2\nbox_finish "RUN_DONE"', BOX_SWITCH_POLL_S=1) == 0
+    assert first + 1 <= used() <= first + 4, "the second entry adds its own running time only"
     assert box.run('box_finish "RUN_DONE"', STAGE="tier-b/staging/stage_next.tar.gz") == 0
-    assert (box.work / "state" / "DEADLINE").read_text() != first
+    assert used() < first, "a new stage starts from zero"
+
+
+def test_a_step_that_outlives_its_kill_is_abandoned(box):
+    """A process stuck in the GPU driver survives its KILL: the step is
+    abandoned so the entry can finish and stop the instance. Here `timeout`
+    itself ignores the TERM and never ends."""
+    (box.stubs / "timeout").write_bytes(
+        b'#!/usr/bin/env bash\n[ "$1" = -k ] && shift 2\nshift\ntrap "" TERM\n"$@" &\nwait\n')
+    (box.stubs / "timeout").chmod(0o755)
+    body = REPORT + "box_bounded stuck 0.02 stuck.log sleep 60; report stuck\n"
+    start = time.monotonic()
+    box.run(body, init=False, BOX_UNKILLABLE_S=1)
+    assert time.monotonic() - start < 30
+    assert reported(box)["stuck"].endswith("unkillable")
+    assert "abandoning it" in box.text("watchdog.log")
+
+
+@pytest.mark.parametrize("files, expected", [
+    ({"memory.max": "3221225472\n", "memory.current": "0\n"}, "3"),
+    ({"memory/memory.limit_in_bytes": "4294967296\n", "memory/memory.usage_in_bytes": "1073741824\n"}, "3"),
+    ({"memory/memory.limit_in_bytes": "9223372036854771712\n", "memory/memory.usage_in_bytes": "1\n"}, None),
+    ({"memory.max": "max\n", "memory.current": "1\n"}, None),
+    ({}, None),
+], ids=["v2 limit", "v1 limit", "v1 unlimited", "v2 unlimited", "no memory files"])
+def test_box_workers_gives_each_worker_its_memory(box, files, expected):
+    """1 GB a worker: a 3 GB headroom gives 3 workers; without a limit the
+    host's available memory decides; a host with no memory files (cgroup v1
+    without the controller) still gets a count, under `set -u`."""
+    root = box.tmp / "cgroup"
+    root.mkdir()
+    (root / "cpu.max").write_bytes(b"6400000 100000\n")         # 64 cores, more than the headroom
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(text.encode())
+    answer = box.tmp / "workers.txt"
+    box.run(f'box_workers > "{bash_path(answer)}"', init=False, BOX_CGROUP_ROOT=bash_path(root),
+            BOX_WORKER_GB=1)
+    got = answer.read_text().strip()
+    assert got.isdigit() and int(got) >= 1, got
+    if expected is not None:
+        assert got == expected
 
 
 def test_the_switch_finishes_the_entry_while_the_script_is_busy(box):

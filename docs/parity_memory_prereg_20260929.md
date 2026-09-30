@@ -137,7 +137,7 @@ On a single-tenant host with an RTX 4090, at least 32 effective cores,
 | the raw corpus and the version-5 rebuild | 0.3 h |
 | the pre-encoding (about 5.6 million decisions, both sides) | 0.8-1.0 h |
 | the pass | 11-14 h |
-| five holdout probes | 0.4 h |
+| the holdout probes (one every 500,000 positions and one at the end: about twelve) | about 1-2 h, not measured on the card |
 | four matches | 1.5-2 h |
 | **in all** | **14.5-18 box-hours, about $7-11 at $0.50-0.60 an hour** |
 

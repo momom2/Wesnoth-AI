@@ -372,7 +372,9 @@ def test_a_hexs_time_of_day_is_the_interfaces():
     seen = {keys[j] for j in np.flatnonzero(probe.core.seen_export(1))}
     edge = sorted((s, f) for s in seen for f in hex_neighbors(*s) if f in keys and f not in seen)
     seen_a, fog_a = edge[0]
-    seen_b, fog_b = next((s, f) for s, f in edge if f != fog_a and s not in (seen_a, fog_a))
+    # The second Mage, seen, must not light seen_a: then only the hidden one does.
+    seen_b, fog_b = next((s, f) for s, f in edge if f != fog_a and s not in (seen_a, fog_a)
+                         and s not in hex_neighbors(*seen_a) and f not in hex_neighbors(*fog_a))
     data = record(own + [("Lieutenant", 2, 19, 3, True), ("Mage of Light", 2, *fog_a, False),
                          ("Mage of Light", 2, *seen_b, False)], fog=True, tod_start_index=NIGHT)
     cs = core_of(data)

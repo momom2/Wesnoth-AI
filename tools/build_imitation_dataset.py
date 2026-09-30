@@ -150,7 +150,9 @@ def build_one(job: Tuple[str, str, str, dict]) -> dict:
         if why is not None:
             return {**row, "quarantined": why}
         outcome = label_outcome(rec)
-    except Exception as e:                          # noqa: BLE001 - one bad replay must not stop the build
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as e:                      # noqa: BLE001 - one bad replay, a Rust panic included, must not stop the build
         return {**row, "error": f"{type(e).__name__}: {e}"[:160]}
     row.update(outcome.as_row())
     row["game_end"] = rec.get("game_end")

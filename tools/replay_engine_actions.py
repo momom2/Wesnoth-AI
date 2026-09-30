@@ -10,7 +10,10 @@ like any command, and never paired as decisions.
   calls `execute_gotos`, src/playmp_controller.cpp:149-151;
   `menu_handler::execute_gotos`, src/menu_events.cpp:903-980), and records
   each move as it records a player's (`move_unit_and_record` with the default
-  arguments, so nothing in the command marks it).
+  arguments, so nothing in the command marks it). A player who turned off
+  automatic moves (`preferences::disable_auto_moves`, :149) has no such
+  moves, and a first move toward the goto hex is then theirs; a replay does
+  not say which, so it is marked as the engine's.
 - **Timeouts.** When a side's turn timer runs out the engine ends the turn
   (src/playmp_controller.cpp:177-182) and records the side's new time,
   `1000 * min(left_s + turn_bonus + action_bonus * n, reservoir)`
@@ -19,6 +22,8 @@ like any command, and never paired as decisions.
   src/actions/move.cpp:172). A timeout is certain only when the recorded time
   is the turn bonus exactly, with no action bonus and a bonus below the
   reservoir: under a cap the time a player left and a timeout read the same.
+  The time left is floored to whole seconds (:294), so a turn its player
+  ended with under a second left reads as a timeout too.
 """
 from __future__ import annotations
 

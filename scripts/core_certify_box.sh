@@ -29,7 +29,7 @@
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md).
 # Never `set -x`: the HF token and the instance key are in the environment.
-# box-needs: disk_gb=60 ram_gb=48
+# box-needs: disk_gb=60 ram_gb=48 cores=48
 set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/core_certify
@@ -104,7 +104,8 @@ fi
 # ---- the sweep, one diff_core per shard of the corpus
 # The shard lists and logs live in one folder, uploaded as one tarball a
 # round (a file each would cost a model-host commit each); a marker after
-# the sweep keeps a re-entry from redoing it. In the sweep the applier runs
+# a sweep whose every replay has its verdict keeps a re-entry from redoing
+# it. In the sweep the applier runs
 # its rules in Python (the Rust kernels off), so that no rule is the core
 # compared with itself; the core does not read these switches.
 export OMP_NUM_THREADS=1
@@ -121,12 +122,12 @@ if ! box_marked_this_stage "$BOX_STATE/SWEPT"; then
     box_bounded sweep "$DIFF_CUT_MIN" sweep.log bash -c '
         for f in "$0"/shard_[0-9][0-9][0-9]; do
             ( xargs -a "$f" env WESNOTH_RUST=0 WESNOTH_RUST_OBSERVE=0 WESNOTH_RUST_COMBAT=0 \
-                  python tools/diff_core.py --every 1 --encode-every "$1" --outcomes --sightings > "$f.log" 2>&1;
-              echo "$(date -u +%FT%TZ) $(basename "$f") rc=$?" >> "$0/progress.log" ) &
+                  python tools/diff_core.py --every 1 --encode-every "$1" --outcomes --sightings > "$f.log" 2>&1
+              rc=$?
+              echo "$(date -u +%FT%TZ) $(basename "$f") rc=$rc" >> "$0/progress.log" ) &
         done
         wait' "$SW" "$ENCODE_EVERY"
     [ "$BOX_WHY" = "ok" ] || box_finish "SWEEP_${BOX_WHY^^} rc=$BOX_RC (sweep.log, shards/progress.log)" 1
-    box_mark "$BOX_STATE/SWEPT"
 fi
 # The summary counts replays against the file list: a shard that died
 # without its summary line reads INCOMPLETE, never clean.
@@ -159,6 +160,10 @@ text = "\n".join([f"core certification {verdict}: {replays} of {expected} replay
 print(text)
 open(out, "w", encoding="utf-8").write(text + "\n")
 PYEOF
+# A sweep with a replay short of its verdict is redone on re-entry.
+if ! head -n 1 "$OUT/summary.txt" | grep -q " INCOMPLETE:"; then
+    box_marked_this_stage "$BOX_STATE/SWEPT" || box_mark "$BOX_STATE/SWEPT"
+fi
 
 # ---- the engine's recorded answers on hidden units and vision
 # shellcheck disable=SC2016 # expanded by the inner shell, which gets the output directory as $0

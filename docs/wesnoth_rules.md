@@ -3527,9 +3527,13 @@ the illuminated time of day: the area's, the terrain's light, and the
 illumination of every unit on or next to the hex that is not
 incapacitated, seen or not.
 
-**Source (1.18.4).** `src/reports.cpp:100-112`:
+**Source (1.18.4).** `src/reports.cpp:100-112` (a shrouded hex shows the
+board's time; the corpus holds no shroud game, `quarantine_reason`):
 
 ```cpp
+	if (viewing_team.shrouded(hex)) {
+		// Don't show time on shrouded tiles.
+		return rc.tod().get_time_of_day();
 	} else if (viewing_team.fogged(hex)) {
 		// Don't show illuminated time on fogged tiles.
 		return rc.tod().get_time_of_day(hex);

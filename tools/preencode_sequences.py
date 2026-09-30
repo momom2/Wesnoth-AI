@@ -110,7 +110,9 @@ def encode_game_sequence(data: dict, file: str, winner: int, type_to_id: Dict[st
         stats["hidden_untokened"] += bt.n_untokened
         stats["sighting_tokens"] += int(raw.sight_type_ids.shape[0])
         seq.sides[side].append(SequencePosition(
-            raw=dataclasses.replace(raw, observation=None), label=ai,
+            # The true enemy faction is left out: the parity encoding reads
+            # the posterior (`their_faction_probs`), never the faction.
+            raw=dataclasses.replace(raw, observation=None, their_faction_id=0), label=ai,
             hidden_tokens=bt.hidden_tokens, no_visible_unit=bt.no_visible_unit,
             turn=int(gs.global_info.turn_number)))
     after = posterior_counts()
@@ -177,7 +179,9 @@ def _worker_encode(row: dict) -> Tuple[str, str, Dict[str, int]]:
             data = json.load(f)
         seq = encode_game_sequence(data, file, int(row["winner_side"]), _W["type_to_id"],
                                    _W["faction_to_id"])
-    except Exception as e:  # noqa: BLE001 - one bad game must not stop the pass
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as e:  # noqa: BLE001 - one bad game, a Rust panic included, must not stop the pass
         return file, f"error: {type(e).__name__}: {e}"[:300], {}
     write_record(dst, seq)
     return file, "ok", seq.counts

@@ -75,15 +75,28 @@ STAGING = "tier-b/staging/"
 # starts the file detached: the script itself, or for a script on the box
 # library its bring-up (scripts/box/box_onstart.sh), given the script and
 # the library's HF folder.
-# A file an earlier entry left on the disk runs when HF cannot answer a
-# restart, and the log is appended to, so an earlier entry's errors stay.
+# The fetch gets three attempts. A file an earlier entry left on the disk
+# runs when HF cannot answer a restart; with no file at all, the onstart
+# stops the instance itself through Vast's API with the instance's own key
+# (read from the environment inside Python, never on the command line), as
+# box_stop.py does. The log is appended to, so an earlier entry's errors
+# stay.
+_ONSTART_STOP = (
+    "python -c \"import json, os, urllib.request as u; "
+    "u.urlopen(u.Request('https://console.vast.ai/api/v0/instances/' + os.environ['CONTAINER_ID'] + '/', "
+    "data=json.dumps(dict(state='stopped')).encode(), method='PUT', "
+    "headers={{'Authorization': 'Bearer ' + os.environ['CONTAINER_API_KEY'], "
+    "'Content-Type': 'application/json'}}), timeout=60)\" >> /workspace/onstart_stop.log 2>&1"
+)
 ONSTART_FETCH = (
     "cd /workspace && timeout 600 python -m pip install -q huggingface_hub >/dev/null 2>&1; "
-    "{{ timeout 600 python -c \"from huggingface_hub import hf_hub_download as d; import shutil, os; "
-    "shutil.copyfile(d('momom2/wesnoth-model-checkpoints', '{source}', "
-    "token=os.environ['HF_TOKEN']), '/workspace/{target}')\" || [ -f /workspace/{target} ]; }} && "
+    "for attempt in 1 2 3; do timeout 600 python -c \"from huggingface_hub import hf_hub_download as d; "
+    "import shutil, os; shutil.copyfile(d('momom2/wesnoth-model-checkpoints', '{source}', "
+    "token=os.environ['HF_TOKEN']), '/workspace/{target}')\" && break; sleep 20; done; "
+    "if [ -f /workspace/{target} ]; then "
     "printf '%s' \"$HF_TOKEN\" > /workspace/.hf_token && chmod 600 /workspace/.hf_token && "
-    "(setsid nohup bash /workspace/{target}{arguments} >> /workspace/onstart_script.log 2>&1 < /dev/null &)"
+    "(setsid nohup bash /workspace/{target}{arguments} >> /workspace/onstart_script.log 2>&1 < /dev/null &); "
+    "else " + _ONSTART_STOP + "; fi"
 )
 # Script names and HF paths go into the onstart's shell line unquoted.
 _SHELL_SAFE = re.compile(r"^[A-Za-z0-9._/-]+$")
@@ -244,11 +257,14 @@ class OnstartPlan:
 @dataclass
 class ScriptNeeds:
     """What a run script says it needs of the box and of HF: its dead-man's
-    switch in hours, its disk and memory (`# box-needs: disk_gb=N ram_gb=M`)
-    and its raw corpus (RAW_TAR's default), each overridable by --env."""
+    switch in hours, its box class (`# box-needs: disk_gb=N ram_gb=M
+    gpu_ram_gb=G cores=C`, gigabytes of 1,000 MB) and its raw corpus
+    (RAW_TAR's default), each overridable by --env."""
     box_max_h: float | None = None
     disk_gb: int | None = None
     ram_gb: int | None = None
+    gpu_ram_gb: int | None = None
+    cores: int | None = None
     raw_tar: str | None = None
 
 
@@ -262,7 +278,7 @@ def script_needs(text: str, env: dict) -> ScriptNeeds:
         needs.box_max_h = None
     for line in _NEEDS.findall(text):
         for key, _, value in (part.partition("=") for part in line.split()):
-            if key in ("disk_gb", "ram_gb") and value.isdigit():
+            if key in ("disk_gb", "ram_gb", "gpu_ram_gb", "cores") and value.isdigit():
                 setattr(needs, key, int(value))
     m = _RAW_TAR.search(text)
     needs.raw_tar = env.get("RAW_TAR") or (m.group(1) if m else None)
@@ -374,6 +390,19 @@ def needs_problems(staging, needs: ScriptNeeds, disk: int) -> list[str]:
     return problems
 
 
+def other_instances(v) -> int:
+    """How many instances the account holds, whatever their state (a
+    stopped one bills its storage); 0 when the listing is unavailable."""
+    listing = getattr(v, "show_instances", None)
+    if listing is None:
+        return 0
+    try:
+        found = api_call("instance listing", listing)
+    except ApiCallFailed:
+        return 0
+    return len(found) if isinstance(found, list) else 0
+
+
 def budget_problems(v, offer_id: int, hours: float | None, disk: int,
                     needs: ScriptNeeds | None = None) -> list[str]:
     """Why the account or the offer cannot carry the run: funds below the
@@ -395,6 +424,13 @@ def budget_problems(v, offer_id: int, hours: float | None, disk: int,
         return ["show_user() reports neither credit nor balance"]
     end = offer.get("end_date")
     window = (end - time.time()) / 3600 if end else None
+    print(f"preflight: offer {offer_id}: {offer.get('gpu_name')} with {(offer.get('gpu_ram') or 0) / 1000:.0f} GB, "
+          f"{offer.get('cpu_cores_effective') or 0:.0f} cores, {(offer.get('cpu_ram') or 0) / 1000:.0f} GB of "
+          f"memory")
+    others = other_instances(v)
+    if others:
+        print(f"preflight: WARNING: {others} other instance(s) on the account draw on the same funds, "
+              f"which this check does not count")
     print(f"preflight: offer {offer_id} at ${price:.3f}/h with {disk} GB; funds "
           f"${funds:.2f} (credit {user.get('credit')}, balance {user.get('balance')}) "
           f"cover {funds / (MARGIN * price):.1f} h at the {MARGIN}x margin; rental window "
@@ -414,10 +450,13 @@ def budget_problems(v, offer_id: int, hours: float | None, disk: int,
         print("preflight: no --hours and no BOX_MAX_H, so the run's cost and length are NOT checked")
     elif window is not None and window < longest:
         problems.append(f"offer {offer_id} leaves the market in {window:.1f} h, under {why}")
-    ram_mb = offer.get("cpu_ram")
-    if needs.ram_gb is not None and isinstance(ram_mb, (int, float)) and ram_mb / 1024 < needs.ram_gb:
-        problems.append(f"offer {offer_id} has {ram_mb / 1024:.0f} GB of memory, under the "
-                        f"{needs.ram_gb} GB the script needs")
+    for field, need, unit, what, per in (("cpu_ram", needs.ram_gb, 1000, "GB of memory", "GB"),
+                                         ("gpu_ram", needs.gpu_ram_gb, 1000, "GB of GPU memory", "GB"),
+                                         ("cpu_cores_effective", needs.cores, 1, "cores", "cores")):
+        have = offer.get(field)
+        if need is not None and isinstance(have, (int, float)) and have / unit < need:
+            problems.append(f"offer {offer_id} has {have / unit:.0f} {what}, under the {need} {per} "
+                            f"the script needs")
     return problems
 
 

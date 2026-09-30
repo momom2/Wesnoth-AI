@@ -259,8 +259,9 @@ def main(argv: List[str]) -> int:
             divergences.extend(d)
         else:
             clean += 1
-    rust = sum(v for (k, p), v in counts.items() if p == "rust")
-    py = sum(v for (k, p), v in counts.items() if p == "python")
+    checks = ("encode", "outcomes", "sightings")          # comparisons, not commands
+    rust = sum(v for (k, p), v in counts.items() if p == "rust" and k not in checks)
+    py = sum(v for (k, p), v in counts.items() if p == "python" and k not in checks)
     print(f"diff_core: {len(files)} replays, {clean} clean, {len(files) - clean} with divergences; "
           f"commands rust={rust} python={py}")
     by_kind = Counter()

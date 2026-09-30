@@ -34,7 +34,7 @@
 # changes the data or the pass takes a new HF_DIR. Every exit, clean or
 # not, uploads the records with ALL_DONE last and stops the instance.
 # Never `set -x`: the HF token and the instance key are in the environment.
-# box-needs: disk_gb=120 ram_gb=64
+# box-needs: disk_gb=120 ram_gb=64 gpu_ram_gb=24 cores=32
 set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/paritymemory
@@ -291,8 +291,10 @@ match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...:
     box_bounded "fit $name" 10 "$name.log" \
         python tools/elo_collect.py "$dir" --no-catalog --save-json "$OUT/$name.fit.json"
 }
-play() {                         # play NAME SEED_BASE ARGS...: the match, once more when short, then its note
-    local name="$1" sb="$2"
+MATCHES_FAILED=0                 # this entry's verdicts on the matches (play)
+MATCHES_CUT=0
+play() {                         # play NAME SEED_BASE ARGS...: the match, once more when short, then its verdict
+    local name="$1" sb="$2" decisive rc
     shift 2
     box_upload_dir "games_$name" "$OUT/games_$name"
     box_upload_hold "$name.fit.json" "games_$name.tar.gz"
@@ -302,14 +304,25 @@ play() {                         # play NAME SEED_BASE ARGS...: the match, once 
         rm -f "$OUT/$name.fit.json" "$OUT/timing_$name.txt"
         match "$name" "$GAMES" "$sb" 1500 "$@"
     fi
-    if [ "$(decisive_results "$OUT/games_$name")" -lt "$GAMES" ]; then
-        # run_elo_batch's 1: games failed or a server died, a defect; 3 or 4: out of time or of replacements
-        if grep -q "^$name: .* rc=1 " "$OUT/timing_$name.txt" 2>/dev/null; then
-            echo "MATCH_FAILED $name: games failed ($name.log, games_$name/failed_*.json)" | tee -a "$OUT/match.walls"
-        else
-            echo "MATCH_CUT $name: $(decisive_results "$OUT/games_$name") of $GAMES decisive games; the fit is not read" \
-                | tee -a "$OUT/match.walls"
-        fi
+    decisive=$(decisive_results "$OUT/games_$name")
+    rc=$(sed -n 's/.* rc=\([0-9]*\) .*/\1/p' "$OUT/timing_$name.txt" 2>/dev/null | tail -n 1)
+    if [ ! -f "$OUT/$name.fit.json" ]; then
+        echo "MATCH_FAILED $name: no fit ($name.log)" | tee -a "$OUT/match.walls"
+        MATCHES_FAILED=$(( MATCHES_FAILED + 1 ))
+    elif [ "$decisive" -lt "$GAMES" ]; then
+        # run_elo_batch: 3 or 4, out of time or of replacements, and 124, the
+        # step's own cut, leave a match short; any other exit is a defect
+        # (1: games failed or a server died; a signal; a usage error).
+        case ${rc:-none} in
+            0|3|4|124)
+                echo "MATCH_CUT $name: $decisive of $GAMES decisive games (rc=$rc); the fit is not read" \
+                    | tee -a "$OUT/match.walls"
+                MATCHES_CUT=$(( MATCHES_CUT + 1 )) ;;
+            *)
+                echo "MATCH_FAILED $name: rc=${rc:-none} ($name.log, games_$name/failed_*.json)" \
+                    | tee -a "$OUT/match.walls"
+                MATCHES_FAILED=$(( MATCHES_FAILED + 1 )) ;;
+        esac
     fi
     box_upload_async
 }
@@ -329,9 +342,13 @@ done
 box_restore "${restored[@]}" || box_finish "RESTORE_FAILED (restore.log)" 1
 for name in $MATCHES; do                 # a match's games come back as the tarball its directory went up as
     if [ -f "$OUT/games_$name.tar.gz" ]; then
-        [ -d "$OUT/games_$name" ] || tar -xzf "$OUT/games_$name.tar.gz" -C "$OUT" \
+        [ -d "$OUT/games_$name" ] || timeout -k 30s 10m tar -xzf "$OUT/games_$name.tar.gz" -C "$OUT" \
             || box_finish "MATCH_RESTORE_FAILED ($name)" 1
         rm -f "$OUT/games_$name.tar.gz"
+        # The directory is what HF holds: it goes up again only once it changes.
+        timeout -k 30s 2m python "$BOX_LIB/box_upload.py" --out "$OUT" --hf-dir "$HF_DIR" \
+            --landed "games_$name.tar.gz" "$OUT/games_$name" >> "$OUT/restore.log" 2>&1 \
+            || echo "games_$name will go up again (restore.log)"
     fi
 done
 mkdir -p training/checkpoints
@@ -343,7 +360,6 @@ play arm16_vs_arm0 82000 --label-a arm16 --spec-a "$ARM" --memory-a 16 --raw-end
     --label-b arm0 --spec-b "$ARM" --memory-b 0 --raw-end-turn-offset-b "$EO"
 play obs8a_vs_obs8b 83000 "${REF_A[@]/#obs8/obs8a}" "${REF_B[@]/#obs8/obs8b}"
 box_on_round
-cut=$(grep -c "^MATCH_CUT" "$OUT/match.walls" 2>/dev/null)
-failed=$(grep -c "^MATCH_FAILED" "$OUT/match.walls" 2>/dev/null)
-[ "${failed:-0}" -eq 0 ] || box_finish "PARITY_MEMORY_MATCHES_FAILED $(notes) ${failed} failed, ${cut:-0} cut (match.walls)" 1
-box_finish "PARITY_MEMORY_DONE $(notes) ${cut:-0} matches cut"
+[ "$MATCHES_FAILED" -eq 0 ] \
+    || box_finish "PARITY_MEMORY_MATCHES_FAILED $(notes) $MATCHES_FAILED failed, $MATCHES_CUT cut (match.walls)" 1
+box_finish "PARITY_MEMORY_DONE $(notes) $MATCHES_CUT matches cut"

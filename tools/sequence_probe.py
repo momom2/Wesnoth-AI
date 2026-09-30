@@ -37,7 +37,9 @@ Proxies, never verdicts.
 """
 from __future__ import annotations
 
+import logging
 import math
+import time
 from collections import defaultdict
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -48,6 +50,8 @@ from wesnoth_ai.encoder import PARITY_HEX_SEEN_AT
 from wesnoth_ai.imitation_loss import TIMEOUT_LABEL, build_imitation_targets, imitation_loss_parts
 from wesnoth_ai.sequence_loss import belief_loss
 from wesnoth_ai.sequence_streams import GameSide
+
+log = logging.getLogger("sequence_probe")
 
 # Holdout game-sides stepped side by side; a game-side that ends hands its
 # row to the next one.
@@ -234,8 +238,10 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
     try:
         with torch.no_grad():
             for key, k, reset in runs:
+                t0 = time.time()
                 per_k[key] = run_sides(model, encoder, holdout, load, k, device, type_loss_weights,
                                        autocast_dtype, reset=reset)
+                log.info("probe at %s slots: %d game-sides in %.0f s", key, len(holdout), time.time() - t0)
     finally:
         if was_training:
             model.train()

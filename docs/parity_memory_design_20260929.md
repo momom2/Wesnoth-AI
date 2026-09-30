@@ -182,9 +182,12 @@ hidden enemy units whose hex has no token.
   (docs/wesnoth_rules.md "Delayed shroud updates"). Version 5 records the
   lobby's random faction mode, which decides what a Random side can draw.
 - **Pre-encoding:** every decision of both player sides, in order, per
-  game, with the flag on; beside each pair its side, whether it is a value
-  state, and the belief targets (the hex-token indices of hidden enemy
-  units) in a structure of their own, never in `RawEncoded`. A turn that
+  game, with the flag on; beside each pair its side and the belief
+  targets (the hex-token indices of hidden enemy units) in a structure of
+  their own, never in `RawEncoded`; the trainer draws the value states
+  from the run seed (`sequence_streams.value_selected`). The stored
+  encoding leaves out the true enemy faction, which the flag's encoding
+  never reads. A turn that
   ran out of time keeps its last position with the TIMEOUT label (user
   decision 2026-09-30): the memory, value and belief losses see it, the
   policy has no target there. Training and eval games have no turn timer

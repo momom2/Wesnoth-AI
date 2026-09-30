@@ -31,14 +31,14 @@ import copy as _copy
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.classes import GameState, Hex, Position, SideInfo
+from wesnoth_ai.classes import GameState, Hex, Position
 from wesnoth_ai.rules.scenario_cfg import UnmodelledWML, load_scenario_wml
 from wesnoth_ai.rules.wml_state import wml_int
 from tools.replay_extract import WMLNode
@@ -276,12 +276,7 @@ def _modify_side_action(gs: GameState, action: WMLNode) -> None:
         if new_recruit
         else list(s.recruits)
     )
-    gs.sides[side_num - 1] = SideInfo(
-        player=s.player, recruits=new_recruits,
-        current_gold=new_gold, base_income=new_income,
-        nb_villages_controlled=s.nb_villages_controlled,
-        faction=s.faction,
-    )
+    gs.sides[side_num - 1] = replace(s, recruits=new_recruits, current_gold=new_gold, base_income=new_income)
 
 
 # ----------------------------------------------------------------------
@@ -551,12 +546,7 @@ def _gold_action(gs: GameState, action: WMLNode) -> None:
     if not (1 <= side_num <= len(gs.sides)):
         return
     s = gs.sides[side_num - 1]
-    gs.sides[side_num - 1] = SideInfo(
-        player=s.player, recruits=s.recruits,
-        current_gold=s.current_gold + amount, base_income=s.base_income,
-        nb_villages_controlled=s.nb_villages_controlled,
-        faction=s.faction,
-    )
+    gs.sides[side_num - 1] = replace(s, current_gold=s.current_gold + amount)
 
 
 # ----------------------------------------------------------------------

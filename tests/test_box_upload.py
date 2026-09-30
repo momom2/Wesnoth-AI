@@ -223,6 +223,19 @@ def test_a_slow_upload_log_still_leaves_all_done_its_time(run):
     assert api.names()[-1] == "ALL_DONE"
 
 
+def test_a_restored_directory_recorded_as_landed_is_not_sent_again(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    games = write(out / "games_m" / "game_1.json", b"{}").parent
+    monkeypatch.setenv("HF_TOKEN", "")
+    assert box_upload.main(["--out", str(out), "--hf-dir", HF_DIR, "--landed", "games_m.tar.gz",
+                            str(games)]) == 0
+    spec = write(out / "tmp" / "upload_spec.tsv", f"dir\tgames_m\t{games}\n".encode())
+    api = StubHf()
+    rnd = box_upload.Round(out, HF_DIR, api, spec=box_upload.read_spec(str(spec)), timing=FAST)
+    rnd.run()
+    assert "games_m.tar.gz" not in api.names()
+
+
 def test_clear_deletes_the_previous_entrys_markers_and_forgets_them(run):
     on_hf = {f"{HF_DIR}/ALL_DONE": b"old", f"{HF_DIR}/FAILED": b"old", f"{HF_DIR}/train.log": b"x"}
     api = StubHf(on_hf=on_hf)

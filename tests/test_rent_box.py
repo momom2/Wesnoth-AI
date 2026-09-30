@@ -326,3 +326,34 @@ def test_a_run_script_whose_needs_are_met_is_rented(monkeypatch):
     use(monkeypatch, sdk, NEEDY_ON_HF)
     assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE,
                           "--disk", "150"]) == 0
+
+
+CLASS_SCRIPT = LIBRARY_SCRIPT + "# box-needs: gpu_ram_gb=24 cores=32\n"
+
+
+@pytest.mark.parametrize("offer, reason", [
+    ({"gpu_ram": 12288, "cpu_cores_effective": 32}, "12 GB of GPU memory, under the 24 GB"),
+    ({"gpu_ram": 24564, "cpu_cores_effective": 16}, "16 cores, under the 32 cores"),
+], ids=["gpu memory", "cores"])
+def test_an_offer_below_the_scripts_box_class_is_refused(offer, reason, monkeypatch, capsys):
+    sdk = market()
+    sdk.answers["search_offers"][0].update(offer)
+    use(monkeypatch, sdk, {**LIBRARY_ON_HF, f"{LIBRARY}/{SCRIPT}": CLASS_SCRIPT})
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 1
+    assert reason in capsys.readouterr().err
+    sdk.answers["search_offers"][0].update({"gpu_ram": 24564, "cpu_cores_effective": 32})
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 0
+
+
+def test_an_onstart_that_cannot_fetch_its_file_stops_the_instance(monkeypatch):
+    """Three attempts at the file, then the instance stops itself with its
+    own key, read inside Python from the environment."""
+    sdk = market()
+    use(monkeypatch, sdk, LIBRARY_ON_HF)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 0
+    (created,) = sdk.called("create_instance")
+    onstart = created["onstart_cmd"]
+    assert "for attempt in 1 2 3" in onstart
+    assert "os.environ['CONTAINER_API_KEY']" in onstart and "method='PUT'" in onstart
+    assert "else python -c" in onstart
+    assert bash_parses(onstart)

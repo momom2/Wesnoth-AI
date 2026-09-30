@@ -332,9 +332,15 @@ class Trainer:
             log.warning("non-finite step %d (loss %s, gradient norm %s): update skipped",
                         self.state["steps"], float(loss.detach()), float(norm))
         self.opt.zero_grad(set_to_none=True)
-        self.memories = {s: m.detach() if bool(torch.isfinite(m).all())
-                         else self.model.initial_memory(m.shape[0]).detach().to(self.device)
-                         for s, m in self.memories.items()}
+        carried = {}
+        for s, m in self.memories.items():
+            if bool(torch.isfinite(m).all()):
+                carried[s] = m.detach()
+            else:                        # counted: the slot's game-side goes on from the initial memory
+                self.state["memory_resets"] = self.state.get("memory_resets", 0) + 1
+                log.warning("slot %d's carried memory is not finite at step %d: reset", s, self.state["steps"])
+                carried[s] = self.model.initial_memory(m.shape[0]).detach().to(self.device)
+        self.memories = carried
         for targets, log_t, bl in logs:
             vals = log_t.cpu()
             pw = torch.from_numpy(targets.policy_w)
@@ -464,9 +470,9 @@ class Trainer:
                       self.schedule.total_positions)
             return EXIT_PASS_INCOMPLETE
         self.run_probe()
-        log.info("SEQUENCE_TRAIN_DONE %d positions, %d steps in %.0f s (%d non-finite steps skipped)",
-                 self.state["positions"], self.state["steps"], time.time() - t0,
-                 self.state.get("nonfinite_steps", 0))
+        log.info("SEQUENCE_TRAIN_DONE %d positions, %d steps in %.0f s (%d non-finite steps skipped, "
+                 "%d memories reset)", self.state["positions"], self.state["steps"], time.time() - t0,
+                 self.state.get("nonfinite_steps", 0), self.state.get("memory_resets", 0))
         return 0
 
     def _log(self, rows: List[Dict], t0: float) -> None:

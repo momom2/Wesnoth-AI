@@ -2184,11 +2184,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             owned = s.nb_villages_controlled
             income, net_upkeep = side_income(gs, side)
             new_gold = s.current_gold + income - net_upkeep
-            gs.sides[side - 1] = SideInfo(
-                player=s.player, recruits=s.recruits,
-                current_gold=new_gold, base_income=s.base_income,
-                nb_villages_controlled=owned, faction=s.faction,
-            )
+            gs.sides[side - 1] = dataclasses.replace(s, current_gold=new_gold, nb_villages_controlled=owned)
         # The four refresh forms fire LAST in do_init_side (play_controller.
         # cpp:519-522, 1.18.4: calculate_healing → set_resting(true) →
         # pump().fire("turn_refresh") ...) — i.e. after the MP refresh and
@@ -2706,13 +2702,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         cost = int(_stats_for(unit_type).get("cost", 14))
         if 1 <= side <= len(gs.sides):
             s = gs.sides[side - 1]
-            gs.sides[side - 1] = SideInfo(
-                player=s.player, recruits=s.recruits,
-                current_gold=s.current_gold - cost,
-                base_income=s.base_income,
-                nb_villages_controlled=s.nb_villages_controlled,
-                faction=s.faction,
-            )
+            gs.sides[side - 1] = dataclasses.replace(s, current_gold=s.current_gold - cost)
         return
 
     if kind == "recall":
@@ -2970,13 +2960,7 @@ def _add_villages(gs: GameState, side: int, delta: int) -> None:
     if not 1 <= side <= len(gs.sides):
         return
     s = gs.sides[side - 1]
-    gs.sides[side - 1] = SideInfo(
-        player=s.player, recruits=s.recruits,
-        current_gold=s.current_gold,
-        base_income=s.base_income,
-        nb_villages_controlled=max(0, s.nb_villages_controlled + delta),
-        faction=s.faction,
-    )
+    gs.sides[side - 1] = dataclasses.replace(s, nb_villages_controlled=max(0, s.nb_villages_controlled + delta))
 
 
 def village_count_mismatches(gs: GameState) -> Dict[int, Tuple[int, int]]:

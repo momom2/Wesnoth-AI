@@ -101,7 +101,7 @@ def faction_posterior(faction: str, chose_random: bool, era_factions: Sequence[s
     if not consistent:
         _COUNTS["inconsistent"] += 1
         consistent = candidates
-    elif faction in candidates and faction not in consistent:
+    elif faction and faction not in consistent:
         _COUNTS["excludes_truth"] += 1
     probs = np.zeros(MAX_FACTIONS, dtype=np.float64)
     for f in consistent:

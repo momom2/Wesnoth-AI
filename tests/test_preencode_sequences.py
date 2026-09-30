@@ -86,3 +86,24 @@ def test_a_label_follows_the_tokens_of_its_encoding():
     assert moved.target_idx is None and moved.target_off_subset
     end = ActionIndices(action_type="end_turn", actor_idx=3)
     assert label_in_raw_basis(end, raw) is end
+
+class _Panic(BaseException):
+    """What pyo3 raises for a Rust panic: a BaseException, not an Exception."""
+
+
+def test_a_panicking_game_is_counted_not_fatal(tmp_path, monkeypatch):
+    """A worker that let the panic through would die, and the pool would
+    wait for its result forever."""
+    import gzip
+    import json
+    from tools import preencode_sequences as pe
+
+    def panics(*args, **kwargs):
+        raise _Panic("index out of bounds")
+
+    (tmp_path / "g.json.gz").write_bytes(gzip.compress(json.dumps({"commands": []}).encode()))
+    monkeypatch.setattr(pe, "encode_game_sequence", panics)
+    pe._worker_init({}, {}, str(tmp_path), str(tmp_path / "out"))
+    (tmp_path / "out").mkdir()
+    file, status, counts = pe._worker_encode({"file": "g.json.gz", "winner_side": 1})
+    assert (file, counts) == ("g.json.gz", {}) and status.startswith("error: _Panic")

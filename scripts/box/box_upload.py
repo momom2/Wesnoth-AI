@@ -424,9 +424,16 @@ def main(argv=None) -> int:
     ap.add_argument("--budget-s", type=float, default=1500.0, help="the round's time")
     ap.add_argument("--clear", nargs="+", metavar="NAME", help="delete these from HF")
     ap.add_argument("--restore", nargs="+", metavar="NAME", help="fetch these when absent here")
+    ap.add_argument("--landed", nargs=2, metavar=("NAME", "DIR"),
+                    help="record directory DIR, as it is now, as landed under NAME (a restored "
+                         "tarball, unpacked)")
     args = ap.parse_args(argv)
     hf_dir = args.hf_dir.strip("/")
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.landed:
+        name, path = args.landed
+        Round(args.out, hf_dir or "-", None).mark_landed(name, dir_key(path))
+        return 0
     token = os.environ.get("HF_TOKEN", "").strip()
     probe = Round(args.out, hf_dir or "-", None)
     probe.echo = bool(args.clear or args.restore)

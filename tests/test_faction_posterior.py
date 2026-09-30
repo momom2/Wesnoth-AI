@@ -83,6 +83,15 @@ def test_a_posterior_that_leaves_out_the_true_faction_is_counted():
     assert posterior_counts()["excludes_truth"] == 1
 
 
+def test_a_posterior_whose_candidates_miss_the_truth_is_counted():
+    """A mirror under No Mirror cannot happen in the engine; a posterior
+    that nonetheless leaves the truth out is an error the barrier counts."""
+    reset_posterior_counts()
+    faction_posterior("Loyalists", True, DEFAULT_ERA, [], FACTION_IDS, own_faction="Loyalists",
+                      random_faction_mode="No Mirror")
+    assert posterior_counts()["excludes_truth"] == 1
+
+
 def test_the_record_carries_the_prior_to_every_decision(tmp_path):
     """A replay of the Dunefolk era under "No Mirror", side 1 Undead by a
     Random choice, side 2 Loyalists chosen openly: before either side has
