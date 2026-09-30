@@ -45,3 +45,18 @@ def test_nightstalk_follows_the_time_of_day_and_illumination():
     assert "u2" in sim_predictions(_case("nightstalk@morning"))["visible_start"]
     assert "u2" in sim_predictions(_case("nightstalk@first_watch+illuminated"))["visible_start"]
     assert "u2" not in sim_predictions(_case("nightstalk@first_watch+mage_two_away"))["visible_start"]
+
+
+def test_replaying_records_refuses_a_recorded_case_missing_today(tmp_path):
+    """Every recorded answer is compared: a case renamed or dropped since
+    the record would shrink the comparison silently, down to nothing
+    (2026-09-30 audit)."""
+    import json
+    from tools.hidden_units_oracle import main
+    root = Path(__file__).resolve().parents[1]
+    record = json.loads((root / "training/metrics/fidelity/hidden_units_oracle_20260920.json")
+                        .read_text(encoding="utf-8"))
+    record["records"][0]["case"] = "a case that no longer exists"
+    path = tmp_path / "renamed.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert main(["--recorded", str(path), "--log-level", "WARNING"]) == 1

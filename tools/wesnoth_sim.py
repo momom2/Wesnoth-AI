@@ -849,6 +849,11 @@ class WesnothSim:
         out._seed_salt       = self._seed_salt
         out._is_search_fork  = self._is_search_fork
         out.command_history  = []   # forks don't track history
+        # A fork's refusals are its own (the loop guard's counters).
+        out.last_step_rejected = False
+        out.last_step_refusal = None
+        out._consecutive_rejects = 0
+        out.forced_end_turns = {}
         out.recruit_rejections = []
         out.turn_digests = []
         out._keeps_record = False
