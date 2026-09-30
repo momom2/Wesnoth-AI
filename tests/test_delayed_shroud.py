@@ -38,10 +38,11 @@ from wesnoth_ai.visibility import units_visible_to  # noqa: E402
 UNITS = [("Spearman", 1, 0, 0), ("Cavalryman", 1, 1, 0), ("Spearman", 2, 14, 0),
          ("Spearman", 2, 19, 0), ("Walking Corpse", 2, 2, 1)]
 RIDE = ["move", [1, 2, 3, 4, 5], [0, 0, 0, 0, 0], 1]
+RIDE_BACK = ["move", [6, 5, 4], [0, 0, 0], 1]
 FAR_ENEMY = "u3"
 
 
-def _game(units=UNITS):
+def _game(units=UNITS, plan_unit_advance=False):
     row = ", ".join(["Gg"] * 20)
     border = ", ".join(["Xv"] * 22)
     lines = [border] + [f"Xv, {row}, Xv"] * 2 + [border]
@@ -52,6 +53,7 @@ def _game(units=UNITS):
                            for i, (t, s, x, y) in enumerate(units)],
         "starting_sides": [{"side": k, "gold": 100, "recruit": ["Spearman", "Skeleton"], "fog": True}
                            for k in (1, 2)],
+        "plan_unit_advance": plan_unit_advance,
     })
     _setup_scenario_events(gs, "")
     return gs
@@ -61,8 +63,8 @@ def _sees(gs, uid, side=1) -> bool:
     return any(u.id == uid for u in units_visible_to(gs, side))
 
 
-def _play(commands, units=UNITS):
-    gs = _game(units)
+def _play(commands, units=UNITS, plan_unit_advance=False):
+    gs = _game(units, plan_unit_advance)
     for cmd in [["init_side", 1], *commands]:
         _apply_command(gs, list(cmd))
     return gs
@@ -88,6 +90,27 @@ def test_an_attack_commits_the_pending_vision():
     assert not _sees(gs, FAR_ENEMY)
     _apply_command(gs, ["attack", 0, 0, 0, 1, 0, 0, "00c0ffee"])
     assert _sees(gs, FAR_ENEMY)
+
+
+def test_an_attack_aborted_before_its_draw_still_commits():
+    """No seed follows the attack (a disconnect): the engine's handler had
+    cleared the stack before the fight."""
+    units = UNITS[:4] + [("Walking Corpse", 2, 0, 1)]
+    gs = _play([["auto_shroud", 0], RIDE, ["attack", 0, 0, 0, 1, 0, 0, ""]], units)
+    assert _sees(gs, FAR_ENEMY)
+
+
+STEP = ["move", [0, 0], [0, 1], 1]          # the Spearman's first move: it reveals nothing
+
+
+def test_the_plan_unit_advance_modification_makes_a_side_turns_first_move_final():
+    first = _play([["auto_shroud", 0], RIDE], plan_unit_advance=True)
+    assert _sees(first, FAR_ENEMY), "the turn's first move is committed with its own vision"
+    second = _play([["auto_shroud", 0], STEP, RIDE], plan_unit_advance=True)
+    assert not _sees(second, FAR_ENEMY), "later moves wait"
+    _apply_command(second, ["menu_item", "pickadvance"])
+    assert _sees(second, FAR_ENEMY), "the menu's event commits"
+    assert not _sees(_play([["auto_shroud", 0], RIDE]), FAR_ENEMY), "without the modification"
 
 
 def test_a_blocked_move_commits_the_pending_vision():
@@ -146,6 +169,17 @@ def test_a_save_that_delays_starts_the_side_delayed(tmp_path):
     assert delayed_shroud.delaying_sides(_build_initial_gamestate(record)) == {1}
 
 
+def test_the_extractor_records_the_modification_and_its_menu_events(tmp_path):
+    from helpers.synthetic_replay import menu_item
+    commands = [*turn(1, menu_item(1, 2, 4)), *turn(2)]
+    record = extract_replay(write_replay(tmp_path / "g.bz2", two_sides(), commands,
+                                         header=['active_mods="plan_unit_advance"']))
+    assert record["plan_unit_advance"] is True
+    assert ["menu_item", "pickadvance"] in record["commands"]
+    plain = extract_replay(write_replay(tmp_path / "h.bz2", two_sides(), [*turn(1), *turn(2)]))
+    assert plain["plan_unit_advance"] is False
+
+
 def test_the_extractor_keeps_the_commands_and_the_labels_skip_them(tmp_path):
     ride = [(3, 5), (4, 5), (5, 5), (6, 5)]
     commands = [*turn(1, auto_shroud(False), move(1, ride), update_shroud(), auto_shroud(True)),
@@ -164,6 +198,9 @@ def test_the_extractor_keeps_the_commands_and_the_labels_skip_them(tmp_path):
 
 SEQUENCES = {
     "update": [["auto_shroud", 0], RIDE, ["update_shroud"]],
+    "aborted": [["auto_shroud", 0], RIDE, ["attack", 0, 0, 0, 1, 0, 0, ""]],
+    "modification": [["auto_shroud", 0], STEP, RIDE, ["menu_item", "pickadvance"], ["move", [5, 6], [0, 0], 1],
+                     ["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1], RIDE_BACK, ["update_shroud"]],
     "blocked": [["auto_shroud", 0], RIDE, ["move", [0, 0, 1, 2, 3], [0, 1, 1, 1, 1], 1]],
     "recruits": [["auto_shroud", 0], ["recruit", "Skeleton", 9, 1, ""], RIDE,
                  ["recruit", "Spearman", 2, 1, "0badc0de"]],
@@ -179,7 +216,7 @@ def test_the_core_and_the_applier_agree_command_by_command(name):
     from wesnoth_ai.core_compare import state_differences
     if gc.game_core_class() is None:
         pytest.skip("wesnoth_core.GameCore not available")
-    gs = _game()
+    gs = _game(plan_unit_advance=name == "modification")
     cs = gc.CoreState.from_state(copy.deepcopy(gs))
     pending_seen = False
     for cmd in [["init_side", 1], *SEQUENCES[name]]:

@@ -24,7 +24,7 @@ k (nested dropout: Rippel, Gelbart and Adams, ICML 2014).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 import numpy as np
 import torch
@@ -125,6 +125,16 @@ class SlotMemory(nn.Module):
             raise ValueError(f"a memory state of {s.size(0)} slots for a memory of {self.slots}")
         if s.dtype != torch.float32:
             raise ValueError(f"a memory state is float32, got {s.dtype}")
+
+
+@dataclass(frozen=True)
+class MemoryState:
+    """A player's memory for one decision: its active slot count and the
+    state its previous decision wrote, float32 [k, d], or None before the
+    game-side's first decision (the model starts it from its learned
+    initial memory). What a player hands to a forward, local or served."""
+    k: int
+    state: Optional[torch.Tensor] = None
 
 
 def refuse_memory_model(model, consumer: str) -> None:

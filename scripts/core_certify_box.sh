@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck source-path=SCRIPTDIR
 # Step 5 of docs/rust_core_port_20260928.md: the Rust core certified against
-# the Python applier over the whole imitation corpus on a CPU box. Every
+# the Python applier over the whole imitation corpus on a CPU box, the corpus
+# rebuilt from the raw replays at the stage's version (the one the retrain
+# trains on: tools/build_imitation_dataset.py over RAW_TAR). Every
 # replay is set up and applied by both (tools/diff_core.py), the two states
 # compared after the setup and every command (the map and the event state at
 # each init_side and end_turn), every tenth player decision encoded by both
@@ -19,8 +21,9 @@
 # Cost, measured on the laptop 2026-09-28: 3.8 ms per command with the
 # encodings (12 replays, 3,884 commands, 395 decisions encoded three ways),
 # so the corpus's ~6.3M commands are ~6.7 core-hours: ~13 minutes on 32
-# cores, plus the bring-up (the Rust wheel's build, the 17,019-replay
-# corpus). DIFF_CUT_MIN bounds the sweep at about 6 times that.
+# cores, plus the bring-up (the Rust wheel's build, the corpus's build from
+# the raw replays: 1.2-1.8 core-hours). DIFF_CUT_MIN bounds the sweep at
+# about 6 times that.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md).
 # Never `set -x`: the HF token and the instance key are in the environment.
@@ -28,7 +31,7 @@ set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/core_certify
 STAGE="${STAGE:-}"
-CORPUS_TAR="${CORPUS_TAR:-tier-b/replays_dataset_imitation_dedup_20260908.tar.gz}"
+RAW_TAR="${RAW_TAR:-tier-b/corpus_v3/raw_corpus_20260929.tar}"
 SHARDS="${SHARDS:-}"                      # default: box_cores, taken after bring-up
 ENCODE_EVERY="${ENCODE_EVERY:-10}"
 export HF_DIR="${HF_DIR:-tier-b/core_certify_20260928}"
@@ -54,25 +57,37 @@ box_facts > "$OUT/box.txt.tmp" 2>&1
 mv -f "$OUT/box.txt.tmp" "$OUT/box.txt"
 box_monitor_start
 
-# ---- the corpus
-if [ ! -f replays_dataset_imitation/manifest.jsonl ]; then
-    box_bounded corpus 30 staging.log python - "$CORPUS_TAR" <<'EOF' \
-        || box_finish "CORPUS_FAILED rc=$BOX_RC (staging.log)" 1
+# ---- the corpus: the raw replays, then the build (a marker after each)
+if ! box_marked_this_stage "$BOX_STATE/INPUTS_DONE"; then
+    box_bounded inputs 20 staging.log python - "$RAW_TAR" <<'EOF' \
+        || box_finish "INPUTS_FAILED rc=$BOX_RC (staging.log)" 1
 import sys, tarfile
 from huggingface_hub import hf_hub_download
 path = hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1])
-with tarfile.open(path, "r:gz") as tf:
+with tarfile.open(path, "r") as tf:
     tf.extractall(".")
-    n = sum(1 for name in tf.getnames() if name.endswith(".json.gz"))
-print("corpus files", n, flush=True)
+    n = sum(1 for name in tf.getnames() if name.endswith(".bz2"))
+print("raw replays", n, flush=True)
 EOF
+    box_mark "$BOX_STATE/INPUTS_DONE"
 fi
-[ -f replays_dataset_imitation/manifest.jsonl ] || box_finish "CORPUS_FAILED: no replays_dataset_imitation/manifest.jsonl (staging.log)" 1
+if ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE"; then
+    rm -rf replays_dataset_imitation replays_dataset_imitation_duplicates
+    from=$(box_size "$OUT/corpus_build.log")
+    box_bounded --stall "$OUT/corpus_build.log" 15 corpus 60 corpus_build.log \
+        python tools/build_imitation_dataset.py --raw-root . --out replays_dataset_imitation \
+        --workers "$(box_cores)"
+    tail -c "+$(( from + 1 ))" "$OUT/corpus_build.log" | grep "BUILD_DONE" \
+        || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (corpus_build.log)" 1
+    box_mark "$BOX_STATE/CORPUS_DONE"
+fi
+[ -f replays_dataset_imitation/manifest.jsonl ] || box_finish "CORPUS_FAILED: no replays_dataset_imitation/manifest.jsonl (corpus_build.log)" 1
 
 # ---- the core's tests, the corpus present
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     box_bounded tests 20 tests.log python -m pytest tests/test_game_core.py tests/test_rust_units.py \
-        tests/test_rust_terrain.py tests/test_turn_events.py tests/test_diff_core.py -q -p no:cacheprovider
+        tests/test_rust_terrain.py tests/test_turn_events.py tests/test_diff_core.py \
+        tests/test_delayed_shroud.py -q -p no:cacheprovider
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
     box_mark "$BOX_STATE/TESTED"
 fi

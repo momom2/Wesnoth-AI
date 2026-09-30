@@ -99,7 +99,12 @@ impl GameCore {
         }
         let k = match self.pop_choice() {
             Some(v) if v >= 0 && (v as usize) < targets.len() => v as usize,
-            Some(_) => 0,
+            Some(v) => {
+                crate::effects::warn_once(format!(
+                    "advancement choice {v} is outside the {} options of {}; the first is taken",
+                    targets.len(), u.name));
+                0
+            }
             None if targets.len() > 1 && self.global.advance_uniform => self.draw_uniform_advance(targets.len()),
             None => 0,
         };

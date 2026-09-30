@@ -3379,6 +3379,26 @@ It runs when
   `if(active && !current_team.auto_shroud_updates()) {` /
   `resources::undo_stack->commit_vision();` (`:373-374`).
 
+An event handler that leaves undo disabled makes its action final too.
+A WML handler runs with undo disabled unless it re-enables it
+(`context::scoped evc(impl_->contexts_);`, `src/game_events/pump.cpp:219`,
+with `scoped(..., bool m = true)` at `:78`); a Lua `on_event` handler
+starts undoable (`wesnoth.experimental.game_events.set_undoable(true)`,
+`data/lua/on_event.lua:35`). A move reads it through
+`wml_undo_disabled_ |= std::get<0>(pump_res);` (`move.cpp:793`) after
+`post_wml(resources::game_events->pump().fire("moveto", final_loc, *begin_));`
+(`:1059`), a `[fire_event]` through `if(!undoable || synced_context::undo_blocked()) {` /
+`resources::undo_stack->clear();` (`synced_commands.cpp:344-345`). In our
+games this is the Plan Unit Advance modification
+(`active_mods="plan_unit_advance"`): its `moveto` handler ends with
+`wesnoth.allow_undo(false)` on the first move of each side turn of a
+player side (`data/modifications/pick_advance/main.lua:209-225`, the flag
+set by its "turn refresh" handler, `:204-206`), and its Plan Advancement
+menu item is a WML `[command]` without `[allow_undo]` (`:8-21`). An attack
+whose handler found both units has cleared the stack before its first
+draw (`resources::undo_stack->clear();`, `synced_commands.cpp:228`), so an
+attack a disconnect aborted before the draw commits as well.
+
 The recalculations at a side's turn start and end and for a defender
 after a fight ignore the switch
 (`* This function ignores the "delayed shroud updates" setting.`,
@@ -3406,7 +3426,9 @@ exerts none. In the observation review's sample of 700 corpus games
 **Implemented by** `wesnoth_ai/delayed_shroud.py`, the hooks in
 `tools/replay_dataset._apply_command` and the Rust core's
 `core_shroud.rs`; the extractor keeps `["auto_shroud", 0|1]` and
-`["update_shroud"]` (extraction version 4) and a save's `[side]
-auto_shroud=`; a mid-game start hands a delaying side to the policy with
+`["update_shroud"]` (extraction version 4), a save's `[side]
+auto_shroud=`, whether the Plan Unit Advance modification is active
+(`plan_unit_advance`) and each of its menu events (`["menu_item",
+"pickadvance"]`); a mid-game start hands a delaying side to the policy with
 `[auto_shroud] active=yes` at its first turn (`WesnothSim._begin_side_turn`).
 Pinned by tests/test_delayed_shroud.py.

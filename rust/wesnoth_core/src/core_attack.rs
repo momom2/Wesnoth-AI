@@ -295,9 +295,17 @@ impl GameCore {
         self.advance_choices.extend(choices);
         let (a, d) = match (self.unit_at(ax, ay), self.unit_at(dx, dy)) {
             (Some(a), Some(d)) => (a, d),
-            _ => return Ok(None),
+            _ => {
+                crate::effects::warn_once(format!(
+                    "{}: an attack from ({ax}, {ay}) on ({dx}, {dy}) misses a unit; the command is skipped",
+                    self.game_id));
+                return Ok(None);
+            }
         };
         if !has_seed {
+            // Aborted before its first draw; the engine's handler has already
+            // cleared the stack (synced_commands.cpp:228).
+            self.clear_undo_stack();
             return Ok(None);
         }
         let out = self.attack(py, a, d, a_weapon, d_weapon, &mut Mt19937::new(seed, 0))?;

@@ -859,6 +859,8 @@ def _build_initial_gamestate(data: dict) -> GameState:
                          if not s.get("auto_shroud", True))
     if delaying:
         setattr(gs.global_info, delayed_shroud.SHROUD_DELAYED, delaying)
+    if data.get("plan_unit_advance"):
+        setattr(gs.global_info, delayed_shroud.PLAN_UNIT_ADVANCE, True)
     setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
     setattr(gs.global_info, "_experience_modifier", exp_mod)
     # The sides beyond the players that take turns and those that never
@@ -1569,6 +1571,8 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
         elif isinstance(choice, str) and choice in targets:
             new_type = choice
         else:
+            log.warning("advancement choice %r is outside the %d options of %s; the first is taken",
+                        choice, len(targets), u.name)
             new_type = targets[0]
     elif len(targets) > 1 and getattr(gs.global_info,
                                       "_advance_uniform", False):
@@ -1882,7 +1886,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if side == 1 and gs.global_info.turn_number >= 1:
             _fire_turn_events(gs, turn_end_event_names(gs.global_info.turn_number))
         gs.global_info.current_side = side
-        delayed_shroud.reset_pending(gs)
+        delayed_shroud.new_side_turn(gs)
         # Per-turn rejection history clears at init_side. Per the
         # legality-mask contract (CLAUDE.md): rejection history is
         # part of the OBSERVABLE STATE and is scoped to the current
@@ -2227,6 +2231,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                     unit = u
                     break
         if unit is None:
+            log.warning("%s: a move from (%d, %d) finds no unit of side %s there; the command is skipped",
+                        gs.game_id, sx, sy, from_side)
             return
         # Execute the recorded/planned path with the shared
         # Wesnoth-faithful walk (tools/pathfind_sim.walk_move_path):
@@ -2275,6 +2281,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 delayed_shroud.defer_vision(gs, unit, [(sx, sy)])
             if undo_blocked:
                 delayed_shroud.clear_undo_stack(gs)
+            delayed_shroud.after_move(gs)
             return
         tx, ty = xs[out.final_idx], ys[out.final_idx]
         new_statuses = set(unit.statuses)
@@ -2295,6 +2302,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             _capture_village(gs, tx, ty, moved.side)
         if undo_blocked:
             delayed_shroud.clear_undo_stack(gs)
+        delayed_shroud.after_move(gs)
         return
 
     if kind == "auto_shroud":
@@ -2303,6 +2311,10 @@ def _apply_command(gs: GameState, cmd: list) -> None:
 
     if kind == "update_shroud":
         delayed_shroud.apply_update_shroud(gs)
+        return
+
+    if kind == "menu_item":
+        delayed_shroud.apply_menu_item(gs)
         return
 
     if kind == "pickadvance":
@@ -2371,6 +2383,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         att = _find_unit_at(gs, ax, ay)
         dfd = _find_unit_at(gs, dx, dy)
         if att is None or dfd is None:
+            log.warning("%s: an attack from (%d, %d) on (%d, %d) misses a unit; the command is skipped",
+                        gs.game_id, ax, ay, dx, dy)
             return
 
         # Disconnect-mid-attack handling: if the recorded [attack]
@@ -2387,6 +2401,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # (~2/500 replays in our corpus), so the conservative skip
         # only affects this disconnect class.
         if not seed_hex:
+            # Aborted before its first draw; the engine's handler has
+            # already cleared the undo stack (synced_commands.cpp:228).
+            delayed_shroud.clear_undo_stack(gs)
             return
         track_side(gs, att.side)
         track_side(gs, dfd.side)

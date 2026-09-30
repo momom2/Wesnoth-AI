@@ -100,9 +100,9 @@ def test_effective_view_from_checkpoint_dummy_random_and_child_peek(tmp_path):
     assert g._effective_terrain(fresh, None) == "set"
     assert g._effective_terrain(old, None) == "class"
 
-    assert _checkpoint_flags("dummy") == ("full", "class")
-    assert _checkpoint_flags("random") == ("full", "set")
-    assert _checkpoint_flags(old) == ("relset", "class")
+    assert _checkpoint_flags("dummy") == ("full", "class", 0)
+    assert _checkpoint_flags("random") == ("full", "set", 0)
+    assert _checkpoint_flags(old) == ("relset", "class", 0)
     assert _checkpoint_terrain(fresh) == "set" and _checkpoint_basis(fresh) == "full"
 
     class _Args:

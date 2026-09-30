@@ -497,14 +497,17 @@ def _state_content(gs: "GameState") -> tuple:
 
 
 def _shroud_content(gs: "GameState") -> tuple:
-    """The sides that delay their shroud updates and the vision awaiting a
-    commit (`wesnoth_ai.delayed_shroud`); empty when no side delays, so
-    every other state keeps its key and digest."""
-    delayed = tuple(sorted(int(s) for s in (getattr(gs.global_info, "_shroud_delayed", None) or ())))
-    pending = tuple(getattr(gs.global_info, "_pending_vision", None) or ())
-    if not delayed and not pending:
-        return ()
-    return (delayed, pending)
+    """The sides that delay their shroud updates, the vision awaiting a
+    commit, and the Plan Unit Advance modification's first-move flag
+    (`wesnoth_ai.delayed_shroud`); empty when no side delays and the
+    modification is off, so every other state keeps its key and digest."""
+    gi = gs.global_info
+    delayed = tuple(sorted(int(s) for s in (getattr(gi, "_shroud_delayed", None) or ())))
+    pending = tuple(getattr(gi, "_pending_vision", None) or ())
+    out: tuple = (delayed, pending) if delayed or pending else ()
+    if getattr(gi, "_plan_unit_advance", False):
+        out += (("plan_unit_advance", bool(getattr(gi, "_pa_fresh_turn", False))),)
+    return out
 
 
 def state_key(gs: "GameState") -> int:

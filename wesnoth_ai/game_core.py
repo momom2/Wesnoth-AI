@@ -50,7 +50,7 @@ MODELED_GLOBALS = (
     "_next_uid_counter", "_rng_request_counter", "_advance_choices", "_pickadvance_game",
     "_did_first_init_side", "_last_move_walk", "_last_checkup_strikes", "_last_advance_events",
     "_advance_uniform", "_advance_salt", "_advance_counter", "_fog_cleared",
-    "_shroud_delayed", "_pending_vision",
+    "_shroud_delayed", "_pending_vision", "_plan_unit_advance", "_pa_fresh_turn",
 )
 # The unit underscore attributes the state comparison checks; the core
 # also keeps `_object_effects` (WML nodes) and `_ai_guardian`.
@@ -65,8 +65,9 @@ SIGHT_RECORDS = ("_sightings", "_seen_types")
 # The players' sides, the ones that keep a sighting record.
 _RECORD_SIDES = (1, 2)
 # The wheel phase this adapter reads: 23 keeps the sighting records and
-# builds the parity observation, 24 delays a side's shroud updates.
-_CORE_PHASE = 24
+# builds the parity observation, 24 delays a side's shroud updates, 25 adds
+# the Plan Unit Advance modification's undo blocks.
+_CORE_PHASE = 25
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -460,9 +461,11 @@ class CoreState:
             strikes.append({"dies": bool(flat[k + 3])})
         gi._last_checkup_strikes = strikes or None
         gi._fog_cleared = {side: frozenset(map(tuple, hexes)) for side, hexes in core.fog_cleared_export()}
-        delayed, pending = core.shroud_state_export()
+        delayed, pending, plan_unit_advance, fresh_turn = core.shroud_state_export()
         gi._shroud_delayed = frozenset(delayed)
         gi._pending_vision = tuple(_pending_row(r) for r in pending)
+        gi._plan_unit_advance = bool(plan_unit_advance)
+        gi._pa_fresh_turn = bool(fresh_turn)
         gi._sightings = {side: tuple(core.sightings_export(side)) for side in _RECORD_SIDES}
         gi._seen_types = {side: tuple(core.seen_types_export(side)) for side in _RECORD_SIDES}
         self._events_into(gi)
@@ -569,6 +572,9 @@ class CoreState:
             return "rust"
         if kind == "update_shroud":
             self.core.apply_update_shroud()
+            return "rust"
+        if kind == "menu_item":
+            self.core.apply_menu_item(str(cmd[1]) if len(cmd) > 1 else "")
             return "rust"
         if kind == "pickadvance":
             self.core.apply_pickadvance(int(cmd[1]), int(cmd[2]), str(cmd[3] or ""), str(cmd[4] or ""),
@@ -802,7 +808,9 @@ class CoreState:
         core.set_last_checkup_strikes(flat)
         core.set_fog_cleared(_fog_cleared_rows(gi))
         core.set_shroud_state(sorted(int(s) for s in (getattr(gi, "_shroud_delayed", None) or ())),
-                              [_pending_row(r) for r in (getattr(gi, "_pending_vision", None) or ())])
+                              [_pending_row(r) for r in (getattr(gi, "_pending_vision", None) or ())],
+                              bool(getattr(gi, "_plan_unit_advance", False)),
+                              bool(getattr(gi, "_pa_fresh_turn", False)))
 
 
 def _log_core_warnings() -> None:

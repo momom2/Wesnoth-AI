@@ -58,6 +58,7 @@ from tools.eval_provenance import LEGACY_FORCED_FACTION, bases_of, terrain_views
 ESTIMAND_DEFAULTS = {
     "basis_a": "full", "basis_b": "full",
     "terrain_a": "class", "terrain_b": "class",
+    "memory_a": None, "memory_b": None,
     "mcts_batch": 1,
     "infer_bf16": False, "infer_compile": False,
     "shared_inference": False, "infer_packed_trunk": False,

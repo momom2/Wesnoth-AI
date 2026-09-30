@@ -14,7 +14,12 @@ and the fog is cleared from all of them at the next commit:
                             active=yes` while delayed
                             (`undo_list::commit_vision`).
 
-An advancement on the delaying side's own turn clears nothing.
+An advancement on the delaying side's own turn clears nothing. In a game
+with the Plan Unit Advance modification its handlers make two more actions
+final: the first move of each side turn (its `moveto` handler calls
+`wesnoth.allow_undo(false)`, data/modifications/pick_advance/main.lua) and
+each Plan Advancement menu event (a WML command, which runs with undo
+disabled); `after_move` and `apply_menu_item`.
 
 State, on `global_info` and replaced rather than mutated (search forks
 share it): `_shroud_delayed`, the frozenset of sides that delay, and
@@ -36,6 +41,8 @@ log = logging.getLogger("delayed_shroud")
 
 SHROUD_DELAYED = "_shroud_delayed"
 PENDING_VISION = "_pending_vision"
+PLAN_UNIT_ADVANCE = "_plan_unit_advance"       # the modification is on
+PA_FRESH_TURN = "_pa_fresh_turn"               # the side turn has not moved yet
 
 Hex = Tuple[int, int]
 
@@ -138,8 +145,29 @@ def apply_update_shroud(state: GameState) -> None:
     commit_vision(state)
 
 
-def reset_pending(state: GameState) -> None:
+def apply_menu_item(state: GameState) -> None:
+    """A menu item's event: its WML command runs with undo disabled, so the
+    `[fire_event]` synced command clears the stack
+    (synced_commands.cpp:337-345)."""
+    clear_undo_stack(state)
+
+
+def after_move(state: GameState) -> None:
+    """After a move: with the Plan Unit Advance modification the side
+    turn's first move is final (the `moveto` handler fires at move.cpp:1059,
+    before :1070-1079 read undo_blocked), which commits the stack, this
+    move's entry included."""
+    if getattr(state.global_info, PA_FRESH_TURN, False):
+        setattr(state.global_info, PA_FRESH_TURN, False)
+        clear_undo_stack(state)
+
+
+def new_side_turn(state: GameState) -> None:
     """A side's turn starts with an empty undo stack
-    (`undo_list::new_side_turn`, undo.cpp:243-262)."""
+    (`undo_list::new_side_turn`, undo.cpp:243-262) and, with the Plan Unit
+    Advance modification, its first move still to come (the modification's
+    "turn refresh" handler)."""
     if pending_vision(state):
         setattr(state.global_info, PENDING_VISION, ())
+    if getattr(state.global_info, PLAN_UNIT_ADVANCE, False):
+        setattr(state.global_info, PA_FRESH_TURN, True)

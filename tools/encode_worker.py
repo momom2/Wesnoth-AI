@@ -100,6 +100,22 @@ def label_slot_mismatch(raw, ai) -> Optional[str]:
     return None
 
 
+def label_in_raw_basis(ai, raw):
+    """`ai`, built in the full-board basis, with its target re-indexed
+    into `raw`'s own hex tokens: the encoding decides the hex basis (the
+    relevant set version 2 is built by the Rust core only), so the label
+    follows the tokens instead of enumerating them a second time. A target
+    hex without a token keeps the pair with `target_off_subset`, as the
+    relevant-set label builder does. Units and recruits are enumerated the
+    same way in every basis."""
+    import dataclasses
+    if ai.target_hex is None or ai.target_idx is None:
+        return ai
+    tokens = {(p.x, p.y): i for i, p in enumerate(raw.hex_positions)}
+    idx = tokens.get(tuple(ai.target_hex))
+    return dataclasses.replace(ai, target_idx=idx, target_off_subset=idx is None)
+
+
 def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                 relevant_set: bool, fog_hides_enemy_villages: bool = False,
                 terrain_multi_hot: bool = False, stats: Optional[Counter] = None) -> List:

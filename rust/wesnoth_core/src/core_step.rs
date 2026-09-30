@@ -151,6 +151,7 @@ impl GameCore {
         self.global.current_side = side;
         self.recruit_rejected = vec![0; self.map.h];
         self.pending_vision.clear();            // undo_list::new_side_turn, undo.cpp:243-262
+        self.pa_fresh_turn = self.plan_unit_advance;    // pick_advance's "turn refresh" handler
         if side == 1 {
             self.global.turn_number += 1;
             self.global.time_of_day = TOD_NAMES[self.tod_index(self.global.turn_number)].to_string();

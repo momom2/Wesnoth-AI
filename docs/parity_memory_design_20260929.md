@@ -162,7 +162,9 @@ hidden enemy units whose hex has no token.
   player-side and plague corrections already in the code. Version 3 also
   applies without pairing the moves the engine makes for standing orders
   at a turn start, and leaves out every game with shroud (user ruling
-  2026-09-30: our games do without it).
+  2026-09-30: our games do without it). Version 4 keeps a player's delayed
+  shroud updates, so a side that delays sees the fog it has committed
+  (docs/wesnoth_rules.md "Delayed shroud updates").
 - **Pre-encoding:** every decision of both player sides, in order, per
   game, with the flag on; beside each pair its side, whether it is a value
   state, and the belief targets (the hex-token indices of hidden enemy
@@ -194,7 +196,8 @@ hidden enemy units whose hex has no token.
   loss, and the belief loss of a last-seen baseline (the probability that a
   hidden unit stands where the side last saw it, the rest spread evenly;
   both rates fitted on training streams). Every 500,000 positions and at
-  the end.
+  the end. `obs8`'s side of the pre-registered "recipe broke" barrier is
+  `tools/holdout_ce.py` over the same holdout decisions.
 - **Resume** continues the pass exactly: the checkpoint holds each stream's
   game-side, offset, `k` and carried memory.
 - **Telemetry:** the signal probe of `supervised_train` (each loss's share
@@ -320,14 +323,23 @@ in the encoder `sight_feat_proj` (Linear 2 to d) beside the widened
 `unit_feat_proj`, `dynamic_flag_proj`, `global_proj`, `terrain_embed` and
 `side_embed`.
 
+**Carried.** The raw player (`tools/raw_player.RawPolicyPlayer`) keeps
+each side's state per game and hands it to every forward as a
+`wesnoth_ai.memory.MemoryState` (its slot count, and the state its previous
+decision wrote, None at the first); the model starts a None state from its
+learned initial memory. Through the shared inference server the one-buffer
+wire (`wesnoth_ai/leaf_wire.py`) carries the parity streams and the state,
+the server forwards each leaf with its own, and each reply carries the new
+state. `tools/elo_eval_game.py` and `tools/run_elo_batch.py` take
+`--memory-a/-b` (default: all of the checkpoint's slots) and record
+`memory_a`/`memory_b`, an estimand field guarded per outdir.
+
 **Not yet carried.** MCTS (`MCTSPolicy` and its subclasses,
 `mcts_search`), turn search (`plan_turn`), the self-play pool (`ActorPool`,
 so `az_loop`, `sim_self_play`'s pool and `actor_stream`) and the graphed
 server refuse a memory model; the graphed server refuses the parity
-observation too. `TransformerPolicy.select_action` and the inference
-server's paths pass no memory, and the model refuses a forward without
-it. `GameStateEncoder.raw_of` raises for the parity observation and the
-relevant set version 2 until `encode_raw` can build them.
+observation too. `TransformerPolicy.select_action` passes no memory, and
+the model refuses a forward without it.
 
 ## Rejected
 

@@ -39,7 +39,7 @@ def units_equal(a: Unit, b: Unit) -> bool:
 def _normalized_global(k: str, va, vb):
     """The two values of a modeled global in comparable form (the Python
     applier and the core spell an unset value differently)."""
-    if k in ("_advance_uniform", "_did_first_init_side", "_fog"):
+    if k in ("_advance_uniform", "_did_first_init_side", "_fog", "_plan_unit_advance", "_pa_fresh_turn"):
         return bool(va), bool(vb)
     if k in ("_tod_start_offset", "_rng_request_counter", "_advance_counter"):
         return int(va or 0), int(vb or 0)

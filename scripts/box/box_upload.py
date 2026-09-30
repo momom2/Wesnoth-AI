@@ -172,12 +172,17 @@ class Round:
         self.current: dict[str, list] = {}
         self.failed: list[str] = []
         self.sent = self.unchanged = 0
+        # --restore and --clear also print their lines: the library sends
+        # their output to restore.log, which its failure reasons name.
+        self.echo = False
 
     # ---- logging and state
     def log(self, line: str) -> None:
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with open(self.out / LOG_NAME, "a", encoding="utf-8") as fh:
             fh.write(f"{stamp} {line}\n")
+        if self.echo:
+            print(f"{stamp} {line}", flush=True)
 
     def mark_landed(self, name: str, key: list) -> None:
         self.landed[name] = key
@@ -422,12 +427,14 @@ def main(argv=None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     token = os.environ.get("HF_TOKEN", "").strip()
     probe = Round(args.out, hf_dir or "-", None)
+    probe.echo = bool(args.clear or args.restore)
     if not hf_dir or not token:
         probe.log("no upload: " + ("--hf-dir is empty" if not hf_dir else "HF_TOKEN is not set"))
         return 1
     try:
         api = make_api(token)
         work = Round(args.out, hf_dir, api, spec=read_spec(args.spec), budget_s=args.budget_s)
+        work.echo = probe.echo
         if args.clear:
             return 0 if work.clear(args.clear) else 1
         if args.restore:
