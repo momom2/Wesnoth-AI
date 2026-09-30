@@ -29,7 +29,7 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | id | finding | disposition |
 |---|---|---|
 | L1 | Moves the engine runs at a side's turn start for multi-turn orders (`execute_gotos`, before the player's input) are trained as decisions: 494 of 86,650 player moves in 500 games (0.57%) | retrain: corpus v3 marks them as the engine's, not the player's; applied, never paired (owner: main session) |
-| L2 | A turn that ran out of time is trained as an end_turn decision: 17 of 1,430 side turns (1.2%) in 350 games, where the timer settings make it detectable; undetectable when the reservoir caps the recorded time (the most common setting) | retrain: corpus v3 marks the detectable ones; the rest is **accepted** pending the user |
+| L2 | A turn that ran out of time is trained as an end_turn decision: 17 of 1,430 side turns (1.2%) in 350 games, where the timer settings make it detectable; undetectable when the reservoir caps the recorded time (the most common setting) | retrain: corpus v3 marks the detectable ones, and their positions carry the TIMEOUT label, which names no action (user decision 2026-09-30; `feature/corpus-v3` 1ccbb40); the undetectable rest (about 0.2-0.3% of end_turn labels) stays end_turn |
 
 ## Training against play
 
@@ -63,7 +63,7 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | O3 | Recruit rows read has-attacked 0 where a fresh recruit has no attacks left | retrain (owner: observation builder) |
 | O4 | = I3 | |
 | O5 | The village bit comes from a modifier no Ladder map sets: an unowned water village reads as water in every state (wider than the parity census's gap 8) | retrain: the static bit from the terrain (owner: observation builder) |
-| O6 | Shroud is treated as fog, so the terrain of never-explored hexes shows (89 games with shroud) | **accepted** pending the user: public maps, the reasoning of the statues ruling |
+| O6 | Shroud is treated as fog, so the terrain of never-explored hexes shows (89 games with shroud) | fixed, `fix/no-shroud` 9f3fc13 (user ruling 2026-09-30: every shroud game is quarantined; the scenario builder refuses shroud) |
 
 ## The match harness
 
@@ -74,7 +74,7 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | M3 | The approved `obs8` self-pin is in no box script | retrain: match 4 of the pre-registration |
 | M4 | The reference checkpoint is named by path only | fixed, 8ee2934 (pinned by SHA-256; the model host's copy agrees) |
 | M5 | A side's 2,000-action cap is a second, unrecorded horizon | fixed, 8ee2934 (recorded, refused on resume when changed) |
-| M6 | `--compile-packed` with shared inference records a value the resume and the fit refuse | **accepted** pending the user: used by one old profiling script only |
+| M6 | `--compile-packed` with shared inference records a value the resume and the fit refuse | fixed, `fix/compile-packed-provenance` 45ac777 (the driver reads the server's setting) |
 | M7 | Results lack each side's faction and leader (the pre-registration reads p by faction), the unplayed turns, the code version and the core switch | fixed, 8ee2934; each checkpoint's training epoch is still only in the server log |
 | M8 | The retrain script re-derives the reference instead of taking the config's flags | retrain: the new script takes `reference_player.py --flags` |
 

@@ -159,11 +159,19 @@ hidden enemy units whose hex has no token.
   corrections, docs/corpus_v2_20260926.md, plus each side's `chose_random`
   and the era, which the faction prior needs), the fresh vocabulary of
   190 unit types (docs/unit_vocab_retrain_prereg_20260925.md), the
-  player-side and plague corrections already in the code.
+  player-side and plague corrections already in the code. Version 3 also
+  applies without pairing the moves the engine makes for standing orders
+  at a turn start, and leaves out every game with shroud (user ruling
+  2026-09-30: our games do without it).
 - **Pre-encoding:** every decision of both player sides, in order, per
   game, with the flag on; beside each pair its side, whether it is a value
   state, and the belief targets (the hex-token indices of hidden enemy
-  units) in a structure of their own, never in `RawEncoded`.
+  units) in a structure of their own, never in `RawEncoded`. A turn that
+  ran out of time keeps its last position with the TIMEOUT label (user
+  decision 2026-09-30): the memory, value and belief losses see it, the
+  policy has no target there. Training and eval games have no turn timer
+  (the simulator has none; clock play is not part of what the policy
+  learns, user ruling 2026-09-30).
 - **Streams:** each game gives two streams, one per side. 32 streams run
   side by side; each optimizer step unrolls 16 decisions of each (512
   positions), back-propagates through the memory across them, and carries
