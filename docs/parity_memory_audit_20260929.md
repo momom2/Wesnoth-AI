@@ -90,6 +90,25 @@ retrain, owner named), **queued** (a fix to land before the box), and
 | X6 | The corpus rebuild's default raw tarball is not on the model host | retrain script: `tier-b/corpus_v3/raw_corpus_20260929.tar`, uploaded 2026-09-29 |
 | X7 | Smaller: offers show no memory column; `pull_box_records` skips a same-size rewrite; the onstart's first installs have no timeout; `is_absent` matches exception names; failures point at an empty `restore.log` | queued, low |
 
-## Still running
+## The certification's power (done 2026-09-30, by the main session)
 
-The certification's power; the core binding.
+Four faults planted one at a time on one corpus game (a defender's hit
+points on the applier's side, a village owner in the core's views, a unit
+feature in the Python encoder, the defender's weapon choice) are each
+flagged; the unplanted run is clean; a tampered engine answer fails the
+oracle step with exit 1.
+
+| id | finding | disposition |
+|---|---|---|
+| P1 | The applier reached the same Rust combat, reach, observation and encoding kernels as the core, so those rules were compared with themselves | fixed, `fix/certify-independent` b0fe050 (the sweep runs the applier with the kernels off, measured at no extra time; diff_core prints which kernels it ran on) |
+| P2 | The engine oracle's replay compared only the recorded cases still in today's list, so renamed cases shrank it silently | fixed, b0fe050 (a missing case fails the step) |
+
+## The core binding (done 2026-09-30, by the main session)
+
+`core_of` holds a weak reference and checks identity, so a reused object id
+cannot inherit an old binding; every write the simulator makes to its state
+goes through the core when it has one; `WesnothSim.fork` forks the core.
+
+| id | finding | disposition |
+|---|---|---|
+| K1 | A search fork lacked the refusal counters M1 added (the fork is built without `__init__`), so a refusal inside a search fork raised | fixed, `fix/fork-refusal-state` edb6ca9 |
