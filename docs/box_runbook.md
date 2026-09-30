@@ -51,15 +51,18 @@ are records of the runs they ran.
 2. The script sources the library, bounds every step from those estimates,
    sets `BOX_MAX_H`, the dead-man's switch, at 1.5 to 2 times the
    estimated box-hours, and declares what it needs of the box in a
-   `# box-needs: disk_gb=N ram_gb=M` line.
+   `# box-needs: disk_gb=N ram_gb=M gpu_ram_gb=G cores=C` line (gigabytes
+   of 1,000 MB; any key may be left out).
 3. A green CI run on the commit to stage: `gh run list --branch BRANCH --limit 1`.
 4. The user's explicit yes, given the box's specs, its price, the estimate
    and the account balance. `rent_box.py create --hours H` refuses when the
    funds do not cover the run's longest possible time at the offer's price
    (1.5 x H hours, or the script's `BOX_MAX_H` plus 1.5 hours for the final
    round and the stop, whichever is longer), when the offer leaves the
-   market within that time, when `--disk` or the offer's memory is under
-   the script's `box-needs`, or when the script's `RAW_TAR` is not on HF.
+   market within that time, when `--disk` or the offer's memory, GPU
+   memory or cores are under the script's `box-needs`, or when the
+   script's `RAW_TAR` is not on HF; it prints the offer's class and warns
+   when other instances on the account draw on the same funds.
    Vast stops an instance when the balance crosses -$0.01 (2026-09-24: a
    run lost at 3.5 h of 6).
 
@@ -87,9 +90,11 @@ name) unless `--replace`.
 What `rent_box.py create` sets going, for a script on the library:
 
 1. The onstart installs huggingface_hub, fetches `box_onstart.sh` from the
-   stage's library folder, writes the token file, and starts
-   `bash /workspace/box_onstart.sh SCRIPT LIBRARY_FOLDER` detached; its
-   output, then the script's, goes to `/workspace/onstart_script.log`.
+   stage's library folder (three attempts), writes the token file, and
+   starts `bash /workspace/box_onstart.sh SCRIPT LIBRARY_FOLDER` detached;
+   its output, then the script's, goes to `/workspace/onstart_script.log`.
+   With no copy on the disk after the attempts, the onstart stops the
+   instance itself through Vast's API with the instance's own key.
 2. `box_onstart.sh` fetches `box_stop.py` first, then the rest of the
    library into `/workspace/box/`, then the stage's copy of the script,
    and becomes the script. A file that does not arrive but that an earlier
@@ -99,9 +104,10 @@ What `rent_box.py create` sets going, for a script on the library:
    nothing on the box can stop it, and the laptop must (see Watching). The
    onstart log is appended to, so an earlier entry's errors stay.
 3. `box_init` takes the entry lock (one entry per records directory),
-   installs the traps, starts the dead-man's switch (its deadline is
-   `BOX_MAX_H` after the stage's first entry on this machine, so a
-   container that keeps restarting gets no new one), reads the token,
+   installs the traps, starts the dead-man's switch (it charges the
+   stage's running time on this machine and fires after `BOX_MAX_H` of
+   it: a container that keeps restarting gets no new allowance, and hours
+   spent stopped are not charged), reads the token,
    deletes the previous entry's `ALL_DONE` and `FAILED` here and on HF, and
    restores `status.txt`, `stages.txt` and `walls.txt` when this machine
    lacks them. HF unreachable at this point finishes the entry.
@@ -142,7 +148,10 @@ script is fetched from `tier-b/staging/` and run.
   and stop the box if its bring-up failed.
 - A job past 1.5 x its estimate is inspected and cut
   (`rent_box.py stop ID`), not waited on. The dead-man's switch finishes
-  the entry at `BOX_MAX_H` in any case.
+  the entry at `BOX_MAX_H` in any case. A step that outlives its KILL (a
+  process stuck in the GPU driver after a device fault) is abandoned
+  `BOX_UNKILLABLE_S` later, with `unkillable` in `walls.txt`, so the entry
+  can finish and stop the instance.
 
 ## Recovery
 
