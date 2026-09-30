@@ -45,7 +45,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.encoder import EncodedState
-from wesnoth_ai.memory import SlotMemory
+from wesnoth_ai.memory import MemoryState, SlotMemory
 from wesnoth_ai.model_output import (
     MAX_ATTACKS, VALUE_N_ATOMS, VALUE_V_MAX, VALUE_V_MIN, ActorKind, ModelOutput,
     PaddedOutput, TokenKind, UnitActionType,
@@ -254,11 +254,15 @@ class WesnothModel(nn.Module):
         return g + self.material_proj(material.to(g.dtype) / MATERIAL_SCALE)
 
     def forward(self, encoded: "EncodedState",
-                memory: Optional[torch.Tensor] = None) -> ModelOutput:
+                memory: Optional[object] = None) -> ModelOutput:
         """One state's outputs. `memory`: the side's memory state, float32
-        [k, d], required by a model with memory slots; the output's
-        `memory` is the state after this decision. A model reading the
-        parity-memory streams runs the batched path with one sample."""
+        [k, d], or a `MemoryState` (a player's: None state for the
+        game-side's first decision), required by a model with memory
+        slots; the output's `memory` is the state after this decision. A
+        model reading the parity-memory streams runs the batched path with
+        one sample."""
+        if isinstance(memory, MemoryState):
+            memory = self.initial_memory(memory.k) if memory.state is None else memory.state
         if self.extended_streams:
             states = None if memory is None else [memory]
             return self.forward_padded([encoded], memory=states).sample(0)

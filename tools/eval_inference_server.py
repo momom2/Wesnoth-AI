@@ -388,7 +388,7 @@ class EvalInferenceClient:
         if not items:
             return []
         if not all(isinstance(it, tuple) for it in items):
-            raise TypeError("expected (RawEncoded, PackedMasks) pairs")
+            raise TypeError("expected (RawEncoded, PackedMasks) pairs, or triples with a MemoryState")
         from tools.inference_seam import output_from_wire
         from wesnoth_ai.leaf_wire import pack_request
         rid = self._rid
@@ -701,6 +701,11 @@ def main(argv: List[str]) -> int:
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),
+        # The parity-memory recipe's structure: what a worker's encoder must
+        # build and how many slots a player's memory may use.
+        "observation_parity": bool(getattr(encoder, "observation_parity", False)),
+        "relevant_set_version": int(getattr(encoder, "relevant_set_version", 1)),
+        "memory_slots": int(getattr(model, "memory_slots", 0) or 0),
         "type_to_id": dict(encoder.unit_type_to_id),
         "faction_to_id": dict(encoder.faction_to_id),
     }

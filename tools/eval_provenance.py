@@ -77,6 +77,44 @@ def terrain_refusal(name: str, record: dict, want: Tuple[str, str]) -> Optional[
             f"refusing to mix. Use a fresh outdir.")
 
 
+# The memory (2026-09-30): the slots a side's player reads and writes, the
+# checkpoint's (or its server's) slot count unless --memory-a/-b asks for
+# fewer; None for a model without a memory, every checkpoint before the
+# parity-memory recipe. One checkpoint plays at several sizes, so it is an
+# estimand field like the basis: recorded per side, never mixed within an
+# outdir, compared between dirs by the catalog.
+def effective_memory(slots: int, flag: Optional[int]) -> Optional[int]:
+    """The memory slots a player uses: None for a model without a memory
+    (its flag must be absent or 0), else `slots`, or `flag` when given
+    (0 <= flag <= slots). Raises ValueError otherwise."""
+    if int(slots) <= 0:
+        if flag not in (None, 0):
+            raise ValueError(f"--memory {flag} for a model without a memory")
+        return None
+    if flag is None:
+        return int(slots)
+    if not 0 <= int(flag) <= int(slots):
+        raise ValueError(f"--memory {flag} for a memory of {slots} slots")
+    return int(flag)
+
+
+def memories_of(record: dict) -> Tuple[Optional[int], Optional[int]]:
+    """(memory_a, memory_b) of a result file; files from before the field
+    existed played models without a memory."""
+    return (record.get("memory_a"), record.get("memory_b"))
+
+
+def memory_refusal(name: str, record: dict, want: Tuple[Optional[int], Optional[int]]) -> Optional[str]:
+    """The refusal to keep `record` in an outdir whose players use the
+    `want` memory sizes; None when they agree."""
+    got = memories_of(record)
+    if got == tuple(want):
+        return None
+    return (f"{name} was played with memories (a={got[0]}, b={got[1]}) but this run "
+            f"plays (a={want[0]}, b={want[1]}): the memory's size changes the player, "
+            f"refusing to mix. Use a fresh outdir.")
+
+
 # Which checkpoint each side played (2026-09-25): the SHA-256 of the
 # file's bytes, recorded per side in every result file as
 # checkpoint_sha256_a/_b (None for 'dummy' and 'random', which load no
