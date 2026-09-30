@@ -38,11 +38,8 @@ import sys
 import time
 import zlib
 from collections import Counter
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-import numpy as np
+from typing import Dict, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
@@ -50,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from wesnoth_ai import unpickle  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.paths import IMITATION_DATASET_DIR  # noqa: E402
+from wesnoth_ai.sequence_records import GameSequence, SequencePosition  # noqa: E402,F401
 
 log = logging.getLogger("preencode_sequences")
 
@@ -60,23 +58,6 @@ PLAYER_SIDES = (1, 2)
 # The recipe's encoding (docs/parity_memory_design_20260929.md "Model interface").
 ENCODING = {"relevant_set": True, "fog_hides_enemy_villages": True, "terrain_multi_hot": True,
             "observation_parity": True, "relevant_set_version": 2}
-
-
-@dataclass
-class SequencePosition:
-    raw: object                     # RawEncoded, observation left out
-    label: object                   # ActionIndices; action_type "timeout" names no action
-    hidden_tokens: np.ndarray       # int64 [K]: hex tokens holding an enemy unit the side cannot see
-    no_visible_unit: np.ndarray     # bool [H]: hex tokens with no visible unit
-
-
-@dataclass
-class GameSequence:
-    file: str
-    winner: int                     # the winning side
-    n_commands: int
-    sides: Dict[int, List[SequencePosition]] = field(default_factory=dict)
-    counts: Dict[str, int] = field(default_factory=dict)
 
 
 def encoding_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
@@ -124,7 +105,8 @@ def encode_game_sequence(data: dict, file: str, winner: int, type_to_id: Dict[st
         stats["sighting_tokens"] += int(raw.sight_type_ids.shape[0])
         seq.sides[side].append(SequencePosition(
             raw=dataclasses.replace(raw, observation=None), label=ai,
-            hidden_tokens=bt.hidden_tokens, no_visible_unit=bt.no_visible_unit))
+            hidden_tokens=bt.hidden_tokens, no_visible_unit=bt.no_visible_unit,
+            turn=int(gs.global_info.turn_number)))
     after = posterior_counts()
     stats["posteriors"] += after["posteriors"] - before["posteriors"]
     stats["posterior_errors"] += after["inconsistent"] - before["inconsistent"]

@@ -9,10 +9,19 @@ sizes, and report
     ce_winners: the same over the winners' decisions;
   - value_auc: per game, the probability that a winner-to-move position's
     expected value exceeds a loser-to-move one's, averaged over games;
+    value_auc_by_turn: the same-turn AUC by turn bucket, as
+    tools/analysis/value_head_by_phase.py reads it for obs8: at each turn
+    both sides played, whether the winner's first decision of the turn is
+    valued above the loser's, averaged per game in the bucket, then over
+    games;
   - belief: the belief loss per position;
-  - belief_paired: per game-side, the belief loss at the largest size minus
-    at 0 slots, with its standard error across game-sides (the memory's
-    crash barrier reads it).
+  - belief_paired: per game, the belief loss at the largest size minus at
+    0 slots, both sides pooled, with its standard error across games (the
+    memory's crash barrier reads it);
+  - belief_carried: at the largest size, the belief loss with the memory
+    carried minus with the memory reset to its initial state at every
+    decision, per game: what the carried state adds beyond the memory's
+    tokens.
 
 The last-seen baseline scores the belief targets with two rates fitted on
 training game-sides: the chance that a hidden enemy unit stands on a hex
@@ -35,6 +44,8 @@ from wesnoth_ai.sequence_streams import GameSide
 
 # Holdout game-sides stepped side by side in one batch.
 PROBE_BATCH = 48
+# The same-turn AUC's turn buckets (tools/analysis/value_head_by_phase.py).
+TURN_BUCKETS = ((1, 5), (6, 10), (11, 15), (16, 20), (21, 30), (31, 10 ** 6))
 
 
 def _mean_se(xs: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
@@ -118,11 +129,12 @@ def baseline_belief(positions: Sequence, rates: Tuple[float, float]) -> List[flo
 
 def run_side_batch(model, encoder, sides: Sequence[Tuple[GameSide, Sequence]], k: int,
                    device: torch.device, type_loss_weights: Dict[str, float],
-                   autocast_dtype=None) -> Dict[GameSide, Dict[str, list]]:
+                   autocast_dtype=None, reset: bool = False) -> Dict[GameSide, Dict[str, list]]:
     """Game-sides run side by side, whole and in order, at `k` slots:
     per game-side, per position, the policy cross-entropy (None where the
-    turn ran out of time), the expected value and the belief loss."""
-    out = {g: {"ce": [], "value": [], "belief": []} for g, _ in sides}
+    turn ran out of time), the expected value, the belief loss and the turn.
+    With `reset`, every decision reads the initial memory."""
+    out = {g: {"ce": [], "value": [], "belief": [], "turn": []} for g, _ in sides}
     memories = {g: model.initial_memory(k).to(device) for g, _ in sides}
     t = 0
     while True:
@@ -158,7 +170,9 @@ def run_side_batch(model, encoder, sides: Sequence[Tuple[GameSide, Sequence]], k
             out[g]["ce"].append(None if timeout else ce[b])
             out[g]["value"].append(values[b])
             out[g]["belief"].append(bl[b])
-            memories[g] = padded.memory[b].detach() if padded.memory is not None else memories[g]
+            out[g]["turn"].append(int(getattr(positions[b], "turn", 0)))
+            if padded.memory is not None and not reset:
+                memories[g] = padded.memory[b].detach()
         t += 1
 
 
@@ -171,15 +185,17 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
     model.eval()
     encoder.eval()
     results: Dict = {"n_game_sides": len(holdout)}
-    per_k: Dict[int, Dict[GameSide, Dict[str, list]]] = {}
+    per_k: Dict[object, Dict[GameSide, Dict[str, list]]] = {}
+    top = max(ks) if ks else 0
+    runs = [(k, k, False) for k in ks] + ([(f"{top}_reset", top, True)] if top > 0 else [])
     try:
         with torch.no_grad():
-            for k in ks:
-                per_k[k] = {}
+            for key, k, reset in runs:
+                per_k[key] = {}
                 for start in range(0, len(holdout), PROBE_BATCH):
                     chunk = [(g, load(g)) for g in holdout[start:start + PROBE_BATCH]]
-                    per_k[k].update(run_side_batch(model, encoder, chunk, k, device,
-                                                   type_loss_weights, autocast_dtype))
+                    per_k[key].update(run_side_batch(model, encoder, chunk, k, device,
+                                                     type_loss_weights, autocast_dtype, reset=reset))
     finally:
         if was_training:
             model.train()
@@ -203,13 +219,11 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
         _, b_se = _mean_se([_mean_se(r["belief"])[0] for r in sides.values()])
         results[f"k{k}"] = {"ce_all": m_all, "ce_all_se": se_all, "ce_winners": m_win,
                             "value_auc": auc_m, "value_auc_se": auc_se, "belief": b_m,
-                            "belief_se": b_se, "n_positions": len(belief), "n_decisions": len(ce_all)}
-    if len(ks) >= 2 and 0 in per_k:
-        top = max(ks)
-        diffs = [_mean_se(per_k[top][g]["belief"])[0] - _mean_se(per_k[0][g]["belief"])[0]
-                 for g in holdout if per_k[0][g]["belief"]]
-        d_m, d_se = _mean_se(diffs)
-        results["belief_paired"] = {"k": top, "diff": d_m, "se": d_se, "n": len(diffs)}
+                            "belief_se": b_se, "n_positions": len(belief), "n_decisions": len(ce_all),
+                            "value_auc_by_turn": same_turn_auc(sides, winners)}
+    if top > 0 and 0 in per_k:
+        results["belief_paired"] = dict(k=top, **_paired_by_game(per_k[top], per_k[0]))
+        results["belief_carried"] = dict(k=top, **_paired_by_game(per_k[top], per_k[f"{top}_reset"]))
     if rates is not None:
         base = []
         for g in holdout:
@@ -219,10 +233,55 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
     return results
 
 
+def _paired_by_game(a: Dict[GameSide, Dict[str, list]], b: Dict[GameSide, Dict[str, list]]) -> Dict:
+    """Per game, the mean belief loss of `a` minus `b` over both sides'
+    positions; the mean and its standard error across games (the two sides
+    of a game are not independent draws)."""
+    by_game: Dict[str, List[Tuple[List[float], List[float]]]] = defaultdict(list)
+    for g, r in a.items():
+        if r["belief"] and b[g]["belief"]:
+            by_game[g.file].append((r["belief"], b[g]["belief"]))
+    diffs = []
+    for pairs in by_game.values():
+        xa = [x for pa, _ in pairs for x in pa]
+        xb = [x for _, pb in pairs for x in pb]
+        diffs.append(sum(xa) / len(xa) - sum(xb) / len(xb))
+    m, se = _mean_se(diffs)
+    return {"diff": m, "se": se, "n_games": len(diffs)}
+
+
+def same_turn_auc(sides: Dict[GameSide, Dict[str, list]], winners: Dict[str, int]) -> Dict[str, Dict]:
+    """The same-turn AUC per turn bucket: per game and turn where both
+    sides decided, 1 when the winner's first decision of the turn is valued
+    above the loser's (0.5 on a tie), averaged per game within the bucket,
+    then over games, with the standard error between games."""
+    first: Dict[Tuple[str, int], Dict[int, float]] = {}
+    for g, r in sides.items():
+        seen = set()
+        for turn, value in zip(r["turn"], r["value"]):
+            if turn not in seen:
+                seen.add(turn)
+                first.setdefault((g.file, g.side), {})[turn] = value
+    out: Dict[str, Dict] = {}
+    for lo, hi in TURN_BUCKETS:
+        per_game = []
+        for file, winner in winners.items():
+            w, lo_side = first.get((file, winner)), first.get((file, 3 - winner))
+            if not w or not lo_side:
+                continue
+            scores = [1.0 if w[t] > lo_side[t] else 0.5 if w[t] == lo_side[t] else 0.0
+                      for t in w if lo <= t <= hi and t in lo_side]
+            if scores:
+                per_game.append(sum(scores) / len(scores))
+        m, se = _mean_se(per_game)
+        out[f"{lo}-{hi}" if hi < 10 ** 6 else f"{lo}+"] = {"auc": m, "se": se, "n_games": len(per_game)}
+    return out
+
+
 def memory_barrier_passes(results: Dict) -> bool:
     """The pre-registered crash barrier: at the largest size the belief loss
     is below the belief loss at 0 slots by more than two standard errors,
-    paired over game-sides."""
+    paired over holdout games."""
     paired = results.get("belief_paired") or {}
     if paired.get("diff") is None or paired.get("se") is None:
         return False

@@ -92,8 +92,8 @@ box_on_round() {                 # progress.txt, before each upload round
 box_init
 [ -n "$WORKERS" ] || WORKERS=$(box_cores)
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
-box_restore DONE arm.pt arm.probe.jsonl train.log corpus_summary.json sequence_summary.json \
-    obs8_holdout_ce.json barrier.txt || box_finish "RESTORE_FAILED (restore.log)" 1
+box_restore DONE arm.pt arm.probe.jsonl arm.signal.jsonl train.log corpus_summary.json \
+    sequence_summary.json obs8_holdout_ce.json barrier.txt || box_finish "RESTORE_FAILED (restore.log)" 1
 box_upload_hold DONE arm.pt
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
@@ -124,7 +124,7 @@ fi
 # ---- the reference and the raw replays
 box_bounded reference 15 staging.log python tools/reference_player.py --ensure \
     || box_finish "REFERENCE_MISSING rc=$BOX_RC (staging.log)" 1
-if [ ! -f "$BOX_STATE/INPUTS_DONE" ]; then
+if ! box_marked_this_stage "$BOX_STATE/INPUTS_DONE"; then
     box_bounded inputs 20 staging.log python - "$RAW_TAR" <<'EOF' \
         || box_finish "INPUTS_FAILED rc=$BOX_RC (staging.log)" 1
 import sys, tarfile
@@ -139,8 +139,11 @@ EOF
 fi
 
 # ---- the corpus at version 4; the crash barrier: every candidate accounted for, under 1% failed.
-# Once the pass is done it serves only obs8's holdout cross-entropy.
-if [ ! -f "$BOX_STATE/CORPUS_DONE" ] && { [ ! -f "$OUT/DONE" ] || [ ! -f "$OUT/obs8_holdout_ce.json" ]; }; then
+# Once the pass is done it serves only obs8's holdout cross-entropy. The
+# raw replays and the corpus live in the staged repository, which a new
+# stage replaces, so both markers name their stage.
+if ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE" \
+        && { [ ! -f "$OUT/DONE" ] || [ ! -f "$OUT/obs8_holdout_ce.json" ]; }; then
     rm -rf "$CORPUS" "${CORPUS}_duplicates"
     from=$(box_size "$OUT/corpus_build.log")
     box_bounded --stall "$OUT/corpus_build.log" "$BUILD_STALL_MIN" corpus "$BUILD_CUT_MIN" corpus_build.log \
@@ -179,7 +182,7 @@ print("fresh vocab:", len(types), "names,", len(set(types.values())), "rows,", l
 EOF
 
 # ---- the sequences; the crash barrier: under 0.5% of games skipped, posterior errors under 0.1%
-if [ ! -f "$SEQ/SEQUENCES_DONE" ] && [ ! -f "$OUT/DONE" ]; then
+if ! box_marked_this_stage "$SEQ/SEQUENCES_DONE" && [ ! -f "$OUT/DONE" ]; then
     from=$(box_size "$OUT/preencode.log")
     box_bounded --stall "$OUT/preencode.log" "$PREENCODE_STALL_MIN" preencode "$PREENCODE_CUT_MIN" preencode.log \
         python tools/preencode_sequences.py --dataset "$CORPUS" --out "$SEQ" --workers "$WORKERS"
@@ -204,7 +207,8 @@ EOF
     box_mark "$SEQ/SEQUENCES_DONE"
 fi
 
-# ---- the pass; exit 3 is the memory's crash barrier failing
+# ---- the pass; exit 3 is the memory's crash barrier failing (the checkpoint keeps it, so a
+# re-entry stops again), exit 4 a pass that ended short of its positions
 train_attempt() {                # train_attempt MINUTES: the pass, continuing arm.pt when present; sets BOX_RC, BOX_WHY
     local resume=()
     [ -f "$CKPT" ] && resume=(--resume)
@@ -221,6 +225,7 @@ if [ ! -f "$OUT/DONE" ]; then
         train_attempt "$left"            # a crash retries once, from the last periodic checkpoint
         [ "$BOX_RC" -ne 3 ] || box_finish "MEMORY_BARRIER_FAILED (train.log, arm.probe.jsonl) $(notes)" 1
     fi
+    [ "$BOX_RC" -ne 4 ] || box_finish "PASS_INCOMPLETE (train.log) $(notes)" 1
     grep -q "SEQUENCE_TRAIN_DONE" "$OUT/train.log" \
         || box_finish "TRAINING_${BOX_WHY^^} rc=$BOX_RC (train.log; the pass continues from arm.pt on re-entry) $(notes)" 1
     box_mark "$OUT/DONE"
@@ -235,8 +240,9 @@ if [ ! -f "$OUT/obs8_holdout_ce.json" ]; then
         python tools/holdout_ce.py "$REF" --dataset "$CORPUS" --out "$OUT/obs8_holdout_ce.json" \
         || echo "obs8's holdout cross-entropy failed: rc=$BOX_RC $BOX_WHY (holdout_ce.log)"
 fi
-[ -f "$OUT/barrier.txt" ] || timeout 2m python - "$OUT/arm.probe.jsonl" "$OUT/obs8_holdout_ce.json" <<'EOF' \
-    > "$OUT/barrier.txt" 2>&1
+[ -f "$OUT/barrier.txt" ] || [ ! -f "$OUT/obs8_holdout_ce.json" ] \
+    || { timeout 2m python - "$OUT/arm.probe.jsonl" "$OUT/obs8_holdout_ce.json" > "$OUT/barrier.txt.tmp" \
+         && mv -f "$OUT/barrier.txt.tmp" "$OUT/barrier.txt"; } <<'EOF'
 import json, sys
 probe = [json.loads(l) for l in open(sys.argv[1], encoding="utf-8") if l.strip()][-1]
 obs8 = json.load(open(sys.argv[2], encoding="utf-8"))
@@ -246,7 +252,7 @@ print(f"holdout CE: arm at 0 slots {arm:.4f} over {probe['k0']['n_decisions']} d
       f"{obs8['ce_all']:.4f} over {obs8['n_decisions']}; gap {gap:+.4f} nat: "
       + ("RECIPE_BROKE, investigate before reading the matches" if gap > 0.05 else "within the barrier"))
 EOF
-cat "$OUT/barrier.txt"
+cat "$OUT/barrier.txt" 2>/dev/null || echo "no barrier line: obs8's holdout cross-entropy is missing (holdout_ce.log)"
 
 # ---- the matches
 match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...: one attempt, resumed in its directory
@@ -290,6 +296,17 @@ EO=$(timeout 1m python -c "import json; print(json.load(open('configs/reference_
 mapfile -t REF_B < <(timeout 1m python tools/reference_player.py --flags b | tr ' ' '\n')
 mapfile -t REF_A < <(timeout 1m python tools/reference_player.py --flags a | tr ' ' '\n')
 [ "${#REF_A[@]}" -ge 4 ] && [ "${#REF_B[@]}" -ge 4 ] || box_finish "REFERENCE_FLAGS_FAILED (tools/reference_player.py --flags)" 1
+MATCHES="arm64_vs_obs8 arm64_vs_arm0 arm16_vs_arm0 obs8a_vs_obs8b"
+restored=()
+for name in $MATCHES; do restored+=("$name.fit.json" "timing_$name.txt" "games_$name.tar.gz"); done
+box_restore "${restored[@]}" || box_finish "RESTORE_FAILED (restore.log)" 1
+for name in $MATCHES; do                 # a match's games come back as the tarball its directory went up as
+    if [ -f "$OUT/games_$name.tar.gz" ]; then
+        [ -d "$OUT/games_$name" ] || tar -xzf "$OUT/games_$name.tar.gz" -C "$OUT" \
+            || box_finish "MATCH_RESTORE_FAILED ($name)" 1
+        rm -f "$OUT/games_$name.tar.gz"
+    fi
+done
 mkdir -p training/checkpoints
 cp "$CKPT" "$ARM" || box_finish "ARM_COPY_FAILED ($CKPT)" 1
 play arm64_vs_obs8 80000 --label-a arm64 --spec-a "$ARM" --memory-a 64 --raw-end-turn-offset-a "$EO" "${REF_B[@]}"

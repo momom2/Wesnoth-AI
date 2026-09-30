@@ -58,7 +58,7 @@ mv -f "$OUT/box.txt.tmp" "$OUT/box.txt"
 box_monitor_start
 
 # ---- the corpus: the raw replays, then the build (a marker after each)
-if [ ! -f "$BOX_STATE/INPUTS_DONE" ]; then
+if ! box_marked_this_stage "$BOX_STATE/INPUTS_DONE"; then
     box_bounded inputs 20 staging.log python - "$RAW_TAR" <<'EOF' \
         || box_finish "INPUTS_FAILED rc=$BOX_RC (staging.log)" 1
 import sys, tarfile

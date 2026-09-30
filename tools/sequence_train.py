@@ -24,7 +24,9 @@ The holdout probe (`tools/sequence_probe.py`) runs every `--probe-every`
 positions and at the end; the first probe at or past `--barrier-positions`
 is the memory's crash barrier: unless the belief loss at 64 slots is below
 the one at 0 slots by more than two standard errors, paired over holdout
-game-sides, the run stops (exit 3). A checkpoint every
+games, the run stops (exit 3), and the checkpoint keeps the verdict, so
+no resume trains past it. A pass that ends short of every pre-encoded
+position exits 4. A checkpoint every
 `--checkpoint-every` positions holds the schedule, each slot's carried
 memory and the optimizer, so `--resume` continues the pass exactly.
 
@@ -78,6 +80,7 @@ LOADER_THREADS = 4
 # Training game-sides the last-seen baseline's rates are fitted on.
 BASELINE_FIT_SIDES = 400
 EXIT_MEMORY_BARRIER = 3
+EXIT_PASS_INCOMPLETE = 4
 # The telemetry's slots, terms and parameter groups.
 SIGNAL_STREAMS = 4
 SIGNAL_TERMS = POLICY_SOURCES + ("value", "belief")
@@ -394,6 +397,9 @@ class Trainer:
                         self.memories, self.meta, self.arch)
 
     def run(self) -> int:
+        if self.state.get("barrier_failed"):
+            log.error("MEMORY_BARRIER_FAILED earlier in this pass (the .probe.jsonl): no resume past it")
+            return EXIT_MEMORY_BARRIER
         t0, last_log = time.time(), time.time()
         window_logs: List[Dict] = []
         limit = self.args.max_positions
@@ -410,14 +416,19 @@ class Trainer:
                 self.state["next_probe"] += self.args.probe_every
                 if not self.state["barrier_done"] and self.state["positions"] >= self.args.barrier_positions:
                     self.state["barrier_done"] = True
+                    self.state["barrier_failed"] = not memory_barrier_passes(result)
                     self.save()
-                    if not memory_barrier_passes(result):
+                    if self.state["barrier_failed"]:
                         log.error("MEMORY_BARRIER_FAILED %s", json.dumps(result.get("belief_paired")))
                         return EXIT_MEMORY_BARRIER
                     log.info("memory barrier passed: %s", json.dumps(result.get("belief_paired")))
         if window_logs:
             self._log(window_logs, t0)
         self.save()
+        if limit is None and self.state["positions"] != self.schedule.total_positions:
+            log.error("PASS_INCOMPLETE: %d positions trained of the %d pre-encoded", self.state["positions"],
+                      self.schedule.total_positions)
+            return EXIT_PASS_INCOMPLETE
         self.run_probe()
         log.info("SEQUENCE_TRAIN_DONE %d positions, %d steps in %.0f s", self.state["positions"],
                  self.state["steps"], time.time() - t0)

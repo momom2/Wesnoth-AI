@@ -129,21 +129,33 @@ def _dataset(tmp_path):
     return dataset
 
 
-@pytest.mark.slow
-def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path):
+@pytest.fixture(scope="module")
+def pass_inputs(tmp_path_factory):
+    """The three games pre-encoded by the script run by path, as the box
+    runs it (its worker processes pickle the records, which this process
+    must be able to read), and the trainer's arguments for a tiny network."""
     from wesnoth_ai import game_core as gc
     if gc.game_core_class() is None:
         pytest.skip("wesnoth_core.GameCore not available")
-    from tools import preencode_sequences, sequence_train
+    import subprocess
+    tmp_path = tmp_path_factory.mktemp("pass")
     dataset = _dataset(tmp_path)
     sequences = tmp_path / "sequences"
-    assert preencode_sequences.main(["--dataset", str(dataset), "--out", str(sequences),
-                                     "--workers", "1", "--log-level", "WARNING"]) == 0
+    root = Path(__file__).resolve().parent.parent
+    subprocess.run([sys.executable, str(root / "tools" / "preencode_sequences.py"), "--dataset", str(dataset),
+                    "--out", str(sequences), "--workers", "1", "--log-level", "WARNING"],
+                   cwd=root, check=True, timeout=600)
     common = ["--sequences", str(sequences), "--dataset", str(dataset), "--device", "cpu",
-              "--streams", "2", "--window", "3", "--warmup-steps", "2", "--probe-every", "1000000",
-              "--barrier-positions", "1000000", "--checkpoint-every", "1000000", "--log-level", "WARNING",
-              "--probe-ks", "0,8", "--signal-every", "3",
+              "--streams", "2", "--window", "3", "--warmup-steps", "2", "--checkpoint-every", "1000000",
+              "--log-level", "WARNING", "--probe-ks", "0,8", "--signal-every", "3",
               "--d-model", "32", "--num-layers", "1", "--num-heads", "2", "--d-ff", "64"]
+    return common
+
+
+@pytest.mark.slow
+def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path, pass_inputs):
+    from tools import sequence_train
+    common = [*pass_inputs, "--probe-every", "1000000", "--barrier-positions", "1000000"]
     uncut, cut = tmp_path / "uncut.pt", tmp_path / "cut.pt"
     assert sequence_train.main([*common, "--out", str(uncut)]) == 0
     assert sequence_train.main([*common, "--out", str(cut), "--max-positions", "4"]) == 0
@@ -158,6 +170,16 @@ def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path):
             assert torch.equal(tensor, b[key][name]), name
     probe = [json.loads(line) for line in uncut.with_suffix(".probe.jsonl").read_text().splitlines()]
     assert probe[-1]["k0"]["n_positions"] == probe[-1]["k8"]["n_positions"] > 0
+    assert probe[-1]["belief_carried"]["n_games"] == probe[-1]["belief_paired"]["n_games"] == 1
+    assert "1-5" in probe[-1]["k8"]["value_auc_by_turn"]
+    # The pass's checkpoint is a match player: the policy loader reads its
+    # structure and loads every weight.
+    from tools.eval_players import _load_policy, peek_checkpoint_arch
+    arch = peek_checkpoint_arch(uncut)
+    assert (arch["observation_parity"], arch["memory_slots"], arch["relevant_set_version"]) == (True, 64, 2)
+    assert arch["relevant_set_hexes"] and arch["terrain_multi_hot"] and arch["fog_hides_enemy_villages"]
+    policy = _load_policy(uncut, torch.device("cpu"), label="arm")
+    assert torch.equal(policy._model.slot_memory.initial, a["model_state"]["slot_memory.initial"])
     # The telemetry rows leave the training untouched (the weights above
     # match with rows written in both runs) and split the gradient by term.
     signal = [json.loads(line) for line in uncut.with_suffix(".signal.jsonl").read_text().splitlines()]
@@ -165,6 +187,31 @@ def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path):
     shares = [signal[-1]["gradient"]["all"][t]["share"] for t in
               ("actor", "type", "target", "weapon", "value", "belief")]
     assert sum(x for x in shares if x is not None) == pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.slow
+def test_a_failed_memory_barrier_stops_every_resume(tmp_path, pass_inputs):
+    """One holdout game gives the paired difference no standard error, so
+    the barrier fails at its probe; a resume stops at once, untrained."""
+    from tools import sequence_train
+    common = [*pass_inputs, "--probe-every", "3", "--barrier-positions", "3"]
+    out = tmp_path / "arm.pt"
+    assert sequence_train.main([*common, "--out", str(out)]) == sequence_train.EXIT_MEMORY_BARRIER
+    before = torch.load(out, map_location="cpu", weights_only=True)["sequence_resume"]["state"]
+    assert before["barrier_failed"] and before["positions"] < 12
+    assert sequence_train.main([*common, "--out", str(out), "--resume"]) == sequence_train.EXIT_MEMORY_BARRIER
+    after = torch.load(out, map_location="cpu", weights_only=True)["sequence_resume"]["state"]
+    assert after["positions"] == before["positions"]
+
+
+def test_the_same_turn_auc_compares_the_winners_first_decision_of_a_turn_with_the_losers():
+    from tools.sequence_probe import same_turn_auc
+    sides = {GameSide("g", 1): {"turn": [1, 1, 2, 7], "value": [0.5, -1.0, 0.2, 0.9]},
+             GameSide("g", 2): {"turn": [1, 2, 2, 7], "value": [0.1, 0.3, 5.0, 0.9]}}
+    out = same_turn_auc(sides, {"g": 1})
+    assert out["1-5"]["auc"] == pytest.approx(0.5), "turn 1: 0.5 > 0.1; turn 2: 0.2 < 0.3"
+    assert out["6-10"]["auc"] == pytest.approx(0.5), "turn 7: a tie"
+    assert out["11-15"]["n_games"] == 0
 
 
 def test_the_holdout_ce_of_a_checkpoint_without_a_memory_reads_every_holdout_decision(tmp_path):
