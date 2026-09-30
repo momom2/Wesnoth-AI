@@ -634,6 +634,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // day is the interface's (the area's on a fogged hex, lit by every
     // unit on a seen one); apply_move takes the recorded route's hex after
     // the stop (`next`), whose enemy blocked the move.
-    m.add("__phase__", 26)?;
+    // 27: a watcher records a mover that leaves its view on the hex it was
+    // seen entering; a side records what a fight its unit defended showed
+    // it before the fight refogs it.
+    m.add("__phase__", 27)?;
     Ok(())
 }

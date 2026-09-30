@@ -13,12 +13,14 @@
 //!   game, the faction posterior's evidence. Never cleared.
 //!
 //! Both follow every command (the units the side sees afterwards) and,
-//! during another side's move, each hex of the path the side sees: a
-//! watching player's display draws the mover at each step where
-//! `unit::is_visible_to_team` holds, its hex not fogged for the watcher
-//! and the mover not hidden there by its hide ability
-//! (docs/wesnoth_rules.md "A watching player sees a mover on every hex of
-//! its path"). Scenery is never recorded: it is always visible.
+//! during another side's move, the path: a watching player's display
+//! animates each step from a hex where the mover is visible to it (not
+//! fogged, not hidden by its hide ability) toward the next hex, so the
+//! player last sees the mover entering the hex after the last one it was
+//! visible on (docs/wesnoth_rules.md "A watching player sees a mover on
+//! every hex of its path"). A fight the side's own unit defends is watched
+//! too: the side records what it sees before the fight refogs it. Scenery
+//! is never recorded: it is always visible.
 
 use pyo3::prelude::*;
 
@@ -72,19 +74,27 @@ impl GameCore {
     /// record.
     pub(crate) fn note_sightings(&mut self) {
         for side in 1..=RECORD_SIDES as i64 {
-            let visible = self.visible_to(side);
-            for (i, &seen) in visible.iter().enumerate() {
-                let u = &self.units[i];
-                if !seen || u.side == side || u.hex < 0 || self.is_scenery(i) {
-                    continue;
-                }
-                let (x, y) = (u.x, u.y);
-                self.record_sighting(side, i, x, y);
-            }
+            self.note_sightings_of(side);
         }
         let index = &self.unit_index;
         for (record, gone) in self.sightings.iter_mut().zip(self.sightings_gone.iter()) {
             record.retain(|id, _| index.contains_key(id) || gone.contains(id));
+        }
+    }
+
+    /// What `side` sees now, into its record (`note_sightings`, one side).
+    pub(crate) fn note_sightings_of(&mut self, side: i64) {
+        if record_index(side).is_none() {
+            return;
+        }
+        let visible = self.visible_to(side);
+        for (i, &seen) in visible.iter().enumerate() {
+            let u = &self.units[i];
+            if !seen || u.side == side || u.hex < 0 || self.is_scenery(i) {
+                continue;
+            }
+            let (x, y) = (u.x, u.y);
+            self.record_sighting(side, i, x, y);
         }
     }
 
@@ -106,7 +116,10 @@ impl GameCore {
 
     /// During the move of unit `i` along the map hexes `path` (its start
     /// hex, then every hex it entered): each other player side records it
-    /// on the last of them it could see it on.
+    /// on the hex after the last one it could see it on (the step out of
+    /// view is animated from that hex toward the next, udisplay.cpp:141-148,
+    /// drawn while the mover is visible there, drawer.cpp:200), or on that
+    /// hex when it is the route's last.
     pub(crate) fn note_path_sightings(&mut self, i: usize, path: &[usize]) {
         if self.is_scenery(i) {
             return;
@@ -117,10 +130,11 @@ impl GameCore {
                 continue;
             }
             let seen = self.global.fog_on.then(|| self.seen_by(side));
-            let last = path.iter().rev().copied().find(|&h| {
-                seen.as_ref().map_or(true, |s| s[h] != 0) && !self.hidden_on_path(i, h)
+            let last = (0..path.len()).rev().find(|&k| {
+                seen.as_ref().map_or(true, |s| s[path[k]] != 0) && !self.hidden_on_path(i, path[k])
             });
-            if let Some(h) = last {
+            if let Some(k) = last {
+                let h = path[(k + 1).min(path.len() - 1)];
                 let (x, y) = (self.map.hx[h], self.map.hy[h]);
                 self.record_sighting(side, i, x, y);
             }

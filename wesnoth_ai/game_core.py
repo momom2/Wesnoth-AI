@@ -67,8 +67,10 @@ _RECORD_SIDES = (1, 2)
 # The wheel phase this adapter reads: 23 keeps the sighting records and
 # builds the parity observation, 24 delays a side's shroud updates, 25 adds
 # the Plan Unit Advance modification's undo blocks, 26 keeps a unit that
-# left the board unseen in the sighting record.
-_CORE_PHASE = 26
+# left the board unseen in the sighting record, 27 records a mover leaving
+# a watcher's view on the hex it was seen entering and a defended fight
+# before its refog.
+_CORE_PHASE = 27
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -565,7 +567,9 @@ class CoreState:
         if kind == "move":
             from_side = int(cmd[3]) if len(cmd) > 3 else 0
             order = cmd[4] if len(cmd) > 4 and isinstance(cmd[4], dict) else {}
-            nxt = order.get("next")
+            # A route that ran out of this turn's moves (stopped_early no)
+            # was not blocked, whatever stands after it.
+            nxt = order.get("next") if order.get("stopped_early") is not False else None
             self.core.apply_move([int(v) for v in cmd[1]], [int(v) for v in cmd[2]], from_side,
                                  next=None if nxt is None else (int(nxt[0]), int(nxt[1])))
             return "rust"

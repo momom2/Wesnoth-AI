@@ -12,9 +12,14 @@ from the rules:
   points, maximum hit points and hex; and adds (side, type) to the types it
   has seen in the game;
 - during a move, each player side other than the mover's records the
-  mover on the last hex of the walked route (its start, then every hex it
-  entered) that the side sees and where the mover is not hidden by its
-  hide ability;
+  mover on the hex after the last hex of the walked route (its start, then
+  every hex it entered) where the side sees it (its hex not fogged, the
+  mover not hidden there by its hide ability): the display animates the
+  step out of view from that hex toward the next one; on that hex itself
+  when it ends the route;
+- a fight that refogs the defender's side (the defender died, or was newly
+  slowed or petrified) was shown to that side first: it records what it
+  sees with the fog it had before the fight;
 - a unit that leaves the board leaves a side's record when the side saw
   its hex at that moment, and otherwise stays, as gone, until the side's
   end of turn;
@@ -47,6 +52,7 @@ class SightingOracle:
         self._board: Dict[str, Tuple[int, int]] = {}
         self._seen_before: Dict[int, FrozenSet[Tuple[int, int]]] = {}
         self._mover = None
+        self._defender = None
         self._side = 0
 
     # ---- around a command
@@ -55,11 +61,16 @@ class SightingOracle:
         from wesnoth_ai.visibility import visible_hexes_for
         kind = cmd[0] if cmd else ""
         self._side = int(gs.global_info.current_side)
-        self._board, self._seen_before, self._mover = {}, {}, None
-        if kind == "attack":             # the one command that removes units
+        self._board, self._seen_before, self._mover, self._defender = {}, {}, None, None
+        if kind == "attack":             # the one command that removes units, or refogs mid-command
             self._board = {u.id: (u.position.x, u.position.y) for u in gs.map.units}
             if getattr(gs.global_info, "_fog", True):
                 self._seen_before = {s: frozenset(visible_hexes_for(gs, s)) for s in PLAYER_SIDES}
+            if len(cmd) > 4:
+                dx, dy = int(cmd[3]), int(cmd[4])
+                d = next((u for u in gs.map.units if (u.position.x, u.position.y) == (dx, dy)), None)
+                if d is not None:
+                    self._defender = (d.id, int(d.side), set(d.statuses or ()))
         if kind == "move":
             sx, sy = int(cmd[1][0]), int(cmd[2][0])
             from_side = int(cmd[3]) if len(cmd) > 3 else 0
@@ -71,6 +82,8 @@ class SightingOracle:
         if kind not in NOTED_KINDS:
             return
         self._note_departures(gs)
+        if kind == "attack" and self._defender is not None:
+            self._note_fight(gs)
         if kind == "move" and self._mover is not None:
             self._note_path(gs, cmd)
         if kind == "end_turn" and self._side in self.sightings:
@@ -94,6 +107,22 @@ class SightingOracle:
             record, gone = self.sightings[side], self.gone[side]
             for uid in [uid for uid in record if uid not in on_board and uid not in gone]:
                 del record[uid]
+
+    def _note_fight(self, gs: GameState) -> None:
+        from wesnoth_ai.visibility import is_scenery_unit, units_visible_to_python
+        did, side, before = self._defender
+        if side not in self.sightings:
+            return
+        now = next((u for u in gs.map.units if u.id == did), None)
+        statuses = set(now.statuses or ()) if now is not None else set()
+        refogged = (now is None or ("slowed" in statuses and "slowed" not in before)
+                    or ("petrified" in statuses and "petrified" not in before))
+        if not refogged:
+            return
+        fog = self._seen_before.get(side) if self._seen_before else None
+        for u in units_visible_to_python(gs, side, vis_set=fog):
+            if u.side != side and not is_scenery_unit(u):
+                self._record(side, u, u.position.x, u.position.y)
 
     def _note_departures(self, gs: GameState) -> None:
         on_board = {u.id for u in gs.map.units}
@@ -121,10 +150,10 @@ class SightingOracle:
             if side == mover.side:
                 continue
             seen = frozenset(visible_hexes_for(gs, side)) if fog_on else None
-            last = next((h for h in reversed(walked)
-                         if (seen is None or h in seen) and not _hidden_at(gs, mover, h)), None)
+            last = next((k for k in range(len(walked) - 1, -1, -1)
+                         if (seen is None or walked[k] in seen) and not _hidden_at(gs, mover, walked[k])), None)
             if last is not None:
-                self._record(side, mover, *last)
+                self._record(side, mover, *walked[min(last + 1, len(walked) - 1)])
 
     # ---- the core's export form
     def records(self, side: int) -> Tuple[List[Row], List[Tuple[int, str]], List[str]]:

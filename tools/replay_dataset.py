@@ -952,8 +952,9 @@ def blocked_beyond(gs: GameState, unit: Unit, xs, ys, out, order: Optional[dict]
     blocker is revealed (:870) and the move is final (:1075-1078)."""
     from tools.pathfind_sim import MoveOutcome
     nxt = (order or {}).get("next")
-    if nxt is None or out.stop_reason != "end" or out.final_idx != len(xs) - 1:
-        return out
+    if (nxt is None or (order or {}).get("stopped_early") is False
+            or out.stop_reason != "end" or out.final_idx != len(xs) - 1):
+        return out                      # a route that ran out of this turn's moves was not blocked
     blocker = _find_unit_at(gs, int(nxt[0]), int(nxt[1]))
     if blocker is None or blocker.side == unit.side:
         return out

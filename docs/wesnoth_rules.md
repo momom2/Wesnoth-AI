@@ -3327,8 +3327,12 @@ hooks in `tools/replay_dataset._apply_command`) and, for the Rust core,
 **Not modelled.** `vision=` and `[vision_costs]` (declared by the Dune
 Falconer, the Dune Sky Hunter, the Dragonfly and the Grand Dragonfly,
 none of which is in the default era, the pool or the corpus; such a
-unit logs a warning and sees with its movement), jamming, and shared
-vision between allies.
+unit logs a warning and sees with its movement), jamming, shared vision
+between allies, and vision through teleport: a unit with the teleport
+ability (the Silver Mage) also sees from its side's other empty villages
+once it can reach one of them (`src/pathfind/pathfind.cpp:586-588`,
+`:610-617`; `src/pathfind/teleport.cpp:155-156`), absent from 95 sampled
+fog games (29,054 decisions).
 
 ## Delayed shroud updates (added 2026-09-30)
 
@@ -3453,12 +3457,18 @@ Pinned by tests/test_delayed_shroud.py.
 
 ## A watching player sees a mover on every hex of its path (added 2026-09-30)
 
-**Rule.** During another side's move, a player's display draws the mover
-at each step of its route unless both hexes of the step are fogged for
-the player, and at its landing hex; a unit is drawn only where it is
-visible to the player's team (not fogged, not hidden by its hide
-ability). So the player sees an enemy that crosses its view and ends its
-move in fog, on the last hex of the route it could see it on.
+**Rule.** During another side's move, a player's display animates each
+step of the route unless both hexes of the step are fogged for the
+player: a copy of the mover stands on the step's first hex, facing the
+second, and slides toward it, drawn while it is visible to the player's
+team on that first hex (not fogged, not hidden by its hide ability). So
+the player sees an enemy that leaves its view walk into the hex after the
+last one it was visible on, and last sees it there; one that ends its
+move in view is seen where it ends. A fight the player's unit defends is
+shown to the player too, and its side's fog is recomputed only after the
+last strike (the defender died, or was newly slowed or petrified): the
+player saw the attacker's hit points after the fight even when the new
+fog then hides it.
 
 **Source (1.18.4).** `src/units/udisplay.cpp:141` (`move_unit_between`):
 
@@ -3466,17 +3476,26 @@ move in fog, on the last hex of the route it could see it on.
 	if ( disp.fogged(a) && disp.fogged(b) ) {
 ```
 
-skips the step's animation; `unit_mover::proceed_to` (`:318-384`)
-animates the route step by step; `src/units/drawer.cpp:200` draws a unit
-only when `u.is_visible_to_team(viewing_team_ref, show_everything)`.
+skips the step's animation; otherwise the copy is placed on `a` facing
+`b` and given the "movement" animation from `a` to `b` (`:145-149`);
+`unit_mover::proceed_to` (`:318-384`) animates the route step by step;
+`src/units/drawer.cpp:200` draws a unit only when
+`u.is_visible_to_team(viewing_team_ref, show_everything)`. The fight:
+`unit_attack` (`udisplay.cpp:599-733`) animates it with its damage, and
+the defender's side is refogged after the last strike
+(`src/actions/attack.cpp:1456-1458`).
 With move animations off the mover stays hidden until it lands
 (`unit_mover::start`, `udisplay.cpp:264-270`: "If no animation then hide
 unit until end of movement"); the corpus is taken to be watched with
 them on, the default.
 
 **Implemented by** the Rust core's sighting record (`core_sight.rs`
-`note_path_sightings`), checked against `tools/sighting_oracle.py` by
-`tools/diff_core.py --sightings`.
+`note_path_sightings`, and `note_sightings_of` before the defender's
+refog in `core_attack.rs`). `tools/sighting_oracle.py` implements the
+same reading from the Python applier, and `tools/diff_core.py
+--sightings` compares the two: that checks the implementation, not the
+reading, which no engine run has checked (as for the gone entries, the
+block of a cut route, the hex time of day and the Random prior).
 
 ---
 

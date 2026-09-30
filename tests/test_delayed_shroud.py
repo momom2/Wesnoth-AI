@@ -132,6 +132,8 @@ def test_a_route_cut_before_an_enemy_is_a_blocked_move():
     assert "u5" in (getattr(gs.global_info, "_uncovered_units", None) or set()), "the blocker is revealed"
     ended = _play([["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE[:4]])
     assert not _sees(ended, FAR_ENEMY), "a route that simply ended commits nothing"
+    ran_out = _play([["auto_shroud", 0], RIDE, [*CUT_BEFORE_CORPSE[:4], {**CUT_BEFORE_CORPSE[4], "stopped_early": False}]])
+    assert not _sees(ran_out, FAR_ENEMY), "a route that ran out of this turn's moves was not blocked"
 
 
 def test_a_recruit_commits_only_when_it_drew_random_numbers():

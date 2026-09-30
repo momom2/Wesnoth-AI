@@ -185,3 +185,41 @@ version 5, `OBSERVATION_EPOCH` 11.
 | F2 | minor: a delaying side's move blocked by an unseen enemy committed nothing, because the record cut the route before the blocker | fixed: the record keeps the route's next hex and both appliers look for the blocker there |
 | F3 | nit: the parity hex time of day was not what the interface shows | fixed: the interface's rule (docs/wesnoth_rules.md) |
 | F4 | nit: two texts misstated the discovery rule and cited a missing catalog entry | fixed; the entry written |
+
+## The pre-launch audit, round 2 (2026-09-30, four independent reviewers)
+
+Four reviewers read a frozen checkout of round 1's fixes (896385c): the
+fixes themselves, the training data, box operations, and the
+observation's fidelity to the engine. The model, the trainer's core and
+the match path, where round 1 found nothing critical or major, were
+covered through the review of their fixes. The fixes land on
+`fix/audit-round2`; the wheel is phase 27.
+
+| id | finding | disposition |
+|---|---|---|
+| 2E1 | critical on some hosts: `box_workers` (round 1's E13) died under `set -u` on a host without cgroup-v2 `memory.max`, so both runs would stop at their corpus step | fixed: it reads the v1 limit too and takes the cgroup's headroom; tested on every layout |
+| 2F1 | major: a mover walking out of a watcher's view was recorded on the last hex it was visible on, where the display shows it walk into the next one (2,571 of 4,343 sampled sighting tokens) | fixed in the core and the oracle (phase 27): the hex after the last visible one; the catalog entry rewritten from the animation code |
+| 2F2 | minor: after a fight that refogs the defender's side, the record kept the attacker's hit points from before the fight (16 of 2,766 sampled fights) | fixed: the side records what the fight showed it before its refog, in the core and the oracle |
+| 2F3 | minor: the block of a cut route ignored the checkup's `stopped_early` | fixed: a route that ran out of this turn's moves is not a block |
+| 2F4 | minor: Hornshark Island's placed units tell a knowing player the faction; the posterior ignores them | recorded: the network sees the placed units as tokens; one map, until a recruit or the leader is seen |
+| 2F5 | minor: vision through teleport (Silver Mage) is not modelled | recorded in the catalog's "Not modelled" list, with its frequency (none in 95 sampled fog games) |
+| 2F6 | minor: the certification compares two implementations of one reading of the engine for the sighting record, the block, the hex time of day and the Random prior | written into the catalog, the design and the gate |
+| 2E2, 2E3 | minor: a match that crashed read as cut; the finish counted earlier entries' match lines | fixed: each match's verdict is decided in this entry, from its last exit code and its fit |
+| 2E4, 2E11 | minor: the certification marked its sweep done with shards short of a verdict, and logged every shard's exit as 0 | fixed |
+| 2E5 | minor: the hours an instance spends stopped counted against the switch | fixed: the switch charges the stage's running time |
+| 2E6 | minor: one failed fetch at a fresh rental left the instance billing | fixed: three attempts, then the onstart stops the instance itself |
+| 2E7 | minor: the restart path gave up after a refused stop | fixed: it retries |
+| 2E8 | minor: the preflight checked neither the GPU nor the cores | fixed: `gpu_ram_gb` and `cores` in `box-needs`; other instances on the account are warned of |
+| 2E9 | minor: a step that survives its KILL held the entry until the switch | fixed: abandoned `BOX_UNKILLABLE_S` later |
+| 2E10 | minor: the probe was silent for its whole length, and the pre-registered probe count and time were wrong | fixed: a line per memory size; the cost table corrected |
+| 2E12 | nit: restored match tarballs went up again | fixed: the unpacked directory is recorded as landed |
+| 2D3 | minor: a stale `finish_done` could let the switch stop an instance mid-upload | fixed: the entry clears it |
+| 2C1 | minor: a Rust panic in a pool worker hung the pre-encoding and the corpus build | fixed: counted as that game's error |
+| 2D5 | nit: a posterior leaving out the truth was not counted when the truth was not a candidate | fixed |
+| 2D6 | nit: a memory reset for a non-finite value was silent | fixed: counted and logged |
+| 2D7 | nit: no test exercised the sighting comparison | fixed: a synthetic game, clean, and diverging under a planted fault |
+| 2D8, 2F7 | nit: the Python applier's other SideInfo rebuilds dropped the Random choice | fixed: they keep every field |
+| 2D4 | nit: the time-of-day test pinned half its rule | fixed |
+| 2D9, 2D10 | nits: diff_core's totals mixed its comparisons in; the catalog quote left out the shroud branch | fixed |
+| 2C2, 2C3 | nits: a turn ended with under a second left reads as a timeout; a player without automatic moves makes the goto moves the engine would | recorded in the docstrings: a replay cannot tell them apart |
+| 2C4 | nit: stored records kept the true enemy faction, and the design said pairs store their value state | fixed: the stored encoding leaves the faction out; the design corrected |

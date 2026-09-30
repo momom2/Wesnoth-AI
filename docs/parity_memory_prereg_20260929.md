@@ -24,7 +24,9 @@ The run is rented only when all of these hold:
    training position, equals the Python applier after every command, and
    each side's sighting record equals `tools/sighting_oracle.py`'s
    (amended 2026-09-30, before any box: the parity encoding's own columns
-   have no second builder, and tests cover them).
+   have no second builder, and tests cover them; the rules the sighting
+   record, the block of a cut route, the hex time of day and the Random
+   prior follow are one reading of the engine that no engine run checks).
 2. The four independent reviews of the data path started 2026-09-29 (the
    labels; what the network observes against a player; training against
    play; capacities and silent failures) have each finding fixed in this

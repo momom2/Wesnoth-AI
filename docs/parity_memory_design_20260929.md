@@ -96,7 +96,9 @@ leaders and random leaders, and every type they advance to (plague corpses
 are Walking Corpse variations, which the Undead recruit). A type no faction
 of the era fields is not informative: Hornshark Island gives each side
 units such as Young Ogres, Sergeants and Ruffians, which would otherwise
-exclude every faction. With the faction chosen openly the vector is
+exclude every faction. A player who knows the map reads the faction from
+those placements; the posterior does not, and the network sees the
+placed units as tokens. With the faction chosen openly the vector is
 one-hot, which is `obs8`'s input; in eval the harness assigns factions
 openly. The pre-encoding manifest counts two errors: a seen set that no
 candidate can field (the prior stays in place), and a posterior that
@@ -107,7 +109,9 @@ enemy unit that crosses a hex the player can see, including units that end
 their move in fog. The core keeps, per side, the enemy units that side saw
 since its last end_turn: after every command, the visible enemy units;
 during a move, each hex of the path the side can see, the unit's hiding
-rules applied. At the side's decisions, each of these units that it cannot
+rules applied, the hex it was seen entering when it walked out of view,
+and in a fight the side's unit defended, what it saw before its fog was
+recomputed. At the side's decisions, each of these units that it cannot
 see now becomes a sighting token at the last hex it was seen, with its type,
 hit points and maximum hit points. A unit that leaves the board where the
 side does not see its hex (a neutral side can kill it in the side's fog)
@@ -115,8 +119,11 @@ stays in the record, as a player who did not see it go still believes it
 there. The record is cleared at the side's end_turn, so it never holds more
 than one enemy turn; anything older is the memory's to keep. The
 certification compares each side's record after every command with
-`tools/sighting_oracle.py`, which follows the Python applier; the parity
-encoding's own columns have no second builder, and tests cover them. Sighting tokens are a new stream with their own token
+`tools/sighting_oracle.py`, which follows the Python applier and applies
+the same reading of the engine (no engine run checks these rules); the
+parity encoding's own columns, the relevant set's version 2, the sighting
+stream's assembly and the faction posterior have no second builder, and
+tests cover them. Sighting tokens are a new stream with their own token
 kind and side code 3; they are never an actor or a target. The same
 sightings feed the faction posterior's seen set, which is kept per side for
 the whole game.

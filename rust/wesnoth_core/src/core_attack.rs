@@ -420,6 +420,7 @@ impl GameCore {
             // refogs when the defender was slowed or petrified, before
             // its advancement.
             if dfd_refog {
+                self.note_sightings_of(dfd_side);   // the fight was shown to it before the refog
                 self.refog(dfd_side);
             }
             if dfd_advances {
@@ -430,6 +431,7 @@ impl GameCore {
             if plague_forward {
                 self.spawn_corpse(dfd_pos.0, dfd_pos.1, att_side, &dfd_name)?;
             }
+            self.note_sightings_of(dfd_side);       // the fight was shown to it before the refog
             self.refog(dfd_side);
         }
         Ok(r)

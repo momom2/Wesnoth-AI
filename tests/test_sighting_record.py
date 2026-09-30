@@ -67,6 +67,9 @@ def test_a_unit_crossing_the_sides_view_is_remembered_where_last_seen():
     last_seen = [p for p in route if p in seen][-1]
 
     cs.apply_command(["move", [p[0] for p in route], [p[1] for p in route], 2])
+    # The step out of view is animated from the last seen hex toward the
+    # next: side 1 last saw the Cavalryman entering that next hex.
+    last_seen = route[route.index(last_seen) + 1]
     rows = [r for r in cs.core.sightings_export(1) if r[1] == "Cavalryman"]
     assert [(r[4], r[5]) for r in rows] == [last_seen]
     assert "Cavalryman" in cs.core.seen_types(1, 2)
@@ -131,7 +134,8 @@ def _cavalryman_watched_into_fog():
     end = min(fog, key=lambda p: len(_path(inside, p, zoc | set(leg1[:-1]))))
     route = leg1 + _path(inside, end, zoc | set(leg1[:-1]))[1:]
     cs.apply_command(["move", [p[0] for p in route], [p[1] for p in route], 2])
-    return cs, [p for p in route if p in seen][-1], end
+    last_seen = [p for p in route if p in seen][-1]
+    return cs, route[route.index(last_seen) + 1], end
 
 
 def test_a_unit_that_leaves_the_board_unseen_stays_where_it_was_last_seen():
@@ -205,3 +209,26 @@ def test_the_certification_compares_the_sighting_records(tmp_path, monkeypatch):
     monkeypatch.setattr(sighting_oracle.SightingOracle, "_note_path", lambda self, gs, cmd: None)
     out = diff_core(path, sightings=True)
     assert out and "sightings" in out[0]
+
+
+def test_a_fight_the_side_defended_is_recorded_before_its_refog():
+    """Side 2's Cavalryman kills side 1's Bowman, its only unit in view of
+    it, and is hit back first. The fight was shown to side 1 before its fog
+    closed over the Cavalryman, so side 1's record carries its hit points
+    after the fight."""
+    from helpers.parity_games import core_of, record, unit_id_at
+    data = record([("Lieutenant", 1, 1, 3, True), ("Bowman", 1, 15, 3, False),
+                   ("Cavalryman", 2, 16, 3, False), ("Lieutenant", 2, 18, 3, True)],
+                  fog=True, width=WIDTH, height=HEIGHT)
+    cs = core_of(data)
+    for command in (["init_side", 1], ["end_turn"], ["init_side", 2]):
+        cs.apply_command(command)
+    cavalryman = unit_id_at(cs, 16, 3)
+    full = [r for r in cs.core.sightings_export(1) if r[0] == cavalryman][0][2]
+    cs.core.update_unit(unit_id_at(cs, 15, 3), {"current_hp": 1})
+    # The Cavalryman misses, the Bowman's sword hits, the Cavalryman kills it.
+    cs.core.apply_attack_scripted(16, 3, 15, 3, 0, 0, [False, True, True], [])
+    assert cs.core.unit_id_at(15, 3) is None
+    assert cavalryman not in set(cs.core.visible_ids(1)), "side 1 no longer sees it"
+    hp = [r for r in cs.core.sightings_export(1) if r[0] == cavalryman][0][2]
+    assert hp < full, "the record carries the hit points the fight left it"
