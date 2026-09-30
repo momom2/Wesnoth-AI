@@ -41,7 +41,9 @@ The run is rented only when all of these hold:
 - **Arm:** the design's recipe from scratch, one pass, run seed 20260929,
   arch 384/8/12/1536, `observation_parity` and the relevant set version 2,
   the fog gate and the terrain set on, memory 64 slots trained at nested
-  sizes, `OBSERVATION_EPOCH` 11, on the corpus rebuilt at version 3.
+  sizes, `OBSERVATION_EPOCH` 11, on the corpus rebuilt at version 4
+  (version 3 plus delayed shroud updates, which the audit's O1 required;
+  amended 2026-09-30, before any box).
   `scripts/parity_memory_box.sh` runs it; the run records its stage and
   code version.
 - **Matches:** PURE, both sides at the reference decode (`raw:t0` with the

@@ -42,7 +42,8 @@ from wesnoth_ai.classes import (
 from wesnoth_ai import combat as cb
 from wesnoth_ai.paths import UNIT_STATS_PATH
 # The fog each command clears or recalculates (docs/wesnoth_rules.md
-# "Vision and fog").
+# "Vision and fog", "Delayed shroud updates").
+from wesnoth_ai import delayed_shroud
 from wesnoth_ai.visibility import clear_fog, refog, track_side
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
@@ -854,6 +855,10 @@ def _build_initial_gamestate(data: dict) -> GameState:
     # outside the mover's sight only in fog games (18.9% of the corpus
     # was played fog-off, tabulated 2026-09-06).
     setattr(gs.global_info, "_fog", fog_on_for(data.get("starting_sides", [])))
+    delaying = frozenset(int(s["side"]) for s in data.get("starting_sides", [])
+                         if not s.get("auto_shroud", True))
+    if delaying:
+        setattr(gs.global_info, delayed_shroud.SHROUD_DELAYED, delaying)
     setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
     setattr(gs.global_info, "_experience_modifier", exp_mod)
     # The sides beyond the players that take turns and those that never
@@ -1851,8 +1856,9 @@ def build_attack_context(gs: GameState, att: Unit, dfd: Unit,
 
 def _clear_fog_if_advanced(gs: GameState, before: Unit, after: Optional[Unit]) -> None:
     """An advancement or AMLA clears fog around the new unit for its
-    side (advancement.cpp:397-399)."""
-    if after is not None and after is not before:
+    side (advancement.cpp:397-399), except on the turn of a side that
+    delays its shroud updates (vision.cpp:467-469)."""
+    if after is not None and after is not before and not delayed_shroud.vision_delayed(gs, after.side):
         clear_fog(gs, after, [(after.position.x, after.position.y)])
 
 
@@ -1876,6 +1882,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if side == 1 and gs.global_info.turn_number >= 1:
             _fire_turn_events(gs, turn_end_event_names(gs.global_info.turn_number))
         gs.global_info.current_side = side
+        delayed_shroud.reset_pending(gs)
         # Per-turn rejection history clears at init_side. Per the
         # legality-mask contract (CLAUDE.md): rejection history is
         # part of the OBSERVABLE STATE and is scoped to the current
@@ -2178,6 +2185,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         #     AI's stop-unit sets it and is not recorded;
         #     docs/wesnoth_rules.md "End of a side's turn").
         ending_side = gs.global_info.current_side
+        # "Ending the turn commits all moves" (play_controller.cpp:576-577).
+        delayed_shroud.clear_undo_stack(gs)
         new_units = set()
         for u in gs.map.units:
             drop = set()
@@ -2253,9 +2262,19 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 gs.global_info, "_uncovered_units", None) or set()
             uncovered.update(out.uncovered_ids)
             setattr(gs.global_info, "_uncovered_units", uncovered)
+        # A delaying side's move waits on the undo stack with every hex
+        # the unit occupied, its start included (move.cpp:1069-1073); an
+        # ambush or a block makes it final, which commits the stack
+        # (:1075-1079).
+        delayed = delayed_shroud.vision_delayed(gs, unit.side)
+        undo_blocked = out.stop_reason in ("ambush", "blocked")
         if out.final_idx < 1:
             # Source-only "move" (first step blocked) — the unit
             # stays put, same as Wesnoth's fully-blocked outcome.
+            if delayed:
+                delayed_shroud.defer_vision(gs, unit, [(sx, sy)])
+            if undo_blocked:
+                delayed_shroud.clear_undo_stack(gs)
             return
         tx, ty = xs[out.final_idx], ys[out.final_idx]
         new_statuses = set(unit.statuses)
@@ -2267,9 +2286,23 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             statuses=new_statuses,
         )
         # The mover clears fog at every hex it enters (move.cpp:972-976).
-        clear_fog(gs, moved, list(zip(xs[1:out.final_idx + 1], ys[1:out.final_idx + 1])))
+        entered = list(zip(xs[1:out.final_idx + 1], ys[1:out.final_idx + 1]))
+        if delayed:
+            delayed_shroud.defer_vision(gs, moved, [(sx, sy)] + entered)
+        else:
+            clear_fog(gs, moved, entered)
         if _terrain_at(gs, tx, ty) == "village":
             _capture_village(gs, tx, ty, moved.side)
+        if undo_blocked:
+            delayed_shroud.clear_undo_stack(gs)
+        return
+
+    if kind == "auto_shroud":
+        delayed_shroud.apply_auto_shroud(gs, bool(cmd[1]))
+        return
+
+    if kind == "update_shroud":
+        delayed_shroud.apply_update_shroud(gs)
         return
 
     if kind == "pickadvance":
@@ -2357,6 +2390,10 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             return
         track_side(gs, att.side)
         track_side(gs, dfd.side)
+        # The fight's first random draw makes the turn's actions final,
+        # which commits a delaying side's pending vision
+        # (synced_context.cpp:277-285).
+        delayed_shroud.clear_undo_stack(gs)
 
         ctx = build_attack_context(gs, att, dfd, a_weapon, d_weapon)
 
@@ -2553,6 +2590,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # the replay's [random_seed] command (empty for undead/etc.).
         trait_seed = cmd[4] if len(cmd) > 4 else ""
         side = gs.global_info.current_side
+        delayed = delayed_shroud.vision_delayed(gs, side)
+        if delayed:
+            track_side(gs, side)
         next_uid = (max(
             (int(u.id[1:]) for u in gs.map.units if u.id.startswith("u") and u.id[1:].isdigit()),
             default=0,
@@ -2588,7 +2628,15 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if _pick:
             setattr(spawned, "_pickadvance", list(_pick))
         gs.map.units.add(spawned)
-        clear_fog(gs, spawned, [(tx, ty)])
+        # A delaying side's recruit waits on the undo stack; one that drew
+        # random numbers (its seed) cannot be undone and commits the stack
+        # (create.cpp:729-735, synced_context.cpp:277-285).
+        if delayed:
+            delayed_shroud.defer_vision(gs, spawned, [(tx, ty)])
+        else:
+            clear_fog(gs, spawned, [(tx, ty)])
+        if trait_seed:
+            delayed_shroud.clear_undo_stack(gs)
         # Bump Wesnoth's monotonic next_unit_id counter (see
         # _build_initial_gamestate setup).
         cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
@@ -2962,7 +3010,7 @@ def _action_indices(gs: GameState, cmd: list, *,
     `stats`, when given, counts each move label's source
     (`move_label_hex`).
     """
-    if not cmd:
+    if not cmd or cmd[0] not in PAIRED_KINDS:
         return None
     kind = cmd[0]
 

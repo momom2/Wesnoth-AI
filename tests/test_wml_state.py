@@ -86,14 +86,14 @@ def test_a_side_block_reads_the_same_whether_it_came_from_a_save_or_a_cfg():
     and the caller supplies the rest. One reader, one record shape."""
     save = node('[replay_start]\n[side]\nside=2\nfaction="Undead"\ngold=125\n'
                 'income=-1\nvillage_gold=3\nvillage_support=2\nfog=no\nshroud=yes\n'
-                'recruit="Skeleton,Ghoul"\ntype="Dark Sorcerer"\ncolor="red"\n'
+                'auto_shroud=no\nrecruit="Skeleton,Ghoul"\ntype="Dark Sorcerer"\ncolor="red"\n'
                 'controller="human"\n[/side]\n[/replay_start]\n')
     got = ws.read_side(save.first("side"))
     assert got == {
         "side": 2, "faction": "Undead", "gold": 125,
         "base_income": ws.ENGINE_BASE_INCOME - 1,     # income= is an offset
         "village_income": 3, "village_support": 2,
-        "fog": False, "shroud": True,
+        "fog": False, "shroud": True, "auto_shroud": False,
         "recruit": ["Skeleton", "Ghoul"],
         "leader_type": "Dark Sorcerer", "color": "red", "controller": "human",
     }

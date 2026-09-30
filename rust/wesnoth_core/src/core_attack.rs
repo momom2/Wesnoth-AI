@@ -339,6 +339,10 @@ impl GameCore {
         let (att_side, dfd_side) = (self.units[a].side, self.units[d].side);
         self.track_side(att_side);
         self.track_side(dfd_side);
+        // The fight's first random draw makes the turn's actions final,
+        // which commits a delaying side's pending vision
+        // (synced_context.cpp:277-285, core_shroud.rs).
+        self.clear_undo_stack();
         let dfd_was_slowed = self.units[d].has_status("slowed");
         let dfd_was_petrified = self.units[d].has_status("petrified");
         self.uncover(&att_id);                  // attack.cpp:1378

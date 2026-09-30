@@ -60,8 +60,11 @@ log = logging.getLogger("build_imitation_dataset")
 # moves the engine makes for standing orders at a turn start and the
 # end_turn of a turn that ran out are marked and never paired
 # (tools/replay_engine_actions.py), and each side records whether its
-# player picked Random, with the game's era, for the faction prior.
-CORPUS_VERSION = 3
+# player picked Random, with the game's era, for the faction prior. 4
+# (2026-09-30): a side that delays its shroud updates sees the fog it
+# has committed, not the fog its moves would have cleared
+# (wesnoth_ai/delayed_shroud.py).
+CORPUS_VERSION = 4
 
 ACCEPT_MOD_CLASSES = ("mod_free", "kept_cosmetic", "kept_plan_unit_advance")
 DISPOSITIONS = Path("training/logs/replay_dispositions.jsonl.gz")

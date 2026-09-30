@@ -168,8 +168,9 @@ impl GameCore {
     }
 
     /// `_maybe_advance_unit` on unit `i` then, when it advanced, its
-    /// vision from its hex (advancement.cpp:397-399). Returns whether it
-    /// advanced.
+    /// vision from its hex (advancement.cpp:397-399), except on the turn
+    /// of a side that delays its shroud updates (the `can_delay` check,
+    /// vision.cpp:467-469). Returns whether it advanced.
     pub fn advance_unit(&mut self, i: usize) -> bool {
         let mut u = self.units[i].clone();
         let mut advanced = false;
@@ -183,7 +184,7 @@ impl GameCore {
         self.place_unit_facts(&mut u);
         self.units[i] = u;
         let hex = self.units[i].hex;
-        if hex >= 0 {
+        if hex >= 0 && !self.vision_delayed(self.units[i].side) {
             self.clear_fog_from(i, &[hex as usize]);
         }
         true
@@ -209,12 +210,19 @@ impl GameCore {
 impl GameCore {
     /// `_apply_command(["recruit", type, x, y, seed])`: the recruit with
     /// its rolled traits, unable to move or attack this turn, the game's
-    /// pick-advance list for its type, its vision cleared, the uid counter
-    /// advanced and its cost spent; then what each side sees is recorded
-    /// (core_sight.rs). Returns the new unit's id.
+    /// pick-advance list for its type, its vision cleared (or, for a side
+    /// that delays its shroud updates, left on the undo stack, which a
+    /// recruit that drew random numbers commits: create.cpp:729-735,
+    /// synced_context.cpp:277-285), the uid counter advanced and its cost
+    /// spent; then what each side sees is recorded (core_sight.rs).
+    /// Returns the new unit's id.
     #[pyo3(signature = (unit_type, x, y, seed=""))]
     fn apply_recruit(&mut self, unit_type: &str, x: i64, y: i64, seed: &str) -> PyResult<String> {
         let side = self.global.current_side;
+        let delayed = self.vision_delayed(side);
+        if delayed {
+            self.track_side(side);
+        }
         let uid = self.next_uid();
         let mut u = build_recruit_unit(&self.db, unit_type, side, x, y, uid, &self.game_id, seed,
                                        self.global.experience_modifier);
@@ -226,8 +234,13 @@ impl GameCore {
         let id = u.id.clone();
         let i = self.insert_unit(u)?;
         let hex = self.units[i].hex;
-        if hex >= 0 {
+        if hex >= 0 && delayed {
+            self.defer_vision(i, &[hex as usize]);
+        } else if hex >= 0 {
             self.clear_fog_from(i, &[hex as usize]);
+        }
+        if !seed.is_empty() {
+            self.clear_undo_stack();
         }
         self.global.next_uid_counter += 1;
         let cost = self.db.get(unit_type).cost;
