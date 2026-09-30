@@ -331,6 +331,25 @@ PARITY_HEX_TOD_AT = NUM_HEX_DYNAMIC_FLAGS + 1                                   
 # its last end_turn and does not see now, at the last hex it was seen on, in
 # the unit stream's (y, x, id) order.
 
+
+@dataclass(frozen=True)
+class ObservationWidths:
+    """The input widths of one observation, which size the encoder's
+    tables and projections."""
+    terrains: int
+    hex_dynamic: int
+    unit_feats: int
+    side_codes: int
+    global_feats: int
+
+
+# obs8's widths, and the parity observation's (the constants above).
+LEGACY_WIDTHS = ObservationWidths(NUM_TERRAINS, NUM_HEX_DYNAMIC_FLAGS, UNIT_FEAT_DIM,
+                                  NUM_SIDE_CODES, GLOBAL_FEAT_DIM)
+PARITY_WIDTHS = ObservationWidths(NUM_TERRAINS_PARITY, NUM_HEX_DYNAMIC_FLAGS_PARITY,
+                                  UNIT_FEAT_DIM_PARITY, NUM_SIDE_CODES_PARITY,
+                                  GLOBAL_FEAT_DIM_PARITY)
+
 # Normalization divisors. Re-exported from `constants.py` so era
 # mods can override them in one place; see the comment block in
 # constants.py for scale rationale.
@@ -429,6 +448,12 @@ class EncodedState:
     # builder reads it instead of rebuilding the same sets; None on
     # the Python path.
     observation: Optional[object] = None
+
+    # The parity observation's sighting stream ([1, S, d], S >= 0): enemy
+    # units seen during the enemy's last turn and not visible now. None
+    # from an encoder without `observation_parity`. Never an actor or a
+    # target: the model reads these tokens and points at nothing in them.
+    sighting_tokens: Optional[torch.Tensor] = None
 
 
 # ---------------------------------------------------------------------
@@ -568,10 +593,17 @@ class GameStateEncoder(nn.Module):
     ):
         super().__init__()
         self.d_model = d_model
-        # The parity observation (docs/parity_memory_design_20260929.md),
-        # built by the Rust core only; rides the checkpoint like the flags
-        # below, with the relevant set's version (2 = the parity recipe's).
+        # The parity observation (docs/parity_memory_design_20260929.md,
+        # "What the network observes"): its input widths, the sighting
+        # stream and the faction posterior. Without it every table and
+        # projection is obs8's. It rides the checkpoint like the terrain
+        # view, and sizes parameters, so it is fixed at construction.
         self.observation_parity = bool(observation_parity)
+        self.widths = PARITY_WIDTHS if self.observation_parity else LEGACY_WIDTHS
+        # Which relevant set the hex stream holds when relevant_set_hexes
+        # is on: 1, obs8's; 2, the parity recipe's (the neighbours of
+        # every own unit and the unseen hexes near them added). Data
+        # flow, like the fog gate: it rides the checkpoint.
         self.relevant_set_version = int(relevant_set_version)
         # The hex's terrain as its full SET from the engine's aliases
         # (Hex.terrain_mask), embedded as a multi-hot over the same
@@ -609,18 +641,19 @@ class GameStateEncoder(nn.Module):
         else:
             self.faction_to_id = {f: i for i, f in enumerate(_DEFAULT_FACTIONS)}
 
+        widths = self.widths
         # --- hex embeddings -------------------------------------------
-        self.terrain_embed  = nn.Embedding(NUM_TERRAINS, d_model)
+        self.terrain_embed  = nn.Embedding(widths.terrains, d_model)
         # Bit positions for the multi-hot read of a terrain mask; not a
         # parameter, not in the state_dict.
-        self.register_buffer("_terrain_bits", torch.arange(NUM_TERRAINS, dtype=torch.int64),
+        self.register_buffer("_terrain_bits", torch.arange(widths.terrains, dtype=torch.int64),
                              persistent=False)
         self.modifier_proj  = nn.Linear(NUM_HEX_MODIFIERS, d_model, bias=False)
         # Dynamic flags (e.g. recruit_rejected) live in their own
         # projection -- old checkpoints lacking this Linear initialize
         # it from scratch under load_checkpoint(strict=False); the
         # static modifier projection above is unaffected.
-        self.dynamic_flag_proj = nn.Linear(NUM_HEX_DYNAMIC_FLAGS, d_model, bias=False)
+        self.dynamic_flag_proj = nn.Linear(widths.hex_dynamic, d_model, bias=False)
 
         # --- shared position embeddings --------------------------------
         self.pos_x_embed = nn.Embedding(MAX_MAP_SIZE, d_model)
@@ -628,11 +661,11 @@ class GameStateEncoder(nn.Module):
 
         # --- unit embeddings ------------------------------------------
         self.unit_type_embed = nn.Embedding(MAX_UNIT_TYPES, d_model)
-        self.unit_feat_proj  = nn.Linear(UNIT_FEAT_DIM, d_model)
-        self.side_embed      = nn.Embedding(NUM_SIDE_CODES, d_model)
+        self.unit_feat_proj  = nn.Linear(widths.unit_feats, d_model)
+        self.side_embed      = nn.Embedding(widths.side_codes, d_model)
 
         # --- global ---------------------------------------------------
-        self.global_proj = nn.Linear(GLOBAL_FEAT_DIM, d_model)
+        self.global_proj = nn.Linear(widths.global_feats, d_model)
 
         # --- faction embeddings ---------------------------------------
         # Separate embed tables for "our" and "their" faction so the
@@ -647,6 +680,13 @@ class GameStateEncoder(nn.Module):
         # --- end_turn sentinel ----------------------------------------
         # Small init so it doesn't dominate the softmax at step 0.
         self.end_turn_token = nn.Parameter(torch.randn(d_model) * 0.02)
+
+        # --- sightings (the parity observation) ------------------------
+        # A sighting token is a unit token of side code SIGHT_SIDE_CODE:
+        # the type, the position, and hit points in place of the unit's
+        # columns. Built last, so the tables above draw as without it.
+        self.sight_feat_proj = (nn.Linear(SIGHT_FEAT_DIM, d_model)
+                                if self.observation_parity else None)
 
     # ----- public API --------------------------------------------------
 
@@ -670,7 +710,9 @@ class GameStateEncoder(nn.Module):
         another observation (2026-09-19: the trainer built its raws
         with the basis alone, so a fresh network trained on one-class
         terrain tokens and played on the set). The vocab defaults to
-        the encoder's own; the trainer passes its frozen snapshot."""
+        the encoder's own; the trainer passes its frozen snapshot. The
+        parity observation and the relevant set's version 2 are built by
+        the Rust core only (`encode_raw` refuses them for an unbound state)."""
         return encode_raw(
             game_state,
             type_to_id=self.unit_type_to_id if type_to_id is None else type_to_id,
@@ -872,6 +914,7 @@ class GameStateEncoder(nn.Module):
         if device is None:
             device = next(self.parameters()).device
         d = self.d_model
+        self._check_raw(raw)
         # `non_blocking=True` lets the H2D copy overlap with whatever
         # the device was already doing. Harmless on CPU (no-op).
         # Kept True on DML after the ablation -- see the matching
@@ -959,18 +1002,29 @@ class GameStateEncoder(nn.Module):
             ).unsqueeze(0)  # [1, R, d]
             recruit_is_ours = _to_dev(raw.recruit_is_ours).unsqueeze(0)
 
+        # ---- sightings (the parity observation) ----
+        sighting_tokens = None
+        if self.observation_parity:
+            if raw.sight_type_ids.shape[0] == 0:
+                sighting_tokens = torch.zeros(1, 0, d, device=device)
+            else:
+                sighting_tokens = self._sighting_embedding(
+                    _to_dev(raw.sight_type_ids), _to_dev(raw.sight_xs),
+                    _to_dev(raw.sight_ys), _to_dev(raw.sight_feats)).unsqueeze(0)  # [1, S, d]
+
         # ---- global ----
-        # 6-element float vector + two ints — small enough that
-        # torch.tensor scalar paths are fine; from_numpy on a 6-element
+        # A small float vector + two ints — small enough that
+        # torch.tensor scalar paths are fine; from_numpy on an 8-element
         # array would be a wash.
         gf = torch.from_numpy(raw.global_feats).unsqueeze(0)
         if device.type != "cpu":
             gf = gf.to(device, non_blocking=nb)
-        emb = self.global_proj(gf)
         our_fid  = torch.tensor([raw.our_faction_id],  device=device, dtype=torch.long)
-        them_fid = torch.tensor([raw.their_faction_id], device=device, dtype=torch.long)
-        emb = emb + self.our_faction_embed(our_fid) + self.their_faction_embed(them_fid)
-        global_token = emb.unsqueeze(0)  # [1, 1, d]
+        if self.observation_parity:
+            them = _to_dev(raw.their_faction_probs).unsqueeze(0)            # [1, MAX_FACTIONS]
+        else:
+            them = torch.tensor([raw.their_faction_id], device=device, dtype=torch.long)
+        global_token = self._global_embedding(gf, our_fid, them).unsqueeze(0)  # [1, 1, d]
 
         # Pre-compute (x, y) -> hex index map for downstream sampler
         # legality checks. Saves rebuilding it per-decision in
@@ -998,7 +1052,48 @@ class GameStateEncoder(nn.Module):
             material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
                                   device=global_token.device),
             observation=getattr(raw, "observation", None),
+            sighting_tokens=sighting_tokens,
         )
+
+    def _check_raw(self, raw: RawEncoded) -> None:
+        """A record of this encoder's observation: the parity fields
+        present exactly under `observation_parity`, every width the one
+        its projections read. Refuses records from the other encoding
+        with a message instead of a matrix shape error."""
+        has_parity_fields = getattr(raw, "their_faction_probs", None) is not None
+        if has_parity_fields != self.observation_parity:
+            raise ValueError(
+                f"a RawEncoded {'with' if has_parity_fields else 'without'} the parity "
+                f"observation's fields reached an encoder "
+                f"{'with' if self.observation_parity else 'without'} observation_parity")
+        w = self.widths
+        checks = [("unit_feats", raw.unit_feats, w.unit_feats),
+                  ("recruit_feats", raw.recruit_feats, w.unit_feats),
+                  ("hex_dynamic_flags", raw.hex_dynamic_flags, w.hex_dynamic),
+                  ("global_feats", raw.global_feats, w.global_feats)]
+        if self.observation_parity:
+            checks += [("their_faction_probs", raw.their_faction_probs, MAX_FACTIONS),
+                       ("sight_feats", raw.sight_feats, SIGHT_FEAT_DIM)]
+            if raw.sight_type_ids is None or raw.sight_xs is None or raw.sight_ys is None:
+                raise ValueError("a parity RawEncoded without its sighting stream")
+        for name, arr, width in checks:
+            if arr is None or (arr.size and arr.shape[-1] != width):
+                raise ValueError(f"RawEncoded.{name}: width "
+                                 f"{None if arr is None else arr.shape[-1]}, this encoder reads "
+                                 f"{width}; a record from another feature layout?")
+
+    def _check_raws(self, raws: List[RawEncoded]) -> None:
+        """`_check_raw` on a batch's first record; the others must carry
+        the same observation. One producer builds a batch, and the batched
+        paths' concatenations refuse a width that differs within it, so
+        the serve thread pays one attribute read per further record."""
+        if not raws:
+            return
+        self._check_raw(raws[0])
+        for r in raws[1:]:
+            if (getattr(r, "their_faction_probs", None) is not None) != self.observation_parity:
+                raise ValueError("a batch mixes records with and without the parity "
+                                 "observation's fields")
 
     def encode_from_raw_padded(
         self,
@@ -1015,6 +1110,10 @@ class GameStateEncoder(nn.Module):
         end_turn [B, 1, d], sizes [(U, R, H)])."""
         if device is None:
             device = next(self.parameters()).device
+        if self.observation_parity:
+            raise ValueError("encode_from_raw_padded carries no sighting stream; a parity "
+                             "encoder's batches go through encode_from_raw_embedded or "
+                             "encode_from_raw_batch")
         emb = self._embed_streams(raws, device)
         d = self.d_model
         B = len(raws)
@@ -1048,13 +1147,32 @@ class GameStateEncoder(nn.Module):
         return (self.unit_type_embed(type_ids) + self.side_embed(side_ids)
                 + self.pos_x_embed(xs) + self.pos_y_embed(ys) + self.unit_feat_proj(feats))
 
-    def _global_embedding(self, feats, our_faction_ids, their_faction_ids):
-        return (self.global_proj(feats) + self.our_faction_embed(our_faction_ids)
-                + self.their_faction_embed(their_faction_ids))
+    def _sighting_embedding(self, type_ids, xs, ys, feats):
+        """Sighting tokens: a unit token of side code SIGHT_SIDE_CODE, with
+        the hit points it was last seen with in place of the unit's
+        columns."""
+        return (self.unit_type_embed(type_ids) + self.side_embed.weight[SIGHT_SIDE_CODE]
+                + self.pos_x_embed(xs) + self.pos_y_embed(ys) + self.sight_feat_proj(feats))
 
-    # RawEncoded's numeric fields per stream: (name, dtype, per-row
-    # shape). encode_from_raw_embedded concatenates each across the
-    # batch into one buffer.
+    def _global_embedding(self, feats, our_faction_ids, their):
+        """`their`: the opponent's faction ids [B]; under the parity
+        observation, its faction posterior [B, MAX_FACTIONS]."""
+        return (self.global_proj(feats) + self.our_faction_embed(our_faction_ids)
+                + self._their_faction_term(their))
+
+    def _their_faction_term(self, their: torch.Tensor) -> torch.Tensor:
+        """The opponent's faction row, or under the parity observation the
+        posterior-weighted sum of the rows (design "The enemy's faction"),
+        which is exactly that row for a one-hot posterior. Elementwise
+        products and a sum, so no autocast lowers it below float32."""
+        if not self.observation_parity:
+            return self.their_faction_embed(their)
+        return (their.unsqueeze(-1) * self.their_faction_embed.weight).sum(dim=-2)
+
+    # RawEncoded's numeric fields per stream at obs8's widths: (name,
+    # dtype, per-row shape). encode_from_raw_embedded concatenates each
+    # across the batch into one buffer (`_stream_fields` gives this
+    # encoder's own widths and streams).
     _STREAM_FIELDS = (
         ("hex", (("hex_xs", torch.int64, ()), ("hex_ys", torch.int64, ()),
                  ("hex_terrain_ids", torch.int64, ()),
@@ -1067,6 +1185,27 @@ class GameStateEncoder(nn.Module):
                      ("recruit_xs", torch.int64, ()), ("recruit_ys", torch.int64, ()),
                      ("recruit_feats", torch.float32, (UNIT_FEAT_DIM,)))),
     )
+
+    def _stream_fields(self):
+        """`_STREAM_FIELDS` at this encoder's widths, plus the sighting
+        stream under the parity observation."""
+        if not self.observation_parity:
+            return self._STREAM_FIELDS
+        w = self.widths
+        i64, f32 = torch.int64, torch.float32
+        return (
+            ("hex", (("hex_xs", i64, ()), ("hex_ys", i64, ()), ("hex_terrain_ids", i64, ()),
+                     ("hex_modifier_flags", f32, (NUM_HEX_MODIFIERS,)),
+                     ("hex_dynamic_flags", f32, (w.hex_dynamic,)))),
+            ("unit", (("unit_type_ids", i64, ()), ("unit_side_ids", i64, ()),
+                      ("unit_xs", i64, ()), ("unit_ys", i64, ()),
+                      ("unit_feats", f32, (w.unit_feats,)))),
+            ("recruit", (("recruit_type_ids", i64, ()), ("recruit_side_ids", i64, ()),
+                         ("recruit_xs", i64, ()), ("recruit_ys", i64, ()),
+                         ("recruit_feats", f32, (w.unit_feats,)))),
+            ("sighting", (("sight_type_ids", i64, ()), ("sight_xs", i64, ()),
+                          ("sight_ys", i64, ()), ("sight_feats", f32, (SIGHT_FEAT_DIM,)))),
+        )
 
     def encode_from_raw_embedded(
         self,
@@ -1090,25 +1229,30 @@ class GameStateEncoder(nn.Module):
         B = len(raws)
         if B == 0:
             raise ValueError("encode_from_raw_embedded: empty batch")
-        Hs = [r.hex_xs.shape[0] for r in raws]
-        Us = [r.unit_xs.shape[0] for r in raws]
-        Rs = [r.recruit_type_ids.shape[0] for r in raws]
-        totals = {"hex": sum(Hs), "unit": sum(Us), "recruit": sum(Rs)}
+        self._check_raws(raws)
+        spec = self._stream_fields()
+        counts = {stream: [getattr(r, fields[0][0]).shape[0] for r in raws]
+                  for stream, fields in spec}
+        totals = {stream: sum(c) for stream, c in counts.items()}
+        their = (("their_faction_probs", torch.float32, (B, MAX_FACTIONS))
+                 if self.observation_parity else ("their_faction_id", torch.int64, (B,)))
         fields = [(name, dt, (totals[stream],) + shape)
-                  for stream, spec in self._STREAM_FIELDS for name, dt, shape in spec]
-        fields += [("global_feats", torch.float32, (B, GLOBAL_FEAT_DIM)),
-                   ("our_faction_id", torch.int64, (B,)),
-                   ("their_faction_id", torch.int64, (B,))]
+                  for stream, stream_fields in spec for name, dt, shape in stream_fields]
+        fields += [("global_feats", torch.float32, (B, self.widths.global_feats)),
+                   ("our_faction_id", torch.int64, (B,)), their]
         layout = FlatLayout(fields)
         host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=(device.type == "cuda"))
         hv = layout.numpy_views(host.numpy())
-        for stream, spec in self._STREAM_FIELDS:
+        for stream, stream_fields in spec:
             if totals[stream]:
-                for name, _, _ in spec:
+                for name, _, _ in stream_fields:
                     np.concatenate([getattr(r, name) for r in raws], out=hv[name])
         np.stack([r.global_feats for r in raws], out=hv["global_feats"])
         hv["our_faction_id"][:] = [r.our_faction_id for r in raws]
-        hv["their_faction_id"][:] = [r.their_faction_id for r in raws]
+        if self.observation_parity:
+            np.stack([r.their_faction_probs for r in raws], out=hv["their_faction_probs"])
+        else:
+            hv["their_faction_id"][:] = [r.their_faction_id for r in raws]
         dev = host if device.type == "cpu" else host.to(device, non_blocking=True)
         v = layout.torch_views(dev)
         parts = []
@@ -1121,10 +1265,14 @@ class GameStateEncoder(nn.Module):
         if totals["recruit"]:
             parts.append(self._unit_embedding(v["recruit_type_ids"], v["recruit_side_ids"],
                                               v["recruit_xs"], v["recruit_ys"], v["recruit_feats"]))
-        parts.append(self._global_embedding(v["global_feats"], v["our_faction_id"],
-                                            v["their_faction_id"]))
+        if totals.get("sighting"):
+            parts.append(self._sighting_embedding(v["sight_type_ids"], v["sight_xs"],
+                                                  v["sight_ys"], v["sight_feats"]))
+        parts.append(self._global_embedding(v["global_feats"], v["our_faction_id"], v[their[0]]))
         parts.append(self.end_turn_token.view(1, -1))
-        return EmbeddedStreams(tokens=torch.cat(parts, dim=0), sizes=list(zip(Us, Rs, Hs)))
+        return EmbeddedStreams(tokens=torch.cat(parts, dim=0),
+                               sizes=list(zip(counts["unit"], counts["recruit"], counts["hex"])),
+                               sighting_counts=counts.get("sighting"))
 
     def _embed_streams(self, raws: List[RawEncoded], device) -> dict:
         """The trained embeddings of every stream for a batch, as
@@ -1149,9 +1297,13 @@ class GameStateEncoder(nn.Module):
         is what carries it to CUDA."""
         nb = device.type != "cpu"
         _pin = device.type == "cuda"   # [gpu-perf B3] see encode_from_raw
+        self._check_raws(raws)
+        w = self.widths
+        parity = self.observation_parity
         Hs = [r.hex_xs.shape[0] for r in raws]
         Us = [r.unit_xs.shape[0] for r in raws]
         Rs = [r.recruit_type_ids.shape[0] for r in raws]
+        Ss = [r.sight_type_ids.shape[0] for r in raws] if parity else [0] * len(raws)
 
         # Gather every field of one dtype into one buffer, remembering
         # where each lands so it can be sliced back out on the device.
@@ -1170,22 +1322,29 @@ class GameStateEncoder(nn.Module):
             for nm, f in (("hx", "hex_xs"), ("hy", "hex_ys"), ("ht", "hex_terrain_ids")):
                 _stage(nm, [getattr(r, f) for r in raws], "i", 1)
             _stage("hm", [r.hex_modifier_flags for r in raws], "f", NUM_HEX_MODIFIERS)
-            _stage("hd", [r.hex_dynamic_flags for r in raws], "f", NUM_HEX_DYNAMIC_FLAGS)
+            _stage("hd", [r.hex_dynamic_flags for r in raws], "f", w.hex_dynamic)
         if sum(Us):
             for nm, f in (("ut", "unit_type_ids"), ("us", "unit_side_ids"),
                           ("ux", "unit_xs"), ("uy", "unit_ys")):
                 _stage(nm, [getattr(r, f) for r in raws], "i", 1)
-            _stage("uf", [r.unit_feats for r in raws], "f", UNIT_FEAT_DIM)
+            _stage("uf", [r.unit_feats for r in raws], "f", w.unit_feats)
             _stage("ui", [r.unit_is_ours for r in raws], "f", 1)
         if sum(Rs):
             for nm, f in (("rt", "recruit_type_ids"), ("rs", "recruit_side_ids"),
                           ("rx", "recruit_xs"), ("ry", "recruit_ys")):
                 _stage(nm, [getattr(r, f) for r in raws], "i", 1)
-            _stage("rf", [r.recruit_feats for r in raws], "f", UNIT_FEAT_DIM)
+            _stage("rf", [r.recruit_feats for r in raws], "f", w.unit_feats)
             _stage("ri", [r.recruit_is_ours for r in raws], "f", 1)
-        _stage("gf", [np.stack([r.global_feats for r in raws])], "f", GLOBAL_FEAT_DIM)
+        if sum(Ss):
+            for nm, f in (("st", "sight_type_ids"), ("sx", "sight_xs"), ("sy", "sight_ys")):
+                _stage(nm, [getattr(r, f) for r in raws], "i", 1)
+            _stage("sf", [r.sight_feats for r in raws], "f", SIGHT_FEAT_DIM)
+        _stage("gf", [np.stack([r.global_feats for r in raws])], "f", w.global_feats)
         _stage("ofi", [np.array([r.our_faction_id for r in raws], dtype=np.int64)], "i", 1)
-        _stage("tfi", [np.array([r.their_faction_id for r in raws], dtype=np.int64)], "i", 1)
+        if parity:
+            _stage("tfp", [np.stack([r.their_faction_probs for r in raws])], "f", MAX_FACTIONS)
+        else:
+            _stage("tfi", [np.array([r.their_faction_id for r in raws], dtype=np.int64)], "i", 1)
 
         t: Dict[str, torch.Tensor] = {}
         for kind, dtype in (("i", np.int64), ("f", np.float32)):
@@ -1211,8 +1370,8 @@ class GameStateEncoder(nn.Module):
                 view = dev_buf[off:off + n]
                 t[name] = view.view(rows, width) if width > 1 else view
 
-        out = {"Hs": Hs, "Us": Us, "Rs": Rs, "hex": None, "unit": None,
-               "recruit": None, "unit_is": None, "recruit_is": None}
+        out = {"Hs": Hs, "Us": Us, "Rs": Rs, "Ss": Ss, "hex": None, "unit": None,
+               "recruit": None, "sighting": None, "unit_is": None, "recruit_is": None}
         if sum(Hs):
             out["hex"] = self._hex_embedding(t["hx"], t["hy"], t["ht"], t["hm"], t["hd"])
         if sum(Us):
@@ -1221,7 +1380,10 @@ class GameStateEncoder(nn.Module):
         if sum(Rs):
             out["recruit"] = self._unit_embedding(t["rt"], t["rs"], t["rx"], t["ry"], t["rf"])
             out["recruit_is"] = t["ri"]
-        out["global"] = self._global_embedding(t["gf"], t["ofi"], t["tfi"])   # [B, d]
+        if sum(Ss):
+            out["sighting"] = self._sighting_embedding(t["st"], t["sx"], t["sy"], t["sf"])
+        their = t["tfp"] if parity else t["tfi"]
+        out["global"] = self._global_embedding(t["gf"], t["ofi"], their)   # [B, d]
         return out
 
     def encode_from_raw_batch(
@@ -1271,6 +1433,8 @@ class GameStateEncoder(nn.Module):
         hex_per = _per(emb["hex"], Hs)
         unit_per = _per(emb["unit"], Us)
         recruit_per = _per(emb["recruit"], Rs)
+        sighting_per = (_per(emb["sighting"], emb["Ss"]) if self.observation_parity
+                        else [None] * B)
         unit_is_per = _per_flag(emb["unit_is"], Us)
         recruit_is_per = _per_flag(emb["recruit_is"], Rs)
         global_emb = emb["global"]
@@ -1302,6 +1466,7 @@ class GameStateEncoder(nn.Module):
                 material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
                                       device=global_emb.device),
                 observation=getattr(raw, "observation", None),
+                sighting_tokens=sighting_per[b],
             ))
         return results
 

@@ -33,6 +33,8 @@ from typing import Dict, List, Optional, Tuple
 import torch
 
 from wesnoth_ai.action_sampler import sample_action
+from wesnoth_ai.checkpoint_structure import (checkpoint_structure, refuse_other_structure,
+                                             saved_structure)
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.device import describe
@@ -94,6 +96,9 @@ class TransformerPolicy:
         value_material: bool = False,
         fog_hides_enemy_villages: bool = True,
         terrain_multi_hot: bool = True,
+        observation_parity: bool = False,
+        memory_slots: int = 0,
+        relevant_set_version: int = 1,
     ):
         # Default device is CPU. DML runs work for rollout (single-sample
         # forwards are competitive with CPU once the MHA/TransformerEncoder
@@ -143,11 +148,22 @@ class TransformerPolicy:
         # fresh network reads it; a loaded checkpoint keeps its own
         # setting (load_checkpoint), absent = the one-class view.
         self._terrain_multi_hot = bool(terrain_multi_hot)
+        # The parity-memory recipe (docs/parity_memory_design_20260929.md):
+        # the parity observation's encoder and network, the memory's slot
+        # count, and the relevant set's version. The first two size
+        # parameters, so a checkpoint must be loaded into a policy built
+        # with its own (load_checkpoint refuses another); the version is
+        # data flow and a checkpoint's own wins on load.
+        self._observation_parity = bool(observation_parity)
+        self._memory_slots = int(memory_slots)
+        self._relevant_set_version = int(relevant_set_version)
         self._encoder = GameStateEncoder(
             d_model=d_model,
             relevant_set_hexes=self._relevant_set_hexes,
             fog_hides_enemy_villages=self._fog_hides_enemy_villages,
-            terrain_multi_hot=self._terrain_multi_hot).to(self._device)
+            terrain_multi_hot=self._terrain_multi_hot,
+            observation_parity=self._observation_parity,
+            relevant_set_version=self._relevant_set_version).to(self._device)
         self._model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -157,6 +173,8 @@ class TransformerPolicy:
             moves_left=self._moves_left,
             gbc=self._gbc,
             value_material=self._value_material,
+            observation_parity=self._observation_parity,
+            memory_slots=self._memory_slots,
         ).to(self._device)
         self._trainer = Trainer(
             self._model,
@@ -189,7 +207,9 @@ class TransformerPolicy:
             d_model=d_model,
             relevant_set_hexes=self._relevant_set_hexes,
             fog_hides_enemy_villages=self._fog_hides_enemy_villages,
-            terrain_multi_hot=self._terrain_multi_hot).to(self._device)
+            terrain_multi_hot=self._terrain_multi_hot,
+            observation_parity=self._observation_parity,
+            relevant_set_version=self._relevant_set_version).to(self._device)
         self._inference_model = WesnothModel(
             d_model=d_model,
             num_layers=num_layers,
@@ -204,6 +224,8 @@ class TransformerPolicy:
             # populates the ctx tap on this copy's forwards -- three
             # tensor references, no extra compute.)
             gbc=self._gbc,
+            observation_parity=self._observation_parity,
+            memory_slots=self._memory_slots,
         ).to(self._device)
         self._inference_encoder.load_state_dict(self._encoder.state_dict())
         self._inference_model.load_state_dict(self._model.state_dict())
@@ -723,6 +745,7 @@ class TransformerPolicy:
                 "relevant_set_hexes": self._relevant_set_hexes,
                 "fog_hides_enemy_villages": self._fog_hides_enemy_villages,
                 "terrain_multi_hot": self._terrain_multi_hot,
+                **checkpoint_structure(self._model, self._encoder),
                 # The sim's observation semantics at training time.
                 # Weights encode the distribution they were trained on,
                 # so a checkpoint from an earlier epoch is playing a
@@ -770,6 +793,13 @@ class TransformerPolicy:
         self._fog_hides_enemy_villages = bool(on)
         self._encoder.fog_hides_enemy_villages = bool(on)
         self._inference_encoder.fog_hides_enemy_villages = bool(on)
+
+    def set_relevant_set_version(self, version: int) -> None:
+        """Both encoders build the same relevant set (data flow, like the
+        fog gate: a checkpoint's own wins on load)."""
+        self._relevant_set_version = int(version)
+        self._encoder.relevant_set_version = int(version)
+        self._inference_encoder.relevant_set_version = int(version)
 
     def load_checkpoint(self, path: Path, *, strict: bool = False) -> None:
         """Load weights from a checkpoint.
@@ -851,6 +881,11 @@ class TransformerPolicy:
                     f"partial loading -- rebuild the policy with the "
                     f"saved arch instead."
                 )
+        # The parity-memory recipe's keys (wesnoth_ai/checkpoint_structure):
+        # the observation and the memory size parameters and must match;
+        # the relevant set's version is data flow and follows the checkpoint.
+        refuse_other_structure(ckpt, self._model, self._encoder, Path(path).name)
+        self.set_relevant_set_version(saved_structure(ckpt)["relevant_set_version"])
         # Pre-C51 checkpoints (pre-2026-05-10) saved a 1-scalar
         # value head; current model has the 51-atom C51 head. The
         # tensors are shape-incompatible -- strip them from the

@@ -545,11 +545,16 @@ def inference_blueprint(model, encoder) -> InferenceBlueprint:
             num_heads=int(layer.self_attn.num_heads),
             d_ff=int(layer.linear1.out_features), dropout=float(layer.dropout.p),
             max_attacks=int(model.max_attacks), aux_score=bool(model.has_aux_score),
-            moves_left=bool(model.has_moves_left), gbc=bool(model.has_gbc)),
+            moves_left=bool(model.has_moves_left), gbc=bool(model.has_gbc),
+            value_material=bool(model.has_value_material),
+            observation_parity=bool(model.observation_parity),
+            memory_slots=int(model.memory_slots)),
         encoder_kwargs=dict(d_model=int(encoder.d_model),
                             relevant_set_hexes=bool(encoder.relevant_set_hexes),
                             fog_hides_enemy_villages=bool(getattr(encoder, "fog_hides_enemy_villages", False)),
-                            terrain_multi_hot=bool(getattr(encoder, "terrain_multi_hot", False))))
+                            terrain_multi_hot=bool(getattr(encoder, "terrain_multi_hot", False)),
+                            observation_parity=bool(encoder.observation_parity),
+                            relevant_set_version=int(encoder.relevant_set_version)))
 
 
 def build_inference_pair(blueprint: InferenceBlueprint, device: torch.device) -> Tuple:

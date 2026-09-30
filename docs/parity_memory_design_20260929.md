@@ -213,6 +213,122 @@ hidden enemy units whose hex has no token.
   sides' memories with the simulator); this retrain's verdict needs only
   raw players.
 
+## Model interface
+
+What a trainer and a server call (branch `feature/memory-model`). The
+recipe's modules:
+
+```python
+encoder = GameStateEncoder(d_model=384, relevant_set_hexes=True, fog_hides_enemy_villages=True,
+                           terrain_multi_hot=True, observation_parity=True, relevant_set_version=2)
+model = WesnothModel(d_model=384, num_layers=8, num_heads=12, d_ff=1536,
+                     observation_parity=True, memory_slots=64)
+policy = TransformerPolicy(d_model=384, num_layers=8, num_heads=12, d_ff=1536,
+                           relevant_set_hexes=True, observation_parity=True,
+                           memory_slots=64, relevant_set_version=2)
+```
+
+With `observation_parity` off and `memory_slots=0` (the defaults) both
+modules are `obs8`'s, parameter for parameter and output for output
+(tests/test_memory_model.py against tests/data/legacy_model_reference.json).
+
+**A decision's record** is a `RawEncoded` at the parity widths: unit and
+recruit features [., 109], hex dynamic flags [H, 5], global features [15],
+terrain masks over 16 classes, `their_faction_probs` float32 [32] (which
+replaces `their_faction_id`), and the sighting stream `sight_type_ids`,
+`sight_xs`, `sight_ys` int64 [S] and `sight_feats` float32 [S, 2], S >= 0,
+never None. The encoder adds side code 3 to a sighting. A record of the
+other encoding is refused with a message.
+
+**The memory state** of a game-side is a float32 tensor [k, d], k fixed
+for the game-side, 0 <= k <= 64. `model.initial_memory(k)` is the state
+before its first decision (a copy of the learned rows; gradient reaches
+them in training).
+
+**The batch forward**, the trainer's and the server's:
+
+```python
+streams = encoder.encode_from_raw_embedded(raws, device=device)  # EmbeddedStreams
+out = model.forward_embedded(streams, memory=states)              # PaddedOutput
+new_states = out.memory
+```
+
+The signatures:
+
+```python
+GameStateEncoder.encode_from_raw_embedded(raws: List[RawEncoded], *,
+                                          device: Optional[torch.device] = None) -> EmbeddedStreams
+WesnothModel.initial_memory(k: int) -> torch.Tensor           # float32 [k, d]
+WesnothModel.forward_embedded(streams: EmbeddedStreams, packed: Optional[bool] = None,
+                              material: Optional[torch.Tensor] = None,
+                              memory: Optional[Sequence[torch.Tensor]] = None) -> PaddedOutput
+```
+
+`PaddedOutput` adds `belief_logits` [B, H_max], `memory_padded`
+[B, K_max, d] float32, `memory_counts` (k_b per record) and the property
+`memory` (the list of [k_b, d] states) to its fields; `sizes` holds
+(U_b, R_b, H_b) per record and `samples()` the per-record `ModelOutput`
+views.
+
+- `states`: one float32 [k_b, d] per record, on any device (moved to the
+  model's). Required by a model with memory slots, refused by one without.
+- `out.memory`: one float32 [k_b, d] per record, the side's state after
+  this decision, to pass at its next decision. They are views of
+  `out.memory_padded` [B, K_max, d] with counts `out.memory_counts`, so a
+  server moves them to the host in one copy (`out.to_cpu()`). Truncated
+  back-propagation detaches them between windows; a new game-side starts
+  from `initial_memory(k)`.
+- `out.belief_logits` [B, H_max]: one logit per hex slot, sample b's first
+  `out.sizes[b][2]` (H_b) slots aligned with `raws[b].hex_positions`, the
+  hex tokens' order. Its target is 1 where an enemy unit the side cannot
+  see stands on that hex's token.
+- The other heads are unchanged: actor slots are units | recruits |
+  end_turn, targets are hex slots. Sightings and memory slots are neither.
+- The sequence per sample is hex | unit | recruit | sighting | memory |
+  global | end_turn; only the k active slots enter it.
+- `packed=None` takes the packed varlen trunk when `model.infer_packed_trunk`
+  is set and the call runs in eval mode on CUDA in bf16/fp16 (serving),
+  and the padded trunk otherwise (training). Under `torch.autocast` the
+  trunk and heads run in the autocast dtype; the memory write runs in
+  float32 either way; `out.float32()` casts the heads' outputs.
+
+The other paths take the same `memory=` argument and agree with this one
+(tests/test_memory_model.py): `model.forward_padded(encoded_list,
+memory=states)` and `model.forward_batch(...)` on
+`encoder.encode_from_raw_batch(raws)`, and `model(encoded, memory=state)`
+on `encoder.encode_from_raw(raw)`, whose `ModelOutput` carries
+`belief_logits` [1, H] and `memory` [k, d]. `model.forward_streams` takes
+padded streams with `sighting_batch` [B, S_max, d] and `sighting_counts`.
+`encoder.encode_from_raw_padded` refuses the parity encoder (it has no
+sighting stream).
+
+**Checkpoints** carry three top-level keys, written by
+`TransformerPolicy.save_checkpoint` and `supervised_train._save_checkpoint`
+through `wesnoth_ai.checkpoint_structure.checkpoint_structure(model,
+encoder)`: `observation_parity` (bool), `memory_slots` (int) and
+`relevant_set_version` (int); absent, they read False, 0 and 1.
+`tools/eval_players.peek_checkpoint_arch` returns them
+(`CHECKPOINT_STRUCT_FLAGS`, `CHECKPOINT_STRUCT_INTS`), so `_load_policy`
+builds the policy the checkpoint needs; `load_checkpoint` refuses a policy
+built with another observation or slot count, and the relevant set's
+version follows the checkpoint. `inference_blueprint` carries all three.
+The parameters the recipe adds: `slot_memory.initial` [64, d],
+`slot_memory.slot_embed.weight` [64, d], `slot_memory.gate` (Linear 2d to
+d, bias initialized to -2), `slot_memory.candidate` (Linear d to d),
+`belief_head` (Linear d to 1), `token_kind_embed.weight` with 7 rows, and
+in the encoder `sight_feat_proj` (Linear 2 to d) beside the widened
+`unit_feat_proj`, `dynamic_flag_proj`, `global_proj`, `terrain_embed` and
+`side_embed`.
+
+**Not yet carried.** MCTS (`MCTSPolicy` and its subclasses,
+`mcts_search`), turn search (`plan_turn`), the self-play pool (`ActorPool`,
+so `az_loop`, `sim_self_play`'s pool and `actor_stream`) and the graphed
+server refuse a memory model; the graphed server refuses the parity
+observation too. `TransformerPolicy.select_action` and the inference
+server's paths pass no memory, and the model refuses a forward without
+it. `GameStateEncoder.raw_of` raises for the parity observation and the
+relevant set version 2 until `encode_raw` can build them.
+
 ## Rejected
 
 - A harness-kept list of every enemy seen, with its last hex and turn:

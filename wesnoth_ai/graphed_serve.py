@@ -51,6 +51,7 @@ import numpy as np
 import torch
 
 from wesnoth_ai.encoder import GLOBAL_FEAT_DIM
+from wesnoth_ai.memory import refuse_memory_model
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, TokenKind, UnitActionType
 from wesnoth_ai.packed_trunk import (
     FlatLayout, PackedIndex, PackedTrunkWeights, build_packed_layout,
@@ -208,6 +209,10 @@ class GraphedServe:
                  graphs: bool = True, extras: Sequence[str] = ("value", "value_logits", "cliffness")):
         if getattr(model, "has_gbc", False):
             raise ValueError("graphed serve does not carry the GBC unit context")
+        refuse_memory_model(model, "the graphed serve path")
+        if getattr(encoder, "observation_parity", False) or getattr(model, "observation_parity", False):
+            raise ValueError("the graphed serve path embeds obs8's streams only: it has no "
+                             "sighting stream, faction posterior or belief head")
         check_packed_trunk_supported(model.encoder)
         self.model, self.encoder, self.device, self.caps = model, encoder, device, caps
         self.graphs = bool(graphs) and device.type == "cuda"
