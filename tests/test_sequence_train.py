@@ -228,3 +228,114 @@ def test_the_holdout_ce_of_a_checkpoint_without_a_memory_reads_every_holdout_dec
     assert result["n_games"] == 1 and result["skipped_games"] == 0
     assert result["n_decisions"] == 6, "both sides' move and two end_turns of the held-out game"
     assert result["ce_all"] > 0 and result["ce_winners"] > 0
+
+
+def _trainer(pass_inputs, tmp_path, *extra):
+    from tools import sequence_train
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    args = sequence_train.parse_args([*pass_inputs, "--probe-every", "1000000", "--barrier-positions",
+                                      "1000000", "--signal-every", "1000000", "--out", str(tmp_path / "arm.pt"),
+                                      *extra])
+    torch.manual_seed(args.seed)
+    return sequence_train.Trainer(args, torch.device("cpu"))
+
+
+@pytest.mark.slow
+def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_windows(tmp_path, pass_inputs):
+    """Windows of two over game-sides of three decisions: a game-side's first
+    decision reads the learned initial memory, the next decision in the same
+    window reads the previous write with its gradient, and a window's first
+    decision of a continuing game-side reads a detached state."""
+    trainer = _trainer(pass_inputs, tmp_path, "--window", "2")
+    prepare, train_window = trainer._prepare, trainer.train_window
+    reads, where = [], {"t": 0}
+
+    def spy_prepare(steps, memories):
+        out = prepare(steps, memories)
+        for s, m in zip(steps, out[1]):
+            initial = s.k > 0 and torch.equal(m, trainer.model.initial_memory(s.k))
+            reads.append((where["t"], s.starts, s.k, bool(m.requires_grad), initial))
+        where["t"] += 1
+        return out
+
+    def spy_window():
+        where["t"] = 0
+        return train_window()
+
+    trainer._prepare, trainer.train_window = spy_prepare, spy_window
+    assert trainer.run() == 0
+    cases = set()
+    for t, starts, k, grad, initial in reads:
+        if starts:
+            assert grad and (k == 0 or initial), "a game-side starts from the learned initial memory"
+            cases.add(("start", t > 0))
+        elif t > 0:
+            assert grad and not initial, "inside a window the previous write carries its gradient"
+            cases.add(("carried", True))
+        else:
+            assert not grad, "a window begins from a detached state"
+            cases.add(("carried", False))
+    assert cases == {("start", False), ("start", True), ("carried", True), ("carried", False)}
+
+
+@pytest.mark.slow
+def test_a_non_finite_step_is_skipped_and_a_run_of_them_stops_the_pass(tmp_path, pass_inputs, monkeypatch):
+    from tools import sequence_train
+    real = sequence_train.belief_loss
+    trainer = _trainer(pass_inputs, tmp_path / "one")
+    monkeypatch.setattr(sequence_train, "belief_loss", lambda *a, **kw: real(*a, **kw) * (
+        float("nan") if trainer.state["steps"] == 0 else 1.0))
+    assert trainer.run() == 0
+    assert trainer.state["nonfinite_steps"] == 1
+    assert all(torch.isfinite(p).all() for p in trainer.params), "the skipped update left no NaN behind"
+
+    stuck = _trainer(pass_inputs, tmp_path / "all", "--window", "1")
+    before = [p.detach().clone() for p in stuck.params]
+    monkeypatch.setattr(sequence_train, "belief_loss", lambda *a, **kw: real(*a, **kw) * float("nan"))
+    assert stuck.run() == sequence_train.EXIT_NONFINITE
+    assert stuck.state["nonfinite_steps"] == sequence_train.NONFINITE_LIMIT
+    assert all(torch.equal(a, b) for a, b in zip(before, stuck.params))
+
+
+@pytest.mark.slow
+def test_the_probe_reads_each_game_side_alike_whatever_its_batch(tmp_path, pass_inputs):
+    """The probe hands a finished game-side's row to the next one; each
+    game-side's readings do not depend on which others share its batch."""
+    from tools.sequence_probe import run_sides
+    trainer = _trainer(pass_inputs, tmp_path)
+    sides = [GameSide(f, s) for f in sorted(trainer.games) for s in (1, 2)]
+    kw = dict(device=torch.device("cpu"), type_loss_weights=trainer.type_loss_weights)
+    trainer.model.eval()
+    trainer.encoder.eval()
+    with torch.no_grad():
+        one = run_sides(trainer.model, trainer.encoder, sides, trainer.loader.sides, 8, batch=1, **kw)
+        many = run_sides(trainer.model, trainer.encoder, sides, trainer.loader.sides, 8, batch=3, **kw)
+    assert set(one) == set(many) == set(sides)
+    for g in sides:
+        assert len(one[g]["belief"]) == len(trainer.loader.sides(g)) > 0
+        for key in ("ce", "value", "belief"):
+            a, b = one[g][key], many[g][key]
+            assert [x is None for x in a] == [x is None for x in b], (g, key)
+            assert np.allclose([x for x in a if x is not None], [x for x in b if x is not None],
+                               atol=1e-5), (g, key)
+
+
+@pytest.mark.slow
+def test_the_holdout_ce_reads_only_the_games_the_pre_encoding_kept(tmp_path, pass_inputs):
+    from tools.holdout_ce import holdout_ce, main
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    args = dict(zip(pass_inputs[::2], pass_inputs[1::2]))
+    sequences, dataset = Path(args["--sequences"]), Path(args["--dataset"])
+    spec = tmp_path / "net.pt"
+    TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2, d_ff=64,
+                      relevant_set_hexes=True).save_checkpoint(spec)
+    assert holdout_ce(spec, dataset, torch.device("cpu"), sequences=sequences)["n_games"] == 1
+    trimmed = tmp_path / "trimmed"
+    trimmed.mkdir()
+    man = json.loads((sequences / "sequence_manifest.json").read_text(encoding="utf-8"))
+    man["games"] = {f: c for f, c in man["games"].items() if f != "g2.json.gz"}
+    (trimmed / "sequence_manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    out = tmp_path / "ce.json"
+    assert main([str(spec), "--dataset", str(dataset), "--sequences", str(trimmed), "--out", str(out),
+                 "--device", "cpu"]) == 1
+    assert not out.exists(), "a run with no decision writes nothing"

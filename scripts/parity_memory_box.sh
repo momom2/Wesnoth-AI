@@ -28,13 +28,13 @@
 # tarball. Re-entry, on this machine or a new one (files absent here come
 # back from HF), skips finished steps and continues the pass where its
 # checkpoint stood; a new machine rebuilds the corpus and the sequences,
-# which are deterministic. A pass continues only under the code stage that
-# began it (PASS_STAGE): a new stage may change the data or the pass, so it
-# is refused unless RESUME_OTHER_STAGE=1 says it changes neither; a run
-# whose data or pass changed takes a new HF_DIR. Every exit, clean or not,
-# uploads the records
-# with ALL_DONE last and stops the instance. Never `set -x`: the HF token
-# and the instance key are in the environment.
+# which are deterministic. A run belongs to the code stage that began it
+# (RUN_STAGE, boxlib `box_bind_run_stage`): another stage continues it,
+# its finished steps kept, only with RESUME_OTHER_STAGE=1, and a stage that
+# changes the data or the pass takes a new HF_DIR. Every exit, clean or
+# not, uploads the records with ALL_DONE last and stops the instance.
+# Never `set -x`: the HF token and the instance key are in the environment.
+# box-needs: disk_gb=120 ram_gb=64
 set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/paritymemory
@@ -42,7 +42,7 @@ SEQ=$WORKDIR/sequences
 STAGE="${STAGE:-}"
 RAW_TAR="${RAW_TAR:-tier-b/corpus_v3/raw_corpus_20260929.tar}"
 RUN_SEED="${RUN_SEED:-20260929}"
-WORKERS="${WORKERS:-}"                           # default: box_cores, taken after box_init
+WORKERS="${WORKERS:-}"                           # default: box_workers (cores, memory-bounded), after box_init
 GAMES="${GAMES:-800}"
 JOBS="${JOBS:-20}"
 export HF_DIR="${HF_DIR:-tier-b/parity_memory_20260930}"
@@ -54,7 +54,7 @@ PREENCODE_STALL_MIN="${PREENCODE_STALL_MIN:-20}" # the pre-encoder logs every 20
 TRAIN_CUT_MIN="${TRAIN_CUT_MIN:-1260}"           # the pass: 11-14 hours
 TRAIN_STALL_MIN="${TRAIN_STALL_MIN:-40}"         # the trainer logs every minute; a probe runs silent
 CE_CUT_MIN="${CE_CUT_MIN:-60}"                   # estimated 15
-MATCH_CUT_MIN="${MATCH_CUT_MIN:-75}"             # the match stops itself at 60 (--time-budget-min)
+MATCH_CUT_MIN="${MATCH_CUT_MIN:-90}"             # the match stops itself at 60 (--time-budget-min), a game at 20 more
 BOX_MAX_H="${BOX_MAX_H:-28}"                     # 1.5 times the 18 box-hours estimated
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
@@ -94,15 +94,12 @@ box_on_round() {                 # progress.txt, before each upload round
 }
 
 box_init
-[ -n "$WORKERS" ] || WORKERS=$(box_cores)
+[ -n "$WORKERS" ] || WORKERS=$(box_workers)
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
-box_restore DONE PASS_STAGE arm.pt arm.probe.jsonl arm.signal.jsonl train.log corpus_summary.json \
-    sequence_summary.json obs8_holdout_ce.json barrier.txt || box_finish "RESTORE_FAILED (restore.log)" 1
-if [ -f "$CKPT" ] && [ ! -f "$OUT/DONE" ] && ! box_marked_this_stage "$OUT/PASS_STAGE" \
-        && [ "${RESUME_OTHER_STAGE:-0}" != 1 ]; then
-    box_finish "PASS_OF_ANOTHER_STAGE: arm.pt was trained under $(head -n 1 "$OUT/PASS_STAGE" 2>/dev/null); \
-RESUME_OTHER_STAGE=1 continues it, a new HF_DIR starts over" 1
-fi
+box_bind_run_stage
+box_restore DONE arm.pt arm.probe.jsonl arm.signal.jsonl train.log corpus_summary.json \
+    sequence_summary.json sequence_manifest.json obs8_holdout_ce.json barrier.txt \
+    || box_finish "RESTORE_FAILED (restore.log)" 1
 box_upload_hold DONE arm.pt
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
@@ -159,28 +156,9 @@ if ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE" \
         python tools/build_imitation_dataset.py --raw-root . --out "$CORPUS" --workers "$WORKERS"
     tail -c "+$(( from + 1 ))" "$OUT/corpus_build.log" | grep -q "BUILD_DONE" \
         || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (corpus_build.log)" 1
-    box_bounded corpus-check 10 corpus_build.log python - "$CORPUS" "$OUT/corpus_summary.json" <<'EOF' \
+    box_bounded corpus-check 10 corpus_build.log \
+        python tools/build_imitation_dataset.py --out "$CORPUS" --check "$OUT/corpus_summary.json" \
         || box_finish "CORPUS_BARRIER rc=$BOX_RC (corpus_build.log, corpus_summary.json)" 1
-import json, pathlib, sys
-from tools.build_imitation_dataset import CORPUS_VERSION, DISPOSITIONS, load_candidates
-from tools.replay_dataset import corpus_version_of
-corpus, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-def rows(name):
-    return [json.loads(l) for l in (corpus / name).read_text(encoding="utf-8").splitlines() if l.strip()]
-candidates = len(load_candidates(DISPOSITIONS))
-summary = {"candidates": candidates, "outcomes": len(rows("outcomes.jsonl")),
-           "games": len(rows("manifest.jsonl")), "errors": len(rows("errors.jsonl")),
-           "quarantined": len(rows("quarantined.jsonl")), "duplicates": len(rows("duplicates.jsonl")),
-           "holdout": sum(1 for r in rows("manifest.jsonl") if r.get("holdout")),
-           "corpus_version": CORPUS_VERSION}
-out.write_text(json.dumps(summary, indent=1), encoding="utf-8")
-print("corpus", summary, flush=True)
-# A candidate is kept or dropped with an outcome, quarantined, or failed.
-assert summary["outcomes"] + summary["quarantined"] + summary["errors"] == candidates, \
-    "the dispositions do not account for every candidate"
-assert corpus_version_of(corpus) == CORPUS_VERSION, f"the corpus is not at version {CORPUS_VERSION}"
-assert summary["errors"] < 0.01 * candidates, "1% or more of the candidates failed to build"
-EOF
     box_mark "$BOX_STATE/CORPUS_DONE"
 fi
 
@@ -221,11 +199,16 @@ assert man["n_games"] + len(man["errors"]) == man["n_manifest_games"], "games un
 assert len(man["errors"]) < 0.005 * man["n_manifest_games"], "0.5% or more of the games skipped"
 assert t.get("posterior_errors", 0) < 0.001 * max(1, t.get("posteriors", 0)), "posterior errors at 0.1% or more"
 EOF
+    cp -f "$SEQ/sequence_manifest.json" "$OUT/sequence_manifest.json.tmp" \
+        && mv -f "$OUT/sequence_manifest.json.tmp" "$OUT/sequence_manifest.json" \
+        || box_finish "SEQUENCE_MANIFEST_COPY_FAILED" 1
     box_mark "$SEQ/SEQUENCES_DONE"
 fi
 
 # ---- the pass; exit 3 is the memory's crash barrier failing (the checkpoint keeps it, so a
-# re-entry stops again), exit 4 a pass that ended short of its positions
+# re-entry stops again), exit 4 a pass that ended short of its positions, exit 5 a run of
+# non-finite steps. The pass is done when this entry's attempt exits 0 having logged
+# SEQUENCE_TRAIN_DONE.
 train_attempt() {                # train_attempt MINUTES: the pass, continuing arm.pt when present; sets BOX_RC, BOX_WHY
     local resume=()
     [ -f "$CKPT" ] && resume=(--resume)
@@ -233,20 +216,25 @@ train_attempt() {                # train_attempt MINUTES: the pass, continuing a
         python tools/sequence_train.py --sequences "$SEQ" --dataset "$CORPUS" --out "$CKPT" \
         --seed "$RUN_SEED" --device cuda ${resume[@]+"${resume[@]}"}
 }
-if [ ! -f "$OUT/DONE" ]; then
-    box_marked_this_stage "$OUT/PASS_STAGE" || box_mark "$OUT/PASS_STAGE" \
-        || box_finish "PASS_STAGE_UNWRITABLE ($OUT)" 1
-    deadline=$(( $(date +%s) + TRAIN_CUT_MIN * 60 ))
-    train_attempt "$TRAIN_CUT_MIN"
+train_verdict() {                # after an attempt: stop on the pass's own verdicts
     [ "$BOX_RC" -ne 3 ] || box_finish "MEMORY_BARRIER_FAILED (train.log, arm.probe.jsonl) $(notes)" 1
+    [ "$BOX_RC" -ne 5 ] || box_finish "NONFINITE_TRAINING (train.log) $(notes)" 1
+}
+if [ ! -f "$OUT/DONE" ]; then
+    deadline=$(( $(date +%s) + TRAIN_CUT_MIN * 60 ))
+    from=$(box_size "$OUT/train.log")
+    train_attempt "$TRAIN_CUT_MIN"
+    train_verdict
     left=$(( (deadline - $(date +%s)) / 60 ))
     if [ "$BOX_RC" -ne 0 ] && [ "$BOX_WHY" = failed ] && [ "$left" -ge 60 ] && [ -f "$CKPT" ]; then
+        from=$(box_size "$OUT/train.log")
         train_attempt "$left"            # a crash retries once, from the last periodic checkpoint
-        [ "$BOX_RC" -ne 3 ] || box_finish "MEMORY_BARRIER_FAILED (train.log, arm.probe.jsonl) $(notes)" 1
+        train_verdict
     fi
     [ "$BOX_RC" -ne 4 ] || box_finish "PASS_INCOMPLETE (train.log) $(notes)" 1
-    grep -q "SEQUENCE_TRAIN_DONE" "$OUT/train.log" \
-        || box_finish "TRAINING_${BOX_WHY^^} rc=$BOX_RC (train.log; the pass continues from arm.pt on re-entry) $(notes)" 1
+    if [ "$BOX_RC" -ne 0 ] || ! tail -c "+$(( from + 1 ))" "$OUT/train.log" | grep -q "SEQUENCE_TRAIN_DONE"; then
+        box_finish "TRAINING_${BOX_WHY^^} rc=$BOX_RC (train.log; the pass continues from arm.pt on re-entry) $(notes)" 1
+    fi
     box_mark "$OUT/DONE"
 fi
 box_upload_async
@@ -254,22 +242,29 @@ box_upload_async
 # ---- the recipe barrier: the arm at 0 slots against obs8 on the same holdout decisions
 REF=$(timeout 1m python -c "import json; print(json.load(open('configs/reference_player.json'))['checkpoint_local'])") \
     || box_finish "REFERENCE_CONFIG_UNREADABLE (configs/reference_player.json)" 1
-if [ ! -f "$OUT/obs8_holdout_ce.json" ]; then
+if [ ! -f "$OUT/obs8_holdout_ce.json" ]; then           # the holdout games the pre-encoding kept, as the probe reads
     box_bounded holdout-ce "$CE_CUT_MIN" holdout_ce.log \
-        python tools/holdout_ce.py "$REF" --dataset "$CORPUS" --out "$OUT/obs8_holdout_ce.json" \
+        python tools/holdout_ce.py "$REF" --dataset "$CORPUS" --sequences "$OUT" --out "$OUT/obs8_holdout_ce.json" \
         || echo "obs8's holdout cross-entropy failed: rc=$BOX_RC $BOX_WHY (holdout_ce.log)"
 fi
 [ -f "$OUT/barrier.txt" ] || [ ! -f "$OUT/obs8_holdout_ce.json" ] \
     || { timeout 2m python - "$OUT/arm.probe.jsonl" "$OUT/obs8_holdout_ce.json" > "$OUT/barrier.txt.tmp" \
          && mv -f "$OUT/barrier.txt.tmp" "$OUT/barrier.txt"; } <<'EOF'
-import json, sys
+import json, math, sys
 probe = [json.loads(l) for l in open(sys.argv[1], encoding="utf-8") if l.strip()][-1]
 obs8 = json.load(open(sys.argv[2], encoding="utf-8"))
-arm = probe["k0"]["ce_all"]
-gap = arm - obs8["ce_all"]
-print(f"holdout CE: arm at 0 slots {arm:.4f} over {probe['k0']['n_decisions']} decisions, obs8 "
-      f"{obs8['ce_all']:.4f} over {obs8['n_decisions']}; gap {gap:+.4f} nat: "
-      + ("RECIPE_BROKE, investigate before reading the matches" if gap > 0.05 else "within the barrier"))
+arm, ref = probe["k0"]["ce_all"], obs8["ce_all"]
+counts = (f"arm at 0 slots over {probe['k0']['n_decisions']} decisions, obs8 over {obs8['n_decisions']} "
+          f"({obs8.get('unscored_decisions', 0)} unscored)")
+if not all(isinstance(x, (int, float)) and math.isfinite(x) for x in (arm, ref)) \
+        or probe["k0"].get("n_nonfinite") or obs8.get("n_nonfinite"):
+    print(f"holdout CE: NONFINITE, investigate before reading the matches; {counts}")
+elif probe["k0"]["n_decisions"] != obs8["n_decisions"] + obs8.get("unscored_decisions", 0):
+    print(f"holdout CE: DECISIONS_DIFFER, the two did not read the same decisions; {counts}")
+else:
+    gap = arm - ref
+    print(f"holdout CE: arm {arm:.4f}, obs8 {ref:.4f}, {counts}; gap {gap:+.4f} nat: "
+          + ("RECIPE_BROKE, investigate before reading the matches" if gap > 0.05 else "within the barrier"))
 EOF
 cat "$OUT/barrier.txt" 2>/dev/null || echo "no barrier line: obs8's holdout cross-entropy is missing (holdout_ce.log)"
 
@@ -307,8 +302,13 @@ play() {                         # play NAME SEED_BASE ARGS...: the match, once 
         match "$name" "$GAMES" "$sb" 1500 "$@"
     fi
     if [ "$(decisive_results "$OUT/games_$name")" -lt "$GAMES" ]; then
-        echo "MATCH_CUT $name: $(decisive_results "$OUT/games_$name") of $GAMES decisive games; the fit is not read" \
-            | tee -a "$OUT/match.walls"
+        # run_elo_batch's 1: games failed or a server died, a defect; 3 or 4: out of time or of replacements
+        if grep -q "^$name: .* rc=1 " "$OUT/timing_$name.txt" 2>/dev/null; then
+            echo "MATCH_FAILED $name: games failed ($name.log, games_$name/failed_*.json)" | tee -a "$OUT/match.walls"
+        else
+            echo "MATCH_CUT $name: $(decisive_results "$OUT/games_$name") of $GAMES decisive games; the fit is not read" \
+                | tee -a "$OUT/match.walls"
+        fi
     fi
     box_upload_async
 }
@@ -321,7 +321,10 @@ if [ "${#REF_A[@]}" -lt 4 ] || [ "${#REF_B[@]}" -lt 4 ]; then
 fi
 MATCHES="arm64_vs_obs8 arm64_vs_arm0 arm16_vs_arm0 obs8a_vs_obs8b"
 restored=()
-for name in $MATCHES; do restored+=("$name.fit.json" "timing_$name.txt" "games_$name.tar.gz"); done
+for name in $MATCHES; do                 # a match directory already here is not fetched again
+    restored+=("$name.fit.json" "timing_$name.txt")
+    [ -d "$OUT/games_$name" ] || restored+=("games_$name.tar.gz")
+done
 box_restore "${restored[@]}" || box_finish "RESTORE_FAILED (restore.log)" 1
 for name in $MATCHES; do                 # a match's games come back as the tarball its directory went up as
     if [ -f "$OUT/games_$name.tar.gz" ]; then
@@ -339,4 +342,7 @@ play arm16_vs_arm0 82000 --label-a arm16 --spec-a "$ARM" --memory-a 16 --raw-end
     --label-b arm0 --spec-b "$ARM" --memory-b 0 --raw-end-turn-offset-b "$EO"
 play obs8a_vs_obs8b 83000 "${REF_A[@]/#obs8/obs8a}" "${REF_B[@]/#obs8/obs8b}"
 box_on_round
-box_finish "PARITY_MEMORY_DONE $(notes) $(grep -c MATCH_CUT "$OUT/match.walls" 2>/dev/null || echo 0) matches cut"
+cut=$(grep -c "^MATCH_CUT" "$OUT/match.walls" 2>/dev/null)
+failed=$(grep -c "^MATCH_FAILED" "$OUT/match.walls" 2>/dev/null)
+[ "${failed:-0}" -eq 0 ] || box_finish "PARITY_MEMORY_MATCHES_FAILED $(notes) ${failed} failed, ${cut:-0} cut (match.walls)" 1
+box_finish "PARITY_MEMORY_DONE $(notes) ${cut:-0} matches cut"

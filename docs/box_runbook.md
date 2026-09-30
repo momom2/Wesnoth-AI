@@ -49,14 +49,19 @@ are records of the runs they ran.
 1. A pre-registration (`docs/*_prereg_*.md`) with the bars, the steps and
    their estimated durations, the box class and the cost.
 2. The script sources the library, bounds every step from those estimates,
-   and sets `BOX_MAX_H`, the dead-man's switch, at about twice the
-   estimated box-hours.
+   sets `BOX_MAX_H`, the dead-man's switch, at 1.5 to 2 times the
+   estimated box-hours, and declares what it needs of the box in a
+   `# box-needs: disk_gb=N ram_gb=M` line.
 3. A green CI run on the commit to stage: `gh run list --branch BRANCH --limit 1`.
 4. The user's explicit yes, given the box's specs, its price, the estimate
    and the account balance. `rent_box.py create --hours H` refuses when the
-   funds do not cover 1.5 x H hours of the offer, or when the offer leaves
-   the market within 1.5 x H hours; Vast stops an instance when the balance
-   crosses -$0.01 (2026-09-24: a run lost at 3.5 h of 6).
+   funds do not cover the run's longest possible time at the offer's price
+   (1.5 x H hours, or the script's `BOX_MAX_H` plus 1.5 hours for the final
+   round and the stop, whichever is longer), when the offer leaves the
+   market within that time, when `--disk` or the offer's memory is under
+   the script's `box-needs`, or when the script's `RAW_TAR` is not on HF.
+   Vast stops an instance when the balance crosses -$0.01 (2026-09-24: a
+   run lost at 3.5 h of 6).
 
 ## Staging
 
@@ -68,10 +73,14 @@ tier-b/staging/stage_DATE.tar.gz` writes one HF commit holding:
   out, untracked files come only with `--extra`;
 - the box library of that stage, `tier-b/staging/stage_DATE.box/`, read
   from the tarball;
-- the run script, `tier-b/staging/RUN_box.sh`, read from the tarball.
+- the run script, in the library folder (the copy a box runs, so a later
+  stage cannot change what this one runs) and as `tier-b/staging/RUN_box.sh`
+  (where the rental preflight finds a script's default stage).
 
 It refuses a payload without the library or without a `--require` or
-`--script` file, and a shell file with CR line endings.
+`--script` file, a shell file with CR line endings, and a stage path
+already on HF (a box that staged it would keep the old tree under the same
+name) unless `--replace`.
 
 ## Bring-up
 
@@ -82,12 +91,17 @@ What `rent_box.py create` sets going, for a script on the library:
    `bash /workspace/box_onstart.sh SCRIPT LIBRARY_FOLDER` detached; its
    output, then the script's, goes to `/workspace/onstart_script.log`.
 2. `box_onstart.sh` fetches `box_stop.py` first, then the rest of the
-   library into `/workspace/box/`, then the script, and becomes the script.
-   When a file does not arrive, it stops the instance with `box_stop.py`;
-   when `box_stop.py` itself did not arrive, nothing on the box can stop
-   it, and the laptop must (see Watching).
+   library into `/workspace/box/`, then the stage's copy of the script,
+   and becomes the script. A file that does not arrive but that an earlier
+   entry left on the disk is used as it is, so a restart while HF cannot
+   answer still runs, finishes and stops. When a file is missing, it stops
+   the instance with `box_stop.py`; when `box_stop.py` itself is missing,
+   nothing on the box can stop it, and the laptop must (see Watching). The
+   onstart log is appended to, so an earlier entry's errors stay.
 3. `box_init` takes the entry lock (one entry per records directory),
-   installs the traps, starts the dead-man's switch, reads the token,
+   installs the traps, starts the dead-man's switch (its deadline is
+   `BOX_MAX_H` after the stage's first entry on this machine, so a
+   container that keeps restarting gets no new one), reads the token,
    deletes the previous entry's `ALL_DONE` and `FAILED` here and on HF, and
    restores `status.txt`, `stages.txt` and `walls.txt` when this machine
    lacks them. HF unreachable at this point finishes the entry.
@@ -133,8 +147,12 @@ script is fetched from `tier-b/staging/` and run.
 ## Recovery
 
 - **Re-entry** is the script running again: after `rent_box.py start ID`
-  (the onstart runs at every start and fetches the script as it is on HF
-  staging then), or on a new rental with the same script and `--stage`.
+  (the onstart runs at every start and fetches the stage's copy of the
+  script), or on a new rental with the same script and `--stage`. A run
+  belongs to the stage that began it (`RUN_STAGE`, `box_bind_run_stage`):
+  a new stage continues it, its finished steps kept, only with
+  `--env RESUME_OTHER_STAGE=1`; a stage that changes the data or the
+  training takes a new `HF_DIR`.
   The entry clears the previous `ALL_DONE` and `FAILED`; the files the
   script lists come back from HF when this machine lacks them; markers
   skip finished steps; an imitation pass continues where it was cut
@@ -155,8 +173,11 @@ script is fetched from `tier-b/staging/` and run.
   Vast answers `success: true`.
 - A stop Vast refused goes to HF: `stop.log` ends in "the instance is NOT
   stopped" and the last line of `stop.jsonl` reads `"stopped": false`.
-  Stop the instance from the laptop (`rent_box.py stop ID`); the dead-man's
-  switch stays armed and tries again at `BOX_MAX_H`.
+  The dead-man's switch stays armed and tries the stop again every
+  `BOX_STOP_RETRY_S` (10 minutes); stop the instance from the laptop
+  (`rent_box.py stop ID`) as well. A switch that fires after the entry
+  finished only stops the instance: the records stay as the entry left
+  them.
 - Check the stop with `rent_box.py status ID`.
 - Pull the records into the repository with `tools/pull_box_records.py
   HF_DIR DESTINATION` (it leaves files over `--max-mb` on HF), then
@@ -194,6 +215,8 @@ markers, a watched training step, a match whose games go up as a tarball.
 | `box_finish REASON [RC]` | records, uploads with ALL_DONE last, stops the instance, exits RC |
 | `box_bounded [--stall FILE MIN] [--until FILE TEXT] NAME CUT_MIN LOG CMD...` | runs CMD cut at CUT_MIN, output to LOG; ends it when FILE stops growing or TEXT appears; sets `BOX_RC`, `BOX_WHY` |
 | `box_restore NAME...` | files absent here come back from HF; fails when HF cannot answer |
+| `box_bind_run_stage` | the run belongs to the stage that began it (`RESUME_OTHER_STAGE=1` continues it with another) |
+| `box_workers` | a step's worker count: the cores, fewer when each could not have `BOX_WORKER_GB` of memory |
 | `box_upload_dir NAME PATH` | PATH goes up as NAME.tar.gz (a match's games) |
 | `box_upload_hold NAME DEP...` | NAME goes up only once each DEP has landed in its current version |
 | `box_upload_skip NAME` / `box_upload_extra PATH` | keep NAME on the box / send a file outside BOX_OUT |

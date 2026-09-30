@@ -75,20 +75,24 @@ STAGING = "tier-b/staging/"
 # starts the file detached: the script itself, or for a script on the box
 # library its bring-up (scripts/box/box_onstart.sh), given the script and
 # the library's HF folder.
+# A file an earlier entry left on the disk runs when HF cannot answer a
+# restart, and the log is appended to, so an earlier entry's errors stay.
 ONSTART_FETCH = (
     "cd /workspace && timeout 600 python -m pip install -q huggingface_hub >/dev/null 2>&1; "
-    "timeout 600 python -c \"from huggingface_hub import hf_hub_download as d; import shutil, os; "
+    "{{ timeout 600 python -c \"from huggingface_hub import hf_hub_download as d; import shutil, os; "
     "shutil.copyfile(d('momom2/wesnoth-model-checkpoints', '{source}', "
-    "token=os.environ['HF_TOKEN']), '/workspace/{target}')\" && "
+    "token=os.environ['HF_TOKEN']), '/workspace/{target}')\" || [ -f /workspace/{target} ]; }} && "
     "printf '%s' \"$HF_TOKEN\" > /workspace/.hf_token && chmod 600 /workspace/.hf_token && "
-    "(setsid nohup bash /workspace/{target}{arguments} > /workspace/onstart_script.log 2>&1 < /dev/null &)"
+    "(setsid nohup bash /workspace/{target}{arguments} >> /workspace/onstart_script.log 2>&1 < /dev/null &)"
 )
 # Script names and HF paths go into the onstart's shell line unquoted.
 _SHELL_SAFE = re.compile(r"^[A-Za-z0-9._/-]+$")
 _SOURCES_LIBRARY = re.compile(r"^\s*(?:\.|source)\s+\S*boxlib\.sh", re.MULTILINE)
 # The account's funds and the offer's rental window must both cover this
-# multiple of the run's estimated hours.
+# multiple of the run's estimated hours, and the script's dead-man's switch
+# (BOX_MAX_H) plus FINISH_H for its final upload round and its stop.
 MARGIN = 1.5
+FINISH_H = 1.5
 REDACTED = "<redacted>"
 _SECRET_FIELD = re.compile(r"key|token|secret|password", re.IGNORECASE)
 _API_KEY_PARAM = re.compile(r"(api_key=)[^&\s'\"]+")
@@ -97,6 +101,9 @@ _BEARER_TEXT = re.compile(r"(Bearer\s+)[A-Za-z0-9_\-.]{8,}")
 _CONTAINER_KEY_TEXT = re.compile(r"(CONTAINER_API_KEY['\"]?\s*[:=]\s*['\"]?)[A-Za-z0-9_\-]{8,}")
 _STAGE_DEFAULT = re.compile(
     r"""^\s*(?:export\s+)?STAGE=["']?(?:\$\{STAGE:-)?([^}"'\s$]+)""", re.MULTILINE)
+_BOX_MAX_H = re.compile(r"""^\s*BOX_MAX_H=["']?(?:\$\{BOX_MAX_H:-)?([0-9]+(?:\.[0-9]+)?)""", re.MULTILINE)
+_RAW_TAR = re.compile(r"""^\s*(?:export\s+)?RAW_TAR=["']?\$\{RAW_TAR:-([^}"'\s]+)\}""", re.MULTILINE)
+_NEEDS = re.compile(r"^#\s*box-needs:(.*)$", re.MULTILINE)
 _SECRETS: set[str] = set()
 
 
@@ -231,6 +238,35 @@ class OnstartPlan:
     """What the box will fetch, as the preflight found it on HF."""
     stage: str | None            # the code stage; None for --stage none
     library: str | None          # the stage's library side copy, for a script on the library
+    script_text: str = ""        # the run script the box runs
+
+
+@dataclass
+class ScriptNeeds:
+    """What a run script says it needs of the box and of HF: its dead-man's
+    switch in hours, its disk and memory (`# box-needs: disk_gb=N ram_gb=M`)
+    and its raw corpus (RAW_TAR's default), each overridable by --env."""
+    box_max_h: float | None = None
+    disk_gb: int | None = None
+    ram_gb: int | None = None
+    raw_tar: str | None = None
+
+
+def script_needs(text: str, env: dict) -> ScriptNeeds:
+    needs = ScriptNeeds()
+    m = _BOX_MAX_H.search(text)
+    raw = env.get("BOX_MAX_H") or (m.group(1) if m else None)
+    try:
+        needs.box_max_h = float(raw) if raw is not None else None
+    except ValueError:
+        needs.box_max_h = None
+    for line in _NEEDS.findall(text):
+        for key, _, value in (part.partition("=") for part in line.split()):
+            if key in ("disk_gb", "ram_gb") and value.isdigit():
+                setattr(needs, key, int(value))
+    m = _RAW_TAR.search(text)
+    needs.raw_tar = env.get("RAW_TAR") or (m.group(1) if m else None)
+    return needs
 
 
 def staging_problems(staging, script: str, stage: str | None) -> tuple[list[str], OnstartPlan | None]:
@@ -258,7 +294,7 @@ def staging_problems(staging, script: str, stage: str | None) -> tuple[list[str]
             return [f"{script} runs on the box library, which comes with its code stage: "
                     f"pass --stage PATH"], None
         print("preflight: no code stage to check (--stage none)")
-        return [], OnstartPlan(None, None)
+        return [], OnstartPlan(None, None, text)
     if not _SHELL_SAFE.match(stage):
         return [f"the code stage {stage!r} holds characters the onstart cannot carry"], None
     if not api_call(f"HF lookup of {stage}", staging.exists, stage):
@@ -266,18 +302,20 @@ def staging_problems(staging, script: str, stage: str | None) -> tuple[list[str]
                 f"(tools/stage_code.py --upload)"], None
     print(f"preflight: code stage {stage} ({source}) is on HF")
     if not on_library:
-        return [], OnstartPlan(stage, None)
+        return [], OnstartPlan(stage, None, text)
     try:
         library = library_dir(stage)
     except ValueError:
         return [f"the code stage {stage} is not a .tar.gz, so it has no box library"], None
-    missing = [name for name in LIBRARY_FILES
+    missing = [name for name in (*LIBRARY_FILES, script)
                if not api_call(f"HF lookup of {library}/{name}", staging.exists, f"{library}/{name}")]
     if missing:
         return [f"the box library of {stage} lacks {', '.join(missing)} on HF ({library}/): "
-                f"`tools/stage_code.py --upload` writes it beside the stage"], None
-    print(f"preflight: the stage's box library is on HF ({library}/)")
-    return [], OnstartPlan(stage, library)
+                f"`tools/stage_code.py --upload ... --script` writes the library and the run "
+                f"script beside the stage"], None
+    print(f"preflight: the stage's box library and run script are on HF ({library}/)")
+    run_text = api_call(f"HF download of {library}/{script}", staging.read_text, f"{library}/{script}")
+    return [], OnstartPlan(stage, library, run_text)
 
 
 def onstart_command(script: str, library: str | None) -> str:
@@ -320,10 +358,31 @@ def find_offer(v, offer_id: int, disk: int) -> dict | None:
     return None
 
 
-def budget_problems(v, offer_id: int, hours: float | None, disk: int) -> list[str]:
-    """Why the account or the offer cannot carry the run: funds below
-    MARGIN x hours x price, or a rental window shorter than MARGIN x hours.
-    Without `hours`, only an account with no funds is refused."""
+def needs_problems(staging, needs: ScriptNeeds, disk: int) -> list[str]:
+    """Why the rental cannot carry what the script says it needs: less
+    disk than it asks, or a raw corpus that is not on HF."""
+    problems = []
+    if needs.disk_gb is not None and disk < needs.disk_gb:
+        problems.append(f"--disk {disk} GB is under the {needs.disk_gb} GB the script needs")
+    if needs.raw_tar is not None:
+        if not _SHELL_SAFE.match(needs.raw_tar):
+            problems.append(f"RAW_TAR {needs.raw_tar!r} is not a plain HF path")
+        elif not api_call(f"HF lookup of {needs.raw_tar}", staging.exists, needs.raw_tar):
+            problems.append(f"the raw corpus {needs.raw_tar} (RAW_TAR) is not on HF")
+        else:
+            print(f"preflight: the raw corpus {needs.raw_tar} is on HF")
+    return problems
+
+
+def budget_problems(v, offer_id: int, hours: float | None, disk: int,
+                    needs: ScriptNeeds | None = None) -> list[str]:
+    """Why the account or the offer cannot carry the run: funds below the
+    run's longest possible time x price, or a rental window shorter than
+    it, where that time is MARGIN x hours or the script's dead-man's switch
+    plus FINISH_H, whichever is longer; or less memory than the script
+    needs. Without `hours` and a switch, only an account with no funds is
+    refused."""
+    needs = needs or ScriptNeeds()
     offer = find_offer(v, offer_id, disk)
     if offer is None:
         return [f"offer {offer_id} is not on the market any more"]
@@ -340,17 +399,25 @@ def budget_problems(v, offer_id: int, hours: float | None, disk: int) -> list[st
           f"${funds:.2f} (credit {user.get('credit')}, balance {user.get('balance')}) "
           f"cover {funds / (MARGIN * price):.1f} h at the {MARGIN}x margin; rental window "
           + (f"{window:.1f} h" if window is not None else "open-ended"))
-    need = MARGIN * (hours or 0) * price
+    spans = []
+    if hours:
+        spans.append((MARGIN * hours, f"{MARGIN} x {hours:g} h"))
+    if needs.box_max_h is not None:
+        spans.append((needs.box_max_h + FINISH_H, f"the switch's {needs.box_max_h:g} h + {FINISH_H:g} h"))
+    longest, why = max(spans) if spans else (0.0, "")
+    need = longest * price
     problems = []
     if funds <= 0 or funds < need:
-        cost = (f"${need:.2f} ({MARGIN} x {hours:g} h x ${price:.3f}/h)" if hours
-                else "any time")
+        cost = f"${need:.2f} ({why} x ${price:.3f}/h)" if spans else "any time"
         problems.append(f"funds ${funds:.2f} do not cover {cost}: top up first")
-    if hours is None:
-        print("preflight: no --hours, so the run's cost and length are NOT checked")
-    elif window is not None and window < MARGIN * hours:
-        problems.append(f"offer {offer_id} leaves the market in {window:.1f} h, "
-                        f"under {MARGIN} x {hours:g} h")
+    if not spans:
+        print("preflight: no --hours and no BOX_MAX_H, so the run's cost and length are NOT checked")
+    elif window is not None and window < longest:
+        problems.append(f"offer {offer_id} leaves the market in {window:.1f} h, under {why}")
+    ram_mb = offer.get("cpu_ram")
+    if needs.ram_gb is not None and isinstance(ram_mb, (int, float)) and ram_mb / 1024 < needs.ram_gb:
+        problems.append(f"offer {offer_id} has {ram_mb / 1024:.0f} GB of memory, under the "
+                        f"{needs.ram_gb} GB the script needs")
     return problems
 
 
@@ -372,8 +439,12 @@ def create(args) -> int:
         return 1
     v = _vast()
     stage = args.stage or env.get("STAGE") or None
-    problems, plan = staging_problems(_staging(tok), args.onstart, stage)
-    problems += budget_problems(v, args.offer_id, args.hours, args.disk)
+    staging = _staging(tok)
+    problems, plan = staging_problems(staging, args.onstart, stage)
+    needs = script_needs(plan.script_text if plan else "", env)
+    if plan is not None:
+        problems += needs_problems(staging, needs, args.disk)
+    problems += budget_problems(v, args.offer_id, args.hours, args.disk, needs)
     if problems:
         print("refusing to rent:", file=sys.stderr)
         for p in problems:

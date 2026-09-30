@@ -108,3 +108,62 @@ def test_the_belief_targets_are_the_hidden_enemies_tokens():
     assert t.n_untokened == sum(1 for p in hidden_hexes if p not in slots)
     assert not t.no_visible_unit[slots[(1, 3)]] and not t.no_visible_unit[slots[(7, 3)]]
     assert t.no_visible_unit[slots[hidden_at]]
+
+
+def _cavalryman_watched_into_fog():
+    """The first test's game after side 2's move: the Cavalryman crossed
+    side 1's view and ended in fog; (core, its last seen hex, a seen hex
+    off its route)."""
+    from helpers.parity_games import core_of, record
+    from tools.abilities import hex_neighbors
+    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 7, 3, False),
+                   ("Lieutenant", 2, 18, 3, True), ("Cavalryman", 2, 17, 0, False)],
+                  fog=True, width=WIDTH, height=HEIGHT)
+    cs = core_of(data)
+    for command in (["init_side", 1], ["end_turn"], ["init_side", 2]):
+        cs.apply_command(command)
+    keys = cs.geometry().keys
+    seen = {keys[j] for j in np.flatnonzero(cs.core.seen_export(1))}
+    zoc = {n for u in ((1, 3), (7, 3)) for n in hex_neighbors(*u)} | {(1, 3), (7, 3)}
+    inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
+    leg1 = _path((17, 0), inside, zoc)
+    fog = [p for p in keys if p not in seen and p not in zoc and p not in leg1]
+    end = min(fog, key=lambda p: len(_path(inside, p, zoc | set(leg1[:-1]))))
+    route = leg1 + _path(inside, end, zoc | set(leg1[:-1]))[1:]
+    cs.apply_command(["move", [p[0] for p in route], [p[1] for p in route], 2])
+    return cs, [p for p in route if p in seen][-1], end
+
+
+def test_a_unit_that_leaves_the_board_unseen_stays_where_it_was_last_seen():
+    """A neutral side can kill a unit in a side's fog: the player did not
+    see it go, so the record keeps it, as a sighting token, until the
+    side's end of turn."""
+    from helpers.parity_games import parity_raw, unit_id_at, vocab_of
+    cs, last_seen, end = _cavalryman_watched_into_fog()
+    cavalryman = unit_id_at(cs, *end)
+    cs.core.remove_unit(cavalryman)
+    cs.apply_command(["update_shroud"])                  # any command: the records follow it
+    assert [(r[4], r[5]) for r in cs.core.sightings_export(1) if r[0] == cavalryman] == [last_seen]
+    assert cs.core.sightings_gone_export(1) == [cavalryman]
+    for command in (["end_turn"], ["init_side", 1]):
+        cs.apply_command(command)
+    raw = parity_raw(cs, vocab_of(["Lieutenant", "Spearman", "Cavalryman"]))
+    assert list(zip(raw.sight_xs.tolist(), raw.sight_ys.tolist())) == [last_seen]
+    cs.apply_command(["end_turn"])
+    assert cs.core.sightings_export(1) == [] and cs.core.sightings_gone_export(1) == []
+
+
+def test_a_unit_that_leaves_the_board_in_view_leaves_the_record():
+    from helpers.parity_games import unit_id_at
+    cs, _, end = _cavalryman_watched_into_fog()
+    lieutenant = unit_id_at(cs, 1, 3)
+    cs.apply_command(["end_turn"])
+    cs.apply_command(["init_side", 1])
+    spearman = unit_id_at(cs, 7, 3)
+    assert spearman and lieutenant
+    # Side 2 sees side 1's Spearman; it leaves the board where side 2 sees it.
+    assert spearman in {r[0] for r in cs.core.sightings_export(2)}
+    cs.core.remove_unit(spearman)
+    cs.apply_command(["update_shroud"])
+    assert spearman not in {r[0] for r in cs.core.sightings_export(2)}
+    assert cs.core.sightings_gone_export(2) == []

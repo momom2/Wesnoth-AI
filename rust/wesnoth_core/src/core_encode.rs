@@ -289,7 +289,7 @@ impl GameCore {
                 d.set_item("global_feats", c.global_feats.into_pyarray(py))?;
             }
             Some(pn) => {
-                let hex_extra = self.hex_extra(&slots, &obs.view.seen, &obs.view.visible, pn);
+                let hex_extra = self.hex_extra(&slots, &obs.view.seen, pn);
                 d.set_item("hex_dynamic_flags", to2(ht, NUM_HEX_DYNAMIC_FLAGS + HEX_EXTRA,
                     widen(&c.dynamic_flags, NUM_HEX_DYNAMIC_FLAGS, &hex_extra, HEX_EXTRA)))?;
                 let mut unit_extra = vec![0f32; vis.len() * UNIT_EXTRA];

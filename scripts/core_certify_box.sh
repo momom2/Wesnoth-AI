@@ -8,41 +8,45 @@
 # compared after the setup and every command (the map and the event state at
 # each init_side and end_turn), every tenth player decision encoded by both
 # in three views (the full board, the full board with the terrain set, and
-# obs8's), and before every attack the defender's weapon choice and the
-# attack's outcome distributions compared. Then the core's answers are
-# compared with the engine's answers the hidden-unit oracle recorded
-# (tools/hidden_units_oracle.py --recorded).
+# obs8's), before every attack the defender's weapon choice and the
+# attack's outcome distributions compared, and after every command each
+# player side's sighting record compared with tools/sighting_oracle.py.
+# The parity encoding's own columns have no second builder: tests cover
+# them. Then the core's answers are compared with the engine's answers the
+# hidden-unit oracle recorded (tools/hidden_units_oracle.py --recorded).
 # Nothing is trained and no GPU is used.
 #
 # Before renting, from the laptop's repository root:
 #     python tools/stage_code.py --out /tmp/stage.tar.gz \
 #         --script scripts/core_certify_box.sh --upload tier-b/staging/stage_DATE.tar.gz
 #
-# Cost, measured on the laptop 2026-09-28: 3.8 ms per command with the
-# encodings (12 replays, 3,884 commands, 395 decisions encoded three ways),
-# so the corpus's ~6.3M commands are ~6.7 core-hours: ~13 minutes on 32
-# cores, plus the bring-up (the Rust wheel's build, the corpus's build from
-# the raw replays: 1.2-1.8 core-hours). DIFF_CUT_MIN bounds the sweep at
-# about 6 times that.
+# Cost, measured on the laptop 2026-09-30 over 10 fogged corpus replays
+# (3,018 commands): 9 ms per command with every option above (one decision
+# in ten encoded), so the corpus's ~5.5M commands are ~14 core-hours: ~25
+# minutes on 64 hardware threads, plus the bring-up (the Rust wheel's build,
+# the corpus's build from the raw replays: 1.2-1.8 core-hours).
+# DIFF_CUT_MIN bounds the sweep at 4 times that.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md).
 # Never `set -x`: the HF token and the instance key are in the environment.
+# box-needs: disk_gb=60 ram_gb=48
 set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/core_certify
 STAGE="${STAGE:-}"
 RAW_TAR="${RAW_TAR:-tier-b/corpus_v3/raw_corpus_20260929.tar}"
-SHARDS="${SHARDS:-}"                      # default: box_cores, taken after bring-up
+SHARDS="${SHARDS:-}"                      # default: box_workers (cores, memory-bounded), after bring-up
 ENCODE_EVERY="${ENCODE_EVERY:-10}"
-export HF_DIR="${HF_DIR:-tier-b/core_certify_20260928}"
-DIFF_CUT_MIN="${DIFF_CUT_MIN:-90}"
-BOX_MAX_H="${BOX_MAX_H:-3}"
+export HF_DIR="${HF_DIR:-tier-b/core_certify_20260930}"
+DIFF_CUT_MIN="${DIFF_CUT_MIN:-120}"
+BOX_MAX_H="${BOX_MAX_H:-3.5}"
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
 
 box_init
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
+box_bind_run_stage
 box_restore build.log || box_finish "RESTORE_FAILED (restore.log)" 1
 box_pip huggingface_hub psutil pytest numpy || echo "pip install failed (pip.log)"
 
@@ -76,9 +80,14 @@ if ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE"; then
     from=$(box_size "$OUT/corpus_build.log")
     box_bounded --stall "$OUT/corpus_build.log" 15 corpus 60 corpus_build.log \
         python tools/build_imitation_dataset.py --raw-root . --out replays_dataset_imitation \
-        --workers "$(box_cores)"
+        --workers "$(box_workers)"
     tail -c "+$(( from + 1 ))" "$OUT/corpus_build.log" | grep "BUILD_DONE" \
         || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (corpus_build.log)" 1
+    # The crash barrier the retrain's corpus passes: every candidate
+    # accounted for, under 1% failed, at the stage's corpus version.
+    box_bounded corpus-check 10 corpus_build.log \
+        python tools/build_imitation_dataset.py --out replays_dataset_imitation --check "$OUT/corpus_summary.json" \
+        || box_finish "CORPUS_BARRIER rc=$BOX_RC (corpus_build.log, corpus_summary.json)" 1
     box_mark "$BOX_STATE/CORPUS_DONE"
 fi
 [ -f replays_dataset_imitation/manifest.jsonl ] || box_finish "CORPUS_FAILED: no replays_dataset_imitation/manifest.jsonl (corpus_build.log)" 1
@@ -103,7 +112,7 @@ SW=$OUT/shards
 mkdir -p "$SW"
 box_upload_dir shards "$SW"
 if ! box_marked_this_stage "$BOX_STATE/SWEPT"; then
-    [ -n "$SHARDS" ] || SHARDS=$(box_cores)
+    [ -n "$SHARDS" ] || SHARDS=$(box_workers)
     echo "shards $SHARDS" >> "$OUT/box.txt"
     rm -f "$SW"/shard_* "$SW/progress.log"
     find replays_dataset_imitation -maxdepth 1 -name '*.json.gz' | sort > "$SW/files.txt"
@@ -112,7 +121,7 @@ if ! box_marked_this_stage "$BOX_STATE/SWEPT"; then
     box_bounded sweep "$DIFF_CUT_MIN" sweep.log bash -c '
         for f in "$0"/shard_[0-9][0-9][0-9]; do
             ( xargs -a "$f" env WESNOTH_RUST=0 WESNOTH_RUST_OBSERVE=0 WESNOTH_RUST_COMBAT=0 \
-                  python tools/diff_core.py --every 1 --encode-every "$1" --outcomes > "$f.log" 2>&1;
+                  python tools/diff_core.py --every 1 --encode-every "$1" --outcomes --sightings > "$f.log" 2>&1;
               echo "$(date -u +%FT%TZ) $(basename "$f") rc=$?" >> "$0/progress.log" ) &
         done
         wait' "$SW" "$ENCODE_EVERY"
@@ -142,7 +151,7 @@ for log in sorted(glob.glob(f"{shards}/shard_[0-9][0-9][0-9].log")):
                         kinds[name] += int(v)
         elif line.startswith("  ") and ".json.gz" in line:
             divergences.append(line.strip())
-verdict = "INCOMPLETE" if replays != expected else "DIVERGENT" if divergent else "CLEAN"
+verdict = "INCOMPLETE" if replays != expected or not expected else "DIVERGENT" if divergent else "CLEAN"
 text = "\n".join([f"core certification {verdict}: {replays} of {expected} replays, {clean} clean, "
                   f"{divergent} with divergences",
                   "  " + ", ".join(f"{k}={v}" for k, v in sorted(kinds.items()))]
@@ -154,10 +163,12 @@ PYEOF
 # ---- the engine's recorded answers on hidden units and vision
 # shellcheck disable=SC2016 # expanded by the inner shell, which gets the output directory as $0
 box_bounded oracle 10 oracle.log bash -c '
+    rc=0
     python tools/hidden_units_oracle.py --recorded training/metrics/fidelity/hidden_units_oracle_20260920.json \
-        --log-level WARNING --out "$0/hidden_units_recorded.json"
+        --log-level WARNING --out "$0/hidden_units_recorded.json" || rc=1
     python tools/hidden_units_oracle.py --recorded training/metrics/fidelity/hidden_units_oracle_vision_20260924.json \
-        --log-level WARNING --out "$0/vision_recorded.json"' "$OUT"
+        --log-level WARNING --out "$0/vision_recorded.json" || rc=1
+    exit "$rc"' "$OUT"
 oracle_rc=$BOX_RC
 summary=$(head -n 1 "$OUT/summary.txt")
 if [[ $summary == *" CLEAN:"* ]] && [ "$oracle_rc" -eq 0 ]; then

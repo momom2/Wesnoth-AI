@@ -213,6 +213,16 @@ def test_a_spent_budget_still_sends_upload_log_and_all_done(run):
     assert "not sent: the round's time is spent" in log_of(run.out)
 
 
+def test_a_slow_upload_log_still_leaves_all_done_its_time(run):
+    """upload.log hangs past the round's end; it is abandoned early enough
+    that ALL_DONE still goes up."""
+    api = StubHf(hang={"upload.log"}, hang_s=5.0)
+    timing = box_upload.Timing(base_s=5.0, min_rate=1e12, reserve_s=1.5, min_attempt_s=0.05,
+                               retry_pause_s=0.0)
+    run(api, final=True, timing=timing, budget_s=2.0)
+    assert api.names()[-1] == "ALL_DONE"
+
+
 def test_clear_deletes_the_previous_entrys_markers_and_forgets_them(run):
     on_hf = {f"{HF_DIR}/ALL_DONE": b"old", f"{HF_DIR}/FAILED": b"old", f"{HF_DIR}/train.log": b"x"}
     api = StubHf(on_hf=on_hf)

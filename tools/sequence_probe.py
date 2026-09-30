@@ -13,7 +13,10 @@ sizes, and report
     tools/analysis/value_head_by_phase.py reads it for obs8: at each turn
     both sides played, whether the winner's first decision of the turn is
     valued above the loser's, averaged per game in the bucket, then over
-    games;
+    games. The first decision follows the moves the engine makes for
+    standing orders at the turn start, where that tool reads the turn's
+    starting state, and a game without a leader is read to its end, where
+    that tool stops: the two agree closely, not exactly;
   - belief: the belief loss per position;
   - belief_paired: per game, the belief loss at the largest size minus at
     0 slots, both sides pooled, with its standard error across games (the
@@ -26,8 +29,11 @@ sizes, and report
 The last-seen baseline scores the belief targets with two rates fitted on
 training game-sides: the chance that a hidden enemy unit stands on a hex
 where the side last saw an enemy it does not see now, and the chance on any
-other hex with no visible unit. Positions whose turn ran out of time count
-for the value and the belief, not for the policy. Proxies, never verdicts.
+other hex with no visible unit. A last sighting is forgotten once the side
+sees its hex empty. Positions whose turn ran out of time count for the
+value and the belief, not for the policy. Every reading counts the
+non-finite values it met (`n_nonfinite`); the memory barrier fails on any.
+Proxies, never verdicts.
 """
 from __future__ import annotations
 
@@ -38,11 +44,13 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 import numpy as np
 import torch
 
+from wesnoth_ai.encoder import PARITY_HEX_SEEN_AT
 from wesnoth_ai.imitation_loss import TIMEOUT_LABEL, build_imitation_targets, imitation_loss_parts
 from wesnoth_ai.sequence_loss import belief_loss
 from wesnoth_ai.sequence_streams import GameSide
 
-# Holdout game-sides stepped side by side in one batch.
+# Holdout game-sides stepped side by side; a game-side that ends hands its
+# row to the next one.
 PROBE_BATCH = 48
 # The same-turn AUC's turn buckets (tools/analysis/value_head_by_phase.py).
 TURN_BUCKETS = ((1, 5), (6, 10), (11, 15), (16, 20), (21, 30), (31, 10 ** 6))
@@ -69,7 +77,9 @@ def _auc(win: Sequence[float], lose: Sequence[float]) -> Optional[float]:
 
 def last_seen_hexes(positions: Sequence) -> List[Set[Tuple[int, int]]]:
     """Per position of one game-side: the hexes where the side last saw an
-    enemy unit it does not see now, and where its sighting tokens stand."""
+    enemy unit it does not see now, and where its sighting tokens stand. A
+    last sighting whose hex the side now sees empty is forgotten: the unit
+    moved on or died in view."""
     last: Dict[str, Tuple[int, int]] = {}
     out: List[Set[Tuple[int, int]]] = []
     for pos in positions:
@@ -79,6 +89,11 @@ def last_seen_hexes(positions: Sequence) -> List[Set[Tuple[int, int]]]:
             if int(side_id) == 1:
                 last[uid] = (p.x, p.y)
                 visible.add(uid)
+        seen_now = raw.hex_dynamic_flags[:, PARITY_HEX_SEEN_AT] > 0.5
+        empty_in_view = {(h.x, h.y) for h, seen, empty in zip(raw.hex_positions, seen_now, pos.no_visible_unit)
+                         if seen and empty}
+        for uid in [u for u, h in last.items() if u not in visible and h in empty_in_view]:
+            del last[uid]
         hexes = {h for uid, h in last.items() if uid not in visible}
         hexes.update(zip((int(x) for x in raw.sight_xs), (int(y) for y in raw.sight_ys)))
         out.append(hexes)
@@ -127,25 +142,45 @@ def baseline_belief(positions: Sequence, rates: Tuple[float, float]) -> List[flo
     return out
 
 
-def run_side_batch(model, encoder, sides: Sequence[Tuple[GameSide, Sequence]], k: int,
-                   device: torch.device, type_loss_weights: Dict[str, float],
-                   autocast_dtype=None, reset: bool = False) -> Dict[GameSide, Dict[str, list]]:
-    """Game-sides run side by side, whole and in order, at `k` slots:
-    per game-side, per position, the policy cross-entropy (None where the
-    turn ran out of time), the expected value, the belief loss and the turn.
-    With `reset`, every decision reads the initial memory."""
-    out = {g: {"ce": [], "value": [], "belief": [], "turn": []} for g, _ in sides}
-    memories = {g: model.initial_memory(k).to(device) for g, _ in sides}
-    t = 0
-    while True:
-        live = [(g, ps) for g, ps in sides if t < len(ps)]
-        if not live:
-            return out
-        positions = [ps[t] for _, ps in live]
+class _Running:
+    """A game-side being probed: its positions, the next one's index, and
+    its memory."""
+    __slots__ = ("side", "positions", "t", "memory")
+
+    def __init__(self, side: GameSide, positions: Sequence, memory):
+        self.side, self.positions, self.t, self.memory = side, positions, 0, memory
+
+
+def run_sides(model, encoder, sides: Iterable[GameSide], load: Callable[[GameSide], Sequence], k: int,
+              device: torch.device, type_loss_weights: Dict[str, float], autocast_dtype=None,
+              reset: bool = False, batch: int = PROBE_BATCH) -> Dict[GameSide, Dict[str, list]]:
+    """Game-sides run whole and in order at `k` slots, `batch` of them side
+    by side, a finished one's row taken by the next: per game-side, per
+    position, the policy cross-entropy (None where the turn ran out of
+    time), the expected value, the belief loss and the turn. With `reset`,
+    every decision reads the initial memory."""
+    out: Dict[GameSide, Dict[str, list]] = {}
+    queue = iter(sides)
+    running: List[_Running] = []
+
+    def refill() -> None:
+        while len(running) < batch:
+            g = next(queue, None)
+            if g is None:
+                return
+            out[g] = {"ce": [], "value": [], "belief": [], "turn": []}
+            positions = load(g)
+            if len(positions):
+                running.append(_Running(g, positions, model.initial_memory(k).to(device)))
+
+    refill()
+    while running:
+        live = list(running)
+        positions = [r.positions[r.t] for r in live]
         staged = encoder.stage_raws([p.raw for p in positions], device=device)
         with torch.autocast(device.type, dtype=autocast_dtype, enabled=autocast_dtype is not None):
             streams = encoder.embed_staged(staged)
-            padded = model.forward_embedded(streams, memory=[memories[g] for g, _ in live])
+            padded = model.forward_embedded(streams, memory=[r.memory for r in live])
         padded = padded.float32()
         ais = [p.label for p in positions]
         zw = [(None, 0.0, 1.0)] * len(ais)
@@ -165,15 +200,23 @@ def run_side_batch(model, encoder, sides: Sequence[Tuple[GameSide, Sequence]], k
                 target[b, torch.from_numpy(p.hidden_tokens)] = 1.0
         bl = belief_loss(padded.belief_logits, target.to(device), mask.to(device)).cpu().tolist()
         values = padded.value.float().reshape(-1).cpu().tolist()
-        for b, (g, _) in enumerate(live):
+        for b, r in enumerate(live):
             timeout = ais[b].action_type == TIMEOUT_LABEL
-            out[g]["ce"].append(None if timeout else ce[b])
-            out[g]["value"].append(values[b])
-            out[g]["belief"].append(bl[b])
-            out[g]["turn"].append(int(getattr(positions[b], "turn", 0)))
+            row = out[r.side]
+            row["ce"].append(None if timeout else ce[b])
+            row["value"].append(values[b])
+            row["belief"].append(bl[b])
+            row["turn"].append(int(getattr(positions[b], "turn", 0)))
             if padded.memory is not None and not reset:
-                memories[g] = padded.memory[b].detach()
-        t += 1
+                r.memory = padded.memory[b].detach()
+            r.t += 1
+        running[:] = [r for r in running if r.t < len(r.positions)]
+        refill()
+    return out
+
+
+def _nonfinite(xs: Iterable) -> int:
+    return sum(1 for x in xs if x is not None and not math.isfinite(x))
 
 
 def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide], Sequence],
@@ -191,11 +234,8 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
     try:
         with torch.no_grad():
             for key, k, reset in runs:
-                per_k[key] = {}
-                for start in range(0, len(holdout), PROBE_BATCH):
-                    chunk = [(g, load(g)) for g in holdout[start:start + PROBE_BATCH]]
-                    per_k[key].update(run_side_batch(model, encoder, chunk, k, device,
-                                                     type_loss_weights, autocast_dtype, reset=reset))
+                per_k[key] = run_sides(model, encoder, holdout, load, k, device, type_loss_weights,
+                                       autocast_dtype, reset=reset)
     finally:
         if was_training:
             model.train()
@@ -217,10 +257,12 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
         auc_m, auc_se = _mean_se([_auc(v["w"], v["l"]) for v in games.values()])
         b_m, _ = _mean_se(belief)
         _, b_se = _mean_se([_mean_se(r["belief"])[0] for r in sides.values()])
+        nonfinite = sum(_nonfinite(r["ce"]) + _nonfinite(r["value"]) + _nonfinite(r["belief"])
+                        for r in sides.values())
         results[f"k{k}"] = {"ce_all": m_all, "ce_all_se": se_all, "ce_winners": m_win,
                             "value_auc": auc_m, "value_auc_se": auc_se, "belief": b_m,
                             "belief_se": b_se, "n_positions": len(belief), "n_decisions": len(ce_all),
-                            "value_auc_by_turn": same_turn_auc(sides, winners)}
+                            "n_nonfinite": nonfinite, "value_auc_by_turn": same_turn_auc(sides, winners)}
     if top > 0 and 0 in per_k:
         results["belief_paired"] = dict(k=top, **_paired_by_game(per_k[top], per_k[0]))
         results["belief_carried"] = dict(k=top, **_paired_by_game(per_k[top], per_k[f"{top}_reset"]))
@@ -247,7 +289,7 @@ def _paired_by_game(a: Dict[GameSide, Dict[str, list]], b: Dict[GameSide, Dict[s
         xb = [x for _, pb in pairs for x in pb]
         diffs.append(sum(xa) / len(xa) - sum(xb) / len(xb))
     m, se = _mean_se(diffs)
-    return {"diff": m, "se": se, "n_games": len(diffs)}
+    return {"diff": m, "se": se, "n_games": len(diffs), "n_nonfinite": _nonfinite(diffs)}
 
 
 def same_turn_auc(sides: Dict[GameSide, Dict[str, list]], winners: Dict[str, int]) -> Dict[str, Dict]:
@@ -283,6 +325,6 @@ def memory_barrier_passes(results: Dict) -> bool:
     is below the belief loss at 0 slots by more than two standard errors,
     paired over holdout games."""
     paired = results.get("belief_paired") or {}
-    if paired.get("diff") is None or paired.get("se") is None:
+    if paired.get("diff") is None or paired.get("se") is None or paired.get("n_nonfinite", 0):
         return False
     return paired["diff"] < -2.0 * paired["se"]

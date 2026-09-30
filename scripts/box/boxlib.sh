@@ -41,6 +41,9 @@ BOX_KILL_GRACE=${BOX_KILL_GRACE:-1m}           # a step's KILL follows its TERM 
 BOX_WATCH_POLL_S=${BOX_WATCH_POLL_S:-20}       # how often a watched step is looked at
 BOX_STOP_ATTEMPTS=${BOX_STOP_ATTEMPTS:-20}
 BOX_STOP_INTERVAL_S=${BOX_STOP_INTERVAL_S:-30}
+BOX_STOP_RETRY_S=${BOX_STOP_RETRY_S:-600}      # after a refused stop, the switch tries again this much later
+BOX_SWITCH_POLL_S=${BOX_SWITCH_POLL_S:-30}     # how often the switch rereads its deadline
+BOX_WORKER_GB=${BOX_WORKER_GB:-1.5}            # the memory a worker process of a step is given (box_workers)
 
 BOX_FINISHED=0
 BOX_MONITOR_PID=""
@@ -192,38 +195,77 @@ box_finish() {                   # box_finish REASON [RC]: record why, upload wi
     echo "box_finish: $reason"
     box_upload --final
     box_stop_instance
+    : > "$BOX_OUT/tmp/finish_done"
     exit "$rc"
 }
-box_stop_instance() {            # stop this instance; when Vast refuses, the outcome goes to HF and the switch stays armed
+box_stop_instance() {            # stop this instance; a refusal goes to HF, and the switch tries again soon
     box_log stop.log "stopping the instance"
-    if timeout -k 1m 45m python "$BOX_LIB/box_stop.py" --outcome "$BOX_OUT/stop.jsonl" \
-            --max-attempts "$BOX_STOP_ATTEMPTS" --interval "$BOX_STOP_INTERVAL_S" >> "$BOX_OUT/stop.log" 2>&1; then
-        box_kill_tree "$BOX_DEADMAN_PID"
-        return 0
-    fi
-    box_log stop.log "the instance is NOT stopped; the laptop must stop it (docs/box_runbook.md)"
-    box_upload
+    while :; do
+        if timeout -k 1m 45m python "$BOX_LIB/box_stop.py" --outcome "$BOX_OUT/stop.jsonl" \
+                --max-attempts "$BOX_STOP_ATTEMPTS" --interval "$BOX_STOP_INTERVAL_S" >> "$BOX_OUT/stop.log" 2>&1; then
+            [ -n "${BOX_IN_DEADMAN:-}" ] || box_kill_tree "$BOX_DEADMAN_PID"
+            return 0
+        fi
+        box_log stop.log "the instance is NOT stopped; the switch tries again in $BOX_STOP_RETRY_S s (docs/box_runbook.md)"
+        box_upload
+        [ -n "${BOX_IN_DEADMAN:-}" ] || break
+        sleep "$BOX_STOP_RETRY_S"
+    done
+    echo $(( $(box_now) + BOX_STOP_RETRY_S )) > "$BOX_OUT/tmp/deadman.at"
     return 1
 }
-box_deadman_start() {            # a process of its own that finishes the entry after BOX_MAX_H hours
+box_deadman_start() {            # a process of its own that finishes the entry BOX_MAX_H hours after this stage's first entry on this machine
     local seconds at runner=(bash)
     seconds=$(box_seconds "$BOX_MAX_H" 3600) || return 1
-    at=$(( $(box_now) + seconds ))
+    # A container that restarts gets no new BOX_MAX_H: the deadline is the
+    # stage's first entry's. A new stage (a deliberate re-entry) starts one.
+    if box_marked_this_stage "$BOX_STATE/DEADLINE"; then
+        at=$(sed -n 's/.* at=\([0-9]*\).*/\1/p' "$BOX_STATE/DEADLINE" | head -1)
+    fi
+    if ! [[ ${at:-} =~ ^[0-9]+$ ]]; then
+        at=$(( $(box_now) + seconds ))
+        box_mark "$BOX_STATE/DEADLINE" "at=$at"
+    fi
+    echo "$at" > "$BOX_OUT/tmp/deadman.at"
     command -v setsid >/dev/null 2>&1 && runner=(setsid bash)
     # shellcheck disable=SC2016 # expanded by the switch's own shell
     "${runner[@]}" -c '. "$BOX_LIB/boxlib.sh" && box_deadman_main "$1"' box_deadman "$at" \
         >> "$BOX_OUT/deadman.log" 2>&1 < /dev/null 8>&- &
     BOX_DEADMAN_PID=$!
     echo "$BOX_DEADMAN_PID" > "$BOX_OUT/tmp/deadman.pid"
-    box_log deadman.log "armed: fires $BOX_MAX_H h from now, at $(date -u -d "@$at" +%FT%TZ 2>/dev/null || echo "epoch $at")"
+    box_log deadman.log "armed: fires at $(date -u -d "@$at" +%FT%TZ 2>/dev/null || echo "epoch $at"), $BOX_MAX_H h after this stage's first entry"
 }
-box_deadman_main() {             # (the switch's process) sleep until $1, then finish the entry
-    local at=$1 left
-    while left=$(( at - $(box_now) )); [ "$left" -gt 0 ]; do
-        sleep $(( left < 300 ? left : 300 ))
+box_deadman_main() {             # (the switch's process) sleep until its deadline, then finish the entry, or only stop the instance when the entry has finished
+    local at left waited=0 grace
+    BOX_IN_DEADMAN=1
+    while at=$(cat "$BOX_OUT/tmp/deadman.at" 2>/dev/null); [[ $at =~ ^[0-9]+$ ]] || at=$1
+          left=$(( at - $(box_now) )); [ "$left" -gt 0 ]; do
+        sleep $(( left < BOX_SWITCH_POLL_S ? left : BOX_SWITCH_POLL_S ))
     done
-    box_log deadman.log "firing: $BOX_MAX_H h have passed since the entry began"
-    box_finish "DEADMAN: $BOX_MAX_H h since the entry began, whatever it was doing" 1
+    if [ -f "$BOX_OUT/ALL_DONE" ]; then
+        # The entry finished: its final round may still run. Wait for it,
+        # then make sure the instance stops, the records left as they are.
+        grace=$(box_seconds "$BOX_FINAL_BUDGET_MIN" 60)
+        while [ ! -f "$BOX_OUT/tmp/finish_done" ] && [ "$waited" -lt $(( grace + 600 )) ]; do
+            sleep 10
+            waited=$(( waited + 10 ))
+        done
+        box_log deadman.log "firing after the entry finished: stopping the instance"
+        box_stop_instance
+        exit 0
+    fi
+    box_log deadman.log "firing: $BOX_MAX_H h have passed since this stage's first entry"
+    box_finish "DEADMAN: $BOX_MAX_H h since this stage's first entry, whatever it was doing" 1
+}
+box_bind_run_stage() {           # the run (HF_DIR's records) belongs to the stage that began it
+    box_restore RUN_STAGE || box_finish "RESTORE_FAILED (restore.log)" 1
+    if [ -f "$BOX_OUT/RUN_STAGE" ] && ! box_marked_this_stage "$BOX_OUT/RUN_STAGE" \
+            && [ "${RESUME_OTHER_STAGE:-0}" != 1 ]; then
+        box_finish "RUN_OF_ANOTHER_STAGE: this run began under $(head -n 1 "$BOX_OUT/RUN_STAGE"); \
+RESUME_OTHER_STAGE=1 continues it with this stage, a new HF_DIR starts another" 1
+    fi
+    box_marked_this_stage "$BOX_OUT/RUN_STAGE" || box_mark "$BOX_OUT/RUN_STAGE" \
+        || box_finish "RUN_STAGE_UNWRITABLE ($BOX_OUT)" 1
 }
 
 # ---- records to HF ---------------------------------------------------------
@@ -420,6 +462,19 @@ box_build_wheel() {              # the Rust wheel from BOX_REPO, once per stage 
 # v1 cfs quota) rounded up, capped by the CPUs the process may run on. Not
 # `nproc` alone: it honours OMP_NUM_THREADS, which the pytorch images set to
 # 1 (a 64-core box read 1 on 2026-09-29).
+box_workers() {                  # the step's worker count: the cores, fewer when each could not have BOX_WORKER_GB of memory
+    local cores kb limit n
+    cores=$(box_cores)
+    kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null)
+    read -r limit 2>/dev/null < "${BOX_CGROUP_ROOT:-/sys/fs/cgroup}/memory.max"
+    limit=${limit%$'\r'}
+    if [[ $limit =~ ^[0-9]+$ ]] && { ! [[ $kb =~ ^[0-9]+$ ]] || (( limit / 1024 < kb )); }; then
+        kb=$(( limit / 1024 ))
+    fi
+    [[ $kb =~ ^[0-9]+$ ]] || { echo "$cores"; return; }
+    n=$(awk -v k="$kb" -v g="$BOX_WORKER_GB" 'BEGIN { n = int(k / (g * 1048576)); print (n < 1 ? 1 : n) }')
+    if (( n < cores )); then echo "$n"; else echo "$cores"; fi
+}
 box_cores() {
     local root=${BOX_CGROUP_ROOT:-/sys/fs/cgroup} all q='' p=''
     all=$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc 2>/dev/null) || all=1

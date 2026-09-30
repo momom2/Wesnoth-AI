@@ -25,6 +25,11 @@ views: the full board, the full board with the terrain set, and obs8's
 with its strike tables and the attack's outcome distributions, without
 and with advancement branches, are computed by `tools/combat_outcomes.py`
 on the Python state and by the core, and must be equal to the last bit.
+With `--sightings`, after every command the core notes sightings after,
+each player side's sighting record, seen types and gone entries are
+compared with `tools/sighting_oracle.py`, which follows the Python state.
+The parity encoding's own columns have no Python builder: they are
+covered by tests/test_parity_observation.py and tests/test_sighting_record.py.
 
 Prints one summary line: `diff_core: N replays, M clean, K with
 divergences; commands rust=A python=B`, then the divergences.
@@ -135,7 +140,7 @@ def outcome_divergences(gs, cs, cmd: list) -> List[str]:
 
 def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
               counts: Optional[Counter] = None, encode_every: int = 0,
-              outcomes: bool = False) -> List[str]:
+              outcomes: bool = False, sightings: bool = False) -> List[str]:
     from tools.replay_dataset import _apply_command, _build_initial_gamestate, _setup_scenario_events
     from wesnoth_ai.core_compare import state_differences
     from wesnoth_ai.game_core import CoreState
@@ -154,6 +159,10 @@ def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
     if diffs:
         return [f"{gz_path.name}#setup: " + " | ".join(diffs[:4])]
     decisions = 0
+    oracle = None
+    if sightings:
+        from tools.sighting_oracle import NOTED_KINDS, SightingOracle, record_differences
+        oracle = SightingOracle()
     for idx, cmd in enumerate(data.get("commands", [])):
         kind = cmd[0] if cmd else "?"
         if encode_every and gs.global_info.current_side in (1, 2):
@@ -174,6 +183,8 @@ def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
                 out.append(f"{gz_path.name}#{idx} before attack: " + " | ".join(diffs))
                 if stop_on_first:
                     break
+        if oracle is not None:
+            oracle.before(gs, cmd)
         _apply_command(gs, list(cmd))
         try:
             path = cs.apply_command(list(cmd))
@@ -182,6 +193,15 @@ def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
             break
         if counts is not None:
             counts[(kind, path)] += 1
+        if oracle is not None and kind in NOTED_KINDS:
+            oracle.after(gs, cmd)
+            seen = record_differences(oracle, cs.core)
+            if counts is not None:
+                counts[("sightings", "rust")] += 1
+            if seen:
+                out.append(f"{gz_path.name}#{idx} {kind} sightings: " + " | ".join(seen[:4]))
+                if stop_on_first:
+                    break
         if idx % every == 0 or kind in ("init_side", "attack"):
             diffs = state_differences(gs, cs.to_state(), stash=False,
                                       map_and_events=kind in ("init_side", "end_turn"))
@@ -212,6 +232,8 @@ def main(argv: List[str]) -> int:
                     help="compare the two encodings every N player decisions (0: never)")
     ap.add_argument("--outcomes", action="store_true",
                     help="compare the counter weapon and the outcome distributions before every attack")
+    ap.add_argument("--sightings", action="store_true",
+                    help="compare each side's sighting record with tools/sighting_oracle.py")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING),
@@ -229,7 +251,8 @@ def main(argv: List[str]) -> int:
     for gz in files:
         try:
             d = diff_core(gz, every=args.every, stop_on_first=args.stop_on_first, counts=counts,
-                          encode_every=args.encode_every, outcomes=args.outcomes)
+                          encode_every=args.encode_every, outcomes=args.outcomes,
+                          sightings=args.sightings)
         except BaseException as e:  # noqa: BLE001 - one bad file, panic included, must not end the sweep
             d = [f"{gz.name}: harness {_describe_failure(e)}"]
         if d:

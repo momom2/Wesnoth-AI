@@ -81,10 +81,19 @@ LOADER_THREADS = 4
 BASELINE_FIT_SIDES = 400
 EXIT_MEMORY_BARRIER = 3
 EXIT_PASS_INCOMPLETE = 4
+EXIT_NONFINITE = 5
+# Non-finite steps in a row that stop the pass (a single one is skipped and counted).
+NONFINITE_LIMIT = 3
 # The telemetry's slots, terms and parameter groups.
 SIGNAL_STREAMS = 4
 SIGNAL_TERMS = POLICY_SOURCES + ("value", "belief")
 SIGNAL_GROUPS = ("encoder", "trunk", "heads", "memory")
+
+
+def _grad_norm(params) -> torch.Tensor:
+    """The L2 norm of the parameters' gradients, zero when none has one."""
+    grads = [p.grad for p in params if p.grad is not None]
+    return torch.linalg.vector_norm(torch.stack([g.norm() for g in grads])) if grads else torch.zeros(())
 
 
 def sequence_signal_group(name: str) -> str:
@@ -207,6 +216,7 @@ class Trainer:
         self.signal = GradientProbe(named_model_parameters(self.model, self.encoder),
                                     sequence_signal_group, SIGNAL_GROUPS, self.opt)
         self.rates: Optional[Tuple[float, float]] = None
+        self.start_positions = 0                 # where this process's run began (the logged rate)
         self.autocast = torch.bfloat16 if (device.type == "cuda" and not args.fp32) else None
         from tools.supervised_train import _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
         self.type_loss_weights = dict(_DEFAULT_ACTION_TYPE_LOSS_WEIGHT)
@@ -307,13 +317,24 @@ class Trainer:
         for g in self.opt.param_groups:
             g["lr"] = self._lr_now()
         loss.backward()
-        memory_grads = [p.grad for p in self.model.slot_memory.parameters() if p.grad is not None]
-        memory_norm = torch.linalg.vector_norm(torch.stack([g.norm() for g in memory_grads])) \
-            if memory_grads else torch.zeros(())
+        write_norm = _grad_norm([*self.model.slot_memory.gate.parameters(),
+                                 *self.model.slot_memory.candidate.parameters()])
         norm = torch.nn.utils.clip_grad_norm_(self.params, self.args.grad_clip)
-        self.opt.step()
+        finite = bool(torch.isfinite(norm)) and bool(torch.isfinite(loss.detach()))
+        if finite:
+            self.opt.step()
+            self.state["nonfinite_run"] = 0
+        else:
+            # The update is skipped and counted; a slot whose carried memory
+            # is not finite starts again from the learned initial memory.
+            self.state["nonfinite_steps"] = self.state.get("nonfinite_steps", 0) + 1
+            self.state["nonfinite_run"] = self.state.get("nonfinite_run", 0) + 1
+            log.warning("non-finite step %d (loss %s, gradient norm %s): update skipped",
+                        self.state["steps"], float(loss.detach()), float(norm))
         self.opt.zero_grad(set_to_none=True)
-        self.memories = {s: m.detach() for s, m in self.memories.items()}
+        self.memories = {s: m.detach() if bool(torch.isfinite(m).all())
+                         else self.model.initial_memory(m.shape[0]).detach().to(self.device)
+                         for s, m in self.memories.items()}
         for targets, log_t, bl in logs:
             vals = log_t.cpu()
             pw = torch.from_numpy(targets.policy_w)
@@ -333,7 +354,7 @@ class Trainer:
             self.state["next_signal"] += self.args.signal_every
         held = {g.file for g in self.schedule.upcoming(PREFETCH_SIDES)}
         self.loader.keep_only(held)
-        return {"loss": float(loss.detach()), "grad_norm": float(norm), "memory_grad_norm": float(memory_norm),
+        return {"loss": float(loss.detach()), "grad_norm": float(norm), "memory_write_grad_norm": float(write_norm),
                 "positions": n_positions, **sums}
 
     def signal_row(self, window, start_memories: Dict[int, torch.Tensor]) -> None:
@@ -401,52 +422,66 @@ class Trainer:
             log.error("MEMORY_BARRIER_FAILED earlier in this pass (the .probe.jsonl): no resume past it")
             return EXIT_MEMORY_BARRIER
         t0, last_log = time.time(), time.time()
+        self.start_positions = self.state["positions"]
         window_logs: List[Dict] = []
         limit = self.args.max_positions
         while not self.schedule.exhausted() and (limit is None or self.state["positions"] < limit):
             window_logs.append(self.train_window())
+            if self.state.get("nonfinite_run", 0) >= NONFINITE_LIMIT:
+                self._log(window_logs, t0)
+                log.error("NONFINITE_TRAINING: %d non-finite steps in a row at %d positions",
+                          self.state["nonfinite_run"], self.state["positions"])
+                return EXIT_NONFINITE
             if time.time() - last_log >= self.args.log_seconds:
                 self._log(window_logs, t0)
                 window_logs, last_log = [], time.time()
             if self.state["positions"] >= self.state["next_checkpoint"]:
-                self.save()
                 self.state["next_checkpoint"] += self.args.checkpoint_every
+                self.save()
             if self.state["positions"] >= self.state["next_probe"]:
                 result = self.run_probe()
                 self.state["next_probe"] += self.args.probe_every
-                if not self.state["barrier_done"] and self.state["positions"] >= self.args.barrier_positions:
+                barrier_now = (not self.state["barrier_done"]
+                               and self.state["positions"] >= self.args.barrier_positions)
+                if barrier_now:
                     self.state["barrier_done"] = True
                     self.state["barrier_failed"] = not memory_barrier_passes(result)
-                    self.save()
-                    if self.state["barrier_failed"]:
-                        log.error("MEMORY_BARRIER_FAILED %s", json.dumps(result.get("belief_paired")))
-                        return EXIT_MEMORY_BARRIER
+                self.save()                      # the probe is kept, so a resume does not repeat it
+                if barrier_now and self.state["barrier_failed"]:
+                    log.error("MEMORY_BARRIER_FAILED %s", json.dumps(result.get("belief_paired")))
+                    return EXIT_MEMORY_BARRIER
+                if barrier_now:
                     log.info("memory barrier passed: %s", json.dumps(result.get("belief_paired")))
         if window_logs:
             self._log(window_logs, t0)
         self.save()
-        if limit is None and self.state["positions"] != self.schedule.total_positions:
+        if limit is not None and self.state["positions"] < self.schedule.total_positions:
+            log.info("SEQUENCE_TRAIN_CUT %d positions of %d (--max-positions %d)", self.state["positions"],
+                     self.schedule.total_positions, limit)
+            return 0
+        if self.state["positions"] != self.schedule.total_positions:
             log.error("PASS_INCOMPLETE: %d positions trained of the %d pre-encoded", self.state["positions"],
                       self.schedule.total_positions)
             return EXIT_PASS_INCOMPLETE
         self.run_probe()
-        log.info("SEQUENCE_TRAIN_DONE %d positions, %d steps in %.0f s", self.state["positions"],
-                 self.state["steps"], time.time() - t0)
+        log.info("SEQUENCE_TRAIN_DONE %d positions, %d steps in %.0f s (%d non-finite steps skipped)",
+                 self.state["positions"], self.state["steps"], time.time() - t0,
+                 self.state.get("nonfinite_steps", 0))
         return 0
 
     def _log(self, rows: List[Dict], t0: float) -> None:
         rows = [r for r in rows if r]
         if not rows:
             return
-        tot = {k: sum(r[k] for r in rows) for k in rows[0] if k not in ("loss", "grad_norm", "memory_grad_norm")}
+        tot = {k: sum(r[k] for r in rows) for k in rows[0] if k not in ("loss", "grad_norm", "memory_write_grad_norm")}
         el = time.time() - t0
-        log.info("positions %d/%d steps %d | loss %.4f grad %.2f memory grad %.3f | policy %.4f value %.4f "
+        log.info("positions %d/%d steps %d | loss %.4f grad %.2f memory write grad %.3f | policy %.4f value %.4f "
                  "belief %.4f | lr %.2e | %.1f positions/s", self.state["positions"],
                  self.schedule.total_positions, self.state["steps"], sum(r["loss"] for r in rows) / len(rows),
-                 max(r["grad_norm"] for r in rows), max(r["memory_grad_norm"] for r in rows),
+                 max(r["grad_norm"] for r in rows), max(r["memory_write_grad_norm"] for r in rows),
                  tot["policy"] / max(1, tot["policy_n"]), tot["value"] / max(1, tot["value_n"]),
                  tot["belief"] / max(1, tot["belief_n"]), self._lr_now(),
-                 self.state["positions"] / max(el, 1e-9))
+                 (self.state["positions"] - self.start_positions) / max(el, 1e-9))
 
 
 def parse_args(argv=None):

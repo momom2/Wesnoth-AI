@@ -252,6 +252,36 @@ def test_a_refused_stop_sends_its_outcome_and_keeps_the_switch_armed(box):
     assert alive(box.switch_pid())
 
 
+def test_the_switch_after_a_finished_entry_only_stops_the_instance(box):
+    """A refused stop brings the switch forward; firing after the entry
+    finished, it tries the stop again and leaves the records as they are."""
+    assert box.run('box_finish "RUN_DONE"', STUB_STOP_RC=1, BOX_STOP_RETRY_S=1, BOX_SWITCH_POLL_S=1) == 0
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and len([a for _t, a in box.calls() if re.search(STOP, a)]) < 2:
+        time.sleep(0.5)
+    assert len([a for _t, a in box.calls() if re.search(STOP, a)]) >= 2, "the switch tried again"
+    assert "DEADMAN" not in box.text("status.txt") and not (box.out / "FAILED").exists()
+    assert "RUN_DONE" in box.text("ALL_DONE")
+
+
+def test_a_run_of_another_stage_is_refused_unless_told_to_continue_it(box):
+    (box.out).mkdir(parents=True)
+    (box.out / "RUN_STAGE").write_text("stage=tier-b/staging/stage_old.tar.gz time=x\n")
+    assert box.run('box_bind_run_stage\nbox_finish "RUN_DONE"') == 1
+    assert "RUN_OF_ANOTHER_STAGE" in box.text("status.txt")
+    assert box.run('box_bind_run_stage\nbox_finish "RUN_DONE"', RESUME_OTHER_STAGE=1) == 0
+    assert f"stage={STAGE}" in box.text("RUN_STAGE")
+
+
+def test_a_restarted_container_keeps_its_stages_deadline(box):
+    assert box.run('box_finish "RUN_DONE"') == 0
+    first = (box.work / "state" / "DEADLINE").read_text()
+    assert box.run('box_finish "RUN_DONE"') == 0
+    assert (box.work / "state" / "DEADLINE").read_text() == first
+    assert box.run('box_finish "RUN_DONE"', STAGE="tier-b/staging/stage_next.tar.gz") == 0
+    assert (box.work / "state" / "DEADLINE").read_text() != first
+
+
 def test_the_switch_finishes_the_entry_while_the_script_is_busy(box):
     body = 'sleep 5\ndate +%s > "$BOX_OUT/woke"\nbox_finish "MAIN_DONE"'
     assert box.run(body, BOX_MAX_H="0.0003") == 0
@@ -413,8 +443,12 @@ def library_on_hf() -> dict[str, bytes]:
 DEMO_SCRIPT = b'#!/usr/bin/env bash\necho "ran with $BOX_LIB" > "$BOX_LIB/../ran"\n'
 
 
+STAGED_SCRIPT = "tier-b/staging/stage_test.box/demo_box.sh"      # the stage's own copy
+
+
 def test_the_onstart_fetches_the_library_then_runs_the_script(box):
-    hf = fake_hf(box, {**library_on_hf(), "tier-b/staging/demo_box.sh": DEMO_SCRIPT})
+    hf = fake_hf(box, {**library_on_hf(), STAGED_SCRIPT: DEMO_SCRIPT,
+                       "tier-b/staging/demo_box.sh": b"echo a later stage's script\n"})
     assert run_onstart(box, hf) == 0
     assert (box.work / "ran").read_text().strip() == f"ran with {bash_path(box.work)}/box"
     for f in ("box_stop.py", "boxlib.sh", "box_upload.py", "box_stage.py"):
@@ -425,11 +459,19 @@ def test_the_onstart_fetches_the_library_then_runs_the_script(box):
 def test_the_onstart_stops_the_instance_when_a_file_does_not_arrive(box):
     files = library_on_hf()
     del files["tier-b/staging/stage_test.box/boxlib.sh"]
-    hf = fake_hf(box, {**files, "tier-b/staging/demo_box.sh": DEMO_SCRIPT})
+    hf = fake_hf(box, {**files, STAGED_SCRIPT: DEMO_SCRIPT})
     run_onstart(box, hf)
     assert not (box.work / "ran").exists()
     assert [a for _t, a in box.calls() if re.search(r"box_stop\.py --outcome", a)]
     assert "not fetched: boxlib.sh" in box.output()
+
+
+def test_a_restart_while_hf_cannot_answer_runs_what_the_disk_holds(box):
+    assert run_onstart(box, fake_hf(box, {**library_on_hf(), STAGED_SCRIPT: DEMO_SCRIPT})) == 0
+    (box.work / "ran").unlink()
+    assert run_onstart(box, box.tmp / "unreachable") == 0
+    assert (box.work / "ran").exists()
+    assert not [a for _t, a in box.calls() if re.search(r"box_stop\.py --outcome", a)]
 
 
 def test_the_onstart_fetches_the_files_the_stage_carries():

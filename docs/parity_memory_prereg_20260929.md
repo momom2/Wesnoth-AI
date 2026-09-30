@@ -21,7 +21,10 @@ The run is rented only when all of these hold:
 
 1. The Rust core's certification over the whole corpus
    (`scripts/core_certify_box.sh`) is clean: the core, which builds every
-   training position, equals the Python applier after every command.
+   training position, equals the Python applier after every command, and
+   each side's sighting record equals `tools/sighting_oracle.py`'s
+   (amended 2026-09-30, before any box: the parity encoding's own columns
+   have no second builder, and tests cover them).
 2. The four independent reviews of the data path started 2026-09-29 (the
    labels; what the network observes against a player; training against
    play; capacities and silent failures) have each finding fixed in this
@@ -84,7 +87,8 @@ result directory per match.
   posterior that leaves out the true faction) below 0.1% of decisions.
 - **Crash barrier, the memory, after 500,000 positions:** on the holdout,
   the belief loss at 64 slots is below the belief loss at 0 slots, paired
-  over game-sides, by more than two standard errors. If not, the memory is
+  over games (a game's two sides share its luck, so a game is one pair;
+  amended 2026-09-30, before any box), by more than two standard errors. If not, the memory is
   not remembering: the run stops and is inspected.
 - **Crash barrier, the pass:** it trains exactly the pre-encoded positions.
 - **Barrier, not a verdict:** holdout policy CE at 0 slots more than 0.05

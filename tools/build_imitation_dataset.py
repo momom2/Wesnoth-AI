@@ -263,6 +263,52 @@ def build(candidates: List[str], raw_root: Path, out_dir: Path, config: dict,
     return counts
 
 
+def corpus_problems(out_dir: Path, candidates: int) -> Tuple[Dict[str, int], List[str]]:
+    """A built corpus's counts against its number of candidates, and what
+    is wrong with it: candidates its ledgers do not account for (each one
+    is kept or dropped with an outcome, quarantined, or failed), 1% or more
+    of them failed, no game kept, or rows of another corpus version."""
+    from tools.replay_dataset import corpus_version_of
+
+    def count(name: str) -> int:
+        path = out_dir / name
+        if not path.exists():
+            return 0
+        return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+    manifest = [json.loads(line) for line in (out_dir / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()] if (out_dir / "manifest.jsonl").exists() else []
+    summary = {"candidates": candidates, "outcomes": count("outcomes.jsonl"), "games": len(manifest),
+               "errors": count("errors.jsonl"), "quarantined": count("quarantined.jsonl"),
+               "duplicates": count("duplicates.jsonl"),
+               "holdout": sum(1 for r in manifest if r.get("holdout")), "corpus_version": CORPUS_VERSION}
+    problems = []
+    accounted = summary["outcomes"] + summary["quarantined"] + summary["errors"]
+    if accounted != candidates:
+        problems.append(f"the ledgers account for {accounted} of {candidates} candidates")
+    if summary["errors"] >= 0.01 * max(1, candidates):
+        problems.append(f"{summary['errors']} of {candidates} candidates failed to build (1% or more)")
+    if not manifest:
+        problems.append("no game kept")
+    elif corpus_version_of(out_dir) != CORPUS_VERSION:
+        problems.append(f"the manifest's rows are not at corpus version {CORPUS_VERSION}")
+    return summary, problems
+
+
+def check(out_dir: Path, candidates: int, summary_path: Path) -> int:
+    """The crash barrier on a built corpus (`corpus_problems`): the summary
+    written whole to `summary_path`, 1 when anything is wrong."""
+    summary, problems = corpus_problems(out_dir, candidates)
+    summary["problems"] = problems
+    tmp = summary_path.with_name(summary_path.name + ".tmp")
+    tmp.write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    tmp.replace(summary_path)
+    log.info(f"corpus {summary}")
+    for p in problems:
+        log.error(f"CORPUS_BARRIER: {p}")
+    return 1 if problems else 0
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--config", type=Path, default=Path("configs/imitation.json"))
@@ -273,10 +319,15 @@ def main(argv) -> int:
                     help="dataset directory (default: the config's dataset_dir)")
     ap.add_argument("--limit", type=int, default=None, help="first N candidates only")
     ap.add_argument("--workers", type=int, default=10)
+    ap.add_argument("--check", type=Path, default=None, metavar="SUMMARY_JSON",
+                    help="check the corpus already built in --out against the candidates, write "
+                         "the summary, exit 1 when anything is wrong (the box's crash barrier)")
     args = ap.parse_args(argv[1:])
     config = json.loads(args.config.read_text(encoding="utf-8"))
     out_dir = args.out or Path(config["dataset_dir"])
     candidates = load_candidates(args.dispositions)[:args.limit]
+    if args.check is not None:
+        return check(out_dir, len(candidates), args.check)
     log.info(f"imitation corpus v{CORPUS_VERSION}: {len(candidates)} candidates, "
              f"classes {config['outcome_classes']} -> {out_dir}")
     t0 = time.time()

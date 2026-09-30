@@ -628,6 +628,12 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // each side turn, apply_menu_item) commit a delaying side's vision; an
     // attack aborted before its draw commits too. shroud_state_export and
     // set_shroud_state carry the modification's two flags.
-    m.add("__phase__", 25)?;
+    // 26: a unit that leaves the board where a side does not see its hex
+    // stays in that side's sighting record until its end_turn
+    // (sightings_gone_export, set_sightings_gone); a hex's parity time of
+    // day is the interface's (the area's on a fogged hex, lit by every
+    // unit on a seen one); apply_move takes the recorded route's hex after
+    // the stop (`next`), whose enemy blocked the move.
+    m.add("__phase__", 26)?;
     Ok(())
 }

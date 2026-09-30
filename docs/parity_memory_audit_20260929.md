@@ -136,3 +136,52 @@ finding R1.
 | R6 | The pre-registered per-phase value AUC was not computed; nothing checked that the pass trains every pre-encoded position; the barrier's standard error treated a game's two sides as independent | fixed, 6e0df7b (the same-turn AUC by turn bucket; exit 4 on a short pass; the standard error across games) |
 | R7 | An event handler that leaves undo disabled makes its action final, which commits a delaying side's vision: in our games the Plan Unit Advance modification's first move of each side turn and its menu events. 6 of 400 sampled games both use it and delay; their seen hexes differed at 27 of 2,859 decisions | fixed, f5def12 (the record carries the modification and its menu events; both appliers commit there; wheel phase 25) |
 | R8 | An attack that a disconnect aborted before its first draw skipped the commit the engine's handler makes first | fixed, f5def12 |
+
+## The pre-launch audit, round 1 (2026-09-30, six independent reviewers)
+
+User request, 2026-09-30: audit, fix, audit again until an audit comes up
+clean. Six reviewers, each given a scope and no hypotheses: the model and
+its memory (A), the sequence trainer (B), the training data (C), the match
+path (D), box operations (E), the observation's fidelity to the engine (F).
+All of it lands on `fix/audit-round1`; the wheel is phase 26, the corpus
+version 5, `OBSERVATION_EPOCH` 11.
+
+| id | finding | disposition |
+|---|---|---|
+| C1 | critical: the replay applier never carried a side's Random choice or the era, so every posterior was one-hot on the true faction (3,760 of 5,528 sampled positions face a Random opponent) | fixed: the state carries both, and the lobby's random faction mode (a Random side under "No Mirror" cannot draw the other side's faction; 45 of 109 sampled replays play it), extracted at version 5 |
+| C2 | critical: Hornshark Island's placed units (Young Ogre, Sergeant, Ruffian) are fieldable by no faction, so its games read as posterior errors, 1.5% of positions against a 0.1% barrier | fixed: a type no faction of the era fields carries no evidence; a posterior that leaves out the true faction is now counted with the inconsistent ones |
+| C3, E1 | critical: the corpus barrier asserted outcomes == candidates, which quarantined and failed games break | fixed: one check for both box scripts (`build_imitation_dataset.py --check`), tested |
+| E2 | major: the certification's oracle step kept only its second comparison's exit code | fixed |
+| F1 | major: the certification cannot see the sighting record, the seen types or the parity columns, which exist only in Rust | fixed for the state: `tools/sighting_oracle.py` follows the Python applier and `diff_core --sightings` compares every side's record after every command (10 of 10 sampled games agree over 3,018 comparisons; planted faults diverge on 8 and 10 of 10); the parity encoding's columns stay covered by tests, written into the gate |
+| C4, E9 | major: sequence records and a pass could outlive a re-stage | fixed: a run belongs to the stage that began it (`box_bind_run_stage`; `RESUME_OTHER_STAGE=1` continues it), and the sequences are rebuilt for a new stage |
+| A1 | minor: a unit that leaves the board where a side cannot see it (a neutral side's kill in fog) vanished from the side's record, a cue no player has | fixed: it stays until the side's end of turn (wheel phase 26) |
+| A2, B7 | minor: the memory barrier pairs over games, the pre-registration said game-sides | pre-registration amended: a game's two sides share its luck |
+| B1 | minor: obs8's holdout cross-entropy could read games the pre-encoding dropped | fixed: it reads the sequence manifest's games; the barrier line says DECISIONS_DIFFER when the counts part |
+| B2 | minor: obs8's side ran in fp32, the arm's in bf16 | fixed: the same autocast |
+| B3, E4 | minor: the pass's done check read a restored log | fixed: this entry's bytes and its exit code; a cut pass logs SEQUENCE_TRAIN_CUT |
+| B4 | minor: non-finite steps were neither caught nor counted | fixed: a non-finite step is skipped and counted, three in a row stop the pass (exit 5); every probe reading counts non-finite values and the memory barrier fails on any |
+| B5 | minor: the probe's chunks shrank as game-sides ended (hours, not 0.4 h) | fixed: a finished game-side hands its row to the next |
+| B6, C7, D1 | minor: `OBSERVATION_EPOCH` read 10 against the documents' 11 | fixed: 11 |
+| B9 | nit: a resume could repeat a save and a probe, and logged an inflated rate | fixed |
+| B11 | nit: no test pinned what each step's memory reads | fixed: tested at windows of two (start, carried with its gradient, detached at a window's start) |
+| B12 | nit: the last-seen baseline never forgot a dead enemy | fixed: a sighting whose hex the side sees empty is forgotten |
+| A3, B10 | nit: the logged memory gradient covered more than the write | fixed: the write's |
+| C5 | minor: a timer that refills to its cap every turn hides a timeout, whose end_turn is then a player's label (about 0.2% of end_turn labels) | recorded: counted in the manifest (`end_turn_timeout_undetectable`). Rejected: recovering them from the action bonus, because the most common setting (turn bonus equal to the reservoir) leaves nothing to recover |
+| C6 | minor: the sequence manifest was written in place | fixed: written whole |
+| C8 | nits: overflow type lookups uncounted; "value states" listed among the manifest's counts; Dunefolk on the overflow faction row | the lookups counted; the list corrected; the overflow row kept, documented as the posterior's |
+| D2 | nit: game records did not carry the memory sizes | fixed |
+| D3 | nit: a failed fit was never redone | fixed |
+| D4 | nit: a refused recruit stepped the memory, which the corpus never does (the engine records nothing for it) | fixed: the memory goes back; the design text corrected |
+| D5 | nit: a compiled per-process player could lose its memory to the next call | fixed: refused |
+| D | residual: a failed game is replayed on its seed, so a deterministic failure keeps a match short | recorded: such a match now reads MATCH_FAILED and fails the run's finish; the match can be replayed from the uploaded checkpoint |
+| E5 | minor: a re-entry ran the script as later uploaded, and a stage path could be overwritten | fixed: the box runs the stage's own copy; an existing stage path is refused unless `--replace` |
+| E6, E7 | minor: the rental preflight ignored the dead-man's switch, the disk, the memory and the raw corpus | fixed: the script's `BOX_MAX_H` plus 1.5 h, its `box-needs`, its `RAW_TAR` |
+| E8 | minor: ALL_DONE could lose its time to a slow upload.log | fixed: a third of the reserve stays for it |
+| E10 | minor: the switch could mark a finished run FAILED, and gave up after a refused stop | fixed: firing after a finish it only stops the instance, and it retries a refused stop every 10 minutes |
+| E11 | minor: restarts got fresh deadlines; an onstart without HF ran nothing | fixed: the deadline is the stage's first entry's; the onstart runs the disk's copies when HF cannot answer, and appends to its log |
+| E12 | minor: a match that failed outright still finished the run as done | fixed |
+| E13 | minor: worker counts had no memory bound | fixed: `box_workers` |
+| E nits | the finish reason's stray newline; MATCH_CUT_MIN under a match's own worst case; match tarballs fetched again; an empty holdout cross-entropy blocked its retry; the runbook's switch factor | fixed; the token's scope (a write token for the one repository) is the user's decision |
+| F2 | minor: a delaying side's move blocked by an unseen enemy committed nothing, because the record cut the route before the blocker | fixed: the record keeps the route's next hex and both appliers look for the blocker there |
+| F3 | nit: the parity hex time of day was not what the interface shows | fixed: the interface's rule (docs/wesnoth_rules.md) |
+| F4 | nit: two texts misstated the discovery rule and cited a missing catalog entry | fixed; the entry written |

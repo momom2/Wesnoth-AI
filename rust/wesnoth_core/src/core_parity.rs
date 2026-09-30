@@ -198,14 +198,16 @@ impl GameCore {
 
     /// The hex columns in slot order: whether the side sees the hex now
     /// (every hex with fog off), and the hex's lawful bonus minus the
-    /// board's: its time area and lit terrain, and the illumination of
-    /// the units the side sees (a unit hidden from it lights nothing it
-    /// could know of).
-    pub(crate) fn hex_extra(&self, slots: &[usize], seen: &[u8], visible: &[u8], pn: &ParityNorms) -> Vec<f32> {
+    /// board's as the interface shows it (`get_visible_time_of_day_at`,
+    /// src/reports.cpp:100-112, 1.18.4): on a fogged hex its time area's
+    /// alone; on a seen hex with the terrain's light and the illumination
+    /// of every unit on or next to it, seen or not
+    /// (`get_illuminated_time_of_day`, src/tod_manager.cpp:221-262).
+    pub(crate) fn hex_extra(&self, slots: &[usize], seen: &[u8], pn: &ParityNorms) -> Vec<f32> {
         let m = &self.map;
         let mut lit = vec![false; m.h];
-        for (i, u) in self.units.iter().enumerate() {
-            if visible[i] == 0 || u.hex < 0 || !illuminates(u) {
+        for u in self.units.iter() {
+            if u.hex < 0 || !illuminates(u) {
                 continue;
             }
             let h = u.hex as usize;
@@ -220,8 +222,13 @@ impl GameCore {
         let board = self.lawful_bonus_at(-1, turn);
         let mut out = vec![0f32; slots.len() * HEX_EXTRA];
         for (t, &mh) in slots.iter().enumerate() {
-            out[t * HEX_EXTRA] = flag(!self.global.fog_on || seen[mh] != 0);
-            let here = apply_illumination(self.lawful_bonus_at(mh as i64, turn), lit[mh]);
+            let sees = !self.global.fog_on || seen[mh] != 0;
+            out[t * HEX_EXTRA] = flag(sees);
+            let here = if sees {
+                apply_illumination(self.lawful_bonus_at(mh as i64, turn), lit[mh])
+            } else {
+                self.area_lawful_bonus(mh as i64, turn)
+            };
             out[t * HEX_EXTRA + 1] = ((here - board) as f64 / pn.lawful_bonus) as f32;
         }
         out

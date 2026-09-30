@@ -67,13 +67,7 @@ impl GameCore {
     /// own slot, and the board's start slot moves the default cycle only.
     pub fn lawful_bonus_at(&self, hex: i64, turn: i64) -> i64 {
         let map = &self.map;
-        let base = if hex >= 0 && map.area_cycle[hex as usize] >= 0 {
-            let cyc = &map.cycles[map.area_cycle[hex as usize] as usize];
-            let idx = (turn.max(1) - 1).rem_euclid(cyc.len() as i64) as usize;
-            cyc[idx]
-        } else {
-            DEFAULT_CYCLE[self.tod_index(turn)]
-        };
+        let base = self.area_lawful_bonus(hex, turn);
         if hex < 0 || map.has_light[hex as usize] == 0 {
             return base;
         }
@@ -83,6 +77,20 @@ impl GameCore {
             (base + light).min(base.max(map.light_max[h]))
         } else {
             (base + light).max(base.min(map.light_min[h]))
+        }
+    }
+
+    /// The lawful bonus of the hex's time area, or of the default cycle,
+    /// for a turn: `tod_manager::get_time_of_day(loc)`, before terrain
+    /// light and illumination.
+    pub fn area_lawful_bonus(&self, hex: i64, turn: i64) -> i64 {
+        let map = &self.map;
+        if hex >= 0 && map.area_cycle[hex as usize] >= 0 {
+            let cyc = &map.cycles[map.area_cycle[hex as usize] as usize];
+            let idx = (turn.max(1) - 1).rem_euclid(cyc.len() as i64) as usize;
+            cyc[idx]
+        } else {
+            DEFAULT_CYCLE[self.tod_index(turn)]
         }
     }
 

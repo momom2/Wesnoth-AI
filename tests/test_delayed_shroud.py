@@ -121,6 +121,19 @@ def test_a_blocked_move_commits_the_pending_vision():
     assert _sees(gs, FAR_ENEMY)
 
 
+# The record of the blocked move above: the route cut at the stop, the
+# hex after it kept (replay_extract), where the corpse blocked it.
+CUT_BEFORE_CORPSE = ["move", [0, 0, 1], [0, 1, 1], 1, {"clicked": [3, 1], "stopped_early": True, "next": [2, 1]}]
+
+
+def test_a_route_cut_before_an_enemy_is_a_blocked_move():
+    gs = _play([["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE])
+    assert _sees(gs, FAR_ENEMY), "the block made the move final"
+    assert "u5" in (getattr(gs.global_info, "_uncovered_units", None) or set()), "the blocker is revealed"
+    ended = _play([["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE[:4]])
+    assert not _sees(ended, FAR_ENEMY), "a route that simply ended commits nothing"
+
+
 def test_a_recruit_commits_only_when_it_drew_random_numbers():
     """A Skeleton's recruit draws nothing (empty seed) and waits; a
     Spearman's draws its traits and commits both."""
@@ -202,6 +215,7 @@ SEQUENCES = {
     "modification": [["auto_shroud", 0], STEP, RIDE, ["menu_item", "pickadvance"], ["move", [5, 6], [0, 0], 1],
                      ["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1], RIDE_BACK, ["update_shroud"]],
     "blocked": [["auto_shroud", 0], RIDE, ["move", [0, 0, 1, 2, 3], [0, 1, 1, 1, 1], 1]],
+    "blocked_beyond": [["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE],
     "recruits": [["auto_shroud", 0], ["recruit", "Skeleton", 9, 1, ""], RIDE,
                  ["recruit", "Spearman", 2, 1, "0badc0de"]],
     "switch": [["auto_shroud", 0], RIDE, ["auto_shroud", 1], ["move", [0, 1], [0, 0], 1]],

@@ -357,3 +357,28 @@ def test_unknown_unit_names_are_counted_on_every_encode_path(caplog):
     with caplog.at_level(logging.WARNING, logger="game_core"):
         CoreState.from_state(gs)
     assert unit_db_fallbacks().get("Parity Test Phantom", 0) >= 1
+
+
+def test_a_hexs_time_of_day_is_the_interfaces():
+    """At first watch under fog: a seen hex next to an enemy Mage of Light
+    standing in fog reads lit, as the interface shows it; a fogged hex next
+    to an enemy Mage of Light the side sees reads its time area's alone
+    (docs/wesnoth_rules.md "The time of day the interface shows at a hex")."""
+    from tools.abilities import hex_neighbors
+    own = [("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 6, 3, False)]
+    probe = core_of(record(own + [("Lieutenant", 2, 19, 3, True)], fog=True, tod_start_index=NIGHT))
+    probe.apply_command(["init_side", 1])
+    keys = probe.geometry().keys
+    seen = {keys[j] for j in np.flatnonzero(probe.core.seen_export(1))}
+    edge = sorted((s, f) for s in seen for f in hex_neighbors(*s) if f in keys and f not in seen)
+    seen_a, fog_a = edge[0]
+    seen_b, fog_b = next((s, f) for s, f in edge if f != fog_a and s not in (seen_a, fog_a))
+    data = record(own + [("Lieutenant", 2, 19, 3, True), ("Mage of Light", 2, *fog_a, False),
+                         ("Mage of Light", 2, *seen_b, False)], fog=True, tod_start_index=NIGHT)
+    cs = core_of(data)
+    cs.apply_command(["init_side", 1])
+    raw = parity_raw(cs, vocab_of(["Lieutenant", "Spearman", "Mage of Light"]), relevant_set=False)
+    tod = {(p.x, p.y): v for p, v in zip(raw.hex_positions, raw.hex_dynamic_flags[:, enc.PARITY_HEX_TOD_AT])}
+    board = -25
+    assert tod[seen_a] == np.float32((illuminated(board) - board) / 25), "lit by a Mage the side cannot see"
+    assert tod[fog_b] == 0.0, "a fogged hex shows its area's time, unlit"

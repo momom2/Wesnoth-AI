@@ -65,8 +65,11 @@ as board units do: today lawful and neutral are swapped between the two.
 
 **Hexes:**
 - a dynamic flag: the side sees this hex now (the fog overlay);
-- a dynamic column: the hex's lawful bonus minus the board's, / 25 (time
-  areas, lit terrain, illumination);
+- a dynamic column: the hex's lawful bonus minus the board's, / 25, as
+  the interface shows it: on a fogged hex its time area's alone, on a seen
+  hex with the terrain's light and the illumination of every unit on or
+  next to it, seen or not (docs/wesnoth_rules.md "The time of day the
+  interface shows at a hex");
 - two terrain classes, FUNGUS (`Tt`, mushroom grove) and REEF (`Wrt`), so
   `NUM_TERRAINS` is 16;
 - the static village bit on every village hex, whether or not its owner is
@@ -106,9 +109,14 @@ since its last end_turn: after every command, the visible enemy units;
 during a move, each hex of the path the side can see, the unit's hiding
 rules applied. At the side's decisions, each of these units that it cannot
 see now becomes a sighting token at the last hex it was seen, with its type,
-hit points and maximum hit points. The record is cleared at the side's
-end_turn, so it never holds more than one enemy turn; anything older is the
-memory's to keep. Sighting tokens are a new stream with their own token
+hit points and maximum hit points. A unit that leaves the board where the
+side does not see its hex (a neutral side can kill it in the side's fog)
+stays in the record, as a player who did not see it go still believes it
+there. The record is cleared at the side's end_turn, so it never holds more
+than one enemy turn; anything older is the memory's to keep. The
+certification compares each side's record after every command with
+`tools/sighting_oracle.py`, which follows the Python applier; the parity
+encoding's own columns have no second builder, and tests cover them. Sighting tokens are a new stream with their own token
 kind and side code 3; they are never an actor or a target. The same
 sightings feed the faction posterior's seen set, which is kept per side for
 the whole game.

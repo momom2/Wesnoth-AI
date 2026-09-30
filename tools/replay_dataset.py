@@ -944,6 +944,23 @@ def _build_initial_gamestate(data: dict) -> GameState:
     return gs
 
 
+def blocked_beyond(gs: GameState, unit: Unit, xs, ys, out, order: Optional[dict]):
+    """The walk of a recorded move that the engine stopped: the record
+    cuts the route at the hex the unit stopped on and keeps the next one
+    (`order["next"]`); an enemy standing there blocked the move
+    (move.cpp:449-485), which the walk of the cut route cannot see. The
+    blocker is revealed (:870) and the move is final (:1075-1078)."""
+    from tools.pathfind_sim import MoveOutcome
+    nxt = (order or {}).get("next")
+    if nxt is None or out.stop_reason != "end" or out.final_idx != len(xs) - 1:
+        return out
+    blocker = _find_unit_at(gs, int(nxt[0]), int(nxt[1]))
+    if blocker is None or blocker.side == unit.side:
+        return out
+    return MoveOutcome(final_idx=out.final_idx, mp_left=out.mp_left,
+                       uncovered_ids=[*out.uncovered_ids, blocker.id], stop_reason="blocked")
+
+
 def _find_unit_at(gs: GameState, x: int, y: int) -> Optional[Unit]:
     for u in gs.map.units:
         if u.position.x == x and u.position.y == y:
@@ -2264,7 +2281,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # MP drifted -- never truncate a human path for it.
         from tools.pathfind_sim import walk_move_path
         track_side(gs, unit.side)
-        out = walk_move_path(gs, unit, xs, ys, enforce_budget=False)
+        out = blocked_beyond(gs, unit, xs, ys, walk_move_path(gs, unit, xs, ys, enforce_budget=False),
+                             move_order_of(cmd))
         # Side-channel for the sim's command recorder (mirrors
         # _last_advance_events): where the walk actually stopped vs
         # the ordered destination, so exports can annotate truncated
@@ -2978,7 +2996,8 @@ def village_count_mismatches(gs: GameState) -> Dict[int, Tuple[int, int]]:
 def move_order_of(cmd: list) -> Optional[dict]:
     """The order a compact move carries beside its path when the engine
     stopped the unit short of the hex the player clicked:
-    {"clicked": [x, y] (0-indexed), "stopped_early": bool or None}
+    {"clicked": [x, y] (0-indexed), "stopped_early": bool or None, and
+    "next": [x, y], the route's hex after the stop, when there is one}
     (`replay_extract.extract_replay` writes it). None for a move that
     went where it was ordered, and for every move of a record extracted
     before the field existed."""

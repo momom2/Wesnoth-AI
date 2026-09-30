@@ -105,8 +105,10 @@ def use(monkeypatch, sdk, on_hf=ON_HF):
     monkeypatch.setattr(rent_box, "_staging", lambda token: FakeStaging(on_hf))
 
 
-def market(price=0.5, hours_left=100.0, credit=20.0, balance=0.0):
+def market(price=0.5, hours_left=100.0, credit=20.0, balance=0.0, ram_gb=None):
     offer = {"id": 99, "dph_total": price, "end_date": time.time() + hours_left * 3600}
+    if ram_gb is not None:
+        offer["cpu_ram"] = ram_gb * 1024
     return AnsweringSdk(search_offers=[offer], show_user={"credit": credit, "balance": balance},
                         create_instance={"success": True, "new_contract": 555})
 
@@ -238,6 +240,7 @@ LIBRARY = library_dir(STAGE)
 LIBRARY_SCRIPT = ('#!/usr/bin/env bash\nset -uo pipefail\nSTAGE="${STAGE:-}"\n'
                   '. "${BOX_LIB:-/workspace/box}/boxlib.sh" || exit 1\nbox_init\n')
 LIBRARY_ON_HF = {rent_box.STAGING + SCRIPT: LIBRARY_SCRIPT, STAGE: "<tarball>",
+                 f"{LIBRARY}/{SCRIPT}": LIBRARY_SCRIPT,
                  **{f"{LIBRARY}/{name}": "<file>" for name in LIBRARY_FILES}}
 
 
@@ -274,12 +277,15 @@ def test_any_other_script_is_fetched_and_run_as_before(monkeypatch):
 @pytest.mark.parametrize("on_hf, argv, reason", [
     ({k: v for k, v in LIBRARY_ON_HF.items() if not k.endswith("/boxlib.sh")},
      ["--stage", STAGE], "lacks boxlib.sh"),
+    ({k: v for k, v in LIBRARY_ON_HF.items() if k != f"{LIBRARY}/{SCRIPT}"},
+     ["--stage", STAGE], f"lacks {SCRIPT}"),
     (LIBRARY_ON_HF, ["--stage", "none"], "runs on the box library"),
     (LIBRARY_ON_HF, [], "names no STAGE default"),
     (LIBRARY_ON_HF, ["--stage", STAGE, "--env", "STAGE=tier-b/staging/other.tar.gz"], "disagree"),
     ({**LIBRARY_ON_HF, "tier-b/staging/stage_$(reboot).tar.gz": "<tarball>"},
      ["--stage", "tier-b/staging/stage_$(reboot).tar.gz"], "cannot carry"),
-], ids=["library file missing", "no stage", "no default", "two stages", "unsafe stage"])
+], ids=["library file missing", "run script missing", "no stage", "no default", "two stages",
+        "unsafe stage"])
 def test_a_library_script_without_its_whole_library_is_refused(on_hf, argv, reason, monkeypatch,
                                                                capsys):
     sdk = market()
@@ -288,3 +294,35 @@ def test_a_library_script_without_its_whole_library_is_refused(on_hf, argv, reas
     assert sdk.called("create_instance") == []
     err = capsys.readouterr().err
     assert "refusing to rent" in err and reason in err
+
+
+# ---- what the run script says it needs ------------------------------------------
+NEEDY_SCRIPT = (LIBRARY_SCRIPT + 'BOX_MAX_H="${BOX_MAX_H:-28}"\nRAW_TAR="${RAW_TAR:-tier-b/raw.tar}"\n'
+                "# box-needs: disk_gb=120 ram_gb=64\n")
+NEEDY_ON_HF = {**LIBRARY_ON_HF, f"{LIBRARY}/{SCRIPT}": NEEDY_SCRIPT, "tier-b/raw.tar": "<tar>"}
+
+
+@pytest.mark.parametrize("on_hf, account, disk, reason", [
+    (NEEDY_ON_HF, {"credit": 10.0}, "150", "do not cover $14.75 (the switch's 28 h + 1.5 h"),
+    (NEEDY_ON_HF, {"hours_left": 20.0}, "150", "leaves the market in 20.0 h"),
+    (NEEDY_ON_HF, {}, "40", "under the 120 GB the script needs"),
+    (NEEDY_ON_HF, {"ram_gb": 32}, "150", "under the 64 GB the script needs"),
+    ({k: v for k, v in NEEDY_ON_HF.items() if k != "tier-b/raw.tar"}, {}, "150",
+     "tier-b/raw.tar (RAW_TAR) is not on HF"),
+], ids=["switch outlasts the funds", "switch outlasts the window", "disk", "memory", "raw corpus"])
+def test_what_the_run_script_needs_is_checked_before_renting(on_hf, account, disk, reason, monkeypatch,
+                                                             capsys):
+    sdk = market(**account)
+    use(monkeypatch, sdk, on_hf)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE,
+                          "--disk", disk]) == 1
+    assert sdk.called("create_instance") == []
+    err = capsys.readouterr().err
+    assert "refusing to rent" in err and reason in err
+
+
+def test_a_run_script_whose_needs_are_met_is_rented(monkeypatch):
+    sdk = market(ram_gb=126)
+    use(monkeypatch, sdk, NEEDY_ON_HF)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE,
+                          "--disk", "150"]) == 0

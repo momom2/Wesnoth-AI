@@ -576,6 +576,12 @@ def state_digest(gs: "GameState", version: int = DIGEST_VERSION) -> str:
         seen_types = getattr(gi, "_seen_types", None) or {}
         content += (tuple(sorted((int(s), tuple(sorted(rows))) for s, rows in sightings.items())),
                     tuple(sorted((int(s), tuple(sorted(rows))) for s, rows in seen_types.items())))
+        # The entries whose unit left the board unseen, when there are any,
+        # so every other state keeps its digest.
+        gone = {int(s): tuple(sorted(ids)) for s, ids in (getattr(gi, "_sightings_gone", None) or {}).items()
+                if ids}
+        if gone:
+            content += (("sightings_gone", tuple(sorted(gone.items()))),)
     content += _shroud_content(gs)
     text = repr(content)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]

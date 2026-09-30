@@ -5,10 +5,13 @@
 # (scripts/box/box_stage.py `library_dir`), and runs it as
 #     bash /workspace/box_onstart.sh SCRIPT LIBRARY
 # It fetches box_stop.py first, then the rest of the library into
-# /workspace/box/, then the run script from tier-b/staging/SCRIPT, and
-# becomes the script (same process, same log). When a file does not
-# arrive it stops the instance with box_stop.py, if that one arrived;
-# otherwise nothing on the box can stop it, and the laptop must.
+# /workspace/box/, then the run script from LIBRARY/SCRIPT (the stage's own
+# copy, so a later stage's upload cannot change what this one runs), and
+# becomes the script (same process, same log). A file that does not
+# arrive but that an earlier entry left on this disk is used as it is (a
+# restart while HF cannot answer still runs, finishes and stops). When a
+# file is missing it stops the instance with box_stop.py, if that one is
+# here; otherwise nothing on the box can stop it, and the laptop must.
 set -uo pipefail
 [ ! -x /venv/main/bin/python ] || export PATH=/venv/main/bin:$PATH
 SCRIPT=${1:?usage: box_onstart.sh SCRIPT LIBRARY}
@@ -48,9 +51,9 @@ echo "box_onstart $(date -u +%FT%TZ): $SCRIPT with the library of $LIBRARY"
 mkdir -p "$BOX_LIB" || exit 1
 missing=()
 for f in "${LIBRARY_FILES[@]}"; do
-    fetch "$LIBRARY/$f" "$BOX_LIB/$f" || missing+=("$f")
+    fetch "$LIBRARY/$f" "$BOX_LIB/$f" || [ -f "$BOX_LIB/$f" ] || missing+=("$f")
 done
-fetch "tier-b/staging/$SCRIPT" "$WORKDIR/$SCRIPT" || missing+=("$SCRIPT")
+fetch "$LIBRARY/$SCRIPT" "$WORKDIR/$SCRIPT" || [ -f "$WORKDIR/$SCRIPT" ] || missing+=("$SCRIPT")
 if [ "${#missing[@]}" -eq 0 ]; then
     export BOX_LIB
     exec bash "$WORKDIR/$SCRIPT"

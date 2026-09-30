@@ -61,13 +61,14 @@ _DROPPED_GLOBALS = ("_hex_lookup_cache_id", "_hex_lookup_by_xy", "_hex_lookup_by
 # `classes.state_digest`: `_sightings` {side: ((id, type, hp, max hp, x,
 # y), ...)} and `_seen_types` {side: ((other side, type), ...)}. The Python
 # applier keeps neither, so the state comparisons leave them out.
-SIGHT_RECORDS = ("_sightings", "_seen_types")
+SIGHT_RECORDS = ("_sightings", "_seen_types", "_sightings_gone")
 # The players' sides, the ones that keep a sighting record.
 _RECORD_SIDES = (1, 2)
 # The wheel phase this adapter reads: 23 keeps the sighting records and
 # builds the parity observation, 24 delays a side's shroud updates, 25 adds
-# the Plan Unit Advance modification's undo blocks.
-_CORE_PHASE = 25
+# the Plan Unit Advance modification's undo blocks, 26 keeps a unit that
+# left the board unseen in the sighting record.
+_CORE_PHASE = 26
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -383,6 +384,8 @@ class CoreState:
             self.core.set_sightings(int(side), [tuple(r) for r in rows])
         for side, rows in (getattr(gi, "_seen_types", None) or {}).items():
             self.core.set_seen_types(int(side), [(int(s), str(t)) for s, t in rows])
+        for side, ids in (getattr(gi, "_sightings_gone", None) or {}).items():
+            self.core.set_sightings_gone(int(side), [str(i) for i in ids])
 
     def _add_unit(self, u: Unit) -> None:
         self.core.add_unit(unit_fields(u))
@@ -469,6 +472,7 @@ class CoreState:
         gi._pa_fresh_turn = bool(fresh_turn)
         gi._sightings = {side: tuple(core.sightings_export(side)) for side in _RECORD_SIDES}
         gi._seen_types = {side: tuple(core.seen_types_export(side)) for side in _RECORD_SIDES}
+        gi._sightings_gone = {side: tuple(core.sightings_gone_export(side)) for side in _RECORD_SIDES}
         self._events_into(gi)
         units = {unit_from_fields(d) for d in core.units_export()}
         chose_random = self.statics.get("chose_random") or ()
@@ -560,7 +564,10 @@ class CoreState:
             return "rust"
         if kind == "move":
             from_side = int(cmd[3]) if len(cmd) > 3 else 0
-            self.core.apply_move([int(v) for v in cmd[1]], [int(v) for v in cmd[2]], from_side)
+            order = cmd[4] if len(cmd) > 4 and isinstance(cmd[4], dict) else {}
+            nxt = order.get("next")
+            self.core.apply_move([int(v) for v in cmd[1]], [int(v) for v in cmd[2]], from_side,
+                                 next=None if nxt is None else (int(nxt[0]), int(nxt[1])))
             return "rust"
         if kind == "attack":
             self._apply_attack(cmd)

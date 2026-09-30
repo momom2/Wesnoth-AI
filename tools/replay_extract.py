@@ -61,8 +61,9 @@ log = logging.getLogger("replay_extract")
 # (2026-09-30): a side's `[auto_shroud]` and `[update_shroud]` commands
 # are kept (docs/wesnoth_rules.md "Delayed shroud updates"). 5
 # (2026-09-30): the lobby's random faction mode, which decides what a
-# Random side can draw (wesnoth_ai/faction_posterior.py). Records without
-# the key are version 1.
+# Random side can draw (wesnoth_ai/faction_posterior.py), and a stopped
+# move's order keeps the route's hex after the stop (`next`), where a
+# blocking enemy stood. Records without the key are version 1.
 EXTRACTION_VERSION = 5
 
 
@@ -1305,6 +1306,11 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
                                 i for i, (x, y) in enumerate(zip(xs, ys))
                                 if x == final_x and y == final_y
                             )
+                            # The route's hex after the stop: an enemy on
+                            # it blocked the move (move.cpp:449-485), which
+                            # the appliers check (`blocked_beyond`).
+                            if stop + 1 < len(xs):
+                                order["next"] = [max(0, xs[stop + 1] - 1), max(0, ys[stop + 1] - 1)]
                             xs = xs[:stop + 1]
                             ys = ys[:stop + 1]
                         except StopIteration:

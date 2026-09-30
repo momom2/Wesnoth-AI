@@ -332,12 +332,13 @@ class Round:
         for name, deps in waiting.items():
             self.log(f"{name} held back: {self.vouched(deps)} has not landed in its current version")
 
-    def send_last(self, name: str) -> None:
-        """upload.log, ALL_DONE: sent whatever their state, in the reserved time."""
+    def send_last(self, name: str, keep_s: float = 0.0) -> None:
+        """upload.log, ALL_DONE: sent whatever their state, in the reserved
+        time, leaving `keep_s` of it for what follows."""
         path = self.out / name
         if not path.is_file():
             return
-        if self.upload_copy(name, lambda copy: shutil.copyfile(path, copy), 0.0):
+        if self.upload_copy(name, lambda copy: shutil.copyfile(path, copy), keep_s):
             self.sent += 1
         else:
             self.failed.append(name)
@@ -354,7 +355,8 @@ class Round:
             self.log(f"{'final' if final else 'periodic'} round: {self.sent} sent, "
                      f"{self.unchanged} unchanged, {len(self.failed)} failed"
                      + (f" ({' '.join(self.failed)})" if self.failed else ""))
-            self.send_last(LOG_NAME)
+            # A third of the reserve stays for ALL_DONE after a slow upload.log.
+            self.send_last(LOG_NAME, self.timing.reserve_s / 3 if final else 0.0)
             if final:
                 self.send_last(ALL_DONE)
         finally:

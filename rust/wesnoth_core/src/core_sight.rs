@@ -5,7 +5,10 @@
 //! - the sighting record: every unit of another side the side saw since
 //!   its last end_turn, by id, with its type, hit points and maximum hit
 //!   points and the last hex it was seen on. Cleared at the side's
-//!   end_turn; a unit that leaves the board leaves it.
+//!   end_turn. A unit that leaves the board leaves it when the side saw
+//!   its hex at that moment; otherwise it stays until the end_turn, as a
+//!   player who did not see the unit go still believes it where it was
+//!   last seen (a neutral side can kill it in the side's fog).
 //! - the seen types: every (side, unit type) the side has seen in the
 //!   game, the faction posterior's evidence. Never cleared.
 //!
@@ -80,8 +83,24 @@ impl GameCore {
             }
         }
         let index = &self.unit_index;
-        for record in self.sightings.iter_mut() {
-            record.retain(|id, _| index.contains_key(id));
+        for (record, gone) in self.sightings.iter_mut().zip(self.sightings_gone.iter()) {
+            record.retain(|id, _| index.contains_key(id) || gone.contains(id));
+        }
+    }
+
+    /// Unit `i` is about to leave the board. Each side whose record holds
+    /// it and that does not see its hex keeps the entry, marked gone.
+    pub(crate) fn note_departure(&mut self, i: usize) {
+        let (id, hex) = (self.units[i].id.clone(), self.units[i].hex);
+        for side in 1..=RECORD_SIDES as i64 {
+            let k = side as usize - 1;
+            if !self.sightings[k].contains_key(&id) {
+                continue;
+            }
+            let unseen = self.global.fog_on && (hex < 0 || self.seen_by(side)[hex as usize] == 0);
+            if unseen {
+                self.sightings_gone[k].insert(id.clone());
+            }
         }
     }
 
@@ -112,15 +131,18 @@ impl GameCore {
     pub(crate) fn clear_sightings(&mut self, side: i64) {
         if let Some(k) = record_index(side) {
             self.sightings[k].clear();
+            self.sightings_gone[k].clear();
         }
     }
 
     /// The entries of the side's record whose unit it does not see now
-    /// (`visible`, one flag per unit), in id order.
+    /// (`visible`, one flag per unit), the gone ones included, in id order.
     pub(crate) fn sightings_not_visible(&self, side: i64, visible: &[u8]) -> Vec<(&str, &SightRec)> {
         let Some(k) = record_index(side) else { return Vec::new() };
+        let gone = &self.sightings_gone[k];
         self.sightings[k].iter()
-            .filter(|(id, _)| self.unit_index.get(id.as_str()).is_some_and(|&i| visible[i] == 0))
+            .filter(|(id, _)| gone.contains(id.as_str())
+                    || self.unit_index.get(id.as_str()).is_some_and(|&i| visible[i] == 0))
             .map(|(id, rec)| (id.as_str(), rec))
             .collect()
     }
@@ -189,6 +211,25 @@ impl GameCore {
         self.sightings[k] = rows.into_iter()
             .map(|(id, type_name, hp, max_hp, x, y)| (id, SightRec { type_name, hp, max_hp, x, y }))
             .collect();
+        Ok(())
+    }
+
+    /// The ids of the side's record whose unit left the board where the
+    /// side did not see it go, sorted.
+    fn sightings_gone_export(&self, side: i64) -> PyResult<Vec<String>> {
+        let k = record_side(side)?;
+        Ok(self.sightings_gone[k].iter().cloned().collect())
+    }
+
+    /// Replace the side's gone ids (a core built from a view); each must
+    /// name an entry of its record.
+    fn set_sightings_gone(&mut self, side: i64, ids: Vec<String>) -> PyResult<()> {
+        let k = record_side(side)?;
+        if let Some(id) = ids.iter().find(|id| !self.sightings[k].contains_key(id.as_str())) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "side {side}: gone id {id} has no entry in its sighting record")));
+        }
+        self.sightings_gone[k] = ids.into_iter().collect();
         Ok(())
     }
 

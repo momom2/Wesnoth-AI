@@ -56,6 +56,10 @@ the quote to find the file again. Paraphrases drift; quotes don't.
 - [Preprocessor conditionals, and what a multiplayer game defines (added 2026-09-23)](#preprocessor-conditionals-and-what-a-multiplayer-game-defines-added-2026-09-23)
 - [Vision and fog: what a side sees, and when it is recomputed (added 2026-09-24)](#vision-and-fog-what-a-side-sees-and-when-it-is-recomputed-added-2026-09-24)
 - [Delayed shroud updates (added 2026-09-30)](#delayed-shroud-updates-added-2026-09-30)
+- [A watching player sees a mover on every hex of its path (added 2026-09-30)](#a-watching-player-sees-a-mover-on-every-hex-of-its-path-added-2026-09-30)
+- [What a Random faction can draw (added 2026-09-30)](#what-a-random-faction-can-draw-added-2026-09-30)
+- [The time of day the interface shows at a hex (added 2026-09-30)](#the-time-of-day-the-interface-shows-at-a-hex-added-2026-09-30)
+- [A refused recruit leaves nothing in the replay (added 2026-09-30)](#a-refused-recruit-leaves-nothing-in-the-replay-added-2026-09-30)
 
 ---
 
@@ -586,7 +590,9 @@ if(is_inv){
 ```
 `wesnoth_src/src/display_context.cpp:29-49` (`would_be_discovered`):
 a hider is discovered iff an ADJACENT tile holds an enemy (of the
-hider) that is not incapacitated and is itself visible.
+hider) that is not incapacitated. The engine calls it with
+`see_all=true`, the default of `unit::invisible` (`units/unit.hpp:1902`),
+so the discoverer need not itself be visible to anyone.
 
 So a `hides`-ability unit is invisible even on a fog-visible hex,
 EXCEPT:
@@ -3406,6 +3412,16 @@ after a fight ignore the switch
 side, the engine records `[auto_shroud] active=yes`
 (`src/playsingle_controller.cpp:647-654`).
 
+**A block in a replay.** A move stopped by an enemy on its next route
+hex (`move.cpp:481-484`, `blocked_loc_ = hex`) reveals the blocker
+(`:601`, `reveal_ambusher`; `:870`, `STATE_UNCOVERED`) and is final
+(`undo_blocked()` includes `blocked()`, `:259-260`; the stack is cleared
+at `:1075-1078`). The replay records the planned route and the checkup's
+final hex; the extractor cuts the route at the stop and keeps the next
+hex as the move's `next` (extraction version 5), where both appliers
+look for the blocker (`replay_dataset.blocked_beyond`, the core's
+`apply_move(next=...)`).
+
 **In a replay** the two commands are recorded as
 `[command] from_side=N [auto_shroud] active=no|yes [/auto_shroud]` and
 `[update_shroud][/update_shroud]`, each with a checkup. A recruit drew a
@@ -3432,3 +3448,120 @@ auto_shroud=`, whether the Plan Unit Advance modification is active
 "pickadvance"]`); a mid-game start hands a delaying side to the policy with
 `[auto_shroud] active=yes` at its first turn (`WesnothSim._begin_side_turn`).
 Pinned by tests/test_delayed_shroud.py.
+
+---
+
+## A watching player sees a mover on every hex of its path (added 2026-09-30)
+
+**Rule.** During another side's move, a player's display draws the mover
+at each step of its route unless both hexes of the step are fogged for
+the player, and at its landing hex; a unit is drawn only where it is
+visible to the player's team (not fogged, not hidden by its hide
+ability). So the player sees an enemy that crosses its view and ends its
+move in fog, on the last hex of the route it could see it on.
+
+**Source (1.18.4).** `src/units/udisplay.cpp:141` (`move_unit_between`):
+
+```cpp
+	if ( disp.fogged(a) && disp.fogged(b) ) {
+```
+
+skips the step's animation; `unit_mover::proceed_to` (`:318-384`)
+animates the route step by step; `src/units/drawer.cpp:200` draws a unit
+only when `u.is_visible_to_team(viewing_team_ref, show_everything)`.
+With move animations off the mover stays hidden until it lands
+(`unit_mover::start`, `udisplay.cpp:264-270`: "If no animation then hide
+unit until end of movement"); the corpus is taken to be watched with
+them on, the default.
+
+**Implemented by** the Rust core's sighting record (`core_sight.rs`
+`note_path_sightings`), checked against `tools/sighting_oracle.py` by
+`tools/diff_core.py --sightings`.
+
+---
+
+## What a Random faction can draw (added 2026-09-30)
+
+**Rule.** A side whose player chose Random draws uniformly among the
+era's factions that are not themselves random. With the lobby's random
+faction mode "No Mirror", each side avoids the factions of the sides
+already resolved or chosen openly, so in a 1v1 a Random side never draws
+the other side's faction; "No Ally Mirror" avoids allies' factions only;
+"Independent" (the default) avoids nothing. When avoiding would leave no
+faction, the avoid list is ignored.
+
+**Source (1.18.4).** `src/game_initialization/connect_engine.cpp:395-416`:
+
+```cpp
+		if(params_.mode != random_faction_mode::type::independent) {
+			for(side_engine_ptr side2 : side_engines_) {
+				if(!side2->flg().is_random_faction()) {
+					switch(params_.mode) {
+						case random_faction_mode::type::no_mirror:
+							avoid_faction_ids.push_back(side2->flg().current_faction()["id"].str());
+```
+
+then `side->resolve_random(rng, avoid_faction_ids)`;
+`src/game_initialization/flg_manager.cpp:157-215` (`resolve_random`)
+skips `random_faction` entries, honours the Random side's `choices=` and
+`except=` (the default era's `RANDOM_SIDE` macro,
+`data/core/macros/multiplayer.cfg:3-10`, sets neither), and falls back
+to the unavoided list at `:206-209`. The mode's default
+is Independent (`src/mp_game_settings.cpp:89`); a replay's `[multiplayer]`
+records it as `random_faction_mode=`.
+
+**Why non-obvious.** The prior over a Random opponent's faction is not
+the era's list: under No Mirror it excludes the side's own faction. 45
+of 109 sampled replays of the default and Dunefolk eras play No Mirror.
+
+**Implemented by** `wesnoth_ai/faction_posterior.random_draws`, reading
+the record's `random_faction_mode` (extraction version 5).
+
+---
+
+## The time of day the interface shows at a hex (added 2026-09-30)
+
+**Rule.** On a fogged hex the interface shows the time of day of the
+hex's time area, without terrain light or illumination; on a seen hex,
+the illuminated time of day: the area's, the terrain's light, and the
+illumination of every unit on or next to the hex that is not
+incapacitated, seen or not.
+
+**Source (1.18.4).** `src/reports.cpp:100-112`:
+
+```cpp
+	} else if (viewing_team.fogged(hex)) {
+		// Don't show illuminated time on fogged tiles.
+		return rc.tod().get_time_of_day(hex);
+	} else {
+		return rc.tod().get_illuminated_time_of_day(rc.units(), rc.map(), hex);
+	}
+```
+
+and `src/tod_manager.cpp:221-262` (`get_illuminated_time_of_day`): the
+terrain light, then every unit of the hex and its six neighbours found
+in the unit map that is not `incapacitated()`, with no side or
+visibility filter.
+
+**Why non-obvious.** A seen hex next to an enemy that illuminates from
+fog reads lit in the interface: the player can see the light of a unit
+it cannot see.
+
+**Implemented by** the parity observation's hex time-of-day column
+(`core_parity.rs` `hex_extra`).
+
+---
+
+## A refused recruit leaves nothing in the replay (added 2026-09-30)
+
+**Rule.** When a recruit cannot be placed (`can_recruit` fails, for
+example on an occupied castle with no free hex), the interface shows a
+message and no synced command is sent, so the replay records nothing.
+
+**Source (1.18.4).** `src/menu_events.cpp:350-370` (`menu_handler::do_recruit`):
+`synced_context::run_and_throw("recruit", ...)` runs only when
+`can_recruit` returns no error; otherwise `gui2::show_transient_message`.
+
+**Consequence.** The corpus holds no position for a refused recruit;
+a match player whose recruit bounces decides again from the memory it
+had before (`RawPolicyPlayer.drop_last_pending`).

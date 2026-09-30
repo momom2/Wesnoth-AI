@@ -370,9 +370,10 @@ def _discovered_by_adjacency(state: GameState, hider: Unit,
     armed side-3 neutral adjacent to a side-2 hider) reveals the
     hider to every side — including `observer_side` (adversarial
     review 2026-07-18; previously only the observer's own units
-    counted). The engine additionally requires the discoverer to be
-    itself visible to the hider's team; we accept that reduction
-    (documented sight-model simplification)."""
+    counted). The engine makes this check with `see_all=true`, the
+    default of `unit::invisible` (units/unit.hpp:1902), so the discoverer
+    need not itself be visible (docs/wesnoth_rules.md "Hidden-unit
+    visibility")."""
     from tools.abilities import hex_neighbors
     adj = set(hex_neighbors(hider.position.x, hider.position.y))
     for u in state.map.units:

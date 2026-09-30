@@ -268,20 +268,25 @@ impl GameCore {
     /// capture follow the Python branch. The other sides record the mover
     /// on the path hexes they see, then what each side sees is recorded
     /// (core_sight.rs).
-    #[pyo3(signature = (xs, ys, from_side=0, enforce_budget=false))]
-    fn apply_move(&mut self, xs: Vec<i64>, ys: Vec<i64>, from_side: i64, enforce_budget: bool) -> PyResult<()> {
+    #[pyo3(signature = (xs, ys, from_side=0, enforce_budget=false, next=None))]
+    fn apply_move(&mut self, xs: Vec<i64>, ys: Vec<i64>, from_side: i64, enforce_budget: bool,
+                  next: Option<(i64, i64)>) -> PyResult<()> {
         if xs.is_empty() || xs.len() != ys.len() {
             return Err(pyo3::exceptions::PyValueError::new_err("empty or uneven path"));
         }
-        self.move_along(&xs, &ys, from_side, enforce_budget)?;
+        self.move_along(&xs, &ys, from_side, enforce_budget, next)?;
         self.note_sightings();
         Ok(())
     }
 }
 
 impl GameCore {
-    /// The move command's walk and landing (`apply_move`).
-    fn move_along(&mut self, xs: &[i64], ys: &[i64], from_side: i64, enforce_budget: bool) -> PyResult<()> {
+    /// The move command's walk and landing (`apply_move`). `next`: the hex
+    /// the recorded route held after the hex the engine stopped the unit
+    /// on (the record cuts the route there); an enemy on it blocked the
+    /// move (move.cpp:449-485), which the walk of the cut route cannot see.
+    fn move_along(&mut self, xs: &[i64], ys: &[i64], from_side: i64, enforce_budget: bool,
+                  next: Option<(i64, i64)>) -> PyResult<()> {
         let i = match self.units.iter().position(|u| {
             u.x == xs[0] && u.y == ys[0] && (from_side == 0 || u.side == from_side)
         }) {
@@ -300,8 +305,17 @@ impl GameCore {
         }
         let mover_side = u.side;
         self.track_side(mover_side);
-        let out = self.walk_move_path(i, xs, ys, enforce_budget);
+        let mut out = self.walk_move_path(i, xs, ys, enforce_budget);
         let m = xs.len();
+        if let Some((nx, ny)) = next {
+            if out.reason == "end" && out.final_idx == m - 1 {
+                let blocker = self.units.iter().position(|o| o.x == nx && o.y == ny && o.hex >= 0);
+                if let Some(b) = blocker.filter(|&b| self.units[b].side != mover_side) {
+                    out.uncovered.push(self.units[b].id.clone());
+                    out.reason = "blocked";
+                }
+            }
+        }
         self.last_move_walk = Some((xs[m - 1], ys[m - 1], xs[out.final_idx], ys[out.final_idx], out.reason.to_string()));
         for id in &out.uncovered {
             self.uncover(id);
