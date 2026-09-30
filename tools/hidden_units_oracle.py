@@ -407,6 +407,12 @@ def main(argv: List[str]) -> int:
     recorded = {}
     if args.recorded:
         recorded = {r["case"]: r["engine"] for r in json.loads(args.recorded.read_text(encoding="utf-8"))["records"]}
+        # Every recorded answer is compared: a case renamed or dropped since
+        # would otherwise shrink the comparison silently, down to nothing.
+        missing = sorted(set(recorded) - {c.name for c in cases}) if not args.only else []
+        if missing:
+            print(f"{len(missing)} recorded cases are not in today's list: {missing[:5]}")
+            return 1
         cases = [c for c in cases if c.name in recorded]
     for i, case in enumerate(cases, 1):
         if args.recorded:
