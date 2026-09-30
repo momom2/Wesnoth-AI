@@ -1569,6 +1569,8 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
         elif isinstance(choice, str) and choice in targets:
             new_type = choice
         else:
+            log.warning("advancement choice %r is outside the %d options of %s; the first is taken",
+                        choice, len(targets), u.name)
             new_type = targets[0]
     elif len(targets) > 1 and getattr(gs.global_info,
                                       "_advance_uniform", False):
@@ -2227,6 +2229,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                     unit = u
                     break
         if unit is None:
+            log.warning("%s: a move from (%d, %d) finds no unit of side %s there; the command is skipped",
+                        gs.game_id, sx, sy, from_side)
             return
         # Execute the recorded/planned path with the shared
         # Wesnoth-faithful walk (tools/pathfind_sim.walk_move_path):
@@ -2371,6 +2375,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         att = _find_unit_at(gs, ax, ay)
         dfd = _find_unit_at(gs, dx, dy)
         if att is None or dfd is None:
+            log.warning("%s: an attack from (%d, %d) on (%d, %d) misses a unit; the command is skipped",
+                        gs.game_id, ax, ay, dx, dy)
             return
 
         # Disconnect-mid-attack handling: if the recorded [attack]

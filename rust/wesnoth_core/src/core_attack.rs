@@ -295,7 +295,12 @@ impl GameCore {
         self.advance_choices.extend(choices);
         let (a, d) = match (self.unit_at(ax, ay), self.unit_at(dx, dy)) {
             (Some(a), Some(d)) => (a, d),
-            _ => return Ok(None),
+            _ => {
+                crate::effects::warn_once(format!(
+                    "{}: an attack from ({ax}, {ay}) on ({dx}, {dy}) misses a unit; the command is skipped",
+                    self.game_id));
+                return Ok(None);
+            }
         };
         if !has_seed {
             return Ok(None);

@@ -142,13 +142,13 @@ fi
 # Once the pass is done it serves only obs8's holdout cross-entropy.
 if [ ! -f "$BOX_STATE/CORPUS_DONE" ] && { [ ! -f "$OUT/DONE" ] || [ ! -f "$OUT/obs8_holdout_ce.json" ]; }; then
     rm -rf "$CORPUS" "${CORPUS}_duplicates"
-    from=$(box_size "$OUT/build.log")
-    box_bounded --stall "$OUT/build.log" "$BUILD_STALL_MIN" build "$BUILD_CUT_MIN" build.log \
+    from=$(box_size "$OUT/corpus_build.log")
+    box_bounded --stall "$OUT/corpus_build.log" "$BUILD_STALL_MIN" corpus "$BUILD_CUT_MIN" corpus_build.log \
         python tools/build_imitation_dataset.py --raw-root . --out "$CORPUS" --workers "$WORKERS"
-    tail -c "+$(( from + 1 ))" "$OUT/build.log" | grep -q "BUILD_DONE" \
-        || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (build.log)" 1
-    box_bounded corpus-check 10 build.log python - "$CORPUS" "$OUT/corpus_summary.json" <<'EOF' \
-        || box_finish "CORPUS_BARRIER rc=$BOX_RC (build.log, corpus_summary.json)" 1
+    tail -c "+$(( from + 1 ))" "$OUT/corpus_build.log" | grep -q "BUILD_DONE" \
+        || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (corpus_build.log)" 1
+    box_bounded corpus-check 10 corpus_build.log python - "$CORPUS" "$OUT/corpus_summary.json" <<'EOF' \
+        || box_finish "CORPUS_BARRIER rc=$BOX_RC (corpus_build.log, corpus_summary.json)" 1
 import json, pathlib, sys
 from tools.build_imitation_dataset import CORPUS_VERSION, DISPOSITIONS, load_candidates
 corpus, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])

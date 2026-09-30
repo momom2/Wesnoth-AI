@@ -286,7 +286,12 @@ impl GameCore {
             u.x == xs[0] && u.y == ys[0] && (from_side == 0 || u.side == from_side)
         }) {
             Some(i) => i,
-            None => return Ok(()),
+            None => {
+                crate::effects::warn_once(format!(
+                    "{}: a move from ({}, {}) finds no unit of side {} there; the command is skipped",
+                    self.game_id, xs[0], ys[0], from_side));
+                return Ok(());
+            }
         };
         let u = &self.units[i];
         let class = if u.has_status("slowed") { u.class_slowed_id } else { u.class_id };
