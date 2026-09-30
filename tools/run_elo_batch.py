@@ -894,7 +894,9 @@ def main(argv: List[str]) -> int:
             _want = (_flag if _flag is not None
                      else {"cuda": True, "cpu": False}.get(args.device))
             if _fld == "infer_compile" and args.shared_inference:
-                _want = False            # the server runs eager kernels
+                # The games record the server's setting (its hello's
+                # compile_packed), which --compile-packed turns on.
+                _want = bool(args.compile_packed)
             if _want is not None \
                     and bool(prev.get(_fld, False)) != _want:
                 raise SystemExit(
@@ -1161,7 +1163,7 @@ def main(argv: List[str]) -> int:
              "mcts_batch": args.mcts_batch_size,
              "infer_bf16": (shared_bf16 if servers
                             else _effective_precision(args, "infer_bf16")),
-             "infer_compile": (False if servers
+             "infer_compile": (bool(args.compile_packed) if servers
                                else _effective_precision(args, "infer_compile")),
              "shared_inference": bool(servers),
              "infer_packed_trunk": shared_packed,
