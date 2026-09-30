@@ -571,6 +571,19 @@ class RawEncoded:
     sight_feats:         Optional[np.ndarray] = None   # float32 [S, SIGHT_FEAT_DIM]
 
 
+@dataclass
+class StagedBatch:
+    """A batch's numeric fields on the device before any learned layer
+    (`GameStateEncoder.stage_raws`): device views of one buffer, each
+    stream's token total, the per-sample (U, R, H), the sighting counts
+    and the name of the opponent's faction field."""
+    views: Dict[str, torch.Tensor]
+    totals: Dict[str, int]
+    sizes: List[Tuple[int, int, int]]
+    sighting_counts: Optional[List[int]]
+    their_field: str
+
+
 # torch's CUDA caching allocator rounds every block to this many
 # bytes, so a tensor that starts a fresh block is aligned to it; the
 # coalesced batch buffer puts each field on the same boundary.
@@ -1224,6 +1237,15 @@ class GameStateEncoder(nn.Module):
         pageable copies, each a stream synchronization. Same
         expressions as _embed_streams, so the embeddings are the same;
         WesnothModel.forward_embedded consumes the result."""
+        return self.embed_staged(self.stage_raws(raws, device=device))
+
+    def stage_raws(self, raws: List[RawEncoded], *,
+                   device: Optional[torch.device] = None) -> "StagedBatch":
+        """The first half of `encode_from_raw_embedded`: the batch's
+        numeric fields in one pinned host buffer, copied to the device,
+        no learned layer involved. A trainer that recomputes its forward
+        in the backward pass (activation checkpointing) stages once and
+        embeds twice."""
         if device is None:
             device = next(self.parameters()).device
         B = len(raws)
@@ -1254,7 +1276,14 @@ class GameStateEncoder(nn.Module):
         else:
             hv["their_faction_id"][:] = [r.their_faction_id for r in raws]
         dev = host if device.type == "cpu" else host.to(device, non_blocking=True)
-        v = layout.torch_views(dev)
+        return StagedBatch(views=layout.torch_views(dev), totals=totals,
+                           sizes=list(zip(counts["unit"], counts["recruit"], counts["hex"])),
+                           sighting_counts=counts.get("sighting"), their_field=their[0])
+
+    def embed_staged(self, staged: "StagedBatch") -> EmbeddedStreams:
+        """The second half of `encode_from_raw_embedded`: the learned
+        embeddings of a staged batch, in stream order."""
+        v, totals, their = staged.views, staged.totals, (staged.their_field,)
         parts = []
         if totals["hex"]:
             parts.append(self._hex_embedding(v["hex_xs"], v["hex_ys"], v["hex_terrain_ids"],
@@ -1270,9 +1299,8 @@ class GameStateEncoder(nn.Module):
                                                   v["sight_ys"], v["sight_feats"]))
         parts.append(self._global_embedding(v["global_feats"], v["our_faction_id"], v[their[0]]))
         parts.append(self.end_turn_token.view(1, -1))
-        return EmbeddedStreams(tokens=torch.cat(parts, dim=0),
-                               sizes=list(zip(counts["unit"], counts["recruit"], counts["hex"])),
-                               sighting_counts=counts.get("sighting"))
+        return EmbeddedStreams(tokens=torch.cat(parts, dim=0), sizes=list(staged.sizes),
+                               sighting_counts=staged.sighting_counts)
 
     def _embed_streams(self, raws: List[RawEncoded], device) -> dict:
         """The trained embeddings of every stream for a batch, as
