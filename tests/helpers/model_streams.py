@@ -14,6 +14,7 @@ parameters a seeded construction draws.
 from __future__ import annotations
 
 import math
+import sys
 import zlib
 from typing import Dict, List, Optional
 
@@ -143,6 +144,10 @@ def legacy_reference() -> Dict[str, object]:
         packed = model.forward_streams(*encoder.encode_from_raw_padded(raws), packed=True)
     return {
         "dims": [D, LAYERS, HEADS, FF],
+        # Seeded initial parameters depend on torch's random draws, which
+        # differ between versions and machines: the construction values
+        # compare only where they were recorded.
+        "platform": [sys.platform, torch.__version__],
         "model_keys": {k: list(v.shape) for k, v in model.state_dict().items()},
         "encoder_keys": {k: list(v.shape) for k, v in encoder.state_dict().items()},
         "single": singles,
