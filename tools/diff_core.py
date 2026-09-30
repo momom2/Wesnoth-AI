@@ -83,7 +83,11 @@ def _vocab():
 
 
 def encoding_divergences(gs, cs) -> List[str]:
-    """The encodings of the Python state and of the core that differ."""
+    """The encodings of the Python state and of the core that differ. On
+    the pure-Python path (the certification's: WESNOTH_RUST=0 and friends)
+    the Python encoding carries no observation record, which only the Rust
+    paths attach; the model's inputs, its arrays, are compared all the same."""
+    import dataclasses
     from wesnoth_ai.core_compare import encoding_differences
     from wesnoth_ai.encoder import encode_raw
     types, factions = _vocab()
@@ -91,7 +95,10 @@ def encoding_divergences(gs, cs) -> List[str]:
     for relevant, gate, multi in ENCODINGS:
         kw = dict(type_to_id=types, faction_to_id=factions, relevant_set=relevant,
                   fog_hides_enemy_villages=gate, terrain_multi_hot=multi)
-        diffs = encoding_differences(encode_raw(gs, **kw), cs.encode_raw(**kw))
+        py, rs = encode_raw(gs, **kw), cs.encode_raw(**kw)
+        if py.observation is None:
+            rs = dataclasses.replace(rs, observation=None)
+        diffs = encoding_differences(py, rs)
         if diffs:
             out.append(f"encoding {(relevant, gate, multi)}: {diffs[:6]}")
     return out
@@ -212,6 +219,10 @@ def main(argv: List[str]) -> int:
     files = _walk(args.inputs)
     if args.limit:
         files = files[:args.limit]
+    # What the Python side ran on: independent of the core only when every
+    # kernel it reaches is the Python one (the certification's setting).
+    from tools.kernel_status import banner
+    print(f"diff_core: the applier's {banner()}")
     counts: Counter = Counter()
     clean = 0
     divergences: List[str] = []

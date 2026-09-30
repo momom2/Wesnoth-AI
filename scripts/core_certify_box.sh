@@ -80,7 +80,9 @@ fi
 # ---- the sweep, one diff_core per shard of the corpus
 # The shard lists and logs live in one folder, uploaded as one tarball a
 # round (a file each would cost a model-host commit each); a marker after
-# the sweep keeps a re-entry from redoing it.
+# the sweep keeps a re-entry from redoing it. In the sweep the applier runs
+# its rules in Python (the Rust kernels off), so that no rule is the core
+# compared with itself; the core does not read these switches.
 export OMP_NUM_THREADS=1
 SW=$OUT/shards
 mkdir -p "$SW"
@@ -94,7 +96,8 @@ if ! box_marked_this_stage "$BOX_STATE/SWEPT"; then
     # shellcheck disable=SC2016 # expanded by the inner shell, which gets them as $0 and $1
     box_bounded sweep "$DIFF_CUT_MIN" sweep.log bash -c '
         for f in "$0"/shard_[0-9][0-9][0-9]; do
-            ( xargs -a "$f" python tools/diff_core.py --every 1 --encode-every "$1" --outcomes > "$f.log" 2>&1;
+            ( xargs -a "$f" env WESNOTH_RUST=0 WESNOTH_RUST_OBSERVE=0 WESNOTH_RUST_COMBAT=0 \
+                  python tools/diff_core.py --every 1 --encode-every "$1" --outcomes > "$f.log" 2>&1;
               echo "$(date -u +%FT%TZ) $(basename "$f") rc=$?" >> "$0/progress.log" ) &
         done
         wait' "$SW" "$ENCODE_EVERY"
