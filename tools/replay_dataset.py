@@ -3150,7 +3150,7 @@ PAIRED_KINDS = frozenset({"move", "attack", "recruit", "end_turn"})
 
 
 def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
-                      stats: Optional[Counter] = None
+                      stats: Optional[Counter] = None, timeouts: bool = False
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
     """Yield (state_before, action_indices) for each command a player
     side (1 or 2) made in one .json.gz replay; the neutral side's are
@@ -3162,11 +3162,16 @@ def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
     source (`move_label_hex`) and `unpaired`, the player commands of a
     `PAIRED_KINDS` kind that yielded no pair -- the record and its
     reconstruction disagree on an actor or a target, so the game lost a
-    decision. A file with any is logged as a warning."""
+    decision. A file with any is logged as a warning.
+
+    `timeouts`: also yield, where a turn ran out of time, the position the
+    player was deciding in with the `TIMEOUT` label (`timeout_label`),
+    which names no action: the policy gets no target there, the rest of
+    the network does."""
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     counts: Counter = Counter()
-    yield from iter_record_pairs(data, relevant_set=relevant_set, stats=counts)
+    yield from iter_record_pairs(data, relevant_set=relevant_set, stats=counts, timeouts=timeouts)
     if counts["unpaired"]:
         log.warning(f"{Path(gz_path).name}: {counts['unpaired']} player commands "
                     f"yielded no pair")
@@ -3175,7 +3180,7 @@ def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
 
 
 def iter_record_pairs(data: dict, *, relevant_set: bool = False,
-                      stats: Optional[Counter] = None
+                      stats: Optional[Counter] = None, timeouts: bool = False
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
     """`iter_replay_pairs` over an extracted record already in memory.
     On the Rust core (`game_core.core_enabled`) each pair's state is a
@@ -3183,7 +3188,8 @@ def iter_record_pairs(data: dict, *, relevant_set: bool = False,
     command mutates."""
     from wesnoth_ai.game_core import core_enabled
     if core_enabled():
-        yield from _iter_record_pairs_on_core(data, relevant_set=relevant_set, stats=stats)
+        yield from _iter_record_pairs_on_core(data, relevant_set=relevant_set, stats=stats,
+                                              timeouts=timeouts)
         return
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
@@ -3191,6 +3197,8 @@ def iter_record_pairs(data: dict, *, relevant_set: bool = False,
     for i, cmd in enumerate(data.get("commands", [])):
         if i in engine:
             _count_engine_issued(stats, engine[i])
+            if timeouts and engine[i] == TIMEOUT:
+                yield gs, timeout_label()
         elif gs.global_info.current_side in PLAYER_SIDES:
             ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
             if ai is not None:
@@ -3203,8 +3211,9 @@ def iter_record_pairs(data: dict, *, relevant_set: bool = False,
 def engine_issued_of(data: dict) -> Dict[int, str]:
     """The commands of a record that the engine made under a player side
     (index -> "goto" or "timeout", tools/replay_engine_actions.py): applied
-    to the state, never paired as decisions. Empty for records extracted
-    before the field existed (extraction version 3)."""
+    to the state, never paired as the player's decision (a timeout's
+    position can be, with the TIMEOUT label: `iter_record_pairs`). Empty
+    for records extracted before the field existed (extraction version 3)."""
     marks = data.get("engine_issued") or {}
     return {int(i): kind for kind, idx in marks.items() for i in idx}
 
@@ -3212,6 +3221,16 @@ def engine_issued_of(data: dict) -> Dict[int, str]:
 def _count_engine_issued(stats: Optional[Counter], kind: str) -> None:
     if stats is not None:
         stats[f"engine_{kind}"] += 1
+
+
+# The label of a position whose turn ran out of time while its player was
+# still deciding: no action (the policy has no target there and can never
+# pick it); the position still counts for everything else.
+TIMEOUT = "timeout"
+
+
+def timeout_label() -> ActionIndices:
+    return ActionIndices(action_type=TIMEOUT, actor_idx=-1)
 
 
 def record_core(data: dict):
@@ -3223,14 +3242,18 @@ def record_core(data: dict):
     return cs
 
 
-def _iter_record_pairs_on_core(data: dict, *, relevant_set: bool,
-                               stats: Optional[Counter]) -> Iterator[Tuple[GameState, ActionIndices]]:
+def _iter_record_pairs_on_core(data: dict, *, relevant_set: bool, stats: Optional[Counter],
+                               timeouts: bool = False) -> Iterator[Tuple[GameState, ActionIndices]]:
     from wesnoth_ai.game_core import bind_view
     cs = record_core(data)
     engine = engine_issued_of(data)
     for i, cmd in enumerate(data.get("commands", [])):
         if i in engine:
             _count_engine_issued(stats, engine[i])
+            if timeouts and engine[i] == TIMEOUT:
+                gs = cs.to_state()
+                bind_view(gs, cs.fork())
+                yield gs, timeout_label()
         elif int(cs.core.current_side) in PLAYER_SIDES:
             gs = cs.to_state()
             bind_view(gs, cs.fork())

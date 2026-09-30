@@ -100,6 +100,14 @@ def test_a_turn_that_ran_out_is_not_an_end_turn_decision(tmp_path):
     pairs, stats = _pairs(record)
     assert stats["engine_timeout"] == 1
     assert [gs.global_info.current_side for gs, ai in pairs if ai.action_type == "end_turn"] == [2, 1, 2]
+    # On request, the position the player was deciding in comes with the
+    # TIMEOUT label, which names no action; the end_turns are as before.
+    labelled = list(iter_record_pairs(record, timeouts=True))
+    assert [(gs.global_info.current_side, gs.global_info.turn_number) for gs, ai in labelled
+            if ai.action_type == "timeout"] == [(1, 1)]
+    assert [ai.actor_idx for gs, ai in labelled if ai.action_type == "timeout"] == [-1]
+    assert [ai.action_type for gs, ai in labelled if ai.action_type != "timeout"] == \
+        [ai.action_type for gs, ai in pairs]
 
 
 def test_a_timeout_is_certain_only_below_the_reservoir_and_without_action_bonus():

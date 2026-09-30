@@ -75,6 +75,8 @@ def label_slot_mismatch(raw, ai) -> Optional[str]:
     meet. Labels without the command's hexes (pickled before they were
     carried) are not checked."""
     n_units, n_recruits = len(raw.unit_positions), len(raw.recruit_types)
+    if ai.action_type == "timeout":
+        return None                   # names no action, so points at no slot
     if ai.action_type == "end_turn":
         if ai.actor_idx != n_units + n_recruits:
             return f"end_turn at actor {ai.actor_idx}, the sentinel is {n_units + n_recruits}"
