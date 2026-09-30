@@ -29,14 +29,16 @@ def record(units: Iterable[tuple], *, width: int = 20, height: int = 7,
            village_gold: int = 2, village_support: int = 1, experience_modifier: int = 100,
            tod_start_index: int = 0) -> dict:
     """A replay record of a two-sided game with no commands; `units` are
-    (type, side, x, y, is_leader) with 0-indexed hexes."""
+    (type, side, x, y, is_leader) with 0-indexed hexes, and optionally a
+    dict of starting fields (`hp`, `max_exp`)."""
     recruits = recruits or {}
     villages = villages or {}
     return {
         "game_id": "parity", "scenario_id": "", "map_data": board(width, height, special),
         "experience_modifier": experience_modifier, "tod_start_index": tod_start_index,
-        "starting_units": [{"uid": k + 1, "type": t, "side": s, "x": x, "y": y, "is_leader": leader}
-                           for k, (t, s, x, y, leader) in enumerate(units)],
+        "starting_units": [{"uid": k + 1, "type": t, "side": s, "x": x, "y": y, "is_leader": leader,
+                            **(extra[0] if extra else {})}
+                           for k, (t, s, x, y, leader, *extra) in enumerate(units)],
         "starting_sides": [{"side": s, "faction": factions[s - 1], "gold": gold[s - 1],
                             "recruit": list(recruits.get(s, [])), "fog": fog, "shroud": False,
                             "village_income": village_gold, "village_support": village_support}

@@ -19,11 +19,12 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 import pytest
+
+from helpers.posix_bash import bash_path, find_bash
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "scripts" / "box"
@@ -58,32 +59,11 @@ exit 0
 """
 
 
-def find_bash() -> str | None:
-    """A POSIX bash: Git's on Windows, never the WSL launcher."""
-    if sys.platform == "win32":
-        for candidate in (r"C:\Program Files\Git\usr\bin\bash.exe", r"C:\Program Files\Git\bin\bash.exe"):
-            if os.path.exists(candidate):
-                return candidate
-        found = shutil.which("bash")
-        if found and "system32" not in found.lower() and "windowsapps" not in found.lower():
-            return found
-        return None
-    return shutil.which("bash")
-
-
 BASH = find_bash()
 # Slow: about 60 s on the laptop, where Git bash starts processes slowly;
 # the library runs on Linux boxes, and CI runs the slow tier on Linux.
 pytestmark = [pytest.mark.slow,
               pytest.mark.skipif(BASH is None, reason="no POSIX bash on this machine")]
-
-
-def bash_path(path: Path) -> str:
-    """`path` as bash sees it (Git's bash wants /c/... on Windows)."""
-    path = Path(path).resolve()
-    if sys.platform == "win32" and path.drive:
-        return f"/{path.drive[0].lower()}{path.as_posix()[2:]}"
-    return str(path)
 
 
 def run_bash(script: str, cwd: Path, timeout: float = 90) -> int:
@@ -265,12 +245,24 @@ def test_the_switch_after_a_finished_entry_only_stops_the_instance(box):
 
 
 def test_a_run_of_another_stage_is_refused_unless_told_to_continue_it(box):
+    """The refusal comes before the entry clears the run's markers on HF and
+    sends nothing there; the instance is stopped."""
     (box.out).mkdir(parents=True)
     (box.out / "RUN_STAGE").write_text("stage=tier-b/staging/stage_old.tar.gz time=x\n")
-    assert box.run('box_bind_run_stage\nbox_finish "RUN_DONE"') == 1
-    assert "RUN_OF_ANOTHER_STAGE" in box.text("status.txt")
+    assert box.run('touch "$BOX_OUT/BODY_RAN"\nbox_bind_run_stage\nbox_finish "RUN_DONE"') == 1
+    assert "RUN_OF_ANOTHER_STAGE" in box.text("REFUSED")
+    assert not (box.out / "BODY_RAN").exists() and not (box.out / "ALL_DONE").exists()
+    calls = [a for _t, a in box.calls()]
+    assert not [a for a in calls if "--clear" in a or ("box_upload.py" in a and "--restore" not in a)]
+    assert [a for a in calls if "box_stop.py" in a]
     assert box.run('box_bind_run_stage\nbox_finish "RUN_DONE"', RESUME_OTHER_STAGE=1) == 0
     assert f"stage={STAGE}" in box.text("RUN_STAGE")
+
+
+def test_an_entry_that_cannot_read_whose_run_it_is_is_refused(box):
+    assert box.run('box_finish "RUN_DONE"', STUB_RESTORE_RC=1) == 1
+    assert "HF_UNREACHABLE" in box.text("REFUSED")
+    assert not [a for _t, a in box.calls() if "--clear" in a or "--final" in a]
 
 
 def test_the_switch_charges_the_stages_running_time(box):
@@ -292,31 +284,40 @@ def test_the_switch_charges_the_stages_running_time(box):
     assert used() < first, "a new stage starts from zero"
 
 
-def test_a_step_that_outlives_its_kill_is_abandoned(box):
+def test_a_step_that_outlives_its_kill_ends_the_entry(box):
     """A process stuck in the GPU driver survives its KILL: the step is
-    abandoned so the entry can finish and stop the instance. Here `timeout`
-    itself ignores the TERM and never ends."""
+    abandoned and the entry finishes and stops the instance, the machine
+    unfit for the next step. Here `timeout` ignores the TERM and never ends
+    its command."""
     (box.stubs / "timeout").write_bytes(
         b'#!/usr/bin/env bash\n[ "$1" = -k ] && shift 2\nshift\ntrap "" TERM\n"$@" &\nwait\n')
     (box.stubs / "timeout").chmod(0o755)
     body = REPORT + "box_bounded stuck 0.02 stuck.log sleep 60; report stuck\n"
     start = time.monotonic()
-    box.run(body, init=False, BOX_UNKILLABLE_S=1)
+    assert box.run(body, BOX_UNKILLABLE_S=1) == 1
     assert time.monotonic() - start < 30
-    assert reported(box)["stuck"].endswith("unkillable")
+    assert "stuck rc=" in box.text("walls.txt") and "unkillable" in box.text("walls.txt")
     assert "abandoning it" in box.text("watchdog.log")
+    assert not box.text("report"), "nothing after the step ran"
+    assert_finished(box, "STEP_UNKILLABLE")
 
 
 @pytest.mark.parametrize("files, expected", [
-    ({"memory.max": "3221225472\n", "memory.current": "0\n"}, "3"),
-    ({"memory/memory.limit_in_bytes": "4294967296\n", "memory/memory.usage_in_bytes": "1073741824\n"}, "3"),
+    ({"memory.max": "3221225472\n", "memory.current": "0\n"}, "2"),
+    ({"memory/memory.limit_in_bytes": "4294967296\n", "memory/memory.usage_in_bytes": "1073741824\n"}, "2"),
+    ({"memory.max": "4294967296\n", "memory.current": "3221225472\n",
+      "memory.stat": "anon 1073741824\nfile 2147483648\n"}, "2"),
+    ({"memory/memory.limit_in_bytes": "4294967296\n", "memory/memory.usage_in_bytes": "3221225472\n",
+      "memory/memory.stat": "cache 2147483648\ntotal_rss 1073741824\n"}, "2"),
     ({"memory/memory.limit_in_bytes": "9223372036854771712\n", "memory/memory.usage_in_bytes": "1\n"}, None),
     ({"memory.max": "max\n", "memory.current": "1\n"}, None),
     ({}, None),
-], ids=["v2 limit", "v1 limit", "v1 unlimited", "v2 unlimited", "no memory files"])
+], ids=["v2 limit", "v1 limit", "v2 page cache", "v1 page cache", "v1 unlimited", "v2 unlimited",
+        "no memory files"])
 def test_box_workers_gives_each_worker_its_memory(box, files, expected):
-    """1 GB a worker: a 3 GB headroom gives 3 workers; without a limit the
-    host's available memory decides; a host with no memory files (cgroup v1
+    """1 GB a worker, one share kept for the step's parent: a 3 GB headroom
+    gives 2 workers, page cache counting as free; without a limit the host's
+    available memory decides; a host with no memory files (cgroup v1
     without the controller) still gets a count, under `set -u`."""
     root = box.tmp / "cgroup"
     root.mkdir()

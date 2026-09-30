@@ -2399,6 +2399,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         d_weapon = cmd[6] if len(cmd) > 6 else -1
         seed_hex = cmd[7] if len(cmd) > 7 else ""
         choices  = list(cmd[8]) if len(cmd) > 8 else []
+        # Side-channel for tools/sighting_oracle (as _last_move_walk is):
+        # the fight this command ran, set below once it has.
+        setattr(gs.global_info, "_last_fight", None)
         # Push the choices onto the advance-choice queue. The unit-type
         # name from advances_to[choice_idx] will be resolved by
         # _maybe_advance_unit.
@@ -2576,8 +2579,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if att_feed_bump:
                 prev = int(getattr(new_att, "_feeding_count", 0) or 0)
                 setattr(new_att, "_feeding_count", prev + 1)
-            _clear_fog_if_advanced(gs, new_att, _maybe_advance_unit(gs, new_att))
         else:
+            new_att = None
             gs.map.units.discard(att)
             # Plague reverse-direction: defender's plague counter
             # killed attacker -> spawn WC for DEFENDER's side at
@@ -2590,9 +2593,6 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 _spawn_plague_corpse(gs, att,
                                      attacker_side=dfd.side,
                                      attacker_name=dfd.name)
-        # The defender's side refogs when the defender died, was slowed
-        # or was petrified in the fight, before any advancement
-        # (attack.cpp:1150-1185 and 1456-1458).
         dfd_refog = (not result.defender_alive
                      or any(s in dfd_statuses and s not in dfd.statuses
                             for s in ("slowed", "petrified")))
@@ -2607,10 +2607,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if dfd_feed_bump:
                 prev = int(getattr(new_dfd, "_feeding_count", 0) or 0)
                 setattr(new_dfd, "_feeding_count", prev + 1)
-            if dfd_refog:
-                refog(gs, dfd.side)
-            _clear_fog_if_advanced(gs, new_dfd, _maybe_advance_unit(gs, new_dfd))
         else:
+            new_dfd = None
             gs.map.units.discard(dfd)
             # Plague: a kill by a [plague] weapon raises a Walking
             # Corpse (the default plague_type) on the dead unit's hex,
@@ -2627,7 +2625,19 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 _spawn_plague_corpse(gs, dfd,
                                      attacker_side=att.side,
                                      attacker_name=att.name)
+        # The fight ends by refogging the defender's side when the
+        # defender died, was slowed or was petrified in it
+        # (attack.cpp:1150-1185 and 1456-1458); the attacker, then the
+        # defender, advance only after (attack_unit_and_advance,
+        # attack.cpp:1556-1567).
+        setattr(gs.global_info, "_last_fight", {"defender": dfd.id, "defender_side": dfd.side,
+                                                "refog": dfd_refog, "attacker": new_att})
+        if dfd_refog:
             refog(gs, dfd.side)
+        if new_att is not None:
+            _clear_fog_if_advanced(gs, new_att, _maybe_advance_unit(gs, new_att))
+        if new_dfd is not None:
+            _clear_fog_if_advanced(gs, new_dfd, _maybe_advance_unit(gs, new_dfd))
         return
 
     if kind == "recruit":
@@ -3185,11 +3195,13 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     if not scenario_id:
         setattr(gs.global_info, "_scenario_events", [])
+        _mark_scenario_units(gs)
         return
     root = load_scenario_wml(scenario_id)
     if root is None:
         _warn_scenario_without_wml(scenario_id)
         setattr(gs.global_info, "_scenario_events", [])
+        _mark_scenario_units(gs)
         return
     # Top-level [time_area]s (declared outside any event) apply from
     # game start. Must run BEFORE prestart events — Elensefar's prestart
@@ -3214,6 +3226,15 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     if events:
         fire_event(gs, events, "prestart")
         fire_event(gs, events, "start")
+    _mark_scenario_units(gs)
+
+
+def _mark_scenario_units(gs: GameState) -> None:
+    """The players' units the scenario set up, whose types the sighting
+    record leaves out of the seen types (faction_posterior)."""
+    from wesnoth_ai.faction_posterior import scenario_unit_ids
+    setattr(gs.global_info, "_scenario_unit_ids",
+            scenario_unit_ids((u.id, u.side, u.is_leader) for u in gs.map.units))
 
 
 def _fire_turn_events(gs: GameState, names: List[str]) -> None:

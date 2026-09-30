@@ -328,21 +328,35 @@ def test_a_run_script_whose_needs_are_met_is_rented(monkeypatch):
                           "--disk", "150"]) == 0
 
 
-CLASS_SCRIPT = LIBRARY_SCRIPT + "# box-needs: gpu_ram_gb=24 cores=32\n"
+CLASS_SCRIPT = LIBRARY_SCRIPT + "# box-needs: gpu_ram_gb=24 cores=32 gpu=4090\n"
+FIT = {"gpu_ram": 24564, "cpu_cores_effective": 32, "gpu_name": "RTX 4090"}
 
 
 @pytest.mark.parametrize("offer, reason", [
-    ({"gpu_ram": 12288, "cpu_cores_effective": 32}, "12 GB of GPU memory, under the 24 GB"),
-    ({"gpu_ram": 24564, "cpu_cores_effective": 16}, "16 cores, under the 32 cores"),
-], ids=["gpu memory", "cores"])
+    ({"gpu_ram": 12288}, "12 GB of GPU memory, under the 24 GB"),
+    ({"cpu_cores_effective": 16}, "16 cores, under the 32 cores"),
+    ({"gpu_name": "RTX 3090"}, "RTX 3090, not the 4090 the script needs"),
+    ({"vms_enabled": True}, "a VM host"),
+], ids=["gpu memory", "cores", "gpu model", "vm host"])
 def test_an_offer_below_the_scripts_box_class_is_refused(offer, reason, monkeypatch, capsys):
     sdk = market()
-    sdk.answers["search_offers"][0].update(offer)
+    sdk.answers["search_offers"][0].update({**FIT, **offer})
     use(monkeypatch, sdk, {**LIBRARY_ON_HF, f"{LIBRARY}/{SCRIPT}": CLASS_SCRIPT})
     assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 1
     assert reason in capsys.readouterr().err
-    sdk.answers["search_offers"][0].update({"gpu_ram": 24564, "cpu_cores_effective": 32})
+    sdk.answers["search_offers"][0].update({**FIT, "vms_enabled": False})
     assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 0
+
+
+def test_other_instances_on_the_account_are_refused_unless_allowed(monkeypatch, capsys):
+    sdk = market()
+    sdk.answers["show_instances"] = [{"id": 7, "actual_status": "stopped"}]
+    use(monkeypatch, sdk, LIBRARY_ON_HF)
+    argv = ["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]
+    assert rent_box.main(argv) == 1
+    assert "1 other instance(s)" in capsys.readouterr().err
+    assert sdk.called("create_instance") == []
+    assert rent_box.main([*argv, "--allow-other-instances"]) == 0
 
 
 def test_an_onstart_that_cannot_fetch_its_file_stops_the_instance(monkeypatch):
@@ -354,6 +368,30 @@ def test_an_onstart_that_cannot_fetch_its_file_stops_the_instance(monkeypatch):
     (created,) = sdk.called("create_instance")
     onstart = created["onstart_cmd"]
     assert "for attempt in 1 2 3" in onstart
-    assert "os.environ['CONTAINER_API_KEY']" in onstart and "method='PUT'" in onstart
-    assert "else python -c" in onstart
+    assert "else " + rent_box._ONSTART_STOP.replace("{{", "{").replace("}}", "}") in onstart
     assert bash_parses(onstart)
+
+
+def test_the_onstart_stop_tries_both_forms_until_one_is_accepted(tmp_path):
+    """Stubs stand in for python (refusing the first four calls) and sleep:
+    the Bearer form, then the query form, until one is accepted, the key
+    read from the environment and never written on the command line."""
+    from helpers.posix_bash import bash_path, find_bash
+    bash = find_bash()
+    if bash is None:
+        pytest.skip("no POSIX bash on this machine")
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "python").write_bytes(b'#!/usr/bin/env bash\nprintf "%s\\n" "$2" >> "$STUB_DIR/calls"\n'
+                                   b'[ "$(wc -l < "$STUB_DIR/calls")" -ge 5 ]\n')
+    (stubs / "sleep").write_bytes(b"#!/usr/bin/env bash\nexit 0\n")
+    for stub in stubs.iterdir():
+        stub.chmod(0o755)
+    command = rent_box._ONSTART_STOP.replace("/workspace", bash_path(tmp_path))
+    script = f'export PATH="{bash_path(stubs)}:$PATH" STUB_DIR="{bash_path(tmp_path)}"\n{command}\n'
+    assert subprocess.run([bash, "-c", script], timeout=60).returncode == 0
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert len(calls) == 5
+    assert all("Bearer" in c for c in calls[0::2]) and all("api_key=" in c for c in calls[1::2])
+    assert all("os.environ['CONTAINER_API_KEY']" in c for c in calls)
+    assert len((tmp_path / "onstart_stop.log").read_text().splitlines()) == 2

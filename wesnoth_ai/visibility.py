@@ -476,13 +476,16 @@ def units_visible_to(
 def units_visible_to_python(
     state: GameState, side: int,
     vis_set: Optional[Set[Tuple[int, int]]] = None,
+    units: Optional[Iterable[Unit]] = None,
 ) -> List[Unit]:
     """`units_visible_to` computed here from the view, the core's
-    oracle (tests/test_rust_moves.py)."""
+    oracle (tests/test_rust_moves.py). `units` judges those units
+    instead of the board's, on this state (a unit as a fight left it,
+    before it advanced)."""
     uncovered = getattr(state.global_info, "_uncovered_units", None) or set()
     fog_on = getattr(state.global_info, "_fog", True)
     out: List[Unit] = []
-    for u in state.map.units:
+    for u in (state.map.units if units is None else units):
         if u.side == side:
             out.append(u)
             continue

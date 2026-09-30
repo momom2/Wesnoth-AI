@@ -223,3 +223,36 @@ covered through the review of their fixes. The fixes land on
 | 2D9, 2D10 | nits: diff_core's totals mixed its comparisons in; the catalog quote left out the shroud branch | fixed |
 | 2C2, 2C3 | nits: a turn ended with under a second left reads as a timeout; a player without automatic moves makes the goto moves the engine would | recorded in the docstrings: a replay cannot tell them apart |
 | 2C4 | nit: stored records kept the true enemy faction, and the design said pairs store their value state | fixed: the stored encoding leaves the faction out; the design corrected |
+
+## The pre-launch audit, round 3 (2026-10-01, three independent reviewers)
+
+Three reviewers read a frozen checkout of round 2's fixes (966600e): the
+fixes themselves, box operations, and the sighting record's fidelity to
+the engine. Two of them found the same defect independently. By the
+user's word, the audit stops after this round. The fixes land on
+`fix/audit-round3`; the wheel is phase 28.
+
+| id | finding | disposition |
+|---|---|---|
+| 3F1 | major (one reviewer; minor for the other): round 2's fix 2F2 noted a defended fight after the attacker advanced, so the defending side's record held the advanced type at full hit points, which the player never saw (485 of 85,091 sampled sighting tokens; 0.17% of sampled decisions); the oracle made the same mistake, so the certification passed it | fixed: the fight refogs the defender's side before either unit advances, in the core and the applier (`attack_unit_and_advance`, attack.cpp:1556-1567, quoted in the catalog); the oracle reads the attacker as the fight left it from the applier |
+| 3F2 | minor: the oracle took a live unit under the dead defender's id (a plague corpse can take it) for the defender, and skipped the note | fixed by 3F1: the oracle takes the refog from the applier; a test certifies both fights and diverges under round 2's oracle |
+| 3F3 | minor: on Hornshark Island a placed Woodsman that advances to a Poacher or Trapper, which only the Knalgan Alliance recruits, excluded the true faction (786 of 89,466 Hornshark decisions) | fixed: the players' units the scenario placed, and what they advance to, are not seen types (`faction_posterior.scenario_unit_ids`, set once the scenario is set up, in the core and the oracle) |
+| 3F4 | minor: nothing checked the sighting stream against the record | fixed: `diff_core --sightings` compares the stream at every encoded decision with the one the oracle's record gives |
+| 3F5 | nit: an aborted attack noted nothing after committing a delaying side's vision | fixed |
+| 3F6 | nit: a teleport step out of view was recorded at its fogged destination; the display shows a teleport's arrival only where it is seen (`teleport_unit_between`, udisplay.cpp:74-113) | fixed, in the core and the oracle; the catalog entry extended |
+| 3F7 | nit: the corpus exercises the gone rule once (Micro Isar, one game) | recorded; the synthetic tests cover it |
+| 3T1 | nits: the route tests landed one hex into fog, where a leak of the landing hex passes; the core half of 2F3 and a later change to a directory marked landed had no test | fixed: routes two hexes into fog; the core runs the ran-out route beside the applier; the upload test adds a game |
+| 3E1 | minor: an entry that met another stage's run cleared that run's `ALL_DONE` and `FAILED` on HF before refusing, and wrote its own | fixed: `box_init` refuses first and sends nothing (`REFUSED` on the disk), as it does when it cannot read whose run it is |
+| 3E2 | minor: a GPU stuck after a device fault would hang each remaining match to its cut | fixed: a two-minute GPU check before each match finishes the entry (`GPU_UNRESPONSIVE`); a step that outlives its KILL finishes it too |
+| 3E3 | nit: round 2's premise for 2E9 was wrong: GNU `timeout` ends with a KILL to its whole group, itself included, so no stuck child holds the entry | recorded in the runbook; the GPU check covers the risk that remains |
+| 3E4 | minor: `box_workers` gave the workers all the headroom, leaving none to the step's parent process, and counted page cache as used | fixed: one share for the parent; `anon` (v1 `total_rss`) as used |
+| 3E5 | minor: the uploader's `--clear` had one attempt, and `--landed` ran outside the upload lock | fixed: a clear retries as a restore does; `box_mark_landed` takes the lock |
+| 3E6 | minor: the onstart's own stop tried once, in one form | fixed: ten rounds, the Bearer and the query forms |
+| 3E7 | minor: `DONE` could reach HF before the final probe, and the barrier read the last probe row whatever its position | fixed: `DONE` waits for the probe file; the final probe row says so, and the barrier line reads `NO_FINAL_PROBE` otherwise |
+| 3E8 | minor: a short match's fit stayed on HF while its second attempt ran, and a match whose games could not be counted had no verdict | fixed: the fit and timing are cleared on HF too; `MATCH_FAILED` |
+| 3E9 | minor: the preflight warned of other instances on the account, checked no GPU model and let a VM host through | fixed: refused unless `--allow-other-instances`; `gpu=` in `box-needs` (the retrain's: 4090); VM hosts refused |
+| 3E10 | nit: the certification's first upload came 30 minutes in | fixed: a round right after the box facts |
+| 3E11 | nits: two recovery cases (a start within 30 minutes of a finish; the switch's allowance used up) and per-machine logs were undocumented | recorded in the runbook |
+| 3E12 | nit: a full disk | accepted: the cost table derives the 120 GB (3.7-3.8 KB a pre-encoded position, about 21 GB); the step that fills it fails and reports |
+| 3E13 | nit: the pre-registration's total left out the probes' row | fixed: 15-20 box-hours, $7.5-12; the switch's comment |
+| 3D1 | nit: the sim's PvP defaults rebuilt SideInfo without the Random choice | fixed |

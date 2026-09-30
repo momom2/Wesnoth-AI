@@ -365,16 +365,23 @@ class Round:
 
     # ---- the previous entry's state
     def clear(self, names: list[str]) -> bool:
-        """Delete each name from PREFIX when it is there; forget it as landed."""
+        """Delete each name from PREFIX when it is there, with the attempts
+        a restore gets; forget it as landed."""
         ok = True
         for name in names:
             path = f"{self.hf_dir}/{name}"
-            try:
-                if self.api.file_exists(self.repo, path):
-                    self.api.delete_file(path, repo_id=self.repo)
-                    self.log(f"{name} cleared from HF")
-            except Exception as exc:  # noqa: BLE001 -- the type name only
-                self.log(f"{name} not cleared from HF: {type(exc).__name__}")
+            for i in range(1, self.timing.attempts + 1):
+                try:
+                    if self.api.file_exists(self.repo, path):
+                        self.api.delete_file(path, repo_id=self.repo)
+                        self.log(f"{name} cleared from HF")
+                    break
+                except Exception as exc:  # noqa: BLE001 -- the type name only
+                    self.log(f"{name} clear attempt {i} failed: {type(exc).__name__}")
+                    if i < self.timing.attempts:
+                        self.sleep(self.timing.retry_pause_s)
+            else:
+                self.log(f"{name} not cleared from HF")
                 ok = False
             self.landed.pop(name, None)
         save_state(self.out, self.hf_dir, self.landed)

@@ -26,7 +26,9 @@ The run is rented only when all of these hold:
    (amended 2026-09-30, before any box: the parity encoding's own columns
    have no second builder, and tests cover them; the rules the sighting
    record, the block of a cut route, the hex time of day and the Random
-   prior follow are one reading of the engine that no engine run checks).
+   prior follow are one reading of the engine that no engine run checks;
+   amended 2026-10-01, before any box: the sighting stream at every
+   encoded decision is compared too).
 2. The four independent reviews of the data path started 2026-09-29 (the
    labels; what the network observes against a player; training against
    play; capacities and silent failures) have each finding fixed in this
@@ -141,7 +143,14 @@ On a single-tenant host with an RTX 4090, at least 32 effective cores,
 | the pass | 11-14 h |
 | the holdout probes (one every 500,000 positions and one at the end: about twelve) | about 1-2 h, not measured on the card |
 | four matches | 1.5-2 h |
-| **in all** | **14.5-18 box-hours, about $7-11 at $0.50-0.60 an hour** |
+| **in all** | **15-20 box-hours, about $7.5-12 at $0.50-0.60 an hour** |
+
+(Amended 2026-10-01, before any box: the probes' row brought the total
+from 14.5-18 hours to 15-20.) The disk: the pre-encoded sequences take
+3.7-3.8 KB a position (measured by the round-3 review on local
+encodings), about 21 GB for 5.6 million positions, beside the raw corpus,
+the version-5 corpus and the checkpoints; a full disk fails the step that
+fills it, which the script reports and HF keeps.
 
 The pass is the bulk: `obs8` trained 2.8 million pairs in about 4 hours,
 and this one trains about twice as many positions (every decision of both

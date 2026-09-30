@@ -60,12 +60,15 @@ fn illuminates(u: &UnitRec) -> bool {
 }
 
 impl GameCore {
-    /// Unit `i` seen by `side` on (x, y): its sighting and its type.
+    /// Unit `i` seen by `side` on (x, y): its sighting, and its type unless
+    /// the scenario placed it.
     fn record_sighting(&mut self, side: i64, i: usize, x: i64, y: i64) {
         let Some(k) = record_index(side) else { return };
         let u = &self.units[i];
         let rec = SightRec { type_name: u.name.clone(), hp: u.current_hp, max_hp: u.max_hp, x, y };
-        self.seen_types[k].insert((u.side, u.name.clone()));
+        if !self.scenario_unit_ids.contains(&u.id) {
+            self.seen_types[k].insert((u.side, u.name.clone()));
+        }
         self.sightings[k].insert(u.id.clone(), rec);
     }
 
@@ -134,7 +137,12 @@ impl GameCore {
                 seen.as_ref().map_or(true, |s| s[path[k]] != 0) && !self.hidden_on_path(i, path[k])
             });
             if let Some(k) = last {
-                let h = path[(k + 1).min(path.len() - 1)];
+                // A walked step out of view is animated toward the next hex;
+                // a teleport shows its arrival only where it is seen
+                // (udisplay.cpp:74-113, 370-377), so it was last seen leaving.
+                let next = path[(k + 1).min(path.len() - 1)];
+                let walked = self.map.nbrs[path[k] * 6..path[k] * 6 + 6].contains(&(next as i64));
+                let h = if walked { next } else { path[k] };
                 let (x, y) = (self.map.hx[h], self.map.hy[h]);
                 self.record_sighting(side, i, x, y);
             }
@@ -265,5 +273,14 @@ impl GameCore {
         let k = record_side(side)?;
         self.seen_types[k] = rows.into_iter().collect();
         Ok(())
+    }
+
+    /// The units the scenario placed, whose types are not seen types.
+    fn set_scenario_unit_ids(&mut self, ids: Vec<String>) {
+        self.scenario_unit_ids = ids.into_iter().collect();
+    }
+
+    fn scenario_unit_ids(&self) -> Vec<String> {
+        self.scenario_unit_ids.iter().cloned().collect()
     }
 }

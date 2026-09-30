@@ -238,6 +238,9 @@ pub struct GameCore {
     // Per side, the ids of its record whose unit left the board where the
     // side did not see it go (core_sight.rs `note_departure`).
     pub sightings_gone: Vec<BTreeSet<String>>,
+    // The players' units the scenario placed, whose types (and those they
+    // advance to) are not seen types (faction_posterior.scenario_unit_ids).
+    pub scenario_unit_ids: BTreeSet<String>,
     // Delayed shroud updates (core_shroud.rs): the sides that delay them,
     // sorted, and the current side's moves and recruits awaiting a commit.
     pub shroud_delayed: Vec<i64>,
@@ -558,6 +561,7 @@ impl GameCore {
             sightings: vec![BTreeMap::new(); crate::core_sight::RECORD_SIDES],
             seen_types: vec![BTreeSet::new(); crate::core_sight::RECORD_SIDES],
             sightings_gone: vec![BTreeSet::new(); crate::core_sight::RECORD_SIDES],
+            scenario_unit_ids: BTreeSet::new(),
             shroud_delayed: Vec::new(),
             pending_vision: Vec::new(),
             plan_unit_advance: false,

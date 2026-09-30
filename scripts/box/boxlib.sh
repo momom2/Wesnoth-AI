@@ -167,6 +167,7 @@ box_init() {                     # the entry's bring-up; after it, every exit fi
     [ -z "$problem" ] || box_finish "BAD_CONFIG: $problem" 2
     box_deadman_start
     [ -n "$HF_TOKEN" ] || box_finish "NO_HF_TOKEN ($WORKDIR/.hf_token)" 1
+    box_refuse_other_stage
     # The previous entry's end markers go, locally (above) and on HF, so the
     # laptop cannot mistake them for this entry's; its accumulating records
     # come back when this machine lacks them.
@@ -267,15 +268,35 @@ box_deadman_main() {             # (the switch's process) charge running time un
     box_log deadman.log "firing: $BOX_MAX_H h have passed since this stage's first entry"
     box_finish "DEADMAN: $BOX_MAX_H h since this stage's first entry, whatever it was doing" 1
 }
-box_bind_run_stage() {           # the run (HF_DIR's records) belongs to the stage that began it
-    box_restore RUN_STAGE || box_finish "RESTORE_FAILED (restore.log)" 1
-    if [ -f "$BOX_OUT/RUN_STAGE" ] && ! box_marked_this_stage "$BOX_OUT/RUN_STAGE" \
-            && [ "${RESUME_OTHER_STAGE:-0}" != 1 ]; then
-        box_finish "RUN_OF_ANOTHER_STAGE: this run began under $(head -n 1 "$BOX_OUT/RUN_STAGE"); \
-RESUME_OTHER_STAGE=1 continues it with this stage, a new HF_DIR starts another" 1
-    fi
+box_bind_run_stage() {           # the run (HF_DIR's records) belongs to the stage that began it (box_init refused another's)
     box_marked_this_stage "$BOX_OUT/RUN_STAGE" || box_mark "$BOX_OUT/RUN_STAGE" \
         || box_finish "RUN_STAGE_UNWRITABLE ($BOX_OUT)" 1
+}
+box_refuse_other_stage() {       # refuse, before this entry touches HF, a run another stage began or one whose stage cannot be read
+    box_restore RUN_STAGE \
+        || box_refuse_entry "HF_UNREACHABLE at the entry: the stage that began this run cannot be read (restore.log)"
+    if [ -f "$BOX_OUT/RUN_STAGE" ] && ! box_marked_this_stage "$BOX_OUT/RUN_STAGE" \
+            && [ "${RESUME_OTHER_STAGE:-0}" != 1 ]; then
+        box_refuse_entry "RUN_OF_ANOTHER_STAGE: this run began under $(head -n 1 "$BOX_OUT/RUN_STAGE"); \
+RESUME_OTHER_STAGE=1 continues it with this stage, a new HF_DIR starts another"
+    fi
+}
+box_refuse_entry() {             # box_refuse_entry REASON: stop the instance, sending nothing: the run's records on HF stay as they are
+    BOX_FINISHED=1
+    trap '' TERM INT HUP
+    box_kill_tree "$BOX_DEADMAN_PID"
+    printf '%s %s stage=%s\n' "$(box_stamp)" "$1" "${STAGE:-none}" >> "$BOX_OUT/REFUSED"
+    echo "box_refuse_entry: $1 (in REFUSED on this disk; nothing goes to HF)"
+    box_log stop.log "stopping the instance: the entry was refused"
+    until timeout -k 1m 45m python "$BOX_LIB/box_stop.py" --outcome "$BOX_OUT/stop.jsonl" \
+            --max-attempts "$BOX_STOP_ATTEMPTS" --interval "$BOX_STOP_INTERVAL_S" >> "$BOX_OUT/stop.log" 2>&1; do
+        box_log stop.log "the stop was refused; trying again in $BOX_STOP_RETRY_S s"
+        sleep "$BOX_STOP_RETRY_S"
+    done
+    exit 1
+}
+box_gpu_ok() {                   # the GPU answers a small computation within two minutes (a bounded step, gpu.log)
+    box_bounded "gpu check" 2 gpu.log python -c "import torch; torch.ones(1, device='cuda').sum().item()"
 }
 
 # ---- records to HF ---------------------------------------------------------
@@ -304,6 +325,29 @@ box_upload() {                   # box_upload [--final]: one upload round; one r
         timeout -k 1m "$(( budget_s + 120 ))s" python "$BOX_LIB/box_upload.py" --out "$BOX_OUT" \
             --hf-dir "$HF_DIR" --spec "$BOX_OUT/tmp/upload_spec.tsv" --budget-s "$budget_s" \
             ${args[@]+"${args[@]}"} >> "$BOX_OUT/upload.log" 2>&1
+    ) 9> "$BOX_OUT/tmp/upload.lock" 8>&-
+}
+box_mark_landed() {              # box_mark_landed NAME DIR: DIR, restored from HF's NAME, is what HF holds (under the upload lock)
+    local wait_s
+    wait_s=$(box_seconds "$BOX_UPLOAD_BUDGET_MIN" 60) || return 1
+    (
+        if command -v flock >/dev/null 2>&1 && ! flock -w "$wait_s" 9; then
+            exit 1
+        fi
+        timeout -k 30s 2m python "$BOX_LIB/box_upload.py" --out "$BOX_OUT" --hf-dir "$HF_DIR" \
+            --landed "$1" "$2" >> "$BOX_OUT/restore.log" 2>&1
+    ) 9> "$BOX_OUT/tmp/upload.lock" 8>&-
+}
+box_clear() {                    # box_clear NAME...: delete each NAME from HF_DIR under the upload lock (upload.log)
+    local wait_s
+    wait_s=$(box_seconds "$BOX_UPLOAD_BUDGET_MIN" 60) || return 1
+    (
+        if command -v flock >/dev/null 2>&1 && ! flock -w "$wait_s" 9; then
+            box_log upload.log "another round held the upload lock for $BOX_UPLOAD_BUDGET_MIN min: $* not cleared"
+            exit 1
+        fi
+        timeout -k 30s 10m python "$BOX_LIB/box_upload.py" --out "$BOX_OUT" --hf-dir "$HF_DIR" \
+            --clear "$@" >> "$BOX_OUT/upload.log" 2>&1
     ) 9> "$BOX_OUT/tmp/upload.lock" 8>&-
 }
 box_upload_async() {             # a round in the background (after a milestone); box_finish ends it
@@ -335,7 +379,9 @@ box_bounded() {                  # box_bounded [--stall FILE MIN] [--until FILE 
     # appears in what FILE gains from now on. Sets BOX_RC (124 for a cut)
     # and BOX_WHY (ok, cut, stalled, until, failed), writes a line to
     # walls.txt and returns BOX_RC. The step runs in the background and is
-    # waited for, so a signal reaches the script's traps at once.
+    # waited for, so a signal reaches the script's traps at once. A step
+    # that outlives its KILL finishes the entry: the machine is unfit for
+    # the next one (a process stuck in the GPU driver).
     local stall_file="" stall_min=0 until_file="" until_text=""
     while [ "$#" -gt 0 ]; do
         case $1 in
@@ -379,6 +425,8 @@ box_bounded() {                  # box_bounded [--stall FILE MIN] [--until FILE 
     fi
     printf '%s %s rc=%s %s %s s\n' "$(box_stamp)" "$name" "$BOX_RC" "$BOX_WHY" "$(( $(box_now) - t0 ))" \
         >> "$BOX_OUT/walls.txt"
+    [ "$BOX_WHY" != unkillable ] \
+        || box_finish "STEP_UNKILLABLE: $name outlived its KILL (watchdog.log, $log)" 1
     return "$BOX_RC"
 }
 box_watch_step() {               # (background) end step PID when STALL_FILE stops growing or UNTIL_TEXT appears past byte FROM
@@ -421,7 +469,7 @@ box_abandon_if_alive() {         # box_abandon_if_alive PID VERDICT_FILE SECONDS
     done
     kill -0 "$1" 2>/dev/null || return 0
     # Its process did not end on KILL (a process in the GPU driver after a
-    # device fault waits there uninterruptibly): the script goes on without it.
+    # device fault waits there uninterruptibly): the script ends without it.
     printf 'unkillable\n' > "$2"
     box_log watchdog.log "the step outlived its KILL by $3 s: abandoning it"
     kill -KILL "$1" 2>/dev/null
@@ -500,9 +548,15 @@ box_workers() {
     local root=${BOX_CGROUP_ROOT:-/sys/fs/cgroup} cores kb='' limit='' used='' head n
     cores=$(box_cores)
     kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null)
-    { read -r limit < "$root/memory.max" && read -r used < "$root/memory.current"; } 2>/dev/null \
-        || { read -r limit < "$root/memory/memory.limit_in_bytes" \
-             && read -r used < "$root/memory/memory.usage_in_bytes"; } 2>/dev/null
+    # What the group's processes hold (v2 `anon`, v1 `total_rss`), not its
+    # usage, which counts page cache a new process can reclaim.
+    if { read -r limit < "$root/memory.max"; } 2>/dev/null; then
+        used=$(awk '$1 == "anon" {print $2}' "$root/memory.stat" 2>/dev/null)
+        [[ $used =~ ^[0-9]+$ ]] || { read -r used < "$root/memory.current"; } 2>/dev/null
+    elif { read -r limit < "$root/memory/memory.limit_in_bytes"; } 2>/dev/null; then
+        used=$(awk '$1 == "total_rss" {print $2}' "$root/memory/memory.stat" 2>/dev/null)
+        [[ $used =~ ^[0-9]+$ ]] || { read -r used < "$root/memory/memory.usage_in_bytes"; } 2>/dev/null
+    fi
     limit=${limit%$'\r'} used=${used%$'\r'}
     # "max", or v1's unlimited (a value near 2^63), is no limit.
     if [[ $limit =~ ^[0-9]+$ && $used =~ ^[0-9]+$ ]] && (( ${#limit} < 16 )); then
@@ -510,7 +564,8 @@ box_workers() {
         if ! [[ $kb =~ ^[0-9]+$ ]] || (( head < kb )); then kb=$head; fi
     fi
     [[ $kb =~ ^-?[0-9]+$ ]] || { echo "$cores"; return; }
-    n=$(awk -v k="$kb" -v g="$BOX_WORKER_GB" 'BEGIN { n = int(k / (g * 1048576)); print (n < 1 ? 1 : n) }')
+    # One share stays with the step's parent process, which imports torch too.
+    n=$(awk -v k="$kb" -v g="$BOX_WORKER_GB" 'BEGIN { n = int(k / (g * 1048576)) - 1; print (n < 1 ? 1 : n) }')
     if (( n < cores )); then echo "$n"; else echo "$cores"; fi
 }
 # The cores this container may use: the cgroup CPU quota (v2 cpu.max, else

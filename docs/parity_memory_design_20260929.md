@@ -98,7 +98,10 @@ of the era fields is not informative: Hornshark Island gives each side
 units such as Young Ogres, Sergeants and Ruffians, which would otherwise
 exclude every faction. A player who knows the map reads the faction from
 those placements; the posterior does not, and the network sees the
-placed units as tokens. With the faction chosen openly the vector is
+placed units as tokens. The units a scenario places for the players are
+not seen types at all, nor are the types they advance to: Hornshark
+Island gives the Loyalists Woodsmen, whose Poacher line only the Knalgan
+Alliance recruits. With the faction chosen openly the vector is
 one-hot, which is `obs8`'s input; in eval the harness assigns factions
 openly. The pre-encoding manifest counts two errors: a seen set that no
 candidate can field (the prior stays in place), and a posterior that
@@ -109,9 +112,10 @@ enemy unit that crosses a hex the player can see, including units that end
 their move in fog. The core keeps, per side, the enemy units that side saw
 since its last end_turn: after every command, the visible enemy units;
 during a move, each hex of the path the side can see, the unit's hiding
-rules applied, the hex it was seen entering when it walked out of view,
-and in a fight the side's unit defended, what it saw before its fog was
-recomputed. At the side's decisions, each of these units that it cannot
+rules applied, the hex it was seen entering when it walked out of view
+(the hex it left, for a teleport), and in a fight the side's unit
+defended, what it saw before its fog was recomputed, which comes before
+either unit advances. At the side's decisions, each of these units that it cannot
 see now becomes a sighting token at the last hex it was seen, with its type,
 hit points and maximum hit points. A unit that leaves the board where the
 side does not see its hex (a neutral side can kill it in the side's fog)
@@ -120,13 +124,14 @@ there. The record is cleared at the side's end_turn, so it never holds more
 than one enemy turn; anything older is the memory's to keep. The
 certification compares each side's record after every command with
 `tools/sighting_oracle.py`, which follows the Python applier and applies
-the same reading of the engine (no engine run checks these rules); the
-parity encoding's own columns, the relevant set's version 2, the sighting
-stream's assembly and the faction posterior have no second builder, and
-tests cover them. Sighting tokens are a new stream with their own token
+the same reading of the engine (no engine run checks these rules), and at
+every encoded decision the sighting stream with the one the oracle's
+record gives; the parity encoding's other columns, the relevant set's
+version 2 and the faction posterior have no second builder, and tests
+cover them. Sighting tokens are a new stream with their own token
 kind and side code 3; they are never an actor or a target. The same
-sightings feed the faction posterior's seen set, which is kept per side for
-the whole game.
+sightings, the units the scenario placed aside, feed the faction
+posterior's seen set, which is kept per side for the whole game.
 
 **The relevant set, version 2.** Today's set plus the six neighbours of
 every own unit (the hexes an enemy must stand on to attack it; 30,648 of

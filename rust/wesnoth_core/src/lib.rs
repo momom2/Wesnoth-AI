@@ -637,6 +637,10 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 27: a watcher records a mover that leaves its view on the hex it was
     // seen entering; a side records what a fight its unit defended showed
     // it before the fight refogs it.
-    m.add("__phase__", 27)?;
+    // 28: a fight refogs the defender's side before either unit advances;
+    // an aborted attack notes what its commit shows; the units the scenario
+    // placed are not seen types (set_scenario_unit_ids, scenario_unit_ids);
+    // a mover that teleports out of view was last seen where it left.
+    m.add("__phase__", 28)?;
     Ok(())
 }

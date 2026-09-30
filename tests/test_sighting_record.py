@@ -43,6 +43,19 @@ def _path(start, goal, avoid):
     return route[::-1]
 
 
+def _two_hexes_into_fog(leg1, seen, keys, zoc):
+    """The shortest continuation of `leg1` (which ends on a hex the watcher
+    sees) whose last two hexes are fogged: the hex after the last seen one
+    is then not the route's end, where a leak of the landing hex shows."""
+    avoid = zoc | set(leg1[:-1])
+    routes = []
+    for end in (p for p in keys if p not in seen and p not in avoid):
+        route = leg1 + _path(leg1[-1], end, avoid)[1:]
+        if max(k for k, p in enumerate(route) if p in seen) + 2 < len(route):
+            routes.append(route)
+    return min(routes, key=lambda r: (len(r), r[-1]))
+
+
 def test_a_unit_crossing_the_sides_view_is_remembered_where_last_seen():
     from helpers.parity_games import core_of, parity_raw, record, vocab_of
     from tools.abilities import hex_neighbors
@@ -60,11 +73,10 @@ def test_a_unit_crossing_the_sides_view_is_remembered_where_last_seen():
     start = (17, 0)
     inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
     leg1 = _path(start, inside, zoc)
-    fog = [p for p in keys if p not in seen and p not in zoc and p not in leg1]
-    end = min(fog, key=lambda p: len(_path(inside, p, zoc | set(leg1[:-1]))))
-    route = leg1 + _path(inside, end, zoc | set(leg1[:-1]))[1:]
+    route = _two_hexes_into_fog(leg1, seen, keys, zoc)
     assert len(route) - 1 <= 8 and route[-1] not in seen
     last_seen = [p for p in route if p in seen][-1]
+    assert route[route.index(last_seen) + 1] != route[-1], "the route goes two hexes into fog"
 
     cs.apply_command(["move", [p[0] for p in route], [p[1] for p in route], 2])
     # The step out of view is animated from the last seen hex toward the
@@ -130,9 +142,8 @@ def _cavalryman_watched_into_fog():
     zoc = {n for u in ((1, 3), (7, 3)) for n in hex_neighbors(*u)} | {(1, 3), (7, 3)}
     inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
     leg1 = _path((17, 0), inside, zoc)
-    fog = [p for p in keys if p not in seen and p not in zoc and p not in leg1]
-    end = min(fog, key=lambda p: len(_path(inside, p, zoc | set(leg1[:-1]))))
-    route = leg1 + _path(inside, end, zoc | set(leg1[:-1]))[1:]
+    route = _two_hexes_into_fog(leg1, seen, keys, zoc)
+    end = route[-1]
     cs.apply_command(["move", [p[0] for p in route], [p[1] for p in route], 2])
     last_seen = [p for p in route if p in seen][-1]
     return cs, route[route.index(last_seen) + 1], end
@@ -195,9 +206,7 @@ def test_the_certification_compares_the_sighting_records(tmp_path, monkeypatch):
     zoc = {n for u in ((1, 3), (7, 3)) for n in hex_neighbors(*u)} | {(1, 3), (7, 3)}
     inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
     leg1 = _path((17, 0), inside, zoc)
-    fog = [p for p in keys if p not in seen and p not in zoc and p not in leg1]
-    end = min(fog, key=lambda p: len(_path(inside, p, zoc | set(leg1[:-1]))))
-    route = leg1 + _path(inside, end, zoc | set(leg1[:-1]))[1:]
+    route = _two_hexes_into_fog(leg1, seen, keys, zoc)
     data["commands"] = [["init_side", 1], ["end_turn"], ["init_side", 2],
                         ["move", [p[0] for p in route], [p[1] for p in route], 2],
                         ["end_turn"], ["init_side", 1]]
@@ -232,3 +241,104 @@ def test_a_fight_the_side_defended_is_recorded_before_its_refog():
     assert cavalryman not in set(cs.core.visible_ids(1)), "side 1 no longer sees it"
     hp = [r for r in cs.core.sightings_export(1) if r[0] == cavalryman][0][2]
     assert hp < full, "the record carries the hit points the fight left it"
+
+
+def _round2_note_fight(self, gs):
+    """Round 2's oracle: the fight read from the state after the command,
+    the refog decided by whether a unit holds the defender's id."""
+    from wesnoth_ai.visibility import is_scenery_unit, units_visible_to_python
+    fight = gs.global_info._last_fight
+    side = fight["defender_side"]
+    if any(u.id == fight["defender"] for u in gs.map.units):
+        return
+    for u in units_visible_to_python(gs, side, vis_set=self._seen_before.get(side)):
+        if u.side != side and not is_scenery_unit(u):
+            self._record(side, u, u.position.x, u.position.y)
+
+
+@pytest.mark.parametrize("units, attack, attacker_side, attacker_after", [
+    ([("Lieutenant", 1, 1, 3, True), ("Bowman", 1, 15, 3, False, {"hp": 1}),
+      ("Cavalryman", 2, 16, 3, False, {"max_exp": 1}), ("Lieutenant", 2, 18, 3, True)],
+     [16, 3, 15, 3], 2, "Dragoon"),
+    ([("Lieutenant", 1, 1, 3, True), ("Walking Corpse", 1, 15, 3, False), ("Lieutenant", 2, 5, 0, True),
+      ("Spearman", 2, 16, 3, False, {"hp": 1})],
+     [15, 3, 16, 3], 1, "Walking Corpse"),
+], ids=["the attacker advances", "the corpse takes the defender's id"])
+def test_a_defended_fight_is_certified_against_the_oracle(units, attack, attacker_side, attacker_after,
+                                                          tmp_path, monkeypatch):
+    """A fight kills the defending side's only unit in view of the attacker,
+    and its fog closes over the attacker. The engine refogs the side when
+    the fight ends and advances the attacker only after: the side's record
+    holds the attacker as the fight left it. diff_core --sightings is clean,
+    and diverges under round 2's oracle, which read the fight from the state
+    after the command (the advanced attacker; the plague corpse under the
+    dead defender's id)."""
+    import gzip
+    import json
+    from helpers.parity_games import core_of, record
+    from tools import sighting_oracle
+    from tools.diff_core import diff_core
+    data = record(units, fog=True, width=WIDTH, height=HEIGHT)
+    turns = [["init_side", 1]] if attacker_side == 1 else [["init_side", 1], ["end_turn"], ["init_side", 2]]
+    data["commands"] = [*turns, ["attack", *attack, 0, 0, "00000000"], ["end_turn"]]
+    cs = core_of(data)
+    for command in data["commands"][:-1]:
+        cs.apply_command(command)
+    attacker, side = cs.core.unit_id_at(attack[0], attack[1], 0), 3 - attacker_side
+    assert cs.core.unit_export(attacker)["name"] == attacker_after
+    assert attacker not in set(cs.core.visible_ids(side)), "the side's fog closed over the attacker"
+    row = [r for r in cs.core.sightings_export(side) if r[0] == attacker][0]
+    assert row[1] == units[1 if attacker_side == 1 else 2][0], "recorded before it advanced"
+    path = tmp_path / "g.json.gz"
+    path.write_bytes(gzip.compress(json.dumps(data).encode()))
+    assert diff_core(path, sightings=True, encode_every=1) == []
+    monkeypatch.setattr(sighting_oracle.SightingOracle, "_note_fight", _round2_note_fight)
+    out = diff_core(path, sightings=True)
+    assert out and "sightings" in out[0]
+
+
+def test_the_units_the_scenario_placed_are_not_seen_types():
+    """Hornshark Island gives the Loyalists Woodsmen, whose Poacher line only
+    the Knalgan Alliance recruits: neither a unit the scenario placed nor
+    what it advances to is a seen type. A leader is."""
+    from helpers.parity_games import record, state_of
+    from tools.replay_dataset import _setup_scenario_events
+    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 14, 3, False, {"hp": 1}),
+                   ("Mage", 1, 12, 3, False), ("Woodsman", 2, 15, 3, False, {"max_exp": 1}),
+                   ("Lieutenant", 2, 18, 3, True)], fog=True, width=WIDTH, height=HEIGHT)
+    gs = state_of(data)
+    _setup_scenario_events(gs, "")
+    cs = gc.CoreState.from_state(gs)
+    woodsman = cs.core.unit_id_at(15, 3, 0)
+    assert set(cs.core.scenario_unit_ids()) == {cs.core.unit_id_at(x, 3, 0) for x in (12, 14, 15)}
+    for command in (["init_side", 1], ["end_turn"], ["init_side", 2], ["attack", 15, 3, 14, 3, 0, 0, "00000000"]):
+        cs.apply_command(command)
+    advanced = cs.core.unit_export(woodsman)["name"]
+    assert advanced != "Woodsman" and woodsman in set(cs.core.visible_ids(1))
+    assert cs.core.seen_types(1, 2) == ["Lieutenant"]
+
+
+def test_a_mover_that_teleports_out_of_view_was_last_seen_where_it_left(tmp_path):
+    """The display plays a teleport's arrival only where the mover is seen:
+    side 1 watched the Silver Mage leave its village for a fogged one, and
+    last saw it on the village it left."""
+    import gzip
+    import json
+    from helpers.parity_games import core_of, record
+    from tools.diff_core import diff_core
+    villages = [(9, 3), (16, 0)]
+    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 7, 3, False),
+                   ("Lieutenant", 2, 18, 3, True), ("Silver Mage", 2, 9, 3, False)],
+                  fog=True, width=WIDTH, height=HEIGHT, special={v: "Gg^Vh" for v in villages},
+                  villages={2: villages})
+    data["commands"] = [["init_side", 1], ["end_turn"], ["init_side", 2], ["move", [9, 16], [3, 0], 2],
+                        ["end_turn"], ["init_side", 1]]
+    cs = core_of(data)
+    for command in data["commands"][:4]:
+        cs.apply_command(command)
+    mage = cs.core.unit_id_at(16, 0, 0)
+    assert mage is not None and mage not in set(cs.core.visible_ids(1)), "it landed in side 1's fog"
+    assert [(r[4], r[5]) for r in cs.core.sightings_export(1) if r[0] == mage] == [(9, 3)]
+    path = tmp_path / "g.json.gz"
+    path.write_bytes(gzip.compress(json.dumps(data).encode()))
+    assert diff_core(path, sightings=True, encode_every=1) == []

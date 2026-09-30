@@ -38,13 +38,14 @@ class LocalEntryNotFoundError(EntryNotFoundError):
 class StubHf:
     """Stands in for HfApi. `fail` maps a name to how many attempts fail
     before one lands (None: every one); `hang` names files whose upload
-    never answers in time."""
+    never answers in time; the first `flaky_reads` existence checks fail."""
 
-    def __init__(self, fail=None, hang=(), hang_s=3.0, on_hf=None, raise_on_read=None):
+    def __init__(self, fail=None, hang=(), hang_s=3.0, on_hf=None, raise_on_read=None, flaky_reads=0):
         self.fail = dict(fail or {})
         self.hang, self.hang_s = set(hang), hang_s
         self.on_hf = dict(on_hf or {})          # path in repo -> bytes
         self.raise_on_read = raise_on_read
+        self.flaky_reads = flaky_reads
         self.sent: list[tuple[str, bytes]] = []
         self.deleted: list[str] = []
 
@@ -68,6 +69,9 @@ class StubHf:
     def file_exists(self, repo_id, filename):
         if self.raise_on_read:
             raise self.raise_on_read
+        if self.flaky_reads > 0:
+            self.flaky_reads -= 1
+            raise ConnectionError(f"HEAD {filename} with {TOKEN}")
         return filename in self.on_hf
 
     def delete_file(self, path_in_repo, repo_id):
@@ -234,6 +238,10 @@ def test_a_restored_directory_recorded_as_landed_is_not_sent_again(tmp_path, mon
     rnd = box_upload.Round(out, HF_DIR, api, spec=box_upload.read_spec(str(spec)), timing=FAST)
     rnd.run()
     assert "games_m.tar.gz" not in api.names()
+    time.sleep(0.01)
+    write(games / "game_2.json", b"{}")
+    box_upload.Round(out, HF_DIR, api, spec=box_upload.read_spec(str(spec)), timing=FAST).run()
+    assert "games_m.tar.gz" in api.names(), "a game added since goes up"
 
 
 def test_clear_deletes_the_previous_entrys_markers_and_forgets_them(run):
@@ -245,10 +253,14 @@ def test_clear_deletes_the_previous_entrys_markers_and_forgets_them(run):
     assert sorted(api.deleted) == [f"{HF_DIR}/ALL_DONE", f"{HF_DIR}/FAILED"]
     assert f"{HF_DIR}/train.log" in api.on_hf
     assert "DONE" in box_upload.load_state(run.out, HF_DIR)
-    unreachable = box_upload.Round(run.out, HF_DIR, StubHf(raise_on_read=ConnectionError(TOKEN)))
+    unreachable = box_upload.Round(run.out, HF_DIR, StubHf(raise_on_read=ConnectionError(TOKEN)), timing=FAST)
     assert unreachable.clear(["ALL_DONE"]) is False
-    assert "ALL_DONE not cleared from HF: ConnectionError" in log_of(run.out)
-    assert TOKEN not in log_of(run.out)
+    log = log_of(run.out)
+    assert f"ALL_DONE clear attempt {FAST.attempts} failed: ConnectionError" in log
+    assert "ALL_DONE not cleared from HF" in log and TOKEN not in log
+    flaky = StubHf(on_hf={f"{HF_DIR}/ALL_DONE": b"old"}, flaky_reads=FAST.attempts - 1)
+    assert box_upload.Round(run.out, HF_DIR, flaky, timing=FAST).clear(["ALL_DONE"]) is True
+    assert flaky.deleted == [f"{HF_DIR}/ALL_DONE"], "a clear retries as a restore does"
 
 
 def test_restore_fetches_what_is_absent_and_refuses_when_hf_cannot_answer(run):

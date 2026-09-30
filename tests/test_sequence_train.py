@@ -169,6 +169,7 @@ def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path, pass_i
         for name, tensor in a[key].items():
             assert torch.equal(tensor, b[key][name]), name
     probe = [json.loads(line) for line in uncut.with_suffix(".probe.jsonl").read_text().splitlines()]
+    assert probe[-1]["final"] and probe[-1]["positions"] == probe[-1]["total_positions"] == 12
     assert probe[-1]["k0"]["n_positions"] == probe[-1]["k8"]["n_positions"] > 0
     assert probe[-1]["belief_carried"]["n_games"] == probe[-1]["belief_paired"]["n_games"] == 1
     assert "1-5" in probe[-1]["k8"]["value_auc_by_turn"]

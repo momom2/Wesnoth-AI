@@ -304,8 +304,10 @@ impl GameCore {
         };
         if !has_seed {
             // Aborted before its first draw; the engine's handler has already
-            // cleared the stack (synced_commands.cpp:228).
+            // cleared the stack (synced_commands.cpp:228), and the players see
+            // what that shows.
             self.clear_undo_stack();
+            self.note_sightings();
             return Ok(None);
         }
         let out = self.attack(py, a, d, a_weapon, d_weapon, &mut Mt19937::new(seed, 0))?;
@@ -403,36 +405,31 @@ impl GameCore {
         let (att_pos, dfd_pos) = ((self.units[a].x, self.units[a].y), (self.units[d].x, self.units[d].y));
         if !a_alive {
             self.remove_unit(&att_id)?;
+            if plague_reverse {
+                self.spawn_corpse(att_pos.0, att_pos.1, dfd_side, &att_name)?;
+            }
         }
         if !d_alive {
             self.remove_unit(&dfd_id)?;
-        }
-        if a_alive {
-            if att_advances {
-                let i = self.unit_pos(&att_id).expect("the attacker lives");
-                self.advance_unit(i);
-            }
-        } else if plague_reverse {
-            self.spawn_corpse(att_pos.0, att_pos.1, dfd_side, &att_name)?;
-        }
-        if d_alive {
-            // attack.cpp:1150-1185 and 1456-1458: the defender's side
-            // refogs when the defender was slowed or petrified, before
-            // its advancement.
-            if dfd_refog {
-                self.note_sightings_of(dfd_side);   // the fight was shown to it before the refog
-                self.refog(dfd_side);
-            }
-            if dfd_advances {
-                let i = self.unit_pos(&dfd_id).expect("the defender lives");
-                self.advance_unit(i);
-            }
-        } else {
             if plague_forward {
                 self.spawn_corpse(dfd_pos.0, dfd_pos.1, att_side, &dfd_name)?;
             }
+        }
+        // attack.cpp:1150-1185 and 1456-1458: the fight ends by refogging
+        // the defender's side when the defender died, was slowed or was
+        // petrified in it; the attacker, then the defender, advance only
+        // after (attack_unit_and_advance, attack.cpp:1556-1567).
+        if dfd_refog {
             self.note_sightings_of(dfd_side);       // the fight was shown to it before the refog
             self.refog(dfd_side);
+        }
+        if a_alive && att_advances {
+            let i = self.unit_pos(&att_id).expect("the attacker lives");
+            self.advance_unit(i);
+        }
+        if d_alive && dfd_advances {
+            let i = self.unit_pos(&dfd_id).expect("the defender lives");
+            self.advance_unit(i);
         }
         Ok(r)
     }

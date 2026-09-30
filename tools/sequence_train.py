@@ -401,7 +401,7 @@ class Trainer:
             f.write(json.dumps(row) + "\n")
 
     # ---- probe, checkpoints, the pass -----------------------------------
-    def run_probe(self) -> Dict:
+    def run_probe(self, final: bool = False) -> Dict:
         if self.rates is None:
             order = self.schedule.order[:BASELINE_FIT_SIDES]
             self.rates = fit_last_seen_rates(read_record(record_path(self.args.sequences, g.file)).sides[g.side]
@@ -413,6 +413,7 @@ class Trainer:
                        self.args.probe_ks, self.device, self.type_loss_weights, rates=self.rates,
                        autocast_dtype=self.autocast)
         result.update(positions=self.state["positions"], steps=self.state["steps"],
+                      total_positions=self.schedule.total_positions, final=final,
                       seconds=round(time.time() - t0, 1))
         with open(self.args.out.with_suffix(".probe.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(result) + "\n")
@@ -469,7 +470,7 @@ class Trainer:
             log.error("PASS_INCOMPLETE: %d positions trained of the %d pre-encoded", self.state["positions"],
                       self.schedule.total_positions)
             return EXIT_PASS_INCOMPLETE
-        self.run_probe()
+        self.run_probe(final=True)
         log.info("SEQUENCE_TRAIN_DONE %d positions, %d steps in %.0f s (%d non-finite steps skipped, "
                  "%d memories reset)", self.state["positions"], self.state["steps"], time.time() - t0,
                  self.state.get("nonfinite_steps", 0), self.state.get("memory_resets", 0))

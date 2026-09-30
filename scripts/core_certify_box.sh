@@ -59,6 +59,7 @@ python -c "import torch" 2>/dev/null || timeout -k 30s 15m python -m pip install
     || box_finish "TORCH_INSTALL_FAILED (pip.log)" 1
 box_facts > "$OUT/box.txt.tmp" 2>&1
 mv -f "$OUT/box.txt.tmp" "$OUT/box.txt"
+box_upload_async
 box_monitor_start
 
 # ---- the corpus: the raw replays, then the build (a marker after each)

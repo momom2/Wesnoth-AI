@@ -124,6 +124,8 @@ def test_a_blocked_move_commits_the_pending_vision():
 # The record of the blocked move above: the route cut at the stop, the
 # hex after it kept (replay_extract), where the corpse blocked it.
 CUT_BEFORE_CORPSE = ["move", [0, 0, 1], [0, 1, 1], 1, {"clicked": [3, 1], "stopped_early": True, "next": [2, 1]}]
+# The same route with the checkup saying it ran out of this turn's moves.
+RAN_OUT = [*CUT_BEFORE_CORPSE[:4], {**CUT_BEFORE_CORPSE[4], "stopped_early": False}]
 
 
 def test_a_route_cut_before_an_enemy_is_a_blocked_move():
@@ -132,7 +134,7 @@ def test_a_route_cut_before_an_enemy_is_a_blocked_move():
     assert "u5" in (getattr(gs.global_info, "_uncovered_units", None) or set()), "the blocker is revealed"
     ended = _play([["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE[:4]])
     assert not _sees(ended, FAR_ENEMY), "a route that simply ended commits nothing"
-    ran_out = _play([["auto_shroud", 0], RIDE, [*CUT_BEFORE_CORPSE[:4], {**CUT_BEFORE_CORPSE[4], "stopped_early": False}]])
+    ran_out = _play([["auto_shroud", 0], RIDE, RAN_OUT])
     assert not _sees(ran_out, FAR_ENEMY), "a route that ran out of this turn's moves was not blocked"
 
 
@@ -218,6 +220,7 @@ SEQUENCES = {
                      ["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1], RIDE_BACK, ["update_shroud"]],
     "blocked": [["auto_shroud", 0], RIDE, ["move", [0, 0, 1, 2, 3], [0, 1, 1, 1, 1], 1]],
     "blocked_beyond": [["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE],
+    "ran_out": [["auto_shroud", 0], RIDE, RAN_OUT],
     "recruits": [["auto_shroud", 0], ["recruit", "Skeleton", 9, 1, ""], RIDE,
                  ["recruit", "Spearman", 2, 1, "0badc0de"]],
     "switch": [["auto_shroud", 0], RIDE, ["auto_shroud", 1], ["move", [0, 1], [0, 0], 1]],

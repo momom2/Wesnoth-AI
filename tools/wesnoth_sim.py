@@ -62,7 +62,7 @@ import gzip
 import json
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -72,7 +72,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai import delayed_shroud
-from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, SideInfo, state_digest
+from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, state_digest
 from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
@@ -122,17 +122,8 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     Touches every side's gold + base_income, plus the global village
     economy and experience modifier. Doesn't touch unit positions,
     factions, recruit lists, or terrain -- only the economy/xp knobs."""
-    gs.sides = [
-        SideInfo(
-            player=s.player,
-            recruits=s.recruits,
-            current_gold=defaults.starting_gold,
-            base_income=defaults.base_income,
-            nb_villages_controlled=s.nb_villages_controlled,
-            faction=s.faction,
-        )
-        for s in gs.sides
-    ]
+    gs.sides = [replace(s, current_gold=defaults.starting_gold, base_income=defaults.base_income)
+                for s in gs.sides]
     gs.global_info.village_gold = defaults.village_gold
     gs.global_info.village_upkeep = defaults.village_support
     setattr(gs.global_info, "_experience_modifier",

@@ -27,9 +27,11 @@ and with advancement branches, are computed by `tools/combat_outcomes.py`
 on the Python state and by the core, and must be equal to the last bit.
 With `--sightings`, after every command the core notes sightings after,
 each player side's sighting record, seen types and gone entries are
-compared with `tools/sighting_oracle.py`, which follows the Python state.
-The parity encoding's own columns have no Python builder: they are
-covered by tests/test_parity_observation.py and tests/test_sighting_record.py.
+compared with `tools/sighting_oracle.py`, which follows the Python state;
+and at every encoded decision, the parity encoding's sighting stream with
+the stream the oracle's record gives. The parity encoding's other columns
+have no Python builder: they are covered by
+tests/test_parity_observation.py and tests/test_sighting_record.py.
 
 Prints one summary line: `diff_core: N replays, M clean, K with
 divergences; commands rust=A python=B`, then the divergences.
@@ -109,6 +111,36 @@ def encoding_divergences(gs, cs) -> List[str]:
     return out
 
 
+def stream_divergences(gs, cs, oracle) -> List[str]:
+    """The core's parity sighting stream for the side to act against the one
+    the oracle's record gives: its entries that are gone or whose unit the
+    side does not see (the Python visibility), sorted by (y, x, id), at the
+    recorded hex clamped to the board tensor, with the type's vocabulary row,
+    hit points over maximum and maximum over HP_NORM."""
+    from wesnoth_ai import encoder as enc
+    from wesnoth_ai.visibility import units_visible_to_python
+    types, factions = _vocab()
+    side = int(gs.global_info.current_side)
+    raw = cs.encode_raw(type_to_id=types, faction_to_id=factions, relevant_set=True,
+                        fog_hides_enemy_villages=True, terrain_multi_hot=True,
+                        observation_parity=True, relevant_set_version=2)
+    seen = {u.id for u in units_visible_to_python(gs, side)}
+    gone = oracle.gone[side]
+    rows = sorted((r for r in oracle.sightings[side].values() if r[0] in gone or r[0] not in seen),
+                  key=lambda r: (r[5], r[4], r[0]))
+    limit = enc.MAX_MAP_SIZE - 1
+    want = ([enc.type_row(r[1], types) for r in rows], [min(max(r[4], 0), limit) for r in rows],
+            [min(max(r[5], 0), limit) for r in rows])
+    got = (raw.sight_type_ids.tolist(), raw.sight_xs.tolist(), raw.sight_ys.tolist())
+    feats = raw.sight_feats.tolist()
+    same = got == want and len(feats) == len(rows) and all(
+        abs(f[0] - r[2] / max(r[3], 1)) < 1e-6 and abs(f[1] - r[3] / enc.HP_NORM) < 1e-6
+        for f, r in zip(feats, rows))
+    if same:
+        return []
+    return [f"sighting stream of side {side}: core {list(zip(*got))[:4]}, oracle {list(zip(*want))[:4]}"]
+
+
 def outcome_divergences(gs, cs, cmd: list) -> List[str]:
     """Before an attack command: the Python's and the core's defender
     weapon choice, strike tables and outcome distributions that differ."""
@@ -168,6 +200,8 @@ def diff_core(gz_path: Path, *, every: int = 1, stop_on_first: bool = True,
         if encode_every and gs.global_info.current_side in (1, 2):
             if decisions % encode_every == 0:
                 enc = encoding_divergences(gs, cs)
+                if oracle is not None:
+                    enc += stream_divergences(gs, cs, oracle)
                 if counts is not None:
                     counts[("encode", "rust")] += 1
                 if enc:
@@ -233,7 +267,8 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--outcomes", action="store_true",
                     help="compare the counter weapon and the outcome distributions before every attack")
     ap.add_argument("--sightings", action="store_true",
-                    help="compare each side's sighting record with tools/sighting_oracle.py")
+                    help="compare each side's sighting record, and at encoded decisions its sighting "
+                         "stream, with tools/sighting_oracle.py")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING),

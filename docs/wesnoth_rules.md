@@ -3468,7 +3468,10 @@ move in view is seen where it ends. A fight the player's unit defends is
 shown to the player too, and its side's fog is recomputed only after the
 last strike (the defender died, or was newly slowed or petrified): the
 player saw the attacker's hit points after the fight even when the new
-fog then hides it.
+fog then hides it. The attacker, then the defender, advance only after
+that refog, their level-up drawn only where the player sees them: a
+player whose fog closed over the attacker last saw it as it fought, not
+as the unit it became.
 
 **Source (1.18.4).** `src/units/udisplay.cpp:141` (`move_unit_between`):
 
@@ -3483,7 +3486,25 @@ skips the step's animation; otherwise the copy is placed on `a` facing
 `u.is_visible_to_team(viewing_team_ref, show_everything)`. The fight:
 `unit_attack` (`udisplay.cpp:599-733`) animates it with its damage, and
 the defender's side is refogged after the last strike
-(`src/actions/attack.cpp:1456-1458`).
+(`src/actions/attack.cpp:1456-1458`). The advancements come after
+`attack_unit`, which runs the fight and that refog
+(`attack_unit_and_advance`, `src/actions/attack.cpp:1556-1567`):
+
+```cpp
+	attack_unit(attacker, defender, attack_with, defend_with, update_display);
+
+	unit_map::const_iterator atku = resources::gameboard->units().find(attacker);
+	if(atku != resources::gameboard->units().end()) {
+		advance_unit_at(advance_unit_params(attacker));
+	}
+```
+
+and their "levelout" and "levelin" animations are the unit's own
+(`src/actions/advancement.cpp:124-150`), drawn under `drawer.cpp:200`'s
+rule. **Why non-obvious:** the command's end state holds the advanced
+unit at full hit points; a reading of the fight from it shows the player
+a type it never saw.
+
 With move animations off the mover stays hidden until it lands
 (`unit_mover::start`, `udisplay.cpp:264-270`: "If no animation then hide
 unit until end of movement"); the corpus is taken to be watched with
@@ -3491,11 +3512,22 @@ them on, the default.
 
 **Implemented by** the Rust core's sighting record (`core_sight.rs`
 `note_path_sightings`, and `note_sightings_of` before the defender's
-refog in `core_attack.rs`). `tools/sighting_oracle.py` implements the
-same reading from the Python applier, and `tools/diff_core.py
---sightings` compares the two: that checks the implementation, not the
-reading, which no engine run has checked (as for the gone entries, the
-block of a cut route, the hex time of day and the Random prior).
+refog and both advancements in `core_attack.rs`; the Python applier
+keeps the same order). `tools/sighting_oracle.py` implements the same
+reading from the Python applier (the attacker as the fight left it comes
+from the applier's `_last_fight`), and `tools/diff_core.py --sightings`
+compares the two: that checks the implementation, not the reading, which
+no engine run has checked (as for the gone entries, the block of a cut
+route, the hex time of day and the Random prior).
+
+A teleport step (to a hex that is not adjacent, `udisplay.cpp:370-377`)
+is not a slide: `teleport_unit_between` (`udisplay.cpp:74-113`) plays
+"pre_teleport" on the source when the mover is visible there and
+"post_teleport" on the destination only when it is visible there, so a
+mover that teleports out of view was last seen where it left. The
+policy's moves never teleport; replayed Silver Mages do
+(`tools/diff_replay.py` cites three such steps), rarely (none in 1,004,666
+moves of 5,673 sampled corpus games).
 
 ---
 

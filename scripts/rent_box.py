@@ -81,12 +81,26 @@ STAGING = "tier-b/staging/"
 # (read from the environment inside Python, never on the command line), as
 # box_stop.py does. The log is appended to, so an earlier entry's errors
 # stay.
+# The onstart's own stop, for a start whose file never arrived (the stop
+# helper comes with it): the instance's key, read inside Python from the
+# environment, in an Authorization header, then as the api_key query
+# parameter (box_stop.py's two forms); ten rounds, 30 s apart. Python's
+# errors go nowhere: a message could quote the request.
+_STOP_URL = "'https://console.vast.ai/api/v0/instances/' + os.environ['CONTAINER_ID'] + '/'"
+
+
+def _stop_put(url: str, auth: str) -> str:
+    return ("python -c \"import json, os, urllib.parse as p, urllib.request as u; "
+            f"u.urlopen(u.Request({url}, data=json.dumps(dict(state='stopped')).encode(), method='PUT', "
+            f"headers=dict([('Content-Type', 'application/json'){auth}])), timeout=60)\" 2>/dev/null")
+
+
 _ONSTART_STOP = (
-    "python -c \"import json, os, urllib.request as u; "
-    "u.urlopen(u.Request('https://console.vast.ai/api/v0/instances/' + os.environ['CONTAINER_ID'] + '/', "
-    "data=json.dumps(dict(state='stopped')).encode(), method='PUT', "
-    "headers={{'Authorization': 'Bearer ' + os.environ['CONTAINER_API_KEY'], "
-    "'Content-Type': 'application/json'}}), timeout=60)\" >> /workspace/onstart_stop.log 2>&1"
+    "for stop in 1 2 3 4 5 6 7 8 9 10; do "
+    + _stop_put(_STOP_URL, ", ('Authorization', 'Bearer ' + os.environ['CONTAINER_API_KEY'])") + " && break; "
+    + _stop_put(_STOP_URL + " + '?' + p.urlencode(dict(api_key=os.environ['CONTAINER_API_KEY']))", "")
+    + " && break; echo \"$(date -u +%FT%TZ) stop $stop refused in both forms\" >> /workspace/onstart_stop.log; "
+    "sleep 30; done"
 )
 ONSTART_FETCH = (
     "cd /workspace && timeout 600 python -m pip install -q huggingface_hub >/dev/null 2>&1; "
@@ -258,13 +272,15 @@ class OnstartPlan:
 class ScriptNeeds:
     """What a run script says it needs of the box and of HF: its dead-man's
     switch in hours, its box class (`# box-needs: disk_gb=N ram_gb=M
-    gpu_ram_gb=G cores=C`, gigabytes of 1,000 MB) and its raw corpus
-    (RAW_TAR's default), each overridable by --env."""
+    gpu_ram_gb=G cores=C gpu=MODEL`, gigabytes of 1,000 MB, MODEL a part of
+    the offer's GPU name with `_` for a space) and its raw corpus (RAW_TAR's
+    default), each overridable by --env."""
     box_max_h: float | None = None
     disk_gb: int | None = None
     ram_gb: int | None = None
     gpu_ram_gb: int | None = None
     cores: int | None = None
+    gpu: str | None = None
     raw_tar: str | None = None
 
 
@@ -280,6 +296,8 @@ def script_needs(text: str, env: dict) -> ScriptNeeds:
         for key, _, value in (part.partition("=") for part in line.split()):
             if key in ("disk_gb", "ram_gb", "gpu_ram_gb", "cores") and value.isdigit():
                 setattr(needs, key, int(value))
+            elif key == "gpu" and value:
+                needs.gpu = value.replace("_", " ")
     m = _RAW_TAR.search(text)
     needs.raw_tar = env.get("RAW_TAR") or (m.group(1) if m else None)
     return needs
@@ -404,13 +422,14 @@ def other_instances(v) -> int:
 
 
 def budget_problems(v, offer_id: int, hours: float | None, disk: int,
-                    needs: ScriptNeeds | None = None) -> list[str]:
+                    needs: ScriptNeeds | None = None, allow_others: bool = False) -> list[str]:
     """Why the account or the offer cannot carry the run: funds below the
     run's longest possible time x price, or a rental window shorter than
     it, where that time is MARGIN x hours or the script's dead-man's switch
-    plus FINISH_H, whichever is longer; or less memory than the script
-    needs. Without `hours` and a switch, only an account with no funds is
-    refused."""
+    plus FINISH_H, whichever is longer; other instances on the account,
+    which draw on the same funds, unless `allow_others`; a VM host, which
+    refuses ssh; or less than the script's box class. Without `hours` and a
+    switch, only an account with no funds is refused."""
     needs = needs or ScriptNeeds()
     offer = find_offer(v, offer_id, disk)
     if offer is None:
@@ -429,7 +448,7 @@ def budget_problems(v, offer_id: int, hours: float | None, disk: int,
           f"memory")
     others = other_instances(v)
     if others:
-        print(f"preflight: WARNING: {others} other instance(s) on the account draw on the same funds, "
+        print(f"preflight: {others} other instance(s) on the account draw on the same funds, "
               f"which this check does not count")
     print(f"preflight: offer {offer_id} at ${price:.3f}/h with {disk} GB; funds "
           f"${funds:.2f} (credit {user.get('credit')}, balance {user.get('balance')}) "
@@ -443,6 +462,11 @@ def budget_problems(v, offer_id: int, hours: float | None, disk: int,
     longest, why = max(spans) if spans else (0.0, "")
     need = longest * price
     problems = []
+    if others and not allow_others:
+        problems.append(f"{others} other instance(s) on the account draw on the same funds: "
+                        f"stop or destroy them, or pass --allow-other-instances")
+    if offer.get("vms_enabled"):
+        problems.append(f"offer {offer_id} is a VM host, which refuses ssh (docs/box_runbook.md)")
     if funds <= 0 or funds < need:
         cost = f"${need:.2f} ({why} x ${price:.3f}/h)" if spans else "any time"
         problems.append(f"funds ${funds:.2f} do not cover {cost}: top up first")
@@ -457,6 +481,10 @@ def budget_problems(v, offer_id: int, hours: float | None, disk: int,
         if need is not None and isinstance(have, (int, float)) and have / unit < need:
             problems.append(f"offer {offer_id} has {have / unit:.0f} {what}, under the {need} {per} "
                             f"the script needs")
+    name = str(offer.get("gpu_name") or "")
+    if needs.gpu is not None and needs.gpu.lower() not in name.lower():
+        problems.append(f"offer {offer_id} has {name or 'no listed GPU'}, not the {needs.gpu} the script "
+                        f"needs")
     return problems
 
 
@@ -483,7 +511,8 @@ def create(args) -> int:
     needs = script_needs(plan.script_text if plan else "", env)
     if plan is not None:
         problems += needs_problems(staging, needs, args.disk)
-    problems += budget_problems(v, args.offer_id, args.hours, args.disk, needs)
+    problems += budget_problems(v, args.offer_id, args.hours, args.disk, needs,
+                                allow_others=args.allow_other_instances)
     if problems:
         print("refusing to rent:", file=sys.stderr)
         for p in problems:
@@ -588,6 +617,8 @@ def parser() -> argparse.ArgumentParser:
                         "default); none if it downloads none")
     c.add_argument("--disk", type=int, default=40)
     c.add_argument("--env", action="append")
+    c.add_argument("--allow-other-instances", action="store_true",
+                   help="rent while the account holds other instances (their cost is not counted)")
     c.set_defaults(fn=create)
     st = sub.add_parser("status", help="one instance, or all of them")
     st.add_argument("instance_id", type=int, nargs="?")

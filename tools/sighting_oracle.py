@@ -10,16 +10,19 @@ from the rules:
   records every unit of another side it sees
   (`visibility.units_visible_to_python`), scenery excluded: its type, hit
   points, maximum hit points and hex; and adds (side, type) to the types it
-  has seen in the game;
+  has seen in the game, unless the scenario placed the unit (the applier's
+  `_scenario_unit_ids`);
 - during a move, each player side other than the mover's records the
   mover on the hex after the last hex of the walked route (its start, then
   every hex it entered) where the side sees it (its hex not fogged, the
   mover not hidden there by its hide ability): the display animates the
   step out of view from that hex toward the next one; on that hex itself
-  when it ends the route;
+  when it ends the route, or when the next step is a teleport (not to an
+  adjacent hex), whose arrival shows only where it is seen;
 - a fight that refogs the defender's side (the defender died, or was newly
   slowed or petrified) was shown to that side first: it records what it
-  sees with the fog it had before the fight;
+  sees with the fog it had before the fight, the attacker as the fight
+  left it (the engine advances it after the refog);
 - a unit that leaves the board leaves a side's record when the side saw
   its hex at that moment, and otherwise stays, as gone, until the side's
   end of turn;
@@ -52,7 +55,7 @@ class SightingOracle:
         self._board: Dict[str, Tuple[int, int]] = {}
         self._seen_before: Dict[int, FrozenSet[Tuple[int, int]]] = {}
         self._mover = None
-        self._defender = None
+        self._placed: FrozenSet[str] = frozenset()
         self._side = 0
 
     # ---- around a command
@@ -61,16 +64,12 @@ class SightingOracle:
         from wesnoth_ai.visibility import visible_hexes_for
         kind = cmd[0] if cmd else ""
         self._side = int(gs.global_info.current_side)
-        self._board, self._seen_before, self._mover, self._defender = {}, {}, None, None
+        self._placed = frozenset(getattr(gs.global_info, "_scenario_unit_ids", None) or ())
+        self._board, self._seen_before, self._mover = {}, {}, None
         if kind == "attack":             # the one command that removes units, or refogs mid-command
             self._board = {u.id: (u.position.x, u.position.y) for u in gs.map.units}
             if getattr(gs.global_info, "_fog", True):
                 self._seen_before = {s: frozenset(visible_hexes_for(gs, s)) for s in PLAYER_SIDES}
-            if len(cmd) > 4:
-                dx, dy = int(cmd[3]), int(cmd[4])
-                d = next((u for u in gs.map.units if (u.position.x, u.position.y) == (dx, dy)), None)
-                if d is not None:
-                    self._defender = (d.id, int(d.side), set(d.statuses or ()))
         if kind == "move":
             sx, sy = int(cmd[1][0]), int(cmd[2][0])
             from_side = int(cmd[3]) if len(cmd) > 3 else 0
@@ -82,7 +81,7 @@ class SightingOracle:
         if kind not in NOTED_KINDS:
             return
         self._note_departures(gs)
-        if kind == "attack" and self._defender is not None:
+        if kind == "attack":
             self._note_fight(gs)
         if kind == "move" and self._mover is not None:
             self._note_path(gs, cmd)
@@ -94,7 +93,8 @@ class SightingOracle:
     # ---- the rules
     def _record(self, side: int, u: Unit, x: int, y: int) -> None:
         self.sightings[side][u.id] = (u.id, u.name, int(u.current_hp), int(u.max_hp), int(x), int(y))
-        self.seen_types[side].add((int(u.side), u.name))
+        if u.id not in self._placed:
+            self.seen_types[side].add((int(u.side), u.name))
 
     def _note_visible(self, gs: GameState) -> None:
         from wesnoth_ai.visibility import is_scenery_unit, units_visible_to_python
@@ -109,18 +109,16 @@ class SightingOracle:
                 del record[uid]
 
     def _note_fight(self, gs: GameState) -> None:
+        """The applier's `_last_fight` says whether the fight refogged the
+        defender's side and holds the attacker as the fight left it."""
         from wesnoth_ai.visibility import is_scenery_unit, units_visible_to_python
-        did, side, before = self._defender
-        if side not in self.sightings:
+        fight = getattr(gs.global_info, "_last_fight", None)
+        if not fight or not fight["refog"] or fight["defender_side"] not in self.sightings:
             return
-        now = next((u for u in gs.map.units if u.id == did), None)
-        statuses = set(now.statuses or ()) if now is not None else set()
-        refogged = (now is None or ("slowed" in statuses and "slowed" not in before)
-                    or ("petrified" in statuses and "petrified" not in before))
-        if not refogged:
-            return
+        side, shown = int(fight["defender_side"]), fight["attacker"]
         fog = self._seen_before.get(side) if self._seen_before else None
-        for u in units_visible_to_python(gs, side, vis_set=fog):
+        units = [u for u in gs.map.units if shown is None or u.id != shown.id]
+        for u in units_visible_to_python(gs, side, vis_set=fog, units=units + ([shown] if shown else [])):
             if u.side != side and not is_scenery_unit(u):
                 self._record(side, u, u.position.x, u.position.y)
 
@@ -134,6 +132,7 @@ class SightingOracle:
                     self.gone[side].add(uid)
 
     def _note_path(self, gs: GameState, cmd: list) -> None:
+        from tools.abilities import hex_neighbors
         from wesnoth_ai.visibility import is_scenery_unit, visible_hexes_for
         mover = next((u for u in gs.map.units if u.id == self._mover), None)
         walk = getattr(gs.global_info, "_last_move_walk", None)
@@ -153,7 +152,8 @@ class SightingOracle:
             last = next((k for k in range(len(walked) - 1, -1, -1)
                          if (seen is None or walked[k] in seen) and not _hidden_at(gs, mover, walked[k])), None)
             if last is not None:
-                self._record(side, mover, *walked[min(last + 1, len(walked) - 1)])
+                step = walked[min(last + 1, len(walked) - 1)]
+                self._record(side, mover, *(step if step in hex_neighbors(*walked[last]) else walked[last]))
 
     # ---- the core's export form
     def records(self, side: int) -> Tuple[List[Row], List[Tuple[int, str]], List[str]]:

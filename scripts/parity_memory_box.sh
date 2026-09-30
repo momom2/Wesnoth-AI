@@ -31,10 +31,11 @@
 # which are deterministic. A run belongs to the code stage that began it
 # (RUN_STAGE, boxlib `box_bind_run_stage`): another stage continues it,
 # its finished steps kept, only with RESUME_OTHER_STAGE=1, and a stage that
-# changes the data or the pass takes a new HF_DIR. Every exit, clean or
-# not, uploads the records with ALL_DONE last and stops the instance.
+# changes the data or the pass takes a new HF_DIR. Every exit past that
+# check, clean or not, uploads the records with ALL_DONE last and stops the
+# instance; an entry refused there stops it and sends nothing.
 # Never `set -x`: the HF token and the instance key are in the environment.
-# box-needs: disk_gb=120 ram_gb=64 gpu_ram_gb=24 cores=32
+# box-needs: disk_gb=120 ram_gb=64 gpu_ram_gb=24 cores=32 gpu=4090
 set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/paritymemory
@@ -55,7 +56,7 @@ TRAIN_CUT_MIN="${TRAIN_CUT_MIN:-1260}"           # the pass: 11-14 hours
 TRAIN_STALL_MIN="${TRAIN_STALL_MIN:-40}"         # the trainer logs every minute; a probe runs silent
 CE_CUT_MIN="${CE_CUT_MIN:-60}"                   # estimated 15
 MATCH_CUT_MIN="${MATCH_CUT_MIN:-90}"             # the match stops itself at 60 (--time-budget-min), a game at 20 more
-BOX_MAX_H="${BOX_MAX_H:-28}"                     # 1.5 times the 18 box-hours estimated
+BOX_MAX_H="${BOX_MAX_H:-28}"                     # 1.4 times the 20 box-hours estimated (prereg "Cost")
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
@@ -100,7 +101,7 @@ box_bind_run_stage
 box_restore DONE arm.pt arm.probe.jsonl arm.signal.jsonl train.log corpus_summary.json \
     sequence_summary.json sequence_manifest.json obs8_holdout_ce.json barrier.txt \
     || box_finish "RESTORE_FAILED (restore.log)" 1
-box_upload_hold DONE arm.pt
+box_upload_hold DONE arm.pt arm.probe.jsonl
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
 # ---- the code and the Rust wheel (the corpus, the pre-encoding and the matches run on the core)
@@ -257,7 +258,10 @@ obs8 = json.load(open(sys.argv[2], encoding="utf-8"))
 arm, ref = probe["k0"]["ce_all"], obs8["ce_all"]
 counts = (f"arm at 0 slots over {probe['k0']['n_decisions']} decisions, obs8 over {obs8['n_decisions']} "
           f"({obs8.get('unscored_decisions', 0)} unscored)")
-if not all(isinstance(x, (int, float)) and math.isfinite(x) for x in (arm, ref)) \
+if not probe.get("final") or probe.get("positions") != probe.get("total_positions"):
+    print(f"holdout CE: NO_FINAL_PROBE, the last probe is at {probe.get('positions')} positions of "
+          f"{probe.get('total_positions')}; investigate before reading the matches")
+elif not all(isinstance(x, (int, float)) and math.isfinite(x) for x in (arm, ref)) \
         or probe["k0"].get("n_nonfinite") or obs8.get("n_nonfinite"):
     print(f"holdout CE: NONFINITE, investigate before reading the matches; {counts}")
 elif probe["k0"]["n_decisions"] != obs8["n_decisions"] + obs8.get("unscored_decisions", 0):
@@ -291,6 +295,9 @@ match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...:
     box_bounded "fit $name" 10 "$name.log" \
         python tools/elo_collect.py "$dir" --no-catalog --save-json "$OUT/$name.fit.json"
 }
+gpu_or_finish() {                # gpu_or_finish NAME: before match NAME, the GPU answers or the entry ends
+    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before match $1: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+}
 MATCHES_FAILED=0                 # this entry's verdicts on the matches (play)
 MATCHES_CUT=0
 play() {                         # play NAME SEED_BASE ARGS...: the match, once more when short, then its verdict
@@ -299,14 +306,23 @@ play() {                         # play NAME SEED_BASE ARGS...: the match, once 
     box_upload_dir "games_$name" "$OUT/games_$name"
     box_upload_hold "$name.fit.json" "games_$name.tar.gz"
     box_upload_hold "timing_$name.txt" "games_$name.tar.gz"
+    [ -f "$OUT/$name.fit.json" ] || gpu_or_finish "$name"
     match "$name" "$GAMES" "$sb" 1500 "$@"
-    if [ "$(decisive_results "$OUT/games_$name")" -lt "$GAMES" ]; then
-        rm -f "$OUT/$name.fit.json" "$OUT/timing_$name.txt"
-        match "$name" "$GAMES" "$sb" 1500 "$@"
-    fi
     decisive=$(decisive_results "$OUT/games_$name")
+    if [[ $decisive =~ ^[0-9]+$ ]] && [ "$decisive" -lt "$GAMES" ]; then
+        # The short attempt's fit and timing go, here and on HF, before the second.
+        rm -f "$OUT/$name.fit.json" "$OUT/timing_$name.txt"
+        box_clear "$name.fit.json" "timing_$name.txt" \
+            || echo "the short attempt's fit of $name may stay on HF until the second lands (upload.log)"
+        gpu_or_finish "$name"
+        match "$name" "$GAMES" "$sb" 1500 "$@"
+        decisive=$(decisive_results "$OUT/games_$name")
+    fi
     rc=$(sed -n 's/.* rc=\([0-9]*\) .*/\1/p' "$OUT/timing_$name.txt" 2>/dev/null | tail -n 1)
-    if [ ! -f "$OUT/$name.fit.json" ]; then
+    if ! [[ $decisive =~ ^[0-9]+$ ]]; then
+        echo "MATCH_FAILED $name: its games could not be counted ($name.log)" | tee -a "$OUT/match.walls"
+        MATCHES_FAILED=$(( MATCHES_FAILED + 1 ))
+    elif [ ! -f "$OUT/$name.fit.json" ]; then
         echo "MATCH_FAILED $name: no fit ($name.log)" | tee -a "$OUT/match.walls"
         MATCHES_FAILED=$(( MATCHES_FAILED + 1 ))
     elif [ "$decisive" -lt "$GAMES" ]; then
@@ -346,8 +362,7 @@ for name in $MATCHES; do                 # a match's games come back as the tarb
             || box_finish "MATCH_RESTORE_FAILED ($name)" 1
         rm -f "$OUT/games_$name.tar.gz"
         # The directory is what HF holds: it goes up again only once it changes.
-        timeout -k 30s 2m python "$BOX_LIB/box_upload.py" --out "$OUT" --hf-dir "$HF_DIR" \
-            --landed "games_$name.tar.gz" "$OUT/games_$name" >> "$OUT/restore.log" 2>&1 \
+        box_mark_landed "games_$name.tar.gz" "$OUT/games_$name" \
             || echo "games_$name will go up again (restore.log)"
     fi
 done

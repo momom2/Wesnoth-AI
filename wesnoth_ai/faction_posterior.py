@@ -11,9 +11,11 @@ can field every informative unit type of the opponent the side has seen,
 and 0 otherwise. A faction fields its recruits, its leaders and random
 leaders, every type they advance to, and the variations of those types (a
 plague kill raises a Walking Corpse variation, which the Undead field). A
-type no faction of the era fields is not informative: a scenario can give
-a side such units (Hornshark Island's Young Ogres, Sergeants and Ruffians),
-and every faction would give it likelihood 0. A faction without a
+type no faction of the era fields is not informative. The units a scenario
+places for the players are not seen types at all, nor are the types they
+advance to (`scenario_unit_ids`): Hornshark Island gives the Loyalists
+Woodsmen, whose Poacher line only the Knalgan Alliance recruits. A faction
+without a
 definition here ("Custom", "") cannot be checked and keeps its likelihood
 of 1. Two outcomes are counted (`posterior_counts`) for the pre-encoding's
 manifest: a seen set no candidate can field (the prior is kept), and a
@@ -58,6 +60,13 @@ def fieldable_types() -> Dict[str, FrozenSet[str]]:
 def _era_fieldable(era_factions: Tuple[str, ...]) -> FrozenSet[str]:
     fieldable = fieldable_types()
     return frozenset().union(*(fieldable[f] for f in era_factions if f in fieldable))
+
+
+def scenario_unit_ids(units: Iterable[Tuple[str, int, bool]]) -> FrozenSet[str]:
+    """The ids among (id, side, is leader) of the players' units, leaders
+    aside, on the board once the scenario is set up: units the scenario
+    placed, which say nothing of a faction's choices."""
+    return frozenset(uid for uid, side, leader in units if int(side) in (1, 2) and not leader)
 
 
 def informative_types(era_factions: Sequence[str], seen_types: Iterable[str]) -> FrozenSet[str]:

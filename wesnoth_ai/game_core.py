@@ -69,8 +69,9 @@ _RECORD_SIDES = (1, 2)
 # the Plan Unit Advance modification's undo blocks, 26 keeps a unit that
 # left the board unseen in the sighting record, 27 records a mover leaving
 # a watcher's view on the hex it was seen entering and a defended fight
-# before its refog.
-_CORE_PHASE = 27
+# before its refog, 28 refogs before a fight's advancements and leaves the
+# units the scenario placed out of the seen types.
+_CORE_PHASE = 28
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -377,6 +378,7 @@ class CoreState:
         cs._load_scalars(gs)
         cs._load_events(gi)
         cs._load_sight_records(gi)
+        cs.core.set_scenario_unit_ids(sorted(statics.get("_scenario_unit_ids") or ()))
         _log_core_warnings()
         return cs
 
@@ -425,6 +427,10 @@ class CoreState:
                 tup = _WML_TUPLES[scenario_id] = wml_tuple(root)
         self.core.setup_scenario(tup, scenario_id, _strict_wml())
         self.statics["_scenario_events"] = collect_events(root, scenario_id) if root is not None else []
+        from wesnoth_ai.faction_posterior import scenario_unit_ids
+        placed = scenario_unit_ids((d["id"], d["side"], d["is_leader"]) for d in self.core.units_export())
+        self.statics["_scenario_unit_ids"] = placed
+        self.core.set_scenario_unit_ids(sorted(placed))
         _log_core_warnings()
 
     def to_state(self) -> GameState:
