@@ -42,10 +42,11 @@ diverge from the DP's accounting, so those fall back to sampling.
 from __future__ import annotations
 
 import logging
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
@@ -76,6 +77,24 @@ MAX_SCHEDULE  = 512
 # the engine's round_prob_if_close_to_sure analog (it snaps at 1e-9;
 # we are slightly more lenient because our consumers renormalize).
 PROB_EPSILON = 1e-12
+
+
+def float_sum(values: Iterable[float]) -> float:
+    """CPython's `sum()` of floats since 3.12, on any interpreter: Neumaier's
+    compensated summation, the compensation added at the end. Python 3.11's
+    `sum()` adds left to right and can differ in the last bits; the core
+    copies 3.12's (rust/wesnoth_core/src/outcomes.rs `py_sum`)."""
+    total = compensation = 0.0
+    for x in values:
+        t = total + x
+        if abs(total) >= abs(x):
+            compensation += (total - t) + x
+        else:
+            compensation += (x - t) + total
+        total = t
+    if compensation and math.isfinite(compensation):
+        total += compensation
+    return total
 
 
 @dataclass
@@ -441,7 +460,7 @@ def enumerate_attack_outcomes(
                 ck = _canonical((ah, dh, asl, dsl, apo, dpo,
                                  ape, dpe, a_ty, d_ty))
                 probs[ck] = probs.get(ck, 0.0) + p * pa * pd
-    total = sum(probs.values())
+    total = float_sum(probs.values())
     if not probs or total <= 0:
         return None
     probs = {k: v / total for k, v in probs.items()}

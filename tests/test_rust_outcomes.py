@@ -11,6 +11,11 @@ petrifies special), both answer every attack of every pair and must
 agree to the last bit and in their order: the chosen weapon, each
 candidate's strike table, each distribution.
 
+The comparison runs twice, the second time with the reference's `sum()`
+adding left to right as Python 3.11's does: the box image runs 3.11, and a
+reference that followed the interpreter's `sum()` diverged from the core on
+every 3.11 box (2026-10-01).
+
 The Python applier's enumeration reports an advanced unit unpetrified;
 an AMLA leaves a petrified unit petrified (AMLA_DEFAULT cures poison
 and slow only) and the core reports it so, so fights with a petrifying
@@ -19,7 +24,9 @@ weapon are compared without advancement branches.
 from __future__ import annotations
 
 import copy
+import functools
 import json
+import operator
 import random
 
 import pytest
@@ -138,9 +145,17 @@ def _petrifying(u) -> bool:
     return any("petrifies" in (a.weapon_specials or ()) for a in u.attacks)
 
 
-def test_fight_outcomes_equal_the_python(db):
+def _plain_sum(values, start=0):
+    """Python 3.11's `sum()` of floats: left to right, uncompensated."""
+    return functools.reduce(operator.add, values, start)
+
+
+@pytest.mark.parametrize("interpreter_sum", ["this interpreter's", "Python 3.11's"])
+def test_fight_outcomes_equal_the_python(db, interpreter_sum, monkeypatch):
     from tools import combat_outcomes as co
     from tools.replay_dataset import build_attack_context
+    if interpreter_sum == "Python 3.11's":
+        monkeypatch.setattr(co, "sum", _plain_sum, raising=False)
     pools = _pools(db)
     seen = {"attacks": 0, "choices": 0, "advanced": 0, "amla": 0, "berserk": 0, "pick": 0, "exact": 0}
     for seed in range(12):
