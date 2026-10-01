@@ -12,21 +12,17 @@
 //! - the seen types: every (side, unit type) the side has seen in the
 //!   game, the faction posterior's evidence. Never cleared.
 //!
-//! Both follow every command (the units the side sees afterwards) and,
-//! during another side's move, the path: a watching player's display
-//! animates each step from a hex where the mover is visible to it (not
-//! fogged, not hidden by its hide ability) toward the next hex, so the
-//! player last sees the mover entering the hex after the last one it was
-//! visible on (docs/wesnoth_rules.md "A watching player sees a mover on
-//! every hex of its path"). A fight the side's own unit defends is watched
-//! too: the side records what it sees before the fight refogs it. Scenery
-//! is never recorded: it is always visible.
+//! Both follow every command: the units the side sees afterwards, as a
+//! player with move animations off sees the enemy's turn (user ruling
+//! 2026-10-01), so a unit that crosses the side's view during a move is
+//! not seen, and one that walks out of view is remembered where it stood.
+//! A fight the side's own unit defends is watched too: the side records
+//! what it sees before the fight refogs it. Scenery is never recorded: it
+//! is always visible.
 
 use pyo3::prelude::*;
 
-use crate::core::{GameCore, UnitRec};
-use crate::core_attack::apply_illumination;
-use crate::observe::neighbours;
+use crate::core::GameCore;
 
 /// Sides 1 and 2 keep records (`classes.PLAYER_SIDES`); the sides a
 /// scenario declares beyond them are scenery or a neutral AI.
@@ -53,10 +49,6 @@ fn record_index(side: i64) -> Option<usize> {
 fn record_side(side: i64) -> PyResult<usize> {
     record_index(side).ok_or_else(|| pyo3::exceptions::PyValueError::new_err(format!(
         "side {side} keeps no sighting record (the players' sides 1 and 2 do)")))
-}
-
-fn illuminates(u: &UnitRec) -> bool {
-    u.has_ability("illuminates") && !u.has_status("petrified")
 }
 
 impl GameCore {
@@ -117,38 +109,6 @@ impl GameCore {
         }
     }
 
-    /// During the move of unit `i` along the map hexes `path` (its start
-    /// hex, then every hex it entered): each other player side records it
-    /// on the hex after the last one it could see it on (the step out of
-    /// view is animated from that hex toward the next, udisplay.cpp:141-148,
-    /// drawn while the mover is visible there, drawer.cpp:200), or on that
-    /// hex when it is the route's last.
-    pub(crate) fn note_path_sightings(&mut self, i: usize, path: &[usize]) {
-        if self.is_scenery(i) {
-            return;
-        }
-        let mover_side = self.units[i].side;
-        for side in 1..=RECORD_SIDES as i64 {
-            if side == mover_side {
-                continue;
-            }
-            let seen = self.global.fog_on.then(|| self.seen_by(side));
-            let last = (0..path.len()).rev().find(|&k| {
-                seen.as_ref().map_or(true, |s| s[path[k]] != 0) && !self.hidden_on_path(i, path[k])
-            });
-            if let Some(k) = last {
-                // A walked step out of view is animated toward the next hex;
-                // a teleport shows its arrival only where it is seen
-                // (udisplay.cpp:74-113, 370-377), so it was last seen leaving.
-                let next = path[(k + 1).min(path.len() - 1)];
-                let walked = self.map.nbrs[path[k] * 6..path[k] * 6 + 6].contains(&(next as i64));
-                let h = if walked { next } else { path[k] };
-                let (x, y) = (self.map.hx[h], self.map.hy[h]);
-                self.record_sighting(side, i, x, y);
-            }
-        }
-    }
-
     /// The side's end_turn empties its sighting record.
     pub(crate) fn clear_sightings(&mut self, side: i64) {
         if let Some(k) = record_index(side) {
@@ -169,47 +129,6 @@ impl GameCore {
             .collect()
     }
 
-    /// Whether unit `i`, stepping on map hex `h`, is hidden there by its
-    /// hide ability (`unit::invisible`): not uncovered, its cover active
-    /// on the hex (the [hides] terrain globs; nightstalk at a dark
-    /// illuminated time of day), and no unit of another side that is not
-    /// scenery adjacent to the hex (`discovered_by_adjacency`'s rule).
-    fn hidden_on_path(&self, i: usize, h: usize) -> bool {
-        let u = &self.units[i];
-        if self.is_uncovered(&u.id) {
-            return false;
-        }
-        let m = &self.map;
-        let dark = || {
-            let bonus = self.lawful_bonus_at(h as i64, self.global.turn_number);
-            apply_illumination(bonus, self.illuminated_on(i, h)) < 0
-        };
-        let cover = (u.has_ability("ambush") && m.hides_ambush[h] != 0)
-            || (u.has_ability("concealment") && m.hides_concealment[h] != 0)
-            || (u.has_ability("submerge") && m.hides_submerge[h] != 0)
-            || (u.has_ability("nightstalk") && dark());
-        if !cover {
-            return false;
-        }
-        let adj = neighbours(m.hx[h], m.hy[h]);
-        !(0..self.units.len()).any(|j| {
-            let o = &self.units[j];
-            j != i && o.side != u.side && !self.is_scenery(j) && adj.contains(&(o.x, o.y))
-        })
-    }
-
-    /// `illuminated` for unit `i` standing on map hex `h`: it or a unit on
-    /// or next to the hex illuminates and is not petrified.
-    fn illuminated_on(&self, i: usize, h: usize) -> bool {
-        if illuminates(&self.units[i]) {
-            return true;
-        }
-        let at = (self.map.hx[h], self.map.hy[h]);
-        let adj = neighbours(at.0, at.1);
-        self.units.iter().enumerate().any(|(j, o)| {
-            j != i && ((o.x, o.y) == at || adj.contains(&(o.x, o.y))) && illuminates(o)
-        })
-    }
 }
 
 #[pymethods]

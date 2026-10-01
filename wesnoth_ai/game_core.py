@@ -70,8 +70,9 @@ _RECORD_SIDES = (1, 2)
 # left the board unseen in the sighting record, 27 records a mover leaving
 # a watcher's view on the hex it was seen entering and a defended fight
 # before its refog, 28 refogs before a fight's advancements and leaves the
-# units the scenario placed out of the seen types.
-_CORE_PHASE = 28
+# units the scenario placed out of the seen types, 29 records no sighting
+# along a move's route (the display with move animations off).
+_CORE_PHASE = 29
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).

@@ -641,6 +641,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // an aborted attack notes what its commit shows; the units the scenario
     // placed are not seen types (set_scenario_unit_ids, scenario_unit_ids);
     // a mover that teleports out of view was last seen where it left.
-    m.add("__phase__", 28)?;
+    // 29: the sighting record follows the display with move animations off
+    // (user ruling 2026-10-01): no sighting along a move's route.
+    m.add("__phase__", 29)?;
     Ok(())
 }

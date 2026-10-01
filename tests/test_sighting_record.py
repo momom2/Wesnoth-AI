@@ -1,8 +1,11 @@
-"""What a side watched during the enemy's turn (the parity observation's
-sighting record): an enemy unit that crosses the side's view and ends its
-move in fog is remembered at the last hex the side saw it on, reaches the
-side's next encoding as a sighting token, and is forgotten at the side's own
-end of turn; the side's seen types keep it for the whole game."""
+"""What a side saw of the enemy's turn (the parity observation's sighting
+record), as a player with move animations off sees it (user ruling
+2026-10-01): an enemy unit is noted where it stands after each command, so
+one that walks out of view is remembered where it stood before its move,
+and one that crosses the view during a move is not seen at all. The record
+reaches the side's next encoding as sighting tokens and is forgotten at the
+side's own end of turn; the side's seen types keep the types for the whole
+game."""
 from __future__ import annotations
 
 import sys
@@ -56,41 +59,71 @@ def _two_hexes_into_fog(leg1, seen, keys, zoc):
     return min(routes, key=lambda r: (len(r), r[-1]))
 
 
-def test_a_unit_crossing_the_sides_view_is_remembered_where_last_seen():
-    from helpers.parity_games import core_of, parity_raw, record, vocab_of
+def _watch_game(start):
+    """Side 2's Cavalryman on `start`, at side 2's first turn: (core, record,
+    the board's hexes, the hexes side 1 sees, the hexes a route avoids
+    around side 1's units)."""
+    from helpers.parity_games import core_of, record
     from tools.abilities import hex_neighbors
     data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 7, 3, False),
-                   ("Lieutenant", 2, 18, 3, True), ("Cavalryman", 2, 17, 0, False)],
+                   ("Lieutenant", 2, 18, 3, True), ("Cavalryman", 2, *start, False)],
                   fog=True, width=WIDTH, height=HEIGHT)
     cs = core_of(data)
     for command in (["init_side", 1], ["end_turn"], ["init_side", 2]):
         cs.apply_command(command)
     keys = cs.geometry().keys
     seen = {keys[j] for j in np.flatnonzero(cs.core.seen_export(1))}
-    # Around side 1's units' zones of control, into the seen area and back
-    # out into fog, within the Cavalryman's 8 moves.
     zoc = {n for u in ((1, 3), (7, 3)) for n in hex_neighbors(*u)} | {(1, 3), (7, 3)}
-    start = (17, 0)
+    return cs, data, keys, seen, zoc
+
+
+def _cavalryman_walked_into_fog():
+    """Side 2's Cavalryman starts on a hex side 1 sees and walks two hexes
+    into fog: (core after the move, the record with its commands, its
+    start, its end)."""
+    _cs, _data, keys, seen, zoc = _watch_game((17, 0))
+    start = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
+    cs, data, keys, seen_now, zoc = _watch_game(start)
+    assert seen_now == seen, "side 1's view does not depend on where the Cavalryman stands"
+    route = _two_hexes_into_fog([start], seen, keys, zoc)
+    move = ["move", [p[0] for p in route], [p[1] for p in route], 2]
+    cs.apply_command(move)
+    data["commands"] = [["init_side", 1], ["end_turn"], ["init_side", 2], move, ["end_turn"], ["init_side", 1]]
+    return cs, data, start, route[-1]
+
+
+def test_a_unit_crossing_the_sides_view_mid_move_is_not_seen():
+    """Side 2's Cavalryman, out of side 1's view, crosses it and ends its
+    move in fog: with move animations off, side 1 never saw it."""
+    from helpers.parity_games import parity_raw, vocab_of
+    cs, _data, keys, seen, zoc = _watch_game((17, 0))
+    assert (17, 0) not in seen
     inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
-    leg1 = _path(start, inside, zoc)
-    route = _two_hexes_into_fog(leg1, seen, keys, zoc)
-    assert len(route) - 1 <= 8 and route[-1] not in seen
-    last_seen = [p for p in route if p in seen][-1]
-    assert route[route.index(last_seen) + 1] != route[-1], "the route goes two hexes into fog"
-
+    route = _two_hexes_into_fog(_path((17, 0), inside, zoc), seen, keys, zoc)
+    assert len(route) - 1 <= 8 and inside in route and route[-1] not in seen
     cs.apply_command(["move", [p[0] for p in route], [p[1] for p in route], 2])
-    # The step out of view is animated from the last seen hex toward the
-    # next: side 1 last saw the Cavalryman entering that next hex.
-    last_seen = route[route.index(last_seen) + 1]
-    rows = [r for r in cs.core.sightings_export(1) if r[1] == "Cavalryman"]
-    assert [(r[4], r[5]) for r in rows] == [last_seen]
-    assert "Cavalryman" in cs.core.seen_types(1, 2)
-
+    assert not [r for r in cs.core.sightings_export(1) if r[1] == "Cavalryman"]
+    assert "Cavalryman" not in cs.core.seen_types(1, 2)
     for command in (["end_turn"], ["init_side", 1]):
         cs.apply_command(command)
     raw = parity_raw(cs, vocab_of(["Lieutenant", "Spearman", "Cavalryman"]))
-    assert list(zip(raw.sight_xs.tolist(), raw.sight_ys.tolist())) == [last_seen]
+    assert raw.sight_xs.tolist() == []
 
+
+def test_a_unit_that_walks_out_of_view_is_remembered_where_it_stood():
+    """Side 1 sees the Cavalryman before its move, and it walks into fog:
+    side 1 last saw it where it stood. The record keeps that hex until side
+    1's end of turn, its next encoding carries it as a sighting token, and
+    its type stays seen."""
+    from helpers.parity_games import parity_raw, vocab_of
+    cs, _data, start, _end = _cavalryman_walked_into_fog()
+    rows = [r for r in cs.core.sightings_export(1) if r[1] == "Cavalryman"]
+    assert [(r[4], r[5]) for r in rows] == [start]
+    assert "Cavalryman" in cs.core.seen_types(1, 2)
+    for command in (["end_turn"], ["init_side", 1]):
+        cs.apply_command(command)
+    raw = parity_raw(cs, vocab_of(["Lieutenant", "Spearman", "Cavalryman"]))
+    assert list(zip(raw.sight_xs.tolist(), raw.sight_ys.tolist())) == [start]
     cs.apply_command(["end_turn"])
     assert cs.core.sightings_export(1) == []
     assert "Cavalryman" in cs.core.seen_types(1, 2)
@@ -125,36 +158,12 @@ def test_the_belief_targets_are_the_hidden_enemies_tokens():
     assert t.no_visible_unit[slots[hidden_at]]
 
 
-def _cavalryman_watched_into_fog():
-    """The first test's game after side 2's move: the Cavalryman crossed
-    side 1's view and ended in fog; (core, its last seen hex, a seen hex
-    off its route)."""
-    from helpers.parity_games import core_of, record
-    from tools.abilities import hex_neighbors
-    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 7, 3, False),
-                   ("Lieutenant", 2, 18, 3, True), ("Cavalryman", 2, 17, 0, False)],
-                  fog=True, width=WIDTH, height=HEIGHT)
-    cs = core_of(data)
-    for command in (["init_side", 1], ["end_turn"], ["init_side", 2]):
-        cs.apply_command(command)
-    keys = cs.geometry().keys
-    seen = {keys[j] for j in np.flatnonzero(cs.core.seen_export(1))}
-    zoc = {n for u in ((1, 3), (7, 3)) for n in hex_neighbors(*u)} | {(1, 3), (7, 3)}
-    inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
-    leg1 = _path((17, 0), inside, zoc)
-    route = _two_hexes_into_fog(leg1, seen, keys, zoc)
-    end = route[-1]
-    cs.apply_command(["move", [p[0] for p in route], [p[1] for p in route], 2])
-    last_seen = [p for p in route if p in seen][-1]
-    return cs, route[route.index(last_seen) + 1], end
-
-
 def test_a_unit_that_leaves_the_board_unseen_stays_where_it_was_last_seen():
     """A neutral side can kill a unit in a side's fog: the player did not
     see it go, so the record keeps it, as a sighting token, until the
     side's end of turn."""
     from helpers.parity_games import parity_raw, unit_id_at, vocab_of
-    cs, last_seen, end = _cavalryman_watched_into_fog()
+    cs, _data, last_seen, end = _cavalryman_walked_into_fog()
     cavalryman = unit_id_at(cs, *end)
     cs.core.remove_unit(cavalryman)
     cs.apply_command(["update_shroud"])                  # any command: the records follow it
@@ -170,7 +179,7 @@ def test_a_unit_that_leaves_the_board_unseen_stays_where_it_was_last_seen():
 
 def test_a_unit_that_leaves_the_board_in_view_leaves_the_record():
     from helpers.parity_games import unit_id_at
-    cs, _, end = _cavalryman_watched_into_fog()
+    cs, _data, _start, end = _cavalryman_walked_into_fog()
     lieutenant = unit_id_at(cs, 1, 3)
     cs.apply_command(["end_turn"])
     cs.apply_command(["init_side", 1])
@@ -186,36 +195,20 @@ def test_a_unit_that_leaves_the_board_in_view_leaves_the_record():
 
 def test_the_certification_compares_the_sighting_records(tmp_path, monkeypatch):
     """diff_core --sightings holds the core's records against the oracle's
-    after every command: clean on a game where a unit crosses side 1's
-    view, and a divergence once the oracle forgets path sightings."""
+    after every command: clean on a game where a unit walks out of side 1's
+    view, and a divergence once the oracle stops noting what a side sees."""
     import gzip
     import json
     from collections import Counter
-    from helpers.parity_games import core_of, record
     from tools import sighting_oracle
     from tools.diff_core import diff_core
-    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 7, 3, False),
-                   ("Lieutenant", 2, 18, 3, True), ("Cavalryman", 2, 17, 0, False)],
-                  fog=True, width=WIDTH, height=HEIGHT)
-    cs = core_of(data)
-    for command in (["init_side", 1], ["end_turn"], ["init_side", 2]):
-        cs.apply_command(command)
-    keys = cs.geometry().keys
-    seen = {keys[j] for j in np.flatnonzero(cs.core.seen_export(1))}
-    from tools.abilities import hex_neighbors
-    zoc = {n for u in ((1, 3), (7, 3)) for n in hex_neighbors(*u)} | {(1, 3), (7, 3)}
-    inside = max((p for p in seen if p not in zoc), key=lambda p: (p[0], -p[1]))
-    leg1 = _path((17, 0), inside, zoc)
-    route = _two_hexes_into_fog(leg1, seen, keys, zoc)
-    data["commands"] = [["init_side", 1], ["end_turn"], ["init_side", 2],
-                        ["move", [p[0] for p in route], [p[1] for p in route], 2],
-                        ["end_turn"], ["init_side", 1]]
+    _cs, data, _start, _end = _cavalryman_walked_into_fog()
     path = tmp_path / "g.json.gz"
     path.write_bytes(gzip.compress(json.dumps(data).encode()))
     counts = Counter()
-    assert diff_core(path, sightings=True, counts=counts) == []
+    assert diff_core(path, sightings=True, encode_every=1, counts=counts) == []
     assert counts[("sightings", "rust")] == len(data["commands"])
-    monkeypatch.setattr(sighting_oracle.SightingOracle, "_note_path", lambda self, gs, cmd: None)
+    monkeypatch.setattr(sighting_oracle.SightingOracle, "_note_visible", lambda self, gs: None)
     out = diff_core(path, sightings=True)
     assert out and "sightings" in out[0]
 
@@ -316,29 +309,3 @@ def test_the_units_the_scenario_placed_are_not_seen_types():
     advanced = cs.core.unit_export(woodsman)["name"]
     assert advanced != "Woodsman" and woodsman in set(cs.core.visible_ids(1))
     assert cs.core.seen_types(1, 2) == ["Lieutenant"]
-
-
-def test_a_mover_that_teleports_out_of_view_was_last_seen_where_it_left(tmp_path):
-    """The display plays a teleport's arrival only where the mover is seen:
-    side 1 watched the Silver Mage leave its village for a fogged one, and
-    last saw it on the village it left."""
-    import gzip
-    import json
-    from helpers.parity_games import core_of, record
-    from tools.diff_core import diff_core
-    villages = [(9, 3), (16, 0)]
-    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 7, 3, False),
-                   ("Lieutenant", 2, 18, 3, True), ("Silver Mage", 2, 9, 3, False)],
-                  fog=True, width=WIDTH, height=HEIGHT, special={v: "Gg^Vh" for v in villages},
-                  villages={2: villages})
-    data["commands"] = [["init_side", 1], ["end_turn"], ["init_side", 2], ["move", [9, 16], [3, 0], 2],
-                        ["end_turn"], ["init_side", 1]]
-    cs = core_of(data)
-    for command in data["commands"][:4]:
-        cs.apply_command(command)
-    mage = cs.core.unit_id_at(16, 0, 0)
-    assert mage is not None and mage not in set(cs.core.visible_ids(1)), "it landed in side 1's fog"
-    assert [(r[4], r[5]) for r in cs.core.sightings_export(1) if r[0] == mage] == [(9, 3)]
-    path = tmp_path / "g.json.gz"
-    path.write_bytes(gzip.compress(json.dumps(data).encode()))
-    assert diff_core(path, sightings=True, encode_every=1) == []

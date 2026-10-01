@@ -357,7 +357,6 @@ impl GameCore {
         } else {
             self.clear_fog_from(i, &entered);
         }
-        self.note_path_sightings(i, &walked);
         if hex >= 0 && self.map.village_terrain[hex as usize] != 0 {
             self.capture_village(hex as usize, side);
         }

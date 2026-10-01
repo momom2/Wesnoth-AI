@@ -3511,24 +3511,23 @@ With move animations off the mover stays hidden until it lands
 unit until end of movement"); the corpus is taken to be watched with
 them on, the default.
 
-**Implemented by** the Rust core's sighting record (`core_sight.rs`
-`note_path_sightings`, and `note_sightings_of` before the defender's
-refog and both advancements in `core_attack.rs`; the Python applier
-keeps the same order). `tools/sighting_oracle.py` implements the same
-reading from the Python applier (the attacker as the fight left it comes
-from the applier's `_last_fight`), and `tools/diff_core.py --sightings`
-compares the two: that checks the implementation, not the reading, which
-no engine run has checked (as for the gone entries, the block of a cut
-route, the hex time of day and the Random prior).
+**Followed in part.** The parity observation follows the display with
+move animations off (user ruling 2026-10-01): its sighting record notes
+where units stand after each command, never along a move's route, so a
+unit that crosses a player's view during a move is not seen (an area of
+improvement, docs/parity_memory_design_20260929.md). The fight is
+followed: `note_sightings_of` before the defender's refog and both
+advancements in `core_attack.rs`, the Python applier keeping the same
+order. `tools/sighting_oracle.py` implements the same reading from the
+Python applier (the attacker as the fight left it comes from the
+applier's `_last_fight`), and `tools/diff_core.py --sightings` compares
+the two.
 
 A teleport step (to a hex that is not adjacent, `udisplay.cpp:370-377`)
 is not a slide: `teleport_unit_between` (`udisplay.cpp:74-113`) plays
 "pre_teleport" on the source when the mover is visible there and
 "post_teleport" on the destination only when it is visible there, so a
-mover that teleports out of view was last seen where it left. The
-policy's moves never teleport; replayed Silver Mages do
-(`tools/diff_replay.py` cites three such steps), rarely (none in 1,004,666
-moves of 5,673 sampled corpus games).
+mover that teleports out of view was last seen where it left.
 
 ---
 

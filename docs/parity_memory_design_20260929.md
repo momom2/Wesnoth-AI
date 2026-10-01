@@ -27,6 +27,16 @@ docs/parity_memory_prereg_20260929.md.
    nothing that would force another (docs/parity_memory_prereg_20260929.md
    "Audit gate").
 
+Rulings of 2026-10-01:
+
+8. The network sees the enemy's turn as a player with move animations off
+   does: where each unit stands after each command, never along a move's
+   route.
+9. Hidden timeouts are taken to be absent and false ones ignored (the
+   "Pre-encoding" item of "Training").
+10. Hornshark Island's faction-dependent units and vision through teleport
+    are known unfaithfulness ("What the network observes").
+
 ## What the network observes
 
 Behind one checkpoint flag, `observation_parity`, with
@@ -107,15 +117,14 @@ openly. The pre-encoding manifest counts two errors: a seen set that no
 candidate can field (the prior stays in place), and a posterior that
 leaves out the opponent's true faction.
 
-**The watched turn.** A player watches the enemy's turn and sees every
-enemy unit that crosses a hex the player can see, including units that end
-their move in fog. The core keeps, per side, the enemy units that side saw
-since its last end_turn: after every command, the visible enemy units;
-during a move, each hex of the path the side can see, the unit's hiding
-rules applied, the hex it was seen entering when it walked out of view
-(the hex it left, for a teleport), and in a fight the side's unit
-defended, what it saw before its fog was recomputed, which comes before
-either unit advances. At the side's decisions, each of these units that it cannot
+**The watched turn.** A player watches the enemy's turn. The network sees
+it as a player with move animations off does (ruling 8): the core keeps,
+per side, the enemy units that side saw since its last end_turn, where
+each stood after every command, the hiding rules applied, and in a fight
+the side's unit defended, what it saw before its fog was recomputed,
+which comes before either unit advances. A unit that walks out of the
+side's view is remembered where it stood before its move; one that
+crosses the view during a move and ends out of it is not seen. At the side's decisions, each of these units that it cannot
 see now becomes a sighting token at the last hex it was seen, with its type,
 hit points and maximum hit points. A unit that leaves the board where the
 side does not see its hex (a neutral side can kill it in the side's fog)
@@ -141,6 +150,14 @@ decision in the census). About 9% more hex tokens.
 
 **Game records.** `state_digest` covers the sighting record and the seen
 sets; records written before this version verify under the old digest.
+
+**Areas of improvement.** Accepted for this retrain, worth revisiting:
+- Hidden timeouts (ruling 9): no way to tell them apart is known.
+- The watched move (ruling 8), low priority: with move animations on, the
+  game's default, a player sees an enemy cross the view during its move
+  and where it vanished, a Wose walking between two forests over open
+  ground for one (docs/wesnoth_rules.md "A watching player sees a mover on
+  every hex of its path"); the network does not.
 
 **Known unfaithfulness.** Where the network sees differently from a player,
 accepted by the user and left as it is:
@@ -215,7 +232,11 @@ hidden enemy units whose hex has no token.
   decision 2026-09-30): the memory, value and belief losses see it, the
   policy has no target there. Training and eval games have no turn timer
   (the simulator has none; clock play is not part of what the policy
-  learns, user ruling 2026-09-30).
+  learns, user ruling 2026-09-30). Under a timer with a per-action bonus,
+  or whose turn bonus refills it to its cap, a timeout reads as the
+  player's end of turn; such hidden timeouts are taken to be absent, and a
+  turn its player ended with under a second left, which reads as a
+  timeout, is ignored as too rare (ruling 9).
 - **Streams:** each game gives two streams, one per side. 32 streams run
   side by side; each optimizer step unrolls 16 decisions of each (512
   positions), back-propagates through the memory across them, and carries
