@@ -198,7 +198,7 @@ covered through the review of their fixes. The fixes land on
 | id | finding | disposition |
 |---|---|---|
 | 2E1 | critical on some hosts: `box_workers` (round 1's E13) died under `set -u` on a host without cgroup-v2 `memory.max`, so both runs would stop at their corpus step | fixed: it reads the v1 limit too and takes the cgroup's headroom; tested on every layout |
-| 2F1 | major: a mover walking out of a watcher's view was recorded on the last hex it was visible on, where the display shows it walk into the next one (2,571 of 4,343 sampled sighting tokens) | fixed in the core and the oracle (phase 27): the hex after the last visible one; the catalog entry rewritten from the animation code |
+| 2F1 | major: a mover walking out of a watcher's view was recorded on the last hex it was visible on, where the display shows it walk into the next one (2,571 of 4,343 sampled sighting tokens) | fixed in the core and the oracle (phase 27): the hex after the last visible one; the catalog entry rewritten from the animation code. Superseded by ruling 8 of the design (2026-10-01): the record follows the display with move animations off and notes nothing along a route (phase 29); accepted, an area of improvement |
 | 2F2 | minor: after a fight that refogs the defender's side, the record kept the attacker's hit points from before the fight (16 of 2,766 sampled fights) | fixed: the side records what the fight showed it before its refog, in the core and the oracle |
 | 2F3 | minor: the block of a cut route ignored the checkup's `stopped_early` | fixed: a route that ran out of this turn's moves is not a block |
 | 2F4 | minor: Hornshark Island's placed units tell a knowing player the faction; the posterior ignores them | recorded: the network sees the placed units as tokens; one map, until a recruit or the leader is seen |
@@ -239,7 +239,7 @@ user's word, the audit stops after this round. The fixes land on
 | 3F3 | minor: on Hornshark Island a placed Woodsman that advances to a Poacher or Trapper, which only the Knalgan Alliance recruits, excluded the true faction (786 of 89,466 Hornshark decisions) | fixed: the players' units the scenario placed, and what they advance to, are not seen types (`faction_posterior.scenario_unit_ids`, set once the scenario is set up, in the core and the oracle) |
 | 3F4 | minor: nothing checked the sighting stream against the record | fixed: `diff_core --sightings` compares the stream at every encoded decision with the one the oracle's record gives |
 | 3F5 | nit: an aborted attack noted nothing after committing a delaying side's vision | fixed |
-| 3F6 | nit: a teleport step out of view was recorded at its fogged destination; the display shows a teleport's arrival only where it is seen (`teleport_unit_between`, udisplay.cpp:74-113) | fixed, in the core and the oracle; the catalog entry extended |
+| 3F6 | nit: a teleport step out of view was recorded at its fogged destination; the display shows a teleport's arrival only where it is seen (`teleport_unit_between`, udisplay.cpp:74-113) | fixed, in the core and the oracle; the catalog entry extended. Superseded by ruling 8 (2026-10-01), as 2F1 |
 | 3F7 | nit: the corpus exercises the gone rule once (Micro Isar, one game) | recorded; the synthetic tests cover it |
 | 3T1 | nits: the route tests landed one hex into fog, where a leak of the landing hex passes; the core half of 2F3 and a later change to a directory marked landed had no test | fixed: routes two hexes into fog; the core runs the ran-out route beside the applier; the upload test adds a game |
 | 3E1 | minor: an entry that met another stage's run cleared that run's `ALL_DONE` and `FAILED` on HF before refusing, and wrote its own | fixed: `box_init` refuses first and sends nothing (`REFUSED` on the disk), as it does when it cannot read whose run it is |
@@ -291,9 +291,13 @@ quarantined, 312 in the holdout). Records:
 |---|---|---|---|
 | 1 | 53698118 | `stage_20261001_certify` (2b19c36) | DIVERGENT: 14,233 of 14,376 replays; every listed line an attack's outcome distribution, the same keys on both sides, different last bits |
 | 2 | 53705005 | `stage_20261001b_certify` (5968b61) | CLEAN: 14,376 of 14,376 replays (870,478 outcome comparisons, 458,730 encoded decisions in three views and the sighting stream, 4,589,206 sighting-record comparisons); the hidden-unit oracle's 54 recorded positions and 3 vision cases agree |
+| 3 | 53719597 | `stage_20261001c_certify` (0dc24d3, phase 29) | CLEAN: 14,376 of 14,376 replays, the same comparisons as run 2; the hidden-unit oracle's 57 recorded answers agree. The retrain is staged from the same commit (`stage_20261001_retrain`) |
 
 | id | finding | disposition |
 |---|---|---|
 | CE1 | the Python outcome reference normalized its probabilities with the interpreter's `sum()`; the box image runs Python 3.11, whose float `sum()` adds left to right, while 3.12 compensates and the core copies 3.12's; the laptop and CI run 3.13 | fixed (5968b61): `combat_outcomes.float_sum`, with a test variant that fails before the fix; reproduced on the laptop (6 of 6 games diverge, 0 after); one reviewer found no other compared value that depends on the interpreter's version |
 
-Both runs cost about $0.20 together.
+Both runs cost about $0.20 together. Run 2 certified phase 28, with
+sightings along a move's route in both implementations; ruling 8 of the
+design (2026-10-01) removed them (phase 29, 0dc24d3), which reopened the
+gate. Run 3, on that commit, closed it again.

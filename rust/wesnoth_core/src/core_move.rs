@@ -265,9 +265,8 @@ impl GameCore {
     /// source hex (of `from_side` when given) walks the path; the walk
     /// record, the reveals, the landing (position, movement, resting
     /// dropped), the fog cleared from every entered hex and the village
-    /// capture follow the Python branch. The other sides record the mover
-    /// on the path hexes they see, then what each side sees is recorded
-    /// (core_sight.rs).
+    /// capture follow the Python branch. Then what each side sees is
+    /// recorded (core_sight.rs).
     #[pyo3(signature = (xs, ys, from_side=0, enforce_budget=false, next=None))]
     fn apply_move(&mut self, xs: Vec<i64>, ys: Vec<i64>, from_side: i64, enforce_budget: bool,
                   next: Option<(i64, i64)>) -> PyResult<()> {

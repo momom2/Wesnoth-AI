@@ -413,8 +413,6 @@ the model refuses a forward without it.
 - A faction head trained on the true faction: the exact posterior is
   cheap to compute, so the head would only learn to copy it (ruling 3).
 - A memory step at every enemy decision, to watch the enemy's turn: it
-  doubles every forward pass in play and training and still misses a unit
-  that crosses the side's view within one move; the sighting record sees
-  both.
+  doubles every forward pass in play and training.
 - Losers' streams forward-only, to save about a quarter of the box: the
   belief head and the memory's writes would learn from half the games.
