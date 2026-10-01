@@ -3332,7 +3332,8 @@ between allies, and vision through teleport: a unit with the teleport
 ability (the Silver Mage) also sees from its side's other empty villages
 once it can reach one of them (`src/pathfind/pathfind.cpp:586-588`,
 `:610-617`; `src/pathfind/teleport.cpp:155-156`), absent from 95 sampled
-fog games (29,054 decisions).
+fog games (29,054 decisions); a known unfaithfulness, accepted by the user
+2026-10-01.
 
 ## Delayed shroud updates (added 2026-09-30)
 

@@ -142,6 +142,17 @@ decision in the census). About 9% more hex tokens.
 **Game records.** `state_digest` covers the sighting record and the seen
 sets; records written before this version verify under the old digest.
 
+**Known unfaithfulness.** Where the network sees differently from a player,
+accepted by the user and left as it is:
+- Statues on fogged hexes stay visible (ruling 4).
+- On Hornshark Island the units the map gives each side depend on its
+  faction, so a player who knows the map can guess the faction from them;
+  the faction posterior ignores them (2026-10-01). The network sees the
+  units themselves.
+- A unit with the teleport ability (the Silver Mage) also sees from its
+  side's other villages once it can reach one; the simulator does not
+  model it (none in 95 sampled fog games; 2026-10-01).
+
 ## The memory
 
 - 64 slots of the model's width. At each of its decisions a side's network
