@@ -55,7 +55,10 @@ are records of the runs they ran.
    (gigabytes of 1,000 MB; MODEL a part of the offer's GPU name, `_` for a
    space; any key may be left out).
 3. A green CI run on the commit to stage: `gh run list --branch BRANCH --limit 1`.
-4. The user's explicit yes, given the box's specs, its price, the estimate
+4. The run's `HF_DIR` holds no `RUN_STAGE` that names another stage (an
+   entry would refuse it at once), unless the run is meant to continue
+   with `--env RESUME_OTHER_STAGE=1`.
+5. The user's explicit yes, given the box's specs, its price, the estimate
    and the account balance. `rent_box.py create --hours H` refuses when the
    funds do not cover the run's longest possible time at the offer's price
    (1.5 x H hours, or the script's `BOX_MAX_H` plus 1.5 hours for the final
@@ -153,8 +156,12 @@ script is fetched from `tier-b/staging/` and run.
   are the current machine's: a re-entry on another machine replaces the
   previous machine's copies on HF.
 - An instance that stopped with no new `stages.txt` line on HF was
-  refused at its entry: `REFUSED` on its disk (`rent_box.py logs ID`)
-  says why.
+  refused at its entry. Its reason is in `REFUSED` on its disk, which
+  neither HF nor the container log (`rent_box.py logs ID`) shows; tell the
+  two causes apart on HF instead. A `RUN_STAGE` under the run's `HF_DIR`
+  that names another stage refuses every restart: rent anew with a new
+  `HF_DIR`, or with `--env RESUME_OTHER_STAGE=1` to continue that run.
+  Otherwise HF did not answer, and a restart tries again.
 - `rent_box.py status ID` for the instance's state, `rent_box.py logs ID
   --tail 50` for the container's output.
 - Nothing on HF 20 minutes after the create: read `rent_box.py logs ID`,

@@ -256,3 +256,26 @@ user's word, the audit stops after this round. The fixes land on
 | 3E12 | nit: a full disk | accepted: the cost table derives the 120 GB (3.7-3.8 KB a pre-encoded position, about 21 GB); the step that fills it fails and reports |
 | 3E13 | nit: the pre-registration's total left out the probes' row | fixed: 15-20 box-hours, $7.5-12; the switch's comment |
 | 3D1 | nit: the sim's PvP defaults rebuilt SideInfo without the Random choice | fixed |
+
+## The pre-launch audit, round 4 (2026-10-01, one reviewer, round 3's diff only)
+
+In rounds 2 and 3 the worst finding was a defect in the previous round's
+fix. By the user's word the audit narrowed: one reviewer read only round
+3's diff (966600e..c144a1e), asking whether anything in it makes the
+training data wrong or puts either box run at risk. Before a box, only
+such findings are fixed; the rest waits for the end of the retrain.
+
+Verdict: nothing in the diff makes the training data wrong or puts a run
+at risk. `diff_core` with the certification's flags and environment read
+199 of 199 corpus games clean (65,917 commands, 6,608 encoded decisions;
+95 refogging fights whose attacker advanced); the stream comparison
+reported each of three planted faults; the placed-unit rule takes
+Hornshark's inconsistent posteriors from 786 to 0 of 89,466 decisions;
+pre-encoded records measured 3,486 bytes a position. No corpus game
+starts with a non-leader unit on a player side (0 of 17,019), so the rule
+marks only units the scenario's events place.
+
+| id | finding | disposition |
+|---|---|---|
+| 4E1 | minor: a refused entry's reason is only on its disk; the runbook pointed to the container log, which does not show it | fixed in the runbook: the two causes are told apart on HF (`RUN_STAGE`), and each rental checks first that the run's `HF_DIR` holds no other stage's `RUN_STAGE` |
+| 4E2 | minor: the onstart's own stop takes any HTTP 2xx as accepted, where `box_stop.py` wants `success: true`, so 3E6 holds for refusals at the HTTP level only | after the retrain: it takes three failed fetches and a 2xx answer without success; the laptop's 20-minute check stops such a box |
