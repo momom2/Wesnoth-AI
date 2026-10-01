@@ -340,3 +340,21 @@ def test_the_holdout_ce_reads_only_the_games_the_pre_encoding_kept(tmp_path, pas
     assert main([str(spec), "--dataset", str(dataset), "--sequences", str(trimmed), "--out", str(out),
                  "--device", "cpu"]) == 1
     assert not out.exists(), "a run with no decision writes nothing"
+
+
+@pytest.mark.parametrize("carried, paired, passes", [
+    ({"diff": -0.00112, "se": 0.000136}, {"diff": -7.9e-05, "se": 4.7e-05}, True),
+    ({"diff": -1e-04, "se": 1e-04}, {"diff": -1e-03, "se": 1e-04}, False),
+    ({"diff": -0.00112, "se": 0.000136, "n_nonfinite": 1}, {"diff": -1e-03, "se": 1e-04}, False),
+    ({"diff": -0.00112, "se": None}, {"diff": -1e-03, "se": 1e-04}, False),
+], ids=["the 2026-10-01 probe", "carried no better than wiped", "non-finite", "no standard error"])
+def test_the_memory_barrier_asks_whether_the_memory_remembers(carried, paired, passes):
+    """The barrier (amended 2026-10-01): the belief loss with the memory
+    carried beats the memory wiped at every decision by two standard
+    errors, paired over holdout games. Against 0 slots is a reading, not
+    the barrier: the 2026-10-01 probe read carried at -8 standard errors
+    and 0 slots at -1.7."""
+    from tools.sequence_probe import memory_barrier_passes
+    results = {"belief_carried": {"k": 64, "n_nonfinite": 0, **carried},
+               "belief_paired": {"k": 64, "n_nonfinite": 0, **paired}}
+    assert memory_barrier_passes(results) is passes

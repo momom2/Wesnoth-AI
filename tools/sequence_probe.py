@@ -19,12 +19,13 @@ sizes, and report
     that tool stops: the two agree closely, not exactly;
   - belief: the belief loss per position;
   - belief_paired: per game, the belief loss at the largest size minus at
-    0 slots, both sides pooled, with its standard error across games (the
-    memory's crash barrier reads it);
+    0 slots, both sides pooled, with its standard error across games: what
+    the memory adds over the sighting record, a reading (the matches
+    decide whether the memory helps);
   - belief_carried: at the largest size, the belief loss with the memory
     carried minus with the memory reset to its initial state at every
     decision, per game: what the carried state adds beyond the memory's
-    tokens.
+    tokens (the memory's crash barrier reads it).
 
 The last-seen baseline scores the belief targets with two rates fitted on
 training game-sides: the chance that a hidden enemy unit stands on a hex
@@ -327,10 +328,11 @@ def same_turn_auc(sides: Dict[GameSide, Dict[str, list]], winners: Dict[str, int
 
 
 def memory_barrier_passes(results: Dict) -> bool:
-    """The pre-registered crash barrier: at the largest size the belief loss
-    is below the belief loss at 0 slots by more than two standard errors,
-    paired over holdout games."""
-    paired = results.get("belief_paired") or {}
-    if paired.get("diff") is None or paired.get("se") is None or paired.get("n_nonfinite", 0):
+    """The memory's crash barrier (amended 2026-10-01): at the largest size
+    the belief loss with the memory carried is below the belief loss with it
+    reset at every decision by more than two standard errors, paired over
+    holdout games: the memory remembers."""
+    carried = results.get("belief_carried") or {}
+    if carried.get("diff") is None or carried.get("se") is None or carried.get("n_nonfinite", 0):
         return False
-    return paired["diff"] < -2.0 * paired["se"]
+    return carried["diff"] < -2.0 * carried["se"]

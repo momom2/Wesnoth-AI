@@ -90,10 +90,17 @@ result directory per match.
   posterior errors (a seen set no candidate faction can field, or a
   posterior that leaves out the true faction) below 0.1% of decisions.
 - **Crash barrier, the memory, after 500,000 positions:** on the holdout,
-  the belief loss at 64 slots is below the belief loss at 0 slots, paired
-  over games (a game's two sides share its luck, so a game is one pair;
-  amended 2026-09-30, before any box), by more than two standard errors. If not, the memory is
-  not remembering: the run stops and is inspected.
+  the belief loss at 64 slots with the memory carried is below the belief
+  loss with the memory reset at every decision, paired over games (a
+  game's two sides share its luck, so a game is one pair), by more than two
+  standard errors. If not, the memory is not remembering: the run stops
+  and is inspected. Amended 2026-10-01 by user ruling, after the first run
+  stopped at this barrier as first written (64 slots against 0 slots):
+  that read -1.7 standard errors (-0.00008 +- 0.00005 nat of belief loss)
+  while carried against reset read -8.3 (-0.00112 +- 0.00014), so the
+  memory remembered; 64 slots against 0 slots is now a reading at every
+  probe, and the matches decide whether the memory helps. The amendment
+  touches a crash barrier only; the bars of the matches are unchanged.
 - **Crash barrier, the pass:** it trains exactly the pre-encoded positions.
 - **Barrier, not a verdict:** holdout policy CE at 0 slots more than 0.05
   nat worse than `obs8`'s on the same holdout decisions says the recipe

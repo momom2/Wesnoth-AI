@@ -22,10 +22,10 @@ carries each step's gradient norm and the memory's.
 
 The holdout probe (`tools/sequence_probe.py`) runs every `--probe-every`
 positions and at the end; the first probe at or past `--barrier-positions`
-is the memory's crash barrier: unless the belief loss at 64 slots is below
-the one at 0 slots by more than two standard errors, paired over holdout
-games, the run stops (exit 3), and the checkpoint keeps the verdict, so
-no resume trains past it. A pass that ends short of every pre-encoded
+is the memory's crash barrier: unless the belief loss at 64 slots with the
+memory carried is below the one with it reset at every decision by more
+than two standard errors, paired over holdout games, the run stops (exit
+3), and the checkpoint keeps the verdict, so no resume trains past it. A pass that ends short of every pre-encoded
 position exits 4. A checkpoint every
 `--checkpoint-every` positions holds the schedule, each slot's carried
 memory and the optimizer, so `--resume` continues the pass exactly.
@@ -455,10 +455,12 @@ class Trainer:
                     self.state["barrier_failed"] = not memory_barrier_passes(result)
                 self.save()                      # the probe is kept, so a resume does not repeat it
                 if barrier_now and self.state["barrier_failed"]:
-                    log.error("MEMORY_BARRIER_FAILED %s", json.dumps(result.get("belief_paired")))
+                    log.error("MEMORY_BARRIER_FAILED carried against reset %s; against 0 slots %s",
+                              json.dumps(result.get("belief_carried")), json.dumps(result.get("belief_paired")))
                     return EXIT_MEMORY_BARRIER
                 if barrier_now:
-                    log.info("memory barrier passed: %s", json.dumps(result.get("belief_paired")))
+                    log.info("memory barrier passed: carried against reset %s; against 0 slots %s",
+                             json.dumps(result.get("belief_carried")), json.dumps(result.get("belief_paired")))
         if window_logs:
             self._log(window_logs, t0)
         self.save()
