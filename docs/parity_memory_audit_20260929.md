@@ -132,7 +132,7 @@ finding R1.
 | R2 | A failed memory barrier was not kept: a re-entry resumed the pass past it | fixed, 6e0df7b (the checkpoint keeps the verdict; a resume stops at once, tested) |
 | R3 | A new stage replaces the staged repository, the raw replays and the corpus with it, while their markers survived; the barrier line was written from a missing input and never recomputed | fixed, 6e0df7b (stage-bound markers in both box scripts; the line only from its input, written whole) |
 | R4 | On a new machine the finished matches came back empty and were replayed over the first run's records | fixed, 6e0df7b (fits, timings and game tarballs restored; a match resumes in its directory) |
-| R5 | The memory barrier and match 2 compare 64 slots with 0: a memory that is not carried could pass through its extra tokens alone | recorded: the probe reads 64 slots carried against 64 slots reset at every decision (`belief_carried`); the barrier stays as pre-registered |
+| R5 | The memory barrier and match 2 compare 64 slots with 0: a memory that is not carried could pass through its extra tokens alone | recorded: the probe reads 64 slots carried against 64 slots reset at every decision (`belief_carried`); the barrier stays as pre-registered. Superseded 2026-10-01: by user ruling, after the first retrain stopped at the barrier, the barrier reads `belief_carried` (docs/parity_memory_prereg_20260929.md) |
 | R6 | The pre-registered per-phase value AUC was not computed; nothing checked that the pass trains every pre-encoded position; the barrier's standard error treated a game's two sides as independent | fixed, 6e0df7b (the same-turn AUC by turn bucket; exit 4 on a short pass; the standard error across games) |
 | R7 | An event handler that leaves undo disabled makes its action final, which commits a delaying side's vision: in our games the Plan Unit Advance modification's first move of each side turn and its menu events. 6 of 400 sampled games both use it and delay; their seen hexes differed at 27 of 2,859 decisions | fixed, f5def12 (the record carries the modification and its menu events; both appliers commit there; wheel phase 25) |
 | R8 | An attack that a disconnect aborted before its first draw skipped the commit the engine's handler makes first | fixed, f5def12 |
@@ -301,3 +301,22 @@ Both runs cost about $0.20 together. Run 2 certified phase 28, with
 sightings along a move's route in both implementations; ruling 8 of the
 design (2026-10-01) removed them (phase 29, 0dc24d3), which reopened the
 gate. Run 3, on that commit, closed it again.
+
+## After the retrain
+
+Deferred by the rule of 2026-10-01 (before a box, fix only what changes
+the training data or can lose the run):
+- 4E2: the onstart's own stop takes any HTTP 2xx as accepted; `box_stop.py`
+  wants `success: true`.
+- The outcome reference's other float sum (`replay_dataset.py`
+  `_advancement_choice_probs`, reached only with a non-uniform advancement
+  choice) could use `combat_outcomes.float_sum`; the version test could
+  patch `builtins.sum` rather than the module's name.
+- A resumed pass refuses on the barrier verdict its checkpoint recorded,
+  under whatever rule wrote it; it could re-read the barrier probe from
+  `<out>.probe.jsonl` under the current rule.
+- `belief_carried` is computed only when size 0 is among the probe sizes,
+  which the amended barrier does not need (the box runs the default sizes,
+  0, 16 and 64).
+- `core_certify_box.sh`'s header still says the parity columns have no
+  second builder; the sighting stream has one since round 3.
