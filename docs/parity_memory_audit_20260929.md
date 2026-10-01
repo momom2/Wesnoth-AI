@@ -279,3 +279,21 @@ marks only units the scenario's events place.
 |---|---|---|
 | 4E1 | minor: a refused entry's reason is only on its disk; the runbook pointed to the container log, which does not show it | fixed in the runbook: the two causes are told apart on HF (`RUN_STAGE`), and each rental checks first that the run's `HF_DIR` holds no other stage's `RUN_STAGE` |
 | 4E2 | minor: the onstart's own stop takes any HTTP 2xx as accepted, where `box_stop.py` wants `success: true`, so 3E6 holds for refusals at the HTTP level only | after the retrain: it takes three failed fetches and a 2xx answer without success; the laptop's 20-minute check stops such a box |
+
+## The certification (2026-10-01): gate item 1
+
+Two runs of `scripts/core_certify_box.sh` over the version-5 corpus,
+rebuilt on the box from the raw replays (14,376 games, 0 errors, 2,026
+quarantined, 312 in the holdout). Records:
+`training/metrics/fidelity/core_certify_20261001/`.
+
+| run | instance | stage | verdict |
+|---|---|---|---|
+| 1 | 53698118 | `stage_20261001_certify` (2b19c36) | DIVERGENT: 14,233 of 14,376 replays; every listed line an attack's outcome distribution, the same keys on both sides, different last bits |
+| 2 | 53705005 | `stage_20261001b_certify` (5968b61) | CLEAN: 14,376 of 14,376 replays (870,478 outcome comparisons, 458,730 encoded decisions in three views and the sighting stream, 4,589,206 sighting-record comparisons); the hidden-unit oracle's 54 recorded positions and 3 vision cases agree |
+
+| id | finding | disposition |
+|---|---|---|
+| CE1 | the Python outcome reference normalized its probabilities with the interpreter's `sum()`; the box image runs Python 3.11, whose float `sum()` adds left to right, while 3.12 compensates and the core copies 3.12's; the laptop and CI run 3.13 | fixed (5968b61): `combat_outcomes.float_sum`, with a test variant that fails before the fix; reproduced on the laptop (6 of 6 games diverge, 0 after); one reviewer found no other compared value that depends on the interpreter's version |
+
+Both runs cost about $0.20 together.

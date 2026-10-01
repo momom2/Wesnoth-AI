@@ -1,0 +1,1 @@
+2026-10-01T13:18:22Z CORE_CERTIFY_FAILED core certification DIVERGENT: 14376 of 14376 replays, 143 clean, 14233 with divergences; oracle rc=0 stage=tier-b/staging/stage_20261001_certify.tar.gz

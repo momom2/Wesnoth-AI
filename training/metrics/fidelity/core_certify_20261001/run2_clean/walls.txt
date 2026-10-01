@@ -1,0 +1,6 @@
+2026-10-01T14:03:28Z inputs rc=0 ok 25 s
+2026-10-01T14:04:03Z corpus rc=0 ok 35 s
+2026-10-01T14:04:03Z corpus-check rc=0 ok 0 s
+2026-10-01T14:04:40Z tests rc=0 ok 37 s
+2026-10-01T14:17:04Z sweep rc=0 ok 744 s
+2026-10-01T14:17:08Z oracle rc=0 ok 4 s

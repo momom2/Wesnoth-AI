@@ -1,0 +1,22 @@
+stage tier-b/staging/stage_20261001_certify.tar.gz
+instance 53698118, host 8c361792c8e0
+cores(all) 128, usable 62
+model name	: AMD EPYC 7702P 64-Core Processor
+cpu.max 6143999 100000
+pids.max 15616
+               total        used        free      shared  buff/cache   available
+Mem:          257561      112499       94901         116       50160      142698
+overlay          60G  1.1G   59G   2% /
+NVIDIA GeForce RTX 3090, 24576 MiB, 595.71.05
+torch 2.5.1+cu124 cuda True
+code 0.10.10 epoch 11
+wheel phase 28, source phase 28
+reach                RUST
+enumeration          RUST
+observation          RUST
+rows_from_reach      RUST
+combat               RUST
+encode_streams       RUST
+GameCore             RUST
+kernels | RUST: reach, enumeration, observation, rows_from_reach, combat, encode_streams, GameCore | PYTHON: none | wheel phase 28
+shards 62
