@@ -326,4 +326,7 @@ the training data or can lose the run):
   the settings could be recorded on HF at the first entry and checked at
   each. Today such an entry also loses `HF_DIR` and `STAGE`, whose
   defaults name the first retrain's folder and another stage, so it is
-  refused.
+  refused. `MATCH_SEED_BASE` is of the same kind for a new rental: its
+  default, 80000, is the first pass's.
+- No test pins that the gradient telemetry is rebuilt after the
+  optimizer's state is loaded (`Trainer._signal_probe`).

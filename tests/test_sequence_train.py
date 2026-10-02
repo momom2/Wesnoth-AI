@@ -403,7 +403,7 @@ def test_a_second_pass_starts_from_the_first(tmp_path, pass_inputs):
     assert sequence_train.main([*pass2, "--resume", "--max-positions", "9"]) == 0
     stable = tmp_path / "second.stable.pt"
     before = hashlib.sha256(stable.read_bytes()).hexdigest()
-    assert 6 <= torch.load(stable, map_location="cpu", weights_only=True)["sequence_resume"]["state"]["positions"] < 9
+    assert torch.load(stable, map_location="cpu", weights_only=True)["sequence_resume"]["state"]["positions"] == 6
     assert sequence_train.main([*pass2, "--resume"]) == 0
     assert hashlib.sha256(stable.read_bytes()).hexdigest() == before, "written once, at the cooldown's start"
     end = torch.load(second, map_location="cpu", weights_only=True)
@@ -436,7 +436,7 @@ def test_a_crash_while_keeping_the_stable_checkpoint_is_repaired_on_resume(tmp_p
     assert not (tmp_path / "second.stable.pt").exists()
     assert sequence_train.main([*pass2, "--resume"]) == 0
     stable = torch.load(tmp_path / "second.stable.pt", map_location="cpu", weights_only=True)
-    assert 6 <= stable["sequence_resume"]["state"]["positions"] < 12
+    assert stable["sequence_resume"]["state"]["positions"] == 6
 
 
 @pytest.mark.slow

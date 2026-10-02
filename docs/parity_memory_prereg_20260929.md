@@ -168,6 +168,25 @@ renting; every exit, clean or not, leaves `ALL_DONE` on HF and stops the
 instance. The raw corpus goes to HF first (`tools/stage_raw_corpus.py`,
 0.23 GiB).
 
+## Measured, pass 1 (2026-10-02)
+
+`tier-b/parity_memory_20261001`, stage `stage_20261001b_retrain`
+(9f9bd80), 4,035,728 positions in 7,900 steps, 6.3 box-hours, about $2.70.
+The memory barrier passed (carried against reset -9.0 standard errors at
+500,000 positions). The recipe barrier failed: holdout CE at 0 slots
+3.378 against `obs8`'s 3.162 (+0.215 nat); 64 slots 3.322. The matches,
+read after "Pass 2" was written, 800 decisive games each, PURE:
+
+| match | result |
+|---|---|
+| 1. arm at 64 slots against `obs8` | `obs8` +83 +- 13 Elo (p about 0.38): kill |
+| 2. arm at 64 against arm at 0 | -9 +- 12 Elo |
+| 3. arm at 16 against arm at 0 | -19 +- 12 Elo |
+| 4. `obs8` against itself | side B +19 +- 12 Elo, within two standard errors |
+
+The arm is undertrained (above), and in play the memory adds nothing
+measurable yet.
+
 ## Pass 2 (added 2026-10-02, before its box)
 
 The first pass (`tier-b/parity_memory_20261001`, 2026-10-01/02) trained
