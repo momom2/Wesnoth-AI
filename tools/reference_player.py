@@ -10,8 +10,8 @@ in scripts, so a ruling that moves the reference is one edit:
     python tools/reference_player.py --ensure       # fetch the checkpoint if missing
     python tools/reference_player.py --path         # the local checkpoint path
 
-`--flags` prints the label, the spec and the decode flags of one side
-in run_elo_batch's vocabulary, so a match script reads
+`--flags` prints the label, the spec, the memory and the decode flags of
+one side in run_elo_batch's vocabulary, so a match script reads
     python tools/run_elo_batch.py --label-a arm --spec-a arm.pt \\
         $(python tools/reference_player.py --flags b) ...
 and never spells the reference out. The decode is the raw player's
@@ -69,16 +69,19 @@ def ensure_checkpoint(ref: dict | None = None) -> Path:
 
 
 def batch_flags(side: str, ref: dict | None = None) -> list[str]:
-    """run_elo_batch flags for `side` ('a' or 'b'): label, spec and the
-    decode. The temperature and the search budget are per-match flags
-    the caller passes for both sides; only the reference's own decode
-    options travel here."""
+    """run_elo_batch flags for `side` ('a' or 'b'): label, spec, the
+    memory slots it plays with (`memory_slots`, when it has a memory) and
+    the decode. The temperature and the search budget are per-match flags
+    the caller passes for both sides; only the reference's own options
+    travel here."""
     ref = ref or load()
     side = side.lower()
     if side not in ("a", "b"):
         raise ValueError("side must be 'a' or 'b'")
     d = ref["decode"]
     flags = [f"--label-{side}", ref["label"], f"--spec-{side}", ref["checkpoint_local"]]
+    if ref.get("memory_slots"):
+        flags += [f"--memory-{side}", str(int(ref["memory_slots"]))]
     if d.get("raw_end_turn", "joint") != "joint":
         flags += [f"--raw-end-turn-{side}", str(d["raw_end_turn"])]
     if d.get("raw_end_turn_offset"):

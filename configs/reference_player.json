@@ -1,10 +1,11 @@
 {
-  "_comment": "The reference player every strength claim is measured against (user ruling 2026-09-25; docs/plan_20260904.md 3, rule 1). One checkpoint, one decode. tools/reference_player.py reads this file: `--flags a|b` prints the run_elo_batch flags for that side, `--ensure` fetches the checkpoint from the model host when the local copy is missing.",
-  "label": "obs8",
-  "checkpoint_local": "training/checkpoints/obs8.pt",
-  "checkpoint_hf": "tier-b/observation_retrain_20260924/arm_epoch0.pt",
-  "checkpoint_sha256": "917f63a1249ba82049edfb05564c58583dc486dd1af3adc2bde42759aceceac7",
+  "_comment": "The reference player every strength claim is measured against (user ruling 2026-10-02; docs/plan_20260904.md 3, rule 1). One checkpoint, its memory, one decode. tools/reference_player.py reads this file: `--flags a|b` prints the run_elo_batch flags for that side, `--ensure` fetches the checkpoint from the model host when the local copy is missing.",
+  "label": "parity2",
+  "checkpoint_local": "training/checkpoints/parity2.pt",
+  "checkpoint_hf": "tier-b/parity_memory_pass2_20261002/arm.pt",
+  "checkpoint_sha256": "a5aa9f5fbb159fece70daf01cbc9341292ff567ea0b9a89c38dce7b8e7fb1025",
   "hf_repo": "momom2/wesnoth-model-checkpoints",
+  "memory_slots": 64,
   "decode": {
     "mcts_sims": 0,
     "raw_temperature": 0.0,
@@ -12,10 +13,10 @@
     "raw_end_turn_offset": -1.5
   },
   "procedure_tag": "raw:t0+eo-1.5",
-  "adopted": "2026-09-25",
+  "adopted": "2026-10-02",
   "provenance": {
-    "checkpoint": "obs8: terrain's recipe (relevant set, terrain set, one pass of 2,826,147 pairs) from scratch on the observation of OBSERVATION_EPOCH 8 (the time of day, the engine's vision, statues with their modifications, the re-hide at turn start); +73 +- 13 Elo over terrain, both at raw:t0+eo-1.5 (483-317 of 800 decisive, docs/observation_retrain_prereg_20260924.md)",
+    "checkpoint": "parity2: the parity-memory retrain (docs/parity_memory_design_20260929.md) in two passes over 4,035,728 positions of both sides, the second from the first's weights with a linear cooldown to 0 over its second half, observation epoch 11, a 64-slot memory; +191 +- 14 Elo over obs8, both at raw:t0+eo-1.5, the arm at 64 slots (800 decisive, docs/parity_memory_prereg_20260929.md \"Measured, pass 2\"). At 0 slots the same checkpoint beat itself at 64 by 37 +- 12 Elo.",
     "decode": "the end_turn logit offset -1.5: +229 +- 15 Elo over raw:t0 for relset (docs/endturn_rule_prereg_20260919.md), the peak of the offset curve with -2.5 (docs/endturn_offset_sweep_prereg_20260919.md)",
-    "previous": "terrain at raw:t0+eo-1.5 (2026-09-20 to 2026-09-25): tier-b/terrain_multi_hot_20260919/arm_epoch0.pt, self-pinned at +2 +- 12, +263 +- 16 Elo over relset at raw:t0 (docs/composed_levers_prereg_20260919.md); before it relset at raw:t0 (2026-09-11 to 2026-09-20): tier-b/seed2_relset_20260911/arm_epoch0.pt"
+    "previous": "obs8 at raw:t0+eo-1.5 (2026-09-25 to 2026-10-02): tier-b/observation_retrain_20260924/arm_epoch0.pt, +73 +- 13 Elo over terrain (docs/observation_retrain_prereg_20260924.md); before it terrain at raw:t0+eo-1.5 (2026-09-20 to 2026-09-25): tier-b/terrain_multi_hot_20260919/arm_epoch0.pt, self-pinned at +2 +- 12, +263 +- 16 Elo over relset at raw:t0 (docs/composed_levers_prereg_20260919.md); before it relset at raw:t0 (2026-09-11 to 2026-09-20): tier-b/seed2_relset_20260911/arm_epoch0.pt"
   }
 }
