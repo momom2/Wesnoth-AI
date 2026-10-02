@@ -150,7 +150,8 @@ label's prior under each, by label kind.
 
 ## Cost
 
-One box of the pass-2 class (RTX 4090, 32 cores): about 10 minutes of
-setup and corpus build, about 15 for the counterfactual readings (16
-processes on the card), about 35 for the two matches; about 70 minutes,
-about $0.50 at the pass-2 box's rate ($0.42 an hour). `BOX_MAX_H` 3.
+One box of the pass-2 class (RTX 4090, 32 cores): about 15 minutes of
+setup and corpus build, about 35 for the two matches (run first), then 20
+to 50 for the readings (16 processes sharing the card one state at a
+time, the least certain figure); 70 to 100 minutes, $0.50 to $0.75 at the
+pass-2 box's rate ($0.42 an hour). `BOX_MAX_H` 4.

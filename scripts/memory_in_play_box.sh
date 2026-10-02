@@ -11,7 +11,7 @@
 #     memory carried at the reference's slots and at 0 slots: the 64-slot
 #     player's decisions (own), the 0-slot player's (other), the holdout's
 #     human decisions (human), CF_PROCS processes each;
-#   two matches, PURE, 800 decisive games:
+#   two matches, PURE, 800 decisive games, before the readings:
 #     M1. 64 slots against 0, both at the end_turn offset -2.0 (seed base
 #         MATCH_SEED_BASE, 88000 by default);
 #     M2. 0 slots at -2.0 against 0 slots at -1.5 (the base + 1000).
@@ -41,9 +41,9 @@ export HF_DIR="${HF_DIR:-tier-b/memory_in_play_20261002}"
 # Bounds in minutes, from the pre-registration's "Cost".
 BUILD_CUT_MIN="${BUILD_CUT_MIN:-60}"             # estimated 10 on 32 cores
 BUILD_STALL_MIN="${BUILD_STALL_MIN:-15}"         # the builder logs every 1,000 candidates
-CF_CUT_MIN="${CF_CUT_MIN:-45}"                   # estimated 5 to 10 per source
+CF_CUT_MIN="${CF_CUT_MIN:-90}"                   # estimated 7 to 25 per source
 MATCH_CUT_MIN="${MATCH_CUT_MIN:-90}"             # the match stops itself at 60 (--time-budget-min), a game at 20 more
-BOX_MAX_H="${BOX_MAX_H:-3}"                      # 2.5 times the 70 minutes estimated
+BOX_MAX_H="${BOX_MAX_H:-4}"                      # 2.4 times the 100 minutes estimated at most
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
@@ -149,7 +149,8 @@ if ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE" && [ ! -f "$OUT/cf_human.jso
     box_mark "$BOX_STATE/CORPUS_DONE"
 fi
 
-# ---- the counterfactual readings; a source that fails is noted and the matches still run
+# ---- the counterfactual step: a source that fails is noted and the entry goes on. The
+# shards write next to cf_NAME.jsonl in OUT, so a cut leaves their rows for the upload.
 CF_FAILED=0                      # this entry's failed readings
 gpu_or_finish() {                # gpu_or_finish NAME: before step NAME, the GPU answers or the entry ends
     box_gpu_ok || box_finish "GPU_UNRESPONSIVE before $1: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
@@ -161,8 +162,8 @@ counterfactual() {               # counterfactual NAME ARGS...: one source's row
     gpu_or_finish "counterfactual $name"
     box_bounded "counterfactual $name" "$CF_CUT_MIN" "cf_$name.log" \
         python tools/analysis/memory_counterfactual.py --checkpoint "$REF" --slots "$SLOTS" \
-        --offset "$EO" --procs "$CF_PROCS" --device cuda --out "$WORKDIR/cf_$name.jsonl" "$@"
-    if [ "$BOX_RC" -eq 0 ] && mv -f "$WORKDIR/cf_$name.jsonl" "$OUT/cf_$name.jsonl"; then
+        --offset "$EO" --procs "$CF_PROCS" --device cuda --out "$OUT/cf_$name.jsonl" "$@"
+    if [ "$BOX_RC" -eq 0 ] && [ -f "$OUT/cf_$name.jsonl" ]; then
         echo "counterfactual $name: $(wc -l < "$OUT/cf_$name.jsonl") rows"
     else
         echo "COUNTERFACTUAL_FAILED $name: rc=$BOX_RC $BOX_WHY (cf_$name.log)" | tee -a "$OUT/failures.txt"
@@ -170,10 +171,6 @@ counterfactual() {               # counterfactual NAME ARGS...: one source's row
     fi
     box_upload_async
 }
-counterfactual own --games "$PASS2_DIR/games_arm64_vs_arm0" --player arm64
-counterfactual other --games "$PASS2_DIR/games_arm64_vs_arm0" --player arm0
-counterfactual human --corpus "$CORPUS" --holdout
-
 # ---- the matches
 match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...: one attempt, resumed in its directory, then its fit
     local name="$1" games="$2" sb="$3" extra="$4" dir="$OUT/games_$1" t0 f
@@ -260,6 +257,11 @@ play m1_mem64_vs_mem0_eo2 "$MATCH_SEED_BASE" \
 play m2_eo2_vs_eo15 $(( MATCH_SEED_BASE + 1000 )) \
     --label-a mem0eo2 --spec-a "$REF" --memory-a 0 --raw-end-turn-offset-a -2.0 \
     --label-b mem0eo15 --spec-b "$REF" --memory-b 0 --raw-end-turn-offset-b "$EO"
+# ---- the counterfactual readings, after the matches, whose length is known
+counterfactual own --games "$PASS2_DIR/games_arm64_vs_arm0" --player arm64
+counterfactual other --games "$PASS2_DIR/games_arm64_vs_arm0" --player arm0
+counterfactual human --corpus "$CORPUS" --holdout
+
 box_on_round
 [ "$MATCHES_FAILED" -eq 0 ] && [ "$CF_FAILED" -eq 0 ] \
     || box_finish "MEMORY_IN_PLAY_FAILED $(notes): $MATCHES_FAILED matches failed, $CF_FAILED readings failed (match.walls, failures.txt)" 1
