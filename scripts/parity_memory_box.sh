@@ -19,6 +19,11 @@
 #     3. the arm at 16 against the arm at 0 (82000): the curve's shape;
 #     4. obs8 against itself (83000): the self-pin.
 #   A match is read only once it holds its decisive games.
+# With INIT_FROM (an HF path) the pass starts from that checkpoint's weights
+# and optimizer state, with no warm-up, instead of from scratch (a second
+# pass); with DECAY_FROM the learning rate falls linearly to 0 over the end
+# of the pass, and the checkpoint where it starts falling goes up as
+# arm.stable.pt (tools/sequence_train.py).
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md):
 # the onstart of scripts/rent_box.py fetches the library of STAGE, then
@@ -43,6 +48,8 @@ SEQ=$WORKDIR/sequences
 STAGE="${STAGE:-}"
 RAW_TAR="${RAW_TAR:-tier-b/corpus_v3/raw_corpus_20260929.tar}"
 RUN_SEED="${RUN_SEED:-20260929}"
+INIT_FROM="${INIT_FROM:-}"                       # an HF path: the pass starts from that checkpoint
+DECAY_FROM="${DECAY_FROM:-}"                     # the fraction of the pass after which the learning rate falls to 0
 WORKERS="${WORKERS:-}"                           # default: box_workers (cores, memory-bounded), after box_init
 GAMES="${GAMES:-800}"
 JOBS="${JOBS:-20}"
@@ -64,6 +71,7 @@ BOX_OUT=$OUT
 CORPUS=replays_dataset_imitation
 CKPT="$OUT/arm.pt"
 ARM=training/checkpoints/parity_memory.pt
+INIT_PT=$WORKDIR/init_from.pt                    # outside OUT: it does not go up again
 
 decisive_results() {             # decisive_results DIR: the games in DIR that ended in a win or a loss
     timeout 2m python - "$1" <<'EOF'
@@ -212,12 +220,29 @@ fi
 # non-finite steps. The pass is done when this entry's attempt exits 0 having logged
 # SEQUENCE_TRAIN_DONE.
 train_attempt() {                # train_attempt MINUTES: the pass, continuing arm.pt when present; sets BOX_RC, BOX_WHY
-    local resume=()
-    [ -f "$CKPT" ] && resume=(--resume)
+    local start=() schedule=()
+    if [ -f "$CKPT" ]; then
+        start=(--resume)
+    elif [ -n "$INIT_FROM" ]; then
+        start=(--init-from "$INIT_PT")
+    fi
+    [ -z "$INIT_FROM" ] || schedule+=(--warmup-steps 0)
+    [ -z "$DECAY_FROM" ] || schedule+=(--decay-from "$DECAY_FROM")
     box_bounded --stall "$OUT/train.log" "$TRAIN_STALL_MIN" train "$1" train.log \
         python tools/sequence_train.py --sequences "$SEQ" --dataset "$CORPUS" --out "$CKPT" \
-        --seed "$RUN_SEED" --device cuda ${resume[@]+"${resume[@]}"}
+        --seed "$RUN_SEED" --device cuda ${start[@]+"${start[@]}"} ${schedule[@]+"${schedule[@]}"}
 }
+if [ -n "$INIT_FROM" ] && [ ! -f "$OUT/DONE" ] && [ ! -f "$CKPT" ] && [ ! -f "$INIT_PT" ]; then
+    box_bounded init-from 30 staging.log python - "$INIT_FROM" "$INIT_PT" <<'EOF' \
+        || box_finish "INIT_FROM_MISSING rc=$BOX_RC (staging.log)" 1
+import os, shutil, sys
+from huggingface_hub import hf_hub_download
+tmp = sys.argv[2] + ".tmp"
+shutil.copyfile(hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1]), tmp)
+os.replace(tmp, sys.argv[2])
+print("the pass starts from", sys.argv[1], flush=True)
+EOF
+fi
 train_verdict() {                # after an attempt: stop on the pass's own verdicts
     [ "$BOX_RC" -ne 3 ] || box_finish "MEMORY_BARRIER_FAILED (train.log, arm.probe.jsonl) $(notes)" 1
     [ "$BOX_RC" -ne 5 ] || box_finish "NONFINITE_TRAINING (train.log) $(notes)" 1

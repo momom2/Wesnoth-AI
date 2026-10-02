@@ -254,6 +254,9 @@ hidden enemy units whose hex has no token.
   al., "On the SDEs and Scaling Rules for Adaptive Gradient Algorithms",
   NeurIPS 2022), with a 300-step linear warm-up; constant for the pass, as
   `obs8`'s first epoch was. One pass. Gradient clip 1.0.
+  A further pass starts from a finished one's weights and optimizer
+  (`--init-from`), and `--decay-from` ends a pass with a linear cooldown
+  to 0 (the second pass, docs/parity_memory_prereg_20260929.md "Pass 2").
 - **Holdout probe:** holdout game-sides run whole, in order, at `k` = 0,
   16 and 64: policy CE on winners' decisions, per-game value AUC, the belief
   loss, and the belief loss of a last-seen baseline (the probability that a

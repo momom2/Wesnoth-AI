@@ -30,6 +30,15 @@ position exits 4. A checkpoint every
 `--checkpoint-every` positions holds the schedule, each slot's carried
 memory and the optimizer, so `--resume` continues the pass exactly.
 
+`--init-from CKPT` starts a new pass from another pass's weights and
+optimizer state (the same encoding, streams, window and architecture),
+on a schedule of this run's seed. `--decay-from F` holds the learning
+rate until the fraction F of the pass, then lowers it linearly to 0 at
+the pass's end (the cooldown of a warmup-stable-decay schedule, Hagele et
+al., "Scaling Laws and Compute-Optimal Training Beyond Fixed Training
+Durations", 2024); the checkpoint where the cooldown starts is kept as
+`<out>.stable.pt`, from which a further pass can start.
+
     python tools/sequence_train.py --sequences replays_dataset_sequences \\
         --dataset replays_dataset_imitation --out training/checkpoints/parity_memory.pt
 """
@@ -39,6 +48,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -164,6 +174,18 @@ def build_modules(unit_type_to_id: Dict[str, int], faction_to_id: Dict[str, int]
     return encoder, model
 
 
+def lr_factor(positions: int, total: int, decay_from: Optional[float]) -> float:
+    """The learning rate's multiplier at `positions` of a pass of `total`:
+    1, then from the fraction `decay_from` of the pass falling linearly to
+    0 at its end."""
+    if decay_from is None:
+        return 1.0
+    start = decay_from * total
+    if positions < start:
+        return 1.0
+    return max(0.0, (total - positions) / max(1.0, total - start))
+
+
 def save_checkpoint(path: Path, encoder, model, opt, state: Dict, schedule: StreamSchedule,
                     memories: Dict[int, torch.Tensor], meta: Dict, arch: Dict[str, int]) -> None:
     """Atomic: a temporary file, then a rename. Loadable by the policy
@@ -225,7 +247,7 @@ class Trainer:
         self.meta = {"seed": args.seed, "streams": args.streams, "window": args.window, "lr": args.lr,
                      "warmup_steps": args.warmup_steps, "sequences": str(args.sequences),
                      "fingerprint": man["fingerprint"], "value_weight": self.value_weight,
-                     "arch": dict(self.arch)}
+                     "arch": dict(self.arch), "decay_from": args.decay_from, "init_from": None}
         self.head_shapes: Optional[Tuple[int, int, int]] = None
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
@@ -235,10 +257,11 @@ class Trainer:
     def resume(self, path: Path) -> None:
         ck = torch.load(path, map_location="cpu", weights_only=True)
         meta = ck.get("training_meta", {})
-        for key in ("seed", "streams", "window", "fingerprint", "arch"):
+        for key in ("seed", "streams", "window", "fingerprint", "arch", "decay_from"):
             if meta.get(key) != self.meta[key]:
                 raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
                                  f"{self.meta[key]!r}")
+        self.meta["init_from"] = meta.get("init_from")
         self.model.load_state_dict(ck["model_state"])
         self.encoder.load_state_dict(ck["encoder_state"])
         self.opt.load_state_dict(ck["optimizer_state"])
@@ -251,9 +274,34 @@ class Trainer:
             torch.cuda.set_rng_state_all(saved["rng"]["cuda"])
         log.info("resumed at %d positions, %d steps", self.state["positions"], self.state["steps"])
 
+    def init_from(self, path: Path) -> None:
+        """A new pass from `path`'s weights and optimizer state: the same
+        encoding (fingerprint), streams, window and architecture; this run's
+        schedule, carried memories and learning rate. A checkpoint whose
+        memory barrier failed starts nothing."""
+        ck = torch.load(path, map_location="cpu", weights_only=True)
+        meta = ck.get("training_meta", {})
+        for key in ("streams", "window", "fingerprint", "arch"):
+            if meta.get(key) != self.meta[key]:
+                raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
+                                 f"{self.meta[key]!r}")
+        state = ck.get("sequence_resume", {}).get("state", {})
+        if state.get("barrier_failed"):
+            raise SystemExit(f"{path} failed its memory barrier: no pass starts from it")
+        self.model.load_state_dict(ck["model_state"])
+        self.encoder.load_state_dict(ck["encoder_state"])
+        self.opt.load_state_dict(ck["optimizer_state"])
+        self.meta["init_from"] = {"path": str(path), "seed": meta.get("seed"),
+                                  "positions": int(state.get("positions", 0)), "steps": int(state.get("steps", 0)),
+                                  "init_from": meta.get("init_from")}
+        log.info("a new pass from %s, which trained %d positions in %d steps", path,
+                 self.meta["init_from"]["positions"], self.meta["init_from"]["steps"])
+
     # ---- one window -----------------------------------------------------
     def _lr_now(self) -> float:
-        return self.args.lr * min(1.0, (self.state["steps"] + 1) / max(1, self.args.warmup_steps))
+        warm = min(1.0, (self.state["steps"] + 1) / max(1, self.args.warmup_steps))
+        return self.args.lr * warm * lr_factor(self.state["positions"], self.schedule.total_positions,
+                                               self.args.decay_from)
 
     def _head_shapes(self, staged, mems) -> Tuple[int, int, int]:
         if self.head_shapes is None:
@@ -424,6 +472,23 @@ class Trainer:
         save_checkpoint(self.args.out, self.encoder, self.model, self.opt, self.state, self.schedule,
                         self.memories, self.meta, self.arch)
 
+    def _keep_stable(self) -> None:
+        """Once the cooldown starts, the checkpoint there is kept as
+        `<out>.stable.pt`: a further pass starts from the weights before
+        the cooldown."""
+        f = self.args.decay_from
+        if f is None or self.state.get("stable_saved") \
+                or self.state["positions"] < f * self.schedule.total_positions:
+            return
+        self.state["stable_saved"] = True
+        self.save()
+        stable = self.args.out.with_name(self.args.out.stem + ".stable.pt")
+        tmp = stable.with_suffix(stable.suffix + ".tmp")
+        shutil.copyfile(self.args.out, tmp)
+        os.replace(tmp, stable)
+        log.info("the cooldown starts at %d positions: the checkpoint is kept as %s",
+                 self.state["positions"], stable)
+
     def run(self) -> int:
         if self.state.get("barrier_failed"):
             log.error("MEMORY_BARRIER_FAILED earlier in this pass (the .probe.jsonl): no resume past it")
@@ -442,6 +507,7 @@ class Trainer:
             if time.time() - last_log >= self.args.log_seconds:
                 self._log(window_logs, t0)
                 window_logs, last_log = [], time.time()
+            self._keep_stable()
             if self.state["positions"] >= self.state["next_checkpoint"]:
                 self.state["next_checkpoint"] += self.args.checkpoint_every
                 self.save()
@@ -499,6 +565,11 @@ def parse_args(argv=None):
     ap.add_argument("--dataset", type=Path, required=True, help="the corpus directory with manifest.jsonl")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--resume", action="store_true", help="continue from --out")
+    ap.add_argument("--init-from", type=Path, default=None,
+                    help="start a new pass from this checkpoint's weights and optimizer state")
+    ap.add_argument("--decay-from", type=float, default=None,
+                    help="hold the learning rate until this fraction of the pass, then lower it linearly "
+                         "to 0 at its end; the checkpoint there is kept as <out>.stable.pt")
     ap.add_argument("--imitation-config", type=Path, default=Path("configs/imitation.json"))
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--fp32", action="store_true", help="no bfloat16 autocast on CUDA")
@@ -522,9 +593,15 @@ def main(argv=None) -> int:
     logging.basicConfig(level=getattr(logging, args.log_level),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     torch.manual_seed(args.seed)
+    if args.resume and args.init_from is not None:
+        raise SystemExit("--resume continues --out's own pass; --init-from starts a new one: not both")
+    if args.decay_from is not None and not 0.0 <= args.decay_from < 1.0:
+        raise SystemExit(f"--decay-from {args.decay_from}: a fraction of the pass, from 0 up to 1")
     trainer = Trainer(args, torch.device(args.device))
     if args.resume:
         trainer.resume(args.out)
+    elif args.init_from is not None:
+        trainer.init_from(args.init_from)
     return trainer.run()
 
 

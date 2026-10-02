@@ -167,3 +167,37 @@ the backward pass (about 1.3 times). The balance is checked before
 renting; every exit, clean or not, leaves `ALL_DONE` on HF and stops the
 instance. The raw corpus goes to HF first (`tools/stage_raw_corpus.py`,
 0.23 GiB).
+
+## Pass 2 (added 2026-10-02, before its box)
+
+The first pass (`tier-b/parity_memory_20261001`, 2026-10-01/02) trained
+every position once, in 7,900 steps of 512, and its recipe barrier
+failed: holdout policy CE at 0 slots 3.378 against `obs8`'s 3.162 on the
+same 80,831 decisions (+0.215 nat; bar 0.05). The CE was still falling,
+about 0.09 nat per million positions over the last 1.5 million (3.44 at
+2.5 million, 3.30 at 4.0 million), and its last probe sits above the one
+before it (a constant learning rate). The batch change, 512 correlated
+positions a step against `obs8`'s 64 shuffled ones, was named above as the
+recipe's risk. The first pass's four matches were played; this section is
+written before anyone reads them, and they are then read as the first
+pass's record.
+
+- **Arm:** a second pass from the first pass's final checkpoint
+  (`tier-b/parity_memory_20261001/arm.pt`), its weights and AdamW state
+  (`--init-from`): the same corpus, encoding (fingerprint `6ed96cf5`),
+  streams, window and losses; a new schedule seed (20261002); no warm-up;
+  learning rate 2.8e-4 for the first half of the pass, then falling
+  linearly to 0 at its end (`--decay-from 0.5`, the cooldown of a
+  warmup-stable-decay schedule, Hägele et al., "Scaling Laws and
+  Compute-Optimal Training Beyond Fixed Training Durations", 2024). The
+  checkpoint where the cooldown starts goes up as `arm.stable.pt`.
+- **Bars:** those of the first pass, unchanged (the memory barrier as
+  amended 2026-10-01).
+- **Prediction:** holdout CE at 0 slots 3.18 (3.10 to 3.25). Match 1:
+  p = 0.57 (0.47 to 0.66). Matches 2 to 4 as predicted for the first pass.
+- **Afterwards:** a pass that passes match 1 is the candidate reference,
+  pending the user's ruling. A third pass, from `arm.stable.pt`, is
+  proposed only if the CE still falls steeply at the cooldown's start and
+  match 1 does not pass.
+- **Cost:** about 6.5 box-hours on the first pass's box class, about $2.80;
+  `BOX_MAX_H` 12, `TRAIN_CUT_MIN` 600.

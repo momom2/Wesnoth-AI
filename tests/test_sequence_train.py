@@ -358,3 +358,57 @@ def test_the_memory_barrier_asks_whether_the_memory_remembers(carried, paired, p
     results = {"belief_carried": {"k": 64, "n_nonfinite": 0, **carried},
                "belief_paired": {"k": 64, "n_nonfinite": 0, **paired}}
     assert memory_barrier_passes(results) is passes
+
+
+def test_the_learning_rate_holds_then_falls_linearly_to_zero():
+    """The cooldown of a warmup-stable-decay schedule: the multiplier is 1
+    until `decay_from` of the pass, then falls linearly to 0 at its end."""
+    from tools.sequence_train import lr_factor
+    assert [lr_factor(p, 1000, 0.5) for p in (0, 499, 500, 750, 1000)] == [1.0, 1.0, 1.0, 0.5, 0.0]
+    assert lr_factor(900, 1000, None) == 1.0
+    assert lr_factor(1000, 1000, 0.0) == 0.0 and lr_factor(250, 1000, 0.0) == 0.75
+
+
+@pytest.mark.slow
+def test_a_second_pass_starts_from_the_first(tmp_path, pass_inputs):
+    """--init-from starts a new pass from a finished pass's weights and
+    optimizer state, on a schedule of its own seed; with --decay-from the
+    checkpoint where the cooldown starts is kept as <out>.stable.pt."""
+    from tools import sequence_train
+    common = [*pass_inputs, "--probe-every", "1000000", "--barrier-positions", "1000000"]
+    first, second = tmp_path / "first.pt", tmp_path / "second.pt"
+    assert sequence_train.main([*common, "--out", str(first)]) == 0
+    a = torch.load(first, map_location="cpu", weights_only=True)
+    pass2 = [*common, "--out", str(second), "--seed", "7", "--warmup-steps", "0", "--decay-from", "0.5"]
+    assert sequence_train.main([*pass2, "--init-from", str(first), "--max-positions", "0"]) == 0
+    b = torch.load(second, map_location="cpu", weights_only=True)
+    for key in ("model_state", "encoder_state"):
+        for name, tensor in a[key].items():
+            assert torch.equal(tensor, b[key][name]), name
+    assert torch.equal(a["optimizer_state"]["state"][0]["exp_avg"], b["optimizer_state"]["state"][0]["exp_avg"])
+    assert b["sequence_resume"]["state"]["positions"] == 0
+    assert b["training_meta"]["init_from"]["positions"] == a["sequence_resume"]["state"]["positions"] == 12
+    assert sequence_train.main([*pass2, "--resume"]) == 0
+    stable = torch.load(tmp_path / "second.stable.pt", map_location="cpu", weights_only=True)
+    end = torch.load(second, map_location="cpu", weights_only=True)
+    assert 6 <= stable["sequence_resume"]["state"]["positions"] < 12
+    assert end["sequence_resume"]["state"]["positions"] == 12
+    assert end["training_meta"]["init_from"]["path"] == str(first)
+
+
+@pytest.mark.slow
+def test_a_second_pass_refuses_what_it_cannot_continue(tmp_path, pass_inputs):
+    """Another architecture, a failed memory barrier, or --resume beside
+    --init-from: no pass starts."""
+    from tools import sequence_train
+    first, failed = tmp_path / "first.pt", tmp_path / "failed.pt"
+    quiet = [*pass_inputs, "--probe-every", "1000000", "--barrier-positions", "1000000"]
+    assert sequence_train.main([*quiet, "--out", str(first)]) == 0
+    with pytest.raises(SystemExit, match="arch"):
+        sequence_train.main([*quiet, "--out", str(tmp_path / "x.pt"), "--init-from", str(first), "--d-ff", "128"])
+    probed = [*pass_inputs, "--probe-every", "3", "--barrier-positions", "3"]
+    assert sequence_train.main([*probed, "--out", str(failed)]) == sequence_train.EXIT_MEMORY_BARRIER
+    with pytest.raises(SystemExit, match="memory barrier"):
+        sequence_train.main([*quiet, "--out", str(tmp_path / "y.pt"), "--init-from", str(failed)])
+    with pytest.raises(SystemExit):
+        sequence_train.main([*quiet, "--out", str(first), "--init-from", str(first), "--resume"])
