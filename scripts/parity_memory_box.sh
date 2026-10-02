@@ -14,10 +14,11 @@
 #     for the barrier "the recipe broke";
 #   four matches, PURE, both sides at the reference decode, the Ladder maps
 #     with factions drawn uniformly and assigned openly, 800 decisive games:
-#     1. the arm at 64 slots against obs8 (seed base 80000): the verdict;
-#     2. the arm at 64 against the arm at 0 (81000): the memory's share;
-#     3. the arm at 16 against the arm at 0 (82000): the curve's shape;
-#     4. obs8 against itself (83000): the self-pin.
+#     1. the arm at 64 slots against obs8 (seed base MATCH_SEED_BASE,
+#        80000 by default): the verdict;
+#     2. the arm at 64 against the arm at 0 (the base + 1000): the memory's share;
+#     3. the arm at 16 against the arm at 0 (+ 2000): the curve's shape;
+#     4. obs8 against itself (+ 3000): the self-pin.
 #   A match is read only once it holds its decisive games.
 # With INIT_FROM (an HF path) the pass starts from that checkpoint's weights
 # and optimizer state, with no warm-up, instead of from scratch (a second
@@ -50,6 +51,7 @@ RAW_TAR="${RAW_TAR:-tier-b/corpus_v3/raw_corpus_20260929.tar}"
 RUN_SEED="${RUN_SEED:-20260929}"
 INIT_FROM="${INIT_FROM:-}"                       # an HF path: the pass starts from that checkpoint
 DECAY_FROM="${DECAY_FROM:-}"                     # the fraction of the pass after which the learning rate falls to 0
+MATCH_SEED_BASE="${MATCH_SEED_BASE:-80000}"      # each run's matches take seeds no earlier match took
 WORKERS="${WORKERS:-}"                           # default: box_workers (cores, memory-bounded), after box_init
 GAMES="${GAMES:-800}"
 JOBS="${JOBS:-20}"
@@ -122,6 +124,19 @@ timeout 2m python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available()
     || box_finish "NO_CUDA (box.txt)" 1
 box_upload_async
 box_monitor_start
+
+# ---- the checkpoint a further pass starts from (INIT_FROM)
+if [ -n "$INIT_FROM" ] && [ ! -f "$OUT/DONE" ] && [ ! -f "$CKPT" ] && [ ! -f "$INIT_PT" ]; then
+    box_bounded init-from 30 staging.log python - "$INIT_FROM" "$INIT_PT" <<'EOF' \
+        || box_finish "INIT_FROM_MISSING rc=$BOX_RC (staging.log)" 1
+import os, shutil, sys
+from huggingface_hub import hf_hub_download
+tmp = sys.argv[2] + ".tmp"
+shutil.copyfile(hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1]), tmp)
+os.replace(tmp, sys.argv[2])
+print("the pass starts from", sys.argv[1], flush=True)
+EOF
+fi
 
 # ---- the crash barrier before the corpus: the recipe's tests on this wheel
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
@@ -232,17 +247,6 @@ train_attempt() {                # train_attempt MINUTES: the pass, continuing a
         python tools/sequence_train.py --sequences "$SEQ" --dataset "$CORPUS" --out "$CKPT" \
         --seed "$RUN_SEED" --device cuda ${start[@]+"${start[@]}"} ${schedule[@]+"${schedule[@]}"}
 }
-if [ -n "$INIT_FROM" ] && [ ! -f "$OUT/DONE" ] && [ ! -f "$CKPT" ] && [ ! -f "$INIT_PT" ]; then
-    box_bounded init-from 30 staging.log python - "$INIT_FROM" "$INIT_PT" <<'EOF' \
-        || box_finish "INIT_FROM_MISSING rc=$BOX_RC (staging.log)" 1
-import os, shutil, sys
-from huggingface_hub import hf_hub_download
-tmp = sys.argv[2] + ".tmp"
-shutil.copyfile(hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1]), tmp)
-os.replace(tmp, sys.argv[2])
-print("the pass starts from", sys.argv[1], flush=True)
-EOF
-fi
 train_verdict() {                # after an attempt: stop on the pass's own verdicts
     [ "$BOX_RC" -ne 3 ] || box_finish "MEMORY_BARRIER_FAILED (train.log, arm.probe.jsonl) $(notes)" 1
     [ "$BOX_RC" -ne 5 ] || box_finish "NONFINITE_TRAINING (train.log) $(notes)" 1
@@ -393,12 +397,12 @@ for name in $MATCHES; do                 # a match's games come back as the tarb
 done
 mkdir -p training/checkpoints
 cp "$CKPT" "$ARM" || box_finish "ARM_COPY_FAILED ($CKPT)" 1
-play arm64_vs_obs8 80000 --label-a arm64 --spec-a "$ARM" --memory-a 64 --raw-end-turn-offset-a "$EO" "${REF_B[@]}"
-play arm64_vs_arm0 81000 --label-a arm64 --spec-a "$ARM" --memory-a 64 --raw-end-turn-offset-a "$EO" \
+play arm64_vs_obs8 "$MATCH_SEED_BASE" --label-a arm64 --spec-a "$ARM" --memory-a 64 --raw-end-turn-offset-a "$EO" "${REF_B[@]}"
+play arm64_vs_arm0 $(( MATCH_SEED_BASE + 1000 )) --label-a arm64 --spec-a "$ARM" --memory-a 64 --raw-end-turn-offset-a "$EO" \
     --label-b arm0 --spec-b "$ARM" --memory-b 0 --raw-end-turn-offset-b "$EO"
-play arm16_vs_arm0 82000 --label-a arm16 --spec-a "$ARM" --memory-a 16 --raw-end-turn-offset-a "$EO" \
+play arm16_vs_arm0 $(( MATCH_SEED_BASE + 2000 )) --label-a arm16 --spec-a "$ARM" --memory-a 16 --raw-end-turn-offset-a "$EO" \
     --label-b arm0 --spec-b "$ARM" --memory-b 0 --raw-end-turn-offset-b "$EO"
-play obs8a_vs_obs8b 83000 "${REF_A[@]/#obs8/obs8a}" "${REF_B[@]/#obs8/obs8b}"
+play obs8a_vs_obs8b $(( MATCH_SEED_BASE + 3000 )) "${REF_A[@]/#obs8/obs8a}" "${REF_B[@]/#obs8/obs8b}"
 box_on_round
 [ "$MATCHES_FAILED" -eq 0 ] \
     || box_finish "PARITY_MEMORY_MATCHES_FAILED $(notes) $MATCHES_FAILED failed, $MATCHES_CUT cut (match.walls)" 1

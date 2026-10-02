@@ -48,7 +48,6 @@ import argparse
 import json
 import logging
 import os
-import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -235,8 +234,7 @@ class Trainer:
         self.state = {"positions": 0, "steps": 0, "windows": 0, "next_probe": args.probe_every,
                       "barrier_done": False, "next_checkpoint": args.checkpoint_every,
                       "next_signal": args.signal_every}
-        self.signal = GradientProbe(named_model_parameters(self.model, self.encoder),
-                                    sequence_signal_group, SIGNAL_GROUPS, self.opt)
+        self.signal = self._signal_probe()
         self.rates: Optional[Tuple[float, float]] = None
         self.start_positions = 0                 # where this process's run began (the logged rate)
         self.autocast = torch.bfloat16 if (device.type == "cuda" and not args.fp32) else None
@@ -253,6 +251,12 @@ class Trainer:
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
                  args.streams, args.window)
 
+    def _signal_probe(self) -> GradientProbe:
+        """The telemetry over the optimizer's current param groups (built
+        again whenever its state is loaded, which replaces them)."""
+        return GradientProbe(named_model_parameters(self.model, self.encoder),
+                             sequence_signal_group, SIGNAL_GROUPS, self.opt)
+
     # ---- resume ---------------------------------------------------------
     def resume(self, path: Path) -> None:
         ck = torch.load(path, map_location="cpu", weights_only=True)
@@ -265,6 +269,7 @@ class Trainer:
         self.model.load_state_dict(ck["model_state"])
         self.encoder.load_state_dict(ck["encoder_state"])
         self.opt.load_state_dict(ck["optimizer_state"])
+        self.signal = self._signal_probe()
         saved = ck["sequence_resume"]
         self.state.update(saved["state"])
         self.schedule.load_state_dict(saved["schedule"])
@@ -291,6 +296,7 @@ class Trainer:
         self.model.load_state_dict(ck["model_state"])
         self.encoder.load_state_dict(ck["encoder_state"])
         self.opt.load_state_dict(ck["optimizer_state"])
+        self.signal = self._signal_probe()
         self.meta["init_from"] = {"path": str(path), "seed": meta.get("seed"),
                                   "positions": int(state.get("positions", 0)), "steps": int(state.get("steps", 0)),
                                   "init_from": meta.get("init_from")}
@@ -481,11 +487,10 @@ class Trainer:
                 or self.state["positions"] < f * self.schedule.total_positions:
             return
         self.state["stable_saved"] = True
-        self.save()
         stable = self.args.out.with_name(self.args.out.stem + ".stable.pt")
-        tmp = stable.with_suffix(stable.suffix + ".tmp")
-        shutil.copyfile(self.args.out, tmp)
-        os.replace(tmp, stable)
+        save_checkpoint(stable, self.encoder, self.model, self.opt, self.state, self.schedule,
+                        self.memories, self.meta, self.arch)
+        self.save()                              # the flag only once the stable file exists
         log.info("the cooldown starts at %d positions: the checkpoint is kept as %s",
                  self.state["positions"], stable)
 

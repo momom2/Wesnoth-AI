@@ -369,13 +369,25 @@ def test_the_learning_rate_holds_then_falls_linearly_to_zero():
     assert lr_factor(1000, 1000, 0.0) == 0.0 and lr_factor(250, 1000, 0.0) == 0.75
 
 
+def _one_position_steps(pass_inputs):
+    """The tiny pass in steps of one position (one stream, a window of 1):
+    twelve steps, so a cooldown over its second half is visible."""
+    args = list(pass_inputs)
+    for flag, value in (("--streams", "1"), ("--window", "1")):
+        args[args.index(flag) + 1] = value
+    return [*args, "--probe-every", "1000000", "--barrier-positions", "1000000"]
+
+
 @pytest.mark.slow
 def test_a_second_pass_starts_from_the_first(tmp_path, pass_inputs):
     """--init-from starts a new pass from a finished pass's weights and
     optimizer state, on a schedule of its own seed; with --decay-from the
-    checkpoint where the cooldown starts is kept as <out>.stable.pt."""
+    learning rate ends below its peak, and the checkpoint where the cooldown
+    starts is kept as <out>.stable.pt, written once: a resume past it keeps
+    it as it was."""
+    import hashlib
     from tools import sequence_train
-    common = [*pass_inputs, "--probe-every", "1000000", "--barrier-positions", "1000000"]
+    common = _one_position_steps(pass_inputs)
     first, second = tmp_path / "first.pt", tmp_path / "second.pt"
     assert sequence_train.main([*common, "--out", str(first)]) == 0
     a = torch.load(first, map_location="cpu", weights_only=True)
@@ -388,12 +400,43 @@ def test_a_second_pass_starts_from_the_first(tmp_path, pass_inputs):
     assert torch.equal(a["optimizer_state"]["state"][0]["exp_avg"], b["optimizer_state"]["state"][0]["exp_avg"])
     assert b["sequence_resume"]["state"]["positions"] == 0
     assert b["training_meta"]["init_from"]["positions"] == a["sequence_resume"]["state"]["positions"] == 12
+    assert sequence_train.main([*pass2, "--resume", "--max-positions", "9"]) == 0
+    stable = tmp_path / "second.stable.pt"
+    before = hashlib.sha256(stable.read_bytes()).hexdigest()
+    assert 6 <= torch.load(stable, map_location="cpu", weights_only=True)["sequence_resume"]["state"]["positions"] < 9
     assert sequence_train.main([*pass2, "--resume"]) == 0
-    stable = torch.load(tmp_path / "second.stable.pt", map_location="cpu", weights_only=True)
+    assert hashlib.sha256(stable.read_bytes()).hexdigest() == before, "written once, at the cooldown's start"
     end = torch.load(second, map_location="cpu", weights_only=True)
-    assert 6 <= stable["sequence_resume"]["state"]["positions"] < 12
     assert end["sequence_resume"]["state"]["positions"] == 12
     assert end["training_meta"]["init_from"]["path"] == str(first)
+    assert 0.0 < end["optimizer_state"]["param_groups"][0]["lr"] < 2.8e-4, "the rate cooled down"
+
+
+@pytest.mark.slow
+def test_a_crash_while_keeping_the_stable_checkpoint_is_repaired_on_resume(tmp_path, pass_inputs, monkeypatch):
+    """The stable file is written before the pass records it as kept: a pass
+    killed while writing it rewrites it when resumed."""
+    from tools import sequence_train
+    common = _one_position_steps(pass_inputs)
+    first, second = tmp_path / "first.pt", tmp_path / "second.pt"
+    assert sequence_train.main([*common, "--out", str(first)]) == 0
+    pass2 = [*common, "--out", str(second), "--seed", "7", "--warmup-steps", "0", "--decay-from", "0.5",
+             "--checkpoint-every", "1"]
+    real = sequence_train.save_checkpoint
+
+    def killed_on_the_stable_file(path, *rest):
+        if str(path).endswith(".stable.pt"):
+            raise OSError("the disk went away")
+        return real(path, *rest)
+
+    monkeypatch.setattr(sequence_train, "save_checkpoint", killed_on_the_stable_file)
+    with pytest.raises(OSError):
+        sequence_train.main([*pass2, "--init-from", str(first)])
+    monkeypatch.setattr(sequence_train, "save_checkpoint", real)
+    assert not (tmp_path / "second.stable.pt").exists()
+    assert sequence_train.main([*pass2, "--resume"]) == 0
+    stable = torch.load(tmp_path / "second.stable.pt", map_location="cpu", weights_only=True)
+    assert 6 <= stable["sequence_resume"]["state"]["positions"] < 12
 
 
 @pytest.mark.slow

@@ -320,3 +320,10 @@ the training data or can lose the run):
   0, 16 and 64).
 - `core_certify_box.sh`'s header still says the parity columns have no
   second builder; the sighting stream has one since round 3.
+- A re-entry of a further pass that lost its rental's settings
+  (`INIT_FROM`, `DECAY_FROM`, `RUN_SEED`) before its first checkpoint
+  reached HF would train from scratch under the further pass's folder;
+  the settings could be recorded on HF at the first entry and checked at
+  each. Today such an entry also loses `HF_DIR` and `STAGE`, whose
+  defaults name the first retrain's folder and another stage, so it is
+  refused.

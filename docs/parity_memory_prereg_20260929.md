@@ -192,7 +192,9 @@ pass's record.
   Compute-Optimal Training Beyond Fixed Training Durations", 2024). The
   checkpoint where the cooldown starts goes up as `arm.stable.pt`.
 - **Bars:** those of the first pass, unchanged (the memory barrier as
-  amended 2026-10-01).
+  amended 2026-10-01). The four matches take seed bases 84000 to 87000
+  (`MATCH_SEED_BASE` 84000), disjoint from every earlier match (the first
+  pass took 80000 to 83000).
 - **Prediction:** holdout CE at 0 slots 3.18 (3.10 to 3.25). Match 1:
   p = 0.57 (0.47 to 0.66). Matches 2 to 4 as predicted for the first pass.
 - **Afterwards:** a pass that passes match 1 is the candidate reference,
