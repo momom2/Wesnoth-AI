@@ -222,3 +222,31 @@ pass's record.
   match 1 does not pass.
 - **Cost:** about 6.5 box-hours on the first pass's box class, about $2.80;
   `BOX_MAX_H` 12, `TRAIN_CUT_MIN` 600.
+
+## Measured, pass 2 (2026-10-02)
+
+`tier-b/parity_memory_pass2_20261002`, stage `stage_20261002b_pass2`
+(61384db), from the first pass's final checkpoint: 4,035,728 positions in
+7,901 steps, the cooldown from 2,018,304 positions (`arm.stable.pt`),
+about 6.9 box-hours and $2.90.
+
+- **Memory barrier:** carried against reset -12.8 standard errors at
+  500,000 positions; -16.3 at the end, 64 slots against 0 slots -6.2.
+- **Recipe barrier:** holdout CE at 0 slots 2.935 against `obs8`'s 3.162
+  (-0.227 nat), within; 2.852 at 64 slots. Predicted 3.18 (3.10 to 3.25):
+  the cooldown took the CE from 3.205 to 2.935, far more than predicted.
+  Value AUC 0.773 at 64 slots.
+- **Matches,** 800 decisive games each, PURE:
+
+| match | result | predicted |
+|---|---|---|
+| 1. arm at 64 slots against `obs8` | +191 +- 14 Elo (p about 0.75): **pass** | p 0.57 (0.47 to 0.66) |
+| 2. arm at 64 against arm at 0 | -37 +- 12 Elo (p about 0.45) | p 0.54 (0.47 to 0.62) |
+| 3. arm at 16 against arm at 0 | -30 +- 12 Elo (p about 0.46) | p 0.52 (0.47 to 0.58) |
+| 4. `obs8` against itself | side B +8 +- 12 Elo, within two standard errors | within two standard errors |
+
+The second pass's checkpoint is the candidate reference, pending the
+user's ruling. In play the memory costs 30 to 37 Elo although it lowers
+the holdout CE at every probe; the same checkpoint at 0 slots is the
+stronger player, by transitivity about +228 over `obs8` (not measured
+directly).
