@@ -46,6 +46,10 @@ VALUE_V_MAX   = +1.0
 
 # Token-kind tags added to every stream so the transformer can tell
 # "this is a hex" from "this is a recruit" during self-attention.
+# COUNT rows are the token-kind table of every model; the parity-memory
+# recipe's two streams (docs/parity_memory_design_20260929.md) add rows
+# SIGHTING and MEMORY, up to COUNT_EXTENDED, in a model built with
+# `observation_parity` or memory slots.
 class TokenKind:
     HEX      = 0
     UNIT     = 1
@@ -53,6 +57,9 @@ class TokenKind:
     GLOBAL   = 3
     END_TURN = 4
     COUNT    = 5
+    SIGHTING = 5    # an enemy unit seen during the enemy's last turn, not visible now
+    MEMORY   = 6    # one active slot of the side's learned memory
+    COUNT_EXTENDED = 7
 
 
 # Mutually-exclusive categorization for ACTOR tokens. Sampler uses this
@@ -178,6 +185,14 @@ class ModelOutput:
     # unpacks them instead of reading the logits (which the server
     # then ships as placeholders).
     legal_compact: Optional[object] = None
+    # The parity-memory recipe (docs/parity_memory_design_20260929.md):
+    # one logit per hex token, in the hex stream's order (hex_positions),
+    # that an enemy unit the side cannot see stands there (a model built
+    # with `observation_parity`); and the side's memory after this
+    # decision, float32, one row per active slot (a model with memory
+    # slots). None otherwise.
+    belief_logits: Optional[torch.Tensor] = None  # [1, H] or None
+    memory:        Optional[torch.Tensor] = None  # [k, d] float32 or None
 
     # Diagnostic: marginal-over-actors probability of each action
     # type. Layout [1, T+2]:
@@ -222,13 +237,29 @@ class PaddedOutput:
     unit_ctx: Optional[torch.Tensor] = None
     hex_ctx: Optional[torch.Tensor] = None
     global_ctx: Optional[torch.Tensor] = None
+    # [B, H_max]: one logit per hex slot (ModelOutput.belief_logits);
+    # padded slots hold finite values no consumer reads.
+    belief_logits: Optional[torch.Tensor] = None
+    # The new memory, float32 [B, K_max, d], and each sample's slot count:
+    # rows past a sample's count hold no state. `memory` lists the states.
+    memory_padded: Optional[torch.Tensor] = None
+    memory_counts: Optional[List[int]] = None
 
     _TENSOR_FIELDS = ("actor_logits", "type_logits", "target_logits", "weapon_logits",
                       "value", "value_logits", "cliffness", "aux_score", "moves_left",
-                      "unit_ctx", "hex_ctx", "global_ctx")
+                      "unit_ctx", "hex_ctx", "global_ctx", "belief_logits", "memory_padded")
+    _PLAIN_FIELDS = ("actor_kind", "sizes", "memory_counts")
+
+    @property
+    def memory(self) -> Optional[List[torch.Tensor]]:
+        """The new memory per sample, float32 [k_b, d] views
+        (ModelOutput.memory); None for a model without memory."""
+        if self.memory_padded is None:
+            return None
+        return [self.memory_padded[b, :k] for b, k in enumerate(self.memory_counts)]
 
     def to_cpu(self) -> "PaddedOutput":
-        kw = {f: getattr(self, f) for f in ("actor_kind", "sizes")}
+        kw = {f: getattr(self, f) for f in self._PLAIN_FIELDS}
         for f in self._TENSOR_FIELDS:
             v = getattr(self, f)
             kw[f] = v.cpu() if v is not None else None
@@ -236,8 +267,8 @@ class PaddedOutput:
 
     def float32(self) -> "PaddedOutput":
         """Cast bf16 autocast outputs back to float32 (numpy consumers
-        never see bf16, as in `forward`)."""
-        kw = {f: getattr(self, f) for f in ("actor_kind", "sizes")}
+        never see bf16, as in `forward`). The memory is float32 already."""
+        kw = {f: getattr(self, f) for f in self._PLAIN_FIELDS}
         for f in self._TENSOR_FIELDS:
             v = getattr(self, f)
             kw[f] = (v.float() if v is not None and v.dtype == torch.bfloat16 else v)
@@ -260,7 +291,11 @@ class PaddedOutput:
             moves_left=self.moves_left[b:b + 1] if self.moves_left is not None else None,
             unit_ctx=self.unit_ctx[b:b + 1, :U_b] if self.unit_ctx is not None else None,
             hex_ctx=self.hex_ctx[b:b + 1, :H_b] if self.hex_ctx is not None else None,
-            global_ctx=self.global_ctx[b:b + 1] if self.global_ctx is not None else None)
+            global_ctx=self.global_ctx[b:b + 1] if self.global_ctx is not None else None,
+            belief_logits=(self.belief_logits[b:b + 1, :H_b]
+                           if self.belief_logits is not None else None),
+            memory=(self.memory_padded[b, :self.memory_counts[b]]
+                    if self.memory_padded is not None else None))
 
     def samples(self) -> List[ModelOutput]:
         return [self.sample(b) for b in range(len(self.sizes))]

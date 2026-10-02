@@ -38,7 +38,6 @@ from another checkpoint's weights.
 from __future__ import annotations
 
 import argparse
-import copy
 import gc
 import gzip
 import json
@@ -63,7 +62,9 @@ from tools.signal_telemetry import (
     IMITATION_PROBE_PAIRS, IMITATION_SIGNAL_EVERY, ImitationSignal, check_signal_cadence,
 )
 from tools.unit_vocab import seed_vocab
+from wesnoth_ai.checkpoint_structure import checkpoint_structure
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
+from wesnoth_ai.game_core import snapshot_view
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.model import WesnothModel
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
@@ -192,6 +193,9 @@ def _save_checkpoint(
         # The hex terrain view (encoder.terrain_tokens), read back by
         # the policy loader and the eval entry points like the basis.
         "terrain_multi_hot": bool(terrain_multi_hot),
+        # The parity-memory recipe's keys, read off the modules
+        # (wesnoth_ai/checkpoint_structure.py).
+        **checkpoint_structure(model, encoder),
         "training_meta":   dict(training_meta or {}),
         "model_state":     model.state_dict(),
         "encoder_state":   encoder.state_dict(),
@@ -345,23 +349,25 @@ def _pair_stream_serial(
         n = 0
         try:
             if rng is not None and max_pairs_per_replay:
-                # iter_replay_pairs yields ONE GameState object,
-                # mutated in place as the replay advances -- buffered
-                # entries MUST be deepcopied or the whole reservoir
-                # collapses onto the final state (caught 2026-08-25:
-                # every sampled game read as one-sided, n_auc_games
-                # 0/150).
+                # On the Python applier iter_replay_pairs yields ONE
+                # GameState object, mutated in place as the replay
+                # advances -- buffered entries MUST be copied or the
+                # whole reservoir collapses onto the final state (caught
+                # 2026-08-25: every sampled game read as one-sided,
+                # n_auc_games 0/150). snapshot_view copies a core's view
+                # as a view of a fork, which the encoder encodes through
+                # the core.
                 buf: List[Tuple] = []
                 seen = 0
                 for state, ai in iter_replay_pairs(
                         gz, relevant_set=relevant_set):
                     seen += 1
                     if len(buf) < max_pairs_per_replay:
-                        buf.append((copy.deepcopy(state), ai))
+                        buf.append((snapshot_view(state), ai))
                     else:
                         j = rng.randrange(seen)
                         if j < max_pairs_per_replay:
-                            buf[j] = (copy.deepcopy(state), ai)
+                            buf[j] = (snapshot_view(state), ai)
                 for state, ai in buf:
                     n += 1
                     yield ("pair", state, ai, gz.name)
@@ -1500,8 +1506,7 @@ def _evaluate(
     out["target_off_subset"] = off_subset
     out["mask_errors"] = mask_errors
     # Value discrimination: P(E[V]_winner-to-move > E[V]_loser-to-
-    # move) over holdout states -- the same AUC probe_value_head
-    # reports, cheap enough to ride every eval so trunk-drift damage
+    # move) over holdout states, cheap enough to ride every eval so trunk-drift damage
     # (epoch-0 lesson: late AUC 0.79 -> 0.63) shows up in the CURVE.
     def _auc(w, ls):
         wins = sum(1 for a in w for b in ls if a > b)
@@ -1601,14 +1606,14 @@ def train(
     log_every: int   = 100,
     ckpt_every: int  = 2000,        # steps between periodic checkpoints
     gc_every_files:  int = 16,      # gc.collect() this often (replay files)
-    max_replay_commands: int = 1500,    # skip a replay file if it exceeds
+    max_replay_commands: int = 0,    # skip a replay file if it exceeds
     max_starting_units:  int = 0,       # 0 = no cap (TSG ships with ~24
                                         #     statues for recruit-hex
                                         #     mechanics — legit)
     max_pairs_per_replay: int = 0,      # 0 = no cap (every replay
                                         #     weighted equally)
     device_str: str  = "cpu",
-    competitive_only: bool = True,
+    competitive_only: bool = False,
     resume: Optional[Path] = None,
     workers: int     = 0,            # >0 = prefetch encode_raw in N
                                      # subprocesses
@@ -1726,7 +1731,7 @@ def train(
         ckpt_src = None
     if ckpt_src is not None:
         ckpt = torch.load(ckpt_src, map_location="cpu",
-                          weights_only=False)
+                          weights_only=True)
         saved_arch = ckpt.get("arch") or {}
         ours = {"d_model": d_model, "num_layers": num_layers,
                 "num_heads": num_heads, "d_ff": d_ff}
@@ -2760,16 +2765,19 @@ def main(argv: List[str]) -> int:
                     help="Checkpoint every N gradient steps.")
     ap.add_argument("--log-every", type=int, default=100)
     ap.add_argument("--device", type=str, default="cpu")
+    ap.add_argument("--competitive-only", action="store_true",
+                    help="Keep only replays index.jsonl names as competitive 2p games "
+                         "(a corpus without index.jsonl, the imitation corpus, is kept whole).")
     ap.add_argument("--all-scenarios", action="store_true",
-                    help="Skip the competitive-2p scenario filter.")
+                    help="The default; kept so older command lines run.")
     ap.add_argument("--resume", type=Path, default=None,
                     help="Checkpoint to resume from (model, encoder, optimizer "
                          "and where its pass stands): the run continues the "
                          "pass the checkpoint was cut from.")
-    ap.add_argument("--max-replay-commands", type=int, default=1500,
-                    help="Skip replays with > this many commands "
-                         "(catches the 4 corpus outliers at 2000+ that "
-                         "drove RAM use to 65%% on the first overnight).")
+    ap.add_argument("--max-replay-commands", type=int, default=0,
+                    help="Skip replays with > this many commands, read from index.jsonl "
+                         "(0 = no cap; 1500 caught the 4 outliers at 2000+ that drove RAM "
+                         "use to 65%% on the first overnight).")
     ap.add_argument("--max-starting-units", type=int, default=0,
                     help="Skip replays with > this many starting units "
                          "(0 = no cap; some legit maps like Thousand "
@@ -2932,7 +2940,7 @@ def main(argv: List[str]) -> int:
         max_starting_units=args.max_starting_units,
         max_pairs_per_replay=args.max_pairs_per_replay,
         device_str=args.device,
-        competitive_only=not args.all_scenarios,
+        competitive_only=args.competitive_only,
         resume=args.resume,
         workers=args.workers,
         prefetch_factor=args.prefetch_factor,

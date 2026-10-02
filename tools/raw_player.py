@@ -20,12 +20,13 @@ player "raw:t<temperature>"; the legacy sampler stays "raw".
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch
 
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
+from wesnoth_ai.memory import MemoryState
 
 
 END_TURN_RULES = ("joint", "actor")
@@ -100,7 +101,7 @@ class RawPolicyPlayer:
     def __init__(self, base, temperature: float,
                  seed: Optional[int] = None, forbid_end_turn: bool = False,
                  compact_selection: bool = True, end_turn_rule: str = "joint",
-                 end_turn_offset: float = 0.0):
+                 end_turn_offset: float = 0.0, memory_slots: Optional[int] = None):
         if temperature < 0.0:
             raise ValueError("temperature must be >= 0 (0 = argmax)")
         if end_turn_rule not in END_TURN_RULES:
@@ -126,6 +127,15 @@ class RawPolicyPlayer:
         # decision (2026-09-11 worker profile). Same choice, same rng
         # draws (tests/test_server_priors.py); False forces the list.
         self.compact_selection = bool(compact_selection)
+        # A model with a memory (docs/parity_memory_design_20260929.md,
+        # "Serving and play"): the active slots this player reads and
+        # writes, and each side's state per game, from the side's previous
+        # decision to its next (a bounced recruit decided again is one more
+        # decision). None: a model without a memory.
+        self.memory_slots = None if memory_slots is None else int(memory_slots)
+        self._memories: Dict[Tuple[str, int], object] = {}
+        # Per game, the last decision's (side key, memory before it).
+        self._undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
 
     def _select_compact(self, compact, encoded, decision_step: int) -> Optional[Dict]:
         """The choice on the compact arrays, or None when the list path
@@ -165,7 +175,7 @@ class RawPolicyPlayer:
             base._decision_step += 1
         with torch.no_grad():
             encoded = base._inference_encoder.encode(game_state)
-            output = base._inference_model(encoded)
+            output = self._forward(base, encoded, game_label, game_state)
             compact = getattr(output, "legal_compact", None)
             if compact is not None and self.compact_selection:
                 chosen = self._select_compact(compact, encoded, decision_step)
@@ -183,9 +193,37 @@ class RawPolicyPlayer:
         is_end = np.array([la.action.get("type") == "end_turn" for la in legal])
         return legal[self._choose(priors, actors, is_end)].action
 
+    def _forward(self, base, encoded, game_label: str, game_state):
+        """The model's output, the side's memory read and written when the
+        model has one."""
+        if self.memory_slots is None:
+            return base._inference_model(encoded)
+        key = (game_label, int(game_state.global_info.current_side))
+        output = base._inference_model(encoded, memory=MemoryState(self.memory_slots,
+                                                                   self._memories.get(key)))
+        if output.memory is None:
+            raise RuntimeError("a player with a memory got no memory back from its model")
+        self._undo[game_label] = (key, self._memories.get(key))
+        self._memories[key] = output.memory
+        return output
+
     def drop_pending(self, game_label: str) -> None:
-        pass
+        """The game is over: its sides' memories go."""
+        for key in [k for k in self._memories if k[0] == game_label]:
+            del self._memories[key]
+        self._undo.pop(game_label, None)
 
     def drop_last_pending(self, game_label: str) -> bool:
-        # Nothing recorded; the bounce retry just re-decides.
+        """The last decision was refused (a recruit the engine bounces) and
+        is decided again: the side's memory goes back to what it was
+        before it. The engine records nothing for a refused recruit
+        (`menu_handler::do_recruit`, src/menu_events.cpp:350-370, 1.18.4),
+        so the corpus holds no position there."""
+        undo = self._undo.pop(game_label, None)
+        if undo is not None:
+            key, before = undo
+            if before is None:
+                self._memories.pop(key, None)
+            else:
+                self._memories[key] = before
         return True

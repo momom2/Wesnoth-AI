@@ -92,11 +92,10 @@ def sample_midgame_start(
     turn_number >= cut_turn, i.e. a clean side-turn boundary; the
     returned state is exactly what the side to move would face.
     Scenario events are ALREADY APPLIED (reconstruction runs them);
-    wrap in WesnothSim(..., apply_scenario_events=False).
+    wrap in WesnothSim(..., apply_scenario_events=False). The game is
+    reconstructed on the Rust core (`replay_dataset.record_core`).
     """
-    from tools.replay_dataset import (_apply_command,
-                                      _build_initial_gamestate,
-                                      _setup_scenario_events)
+    from tools.replay_dataset import record_core
     rows = _load_index(dataset_dir)
     if not rows:
         return None
@@ -117,8 +116,7 @@ def sample_midgame_start(
         if end_turn < 2:
             return None
         cut = rng.randint(1, end_turn)
-        gs = _build_initial_gamestate(data)
-        _setup_scenario_events(gs, data.get("scenario_id", ""))
+        cs = record_core(data)
         # Pass 2: apply commands until the cut boundary. Record WHICH
         # side's init_side we stop at: the sim must resume THAT
         # side's turn (WesnothSim(begin_side=...)) or the position
@@ -129,18 +127,19 @@ def sample_midgame_start(
         boundary_idx = None
         for i, cmd in enumerate(cmds):
             if (cmd and cmd[0] == "init_side"
-                    and gs.global_info.turn_number >= cut
-                    and gs.global_info.current_side in (1, 2)
+                    and int(cs.core.turn_number) >= cut
+                    and int(cs.core.current_side) in (1, 2)
                     and len(cmd) > 1 and cmd[1] in (1, 2)):
                 begin_side = int(cmd[1])
                 boundary_idx = i
                 break
-            _apply_command(gs, cmd)
+            cs.apply_command(list(cmd))
         if begin_side is None:
             # cut == end_turn on a draw/timeout game: the loop never
             # breaks and the position is 0-2 turns from the cap --
             # worthless as a start (review m2). Caller falls back.
             return None
+        gs = cs.to_state()
         # Both leaders must be alive to continue (decisive human games
         # cut at the very end could hand the sim a finished position).
         alive = {u.side for u in gs.map.units if u.is_leader}

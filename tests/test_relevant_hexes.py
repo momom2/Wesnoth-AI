@@ -174,8 +174,9 @@ def test_superset_assert_FIRES_when_the_set_is_short(monkeypatch):
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     import wesnoth_ai.visibility as vis
 
+    import copy
     monkeypatch.setattr(observe_mod, "observe", lambda *args, **kwargs: None)
-    gs = _pool_state()
+    gs = copy.deepcopy(_pool_state())      # not a view of the core: the Python path
     model = WesnothModel(d_model=32, num_layers=2, num_heads=4, d_ff=64).eval()
 
     # sanity: intact set enumerates without tripping

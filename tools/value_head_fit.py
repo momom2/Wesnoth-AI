@@ -208,7 +208,7 @@ def main(argv) -> int:
                else torch.device("cpu"))
 
     raw = torch.load(args.checkpoint_in, map_location="cpu",
-                     weights_only=False)
+                     weights_only=True)
     a = raw["arch"]
     step = int(raw.get("decision_step", 0))
     policy = TransformerPolicy(
@@ -252,8 +252,8 @@ def main(argv) -> int:
     pr_path = args.cache_dir / f"{key}_probe.pt"
     if tr_path.exists() and pr_path.exists():
         log.info(f"cache hit: {tr_path.name}")
-        train_c = torch.load(tr_path, weights_only=False)
-        probe_c = torch.load(pr_path, weights_only=False)
+        train_c = torch.load(tr_path, weights_only=True)
+        probe_c = torch.load(pr_path, weights_only=True)
     else:
         log.info("building probe cache...")
         probe_c = build_cache(policy, holdout_rows, args.dataset_dir,

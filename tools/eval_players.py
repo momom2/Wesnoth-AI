@@ -13,7 +13,6 @@ and the probes build their players and play their games through here.
 
 from __future__ import annotations
 
-import copy
 import logging
 import time
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from wesnoth_ai.classes import GameState
+from wesnoth_ai.game_core import snapshot_view
 from tools.selfplay_game import _update_closest_approach, _would_recruit_bounce
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.game_record import note_search_outcomes
@@ -124,9 +124,10 @@ def _play_one_eval_game(
             sim.step({"type": "end_turn"})
             continue
         # Stable snapshot for select_action (see play_one_game in
-        # tools/selfplay_game.py for why this deepcopy is
-        # load-bearing).
-        pre_state = copy.deepcopy(sim.gs)
+        # tools/selfplay_game.py for why this copy is load-bearing): a
+        # view of a fork of the simulator's core, which the encoder
+        # encodes through the core (game_core.snapshot_view).
+        pre_state = snapshot_view(sim.gs)
         from tools.mcts import fork_guard
         with fork_guard(sim):
             action = actor.select_action(pre_state, game_label, sim)
@@ -144,7 +145,7 @@ def _play_one_eval_game(
             # silently forfeited the recruit; play_one_game in
             # tools/selfplay_game.py has always done this).
             actor.drop_last_pending(game_label)
-            pre_state = copy.deepcopy(sim.gs)
+            pre_state = snapshot_view(sim.gs)
             action = actor.select_action(pre_state, game_label, sim)
 
         atype = action.get("type", "end_turn")
@@ -155,6 +156,15 @@ def _play_one_eval_game(
 
         commands_before = len(sim.command_history)
         sim.step(action)
+        if (sim.last_step_refusal == "mask_disagreement"
+                and getattr(actor.policy, "consults_legality_mask", True)):
+            # The simulator refused an action the legality mask offered. A
+            # match does not play on: the argmax player would repeat it
+            # (8 times for a move, then lose the turn), and the verdict
+            # would silently count the damage (2026-09-29 audit). Scripted
+            # players pick without the mask and are refused by design.
+            raise RuntimeError(f"{game_label}: the simulator refused {action!r}, which the "
+                               f"legality mask offered (a mask/simulator disagreement)")
         note_search_outcomes(sim, actor.policy, game_label, commands_before)
         _update_closest_approach(sim.gs, closest_approach)
 
@@ -208,15 +218,21 @@ def _play_one_eval_game(
 # evaluates a different model than the one that trained.
 CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left",
                            "relevant_set_hexes", "gbc", "value_material",
-                           "fog_hides_enemy_villages", "terrain_multi_hot")
+                           "fog_hides_enemy_villages", "terrain_multi_hot",
+                           "observation_parity")
+# The same for the integer keys (wesnoth_ai/checkpoint_structure.py): the
+# memory's slot count sizes parameters; the relevant set's version selects
+# the hex stream the encoder builds.
+CHECKPOINT_STRUCT_INTS = ("memory_slots", "relevant_set_version")
 
 
 def peek_checkpoint_arch(
     ckpt_path: Optional[Path], label: str = "ckpt",
 ) -> Dict[str, object]:
     """Read the constructor kwargs a checkpoint was trained with:
-    the arch ints plus `CHECKPOINT_STRUCT_FLAGS`. ONE read, so every
-    eval entry point agrees on what a checkpoint is.
+    the arch ints plus `CHECKPOINT_STRUCT_FLAGS` and
+    `CHECKPOINT_STRUCT_INTS`. ONE read, so every eval entry point agrees
+    on what a checkpoint is.
 
     On an unreadable checkpoint this logs and returns {} -- callers
     then build default paths, which is the pre-2026-07-29 behaviour.
@@ -229,7 +245,7 @@ def peek_checkpoint_arch(
     import torch
     try:
         raw = torch.load(ckpt_path, map_location="cpu",
-                         weights_only=False)
+                         weights_only=True)
     except Exception as e:
         log.warning(f"[{label}] couldn't peek arch from {ckpt_path}: "
                     f"{e!r}; building DEFAULT paths, which may not "
@@ -242,6 +258,9 @@ def peek_checkpoint_arch(
     for k in CHECKPOINT_STRUCT_FLAGS:
         if raw.get(k):
             out[k] = True
+    for k in CHECKPOINT_STRUCT_INTS:
+        if raw.get(k) is not None:
+            out[k] = int(raw[k])
     return out
 
 

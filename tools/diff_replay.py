@@ -1,9 +1,9 @@
 """Differential replay reconstruction — find sim/Wesnoth divergences.
 
-Walk a real Wesnoth replay's command stream through our `_apply_command`
-reconstructor and, before each command, verify that our running
-GameState makes the command LEGAL under Wesnoth's rules. After each
-command, verify post-state invariants.
+Walk a real Wesnoth replay's command stream through our reconstructor
+(the Rust core, `replay_dataset.record_core`) and, before each command,
+verify that our running state makes the command LEGAL under Wesnoth's
+rules. After each command, verify post-state invariants.
 
 Why this matters
 ----------------
@@ -18,7 +18,7 @@ each one is an authoritative trace of a Wesnoth game. If our sim
 considers any of the recorded commands illegal, our state has already
 diverged from what Wesnoth saw. If we apply a command and our
 post-state has impossible invariants (two units on the same hex,
-hp < 0, etc.), our `_apply_command` is buggy.
+hp < 0, etc.), our command applier is buggy.
 
 This tool is the fast feedback loop: run on a sample of replays,
 classify divergences by failure mode, fix the most common ones, repeat.
@@ -55,7 +55,7 @@ divergences by failure mode, prints a summary. Exit non-zero if any
 divergence found (so this can run in CI / pre-commit).
 
 Dependencies: tools.replay_dataset (the reconstructor), classes
-Dependents: standalone CLI; not imported elsewhere yet.
+Dependents: standalone CLI, tools/build_value_corpus.py.
 """
 
 from __future__ import annotations
@@ -77,10 +77,8 @@ sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "tools"))
 
 from wesnoth_ai.classes import GameState, TerrainModifiers, Unit
-from tools.replay_dataset import (
-    _apply_command, _build_initial_gamestate, _setup_scenario_events,
-    _stats_for,
-)
+from tools.replay_dataset import _stats_for, record_core
+from tools.diff_core import is_rust_panic
 # `_move_cost_at_hex` lives in `tools/wesnoth_sim.py`, not
 # `tools/replay_dataset.py`. We import it here for the pre-check that
 # validates a recorded move's MP cost against the unit's current_moves.
@@ -447,8 +445,8 @@ def diff_replay(
     """
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    cs = record_core(data)
+    gs = cs.to_state()                     # a view of the position before each command
 
     out: List[Divergence] = []
     commands = data.get("commands", [])
@@ -475,8 +473,10 @@ def diff_replay(
         # garbage post-state -- but to keep the walker simple we apply
         # anyway; the post-check might catch a more specific issue).
         try:
-            _apply_command(gs, cmd)
-        except Exception as e:
+            cs.apply_command(list(cmd))
+        except BaseException as e:  # noqa: BLE001 - a Rust panic is a divergence too
+            if not (isinstance(e, Exception) or is_rust_panic(e)):
+                raise
             out.append(Divergence(
                 replay_file=fname, cmd_index=idx, command=cmd,
                 side=side, turn=turn,
@@ -485,7 +485,9 @@ def diff_replay(
             ))
             if stop_on_first:
                 return out
+            gs = cs.to_state()
             continue
+        gs = cs.to_state()
 
         # Post-state invariants.
         if not skip_post_checks:

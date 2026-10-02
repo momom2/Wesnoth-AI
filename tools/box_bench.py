@@ -72,7 +72,7 @@ def main(argv):
 
     if args.checkpoint:
         raw = torch.load(args.checkpoint, map_location="cpu",
-                         weights_only=False)
+                         weights_only=True)
         a = raw["arch"]
         kw = dict(aux_score=bool(raw.get("aux_score")),
                   moves_left=bool(raw.get("moves_left")),

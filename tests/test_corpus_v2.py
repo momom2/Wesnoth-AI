@@ -50,7 +50,7 @@ def test_a_move_stopped_on_sighting_is_labelled_with_the_clicked_hex(tmp_path):
     record = extract_replay(replay)
     stopped = next(c for c in record["commands"] if c[0] == "move")
     assert stopped[1:3] == [[2, 3], [4, 4]]                 # the state follows the stop
-    assert stopped[4] == {"clicked": [5, 4], "stopped_early": True}
+    assert stopped[4] == {"clicked": [5, 4], "stopped_early": True, "next": [4, 4]}   # the route's hex after the stop
     pairs, stats = _pairs(record)
     label = _only_move(pairs)
     assert (label.source_hex, label.target_hex) == ((2, 4), (5, 4))
@@ -333,6 +333,13 @@ def test_the_builder_keeps_decided_human_games_and_says_why_it_leaves_out_the_re
     assert counts["inconclusive"] == 1 and counts["games"] == 1
     index = [json.loads(line) for line in (out / "value_corpus_index.jsonl").read_text().splitlines()]
     assert index == [{"file": row["file"], "winner": 1, "n_commands": row["n_commands"]}]
+    # The box's crash barrier: every candidate kept or dropped with an
+    # outcome, quarantined, or failed.
+    from tools.build_imitation_dataset import corpus_problems
+    summary, problems = corpus_problems(out, len(ledger))
+    assert problems == [] and (summary["outcomes"], summary["quarantined"]) == (2, 2)
+    assert corpus_problems(out, len(ledger) + 1)[1] == ["the ledgers account for 4 of 5 candidates"]
+    assert "no game kept" in corpus_problems(tmp_path / "empty", 0)[1]
 
 
 def test_the_builder_refuses_an_outcome_class_the_labeller_never_gives(tmp_path):
@@ -367,3 +374,18 @@ def test_the_staged_raw_corpus_is_what_the_builder_reads(tmp_path):
     config = {"outcome_classes": ["surrender"], "holdout_fraction": 0.0}
     counts = build(candidates, box, tmp_path / "corpus", config, workers=1)
     assert (candidates, counts["games"], counts["errors"]) == ([rows[0]["path"]], 1, 0)
+
+class _Panic(BaseException):
+    """What pyo3 raises for a Rust panic: a BaseException, not an Exception."""
+
+
+def test_a_panicking_replay_is_counted_not_fatal(tmp_path, monkeypatch):
+    import tools.replay_extract as replay_extract
+    from tools.build_imitation_dataset import build_one
+
+    def panics(*args, **kwargs):
+        raise _Panic("index out of bounds")
+
+    monkeypatch.setattr(replay_extract, "extract_replay", panics)
+    row = build_one(("replays_raw\\2026-09-26\\g.bz2", str(tmp_path), str(tmp_path), {}))
+    assert row["error"].startswith("_Panic")

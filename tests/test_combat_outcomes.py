@@ -63,6 +63,8 @@ def _engineered_fight():
     if spot is None:
         pytest.skip("no free hex adjacent to the defender")
     att.position.x, att.position.y = spot
+    from sim_test_helpers import commit_view
+    commit_view(sim)
 
     action = {
         "type": "attack",
@@ -123,6 +125,8 @@ def test_advancement_risk_refuses_enumeration():
     att = next(u for u in sim.gs.map.units
                if u.position is action["start_hex"])
     att.current_exp = max(0, att.max_exp - 1)
+    from sim_test_helpers import commit_view
+    commit_view(sim)
     assert enumerate_attack_outcomes(sim.gs, action) is None, (
         "a fight that could advance a unit must fall back to sampling"
     )
@@ -144,6 +148,8 @@ def test_advancement_exact_path_matches_sampling():
         pytest.skip("defender is level 0 -> no combat XP -> no forced advance")
     att.current_exp = max(0, att.max_exp - 1)   # any combat XP crosses
     dfd.current_hp = 1                          # near-certain kill
+    from sim_test_helpers import commit_view
+    commit_view(sim)
     sim.enable_uniform_advancement()
 
     dist = enumerate_attack_outcomes(sim.gs, action,
@@ -301,6 +307,8 @@ def test_advancement_multi_option_exact_matches_sampling():
     sim.gs.map.units.add(sk)
     sim.gs.map.units.discard(old_dfd)
     sim.gs.map.units.add(_rebuild_unit(old_dfd, current_hp=1))
+    from sim_test_helpers import commit_view
+    commit_view(sim)
     sim.enable_uniform_advancement()
 
     dist = enumerate_attack_outcomes(sim.gs, action,

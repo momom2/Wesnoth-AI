@@ -206,8 +206,8 @@ def test_fork_capture_does_not_mutate_parent_encoding():
 
 
 def test_pad_helper_covers_direct_encoder_loads():
-    """Tools (eval_vs_builtin, supervised_train,
-    eval_mcts_vs_reinforce) load encoder state WITHOUT going through
+    """Tools (eval_vs_builtin, supervised_train) load encoder state
+    WITHOUT going through
     TransformerPolicy.load_checkpoint; `pad_legacy_encoder_state` is
     their shim. Pins that (a) strict=False alone does NOT tolerate
     the legacy shapes (the crash the shim prevents), and (b) the
@@ -261,7 +261,7 @@ def test_legacy_optimizer_state_repairs_after_pad(tmp_path):
     ck = tmp_path / "legacy.pt"
     p1.save_checkpoint(ck)
 
-    raw = torch.load(ck, map_location="cpu", weights_only=False)
+    raw = torch.load(ck, map_location="cpu", weights_only=True)
     es = raw["encoder_state"]
     es["dynamic_flag_proj.weight"] = \
         es["dynamic_flag_proj.weight"][:, :1].clone()
@@ -302,7 +302,7 @@ def test_legacy_checkpoint_pads_dynamic_flag_proj(tmp_path):
     ck = tmp_path / "legacy.pt"
     p1.save_checkpoint(ck)
     # Simulate a pre-ownership checkpoint: slice the proj to [d, 1].
-    raw = torch.load(ck, map_location="cpu", weights_only=False)
+    raw = torch.load(ck, map_location="cpu", weights_only=True)
     w = raw["encoder_state"]["dynamic_flag_proj.weight"]
     raw["encoder_state"]["dynamic_flag_proj.weight"] = \
         w[:, :1].clone()

@@ -150,7 +150,8 @@ from tools.unit_vocab import seed_vocab
 from wesnoth_ai.encoder import GameStateEncoder, names_on_overflow_row
 enc = GameStateEncoder(d_model=32)
 seed_vocab(enc)                                 # refuses a set that reaches the overflow row
-assert len(enc.unit_type_to_id) == 190, len(enc.unit_type_to_id)
+# 190 unit types; the 47 variations share their base type's row
+assert len(set(enc.unit_type_to_id.values())) == 190, len(set(enc.unit_type_to_id.values()))
 assert names_on_overflow_row(enc.unit_type_to_id) == []
 torch.save({"unit_type_to_id": dict(enc.unit_type_to_id),
             "faction_to_id": dict(enc.faction_to_id)}, sys.argv[1] + ".tmp")
@@ -176,7 +177,7 @@ fi
 # ---- the pass: stopped once epoch STOP_AFTER_EPOCH's checkpoint and holdout eval are written
 arm_epochs_done() {              # the completed epochs arm.pt records; -1 when unreadable
     timeout 5m python -c 'import sys, torch
-print(int(torch.load(sys.argv[1], map_location="cpu", weights_only=False).get("supervised_epoch", -1)))' \
+print(int(torch.load(sys.argv[1], map_location="cpu", weights_only=True).get("supervised_epoch", -1)))' \
         "$OUT/arm.pt" 2>/dev/null || echo -1
 }
 train_attempt() {                # train_attempt MINUTES: the pass, continuing arm.pt when present; sets BOX_RC, BOX_WHY

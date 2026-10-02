@@ -172,12 +172,17 @@ class Round:
         self.current: dict[str, list] = {}
         self.failed: list[str] = []
         self.sent = self.unchanged = 0
+        # --restore and --clear also print their lines: the library sends
+        # their output to restore.log, which its failure reasons name.
+        self.echo = False
 
     # ---- logging and state
     def log(self, line: str) -> None:
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with open(self.out / LOG_NAME, "a", encoding="utf-8") as fh:
             fh.write(f"{stamp} {line}\n")
+        if self.echo:
+            print(f"{stamp} {line}", flush=True)
 
     def mark_landed(self, name: str, key: list) -> None:
         self.landed[name] = key
@@ -327,12 +332,13 @@ class Round:
         for name, deps in waiting.items():
             self.log(f"{name} held back: {self.vouched(deps)} has not landed in its current version")
 
-    def send_last(self, name: str) -> None:
-        """upload.log, ALL_DONE: sent whatever their state, in the reserved time."""
+    def send_last(self, name: str, keep_s: float = 0.0) -> None:
+        """upload.log, ALL_DONE: sent whatever their state, in the reserved
+        time, leaving `keep_s` of it for what follows."""
         path = self.out / name
         if not path.is_file():
             return
-        if self.upload_copy(name, lambda copy: shutil.copyfile(path, copy), 0.0):
+        if self.upload_copy(name, lambda copy: shutil.copyfile(path, copy), keep_s):
             self.sent += 1
         else:
             self.failed.append(name)
@@ -349,7 +355,8 @@ class Round:
             self.log(f"{'final' if final else 'periodic'} round: {self.sent} sent, "
                      f"{self.unchanged} unchanged, {len(self.failed)} failed"
                      + (f" ({' '.join(self.failed)})" if self.failed else ""))
-            self.send_last(LOG_NAME)
+            # A third of the reserve stays for ALL_DONE after a slow upload.log.
+            self.send_last(LOG_NAME, self.timing.reserve_s / 3 if final else 0.0)
             if final:
                 self.send_last(ALL_DONE)
         finally:
@@ -358,16 +365,23 @@ class Round:
 
     # ---- the previous entry's state
     def clear(self, names: list[str]) -> bool:
-        """Delete each name from PREFIX when it is there; forget it as landed."""
+        """Delete each name from PREFIX when it is there, with the attempts
+        a restore gets; forget it as landed."""
         ok = True
         for name in names:
             path = f"{self.hf_dir}/{name}"
-            try:
-                if self.api.file_exists(self.repo, path):
-                    self.api.delete_file(path, repo_id=self.repo)
-                    self.log(f"{name} cleared from HF")
-            except Exception as exc:  # noqa: BLE001 -- the type name only
-                self.log(f"{name} not cleared from HF: {type(exc).__name__}")
+            for i in range(1, self.timing.attempts + 1):
+                try:
+                    if self.api.file_exists(self.repo, path):
+                        self.api.delete_file(path, repo_id=self.repo)
+                        self.log(f"{name} cleared from HF")
+                    break
+                except Exception as exc:  # noqa: BLE001 -- the type name only
+                    self.log(f"{name} clear attempt {i} failed: {type(exc).__name__}")
+                    if i < self.timing.attempts:
+                        self.sleep(self.timing.retry_pause_s)
+            else:
+                self.log(f"{name} not cleared from HF")
                 ok = False
             self.landed.pop(name, None)
         save_state(self.out, self.hf_dir, self.landed)
@@ -417,17 +431,26 @@ def main(argv=None) -> int:
     ap.add_argument("--budget-s", type=float, default=1500.0, help="the round's time")
     ap.add_argument("--clear", nargs="+", metavar="NAME", help="delete these from HF")
     ap.add_argument("--restore", nargs="+", metavar="NAME", help="fetch these when absent here")
+    ap.add_argument("--landed", nargs=2, metavar=("NAME", "DIR"),
+                    help="record directory DIR, as it is now, as landed under NAME (a restored "
+                         "tarball, unpacked)")
     args = ap.parse_args(argv)
     hf_dir = args.hf_dir.strip("/")
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.landed:
+        name, path = args.landed
+        Round(args.out, hf_dir or "-", None).mark_landed(name, dir_key(path))
+        return 0
     token = os.environ.get("HF_TOKEN", "").strip()
     probe = Round(args.out, hf_dir or "-", None)
+    probe.echo = bool(args.clear or args.restore)
     if not hf_dir or not token:
         probe.log("no upload: " + ("--hf-dir is empty" if not hf_dir else "HF_TOKEN is not set"))
         return 1
     try:
         api = make_api(token)
         work = Round(args.out, hf_dir, api, spec=read_spec(args.spec), budget_s=args.budget_s)
+        work.echo = probe.echo
         if args.clear:
             return 0 if work.clear(args.clear) else 1
         if args.restore:

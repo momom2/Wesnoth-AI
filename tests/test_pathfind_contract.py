@@ -148,3 +148,54 @@ def test_mask_less_caller_cannot_hang_the_sim():
             break
     assert sim.gs.global_info.current_side != side0, (
         "side never advanced: loop guard did not fire")
+    assert sim.forced_end_turns.get(side0) == 1
+
+
+def test_a_refused_distant_attack_is_bounded_like_a_refused_move(monkeypatch):
+    """An attack on a distant unit whose attack hex the planner cannot
+    find was re-decided with no bound (2026-09-29 audit: the argmax player
+    looped until the per-game timeout). It goes through the same loop
+    guard, and each refusal says it is a mask/simulator disagreement."""
+    from tools.abilities import hex_neighbors
+    from tools.wesnoth_sim import WesnothSim
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
+    setup = random_setup(random.Random(5), forced_faction=None, mini_maps=False, category="fogless")
+    sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id, max_turns=4)
+    side0 = sim.gs.global_info.current_side
+    leader = next(u for u in sim.gs.map.units if u.side == side0 and u.is_leader)
+    foe = next(u for u in sim.gs.map.units if u.side != side0 and u.is_leader)
+    assert (foe.position.x, foe.position.y) not in hex_neighbors(leader.position.x, leader.position.y)
+    monkeypatch.setattr(WesnothSim, "_find_attack_hex", lambda self, attacker, target: None)
+    attack = {"type": "attack", "start_hex": leader.position, "target_hex": foe.position,
+              "attack_index": 0}
+    sim.step(attack)
+    assert sim.last_step_rejected and sim.last_step_refusal == "mask_disagreement"
+    assert sim.gs.global_info.current_side == side0
+    for _ in range(sim._MAX_CONSECUTIVE_REJECTS + 2):
+        if sim.gs.global_info.current_side != side0:
+            break
+        sim.step(attack)
+    assert sim.gs.global_info.current_side != side0
+    assert sim.forced_end_turns.get(side0) == 1
+
+
+def test_a_search_fork_refuses_like_its_simulator():
+    """A fork is built without __init__: the refusal counters must be its
+    own, or a refusal inside a search fork raises."""
+    from tools.wesnoth_sim import WesnothSim
+    from wesnoth_ai.classes import Position
+    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
+    setup = random_setup(random.Random(5), forced_faction=None, mini_maps=False, category="fogless")
+    sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id, max_turns=4)
+    fork = sim.fork()
+    side0 = fork.gs.global_info.current_side
+    leader = next(u for u in fork.gs.map.units if u.side == side0 and u.is_leader)
+    doomed = {"type": "move", "start_hex": leader.position,
+              "target_hex": Position(x=leader.position.x, y=leader.position.y)}
+    fork.step(doomed)
+    assert fork.last_step_rejected and fork.last_step_refusal == "mask_disagreement"
+    for _ in range(fork._MAX_CONSECUTIVE_REJECTS + 2):
+        if fork.gs.global_info.current_side != side0:
+            break
+        fork.step(doomed)
+    assert fork.forced_end_turns.get(side0) == 1 and not sim.forced_end_turns

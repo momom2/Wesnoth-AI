@@ -24,7 +24,18 @@ mod core_attack;
 mod core_observe;
 mod core_fog;
 mod core_encode;
+mod core_parity;
+mod core_shroud;
+mod core_sight;
 mod core_sim;
+mod core_units;
+mod db;
+mod effects;
+mod events;
+mod outcomes;
+mod terrain;
+mod units;
+mod wml;
 
 /// Movement cost >= this is Wesnoth's UNREACHABLE sentinel
 /// (movetype.hpp: UNREACHABLE = 99).
@@ -84,7 +95,7 @@ impl Ord for Entry {
 /// Shared Dijkstra core: fills mp/cost/prev in MAP space. Exact
 /// contract as documented on `unit_reach_arrays`.
 #[allow(clippy::too_many_arguments)]
-fn dijkstra_reach(
+pub(crate) fn dijkstra_reach(
     nbrs: &[i64],
     mcost: &[i64],
     dsub: &[i64],
@@ -540,6 +551,22 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(combat::resolve_attack, m)?)?;
     m.add_function(wrap_pyfunction!(combat::random_int, m)?)?;
     m.add_class::<core::GameCore>()?;
+    m.add_function(wrap_pyfunction!(db::load_databases, m)?)?;
+    m.add_function(wrap_pyfunction!(db::databases_loaded, m)?)?;
+    m.add_function(wrap_pyfunction!(db::fallback_type_counts, m)?)?;
+    m.add_function(wrap_pyfunction!(core_parity::parity_layout, m)?)?;
+    m.add_function(wrap_pyfunction!(terrain::terrain_mvt_cost, m)?)?;
+    m.add_function(wrap_pyfunction!(terrain::terrain_def_pct, m)?)?;
+    m.add_function(wrap_pyfunction!(terrain::terrain_facts, m)?)?;
+    m.add_function(wrap_pyfunction!(units::build_unit_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(units::build_recruit_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(units::build_corpse_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(units::roll_type_traits, m)?)?;
+    m.add_function(wrap_pyfunction!(units::seed_int, m)?)?;
+    m.add_function(wrap_pyfunction!(effects::apply_effect_fields, m)?)?;
+    m.add_function(wrap_pyfunction!(effects::drain_warnings, m)?)?;
+    m.add_function(wrap_pyfunction!(events::unmodelled_action_counts, m)?)?;
+    m.add_function(wrap_pyfunction!(events::reset_unmodelled_actions, m)?)?;
     // 9: rows_from_landable rejects a token index >= the row width
     // instead of writing it into the next unit's row.
     // 10: nightstalk's cover reads the illuminated time of day; the
@@ -562,6 +589,60 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // recruit_rejected_hexes).
     // 17: a time area's slot ignores the board's start slot (its cycle
     // arrives phased to turn 1).
-    m.add("__phase__", 17)?;
+    // 18: the unit and terrain databases load into the extension
+    // (load_databases); GameCore resolves the terrain facts and the
+    // movement classes from the hexes' terrain codes, registers unit
+    // types itself, and keeps each unit's underscore attributes in its
+    // record.
+    // 19: the core builds units itself: recruits with their trait roll,
+    // plague corpses, advancement (the choice queue, pick-advance, AMLA,
+    // traits and [object] effects re-applied), feeding; apply_recruit and
+    // apply_pickadvance; apply_attack finishes its fed kills, advancements
+    // and corpses. The builders and the [effect] applier are exposed for
+    // the differential tests.
+    // 20: the core runs the scenario's events (events.rs): setup_scenario
+    // or load_events, the turn events fired inside apply_init_side and
+    // apply_end_turn, terrain changes and time areas on its own copy of
+    // the map; heal_events, terrain_log, time_areas_export and
+    // geometry_export feed the Python view.
+    // 21: GameCore.encode_streams takes terrain_multi_hot (the hex terrain
+    // stream as each hex's terrain set).
+    // 22: GameCore computes the defender's weapon choice, an attack's exact
+    // outcome distribution with its advancement branches, and a fight's
+    // statistics (counter_weapon_choice, attack_outcomes, fight_stats;
+    // outcomes.rs), a unit's single-turn reach, a side's reach context and
+    // the units a side sees (unit_reach, side_context, visible_ids).
+    // 23: GameCore keeps, per player side, the units it saw since its last
+    // end_turn and the unit types it has seen (core_sight.rs:
+    // sightings_export, seen_types and their setters), and
+    // encode_streams builds the parity observation under
+    // observation_parity (core_parity.rs, parity_layout) and the relevant
+    // set version 2 under relevant_set_version (relevant_positions);
+    // encode_raw_streams refuses the flag; a unit type the database lacks
+    // is counted and warned about (fallback_type_counts).
+    // 24: delayed shroud updates (core_shroud.rs): apply_auto_shroud,
+    // apply_update_shroud, shroud_state_export and set_shroud_state; a
+    // delaying side's moves and recruits clear fog at the next commit,
+    // its advancements clear none.
+    // 25: the Plan Unit Advance modification's undo blocks (the first move of
+    // each side turn, apply_menu_item) commit a delaying side's vision; an
+    // attack aborted before its draw commits too. shroud_state_export and
+    // set_shroud_state carry the modification's two flags.
+    // 26: a unit that leaves the board where a side does not see its hex
+    // stays in that side's sighting record until its end_turn
+    // (sightings_gone_export, set_sightings_gone); a hex's parity time of
+    // day is the interface's (the area's on a fogged hex, lit by every
+    // unit on a seen one); apply_move takes the recorded route's hex after
+    // the stop (`next`), whose enemy blocked the move.
+    // 27: a watcher records a mover that leaves its view on the hex it was
+    // seen entering; a side records what a fight its unit defended showed
+    // it before the fight refogs it.
+    // 28: a fight refogs the defender's side before either unit advances;
+    // an aborted attack notes what its commit shows; the units the scenario
+    // placed are not seen types (set_scenario_unit_ids, scenario_unit_ids);
+    // a mover that teleports out of view was last seen where it left.
+    // 29: the sighting record follows the display with move animations off
+    // (user ruling 2026-10-01): no sighting along a move's route.
+    m.add("__phase__", 29)?;
     Ok(())
 }

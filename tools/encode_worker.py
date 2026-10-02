@@ -75,6 +75,8 @@ def label_slot_mismatch(raw, ai) -> Optional[str]:
     meet. Labels without the command's hexes (pickled before they were
     carried) are not checked."""
     n_units, n_recruits = len(raw.unit_positions), len(raw.recruit_types)
+    if ai.action_type == "timeout":
+        return None                   # names no action, so points at no slot
     if ai.action_type == "end_turn":
         if ai.actor_idx != n_units + n_recruits:
             return f"end_turn at actor {ai.actor_idx}, the sentinel is {n_units + n_recruits}"
@@ -96,6 +98,22 @@ def label_slot_mismatch(raw, ai) -> Optional[str]:
         if (h.x, h.y) != tuple(ai.target_hex):
             return f"{ai.action_type} target at {(h.x, h.y)}, the command's is {ai.target_hex}"
     return None
+
+
+def label_in_raw_basis(ai, raw):
+    """`ai`, built in the full-board basis, with its target re-indexed
+    into `raw`'s own hex tokens: the encoding decides the hex basis (the
+    relevant set version 2 is built by the Rust core only), so the label
+    follows the tokens instead of enumerating them a second time. A target
+    hex without a token keeps the pair with `target_off_subset`, as the
+    relevant-set label builder does. Units and recruits are enumerated the
+    same way in every basis."""
+    import dataclasses
+    if ai.target_hex is None or ai.target_idx is None:
+        return ai
+    tokens = {(p.x, p.y): i for i, p in enumerate(raw.hex_positions)}
+    idx = tokens.get(tuple(ai.target_hex))
+    return dataclasses.replace(ai, target_idx=idx, target_off_subset=idx is None)
 
 
 def encode_game(gz_path: Path, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],

@@ -146,6 +146,8 @@ def test_sim_gate_rejects_statue_attack_and_counts():
     statue = _u("statue1", 2, nb[0], nb[1])
     statue.statuses.add("petrified")
     sim.gs.map.units.add(statue)
+    from sim_test_helpers import commit_view
+    commit_view(sim)
 
     sim.step({"type": "attack", "start_hex": actor.position,
               "target_hex": Position(*nb), "attack_index": 0})

@@ -5,8 +5,9 @@
         training/metrics/bench_pipeline/graphed_default_20260918
 
 Every file under the HF prefix lands under the local directory with
-the same basename. Files already present with the same size are
-skipped, so the pull can run again while the box is still uploading.
+the same basename. Files already present with the same content (the
+model host's blob or LFS hash) are skipped, so the pull can run again
+while the box is still uploading.
 A file with a secret-shaped string in it (tools/secret_scan.py: a token,
 a keyed URL, a key in a traceback) is withheld and named, since records
 go on to git and the repository is public. Prints one line per file and
@@ -27,6 +28,21 @@ REPO = "momom2/wesnoth-model-checkpoints"
 log = logging.getLogger("pull_box_records")
 
 
+def same_content(path: Path, info) -> bool:
+    """Whether the local file holds what the model host holds: its LFS
+    sha256, else its git blob id (sha1 of "blob <size>\\0" and the bytes).
+    A rewrite of the same size is new content."""
+    import hashlib
+    if path.stat().st_size != info.size:
+        return False
+    data = path.read_bytes()
+    lfs = getattr(info, "lfs", None)
+    if lfs is not None and getattr(lfs, "sha256", None):
+        return hashlib.sha256(data).hexdigest() == lfs.sha256
+    blob = getattr(info, "blob_id", None)
+    return blob is not None and hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest() == blob
+
+
 def pull(prefix: str, dest: Path, max_mb: float = 50.0) -> int:
     from huggingface_hub import HfApi, hf_hub_download
     api = HfApi()
@@ -38,7 +54,7 @@ def pull(prefix: str, dest: Path, max_mb: float = 50.0) -> int:
     for info in infos:
         name = info.path[len(prefix):]
         target = dest / name
-        if target.exists() and target.stat().st_size == info.size:
+        if target.exists() and same_content(target, info):
             log.info("kept    %s", name)
             continue
         if name.endswith(".escrowed") or ".partial." in name or (name.startswith("phase_") and name.endswith(".json")):

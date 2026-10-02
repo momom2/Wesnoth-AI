@@ -91,9 +91,9 @@ def test_a_resume_under_another_checkpoint_is_refused(tmp_path, monkeypatch):
     from tools import run_elo_batch as rb
     spec = tmp_path / "net.pt"
     spec.write_bytes(b"new weights")
-    # The basis and terrain view the checkpoint plays in, as the driver's
-    # peek would read them (the bytes above are not a real checkpoint).
-    monkeypatch.setitem(rb._FLAGS_MEMO, str(spec), ("full", "set"))
+    # The basis, terrain view and memory the checkpoint plays with, as the
+    # driver's peek would read them (the bytes above are not a real checkpoint).
+    monkeypatch.setitem(rb._FLAGS_MEMO, str(spec), ("full", "set", 0))
     out = tmp_path / "games"
     out.mkdir()
     slot = out / "game_A_B_s1_10000.json"
@@ -117,7 +117,7 @@ def test_a_timeout_artifact_carries_the_checkpoints(tmp_path, monkeypatch):
     monkeypatch.setattr(rb, "POLL_S", 0.05)
     spec = tmp_path / "net.pt"
     spec.write_bytes(b"weights")
-    monkeypatch.setitem(rb._FLAGS_MEMO, str(spec), ("full", "set"))
+    monkeypatch.setitem(rb._FLAGS_MEMO, str(spec), ("full", "set", 0))
     out = tmp_path / "games"
     argv = _batch_argv(out, str(spec))
     rb.main(argv + ["--per-game-timeout-min", "0.0001"])

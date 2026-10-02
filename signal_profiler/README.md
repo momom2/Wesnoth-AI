@@ -46,10 +46,7 @@ Node fields:
 
 ## Run
 
-    python signal_profiler/run_profile.py \
-        --checkpoint training/checkpoints/seed_imit_tierb_start.pt \
-        --games 8 --out profile.json
-    # arm-V3 config is the default; --no-turn-search etc. available.
+    python signal_profiler/run_profile_v2.py --help
 
 Smoke test (tiny net, CPU): pytest signal_profiler/tests -q
 (deliberately outside the main suite's testpaths).

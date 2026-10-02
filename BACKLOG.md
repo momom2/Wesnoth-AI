@@ -4,11 +4,16 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-09-26)
+## NEXT (2026-10-02)
 
-**1. `obs8` is the reference** (user ruling 2026-09-25): +73 +- 13 Elo
-over `terrain` (800 decisive games) (docs/observation_retrain_prereg_20260924.md). Every
-number from here is measured against it.
+**1. `parity2` is the reference** (user ruling 2026-10-02): +191 +- 14
+Elo over `obs8` (800 decisive games, docs/parity_memory_prereg_20260929.md
+"Measured, pass 2"), played with its memory at 64 slots. Every number
+from here is measured against it. **Next (user order 2026-10-02): why
+the memory costs strength in play** while it lowers the holdout CE: the
+same checkpoint at 0 slots beats it at 64 by 37 +- 12 Elo, at 16 by
+30 +- 12. The items the audit deferred until after the retrain are in
+docs/parity_memory_audit_20260929.md "After the retrain".
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
 docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game
@@ -20,18 +25,12 @@ on the better labels; the reported readings (the HP margin after the
 turn 0.397, a rollout read 7 half-turns ahead 0.532) belong in that
 design. The code stays on `exp/turn-value`.
 
-**Waiting on the user: the unit-vocabulary retrain**
-(docs/unit_vocab_retrain_prereg_20260925.md): `obs8`'s recipe with every
-reachable unit type on its own embedding row, 800 decisive games against
-`obs8`, about 4.5-6 box-hours. On the current code it also carries the
-player-side correction (0.7.7: the enemy's faction and villages right in
-the quarter of the corpus's decisions, 42% of its games, played on maps
-with a third side), and its
-match cannot separate the two corrections. It also carries 0.7.12 (each
-plague corpse's variation on its base type's row). Whether the corpus
-corrections (BACKLOG "The imitation corpus's labels") and any of the
-observation gaps (BACKLOG "What the network observes against what a
-player sees") go into the same retrain or their own is the user's call.
+**Done inside the parity-memory retrain (2026-10-02):** the unit
+vocabulary (docs/unit_vocab_retrain_prereg_20260925.md: every reachable
+unit type on its own row), the corpus corrections (`CORPUS_VERSION` 5)
+and the observation gaps the design corrects
+(docs/parity_memory_design_20260929.md); one match measured them
+together.
 
 **2. Phase 2: turn search without a pre-grader.** The turn-level gap
 under the reference is RICH (7 of 60 confirmed; caveat 2026-09-26: the
@@ -47,7 +46,21 @@ docs/turn_proposer_design_20260905.md. **Found 2026-09-26: every search
 and playout runs on the true state under fog**
 (docs/hidden_information_20260926.md), the turn-gap grading included, so
 RICH carries a second caveat and a turn search needs a determinized root,
-drawn from a belief model, before it meets the 800-game gate.
+drawn from a belief model, before it meets the 800-game gate. MCTS and
+the turn search refuse a model with a memory: against `parity2` they
+need its memory carried first.
+
+**3. The Rust core replaces the Python one** (user order 2026-09-28;
+docs/rust_core_port_20260928.md). Done (0.9.0): units, events, the
+encoding and every rule asked of a position are the core's, and it is
+the state of record of the simulator, reconstruction and the pipeline
+tools. Certified 2026-10-01 over the whole corpus (14,376 of 14,376
+replays, clean again on phase 29;
+training/metrics/fidelity/core_certify_20261001/). Next: the
+retirement: the Python applier, builders and rule versions go, and for
+each analysis or debugging tool still replaying records on the applier
+(the list in the plan) the user decides between deletion, the
+quarantine and a move to the core. Refactor step 4a is parked meanwhile.
 
 **Standing, taken whenever there is room (user, 2026-09-25):**
 
@@ -90,18 +103,10 @@ operations, dead code and structure, the simulator and its Rust core)
 ran while the turn-value box worked; what they found and was not fixed
 the same night:
 
-- **Decision: the Rust core (`GameCore`).** It is the state of record
-  nowhere (`WESNOTH_RUST_CORE` defaults off and measured no gain on eval
-  or the pool, 2026-09-12), yet ten commits since have had to change it,
-  and nothing has compared it with the Python applier on replays since
-  phase 10 (the corpus test skips on CI, the laptop's wheel is phase 3).
-  Keep it: run `scripts/diff_core_box.sh --every 1` before anyone turns
-  it on, and give CI replay coverage with a few committed game records of
-  our own chosen for their engagements. Retire it: `core*.rs`,
-  `game_core.py`, `diff_core.py`, `test_game_core.py` and the `use_core`
-  branches, about 3,800 lines. Its encoder, observation and state key
-  have no production caller either way, and its encoder cannot serve a
-  checkpoint with the terrain set (obs8).
+- Decided 2026-09-28 (user order): the Rust core replaces the Python
+  one (item 3 above). `scripts/diff_core_box.sh` is superseded by
+  `scripts/core_certify_box.sh`; CI still has no replay coverage (a few
+  committed game records chosen for their engagements would give it).
 - Done in 0.7.16 (Rust phase 16): the dead mirror `_move_rejected_hexes`
   deleted in both languages; `rem_euclid` for a negative start slot; the
   core's village-count invariant; the Rust observation's zone of control
@@ -310,26 +315,29 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   hex goes to the vacant castle hex nearest the leader, gold spent, as in
   the engine; the ordered hex is still rejected for the turn
   (docs/wesnoth_rules.md "A recruit onto an occupied hex").
-- **Decision: deletions.** About 20 fast-tier test files test quarantined
-  mechanisms (`test_rewards`, `test_plan_tournament`, `test_swap_detector`,
-  `test_holdout_tripwire`, the gbc and vg tests, ...); tests that restate
-  the code (`test_boundary_telemetry.py:25-50`,
-  `test_distributional_value.py:69-118`, `test_action_type_head.py:281-324`),
-  read source text instead of behaviour, or pin defaults; dead modules
-  (`wesnoth_ai/policy.py`, `wesnoth_ai/profiling.py`,
-  `tools/replay_builder.py`) and about 20 one-shot probe scripts with no
-  user. Each needs the user's word. Extended by the 2026-09-25 inventory
-  (docs/refactor_inventory_20260925.md, section b, with the evidence for
-  each): 48 entry points that nothing imports, runs or documents (10,111
-  lines: probes whose results live in archived docs, corpus-rebuild tools,
-  fidelity oracles worth keeping for the next fidelity bug, legacy loops
-  and dashboards); `benchmarks/` (3 files named nowhere); 23 functions and
-  6 methods with no caller; argparse flags no caller passes; unread
-  constants and configs (`configs/replay_map_whitelist.txt`,
-  `map_whitelist_1v1.json`, `vendored_addon_ids.txt`); about 29 more test
-  files that test only quarantined or dead code. Moving or deleting
-  quarantined code also needs a ruling on quarantine/README.md's "the code
-  stays where it is".
+- **Deletions (user review 2026-09-28, one item at a time).** Done: the
+  42 files the user approved (the old policy registry, profiling,
+  replay_builder, benchmarks/, four signal_profiler drivers, the
+  July-September probes, smokes, dashboards and corpus one-shots). Kept:
+  `download_replays` (corpus growth) and `eval_daily` (to rework, below).
+  Not yet reviewed: the functions and methods with no caller, the unused
+  argparse flags, dataclass fields, constants and configs, and the tests of
+  dead code (docs/refactor_inventory_20260925.md section b); the review
+  stopped at the file level. Quarantined code may be
+  moved or archived (user ruling 2026-09-28).
+- **Fidelity tools to audit before use** (user ruling 2026-09-28):
+  `diff_move_final_hex`, `diff_unit_counter`, `dump_unit_states`,
+  `make_strict_replay` and `check_mask_coverage` predate the September
+  simulator fidelity fixes; each is to be validated before its next use.
+- **`eval_daily` becomes an on-demand eval against Wesnoth's RCA AI**
+  (user 2026-09-28), and the latest checkpoint is to be played against the
+  RCA AI some time (live Wesnoth: a box, or the laptop with the user's word).
+- **The corpus's candidate list has no committed builder:**
+  `build_imitation_dataset` reads `training/logs/replay_dispositions.jsonl.gz`
+  (36,309 raw replays classed by era and mods on 2026-08-07), and the script
+  that wrote it is in no commit, so a replay downloaded later cannot enter
+  the corpus. Commit a builder that reproduces the ledger's classes on the
+  existing pool.
 - **A lever to measure: the attack hex.** For an attack on a unit the
   attacker is not next to, the simulator picks the hex by route cost
   (`wesnoth_sim.py:1016`), in effect the nearest; ranking by the
@@ -343,8 +351,7 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   ability names by `id=` against the scrape's macro names; `apply_to=
   hitpoints` forms; `[modify_side] income=` as an offset; a recruit on a
   castle-village capturing it; an out-of-range weapon index replaced by 0
-  without a warning; a `[time_area]` added after the Rust core is built;
-  the order of turn events.
+  without a warning; the order of turn events.
 - **Live-Wesnoth observation** (eval against the built-in AI only): the
   converted state has no `_fog_cleared`, our own fogged villages lose
   their owner bit, and the time-of-day start offset is not set.

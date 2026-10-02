@@ -55,6 +55,11 @@ the quote to find the file again. Paraphrases drift; quotes don't.
 - [`random_start_time` has three forms, not two (added 2026-09-22)](#random_start_time-has-three-forms-not-two-added-2026-09-22)
 - [Preprocessor conditionals, and what a multiplayer game defines (added 2026-09-23)](#preprocessor-conditionals-and-what-a-multiplayer-game-defines-added-2026-09-23)
 - [Vision and fog: what a side sees, and when it is recomputed (added 2026-09-24)](#vision-and-fog-what-a-side-sees-and-when-it-is-recomputed-added-2026-09-24)
+- [Delayed shroud updates (added 2026-09-30)](#delayed-shroud-updates-added-2026-09-30)
+- [A watching player sees a mover on every hex of its path (added 2026-09-30)](#a-watching-player-sees-a-mover-on-every-hex-of-its-path-added-2026-09-30)
+- [What a Random faction can draw (added 2026-09-30)](#what-a-random-faction-can-draw-added-2026-09-30)
+- [The time of day the interface shows at a hex (added 2026-09-30)](#the-time-of-day-the-interface-shows-at-a-hex-added-2026-09-30)
+- [A refused recruit leaves nothing in the replay (added 2026-09-30)](#a-refused-recruit-leaves-nothing-in-the-replay-added-2026-09-30)
 
 ---
 
@@ -585,7 +590,9 @@ if(is_inv){
 ```
 `wesnoth_src/src/display_context.cpp:29-49` (`would_be_discovered`):
 a hider is discovered iff an ADJACENT tile holds an enemy (of the
-hider) that is not incapacitated and is itself visible.
+hider) that is not incapacitated. The engine calls it with
+`see_all=true`, the default of `unit::invisible` (`units/unit.hpp:1902`),
+so the discoverer need not itself be visible to anyone.
 
 So a `hides`-ability unit is invisible even on a fog-visible hex,
 EXCEPT:
@@ -3292,8 +3299,9 @@ When fog is cleared and recalculated:
 
 A move and a recruit clear immediately only while the player's "delay
 shroud updates" preference is off (`current_uses_fog_(current_team_->fog_or_shroud() && current_team_->auto_shroud_updates())`,
-`src/actions/move.cpp:371`, and `create.cpp:697`); that is the default,
-and the simulator models it. A unit placed by WML (`[unit]`) or a
+`src/actions/move.cpp:371`, and `create.cpp:697`); that is the default.
+With the preference on they clear at the next commit ("Delayed shroud
+updates" below). A unit placed by WML (`[unit]`) or a
 plague corpse clears nothing (`src/actions/unit_creator.cpp` and
 `attack::unit_killed` have no clearing call).
 
@@ -3320,4 +3328,295 @@ hooks in `tools/replay_dataset._apply_command`) and, for the Rust core,
 Falconer, the Dune Sky Hunter, the Dragonfly and the Grand Dragonfly,
 none of which is in the default era, the pool or the corpus; such a
 unit logs a warning and sees with its movement), jamming, shared vision
-between allies, and the delayed-shroud preference.
+between allies, and vision through teleport: a unit with the teleport
+ability (the Silver Mage) also sees from its side's other empty villages
+once it can reach one of them (`src/pathfind/pathfind.cpp:586-588`,
+`:610-617`; `src/pathfind/teleport.cpp:155-156`), absent from 95 sampled
+fog games (29,054 decisions); a known unfaithfulness, accepted by the user
+2026-10-01.
+
+## Delayed shroud updates (added 2026-09-30)
+
+A player can turn "delay shroud updates" on from the game menu. The
+side's switch starts on (`, auto_shroud_updates_(true)`,
+`src/team.cpp:336` at 1.18.4), a save keeps it
+(`auto_shroud_updates_ = cfg["auto_shroud"].to_bool(auto_shroud_updates_);`,
+`:362`), and the menu records each toggle as a synced command
+(`menu_handler::toggle_shroud_updates`, `src/menu_events.cpp:504-516`):
+turning the updates back on records `[update_shroud]` first, then
+`[auto_shroud] active=yes`.
+
+While a side delays and has fog, during its own turn:
+
+- a move clears no fog (`current_uses_fog_`, `src/actions/move.cpp:371`,
+  quoted in "Vision and fog"); it goes on the undo stack with every hex
+  the unit occupied, its start included, and the unit's vision:
+  `undo_stack->add_move(` / `move_it_.get_shared_ptr(), begin_, real_end_, orig_moves_,`
+  (`move.cpp:1070-1071`), the vision being `clearer_info(viewer)`'s
+  `sight_range(viewer.vision())` and `slowed(viewer.get_state(unit::STATE_SLOWED))`
+  (`src/actions/vision.cpp:100-106`);
+- a recruit clears nothing
+  (`if ( !wml_triggered && current_team.auto_shroud_updates() ) // To preserve current WML behavior.`,
+  `src/actions/create.cpp:697`) and goes on the stack (`:730`);
+- an advancement clears nothing and is not stacked:
+  `if ( can_delay  &&  !viewing_team.auto_shroud_updates()  &&` /
+  `viewer.side() == resources::controller->current_side()  )` / `return false;`
+  (`vision.cpp:467-469`).
+
+`undo_list::apply_shroud_changes` commits the stack: for each stacked
+action, over every hex of its route,
+`if ( clearer.clear_unit(*step, tm, action->view_info, true) ) {`
+(`src/actions/undo.cpp:455`), unless
+`if ( tm.auto_shroud_updates()  ||  !tm.fog_or_shroud() ) {` (`:436`).
+It runs when
+
+- the stack is cleared (`undo_list::clear`, `undo.cpp:201-215`) by an
+  action that cannot be undone: any command that draws a random number,
+  a fight included
+  (`// As soon as random or similar is involved, undoing is impossible.` /
+  `resources::undo_stack->clear();`, `src/synced_context.cpp:284-285`;
+  and `if(undo_blocked()) {` ... `resources::undo_stack->clear();`,
+  `:81-83`), a recruit whose traits drew one
+  (`if ( std::get<0>(res) || synced_context::undo_blocked()) {`,
+  `create.cpp:733`), and a move that was ambushed or blocked
+  (`bool undo_blocked() const` / `{ return ambushed_ || blocked() || ...`,
+  `move.cpp:259-260`, checked at `:1075-1079`);
+- the turn ends: `// Ending the turn commits all moves.` /
+  `undo_stack().clear();` (`src/play_controller.cpp:576-577`), before
+  the refog;
+- `[update_shroud]` (`bool res = resources::undo_stack->commit_vision();`,
+  `src/synced_commands.cpp:394`);
+- `[auto_shroud] active=yes` while delaying:
+  `if(active && !current_team.auto_shroud_updates()) {` /
+  `resources::undo_stack->commit_vision();` (`:373-374`).
+
+An event handler that leaves undo disabled makes its action final too.
+A WML handler runs with undo disabled unless it re-enables it
+(`context::scoped evc(impl_->contexts_);`, `src/game_events/pump.cpp:219`,
+with `scoped(..., bool m = true)` at `:78`); a Lua `on_event` handler
+starts undoable (`wesnoth.experimental.game_events.set_undoable(true)`,
+`data/lua/on_event.lua:35`). A move reads it through
+`wml_undo_disabled_ |= std::get<0>(pump_res);` (`move.cpp:793`) after
+`post_wml(resources::game_events->pump().fire("moveto", final_loc, *begin_));`
+(`:1059`), a `[fire_event]` through `if(!undoable || synced_context::undo_blocked()) {` /
+`resources::undo_stack->clear();` (`synced_commands.cpp:344-345`). In our
+games this is the Plan Unit Advance modification
+(`active_mods="plan_unit_advance"`): its `moveto` handler ends with
+`wesnoth.allow_undo(false)` on the first move of each side turn of a
+player side (`data/modifications/pick_advance/main.lua:209-225`, the flag
+set by its "turn refresh" handler, `:204-206`), and its Plan Advancement
+menu item is a WML `[command]` without `[allow_undo]` (`:8-21`). An attack
+whose handler found both units has cleared the stack before its first
+draw (`resources::undo_stack->clear();`, `synced_commands.cpp:228`), so an
+attack a disconnect aborted before the draw commits as well.
+
+The recalculations at a side's turn start and end and for a defender
+after a fight ignore the switch
+(`* This function ignores the "delayed shroud updates" setting.`,
+`vision.cpp:697` and `:742`). When an AI takes control of a delaying
+side, the engine records `[auto_shroud] active=yes`
+(`src/playsingle_controller.cpp:647-654`).
+
+**A block in a replay.** A move stopped by an enemy on its next route
+hex (`move.cpp:481-484`, `blocked_loc_ = hex`) reveals the blocker
+(`:601`, `reveal_ambusher`; `:870`, `STATE_UNCOVERED`) and is final
+(`undo_blocked()` includes `blocked()`, `:259-260`; the stack is cleared
+at `:1075-1078`). The replay records the planned route and the checkup's
+final hex; the extractor cuts the route at the stop and keeps the next
+hex as the move's `next` (extraction version 5), where both appliers
+look for the blocker (`replay_dataset.blocked_beyond`, the core's
+`apply_move(next=...)`).
+
+**In a replay** the two commands are recorded as
+`[command] from_side=N [auto_shroud] active=no|yes [/auto_shroud]` and
+`[update_shroud][/update_shroud]`, each with a checkup. A recruit drew a
+random number exactly when a `[random_seed]` follows it, which the
+extractor stores as the recruit's seed; a recruit of a musthave-only
+trait pool has none and stays on the stack.
+
+**Why non-obvious.** The replay's move path and final hex read the same
+with or without the switch; what differs is what the player saw when
+deciding. The side's fog is also what a move consults for zones of
+control (`pathfind::enemy_zoc` with the side's visibility in
+`plot_turn`, `move.cpp`), so an enemy standing in uncommitted vision
+exerts none. In the observation review's sample of 700 corpus games
+(docs/parity_memory_audit_20260929.md, O1), 59 turn the switch off;
+3,077 of their 25,728 decisions were taken with vision pending, and at
+550 an enemy stood in it.
+
+**Implemented by** `wesnoth_ai/delayed_shroud.py`, the hooks in
+`tools/replay_dataset._apply_command` and the Rust core's
+`core_shroud.rs`; the extractor keeps `["auto_shroud", 0|1]` and
+`["update_shroud"]` (extraction version 4), a save's `[side]
+auto_shroud=`, whether the Plan Unit Advance modification is active
+(`plan_unit_advance`) and each of its menu events (`["menu_item",
+"pickadvance"]`); a mid-game start hands a delaying side to the policy with
+`[auto_shroud] active=yes` at its first turn (`WesnothSim._begin_side_turn`).
+Pinned by tests/test_delayed_shroud.py.
+
+---
+
+## A watching player sees a mover on every hex of its path (added 2026-09-30)
+
+**Rule.** During another side's move, a player's display animates each
+step of the route unless both hexes of the step are fogged for the
+player: a copy of the mover stands on the step's first hex, facing the
+second, and slides toward it, drawn while it is visible to the player's
+team on that first hex (not fogged, not hidden by its hide ability). So
+the player sees an enemy that leaves its view walk into the hex after the
+last one it was visible on, and last sees it there; one that ends its
+move in view is seen where it ends. A fight the player's unit defends is
+shown to the player too, and its side's fog is recomputed only after the
+last strike (the defender died, or was newly slowed or petrified): the
+player saw the attacker's hit points after the fight even when the new
+fog then hides it. The attacker, then the defender, advance only after
+that refog, their level-up drawn only where the player sees them: a
+player whose fog closed over the attacker last saw it as it fought, not
+as the unit it became.
+
+**Source (1.18.4).** `src/units/udisplay.cpp:141` (`move_unit_between`):
+
+```cpp
+	if ( disp.fogged(a) && disp.fogged(b) ) {
+```
+
+skips the step's animation; otherwise the copy is placed on `a` facing
+`b` and given the "movement" animation from `a` to `b` (`:145-149`);
+`unit_mover::proceed_to` (`:318-384`) animates the route step by step;
+`src/units/drawer.cpp:200` draws a unit only when
+`u.is_visible_to_team(viewing_team_ref, show_everything)`. The fight:
+`unit_attack` (`udisplay.cpp:599-733`) animates it with its damage, and
+the defender's side is refogged after the last strike
+(`src/actions/attack.cpp:1456-1458`). The advancements come after
+`attack_unit`, which runs the fight and that refog
+(`attack_unit_and_advance`, `src/actions/attack.cpp:1556-1567`):
+
+```cpp
+	attack_unit(attacker, defender, attack_with, defend_with, update_display);
+
+	unit_map::const_iterator atku = resources::gameboard->units().find(attacker);
+	if(atku != resources::gameboard->units().end()) {
+		advance_unit_at(advance_unit_params(attacker));
+	}
+```
+
+and their "levelout" and "levelin" animations are the unit's own
+(`src/actions/advancement.cpp:124-150`), drawn under `drawer.cpp:200`'s
+rule. **Why non-obvious:** the command's end state holds the advanced
+unit at full hit points; a reading of the fight from it shows the player
+a type it never saw.
+
+With move animations off the mover stays hidden until it lands
+(`unit_mover::start`, `udisplay.cpp:264-270`: "If no animation then hide
+unit until end of movement"); the corpus is taken to be watched with
+them on, the default.
+
+**Followed in part.** The parity observation follows the display with
+move animations off (user ruling 2026-10-01): its sighting record notes
+where units stand after each command, never along a move's route, so a
+unit that crosses a player's view during a move is not seen (an area of
+improvement, docs/parity_memory_design_20260929.md). The fight is
+followed: `note_sightings_of` before the defender's refog and both
+advancements in `core_attack.rs`, the Python applier keeping the same
+order. `tools/sighting_oracle.py` implements the same reading from the
+Python applier (the attacker as the fight left it comes from the
+applier's `_last_fight`), and `tools/diff_core.py --sightings` compares
+the two.
+
+A teleport step (to a hex that is not adjacent, `udisplay.cpp:370-377`)
+is not a slide: `teleport_unit_between` (`udisplay.cpp:74-113`) plays
+"pre_teleport" on the source when the mover is visible there and
+"post_teleport" on the destination only when it is visible there, so a
+mover that teleports out of view was last seen where it left.
+
+---
+
+## What a Random faction can draw (added 2026-09-30)
+
+**Rule.** A side whose player chose Random draws uniformly among the
+era's factions that are not themselves random. With the lobby's random
+faction mode "No Mirror", each side avoids the factions of the sides
+already resolved or chosen openly, so in a 1v1 a Random side never draws
+the other side's faction; "No Ally Mirror" avoids allies' factions only;
+"Independent" (the default) avoids nothing. When avoiding would leave no
+faction, the avoid list is ignored.
+
+**Source (1.18.4).** `src/game_initialization/connect_engine.cpp:395-416`:
+
+```cpp
+		if(params_.mode != random_faction_mode::type::independent) {
+			for(side_engine_ptr side2 : side_engines_) {
+				if(!side2->flg().is_random_faction()) {
+					switch(params_.mode) {
+						case random_faction_mode::type::no_mirror:
+							avoid_faction_ids.push_back(side2->flg().current_faction()["id"].str());
+```
+
+then `side->resolve_random(rng, avoid_faction_ids)`;
+`src/game_initialization/flg_manager.cpp:157-215` (`resolve_random`)
+skips `random_faction` entries, honours the Random side's `choices=` and
+`except=` (the default era's `RANDOM_SIDE` macro,
+`data/core/macros/multiplayer.cfg:3-10`, sets neither), and falls back
+to the unavoided list at `:206-209`. The mode's default
+is Independent (`src/mp_game_settings.cpp:89`); a replay's `[multiplayer]`
+records it as `random_faction_mode=`.
+
+**Why non-obvious.** The prior over a Random opponent's faction is not
+the era's list: under No Mirror it excludes the side's own faction. 45
+of 109 sampled replays of the default and Dunefolk eras play No Mirror.
+
+**Implemented by** `wesnoth_ai/faction_posterior.random_draws`, reading
+the record's `random_faction_mode` (extraction version 5).
+
+---
+
+## The time of day the interface shows at a hex (added 2026-09-30)
+
+**Rule.** On a fogged hex the interface shows the time of day of the
+hex's time area, without terrain light or illumination; on a seen hex,
+the illuminated time of day: the area's, the terrain's light, and the
+illumination of every unit on or next to the hex that is not
+incapacitated, seen or not.
+
+**Source (1.18.4).** `src/reports.cpp:100-112` (a shrouded hex shows the
+board's time; the corpus holds no shroud game, `quarantine_reason`):
+
+```cpp
+	if (viewing_team.shrouded(hex)) {
+		// Don't show time on shrouded tiles.
+		return rc.tod().get_time_of_day();
+	} else if (viewing_team.fogged(hex)) {
+		// Don't show illuminated time on fogged tiles.
+		return rc.tod().get_time_of_day(hex);
+	} else {
+		return rc.tod().get_illuminated_time_of_day(rc.units(), rc.map(), hex);
+	}
+```
+
+and `src/tod_manager.cpp:221-262` (`get_illuminated_time_of_day`): the
+terrain light, then every unit of the hex and its six neighbours found
+in the unit map that is not `incapacitated()`, with no side or
+visibility filter.
+
+**Why non-obvious.** A seen hex next to an enemy that illuminates from
+fog reads lit in the interface: the player can see the light of a unit
+it cannot see.
+
+**Implemented by** the parity observation's hex time-of-day column
+(`core_parity.rs` `hex_extra`).
+
+---
+
+## A refused recruit leaves nothing in the replay (added 2026-09-30)
+
+**Rule.** When a recruit cannot be placed (`can_recruit` fails, for
+example on an occupied castle with no free hex), the interface shows a
+message and no synced command is sent, so the replay records nothing.
+
+**Source (1.18.4).** `src/menu_events.cpp:350-370` (`menu_handler::do_recruit`):
+`synced_context::run_and_throw("recruit", ...)` runs only when
+`can_recruit` returns no error; otherwise `gui2::show_transient_message`.
+
+**Consequence.** The corpus holds no position for a refused recruit;
+a match player whose recruit bounces decides again from the memory it
+had before (`RawPolicyPlayer.drop_last_pending`).

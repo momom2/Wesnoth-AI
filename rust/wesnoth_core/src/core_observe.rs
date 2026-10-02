@@ -3,8 +3,12 @@
 //! reach)` computes from a Python state: the per-unit facts straight
 //! from the unit records into `observe_slices` (observe.rs), the
 //! acting units' landable rows through `landable_rows` (lib.rs) over
-//! the movement classes, and the relevant hex set. The Python module
-//! stays the oracle (tests/test_game_core.py).
+//! the movement classes, and the relevant hex set. The same side view
+//! answers the move-order planner (`unit_reach`, `side_context`: what
+//! `pathfind_sim.ReachContext.for_side` and `unit_reach` compute) and
+//! the units a side sees (`visible_ids`, `visibility.units_visible_to`).
+//! The Python modules stay the oracle (tests/test_game_core.py,
+//! tests/test_rust_moves.py).
 
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
@@ -13,8 +17,8 @@ use pyo3::types::PyDict;
 use std::collections::HashMap;
 
 use crate::core::GameCore;
-use crate::landable_rows;
 use crate::observe::{observe_slices, SideView, UnitFacts};
+use crate::{dijkstra_reach, landable_rows};
 
 const HIDE_ABILITIES: [&str; 4] = ["ambush", "concealment", "submerge", "nightstalk"];
 
@@ -32,11 +36,14 @@ pub(crate) struct CoreObservation {
     pub relevant: Vec<u8>,
 }
 
+/// A unit's reach per hex: movement points spent, route cost, predecessor.
+type ReachArrays<'py> = (Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<i64>>);
+
 impl GameCore {
-    /// `observe.observe(state, side, reach=...)` over the core.
-    pub fn observe_core(&self, side: i64, reach: bool) -> PyResult<CoreObservation> {
+    /// What `side` sees of the board (`observe_slices`) and each unit's
+    /// hex index (-1 off the map).
+    pub(crate) fn side_view(&self, side: i64) -> (SideView, Vec<i64>) {
         let n = self.units.len();
-        let h = self.map.h;
         let mut ux = vec![0i64; n];
         let mut uy = vec![0i64; n];
         let mut uhex = vec![-1i64; n];
@@ -66,6 +73,17 @@ impl GameCore {
         let m = &self.map;
         let view = observe_slices(&m.nbrs, &m.castle_or_keep, &m.keep, &self.recruit_rejected,
                                   self.seen_by(side), &facts, side, self.global.fog_on);
+        (view, uhex)
+    }
+
+    /// `observe.observe(state, side, reach=...)` over the core.
+    pub(crate) fn observe_core(&self, side: i64, reach: bool) -> PyResult<CoreObservation> {
+        let n = self.units.len();
+        let h = self.map.h;
+        let m = &self.map;
+        let (view, uhex) = self.side_view(side);
+        let upetrified: Vec<u8> = self.units.iter().map(|u| u.has_status("petrified") as u8).collect();
+        let uleader: Vec<u8> = self.units.iter().map(|u| u.is_leader as u8).collect();
         let mut out = CoreObservation {
             view, unit_hex: uhex, acting: Vec::new(), can_move: Vec::new(), can_attack: Vec::new(),
             landable: Vec::new(), relevant: Vec::new(),
@@ -185,6 +203,52 @@ pub(crate) fn observation_dict<'py>(py: Python<'py>, core: &GameCore, obs: CoreO
 
 #[pymethods]
 impl GameCore {
+    /// `pathfind_sim.unit_reach` for the unit on (x, y) with `budget`
+    /// movement points, against its side's observable context
+    /// (`ReachContext.for_side`: the visible units, the enemies' zones of
+    /// control): per hex the movement points spent (-1 unreached), the
+    /// route cost (movement plus the defense and ally subcosts, inf
+    /// unreached) and the predecessor on the preferred route (-1). The
+    /// unit's own hex counts as its side's, which no route re-enters.
+    /// None when no unit stands there on the map.
+    fn unit_reach<'py>(&self, py: Python<'py>, x: i64, y: i64, budget: i64) -> PyResult<Option<ReachArrays<'py>>> {
+        let Some(i) = self.unit_at(x, y) else { return Ok(None) };
+        let u = &self.units[i];
+        if u.hex < 0 {
+            return Ok(None);
+        }
+        let (view, _) = self.side_view(u.side);
+        let c = if u.has_status("slowed") { u.class_slowed_id } else { u.class_id };
+        let classes = self.classes.read().unwrap();
+        if c < 0 || c as usize >= classes.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!("unit {} has no movement class", u.id)));
+        }
+        let class = &classes[c as usize];
+        let h = self.map.h;
+        let (mut mp, mut cost, mut prev) = (vec![-1i64; h], vec![f64::INFINITY; h], vec![-1i64; h]);
+        dijkstra_reach(&self.map.nbrs, &class.mcost, &class.dsub, &view.zoc, &view.enemy, &view.ally,
+                       u.hex as usize, budget, u.has_ability("skirmisher"), &mut mp, &mut cost, &mut prev);
+        Ok(Some((mp.into_pyarray(py), cost.into_pyarray(py), prev.into_pyarray(py))))
+    }
+
+    /// `ReachContext.for_side(state, side)` as hex flags [H]: occupied by
+    /// a unit the side sees, by a seen enemy (scenery included), by one
+    /// of its own, and in a seen enemy's zone of control.
+    #[allow(clippy::type_complexity)]
+    fn side_context<'py>(&self, py: Python<'py>, side: i64)
+        -> (Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>) {
+        let (view, _) = self.side_view(side);
+        (view.occupied.into_pyarray(py), view.enemy.into_pyarray(py), view.ally.into_pyarray(py),
+         view.zoc.into_pyarray(py))
+    }
+
+    /// `visibility.units_visible_to(state, side)`: the ids of the units
+    /// the side sees.
+    fn visible_ids(&self, side: i64) -> Vec<String> {
+        let (view, _) = self.side_view(side);
+        self.units.iter().zip(&view.visible).filter(|(_, &v)| v != 0).map(|(u, _)| u.id.clone()).collect()
+    }
+
     /// `observe.observe(state, side, reach)` as a dict of arrays: side,
     /// fog_on, unit_ids (unit order), unit_hex, seen, visible, zoc,
     /// enemy, ally, occupied, inert, recruit_row, network,

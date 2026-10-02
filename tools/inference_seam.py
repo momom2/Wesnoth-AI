@@ -135,7 +135,7 @@ def output_to_wire(out: ModelOutput):
         return ("c", int(out.num_units), int(out.num_recruits),
                 _host_np(out.value), _host_np(out.value_logits), _host_np(out.cliffness),
                 _host_np(out.aux_score), _host_np(out.moves_left),
-                _host_np(out.actor_kind).astype("int8"), compact)
+                _host_np(out.actor_kind).astype("int8"), compact, _host_np(out.memory))
     w = {}
     for f in dataclasses.fields(out):
         v = getattr(out, f.name)
@@ -187,7 +187,7 @@ def output_from_wire(w) -> ModelOutput:
     """Inverse of output_to_wire (actor side). torch.from_numpy is
     zero-copy; MCTS only reads these tensors."""
     if isinstance(w, tuple) and w and w[0] == "c":
-        _, U, R, value, value_logits, cliffness, aux, ml, kinds, compact = w
+        _, U, R, value, value_logits, cliffness, aux, ml, kinds, compact, memory = w
         flat, empty = placeholder_logits(U + R + 1)
         return ModelOutput(
             actor_logits=flat, actor_kind=torch.from_numpy(kinds.astype("int64")),
@@ -196,7 +196,7 @@ def output_from_wire(w) -> ModelOutput:
             cliffness=torch.from_numpy(cliffness), num_units=U, num_recruits=R,
             aux_score=None if aux is None else torch.from_numpy(aux),
             moves_left=None if ml is None else torch.from_numpy(ml),
-            legal_compact=compact)
+            legal_compact=compact, memory=None if memory is None else torch.from_numpy(memory))
     kw = {}
     for name, (tag, v) in w.items():
         kw[name] = torch.from_numpy(v) if tag == "t" else v
@@ -408,8 +408,9 @@ class InferenceServer:
         if any(paired):
             if not all(paired):
                 raise ValueError("infer_batch: mixed raw and (raw, masks) items")
-            return self._infer_with_priors([r for r, _ in raws],
-                                           [m for _, m in raws], stats)
+            memories = [r[2] if len(r) > 2 else None for r in raws]
+            return self._infer_with_priors([r[0] for r in raws], [r[1] for r in raws], stats,
+                                           memories=memories)
         with torch.no_grad():
             encs = self._encoder.encode_from_raw_batch(
                 raws, device=self._device)
@@ -426,11 +427,31 @@ class InferenceServer:
                 return batched_outputs_to_cpu(outs)
         return [move_model_output(o, self._out_dev) for o in outs]
 
-    def _infer_with_priors(self, raws, packs, stats=None) -> List[ModelOutput]:
+    def _memory_states(self, memories) -> Optional[List[torch.Tensor]]:
+        """The batch's memory states for a model with a memory (each
+        leaf's, or its learned initial memory at a game-side's first
+        decision), None for a model without one. A leaf without a memory
+        for a model with one, or the reverse, is refused."""
+        slots = int(getattr(self._model, "memory_slots", 0) or 0)
+        given = [m is not None for m in (memories or [])]
+        if not slots:
+            if any(given):
+                raise ValueError("memory sent to a model without a memory")
+            return None
+        if not memories or not all(given):
+            raise ValueError(f"a model with a memory ({slots} slots) needs every leaf's memory")
+        return [self._model.initial_memory(m.k).to(self._device) if m.state is None
+                else torch.as_tensor(m.state, dtype=torch.float32).to(self._device) for m in memories]
+
+    def _infer_with_priors(self, raws, packs, stats=None, memories=None) -> List[ModelOutput]:
         """Batched forward + masked softmaxes on the device; replies
         carry the compact legal actions, value and cliffness, with
         placeholder logits (the actor never reads them). The head
         outputs ride back in the priors' one device->host transfer.
+        With a memory (`memories`: one `MemoryState` per leaf) each reply
+        carries the leaf's new state; the parity observation and the
+        memory run the embedded path (the padded one has no sighting
+        stream), and the graphed path serves neither.
 
         On CUDA with `stats`, a pair of stream events brackets encode
         + forward + priors: the elapsed milliseconds are the stream's
@@ -449,7 +470,10 @@ class InferenceServer:
             ev_start.record()
         t0 = time.perf_counter()
         graphed = None
-        gserve = self._graphed_serve()
+        states = self._memory_states(memories)
+        extended = bool(getattr(model, "extended_streams", False))
+        gserve = None if extended else self._graphed_serve()
+        new_memory = None
         if gserve is not None:
             try:
                 graphed = gserve.infer(raws, packs)
@@ -471,11 +495,11 @@ class InferenceServer:
                 ev_end.synchronize()
         else:
             with torch.no_grad():
-                if self._packed_embed:
+                if self._packed_embed or extended:
                     streams = self._encoder.encode_from_raw_embedded(raws, device=self._device)
 
                     def forward():
-                        return model.forward_embedded(streams)
+                        return model.forward_embedded(streams, memory=states)
                 else:
                     streams = self._encoder.encode_from_raw_padded(raws, device=self._device)
 
@@ -497,6 +521,9 @@ class InferenceServer:
                 compact, host = pending.finish()
                 t4 = time.perf_counter()
             actor_kind, sizes = padded.actor_kind, padded.sizes
+            if padded.memory_padded is not None:
+                new_memory = padded.memory_padded.float().cpu()
+                memory_counts = padded.memory_counts
         if timing:
             stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + ev_start.elapsed_time(ev_end)
         small = {n: torch.from_numpy(a) for n, a in zip(names, host)}
@@ -513,7 +540,8 @@ class InferenceServer:
                 cliffness=small["cliffness"][b:b + 1], num_units=U, num_recruits=R,
                 aux_score=aux[b:b + 1] if aux is not None else None,
                 moves_left=ml[b:b + 1] if ml is not None else None,
-                legal_compact=compact[b]))
+                legal_compact=compact[b],
+                memory=None if new_memory is None else new_memory[b, :memory_counts[b]]))
         if timing:
             t5 = time.perf_counter()
             for key, dt in (("t_encode", t1 - t0), ("t_forward", t2 - t1), ("t_priors", t3 - t2),
@@ -545,11 +573,16 @@ def inference_blueprint(model, encoder) -> InferenceBlueprint:
             num_heads=int(layer.self_attn.num_heads),
             d_ff=int(layer.linear1.out_features), dropout=float(layer.dropout.p),
             max_attacks=int(model.max_attacks), aux_score=bool(model.has_aux_score),
-            moves_left=bool(model.has_moves_left), gbc=bool(model.has_gbc)),
+            moves_left=bool(model.has_moves_left), gbc=bool(model.has_gbc),
+            value_material=bool(model.has_value_material),
+            observation_parity=bool(model.observation_parity),
+            memory_slots=int(model.memory_slots)),
         encoder_kwargs=dict(d_model=int(encoder.d_model),
                             relevant_set_hexes=bool(encoder.relevant_set_hexes),
                             fog_hides_enemy_villages=bool(getattr(encoder, "fog_hides_enemy_villages", False)),
-                            terrain_multi_hot=bool(getattr(encoder, "terrain_multi_hot", False))))
+                            terrain_multi_hot=bool(getattr(encoder, "terrain_multi_hot", False)),
+                            observation_parity=bool(encoder.observation_parity),
+                            relevant_set_version=int(encoder.relevant_set_version)))
 
 
 def build_inference_pair(blueprint: InferenceBlueprint, device: torch.device) -> Tuple:
@@ -597,11 +630,17 @@ class RemoteEncoder:
         server_priors: bool = False,
         fog_hides_enemy_villages: bool = False,
         terrain_multi_hot: bool = False,
+        observation_parity: bool = False,
+        relevant_set_version: int = 1,
     ):
         self._type_to_id = type_to_id
         self._faction_to_id = faction_to_id
         self._fog_hides_enemy_villages = bool(fog_hides_enemy_villages)
         self.terrain_multi_hot = bool(terrain_multi_hot)
+        # The parity observation and its relevant set, which only the Rust
+        # core builds: the state encoded must be a view of a core.
+        self.observation_parity = bool(observation_parity)
+        self.relevant_set_version = int(relevant_set_version)
         self._device = device or torch.device("cpu")
         # Server-side priors: the actor packs the legality masks at
         # encode time and RemoteModel ships them with the leaf.
@@ -620,6 +659,8 @@ class RemoteEncoder:
             relevant_set=self._relevant_set,
             fog_hides_enemy_villages=self._fog_hides_enemy_villages,
             terrain_multi_hot=self.terrain_multi_hot,
+            observation_parity=self.observation_parity,
+            relevant_set_version=self.relevant_set_version,
         )
         enc = build_light_encoded(raw, self._device)
         # Stash the wire payload for RemoteModel; EncodedState is a
@@ -640,12 +681,17 @@ class RemoteModel:
         self._t = transport
 
     @staticmethod
-    def _payload(encoded: EncodedState):
+    def _payload(encoded: EncodedState, memory=None):
         masks = getattr(encoded, "_masks", None)
+        if memory is not None:
+            if masks is None:
+                raise ValueError("a memory travels with server-side priors only")
+            return (encoded._raw, masks, memory)
         return encoded._raw if masks is None else (encoded._raw, masks)
 
-    def __call__(self, encoded: EncodedState) -> ModelOutput:
-        payload = self._payload(encoded)
+    def __call__(self, encoded: EncodedState, memory=None) -> ModelOutput:
+        """`memory`: the player's `MemoryState` for a model with a memory."""
+        payload = self._payload(encoded, memory)
         if isinstance(payload, tuple):
             return self._t.infer_batch([payload])[0]
         return self._t.infer(payload)

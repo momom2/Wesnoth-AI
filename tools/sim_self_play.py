@@ -2406,7 +2406,7 @@ def main(argv: List[str]) -> int:
                 continue
             try:
                 raw = torch.load(cand, map_location="cpu",
-                                 weights_only=False)
+                                 weights_only=True)
                 if cand != args.checkpoint_in:
                     log.warning(
                         f"primary checkpoint {args.checkpoint_in} unreadable;"

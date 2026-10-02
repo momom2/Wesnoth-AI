@@ -69,17 +69,14 @@ def side_material(game_state, side: int) -> float:
 
 
 def replay_to_end(record: dict):
-    """(state at the start, state at the end) of an extracted record."""
-    import copy
-
-    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
-                                      _setup_scenario_events)
-    gs = _build_initial_gamestate(record)
-    _setup_scenario_events(gs, record.get("scenario_id", ""))
-    start = copy.copy(gs.map.units)
+    """(the units at the start, the state at the end) of an extracted
+    record, replayed on the Rust core."""
+    from tools.replay_dataset import record_core
+    cs = record_core(record)
+    start = cs.to_state().map.units
     for cmd in record.get("commands", []):
-        _apply_command(gs, cmd)
-    return start, gs
+        cs.apply_command(list(cmd))
+    return start, cs.to_state()
 
 
 def label_outcome(record: dict) -> Outcome:

@@ -87,7 +87,7 @@ def _load_checkpoint(
     Mirrors transformer_policy.load_checkpoint (we don't go through the
     Policy registry here -- this is pure inference, no rollout buffers).
     """
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
     arch = ckpt.get("arch", {})
     d_model    = arch.get("d_model",    128)
     num_layers = arch.get("num_layers", 3)

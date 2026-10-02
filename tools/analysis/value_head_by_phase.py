@@ -24,7 +24,6 @@ Usage (a box: --jobs for the reconstruction, --device cuda for the head):
         --device cuda --out training/metrics/value_head/seed_by_phase.json [--limit 40]
 """
 import argparse
-import copy
 import gzip
 import json
 import math
@@ -60,18 +59,21 @@ def material(gs, mover: int) -> float:
 
 
 def turn_start_states(data: dict):
-    """(turn, side, GameState) at every player side's turn start."""
-    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
-                                      _setup_scenario_events)
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    """(turn, side, GameState) at every player side's turn start, each
+    state a view bound to a snapshot of the Rust core that rebuilt it."""
+    from tools.replay_dataset import record_core
+    from wesnoth_ai.game_core import bind_view
+    cs = record_core(data)
     out = []
     for cmd in data.get("commands", []):
-        _apply_command(gs, cmd)
+        cs.apply_command(list(cmd))
         if cmd and cmd[0] == "init_side" and len(cmd) > 1 and cmd[1] in (1, 2):
+            snapshot = cs.fork()
+            gs = snapshot.to_state()
             if not {1, 2} <= {u.side for u in gs.map.units if u.is_leader}:
                 break
-            out.append((int(gs.global_info.turn_number), int(cmd[1]), copy.deepcopy(gs)))
+            bind_view(gs, snapshot)
+            out.append((int(gs.global_info.turn_number), int(cmd[1]), gs))
     return out
 
 

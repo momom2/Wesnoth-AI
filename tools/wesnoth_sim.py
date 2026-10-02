@@ -2,11 +2,11 @@
 
 Wesnoth's game logic reimplemented in-process: no engine subprocess,
 no rendering, no IPC, and no Wesnoth install on a GPU box (the WML it
-reads is committed under wesnoth_src/). The logic is Python; when the
-wheel is installed, Rust kernels (rust/wesnoth_core) compute reach and
-legal moves, the observation, the encoding and combat, and
-`WESNOTH_RUST_CORE=1` makes the Rust-owned state (`GameCore`) the
-state of record (CLAUDE.md, Architecture).
+reads is committed under wesnoth_src/). The state of record is
+the Rust-owned `GameCore` (rust/wesnoth_core, `wesnoth_ai.game_core`)
+when the wheel is installed and `WESNOTH_RUST_CORE` is not 0; the
+Python applier is the other state of record until the port retires it
+(docs/rust_core_port_20260928.md).
 
 The simulator reuses the replay-reconstruction machinery of
 tools/replay_dataset.py, which reads a replay's WML command stream and
@@ -59,11 +59,10 @@ Or for AI-vs-AI (the turn cap is the constructor's max_turns):
 from __future__ import annotations
 
 import gzip
-import os
 import json
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -72,7 +71,8 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, SideInfo, state_digest
+from wesnoth_ai import delayed_shroud
+from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, state_digest
 from tools.replay_dataset import (
     _apply_command,
     _build_initial_gamestate,
@@ -122,17 +122,8 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     Touches every side's gold + base_income, plus the global village
     economy and experience modifier. Doesn't touch unit positions,
     factions, recruit lists, or terrain -- only the economy/xp knobs."""
-    gs.sides = [
-        SideInfo(
-            player=s.player,
-            recruits=s.recruits,
-            current_gold=defaults.starting_gold,
-            base_income=defaults.base_income,
-            nb_villages_controlled=s.nb_villages_controlled,
-            faction=s.faction,
-        )
-        for s in gs.sides
-    ]
+    gs.sides = [replace(s, current_gold=defaults.starting_gold, base_income=defaults.base_income)
+                for s in gs.sides]
     gs.global_info.village_gold = defaults.village_gold
     gs.global_info.village_upkeep = defaults.village_support
     setattr(gs.global_info, "_experience_modifier",
@@ -145,14 +136,14 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     # -- so without this rescale a leader/pre-placed unit would advance
     # on a different xp threshold than its own recruits in the same game.
     # Idempotent: recomputing at the same modifier yields the same value.
-    import dataclasses
-    from tools.replay_dataset import _stats_for, _scaled_max_exp
+    # `_rebuild_unit` keeps the units' underscore attributes, which
+    # `dataclasses.replace` drops.
+    from tools.replay_dataset import _rebuild_unit, _stats_for, _scaled_max_exp
     target_mod = int(defaults.experience_modifier)
     rescaled = set()
     for u in gs.map.units:
         base_exp = int(_stats_for(u.name).get("experience", 50))
-        rescaled.add(dataclasses.replace(
-            u, max_exp=_scaled_max_exp(base_exp, target_mod)))
+        rescaled.add(_rebuild_unit(u, max_exp=_scaled_max_exp(base_exp, target_mod)))
     gs.map.units = rescaled
 
 
@@ -352,14 +343,7 @@ def request_seed(request_id: int) -> str:
 _RECRUIT_COSTS_CACHE: Dict[str, int] = {}
 
 
-def core_enabled() -> bool:
-    """The Rust-owned state as the simulator's state of record
-    (docs/rust_port_plan.md phase 4): the wheel carries GameCore and
-    WESNOTH_RUST_CORE is not 0. Off by default until certified."""
-    if os.environ.get("WESNOTH_RUST_CORE", "0") == "0":
-        return False
-    from wesnoth_ai.game_core import game_core_class
-    return game_core_class() is not None
+from wesnoth_ai.game_core import core_enabled  # noqa: E402  (the one switch)
 
 
 def nearest_vacant_castle(gs: GameState, leader) -> Optional[Tuple[int, int]]:
@@ -523,12 +507,16 @@ class WesnothSim:
         # Aethermaw morph, etc.) -- mirrors what replay_dataset does
         # at the top of iter_replay_pairs. Mid-game starts pass
         # False: reconstruction already fired them, and prestart
-        # unit placement (CoB statues) must not double-apply.
-        if apply_scenario_events:
-            _setup_scenario_events(self.gs, scenario_id)
+        # unit placement (CoB statues) must not double-apply. On the
+        # core the setup runs in Rust.
         if use_core if use_core is not None else core_enabled():
             from wesnoth_ai.game_core import CoreState
             self.core = CoreState.from_state(self._gs)
+            if apply_scenario_events:
+                self.core.setup_scenario(scenario_id)
+                self._refresh_view()
+        elif apply_scenario_events:
+            _setup_scenario_events(self.gs, scenario_id)
 
         self.done:      bool = False
         self.winner:    int  = 0
@@ -612,9 +600,16 @@ class WesnothSim:
         # decision -- they'd typically just call step() again,
         # which is exactly the right behavior.
         self.last_step_rejected: bool = False
+        # Why: "recruit_occupied" (the hex held a unit the side could not
+        # see and no castle hex was vacant: re-decide) or
+        # "mask_disagreement" (the simulator refused what the legality
+        # mask offered: a defect, which a match fails on).
+        self.last_step_refusal: Optional[str] = None
         # Consecutive rejected-step counter for the mask-less-caller
         # loop guard (see step()). Reset whenever a command applies.
         self._consecutive_rejects: int = 0
+        # Turns the loop guard ended, per side (a match records them).
+        self.forced_end_turns: Dict[int, int] = {}
 
         # Turn 0 is pre-game. The first init_side(1) bumps to turn 1
         # AND fires turn-1 events / healing. Mirror that here.
@@ -694,15 +689,18 @@ class WesnothSim:
         mutate it (the mutating entry points are methods of this
         class)."""
         if self.core is not None and self._gs is None:
+            from wesnoth_ai.game_core import bind_view
             self._gs = self.core.to_state()
+            bind_view(self._gs, self.core)
         return self._gs
 
     @gs.setter
     def gs(self, value: GameState) -> None:
         self._gs = value
         if getattr(self, "core", None) is not None:
-            from wesnoth_ai.game_core import CoreState
+            from wesnoth_ai.game_core import CoreState, bind_view
             self.core = CoreState.from_state(value)
+            bind_view(value, self.core)
 
     def _refresh_view(self) -> None:
         """After a core command: the view object takes the core's
@@ -720,6 +718,8 @@ class WesnothSim:
         view.global_info.__dict__.clear()
         view.global_info.__dict__.update(fresh.global_info.__dict__)
         view.game_over, view.winner = fresh.game_over, fresh.winner
+        from wesnoth_ai.game_core import bind_view
+        bind_view(view, self.core)
 
     @property
     def state(self) -> GameState:
@@ -840,6 +840,11 @@ class WesnothSim:
         out._seed_salt       = self._seed_salt
         out._is_search_fork  = self._is_search_fork
         out.command_history  = []   # forks don't track history
+        # A fork's refusals are its own (the loop guard's counters).
+        out.last_step_rejected = False
+        out.last_step_refusal = None
+        out._consecutive_rejects = 0
+        out.forced_end_turns = {}
         out.recruit_rejections = []
         out.turn_digests = []
         out._keeps_record = False
@@ -860,7 +865,7 @@ class WesnothSim:
         replay reconstruction / diff_replay keep the deterministic path
         ([choose] queue, else targets[0]). The channel takes the
         current `_seed_salt` at once, as a game record's rebuild does
-        (tools/game_record.start_state)."""
+        (tools/game_record.start_core)."""
         if self.core is not None:
             self.core.core.set_global_int("advance_uniform", 1)
             self._refresh_view()
@@ -896,8 +901,6 @@ class WesnothSim:
         try:
             if self.core is None:
                 _apply_command(self.gs, cmd)
-            elif cmd[0] == "init_side":
-                self.core._python_path(cmd)     # the heal events fire in the Python applier
             else:
                 self.core.apply_command(cmd)
         finally:
@@ -1098,6 +1101,31 @@ class WesnothSim:
         return Position(x=best[0], y=best[1])
 
 
+    def _refused(self, action: dict, kind: str) -> bool:
+        """A refused action. The caller re-decides (`last_step_rejected`,
+        `last_step_refusal`) until _MAX_CONSECUTIVE_REJECTS refusals in a
+        row; then the side's turn ends instead, since a caller that does
+        not re-decide from the mask (a scripted policy, a buggy caller)
+        would repeat the same doomed action forever (caught 2026-07-17).
+        True while the caller should re-decide."""
+        self._consecutive_rejects += 1
+        if self._consecutive_rejects < self._MAX_CONSECUTIVE_REJECTS:
+            self.last_step_rejected = True
+            self.last_step_refusal = kind
+            return True
+        log.warning(
+            f"sim: {self._consecutive_rejects} consecutive "
+            f"rejected steps (last: {action!r}); caller is not "
+            f"re-deciding from the mask -- ending turn to "
+            f"guarantee progress")
+        self._forced_end_turn_note = (
+            f"attempted {_describe_action(action)}; "
+            f"{self._consecutive_rejects} consecutive rejects "
+            f"-> forced end_turn (loop guard)")
+        side = int(self.current_side)
+        self.forced_end_turns[side] = self.forced_end_turns.get(side, 0) + 1
+        return False
+
     def step(self, action: dict) -> bool:
         """Apply one action. Returns True if the game is over after
         this step. Wraps `_step_inner` with the no-progress tracker:
@@ -1208,8 +1236,9 @@ class WesnothSim:
                             f"{target.x},{target.y} has no landable "
                             f"attack hex; mask/sim reachability "
                             f"disagreement -- re-deciding")
-                        self.last_step_rejected = True
-                        return self.done
+                        if self._refused(action, "mask_disagreement"):
+                            return self.done
+                        action = {"type": "end_turn"}
                     else:
                         # Dispatch the move first; if it produces a
                         # game-over (e.g. capture-the-flag scenario),
@@ -1257,6 +1286,7 @@ class WesnothSim:
         # this AFTER step() to decide whether to re-decide rather than
         # advance.
         self.last_step_rejected = False
+        self.last_step_refusal = None
 
         cmd, terrain_cost = self._action_to_command(action)
         if cmd is not None and cmd[0] in ("__retry_recruit__",
@@ -1274,20 +1304,9 @@ class WesnothSim:
             # behavior) with a loud warning. Mask-consulting policies
             # never accumulate rejects (the mask and the planner
             # agree), so the bound only fires for mask-less callers.
-            self._consecutive_rejects = getattr(
-                self, "_consecutive_rejects", 0) + 1
-            if self._consecutive_rejects < self._MAX_CONSECUTIVE_REJECTS:
-                self.last_step_rejected = True
+            kind = "recruit_occupied" if cmd[0] == "__retry_recruit__" else "mask_disagreement"
+            if self._refused(action, kind):
                 return self.done
-            log.warning(
-                f"sim: {self._consecutive_rejects} consecutive "
-                f"rejected steps (last: {action!r}); caller is not "
-                f"re-deciding from the mask -- ending turn to "
-                f"guarantee progress")
-            self._forced_end_turn_note = (
-                f"attempted {_describe_action(action)}; "
-                f"{self._consecutive_rejects} consecutive rejects "
-                f"-> forced end_turn (loop guard)")
             cmd = ["end_turn"]
         self._consecutive_rejects = 0
         if cmd is None:
@@ -1386,9 +1405,23 @@ class WesnothSim:
         for `side`'s units. Game-over can also fire here (turn-limit
         checks; NB poison cannot kill -- healing clamps at 1 HP)."""
         self._apply_and_record(["init_side", side], side)
+        if side in delayed_shroud.delaying_sides(self.gs):
+            # A side a human left delaying its shroud updates (a mid-game
+            # start) updates them at once under the policy, as when an AI
+            # takes control (src/playsingle_controller.cpp:647-654).
+            self._apply_and_record(["auto_shroud", 1], side)
         if self._keeps_record:
-            self.turn_digests.append((len(self.command_history) - 1, state_digest(self.gs)))
+            self.turn_digests.append((len(self.command_history) - 1,
+                                      state_digest(self.gs, version=self.digest_version)))
         self._check_game_over()
+
+    @property
+    def digest_version(self) -> int:
+        """The `state_digest` version this game's fingerprints use: the
+        core's keeps each side's sighting record, which the Python
+        applier does not (classes.DIGEST_VERSION)."""
+        from wesnoth_ai.classes import DIGEST_VERSION
+        return DIGEST_VERSION if self.core is not None else 1
 
     def _assert_invariants(self, *, after_cmd: str) -> None:
         """Cheap structural sanity check on the unit set. Catches

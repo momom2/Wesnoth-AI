@@ -4,9 +4,17 @@
 import copy as _copy
 import functools
 import zlib
-from dataclasses import dataclass
-from typing import List, Optional, Set
+from dataclasses import dataclass, field
+from typing import List, Optional, Set, Tuple
 from enum import IntEnum
+
+
+def _default_era_factions() -> Tuple[str, ...]:
+    """The default era's factions, read when a state is built: importing
+    constants here would make this module need a home directory."""
+    from wesnoth_ai.constants import DEFAULT_ERA_FACTIONS
+    return DEFAULT_ERA_FACTIONS
+
 
 class Alignment(IntEnum):
     """Unit alignment affecting ToD damage."""
@@ -388,6 +396,10 @@ class SideInfo:
     # faction-conditioning checkpoints — state_converter and the replay
     # DataLoader default to "" for backwards compatibility.
     faction: str = ""
+    # The side's player chose Random in the lobby: the opponent's prior
+    # over its faction is uniform over the era's factions instead of the
+    # faction itself (wesnoth_ai/faction_posterior.py).
+    chose_random: bool = False
 
 @dataclass
 class GameState:
@@ -398,6 +410,13 @@ class GameState:
     sides: List[SideInfo]
     game_over: bool = False
     winner: Optional[int] = None
+    # The factions of the game's era (constants.ERA_FACTIONS): what a side
+    # that chose Random may have drawn.
+    era_factions: Tuple[str, ...] = field(default_factory=_default_era_factions)
+    # The lobby's random faction mode ("Independent", "No Mirror", "No Ally
+    # Mirror"): under "No Mirror" a Random side avoids the other side's
+    # faction (faction_posterior.random_draws).
+    random_faction_mode: str = "Independent"
 
 
 # The players' sides. A scenario may declare more (the statues of Caves
@@ -481,6 +500,20 @@ def _state_content(gs: "GameState") -> tuple:
     return units_key, sides_key, villages_key, turn_key, uncovered, rejected, fog_cleared
 
 
+def _shroud_content(gs: "GameState") -> tuple:
+    """The sides that delay their shroud updates, the vision awaiting a
+    commit, and the Plan Unit Advance modification's first-move flag
+    (`wesnoth_ai.delayed_shroud`); empty when no side delays and the
+    modification is off, so every other state keeps its key and digest."""
+    gi = gs.global_info
+    delayed = tuple(sorted(int(s) for s in (getattr(gi, "_shroud_delayed", None) or ())))
+    pending = tuple(getattr(gi, "_pending_vision", None) or ())
+    out: tuple = (delayed, pending) if delayed or pending else ()
+    if getattr(gi, "_plan_unit_advance", False):
+        out += (("plan_unit_advance", bool(getattr(gi, "_pa_fresh_turn", False))),)
+    return out
+
+
 def state_key(gs: "GameState") -> int:
     """Return an order-independent 64-bit content hash of `gs`.
 
@@ -503,7 +536,7 @@ def state_key(gs: "GameState") -> int:
     hidden_state_key = (
         uncovered, rejected,
         tuple(sorted((side, hash(hexes)) for side, hexes in fog_cleared.items())),
-    )
+    ) + _shroud_content(gs)
     # Sim's RNG counter -- two states with the same unit layout but
     # different counter values would produce different downstream
     # traits / damage rolls, so they're NOT the same MCTS node. Pull
@@ -513,19 +546,44 @@ def state_key(gs: "GameState") -> int:
                  hidden_state_key))
 
 
-def state_digest(gs: "GameState") -> str:
+# The digest a game record's fingerprints are written with
+# (tools/game_record.py). 1 covers the content `state_key` covers; 2 adds
+# what each player side saw of the other sides' units (the Rust core's
+# sighting record and seen types, `global_info._sightings` and
+# `_seen_types` on a view of it), which the Python applier does not keep.
+DIGEST_VERSION = 2
+
+
+def state_digest(gs: "GameState", version: int = DIGEST_VERSION) -> str:
     """A digest of the content `state_key` covers that is the same in
     every process: 16 hex characters of a SHA-256 over plain values.
     It leaves out the simulator's seed counter, which a game record
     replaces by the seeds themselves, and counts an unowned village the
-    same whether it is absent from the owner map or mapped to 0."""
+    same whether it is absent from the owner map or mapped to 0.
+    `version` 2 also covers each side's sighting record and seen types
+    (absent: empty); version 1 is the digest records of format 2 were
+    written with."""
     import hashlib
     (units_key, sides_key, villages_key, turn_key,
      uncovered, rejected, fog_cleared) = _state_content(gs)
     owned = tuple(kv for kv in villages_key if kv[1])
     fog_key = tuple(sorted((int(side), tuple(sorted(hexes)))
                            for side, hexes in fog_cleared.items()))
-    text = repr((units_key, sides_key, owned, turn_key, uncovered, rejected, fog_key))
+    content = (units_key, sides_key, owned, turn_key, uncovered, rejected, fog_key)
+    if version >= 2:
+        gi = gs.global_info
+        sightings = getattr(gi, "_sightings", None) or {}
+        seen_types = getattr(gi, "_seen_types", None) or {}
+        content += (tuple(sorted((int(s), tuple(sorted(rows))) for s, rows in sightings.items())),
+                    tuple(sorted((int(s), tuple(sorted(rows))) for s, rows in seen_types.items())))
+        # The entries whose unit left the board unseen, when there are any,
+        # so every other state keeps its digest.
+        gone = {int(s): tuple(sorted(ids)) for s, ids in (getattr(gi, "_sightings_gone", None) or {}).items()
+                if ids}
+        if gone:
+            content += (("sightings_gone", tuple(sorted(gone.items()))),)
+    content += _shroud_content(gs)
+    text = repr(content)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 

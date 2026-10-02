@@ -11,7 +11,11 @@ reconstructs the arrays as views into the buffer, no copies.
 
 Only what the server's padded encode and batched priors read is
 carried: the numeric streams of RawEncoded (positions, ids, type
-strings are left as None) and every PackedMasks field.
+strings are left as None) and every PackedMasks field. A parity-
+observation leaf adds the faction posterior and the sighting stream; a
+leaf of a player with a memory adds its slot count and, after the
+game-side's first decision, the state its previous decision wrote
+(`wesnoth_ai.memory.MemoryState`).
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 
 from wesnoth_ai.encoder import RawEncoded
+from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.server_priors import PackedMasks
 
 # (field, dtype) in buffer order. Optional mask biases are None when
@@ -44,12 +49,22 @@ MASK_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (
     ("union_valid", np.dtype(np.uint8)), ("n_attacks", np.dtype(np.int8)),
     ("type_bias", np.dtype(np.float32)), ("attack_bias", np.dtype(np.float32)),
 )
+# The parity observation's streams, absent (a None shape) on obs8's leaves.
+PARITY_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (
+    ("their_faction_probs", np.dtype(np.float32)), ("sight_type_ids", np.dtype(np.int64)),
+    ("sight_xs", np.dtype(np.int64)), ("sight_ys", np.dtype(np.int64)),
+    ("sight_feats", np.dtype(np.float32)),
+)
+# The memory state a leaf carries, absent at a game-side's first decision.
+MEMORY_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (("memory_state", np.dtype(np.float32)),)
+ALL_FIELDS = RAW_FIELDS + MASK_FIELDS + PARITY_FIELDS + MEMORY_FIELDS
 _ALIGN = 8
 
 
 @dataclass(slots=True)
 class LeafHeader:
-    shapes: Tuple[Optional[Tuple[int, ...]], ...]   # RAW_FIELDS then MASK_FIELDS
+    shapes: Tuple[Optional[Tuple[int, ...]], ...]   # ALL_FIELDS, in order
+    memory_k: int                   # the player's active slots; -1 without a memory
     our_faction_id: int
     their_faction_id: int
     hex_subset: bool
@@ -72,27 +87,39 @@ def _aligned(n: int) -> int:
     return (n + _ALIGN - 1) // _ALIGN * _ALIGN
 
 
-def _leaf_arrays(raw: RawEncoded, masks: PackedMasks):
+def _leaf_arrays(raw: RawEncoded, masks: PackedMasks, memory: Optional[MemoryState]):
     for name, dt in RAW_FIELDS:
         yield np.ascontiguousarray(getattr(raw, name), dtype=dt)
     for name, dt in MASK_FIELDS:
         a = getattr(masks, name)
         yield None if a is None else np.ascontiguousarray(a, dtype=dt)
+    for name, dt in PARITY_FIELDS:
+        a = getattr(raw, name, None)
+        yield None if a is None else np.ascontiguousarray(a, dtype=dt)
+    state = None if memory is None else memory.state
+    if state is not None and hasattr(state, "detach"):
+        state = state.detach().cpu().numpy()
+    yield None if state is None else np.ascontiguousarray(state, dtype=np.float32)
 
 
-def pack_request(items: Sequence[Tuple[RawEncoded, PackedMasks]]) -> PackedRequest:
-    """Actor side: B (RawEncoded, PackedMasks) pairs -> one buffer."""
+def pack_request(items: Sequence[Tuple]) -> PackedRequest:
+    """Actor side: B (RawEncoded, PackedMasks) pairs, or (RawEncoded,
+    PackedMasks, MemoryState) triples for a player with a memory -> one
+    buffer."""
     arrays: List[List[Optional[np.ndarray]]] = []
     headers: List[LeafHeader] = []
     total = 0
-    for raw, masks in items:
-        leaf = list(_leaf_arrays(raw, masks))
+    for item in items:
+        raw, masks = item[0], item[1]
+        memory = item[2] if len(item) > 2 else None
+        leaf = list(_leaf_arrays(raw, masks, memory))
         for a in leaf:
             if a is not None:
                 total = _aligned(total) + a.nbytes
         arrays.append(leaf)
         headers.append(LeafHeader(
             shapes=tuple(None if a is None else a.shape for a in leaf),
+            memory_k=-1 if memory is None else int(memory.k),
             our_faction_id=int(raw.our_faction_id),
             their_faction_id=int(raw.their_faction_id),
             hex_subset=bool(raw.hex_subset),
@@ -113,13 +140,15 @@ def pack_request(items: Sequence[Tuple[RawEncoded, PackedMasks]]) -> PackedReque
     return PackedRequest(buf=buf, headers=tuple(headers))
 
 
-def unpack_request(req: PackedRequest) -> List[Tuple[RawEncoded, PackedMasks]]:
+def unpack_request(req: PackedRequest) -> List[Tuple]:
     """Server side: views into the buffer, one (RawEncoded, PackedMasks)
-    per leaf. The RawEncoded carries only the numeric streams."""
+    per leaf, or (RawEncoded, PackedMasks, MemoryState) for a leaf with a
+    memory (its state a numpy view, None at a game-side's first decision).
+    The RawEncoded carries only the numeric streams."""
     buf = req.buf
-    out: List[Tuple[RawEncoded, PackedMasks]] = []
+    out: List[Tuple] = []
     off = 0
-    fields = RAW_FIELDS + MASK_FIELDS
+    fields = ALL_FIELDS
     for h in req.headers:
         vals: List[Optional[np.ndarray]] = []
         for (name, dt), shape in zip(fields, h.shapes):
@@ -137,13 +166,18 @@ def unpack_request(req: PackedRequest) -> List[Tuple[RawEncoded, PackedMasks]]:
             a = buf[off:off + n].view(dt).reshape(shape) if n else np.empty(shape, dtype=dt)
             vals.append(a)
             off += n
-        r = dict(zip((f for f, _ in RAW_FIELDS), vals[:len(RAW_FIELDS)]))
-        m = dict(zip((f for f, _ in MASK_FIELDS), vals[len(RAW_FIELDS):]))
+        n_raw, n_mask, n_parity = len(RAW_FIELDS), len(MASK_FIELDS), len(PARITY_FIELDS)
+        r = dict(zip((f for f, _ in RAW_FIELDS), vals[:n_raw]))
+        m = dict(zip((f for f, _ in MASK_FIELDS), vals[n_raw:n_raw + n_mask]))
+        parity = dict(zip((f for f, _ in PARITY_FIELDS), vals[n_raw + n_mask:n_raw + n_mask + n_parity]))
         raw = RawEncoded(
             hex_positions=None, unit_positions=None, unit_ids=None, recruit_types=None,
             our_faction_id=h.our_faction_id, their_faction_id=h.their_faction_id,
-            hex_subset=h.hex_subset, **r)
+            hex_subset=h.hex_subset, **r, **parity)
         masks = PackedMasks(end_turn_bias=h.end_turn_bias, n_units=h.n_units,
                             n_recruits=h.n_recruits, n_hexes=h.n_hexes, **m)
-        out.append((raw, masks))
+        if h.memory_k < 0:
+            out.append((raw, masks))
+        else:
+            out.append((raw, masks, MemoryState(h.memory_k, vals[-1])))
     return out

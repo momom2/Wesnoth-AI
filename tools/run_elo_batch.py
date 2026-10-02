@@ -61,8 +61,8 @@ sys.path.insert(0, str(_THIS.parent))
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.paths import REPO_ROOT, TOOLS_DIR  # noqa: E402
 from tools.eval_provenance import (  # noqa: E402
-    BASES, TERRAIN_VIEWS, _pt_config, basis_refusal, checkpoint_refusal, faction_refusal,
-    forced_faction_tag, spec_sha256, terrain_refusal,
+    BASES, TERRAIN_VIEWS, _pt_config, basis_refusal, checkpoint_refusal, effective_memory,
+    faction_refusal, forced_faction_tag, memory_refusal, spec_sha256, terrain_refusal,
 )
 
 log = logging.getLogger("run_elo_batch")
@@ -170,19 +170,20 @@ _PEEK_FLAGS = (
     "from tools.eval_players import peek_checkpoint_arch; "
     "f = peek_checkpoint_arch(Path(sys.argv[1]), sys.argv[1]); "
     "print(('relset' if f.get('relevant_set_hexes') else 'full') + ' ' "
-    "+ ('set' if f.get('terrain_multi_hot') else 'class'))")
+    "+ ('set' if f.get('terrain_multi_hot') else 'class') + ' ' "
+    "+ str(int(f.get('memory_slots', 0) or 0)))")
 _FLAGS_MEMO: dict = {}
 
 
-def _checkpoint_flags(spec: str) -> Tuple[str, str]:
-    """(basis, terrain view) a checkpoint spec plays in on its own,
-    read ONCE per spec in a child interpreter so the driver stays
-    torch-free. 'random' is a fresh net: the full board, and the set
-    view every fresh network carries; 'dummy' has no encoder."""
+def _checkpoint_flags(spec: str) -> Tuple[str, str, int]:
+    """(basis, terrain view, memory slots) a checkpoint spec plays in on
+    its own, read ONCE per spec in a child interpreter so the driver stays
+    torch-free. 'random' is a fresh net: the full board, the set view every
+    fresh network carries, no memory; 'dummy' has no encoder."""
     if spec == "dummy":
-        return ("full", "class")
+        return ("full", "class", 0)
     if spec == "random":
-        return ("full", "set")
+        return ("full", "set", 0)
     if spec in _FLAGS_MEMO:
         return _FLAGS_MEMO[spec]
     proc = subprocess.run(
@@ -190,12 +191,27 @@ def _checkpoint_flags(spec: str) -> Tuple[str, str]:
         capture_output=True, text=True, timeout=600)
     lines = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
     parts = lines[-1].split() if lines else []
-    if (proc.returncode != 0 or len(parts) != 2 or parts[0] not in BASES
-            or parts[1] not in TERRAIN_VIEWS):
-        raise SystemExit(f"could not read the hex basis and terrain view of {spec!r}: "
+    if (proc.returncode != 0 or len(parts) != 3 or parts[0] not in BASES
+            or parts[1] not in TERRAIN_VIEWS or not parts[2].isdigit()):
+        raise SystemExit(f"could not read the hex basis, terrain view and memory of {spec!r}: "
                          f"{proc.stderr.strip()[-500:]}")
-    _FLAGS_MEMO[spec] = (parts[0], parts[1])
+    _FLAGS_MEMO[spec] = (parts[0], parts[1], int(parts[2]))
     return _FLAGS_MEMO[spec]
+
+
+def _want_memories(args) -> Tuple[Optional[int], Optional[int]]:
+    """The memory slots each side's player uses (eval_provenance.
+    effective_memory): the checkpoint's slot count, or --memory-a/-b below
+    it; None for a model without a memory. The served checkpoint is the
+    same file, so the value holds under shared inference too."""
+    out = []
+    for side, spec in (("a", args.spec_a), ("b", args.spec_b)):
+        flag = getattr(args, f"memory_{side}")
+        try:
+            out.append(effective_memory(_checkpoint_flags(spec)[2], flag))
+        except ValueError as e:
+            raise SystemExit(f"--memory-{side}: {spec}: {e}") from e
+    return out[0], out[1]
 
 
 def _checkpoint_basis(spec: str) -> str:
@@ -425,6 +441,19 @@ def _log_server_stats(stats: dict) -> None:
                  st["gpu_ms"] / 1000.0)
 
 
+
+def _refuse_a_changed_reference(args, sha_of: dict) -> None:
+    """A side labelled as the reference player must play the adopted
+    checkpoint (configs/reference_player.json `checkpoint_sha256`): a file
+    replaced under the same path would silently measure another reference."""
+    from tools import reference_player
+    ref = reference_player.load()
+    want = ref.get("checkpoint_sha256")
+    for label, spec in ((args.label_a, args.spec_a), (args.label_b, args.spec_b)):
+        if want and label == ref["label"] and sha_of.get(spec) != want:
+            raise SystemExit(f"--label {label} names the reference player, but {spec} has SHA-256 "
+                             f"{sha_of.get(spec)}, not the adopted {want}")
+
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
@@ -491,6 +520,11 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--raw-end-turn-offset-a", type=float, default=0.0,
                     help="Offset on player A's end_turn actor logit (procedure "
                          "tag '+eo<x>').")
+    ap.add_argument("--memory-a", type=int, default=None,
+                    help="The memory slots player A uses when its checkpoint has a memory "
+                         "(default: all of them); recorded per game as memory_a.")
+    ap.add_argument("--memory-b", type=int, default=None,
+                    help="Player B (see --memory-a).")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
@@ -816,6 +850,8 @@ def main(argv: List[str]) -> int:
     # (see checkpoint_refusal, faction_refusal).
     _sha_of = {spec: spec_sha256(spec) for spec in {args.spec_a, args.spec_b}}
     want_ckpts = (_sha_of[args.spec_a], _sha_of[args.spec_b])
+    want_memories = _want_memories(args)
+    _refuse_a_changed_reference(args, _sha_of)
     from wesnoth_ai.rules import scenario_pool
     want_faction = forced_faction_tag(scenario_pool.FORCED_FACTION)
     for f in sorted(args.outdir.glob("game_*.json")):
@@ -838,6 +874,13 @@ def main(argv: List[str]) -> int:
                 f"{args.max_turns}: the horizon decides decisive-"
                 f"vs-absence, so estimands don't mix -- fresh "
                 f"outdir (round-24 C9).")
+        # Absent field = the simulator's default then (2,000 since 2026-07).
+        from tools.wesnoth_sim import WesnothSim
+        _cap = WesnothSim.DEFAULT_MAX_ACTIONS_PER_SIDE
+        if prev.get("max_actions_per_side", _cap) != _cap:
+            raise SystemExit(
+                f"{f.name} was played with a {prev.get('max_actions_per_side')}-action cap per "
+                f"side, this run with {_cap}: the cap is a second horizon -- fresh outdir.")
         # Absent field = 1: every pre-flag result was B=1.
         if prev.get("mcts_batch", 1) != args.mcts_batch_size:
             raise SystemExit(
@@ -873,7 +916,9 @@ def main(argv: List[str]) -> int:
             _want = (_flag if _flag is not None
                      else {"cuda": True, "cpu": False}.get(args.device))
             if _fld == "infer_compile" and args.shared_inference:
-                _want = False            # the server runs eager kernels
+                # The games record the server's setting (its hello's
+                # compile_packed), which --compile-packed turns on.
+                _want = bool(args.compile_packed)
             if _want is not None \
                     and bool(prev.get(_fld, False)) != _want:
                 raise SystemExit(
@@ -928,7 +973,8 @@ def main(argv: List[str]) -> int:
                     f"turn-search config: estimands don't mix -- "
                     f"use a fresh outdir (round-32 C3).")
         for _why in (checkpoint_refusal(f.name, prev, want_ckpts),
-                     faction_refusal(f.name, prev, want_faction)):
+                     faction_refusal(f.name, prev, want_faction),
+                     memory_refusal(f.name, prev, want_memories)):
             if _why is not None:
                 raise SystemExit(_why)
 
@@ -1059,6 +1105,9 @@ def main(argv: List[str]) -> int:
                 cmd += [f"--raw-end-turn-{side}", rule]
             if offset:
                 cmd += [f"--raw-end-turn-offset-{side}", str(offset)]
+            memory = getattr(args, f"memory_{side}")
+            if memory is not None:
+                cmd += [f"--memory-{side}", str(memory)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if servers:
@@ -1140,7 +1189,7 @@ def main(argv: List[str]) -> int:
              "mcts_batch": args.mcts_batch_size,
              "infer_bf16": (shared_bf16 if servers
                             else _effective_precision(args, "infer_bf16")),
-             "infer_compile": (False if servers
+             "infer_compile": (bool(args.compile_packed) if servers
                                else _effective_precision(args, "infer_compile")),
              "shared_inference": bool(servers),
              "infer_packed_trunk": shared_packed,
@@ -1165,6 +1214,8 @@ def main(argv: List[str]) -> int:
              # BASES, TERRAIN_VIEWS).
              "basis_a": want_bases[0], "basis_b": want_bases[1],
              "terrain_a": want_terrains[0], "terrain_b": want_terrains[1],
+             # The memory slots per side (see memory_refusal).
+             "memory_a": want_memories[0], "memory_b": want_memories[1],
              # The checkpoint per side and the forced faction (see
              # checkpoint_refusal, faction_refusal).
              "checkpoint_sha256_a": want_ckpts[0], "checkpoint_sha256_b": want_ckpts[1],

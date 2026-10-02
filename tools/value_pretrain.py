@@ -146,7 +146,7 @@ def main(argv: List[str]) -> int:
     from tools.value_corpus import game_experiences
 
     raw = torch.load(args.checkpoint_in, map_location="cpu",
-                     weights_only=False)
+                     weights_only=True)
     a = raw["arch"]
     if args.device == "cpu":
         dev = None

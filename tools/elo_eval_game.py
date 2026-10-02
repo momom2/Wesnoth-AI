@@ -58,6 +58,7 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -71,8 +72,8 @@ from tools.eval_players import (_PolicyPair, _load_policy,
                                 _play_one_eval_game, peek_checkpoint_arch)
 from tools.inference_seam import RemoteEncoder
 from tools.eval_provenance import (_pt_config, basis_refusal, checkpoint_refusal,
-                                   faction_refusal, file_sha256, forced_faction_tag,
-                                   terrain_refusal)
+                                   effective_memory, faction_refusal, file_sha256,
+                                   forced_faction_tag, memory_refusal, terrain_refusal)
 from wesnoth_ai.rules import scenario_pool
 from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
@@ -290,7 +291,8 @@ def _shared_client(address: str):
 
 def _remote_player(address: str, raw_temperature: float, raw_seed,
                    relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
-                   raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0):
+                   raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
+                   memory: Optional[int] = None):
     """The raw player over a shared inference server: a RemoteEncoder
     on the server's vocab with server-side priors, a RemoteModel
     behind the forward-counting proxy (its `fwd_secs` is the round
@@ -315,12 +317,39 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
         relevant_set=bool(h["relevant_set"]) or bool(relevant_set),
         server_priors=True,
         fog_hides_enemy_villages=bool(h.get("fog_hides_enemy_villages", False)),
-        terrain_multi_hot=bool(h.get("terrain_multi_hot", False)))
+        terrain_multi_hot=bool(h.get("terrain_multi_hot", False)),
+        observation_parity=bool(h.get("observation_parity", False)),
+        relevant_set_version=int(h.get("relevant_set_version", 1)))
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
                            end_turn_rule=raw_end_turn,
-                           end_turn_offset=raw_end_turn_offset), counter
+                           end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+
+
+_MEMORY_CACHE: dict = {}
+
+
+def _effective_memory(spec, flag: Optional[int], inference_address) -> Optional[int]:
+    """The memory slots this side's player uses (eval_provenance.
+    effective_memory): its checkpoint's or its server's slot count, or
+    --memory-a/-b below it; None for a model without a memory ('dummy'
+    and 'random' have none). Recorded as memory_a/memory_b and guarded per
+    outdir like the basis."""
+    if spec in ("dummy", None, "random"):
+        slots = 0
+    elif inference_address is not None:
+        slots = int(_shared_client(inference_address).hello.get("memory_slots", 0) or 0)
+    else:
+        slots = _MEMORY_CACHE.get(spec) if _WORKER_MODE else None
+        if slots is None:
+            slots = int(peek_checkpoint_arch(Path(spec), spec).get("memory_slots", 0) or 0)
+            if _WORKER_MODE:
+                _MEMORY_CACHE[spec] = slots
+    try:
+        return effective_memory(slots, flag)
+    except ValueError as e:
+        raise SystemExit(f"{spec}: {e}") from e
 
 
 class _VocabCheckedRemoteEncoder(RemoteEncoder):
@@ -339,6 +368,18 @@ class _VocabCheckedRemoteEncoder(RemoteEncoder):
                 log.warning("unit type %r is not in the server's vocab; "
                             "aliased to the overflow bucket", u.name)
         return super().encode(game_state)
+
+
+def _code_version() -> str:
+    """The code a game was played with (`wesnoth_ai.__version__`)."""
+    import wesnoth_ai
+    return str(getattr(wesnoth_ai, "__version__", "unknown"))
+
+
+def _rust_core_on() -> bool:
+    """Whether the simulator ran on the Rust core (`WESNOTH_RUST_CORE`)."""
+    from wesnoth_ai.game_core import core_enabled
+    return bool(core_enabled())
 
 
 def combat_salt(seed: int, shared_stream: bool = False) -> str:
@@ -372,7 +413,8 @@ def _build_player(spec: str, label: str, sims: int, device,
                   inference_address=None,
                   infer_packed_trunk: bool = False,
                   raw_end_turn: str = "joint",
-                  raw_end_turn_offset: float = 0.0):
+                  raw_end_turn_offset: float = 0.0,
+                  memory: Optional[int] = None):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
@@ -383,7 +425,12 @@ def _build_player(spec: str, label: str, sims: int, device,
     whatever the checkpoint carries (main passes the EFFECTIVE basis,
     `_effective_basis`). `inference_address`: play the raw player
     through a shared inference server (main() has checked sims == 0,
-    a temperature and a checkpoint spec)."""
+    a temperature and a checkpoint spec). `memory`: the slots a player of a
+    model with a memory uses (`_effective_memory`); only the raw player
+    carries a memory from one decision to the next."""
+    if memory is not None and (sims > 0 or raw_temperature is None):
+        raise SystemExit(f"{spec} has a memory, which only the raw player carries "
+                         f"(sims 0 with a raw temperature)")
     if spec == "random":
         # Deliberate random-init reference (round-24 C8: reaching
         # random init through a nonexistent PATH is how a typo
@@ -396,7 +443,11 @@ def _build_player(spec: str, label: str, sims: int, device,
     if inference_address is not None:
         return _remote_player(inference_address, raw_temperature, raw_seed,
                               relevant_set, infer_bf16, infer_packed_trunk,
-                              raw_end_turn, raw_end_turn_offset)
+                              raw_end_turn, raw_end_turn_offset, memory)
+    if memory is not None and infer_compile:
+        raise SystemExit(f"{spec} has a memory, which a player keeps from one call to the next, and a "
+                         f"compiled model may overwrite its outputs at its next call: play it with "
+                         f"--no-infer-compile")
     policy = _policy_for(spec, device, label, infer_bf16, infer_compile,
                          relevant_set)
     inner = policy._inference_model
@@ -439,7 +490,7 @@ def _build_player(spec: str, label: str, sims: int, device,
         from tools.raw_player import RawPolicyPlayer
         return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
                                end_turn_rule=raw_end_turn,
-                               end_turn_offset=raw_end_turn_offset), counter
+                               end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
     return policy, counter
 
 
@@ -543,6 +594,12 @@ def main(argv) -> int:
                          "tag '+eo<x>').")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
+    ap.add_argument("--memory-a", type=int, default=None,
+                    help="The memory slots player A uses when its model has a memory "
+                         "(default: all of the checkpoint's); recorded as memory_a, "
+                         "an estimand field.")
+    ap.add_argument("--memory-b", type=int, default=None,
+                    help="Player B (see --memory-a).")
     ap.add_argument("--relevant-set-a", action="store_true",
                     help="Encode side A's states with the relevant hex subset "
                          "(encoder relevant_set_hexes) whatever the checkpoint "
@@ -727,6 +784,8 @@ def main(argv) -> int:
     terrain_b = _effective_terrain(args.spec_b, args.inference_address_b)
     ckpt_a = _checkpoint_sha(args.spec_a, args.inference_address_a)
     ckpt_b = _checkpoint_sha(args.spec_b, args.inference_address_b)
+    memory_a = _effective_memory(args.spec_a, args.memory_a, args.inference_address_a)
+    memory_b = _effective_memory(args.spec_b, args.memory_b, args.inference_address_b)
     # The faction random_setup forces onto one side; read once, so the
     # result records the value the setup used.
     forced_faction = scenario_pool.FORCED_FACTION
@@ -892,6 +951,9 @@ def main(argv) -> int:
             _why = terrain_refusal(out_path.name, prev, (terrain_a, terrain_b))
             if _why is not None:
                 raise SystemExit(_why)
+            _why = memory_refusal(out_path.name, prev, (memory_a, memory_b))
+            if _why is not None:
+                raise SystemExit(_why)
             if (got_a, got_b, got_mt) != (want_a, want_b,
                                           args.max_turns):
                 raise SystemExit(
@@ -949,7 +1011,8 @@ def main(argv) -> int:
         inference_address=args.inference_address_a,
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_a,
-        raw_end_turn_offset=args.raw_end_turn_offset_a)
+        raw_end_turn_offset=args.raw_end_turn_offset_a,
+        memory=memory_a)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -962,7 +1025,8 @@ def main(argv) -> int:
         inference_address=args.inference_address_b,
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_b,
-        raw_end_turn_offset=args.raw_end_turn_offset_b)
+        raw_end_turn_offset=args.raw_end_turn_offset_b,
+        memory=memory_b)
 
     rng = random.Random(args.seed)
     setup = random_setup(rng, forced_faction=forced_faction)
@@ -1034,6 +1098,10 @@ def main(argv) -> int:
         # eval_provenance.TERRAIN_VIEWS): an estimand field, guarded per outdir.
         "terrain_a": terrain_a,
         "terrain_b": terrain_b,
+        # The memory slots each side's player used (None: a model without
+        # one; eval_provenance.effective_memory): an estimand field.
+        "memory_a": memory_a,
+        "memory_b": memory_b,
         # The checkpoint each side played (SHA-256 of the file; None for
         # 'dummy' and 'random'): a label names it only by convention.
         "checkpoint_sha256_a": ckpt_a,
@@ -1054,6 +1122,9 @@ def main(argv) -> int:
         # The horizon decides decisive-vs-absence, the quantity
         # the PURE fit is built on (round-24 C9).
         "max_turns": args.max_turns,
+        # The second horizon: a side's action cap ends the game as a
+        # no-result (outcome "timeout", ended_by "max_actions").
+        "max_actions_per_side": int(sim.max_actions_per_side),
         # Leaf-batch provenance: batched (virtual-loss) search is a
         # slightly different explorer than sequential B=1.
         "mcts_batch": args.mcts_batch_size,
@@ -1090,6 +1161,17 @@ def main(argv) -> int:
             if (sims_a > 0 or sims_b > 0) else None),
         "side_a": args.side_a, "seed": args.seed,
         "scenario_id": setup.scenario_id,
+        # The draw and what the game did to each side: read per faction or
+        # leader, never estimands (2026-09-29 audit).
+        "faction_a": setup.faction1 if args.side_a == 1 else setup.faction2,
+        "faction_b": setup.faction2 if args.side_a == 1 else setup.faction1,
+        "leader_a": setup.leader1 if args.side_a == 1 else setup.leader2,
+        "leader_b": setup.leader2 if args.side_a == 1 else setup.leader1,
+        "unplayed_side_turns": int(getattr(r, "unplayed_side_turns", 0)),
+        "forced_end_turns_a": int(sim.forced_end_turns.get(args.side_a, 0)),
+        "forced_end_turns_b": int(sim.forced_end_turns.get(3 - args.side_a, 0)),
+        "code_version": _code_version(),
+        "rust_core": _rust_core_on(),
         "outcome_a": r.outcome,          # win/loss/draw/timeout from A
         "margin_a": float(margin_a),     # final material, A's view
         "turns": sim.gs.global_info.turn_number,
@@ -1117,9 +1199,9 @@ def main(argv) -> int:
     GameRecordLog(_rec_tmp).write(game_record(
         sim, setup, game_label=game_label,
         players={"a": {"label": args.label_a, "spec": str(args.spec_a), "side": args.side_a,
-                       "procedure": result["procedure_a"]},
+                       "procedure": result["procedure_a"], "memory": memory_a},
                  "b": {"label": args.label_b, "spec": str(args.spec_b), "side": 3 - args.side_a,
-                       "procedure": result["procedure_b"]}},
+                       "procedure": result["procedure_b"], "memory": memory_b}},
         extra={"seed": args.seed}))
     os.replace(_rec_tmp, _rec_path)
     # Atomic publish (round-24 C11): a kill mid-write must never

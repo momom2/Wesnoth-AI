@@ -1,7 +1,7 @@
 """One self-play game through the simulator, and its summary.
 
 `play_one_game` drives a WesnothSim to its end with one policy playing
-every side: a deepcopy of the state per decision, the recruit-bounce
+every side: a snapshot of the state per decision, the recruit-bounce
 retry, the per-step shaping reward and the terminal one, and the
 per-game summary (`GameOutcome`). `_play_one_game_safe` builds the game
 from a scenario setup or a mid-game start, plays it and records it;
@@ -13,7 +13,6 @@ through here.
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
 import random
@@ -22,6 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from wesnoth_ai.classes import GameState, Unit
+from wesnoth_ai.game_core import snapshot_view
 from wesnoth_ai.paths import UNIT_STATS_PATH
 from wesnoth_ai.rules.scenario_pool import classify_scenario as _classify_scenario
 from wesnoth_ai.rewards import (
@@ -165,8 +165,7 @@ def _recruit_cost_lookup() -> Dict[str, int]:
 
 def _leader_of(gs: GameState, side: int) -> Optional[Unit]:
     """First is_leader=True unit for `side`, or None if the leader
-    is dead / hasn't been placed yet. Shared with
-    `tools/diagnose_selfplay.py` (which imports this)."""
+    is dead / hasn't been placed yet."""
     for u in gs.map.units:
         if u.side == side and u.is_leader:
             return u
@@ -301,8 +300,10 @@ def play_one_game(
 
     while not sim.done:
         acting_side = sim.gs.global_info.current_side
-        # Snapshot the state BEFORE the step. Two reasons it has to
-        # be a deepcopy and not just `sim.gs`:
+        # Snapshot the state BEFORE the step (a view of a fork of the
+        # simulator's core, game_core.snapshot_view, which the encoder
+        # encodes through the core). Two reasons it has to be a copy
+        # and not just `sim.gs`:
         #   1) policy.select_action stores the state ref in a
         #      Transition; the trainer reforwards on it later. If we
         #      passed sim.gs directly, sim.step would mutate the
@@ -323,7 +324,7 @@ def play_one_game(
             # anchor and lost its labels). The observation is a
             # no-op unless gbc labels are on; a duplicate
             # observation diffs to zero events.
-            pre = copy.deepcopy(sim.gs)
+            pre = snapshot_view(sim.gs)
             if _note is not None:
                 _note(game_label, pre)
             with fork_guard(sim):

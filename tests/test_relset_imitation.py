@@ -159,12 +159,12 @@ def test_relevant_set_checkpoint_is_peeked_and_loaded_in_that_basis(tmp_path):
     peek = peek_checkpoint_arch(out)
     assert peek.get("relevant_set_hexes") is True
     assert {k: peek[k] for k in _ARCH} == _ARCH
-    ck = torch.load(out, map_location="cpu", weights_only=False)
+    ck = torch.load(out, map_location="cpu", weights_only=True)
     assert 1 <= ck["supervised_step"] <= 2 and ck["supervised_epoch"] == 0
     assert ck["training_meta"]["init_from"] == str(src)
     # lr=0: every weight the warm start copied is still the seed's.
     src_state = torch.load(src, map_location="cpu",
-                           weights_only=False)["model_state"]
+                           weights_only=True)["model_state"]
     assert src_state and all(torch.equal(v, ck["model_state"][k])
                              for k, v in src_state.items())
 

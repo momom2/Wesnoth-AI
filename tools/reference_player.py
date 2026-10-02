@@ -10,8 +10,8 @@ in scripts, so a ruling that moves the reference is one edit:
     python tools/reference_player.py --ensure       # fetch the checkpoint if missing
     python tools/reference_player.py --path         # the local checkpoint path
 
-`--flags` prints the label, the spec and the decode flags of one side
-in run_elo_batch's vocabulary, so a match script reads
+`--flags` prints the label, the spec, the memory and the decode flags of
+one side in run_elo_batch's vocabulary, so a match script reads
     python tools/run_elo_batch.py --label-a arm --spec-a arm.pt \\
         $(python tools/reference_player.py --flags b) ...
 and never spells the reference out. The decode is the raw player's
@@ -40,31 +40,48 @@ def local_path(ref: dict | None = None) -> Path:
     return REPO_ROOT / ref["checkpoint_local"]
 
 
-def ensure_checkpoint(ref: dict | None = None) -> Path:
-    """The local checkpoint, fetched from the model host when missing."""
+def verify_checkpoint(path: Path, ref: dict | None = None) -> Path:
+    """`path` when its SHA-256 is the adopted reference's; raises otherwise
+    (a changed file would silently measure another reference)."""
     ref = ref or load()
-    path = local_path(ref)
-    if path.exists():
-        return path
-    import shutil
-    from huggingface_hub import hf_hub_download
-    src = hf_hub_download(ref["hf_repo"], ref["checkpoint_hf"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, path)
+    want = ref.get("checkpoint_sha256")
+    if want:
+        from tools.eval_provenance import file_sha256
+        got = file_sha256(path)
+        if got != want:
+            raise SystemExit(f"{path} is not the adopted reference {ref['label']}: "
+                             f"SHA-256 {got}, expected {want}")
     return path
 
 
+def ensure_checkpoint(ref: dict | None = None) -> Path:
+    """The local checkpoint, fetched from the model host when missing,
+    checked against the adopted reference's SHA-256 either way."""
+    ref = ref or load()
+    path = local_path(ref)
+    if not path.exists():
+        import shutil
+        from huggingface_hub import hf_hub_download
+        src = hf_hub_download(ref["hf_repo"], ref["checkpoint_hf"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, path)
+    return verify_checkpoint(path, ref)
+
+
 def batch_flags(side: str, ref: dict | None = None) -> list[str]:
-    """run_elo_batch flags for `side` ('a' or 'b'): label, spec and the
-    decode. The temperature and the search budget are per-match flags
-    the caller passes for both sides; only the reference's own decode
-    options travel here."""
+    """run_elo_batch flags for `side` ('a' or 'b'): label, spec, the
+    memory slots it plays with (`memory_slots`, when it has a memory) and
+    the decode. The temperature and the search budget are per-match flags
+    the caller passes for both sides; only the reference's own options
+    travel here."""
     ref = ref or load()
     side = side.lower()
     if side not in ("a", "b"):
         raise ValueError("side must be 'a' or 'b'")
     d = ref["decode"]
     flags = [f"--label-{side}", ref["label"], f"--spec-{side}", ref["checkpoint_local"]]
+    if ref.get("memory_slots"):
+        flags += [f"--memory-{side}", str(int(ref["memory_slots"]))]
     if d.get("raw_end_turn", "joint") != "joint":
         flags += [f"--raw-end-turn-{side}", str(d["raw_end_turn"])]
     if d.get("raw_end_turn_offset"):

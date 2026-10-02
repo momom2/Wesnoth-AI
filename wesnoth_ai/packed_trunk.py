@@ -2,9 +2,12 @@
 (docs/gpu_forward_design_20260904.md sections 4.3 and 5.3).
 
 A padded batch [B, L_max, d] carries three interior pad runs per row
-(hex, unit, recruit). The packed trunk gathers the real tokens of every
+(hex, unit, recruit; five with the parity-memory recipe's sighting and
+memory blocks). The packed trunk gathers the real tokens of every
 row into one [total, d] tensor -- row b becomes the segment
-hex(H_b) | unit(U_b) | recruit(R_b) | global | end_turn -- runs the
+hex(H_b) | unit(U_b) | recruit(R_b) | sighting(S_b) | memory(K_b) |
+global | end_turn, the sighting and memory blocks empty but for that
+recipe -- runs the
 per-token layers (in/out projections, LayerNorms, MLP) on it, and runs
 attention per segment through the flash varlen kernel with cumulative
 sequence lengths. No pad token is computed and no attention mask
@@ -73,9 +76,10 @@ _FLASH_DTYPES = (torch.float16, torch.bfloat16)
 class PackedLayout:
     """Host-built (numpy int64) index arrays of one batch. Padded rows are
     addressed flat (b * L_max + position); packed rows by their offset in
-    [total, d]. Padded actor, hex and unit slots point at their row's
-    end_turn token: a finite value no consumer reads (the priors masks
-    exclude padded slots, as they do for the padded trunk's outputs)."""
+    [total, d]. Padded actor, hex, unit and memory slots point at their
+    row's end_turn token: a finite value no consumer reads (the priors
+    masks exclude padded slots, as they do for the padded trunk's
+    outputs)."""
     src: np.ndarray          # [total] padded flat row of each packed token
     kind: np.ndarray         # [total] TokenKind of each packed token
     actor: np.ndarray        # [B * A_max] packed row of each actor slot
@@ -85,21 +89,24 @@ class PackedLayout:
     cu_seqlens: np.ndarray   # [B + 1] segment offsets
     actor_kind: np.ndarray   # [B, A_max] ActorKind per slot
     max_len: int
+    memory: Optional[np.ndarray] = None   # [B * K_max] packed row of each memory slot
 
     def to_device(self, device: torch.device) -> "PackedIndex":
         """One host->device copy of every array (pinned and non-blocking
         on CUDA: no host synchronization, torch 2.5.1
         aten/src/ATen/native/cuda/Copy.cu:362-381), split into views."""
-        parts = [self.src, self.kind, self.actor, self.hex, self.unit, self.glob, self.cu_seqlens]
+        memory = self.memory if self.memory is not None else np.zeros(0, dtype=np.int64)
+        parts = [self.src, self.kind, self.actor, self.hex, self.unit, self.glob, memory,
+                 self.cu_seqlens]
         flat = torch.from_numpy(np.concatenate(parts))
         if device.type == "cuda":
             flat = flat.pin_memory().to(device, non_blocking=True)
         elif device.type != "cpu":
             flat = flat.to(device)
-        src, kind, actor, hexes, unit, glob, cu = torch.split(flat, [len(p) for p in parts])
+        src, kind, actor, hexes, unit, glob, mem, cu = torch.split(flat, [len(p) for p in parts])
         return PackedIndex(src=src, kind=kind, actor=actor, hex=hexes, unit=unit, glob=glob,
                            cu_seqlens=cu.to(torch.int32), cu_host=self.cu_seqlens.tolist(),
-                           max_len=self.max_len)
+                           max_len=self.max_len, memory=mem)
 
 
 @dataclass
@@ -115,6 +122,7 @@ class PackedIndex:
     cu_seqlens: torch.Tensor
     cu_host: List[int]       # the same offsets on the host, for the SDPA fallback
     max_len: int
+    memory: Optional[torch.Tensor] = None
 
 
 def _ragged_arange(counts: np.ndarray) -> np.ndarray:
@@ -135,68 +143,107 @@ def _sizes_array(sizes: Sequence[Tuple[int, int, int]]) -> np.ndarray:
     return np.asarray(sizes, dtype=np.int64).reshape(len(sizes), 3)
 
 
-def _segment_sources(sizes: np.ndarray, starts: np.ndarray) -> np.ndarray:
-    """Source row of every packed token given, per sample, the source
-    row of its first hex, unit, recruit, global and end_turn token
-    (`starts` [B, 5]); the packed segment of a sample lists them in
-    that order."""
-    Us, Rs, Hs = sizes[:, 0], sizes[:, 1], sizes[:, 2]
-    ones = np.ones(len(sizes), dtype=np.int64)
-    counts = np.stack([Hs, Us, Rs, ones, ones], axis=1).reshape(-1)
-    return np.repeat(starts.reshape(-1), counts) + _ragged_arange(counts)
+# A sample's segment lists its tokens in these blocks, in this order. The
+# sighting and memory blocks are the parity-memory recipe's
+# (docs/parity_memory_design_20260929.md); they are empty for every
+# other model, and the layout is then obs8's.
+N_BLOCKS = 7
+_VARIABLE_BLOCKS = 5     # hex, unit, recruit, sighting, memory; then global, end_turn
 
 
-def _padded_starts(sizes: np.ndarray, H_max: int, U_max: int, R_max: int) -> np.ndarray:
-    """First-token rows in the flat padded layout (row b at b * L_max)."""
-    L = H_max + U_max + R_max + 2
-    row = np.arange(len(sizes), dtype=np.int64) * L
-    return np.stack([row, row + H_max, row + H_max + U_max, row + H_max + U_max + R_max,
-                     row + H_max + U_max + R_max + 1], axis=1)
+def _block_counts(sizes: Sequence[Tuple[int, int, int]],
+                  sightings: Optional[Sequence[int]] = None,
+                  memory: Optional[Sequence[int]] = None) -> np.ndarray:
+    """[B, N_BLOCKS] int64: per sample, its hexes, units, recruits,
+    sightings, memory slots, one global and one end_turn token."""
+    sz = _sizes_array(sizes)
+    B = len(sz)
+
+    def column(counts):
+        return (np.zeros(B, dtype=np.int64) if counts is None
+                else np.asarray(counts, dtype=np.int64).reshape(B))
+    ones = np.ones(B, dtype=np.int64)
+    return np.stack([sz[:, 2], sz[:, 0], sz[:, 1], column(sightings), column(memory),
+                     ones, ones], axis=1)
 
 
-def _stream_starts(sizes: np.ndarray) -> np.ndarray:
-    """First-token rows in the stream-concatenated layout of
-    EmbeddedStreams: every sample's hexes, then units, then recruits,
-    one global row per sample, one shared end_turn row."""
-    Us, Rs, Hs = sizes[:, 0], sizes[:, 1], sizes[:, 2]
-    B = len(sizes)
-    hex_off, unit_off, rec_off = _exclusive_cumsum(Hs), _exclusive_cumsum(Us), _exclusive_cumsum(Rs)
-    th, tu, tr = int(hex_off[-1]), int(unit_off[-1]), int(rec_off[-1])
-    return np.stack([hex_off[:-1], th + unit_off[:-1], th + tu + rec_off[:-1],
-                     th + tu + tr + np.arange(B, dtype=np.int64),
-                     np.full(B, th + tu + tr + B, dtype=np.int64)], axis=1)
+def _segment_sources(counts: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """Source row of every packed token given, per sample, the number of
+    tokens of each block (`counts` [B, N_BLOCKS]) and the source row of
+    each block's first token (`starts` [B, N_BLOCKS]); the packed
+    segment of a sample lists its blocks in that order."""
+    flat = counts.reshape(-1)
+    return np.repeat(starts.reshape(-1), flat) + _ragged_arange(flat)
+
+
+def _padded_starts(B: int, widths: Sequence[int]) -> np.ndarray:
+    """First-token rows in the flat padded layout, whose row b (at
+    b * L_max) lists the blocks at `widths` [N_BLOCKS] slots each."""
+    offsets = _exclusive_cumsum(np.asarray(widths, dtype=np.int64))
+    row = np.arange(B, dtype=np.int64) * int(offsets[-1])
+    return row[:, None] + offsets[None, :-1]
+
+
+def _stream_starts(counts: np.ndarray) -> np.ndarray:
+    """First-token rows in the stream-concatenated layout: every sample's
+    tokens of each variable block, block after block, then one global
+    row per sample and one end_turn row shared by all."""
+    B = len(counts)
+    starts = np.empty((B, N_BLOCKS), dtype=np.int64)
+    base = 0
+    for j in range(_VARIABLE_BLOCKS):
+        starts[:, j] = base + _exclusive_cumsum(counts[:, j])[:-1]
+        base += int(counts[:, j].sum())
+    starts[:, _VARIABLE_BLOCKS] = base + np.arange(B, dtype=np.int64)
+    starts[:, _VARIABLE_BLOCKS + 1] = base + B
+    return starts
+
+
+def _padded_widths(counts: np.ndarray, H_max: int, U_max: int, R_max: int,
+                   S_max: Optional[int], K_max: Optional[int]) -> List[int]:
+    """The block widths of the padded layout; the sighting and memory
+    widths default to the batch's longest."""
+    def widest(j, given):
+        return int(given) if given is not None else (int(counts[:, j].max()) if len(counts) else 0)
+    return [H_max, U_max, R_max, widest(3, S_max), widest(4, K_max), 1, 1]
 
 
 def build_packed_layout(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max: int,
                         R_max: int, token_kind, actor_kind,
-                        source: str = "padded") -> PackedLayout:
-    """Index arrays for per-sample sizes (U_b, R_b, H_b). `src` addresses
-    the tokens of `source`: "padded", the flat padded layout
-    hex(H_max) | unit(U_max) | recruit(R_max) | global | end_turn of
-    model.forward_streams (row b at b * L_max); "streams", the
-    stream-concatenated tokens of EmbeddedStreams. The head arrays
-    (actor, hex, unit, glob) and the offsets address packed rows either
-    way. `token_kind` and `actor_kind` are the model's TokenKind and
-    ActorKind tables, passed in so this module imports nothing from the
-    model. Vectorized numpy; no per-sample loop."""
-    B = len(sizes)
-    sz = _sizes_array(sizes)
-    Us, Rs, Hs = sz[:, 0], sz[:, 1], sz[:, 2]
+                        source: str = "padded", *,
+                        sightings: Optional[Sequence[int]] = None,
+                        memory: Optional[Sequence[int]] = None,
+                        S_max: Optional[int] = None,
+                        K_max: Optional[int] = None) -> PackedLayout:
+    """Index arrays for per-sample sizes (U_b, R_b, H_b) and, for the
+    parity-memory recipe, per-sample sighting and memory-slot counts.
+    `src` addresses the tokens of `source`: "padded", the flat padded
+    layout hex(H_max) | unit(U_max) | recruit(R_max) | sighting(S_max) |
+    memory(K_max) | global | end_turn of model.forward_streams (row b at
+    b * L_max); "streams", the stream-concatenated tokens of
+    EmbeddedStreams with the memory rows after the sightings. The head
+    arrays (actor, hex, unit, glob, memory) and the offsets address
+    packed rows either way. `token_kind` and `actor_kind` are the model's
+    TokenKind and ActorKind tables, passed in so this module imports
+    nothing from the model. Vectorized numpy; no per-sample loop."""
+    counts = _block_counts(sizes, sightings, memory)
+    B = len(counts)
+    Hs, Us, Rs, Ss, Ks = (counts[:, j] for j in range(_VARIABLE_BLOCKS))
+    widths = _padded_widths(counts, H_max, U_max, R_max, S_max, K_max)
     A_max = U_max + R_max + 1
-    lengths = Us + Rs + Hs + 2
+    lengths = counts.sum(axis=1)
     cu = _exclusive_cumsum(lengths)
     if source == "padded":
-        starts = _padded_starts(sz, H_max, U_max, R_max)
+        starts = _padded_starts(B, widths)
     elif source == "streams":
-        starts = _stream_starts(sz)
+        starts = _stream_starts(counts)
     else:
         raise ValueError(f"build_packed_layout: unknown source {source!r}")
-    src = _segment_sources(sz, starts)
-    ones = np.ones(B, dtype=np.int64)
-    counts = np.stack([Hs, Us, Rs, ones, ones], axis=1).reshape(-1)
-    kind = np.repeat(np.tile(np.array([token_kind.HEX, token_kind.UNIT, token_kind.RECRUIT,
-                                       token_kind.GLOBAL, token_kind.END_TURN], dtype=np.int64),
-                             B), counts)
+    src = _segment_sources(counts, starts)
+    block_kinds = np.array([token_kind.HEX, token_kind.UNIT, token_kind.RECRUIT,
+                            token_kind.SIGHTING, token_kind.MEMORY, token_kind.GLOBAL,
+                            token_kind.END_TURN], dtype=np.int64)
+    kind = np.repeat(np.tile(block_kinds, B), counts.reshape(-1))
     seg0, end = cu[:-1, None], (cu[1:] - 1)[:, None]      # [B, 1] each
     a = np.arange(A_max, dtype=np.int64)[None, :]
     actor = np.where(a < (Us + Rs)[:, None], seg0 + Hs[:, None] + a, end)
@@ -204,27 +251,33 @@ def build_packed_layout(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max
     hexes = np.where(h < Hs[:, None], seg0 + h, end)
     u = np.arange(U_max, dtype=np.int64)[None, :]
     unit = np.where(u < Us[:, None], seg0 + Hs[:, None] + u, end)
+    k = np.arange(widths[4], dtype=np.int64)[None, :]
+    mem = np.where(k < Ks[:, None], seg0 + (Hs + Us + Rs + Ss)[:, None] + k, end)
     kinds = np.full((B, A_max), actor_kind.END_TURN, dtype=np.int64)
     kinds[a < (Us + Rs)[:, None]] = actor_kind.RECRUIT
     kinds[a < Us[:, None]] = actor_kind.UNIT
     return PackedLayout(src=src, kind=kind, actor=actor.reshape(-1), hex=hexes.reshape(-1),
                         unit=unit.reshape(-1), glob=(end - 1).reshape(-1), cu_seqlens=cu,
-                        actor_kind=kinds, max_len=int(lengths.max()) if B else 0)
+                        actor_kind=kinds, max_len=int(lengths.max()) if B else 0,
+                        memory=mem.reshape(-1))
 
 
 def padded_gather_index(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max: int,
-                        R_max: int) -> np.ndarray:
+                        R_max: int, *, sightings: Optional[Sequence[int]] = None,
+                        S_max: Optional[int] = None) -> np.ndarray:
     """Stream row (EmbeddedStreams order) of every slot of the flat
-    padded layout ([B * L_max]); pad slots point one past the last
-    stream row, so gathering from the stream tokens with a zero row
-    appended yields the padded streams with zeros at the pads, as
-    pad_sequence builds them."""
-    sz = _sizes_array(sizes)
-    B = len(sizes)
-    L = H_max + U_max + R_max + 2
-    padded_rows = _segment_sources(sz, _padded_starts(sz, H_max, U_max, R_max))
-    stream_rows = _segment_sources(sz, _stream_starts(sz))
-    out = np.full(B * L, int(sz.sum()) + B + 1, dtype=np.int64)
+    padded layout hex | unit | recruit | sighting | global | end_turn
+    ([B * L_max]); pad slots point one past the last stream row, so
+    gathering from the stream tokens with a zero row appended yields the
+    padded streams with zeros at the pads, as pad_sequence builds them.
+    The memory has no rows here: forward_streams adds its block."""
+    counts = _block_counts(sizes, sightings)
+    B = len(counts)
+    widths = _padded_widths(counts, H_max, U_max, R_max, S_max, 0)
+    padded_rows = _segment_sources(counts, _padded_starts(B, widths))
+    stream_rows = _segment_sources(counts, _stream_starts(counts))
+    n_stream_rows = int(counts[:, :_VARIABLE_BLOCKS].sum()) + B + 1
+    out = np.full(B * sum(widths), n_stream_rows, dtype=np.int64)
     out[padded_rows] = stream_rows
     return out
 
@@ -233,14 +286,16 @@ def padded_gather_index(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max
 class EmbeddedStreams:
     """A batch's token embeddings before the token-kind term, concatenated
     per stream: the hex tokens of every sample, then the unit tokens of
-    every sample, the recruit tokens, one global row per sample and one
-    end_turn row: [N, d], N = sum(H) + sum(U) + sum(R) + B + 1. Built by
+    every sample, the recruit tokens, the sighting tokens (the parity
+    observation's), one global row per sample and one end_turn row:
+    [N, d], N = sum(H) + sum(U) + sum(R) + sum(S) + B + 1. Built by
     GameStateEncoder.encode_from_raw_embedded from one pinned host
     buffer; WesnothModel.forward_embedded orders the rows into the
     packed layout (build_packed_layout(source="streams")) or, for the
     padded trunk, into the padded streams (padded_gather_index)."""
     tokens: torch.Tensor
     sizes: List[Tuple[int, int, int]]   # (U_b, R_b, H_b)
+    sighting_counts: Optional[List[int]] = None   # S_b; None without the parity observation
 
 
 # ---------------------------------------------------------------------

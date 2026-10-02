@@ -129,7 +129,7 @@ def test_a_checkpoint_carries_its_observation_epoch_and_warns_on_a_mismatch(tmp_
 
     here = tmp_path / "here.pt"
     _policy().save_checkpoint(here)
-    ck = torch.load(here, map_location="cpu", weights_only=False)
+    ck = torch.load(here, map_location="cpu", weights_only=True)
     assert ck["observation_epoch"] == OBSERVATION_EPOCH, \
         "a fresh checkpoint must record the epoch it trained under"
 

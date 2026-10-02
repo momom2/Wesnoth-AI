@@ -91,23 +91,19 @@ MIN_TURNS_ANY = 5
 
 def _decisive_winner_from_reconstruction(gz_path: Path) -> Tuple[
         Optional[int], int]:
-    """Walk the extracted game; return (winner_by_leader_death | None,
-    final_turn_number). Reuses the bit-exact reconstruction machinery
-    (same walk diff_replay does, without the divergence checkers --
-    the caller has already required a clean diff)."""
-    from tools.replay_dataset import (_apply_command,
-                                      _build_initial_gamestate,
-                                      _setup_scenario_events)
+    """Walk the extracted game on the Rust core; return
+    (winner_by_leader_death | None, final_turn_number). The caller has
+    already required a clean diff."""
+    from tools.replay_dataset import record_core
 
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    cs = record_core(data)
     for cmd in data.get("commands", []):
-        _apply_command(gs, cmd)
-    # Units live on the map (classes.py Map.units: Set[Unit]); dead
-    # units are REMOVED from the set by the reconstruction, so
-    # "leader present" == "leader alive".
+        cs.apply_command(list(cmd))
+    gs = cs.to_state()
+    # Dead units are removed from the board, so "leader present" ==
+    # "leader alive".
     alive_leaders = {u.side for u in gs.map.units if u.is_leader}
     turn = gs.global_info.turn_number
     if alive_leaders == {1}:

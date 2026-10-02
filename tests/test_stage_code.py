@@ -17,8 +17,12 @@ DEST = "tier-b/staging/stage_t.tar.gz"
 
 
 class StubApi:
-    def __init__(self):
+    def __init__(self, on_hf=()):
         self.commits = []
+        self.on_hf = set(on_hf)
+
+    def file_exists(self, repo_id, filename):
+        return filename in self.on_hf
 
     def create_commit(self, repo_id, operations, *, commit_message):
         self.commits.append((repo_id, list(operations), commit_message))
@@ -52,8 +56,20 @@ def test_one_commit_holds_the_stage_its_library_and_the_script(tmp_path):
     sent = {op.path_in_repo: op.path_or_fileobj for op in operations}
     assert sent.pop(DEST) == str(tarball)
     assert sent.pop("tier-b/staging/demo_box.sh") == members["scripts/demo_box.sh"]
+    assert sent.pop("tier-b/staging/stage_t.box/demo_box.sh") == members["scripts/demo_box.sh"]
     assert sent == {f"tier-b/staging/stage_t.box/{name}": members[f"scripts/box/{name}"]
                     for name in LIBRARY_FILES}
+
+
+def test_a_stage_path_already_on_hf_is_replaced_only_when_asked(tmp_path):
+    pytest.importorskip("huggingface_hub")
+    tarball = tarball_of(tmp_path, stage_members())
+    api = StubApi(on_hf={DEST})
+    with pytest.raises(SystemExit, match="already on HF"):
+        stage_code.upload_stage(api, tarball, DEST, "scripts/demo_box.sh")
+    assert api.commits == []
+    stage_code.upload_stage(api, tarball, DEST, "scripts/demo_box.sh", replace=True)
+    assert len(api.commits) == 1
 
 
 @pytest.mark.parametrize("change, reason", [

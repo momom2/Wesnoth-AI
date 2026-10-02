@@ -31,14 +31,14 @@ import copy as _copy
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from wesnoth_ai.classes import GameState, Hex, Position, SideInfo
+from wesnoth_ai.classes import GameState, Hex, Position
 from wesnoth_ai.rules.scenario_cfg import UnmodelledWML, load_scenario_wml
 from wesnoth_ai.rules.wml_state import wml_int
 from tools.replay_extract import WMLNode
@@ -188,123 +188,78 @@ def _terrain_action(gs: GameState, action: WMLNode) -> None:
 
     Wesnoth allows scalar (x=5,y=3) or list (x=1,2,3 y=4,5,6) forms.
     The list form pairs them positionally: hex (1,4), (2,5), (3,6).
-    Coordinates are 1-indexed in WML.
-
-    NOTE on coordinate handling: the raw_map_data string we manipulate
-    here STILL INCLUDES the 1-hex border. So WML (X, Y) lives at
-    raw_map_data row index Y, col index X (no -1 needed) because the
-    border row at index 0 / col 0 occupies those slots. The parsed
-    Hex grid is border-stripped (Position(0,0) = WML(1,1)), so we
-    convert separately for that lookup.
-    """
+    Coordinates are 1-indexed in WML."""
     xs = _parse_int_csv(action.attrs.get("x", ""))
     ys = _parse_int_csv(action.attrs.get("y", ""))
     new_code = action.attrs.get("terrain", "").strip()
     if not (xs and ys and new_code):
         return
-    raw = getattr(gs.global_info, "_raw_map_data", "")
-    raw_lines = raw.splitlines() if raw else []
-    raw_cells: List[List[str]] = [
-        [c.strip() for c in row.split(",")] for row in raw_lines
-    ]
-
-    # Decode the new terrain code once — used both for raw_map_data
-    # bookkeeping and to update Hex.terrain_types/modifiers on the
-    # parsed grid (so combat defense queries see the change).
-    from tools.replay_dataset import _parse_hex_code
-    from wesnoth_ai.rules.terrain_resolver import split_start_position, terrain_mask
-    new_terr, new_mods = _parse_hex_code(new_code)
-    new_mask = terrain_mask(new_code)
-
-    # NOTE: `_terrain_codes` stores the FULL code including any
-    # overlay, matching the map-load path (parse_terrain_codes). The
-    # movement/defense resolvers (terrain_resolver.mvt_cost/def_pct
-    # via _move_cost_at_hex / _terrain_def_pct) walk the alias graph
-    # from that code, and an overlay can DOMINATE it: ^Xo is the
-    # Impassable Overlay with mvt_alias=Xt (wesnoth_src/data/core/
-    # terrain.cfg:1743-1751), so 'Chw^Xo' is impassable despite the
-    # castle base. A previous version stored the overlay-stripped
-    # base here ('Chw^Xo' -> 'Chw'), which made Aethermaw's turn-6
-    # whirlpool walls walkable in the sim -- units moved onto them
-    # and the exported replays failed strict-sync in real Wesnoth
-    # ("found corrupt movement in replay", engine-verified
-    # 2026-07-29). See test_terrain_overlay_resolution.py::
-    # test_terrain_event_preserves_overlay_in_codes.
-
-    # COPY-ON-WRITE (adversarial-review HIGH finding, 2026-07-18):
-    # `Map.__deepcopy__` / `GlobalInfo.__deepcopy__` ALIAS
-    # `map.hexes` and `_terrain_codes` across `WesnothSim.fork()`
-    # (terrain was assumed immutable). Mutating them in place meant
-    # an MCTS rollout fork that crossed a morph turn (Aethermaw,
-    # turns 4-6) morphed the LIVE game's terrain too — reproduced:
-    # 22 live hexes changed from a fork stepped to turn 13, with the
-    # live `_terrain_epoch` left stale so the planner/mask served
-    # pre-morph costs against post-morph combat. Build NEW
-    # containers and rebind them on THIS gs only. Replacing the
-    # hexes set also changes `id(gs.map.hexes)`, auto-invalidating
-    # the `_hex_lookup` cache keyed on it (previously never
-    # invalidated here — same latent bug, second symptom).
-    new_hexes = set(gs.map.hexes)
-    codes = getattr(gs.global_info, "_terrain_codes", None)
-    new_codes = dict(codes) if codes is not None else None
-
-    pairs = list(zip(xs, ys))
-    for wml_x, wml_y in pairs:
-        # Parsed Hex set: 0-indexed playable coords → subtract 1.
-        py_x, py_y = wml_x - 1, wml_y - 1
-        # Update or insert the parsed Hex so `_terrain_at` reflects
-        # the new terrain. Hex is hashable on position, so we discard
-        # the old and add a fresh one with the new terrain set.
-        old_hex = next(
-            (h for h in new_hexes
-             if h.position.x == py_x and h.position.y == py_y),
-            None,
-        )
-        if old_hex is not None:
-            new_hexes.discard(old_hex)
-        new_hexes.add(Hex(
-            position=Position(x=py_x, y=py_y),
-            terrain_types=set(new_terr),
-            modifiers=set(new_mods),
-            terrain_mask=new_mask,
-        ))
-
-        # Mirror the change into the per-game terrain-code dict that
-        # `_terrain_keys_at` / `_move_cost_at_hex` resolve through.
-        # Without this the post-event hex still resolves through the
-        # OLD code and combat defense math is wrong (Drake on Ford
-        # should get its grass defense, not shallow-water defense).
-        # FULL code, overlay included -- see the ^Xo note above.
-        if new_codes is not None:
-            new_codes[(py_x, py_y)] = new_code
-
-        # Raw map_data string: border-included → WML (X, Y) is at
-        # raw_cells[Y][X] directly (file row Y col X with the border
-        # row at index 0).
-        # A [terrain] event replaces the terrain, never the hex's
-        # starting-position label, so the label is carried over. The
-        # engine writes a cell back as label + " " + code
-        # (wesnoth_src/src/terrain/translation.cpp:775-782,
-        # number_to_string_). Splicing a fixed two characters instead
-        # only recognized a one-digit label, so a rewrite of "10 Kh"
-        # or "lake Gs^Vc" silently DROPPED the start position from the
-        # exported map_data.
-        if 0 <= wml_y < len(raw_cells) and 0 <= wml_x < len(raw_cells[wml_y]):
-            label, _old_code = split_start_position(raw_cells[wml_y][wml_x])
-            raw_cells[wml_y][wml_x] = f"{label} {new_code}" if label else new_code
-
-    gs.map.hexes = new_hexes
+    writes = [(wml_x, wml_y, new_code) for wml_x, wml_y in zip(xs, ys)]
+    gi = gs.global_info
+    codes = getattr(gi, "_terrain_codes", None)
+    hexes, new_codes, raw = terrain_writes_applied(
+        gs.map.hexes, codes, getattr(gi, "_raw_map_data", ""), writes)
+    gs.map.hexes = hexes
     if new_codes is not None:
-        setattr(gs.global_info, "_terrain_codes", new_codes)
+        setattr(gi, "_terrain_codes", new_codes)
         # Invalidate the reach-planner's per-map terrain cache
         # (pathfind_sim keys on this epoch). Once per event, on THIS
         # gs only.
         from tools.pathfind_sim import next_terrain_epoch
-        setattr(gs.global_info, "_terrain_epoch", next_terrain_epoch())
+        setattr(gi, "_terrain_epoch", next_terrain_epoch())
+    if raw:
+        setattr(gi, "_raw_map_data", raw)
 
-    if raw_cells:
-        new_raw = "\n".join(", ".join(row) for row in raw_cells)
-        setattr(gs.global_info, "_raw_map_data", new_raw)
+
+def terrain_writes_applied(hexes, codes, raw: str, writes):
+    """The hex set, terrain codes and raw map data after `writes`, each
+    a (WML x, WML y, code) the way a [terrain] event writes it; new
+    containers, the given ones untouched. The Python applier's
+    `_terrain_action` and the Rust core's view (`game_core`, from the
+    core's terrain log) both build their Python map through here.
+
+    `codes` keeps the FULL code, overlay included: an overlay can
+    dominate its base (^Xo is the impassable overlay, mvt_alias=Xt,
+    wesnoth_src/data/core/terrain.cfg:1743-1751), and storing
+    Aethermaw's turn-6 'Chw^Xo' as 'Chw' made its whirlpool walls
+    walkable ("found corrupt movement in replay", engine-verified
+    2026-07-29).
+
+    COPY-ON-WRITE (adversarial-review HIGH finding, 2026-07-18): search
+    forks alias `map.hexes` and `_terrain_codes`, so mutating them in
+    place morphed the live game's terrain from inside a fork. A new hex
+    set also changes `id(gs.map.hexes)`, which invalidates the caches
+    keyed on it (`_hex_lookup`, `observe.map_geometry`).
+
+    The raw map data includes the 1-hex border, so WML (X, Y) is
+    raw_cells[Y][X]. A [terrain] event replaces the terrain, never the
+    hex's starting-position label, and the engine writes a cell back as
+    label + " " + code (wesnoth_src/src/terrain/translation.cpp:775-782,
+    number_to_string_)."""
+    from tools.replay_dataset import _parse_hex_code
+    from wesnoth_ai.rules.terrain_resolver import split_start_position, terrain_mask
+    raw_cells: List[List[str]] = [[c.strip() for c in row.split(",")]
+                                  for row in (raw.splitlines() if raw else [])]
+    new_hexes = set(hexes)
+    by_pos = {(h.position.x, h.position.y): h for h in new_hexes}
+    new_codes = dict(codes) if codes is not None else None
+    for wml_x, wml_y, new_code in writes:
+        py_x, py_y = wml_x - 1, wml_y - 1
+        new_terr, new_mods = _parse_hex_code(new_code)
+        old_hex = by_pos.get((py_x, py_y))
+        if old_hex is not None:
+            new_hexes.discard(old_hex)
+        fresh = Hex(position=Position(x=py_x, y=py_y), terrain_types=set(new_terr),
+                    modifiers=set(new_mods), terrain_mask=terrain_mask(new_code))
+        new_hexes.add(fresh)
+        by_pos[(py_x, py_y)] = fresh
+        if new_codes is not None:
+            new_codes[(py_x, py_y)] = new_code
+        if 0 <= wml_y < len(raw_cells) and 0 <= wml_x < len(raw_cells[wml_y]):
+            label, _old_code = split_start_position(raw_cells[wml_y][wml_x])
+            raw_cells[wml_y][wml_x] = f"{label} {new_code}" if label else new_code
+    new_raw = "\n".join(", ".join(row) for row in raw_cells) if raw_cells else raw
+    return new_hexes, new_codes, new_raw
 
 
 def _modify_side_action(gs: GameState, action: WMLNode) -> None:
@@ -321,12 +276,7 @@ def _modify_side_action(gs: GameState, action: WMLNode) -> None:
         if new_recruit
         else list(s.recruits)
     )
-    gs.sides[side_num - 1] = SideInfo(
-        player=s.player, recruits=new_recruits,
-        current_gold=new_gold, base_income=new_income,
-        nb_villages_controlled=s.nb_villages_controlled,
-        faction=s.faction,
-    )
+    gs.sides[side_num - 1] = replace(s, recruits=new_recruits, current_gold=new_gold, base_income=new_income)
 
 
 # ----------------------------------------------------------------------
@@ -596,12 +546,7 @@ def _gold_action(gs: GameState, action: WMLNode) -> None:
     if not (1 <= side_num <= len(gs.sides)):
         return
     s = gs.sides[side_num - 1]
-    gs.sides[side_num - 1] = SideInfo(
-        player=s.player, recruits=s.recruits,
-        current_gold=s.current_gold + amount, base_income=s.base_income,
-        nb_villages_controlled=s.nb_villages_controlled,
-        faction=s.faction,
-    )
+    gs.sides[side_num - 1] = replace(s, current_gold=s.current_gold + amount)
 
 
 # ----------------------------------------------------------------------
@@ -1012,8 +957,11 @@ def apply_side_unit_modifications(gs: GameState, root: WMLNode) -> None:
     if not effects:
         return
     for unit in gs.map.units:
-        for eff in effects.get((unit.side, unit.position.x, unit.position.y, unit.name), ()):
+        own = effects.get((unit.side, unit.position.x, unit.position.y, unit.name), ())
+        for eff in own:
             _apply_effect_to_unit(unit, eff)
+        if own:
+            setattr(unit, "_object_effects", list(getattr(unit, "_object_effects", None) or []) + list(own))
 
 
 def _trait_ids_from_modifications(node: WMLNode) -> List[str]:
@@ -1203,14 +1151,21 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
         # traits first, then explicit ones).
         setattr(base_unit, "_trait_order", list(trait_ids))
     # Refresh current_hp = max_hp post-traits (a freshly placed unit
-    # spawns at full health).
-    from dataclasses import replace as _dc_replace
-    base_unit = _dc_replace(
-        base_unit, current_hp=base_unit.max_hp,
-        current_moves=base_unit.max_moves,
-    )
-    for eff in own_modification_effects(mods):
+    # spawns at full health). `_rebuild_unit`, never
+    # `dataclasses.replace`: replace builds the unit from its fields
+    # alone and dropped the defense table and the trait order above,
+    # so an advancing hero re-applied its traits in the order of a set.
+    from tools.replay_dataset import _rebuild_unit
+    base_unit = _rebuild_unit(base_unit, current_hp=base_unit.max_hp,
+                              current_moves=base_unit.max_moves)
+    # The unit's own [object]s and custom traits stay in its
+    # modifications, which the engine re-applies on advancement
+    # (`_advance_unit_once` reads `_object_effects`).
+    own = own_modification_effects(mods)
+    for eff in own:
         _apply_effect_to_unit(base_unit, eff)
+    if own:
+        setattr(base_unit, "_object_effects", list(own))
     # Apply petrified status from `[status] petrified=yes`.
     status_node = action.first("status")
     if status_node is not None:
@@ -1218,9 +1173,9 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
         if petr in ("yes", "true", "1"):
             new_st = set(base_unit.statuses)
             new_st.add("petrified")
-            base_unit = _dc_replace(base_unit, statuses=new_st,
-                                    current_moves=0, has_attacked=True,
-                                    attacks=[])
+            base_unit = _rebuild_unit(base_unit, statuses=new_st,
+                                      current_moves=0, has_attacked=True,
+                                      attacks=[])
     # Apply [abilities] block from the [unit] action. Hornshark Island's
     # preplaced Mermaid Initiates have `[abilities] {ABILITY_HEALS}
     # [/abilities]` granting heals_4, and the Soulless heroes get
@@ -1246,7 +1201,7 @@ def _unit_action(gs: GameState, action: WMLNode) -> None:
             else:
                 new_abilities.add((child.attrs.get("id") or "").strip().strip('"') or tag)
         if new_abilities != base_unit.abilities:
-            base_unit = _dc_replace(base_unit, abilities=new_abilities)
+            base_unit = _rebuild_unit(base_unit, abilities=new_abilities)
     # Stash the WML role so later [filter] role= matching can find
     # this unit (Mini Maps' MODIFY_UNIT (role=monster) MP-zeroing).
     role = (action.attrs.get("role", "") or "").strip().strip('"')

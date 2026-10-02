@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from sim_test_helpers import fresh_scenario_sim  # noqa: E402
+from sim_test_helpers import commit_view, fresh_scenario_sim  # noqa: E402
 
 
 def _spin_turns(sim, n_turns: int) -> None:
@@ -52,6 +52,7 @@ def _hook_mutation_into_step(sim, at_call: int, mutate) -> None:
         calls["n"] += 1
         if calls["n"] == at_call:
             mutate(sim)
+            commit_view(sim)
         return r
 
     sim._step_inner = hooked

@@ -23,13 +23,20 @@ impl GameCore {
     /// neighbour of those.
     pub fn mark_vision(&self, i: usize, at: usize, out: &mut [u8]) {
         let u = &self.units[i];
-        let class = if u.has_status("slowed") { u.class_slowed_id } else { u.class_id };
+        self.mark_vision_as(i, u.has_status("slowed"), u.max_moves, at, out);
+    }
+
+    /// `mark_vision` with the slowed status and the vision points given,
+    /// as a delayed shroud update recorded them (core_shroud.rs).
+    pub fn mark_vision_as(&self, i: usize, slowed: bool, vision: i64, at: usize, out: &mut [u8]) {
+        let u = &self.units[i];
+        let class = if slowed { u.class_slowed_id } else { u.class_id };
         let classes = self.classes.read().unwrap();
         if class < 0 || class as usize >= classes.len() {
             return;
         }
         let mcost = &classes[class as usize].mcost;
-        let budget = u.max_moves.max(0);
+        let budget = vision.max(0);
         let nbrs = &self.map.nbrs;
         let mut spent = vec![i64::MAX; self.map.h];
         spent[at] = 0;
@@ -75,7 +82,7 @@ impl GameCore {
         self.fog_cleared.get(side as usize - 1).filter(|v| !v.is_empty())
     }
 
-    fn set_cleared(&mut self, side: i64, cleared: Vec<u8>) {
+    pub(crate) fn set_cleared(&mut self, side: i64, cleared: Vec<u8>) {
         let k = side as usize - 1;
         if self.fog_cleared.len() <= k {
             self.fog_cleared.resize(k + 1, Vec::new());

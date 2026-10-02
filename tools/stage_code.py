@@ -160,12 +160,14 @@ def write_tarball(out: Path, paths: Sequence[str]) -> int:
 
 def staging_files(tarball: Path, dest: str, script: str | None) -> list[tuple[str, bytes]]:
     """(path in repo, bytes) of what goes up beside the tarball: the box
-    library at library_dir(dest) and, when given, the run script under
-    tier-b/staging/, each read from the tarball."""
+    library at library_dir(dest) and, when given, the run script there too
+    (the copy a box runs) and under tier-b/staging/ (where the rental
+    preflight finds a script's default stage), each read from the tarball."""
     wanted = [(f"scripts/box/{name}", f"{library_dir(dest)}/{name}") for name in LIBRARY_FILES]
     if script:
         rel = _relative(script)
-        wanted.append((rel, STAGING + rel.rsplit("/", 1)[-1]))
+        name = rel.rsplit("/", 1)[-1]
+        wanted += [(rel, f"{library_dir(dest)}/{name}"), (rel, STAGING + name)]
     files = []
     with tarfile.open(tarball, "r:gz") as tf:
         names = set(tf.getnames())
@@ -179,8 +181,13 @@ def staging_files(tarball: Path, dest: str, script: str | None) -> list[tuple[st
     return files
 
 
-def upload_stage(api, tarball: Path, dest: str, script: str | None) -> None:
-    """One commit: the tarball at `dest`, its box library, the run script."""
+def upload_stage(api, tarball: Path, dest: str, script: str | None, replace: bool = False) -> None:
+    """One commit: the tarball at `dest`, its box library, the run script.
+    A stage path already on HF is refused unless `replace`: a box that
+    staged it keeps the old tree under the same name."""
+    if not replace and api.file_exists(repo_id=REPO, filename=dest):
+        raise SystemExit(f"{dest} is already on HF: a box that staged it would keep the old tree "
+                         f"under the same name; upload to a new path (or --replace)")
     beside = staging_files(tarball, dest, script)
     from huggingface_hub import CommitOperationAdd
     operations = [CommitOperationAdd(path_in_repo=dest, path_or_fileobj=str(tarball))]
@@ -214,6 +221,8 @@ def main(argv=None) -> int:
     ap.add_argument("--script", default=None,
                     help="The run script (e.g. scripts/unit_vocab_retrain_box.sh), required "
                          "in the payload and uploaded with it to tier-b/staging/.")
+    ap.add_argument("--replace", action="store_true",
+                    help="Upload over a stage path already on HF.")
     ap.add_argument("--dry-run", action="store_true",
                     help="List what would ship and stop.")
     ap.add_argument("--log-level", default="INFO")
@@ -260,7 +269,7 @@ def main(argv=None) -> int:
 
     if args.upload:
         from huggingface_hub import HfApi
-        upload_stage(HfApi(), args.out, args.upload, args.script)
+        upload_stage(HfApi(), args.out, args.upload, args.script, replace=args.replace)
     elif args.script:
         staging_files(args.out, "unused.tar.gz", args.script)   # the same checks, nothing sent
     return 0

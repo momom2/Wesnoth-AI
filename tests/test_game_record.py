@@ -19,7 +19,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from tools import game_record  # noqa: E402
-from wesnoth_ai.game_core import game_core_class, state_differences  # noqa: E402
+from wesnoth_ai.core_compare import state_differences  # noqa: E402
+from wesnoth_ai.game_core import game_core_class  # noqa: E402
 
 # What the simulator keeps on the state for its own bookkeeping and the
 # applier does not: the seed counter and the last command's side

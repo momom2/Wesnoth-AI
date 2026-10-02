@@ -361,7 +361,7 @@ def test_a_checkpoint_whose_arch_does_not_load_is_refused(tmp_path):
     for (name, want), got in zip(saved._model.state_dict().items(),
                                  loaded._model.state_dict().values()):
         assert torch.equal(want, got), name
-    ckpt = torch.load(intact, map_location="cpu", weights_only=False)
+    ckpt = torch.load(intact, map_location="cpu", weights_only=True)
     del ckpt["arch"]["d_ff"]
     legacy = tmp_path / "legacy.pt"
     torch.save(ckpt, legacy)

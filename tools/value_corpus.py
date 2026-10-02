@@ -35,7 +35,6 @@ fresh_value_ce probe.
 from __future__ import annotations
 
 import argparse
-import copy
 import gzip
 import json
 import logging
@@ -53,8 +52,7 @@ from wesnoth_ai.trainer import MCTSExperience
 log = logging.getLogger("value_corpus")
 
 # Command kinds that correspond to a player decision at the current
-# state (replay_dataset._apply_command dispatch). init_side is
-# bookkeeping, not a decision.
+# state. init_side is bookkeeping, not a decision.
 _DECISION_KINDS = ("move", "attack", "recruit", "recall", "end_turn")
 
 
@@ -64,34 +62,35 @@ def game_experiences(gz_path: Path, winner: int, *,
                      rng: Optional[random.Random] = None,
                      moves_left_norm: Optional[float] = None,
                      ) -> List[MCTSExperience]:
-    """Reconstruct one indexed game and return sampled experiences."""
+    """Reconstruct one indexed game on the Rust core and return sampled
+    experiences, each state a view bound to a snapshot of the core."""
     from tools.mcts_policy import MOVES_LEFT_NORM_TURNS
-    from tools.replay_dataset import (_apply_command,
-                                      _build_initial_gamestate,
-                                      _setup_scenario_events)
+    from tools.replay_dataset import record_core
+    from wesnoth_ai.game_core import bind_view
 
     norm = moves_left_norm or MOVES_LEFT_NORM_TURNS
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    cs = record_core(data)
 
     # Phase-align the stride across games (rng picks the offset) so
     # the corpus isn't biased toward turn starts.
     offset = (rng.randrange(stride) if rng and stride > 1 else 0)
-    sampled = []          # (state_copy, side, turn)
+    sampled = []          # (state view, side, turn)
     k = 0
     for cmd in data.get("commands", []):
         kind = cmd[0] if cmd else "?"
         if kind in _DECISION_KINDS:
-            side = gs.global_info.current_side
+            side = int(cs.core.current_side)
             if side in (1, 2) and k % stride == offset:
-                sampled.append((copy.deepcopy(gs), side,
-                                gs.global_info.turn_number))
+                snapshot = cs.fork()
+                view = snapshot.to_state()
+                bind_view(view, snapshot)
+                sampled.append((view, side, int(cs.core.turn_number)))
             k += 1
-        _apply_command(gs, cmd)
+        cs.apply_command(list(cmd))
 
-    end_turn = gs.global_info.turn_number
+    end_turn = int(cs.core.turn_number)
     out: List[MCTSExperience] = []
     for st, side, turn in sampled:
         remaining = max(0, end_turn - turn)
@@ -112,39 +111,38 @@ def game_raw_experiences(gz_path: Path, winner: int, *,
                          rng: Optional[random.Random] = None,
                          moves_left_norm: Optional[float] = None,
                          fog_hides_enemy_villages: bool = False,
-                         terrain_multi_hot: bool = False):
+                         terrain_multi_hot: bool = False,
+                         relevant_set: bool = False):
     """Like game_experiences, but encode_raw each sampled state at
     sample time (no deepcopy) and return picklable
     (RawEncoded, z, moves_left) tuples — the worker-side producer for
     the parallel value fine-tune. `type_to_id`/`faction_to_id` MUST be
     the model's frozen vocab (encode_raw is read-only; out-of-vocab ->
-    overflow bucket)."""
-    from wesnoth_ai.encoder import encode_raw
+    overflow bucket). The game is reconstructed and encoded on the Rust
+    core."""
     from tools.mcts_policy import MOVES_LEFT_NORM_TURNS
-    from tools.replay_dataset import (_apply_command,
-                                      _build_initial_gamestate,
-                                      _setup_scenario_events)
+    from tools.replay_dataset import record_core
     norm = moves_left_norm or MOVES_LEFT_NORM_TURNS
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    cs = record_core(data)
     offset = (rng.randrange(stride) if rng and stride > 1 else 0)
     sampled = []
     k = 0
     for cmd in data.get("commands", []):
         kind = cmd[0] if cmd else "?"
         if kind in _DECISION_KINDS:
-            side = gs.global_info.current_side
+            side = int(cs.core.current_side)
             if side in (1, 2) and k % stride == offset:
-                raw = encode_raw(gs, type_to_id=type_to_id,
-                                 faction_to_id=faction_to_id,
-                                 fog_hides_enemy_villages=fog_hides_enemy_villages,
-                                 terrain_multi_hot=terrain_multi_hot)
-                sampled.append((raw, side, gs.global_info.turn_number))
+                raw = cs.encode_raw(type_to_id=type_to_id,
+                                    faction_to_id=faction_to_id,
+                                    relevant_set=relevant_set,
+                                    fog_hides_enemy_villages=fog_hides_enemy_villages,
+                                    terrain_multi_hot=terrain_multi_hot)
+                sampled.append((raw, side, int(cs.core.turn_number)))
             k += 1
-        _apply_command(gs, cmd)
-    end_turn = gs.global_info.turn_number
+        cs.apply_command(list(cmd))
+    end_turn = int(cs.core.turn_number)
     out = []
     for raw, side, turn in sampled:
         z = +1.0 if side == winner else -1.0
@@ -218,7 +216,7 @@ def main(argv: List[str]) -> int:
         import torch
         from wesnoth_ai.transformer_policy import TransformerPolicy
         raw = torch.load(args.eval_ckpt, map_location="cpu",
-                         weights_only=False)
+                         weights_only=True)
         a = raw["arch"]
         policy = TransformerPolicy(
             d_model=a["d_model"], num_layers=a["num_layers"],

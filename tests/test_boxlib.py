@@ -19,11 +19,12 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 import pytest
+
+from helpers.posix_bash import bash_path, find_bash
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "scripts" / "box"
@@ -58,32 +59,11 @@ exit 0
 """
 
 
-def find_bash() -> str | None:
-    """A POSIX bash: Git's on Windows, never the WSL launcher."""
-    if sys.platform == "win32":
-        for candidate in (r"C:\Program Files\Git\usr\bin\bash.exe", r"C:\Program Files\Git\bin\bash.exe"):
-            if os.path.exists(candidate):
-                return candidate
-        found = shutil.which("bash")
-        if found and "system32" not in found.lower() and "windowsapps" not in found.lower():
-            return found
-        return None
-    return shutil.which("bash")
-
-
 BASH = find_bash()
 # Slow: about 60 s on the laptop, where Git bash starts processes slowly;
 # the library runs on Linux boxes, and CI runs the slow tier on Linux.
 pytestmark = [pytest.mark.slow,
               pytest.mark.skipif(BASH is None, reason="no POSIX bash on this machine")]
-
-
-def bash_path(path: Path) -> str:
-    """`path` as bash sees it (Git's bash wants /c/... on Windows)."""
-    path = Path(path).resolve()
-    if sys.platform == "win32" and path.drive:
-        return f"/{path.drive[0].lower()}{path.as_posix()[2:]}"
-    return str(path)
 
 
 def run_bash(script: str, cwd: Path, timeout: float = 90) -> int:
@@ -252,6 +232,108 @@ def test_a_refused_stop_sends_its_outcome_and_keeps_the_switch_armed(box):
     assert alive(box.switch_pid())
 
 
+def test_the_switch_after_a_finished_entry_only_stops_the_instance(box):
+    """A refused stop brings the switch forward; firing after the entry
+    finished, it tries the stop again and leaves the records as they are."""
+    assert box.run('box_finish "RUN_DONE"', STUB_STOP_RC=1, BOX_STOP_RETRY_S=1, BOX_SWITCH_POLL_S=1) == 0
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and len([a for _t, a in box.calls() if re.search(STOP, a)]) < 2:
+        time.sleep(0.5)
+    assert len([a for _t, a in box.calls() if re.search(STOP, a)]) >= 2, "the switch tried again"
+    assert "DEADMAN" not in box.text("status.txt") and not (box.out / "FAILED").exists()
+    assert "RUN_DONE" in box.text("ALL_DONE")
+
+
+def test_a_run_of_another_stage_is_refused_unless_told_to_continue_it(box):
+    """The refusal comes before the entry clears the run's markers on HF and
+    sends nothing there; the instance is stopped."""
+    (box.out).mkdir(parents=True)
+    (box.out / "RUN_STAGE").write_text("stage=tier-b/staging/stage_old.tar.gz time=x\n")
+    assert box.run('touch "$BOX_OUT/BODY_RAN"\nbox_bind_run_stage\nbox_finish "RUN_DONE"') == 1
+    assert "RUN_OF_ANOTHER_STAGE" in box.text("REFUSED")
+    assert not (box.out / "BODY_RAN").exists() and not (box.out / "ALL_DONE").exists()
+    calls = [a for _t, a in box.calls()]
+    assert not [a for a in calls if "--clear" in a or ("box_upload.py" in a and "--restore" not in a)]
+    assert [a for a in calls if "box_stop.py" in a]
+    assert box.run('box_bind_run_stage\nbox_finish "RUN_DONE"', RESUME_OTHER_STAGE=1) == 0
+    assert f"stage={STAGE}" in box.text("RUN_STAGE")
+
+
+def test_an_entry_that_cannot_read_whose_run_it_is_is_refused(box):
+    assert box.run('box_finish "RUN_DONE"', STUB_RESTORE_RC=1) == 1
+    assert "HF_UNREACHABLE" in box.text("REFUSED")
+    assert not [a for _t, a in box.calls() if "--clear" in a or "--final" in a]
+
+
+def test_the_switch_charges_the_stages_running_time(box):
+    """A restarted container gets no new BOX_MAX_H: the switch charges the
+    stage's running time on the disk, and a new stage starts from zero. The
+    time between two entries (an instance stopped) is not charged."""
+    deadline = box.work / "state" / "DEADLINE"
+
+    def used() -> int:
+        return int(re.search(r"used=(\d+)", deadline.read_text()).group(1))
+
+    assert box.run('sleep 3\nbox_finish "RUN_DONE"', BOX_SWITCH_POLL_S=1) == 0
+    first = used()
+    assert first >= 2
+    time.sleep(3)                                   # the instance stopped between entries
+    assert box.run('sleep 2\nbox_finish "RUN_DONE"', BOX_SWITCH_POLL_S=1) == 0
+    assert first + 1 <= used() <= first + 4, "the second entry adds its own running time only"
+    assert box.run('box_finish "RUN_DONE"', STAGE="tier-b/staging/stage_next.tar.gz") == 0
+    assert used() < first, "a new stage starts from zero"
+
+
+def test_a_step_that_outlives_its_kill_ends_the_entry(box):
+    """A process stuck in the GPU driver survives its KILL: the step is
+    abandoned and the entry finishes and stops the instance, the machine
+    unfit for the next step. Here `timeout` ignores the TERM and never ends
+    its command."""
+    (box.stubs / "timeout").write_bytes(
+        b'#!/usr/bin/env bash\n[ "$1" = -k ] && shift 2\nshift\ntrap "" TERM\n"$@" &\nwait\n')
+    (box.stubs / "timeout").chmod(0o755)
+    body = REPORT + "box_bounded stuck 0.02 stuck.log sleep 60; report stuck\n"
+    start = time.monotonic()
+    assert box.run(body, BOX_UNKILLABLE_S=1) == 1
+    assert time.monotonic() - start < 30
+    assert "stuck rc=" in box.text("walls.txt") and "unkillable" in box.text("walls.txt")
+    assert "abandoning it" in box.text("watchdog.log")
+    assert not box.text("report"), "nothing after the step ran"
+    assert_finished(box, "STEP_UNKILLABLE")
+
+
+@pytest.mark.parametrize("files, expected", [
+    ({"memory.max": "3221225472\n", "memory.current": "0\n"}, "2"),
+    ({"memory/memory.limit_in_bytes": "4294967296\n", "memory/memory.usage_in_bytes": "1073741824\n"}, "2"),
+    ({"memory.max": "4294967296\n", "memory.current": "3221225472\n",
+      "memory.stat": "anon 1073741824\nfile 2147483648\n"}, "2"),
+    ({"memory/memory.limit_in_bytes": "4294967296\n", "memory/memory.usage_in_bytes": "3221225472\n",
+      "memory/memory.stat": "cache 2147483648\ntotal_rss 1073741824\n"}, "2"),
+    ({"memory/memory.limit_in_bytes": "9223372036854771712\n", "memory/memory.usage_in_bytes": "1\n"}, None),
+    ({"memory.max": "max\n", "memory.current": "1\n"}, None),
+    ({}, None),
+], ids=["v2 limit", "v1 limit", "v2 page cache", "v1 page cache", "v1 unlimited", "v2 unlimited",
+        "no memory files"])
+def test_box_workers_gives_each_worker_its_memory(box, files, expected):
+    """1 GB a worker, one share kept for the step's parent: a 3 GB headroom
+    gives 2 workers, page cache counting as free; without a limit the host's
+    available memory decides; a host with no memory files (cgroup v1
+    without the controller) still gets a count, under `set -u`."""
+    root = box.tmp / "cgroup"
+    root.mkdir()
+    (root / "cpu.max").write_bytes(b"6400000 100000\n")         # 64 cores, more than the headroom
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(text.encode())
+    answer = box.tmp / "workers.txt"
+    box.run(f'box_workers > "{bash_path(answer)}"', init=False, BOX_CGROUP_ROOT=bash_path(root),
+            BOX_WORKER_GB=1)
+    got = answer.read_text().strip()
+    assert got.isdigit() and int(got) >= 1, got
+    if expected is not None:
+        assert got == expected
+
+
 def test_the_switch_finishes_the_entry_while_the_script_is_busy(box):
     body = 'sleep 5\ndate +%s > "$BOX_OUT/woke"\nbox_finish "MAIN_DONE"'
     assert box.run(body, BOX_MAX_H="0.0003") == 0
@@ -413,8 +495,12 @@ def library_on_hf() -> dict[str, bytes]:
 DEMO_SCRIPT = b'#!/usr/bin/env bash\necho "ran with $BOX_LIB" > "$BOX_LIB/../ran"\n'
 
 
+STAGED_SCRIPT = "tier-b/staging/stage_test.box/demo_box.sh"      # the stage's own copy
+
+
 def test_the_onstart_fetches_the_library_then_runs_the_script(box):
-    hf = fake_hf(box, {**library_on_hf(), "tier-b/staging/demo_box.sh": DEMO_SCRIPT})
+    hf = fake_hf(box, {**library_on_hf(), STAGED_SCRIPT: DEMO_SCRIPT,
+                       "tier-b/staging/demo_box.sh": b"echo a later stage's script\n"})
     assert run_onstart(box, hf) == 0
     assert (box.work / "ran").read_text().strip() == f"ran with {bash_path(box.work)}/box"
     for f in ("box_stop.py", "boxlib.sh", "box_upload.py", "box_stage.py"):
@@ -425,11 +511,19 @@ def test_the_onstart_fetches_the_library_then_runs_the_script(box):
 def test_the_onstart_stops_the_instance_when_a_file_does_not_arrive(box):
     files = library_on_hf()
     del files["tier-b/staging/stage_test.box/boxlib.sh"]
-    hf = fake_hf(box, {**files, "tier-b/staging/demo_box.sh": DEMO_SCRIPT})
+    hf = fake_hf(box, {**files, STAGED_SCRIPT: DEMO_SCRIPT})
     run_onstart(box, hf)
     assert not (box.work / "ran").exists()
     assert [a for _t, a in box.calls() if re.search(r"box_stop\.py --outcome", a)]
     assert "not fetched: boxlib.sh" in box.output()
+
+
+def test_a_restart_while_hf_cannot_answer_runs_what_the_disk_holds(box):
+    assert run_onstart(box, fake_hf(box, {**library_on_hf(), STAGED_SCRIPT: DEMO_SCRIPT})) == 0
+    (box.work / "ran").unlink()
+    assert run_onstart(box, box.tmp / "unreachable") == 0
+    assert (box.work / "ran").exists()
+    assert not [a for _t, a in box.calls() if re.search(r"box_stop\.py --outcome", a)]
 
 
 def test_the_onstart_fetches_the_files_the_stage_carries():
@@ -450,3 +544,58 @@ def test_every_box_script_on_the_library_parses():
     for path in scripts + [LIB / "boxlib.sh", LIB / "box_onstart.sh"]:
         result = subprocess.run([BASH, "-n", bash_path(path)], capture_output=True, text=True)
         assert result.returncode == 0, f"{path.name}: {result.stderr}"
+
+
+@pytest.mark.parametrize("files, expected", [
+    ({"cpu.max": "400000 100000\n"}, "4"),
+    ({"cpu.max": "250000 100000\n"}, "3"),
+    ({"cpu.max": "max 100000\n", "cpu/cpu.cfs_quota_us": "200000\n", "cpu/cpu.cfs_period_us": "100000\n"}, "2"),
+    ({"cpu/cpu.cfs_quota_us": "-1\n", "cpu/cpu.cfs_period_us": "100000\n"}, None),
+    ({}, None),
+], ids=["v2 quota", "v2 fraction rounds up", "v1 quota", "v1 unlimited", "no cgroup"])
+def test_box_cores_reads_the_quota_not_omp_num_threads(box, files, expected):
+    """A 64-core box read 1 through `nproc`, which honours OMP_NUM_THREADS=1
+    (2026-09-29); the core count is the cgroup quota, else every usable CPU."""
+    root = box.tmp / "cgroup"
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(text.encode())   # LF, as the kernel writes it
+    answer = box.tmp / "cores.txt"
+    box.run(f'box_cores > "{bash_path(answer)}"', init=False,
+            OMP_NUM_THREADS=1, BOX_CGROUP_ROOT=bash_path(root))
+    usable = subprocess.run([BASH, "-c", "env -u OMP_NUM_THREADS nproc"],
+                            capture_output=True, text=True).stdout.strip()
+    want = expected if expected is not None else usable
+    if expected is not None and int(expected) > int(usable):
+        want = usable
+    assert answer.read_text().strip() == want
+
+
+def _finished_and_stopped(box, stopped_seconds_ago: int) -> None:
+    box.out.mkdir(parents=True)
+    (box.out / "ALL_DONE").write_text("2026-09-29T13:24:59Z RUN_DONE\n")
+    stop = box.out / "stop.jsonl"
+    stop.write_text('{"time": "t", "event": "result", "instance": "1", "stopped": true, "detail": "ok"}\n')
+    when = time.time() - stopped_seconds_ago
+    os.utime(stop, (when, when))
+
+
+def test_an_entry_right_after_a_finished_stopped_run_stops_again(box):
+    """2026-09-29: a second entry deleted a finished run's ALL_DONE from the
+    model host 10 s after it landed. An entry that starts minutes after the
+    previous one finished and stopped the instance stops it again and
+    touches nothing."""
+    _finished_and_stopped(box, stopped_seconds_ago=60)
+    assert box.run('echo "should not run" > "$BOX_OUT/ran"') == 0
+    assert not (box.out / "ran").exists()
+    assert (box.out / "ALL_DONE").exists()
+    box.index(STOP)
+    assert not any("box_upload.py" in args for _t, args in box.calls())
+
+
+def test_an_entry_long_after_a_stopped_run_starts_afresh(box):
+    _finished_and_stopped(box, stopped_seconds_ago=3 * 3600)
+    after_init = bash_path(box.tmp / "after_init.txt")
+    assert box.run(f'ls "$BOX_OUT" > "{after_init}"\nbox_finish "RUN_DONE"') == 0
+    assert "ALL_DONE" not in (box.tmp / "after_init.txt").read_text().split()
+    box.index(r"box_upload\.py .*--clear ALL_DONE FAILED")

@@ -105,8 +105,10 @@ def use(monkeypatch, sdk, on_hf=ON_HF):
     monkeypatch.setattr(rent_box, "_staging", lambda token: FakeStaging(on_hf))
 
 
-def market(price=0.5, hours_left=100.0, credit=20.0, balance=0.0):
+def market(price=0.5, hours_left=100.0, credit=20.0, balance=0.0, ram_gb=None):
     offer = {"id": 99, "dph_total": price, "end_date": time.time() + hours_left * 3600}
+    if ram_gb is not None:
+        offer["cpu_ram"] = ram_gb * 1024
     return AnsweringSdk(search_offers=[offer], show_user={"credit": credit, "balance": balance},
                         create_instance={"success": True, "new_contract": 555})
 
@@ -197,7 +199,7 @@ def test_a_covered_run_is_rented_under_its_script_name(credit, balance, monkeypa
     (created,) = sdk.called("create_instance")
     assert created["id"] == 99 and created["label"] == SCRIPT
     (lookup,) = sdk.called("search_offers")
-    assert lookup["query"] == "id=99" and lookup["storage"] == 40
+    assert lookup["query"] == "ask_contract_id=99" and lookup["storage"] == 40
 
 
 @pytest.mark.parametrize("on_hf, account, reason", [
@@ -238,6 +240,7 @@ LIBRARY = library_dir(STAGE)
 LIBRARY_SCRIPT = ('#!/usr/bin/env bash\nset -uo pipefail\nSTAGE="${STAGE:-}"\n'
                   '. "${BOX_LIB:-/workspace/box}/boxlib.sh" || exit 1\nbox_init\n')
 LIBRARY_ON_HF = {rent_box.STAGING + SCRIPT: LIBRARY_SCRIPT, STAGE: "<tarball>",
+                 f"{LIBRARY}/{SCRIPT}": LIBRARY_SCRIPT,
                  **{f"{LIBRARY}/{name}": "<file>" for name in LIBRARY_FILES}}
 
 
@@ -274,12 +277,15 @@ def test_any_other_script_is_fetched_and_run_as_before(monkeypatch):
 @pytest.mark.parametrize("on_hf, argv, reason", [
     ({k: v for k, v in LIBRARY_ON_HF.items() if not k.endswith("/boxlib.sh")},
      ["--stage", STAGE], "lacks boxlib.sh"),
+    ({k: v for k, v in LIBRARY_ON_HF.items() if k != f"{LIBRARY}/{SCRIPT}"},
+     ["--stage", STAGE], f"lacks {SCRIPT}"),
     (LIBRARY_ON_HF, ["--stage", "none"], "runs on the box library"),
     (LIBRARY_ON_HF, [], "names no STAGE default"),
     (LIBRARY_ON_HF, ["--stage", STAGE, "--env", "STAGE=tier-b/staging/other.tar.gz"], "disagree"),
     ({**LIBRARY_ON_HF, "tier-b/staging/stage_$(reboot).tar.gz": "<tarball>"},
      ["--stage", "tier-b/staging/stage_$(reboot).tar.gz"], "cannot carry"),
-], ids=["library file missing", "no stage", "no default", "two stages", "unsafe stage"])
+], ids=["library file missing", "run script missing", "no stage", "no default", "two stages",
+        "unsafe stage"])
 def test_a_library_script_without_its_whole_library_is_refused(on_hf, argv, reason, monkeypatch,
                                                                capsys):
     sdk = market()
@@ -288,3 +294,104 @@ def test_a_library_script_without_its_whole_library_is_refused(on_hf, argv, reas
     assert sdk.called("create_instance") == []
     err = capsys.readouterr().err
     assert "refusing to rent" in err and reason in err
+
+
+# ---- what the run script says it needs ------------------------------------------
+NEEDY_SCRIPT = (LIBRARY_SCRIPT + 'BOX_MAX_H="${BOX_MAX_H:-28}"\nRAW_TAR="${RAW_TAR:-tier-b/raw.tar}"\n'
+                "# box-needs: disk_gb=120 ram_gb=64\n")
+NEEDY_ON_HF = {**LIBRARY_ON_HF, f"{LIBRARY}/{SCRIPT}": NEEDY_SCRIPT, "tier-b/raw.tar": "<tar>"}
+
+
+@pytest.mark.parametrize("on_hf, account, disk, reason", [
+    (NEEDY_ON_HF, {"credit": 10.0}, "150", "do not cover $14.75 (the switch's 28 h + 1.5 h"),
+    (NEEDY_ON_HF, {"hours_left": 20.0}, "150", "leaves the market in 20.0 h"),
+    (NEEDY_ON_HF, {}, "40", "under the 120 GB the script needs"),
+    (NEEDY_ON_HF, {"ram_gb": 32}, "150", "under the 64 GB the script needs"),
+    ({k: v for k, v in NEEDY_ON_HF.items() if k != "tier-b/raw.tar"}, {}, "150",
+     "tier-b/raw.tar (RAW_TAR) is not on HF"),
+], ids=["switch outlasts the funds", "switch outlasts the window", "disk", "memory", "raw corpus"])
+def test_what_the_run_script_needs_is_checked_before_renting(on_hf, account, disk, reason, monkeypatch,
+                                                             capsys):
+    sdk = market(**account)
+    use(monkeypatch, sdk, on_hf)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE,
+                          "--disk", disk]) == 1
+    assert sdk.called("create_instance") == []
+    err = capsys.readouterr().err
+    assert "refusing to rent" in err and reason in err
+
+
+def test_a_run_script_whose_needs_are_met_is_rented(monkeypatch):
+    sdk = market(ram_gb=126)
+    use(monkeypatch, sdk, NEEDY_ON_HF)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE,
+                          "--disk", "150"]) == 0
+
+
+CLASS_SCRIPT = LIBRARY_SCRIPT + "# box-needs: gpu_ram_gb=24 cores=32 gpu=4090\n"
+FIT = {"gpu_ram": 24564, "cpu_cores_effective": 32, "gpu_name": "RTX 4090"}
+
+
+@pytest.mark.parametrize("offer, reason", [
+    ({"gpu_ram": 12288}, "12 GB of GPU memory, under the 24 GB"),
+    ({"cpu_cores_effective": 16}, "16 cores, under the 32 cores"),
+    ({"gpu_name": "RTX 3090"}, "RTX 3090, not the 4090 the script needs"),
+    ({"vms_enabled": True}, "a VM host"),
+], ids=["gpu memory", "cores", "gpu model", "vm host"])
+def test_an_offer_below_the_scripts_box_class_is_refused(offer, reason, monkeypatch, capsys):
+    sdk = market()
+    sdk.answers["search_offers"][0].update({**FIT, **offer})
+    use(monkeypatch, sdk, {**LIBRARY_ON_HF, f"{LIBRARY}/{SCRIPT}": CLASS_SCRIPT})
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 1
+    assert reason in capsys.readouterr().err
+    sdk.answers["search_offers"][0].update({**FIT, "vms_enabled": False})
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 0
+
+
+def test_other_instances_on_the_account_are_refused_unless_allowed(monkeypatch, capsys):
+    sdk = market()
+    sdk.answers["show_instances"] = [{"id": 7, "actual_status": "stopped"}]
+    use(monkeypatch, sdk, LIBRARY_ON_HF)
+    argv = ["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]
+    assert rent_box.main(argv) == 1
+    assert "1 other instance(s)" in capsys.readouterr().err
+    assert sdk.called("create_instance") == []
+    assert rent_box.main([*argv, "--allow-other-instances"]) == 0
+
+
+def test_an_onstart_that_cannot_fetch_its_file_stops_the_instance(monkeypatch):
+    """Three attempts at the file, then the instance stops itself with its
+    own key, read inside Python from the environment."""
+    sdk = market()
+    use(monkeypatch, sdk, LIBRARY_ON_HF)
+    assert rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4", "--stage", STAGE]) == 0
+    (created,) = sdk.called("create_instance")
+    onstart = created["onstart_cmd"]
+    assert "for attempt in 1 2 3" in onstart
+    assert "else " + rent_box._ONSTART_STOP.replace("{{", "{").replace("}}", "}") in onstart
+    assert bash_parses(onstart)
+
+
+def test_the_onstart_stop_tries_both_forms_until_one_is_accepted(tmp_path):
+    """Stubs stand in for python (refusing the first four calls) and sleep:
+    the Bearer form, then the query form, until one is accepted, the key
+    read from the environment and never written on the command line."""
+    from helpers.posix_bash import bash_path, find_bash
+    bash = find_bash()
+    if bash is None:
+        pytest.skip("no POSIX bash on this machine")
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "python").write_bytes(b'#!/usr/bin/env bash\nprintf "%s\\n" "$2" >> "$STUB_DIR/calls"\n'
+                                   b'[ "$(wc -l < "$STUB_DIR/calls")" -ge 5 ]\n')
+    (stubs / "sleep").write_bytes(b"#!/usr/bin/env bash\nexit 0\n")
+    for stub in stubs.iterdir():
+        stub.chmod(0o755)
+    command = rent_box._ONSTART_STOP.replace("/workspace", bash_path(tmp_path))
+    script = f'export PATH="{bash_path(stubs)}:$PATH" STUB_DIR="{bash_path(tmp_path)}"\n{command}\n'
+    assert subprocess.run([bash, "-c", script], timeout=60).returncode == 0
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert len(calls) == 5
+    assert all("Bearer" in c for c in calls[0::2]) and all("api_key=" in c for c in calls[1::2])
+    assert all("os.environ['CONTAINER_API_KEY']" in c for c in calls)
+    assert len((tmp_path / "onstart_stop.log").read_text().splitlines()) == 2

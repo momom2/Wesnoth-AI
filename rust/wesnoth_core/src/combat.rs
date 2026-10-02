@@ -123,6 +123,50 @@ impl Mt19937 {
     }
 }
 
+/// Where a fight's strike draws come from: the engine's generator, or a
+/// script (`ScriptedRng`).
+pub(crate) trait StrikeRng {
+    fn draw(&mut self) -> u32;
+    fn calls(&self) -> u64;
+}
+
+impl StrikeRng for Mt19937 {
+    fn draw(&mut self) -> u32 {
+        self.next_u32()
+    }
+    fn calls(&self) -> u64 {
+        self.calls
+    }
+}
+
+/// Draws forced by a prefix, true a hit (0) and false a miss (99), and a
+/// hit past it (`swap_detector._EnumRNG`): a strike at chance 0 still
+/// misses and one at 100 still hits.
+pub(crate) struct ScriptedRng {
+    prefix: Vec<bool>,
+    calls: u64,
+}
+
+impl ScriptedRng {
+    pub fn new(prefix: Vec<bool>) -> Self {
+        ScriptedRng { prefix, calls: 0 }
+    }
+}
+
+impl StrikeRng for ScriptedRng {
+    fn draw(&mut self) -> u32 {
+        let i = self.calls as usize;
+        self.calls += 1;
+        match self.prefix.get(i) {
+            Some(false) => 99,
+            _ => 0,
+        }
+    }
+    fn calls(&self) -> u64 {
+        self.calls
+    }
+}
+
 /// `combat.round_damage`: the engine's rounding of base * bonus / divisor.
 fn round_damage(base_damage: i64, bonus: i64, divisor: i64) -> i64 {
     if base_damage == 0 {
@@ -133,7 +177,7 @@ fn round_damage(base_damage: i64, bonus: i64, divisor: i64) -> i64 {
 }
 
 /// `combat.combat_modifier`: percent points from alignment and time of day.
-fn combat_modifier(alignment: i64, lawful_bonus: i64, fearless: bool) -> i64 {
+pub(crate) fn combat_modifier(alignment: i64, lawful_bonus: i64, fearless: bool) -> i64 {
     let bonus = match alignment {
         0 => lawful_bonus,
         1 => 0,
@@ -161,12 +205,12 @@ fn swarm_blows(swarm_min: i64, swarm_max: i64, hp: i64, max_hp: i64) -> i64 {
 }
 
 #[derive(Clone)]
-struct Unit {
-    hp: i64,
-    max_hp: i64,
-    level: i64,
-    experience: i64,
-    max_experience: i64,
+pub(crate) struct Unit {
+    pub hp: i64,
+    pub max_hp: i64,
+    pub level: i64,
+    pub experience: i64,
+    pub max_experience: i64,
     alignment: i64,
     defense_pct: i64,
     opp_resist: i64,
@@ -178,6 +222,22 @@ struct Unit {
 }
 
 impl Unit {
+    pub fn slowed(&self) -> bool {
+        self.flags[F_SLOWED]
+    }
+    pub fn poisoned(&self) -> bool {
+        self.flags[F_POISONED]
+    }
+    pub fn petrified(&self) -> bool {
+        self.flags[F_PETRIFIED]
+    }
+    pub fn undrainable(&self) -> bool {
+        self.flags[F_UNDRAINABLE]
+    }
+    pub fn unpoisonable(&self) -> bool {
+        self.flags[F_UNPOISONABLE]
+    }
+
     fn from_arrays(ints: &[i64], flags: &[u8]) -> Self {
         let mut f = [false; UNIT_FLAGS];
         for (i, v) in flags.iter().enumerate() {
@@ -201,19 +261,62 @@ impl Unit {
     }
 }
 
-struct Stats {
-    cth: i64,
-    damage: i64,
-    slow_damage: i64,
-    n_attacks: i64,
+pub(crate) struct Stats {
+    pub cth: i64,
+    pub damage: i64,
+    pub slow_damage: i64,
+    pub n_attacks: i64,
     orig_attacks: i64,
-    rounds: i64,
-    firststrike: bool,
-    drains: bool,
+    pub rounds: i64,
+    pub firststrike: bool,
+    pub drains: bool,
     plague: bool,
-    poisons: bool,
-    slows: bool,
-    petrifies: bool,
+    pub poisons: bool,
+    pub slows: bool,
+    pub petrifies: bool,
+}
+
+/// The drain special's share of the damage done and its constant
+/// (`combat._compute_battle_stats`: 50 and 0 for every drain weapon).
+pub(crate) const DRAIN_PERCENT: i64 = 50;
+pub(crate) const DRAIN_CONSTANT: i64 = 0;
+
+/// What one fight is computed from: the two combatants' snapshots (the
+/// module doc's layout) and what their surroundings give them.
+pub(crate) struct FightInputs {
+    pub a_ints: [i64; UNIT_INTS],
+    pub a_flags: [u8; UNIT_FLAGS],
+    pub d_ints: [i64; UNIT_INTS],
+    pub d_flags: [u8; UNIT_FLAGS],
+    pub d_has_weapon: bool,
+    pub a_lawful_bonus: i64,
+    pub d_lawful_bonus: i64,
+    pub a_leadership_bonus: i64,
+    pub d_leadership_bonus: i64,
+    pub a_backstab_active: bool,
+    pub d_backstab_active: bool,
+}
+
+/// The two combatants and their stats fixed at the fight's start (the
+/// defender's None when it does not strike back).
+pub(crate) type Fight = (Unit, Unit, Stats, Option<Stats>);
+
+pub(crate) fn fight_stats(f: &FightInputs) -> Fight {
+    let attacker = Unit::from_arrays(&f.a_ints, &f.a_flags);
+    let defender = Unit::from_arrays(&f.d_ints, &f.d_flags);
+    let a_stats = battle_stats(
+        &attacker, &defender, f.d_has_weapon, f.a_lawful_bonus, f.a_leadership_bonus, true,
+        f.a_backstab_active,
+    );
+    let d_stats = if f.d_has_weapon {
+        Some(battle_stats(
+            &defender, &attacker, true, f.d_lawful_bonus, f.d_leadership_bonus, false,
+            f.d_backstab_active,
+        ))
+    } else {
+        None
+    };
+    (attacker, defender, a_stats, d_stats)
 }
 
 /// `combat._compute_battle_stats` for one side. `has_weapon` says
@@ -299,11 +402,11 @@ fn perform_hit(
     target: &mut Unit,
     striker_stats: &mut Stats,
     target_stats: Option<&mut Stats>,
-    rng: &mut Mt19937,
+    rng: &mut dyn StrikeRng,
     record: &mut Vec<i64>,
 ) -> bool {
     striker_stats.n_attacks -= 1;
-    let r = (rng.next_u32() % 100) as i64;
+    let r = (rng.draw() % 100) as i64;
     let hits = r < striker_stats.cth;
     let dmg = if hits {
         if striker.flags[F_SLOWED] { striker_stats.slow_damage } else { striker_stats.damage }
@@ -335,8 +438,7 @@ fn perform_hit_body(
     }
     let damage_done = target_hp_pre - target.hp;
     if striker_stats.drains && damage_done > 0 && !target.flags[F_UNDRAINABLE] {
-        // drain_percent 50, drain_constant 0 (combat._compute_battle_stats)
-        let mut heal = damage_done * 50 / 100;
+        let mut heal = damage_done * DRAIN_PERCENT / 100 + DRAIN_CONSTANT;
         if heal != 0 {
             heal = heal.min(striker.max_hp - striker.hp);
             heal = heal.max(1 - striker.hp);
@@ -397,53 +499,37 @@ pub fn resolve_attack<'py>(
         ],
         || String::from("a combatant's snapshot, the module doc's layout"),
     )?;
-    let (out, record) = resolve_fight(
-        a_ints, a_flags, d_ints, d_flags, d_has_weapon, a_lawful_bonus, d_lawful_bonus,
-        a_leadership_bonus, d_leadership_bonus, a_backstab_active, d_backstab_active, seed,
-        call_count,
-    );
+    let inputs = FightInputs {
+        a_ints: a_ints.try_into().expect("checked length"),
+        a_flags: a_flags.try_into().expect("checked length"),
+        d_ints: d_ints.try_into().expect("checked length"),
+        d_flags: d_flags.try_into().expect("checked length"),
+        d_has_weapon,
+        a_lawful_bonus,
+        d_lawful_bonus,
+        a_leadership_bonus,
+        d_leadership_bonus,
+        a_backstab_active,
+        d_backstab_active,
+    };
+    let (out, record) = resolve_fight(&inputs, seed, call_count);
     Ok((out, record.into_pyarray(py)))
 }
 
-/// The fight over the two flat snapshots (the module doc's layout):
-/// the 13 outputs of `resolve_attack` and the strike record, four
-/// integers per strike (chance, hit, damage, dies). The core's attack
-/// kernel (core_attack.rs) calls this directly.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve_fight(
-    a_ints: &[i64],
-    a_flags: &[u8],
-    d_ints: &[i64],
-    d_flags: &[u8],
-    d_has_weapon: bool,
-    a_lawful_bonus: i64,
-    d_lawful_bonus: i64,
-    a_leadership_bonus: i64,
-    d_leadership_bonus: i64,
-    a_backstab_active: bool,
-    d_backstab_active: bool,
-    seed: u32,
-    call_count: u64,
-) -> (Vec<i64>, Vec<i64>) {
-    let mut attacker = Unit::from_arrays(a_ints, a_flags);
-    let mut defender = Unit::from_arrays(d_ints, d_flags);
-    let mut rng = Mt19937::new(seed, call_count);
-    let starting_calls = rng.calls;
+/// The fight with the engine's generator seeded as the replay's
+/// [random_seed] seeds it, `call_count` draws in.
+pub(crate) fn resolve_fight(inputs: &FightInputs, seed: u32, call_count: u64) -> (Vec<i64>, Vec<i64>) {
+    resolve_fight_with(inputs, &mut Mt19937::new(seed, call_count))
+}
 
-    let mut a_stats = battle_stats(
-        &attacker, &defender, d_has_weapon, a_lawful_bonus, a_leadership_bonus, true,
-        a_backstab_active,
-    );
-    let mut d_stats = if d_has_weapon {
-        Some(battle_stats(
-            &defender, &attacker, true, d_lawful_bonus, d_leadership_bonus, false,
-            d_backstab_active,
-        ))
-    } else {
-        None
-    };
+/// The fight: the 13 outputs of `resolve_attack` and the strike record,
+/// four integers per strike (chance, hit, damage, dies). The core's
+/// attack kernel (core_attack.rs) calls this directly.
+pub(crate) fn resolve_fight_with(inputs: &FightInputs, rng: &mut dyn StrikeRng) -> (Vec<i64>, Vec<i64>) {
+    let (mut attacker, mut defender, mut a_stats, mut d_stats) = fight_stats(inputs);
+    let starting_calls = rng.calls();
     let defender_first_of = |a: &Stats, d: &Option<Stats>| -> bool {
-        d.as_ref().map_or(false, |ds| ds.firststrike && !a.firststrike)
+        d.as_ref().is_some_and(|ds| ds.firststrike && !a.firststrike)
     };
     let mut defender_first = defender_first_of(&a_stats, &d_stats);
     let mut rounds_left = a_stats.rounds.max(d_stats.as_ref().map_or(1, |d| d.rounds)) - 1;
@@ -452,7 +538,7 @@ pub(crate) fn resolve_fight(
     loop {
         if !defender_first && a_stats.n_attacks > 0
             && !perform_hit(
-                &mut attacker, &mut defender, &mut a_stats, d_stats.as_mut(), &mut rng,
+                &mut attacker, &mut defender, &mut a_stats, d_stats.as_mut(), rng,
                 &mut record,
             )
         {
@@ -462,13 +548,13 @@ pub(crate) fn resolve_fight(
         if let Some(ds) = d_stats.as_mut() {
             if ds.n_attacks > 0
                 && !perform_hit(
-                    &mut defender, &mut attacker, ds, Some(&mut a_stats), &mut rng, &mut record,
+                    &mut defender, &mut attacker, ds, Some(&mut a_stats), rng, &mut record,
                 )
             {
                 break;
             }
         }
-        let d_done = d_stats.as_ref().map_or(true, |d| d.n_attacks == 0);
+        let d_done = d_stats.as_ref().is_none_or(|d| d.n_attacks == 0);
         if rounds_left > 0 && a_stats.n_attacks == 0 && d_done {
             a_stats.n_attacks = a_stats.orig_attacks;
             if let Some(ds) = d_stats.as_mut() {
@@ -478,7 +564,7 @@ pub(crate) fn resolve_fight(
             defender_first = defender_first_of(&a_stats, &d_stats);
             continue;
         }
-        let d_spent = d_stats.as_ref().map_or(true, |d| d.n_attacks <= 0);
+        let d_spent = d_stats.as_ref().is_none_or(|d| d.n_attacks <= 0);
         if a_stats.n_attacks <= 0 && d_spent {
             break;
         }
@@ -496,7 +582,7 @@ pub(crate) fn resolve_fight(
     if attacker.hp <= 0 {
         attacker.hp = 0;
         d_xp_gain = if attacker.level != 0 { KILL_EXPERIENCE * attacker.level } else { KILL_EXPERIENCE / 2 };
-        if d_stats.as_ref().map_or(false, |d| d.plague) {
+        if d_stats.as_ref().is_some_and(|d| d.plague) {
             plague_spawned_attacker_died = true;
         }
     }
@@ -519,7 +605,7 @@ pub(crate) fn resolve_fight(
         defender.flags[F_PETRIFIED] as i64,
         plague_spawned as i64,
         plague_spawned_attacker_died as i64,
-        (rng.calls - starting_calls) as i64,
+        (rng.calls() - starting_calls) as i64,
     ];
     (out, record)
 }

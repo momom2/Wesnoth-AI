@@ -146,7 +146,7 @@ def grow_checkpoint(
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     dev = device or torch.device("cpu")
-    raw = torch.load(src_path, map_location="cpu", weights_only=False)
+    raw = torch.load(src_path, map_location="cpu", weights_only=True)
     src_arch = raw.get("arch", {}) or {}
     src_aux = bool(raw.get("aux_score", False))
 

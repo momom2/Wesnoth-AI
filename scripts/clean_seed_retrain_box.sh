@@ -67,7 +67,7 @@ enc = GameStateEncoder(d_model=32)
 _seed_vocab_from_unit_stats(enc, pathlib.Path("unit_stats.json"))
 torch.save({"unit_type_to_id": dict(enc.unit_type_to_id),
             "faction_to_id": dict(enc.faction_to_id)}, "/workspace/clean_seed/fresh_vocab.pt")
-seed = torch.load("training/checkpoints/seed.pt", map_location="cpu", weights_only=False)
+seed = torch.load("training/checkpoints/seed.pt", map_location="cpu", weights_only=True)
 same = (dict(seed.get("unit_type_to_id", {})) == dict(enc.unit_type_to_id)
         and dict(seed.get("faction_to_id", {})) == dict(enc.faction_to_id))
 print("fresh vocab:", len(enc.unit_type_to_id), "types,", len(enc.faction_to_id),

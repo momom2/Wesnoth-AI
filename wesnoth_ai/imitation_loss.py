@@ -34,6 +34,9 @@ from wesnoth_ai.packed_trunk import FlatLayout
 
 LABEL_SMOOTHING = 0.05
 _NEG_INF = float("-inf")
+# The label of a position whose turn ran out of time
+# (tools/replay_dataset.TIMEOUT): it names no action.
+TIMEOUT_LABEL = "timeout"
 
 
 @dataclass
@@ -74,17 +77,23 @@ def build_imitation_targets(
         a_len[b], h_len[b] = A, H
         policy_w[b] = pw
         actor_w[b] = type_loss_weights.get(ai.action_type, 1.0)
-        if ai.actor_idx >= A:
+        if ai.action_type == TIMEOUT_LABEL:
+            # A turn that ran out of time names no action: the policy has no
+            # target (weight 0) and the end_turn slot stands in, so that the
+            # value can still fire.
+            actor_ok[b], actor_idx[b], policy_w[b] = 1.0, A - 1, 0.0
+        elif not 0 <= ai.actor_idx < A:
             continue                                  # the pair contributes nothing
-        actor_ok[b] = 1.0
-        actor_idx[b] = ai.actor_idx
-        if ai.type_idx is not None and 0 <= ai.type_idx < n_types:
-            type_ok[b], type_idx[b] = 1.0, ai.type_idx
-        if (ai.target_idx is not None and ai.action_type != "end_turn"
-                and ai.target_idx < H):
-            target_ok[b], target_idx[b] = 1.0, ai.target_idx
-        if ai.weapon_idx is not None and ai.weapon_idx < n_weapons:
-            weapon_ok[b], weapon_idx[b] = 1.0, ai.weapon_idx
+        else:
+            actor_ok[b] = 1.0
+            actor_idx[b] = ai.actor_idx
+            if ai.type_idx is not None and 0 <= ai.type_idx < n_types:
+                type_ok[b], type_idx[b] = 1.0, ai.type_idx
+            if (ai.target_idx is not None and ai.action_type != "end_turn"
+                    and ai.target_idx < H):
+                target_ok[b], target_idx[b] = 1.0, ai.target_idx
+            if ai.weapon_idx is not None and ai.weapon_idx < n_weapons:
+                weapon_ok[b], weapon_idx[b] = 1.0, ai.weapon_idx
         if z is not None and vw > 0.0:
             value_ok[b], value_w[b] = 1.0, vw
             value_edge[b] = n_atoms - 1 if z > 0 else 0

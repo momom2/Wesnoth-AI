@@ -1,0 +1,2 @@
+core certification CLEAN: 14376 of 14376 replays, 14376 clean, 0 with divergences
+  attack:rust=870478, auto_shroud:rust=4471, encode:rust=458730, end_turn:rust=388633, init_side:rust=402849, menu_item:rust=1221, move:rust=2524722, outcomes:rust=870478, pickadvance:rust=2117, recruit:rust=389769, sightings:rust=4589206, update_shroud:rust=7063

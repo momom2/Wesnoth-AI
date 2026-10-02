@@ -40,12 +40,16 @@ def test_a_panicking_replay_is_listed_and_the_sweep_goes_on(monkeypatch, capsys)
 
 def test_a_panic_inside_a_command_is_a_divergence(monkeypatch, tmp_path):
     import tools.replay_dataset as rd
+    import wesnoth_ai.core_compare as cc
     import wesnoth_ai.game_core as gc
 
     class Core:
         @classmethod
         def from_state(cls, _gs):
             return cls()
+
+        def setup_scenario(self, _scenario_id):
+            pass
 
         def apply_command(self, cmd):
             if cmd[0] == "attack":
@@ -59,7 +63,7 @@ def test_a_panic_inside_a_command_is_a_divergence(monkeypatch, tmp_path):
     monkeypatch.setattr(rd, "_setup_scenario_events", lambda gs, sid: None)
     monkeypatch.setattr(rd, "_apply_command", lambda gs, cmd: None)
     monkeypatch.setattr(gc, "CoreState", Core)
-    monkeypatch.setattr(gc, "state_differences", lambda a, b, stash=True: [])
+    monkeypatch.setattr(cc, "state_differences", lambda a, b, **_kw: [])
     replay = tmp_path / "x.json.gz"
     with gzip.open(replay, "wt", encoding="utf-8") as f:
         json.dump({"commands": [["init_side", 1], ["attack"], ["end_turn"]]}, f)

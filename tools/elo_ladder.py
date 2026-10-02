@@ -254,8 +254,10 @@ class _ScriptedAdapter:
     """Wrap a stateless scripted policy (e.g. DummyPolicy) so it
     satisfies the (select_action / drop_pending / reset_game) contract
     `_play_one_eval_game` expects. The no-ops are safe because the
-    scripted policy holds no per-game state."""
+    scripted policy holds no per-game state. It picks without the legality
+    mask, so the simulator refuses some of its actions by design."""
     trainable = False
+    consults_legality_mask = False
 
     def __init__(self, inner):
         self._inner = inner

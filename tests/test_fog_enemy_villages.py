@@ -28,7 +28,8 @@ def _state_with_enemy_villages():
     and on hexes we do not (the owner map is what the sim keeps; the
     hexes need no village terrain for either count); returns how many
     lie inside and outside our view."""
-    gs = fresh_scenario_sim(seed=2, mini=False).gs
+    import copy
+    gs = copy.deepcopy(fresh_scenario_sim(seed=2, mini=False).gs)   # a copy to edit
     side = gs.global_info.current_side
     enemy = 3 - side
     seen = visible_hexes_for(gs, side)
@@ -104,7 +105,7 @@ def test_fresh_networks_gate_by_default_and_checkpoints_keep_their_setting(tmp_p
     legacy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64,
                                device=torch.device("cpu"), fog_hides_enemy_villages=False)
     legacy.save_checkpoint(tmp_path / "legacy.pt")
-    ck = torch.load(tmp_path / "legacy.pt", map_location="cpu", weights_only=False)
+    ck = torch.load(tmp_path / "legacy.pt", map_location="cpu", weights_only=True)
     del ck["fog_hides_enemy_villages"]                 # a checkpoint from before the gate
     torch.save(ck, tmp_path / "legacy.pt")
     fresh.load_checkpoint(tmp_path / "legacy.pt")     # the checkpoint's encoding wins

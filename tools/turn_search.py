@@ -37,6 +37,7 @@ from wesnoth_ai.action_sampler import (
     LegalActionPrior, enumerate_legal_actions_with_priors,
 )
 from wesnoth_ai.classes import state_key
+from wesnoth_ai.memory import refuse_memory_model
 from wesnoth_ai.visibility import units_visible_to
 from tools.mcts import MCTSConfig, _gumbel_sigma, _terminal_value
 from tools.turn_search_config import (  # noqa: F401
@@ -704,6 +705,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     search reads; the head moved 0.71 there vs 0.31 where anchored).
     Under project="all" stage 1 grades by rollout instead and
     nothing is offered."""
+    refuse_memory_model(getattr(policy, "_inference_model", None), "turn search")
     steps, _ = record_spine(policy, sim, side, decision_step, rng,
                             max_spine=cfg.max_spine, actions=incumbent)
     plan = TurnPlan(side=side, decision_step=decision_step,

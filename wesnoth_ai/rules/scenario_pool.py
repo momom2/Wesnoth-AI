@@ -663,7 +663,12 @@ def build_scenario_gamestate(
         # when it does not): the scenario supplies the default and
         # `setup.fogless` overrides it below. Three minis declare fog=no.
         declared = read_side(s)
-        side_vision[sn] = {"fog": declared["fog"], "shroud": declared["shroud"]}
+        if declared["shroud"]:
+            # The simulator does not model shroud, and our games do
+            # without it (user ruling 2026-09-30).
+            raise ValueError(f"scenario {setup.scenario_id}: side {sn} declares shroud, "
+                             f"which the simulator does not model")
+        side_vision[sn] = {"fog": declared["fog"], "shroud": False}
         gold = wml_int(s.attrs.get("gold"))
         if gold is not None:
             side_gold[sn] = gold

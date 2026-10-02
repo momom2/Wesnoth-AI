@@ -361,7 +361,13 @@ pub(crate) fn compose_streams(
 ///          (recruit_is_ours, recruit_type_ids, recruit_side_ids,
 ///           recruit_xs, recruit_ys, recruit_feats),
 ///          global_feats).
+///
+/// `observation_parity` is refused: the parity observation is built by
+/// `GameCore.encode_streams` only (docs/parity_memory_design_20260929.md).
 #[pyfunction]
+#[pyo3(signature = (static_modifier_flags, village_entries, rejected_slots, unit_ints, unit_stats,
+                    recruit_type_ids, recruit_stats, leader_x, leader_y, globals, norms, map_limit,
+                    num_alignments, observation_parity=false))]
 #[allow(clippy::too_many_arguments)]
 pub fn encode_raw_streams<'py>(
     py: Python<'py>,
@@ -378,12 +384,18 @@ pub fn encode_raw_streams<'py>(
     norms: [f64; NUM_NORMS],
     map_limit: i64,
     num_alignments: usize,
+    observation_parity: bool,
 ) -> PyResult<(
     HexArrays<'py>,
     StreamArrays<'py>,
     StreamArrays<'py>,
     Bound<'py, PyArray1<f32>>,
 )> {
+    if observation_parity {
+        return Err(PyValueError::new_err(
+            "observation_parity is built by GameCore.encode_streams only; encode_raw_streams composes \
+             obs8's observation"));
+    }
     let shape = static_modifier_flags.shape();
     if shape.len() != 2 || shape[1] != NUM_HEX_MODIFIERS {
         return Err(bad_len("static_modifier_flags"));

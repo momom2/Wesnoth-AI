@@ -16,6 +16,7 @@ import copy
 import numpy as np
 import pytest
 
+from wesnoth_ai import core_compare as cc
 from wesnoth_ai import game_core as gc
 
 pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
@@ -69,7 +70,7 @@ def test_round_trip_equals_the_state():
         gs = _decorate(gs)
         cs = gc.CoreState.from_state(gs)
         back = cs.to_state()
-        diffs = gc.state_differences(gs, back)
+        diffs = cc.state_differences(gs, back)
         assert not diffs, "\n".join(diffs[:8])
         assert back.map.hexes is gs.map.hexes and back.map.mask is gs.map.mask
         assert back.global_info._terrain_codes is gs.global_info._terrain_codes
@@ -101,7 +102,7 @@ def test_fork_is_isolated_and_keys_follow_content():
     fork.core.remove_unit(uid)
     assert cs.core.n_units() == fork.core.n_units() + 1
     assert uid in cs.core.unit_ids() and uid not in fork.core.unit_ids()
-    assert not gc.state_differences(gs, cs.to_state())
+    assert not cc.state_differences(gs, cs.to_state())
 
 
 def _apply_both(gs, cmd):
@@ -121,11 +122,11 @@ def test_init_side_and_end_turn_equal_the_python_applier():
         for side in (1, 2):
             py, cs, path = _apply_both(gs, ["init_side", side])
             rust += path == "rust"
-            diffs = gc.state_differences(py, cs.to_state(), stash=False)
+            diffs = cc.state_differences(py, cs.to_state(), stash=False)
             assert not diffs, (side, "\n".join(diffs[:6]))
             py2, cs2, path2 = _apply_both(py, ["end_turn"])
             assert path2 == "rust"
-            diffs = gc.state_differences(py2, cs2.to_state(), stash=False)
+            diffs = cc.state_differences(py2, cs2.to_state(), stash=False)
             assert not diffs, (side, "end_turn", "\n".join(diffs[:6]))
             checked += 1
     assert checked >= 16 and rust >= 8
@@ -296,6 +297,8 @@ def test_observation_from_core_equals_observe():
 
 
 BASES_AND_GATES = ((False, False), (True, False), (True, True), (False, True))
+# (relevant set, enemy-village gate, terrain multi-hot) per encoding checked.
+ENCODINGS = tuple((r, g, False) for r, g in BASES_AND_GATES) + ((False, False, True), (True, True, True))
 
 
 def _assert_raws_equal(py, core, label):
@@ -318,7 +321,8 @@ def _assert_raws_equal(py, core, label):
 
 def test_encode_raw_from_core_is_byte_identical():
     """Every RawEncoded field from the core equals the encoder's on the
-    Python state: both bases, fog on and off, the enemy-village gate."""
+    Python state: both bases, fog on and off, the enemy-village gate,
+    the one-class and the multi-hot terrain view."""
     from wesnoth_ai.encoder import encode_raw
     states = _states_for_encoding()
     type_to_id, faction_to_id = _vocab_of(states)
@@ -329,13 +333,14 @@ def test_encode_raw_from_core_is_byte_identical():
             for side in (1, 2):
                 gs.global_info.current_side = side
                 cs = gc.CoreState.from_state(gs)
-                for relevant, gate in BASES_AND_GATES:
+                for relevant, gate, multi in ENCODINGS:
                     kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id,
-                              relevant_set=relevant, fog_hides_enemy_villages=gate)
+                              relevant_set=relevant, fog_hides_enemy_villages=gate,
+                              terrain_multi_hot=multi)
                     _assert_raws_equal(encode_raw(gs, **kw), cs.encode_raw(**kw),
-                                       (side, fog, relevant, gate))
+                                       (side, fog, relevant, gate, multi))
                     n += 1
-    assert n >= 64
+    assert n >= 96
 
 
 def test_encode_raw_from_core_reads_the_other_player_on_a_three_side_state():
@@ -433,7 +438,7 @@ def _twin_game(seed, mini, max_turns, pol, state_key, total, attacks):
                 forked = True
             py.step(action)
             core.step(action)
-            assert not gc.state_differences(py.gs, core.gs, stash=False), (seed, len(py.command_history))
+            assert not cc.state_differences(py.gs, core.gs, stash=False), (seed, len(py.command_history))
         assert core.done and (py.winner, py.ended_by) == (core.winner, core.ended_by)
         assert state_key(py.gs) == state_key(core.gs)
         assert len(py.command_history) == len(core.command_history) > 10
@@ -443,3 +448,97 @@ def _twin_game(seed, mini, max_turns, pol, state_key, total, attacks):
         total += len(py.command_history)
         attacks += sum(1 for c in py.command_history if c.kind == "attack")
     return total, attacks
+
+
+def test_an_event_terrain_change_reaches_everything_the_core_derives():
+    """A [terrain] event rewrites hexes to a keep, a village, a forest
+    and deep water at side 1's turn 2. The core's per-hex facts after it
+    must equal what the Python state rebuilds from the new codes: the
+    encoding in both terrain views, the observation, and each unit's
+    movement class against the pathfinder's arrays."""
+    from tools.pathfind_sim import _terrain_arrays_for
+    from tools.replay_dataset import _apply_command, _terrain_def_pct, _stats_for
+    from tools.replay_extract import parse_wml
+    from tools.scenario_events import collect_events
+    from wesnoth_ai.encoder import encode_raw
+    from wesnoth_ai.observe import map_geometry, observe
+    gs = _harvested()[0]
+    gs.global_info.turn_number, gs.global_info.current_side = 1, 2
+    keys = sorted((h.position.x, h.position.y) for h in gs.map.hexes)
+    picks = keys[3:8]
+    codes = ["Kh", "Gg^Vh", "Hh^Fp", "Wo", "Ss^Vhs"]
+    xs = ",".join(str(x + 1) for x, _ in picks)
+    ys = ",".join(str(y + 1) for _, y in picks)
+    body = "".join(f"[terrain]\nx={x + 1}\ny={y + 1}\nterrain={c}\n[/terrain]\n"
+                   for (x, y), c in zip(picks, codes))
+    root = parse_wml(f"[multiplayer]\n[event]\nname=side 1 turn 2\n{body}"
+                     f"[store_locations]\nvariable=zone\nx={xs}\ny={ys}\n[/store_locations]\n"
+                     "[time_area]\nfind_in=zone\n[time]\nlawful_bonus=-25\n[/time]\n[/time_area]\n"
+                     "[/event]\n[/multiplayer]\n")
+    gs.global_info._scenario_events = collect_events(root, "synthetic")
+    gs.global_info._wml_variables = {}
+    cs = gc.CoreState.from_state(copy.deepcopy(gs))
+    type_to_id, faction_to_id = _vocab_of([gs])
+    before = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, terrain_multi_hot=True)
+    for cmd in (["end_turn"], ["init_side", 1]):
+        _apply_command(gs, list(cmd))
+        cs.apply_command(list(cmd))
+    view = cs.to_state()
+    assert not cc.state_differences(gs, view, stash=False)
+    assert {view.global_info._terrain_codes[p] for p in picks} == set(codes)
+    after = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, terrain_multi_hot=True)
+    assert after.hex_terrain_ids.tobytes() != before.hex_terrain_ids.tobytes()
+    for multi in (False, True):
+        for relevant in (False, True):
+            kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id, relevant_set=relevant,
+                      terrain_multi_hot=multi)
+            _assert_raws_equal(encode_raw(gs, **kw), cs.encode_raw(**kw), (multi, relevant))
+    for side in (1, 2):
+        _assert_observations_equal(observe(gs, side, reach=True), cs.observe(side, reach=True))
+    geom_keys = cs.geometry().keys
+    for u in gs.map.units:
+        d = cs.core.unit_export(u.id)
+        mcost, dsub, defense = cs.core.class_arrays(d["class_id"])
+        _p, positions, _n, py_mcost, py_dsub = _terrain_arrays_for(u, gs)
+        at = {p: i for i, p in enumerate(positions)}
+        table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})
+        for k, p in enumerate(geom_keys):
+            assert (mcost[k], dsub[k]) == (py_mcost[at[p]], py_dsub[at[p]]), (u.name, p)
+            assert defense[k] == _terrain_def_pct(gs, p[0], p[1], table), (u.name, p)
+    assert map_geometry(view).keys  # the view's own geometry still builds
+
+
+def test_the_core_sets_up_every_scenario_as_the_python_setup():
+    """Every scenario generation or reconstruction loads, set up by the
+    core (`CoreState.setup_scenario`) and by the Python setup
+    (`_setup_scenario_events`): the same state, units' underscore
+    attributes included, then after two turns of turn events. Hornshark
+    Island's preplaced units depend on the factions, so it runs with
+    each of the six as side 1. The engine agrees with the Python setup
+    on the pool (tools/scenario_init_oracle.py, 28 of 28, 2026-09-23)."""
+    import dataclasses
+    import random
+    from tools.replay_dataset import _apply_command, _setup_scenario_events
+    from wesnoth_ai.rules import scenario_pool as sp
+    from wesnoth_ai.rules.scenario_surface import CORPUS_SCENARIOS
+    base = sp.random_setup(random.Random(4))
+    factions = sp.load_factions()
+    cases = [(sid, base) for sid in CORPUS_SCENARIOS]
+    for name, info in sorted(factions.items()):
+        cases.append(("multiplayer_Hornshark_Island",
+                      dataclasses.replace(base, faction1=name, leader1=info.random_leader_pool[0])))
+    turns = [["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"],
+             ["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1]]
+    for sid, setup in cases:
+        gs = sp.build_scenario_gamestate(dataclasses.replace(setup, scenario_id=sid))
+        py = copy.deepcopy(gs)
+        _setup_scenario_events(py, sid)
+        cs = gc.CoreState.from_state(gs)
+        cs.setup_scenario(sid)
+        diffs = cc.state_differences(py, cs.to_state())
+        assert not diffs, (sid, setup.faction1, diffs[:4])
+        for cmd in turns:
+            _apply_command(py, list(cmd))
+            cs.apply_command(list(cmd))
+        diffs = cc.state_differences(py, cs.to_state(), stash=False)
+        assert not diffs, (sid, setup.faction1, "turn 3", diffs[:4])

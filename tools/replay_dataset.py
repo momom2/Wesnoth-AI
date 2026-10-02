@@ -24,6 +24,7 @@ prints a summary of the first N replays.
 
 from __future__ import annotations
 
+import dataclasses
 import gzip
 import hashlib
 import json
@@ -42,7 +43,8 @@ from wesnoth_ai.classes import (
 from wesnoth_ai import combat as cb
 from wesnoth_ai.paths import UNIT_STATS_PATH
 # The fog each command clears or recalculates (docs/wesnoth_rules.md
-# "Vision and fog").
+# "Vision and fog", "Delayed shroud updates").
+from wesnoth_ai import delayed_shroud
 from wesnoth_ai.visibility import clear_fog, refog, track_side
 # The one place that knows how a map cell's starting-position prefix is
 # stripped (the engine's string_to_number_); never re-implement it here.
@@ -669,14 +671,14 @@ def extra_side_turns(data: dict) -> Tuple[frozenset, frozenset]:
 
 def fog_on_for(starting_sides) -> bool:
     """The encoder's fog switch for a replay: on when either player has
-    fog or shroud (a shroud game counts as a fog game, 2026-09-06
-    ruling), off when both players have both off. Files from before
-    the flags were recorded (no `fog` key) read as fog on, which is
-    what the encoder assumed for them all along."""
+    fog, off when both have it off (games with shroud never reach it:
+    `quarantine_reason`). Files from before the flags were recorded (no
+    `fog` key) read as fog on, which is what the encoder assumed for
+    them all along."""
     sides = _player_sides(starting_sides)
     if not sides or not any("fog" in s for s in sides):
         return True
-    return any(bool(s.get("fog", True)) or bool(s.get("shroud", False)) for s in sides)
+    return any(bool(s.get("fog", True)) for s in sides)
 
 
 def corpus_version_of(dataset_dir: Path) -> int:
@@ -759,16 +761,29 @@ def command_hash(data: dict) -> str:
 
 
 def quarantine_reason(starting_sides) -> Optional[str]:
-    """Why a replay is kept out of the imitation corpus: fog off with
-    shroud on (the humans saw everything except the unexplored map,
-    which the simulator does not model)."""
-    sides = _player_sides(starting_sides)
-    if not sides or not any("fog" in s for s in sides):
-        return None
-    if (not any(bool(s.get("fog", True)) for s in sides)
-            and any(bool(s.get("shroud", False)) for s in sides)):
-        return "fog_off_shroud_on"
+    """Why a replay is kept out of the imitation corpus: a player side
+    with shroud. The simulator does not model shroud (unexplored terrain
+    hidden until seen), and none of our games use it (user ruling
+    2026-09-30: 0.5% of the corpus is not worth the edge case)."""
+    if any(bool(s.get("shroud", False)) for s in _player_sides(starting_sides)):
+        return "shroud"
     return None
+
+
+def era_factions_of(era_id: Optional[str]) -> Tuple[str, ...]:
+    """The factions a Random choice can draw in the record's era; a record
+    without an era is the default era's. An era the table lacks keeps the
+    default era's factions, with a warning: the corpus plays only the
+    eras it lists."""
+    from wesnoth_ai.constants import DEFAULT_ERA_FACTIONS, ERA_FACTIONS
+    if not era_id:
+        return DEFAULT_ERA_FACTIONS
+    factions = ERA_FACTIONS.get(era_id)
+    if factions is None:
+        log.warning("era %r is not in constants.ERA_FACTIONS; a Random side's prior uses the "
+                    "default era's factions", era_id)
+        return DEFAULT_ERA_FACTIONS
+    return factions
 
 
 def _build_initial_gamestate(data: dict) -> GameState:
@@ -792,6 +807,7 @@ def _build_initial_gamestate(data: dict) -> GameState:
             # Faction name for encoder conditioning. Persisted in the
             # per-replay json.gz by replay_extract.extract_replay.
             faction=s.get("faction", ""),
+            chose_random=bool(s.get("chose_random", False)),
         )
         for s in data.get("starting_sides", [])
     ]
@@ -832,6 +848,8 @@ def _build_initial_gamestate(data: dict) -> GameState:
             village_upkeep=village_support, base_income=2,
         ),
         sides=sides,
+        era_factions=era_factions_of(data.get("era_id")),
+        random_faction_mode=str(data.get("random_faction_mode") or "Independent"),
     )
     # Stash the raw replay metadata for tools that need pixel-exact
     # round-tripping (the save-state dumper uses these to avoid
@@ -857,6 +875,12 @@ def _build_initial_gamestate(data: dict) -> GameState:
     # outside the mover's sight only in fog games (18.9% of the corpus
     # was played fog-off, tabulated 2026-09-06).
     setattr(gs.global_info, "_fog", fog_on_for(data.get("starting_sides", [])))
+    delaying = frozenset(int(s["side"]) for s in data.get("starting_sides", [])
+                         if not s.get("auto_shroud", True))
+    if delaying:
+        setattr(gs.global_info, delayed_shroud.SHROUD_DELAYED, delaying)
+    if data.get("plan_unit_advance"):
+        setattr(gs.global_info, delayed_shroud.PLAN_UNIT_ADVANCE, True)
     setattr(gs.global_info, "_scenario_id", data.get("scenario_id", ""))
     setattr(gs.global_info, "_experience_modifier", exp_mod)
     # The sides beyond the players that take turns and those that never
@@ -911,18 +935,31 @@ def _build_initial_gamestate(data: dict) -> GameState:
         # Bump nb_villages_controlled per side.
         for sn, n in side_increments.items():
             old = gs.sides[sn - 1]
-            gs.sides[sn - 1] = SideInfo(
-                player=old.player, recruits=old.recruits,
-                current_gold=old.current_gold,
-                base_income=old.base_income,
-                nb_villages_controlled=old.nb_villages_controlled + n,
-                faction=old.faction,
-            )
+            gs.sides[sn - 1] = dataclasses.replace(
+                old, nb_villages_controlled=old.nb_villages_controlled + n)
         # Stash the owner map so subsequent moves into these hexes
         # don't double-credit ownership (set_village_owner checks
         # _village_owner before incrementing).
         setattr(gs.global_info, "_village_owner", owner_map)
     return gs
+
+
+def blocked_beyond(gs: GameState, unit: Unit, xs, ys, out, order: Optional[dict]):
+    """The walk of a recorded move that the engine stopped: the record
+    cuts the route at the hex the unit stopped on and keeps the next one
+    (`order["next"]`); an enemy standing there blocked the move
+    (move.cpp:449-485), which the walk of the cut route cannot see. The
+    blocker is revealed (:870) and the move is final (:1075-1078)."""
+    from tools.pathfind_sim import MoveOutcome
+    nxt = (order or {}).get("next")
+    if (nxt is None or (order or {}).get("stopped_early") is False
+            or out.stop_reason != "end" or out.final_idx != len(xs) - 1):
+        return out                      # a route that ran out of this turn's moves was not blocked
+    blocker = _find_unit_at(gs, int(nxt[0]), int(nxt[1]))
+    if blocker is None or blocker.side == unit.side:
+        return out
+    return MoveOutcome(final_idx=out.final_idx, mp_left=out.mp_left,
+                       uncovered_ids=[*out.uncovered_ids, blocker.id], stop_reason="blocked")
 
 
 def _find_unit_at(gs: GameState, x: int, y: int) -> Optional[Unit]:
@@ -1392,6 +1429,8 @@ def enumerate_advancement_outcomes(
     from types import SimpleNamespace
     exp_mod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
 
+    pick_game = getattr(gs.global_info, "_pickadvance_game", None) or {}
+
     def _advance_one(u: Unit, forced_idx: int) -> Unit:
         # Reuse the sim's single-step advance on an isolated carrier: it
         # only mutates carrier.map.units (discard/add) and a few
@@ -1403,7 +1442,8 @@ def enumerate_advancement_outcomes(
             global_info=SimpleNamespace(
                 _experience_modifier=exp_mod,
                 _advance_choices=[forced_idx],
-                _last_advance_events=[]),
+                _last_advance_events=[],
+                _pickadvance_game=pick_game),
         )
         return _advance_unit_once(carrier, u_copy)
 
@@ -1415,6 +1455,11 @@ def enumerate_advancement_outcomes(
         targets = list(_stats_for(u.name).get("advances_to", []))
         if not targets:                               # AMLA: one deterministic link
             return _enum(_advance_one(u, 0))
+        # The types the unit is offered, its pick-advance list narrowing
+        # them as `_advance_unit_once` does; a forced index is into these.
+        pick = [x for x in (getattr(u, "_pickadvance", None) or []) if x in targets]
+        if pick:
+            targets = pick
         probs = _advancement_choice_probs(choice, gs, u, targets)
         out: Dict[Tuple[str, int], float] = {}
         for i, p_i in enumerate(probs):
@@ -1559,6 +1604,8 @@ def _advance_unit_once(gs: GameState, u: Unit) -> Unit:
         elif isinstance(choice, str) and choice in targets:
             new_type = choice
         else:
+            log.warning("advancement choice %r is outside the %d options of %s; the first is taken",
+                        choice, len(targets), u.name)
             new_type = targets[0]
     elif len(targets) > 1 and getattr(gs.global_info,
                                       "_advance_uniform", False):
@@ -1846,8 +1893,9 @@ def build_attack_context(gs: GameState, att: Unit, dfd: Unit,
 
 def _clear_fog_if_advanced(gs: GameState, before: Unit, after: Optional[Unit]) -> None:
     """An advancement or AMLA clears fog around the new unit for its
-    side (advancement.cpp:397-399)."""
-    if after is not None and after is not before:
+    side (advancement.cpp:397-399), except on the turn of a side that
+    delays its shroud updates (vision.cpp:467-469)."""
+    if after is not None and after is not before and not delayed_shroud.vision_delayed(gs, after.side):
         clear_fog(gs, after, [(after.position.x, after.position.y)])
 
 
@@ -1871,6 +1919,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if side == 1 and gs.global_info.turn_number >= 1:
             _fire_turn_events(gs, turn_end_event_names(gs.global_info.turn_number))
         gs.global_info.current_side = side
+        delayed_shroud.new_side_turn(gs)
         # Per-turn rejection history clears at init_side. Per the
         # legality-mask contract (CLAUDE.md): rejection history is
         # part of the OBSERVABLE STATE and is scoped to the current
@@ -2136,11 +2185,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             owned = s.nb_villages_controlled
             income, net_upkeep = side_income(gs, side)
             new_gold = s.current_gold + income - net_upkeep
-            gs.sides[side - 1] = SideInfo(
-                player=s.player, recruits=s.recruits,
-                current_gold=new_gold, base_income=s.base_income,
-                nb_villages_controlled=owned, faction=s.faction,
-            )
+            gs.sides[side - 1] = dataclasses.replace(s, current_gold=new_gold, nb_villages_controlled=owned)
         # The four refresh forms fire LAST in do_init_side (play_controller.
         # cpp:519-522, 1.18.4: calculate_healing → set_resting(true) →
         # pump().fire("turn_refresh") ...) — i.e. after the MP refresh and
@@ -2173,6 +2218,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         #     AI's stop-unit sets it and is not recorded;
         #     docs/wesnoth_rules.md "End of a side's turn").
         ending_side = gs.global_info.current_side
+        # "Ending the turn commits all moves" (play_controller.cpp:576-577).
+        delayed_shroud.clear_undo_stack(gs)
         new_units = set()
         for u in gs.map.units:
             drop = set()
@@ -2213,6 +2260,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                     unit = u
                     break
         if unit is None:
+            log.warning("%s: a move from (%d, %d) finds no unit of side %s there; the command is skipped",
+                        gs.game_id, sx, sy, from_side)
             return
         # Execute the recorded/planned path with the shared
         # Wesnoth-faithful walk (tools/pathfind_sim.walk_move_path):
@@ -2229,7 +2278,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # MP drifted -- never truncate a human path for it.
         from tools.pathfind_sim import walk_move_path
         track_side(gs, unit.side)
-        out = walk_move_path(gs, unit, xs, ys, enforce_budget=False)
+        out = blocked_beyond(gs, unit, xs, ys, walk_move_path(gs, unit, xs, ys, enforce_budget=False),
+                             move_order_of(cmd))
         # Side-channel for the sim's command recorder (mirrors
         # _last_advance_events): where the walk actually stopped vs
         # the ordered destination, so exports can annotate truncated
@@ -2248,9 +2298,20 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 gs.global_info, "_uncovered_units", None) or set()
             uncovered.update(out.uncovered_ids)
             setattr(gs.global_info, "_uncovered_units", uncovered)
+        # A delaying side's move waits on the undo stack with every hex
+        # the unit occupied, its start included (move.cpp:1069-1073); an
+        # ambush or a block makes it final, which commits the stack
+        # (:1075-1079).
+        delayed = delayed_shroud.vision_delayed(gs, unit.side)
+        undo_blocked = out.stop_reason in ("ambush", "blocked")
         if out.final_idx < 1:
             # Source-only "move" (first step blocked) — the unit
             # stays put, same as Wesnoth's fully-blocked outcome.
+            if delayed:
+                delayed_shroud.defer_vision(gs, unit, [(sx, sy)])
+            if undo_blocked:
+                delayed_shroud.clear_undo_stack(gs)
+            delayed_shroud.after_move(gs)
             return
         tx, ty = xs[out.final_idx], ys[out.final_idx]
         new_statuses = set(unit.statuses)
@@ -2262,9 +2323,28 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             statuses=new_statuses,
         )
         # The mover clears fog at every hex it enters (move.cpp:972-976).
-        clear_fog(gs, moved, list(zip(xs[1:out.final_idx + 1], ys[1:out.final_idx + 1])))
+        entered = list(zip(xs[1:out.final_idx + 1], ys[1:out.final_idx + 1]))
+        if delayed:
+            delayed_shroud.defer_vision(gs, moved, [(sx, sy)] + entered)
+        else:
+            clear_fog(gs, moved, entered)
         if _terrain_at(gs, tx, ty) == "village":
             _capture_village(gs, tx, ty, moved.side)
+        if undo_blocked:
+            delayed_shroud.clear_undo_stack(gs)
+        delayed_shroud.after_move(gs)
+        return
+
+    if kind == "auto_shroud":
+        delayed_shroud.apply_auto_shroud(gs, bool(cmd[1]))
+        return
+
+    if kind == "update_shroud":
+        delayed_shroud.apply_update_shroud(gs)
+        return
+
+    if kind == "menu_item":
+        delayed_shroud.apply_menu_item(gs)
         return
 
     if kind == "pickadvance":
@@ -2319,6 +2399,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         d_weapon = cmd[6] if len(cmd) > 6 else -1
         seed_hex = cmd[7] if len(cmd) > 7 else ""
         choices  = list(cmd[8]) if len(cmd) > 8 else []
+        # Side-channel for tools/sighting_oracle (as _last_move_walk is):
+        # the fight this command ran, set below once it has.
+        setattr(gs.global_info, "_last_fight", None)
         # Push the choices onto the advance-choice queue. The unit-type
         # name from advances_to[choice_idx] will be resolved by
         # _maybe_advance_unit.
@@ -2333,6 +2416,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         att = _find_unit_at(gs, ax, ay)
         dfd = _find_unit_at(gs, dx, dy)
         if att is None or dfd is None:
+            log.warning("%s: an attack from (%d, %d) on (%d, %d) misses a unit; the command is skipped",
+                        gs.game_id, ax, ay, dx, dy)
             return
 
         # Disconnect-mid-attack handling: if the recorded [attack]
@@ -2349,9 +2434,16 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # (~2/500 replays in our corpus), so the conservative skip
         # only affects this disconnect class.
         if not seed_hex:
+            # Aborted before its first draw; the engine's handler has
+            # already cleared the undo stack (synced_commands.cpp:228).
+            delayed_shroud.clear_undo_stack(gs)
             return
         track_side(gs, att.side)
         track_side(gs, dfd.side)
+        # The fight's first random draw makes the turn's actions final,
+        # which commits a delaying side's pending vision
+        # (synced_context.cpp:277-285).
+        delayed_shroud.clear_undo_stack(gs)
 
         ctx = build_attack_context(gs, att, dfd, a_weapon, d_weapon)
 
@@ -2487,8 +2579,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if att_feed_bump:
                 prev = int(getattr(new_att, "_feeding_count", 0) or 0)
                 setattr(new_att, "_feeding_count", prev + 1)
-            _clear_fog_if_advanced(gs, new_att, _maybe_advance_unit(gs, new_att))
         else:
+            new_att = None
             gs.map.units.discard(att)
             # Plague reverse-direction: defender's plague counter
             # killed attacker -> spawn WC for DEFENDER's side at
@@ -2501,9 +2593,6 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 _spawn_plague_corpse(gs, att,
                                      attacker_side=dfd.side,
                                      attacker_name=dfd.name)
-        # The defender's side refogs when the defender died, was slowed
-        # or was petrified in the fight, before any advancement
-        # (attack.cpp:1150-1185 and 1456-1458).
         dfd_refog = (not result.defender_alive
                      or any(s in dfd_statuses and s not in dfd.statuses
                             for s in ("slowed", "petrified")))
@@ -2518,10 +2607,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             if dfd_feed_bump:
                 prev = int(getattr(new_dfd, "_feeding_count", 0) or 0)
                 setattr(new_dfd, "_feeding_count", prev + 1)
-            if dfd_refog:
-                refog(gs, dfd.side)
-            _clear_fog_if_advanced(gs, new_dfd, _maybe_advance_unit(gs, new_dfd))
         else:
+            new_dfd = None
             gs.map.units.discard(dfd)
             # Plague: a kill by a [plague] weapon raises a Walking
             # Corpse (the default plague_type) on the dead unit's hex,
@@ -2538,7 +2625,19 @@ def _apply_command(gs: GameState, cmd: list) -> None:
                 _spawn_plague_corpse(gs, dfd,
                                      attacker_side=att.side,
                                      attacker_name=att.name)
+        # The fight ends by refogging the defender's side when the
+        # defender died, was slowed or was petrified in it
+        # (attack.cpp:1150-1185 and 1456-1458); the attacker, then the
+        # defender, advance only after (attack_unit_and_advance,
+        # attack.cpp:1556-1567).
+        setattr(gs.global_info, "_last_fight", {"defender": dfd.id, "defender_side": dfd.side,
+                                                "refog": dfd_refog, "attacker": new_att})
+        if dfd_refog:
             refog(gs, dfd.side)
+        if new_att is not None:
+            _clear_fog_if_advanced(gs, new_att, _maybe_advance_unit(gs, new_att))
+        if new_dfd is not None:
+            _clear_fog_if_advanced(gs, new_dfd, _maybe_advance_unit(gs, new_dfd))
         return
 
     if kind == "recruit":
@@ -2548,6 +2647,9 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         # the replay's [random_seed] command (empty for undead/etc.).
         trait_seed = cmd[4] if len(cmd) > 4 else ""
         side = gs.global_info.current_side
+        delayed = delayed_shroud.vision_delayed(gs, side)
+        if delayed:
+            track_side(gs, side)
         next_uid = (max(
             (int(u.id[1:]) for u in gs.map.units if u.id.startswith("u") and u.id[1:].isdigit()),
             default=0,
@@ -2583,7 +2685,15 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         if _pick:
             setattr(spawned, "_pickadvance", list(_pick))
         gs.map.units.add(spawned)
-        clear_fog(gs, spawned, [(tx, ty)])
+        # A delaying side's recruit waits on the undo stack; one that drew
+        # random numbers (its seed) cannot be undone and commits the stack
+        # (create.cpp:729-735, synced_context.cpp:277-285).
+        if delayed:
+            delayed_shroud.defer_vision(gs, spawned, [(tx, ty)])
+        else:
+            clear_fog(gs, spawned, [(tx, ty)])
+        if trait_seed:
+            delayed_shroud.clear_undo_stack(gs)
         # Bump Wesnoth's monotonic next_unit_id counter (see
         # _build_initial_gamestate setup).
         cur = int(getattr(gs.global_info, "_next_uid_counter", 1) or 1)
@@ -2603,13 +2713,7 @@ def _apply_command(gs: GameState, cmd: list) -> None:
         cost = int(_stats_for(unit_type).get("cost", 14))
         if 1 <= side <= len(gs.sides):
             s = gs.sides[side - 1]
-            gs.sides[side - 1] = SideInfo(
-                player=s.player, recruits=s.recruits,
-                current_gold=s.current_gold - cost,
-                base_income=s.base_income,
-                nb_villages_controlled=s.nb_villages_controlled,
-                faction=s.faction,
-            )
+            gs.sides[side - 1] = dataclasses.replace(s, current_gold=s.current_gold - cost)
         return
 
     if kind == "recall":
@@ -2867,13 +2971,7 @@ def _add_villages(gs: GameState, side: int, delta: int) -> None:
     if not 1 <= side <= len(gs.sides):
         return
     s = gs.sides[side - 1]
-    gs.sides[side - 1] = SideInfo(
-        player=s.player, recruits=s.recruits,
-        current_gold=s.current_gold,
-        base_income=s.base_income,
-        nb_villages_controlled=max(0, s.nb_villages_controlled + delta),
-        faction=s.faction,
-    )
+    gs.sides[side - 1] = dataclasses.replace(s, nb_villages_controlled=max(0, s.nb_villages_controlled + delta))
 
 
 def village_count_mismatches(gs: GameState) -> Dict[int, Tuple[int, int]]:
@@ -2893,7 +2991,8 @@ def village_count_mismatches(gs: GameState) -> Dict[int, Tuple[int, int]]:
 def move_order_of(cmd: list) -> Optional[dict]:
     """The order a compact move carries beside its path when the engine
     stopped the unit short of the hex the player clicked:
-    {"clicked": [x, y] (0-indexed), "stopped_early": bool or None}
+    {"clicked": [x, y] (0-indexed), "stopped_early": bool or None, and
+    "next": [x, y], the route's hex after the stop, when there is one}
     (`replay_extract.extract_replay` writes it). None for a move that
     went where it was ordered, and for every move of a record extracted
     before the field existed."""
@@ -2957,7 +3056,7 @@ def _action_indices(gs: GameState, cmd: list, *,
     `stats`, when given, counts each move label's source
     (`move_label_hex`).
     """
-    if not cmd:
+    if not cmd or cmd[0] not in PAIRED_KINDS:
         return None
     kind = cmd[0]
 
@@ -3096,11 +3195,13 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
     if not scenario_id:
         setattr(gs.global_info, "_scenario_events", [])
+        _mark_scenario_units(gs)
         return
     root = load_scenario_wml(scenario_id)
     if root is None:
         _warn_scenario_without_wml(scenario_id)
         setattr(gs.global_info, "_scenario_events", [])
+        _mark_scenario_units(gs)
         return
     # Top-level [time_area]s (declared outside any event) apply from
     # game start. Must run BEFORE prestart events — Elensefar's prestart
@@ -3125,6 +3226,15 @@ def _setup_scenario_events(gs: GameState, scenario_id: str):
     if events:
         fire_event(gs, events, "prestart")
         fire_event(gs, events, "start")
+    _mark_scenario_units(gs)
+
+
+def _mark_scenario_units(gs: GameState) -> None:
+    """The players' units the scenario set up, whose types the sighting
+    record leaves out of the seen types (faction_posterior)."""
+    from wesnoth_ai.faction_posterior import scenario_unit_ids
+    setattr(gs.global_info, "_scenario_unit_ids",
+            scenario_unit_ids((u.id, u.side, u.is_leader) for u in gs.map.units))
 
 
 def _fire_turn_events(gs: GameState, names: List[str]) -> None:
@@ -3145,7 +3255,7 @@ PAIRED_KINDS = frozenset({"move", "attack", "recruit", "end_turn"})
 
 
 def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
-                      stats: Optional[Counter] = None
+                      stats: Optional[Counter] = None, timeouts: bool = False
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
     """Yield (state_before, action_indices) for each command a player
     side (1 or 2) made in one .json.gz replay; the neutral side's are
@@ -3157,11 +3267,16 @@ def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
     source (`move_label_hex`) and `unpaired`, the player commands of a
     `PAIRED_KINDS` kind that yielded no pair -- the record and its
     reconstruction disagree on an actor or a target, so the game lost a
-    decision. A file with any is logged as a warning."""
+    decision. A file with any is logged as a warning.
+
+    `timeouts`: also yield, where a turn ran out of time, the position the
+    player was deciding in with the `TIMEOUT` label (`timeout_label`),
+    which names no action: the policy gets no target there, the rest of
+    the network does."""
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     counts: Counter = Counter()
-    yield from iter_record_pairs(data, relevant_set=relevant_set, stats=counts)
+    yield from iter_record_pairs(data, relevant_set=relevant_set, stats=counts, timeouts=timeouts)
     if counts["unpaired"]:
         log.warning(f"{Path(gz_path).name}: {counts['unpaired']} player commands "
                     f"yielded no pair")
@@ -3170,13 +3285,26 @@ def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
 
 
 def iter_record_pairs(data: dict, *, relevant_set: bool = False,
-                      stats: Optional[Counter] = None
+                      stats: Optional[Counter] = None, timeouts: bool = False
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
-    """`iter_replay_pairs` over an extracted record already in memory."""
+    """`iter_replay_pairs` over an extracted record already in memory.
+    On the Rust core (`game_core.core_enabled`) each pair's state is a
+    fresh view; on the Python applier it is the one state the next
+    command mutates."""
+    from wesnoth_ai.game_core import core_enabled
+    if core_enabled():
+        yield from _iter_record_pairs_on_core(data, relevant_set=relevant_set, stats=stats,
+                                              timeouts=timeouts)
+        return
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
-    for cmd in data.get("commands", []):
-        if gs.global_info.current_side in PLAYER_SIDES:
+    engine = engine_issued_of(data)
+    for i, cmd in enumerate(data.get("commands", [])):
+        if i in engine:
+            _count_engine_issued(stats, engine[i])
+            if timeouts and engine[i] == TIMEOUT:
+                yield gs, timeout_label()
+        elif gs.global_info.current_side in PLAYER_SIDES:
             ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
             if ai is not None:
                 yield gs, ai
@@ -3185,14 +3313,84 @@ def iter_record_pairs(data: dict, *, relevant_set: bool = False,
         _apply_command(gs, cmd)
 
 
+def engine_issued_of(data: dict) -> Dict[int, str]:
+    """The commands of a record that the engine made under a player side
+    (index -> "goto" or "timeout", tools/replay_engine_actions.py): applied
+    to the state, never paired as the player's decision (a timeout's
+    position can be, with the TIMEOUT label: `iter_record_pairs`). Empty
+    for records extracted before the field existed (extraction version 3)."""
+    marks = data.get("engine_issued") or {}
+    return {int(i): kind for kind, idx in marks.items() for i in idx}
+
+
+def _count_engine_issued(stats: Optional[Counter], kind: str) -> None:
+    if stats is not None:
+        stats[f"engine_{kind}"] += 1
+
+
+# The label of a position whose turn ran out of time while its player was
+# still deciding: no action (the policy has no target there and can never
+# pick it); the position still counts for everything else.
+TIMEOUT = "timeout"
+
+
+def timeout_label() -> ActionIndices:
+    return ActionIndices(action_type=TIMEOUT, actor_idx=-1)
+
+
+def record_core(data: dict):
+    """The Rust core of an extracted record's initial state, its
+    scenario set up (`CoreState.setup_scenario`)."""
+    from wesnoth_ai.game_core import CoreState
+    cs = CoreState.from_state(_build_initial_gamestate(data))
+    cs.setup_scenario(data.get("scenario_id", ""))
+    return cs
+
+
+def _iter_record_pairs_on_core(data: dict, *, relevant_set: bool, stats: Optional[Counter],
+                               timeouts: bool = False) -> Iterator[Tuple[GameState, ActionIndices]]:
+    from wesnoth_ai.game_core import bind_view
+    cs = record_core(data)
+    engine = engine_issued_of(data)
+    for i, cmd in enumerate(data.get("commands", [])):
+        if i in engine:
+            _count_engine_issued(stats, engine[i])
+            if timeouts and engine[i] == TIMEOUT:
+                gs = cs.to_state()
+                bind_view(gs, cs.fork())
+                yield gs, timeout_label()
+        elif int(cs.core.current_side) in PLAYER_SIDES:
+            gs = cs.to_state()
+            bind_view(gs, cs.fork())
+            ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
+            if ai is not None:
+                yield gs, ai
+            elif stats is not None and cmd and cmd[0] in PAIRED_KINDS:
+                stats["unpaired"] += 1
+        cs.apply_command(list(cmd))
+
+
 def iter_replay_pairs_with_state(gz_path: Path
                                  ) -> Iterator[Tuple[GameState, Optional[ActionIndices]]]:
     """Like iter_replay_pairs but yields the running state for EVERY
     command (including init_side / recall) and yields the FINAL state
     after the last command. Useful for tools that want to inspect or
     dump the state at any point in the replay (e.g. save-state dumper)."""
+    from wesnoth_ai.game_core import core_enabled
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
+    if core_enabled():
+        from wesnoth_ai.game_core import bind_view
+        cs = record_core(data)
+        for cmd in data.get("commands", []):
+            gs = cs.to_state()
+            bind_view(gs, cs.fork())
+            yield gs, _action_indices(gs, cmd)
+            cs.apply_command(list(cmd))
+        gs = cs.to_state()
+        bind_view(gs, cs)
+        yield gs, None
+        return
     gs = _build_initial_gamestate(data)
     _setup_scenario_events(gs, data.get("scenario_id", ""))
     for cmd in data.get("commands", []):

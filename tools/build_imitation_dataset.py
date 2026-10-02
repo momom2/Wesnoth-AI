@@ -56,8 +56,17 @@ log = logging.getLogger("build_imitation_dataset")
 # read back by `replay_dataset.corpus_version_of`. 2 (2026-09-26): a
 # stopped move is labelled with the hex its player clicked, games are cut
 # at their end, the outcome comes from tools/replay_outcome, and
-# reloaded games deduplicate on a 30-command prefix.
-CORPUS_VERSION = 2
+# reloaded games deduplicate on a 30-command prefix. 3 (2026-09-29): the
+# moves the engine makes for standing orders at a turn start and the
+# end_turn of a turn that ran out are marked and never paired
+# (tools/replay_engine_actions.py), and each side records whether its
+# player picked Random, with the game's era, for the faction prior. 4
+# (2026-09-30): a side that delays its shroud updates sees the fog it
+# has committed, not the fog its moves would have cleared
+# (wesnoth_ai/delayed_shroud.py). 5 (2026-09-30): the record carries the
+# lobby's random faction mode, and the faction prior reads it with each
+# side's Random choice and the game's era (wesnoth_ai/faction_posterior.py).
+CORPUS_VERSION = 5
 
 ACCEPT_MOD_CLASSES = ("mod_free", "kept_cosmetic", "kept_plan_unit_advance")
 DISPOSITIONS = Path("training/logs/replay_dispositions.jsonl.gz")
@@ -91,20 +100,21 @@ def is_holdout(ledger_path: str, holdout_fraction: float) -> bool:
     return (h % 10_000) < holdout_fraction * 10_000
 
 
-def _winner_action_count(commands: list, winner_side: int) -> int:
+def _winner_action_count(commands: list, winner_side: int, engine_issued=frozenset()) -> int:
     """Static count of the winner's actionable commands (move / attack
-    / recruit / recall while it is the winner's turn). Approximates
+    / recruit / recall while it is the winner's turn), leaving out the
+    ones the engine made (`replay_dataset.engine_issued_of`). Approximates
     the trainer's pair count (which drops the rare unmappable action)
     closely enough for per-game weighting."""
     side = 0
     n = 0
-    for c in commands:
+    for i, c in enumerate(commands):
         if not c:
             continue
         if c[0] == "init_side":
             side = c[1]
         elif side == winner_side and c[0] in ("move", "attack",
-                                              "recruit", "recall"):
+                                              "recruit", "recall") and i not in engine_issued:
             n += 1
     return n
 
@@ -128,7 +138,7 @@ def build_one(job: Tuple[str, str, str, dict]) -> dict:
     """One candidate: extract, quarantine, label, and write the kept
     game. The returned row says which of those it came to."""
     ledger_path, raw_root, out_dir, config = job
-    from tools.replay_dataset import fog_on_for, match_key
+    from tools.replay_dataset import engine_issued_of, fog_on_for, match_key
     from tools.replay_extract import extract_replay
     from tools.replay_outcome import label_outcome
     row: dict = {"source": ledger_path}
@@ -140,7 +150,9 @@ def build_one(job: Tuple[str, str, str, dict]) -> dict:
         if why is not None:
             return {**row, "quarantined": why}
         outcome = label_outcome(rec)
-    except Exception as e:                          # noqa: BLE001 - one bad replay must not stop the build
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as e:                      # noqa: BLE001 - one bad replay, a Rust panic included, must not stop the build
         return {**row, "error": f"{type(e).__name__}: {e}"[:160]}
     row.update(outcome.as_row())
     row["game_end"] = rec.get("game_end")
@@ -153,7 +165,8 @@ def build_one(job: Tuple[str, str, str, dict]) -> dict:
     row.update({
         "file": fname,
         "n_commands": len(rec["commands"]),
-        "winner_actions": _winner_action_count(rec["commands"], outcome.winner_side),
+        "winner_actions": _winner_action_count(rec["commands"], outcome.winner_side,
+                                               engine_issued_of(rec)),
         "holdout": is_holdout(ledger_path, float(config["holdout_fraction"])),
         "fog": fog_on_for(sides),
         "shroud": any(bool(s.get("shroud", False)) for s in sides),
@@ -252,6 +265,52 @@ def build(candidates: List[str], raw_root: Path, out_dir: Path, config: dict,
     return counts
 
 
+def corpus_problems(out_dir: Path, candidates: int) -> Tuple[Dict[str, int], List[str]]:
+    """A built corpus's counts against its number of candidates, and what
+    is wrong with it: candidates its ledgers do not account for (each one
+    is kept or dropped with an outcome, quarantined, or failed), 1% or more
+    of them failed, no game kept, or rows of another corpus version."""
+    from tools.replay_dataset import corpus_version_of
+
+    def count(name: str) -> int:
+        path = out_dir / name
+        if not path.exists():
+            return 0
+        return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+    manifest = [json.loads(line) for line in (out_dir / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()] if (out_dir / "manifest.jsonl").exists() else []
+    summary = {"candidates": candidates, "outcomes": count("outcomes.jsonl"), "games": len(manifest),
+               "errors": count("errors.jsonl"), "quarantined": count("quarantined.jsonl"),
+               "duplicates": count("duplicates.jsonl"),
+               "holdout": sum(1 for r in manifest if r.get("holdout")), "corpus_version": CORPUS_VERSION}
+    problems = []
+    accounted = summary["outcomes"] + summary["quarantined"] + summary["errors"]
+    if accounted != candidates:
+        problems.append(f"the ledgers account for {accounted} of {candidates} candidates")
+    if summary["errors"] >= 0.01 * max(1, candidates):
+        problems.append(f"{summary['errors']} of {candidates} candidates failed to build (1% or more)")
+    if not manifest:
+        problems.append("no game kept")
+    elif corpus_version_of(out_dir) != CORPUS_VERSION:
+        problems.append(f"the manifest's rows are not at corpus version {CORPUS_VERSION}")
+    return summary, problems
+
+
+def check(out_dir: Path, candidates: int, summary_path: Path) -> int:
+    """The crash barrier on a built corpus (`corpus_problems`): the summary
+    written whole to `summary_path`, 1 when anything is wrong."""
+    summary, problems = corpus_problems(out_dir, candidates)
+    summary["problems"] = problems
+    tmp = summary_path.with_name(summary_path.name + ".tmp")
+    tmp.write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    tmp.replace(summary_path)
+    log.info(f"corpus {summary}")
+    for p in problems:
+        log.error(f"CORPUS_BARRIER: {p}")
+    return 1 if problems else 0
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--config", type=Path, default=Path("configs/imitation.json"))
@@ -262,10 +321,15 @@ def main(argv) -> int:
                     help="dataset directory (default: the config's dataset_dir)")
     ap.add_argument("--limit", type=int, default=None, help="first N candidates only")
     ap.add_argument("--workers", type=int, default=10)
+    ap.add_argument("--check", type=Path, default=None, metavar="SUMMARY_JSON",
+                    help="check the corpus already built in --out against the candidates, write "
+                         "the summary, exit 1 when anything is wrong (the box's crash barrier)")
     args = ap.parse_args(argv[1:])
     config = json.loads(args.config.read_text(encoding="utf-8"))
     out_dir = args.out or Path(config["dataset_dir"])
     candidates = load_candidates(args.dispositions)[:args.limit]
+    if args.check is not None:
+        return check(out_dir, len(candidates), args.check)
     log.info(f"imitation corpus v{CORPUS_VERSION}: {len(candidates)} candidates, "
              f"classes {config['outcome_classes']} -> {out_dir}")
     t0 = time.time()

@@ -193,6 +193,8 @@ def setup_lua(case: Case) -> str:
 # The simulator's side
 # ---------------------------------------------------------------------
 def sim_state(case: Case):
+    """The case's position at side 1's first turn: on the Rust core
+    (`game_core.core_enabled`) a CoreState, else a Python state."""
     data = {
         "game_id": f"oracle_{case.name}",
         "scenario_id": "ai_oracle",
@@ -209,16 +211,37 @@ def sim_state(case: Case):
             for s in (1, 2)],
     }
     gs = _build_initial_gamestate(data)
+    from wesnoth_ai.game_core import CoreState, core_enabled
+    if core_enabled():
+        cs = CoreState.from_state(gs)
+        cs.apply_command(["init_side", 1])
+        return cs
     _apply_command(gs, ["init_side", 1])
     return gs
 
 
-def _sim_visible(gs, side: int = 1) -> List[str]:
-    return sorted(u.id for u in units_visible_to(gs, side))
+def _apply(state, cmd) -> None:
+    if hasattr(state, "apply_command"):
+        state.apply_command(cmd)
+    else:
+        _apply_command(state, cmd)
 
 
-def _sim_unit(gs, uid: str):
+def _sim_visible(state, side: int = 1) -> List[str]:
+    if hasattr(state, "observe"):
+        obs = state.observe(side)
+        return sorted(uid for uid, v in zip(obs.unit_ids, obs.visible) if v)
+    return sorted(u.id for u in units_visible_to(state, side))
+
+
+def _sim_unit(state, uid: str):
+    gs = state.to_state() if hasattr(state, "to_state") else state
     return next(u for u in gs.map.units if u.id == uid)
+
+
+def _last_walk(state) -> dict:
+    gs = state.to_state() if hasattr(state, "to_state") else state
+    return getattr(gs.global_info, "_last_move_walk", {}) or {}
 
 
 def sim_predictions(case: Case, engine_paths: Optional[List[List[Tuple[int, int]]]] = None) -> dict:
@@ -242,8 +265,8 @@ def sim_predictions(case: Case, engine_paths: Optional[List[List[Tuple[int, int]
                 path.append((x, y))
         xs = [p[0] - 1 for p in path]
         ys = [p[1] - 1 for p in path]
-        _apply_command(gs, ["move", xs, ys, u.side])
-        walk = getattr(gs.global_info, "_last_move_walk", {}) or {}
+        _apply(gs, ["move", xs, ys, u.side])
+        walk = _last_walk(gs)
         u2 = _sim_unit(gs, uid)
         out["moves"].append({
             "path": [list(p) for p in path],
@@ -370,6 +393,9 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--sim-only", action="store_true", help="print the simulator's predictions, no Wesnoth")
+    ap.add_argument("--recorded", type=Path, default=None,
+                    help="a record this tool wrote: compare the simulator of today with the engine's "
+                         "answers kept there, without launching Wesnoth")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(message)s")
@@ -378,7 +404,27 @@ def main(argv: List[str]) -> int:
         cases = cases[:args.limit]
     records = []
     t0 = time.time()
+    recorded = {}
+    if args.recorded:
+        recorded = {r["case"]: r["engine"] for r in json.loads(args.recorded.read_text(encoding="utf-8"))["records"]}
+        # Every recorded answer is compared: a case renamed or dropped since
+        # would otherwise shrink the comparison silently, down to nothing.
+        missing = sorted(set(recorded) - {c.name for c in cases}) if not args.only else []
+        if missing:
+            print(f"{len(missing)} recorded cases are not in today's list: {missing[:5]}")
+            return 1
+        cases = [c for c in cases if c.name in recorded]
     for i, case in enumerate(cases, 1):
+        if args.recorded:
+            engine = recorded[case.name]
+            paths = [[tuple(p) for p in m.get("path") or []] for m in engine.get("moves", [])]
+            rec = compare(case, engine, sim_predictions(case, engine_paths=paths))
+            records.append(rec)
+            bad = "; ".join(f"{c['check']}: engine {c['engine']} sim {c['sim']}"
+                            for c in rec["checks"] if not c["agree"])
+            print(f"[{i}/{len(cases)}] {case.name}: {'AGREE' if rec['agree'] else 'DIFFER'}"
+                  + (" -- " + bad if bad else ""), flush=True)
+            continue
         if args.sim_only:
             sim = sim_predictions(case)
             print(f"{case.name}: visible {sim['visible_start']} | " +

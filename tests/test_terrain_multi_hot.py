@@ -98,7 +98,7 @@ def test_the_flag_rides_the_checkpoint_and_is_off_for_older_ones(tmp_path):
     again = _tiny_policy()
     again.load_checkpoint(path)
     assert again._inference_encoder.terrain_multi_hot
-    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    ckpt = torch.load(path, map_location="cpu", weights_only=True)
     del ckpt["terrain_multi_hot"]
     older = tmp_path / "older.pt"
     torch.save(ckpt, older)

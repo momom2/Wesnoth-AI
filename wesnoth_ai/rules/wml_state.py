@@ -228,7 +228,9 @@ def read_side(side_node, *, defaults: Optional[Dict] = None) -> Optional[Dict]:
     a `.cfg` (no faction, no recruit list, and often no economy) and a
     save (all of them present) reach the same record shape. Keys it
     honours: `gold`, `village_income`, `village_support`, `faction`,
-    `recruit`, `fog`, `shroud`.
+    `recruit`, `fog`, `shroud`. `auto_shroud` is the side's "delay shroud
+    updates" switch as a save keeps it (src/team.cpp:362 at 1.18.4; on
+    unless the save says otherwise).
     """
     side_num = wml_int(side_node.attrs.get("side"), 0)
     if not side_num:
@@ -248,6 +250,7 @@ def read_side(side_node, *, defaults: Optional[Dict] = None) -> Optional[Dict]:
                                    d.get("village_support", MP_VILLAGE_SUPPORT)),
         "fog": wml_bool(attrs.get("fog"), d.get("fog", True)),
         "shroud": wml_bool(attrs.get("shroud"), d.get("shroud", False)),
+        "auto_shroud": wml_bool(attrs.get("auto_shroud"), d.get("auto_shroud", True)),
         "recruit": wml_list(attrs.get("recruit")) or list(d.get("recruit", ())),
         "leader_type": attrs.get("type", "").strip().strip('"'),
         "color": attrs.get("color", "").strip().strip('"'),

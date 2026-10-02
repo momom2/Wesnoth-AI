@@ -60,7 +60,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-09-26)
+## Current status (2026-09-04, entries through 2026-10-02)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -68,14 +68,24 @@ mechanism specs are in `docs/archive/` (index in its README); the 78
 quarantined training mechanisms are in `quarantine/INVENTORY.md`.
 
 State of play:
-- **The reference player (user ruling 2026-09-25) is `obs8` at
-  `raw:t0+eo-1.5`:** terrain's recipe from scratch on the observation
+- **The reference player (user ruling 2026-10-02) is `parity2` at
+  `raw:t0+eo-1.5` with its memory at 64 slots:** the parity-memory
+  recipe (docs/parity_memory_design_20260929.md) in two passes over the
+  corpus (HF `tier-b/parity_memory_pass2_20261002/arm.pt`, local
+  `training/checkpoints/parity2.pt`), +191 +- 14 Elo over `obs8` at the
+  same decode (800 decisive games, docs/parity_memory_prereg_20260929.md
+  "Measured, pass 2"). The same checkpoint at 0 slots beats it by
+  37 +- 12 Elo; why the memory costs strength in play is under
+  investigation (BACKLOG.md). No self-pin of `parity2` has been run.
+  Before it (2026-09-25 to 2026-10-02) the reference was `obs8` at
+  `raw:t0+eo-1.5`: terrain's recipe from scratch on the observation
   of `OBSERVATION_EPOCH` 8 (HF
   `tier-b/observation_retrain_20260924/arm_epoch0.pt`, local
   `training/checkpoints/obs8.pt`), +73 +- 13 Elo over `terrain` at the
   same decode (483-317 of 800 decisive games,
-  docs/observation_retrain_prereg_20260924.md). No self-pin of `obs8`
-  has been run. Before it (2026-09-20
+  docs/observation_retrain_prereg_20260924.md), self-pinned at side B
+  +19 +- 12 and +8 +- 12 Elo (the fourth match of each parity-memory
+  pass). Before it (2026-09-20
   to 2026-09-25) the reference was `terrain` at `raw:t0+eo-1.5`: the
   terrain-set arm (HF
   `tier-b/terrain_multi_hot_20260919/arm_epoch0.pt`, local
@@ -901,10 +911,70 @@ State of play:
   confirmed positions hold 2 to 4 enemy units hidden from the mover),
   and a turn search needs a determinized root, drawn from a belief model
   that is the user's design decision, before it meets the 800-game gate.
+- 2026-09-28 (0.9.0, user order): **the Rust core is the state of record
+  of the simulator and of replay reconstruction, and answers every rule
+  asked of a position.** The core (`rust/wesnoth_core`, adapter
+  `wesnoth_ai/game_core.py`) reads the unit and terrain databases,
+  resolves every terrain fact and movement class from the hexes' codes,
+  builds units itself (recruits with their trait roll, plague corpses,
+  advancement with AMLA, pick-advance, traits and [object] effects
+  re-applied), runs the scenario's events in Rust (user ruling), and for
+  a view bound to it (`game_core.bind_view`) computes the encoding, the
+  defender's weapon choice, exact fight outcomes, move routes and the
+  units a side sees. Mid-game starts, game-record rebuilds, the value
+  corpus, validation exports and `diff_replay` replay records on it.
+  `WESNOTH_RUST_CORE=0` brings the Python applier back; it stays as the
+  last oracle until the full-corpus certification (user ruling), for
+  which `scripts/core_certify_box.sh` is ready (about 13 minutes on 32
+  cores; a box, the user's word). Checked against the Python code:
+  every terrain code, unit type, trait roll, [effect] form and 476
+  advancement cases; `diff_core` over 134 imitation replays clean after
+  the setup and every command (49,650 commands), with the encodings in
+  three views byte-identical on 395 decisions; on 61 replays every
+  attack's counter weapon, strike tables and outcome distributions equal
+  to the last bit (3,906 attacks); randomized boards and games for the
+  outcomes, the reach and the visibility; all 31 scenarios set up alike;
+  and, offline, the engine's recorded answers on hidden units (54 of 54)
+  and vision (3 of 3). Reconstruction runs 2.2x faster (0.93 against
+  2.01 ms per command). The port found an oracle bug, fixed in both: a
+  scenario-placed [unit] lost its defense table and trait order to
+  `dataclasses.replace`, so an advancing Hornshark hero re-applied its
+  traits in a set's order.
+
+- 2026-10-02 (0.11.0, user ruling): **`parity2` is the reference
+  player: the network observes what a player sees and remembers it, and
+  beats `obs8` by +191 +- 14 Elo.** The parity-memory retrain
+  (docs/parity_memory_design_20260929.md, pre-registered in
+  docs/parity_memory_prereg_20260929.md) gives the network each unit's
+  own weapons, traits and statuses, a row per unit type (190), the fog
+  overlay, two terrain classes and the time of day per hex, the enemy's
+  faction only as a player could infer it (a posterior from the units
+  seen), the record of the enemy units the side has seen, and a learned
+  memory of 64 slots carried from each decision to the side's next; it
+  trained at `OBSERVATION_EPOCH` 11 on the corpus at `CORPUS_VERSION` 5.
+  Its audit gate passed (docs/parity_memory_audit_20260929.md), the Rust
+  core certified over the whole corpus: 14,376 of 14,376 replays, the
+  core equal to the Python applier after every command and each side's
+  sighting record equal to its oracle, clean again on phase 29. The
+  first pass (4,035,728 positions once, constant rate) failed the recipe
+  barrier (holdout CE at 0 slots 3.378 against `obs8`'s 3.162) and lost
+  to `obs8` by 83 +- 13 Elo; the second, from the first's weights with
+  the learning rate cooled linearly to 0 over its second half, reads
+  2.935 at 0 slots and 2.852 at 64, and won its match. In play the
+  memory costs strength although it lowers the holdout CE: at 64 slots
+  the checkpoint loses to itself at 0 slots by 37 +- 12 Elo, at 16 by
+  30 +- 12. Rulings of the gate (2026-10-01): sightings follow the
+  display with move animations off; the memory barrier compares carried
+  against reset memory; Hornshark's faction-dependent units and teleport
+  vision are known unfaithfulness. The two passes cost about $5.60 in
+  boxes, and every match game is recorded whole on HF. Only the raw
+  player carries a memory: the self-play pool, MCTS and the turn search
+  refuse a model with one.
 
 Standing rules (full list in the plan): the reference player is
-`obs8` at `raw:t0+eo-1.5` (user ruling 2026-09-25; one checkpoint
-and one decode, both in `configs/reference_player.json`, which
+`parity2` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
+2026-10-02; one checkpoint, its memory and one decode, all in
+`configs/reference_player.json`, which
 `tools/reference_player.py --flags b` turns into run_elo_batch flags);
 every strength claim is a PURE match against it with the standard
 error stated; no teacher is distilled before it wins such a
@@ -1462,3 +1532,16 @@ many line-coverage tests.
   someone could reasonably ask "why exactly that value?".
 - **Prefer removing over adding.** This codebase is recovering from
   bloat. When a feature is load-bearing, we'll re-add it with evidence.
+- **Credentials never reach a transcript** (user decision 2026-09-29).
+  What a tool returns to Claude is stored and sent to the model, so
+  `tools/secret_guard` redacts credentials from every tool result: Bash
+  output through the shell prefix, failed commands included, and the other
+  tools' results through a hook; a `<redacted>` in output is the guard at
+  work. A new key is created in the user's own terminal or browser and
+  saved to its store before any tool call touches it. Keys are restricted
+  (Vast: offers and instances; Hugging Face: write on the checkpoint
+  repository only), and every checkpoint load uses `weights_only=True`,
+  since a leaked Hugging Face token could otherwise plant code in a
+  checkpoint we download. Rejected (user, 2026-09-29): pinning by hash
+  the code and scripts boxes download from Hugging Face, against a
+  dishonest Vast host reusing the box's token; not worth the hardening.

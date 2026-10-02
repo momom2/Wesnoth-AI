@@ -105,6 +105,7 @@ from tools.serve_worker import (
     _BatchPicker, _best_window_rate, _merge_timelines, _picker_stats, _request_lengths,
     _serve_loop, _server_loop,
 )
+from wesnoth_ai.memory import refuse_memory_model
 
 __all__ = [
     "ActorPool", "ServeProcessDied",
@@ -202,6 +203,9 @@ class ActorPool:
             raise ValueError("n_actors must be >= 1")
         if serve_processes < 1:
             raise ValueError("serve_processes must be >= 1")
+        # The actors, their streams (tools/actor_stream.py) and the
+        # servers keep no per-side memory state yet.
+        refuse_memory_model(getattr(policy, "_inference_model", None), "the self-play pool")
         self._policy = policy
         self._n = n_actors
         self._serve_processes = int(serve_processes)

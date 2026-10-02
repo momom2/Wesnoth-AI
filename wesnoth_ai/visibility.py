@@ -370,9 +370,10 @@ def _discovered_by_adjacency(state: GameState, hider: Unit,
     armed side-3 neutral adjacent to a side-2 hider) reveals the
     hider to every side — including `observer_side` (adversarial
     review 2026-07-18; previously only the observer's own units
-    counted). The engine additionally requires the discoverer to be
-    itself visible to the hider's team; we accept that reduction
-    (documented sight-model simplification)."""
+    counted). The engine makes this check with `see_all=true`, the
+    default of `unit::invisible` (units/unit.hpp:1902), so the discoverer
+    need not itself be visible (docs/wesnoth_rules.md "Hidden-unit
+    visibility")."""
     from tools.abilities import hex_neighbors
     adj = set(hex_neighbors(hider.position.x, hider.position.y))
     for u in state.map.units:
@@ -450,7 +451,9 @@ def units_visible_to(
     Callers that already hold the side's seen hexes (e.g. the
     encoder, which may have read them for the village-ownership
     fog gate) can pass them as `vis_set`; when omitted they are read
-    lazily, at most once per call.
+    lazily, at most once per call. A view bound to the Rust core
+    (`game_core.bind_view`) is answered by the core, from its own seen
+    hexes (`vis_set` unread), in the view's unit order.
 
     Fog can be disabled per-game via `global_info._fog = False`
     (underscore attr so `GlobalInfo.__deepcopy__` carries it through
@@ -462,10 +465,27 @@ def units_visible_to(
     """
     if not state.map.units:
         return []
+    from wesnoth_ai.game_core import core_of
+    cs = core_of(state)
+    if cs is not None:
+        ids = set(cs.core.visible_ids(side))
+        return [u for u in state.map.units if u.id in ids]
+    return units_visible_to_python(state, side, vis_set)
+
+
+def units_visible_to_python(
+    state: GameState, side: int,
+    vis_set: Optional[Set[Tuple[int, int]]] = None,
+    units: Optional[Iterable[Unit]] = None,
+) -> List[Unit]:
+    """`units_visible_to` computed here from the view, the core's
+    oracle (tests/test_rust_moves.py). `units` judges those units
+    instead of the board's, on this state (a unit as a fight left it,
+    before it advanced)."""
     uncovered = getattr(state.global_info, "_uncovered_units", None) or set()
     fog_on = getattr(state.global_info, "_fog", True)
     out: List[Unit] = []
-    for u in state.map.units:
+    for u in (state.map.units if units is None else units):
         if u.side == side:
             out.append(u)
             continue
@@ -473,6 +493,10 @@ def units_visible_to(
         # the map itself (fog hides UNITS' presence, not board
         # furniture). Armed side>=3 combatants (tentacles) are NOT
         # scenery -- they fall through to the enemy fog gates below.
+        # The engine hides every non-own unit on a fogged hex, statues
+        # included (unit.cpp:2645-2676), so showing them there breaks
+        # principle 6 (CLAUDE.md); accepted by user ruling 2026-09-29: a
+        # player who knows the map knows where the statues stand.
         if is_scenery_unit(u):
             out.append(u)
             continue

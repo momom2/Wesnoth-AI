@@ -86,14 +86,14 @@ def test_a_side_block_reads_the_same_whether_it_came_from_a_save_or_a_cfg():
     and the caller supplies the rest. One reader, one record shape."""
     save = node('[replay_start]\n[side]\nside=2\nfaction="Undead"\ngold=125\n'
                 'income=-1\nvillage_gold=3\nvillage_support=2\nfog=no\nshroud=yes\n'
-                'recruit="Skeleton,Ghoul"\ntype="Dark Sorcerer"\ncolor="red"\n'
+                'auto_shroud=no\nrecruit="Skeleton,Ghoul"\ntype="Dark Sorcerer"\ncolor="red"\n'
                 'controller="human"\n[/side]\n[/replay_start]\n')
     got = ws.read_side(save.first("side"))
     assert got == {
         "side": 2, "faction": "Undead", "gold": 125,
         "base_income": ws.ENGINE_BASE_INCOME - 1,     # income= is an offset
         "village_income": 3, "village_support": 2,
-        "fog": False, "shroud": True,
+        "fog": False, "shroud": True, "auto_shroud": False,
         "recruit": ["Skeleton", "Ghoul"],
         "leader_type": "Dark Sorcerer", "color": "red", "controller": "human",
     }
@@ -324,17 +324,17 @@ def test_no_second_parser_of_the_side_block_survives():
     a replay sweep nobody runs locally.
 
     Scope: the files that build or emit a starting state. Diagnostics
-    that scan raw text on purpose (`check_replay_consistency`,
-    `filter_replays`) and the census are out of scope, and the census
+    that scan raw text on purpose (`filter_replays`) and the census
+    are out of scope, and the census
     reads headers the pipelines never parse.
     """
     import inspect
     import re
 
-    from tools import dump_savestate, replay_builder, replay_extract, sim_to_replay
+    from tools import dump_savestate, replay_extract, sim_to_replay
     from wesnoth_ai.rules import scenario_pool
 
-    watched = [scenario_pool, replay_extract, sim_to_replay, replay_builder, dump_savestate]
+    watched = [scenario_pool, replay_extract, sim_to_replay, dump_savestate]
     # A regex that reaches into a [side] block or its economy attrs.
     suspicious = re.compile(
         r"re\.(compile|search|match|finditer|findall)\([^)]*"
