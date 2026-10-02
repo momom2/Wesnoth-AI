@@ -263,6 +263,7 @@ counterfactual other --games "$PASS2_DIR/games_arm64_vs_arm0" --player arm0
 counterfactual human --corpus "$CORPUS" --holdout
 
 box_on_round
-[ "$MATCHES_FAILED" -eq 0 ] && [ "$CF_FAILED" -eq 0 ] \
-    || box_finish "MEMORY_IN_PLAY_FAILED $(notes): $MATCHES_FAILED matches failed, $CF_FAILED readings failed (match.walls, failures.txt)" 1
+if [ "$MATCHES_FAILED" -ne 0 ] || [ "$CF_FAILED" -ne 0 ]; then
+    box_finish "MEMORY_IN_PLAY_FAILED $(notes): $MATCHES_FAILED matches failed, $CF_FAILED readings failed (match.walls, failures.txt)" 1
+fi
 box_finish "MEMORY_IN_PLAY_DONE $(notes); $MATCHES_CUT matches cut"
