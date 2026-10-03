@@ -523,7 +523,8 @@ class Trainer:
         `<out>.stable.pt`: a further pass starts from the weights before
         the cooldown."""
         f = self.args.decay_from
-        if f is None or self.state.get("stable_saved") \
+        # A pass that lowers from its first position keeps none: it started from that checkpoint.
+        if f is None or f == 0 or self.state.get("stable_saved") \
                 or self.state["positions"] < f * self.pass_total:
             return
         self.state["stable_saved"] = True
@@ -569,7 +570,8 @@ class Trainer:
                 if barrier_now:
                     self.state["barrier_done"] = True
                     self.state["barrier_failed"] = not memory_barrier_passes(result)
-                self.save()                      # the probe is kept, so a resume does not repeat it
+                code = None if self.state.get("barrier_failed") else self._anneal_rule()
+                self.save()                      # the probe and its decisions together: a resume repeats neither
                 if barrier_now and self.state["barrier_failed"]:
                     log.error("MEMORY_BARRIER_FAILED carried against reset %s; against 0 slots %s",
                               json.dumps(result.get("belief_carried")), json.dumps(result.get("belief_paired")))
@@ -577,7 +579,6 @@ class Trainer:
                 if barrier_now:
                     log.info("memory barrier passed: carried against reset %s; against 0 slots %s",
                              json.dumps(result.get("belief_carried")), json.dumps(result.get("belief_paired")))
-                code = self._anneal_rule()
                 if code is not None:
                     if window_logs:
                         self._log(window_logs, t0)
@@ -602,7 +603,8 @@ class Trainer:
     def _anneal_rule(self) -> Optional[int]:
         """After a probe: the rule of tools/lr_law.py on this pass's probes
         and the earlier passes'; the exit code when it lowers the rate or
-        stops the run, None while the rate holds."""
+        stops the run, None while the rate holds. A decision is set in the
+        state, which the caller saves with the probe."""
         if self.args.anneal_rule is None:
             return None
         this_pass = probe_points(self.args.out.with_suffix(".probe.jsonl"), self.args.law_key, source="this pass")
@@ -616,7 +618,6 @@ class Trainer:
         if decision.action == "hold":
             return None
         self.state["anneal"] = decision.action
-        self.save()
         return EXIT_LOWER if decision.action == "lower" else EXIT_REVIEW
 
     def _log(self, rows: List[Dict], t0: float) -> None:

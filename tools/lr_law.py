@@ -12,7 +12,9 @@ the progress made. S2 measures how much of the noise that a high rate keeps
 in the weights has faded since the rate came down: each step's decrease of
 the rate counts again at every later step, fading by LAW_LAMBDA a step,
 m_i = LAW_LAMBDA * m_(i-1) + (eta_(i-1) - eta_i), S2 = the sum of m. The
-warm-up adds to S1 only. Only a lowering of the rate determines C: fitted on
+warm-up adds its own rates to S1 and nothing to S2 (Tissue et al. count the
+warm-up at the peak rate instead; on the parity passes the next epoch's
+fitted gain moves by 0.007 between the two). Only a lowering of the rate determines C: fitted on
 probes taken before any, the law leaves C at 0 and says so
 (`LawFit.lowering_seen`), and it predicts no lowering. Fitted on the parity
 passes with only the first two probes of pass 2's lowering, it put that
@@ -198,14 +200,19 @@ def predict_lowering(law: LawFit, areas: Areas, peak: float, steps: int) -> floa
 # ---------------------------------------------------------------------------
 
 def pass_rates(steps: int, total_positions: int, lr: float, warmup_steps: int,
-               decay_from: Optional[float]) -> List[float]:
+               decay_from: Optional[float], positions_per_step: Optional[int] = None) -> List[float]:
     """Each step's rate as tools/sequence_train.py sets it: the warm-up on
-    the step count, the lowering on the positions trained before the step
-    (taken as evenly spread over the pass's steps)."""
+    the step count, the lowering on the positions trained before the step:
+    `positions_per_step` (streams x window) a step until the pass runs dry,
+    or, without it, the pass's positions spread evenly over its steps."""
     from tools.sequence_train import lr_factor
-    per_step = total_positions / steps
-    return [lr * min(1.0, (s + 1) / max(1, warmup_steps))
-            * lr_factor(int(s * per_step), total_positions, decay_from) for s in range(steps)]
+
+    def before(s: int) -> int:
+        if positions_per_step:
+            return min(s * int(positions_per_step), total_positions)
+        return int(s * total_positions / steps)
+    return [lr * min(1.0, (s + 1) / max(1, warmup_steps)) * lr_factor(before(s), total_positions, decay_from)
+            for s in range(steps)]
 
 
 def replay(lineage: Sequence[Dict], key: str) -> Dict[str, object]:
@@ -219,7 +226,7 @@ def replay(lineage: Sequence[Dict], key: str) -> Dict[str, object]:
         if p.get("parent"):
             start = Areas(**areas_by_pass[p["parent"]][int(p["parent_steps"]) - 1].to_dict())
         rates = pass_rates(int(p["steps"]), int(p["total_positions"]), float(p["lr"]),
-                           int(p["warmup_steps"]), p.get("decay_from"))
+                           int(p["warmup_steps"]), p.get("decay_from"), p.get("positions_per_step"))
         a, trail = start, []
         for s, rate in enumerate(rates):
             a.step(rate, warming=(s + 1) < int(p["warmup_steps"]))
@@ -269,7 +276,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("replay", help="the probe points of passes trained before the trainer kept areas")
     r.add_argument("lineage", type=Path, help="a JSON list of passes (name, probes, steps, total_positions, "
-                   "lr, warmup_steps, decay_from, parent, parent_steps)")
+                   "lr, warmup_steps, decay_from, positions_per_step, parent, parent_steps)")
     r.add_argument("--key", default="k64", help="the probe's slot reading the law is fitted on")
     r.add_argument("--out", type=Path, required=True)
     r.add_argument("--areas-at", default=None, help="PASS:STEPS: print the areas after that many steps")

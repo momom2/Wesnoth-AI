@@ -12,8 +12,8 @@
 #   hold passes at the peak rate under the anneal rule (tools/sequence_train.py
 #     --anneal-rule THRESHOLD), each a new pass from the previous one's end, at
 #     most HOLD_PASSES: a pass that finishes (exit 0) hands over to the next;
-#     one the rule stops (exit 6) is where the holding ends; exit 7 (the probes
-#     left the law) ends the entry for a look;
+#     one the rule stops (exit 6) is where the holding ends, and so is one whose
+#     latest probes left the law (exit 7), which the finish reason flags;
 #   the lowering: a straight line from the peak rate to 0 over LOWER_POSITIONS,
 #     from where the holding ended; its final probe is the candidate's holdout
 #     cross-entropy;
@@ -56,7 +56,7 @@ PREENCODE_STALL_MIN="${PREENCODE_STALL_MIN:-20}" # the pre-encoder logs every 20
 TRAIN_CUT_MIN="${TRAIN_CUT_MIN:-540}"            # a pass: 336 minutes on pass 2's box
 TRAIN_STALL_MIN="${TRAIN_STALL_MIN:-40}"         # the trainer logs every minute; a probe runs silent
 MATCH_CUT_MIN="${MATCH_CUT_MIN:-90}"             # the match stops itself at 60 (--time-budget-min), a game at 20 more
-BOX_MAX_H="${BOX_MAX_H:-20}"                     # 1.35 times the 14.8 box-hours estimated
+BOX_MAX_H="${BOX_MAX_H:-20}"                     # 1.37 times the 14.6 box-hours estimated
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
@@ -85,7 +85,7 @@ notes() {                        # where the training stands, for the finish rea
         [ -f "$f" ] || continue
         line="${f##*/train_}: $(grep -o "positions [0-9]*/[0-9]* steps [0-9]*" "$f" | tail -1)"
     done
-    echo "training: ${line:-not started}"
+    echo "training: ${line:-not started}${LEFT_LAW:+; the probes left the law in hold pass $LEFT_LAW}"
 }
 # shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
@@ -206,7 +206,8 @@ EOF
 fi
 
 # ---- the starting checkpoint and the law's points of the earlier passes
-if [ ! -f "$OUT/hold1.pt" ] && [ ! -f "$OUT/LOWER_DONE" ] && [ ! -f "$START_PT" ]; then
+if [ ! -f "$OUT/LOWER_DONE" ] && [ ! -f "$START_PT" ] \
+        && { [ ! -f "$OUT/hold1.pt" ] || [ ! -f "$OUT/law_seed.jsonl" ] || [ ! -f "$OUT/start_areas.json" ]; }; then
     box_bounded start 30 staging.log python - "$LINEAGE" "$START_PT" <<'EOF' \
         || box_finish "START_MISSING rc=$BOX_RC (staging.log)" 1
 import json, os, shutil, sys
@@ -218,7 +219,7 @@ os.replace(tmp, sys.argv[2])
 print("the first hold pass starts from", lineage["start_hf"], flush=True)
 EOF
 fi
-if [ ! -f "$OUT/law_seed.jsonl" ] || [ ! -f "$OUT/start_areas.json" ]; then
+if [ ! -f "$OUT/LOWER_DONE" ] && { [ ! -f "$OUT/law_seed.jsonl" ] || [ ! -f "$OUT/start_areas.json" ]; }; then
     box_bounded law-seed 20 staging.log python - "$LINEAGE" "$START_PT" "$OUT" <<'EOF' \
         || box_finish "LAW_SEED_FAILED rc=$BOX_RC (staging.log)" 1
 import json, os, sys
@@ -272,8 +273,10 @@ hold_attempt() {                 # hold_attempt K MINUTES: hold pass K, continui
         --law-points "$POINTS" --law-key k64 "${start[@]}"
 }
 BRANCH=""                        # the checkpoint the lowering starts from
+LEFT_LAW=""                      # the hold pass whose probes left the law, if one did
 for (( k = 1; k <= HOLD_PASSES; k++ )); do
     if [ ! -f "$OUT/hold$k.rc" ]; then
+        [ ! -f "$OUT/LOWER_DONE" ] || break       # the lowering is done: there is nothing left to hold
         build_points "$k" || box_finish "LAW_POINTS_FAILED before hold pass $k" 1
         from=$(box_size "$OUT/train_hold$k.log")
         deadline=$(( $(date +%s) + TRAIN_CUT_MIN * 60 ))
@@ -295,7 +298,11 @@ for (( k = 1; k <= HOLD_PASSES; k++ )); do
     fi
     rc=$(cat "$OUT/hold$k.rc")
     BRANCH="$OUT/hold$k.pt"
-    [ "$rc" != 7 ] || box_finish "ANNEAL_REVIEW in hold pass $k: its latest probes left the law (hold$k.anneal.jsonl) $(notes)"
+    if [ "$rc" = 7 ]; then
+        LEFT_LAW=$k
+        echo "hold pass $k: its latest probes left the law; the holding ends here (hold$k.anneal.jsonl)"
+        break
+    fi
     [ "$rc" != 6 ] && continue
     echo "the anneal rule lowers the rate in hold pass $k: $(grep -h ANNEAL_RULE "$OUT/train_hold$k.log" | tail -1 | cut -c1-300)"
     break
@@ -305,14 +312,23 @@ if [ ! -f "$OUT/LOWER_DONE" ] && { [ -z "$BRANCH" ] || [ ! -f "$BRANCH" ]; }; th
 fi
 
 # ---- the lowering: a straight line from the peak to 0 over LOWER_POSITIONS
-if [ ! -f "$OUT/LOWER_DONE" ]; then
-    start=(--init-from "$BRANCH")
+lower_attempt() {                # lower_attempt MINUTES: the lowering, continuing lower.pt when present; sets BOX_RC, BOX_WHY
+    local start=(--init-from "$BRANCH")
     [ ! -f "$OUT/lower.pt" ] || start=(--resume)
-    from=$(box_size "$OUT/train_lower.log")
-    box_bounded --stall "$OUT/train_lower.log" "$TRAIN_STALL_MIN" lower "$TRAIN_CUT_MIN" train_lower.log \
+    box_bounded --stall "$OUT/train_lower.log" "$TRAIN_STALL_MIN" lower "$1" train_lower.log \
         python tools/sequence_train.py --sequences "$SEQ" --dataset "$CORPUS" --out "$OUT/lower.pt" \
         --seed $(( RUN_SEED + 100 )) --device cuda --warmup-steps 0 --decay-from 0 \
         --pass-positions "$LOWER_POSITIONS" "${start[@]}"
+}
+if [ ! -f "$OUT/LOWER_DONE" ]; then
+    from=$(box_size "$OUT/train_lower.log")
+    deadline=$(( $(date +%s) + TRAIN_CUT_MIN * 60 ))
+    lower_attempt "$TRAIN_CUT_MIN"
+    left=$(( (deadline - $(date +%s)) / 60 ))
+    if [ "$BOX_RC" -ne 0 ] && [ "$BOX_RC" -ne 3 ] && [ "$BOX_WHY" = failed ] && [ "$left" -ge 60 ] \
+            && [ -f "$OUT/lower.pt" ]; then
+        lower_attempt "$left"            # a crash retries once, from the last periodic checkpoint
+    fi
     if [ "$BOX_RC" -ne 0 ] || ! tail -c "+$(( from + 1 ))" "$OUT/train_lower.log" | grep -q "SEQUENCE_TRAIN_DONE"; then
         box_finish "LOWERING_${BOX_WHY^^} rc=$BOX_RC (train_lower.log; it continues from lower.pt on re-entry) $(notes)" 1
     fi
@@ -356,18 +372,51 @@ if [ -f "$OUT/games_$MATCH.tar.gz" ]; then       # the games come back as the ta
     rm -f "$OUT/games_$MATCH.tar.gz"
     box_mark_landed "games_$MATCH.tar.gz" "$OUT/games_$MATCH" || echo "games_$MATCH will go up again (restore.log)"
 fi
+gpu_or_finish() {                # gpu_or_finish NAME: before match NAME, the GPU answers or the entry ends
+    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before match $1: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+}
+MATCH_RESULT=""                  # this entry's verdict on the match: empty when it holds its decisive games
+play() {                         # play NAME SEED_BASE ARGS...: the match, once more when short, then its verdict
+    local name="$1" sb="$2" decisive rc
+    shift 2
+    box_upload_dir "games_$name" "$OUT/games_$name"
+    box_upload_hold "$name.fit.json" "games_$name.tar.gz"
+    box_upload_hold "timing_$name.txt" "games_$name.tar.gz"
+    [ -f "$OUT/$name.fit.json" ] || gpu_or_finish "$name"
+    match "$name" "$GAMES" "$sb" 1500 "$@"
+    decisive=$(decisive_results "$OUT/games_$name")
+    if [[ $decisive =~ ^[0-9]+$ ]] && [ "$decisive" -lt "$GAMES" ]; then
+        # The short attempt's fit and timing go, here and on HF, before the second.
+        rm -f "$OUT/$name.fit.json" "$OUT/timing_$name.txt"
+        box_clear "$name.fit.json" "timing_$name.txt" \
+            || echo "the short attempt's fit of $name may stay on HF until the second lands (upload.log)"
+        gpu_or_finish "$name"
+        match "$name" "$GAMES" "$sb" 1500 "$@"
+        decisive=$(decisive_results "$OUT/games_$name")
+    fi
+    rc=$(sed -n 's/.* rc=\([0-9]*\) .*/\1/p' "$OUT/timing_$name.txt" 2>/dev/null | tail -n 1)
+    if ! [[ $decisive =~ ^[0-9]+$ ]]; then
+        MATCH_RESULT="MATCH_FAILED: its games could not be counted ($name.log)"
+    elif [ ! -f "$OUT/$name.fit.json" ]; then
+        MATCH_RESULT="MATCH_FAILED: no fit ($name.log)"
+    elif [ "$decisive" -lt "$GAMES" ]; then
+        # run_elo_batch: 3 or 4, out of time or of replacements, and 124, the
+        # step's own cut, leave a match short; any other exit is a defect.
+        case ${rc:-none} in
+            0|3|4|124) MATCH_RESULT="MATCH_CUT: $decisive of $GAMES decisive games (rc=$rc); the fit is not read" ;;
+            *) MATCH_RESULT="MATCH_FAILED: rc=${rc:-none} ($name.log, games_$name/failed_*.json)" ;;
+        esac
+    fi
+    [ -z "$MATCH_RESULT" ] || echo "$MATCH_RESULT" | tee -a "$OUT/match.walls"
+    box_upload_async
+}
 mkdir -p training/checkpoints
 cp "$OUT/lower.pt" "$ARM" || box_finish "ARM_COPY_FAILED (lower.pt)" 1
-box_upload_dir "games_$MATCH" "$OUT/games_$MATCH"
-box_upload_hold "$MATCH.fit.json" "games_$MATCH.tar.gz"
-box_upload_hold "timing_$MATCH.txt" "games_$MATCH.tar.gz"
-[ -f "$OUT/$MATCH.fit.json" ] || box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the match: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-match "$MATCH" "$GAMES" "$MATCH_SEED_BASE" 1500 --label-a cand64 --spec-a "$ARM" --memory-a 64 \
+play "$MATCH" "$MATCH_SEED_BASE" --label-a cand64 --spec-a "$ARM" --memory-a 64 \
     --raw-end-turn-offset-a "$EO" "${REF_B[@]}"
-decisive=$(decisive_results "$OUT/games_$MATCH")
 box_on_round
-if ! [[ $decisive =~ ^[0-9]+$ ]] || [ ! -f "$OUT/$MATCH.fit.json" ]; then
-    box_finish "MATCH_FAILED ($MATCH.log, match.walls) $(notes)" 1
-fi
-[ "$decisive" -ge "$GAMES" ] || box_finish "MATCH_CUT: $decisive of $GAMES decisive games; the fit is not read $(notes)"
-box_finish "IMITATION_ANNEAL_DONE $(notes); $decisive decisive games"
+case $MATCH_RESULT in
+    "") box_finish "IMITATION_ANNEAL_DONE $(notes)" ;;
+    MATCH_CUT*) box_finish "IMITATION_ANNEAL_DONE $(notes); $MATCH_RESULT" ;;
+    *) box_finish "IMITATION_ANNEAL_MATCH_FAILED $(notes); $MATCH_RESULT" 1 ;;
+esac

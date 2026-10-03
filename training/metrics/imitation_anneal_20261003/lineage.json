@@ -1,11 +1,29 @@
 {
-  "_comment": "The passes trained before tools/sequence_train.py kept its rate history's areas, with the settings tools/lr_law.py replays: steps and positions from their train.log, the warm-up and the lowering from their box script's flags (scripts/parity_memory_box.sh). The anneal run's first hold pass starts from pass 2's checkpoint where its lowering began.",
+  "_comment": "The passes trained before tools/sequence_train.py kept its rate history's areas, with the settings tools/lr_law.py replays: steps and positions from their train.log (512 positions a step, 32 streams x 16, until a pass runs dry), the warm-up and the lowering from their box script's flags (scripts/parity_memory_box.sh). The anneal run's first hold pass starts from pass 2's checkpoint where its lowering began.",
   "passes": [
-    {"name": "pass1", "probes_hf": "tier-b/parity_memory_20261001/arm.probe.jsonl", "steps": 7900,
-     "total_positions": 4035728, "lr": 0.00028, "warmup_steps": 300, "decay_from": null, "parent": null},
-    {"name": "pass2", "probes_hf": "tier-b/parity_memory_pass2_20261002/arm.probe.jsonl", "steps": 7901,
-     "total_positions": 4035728, "lr": 0.00028, "warmup_steps": 0, "decay_from": 0.5,
-     "parent": "pass1", "parent_steps": 7900}
+    {
+      "name": "pass1",
+      "probes_hf": "tier-b/parity_memory_20261001/arm.probe.jsonl",
+      "steps": 7900,
+      "total_positions": 4035728,
+      "lr": 0.00028,
+      "warmup_steps": 300,
+      "decay_from": null,
+      "parent": null,
+      "positions_per_step": 512
+    },
+    {
+      "name": "pass2",
+      "probes_hf": "tier-b/parity_memory_pass2_20261002/arm.probe.jsonl",
+      "steps": 7901,
+      "total_positions": 4035728,
+      "lr": 0.00028,
+      "warmup_steps": 0,
+      "decay_from": 0.5,
+      "parent": "pass1",
+      "parent_steps": 7900,
+      "positions_per_step": 512
+    }
   ],
   "start_hf": "tier-b/parity_memory_pass2_20261002/arm.stable.pt",
   "start_pass": "pass2"

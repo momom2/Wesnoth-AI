@@ -1,33 +1,33 @@
 {
  "law": {
-  "L0": 1.0680385837080082,
-  "A": 2.4911316948118443,
-  "alpha": 0.16447467170197988,
-  "C": 1.0537120396740367,
-  "rms": 0.027616961404714153,
+  "L0": 1.0743288346221291,
+  "A": 2.4847952713278243,
+  "alpha": 0.16486733717257007,
+  "C": 1.0499895964123964,
+  "rms": 0.027604464836523835,
   "n": 18,
   "lowering_seen": true
  },
  "predictions": {
   "0.0": {
-   "epoch_gain_after": 0.16655224310006903,
-   "loss_after_lowering": 2.844171481484138
+   "epoch_gain_after": 0.1664310844058061,
+   "loss_after_lowering": 2.8451136839818103
   },
   "0.5": {
-   "epoch_gain_after": 0.1268974231138615,
-   "loss_after_lowering": 2.7626038119056315
+   "epoch_gain_after": 0.1267932461831113,
+   "loss_after_lowering": 2.7636062326915085
   },
   "1.0": {
-   "epoch_gain_after": 0.1019396853503182,
-   "loss_after_lowering": 2.6999770670087
+   "epoch_gain_after": 0.1018483750195718,
+   "loss_after_lowering": 2.701031326495482
   },
   "2.0": {
-   "epoch_gain_after": 0.07242010088861892,
-   "loss_after_lowering": 2.6073201186584805
+   "epoch_gain_after": 0.07234682083601747,
+   "loss_after_lowering": 2.608460384533028
   },
   "3.0": {
-   "epoch_gain_after": 0.05565954481596675,
-   "loss_after_lowering": 2.5399061560810963
+   "epoch_gain_after": 0.055598264574724617,
+   "loss_after_lowering": 2.5411162725568537
   }
  }
 }

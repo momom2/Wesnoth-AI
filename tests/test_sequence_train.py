@@ -481,6 +481,35 @@ def test_a_pass_keeps_its_rate_areas_and_a_new_pass_starts_from_them(tmp_path, p
     with pytest.raises(SystemExit, match="carries"):
         sequence_train.main([*common, "--out", str(tmp_path / "third.pt"), "--init-from", str(first),
                              "--initial-areas", json.dumps(want.to_dict())])
+    older = torch.load(first, map_location="cpu", weights_only=True)
+    del older["sequence_resume"]["state"]["areas"]
+    torch.save(older, tmp_path / "older.pt")
+    given = {"s1": 1.5, "s2": 0.25, "m": 0.01, "prev": 2.8e-4}
+    assert sequence_train.main([*common, "--out", str(tmp_path / "fourth.pt"), "--init-from", str(tmp_path / "older.pt"),
+                                "--initial-areas", json.dumps(given), "--max-positions", "0"]) == 0
+    assert torch.load(tmp_path / "fourth.pt", map_location="cpu",
+                      weights_only=True)["sequence_resume"]["state"]["areas"] == pytest.approx(given)
+    points = tmp_path / "points.jsonl"
+    points.write_text("", encoding="utf-8")
+    with pytest.raises(SystemExit, match="areas"):
+        sequence_train.main([*common, "--out", str(tmp_path / "fifth.pt"), "--init-from", str(tmp_path / "older.pt"),
+                             "--anneal-rule", "0.03", "--law-points", str(points), "--law-key", "k8"])
+
+
+@pytest.mark.slow
+def test_a_pass_lowering_from_its_start_keeps_the_areas_its_rates_make(tmp_path, pass_inputs):
+    """A pass that warms up for two steps while its rate falls from the first
+    position: its areas are the replay of its settings, the step where the
+    warm-up ends included, and it keeps no copy of its start."""
+    from tools import lr_law, sequence_train
+    out = tmp_path / "low.pt"
+    assert sequence_train.main([*_one_position_steps(pass_inputs), "--out", str(out), "--decay-from", "0"]) == 0
+    state = torch.load(out, map_location="cpu", weights_only=True)["sequence_resume"]["state"]
+    want = lr_law.Areas()
+    for s, rate in enumerate(lr_law.pass_rates(state["steps"], state["positions"], 2.8e-4, 2, 0.0, 1)):
+        want.step(rate, warming=(s + 1) < 2)
+    assert want.s2 > 0 and state["areas"] == pytest.approx(want.to_dict())
+    assert not (tmp_path / "low.stable.pt").exists()
 
 
 @pytest.mark.slow
@@ -503,13 +532,14 @@ def test_a_pass_of_fewer_positions_lowers_its_rate_over_them_and_ends_there(tmp_
 
 
 @pytest.mark.slow
-def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_again(tmp_path, pass_inputs):
+def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_again(tmp_path, pass_inputs, monkeypatch):
     """The rule runs after every probe on the earlier passes' points and
-    this pass's: a decision to lower stops the pass there (exit 6), kept in
-    the checkpoint so a resume trains nothing more; a decision to hold lets
-    the pass go on."""
+    this pass's, with the trainer's S1, its peak rate and an epoch of its
+    steps (two streams of three positions a step: 12 positions, 2 steps): a
+    decision to lower stops the pass there (exit 6), kept in the checkpoint
+    so a resume trains nothing more; a decision to hold lets the pass go on."""
     from tools import lr_law, sequence_train
-    common = _one_position_steps(pass_inputs)
+    common = [*pass_inputs, "--probe-every", "1000000", "--barrier-positions", "1000000"]
     first = tmp_path / "first.pt"
     assert sequence_train.main([*common, "--out", str(first)]) == 0
     points = tmp_path / "law_points.jsonl"
@@ -518,18 +548,31 @@ def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_agai
     rule = [*common, "--init-from", str(first), "--warmup-steps", "0", "--probe-every", "4",
             "--law-points", str(points), "--law-key", "k8"]
     lowered = tmp_path / "lowered.pt"
+    calls, decide = [], sequence_train.law_decide
+
+    def spy(earlier, this_pass, s1, peak, epoch_steps, threshold):
+        calls.append((len(earlier), len(this_pass), s1, peak, epoch_steps, threshold))
+        return decide(earlier, this_pass, s1, peak, epoch_steps, threshold)
+
+    monkeypatch.setattr(sequence_train, "law_decide", spy)
     assert sequence_train.main([*rule, "--out", str(lowered), "--anneal-rule", "1e9"]) == sequence_train.EXIT_LOWER
     state = torch.load(lowered, map_location="cpu", weights_only=True)["sequence_resume"]["state"]
-    assert state["anneal"] == "lower" and state["positions"] == 4
+    probe = lr_law.read_probes(lowered.with_suffix(".probe.jsonl"))[-1]
     decisions = [json.loads(line) for line in lowered.with_suffix(".anneal.jsonl").read_text().splitlines()]
-    assert [(d["action"], d["positions"]) for d in decisions] == [("lower", 4)]
+    assert state["anneal"] == "lower" and 4 <= state["positions"] == probe["positions"] < probe["total_positions"]
+    assert [(d["action"], d["positions"]) for d in decisions] == [("lower", state["positions"])]
+    assert calls == [(6, 1, pytest.approx(probe["areas"]["s1"]), 2.8e-4, probe["total_positions"] / 6.0, 1e9)], \
+        "the rule reads the earlier probes, this pass's, the trainer's S1, its peak and an epoch of its steps"
     resumed = [*common, "--out", str(lowered), "--resume", "--warmup-steps", "0", "--probe-every", "4",
                "--law-points", str(points), "--law-key", "k8", "--anneal-rule", "1e9"]
     assert sequence_train.main(resumed) == sequence_train.EXIT_LOWER
-    assert torch.load(lowered, map_location="cpu", weights_only=True)["sequence_resume"]["state"]["positions"] == 4
+    assert torch.load(lowered, map_location="cpu",
+                      weights_only=True)["sequence_resume"]["state"]["positions"] == state["positions"]
     held = tmp_path / "held.pt"
     assert sequence_train.main([*rule, "--out", str(held), "--anneal-rule", "-1", "--probe-every", "8"]) == 0
     assert [json.loads(line)["action"] for line in held.with_suffix(".anneal.jsonl").read_text().splitlines()] \
         == ["hold"]
     with pytest.raises(SystemExit, match="law-key"):
         sequence_train.main([*rule, "--out", str(tmp_path / "x.pt"), "--anneal-rule", "0.03", "--law-key", "k64"])
+
+

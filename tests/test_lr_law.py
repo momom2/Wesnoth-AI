@@ -67,6 +67,8 @@ def test_the_rule_holds_while_an_epoch_is_worth_it_then_lowers():
     earlier, this_pass = points[:-1], points[-1:]
     law = lr_law.fit(points)
     gain = law.epoch_gain(a.s1, PEAK, 8000)
+    assert gain == pytest.approx(float(law.predict(a.s1, a.s2) - law.predict(a.s1 + PEAK * 8000, a.s2))), \
+        "an epoch at the peak adds the peak rate times the epoch's steps to S1, and nothing to S2"
     assert gain > 0
     held = lr_law.decide(earlier, this_pass, a.s1, PEAK, 8000, threshold=gain / 2)
     assert held.action == "hold" and held.gain == pytest.approx(gain, rel=0.05)
@@ -108,3 +110,15 @@ def test_a_law_fitted_before_any_lowering_does_not_pretend_to_know_one():
     with pytest.raises(ValueError, match="no probe after a lowering"):
         lr_law.predict_lowering(law, a, PEAK, 600)
     assert lr_law.fit(points).lowering_seen
+
+
+def test_the_rule_reads_this_pass_s_probes():
+    """Earlier probes of a run that barely progresses say lower; this pass's
+    probes, falling faster, raise the fitted gain above the threshold (and,
+    being below the law, do not stop the run for a look)."""
+    law = lambda s1: 2.5 + 0.3 * s1 ** -0.25                       # noqa: E731
+    earlier = [Point(s1, 0.0, law(s1)) for s1 in [0.5 * k for k in range(1, 13)]]
+    this_pass = [Point(s1, 0.0, law(s1) - 0.08 * (i + 1)) for i, s1 in enumerate((6.5, 7.0, 7.5))]
+    alone = lr_law.decide(earlier, [], 7.5, PEAK, 8000, threshold=0.018)
+    both = lr_law.decide(earlier, this_pass, 7.5, PEAK, 8000, threshold=0.018)
+    assert (alone.action, both.action) == ("lower", "hold") and both.gain > alone.gain
