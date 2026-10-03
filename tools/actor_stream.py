@@ -296,9 +296,13 @@ class ActorStream:
 
     def wait_in_flight(self, timeout: float) -> Dict[int, Tuple[int, float]]:
         """Read messages until every live actor is inside a game, then
-        return `in_flight()`; a publication made right after straddles
-        each of those games. Games that complete meanwhile wait for the
-        next `collect`. Raises past `timeout` seconds."""
+        return `in_flight()`. The view lags the actors by the time their
+        reports take to arrive (one actor's start report can wait behind
+        another's experiences in the shared queue), so a game in it may
+        have ended already: a publication made right after straddles each
+        of those games that is still running. Games that complete
+        meanwhile wait for the next `collect`. Raises past `timeout`
+        seconds."""
         if not self._open:
             raise RuntimeError("wait_in_flight() on a stream that is not open")
         t0 = time.monotonic()

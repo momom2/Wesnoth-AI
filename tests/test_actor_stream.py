@@ -292,3 +292,65 @@ def test_serve_gate_readers_overlap_and_a_writer_excludes_them():
     late.join(5.0)
     assert wrote.is_set() and late_in.is_set()
     assert order.index("writer") > max(order.index("r1 out"), order.index("r2 out"))
+
+
+def _after(t: float) -> None:
+    """Wait until the clock is past `t` (a stamp must follow the scripted starts)."""
+    while time.time() <= t:
+        time.sleep(0.002)
+
+
+def test_a_publication_no_game_outlived_is_made_again_on_games_started_after_it():
+    """The view of the games in flight lags the actors: both games in it had
+    ended when the publication was stamped. The helper publishes again once
+    every game in flight started after that stamp (actor 0's next game,
+    which straddled it, ends first), and each game in flight at the second
+    publication straddles it once."""
+    from helpers.stream_publication import assert_publication_straddled, collect_across_publication
+    pool = _stream_pool([])
+    q, now, stamps = pool._result_q._items, time.time(), []
+    q += [(_R_START, 0, (0, now - 5, 0)), (_R_START, 1, (1, now - 5, 0))]
+    stream = pool.stream(base_seed=1)
+    stream.start()
+
+    def publish():
+        if stamps:
+            _after(stamps[0] + 0.05)
+        stream.publish()
+        t = stream.publications()[-1]
+        stamps.append(t)
+        if len(stamps) == 1:
+            q.extend([*_game(0, 0, t0=now - 5, t1=t - 0.2), *_game(1, 1, t0=now - 5, t1=t - 0.1),
+                      (_R_START, 0, (2, t - 0.05, 0)), (_R_START, 1, (3, t + 0.01, 0)),
+                      *_game(0, 2, t0=t - 0.05, t1=t + 0.03), (_R_START, 0, (4, t + 0.02, 0))])
+        else:
+            q.extend([*_game(1, 3, t0=stamps[0] + 0.01, t1=t + 1.0),
+                      *_game(0, 4, t0=stamps[0] + 0.02, t1=t + 1.5)])
+
+    try:
+        games, targets, t_pub = collect_across_publication(stream, publish, timeout=5.0)
+        assert stamps == stream.publications() and t_pub == stamps[1]
+        assert targets == {3, 4} and sorted(g.index for g in games) == [3, 4]
+        assert_publication_straddled(games, targets, t_pub)
+    finally:
+        stream.stop(grace=0.5)
+
+
+def test_the_publication_helper_gives_up_when_no_game_outlives_any_publication():
+    from helpers.stream_publication import collect_across_publication
+    pool = _stream_pool([])
+    q, now = pool._result_q._items, time.time()
+    q += [(_R_START, 0, (0, now - 5, 0)), (_R_START, 1, (1, now - 5, 0))]
+    stream = pool.stream(base_seed=1)
+    stream.start()
+
+    def publish():
+        stream.publish()
+        t = stream.publications()[-1]
+        q.extend([*_game(0, 0, t0=now - 5, t1=t - 0.2), *_game(1, 1, t0=now - 5, t1=t - 0.1)])
+
+    try:
+        with pytest.raises(AssertionError, match="no game in flight outlived any of 1 publications"):
+            collect_across_publication(stream, publish, timeout=5.0, attempts=1)
+    finally:
+        stream.stop(grace=0.5)
