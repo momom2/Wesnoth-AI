@@ -21,7 +21,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_actor_pool_smoke import (  # noqa: E402
+from helpers.stream_publication import (  # noqa: E402
     assert_publication_straddled, collect_across_publication,
 )
 from tools.actor_pool import _IPCInferenceClient, ServeProcessDied  # noqa: E402
@@ -169,7 +169,8 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
             versions.append(stream.publish())
 
         games, targets, t_pub = collect_across_publication(stream, publish)
-        assert versions == [policy._inference_model._weights_version]
+        # One publication per attempt (helpers.stream_publication), each to a newer version.
+        assert versions == sorted(set(versions)) and versions[-1] == policy._inference_model._weights_version
         assert_publication_straddled(games, targets, t_pub)
         # The last window runs from the previous collect to this one and
         # can be too short for a batch (CI 2026-09-23 read 0), so only
