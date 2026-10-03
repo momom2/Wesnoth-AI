@@ -1,0 +1,1 @@
+{"action": "hold", "reason": "one more epoch at the peak lowers the fitted loss by 0.167, more than 0.03", "gain": 0.16655224310006903, "law": {"L0": 1.0680385837080082, "A": 2.4911316948118443, "alpha": 0.16447467170197988, "C": 1.0537120396740367, "rms": 0.027616961404714153, "n": 18, "lowering_seen": true}}

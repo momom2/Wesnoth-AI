@@ -455,3 +455,81 @@ def test_a_second_pass_refuses_what_it_cannot_continue(tmp_path, pass_inputs):
         sequence_train.main([*quiet, "--out", str(tmp_path / "y.pt"), "--init-from", str(failed)])
     with pytest.raises(SystemExit):
         sequence_train.main([*quiet, "--out", str(first), "--init-from", str(first), "--resume"])
+
+
+@pytest.mark.slow
+def test_a_pass_keeps_its_rate_areas_and_a_new_pass_starts_from_them(tmp_path, pass_inputs):
+    """The trainer's areas are those of the rates it applied (the replay of
+    its settings, for a pass whose rate follows the step count); every probe
+    row carries them; a new pass starts from the areas of the checkpoint it
+    starts from and refuses a second source."""
+    from tools import lr_law, sequence_train
+    common = [*_one_position_steps(pass_inputs), "--probe-every", "4"]
+    first, second = tmp_path / "first.pt", tmp_path / "second.pt"
+    assert sequence_train.main([*common, "--out", str(first)]) == 0
+    state = torch.load(first, map_location="cpu", weights_only=True)["sequence_resume"]["state"]
+    want = lr_law.Areas()
+    for s, rate in enumerate(lr_law.pass_rates(state["steps"], state["positions"], 2.8e-4, 2, None)):
+        want.step(rate, warming=(s + 1) < 2)
+    assert state["areas"] == pytest.approx(want.to_dict())
+    rows = lr_law.read_probes(first.with_suffix(".probe.jsonl"))
+    assert [r["positions"] for r in rows] == [4, 8, 12] and rows[-1]["areas"]["s1"] == pytest.approx(want.s1)
+    assert sequence_train.main([*common, "--out", str(second), "--init-from", str(first), "--warmup-steps", "0",
+                                "--max-positions", "0"]) == 0
+    carried = torch.load(second, map_location="cpu", weights_only=True)["sequence_resume"]["state"]["areas"]
+    assert carried == pytest.approx(state["areas"])
+    with pytest.raises(SystemExit, match="carries"):
+        sequence_train.main([*common, "--out", str(tmp_path / "third.pt"), "--init-from", str(first),
+                             "--initial-areas", json.dumps(want.to_dict())])
+
+
+@pytest.mark.slow
+def test_a_pass_of_fewer_positions_lowers_its_rate_over_them_and_ends_there(tmp_path, pass_inputs):
+    from tools import lr_law, sequence_train
+    common = _one_position_steps(pass_inputs)
+    first, low = tmp_path / "first.pt", tmp_path / "low.pt"
+    assert sequence_train.main([*common, "--out", str(first)]) == 0
+    lowering = [*common, "--init-from", str(first), "--warmup-steps", "0", "--decay-from", "0"]
+    assert sequence_train.main([*lowering, "--out", str(low), "--pass-positions", "6"]) == 0
+    ck = torch.load(low, map_location="cpu", weights_only=True)
+    assert ck["sequence_resume"]["state"]["positions"] == 6
+    final = lr_law.read_probes(low.with_suffix(".probe.jsonl"))[-1]
+    assert final["final"] and final["positions"] == final["total_positions"] == 6
+    assert ck["optimizer_state"]["param_groups"][0]["lr"] == pytest.approx(2.8e-4 / 6), \
+        "the last step runs at a sixth of the peak: the line reaches 0 at the pass's end"
+    with pytest.raises(SystemExit, match="pass_positions"):
+        sequence_train.main([*common, "--out", str(low), "--resume", "--warmup-steps", "0", "--decay-from", "0",
+                             "--pass-positions", "8"])
+
+
+@pytest.mark.slow
+def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_again(tmp_path, pass_inputs):
+    """The rule runs after every probe on the earlier passes' points and
+    this pass's: a decision to lower stops the pass there (exit 6), kept in
+    the checkpoint so a resume trains nothing more; a decision to hold lets
+    the pass go on."""
+    from tools import lr_law, sequence_train
+    common = _one_position_steps(pass_inputs)
+    first = tmp_path / "first.pt"
+    assert sequence_train.main([*common, "--out", str(first)]) == 0
+    points = tmp_path / "law_points.jsonl"
+    lr_law.write_points(points, [lr_law.Point(s1, s2, 2.0 + 1.5 * s1 ** -0.25 - 1.2 * s2)
+                                 for s1, s2 in ((0.5, 0), (1, 0), (1.5, 0), (2, 0), (2.5, 0.05), (3, 0.15))])
+    rule = [*common, "--init-from", str(first), "--warmup-steps", "0", "--probe-every", "4",
+            "--law-points", str(points), "--law-key", "k8"]
+    lowered = tmp_path / "lowered.pt"
+    assert sequence_train.main([*rule, "--out", str(lowered), "--anneal-rule", "1e9"]) == sequence_train.EXIT_LOWER
+    state = torch.load(lowered, map_location="cpu", weights_only=True)["sequence_resume"]["state"]
+    assert state["anneal"] == "lower" and state["positions"] == 4
+    decisions = [json.loads(line) for line in lowered.with_suffix(".anneal.jsonl").read_text().splitlines()]
+    assert [(d["action"], d["positions"]) for d in decisions] == [("lower", 4)]
+    resumed = [*common, "--out", str(lowered), "--resume", "--warmup-steps", "0", "--probe-every", "4",
+               "--law-points", str(points), "--law-key", "k8", "--anneal-rule", "1e9"]
+    assert sequence_train.main(resumed) == sequence_train.EXIT_LOWER
+    assert torch.load(lowered, map_location="cpu", weights_only=True)["sequence_resume"]["state"]["positions"] == 4
+    held = tmp_path / "held.pt"
+    assert sequence_train.main([*rule, "--out", str(held), "--anneal-rule", "-1", "--probe-every", "8"]) == 0
+    assert [json.loads(line)["action"] for line in held.with_suffix(".anneal.jsonl").read_text().splitlines()] \
+        == ["hold"]
+    with pytest.raises(SystemExit, match="law-key"):
+        sequence_train.main([*rule, "--out", str(tmp_path / "x.pt"), "--anneal-rule", "0.03", "--law-key", "k64"])
