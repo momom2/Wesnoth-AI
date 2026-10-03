@@ -105,12 +105,16 @@ box_init
 box_bind_run_stage
 restored=(law_seed.jsonl start_areas.json corpus_summary.json sequence_summary.json sequence_manifest.json
           LOWER_DONE lower.pt lower.probe.jsonl lower.signal.jsonl train_lower.log)
+held=()
 for (( k = 1; k <= HOLD_PASSES; k++ )); do
-    restored+=("hold$k.rc" "hold$k.pt" "hold$k.probe.jsonl" "hold$k.anneal.jsonl" "hold$k.signal.jsonl"
-               "train_hold$k.log")
+    restored+=("hold$k.rc" "hold$k.probe.jsonl" "hold$k.anneal.jsonl" "hold$k.signal.jsonl" "train_hold$k.log")
+    held+=("hold$k.pt")
     box_upload_hold "hold$k.rc" "hold$k.pt" "hold$k.probe.jsonl"
 done
 box_restore "${restored[@]}" || box_finish "RESTORE_FAILED (restore.log)" 1
+if [ ! -f "$OUT/LOWER_DONE" ]; then              # the held weights matter only until the lowering is done
+    box_restore "${held[@]}" || box_finish "RESTORE_FAILED (restore.log)" 1
+fi
 box_upload_hold LOWER_DONE lower.pt lower.probe.jsonl
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
@@ -141,7 +145,7 @@ fi
 # ---- the reference and the raw replays
 box_bounded reference 15 staging.log python tools/reference_player.py --ensure \
     || box_finish "REFERENCE_MISSING rc=$BOX_RC (staging.log)" 1
-if ! box_marked_this_stage "$BOX_STATE/INPUTS_DONE"; then
+if ! box_marked_this_stage "$BOX_STATE/INPUTS_DONE" && [ ! -f "$OUT/LOWER_DONE" ]; then
     box_bounded inputs 20 staging.log python - "$RAW_TAR" <<'EOF' \
         || box_finish "INPUTS_FAILED rc=$BOX_RC (staging.log)" 1
 import sys, tarfile
@@ -310,6 +314,8 @@ done
 if [ ! -f "$OUT/LOWER_DONE" ] && { [ -z "$BRANCH" ] || [ ! -f "$BRANCH" ]; }; then
     box_finish "NO_HOLD_CHECKPOINT (${BRANCH:-none})" 1
 fi
+# A new machine must find the hold pass the lowering branched from finished, not run it again.
+[ -z "$BRANCH" ] || box_upload_hold lower.pt "$(basename "$BRANCH" .pt).rc"
 
 # ---- the lowering: a straight line from the peak to 0 over LOWER_POSITIONS
 lower_attempt() {                # lower_attempt MINUTES: the lowering, continuing lower.pt when present; sets BOX_RC, BOX_WHY
@@ -341,7 +347,6 @@ tail -n 1 "$OUT/lower.probe.jsonl" | cut -c1-600
 match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...: one attempt, resumed in its directory, then its fit
     local name="$1" games="$2" sb="$3" extra="$4" dir="$OUT/games_$1" t0 f
     shift 4
-    if [ -f "$OUT/$name.fit.json" ]; then echo "match $name done"; return 0; fi
     if [ ! -f "$OUT/timing_$name.txt" ]; then          # the games; a re-entry after them redoes only the fit
         t0=$(date +%s)
         box_bounded "match $name" "$MATCH_CUT_MIN" "$name.log" \
@@ -363,7 +368,7 @@ EO=$(timeout 1m python -c "import json; print(json.load(open('configs/reference_
     || box_finish "REFERENCE_CONFIG_UNREADABLE (configs/reference_player.json)" 1
 mapfile -t REF_B < <(timeout 1m python tools/reference_player.py --flags b | tr ' ' '\n')
 [ "${#REF_B[@]}" -ge 4 ] || box_finish "REFERENCE_FLAGS_FAILED (tools/reference_player.py --flags b)" 1
-restored=("$MATCH.fit.json" "timing_$MATCH.txt")
+restored=("$MATCH.fit.json" "timing_$MATCH.txt" "$MATCH.log" match.walls)   # the logs are appended to
 [ -d "$OUT/games_$MATCH" ] || restored+=("games_$MATCH.tar.gz")
 box_restore "${restored[@]}" || box_finish "RESTORE_FAILED (restore.log)" 1
 if [ -f "$OUT/games_$MATCH.tar.gz" ]; then       # the games come back as the tarball their directory went up as

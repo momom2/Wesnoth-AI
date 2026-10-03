@@ -111,10 +111,10 @@ passes are replayed at 512 positions a step, as their probe rows read.
   match. A re-entry would have stopped again, stranding the held weights.
   It now ends the holding and the run goes on.
 - The replay of the earlier passes took their positions as spread evenly
-  over their steps. It now uses their 512 a step: the fit moved by under
-  0.001, and no decision changed.
-- A rule's decision is saved with its probe, so a crash between the two
-  cannot lose it. A short match is played once more; a failed one is
+  over their steps. It now uses their 512 a step: the fitted losses moved by
+  about 0.001, and no decision changed.
+- A rule's decision is saved with its probe, and no save falls between
+  them, so a crash repeats the probe at its position and decides there. A short match is played once more; a failed one is
   reported as failed. The lowering retries once after a crash, like a hold
   pass.
 

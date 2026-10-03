@@ -561,7 +561,8 @@ class Trainer:
             self._keep_stable()
             if self.state["positions"] >= self.state["next_checkpoint"]:
                 self.state["next_checkpoint"] += self.args.checkpoint_every
-                self.save()
+                if self.state["positions"] < self.state["next_probe"]:
+                    self.save()              # a probe due now saves after it: a resume repeats it at this position
             if self.state["positions"] >= self.state["next_probe"]:
                 result = self.run_probe()
                 self.state["next_probe"] += self.args.probe_every

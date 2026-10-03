@@ -555,16 +555,19 @@ def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_agai
         return decide(earlier, this_pass, s1, peak, epoch_steps, threshold)
 
     monkeypatch.setattr(sequence_train, "law_decide", spy)
-    assert sequence_train.main([*rule, "--out", str(lowered), "--anneal-rule", "1e9"]) == sequence_train.EXIT_LOWER
+    epoch = lr_law.read_probes(first.with_suffix(".probe.jsonl"))[-1]["total_positions"]
+    short = ["--pass-positions", str(epoch - 2)]          # the rule still reads an epoch, not the pass
+    assert sequence_train.main([*rule, *short, "--out", str(lowered), "--anneal-rule", "1e9"]) \
+        == sequence_train.EXIT_LOWER
     state = torch.load(lowered, map_location="cpu", weights_only=True)["sequence_resume"]["state"]
     probe = lr_law.read_probes(lowered.with_suffix(".probe.jsonl"))[-1]
     decisions = [json.loads(line) for line in lowered.with_suffix(".anneal.jsonl").read_text().splitlines()]
     assert state["anneal"] == "lower" and 4 <= state["positions"] == probe["positions"] < probe["total_positions"]
     assert [(d["action"], d["positions"]) for d in decisions] == [("lower", state["positions"])]
-    assert calls == [(6, 1, pytest.approx(probe["areas"]["s1"]), 2.8e-4, probe["total_positions"] / 6.0, 1e9)], \
+    assert calls == [(6, 1, pytest.approx(probe["areas"]["s1"]), 2.8e-4, epoch / 6.0, 1e9)], \
         "the rule reads the earlier probes, this pass's, the trainer's S1, its peak and an epoch of its steps"
     resumed = [*common, "--out", str(lowered), "--resume", "--warmup-steps", "0", "--probe-every", "4",
-               "--law-points", str(points), "--law-key", "k8", "--anneal-rule", "1e9"]
+               "--law-points", str(points), "--law-key", "k8", "--anneal-rule", "1e9", *short]
     assert sequence_train.main(resumed) == sequence_train.EXIT_LOWER
     assert torch.load(lowered, map_location="cpu",
                       weights_only=True)["sequence_resume"]["state"]["positions"] == state["positions"]
@@ -576,3 +579,31 @@ def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_agai
         sequence_train.main([*rule, "--out", str(tmp_path / "x.pt"), "--anneal-rule", "0.03", "--law-key", "k64"])
 
 
+
+
+@pytest.mark.slow
+def test_a_pass_killed_while_deciding_decides_at_the_same_probe_on_resume(tmp_path, pass_inputs, monkeypatch):
+    """The rule's decision is saved with its probe, and no save falls between
+    them: a pass killed while deciding repeats that probe, at that position,
+    on resume, and decides there rather than one probe later."""
+    from tools import lr_law, sequence_train
+    common = _one_position_steps(pass_inputs)
+    first = tmp_path / "first.pt"
+    assert sequence_train.main([*common, "--out", str(first)]) == 0
+    points = tmp_path / "law_points.jsonl"
+    lr_law.write_points(points, [lr_law.Point(s1, s2, 2.0 + 1.5 * s1 ** -0.25 - 1.2 * s2)
+                                 for s1, s2 in ((0.5, 0), (1, 0), (1.5, 0), (2, 0), (2.5, 0.05), (3, 0.15))])
+    rule = ["--warmup-steps", "0", "--probe-every", "4", "--checkpoint-every", "1", "--law-points", str(points),
+            "--law-key", "k8", "--anneal-rule", "1e9"]
+    out = tmp_path / "cut.pt"
+
+    def killed(*_):
+        raise OSError("killed while deciding")
+
+    monkeypatch.setattr(sequence_train, "law_decide", killed)
+    with pytest.raises(OSError, match="deciding"):
+        sequence_train.main([*common, *rule, "--out", str(out), "--init-from", str(first)])
+    monkeypatch.undo()
+    assert sequence_train.main([*common, *rule, "--out", str(out), "--resume"]) == sequence_train.EXIT_LOWER
+    assert torch.load(out, map_location="cpu", weights_only=True)["sequence_resume"]["state"]["positions"] == 4
+    assert [r["positions"] for r in lr_law.read_probes(out.with_suffix(".probe.jsonl"))] == [4]

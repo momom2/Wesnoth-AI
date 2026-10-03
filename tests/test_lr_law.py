@@ -122,3 +122,12 @@ def test_the_rule_reads_this_pass_s_probes():
     alone = lr_law.decide(earlier, [], 7.5, PEAK, 8000, threshold=0.018)
     both = lr_law.decide(earlier, this_pass, 7.5, PEAK, 8000, threshold=0.018)
     assert (alone.action, both.action) == ("lower", "hold") and both.gain > alone.gain
+
+
+def test_the_replay_lowers_on_the_positions_trained_before_each_step():
+    """A pass of 45 positions lowering from its middle (22.5): at 5 positions
+    a step, step 5 starts at 25 and is lowered while step 4 (at 20) is not;
+    spread evenly (4.5 a step), step 5 would start at 22 and hold."""
+    rates = lr_law.pass_rates(10, 45, PEAK, 0, 0.5, positions_per_step=5)
+    assert rates[4] == PEAK and rates[5] < PEAK
+    assert lr_law.pass_rates(10, 45, PEAK, 0, 0.5)[5] == PEAK
