@@ -372,13 +372,20 @@ def main(argv=None) -> int:
         decl = engine_declarations([setup.scenario_id])[setup.scenario_id]
         game = LiveGame(index, setup.scenario_id, (setup.faction1, setup.faction2), our_side, decl, player,
                         out, args.speed, args.max_turns, watched=not args.unwatched)
-        result = game.play()
+        try:
+            result = game.play()
+        except (MirrorDivergence, TimeoutError, RuntimeError) as e:
+            # A divergence is a fidelity defect to investigate; the record
+            # keeps the boards' differences, and the series goes on.
+            log.error(f"game {index} stopped: {e}")
+            result = {"game": index, "scenario": setup.scenario_id, "our_side": our_side,
+                      "outcome": "stopped", "how": f"{type(e).__name__}: {str(e)[:500]}"}
         results.append(result)
-        log.info(f"game {index}: {result['outcome']} on turn {result['turns']} ({result['how']})")
+        log.info(f"game {index}: {result['outcome']} on turn {result.get('turns')} ({result['how']})")
+        (out / "summary.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     wins = sum(r["outcome"] == "win" for r in results)
     losses = sum(r["outcome"] == "loss" for r in results)
     log.info(f"{wins} wins, {losses} losses, {len(results) - wins - losses} other, of {len(results)}")
-    (out / "summary.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     return 0
 
 
