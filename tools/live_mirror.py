@@ -19,7 +19,7 @@ candidate action loop logs that it runs it at debug level
 (`--log-debug=ai/stage/rca`, ai/default/stage_rca.cpp:124).
 
 The log carries no `[init_side]` or `[end_turn]` (both recorded outside
-add_synced_command, replay.cpp:298-304): the mirror ends a side's turn when
+add_synced_command, replay.cpp:219-226 and 305-311): the mirror ends a side's turn when
 the next command comes from another side, or when the frame of a decision
 names another turn.
 """
