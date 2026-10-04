@@ -1,0 +1,1 @@
+2026-10-04T09:22:17Z IMITATION_ANNEAL_DONE training: lower.log: positions 2018304/2017864 steps 3942 stage=tier-b/staging/stage_20261003a_anneal.tar.gz

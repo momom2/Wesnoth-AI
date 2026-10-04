@@ -1,0 +1,15 @@
+2026-10-03T18:57:50Z tests rc=0 ok 25 s
+2026-10-03T18:58:21Z reference rc=0 ok 30 s
+2026-10-03T19:00:23Z inputs rc=0 ok 122 s
+2026-10-03T19:01:01Z corpus rc=0 ok 38 s
+2026-10-03T19:01:01Z corpus-check rc=0 ok 0 s
+2026-10-03T19:06:35Z preencode rc=0 ok 334 s
+2026-10-03T19:06:35Z preencode-check rc=0 ok 0 s
+2026-10-03T19:06:41Z start rc=0 ok 6 s
+2026-10-03T19:06:45Z law-seed rc=0 ok 4 s
+2026-10-04T00:40:06Z hold 1 rc=0 ok 20001 s
+2026-10-04T06:16:10Z hold 2 rc=0 ok 20164 s
+2026-10-04T09:06:42Z lower rc=0 ok 10232 s
+2026-10-04T09:06:45Z gpu check rc=0 ok 2 s
+2026-10-04T09:22:14Z match cand64_vs_ref rc=0 ok 929 s
+2026-10-04T09:22:17Z fit cand64_vs_ref rc=0 ok 3 s

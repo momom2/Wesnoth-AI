@@ -129,3 +129,42 @@ passes are replayed at 512 positions a step, as their probe rows read.
   The balance is $10.57 (2026-10-03).
 - **Box:** `scripts/imitation_anneal_box.sh`, on the class of the
   parity-memory passes (RTX 4090, 32 cores, 64 GB).
+
+## Measured (2026-10-04)
+
+`tier-b/imitation_anneal_20261003`, stage `stage_20261003a_anneal`
+(8125a77), on an RTX 4090 with an AMD EPYC 7702 at $0.42 an hour: 14.5
+box-hours (18:50 to 09:22 UTC), $6.22. Records in
+`training/metrics/imitation_anneal_20261003/box/`; the checkpoints and the
+match's games stay on HF.
+
+- **Holding:** the rule held at all 16 probes of the two hold passes; the
+  cap ended it. Its fitted gain of one more epoch at the peak fell from
+  0.153 at the first probe to 0.061 at the last, and the law's error
+  stayed between 0.023 and 0.027. The probes never left the law.
+- **Holdout loss at 64 slots, at the peak rate:** 3.12 at the start, 2.976
+  at the end of hold pass 1, 2.890 at hold pass 2's lowest probe and 2.985
+  at its end. Probes at the peak swing by up to 0.09.
+- **After the lowering:**
+
+| reading | candidate | `parity2` |
+|---|---|---|
+| holdout loss, 64 slots | 2.688 | 2.852 |
+| holdout loss, 16 slots | 2.695 | 2.857 |
+| holdout loss, 0 slots | 2.791 | 2.935 |
+| value AUC, 64 slots | 0.791 | 0.773 |
+| belief loss, 64 slots | 0.01557 | 0.01668 |
+
+  I predicted 2.70 at 64 slots (2.62 to 2.80); the law's 2.61 was
+  optimistic by 0.08.
+- **The match:** 493 wins and 307 losses over 800 decisive games, p 0.616
+  ± 0.017, +82 ± 13 Elo over `parity2` (PURE). **Pass** (bar 0.535;
+  predicted 0.58, 0.50 to 0.66). 144 of the 944 games reached the turn
+  limit: 15%, against 3.5% in pass 2's match against `obs8`.
+- **Durations:** hold pass 1 20,001 s, hold pass 2 20,164 s, the lowering
+  10,232 s, the match 929 s.
+
+The candidate is `tier-b/imitation_anneal_20261003/lower.pt`, the proposed
+reference pending the user's ruling. The rule's last estimate, 0.061 a
+further epoch, says holding still paid when the cap stopped it; a further
+run would start from `hold2.pt`, the weights before the lowering.

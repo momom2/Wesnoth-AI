@@ -1,0 +1,21 @@
+stage tier-b/staging/stage_20261003a_anneal.tar.gz
+instance 54050072, host fe255c792f41
+cores(all) 256, usable 31
+model name	: AMD EPYC 7702 64-Core Processor
+cpu.max n/a
+pids.max n/a
+               total        used        free      shared  buff/cache   available
+Mem:          773786      474940       48424       65044      250421      228850
+overlay         120G  1.2G  119G   1% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.95.05
+torch 2.5.1+cu124 cuda True
+code 0.11.0 epoch 11
+wheel phase 29, source phase 29
+reach                RUST
+enumeration          RUST
+observation          RUST
+rows_from_reach      RUST
+combat               RUST
+encode_streams       RUST
+GameCore             RUST
+kernels | RUST: reach, enumeration, observation, rows_from_reach, combat, encode_streams, GameCore | PYTHON: none | wheel phase 29
