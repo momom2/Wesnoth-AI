@@ -10,7 +10,7 @@ use pyo3::types::PyDict;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-use crate::combat::Mt19937;
+use crate::combat::{Mt19937, StrikeRng};
 use crate::core::{sorted, unit_dict, AttackRec, DefTable, UnitRec};
 use crate::db::{unit_db, UnitDb, UnitType, DAMAGE_TYPES};
 
@@ -151,6 +151,17 @@ fn fallback_musthave(unit_type: &str, race: &str) -> Vec<String> {
 /// one. A leader draws nothing and gets quick when its type has 4 moves.
 #[allow(clippy::too_many_arguments)]
 pub fn roll_traits(t: &UnitType, seed_hex: &str, seed_token: &str, is_leader: bool) -> Vec<String> {
+    if seed_hex.is_empty() {
+        return roll_traits_with(t, None, seed_token, is_leader);
+    }
+    let mut rng = Mt19937::new(seed_int_of(seed_hex), 0);
+    roll_traits_with(t, Some(&mut rng), seed_token, is_leader)
+}
+
+/// `roll_traits` over a draw source: the recruit's seed or the numbers
+/// the engine logged for it (`LoggedRng`); None hashes `seed_token`.
+pub(crate) fn roll_traits_with(t: &UnitType, rng: Option<&mut dyn StrikeRng>, seed_token: &str,
+                               is_leader: bool) -> Vec<String> {
     let (must, pool, target_total) = match &t.traits {
         Some(info) => (info.musthave.clone(), info.pool.clone(), info.num_traits),
         None => (fallback_musthave(&t.name, &t.race), race_pool(&t.race), 2),
@@ -169,17 +180,16 @@ pub fn roll_traits(t: &UnitType, seed_hex: &str, seed_token: &str, is_leader: bo
     let candidates = |out: &Vec<String>| -> Vec<String> {
         pool.iter().filter(|p| !out.contains(p)).cloned().collect()
     };
-    if !seed_hex.is_empty() {
-        let mut rng = Mt19937::new(seed_int_of(seed_hex), 0);
+    if let Some(rng) = rng {
         if t.n_genders > 1 {
-            rng.next_u32();
+            rng.draw();
         }
         for _ in 0..n_random {
             let c = candidates(&out);
             if c.is_empty() {
                 break;
             }
-            let idx = rng.next_u32() as usize % c.len();
+            let idx = rng.draw() as usize % c.len();
             out.push(c[idx].clone());
         }
     } else {
@@ -356,11 +366,23 @@ pub fn build_unit(db: &UnitDb, spec: &UnitSpec, leader_traits: bool, game_id: &s
 /// seed rolls, in roll order (kept for advancement).
 pub fn build_recruit_unit(db: &UnitDb, unit_type: &str, side: i64, x: i64, y: i64, next_uid: i64, game_id: &str,
                           seed_hex: &str, exp_modifier: i64) -> UnitRec {
+    if seed_hex.is_empty() {
+        return build_recruit_unit_with(db, unit_type, side, x, y, next_uid, game_id, None, exp_modifier);
+    }
+    let mut rng = Mt19937::new(seed_int_of(seed_hex), 0);
+    build_recruit_unit_with(db, unit_type, side, x, y, next_uid, game_id, Some(&mut rng), exp_modifier)
+}
+
+/// `build_recruit_unit` over a draw source (`roll_traits_with`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_recruit_unit_with(db: &UnitDb, unit_type: &str, side: i64, x: i64, y: i64, next_uid: i64,
+                                      game_id: &str, rng: Option<&mut dyn StrikeRng>, exp_modifier: i64)
+    -> UnitRec {
     let spec = UnitSpec { uid: next_uid, unit_type: unit_type.to_string(), side, x, y, ..Default::default() };
     let mut u = build_unit(db, &spec, false, game_id, exp_modifier);
     let t = db.get(unit_type);
     let token = format!("{}:u{}:{}", game_id, next_uid, unit_type);
-    let ids = roll_traits(&t, seed_hex, &token, false);
+    let ids = roll_traits_with(&t, rng, &token, false);
     let mut table: DefTable = match &u.def_table {
         Some(tab) if !tab.is_empty() => tab.as_ref().clone(),
         _ => t.defense.clone(),
