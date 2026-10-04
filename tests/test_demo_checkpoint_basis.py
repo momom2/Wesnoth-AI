@@ -45,3 +45,25 @@ def test_a_loaded_checkpoint_keeps_its_basis_and_saves_it(tmp_path):
     resaved = tmp_path / "resaved.pt"
     policy.save_checkpoint(resaved)
     assert torch.load(resaved, map_location="cpu", weights_only=True)["relevant_set_hexes"] is True
+
+
+def test_demo_player_carries_the_checkpoint_memory(tmp_path):
+    """A checkpoint with a memory is played with all its slots, each side's
+    state written at its decisions, as a match plays it; one without a
+    memory is played without."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from sim_test_helpers import fresh_scenario_sim
+    from tools.sim_demo_game import load_player
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    memory = tmp_path / "memory.pt"
+    TransformerPolicy(relevant_set_hexes=True, observation_parity=True, memory_slots=8,
+                      relevant_set_version=2, **_ARCH).save_checkpoint(memory)
+    player = load_player(memory, torch.device("cpu"), mcts_sims=0, temperature=0.0, end_turn_offset=-1.5)
+    assert player.memory_slots == 8
+    gs = fresh_scenario_sim(seed=3, max_turns=6, mini=True).gs
+    player.select_action(gs, game_label="demo")
+    assert [k for k in player._memories] == [("demo", gs.global_info.current_side)]
+    plain = tmp_path / "plain.pt"
+    TransformerPolicy(**_ARCH).save_checkpoint(plain)
+    assert load_player(plain, torch.device("cpu"), mcts_sims=0, temperature=0.0,
+                       end_turn_offset=-1.5).memory_slots is None
