@@ -39,6 +39,21 @@ al., "Scaling Laws and Compute-Optimal Training Beyond Fixed Training
 Durations", 2024); the checkpoint where the cooldown starts is kept as
 `<out>.stable.pt`, from which a further pass can start.
 
+`--pass-positions N` ends the pass after the first N positions of its order;
+the learning rate's schedule, `--decay-from` included, runs over those N (a
+lowering of the rate over part of an epoch).
+
+`--anneal-rule T` runs the rule of tools/lr_law.py after every probe: the
+law of the holdout loss against the learning-rate history, fitted to this
+pass's probes and the earlier passes' (`--law-points`). While one more epoch
+at the peak rate would lower the fitted loss by more than T, the pass goes
+on; otherwise it stops with exit 6 (lower the rate now), or with exit 7 when
+its latest probes stopped following the law (stop and look). The checkpoint
+keeps the decision, so a resume stops again. The trainer keeps its rate
+history's areas (S1 and S2) in its state and in every probe row; a new pass
+takes them from the checkpoint it starts from, or from `--initial-areas` for
+a checkpoint written before they were kept.
+
     python tools/sequence_train.py --sequences replays_dataset_sequences \\
         --dataset replays_dataset_imitation --out training/checkpoints/parity_memory.pt
 """
@@ -60,6 +75,8 @@ from torch.utils.checkpoint import checkpoint
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.lr_law import Areas, probe_points, read_points  # noqa: E402
+from tools.lr_law import decide as law_decide  # noqa: E402
 from tools.preencode_sequences import (ENCODING, load_manifest, read_record,  # noqa: E402
                                        record_path)
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
@@ -91,6 +108,8 @@ BASELINE_FIT_SIDES = 400
 EXIT_MEMORY_BARRIER = 3
 EXIT_PASS_INCOMPLETE = 4
 EXIT_NONFINITE = 5
+EXIT_LOWER = 6                   # the anneal rule: lower the rate from here
+EXIT_REVIEW = 7                  # the anneal rule: the probes left the law, stop and look
 # Non-finite steps in a row that stop the pass (a single one is skipped and counted).
 NONFINITE_LIMIT = 3
 # The telemetry's slots, terms and parameter groups.
@@ -223,6 +242,8 @@ class Trainer:
         self.holdout = [GameSide(f, s) for f in holdout for s in (1, 2)
                         if int(man["games"][f].get(f"positions_side{s}", 0)) > 0]
         self.schedule = StreamSchedule(epoch_order(list(lengths), args.seed), lengths, args.streams, args.seed)
+        self.pass_total = (self.schedule.total_positions if args.pass_positions is None
+                           else min(int(args.pass_positions), self.schedule.total_positions))
         self.arch = {k: int(getattr(args, k)) for k in ARCH}
         self.encoder, self.model = build_modules(man["unit_type_to_id"], man["faction_to_id"], device,
                                                  self.arch)
@@ -233,7 +254,7 @@ class Trainer:
         self.memories: Dict[int, torch.Tensor] = {}
         self.state = {"positions": 0, "steps": 0, "windows": 0, "next_probe": args.probe_every,
                       "barrier_done": False, "next_checkpoint": args.checkpoint_every,
-                      "next_signal": args.signal_every}
+                      "next_signal": args.signal_every, "areas": Areas().to_dict()}
         self.signal = self._signal_probe()
         self.rates: Optional[Tuple[float, float]] = None
         self.start_positions = 0                 # where this process's run began (the logged rate)
@@ -245,7 +266,8 @@ class Trainer:
         self.meta = {"seed": args.seed, "streams": args.streams, "window": args.window, "lr": args.lr,
                      "warmup_steps": args.warmup_steps, "sequences": str(args.sequences),
                      "fingerprint": man["fingerprint"], "value_weight": self.value_weight,
-                     "arch": dict(self.arch), "decay_from": args.decay_from, "init_from": None}
+                     "arch": dict(self.arch), "decay_from": args.decay_from, "init_from": None,
+                     "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule}
         self.head_shapes: Optional[Tuple[int, int, int]] = None
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
@@ -261,7 +283,8 @@ class Trainer:
     def resume(self, path: Path) -> None:
         ck = torch.load(path, map_location="cpu", weights_only=True)
         meta = ck.get("training_meta", {})
-        for key in ("seed", "streams", "window", "fingerprint", "arch", "decay_from"):
+        for key in ("seed", "streams", "window", "fingerprint", "arch", "decay_from", "pass_positions",
+                    "anneal_rule"):
             if meta.get(key) != self.meta[key]:
                 raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
                                  f"{self.meta[key]!r}")
@@ -297,17 +320,30 @@ class Trainer:
         self.encoder.load_state_dict(ck["encoder_state"])
         self.opt.load_state_dict(ck["optimizer_state"])
         self.signal = self._signal_probe()
+        areas = state.get("areas")
+        if areas is not None and self.args.initial_areas is not None:
+            raise SystemExit(f"{path} carries its rate history's areas; --initial-areas would replace them")
+        if areas is None and self.args.initial_areas is not None:
+            areas = json.loads(self.args.initial_areas)
+        self.state["areas"] = None if areas is None else Areas.from_dict(areas).to_dict()
         self.meta["init_from"] = {"path": str(path), "seed": meta.get("seed"),
                                   "positions": int(state.get("positions", 0)), "steps": int(state.get("steps", 0)),
-                                  "init_from": meta.get("init_from")}
+                                  "init_from": meta.get("init_from"), "areas": self.state["areas"]}
         log.info("a new pass from %s, which trained %d positions in %d steps", path,
                  self.meta["init_from"]["positions"], self.meta["init_from"]["steps"])
 
     # ---- one window -----------------------------------------------------
     def _lr_now(self) -> float:
         warm = min(1.0, (self.state["steps"] + 1) / max(1, self.args.warmup_steps))
-        return self.args.lr * warm * lr_factor(self.state["positions"], self.schedule.total_positions,
-                                               self.args.decay_from)
+        return self.args.lr * warm * lr_factor(self.state["positions"], self.pass_total, self.args.decay_from)
+
+    def _areas_step(self, lr: float) -> None:
+        """The rate history's areas (tools/lr_law.py) after a step applied at `lr`."""
+        if self.state.get("areas") is None:
+            return
+        areas = Areas.from_dict(self.state["areas"])
+        areas.step(lr, warming=(self.state["steps"] + 1) < self.args.warmup_steps)
+        self.state["areas"] = areas.to_dict()
 
     def _head_shapes(self, staged, mems) -> Tuple[int, int, int]:
         if self.head_shapes is None:
@@ -368,8 +404,9 @@ class Trainer:
             logs.append((targets, log_t, bl))
             n_positions += len(steps)
         loss = total / float(self.args.streams * self.args.window)
+        lr = self._lr_now()
         for g in self.opt.param_groups:
-            g["lr"] = self._lr_now()
+            g["lr"] = lr
         loss.backward()
         write_norm = _grad_norm([*self.model.slot_memory.gate.parameters(),
                                  *self.model.slot_memory.candidate.parameters()])
@@ -377,6 +414,7 @@ class Trainer:
         finite = bool(torch.isfinite(norm)) and bool(torch.isfinite(loss.detach()))
         if finite:
             self.opt.step()
+            self._areas_step(lr)
             self.state["nonfinite_run"] = 0
         else:
             # The update is skipped and counted; a slot whose carried memory
@@ -467,8 +505,10 @@ class Trainer:
                        self.args.probe_ks, self.device, self.type_loss_weights, rates=self.rates,
                        autocast_dtype=self.autocast)
         result.update(positions=self.state["positions"], steps=self.state["steps"],
-                      total_positions=self.schedule.total_positions, final=final,
+                      total_positions=self.pass_total, final=final,
                       seconds=round(time.time() - t0, 1))
+        if self.state.get("areas") is not None:
+            result["areas"] = {"s1": self.state["areas"]["s1"], "s2": self.state["areas"]["s2"]}
         with open(self.args.out.with_suffix(".probe.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(result) + "\n")
         log.info("PROBE %s", json.dumps(result))
@@ -483,8 +523,9 @@ class Trainer:
         `<out>.stable.pt`: a further pass starts from the weights before
         the cooldown."""
         f = self.args.decay_from
-        if f is None or self.state.get("stable_saved") \
-                or self.state["positions"] < f * self.schedule.total_positions:
+        # A pass that lowers from its first position keeps none: it started from that checkpoint.
+        if f is None or f == 0 or self.state.get("stable_saved") \
+                or self.state["positions"] < f * self.pass_total:
             return
         self.state["stable_saved"] = True
         stable = self.args.out.with_name(self.args.out.stem + ".stable.pt")
@@ -498,11 +539,16 @@ class Trainer:
         if self.state.get("barrier_failed"):
             log.error("MEMORY_BARRIER_FAILED earlier in this pass (the .probe.jsonl): no resume past it")
             return EXIT_MEMORY_BARRIER
+        if self.state.get("anneal"):
+            log.info("ANNEAL_RULE decided %r earlier in this pass (the .anneal.jsonl): no training past it",
+                     self.state["anneal"])
+            return EXIT_LOWER if self.state["anneal"] == "lower" else EXIT_REVIEW
         t0, last_log = time.time(), time.time()
         self.start_positions = self.state["positions"]
         window_logs: List[Dict] = []
         limit = self.args.max_positions
-        while not self.schedule.exhausted() and (limit is None or self.state["positions"] < limit):
+        while (not self.schedule.exhausted() and self.state["positions"] < self.pass_total
+               and (limit is None or self.state["positions"] < limit)):
             window_logs.append(self.train_window())
             if self.state.get("nonfinite_run", 0) >= NONFINITE_LIMIT:
                 self._log(window_logs, t0)
@@ -515,7 +561,8 @@ class Trainer:
             self._keep_stable()
             if self.state["positions"] >= self.state["next_checkpoint"]:
                 self.state["next_checkpoint"] += self.args.checkpoint_every
-                self.save()
+                if self.state["positions"] < self.state["next_probe"]:
+                    self.save()              # a probe due now saves after it: a resume repeats it at this position
             if self.state["positions"] >= self.state["next_probe"]:
                 result = self.run_probe()
                 self.state["next_probe"] += self.args.probe_every
@@ -524,7 +571,8 @@ class Trainer:
                 if barrier_now:
                     self.state["barrier_done"] = True
                     self.state["barrier_failed"] = not memory_barrier_passes(result)
-                self.save()                      # the probe is kept, so a resume does not repeat it
+                code = None if self.state.get("barrier_failed") else self._anneal_rule()
+                self.save()                      # the probe and its decisions together: a resume repeats neither
                 if barrier_now and self.state["barrier_failed"]:
                     log.error("MEMORY_BARRIER_FAILED carried against reset %s; against 0 slots %s",
                               json.dumps(result.get("belief_carried")), json.dumps(result.get("belief_paired")))
@@ -532,22 +580,46 @@ class Trainer:
                 if barrier_now:
                     log.info("memory barrier passed: carried against reset %s; against 0 slots %s",
                              json.dumps(result.get("belief_carried")), json.dumps(result.get("belief_paired")))
+                if code is not None:
+                    if window_logs:
+                        self._log(window_logs, t0)
+                    return code
         if window_logs:
             self._log(window_logs, t0)
         self.save()
-        if limit is not None and self.state["positions"] < self.schedule.total_positions:
+        if limit is not None and self.state["positions"] < self.pass_total:
             log.info("SEQUENCE_TRAIN_CUT %d positions of %d (--max-positions %d)", self.state["positions"],
-                     self.schedule.total_positions, limit)
+                     self.pass_total, limit)
             return 0
-        if self.state["positions"] != self.schedule.total_positions:
-            log.error("PASS_INCOMPLETE: %d positions trained of the %d pre-encoded", self.state["positions"],
-                      self.schedule.total_positions)
+        if self.state["positions"] < self.pass_total:
+            log.error("PASS_INCOMPLETE: %d positions trained of the pass's %d", self.state["positions"],
+                      self.pass_total)
             return EXIT_PASS_INCOMPLETE
         self.run_probe(final=True)
         log.info("SEQUENCE_TRAIN_DONE %d positions, %d steps in %.0f s (%d non-finite steps skipped, "
                  "%d memories reset)", self.state["positions"], self.state["steps"], time.time() - t0,
                  self.state.get("nonfinite_steps", 0), self.state.get("memory_resets", 0))
         return 0
+
+    def _anneal_rule(self) -> Optional[int]:
+        """After a probe: the rule of tools/lr_law.py on this pass's probes
+        and the earlier passes'; the exit code when it lowers the rate or
+        stops the run, None while the rate holds. A decision is set in the
+        state, which the caller saves with the probe."""
+        if self.args.anneal_rule is None:
+            return None
+        this_pass = probe_points(self.args.out.with_suffix(".probe.jsonl"), self.args.law_key, source="this pass")
+        epoch_steps = self.schedule.total_positions / float(self.args.streams * self.args.window)
+        decision = law_decide(read_points(self.args.law_points), this_pass, self.state["areas"]["s1"],
+                              self.args.lr, epoch_steps, self.args.anneal_rule)
+        row = {"positions": self.state["positions"], "steps": self.state["steps"], **decision.to_dict()}
+        with open(self.args.out.with_suffix(".anneal.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+        log.info("ANNEAL_RULE %s", json.dumps(row))
+        if decision.action == "hold":
+            return None
+        self.state["anneal"] = decision.action
+        return EXIT_LOWER if decision.action == "lower" else EXIT_REVIEW
 
     def _log(self, rows: List[Dict], t0: float) -> None:
         rows = [r for r in rows if r]
@@ -557,7 +629,7 @@ class Trainer:
         el = time.time() - t0
         log.info("positions %d/%d steps %d | loss %.4f grad %.2f memory write grad %.3f | policy %.4f value %.4f "
                  "belief %.4f | lr %.2e | %.1f positions/s", self.state["positions"],
-                 self.schedule.total_positions, self.state["steps"], sum(r["loss"] for r in rows) / len(rows),
+                 self.pass_total, self.state["steps"], sum(r["loss"] for r in rows) / len(rows),
                  max(r["grad_norm"] for r in rows), max(r["memory_write_grad_norm"] for r in rows),
                  tot["policy"] / max(1, tot["policy_n"]), tot["value"] / max(1, tot["value_n"]),
                  tot["belief"] / max(1, tot["belief_n"]), self._lr_now(),
@@ -575,6 +647,17 @@ def parse_args(argv=None):
     ap.add_argument("--decay-from", type=float, default=None,
                     help="hold the learning rate until this fraction of the pass, then lower it linearly "
                          "to 0 at its end; the checkpoint there is kept as <out>.stable.pt")
+    ap.add_argument("--pass-positions", type=int, default=None,
+                    help="end the pass after this many positions; the rate's schedule runs over them")
+    ap.add_argument("--anneal-rule", type=float, default=None,
+                    help="after every probe, stop when one more epoch at the peak rate would lower the "
+                         "fitted holdout loss by this much or less (tools/lr_law.py; exit 6, or 7 to look)")
+    ap.add_argument("--law-points", type=Path, default=None,
+                    help="the earlier passes' probe points the anneal rule fits with this pass's")
+    ap.add_argument("--law-key", default="k64", help="the probe's slot reading the anneal rule fits")
+    ap.add_argument("--initial-areas", default=None,
+                    help="with --init-from a checkpoint that does not carry them: its rate history's areas "
+                         "as JSON (tools/lr_law.py replay --areas-at)")
     ap.add_argument("--imitation-config", type=Path, default=Path("configs/imitation.json"))
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--fp32", action="store_true", help="no bfloat16 autocast on CUDA")
@@ -602,11 +685,23 @@ def main(argv=None) -> int:
         raise SystemExit("--resume continues --out's own pass; --init-from starts a new one: not both")
     if args.decay_from is not None and not 0.0 <= args.decay_from < 1.0:
         raise SystemExit(f"--decay-from {args.decay_from}: a fraction of the pass, from 0 up to 1")
+    if args.pass_positions is not None and args.pass_positions <= 0:
+        raise SystemExit(f"--pass-positions {args.pass_positions}: a pass of at least one position")
+    if args.initial_areas is not None and args.init_from is None:
+        raise SystemExit("--initial-areas gives the areas of the checkpoint --init-from starts from")
+    if args.anneal_rule is not None and (args.law_points is None or not args.law_points.is_file()):
+        raise SystemExit(f"--anneal-rule fits the earlier passes' probes: --law-points {args.law_points} "
+                         f"is not a file")
+    if args.anneal_rule is not None and args.law_key not in {f"k{k}" for k in args.probe_ks}:
+        raise SystemExit(f"--law-key {args.law_key}: the probe reads {', '.join(f'k{k}' for k in args.probe_ks)}")
     trainer = Trainer(args, torch.device(args.device))
     if args.resume:
         trainer.resume(args.out)
     elif args.init_from is not None:
         trainer.init_from(args.init_from)
+    if args.anneal_rule is not None and trainer.state.get("areas") is None:
+        raise SystemExit("--anneal-rule needs the rate history's areas, which the starting checkpoint does "
+                         "not carry: pass --initial-areas")
     return trainer.run()
 
 

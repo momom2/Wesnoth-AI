@@ -4,16 +4,34 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-10-02)
+## NEXT (2026-10-04)
 
-**1. `parity2` is the reference** (user ruling 2026-10-02): +191 +- 14
-Elo over `obs8` (800 decisive games, docs/parity_memory_prereg_20260929.md
-"Measured, pass 2"), played with its memory at 64 slots. Every number
-from here is measured against it. **Next (user order 2026-10-02): why
-the memory costs strength in play** while it lowers the holdout CE: the
-same checkpoint at 0 slots beats it at 64 by 37 +- 12 Elo, at 16 by
-30 +- 12. The items the audit deferred until after the retrain are in
-docs/parity_memory_audit_20260929.md "After the retrain".
+**1. `parity3` is the reference** (user ruling 2026-10-04): +82 +- 13
+Elo over `parity2` (800 decisive games,
+docs/imitation_anneal_prereg_20261003.md "Measured"), played with its
+memory at 64 slots. Every number from here is measured against it.
+**Next (user order 2026-10-04): self-play.** Parked meanwhile:
+
+- **Imitation's remaining gains.** The anneal rule's last estimate was
+  0.061 of holdout loss a further epoch at the peak rate; a further run
+  starts from `tier-b/imitation_anneal_20261003/hold2.pt`, the weights
+  before the lowering.
+- **The memory's cost in play.** It was 37 +- 12 Elo for `parity2` and is
+  not measured for `parity3`. The investigation (branch
+  `exp/memory-in-play`: the match records' tempo, a counterfactual reader
+  and a box run the user declined) found no bug and no train/play
+  mismatch: the player computes what the trainer computed, to the bit
+  (tests/test_match_memory.py). The likely cause, unproven, is the
+  player's own history in its memory, which training never showed it.
+- **The items the audit deferred** until after the retrain:
+  docs/parity_memory_audit_20260929.md "After the retrain".
+- **The live-Wesnoth eval path cannot play `parity3` as it plays**
+  (found 2026-10-04). `tools/eval_vs_builtin.py` builds the network
+  without the checkpoint's structure and loads it non-strict, samples
+  instead of the reference decode, and carries no memory; and our side
+  reports nothing during the enemy's turn, so the sighting record is
+  missing (besides "Live-Wesnoth observation" below). Games against the
+  RCA AI need that path rebuilt.
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
 docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game

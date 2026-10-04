@@ -1,0 +1,38 @@
+{
+ "law": {
+  "L0": 1.278950751003844,
+  "A": 2.2785585248000237,
+  "alpha": 0.17874599362253002,
+  "C": 0.0,
+  "rms": 0.03199134074336369,
+  "n": 13,
+  "lowering_seen": false
+ },
+ "rest": [
+  {
+   "source": "pass2",
+   "measured": 3.061737902810258,
+   "predicted": null
+  },
+  {
+   "source": "pass2",
+   "measured": 2.9977169016645773,
+   "predicted": null
+  },
+  {
+   "source": "pass2",
+   "measured": 2.9099607880627616,
+   "predicted": null
+  },
+  {
+   "source": "pass2",
+   "measured": 2.8525519922020437,
+   "predicted": null
+  },
+  {
+   "source": "pass2",
+   "measured": 2.852234994988627,
+   "predicted": null
+  }
+ ]
+}

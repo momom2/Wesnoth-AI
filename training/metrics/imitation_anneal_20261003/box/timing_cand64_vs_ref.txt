@@ -1,0 +1,1 @@
+cand64_vs_ref: 929 s, 944 games, 800 decisive, rc=0 ok

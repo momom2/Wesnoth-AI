@@ -60,7 +60,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-10-02)
+## Current status (2026-09-04, entries through 2026-10-04)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -68,16 +68,22 @@ mechanism specs are in `docs/archive/` (index in its README); the 78
 quarantined training mechanisms are in `quarantine/INVENTORY.md`.
 
 State of play:
-- **The reference player (user ruling 2026-10-02) is `parity2` at
-  `raw:t0+eo-1.5` with its memory at 64 slots:** the parity-memory
-  recipe (docs/parity_memory_design_20260929.md) in two passes over the
-  corpus (HF `tier-b/parity_memory_pass2_20261002/arm.pt`, local
-  `training/checkpoints/parity2.pt`), +191 +- 14 Elo over `obs8` at the
-  same decode (800 decisive games, docs/parity_memory_prereg_20260929.md
-  "Measured, pass 2"). The same checkpoint at 0 slots beats it by
-  37 +- 12 Elo; why the memory costs strength in play is under
-  investigation (BACKLOG.md). No self-pin of `parity2` has been run.
-  Before it (2026-09-25 to 2026-10-02) the reference was `obs8` at
+- **The reference player (user ruling 2026-10-04) is `parity3` at
+  `raw:t0+eo-1.5` with its memory at 64 slots:** `parity2`'s recipe
+  trained on under the anneal rule (docs/imitation_anneal_prereg_20261003.md):
+  two more epochs at the peak rate from pass 2's checkpoint where its
+  lowering began, then the rate lowered to 0 over half an epoch (HF
+  `tier-b/imitation_anneal_20261003/lower.pt`, local
+  `training/checkpoints/parity3.pt`); +82 +- 13 Elo over `parity2` at
+  the same decode, both at 64 slots (493-307 of 800 decisive games). No
+  self-pin of `parity3` has been run, and whether its memory still costs
+  strength in play is not measured. Before it (2026-10-02 to 2026-10-04)
+  the reference was `parity2` at `raw:t0+eo-1.5` with 64 slots: the
+  parity-memory recipe (docs/parity_memory_design_20260929.md) in two
+  passes over the corpus (HF `tier-b/parity_memory_pass2_20261002/arm.pt`),
+  +191 +- 14 Elo over `obs8` (docs/parity_memory_prereg_20260929.md
+  "Measured, pass 2"); the same checkpoint at 0 slots beat it by 37 +- 12
+  Elo. Before it (2026-09-25 to 2026-10-02) the reference was `obs8` at
   `raw:t0+eo-1.5`: terrain's recipe from scratch on the observation
   of `OBSERVATION_EPOCH` 8 (HF
   `tier-b/observation_retrain_20260924/arm_epoch0.pt`, local
@@ -971,9 +977,28 @@ State of play:
   player carries a memory: the self-play pool, MCTS and the turn search
   refuse a model with one.
 
+- 2026-10-04 (0.12.0, user ruling): **`parity3` is the reference
+  player: imitation trained on under a learning-rate rule read from the
+  loss curve beats `parity2` by +82 +- 13 Elo.** `tools/lr_law.py` fits
+  the holdout loss against the learning-rate history (Tissue et al.,
+  "Scaling Law with Learning Rate Annealing", 2024: a progress term in
+  the sum of the rates, and a term for what lowering the rate removes).
+  After every probe it holds the peak rate while one more epoch is
+  predicted to lower the loss by more than 0.03; the rate is then lowered
+  to 0 over half an epoch (`tools/sequence_train.py --anneal-rule`,
+  `--pass-positions`; the rule designed with the user 2026-10-03). From
+  pass 2's checkpoint where its lowering began, it held for the two
+  epochs the budget allowed (its estimate fell from 0.153 to 0.061 a
+  further epoch) and lowered: holdout policy loss 2.688 at 64 slots
+  against `parity2`'s 2.852, 493-307 of 800 decisive games, 144 of the
+  944 games at the turn limit (15%, against 3.5% in pass 2's match), 14.5
+  box-hours, $6.22 (docs/imitation_anneal_prereg_20261003.md
+  "Measured"). **User order the same day: the focus turns to self-play;**
+  imitation's remaining gains are parked (BACKLOG.md).
+
 Standing rules (full list in the plan): the reference player is
-`parity2` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
-2026-10-02; one checkpoint, its memory and one decode, all in
+`parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
+2026-10-04; one checkpoint, its memory and one decode, all in
 `configs/reference_player.json`, which
 `tools/reference_player.py --flags b` turns into run_elo_batch flags);
 every strength claim is a PURE match against it with the standard
