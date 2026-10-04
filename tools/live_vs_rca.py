@@ -114,10 +114,11 @@ class LiveGame:
     """One live game: the engine, its log, the mirror, the player."""
 
     def __init__(self, index: int, scenario_id: str, factions, our_side: int, decl, player, out_dir: Path,
-                 speed: float, max_turns: int, watched: bool = True):
+                 speed: float, max_turns: int, watched: bool = True, player_label: str = "the network"):
         self.index, self.scenario_id, self.factions, self.our_side = index, scenario_id, factions, our_side
         self.decl, self.player, self.speed, self.max_turns = decl, player, speed, max_turns
         self.watched = watched
+        self.player_label = player_label
         self.label = f"live_{index}"
         self.record_path = out_dir / f"game_{index:02d}.jsonl"
         self.game = None
@@ -145,7 +146,8 @@ class LiveGame:
         self.preferences = WESNOTH_USERDATA_PATH / "preferences"
         self.saved_preferences = self.preferences.read_bytes() if self.preferences.exists() else None
         (ipc / "settings.lua").write_text(
-            f"return {{ turbo_speed = {self.speed}, animate = {str(self.watched).lower()} }}\n", encoding="utf-8")
+            f"return {{ turbo_speed = {self.speed}, animate = {str(self.watched).lower()}, "
+            f"player = {json.dumps(self.player_label)} }}\n", encoding="utf-8")
         self._note(event="start", scenario=self.scenario_id, factions=self.factions, our_side=self.our_side)
         self.game.start_wesnoth()
         try:
@@ -371,7 +373,7 @@ def main(argv=None) -> int:
         our_side = 1 + (index + seed) % 2
         decl = engine_declarations([setup.scenario_id])[setup.scenario_id]
         game = LiveGame(index, setup.scenario_id, (setup.faction1, setup.faction2), our_side, decl, player,
-                        out, args.speed, args.max_turns, watched=not args.unwatched)
+                        out, args.speed, args.max_turns, watched=not args.unwatched, player_label=ref["label"])
         try:
             result = game.play()
         except (MirrorDivergence, TimeoutError, RuntimeError) as e:

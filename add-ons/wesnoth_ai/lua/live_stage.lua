@@ -54,6 +54,19 @@ local M = {}
 -- Decisions are numbered for the whole process (one game per process).
 local seq = 0
 
+-- Wesnoth names every computer side after the default AI
+-- (connect_engine.cpp:945-953, 1037), and with no human side its end
+-- screen reads Defeat whoever wins (play_controller.cpp:1035): the
+-- watcher is told which side the network plays, once.
+local function announce()
+    local settings = load_table(IPC_DIR .. "settings.lua") or {}
+    local player = settings.player or "the Python driver"
+    local side = wesnoth.current.side
+    pcall(wesnoth.interface.add_chat_message, "Wesnoth AI", string.format(
+        "Side %d is played by %s, the other side by the default AI. With no human side, "
+        .. "the end screen reads Defeat whoever wins.", side, player))
+end
+
 local function emit_frame()
     local record = board.record("live")
     record.seq = seq
@@ -94,6 +107,7 @@ local function execute(cmd)
 end
 
 function M:run_turn()
+    if seq == 0 then announce() end
     while true do
         seq = seq + 1
         -- Error level reaches the log at any setting; `false` keeps it out
