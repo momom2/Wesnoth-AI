@@ -190,36 +190,11 @@ def dv_stats(pre, base_policy) -> Dict[str, float]:
 
 # ---- Parameter groups -----------------------------------------------------------
 
-# Predicates over `named_parameters()` names, the model's and the encoder's
-# namespaced as "model." and "encoder."; a parameter no predicate claims is
-# the trunk's. The offline profiler (signal_profiler/) groups the same way.
-PARAM_GROUPS = (
-    ("encoder",     lambda n: n.startswith("encoder.")),
-    ("value_head",  lambda n: n.startswith(("model.value_head", "model.material_proj"))),
-    ("actor_head",  lambda n: n.startswith("model.actor_head")),
-    ("type_head",   lambda n: n.startswith("model.type_head")),
-    ("target_proj", lambda n: n.startswith("model.target_")),
-    ("weapon_head", lambda n: n.startswith("model.weapon_head")),
-    ("gbc_heads",   lambda n: n.startswith("model.gbc_heads")),
-    ("aux_ml",      lambda n: n.startswith(("model.aux_score_head", "model.moves_left"))),
+# The groups are the network's (wesnoth_ai/param_groups.py); the names stay
+# importable from here.
+from wesnoth_ai.param_groups import (  # noqa: E402,F401
+    MEMORY_GROUPS, PARAM_GROUPS, group_of, named_model_parameters,
 )
-
-
-def group_of(name: str) -> str:
-    """The parameter group of a namespaced parameter name."""
-    for group, claims in PARAM_GROUPS:
-        if claims(name):
-            return group
-    return "trunk"
-
-
-def named_model_parameters(model: torch.nn.Module,
-                           encoder: Optional[torch.nn.Module]) -> List[Tuple[str, torch.nn.Parameter]]:
-    """The trained parameters, namespaced as PARAM_GROUPS expects."""
-    named = [("model." + n, p) for n, p in model.named_parameters()]
-    if encoder is not None:
-        named += [("encoder." + n, p) for n, p in encoder.named_parameters()]
-    return [(n, p) for n, p in named if p.requires_grad]
 
 
 # ---- A gradient probe any trainer can use ---------------------------------------
@@ -432,8 +407,12 @@ MIN_PROBE_PAIRS = 4       # the smallest probe an out-of-memory retry goes down 
 
 def signal_group(name: str) -> str:
     """The telemetry's coarse group of a namespaced parameter: encoder,
-    trunk or heads."""
+    trunk or heads. The memory's parts count as trunk here; the sequence
+    trainer's probe gives the memory a group of its own, and the trainers'
+    step logs each part (wesnoth_ai.param_groups.StepNorms)."""
     group = group_of(name)
+    if group in MEMORY_GROUPS:
+        return "trunk"
     return group if group in ("encoder", "trunk") else "heads"
 
 

@@ -197,3 +197,22 @@ def test_an_in_process_memory_player_trains_through_its_own_queue():
     stats = player.train_step()
     assert stats.n_transitions == len(held) and stats.belief_loss > 0
     assert stats.boundary_pairs_n == 0
+
+
+@needs_core
+def test_the_step_logs_where_its_gradient_and_update_go():
+    """Per parameter group, the step's gradient norm before the clip and its
+    update's: together they are the whole gradient and the parameters' real
+    change, and the memory's write and the belief head receive gradient."""
+    from wesnoth_ai.param_groups import memory_share, named_model_parameters
+    policy = _policy()
+    _, _, exps = _play(policy)
+    trainer = policy._trainer
+    named = named_model_parameters(trainer.model, trainer.encoder)
+    before = [p.detach().clone() for _, p in named]
+    stats = trainer.step_mcts(exps)
+    moved = sum(float((p.detach() - b).pow(2).sum()) for (_, p), b in zip(named, before))
+    assert sum(v * v for v in stats.grad_norms.values()) == pytest.approx(stats.grad_norm ** 2, rel=1e-4)
+    assert sum(v * v for v in stats.update_norms.values()) == pytest.approx(moved, rel=1e-4)
+    assert stats.grad_norms["memory_write"] > 0 and stats.grad_norms["belief_head"] > 0
+    assert 0 < memory_share(stats.grad_norms) < 1
