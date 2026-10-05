@@ -51,6 +51,7 @@ MODELED_GLOBALS = (
     "_did_first_init_side", "_last_move_walk", "_last_checkup_strikes", "_last_advance_events",
     "_advance_uniform", "_advance_salt", "_advance_counter", "_fog_cleared",
     "_shroud_delayed", "_pending_vision", "_plan_unit_advance", "_pa_fresh_turn",
+    "_skip_first_turn_resting",
 )
 # The unit underscore attributes the state comparison checks; the core
 # also keeps `_object_effects` (WML nodes) and `_ai_guardian`.
@@ -73,8 +74,10 @@ _RECORD_SIDES = (1, 2)
 # units the scenario placed out of the seen types, 29 records no sighting
 # along a move's route (the display with move animations off), 30 applies an
 # attack or a recruit with the numbers the engine drew for it (the live
-# mirror, tools/live_mirror.py).
-_CORE_PHASE = 30
+# mirror, tools/live_mirror.py), 31 marks every unit of the side resting at
+# each side-turn start, the first included (`skip_first_turn_resting` keeps
+# the earlier rule for records of format 3 and earlier).
+_CORE_PHASE = 31
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -449,6 +452,8 @@ class CoreState:
                 setattr(gi, k, v)
         gi._fog = g["fog_on"]
         gi._did_first_init_side = g["did_first_init_side"]
+        if g["skip_first_turn_resting"]:
+            gi._skip_first_turn_resting = True
         gi._tod_start_offset = g["tod_start_offset"]
         gi._experience_modifier = g["experience_modifier"]
         gi._next_uid_counter = g["next_uid_counter"]
@@ -830,6 +835,7 @@ class CoreState:
             "advance_uniform": bool(getattr(gi, "_advance_uniform", False)),
             "advance_salt": str(getattr(gi, "_advance_salt", "") or ""),
             "advance_counter": int(getattr(gi, "_advance_counter", 0) or 0),
+            "skip_first_turn_resting": bool(getattr(gi, "_skip_first_turn_resting", False)),
             "game_over": bool(gs.game_over), "winner": -1 if gs.winner is None else int(gs.winner),
         })
         owner = getattr(gi, "_village_owner", None) or {}

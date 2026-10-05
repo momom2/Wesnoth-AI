@@ -1012,12 +1012,13 @@ after both gates of `do_init_side` (`if(turn() > 1)` and
 `if(do_healing())`, `src/play_controller.cpp:488-514`), so side 1's
 starting units are resting from the game's first decision and a
 petrified unit is set too. Both appliers set it only inside their
-healing branch, which skips the game's first side turn and petrified
-units (`tools/replay_dataset.py` init_side, `core_step.rs`
-`apply_init_side`): side 1's leader that stays on its keep on turn 1
-misses the engine's rest heal if it is hurt before side 1's turn 2.
-Found by the live mirror's board check (tools/live_vs_rca.py); the fix
-waits for a record-format change (BACKLOG.md). Moving does not clear
+healing branch until 0.13.1, which skipped the game's first side turn and
+petrified units: side 1's leader that stayed on its keep on turn 1
+missed the engine's rest heal if it was hurt before side 1's turn 2.
+Found by the live mirror's board check (tools/live_vs_rca.py); fixed in
+both appliers (`_mark_side_resting`, `core_step.rs` `apply_init_side`),
+game records of format 3 and earlier rebuilding under the earlier rule
+(`skip_first_turn_resting`, tests/test_first_turn_resting.py). Moving does not clear
 resting before the side's end of turn; attacking clears it at once on
 both combatants (`src/actions/attack.cpp:1374-1375`):
 ```cpp

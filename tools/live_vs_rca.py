@@ -82,24 +82,14 @@ def board_differences(frame: dict, sim, stopped: set) -> tuple:
 
 
 def known_difference(field: str, diff: dict, frame: dict, stopped: set) -> bool:
-    """A difference the check lets through, each understood:
-
-    - The engine marks every unit of a side resting at each of its turn
-      starts, the first included (play_controller.cpp:509-514, 1.18.4);
-      both appliers skip the game's first side turn, so side 1's starting
-      units read resting only in the engine during turn 1. Nothing the
-      network observes depends on it; fixing it changes every game
-      record's first fingerprint (BACKLOG.md).
-    - A unit the default AI stopped (`AiStop`), and its leaders once its
-      leader_shares_keep action ran (ai/default/ca.cpp:1688), have no
-      movement left and, if they had not moved, the not_moved state that
-      keeps their rest (unit.cpp:2784-2791); neither is in the replay, so
-      the simulator keeps their movement. Both end at the side's next turn
-      start."""
+    """A difference the check lets through, understood: a unit the
+    default AI stopped (`AiStop`), and its leaders once its
+    leader_shares_keep action ran (ai/default/ca.cpp:1688), have no
+    movement left and, if they had not moved, the not_moved state that
+    keeps their rest (unit.cpp:2784-2791); neither is in the replay, so
+    the simulator keeps their movement. Both end at the side's next turn
+    start."""
     item = tuple(diff["item"][:3]) if isinstance(diff["item"], (list, tuple)) else ()
-    if field == "unit.resting":
-        return (frame.get("turn") == 1 and item[:1] == (1,)
-                and diff["engine"] is True and diff["ours"] is False)
     leader = any(u["canrecruit"] and (u["side"], u["x"], u["y"]) == item for u in frame["units"])
     if item not in stopped and not (leader and ("leaders", item[0]) in stopped):
         return False
