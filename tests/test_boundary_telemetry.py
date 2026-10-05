@@ -79,6 +79,7 @@ def _harvest(exps):
 
     class _Shim:
         _boundary_pairs = sink
+        _trace = None                   # a player without a memory
 
         class _L:
             def __enter__(self): return None
