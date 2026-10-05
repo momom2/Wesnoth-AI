@@ -1021,7 +1021,7 @@ State of play:
   was stopped by the user on turn 15. The check found side 1's starting
   units not resting during turn 1 in either applier (the engine sets
   resting at every side-turn start, docs/wesnoth_rules.md "Resting
-  lifecycle"; fix pending, BACKLOG.md), and the default AI taking
+  lifecycle"; fixed in 0.13.1), and the default AI taking
   movement outside the replay (its stop actions and leader_shares_keep),
   which it reads from the engine's AI log and lets through. In the window
   Wesnoth names both sides after the default AI and its end screen reads
@@ -1032,6 +1032,18 @@ State of play:
   could only match it in distribution, at 6-8k lines of C++ and 1.5-2k of
   Lua; the mirror runs the real one, and Wesnoth runs it headless
   (`--nogui`) if games are needed at scale.
+- 2026-10-05 (0.13.1): **every unit of a side rests from each of its
+  turn starts, the first included.** The engine marks the side's units
+  resting after healing at every side-turn start, outside both its
+  `turn() > 1` and its healing gates (play_controller.cpp:509-514,
+  1.18.4); both appliers marked them only inside their healing branch,
+  which skips the game's first side turn and petrified units, so a side-1
+  unit that stood still through turn 1 and was hurt before side 1's turn 2
+  missed its rest heal. Both appliers now mark the side after healing
+  (Rust phase 31). Game records are format 4; records of format 3 and
+  earlier rebuild under the rule they were played with, so every existing
+  record still verifies. Nothing the network observes reads resting: the
+  observation epoch stays.
 
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling

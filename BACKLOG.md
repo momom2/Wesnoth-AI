@@ -34,11 +34,10 @@ play. Parked meanwhile:
 - **The items the audit deferred** until after the retrain:
   docs/parity_memory_audit_20260929.md "After the retrain".
 - **Live games against the default AI: done (0.13.0,
-  `tools/live_vs_rca.py`).** Open from it: (a) both appliers skip the
-  resting of side 1's starting units on the game's first side turn and
-  of petrified units (docs/wesnoth_rules.md "Resting lifecycle"); the
-  fix changes every game record's first fingerprint, so it waits for a
-  record-format change (user's call); (b) a command-line game plays 100%
+  `tools/live_vs_rca.py`).** Its board check found the appliers not
+  resting side 1's starting units on the game's first side turn, nor
+  petrified units: fixed in 0.13.1 (records format 4). Open from it:
+  (b) a command-line game plays 100%
   experience, a lobby 70% (a start from a composed save would play the
   lobby's); (c) the legacy eval path (`tools/eval_vs_builtin.py`,
   `eval_runner.py`, `eval_scenarios.py`, the turn stage's executor and

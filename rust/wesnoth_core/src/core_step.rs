@@ -255,6 +255,15 @@ impl GameCore {
                 }
             }
         }
+        // Every unit of the side rests from here, after both gates and the
+        // healing, the game's first side turn and petrified units included
+        // (play_controller.cpp:509-514); records of format 3 and earlier
+        // were played under the healed units only.
+        if !self.global.skip_first_turn_resting {
+            for u in self.units.iter_mut().filter(|u| u.side == side) {
+                u.add_status("resting");
+            }
+        }
         if !first_turn {
             // unit::new_turn clears STATE_UNCOVERED (unit.cpp:1277)
             // inside board_.new_turn's turn() > 1 gate.

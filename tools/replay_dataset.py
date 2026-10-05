@@ -1899,6 +1899,20 @@ def _clear_fog_if_advanced(gs: GameState, before: Unit, after: Optional[Unit]) -
         clear_fog(gs, after, [(after.position.x, after.position.y)])
 
 
+def _mark_side_resting(gs: GameState, side: int) -> None:
+    """Every unit of `side` rests after the side-turn start's healing,
+    the game's first side turn and petrified units included
+    (play_controller.cpp:509-514, 1.18.4: the loop sits after both the
+    `turn() > 1` and the `do_healing()` gates). Records of format 3 and
+    earlier were played under the healed units only
+    (`_skip_first_turn_resting`)."""
+    gs.map.units = {
+        _rebuild_unit(u, statuses=set(u.statuses) | {"resting"})
+        if u.side == side and "resting" not in u.statuses else u
+        for u in gs.map.units
+    }
+
+
 def _apply_command(gs: GameState, cmd: list) -> None:
     """Mutate GameState by applying one replay command (compact format
     from replay_extract.extract_replay)."""
@@ -2024,10 +2038,11 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             # Skip non-own-side units, AND petrified own-side units:
             # Wesnoth's calculate_healing (heal.cpp) bails on
             # `patient.incapacitated()` (== STATE_PETRIFIED) before any
-            # rest/village/regen/healer heal, poison tick, or `resting`
-            # set -- a petrified patient is frozen and receives NO healing
-            # and takes NO poison tick (docs/wesnoth_rules.md: "petrified
-            # patient receives no healing"). Pass both through unchanged.
+            # rest/village/regen/healer heal or poison tick -- a petrified
+            # patient is frozen and receives NO healing and takes NO poison
+            # tick (docs/wesnoth_rules.md: "petrified patient receives no
+            # healing"). It still rests: play_controller sets resting on
+            # every unit of the side after healing (`_mark_side_resting`).
             # (The move-reset is skipped too, but petrified units never
             # act -- action_sampler excludes them -- so it is inert.)
             if u.side != side or "petrified" in (u.statuses or set()):
@@ -2150,7 +2165,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
 
             # --- step 4: post-healing, set resting=True -----------------
             # (will be cleared again by move/attack during the upcoming
-            # turn). Subsequent moves and attacks discard "resting".
+            # turn). Subsequent moves and attacks discard "resting"; the
+            # units this loop skips rest too (`_mark_side_resting`).
             new_statuses.add("resting")
             # The MP/attack refresh belongs to the `turn() > 1` gate
             # (board_.new_turn), NOT to healing: a turn-1 non-first
@@ -2167,6 +2183,8 @@ def _apply_command(gs: GameState, cmd: list) -> None:
             )
             new_units.add(healed)
         gs.map.units = new_units
+        if not getattr(gs.global_info, "_skip_first_turn_resting", False):
+            _mark_side_resting(gs, side)
         # The side's revealed hiders hide again: unit::new_turn clears
         # STATE_UNCOVERED (unit.cpp:1277), inside board_.new_turn's
         # `turn() > 1` gate with the move refresh (play_controller.cpp:

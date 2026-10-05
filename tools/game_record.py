@@ -40,7 +40,10 @@ rebuilt without checks. 2 adds `turn_digests`, `final_digest` and the
 mid-game `sha256`. 3 adds `digest_version`, the `classes.state_digest`
 version its fingerprints use (a game played on the Rust core writes 2,
 which covers each side's sighting record; format 2 records verify under
-version 1).
+version 1). 4 marks the game played under the engine's resting rule,
+every unit of a side resting at each of its turn starts, the first
+included; records of format 3 and earlier rebuild under the rule they
+were played with, the healed units only (`skip_first_turn_resting`).
 """
 from __future__ import annotations
 
@@ -63,7 +66,7 @@ from wesnoth_ai.paths import REPO_ROOT  # noqa: E402
 
 log = logging.getLogger("game_record")
 
-FORMAT = 3
+FORMAT = 4
 
 
 class RecordMismatch(Exception):
@@ -368,9 +371,12 @@ def start_core(rec: Dict[str, Any], *, verify: bool = True):
     from tools.replay_dataset import record_core
     from wesnoth_ai.game_core import CoreState
     setup = rec["setup"]
+    old_resting = int(rec.get("format", 1)) <= 3
     if "midgame" in setup:
         data = _corpus_game(rec, verify)
         cs = record_core(data)
+        if old_resting:
+            cs.core.set_global_int("skip_first_turn_resting", 1)
         for cmd in data["commands"][:int(setup["midgame"]["boundary_idx"])]:
             cs.apply_command(list(cmd))
         gs = cs.to_state()
@@ -380,6 +386,8 @@ def start_core(rec: Dict[str, Any], *, verify: bool = True):
     else:
         from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
         cs = CoreState.from_state(build_scenario_gamestate(ScenarioSetup(**setup), **rec.get("build", {})))
+        if old_resting:
+            cs.core.set_global_int("skip_first_turn_resting", 1)
         cs.setup_scenario(rec["scenario_id"])
     if rec.get("uniform_advancement"):
         cs.core.set_global_int("advance_uniform", 1)
