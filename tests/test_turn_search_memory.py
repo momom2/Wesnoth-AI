@@ -177,3 +177,6 @@ def test_the_turn_search_players_memory_follows_its_served_decisions():
         sim.step(action)
     player.finalize_game("g", 0)
     assert not player._memories
+    shipped = list(player._queue)
+    assert len(shipped) == 4 and [e.side_step for e in shipped] == list(range(4))
+    assert all(e.raw is not None and e.memory_k == SLOTS for e in shipped)

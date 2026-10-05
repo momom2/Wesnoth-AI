@@ -20,7 +20,7 @@ import statistics
 
 import torch
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger("step_control")
 
@@ -94,12 +94,14 @@ def _pooled(per_game: Dict[str, Dict[str, float]], exps: List) -> Dict[str, floa
     `held_loss` over all of them would report)."""
     n_of = {}
     for e in exps:
+        if float(getattr(e, "game_weight", 1.0)) <= 0:
+            continue                      # a memory player's carry decision (no loss term)
         g = getattr(e, "game_id", "")
         n_of[g] = n_of.get(g, 0) + 1
     tot = sum(n_of.values()) or 1
     out = {}
     for k in ("policy_ce", "value_loss", "total"):
-        out[k] = sum(v[k] * n_of[g] for g, v in per_game.items()) / tot
+        out[k] = sum(v[k] * n_of.get(g, 0) for g, v in per_game.items()) / tot
     return out
 
 
@@ -120,15 +122,26 @@ def not_significantly_worse(before: Dict[str, Dict[str, float]],
     return mean <= z * se, mean, se
 
 
-def action_priors(base, e) -> Tuple[Dict, Dict, float]:
+def encoded_of(encoder, e):
+    """`e`'s encoding: the actor's (MCTSExperience.raw) when it shipped
+    one, whose state is not bound to a core in this process."""
+    if getattr(e, "raw", None) is not None:
+        return encoder.encode_from_raw(e.raw)
+    return encoder.encode(e.game_state)
+
+
+def action_priors(base, e, memories: Optional[Dict] = None) -> Tuple[Dict, Dict, float]:
     """Normalized prior over the legal actions of `e`'s state and the
     state's value, from the INFERENCE model (the one search
-    consults); plus action category per key."""
+    consults); plus action category per key. A model with a memory
+    reads the state's from `memories` (wesnoth_ai.memory_step.
+    memory_inputs under the inference weights)."""
     import torch
     from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
     with torch.no_grad():
-        enc = base._inference_encoder.encode(e.game_state)
-        out = base._inference_model(enc)
+        enc = encoded_of(base._inference_encoder, e)
+        out = (base._inference_model(enc) if memories is None
+               else base._inference_model(enc, memory=memories[id(e)]))
         legal = enumerate_legal_actions_with_priors(
             enc, out, e.game_state,
             decision_step=int(getattr(e, "decision_step", 0)))
@@ -143,7 +156,8 @@ def action_priors(base, e) -> Tuple[Dict, Dict, float]:
     return {k: v / z for k, v in pri.items()}, cat, value
 
 
-def policy_shift(base, states: List, old: List[Tuple[Dict, Dict, float]]) -> Dict[str, float]:
+def policy_shift(base, states: List, old: List[Tuple[Dict, Dict, float]],
+                 memories: Optional[Dict] = None) -> Dict[str, float]:
     """How far the network's OUTPUTS moved on `states`: KL(old||new)
     and TV of the action prior, end_turn prior mass, and the value
     head's level shift (mean and mean-absolute V_new - V_old). A
@@ -151,7 +165,7 @@ def policy_shift(base, states: List, old: List[Tuple[Dict, Dict, float]]) -> Dic
     turn when the head is flat within a turn."""
     kls, tvs, et, dvs = [], [], [], []
     for e, (p_old, cat, v_old) in zip(states, old):
-        p_new, _, v_new = action_priors(base, e)
+        p_new, _, v_new = action_priors(base, e, memories)
         kl = tv = 0.0
         for k, po in p_old.items():
             pn = max(p_new.get(k, 0.0), 1e-12)
@@ -208,7 +222,8 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
                       kl_states: Optional[List] = None, *,
                       shrink: float = 0.5, max_trials: int = 7,
                       max_level_shift: Optional[float] = None,
-                      select: str = "first") -> StepResult:
+                      select: str = "first",
+                      memories_of: Optional[Callable[[], Dict]] = None) -> StepResult:
     """Apply `take_step()` (the production update on `train_exps`,
     already queued by the caller), then shrink the applied move
     until BOTH hold: the held-out games are not significantly worse
@@ -237,10 +252,23 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
 
     `take_step` must perform exactly one optimizer update on the
     trainer model and return its stats; the weights it leaves are
-    the full proposal (alpha = 1)."""
+    the full proposal (alpha = 1).
+
+    `memories_of`: for a model with a memory, each held-out state's
+    memory under the inference weights published at the time of the
+    call (wesnoth_ai.memory_step.memory_inputs over the held-out games):
+    the shift compares each weights' own reading of the same games."""
     import torch
     theta0 = _clone_weights(base)
-    old_priors = ([action_priors(base, e) for e in kl_states]
+
+    def _shift() -> Dict:
+        if not kl_states:
+            return {}
+        return policy_shift(base, kl_states, old_priors,
+                            memories_of() if memories_of is not None else None)
+
+    memories0 = memories_of() if (memories_of is not None and kl_states) else None
+    old_priors = ([action_priors(base, e, memories0) for e in kl_states]
                   if kl_states else [])
     before_by_game = held_loss_by_game(base, held_exps) if held_exps else {}
     before = _pooled(before_by_game, held_exps) if held_exps else {"total": math.inf}
@@ -252,7 +280,7 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
     delta = {k: theta1[k] - v for k, v in theta0.items()
              if torch.is_floating_point(v)}
     if not held_exps:
-        shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+        shift = _shift()
         return StepResult(alpha=1.0, trials=0, skipped=False,
                           held_before={}, held_after={}, shift=shift,
                           n_train=len(train_exps), n_held=0)
@@ -271,7 +299,7 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
         if t > 0:
             publish_weights(base, {k: (v + alpha * delta[k] if k in delta else v)
                                    for k, v in theta0.items()})
-        shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+        shift = _shift()
         if not _level_ok(shift):
             after = None
             continue
@@ -297,7 +325,7 @@ def backtracking_step(base, take_step, train_exps: List, held_exps: List,
                               held_before=before, held_after=after, shift=shift,
                               n_train=len(train_exps), n_held=len(held_exps))
         publish_weights(base, theta0)
-        shift = policy_shift(base, kl_states, old_priors) if kl_states else {}
+        shift = _shift()
         log.warning(f"step skipped: no alpha down to {alpha:.4g} passed "
                     f"(held-out {before['total']:.4f}, last delta "
                     f"{mean_d:+.4f} se {se_d:.4f}, level cap {max_level_shift})")

@@ -12,19 +12,17 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 log = logging.getLogger("signal_profiler")
 
 
-def target_amplitude(policy, batch: List) -> Dict:
+def target_amplitude(policy, batch: List, memories: Optional[Dict] = None) -> Dict:
     """Aggregate KL(target || prior) and mass-shift stats over the
-    batch. Uses the trainer-side model (same weights as inference
-    here; no training has run) and the production prior path."""
-    import torch
-    from wesnoth_ai.action_sampler import (
-        enumerate_legal_actions_with_priors,
-    )
+    batch, the prior from the inference model through the production
+    prior path (tools.step_control.action_priors; `memories`: each
+    state's memory for a model with one)."""
+    from tools.step_control import action_priors
 
     base = policy._base if hasattr(policy, "_base") else policy
     kls, shifts, touched = [], [], []
@@ -41,21 +39,7 @@ def target_amplitude(policy, batch: List) -> Dict:
         if total <= 0:
             skipped += 1
             continue
-        with torch.no_grad():
-            enc = base._inference_encoder.encode(e.game_state)
-            out = base._inference_model(enc)
-            legal = enumerate_legal_actions_with_priors(
-                enc, out, e.game_state,
-                decision_step=int(getattr(e, "decision_step", 0)))
-        prior = {}
-        cat_of = {}
-        for la in legal:
-            key = (la.actor_idx, la.target_idx, la.weapon_idx,
-                   getattr(la, "type_idx", None))
-            prior[key] = float(la.prior)
-            cat_of[key] = la.action.get("type", "?")
-        z = sum(prior.values()) or 1e-12
-        prior = {k: v / z for k, v in prior.items()}
+        prior, cat_of, _ = action_priors(base, e, memories)
         kl = 0.0
         shift = 0.0
         ok = True

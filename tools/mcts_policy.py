@@ -342,6 +342,17 @@ class MCTSPolicy:
         # via `train_step` won't corrupt these forwards.
         self._inference_model = base._inference_model
         self._inference_encoder = base._inference_encoder
+        # A memory player's every decision, for the learner's memory
+        # chains (tools/memory_trace.py); the outcome reservoir and the
+        # replay buffer sample positions alone, which a memory cannot.
+        self._trace = None
+        if self.memory_slots is not None:
+            if self._value_memory_games > 0 or self._replay_config.enabled:
+                raise ValueError("the value memory and the replay buffer sample positions without "
+                                 "their game-sides: they run only on a model without a memory")
+            from tools.memory_trace import MemoryTrace
+            self._trace = MemoryTrace(self.memory_slots, belief=bool(
+                getattr(self._inference_encoder, "observation_parity", False)))
 
     def _note_search_diag(self, game_label, root, action,
                           reused: bool = False) -> None:
@@ -621,6 +632,9 @@ class MCTSPolicy:
         # advanced above regardless.
         with self._lock:
             self._last_recorded[game_label] = full_move
+        if self._trace is not None:
+            self._trace.note(game_label, self._inference_encoder, game_state, root.masks,
+                             recorded=full_move)
         return action
 
     def observe(self, game_label: str, side: int, reward: float,
@@ -655,6 +669,7 @@ class MCTSPolicy:
             _gbc_rec = self._gbc_obs.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
             self._forget_memories(game_label)
+        trace = self._trace.pop(game_label) if self._trace is not None else None
         tiebreak = self._mcts_config.draw_tiebreak
         if winner == 0 and tiebreak is not None and final_gs is None \
                 and states:
@@ -800,6 +815,9 @@ class MCTSPolicy:
             # penalty). exps preserve `states` order 1:1, so the
             # side-switch scan is equivalent to scanning states.
             self.harvest_boundary_pairs(exps)
+            if trace is not None:
+                from tools.memory_trace import sequence_experiences
+                exps = sequence_experiences(trace, exps, game_label, self.memory_slots, winner)
             with self._lock:
                 self._queue.extend(exps)
         if states:
@@ -858,6 +876,8 @@ class MCTSPolicy:
             self._last_recorded.pop(game_label, None)
             self._gbc_obs.pop(game_label, None)
             self._forget_memories(game_label)
+        if self._trace is not None:
+            self._trace.pop(game_label)
 
     def _game_memories(self, game_label: str) -> Optional[SideMemories]:
         """Each side's memory in the game, what its last decision wrote;
@@ -974,6 +994,8 @@ class MCTSPolicy:
                     self._memories.pop(key, None)
                 else:
                     self._memories[key] = before
+        if self._trace is not None:
+            self._trace.drop_last(game_label)
         # Roll back the per-decision counter the bounced call advanced.
         with self._base._lock:
             if self._base._decision_step > 0:

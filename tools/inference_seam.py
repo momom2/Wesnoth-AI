@@ -651,8 +651,10 @@ class RemoteEncoder:
         # basis -- with no tripwire on this path).
         self._relevant_set = bool(relevant_set)
 
-    def encode(self, game_state: GameState) -> EncodedState:
-        raw = encode_raw(
+    def raw_of(self, game_state: GameState) -> RawEncoded:
+        """The RawEncoded `encode` ships for `game_state` (a memory player
+        keeps it for the learner, tools/memory_trace.py)."""
+        return encode_raw(
             game_state,
             type_to_id=self._type_to_id,
             faction_to_id=self._faction_to_id,
@@ -662,6 +664,9 @@ class RemoteEncoder:
             observation_parity=self.observation_parity,
             relevant_set_version=self.relevant_set_version,
         )
+
+    def encode(self, game_state: GameState) -> EncodedState:
+        raw = self.raw_of(game_state)
         enc = build_light_encoded(raw, self._device)
         # Stash the wire payload for RemoteModel; EncodedState is a
         # plain dataclass (no __slots__), so this attribute sticks.

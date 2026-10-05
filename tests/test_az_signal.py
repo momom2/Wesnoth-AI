@@ -159,6 +159,7 @@ def test_the_terms_add_up_to_the_loss_the_step_optimizes():
 
     trainer.mcts_loss_terms(experiences, keep)
     assert not summed.pop("gbc").requires_grad          # no GBC head on this network
+    assert not summed.pop("belief").requires_grad       # nor the parity observation's belief head
     for name, term in summed.items():
         own = torch.autograd.grad(term, params, retain_graph=True, allow_unused=True)
         assert sum(float(g.pow(2).sum()) for g in own if g is not None) > 0, name

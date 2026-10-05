@@ -200,6 +200,8 @@ class TurnCommitPolicy(MCTSPolicy):
                         a["et_target"] = (a.get("et_target", 0.0)
                                           + stats["et_target"])
             self._last_recorded[game_label] = recorded
+        if self._trace is not None:
+            self._trace.note(game_label, self._inference_encoder, game_state, None, recorded=recorded)
         return cmd
 
     # -- plan lifecycle -----------------------------------------------

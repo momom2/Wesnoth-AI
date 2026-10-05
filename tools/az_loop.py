@@ -314,6 +314,11 @@ def main(argv) -> int:
     ap.add_argument("--kl-states", type=int, default=100,
                     help="Held-out states on which the per-step policy "
                          "movement (KL, TV, end_turn mass) is measured.")
+    ap.add_argument("--memory-slots", type=int, default=None,
+                    help="The memory slots self-play uses when the checkpoint has a "
+                         "memory (default: all of them; 0 plays it without its "
+                         "memory). The learner then trains game-sides in order "
+                         "(wesnoth_ai/memory_step.py)."),
     ap.add_argument("--max-turns", type=int, default=60)
     ap.add_argument("--mini-ratio", type=float, default=0.0,
                     help="Share of games on the mini maps instead of the Ladder "
@@ -407,6 +412,9 @@ def main(argv) -> int:
     from tools.step_control import (
         action_priors, backtracking_step, split_holdout,
     )
+    from tools.eval_provenance import effective_memory
+    from tools.memory_trace import is_carry
+    from wesnoth_ai.memory_step import memory_inputs
     from wesnoth_ai.trainer import STEP_MCTS_STAGES
     from signal_profiler.target_amplitude import target_amplitude
 
@@ -446,10 +454,17 @@ def main(argv) -> int:
         n_simulations=args.sims, gumbel_root=False, tree_reuse=False,
         playout_cap_randomization=False, draw_tiebreak=None,
         batch_size=16 if dev_str == "cuda" else 1)
+    # A model with a memory: the slots self-play uses, each side's memory
+    # carried through every search and every game, and the learner on
+    # whole game-sides (docs/memory_everywhere_20261005.md).
+    memory_slots = effective_memory(int(getattr(base._inference_model, "memory_slots", 0) or 0),
+                                    args.memory_slots)
+    if memory_slots is not None:
+        log.info(f"memory: {memory_slots} slots")
     policy = MCTSPolicy(base, mcts_cfg,
                         replay_config=ReplayConfig(enabled=False),
                         holdout_size=0, gbc_labels=False,
-                        signal_telemetry=True)
+                        signal_telemetry=True, memory_slots=memory_slots)
     mini_ratio = min(1.0, max(0.0, float(args.mini_ratio)))
     scenario_opts = dict(forced_faction=None, mini_maps=(True if mini_ratio > 0 else None),
                          mini_ratio=mini_ratio, fogless_ratio=0.0,
@@ -524,7 +539,8 @@ def main(argv) -> int:
                      packed_embed=bool(args.packed_trunk and device.type == "cuda"),
                      serve_processes=max(1, int(args.serve_processes)),
                      graphed_serve=bool(args.graphed_serve),
-                     game_records_dir=_game_records_dir(args))
+                     game_records_dir=_game_records_dir(args),
+                     memory_slots=memory_slots)
     pool.start()
     # Calibration happens after the FIRST ITERATION, not here.
     # `pool.start()` is a loop of `p.start()` with no barrier, so at
@@ -558,6 +574,7 @@ def main(argv) -> int:
     # sample of the run is kept and the center is read on it every
     # iteration, so only weight changes move it.
     ref_states = None
+    ref_games = None      # their whole games: a memory model reads each state's memory there
     k_low = 0
     pins_done = 0
     stream = None
@@ -596,6 +613,14 @@ def main(argv) -> int:
                         n_actors, _per_actor, PIDS_PER_ACTOR_ESTIMATE)
             capped = {o.game_label for o in outcomes if o.winner == 0}
             kept = [e for e in exps if getattr(e, "game_id", "") not in capped]
+            # A memory model's experiences hold every decision; the probes
+            # sample the ones with targets, each read with its memory.
+            recorded = kept if memory_slots is None else [e for e in kept if not is_carry(e)]
+
+            def memories(model, encoder, games):
+                if memory_slots is None or not games:
+                    return None
+                return memory_inputs(model, encoder, games)
             row.update(
                 n_games=len(outcomes),
                 decisive=sum(1 for o in outcomes if o.winner != 0),
@@ -605,7 +630,7 @@ def main(argv) -> int:
                 k_median=k_median_of(outcomes),
                 mean_turns=(sum(o.turns for o in outcomes) / len(outcomes)
                             if outcomes else None),
-                n_experiences=len(kept),
+                n_experiences=len(recorded),
                 gen_seconds=getattr(pool, "last_iteration_seconds", None),
                 forwards=getattr(pool, "last_served_forwards", None),
                 decisions=getattr(pool, "last_decisions", None),
@@ -641,9 +666,11 @@ def main(argv) -> int:
 
             # ---- signal: pre-step value probe + target amplitude --
             t_tel = time.monotonic()
-            if kept:
-                sample = kept if len(kept) <= 256 else rng.sample(kept, 256)
-                fm = base._trainer.eval_value_metrics(sample)
+            if recorded:
+                mem_train = memories(base._trainer.model, base._trainer.encoder, kept)
+                mem_infer = memories(base._inference_model, base._inference_encoder, kept)
+                sample = recorded if len(recorded) <= 256 else rng.sample(recorded, 256)
+                fm = base._trainer.eval_value_metrics(sample, memories=mem_train)
                 row.update(fresh_value_ce=fm["ce"],
                            fresh_ce_floor=fm["marginal_ce_floor"],
                            fresh_value_auc=fm["value_auc"])
@@ -652,7 +679,7 @@ def main(argv) -> int:
                 # twice the level error (step-scale measurement,
                 # 2026-09-03), so this is the number to watch.
                 lvl = sample[:96]
-                row.update(fresh_value_mean=sum(action_priors(base, e)[2]
+                row.update(fresh_value_mean=sum(action_priors(base, e, mem_infer)[2]
                                                 for e in lvl) / len(lvl),
                            fresh_label_mean=sum(float(e.z) for e in lvl) / len(lvl))
                 for dkey in ("d1_10", "d11_20", "d21_30"):
@@ -660,7 +687,7 @@ def main(argv) -> int:
                     if bd:
                         row[f"fresh_auc_{dkey}"] = bd["auc"]
                         row[f"fresh_ce_{dkey}"] = bd["ce"]
-                ta = target_amplitude(policy, sample[:96])
+                ta = target_amplitude(policy, sample[:96], memories=mem_infer)
                 if ta.get("n"):
                     cats = ta.get("category_mass_delta_mean", {})
                     row.update(target_kl_median=ta["kl_median"],
@@ -675,8 +702,10 @@ def main(argv) -> int:
             t_tr = time.monotonic()
             leaves_before_step = stream.leaves_served() if stream is not None else 0
             train_exps, held_exps = split_holdout(kept, args.holdout_frac, rng)
-            kl_states = (held_exps if len(held_exps) <= args.kl_states
-                         else rng.sample(held_exps, args.kl_states))
+            held_recorded = (held_exps if memory_slots is None
+                             else [e for e in held_exps if not is_carry(e)])
+            kl_states = (held_recorded if len(held_recorded) <= args.kl_states
+                         else rng.sample(held_recorded, args.kl_states))
             captured = {}
 
             def _take_step():
@@ -696,7 +725,11 @@ def main(argv) -> int:
                                     max_level_shift=(None if args.max_level_shift < 0
                                                      else args.max_level_shift),
                                     max_trials=args.step_trials,
-                                    select=args.step_select)
+                                    select=args.step_select,
+                                    memories_of=(None if memory_slots is None else
+                                                 lambda: memories(base._inference_model,
+                                                                  base._inference_encoder,
+                                                                  held_exps)))
             stats = captured["stats"]
             if args.serve_processes > 1 and stream is None:
                 # The step published new inference weights (through the
@@ -724,10 +757,12 @@ def main(argv) -> int:
             # weights just published (see MCTSConfig.value_center).
             if args.value_center and kl_states:
                 if ref_states is None:
-                    ref_states = list(kl_states)
-                center_batch = statistics.fmean(action_priors(base, e)[2]
+                    ref_states, ref_games = list(kl_states), list(held_exps)
+                mem_kl = memories(base._inference_model, base._inference_encoder, held_exps)
+                mem_ref = memories(base._inference_model, base._inference_encoder, ref_games)
+                center_batch = statistics.fmean(action_priors(base, e, mem_kl)[2]
                                                 for e in kl_states)
-                center = statistics.fmean(action_priors(base, e)[2]
+                center = statistics.fmean(action_priors(base, e, mem_ref)[2]
                                           for e in ref_states)
                 # Tempo bonus: search sees the mover's positions as
                 # `tempo_bonus` better than the head's level, i.e. it
@@ -758,7 +793,9 @@ def main(argv) -> int:
                                         and (pn or vn) else None))
             # the loss split by term, in gradient and update space, at
             # the weights the step left (its own generator: `rng` untouched)
-            row.update(signal.record(kept, it=it, decision_step=int(base._decision_step)))
+            row.update(signal.record(recorded, it=it, decision_step=int(base._decision_step),
+                                     memories=memories(base._trainer.model,
+                                                       base._trainer.encoder, kept)))
             row["telemetry_seconds"] = (time.monotonic() - t_tel) - row["train_seconds"]
             base.save_checkpoint(args.campaign)
 
@@ -795,7 +832,11 @@ def main(argv) -> int:
                 row["probe_seconds"] = time.monotonic() - t_pr
                 t_pf = time.monotonic()
                 (workdir / "profiles").mkdir(exist_ok=True)
-                _profile(pin, workdir / "profiles" / f"pin_{step}.json", dev_str)
+                if memory_slots is None:
+                    _profile(pin, workdir / "profiles" / f"pin_{step}.json", dev_str)
+                else:
+                    log.info("deep profile skipped: the offline profiler (signal_profiler/) "
+                             "carries no memory")
                 row["profile_seconds"] = time.monotonic() - t_pf
                 log.info(f"PIN {step}: raw {row['raw_vs_seed_wdl']} "
                          f"search {row.get('search_vs_seed_wdl', '-')}")

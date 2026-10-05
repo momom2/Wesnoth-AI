@@ -57,6 +57,13 @@ def main(argv) -> int:
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv[1:])
     logging.basicConfig(level=getattr(logging, args.log_level))
+    from tools.eval_players import peek_checkpoint_arch
+    slots = int(peek_checkpoint_arch(args.checkpoint, "profile").get("memory_slots", 0) or 0)
+    if slots:
+        # Its harvest policy samples positions alone (the value memory
+        # reservoir) and its probes read states without their games.
+        print(f"{args.checkpoint} has a memory of {slots} slots, which this profiler does not carry")
+        return 2
 
     import torch
     device = (torch.device("cuda")

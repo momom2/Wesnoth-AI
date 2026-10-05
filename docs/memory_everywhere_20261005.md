@@ -31,3 +31,42 @@ nothing plays it at 0 slots unless told to.
 needs them. Then 3 and 4 (search), 5 (the pool), 6 (the learner), 7 and 8.
 Each lands with tests that fail without it; a search test compares a
 search's root decision memory with the match player's on the same game.
+
+## Built (2026-10-05)
+
+Every hole above is closed on `feature/memory-everywhere`; each fix has tests
+that fail without it (mutation-checked).
+
+- **Search.** MCTS and the turn search carry both sides' memories along
+  every line they walk; a materialized turn advances the mover's memory
+  only when something reads it after the turn (a mover-frame boundary or a
+  projection). The players drop a game's memories when it ends.
+- **The pool.** Each leaf's memory rides the priors protocol's request
+  (`wesnoth_ai/leaf_wire.py`), so a memory model needs server priors. The
+  PLAY command also carries the parity observation and its relevant-set
+  version, which the actors' encoder lacked.
+- **The learner** (`wesnoth_ai/memory_step.py`, `tools/memory_trace.py`).
+  An actor ships every decision of a memory player's game, the ones
+  without a search target as "carry" positions with zero weights, each
+  encoded in the actor: a state's binding to its core does not cross
+  processes, and the parity observation is built only by the core. The
+  step runs `train_batch_size` game-sides side by side in windows of
+  `memory_window` (16) decisions, back-propagates through the memory
+  within a window and carries it across without gradient, and remains one
+  optimizer update per iteration. The belief head trains on every
+  position at the recipe's weight (`TrainerConfig.belief_coef`, 1), its
+  targets read from the actor's god view and the view dropped before
+  shipping. Telemetry reads each state with its memory from one in-order
+  pass over its games under the weights being probed.
+- **Refused by name.** The value-memory reservoir, the replay buffer,
+  value grounding and the plan tournament (they sample positions without
+  their game-sides or carry no memory), the offline deep profiler
+  (`signal_profiler/run_profile_v2.py`; az_loop skips it for a memory
+  model), and the legacy sampler in eval.
+- **Graphed serve.** The pool's and the eval server's graphed switches
+  serve a model with the parity observation or a memory on the eager path,
+  with a warning.
+
+Open: the actors play one slot count per run (`az_loop --memory-slots`);
+the imitation recipe draws it per game-side (nested dropout), which
+self-play does not yet do.

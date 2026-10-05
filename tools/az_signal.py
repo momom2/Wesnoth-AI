@@ -106,16 +106,19 @@ class SelfPlaySignal:
                      "update": "gradient x lr / (sqrt(v_hat) + eps) of the optimizer's "
                                "second moment"})
 
-    def record(self, experiences: Sequence, *, it: int, decision_step: int) -> Dict:
+    def record(self, experiences: Sequence, *, it: int, decision_step: int,
+               memories: Optional[Dict] = None) -> Dict:
         """Probe the current weights on up to `probe_states` of
         `experiences`, write the row, and return AZ_SIGNAL_COLUMNS for
-        the history row."""
+        the history row. `memories`: each state's memory under the
+        current trainer weights, for a model with a memory
+        (wesnoth_ai.memory_step.memory_inputs)."""
         started = time.perf_counter()
         row: Dict = {"kind": "probe", "iter": it, "decision_step": decision_step,
                      "ts": time.strftime("%FT%T")}
         try:
             if experiences:
-                row.update(self._probe(experiences, it))
+                row.update(self._probe(experiences, it, memories))
                 self.probes += 1
             else:
                 row["probe"] = "none: the iteration kept no experiences"
@@ -131,7 +134,7 @@ class SelfPlaySignal:
         self._write(row)
         return self._history_columns(row)
 
-    def _probe(self, experiences: Sequence, it: int) -> Dict:
+    def _probe(self, experiences: Sequence, it: int, memories: Optional[Dict] = None) -> Dict:
         n = min(len(experiences), self._probe_states)
         pick = random.Random(self._seed * 1_000_003 + it).sample(range(len(experiences)), n)
         sample = [experiences[i] for i in sorted(pick)]
@@ -145,7 +148,7 @@ class SelfPlaySignal:
             summed = add_gradients(summed, probe.gradients(terms, 1.0))
 
         with probe.fork_rng(), torch.enable_grad():
-            trainer.mcts_loss_terms(sample, take_gradients)
+            trainer.mcts_loss_terms(sample, take_gradients, memories=memories)
         gradient, update, stateless = probe.grams_of(summed)
         return {"probe_states": n, "composition": _composition(sample),
                 **probe_readings(gradient, update, stateless,

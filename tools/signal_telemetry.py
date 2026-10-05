@@ -45,7 +45,7 @@ SIG_SUBSAMPLE = 128
 SIG_CONSULT_CAP = 64
 
 _KILL = {"policy_weight": 0.0, "aux_target": None,
-         "moves_left_target": None, "gbc_labels": None}
+         "moves_left_target": None, "gbc_labels": None, "no_visible_unit": None}
 
 
 class _NoStep:
@@ -84,7 +84,7 @@ def _surgeries():
     return {
         "sig_policy_norm": lambda e: {
             "value_weight": 0.0, "aux_target": None,
-            "moves_left_target": None, "gbc_labels": None},
+            "moves_left_target": None, "gbc_labels": None, "no_visible_unit": None},
         "sig_value_game_norm": value_where(lambda e: kind(e) == "game"),
         "sig_value_ground_norm": value_where(lambda e: kind(e) == "roll"),
         "sig_value_consist_norm": value_where(
@@ -123,8 +123,13 @@ def signal_grad_norms(trainer, batch: List, rng) -> Dict[str, float]:
     if not batch:
         return {}
     try:
-        sub = (batch if len(batch) <= SIG_SUBSAMPLE
-               else rng.sample(batch, SIG_SUBSAMPLE))
+        from wesnoth_ai.memory_step import reads_memory, whole_game_sides
+        if reads_memory(trainer.model):
+            # The memory chains whole: the step runs game-sides in order.
+            sub = whole_game_sides(batch, SIG_SUBSAMPLE, rng)
+        else:
+            sub = (batch if len(batch) <= SIG_SUBSAMPLE
+                   else rng.sample(batch, SIG_SUBSAMPLE))
         out = {}
         for name, surgery in _surgeries().items():
             exps = [dataclasses.replace(e, **surgery(e)) for e in sub]
