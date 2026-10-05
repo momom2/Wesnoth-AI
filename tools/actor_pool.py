@@ -105,7 +105,6 @@ from tools.serve_worker import (
     _BatchPicker, _best_window_rate, _merge_timelines, _picker_stats, _request_lengths,
     _serve_loop, _server_loop,
 )
-from wesnoth_ai.memory import refuse_memory_model
 
 __all__ = [
     "ActorPool", "ServeProcessDied",
@@ -155,6 +154,27 @@ def _log_failure_report(msg) -> None:
 # Main-side pool manager
 # =====================================================================
 
+def _check_memory(policy, memory_slots: Optional[int], server_priors: bool, pt_cfg, ground_cfg) -> None:
+    """A model with a memory plays self-play only with its slots named,
+    over server-side priors (a leaf's memory rides the priors protocol's
+    request), and with neither the plan tournament nor value grounding,
+    which carry none."""
+    from tools.raw_player import model_memory_slots
+    model_slots = model_memory_slots(policy)
+    if memory_slots is None:
+        if model_slots:
+            raise ValueError(f"the model carries a memory of {model_slots} slots: name the slots "
+                             f"self-play uses (memory_slots=0 plays it without its memory)")
+        return
+    if not server_priors:
+        raise ValueError("a memory travels with server-side priors only: self-play over a model "
+                         "with a memory needs server_priors")
+    if pt_cfg is not None:
+        raise ValueError("the plan tournament carries no memory")
+    if ground_cfg is not None and getattr(ground_cfg, "enabled", False):
+        raise ValueError("value grounding runs only on a model without a memory")
+
+
 class ActorPool:
     """Owns the actor processes and runs the central inference-serve
     loop during each rollout iteration. The model stays in the main
@@ -184,6 +204,7 @@ class ActorPool:
         server_reply_timeout: float = 120.0,
         graphed_serve: bool = False,
         game_records_dir: Optional[str] = None,
+        memory_slots: Optional[int] = None,
     ):
         """`server_priors`: actors ship packed legality masks and the
         server returns compact legal actions with priors
@@ -198,14 +219,16 @@ class ActorPool:
         total, the learner process plus N-1 serve processes (module
         docstring); `server_torch_threads` caps each serve process's
         intra-op pools; the two timeouts bound the wait for a serve
-        process to build its model and to answer a command."""
+        process to build its model and to answer a command.
+        `memory_slots`: for a model with a memory, the slots the actors'
+        searches use (0 plays it without its memory); each leaf's memory
+        rides its request (wesnoth_ai/leaf_wire.py)."""
         if n_actors < 1:
             raise ValueError("n_actors must be >= 1")
         if serve_processes < 1:
             raise ValueError("serve_processes must be >= 1")
-        # The actors, their streams (tools/actor_stream.py) and the
-        # servers keep no per-side memory state yet.
-        refuse_memory_model(getattr(policy, "_inference_model", None), "the self-play pool")
+        _check_memory(policy, memory_slots, server_priors, pt_cfg, ground_cfg)
+        self._memory_slots = None if memory_slots is None else int(memory_slots)
         self._policy = policy
         self._n = n_actors
         self._serve_processes = int(serve_processes)
@@ -342,7 +365,7 @@ class ActorPool:
                  self._actor_threads, self._turn_cfg,
                  self._gbc_labels, self._pt_cfg,
                  self._train_kwargs, self._ground_cfg,
-                 self._game_records_dir),
+                 self._game_records_dir, self._memory_slots),
                 name=f"actor-{aid}"))
         if self._serve_processes > 1:
             self._spawn_servers(ctx)
@@ -382,6 +405,11 @@ class ActorPool:
         if not ok:
             log.warning("graphed_serve needs cuda, bf16 inference and the packed trunk; "
                         "serving eager")
+        elif getattr(base, "extended_streams", False):
+            # wesnoth_ai/graphed_serve.py embeds obs8's streams only.
+            log.warning("graphed_serve has no sighting or memory stream; a model with the parity "
+                        "observation or a memory serves eager")
+            ok = False
         return ok
 
     def _graphed_for(self, model, encoder):
@@ -419,6 +447,13 @@ class ActorPool:
         return bool(getattr(
             getattr(self._anneal_base(), "_inference_encoder", None),
             "terrain_multi_hot", False))
+
+    def _parity_observation(self) -> Tuple[bool, int]:
+        """(observation_parity, relevant_set_version) of the learner's
+        encoder: the observation the actors must encode for it."""
+        enc = getattr(self._anneal_base(), "_inference_encoder", None)
+        return (bool(getattr(enc, "observation_parity", False)),
+                int(getattr(enc, "relevant_set_version", 1)))
 
     def _relevant_set(self) -> bool:
         return bool(getattr(
@@ -744,7 +779,7 @@ class ActorPool:
                 self._global_decision_step(), self._relevant_set(),
                 float(self.value_center), bool(self.server_priors),
                 self._server_of(aid), self._fog_hides_enemy_villages(), bool(stream),
-                self._terrain_multi_hot())
+                self._terrain_multi_hot(), *self._parity_observation())
 
     # -- serving: the threads behind one iteration or one stream ------
 

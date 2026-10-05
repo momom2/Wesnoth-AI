@@ -651,8 +651,10 @@ class RemoteEncoder:
         # basis -- with no tripwire on this path).
         self._relevant_set = bool(relevant_set)
 
-    def encode(self, game_state: GameState) -> EncodedState:
-        raw = encode_raw(
+    def raw_of(self, game_state: GameState) -> RawEncoded:
+        """The RawEncoded `encode` ships for `game_state` (a memory player
+        keeps it for the learner, tools/memory_trace.py)."""
+        return encode_raw(
             game_state,
             type_to_id=self._type_to_id,
             faction_to_id=self._faction_to_id,
@@ -662,6 +664,9 @@ class RemoteEncoder:
             observation_parity=self.observation_parity,
             relevant_set_version=self.relevant_set_version,
         )
+
+    def encode(self, game_state: GameState) -> EncodedState:
+        raw = self.raw_of(game_state)
         enc = build_light_encoded(raw, self._device)
         # Stash the wire payload for RemoteModel; EncodedState is a
         # plain dataclass (no __slots__), so this attribute sticks.
@@ -680,6 +685,15 @@ class RemoteModel:
     def __init__(self, transport: InferenceTransport):
         self._t = transport
 
+    @property
+    def memory_slots(self) -> Optional[int]:
+        """The served model's memory slots, as its server's hello says
+        (0: no memory); None when the transport carries no hello."""
+        hello = getattr(self._t, "hello", None)
+        if not isinstance(hello, dict):
+            return None
+        return int(hello.get("memory_slots", 0) or 0)
+
     @staticmethod
     def _payload(encoded: EncodedState, memory=None):
         masks = getattr(encoded, "_masks", None)
@@ -696,5 +710,13 @@ class RemoteModel:
             return self._t.infer_batch([payload])[0]
         return self._t.infer(payload)
 
-    def forward_batch(self, encoded_list: List[EncodedState]) -> List[ModelOutput]:
-        return self._t.infer_batch([self._payload(e) for e in encoded_list])
+    def forward_batch(self, encoded_list: List[EncodedState],
+                      memory: Optional[List] = None) -> List[ModelOutput]:
+        """`memory`: one `MemoryState` per position for a model with a
+        memory, None for a model without one (the local model's
+        `forward_batch` takes the same)."""
+        if memory is None:
+            return self._t.infer_batch([self._payload(e) for e in encoded_list])
+        if len(memory) != len(encoded_list):
+            raise ValueError(f"{len(memory)} memories for {len(encoded_list)} positions")
+        return self._t.infer_batch([self._payload(e, m) for e, m in zip(encoded_list, memory)])

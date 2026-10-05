@@ -132,6 +132,12 @@ class GapConfig:
     # configs/reference_player.json's (`--reference`).
     end_turn_rule: str = "joint"
     end_turn_offset: float = 0.0
+    # The memory slots every player uses (tools/raw_player.py), None for a
+    # model without a memory. With one, each position's players start from
+    # the memories both sides held there in the corpus game
+    # (tools/corpus_memory.py), and a playout continues each side's memory
+    # from the candidate turn.
+    memory: Optional[int] = None
 
     def __post_init__(self):
         if self.k_alternatives < 0 or self.playouts < 1 or self.cap_turns < 1:
@@ -159,10 +165,10 @@ def procedure_tag(cfg: GapConfig, temperature: float) -> str:
 
 def player_for(policy, cfg: GapConfig, temperature: float, *,
                seed: Optional[int] = None, forbid_end_turn: bool = False) -> RawPolicyPlayer:
-    """A raw player over `policy` under cfg's decode."""
+    """A raw player over `policy` under cfg's decode and memory."""
     return RawPolicyPlayer(policy, temperature, seed=seed, forbid_end_turn=forbid_end_turn,
                            end_turn_rule=cfg.end_turn_rule,
-                           end_turn_offset=cfg.end_turn_offset)
+                           end_turn_offset=cfg.end_turn_offset, memory_slots=cfg.memory)
 
 
 @dataclass
@@ -188,6 +194,9 @@ class BoundaryPosition:
     gs: GameState
     scenario_id: str
     meta: Dict = field(default_factory=dict)
+    # The corpus game the position was cut from: each side's memory there
+    # is rebuilt from it (tools/corpus_memory.py).
+    game_path: Optional[str] = None
 
 
 def positions_from_manifest(manifest: Path, dataset: Path,
@@ -197,7 +206,8 @@ def positions_from_manifest(manifest: Path, dataset: Path,
         log.warning("manifest holds %d states, %d requested", len(entries), n)
         n = len(entries)
     states = load_states(manifest, dataset, n)
-    return [BoundaryPosition(index=i, gs=gs, scenario_id=sid, meta=dict(entry))
+    return [BoundaryPosition(index=i, gs=gs, scenario_id=sid, meta=dict(entry),
+                             game_path=str(Path(dataset) / entry["file"]))
             for i, ((gs, sid), entry) in enumerate(zip(states, entries[:n]))]
 
 
@@ -266,6 +276,31 @@ def sim_from_state(gs: GameState, scenario_id: str, max_turns: int,
     sim._is_search_fork = True
     sim._seed_salt = salt
     return sim
+
+
+def boundary_memories(position: BoundaryPosition, policy, cfg: GapConfig) -> Dict[int, object]:
+    """Both sides' memories at the position, rebuilt from its corpus
+    game; empty for a model without a memory."""
+    if cfg.memory is None:
+        return {}
+    if position.game_path is None:
+        raise ValueError(f"position {position.index}: a memory needs the corpus game it was cut from")
+    from tools.corpus_memory import load_game, memories_before
+    gi = position.gs.global_info
+    return memories_before(load_game(Path(position.game_path)), player_for(policy, cfg, 0.0),
+                           gi.turn_number, gi.current_side, game_label=f"tg{position.index}history")
+
+
+def _seed(player, game_label: str, memories: Dict[int, object]):
+    """`player` with each side of `game_label` starting from `memories`."""
+    for side, state in memories.items():
+        player.set_memory(game_label, side, state)
+    return player
+
+
+def _carried(player, game_label: str, memories: Dict[int, object]) -> Dict[int, object]:
+    """Each side's memory after `player` played in `game_label`."""
+    return {side: player.memory_of(game_label, side) for side in memories}
 
 
 def _select(player, sim: WesnothSim, game_label: str) -> Dict:
@@ -337,7 +372,8 @@ def _action_from_json(action: Dict) -> Dict:
 
 def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
                         policy, cfg: GapConfig, extra: int, max_turns: int, salt: str,
-                        game_label: str) -> Tuple[Dict, WesnothSim]:
+                        game_label: str,
+                        memories: Optional[Dict[int, object]] = None) -> Tuple[Dict, WesnothSim]:
     """The base turn without its end_turn, then `extra` more argmax
     decisions that may not be end_turn (while any other action is
     legal), then end_turn. Same combat salt as the base, so the
@@ -345,13 +381,14 @@ def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
     sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
     side = sim.current_side
     actions: List[Dict] = []
+    player = _seed(player_for(policy, cfg, 0.0, forbid_end_turn=True), game_label, memories)
     for a in base_actions:
         if a.get("type") == "end_turn" or sim.done or sim.current_side != side:
             break
         act = _action_from_json(a)
         actions.append(_action_to_json(act))
+        player.advance_memory(copy.deepcopy(sim.gs), game_label=game_label)
         sim.step(act)
-    player = player_for(policy, cfg, 0.0, forbid_end_turn=True)
     added = 0
     while added < extra and not sim.done and sim.current_side == side:
         act = _decide(player, sim, game_label)
@@ -363,13 +400,16 @@ def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
     if not sim.done and sim.current_side == side:
         end = {"type": "end_turn"}
         actions.append(end)
+        player.advance_memory(copy.deepcopy(sim.gs), game_label=game_label)
         sim.step(end)
     mover = position.gs.global_info.current_side
+    sim.player_memories = _carried(player, game_label, memories or {})
     candidate = {
         "sample_seed": None, "proposer": "continue", "extra_decisions": added,
         "n_decisions": sum(1 for a in actions if a.get("type") != "end_turn"),
         "actions": actions,
-        "value_post": (None if sim.done else _value_read(player, sim.gs, mover)),
+        "value_post": (None if sim.done else
+                       _value_read(player, sim.gs, mover, sim.player_memories)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         "post_state_key": state_key(sim.gs),
         "terminal_in_turn": bool(sim.done),
@@ -387,19 +427,27 @@ def _hp_margin(gs: GameState, mover: int) -> int:
     return ours - theirs
 
 
-def _value_read(policy, gs: GameState, mover: int) -> Optional[float]:
+def _value_read(policy, gs: GameState, mover: int,
+                memories: Optional[Dict[int, object]] = None) -> Optional[float]:
     """The policy's value head on `gs` from the mover's side (the head
     scores the side to move; after the mover's end_turn that is the
-    opponent, hence the sign). None when the player has no base policy
-    (tests with scripted players)."""
+    opponent, hence the sign), read with the side to move's memory when
+    the player has one. None when the player has no base policy (tests
+    with scripted players)."""
     base = getattr(policy, "_base", policy)
     enc = getattr(base, "_inference_encoder", None)
     model = getattr(base, "_inference_model", None)
     if enc is None or model is None:
         return None
     import torch
+    slots = getattr(policy, "memory_slots", None)
     with torch.no_grad():
-        out = model(enc.encode(gs))
+        if slots is None:
+            out = model(enc.encode(gs))
+        else:
+            from wesnoth_ai.memory import MemoryState
+            state = (memories or {}).get(int(gs.global_info.current_side))
+            out = model(enc.encode(gs), memory=MemoryState(slots, state))
     v = float(out.value.squeeze().item())
     return v if gs.global_info.current_side == mover else -v
 
@@ -455,11 +503,14 @@ def play_out(post_gs: GameState, scenario_id: str, mover: int, max_turns: int,
 
 def _candidate_turn(position: BoundaryPosition, player, max_turns: int,
                     salt: str, sample_seed: Optional[int],
-                    game_label: str) -> Tuple[Dict, WesnothSim]:
+                    game_label: str,
+                    memories: Optional[Dict[int, object]] = None) -> Tuple[Dict, WesnothSim]:
     sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
     actions: List[Dict] = []
+    _seed(player, game_label, memories or {})
     decisions = play_side_turn(sim, player, game_label, actions)
     mover = position.gs.global_info.current_side
+    sim.player_memories = _carried(player, game_label, memories or {})
     candidate = {
         "sample_seed": sample_seed,
         "n_decisions": decisions,
@@ -467,7 +518,8 @@ def _candidate_turn(position: BoundaryPosition, player, max_turns: int,
         # Forward-only pre-graders (docs/turn_proposer_design_20260905.md):
         # the value head on the post-turn state and the HP margin, both
         # from the mover's side, to be compared with the playout mean.
-        "value_post": (None if sim.done else _value_read(player, sim.gs, mover)),
+        "value_post": (None if sim.done else
+                       _value_read(player, sim.gs, mover, sim.player_memories)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         # Process-local (Python hash of a tuple with strings): used to
         # drop duplicate turns within a run, not comparable across runs.
@@ -494,9 +546,12 @@ def _play_next(candidate: Dict, sim: WesnothSim, position: BoundaryPosition,
         o, cp = outcome_for(sim, mover)
         t = sim.gs.global_info.turn_number
     else:
+        playout_label = f"{game_label}c{c}r{r}"
+        pairs = playout_pairs(policy, cfg, salt)
+        for pair in pairs.values():
+            _seed(pair.policy, playout_label, getattr(sim, "player_memories", {}))
         o, cp, t = play_out(sim.gs, position.scenario_id, mover, max_turns,
-                            salt, playout_pairs(policy, cfg, salt),
-                            f"{game_label}c{c}r{r}")
+                            salt, pairs, playout_label)
     candidate["outcomes"].append(o)
     candidate["capped"].append(cp)
     candidate["turns"].append(t)
@@ -617,7 +672,8 @@ def finish_record(index: int, meta: Dict, base: Dict, alternatives: List[Dict],
 
 def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
                       max_turns: int, salt: str, game_label: str,
-                      source: str) -> Tuple[Dict, WesnothSim]:
+                      source: str, *, cfg: Optional[GapConfig] = None,
+                      memories: Optional[Dict[int, object]] = None) -> Tuple[Dict, WesnothSim]:
     """A recorded turn replayed command by command (a confirmation
     grades the turn the screen selected, not a fresh sample: 12 of 48
     sampled turns did not reproduce across runs, docs/
@@ -626,11 +682,15 @@ def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
     sim = sim_from_state(position.gs, position.scenario_id, max_turns, salt)
     side = sim.current_side
     played: List[Dict] = []
+    player = (_seed(player_for(policy, cfg, 0.0), game_label, memories)
+              if cfg is not None and cfg.memory is not None else None)
     for a in actions:
         if sim.done or sim.current_side != side:
             break
         act = _action_from_json(a)
         played.append(_action_to_json(act))
+        if player is not None:
+            player.advance_memory(copy.deepcopy(sim.gs), game_label=game_label)
         sim.step(act)
         if sim.last_step_rejected:
             raise RuntimeError(
@@ -641,11 +701,13 @@ def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
         raise RuntimeError(f"{game_label}: the turn ended after {len(played)} of "
                            f"{len(actions)} recorded actions")
     mover = position.gs.global_info.current_side
+    sim.player_memories = ({} if player is None else _carried(player, game_label, memories or {}))
     candidate = {
         "sample_seed": None, "proposer": "replay", "source": source,
         "n_decisions": sum(1 for a in played if a.get("type") != "end_turn"),
         "actions": played,
-        "value_post": (None if sim.done else _value_read(policy, sim.gs, mover)),
+        "value_post": (None if sim.done else
+                       _value_read(player or policy, sim.gs, mover, sim.player_memories)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         "post_state_key": state_key(sim.gs),
         "terminal_in_turn": bool(sim.done),
@@ -685,21 +747,23 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
     label = f"tg{position.index}"
     salt = turn_salt(cfg.seed, position.index) if replay is None else replay["turn_salt"]
     pairs = reference_pairs(policy, cfg)
+    memories = boundary_memories(position, policy, cfg)
 
     if replay is not None:
         base, base_sim = _replay_candidate(position, replay["base"]["actions"], policy,
-                                           max_turns, salt, label + "base", "base")
+                                           max_turns, salt, label + "base", "base",
+                                           cfg=cfg, memories=memories)
         _check_replayed_base(base, replay["base"], label + "base")
     else:
         base, base_sim = _candidate_turn(position, pairs[mover].policy, max_turns,
-                                         salt, None, label + "base")
+                                         salt, None, label + "base", memories)
     seen: Dict[int, str] = {base["post_state_key"]: "base"}
     alternatives: List[Tuple[int, Dict, WesnothSim]] = []
     dropped: List[Dict] = []
     for k, (name, actions) in enumerate(replay_selection(replay, replay_top)
                                         if replay is not None else []):
         alt, alt_sim = _replay_candidate(position, actions, policy, max_turns, salt,
-                                         f"{label}rep{k}", name)
+                                         f"{label}rep{k}", name, cfg=cfg, memories=memories)
         same = seen.get(alt["post_state_key"])
         if same is not None:
             alt["identical_to"] = same
@@ -711,7 +775,7 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
         sample_seed = alternative_seed(cfg.seed, position.index, k)
         player = player_for(policy, cfg, cfg.temperature, seed=sample_seed)
         alt, alt_sim = _candidate_turn(position, player, max_turns, salt,
-                                       sample_seed, f"{label}alt{k}")
+                                       sample_seed, f"{label}alt{k}", memories)
         same = seen.get(alt["post_state_key"])
         if same is not None:
             alt["identical_to"] = same
@@ -722,7 +786,7 @@ def measure_position(policy, position: BoundaryPosition, cfg: GapConfig,
     for j in range(1, (cfg.continue_edits if replay is None else 0) + 1):
         k = cfg.k_alternatives + j - 1
         alt, alt_sim = _continue_candidate(position, base["actions"], policy, cfg, j,
-                                           max_turns, salt, f"{label}cont{j}")
+                                           max_turns, salt, f"{label}cont{j}", memories)
         same = seen.get(alt["post_state_key"])
         if same is not None:
             alt["identical_to"] = same

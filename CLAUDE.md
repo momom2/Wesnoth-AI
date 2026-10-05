@@ -1044,6 +1044,29 @@ State of play:
   earlier rebuild under the rule they were played with, so every existing
   record still verifies. Nothing the network observes reads resting: the
   observation epoch stays.
+- 2026-10-05 (0.14.0, user ruling: self-play keeps the memory): **the
+  memory reaches every place that plays or trains the network**
+  (docs/memory_everywhere_20261005.md, its eight holes and how each
+  closed). MCTS and the turn search carry both sides' memories along
+  every line they walk; the self-play pool sends each leaf's memory with
+  its request, so a memory model needs server priors; the learner
+  (`wesnoth_ai/memory_step.py`) trains a memory model's game-sides in
+  order, windows of 16 decisions back-propagated through the memory and
+  carried across without gradient, still one optimizer update per
+  iteration. The actors ship every decision, the ones without a search
+  target as zero-weight positions (`tools/memory_trace.py`), each encoded
+  in the actor: a state's binding to its Rust core does not cross
+  processes. Self-play trains the belief head on every position at the
+  recipe's weight (`TrainerConfig.belief_coef`), and its telemetry reads
+  each state with its memory. Found and fixed on the way: the pool's
+  actors encoded every model's observation the `obs8` way (the PLAY
+  command carried neither the parity observation nor its relevant-set
+  version), the learner could not encode the pool's parity positions at
+  all, and a search player kept a finished game's memories. `az_loop
+  --memory-slots` (default: all of the checkpoint's). The value-memory
+  reservoir, the replay buffer, value grounding, the plan tournament and
+  the offline deep profiler refuse a memory model by name; the graphed
+  serve path serves it eager.
 
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling

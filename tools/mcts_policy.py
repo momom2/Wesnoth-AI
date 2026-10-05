@@ -44,7 +44,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import numpy as np
 
 from wesnoth_ai.classes import GameState, state_key
-from wesnoth_ai.memory import refuse_memory_model
+from wesnoth_ai.classes import PLAYER_SIDES
+from wesnoth_ai.memory import SideMemories
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
@@ -170,7 +171,8 @@ class MCTSPolicy:
                  value_memory_games: int = 0,
                  value_memory_states_per_game: int = 32,
                  value_memory_batch: int = 256,
-                 rng_seed: Optional[int] = None):
+                 rng_seed: Optional[int] = None,
+                 memory_slots: Optional[int] = None):
         # GBC event-supervision labels (2026-08-14, docs/archive/gbc_spec.md):
         # when on, finalize_game attaches fog-censored hindsight
         # event labels to every experience (pure state diffs -- no
@@ -182,9 +184,20 @@ class MCTSPolicy:
         # pre-state, so events land at action resolution even on
         # TCS fast turns that record no training state.
         self._gbc_obs: Dict[str, dict] = {}
-        # Search, turn search and plan tournaments fork states and
-        # evaluate them with no side's memory state to hand.
-        refuse_memory_model(getattr(base, "_inference_model", None), "MCTS and turn search")
+        # A model with a memory (docs/parity_memory_design_20260929.md,
+        # "Serving and play"): the slots the searches use, named by the
+        # caller (0 searches it without its memory), and each side's
+        # memory per game, what its last decision wrote; a search reads
+        # them at its root (wesnoth_ai.memory.SideMemories).
+        from tools.raw_player import model_memory_slots
+        model_slots = model_memory_slots(base)
+        if memory_slots is None and model_slots:
+            raise ValueError(f"the model carries a memory of {model_slots} slots: name the slots the "
+                             f"searches use (memory_slots=0 searches it without its memory)")
+        self.memory_slots = None if memory_slots is None else int(memory_slots)
+        self._memories: Dict[Tuple[str, int], object] = {}
+        # Per game, the last decision's (side key, memory before it).
+        self._memory_undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
@@ -329,6 +342,17 @@ class MCTSPolicy:
         # via `train_step` won't corrupt these forwards.
         self._inference_model = base._inference_model
         self._inference_encoder = base._inference_encoder
+        # A memory player's every decision, for the learner's memory
+        # chains (tools/memory_trace.py); the outcome reservoir and the
+        # replay buffer sample positions alone, which a memory cannot.
+        self._trace = None
+        if self.memory_slots is not None:
+            if self._value_memory_games > 0 or self._replay_config.enabled:
+                raise ValueError("the value memory and the replay buffer sample positions without "
+                                 "their game-sides: they run only on a model without a memory")
+            from tools.memory_trace import MemoryTrace
+            self._trace = MemoryTrace(self.memory_slots, belief=bool(
+                getattr(self._inference_encoder, "observation_parity", False)))
 
     def _note_search_diag(self, game_label, root, action,
                           reused: bool = False) -> None:
@@ -497,6 +521,7 @@ class MCTSPolicy:
             if not full_move:
                 n_override = (cfg.playout_cap_fast_sims
                               or max(1, cfg.n_simulations // 4))
+        memory = self._game_memories(game_label)
         root = mcts_search(
             sim,
             self._inference_model,
@@ -506,7 +531,12 @@ class MCTSPolicy:
             n_sims_override=n_override,
             decision_step=decision_step,
             rng=self._search_rng(),
+            memory=memory,
         )
+        if memory is not None:
+            # The root's evaluation is the decision: what it wrote is the
+            # side's memory from here.
+            self._commit_memory(game_label, root.side, root.memory_out)
         if self.search_stats_sink is not None:
             self.search_stats_sink(root)
         if self._mcts_config.gumbel_root:
@@ -602,6 +632,9 @@ class MCTSPolicy:
         # advanced above regardless.
         with self._lock:
             self._last_recorded[game_label] = full_move
+        if self._trace is not None:
+            self._trace.note(game_label, self._inference_encoder, game_state, root.masks,
+                             recorded=full_move)
         return action
 
     def observe(self, game_label: str, side: int, reward: float,
@@ -635,6 +668,8 @@ class MCTSPolicy:
             # game_label would then inherit a stale trace).
             _gbc_rec = self._gbc_obs.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
+            self._forget_memories(game_label)
+        trace = self._trace.pop(game_label) if self._trace is not None else None
         tiebreak = self._mcts_config.draw_tiebreak
         if winner == 0 and tiebreak is not None and final_gs is None \
                 and states:
@@ -780,6 +815,9 @@ class MCTSPolicy:
             # penalty). exps preserve `states` order 1:1, so the
             # side-switch scan is equivalent to scanning states.
             self.harvest_boundary_pairs(exps)
+            if trace is not None:
+                from tools.memory_trace import sequence_experiences
+                exps = sequence_experiences(trace, exps, game_label, self.memory_slots, winner)
             with self._lock:
                 self._queue.extend(exps)
         if states:
@@ -837,6 +875,34 @@ class MCTSPolicy:
             self._played_outcomes.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
             self._gbc_obs.pop(game_label, None)
+            self._forget_memories(game_label)
+        if self._trace is not None:
+            self._trace.pop(game_label)
+
+    def _game_memories(self, game_label: str) -> Optional[SideMemories]:
+        """Each side's memory in the game, what its last decision wrote;
+        None when the searches run without one."""
+        if self.memory_slots is None:
+            return None
+        with self._lock:
+            return SideMemories(self.memory_slots,
+                                {s: self._memories.get((game_label, s)) for s in PLAYER_SIDES})
+
+    def _commit_memory(self, game_label: str, side: int, state) -> None:
+        """`state`, what the side's decision wrote, is its memory from
+        here; drop_last_pending restores the one before if the decision
+        bounces."""
+        key = (game_label, int(side))
+        with self._lock:
+            self._memory_undo[game_label] = (key, self._memories.get(key))
+            self._memories[key] = state
+
+    def _forget_memories(self, game_label: str) -> None:
+        """The game is over: its sides' memories go (caller holds
+        `self._lock`)."""
+        for key in [k for k in self._memories if k[0] == game_label]:
+            del self._memories[key]
+        self._memory_undo.pop(game_label, None)
 
     def _search_rng(self) -> Optional[np.random.Generator]:
         """A generator for one search's noise: None when this policy
@@ -919,6 +985,17 @@ class MCTSPolicy:
                 if pend:
                     pend.pop()
             self._reuse.pop(game_label, None)
+            # The side's memory goes back to what it was before the
+            # refused decision: the engine records nothing for it.
+            undo = self._memory_undo.pop(game_label, None)
+            if undo is not None:
+                key, before = undo
+                if before is None:
+                    self._memories.pop(key, None)
+                else:
+                    self._memories[key] = before
+        if self._trace is not None:
+            self._trace.drop_last(game_label)
         # Roll back the per-decision counter the bounced call advanced.
         with self._base._lock:
             if self._base._decision_step > 0:
@@ -1447,6 +1524,10 @@ class MCTSPolicy:
         be called with a SINGLE game's experiences -- mixing games
         would fabricate pairs across game boundaries."""
         if exps is None or len(exps) < 2:
+            return
+        if self._trace is not None:
+            # A memory model reads a state with its side's memory, and the
+            # pair FIFO keeps states without their games.
             return
         with self._lock:
             for a, b in zip(exps, exps[1:]):

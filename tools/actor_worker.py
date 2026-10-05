@@ -257,11 +257,13 @@ def _actor_loop(
     turn_cfg=None, gbc_labels: bool = False, pt_cfg=None,
     train_kwargs: dict = None, ground_cfg=None,
     game_records_dir: Optional[str] = None,
+    memory_slots: Optional[int] = None,
 ) -> None:
     """Persistent actor process body. Builds a seam-backed MCTSPolicy
     once, then loops on the control queue: PLAY -> pull game tickets
     from the shared queue until the iteration's end marker, shipping
-    each game's experiences and outcome; STOP -> exit."""
+    each game's experiences and outcome; STOP -> exit. `memory_slots`:
+    the slots its searches use over a model with a memory (ActorPool)."""
     import torch
     logging.basicConfig(level=log_level,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -345,12 +347,19 @@ def _actor_loop(
         # The hex stream's terrain form (encoder.terrain_multi_hot);
         # legacy PLAY tuples = the one-class view.
         _tmh = bool(cmd[13]) if len(cmd) > 13 else False
+        # The parity observation and its relevant set
+        # (docs/parity_memory_design_20260929.md); legacy PLAY tuples =
+        # obs8's observation.
+        _parity = bool(cmd[14]) if len(cmd) > 14 else False
+        _rsv = int(cmd[15]) if len(cmd) > 15 else 1
         # Rebuild the encoder each iteration with the freshly-snapshotted
         # vocab so actor indices line up with the server's encoder.
         renc = RemoteEncoder(t2i, f2i, device=cpu,
                              relevant_set=_rset, server_priors=_sp,
                              fog_hides_enemy_villages=_fhv,
-                             terrain_multi_hot=_tmh)
+                             terrain_multi_hot=_tmh,
+                             observation_parity=_parity,
+                             relevant_set_version=_rsv)
         # MCTSPolicy.select_action reads `_base._lock` / `_base._decision_step`
         # (the combat-oracle anneal, added 2026-06-29). The in-process base is
         # a TransformerPolicy that supplies both; the actor's lightweight base
@@ -382,10 +391,11 @@ def _actor_loop(
                                       gbc_labels=gbc_labels,
                                       turn_config=turn_cfg,
                                       grounding_config=ground_cfg,
+                                      memory_slots=memory_slots,
                                       **_tk)
         else:
             policy = MCTSPolicy(base, mcts_cfg,
-                                gbc_labels=gbc_labels, **_tk)
+                                gbc_labels=gbc_labels, memory_slots=memory_slots, **_tk)
         # Split the mix ratios (absolute, sum to 1; no midgame --
         # the parent CLI rejects --midgame-ratio with --actor-pool)
         # from the pass-through setup options.

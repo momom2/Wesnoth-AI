@@ -435,6 +435,12 @@ class WesnothModel(nn.Module):
             return []
         if memory is not None and len(memory) != B:
             raise ValueError(f"{len(memory)} memory states for {B} samples")
+        if memory is not None:
+            # A player's `MemoryState` (None state: the game-side's first
+            # decision) or the state itself, as `forward` takes them.
+            memory = [m if not isinstance(m, MemoryState)
+                      else self.initial_memory(m.k) if m.state is None else m.state
+                      for m in memory]
         if B == 1 and autocast_bf16 is None and packed is None:
             return [self.forward(encoded_list[0], memory=None if memory is None else memory[0])]
         padded = self.forward_padded(encoded_list, autocast_bf16=autocast_bf16, packed=packed,

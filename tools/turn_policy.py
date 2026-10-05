@@ -42,6 +42,7 @@ import logging
 from typing import Dict, Optional
 
 import numpy as np
+import torch
 
 from wesnoth_ai.classes import GameState, state_key
 from tools.mcts import MCTSConfig
@@ -67,6 +68,10 @@ class TurnCommitPolicy(MCTSPolicy):
         # finalize_game (worker-side under the pool).
         from tools.value_grounding import GroundingConfig
         self._ground_cfg = grounding_config or GroundingConfig()
+        if self.memory_slots is not None and self._ground_cfg.enabled:
+            # Quarantined (quarantine/INVENTORY.md 4.3): its captures and
+            # rollouts carry no memory.
+            raise ValueError("value grounding runs only on a model without a memory")
         self._ground_pending: Dict[str, list] = {}
         self._ground_rng = np.random.default_rng(0xC0FFEE)
         self._ground_stats: Dict[str, float] = {}
@@ -114,6 +119,7 @@ class TurnCommitPolicy(MCTSPolicy):
         live_key = state_key(sim.gs)
         with self._lock:
             plan = self._plans.get(game_label)
+        memory = self._game_memories(game_label)
 
         fresh_turn = (plan is None or plan.side != side
                       or plan.turn_no != turn_no or plan.exhausted)
@@ -141,7 +147,7 @@ class TurnCommitPolicy(MCTSPolicy):
             plan = plan_turn(self._base, sim, side, ds_call,
                              self._turn_cfg, self._mcts_config,
                              self._rng, salt_ns, full,
-                             incumbent=warm, capture=cap_cb)
+                             incumbent=warm, capture=cap_cb, memory=memory)
             self._tcs_plans += 1
             self._tcs_accepts += plan.accepts
             self._tcs_projections += plan.projections
@@ -154,6 +160,13 @@ class TurnCommitPolicy(MCTSPolicy):
         target = plan.targets[plan.cursor]
         stats = plan.stats[plan.cursor]
         plan.cursor += 1
+        if memory is not None:
+            # The command served here is the side's decision: what it
+            # writes at the live state is the side's memory from here.
+            with torch.no_grad():
+                written = self._inference_model(self._inference_encoder.encode(game_state),
+                                                memory=memory.read(side)).memory
+            self._commit_memory(game_label, side, written)
         with self._lock:
             self._plans[game_label] = plan
             recorded = bool(target)
@@ -187,6 +200,8 @@ class TurnCommitPolicy(MCTSPolicy):
                         a["et_target"] = (a.get("et_target", 0.0)
                                           + stats["et_target"])
             self._last_recorded[game_label] = recorded
+        if self._trace is not None:
+            self._trace.note(game_label, self._inference_encoder, game_state, None, recorded=recorded)
         return cmd
 
     # -- plan lifecycle -----------------------------------------------

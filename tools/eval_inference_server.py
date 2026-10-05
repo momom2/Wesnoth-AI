@@ -678,6 +678,10 @@ def main(argv: List[str]) -> int:
     if args.graphed:
         if not packed:
             log.warning("--graphed needs the packed trunk (cuda + bf16); serving eager")
+        elif model.extended_streams:
+            # wesnoth_ai/graphed_serve.py embeds obs8's streams only.
+            log.warning("--graphed has no sighting or memory stream; a model with the parity "
+                        "observation or a memory serves eager")
         else:
             from wesnoth_ai.graphed_serve import Caps, GraphedServe
             # Eval batches run 5-8 leaves at max_batch 20 (docs/box_specs.md

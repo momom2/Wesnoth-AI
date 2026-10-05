@@ -12,13 +12,11 @@ docs/imitation_anneal_prereg_20261003.md "Measured"), played with its
 memory at 64 slots. Every number from here is measured against it.
 **Next (user order 2026-10-04): self-play.** **User ruling 2026-10-05:
 self-play keeps the memory;** its size is open to discussion, its
-existence is not. So the first self-play work carries it everywhere it
-is missing: the turn-gap tool (it builds its player without it), the
-self-play pool and its inference server (each side's memory per game),
-the learner (the sequence trainer already carries it for imitation) and
-the searches (a fork carries both sides' memories with the simulator).
-The one size measurement is `parity2`'s: 16 and 64 slots within noise in
-play. Parked meanwhile:
+existence is not. It reaches every place that plays or trains the
+network since 0.14.0 (docs/memory_everywhere_20261005.md). **Next: the
+first self-play run with it,** `az_loop` on `parity3` (box proposal and
+cost first). The one size measurement is `parity2`'s: 16 and 64 slots
+within noise in play. Parked meanwhile:
 
 - **Imitation's remaining gains.** The anneal rule's last estimate was
   0.061 of holdout loss a further epoch at the peak rate; a further run

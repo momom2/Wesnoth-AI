@@ -51,6 +51,8 @@ from wesnoth_ai.action_sampler import (
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.device import dml_sync
 from wesnoth_ai.encoder import RawEncoded
+from wesnoth_ai.memory import MemoryState
+from wesnoth_ai.memory_step import reads_memory
 from wesnoth_ai.model import UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout
 from wesnoth_ai.server_priors import (
@@ -83,10 +85,10 @@ STEP_MCTS_STAGES = ("encode_raw", "encode", "forward", "policy_loss",
 # hands them out: the factored policy cross-entropy split by head, then
 # the value-side terms at their coefficients in the order the step sums
 # them (the value loss, arm VG2's consistency and trust-region terms,
-# the aux margin, moves-left and GBC). A term the batch does not
-# exercise is a zero.
+# the aux margin, moves-left, GBC and the parity-memory recipe's belief
+# head). A term the batch does not exercise is a zero.
 MCTS_POLICY_TERMS = ("actor", "type", "target", "weapon")
-MCTS_VALUE_TERMS = ("value", "consistency", "trust", "aux", "moves_left", "gbc")
+MCTS_VALUE_TERMS = ("value", "consistency", "trust", "aux", "moves_left", "gbc", "belief")
 MCTS_LOSS_TERMS = MCTS_POLICY_TERMS + MCTS_VALUE_TERMS
 
 _CPU = torch.device("cpu")
@@ -242,6 +244,23 @@ class MCTSExperience:
     # (their 512-entry drop-all bound; the bench's 200 states and a
     # learner's working set both exceed it).
     masks: Optional[PackedMasks] = None
+    # A memory player's position (docs/memory_everywhere_20261005.md,
+    # hole 6; tools/memory_trace.py): its place in its game-side (`side`,
+    # `side_step` from 0) and the slots its player used (`memory_k`, -1
+    # without a memory); the encoding the actor built where the state is
+    # bound to its core, which the learner uses instead of encoding
+    # `game_state`; and the belief head's targets, from the god view the
+    # actor holds (hex tokens holding a hidden enemy unit, and the tokens
+    # with no visible unit, the loss's domain). A decision without a
+    # search target is shipped as label_kind "carry" with no game_state
+    # and zero weights: it keeps its side's memory chain whole and trains
+    # the belief head only.
+    raw: Optional[RawEncoded] = None
+    side: int = 0
+    side_step: int = -1
+    memory_k: int = -1
+    hidden_tokens: Optional[np.ndarray] = None
+    no_visible_unit: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -359,6 +378,12 @@ class TrainerConfig:
     # within 0.3% (docs/box_specs.md "Training path cost
     # (2026-09-05)"). Off by default; az_loop --train-bf16.
     train_autocast_bf16: bool = False
+    # A model with a memory (wesnoth_ai/memory_step.py): the belief
+    # head's weight beside the policy and value losses (the parity-
+    # memory recipe's 1), and the decisions back-propagated through the
+    # memory per window (the sequence trainer's 16).
+    belief_coef: float = 1.0
+    memory_window: int = 16
 
 
 @dataclass
@@ -373,6 +398,7 @@ class TrainStats:
     n_trajectories: int   = 0
     aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
     gbc_loss:       float = 0.0   # GBC event-supervision BCE; 0 when off
+    belief_loss:    float = 0.0   # the belief head's BCE; 0 without one
     moves_left_loss: float = 0.0  # Lc0-style moves-left MSE; 0 when off
     # Boundary-consistency telemetry (T1-F, 2026-07-29): mean of
     # V(s_pre)+V(s_post) over sampled side-switch pairs of recorded
@@ -1520,6 +1546,9 @@ def _trainer_step_mcts(
     """
     if not experiences:
         return TrainStats()
+    if reads_memory(self.model):
+        from wesnoth_ai.memory_step import step_streams
+        return step_streams(self, experiences, timings=timings, no_grad=no_grad)
 
     cap = self.config.max_transitions_per_step
     if len(experiences) > cap:
@@ -1545,12 +1574,6 @@ def _trainer_step_mcts(
     if not no_grad:
         self.optimizer.zero_grad()
 
-    sum_policy_loss = 0.0
-    sum_value_loss  = 0.0
-    sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0}
-    sum_total_visits = 0.0
-    sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
-
     # Optimization #7 (2026-06-14): run the training forwards in eval()
     # (not train()), mirroring the REINFORCE step(). The model's 9
     # Dropout(p=1e-4) layers exist only to disable a torch fast path
@@ -1571,23 +1594,35 @@ def _trainer_step_mcts(
     with timer.stage("encode_raw"):
         raw_cache = self._mcts_raw_cache(experiences)
 
+    losses: List[_ChunkFloats] = []
     for start in range(0, N, B):
         loss = self._mcts_chunk_loss(experiences[start:start + B],
                                      raw_cache[start:start + B], start, batch,
                                      timer, autocast_bf16)
-        sum_total_visits += loss.visits
-        for name, value in loss.sums.items():
-            sums[name] += value
-
         if not no_grad:
             with timer.stage("backward"):
                 loss.total.backward()
-
-        sum_policy_loss += float(loss.policy.loss.item())
-        sum_value_loss  += float(loss.value_loss.item())
-        sum_actor_nlp_weighted += float(loss.policy.actor_nlp.item())
+        losses.append(loss.detached())
         # Released before the next chunk's forward.
         del loss
+    return _summed_stats(self, losses, batch, N, timer, no_grad)
+
+
+def _summed_stats(self, losses: Sequence["_ChunkFloats"], batch: "_MCTSBatch", N: int,
+                  timer: "_StageTimer", no_grad: bool) -> TrainStats:
+    """The tail of a step_mcts call (wesnoth_ai/memory_step.py's too):
+    the clip and the optimizer update unless `no_grad`, and the stats
+    summed over the chunks."""
+    sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0, "belief": 0.0}
+    sum_policy_loss = sum_value_loss = sum_total_visits = 0.0
+    sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
+    for loss in losses:
+        sum_total_visits += loss.visits
+        for name, value in loss.sums.items():
+            sums[name] += value
+        sum_policy_loss += loss.policy
+        sum_value_loss += loss.value
+        sum_actor_nlp_weighted += loss.actor_nlp
 
     if no_grad:
         grad_norm = torch.tensor(0.0)
@@ -1624,6 +1659,7 @@ def _trainer_step_mcts(
             + self.config.aux_coef   * sums["aux"]
             + self.config.moves_left_coef * sums["ml"]
             + self.config.gbc_coef   * sums["gbc"]
+            + self.config.belief_coef * sums["belief"]
         ),
         grad_norm      = float(grad_norm) if isinstance(grad_norm, float)
                          else float(grad_norm.item()),
@@ -1634,6 +1670,7 @@ def _trainer_step_mcts(
         consist_loss   = float(sums["consist"]),
         trust_loss     = float(sums["trust"]),
         gbc_loss       = float(sums["gbc"]),
+        belief_loss    = float(sums["belief"]),
         moves_left_loss = float(sums["ml"]),
         value_signal_states = batch.n_value_signal,
     )
@@ -1643,6 +1680,7 @@ def _trainer_mcts_loss_terms(
     self,                                     # Trainer (method injected below)
     experiences: Sequence[MCTSExperience],
     on_chunk: Callable[[Dict[str, torch.Tensor]], None],
+    memories: Optional[Dict[int, MemoryState]] = None,
 ) -> None:
     """The loss step_mcts backpropagates on `experiences`, split by
     term, without stepping: `on_chunk(terms)` receives MCTS_LOSS_TERMS
@@ -1659,9 +1697,16 @@ def _trainer_mcts_loss_terms(
     given (no `max_transitions_per_step` subsample, which would draw the
     trainer's generator); a name the encoder's vocabulary lacks is
     registered, as the step registers it. The model and the encoder run
-    in eval() as in the step and get their modes back afterwards."""
+    in eval() as in the step and get their modes back afterwards.
+
+    A model with a memory needs each position's memory (`memories`, from
+    wesnoth_ai.memory_step.memory_inputs), read as a constant input: the
+    terms carry no gradient through earlier decisions."""
     if not experiences:
         return
+    if reads_memory(self.model) and memories is None:
+        raise ValueError("a model with a memory: the loss terms need each position's memory "
+                         "(wesnoth_ai.memory_step.memory_inputs)")
     dev = self.device or next(self.model.parameters()).device
     autocast_bf16 = bool(self.config.train_autocast_bf16) and dev.type == "cuda"
     batch = _mcts_batch(self, experiences, dev)
@@ -1673,9 +1718,11 @@ def _trainer_mcts_loss_terms(
         raw_cache = self._mcts_raw_cache(experiences)
         B = max(1, self.config.train_batch_size)
         for start in range(0, len(experiences), B):
-            terms = self._mcts_chunk_loss(experiences[start:start + B],
-                                          raw_cache[start:start + B], start, batch,
-                                          timer, autocast_bf16).terms()
+            chunk = experiences[start:start + B]
+            memory = (None if memories is None else
+                      [_memory_tensor(self.model, memories[id(e)], dev) for e in chunk])
+            terms = self._mcts_chunk_loss(chunk, raw_cache[start:start + B], start, batch,
+                                          timer, autocast_bf16, memory=memory).terms()
             on_chunk(terms)
             del terms
     finally:
@@ -1707,6 +1754,8 @@ class _MCTSBatch:
     ml_on: bool
     ml_t_full: Optional[torch.Tensor]
     gbc_on: bool
+    belief_on: bool = False
+    n_belief: int = 1                 # positions carrying belief targets (the term's normalizer)
 
 
 def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
@@ -1773,14 +1822,20 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
     # has the aux head, the weight is positive, AND every experience
     # carries a margin target -- otherwise the head/term is skipped
     # entirely (mixed or aux-off data trains exactly as before).
+    # Positions at game weight 0 (a memory player's "carry" decisions)
+    # train no weighted term and carry no target.
+    weighted = [e for e in experiences
+                if float(getattr(e, "game_weight", 1.0)) > 0]
     aux_on = (
         config.aux_coef > 0
         and getattr(model, "has_aux_score", False)
+        and bool(weighted)
         and all(getattr(e, "aux_target", None) is not None
-                for e in experiences)
+                for e in weighted)
     )
     aux_t_full = (
-        torch.tensor([e.aux_target for e in experiences],
+        torch.tensor([0.0 if e.aux_target is None else e.aux_target
+                      for e in experiences],
                      device=dev, dtype=torch.float32)
         if aux_on else None
     )
@@ -1791,11 +1846,13 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
     ml_on = (
         config.moves_left_coef > 0
         and getattr(model, "has_moves_left", False)
+        and bool(weighted)
         and all(getattr(e, "moves_left_target", None) is not None
-                for e in experiences)
+                for e in weighted)
     )
     ml_t_full = (
-        torch.tensor([e.moves_left_target for e in experiences],
+        torch.tensor([0.0 if e.moves_left_target is None
+                      else e.moves_left_target for e in experiences],
                      device=dev, dtype=torch.float32)
         if ml_on else None
     )
@@ -1815,6 +1872,12 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
     # the ONE authority (project round-1 C3: this second gate
     # multiplied it by draw_value_weight AGAIN, so the knob and the
     # tiebreak z were both nullified whenever finalize sealed 0).
+    # The belief head (the parity-memory recipe): every position that
+    # carries its targets, at equal weight.
+    n_belief = sum(1 for e in experiences
+                   if getattr(e, "no_visible_unit", None) is not None)
+    belief_on = (config.belief_coef > 0 and n_belief > 0
+                 and bool(getattr(model, "observation_parity", False)))
     w_full = gws * vws
     return _MCTSBatch(
         device=dev, zs=zs, gws=gws, vws=vws, consist_mask=consist_mask,
@@ -1826,7 +1889,8 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
         # MCTSExperience.game_weight / policy_weight).
         policy_coef=(gws * pws / total_gw).tolist(),
         aux_on=aux_on, aux_t_full=aux_t_full,
-        ml_on=ml_on, ml_t_full=ml_t_full, gbc_on=gbc_on)
+        ml_on=ml_on, ml_t_full=ml_t_full, gbc_on=gbc_on,
+        belief_on=belief_on, n_belief=max(n_belief, 1))
 
 
 class _LossTerms:
@@ -1853,6 +1917,15 @@ class _ChunkLoss:
     value_loss: torch.Tensor               # the plain value loss, for the log
     visits: float
     sums: Dict[str, float]                 # the value-side terms' floats, for TrainStats
+    # A model with a memory: each position's new memory, float32 [k, d].
+    memory: Optional[List[torch.Tensor]] = None
+
+    def detached(self) -> "_ChunkFloats":
+        """The floats TrainStats sums, the graph let go."""
+        return _ChunkFloats(visits=self.visits, sums=dict(self.sums),
+                            policy=float(self.policy.loss.item()),
+                            value=float(self.value_loss.item()),
+                            actor_nlp=float(self.policy.actor_nlp.item()))
 
     def terms(self) -> Dict[str, torch.Tensor]:
         """Every term of MCTS_LOSS_TERMS as the step weighs it: each
@@ -1871,17 +1944,36 @@ class _ChunkLoss:
         return terms
 
 
+@dataclass
+class _ChunkFloats:
+    visits: float
+    sums: Dict[str, float]
+    policy: float
+    value: float
+    actor_nlp: float
+
+
+def _memory_tensor(model, state: MemoryState, dev: torch.device) -> torch.Tensor:
+    """A player's memory state as the training forward takes it."""
+    if state.state is None:
+        return model.initial_memory(int(state.k))
+    return torch.as_tensor(state.state, dtype=torch.float32).to(dev)
+
+
 def _trainer_mcts_raw_cache(self, experiences: Sequence[MCTSExperience]) -> List[RawEncoded]:
     """One RawEncoded per experience under this encoder's switches and
-    vocabulary, after registering any name the vocabulary lacks. The
-    chunks' grad-tracked encodings and the policy targets are both
+    vocabulary, after registering any name the vocabulary lacks: the
+    actor's encoding when the experience carries one (MCTSExperience.raw).
+    The chunks' grad-tracked encodings and the policy targets are both
     built from it (no second state walk)."""
     register_names = self.encoder.register_names
     for e in experiences:
-        register_names(e.game_state)
+        if e.raw is None:
+            register_names(e.game_state)
     type_to_id    = self.encoder.unit_type_to_id
     faction_to_id = self.encoder.faction_to_id
     return [
+        e.raw if e.raw is not None else
         self.encoder.raw_of(e.game_state, type_to_id=type_to_id,
                             faction_to_id=faction_to_id)
         for e in experiences
@@ -1891,9 +1983,11 @@ def _trainer_mcts_raw_cache(self, experiences: Sequence[MCTSExperience]) -> List
 def _trainer_mcts_chunk_loss(
     self, chunk: Sequence[MCTSExperience], raw_chunk: Sequence[RawEncoded],
     start: int, batch: _MCTSBatch, timer: _StageTimer, autocast_bf16: bool,
+    memory: Optional[List[torch.Tensor]] = None,
 ) -> _ChunkLoss:
     """The forward and the loss of one chunk: experiences `start` to
-    `start + len(chunk)` of the batch."""
+    `start + len(chunk)` of the batch. `memory`: each position's memory
+    state for a model with a memory."""
     L = len(chunk)
     # The bf16 region (config.train_autocast_bf16): the encoder's
     # projections, then the trunk and the heads. The model's own
@@ -1910,7 +2004,7 @@ def _trainer_mcts_chunk_loss(
             encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
         with timer.stage("forward"):
             padded = self.model.forward_padded(
-                encoded_chunk, autocast_bf16=False, packed=False)
+                encoded_chunk, autocast_bf16=False, packed=False, memory=memory)
             if autocast_bf16:
                 padded = padded.float32()
     # Staged on the host while the device runs the forward.
@@ -1929,7 +2023,8 @@ def _trainer_mcts_chunk_loss(
             padded, chunk, encoded_chunk, start, batch)
         total = policy.loss + value_terms.total
     return _ChunkLoss(total=total, policy=policy, value_terms=value_terms.by_name,
-                      value_loss=value_loss, visits=targets.visits, sums=sums)
+                      value_loss=value_loss, visits=targets.visits, sums=sums,
+                      memory=padded.memory)
 
 
 def _trainer_value_side_losses(
@@ -2050,7 +2145,38 @@ def _trainer_value_side_losses(
                     "gbc_on but no GBC loss computed for this chunk "
                     "(ctx tap None? entities unresolvable?) -- the "
                     "aux signal is NOT training; investigate")
+    if batch.belief_on:
+        belief = _belief_sum(padded, chunk, batch.device)
+        if belief is not None:
+            belief = belief / batch.n_belief
+            terms.add("belief", self.config.belief_coef * belief)
+            sums["belief"] = float(belief.item())
     return terms, value_loss, sums
+
+
+def _belief_sum(padded, chunk: Sequence[MCTSExperience], dev: torch.device) -> Optional[torch.Tensor]:
+    """The belief loss (wesnoth_ai.sequence_loss.belief_loss) summed over
+    the chunk's positions that carry targets; None when none does."""
+    from wesnoth_ai.sequence_loss import belief_loss
+    L, H_max = len(chunk), padded.belief_logits.shape[1]
+    target = torch.zeros(L, H_max, dtype=torch.float32)
+    mask = torch.zeros(L, H_max, dtype=torch.float32)
+    has = torch.zeros(L, dtype=torch.float32)
+    for b, e in enumerate(chunk):
+        free = getattr(e, "no_visible_unit", None)
+        if free is None:
+            continue
+        H = padded.sizes[b][2]
+        if free.shape[0] != H:
+            raise ValueError(f"belief targets for {free.shape[0]} hex tokens, the encoding has {H}")
+        mask[b, :H] = torch.from_numpy(free.astype(np.float32))
+        if e.hidden_tokens.shape[0]:
+            target[b, torch.from_numpy(e.hidden_tokens)] = 1.0
+        has[b] = 1.0
+    if not bool(has.any()):
+        return None
+    per_position = belief_loss(padded.belief_logits, target.to(dev), mask.to(dev))
+    return (per_position * has.to(dev)).sum()
 
 
 def _trainer_step_value_from_raw(
@@ -2185,6 +2311,7 @@ def _trainer_eval_value_metrics_from_raw(
 def _trainer_eval_value_metrics(
     self,                                     # Trainer (method injected below)
     experiences: List[MCTSExperience],
+    memories: Optional[Dict[int, MemoryState]] = None,
 ) -> Dict[str, float]:
     """No-grad value diagnostics of the CURRENT model on a fixed
     experience set, one forward pass:
@@ -2212,6 +2339,9 @@ def _trainer_eval_value_metrics(
     the value function" with "fitting the buffer's specific states".
     Evaluating on states that never entered training separates the
     two (see MCTSPolicy holdout diversion + fresh-probe).
+
+    A model with a memory reads each state's from `memories`
+    (wesnoth_ai.memory_step.memory_inputs).
     """
     nan = float("nan")
     if not experiences:
@@ -2227,13 +2357,11 @@ def _trainer_eval_value_metrics(
     if self.config.value_clip is not None:
         zs.clamp_(min=-float(self.config.value_clip),
                   max=+float(self.config.value_clip))
+    if reads_memory(self.model) and memories is None:
+        raise ValueError("a model with a memory: the value probe needs each state's memory "
+                         "(wesnoth_ai.memory_step.memory_inputs)")
     self.model.eval()
     self.encoder.eval()
-    register_names = self.encoder.register_names
-    for e in experiences:
-        register_names(e.game_state)
-    type_to_id    = self.encoder.unit_type_to_id
-    faction_to_id = self.encoder.faction_to_id
     atoms = self.model._value_atoms
     gws_e = torch.tensor(
         [float(getattr(e, "game_weight", 1.0)) for e in experiences],
@@ -2250,13 +2378,11 @@ def _trainer_eval_value_metrics(
     with torch.no_grad():
         for start in range(0, N, B):
             chunk = experiences[start:start + B]
-            raw_chunk = [
-                self.encoder.raw_of(e.game_state, type_to_id=type_to_id,
-                                    faction_to_id=faction_to_id)
-                for e in chunk
-            ]
+            raw_chunk = self._mcts_raw_cache(chunk)
             encoded_chunk = self.encoder.encode_from_raw_batch(raw_chunk)
-            outputs = self.model.forward_batch(encoded_chunk)
+            outputs = (self.model.forward_batch(encoded_chunk) if memories is None else
+                       self.model.forward_batch(encoded_chunk,
+                                                memory=[memories[id(e)] for e in chunk]))
             vl_t = torch.stack(
                 [o.value_logits.squeeze(0) for o in outputs])
             z_t = zs[start:start + len(chunk)]
