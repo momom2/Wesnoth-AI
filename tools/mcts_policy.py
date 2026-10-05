@@ -1525,6 +1525,10 @@ class MCTSPolicy:
         would fabricate pairs across game boundaries."""
         if exps is None or len(exps) < 2:
             return
+        if self._trace is not None:
+            # A memory model reads a state with its side's memory, and the
+            # pair FIFO keeps states without their games.
+            return
         with self._lock:
             for a, b in zip(exps, exps[1:]):
                 ga, gb = a.game_state, b.game_state

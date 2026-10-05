@@ -184,3 +184,16 @@ def test_the_probes_read_each_state_with_its_memory():
     priors, _, value = action_priors(policy, first, memory_inputs(
         policy._inference_model, policy._inference_encoder, held))
     assert abs(sum(priors.values()) - 1.0) < 1e-6 and -1.0 <= value <= 1.0
+
+
+@needs_core
+def test_an_in_process_memory_player_trains_through_its_own_queue():
+    """sim_self_play's path: the player's train_step over the games it
+    finalized, several turns long (the boundary telemetry's pairs stay
+    empty: it reads states without their games)."""
+    policy = _policy()
+    player, held, _ = _play(policy, decisions=40)
+    assert len({side for side, _ in held}) == 2
+    stats = player.train_step()
+    assert stats.n_transitions == len(held) and stats.belief_loss > 0
+    assert stats.boundary_pairs_n == 0
