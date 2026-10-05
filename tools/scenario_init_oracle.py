@@ -221,7 +221,8 @@ def our_record(gs) -> dict:
     owners = [{"x": x + 1, "y": y + 1, "side": side}
               for (x, y), side in (getattr(gi, "_village_owner", None) or {}).items() if side]
     codes = getattr(gi, "_terrain_codes", {})
-    return {"time_of_day": gi.time_of_day, "sides": sides, "units": units, "village_owners": owners,
+    return {"time_of_day": gi.time_of_day, "current_side": int(gi.current_side),
+            "sides": sides, "units": units, "village_owners": owners,
             "terrain": {(x + 1, y + 1): code for (x, y), code in codes.items()},
             "lawful_bonus": {(x + 1, y + 1): _lawful_bonus_at(gs, x, y, gi.turn_number) for (x, y) in codes},
             "empty_sides": set(getattr(gi, "_null_controller_sides", ()) or ()),

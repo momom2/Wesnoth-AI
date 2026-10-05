@@ -46,7 +46,8 @@ def _engine_shaped(ours: dict) -> dict:
     height = max(y for _, y in ours["terrain"])
     global_bonus = ours["lawful_bonus"][(1, 1)]
     return {
-        "time_of_day": ours["time_of_day"], "lawful_bonus": global_bonus,
+        "time_of_day": ours["time_of_day"], "current_side": ours["current_side"],
+        "lawful_bonus": global_bonus,
         "lawful_bonus_exceptions": [{"x": x, "y": y, "lawful_bonus": b}
                                     for (x, y), b in ours["lawful_bonus"].items() if b != global_bonus],
         "terrain_rows": [[ours["terrain"][(x, y)] for x in range(1, width + 1)]
