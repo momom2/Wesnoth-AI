@@ -60,7 +60,7 @@ Most replays in `replays_raw/` are from 1.18.x clients; pin
 accordingly. If a replay's `[scenario] version=` says something
 other than 1.18.x, scrape from that version's tag instead.
 
-## Current status (2026-09-04, entries through 2026-10-04)
+## Current status (2026-09-04, entries through 2026-10-05)
 
 **Read `docs/plan_20260904.md` first; `BACKLOG.md` holds the next
 actions in order.** Superseded status blocks, plans, leg records and
@@ -1005,6 +1005,34 @@ State of play:
   by turn 21, two on Hamlets ran to the 200-turn cap and a third there
   ended on turn 194.
 
+- 2026-10-05 (0.13.0, user order): **the reference plays Wesnoth's
+  default AI live, the simulator mirroring the game from the engine's
+  log.** `tools/live_vs_rca.py` starts a command-line multiplayer game
+  (the scenario-init oracle's launch) with our side on a Lua stage
+  (`lua/live_stage.lua`) and the other on the default (RCA) AI. The
+  engine logs every synced command, every number it draws and every
+  advancement choice (docs/wesnoth_rules.md "What the engine log shows
+  of a live game"); the simulator replays both sides' commands with the
+  engine's own draws (`tools/live_mirror.py`, Rust phase 30), so the
+  player observes the game as in a match, its memory included, and the
+  engine's board is compared with the simulator's at every decision. Two
+  complete games, two wins (Ruined Passage on turn 41, the boards
+  agreeing at all 428 decisions; Sablestone Delta on turn 10); a third
+  was stopped by the user on turn 15. The check found side 1's starting
+  units not resting during turn 1 in either applier (the engine sets
+  resting at every side-turn start, docs/wesnoth_rules.md "Resting
+  lifecycle"; fix pending, BACKLOG.md), and the default AI taking
+  movement outside the replay (its stop actions and leader_shares_keep),
+  which it reads from the engine's AI log and lets through. In the window
+  Wesnoth names both sides after the default AI and its end screen reads
+  Defeat whoever wins, since no side is human; the stage says so in the
+  chat. A command-line game plays 100% experience where a lobby plays
+  70%. Rejected: porting the default AI into the simulator, because its
+  decisions draw from an unsynced generator no replay records, so a port
+  could only match it in distribution, at 6-8k lines of C++ and 1.5-2k of
+  Lua; the mirror runs the real one, and Wesnoth runs it headless
+  (`--nogui`) if games are needed at scale.
+
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
 2026-10-04; one checkpoint, its memory and one decode, all in
@@ -1176,9 +1204,12 @@ stays at the root. So a bare name like `classes.py` below means
   `lua/turn_stage.lua` (custom AI stage replacing default RCA so
   failed actions don't blacklist the CA), `lua/action_executor.lua`,
   `lua/json_encoder.lua`. `scenarios/training_scenario.cfg`.
-- `tools/eval_vs_builtin.py` + `tools/eval_runner.py` — pits the
-  trained model against Wesnoth's default RCA AI across a
-  (map × matchup × side-swap) matrix.
+- `tools/live_vs_rca.py` + `tools/live_mirror.py` — the reference
+  against Wesnoth's default AI in a live game, the simulator mirroring it
+  from the engine's log and checking the board at every decision; Lua
+  side `lua/live_stage.lua` and `lua/board_report.lua`. Supersedes
+  `tools/eval_vs_builtin.py` + `tools/eval_runner.py` (deletion pending,
+  BACKLOG.md).
 - `tools/sim_demo_game.py` — headless one-game demo via the sim;
   exports a Wesnoth-loadable `.bz2` via
   `sim_to_replay.export_replay_from_scratch` (composes save WML

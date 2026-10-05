@@ -959,6 +959,34 @@ class WesnothSim:
             self._note_counter_outcomes(extras)
         return extras
 
+    def apply_engine_command(self, cmd: list, draws: List[int]) -> Optional[int]:
+        """One command a live engine played (tools/live_mirror.py),
+        applied with the numbers it drew in place of a seed (an attack's
+        strikes, a recruit's gender and traits) and recorded like every
+        command; then the game-over check. Returns the draws an attack's
+        fight took."""
+        side = self.current_side
+        used = None
+        if cmd[0] in ("attack", "recruit"):
+            from tools.engagement_stats import clear_event_sink, set_event_sink
+            es = getattr(self, "_engagement", None)
+            if es is not None:
+                set_event_sink(es.on_event)
+            try:
+                used = self.core.apply_drawn(cmd, draws)
+            finally:
+                if es is not None:
+                    clear_event_sink()
+            self._refresh_view()
+            recorded = self._side_channel_extras(cmd)
+            recorded["engine_draws"] = len(draws)
+            self.command_history.append(RecordedCommand(kind=cmd[0], side=side, cmd=list(cmd),
+                                                        extras=recorded))
+        else:
+            self._apply_and_record(cmd, side)
+        self._check_game_over()
+        return used
+
     def apply_neutral_attack(self, action: dict) -> bool:
         """Execute one pre-validated NEUTRAL-side attack (side >= 3
         RCA turn, tools/neutral_ai.py), recorded like step()'s attacks

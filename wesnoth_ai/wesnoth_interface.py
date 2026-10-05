@@ -155,8 +155,12 @@ class WesnothGame:
         label: str,
         scenario_id: str = "ai_training",
         launch_args: Optional[List[str]] = None,
+        watched: bool = False,
     ):
         self.label = label
+        # A game a person watches (tools/live_vs_rca.py): its window
+        # stays where Wesnoth opens it and animations keep their delays.
+        self.watched = watched
         # `scenario_id` selects which [test] scenario `--test` launches.
         # Default `ai_training` is the self-play / training scenario.
         # Eval harness passes per-game ids like
@@ -231,7 +235,7 @@ class WesnothGame:
         # (verified in 1.18 src/units/animation.cpp); combined with the
         # turbo/animate_map prefs set in lua/turn_stage.lua this takes
         # most of the animation time out of the per-action wait.
-        cmd = [str(WESNOTH_PATH), "--nodelay", *self.launch_args]
+        cmd = [str(WESNOTH_PATH), *([] if self.watched else ["--nodelay"]), *self.launch_args]
 
         # Snapshot the set of existing .out.log files. When the Wesnoth
         # subprocess starts writing its own log, it'll appear as a NEW
@@ -255,7 +259,7 @@ class WesnothGame:
         # SDL DOES honor it -- the polling thread then sees the
         # window already minimized and exits without doing anything.
         startupinfo = None
-        if os.name == "nt":
+        if os.name == "nt" and not self.watched:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 7   # SW_SHOWMINNOACTIVE
@@ -276,11 +280,12 @@ class WesnothGame:
         # during window creation and clobbers our request. The watcher
         # tightly polls EnumWindows for ~10s and ShowWindow(SW_SHOWMINNOACTIVE)s
         # the first matching window, then exits.
-        threading.Thread(
-            target=_pin_to_background,
-            args=(self.process.pid, self.logger),
-            daemon=True,
-        ).start()
+        if not self.watched:
+            threading.Thread(
+                target=_pin_to_background,
+                args=(self.process.pid, self.logger),
+                daemon=True,
+            ).start()
 
     def _find_out_log(self) -> Optional[Path]:
         """Find the .out.log file Wesnoth opened for this process.
@@ -304,6 +309,16 @@ class WesnothGame:
         # Newest first.
         candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         return candidates[0]
+
+    def engine_log_path(self) -> Optional[Path]:
+        """The process's engine log, beside its `.out.log`: the stream
+        of the log domains (`--log-info=...`), which `std_print` does not
+        reach. None until the `.out.log` is found."""
+        if self._log_path is None:
+            self._log_path = self._find_out_log()
+        if self._log_path is None:
+            return None
+        return self._log_path.with_name(self._log_path.name.replace(".out.log", ".log"))
 
     def _read_new_log_content(self) -> str:
         """Pull any new bytes from the .out.log since we last read."""
@@ -348,6 +363,17 @@ class WesnothGame:
             lines.pop(0)
         return "\n".join(lines)
 
+    def poll_state(self) -> Optional[str]:
+        """A complete frame if one has arrived, else None, without
+        waiting. The live stage's own notes (`[live-stage] ...` lines)
+        are logged as warnings."""
+        new = self._read_new_log_content()
+        for line in new.splitlines():
+            if line.startswith("[live-stage]"):
+                self.logger.warning(line)
+        self._log_buffer += new
+        return self._extract_state_frame()
+
     def read_state(self, timeout: float = STATE_TIMEOUT_SECONDS) -> Optional[str]:
         """Block until the Lua side emits a fresh state frame, then return
         the raw WML payload. None on timeout or process death.
@@ -385,7 +411,8 @@ class WesnothGame:
         return None
 
     def send_action(self, action: Dict,
-                    timeout: float = ACTION_TIMEOUT_SECONDS) -> bool:
+                    timeout: float = ACTION_TIMEOUT_SECONDS,
+                    seq: Optional[int] = None) -> bool:
         """Write the action file atomically with a fresh sequence number.
 
         Requires adopt_game_id() to have been called (i.e., at least
@@ -404,7 +431,8 @@ class WesnothGame:
             return False
 
         action_with_seq = dict(action)
-        action_with_seq["seq"] = next(_seq_source)
+        # The live stage takes the number of the decision it reported.
+        action_with_seq["seq"] = next(_seq_source) if seq is None else int(seq)
 
         lua_code = "return " + self._dict_to_lua(action_with_seq) + "\n"
         tmp = self.game_dir / (ACTION_FILE_NAME + ".tmp")

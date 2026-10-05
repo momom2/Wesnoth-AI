@@ -10,11 +10,11 @@
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-use crate::combat::Mt19937;
+use crate::combat::{LoggedRng, Mt19937, StrikeRng};
 use crate::core::{sorted, DefTable, GameCore, UnitRec};
 use crate::effects::apply_effect;
 use crate::units::{
-    apply_traits, attacks_from_type, build_plague_corpse, build_recruit_unit, defenses_of, numeric_uid,
+    apply_traits, attacks_from_type, build_plague_corpse, build_recruit_unit_with, defenses_of, numeric_uid,
     resistances_of, scaled_max_exp, seed_int_of, sha256_hex,
 };
 
@@ -209,6 +209,42 @@ impl GameCore {
     pub fn unit_pos(&self, id: &str) -> Option<usize> {
         self.unit_index.get(id).copied()
     }
+
+    /// The recruit of `apply_recruit`, its traits drawn from `rng` (None:
+    /// a record without draws, hashed as `roll_traits` does).
+    fn recruit_with(&mut self, unit_type: &str, x: i64, y: i64, rng: Option<&mut dyn StrikeRng>)
+        -> PyResult<String> {
+        let side = self.global.current_side;
+        let delayed = self.vision_delayed(side);
+        if delayed {
+            self.track_side(side);
+        }
+        let drew = rng.is_some();
+        let uid = self.next_uid();
+        let mut u = build_recruit_unit_with(&self.db, unit_type, side, x, y, uid, &self.game_id, rng,
+                                            self.global.experience_modifier);
+        u.current_moves = 0;
+        u.has_attacked = true;
+        if let Some(pick) = self.game_pick(side, unit_type) {
+            u.pickadvance = Some(pick);
+        }
+        let id = u.id.clone();
+        let i = self.insert_unit(u)?;
+        let hex = self.units[i].hex;
+        if hex >= 0 && delayed {
+            self.defer_vision(i, &[hex as usize]);
+        } else if hex >= 0 {
+            self.clear_fog_from(i, &[hex as usize]);
+        }
+        if drew {
+            self.clear_undo_stack();
+        }
+        self.global.next_uid_counter += 1;
+        let cost = self.db.get(unit_type).cost;
+        self.spend_gold(side, cost);
+        self.note_sightings();
+        Ok(id)
+    }
 }
 
 #[pymethods]
@@ -223,35 +259,23 @@ impl GameCore {
     /// Returns the new unit's id.
     #[pyo3(signature = (unit_type, x, y, seed=""))]
     fn apply_recruit(&mut self, unit_type: &str, x: i64, y: i64, seed: &str) -> PyResult<String> {
-        let side = self.global.current_side;
-        let delayed = self.vision_delayed(side);
-        if delayed {
-            self.track_side(side);
+        if seed.is_empty() {
+            return self.recruit_with(unit_type, x, y, None);
         }
-        let uid = self.next_uid();
-        let mut u = build_recruit_unit(&self.db, unit_type, side, x, y, uid, &self.game_id, seed,
-                                       self.global.experience_modifier);
-        u.current_moves = 0;
-        u.has_attacked = true;
-        if let Some(pick) = self.game_pick(side, unit_type) {
-            u.pickadvance = Some(pick);
+        let mut rng = Mt19937::new(seed_int_of(seed), 0);
+        self.recruit_with(unit_type, x, y, Some(&mut rng))
+    }
+
+    /// `apply_recruit` with the numbers the engine drew for the command
+    /// (`LoggedRng`) in place of its seed: a live game mirrored from the
+    /// engine's log. The engine draws the gender, the traits, then the
+    /// name; the traits read the first draws, as from a seed.
+    fn apply_recruit_drawn(&mut self, unit_type: &str, x: i64, y: i64, draws: Vec<u32>) -> PyResult<String> {
+        if draws.is_empty() {
+            return self.recruit_with(unit_type, x, y, None);
         }
-        let id = u.id.clone();
-        let i = self.insert_unit(u)?;
-        let hex = self.units[i].hex;
-        if hex >= 0 && delayed {
-            self.defer_vision(i, &[hex as usize]);
-        } else if hex >= 0 {
-            self.clear_fog_from(i, &[hex as usize]);
-        }
-        if !seed.is_empty() {
-            self.clear_undo_stack();
-        }
-        self.global.next_uid_counter += 1;
-        let cost = self.db.get(unit_type).cost;
-        self.spend_gold(side, cost);
-        self.note_sightings();
-        Ok(id)
+        let mut rng = LoggedRng::new(draws);
+        self.recruit_with(unit_type, x, y, Some(&mut rng))
     }
 
     /// `_apply_command(["pickadvance", x, y, unit_override, game_override,

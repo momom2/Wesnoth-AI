@@ -14,7 +14,8 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::combat::{resolve_fight_with, FightInputs, Mt19937, ScriptedRng, StrikeRng, UNIT_FLAGS, UNIT_INTS};
+use crate::combat::{resolve_fight_with, FightInputs, LoggedRng, Mt19937, ScriptedRng, StrikeRng, UNIT_FLAGS,
+                    UNIT_INTS};
 use crate::core::{BaseAttack, GameCore, UnitRec};
 use crate::observe::neighbours;
 
@@ -311,6 +312,37 @@ impl GameCore {
             return Ok(None);
         }
         let out = self.attack(py, a, d, a_weapon, d_weapon, &mut Mt19937::new(seed, 0))?;
+        self.note_sightings();
+        Ok(Some(out))
+    }
+
+    /// `apply_attack` with the numbers the engine drew for the command
+    /// (`LoggedRng`) in place of its seed: a live game mirrored from the
+    /// engine's log (tools/live_mirror.py). No draws is an attack aborted
+    /// before its first, as a replay attack without a seed. The fight's
+    /// facts carry `draws_used`, which the caller compares with the
+    /// number the engine logged.
+    #[pyo3(signature = (ax, ay, dx, dy, a_weapon, d_weapon, draws, choices))]
+    #[allow(clippy::too_many_arguments)]
+    fn apply_attack_drawn<'py>(&mut self, py: Python<'py>, ax: i64, ay: i64, dx: i64, dy: i64, a_weapon: i64,
+                               d_weapon: i64, draws: Vec<u32>, choices: Vec<i64>)
+        -> PyResult<Option<Bound<'py, PyDict>>> {
+        if draws.is_empty() {
+            return self.apply_attack(py, ax, ay, dx, dy, a_weapon, d_weapon, 0, false, choices);
+        }
+        self.advance_choices.extend(choices);
+        let (a, d) = match (self.unit_at(ax, ay), self.unit_at(dx, dy)) {
+            (Some(a), Some(d)) => (a, d),
+            _ => {
+                crate::effects::warn_once(format!(
+                    "{}: an attack from ({ax}, {ay}) on ({dx}, {dy}) misses a unit; the command is skipped",
+                    self.game_id));
+                return Ok(None);
+            }
+        };
+        let mut rng = LoggedRng::new(draws);
+        let out = self.attack(py, a, d, a_weapon, d_weapon, &mut rng)?;
+        out.set_item("draws_used", rng.calls())?;
         self.note_sightings();
         Ok(Some(out))
     }

@@ -71,8 +71,10 @@ _RECORD_SIDES = (1, 2)
 # a watcher's view on the hex it was seen entering and a defended fight
 # before its refog, 28 refogs before a fight's advancements and leaves the
 # units the scenario placed out of the seen types, 29 records no sighting
-# along a move's route (the display with move animations off).
-_CORE_PHASE = 29
+# along a move's route (the display with move animations off), 30 applies an
+# attack or a recruit with the numbers the engine drew for it (the live
+# mirror, tools/live_mirror.py).
+_CORE_PHASE = 30
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -604,25 +606,47 @@ class CoreState:
             self._recall(cmd)
         return "python"
 
-    def _apply_attack(self, cmd: list) -> None:
+    def apply_drawn(self, cmd: list, draws: List[int]) -> Optional[int]:
+        """An attack or a recruit with the numbers the engine drew for it
+        in place of its seed: a live game mirrored from the engine's log
+        (tools/live_mirror.py). Returns the draws an attack's fight took,
+        None for a recruit (whose name draws the core does not make) and
+        for an attack a hex of which holds no unit."""
+        draws = [int(d) for d in draws]
+        if cmd[0] == "recruit":
+            self.core.apply_recruit_drawn(str(cmd[1]), int(cmd[2]), int(cmd[3]), draws)
+            _log_core_warnings()
+            return None
+        if cmd[0] != "attack":
+            raise ValueError(f"only an attack or a recruit draws numbers, not {cmd[0]!r}")
+        out = self._apply_attack(cmd, draws=draws)
+        _log_core_warnings()
+        return None if out is None else int(out["draws_used"])
+
+    def _apply_attack(self, cmd: list, draws: Optional[List[int]] = None):
         """The attack on the core, which finishes its fed kills,
         advancements and plague corpses; the fight goes to the
-        engagement telemetry."""
+        engagement telemetry. `draws`: the engine's numbers in place of
+        the command's seed."""
         from tools.engagement_stats import emit_event
         from wesnoth_ai.combat import seed_int_of
         ax, ay, dx, dy, a_weapon = (int(v) for v in cmd[1:6])
         d_weapon = int(cmd[6]) if len(cmd) > 6 else -1
         seed_hex = cmd[7] if len(cmd) > 7 else ""
         choices = [int(c) if isinstance(c, int) else -1 for c in (cmd[8] if len(cmd) > 8 else [])]
-        out = self.core.apply_attack(ax, ay, dx, dy, a_weapon, d_weapon, seed_int_of(seed_hex),
-                                     bool(seed_hex), choices)
+        if draws is not None:
+            out = self.core.apply_attack_drawn(ax, ay, dx, dy, a_weapon, d_weapon, draws, choices)
+        else:
+            out = self.core.apply_attack(ax, ay, dx, dy, a_weapon, d_weapon, seed_int_of(seed_hex),
+                                         bool(seed_hex), choices)
         if out is None:
-            return
+            return None
         emit_event("combat", a_side=out["att_side"], d_side=out["dfd_side"],
                    dmg_to_defender=out["dmg_to_defender"], dmg_to_attacker=out["dmg_to_attacker"],
                    defender_died=not out["dfd_alive"], attacker_died=not out["att_alive"],
                    attacker_name=out["att_name"], defender_name=out["dfd_name"],
                    attacker_cost=out["att_cost"], defender_cost=out["dfd_cost"])
+        return out
 
     def _emit_heal_events(self) -> None:
         """The init_side's heal and poison telemetry (no-op without a sink)."""

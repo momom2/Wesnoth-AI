@@ -167,6 +167,33 @@ impl StrikeRng for ScriptedRng {
     }
 }
 
+/// The numbers the engine drew for one command, in order, as its log
+/// shows them (`--log-info=random`, random_synced.cpp:37): a live game's
+/// command is replayed with the engine's own draws where a replay has its
+/// seed. Past the last one it returns 0; `calls` beyond the count tell
+/// the caller the command took more draws than the engine did.
+pub(crate) struct LoggedRng {
+    draws: Vec<u32>,
+    calls: u64,
+}
+
+impl LoggedRng {
+    pub fn new(draws: Vec<u32>) -> Self {
+        LoggedRng { draws, calls: 0 }
+    }
+}
+
+impl StrikeRng for LoggedRng {
+    fn draw(&mut self) -> u32 {
+        let i = self.calls as usize;
+        self.calls += 1;
+        self.draws.get(i).copied().unwrap_or(0)
+    }
+    fn calls(&self) -> u64 {
+        self.calls
+    }
+}
+
 /// `combat.round_damage`: the engine's rounding of base * bonus / divisor.
 fn round_damage(base_damage: i64, bonus: i64, divisor: i64) -> i64 {
     if base_damage == 0 {

@@ -1006,6 +1006,25 @@ survivor whose ZoC forked the whole game). Sim port:
 at the end of init_side; MODIFY_UNIT expands to `[modify_unit]` in
 `wesnoth_ai/rules/scenario_cfg.py::_load_core_macros`.
 
+**Every side-turn start, the game's first included, for every unit of
+the side, petrified included** (added 2026-10-04). The loop above sits
+after both gates of `do_init_side` (`if(turn() > 1)` and
+`if(do_healing())`, `src/play_controller.cpp:488-514`), so side 1's
+starting units are resting from the game's first decision and a
+petrified unit is set too. Both appliers set it only inside their
+healing branch, which skips the game's first side turn and petrified
+units (`tools/replay_dataset.py` init_side, `core_step.rs`
+`apply_init_side`): side 1's leader that stays on its keep on turn 1
+misses the engine's rest heal if it is hurt before side 1's turn 2.
+Found by the live mirror's board check (tools/live_vs_rca.py); the fix
+waits for a record-format change (BACKLOG.md). Moving does not clear
+resting before the side's end of turn; attacking clears it at once on
+both combatants (`src/actions/attack.cpp:1374-1375`):
+```cpp
+a_.get_unit().set_resting(false);
+d_.get_unit().set_resting(false);
+```
+
 ### End of a side's turn: the same for every controller, AI included
 
 A side's turn ends through one path whatever controls it (1.18.4,
@@ -3620,3 +3639,83 @@ message and no synced command is sent, so the replay records nothing.
 **Consequence.** The corpus holds no position for a refused recruit;
 a match player whose recruit bounces decides again from the memory it
 had before (`RawPolicyPlayer.drop_last_pending`).
+
+## What the engine log shows of a live game (added 2026-10-04)
+
+**Rule.** With `--log-info=replay,random,engine`, a game's log holds
+every synced command as it is recorded, the numbers each one draws, and
+each advancement choice, in the order they happen; `[init_side]` and
+`[end_turn]` are not among them. tools/live_mirror.py replays a live
+game from it.
+
+**Source (1.18.4).**
+- `src/replay.cpp:248-254`, every synced command of every side:
+  ```cpp
+  cmd["from_side"] = resources::controller->current_side();
+  LOG_REPLAY << "add_synced_command: \n" << cmd.debug();
+  ```
+  `replay::init_side` and `replay::end_turn` (`src/replay.cpp:219-226`,
+  `305-311`) go through `add_command` without a log line.
+- `src/random_synced.cpp:37-40`, each draw of a command's generator:
+  `LOG_RND << "randomness::rng::next_random_impl returned " << retv;`.
+  The unsynced default generator (`rng_default`, `src/random.cpp:36-55`,
+  seeded from `boost::random_device`) logs nothing, and the seeds come
+  from `boost::random_device` too (`src/seed_rng.cpp:31-34`), so the
+  seeds are in the replay only.
+- `src/actions/advancement.cpp:239`, every advancement, whatever its
+  number of options: `LOG_NG << "unit at position " << loc_ << " chose
+  advancement number " << res;` (location 1-based). An AI side's choice
+  is drawn from the unsynced generator: `ask_local_choice` runs
+  `query_user` under `leave_synced_context`
+  (`src/synced_user_choice.cpp:356-360`).
+
+**Why non-obvious.** An attack's draws are logged strike by strike as
+the fight plays, so a command is complete only when the next one (or a
+later marker) is logged; a game-ending attack has no successor.
+
+## The default AI changes units outside synced commands (added 2026-10-04)
+
+**Rule.** The default AI takes movement and attacks from its units
+without any synced command, so neither the replay nor another client
+sees it; the change lasts until the side's next turn start.
+
+**Source (1.18.4).**
+- The stop action, `src/ai/actions.cpp:895-926`: `un->remove_movement_ai();`
+  and `un->remove_attacks_ai();`, logged at info level by `ai/actions`
+  (`start of execution of:  stopunit by side S ... from unit on location
+  X,Y`, `src/ai/actions.cpp:876-893`). A full move ends with one
+  (`src/ai/actions.cpp:498-500`).
+- `leader_shares_keep`, `src/ai/default/ca.cpp:1688`, on each AI leader on
+  a keep with a vacant castle hex: `ai_leader->remove_movement_ai();`,
+  logged only as the candidate action the loop runs (debug level of
+  `ai/stage/rca`, `src/ai/default/stage_rca.cpp:124`).
+- `src/units/unit.cpp:2784-2791`:
+  ```cpp
+  if(movement_left() == total_movement()) {
+      set_state(STATE_NOT_MOVED,true);
+  }
+  set_movement(0, true);
+  ```
+  `STATE_NOT_MOVED` keeps the unit resting at its end of turn
+  (`unit::end_turn`, above), so the rest heal is the replay's.
+
+**Consequence.** In a live game the engine's board shows such units with
+no movement (and `not_moved`) where the replay keeps their movement;
+tools/live_vs_rca.py exempts exactly those from its board check.
+
+## Lua AI and logging calls (added 2026-10-04)
+
+- `ai.attack(attacker, defender, weapon)` takes a 1-based weapon; 0 and
+  -1 ask the engine for the best one (`src/ai/lua/core.cpp:209-215`):
+  ```cpp
+  attacker_weapon = lua_tointeger(L, 3);
+  if (attacker_weapon != -1) {
+      attacker_weapon--;	// Done for consistency of the Lua style
+  }
+  ```
+  The legacy `lua/action_executor.lua` passes the policy's 0-based index.
+- `wesnoth.log(level, message, in_chat)` in a game posts the message to
+  the chat unless `in_chat` is false, and with two arguments reads the
+  message as the flag (`src/scripting/game_lua_kernel.cpp:4809-4822`:
+  `bool in_chat = luaW_toboolean(L, -1);`), so a two-argument call is
+  shown on screen.

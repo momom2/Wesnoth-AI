@@ -4,13 +4,21 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-10-04)
+## NEXT (2026-10-05)
 
 **1. `parity3` is the reference** (user ruling 2026-10-04): +82 +- 13
 Elo over `parity2` (800 decisive games,
 docs/imitation_anneal_prereg_20261003.md "Measured"), played with its
 memory at 64 slots. Every number from here is measured against it.
-**Next (user order 2026-10-04): self-play.** Parked meanwhile:
+**Next (user order 2026-10-04): self-play.** **User ruling 2026-10-05:
+self-play keeps the memory;** its size is open to discussion, its
+existence is not. So the first self-play work carries it everywhere it
+is missing: the turn-gap tool (it builds its player without it), the
+self-play pool and its inference server (each side's memory per game),
+the learner (the sequence trainer already carries it for imitation) and
+the searches (a fork carries both sides' memories with the simulator).
+The one size measurement is `parity2`'s: 16 and 64 slots within noise in
+play. Parked meanwhile:
 
 - **Imitation's remaining gains.** The anneal rule's last estimate was
   0.061 of holdout loss a further epoch at the peak rate; a further run
@@ -25,13 +33,18 @@ memory at 64 slots. Every number from here is measured against it.
   player's own history in its memory, which training never showed it.
 - **The items the audit deferred** until after the retrain:
   docs/parity_memory_audit_20260929.md "After the retrain".
-- **The live-Wesnoth eval path cannot play `parity3` as it plays**
-  (found 2026-10-04). `tools/eval_vs_builtin.py` builds the network
-  without the checkpoint's structure and loads it non-strict, samples
-  instead of the reference decode, and carries no memory; and our side
-  reports nothing during the enemy's turn, so the sighting record is
-  missing (besides "Live-Wesnoth observation" below). Games against the
-  RCA AI need that path rebuilt.
+- **Live games against the default AI: done (0.13.0,
+  `tools/live_vs_rca.py`).** Open from it: (a) both appliers skip the
+  resting of side 1's starting units on the game's first side turn and
+  of petrified units (docs/wesnoth_rules.md "Resting lifecycle"); the
+  fix changes every game record's first fingerprint, so it waits for a
+  record-format change (user's call); (b) a command-line game plays 100%
+  experience, a lobby 70% (a start from a composed save would play the
+  lobby's); (c) the legacy eval path (`tools/eval_vs_builtin.py`,
+  `eval_runner.py`, `eval_scenarios.py`, the turn stage's executor and
+  the converted state's gaps listed under "Live-Wesnoth observation")
+  is superseded and passed the policy's 0-based weapon to the 1-based
+  `ai.attack`: deletion is the user's call.
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
 docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game
@@ -66,7 +79,9 @@ and playout runs on the true state under fog**
 RICH carries a second caveat and a turn search needs a determinized root,
 drawn from a belief model, before it meets the 800-game gate. MCTS and
 the turn search refuse a model with a memory: against `parity2` they
-need its memory carried first.
+need its memory carried first. Found 2026-10-05: `tools/turn_gap.py`
+builds its player without the memory slots, so with `parity3` it would
+play at 0 slots without saying so.
 
 **3. The Rust core replaces the Python one** (user order 2026-09-28;
 docs/rust_core_port_20260928.md). Done (0.9.0): units, events, the
@@ -370,7 +385,8 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   hitpoints` forms; `[modify_side] income=` as an offset; a recruit on a
   castle-village capturing it; an out-of-range weapon index replaced by 0
   without a warning; the order of turn events.
-- **Live-Wesnoth observation** (eval against the built-in AI only): the
+- **Live-Wesnoth observation** (the legacy eval path only; the live
+  games observe through the simulator's mirror since 0.13.0): the
   converted state has no `_fog_cleared`, our own fogged villages lose
   their owner bit, and the time-of-day start offset is not set.
 - **Training:** `az_loop` trains on at most 4,000 experiences per step

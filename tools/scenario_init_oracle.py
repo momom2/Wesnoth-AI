@@ -190,8 +190,10 @@ def our_state(setup: ScenarioSetup, experience_modifier: int):
 def our_statuses(unit) -> List[str]:
     """A unit's statuses as the engine names them. `ai_special=guardian`
     is the engine's STATE_GUARDIAN (src/units/unit.cpp:659); we keep it as
-    the unit's `_ai_guardian` flag, which the neutral AI reads."""
-    found = {str(t) for t in unit.statuses}
+    the unit's `_ai_guardian` flag, which the neutral AI reads. Resting is
+    the engine's `resting` attribute, not a status (unit.hpp `resting_`),
+    so it is its own field."""
+    found = {str(t) for t in unit.statuses} - {"resting"}
     if getattr(unit, "_ai_guardian", False):
         found.add("guardian")
     return sorted(found)
@@ -207,11 +209,15 @@ def our_record(gs) -> dict:
                       "village_gold": gi.village_gold, "village_support": gi.village_upkeep,
                       "fog": bool(getattr(gi, "_fog", True)), "recruit": list(s.recruits),
                       "faction": s.faction})
+    # STATE_UNCOVERED is a status in the engine, a set of unit ids here.
+    uncovered = set(getattr(gi, "_uncovered_units", None) or ())
     units = [{"type": u.name, "side": u.side, "x": u.position.x + 1, "y": u.position.y + 1,
               "canrecruit": u.is_leader, "hitpoints": u.current_hp, "max_hitpoints": u.max_hp,
               "moves": u.current_moves, "max_moves": u.max_moves, "experience": u.current_exp,
               "max_experience": u.max_exp, "traits": sorted(str(t) for t in u.traits),
-              "status": our_statuses(u)} for u in gs.map.units]
+              "status": sorted(set(our_statuses(u)) | ({"uncovered"} if u.id in uncovered else set())),
+              "resting": "resting" in {str(t) for t in u.statuses}}
+             for u in gs.map.units]
     owners = [{"x": x + 1, "y": y + 1, "side": side}
               for (x, y), side in (getattr(gi, "_village_owner", None) or {}).items() if side]
     codes = getattr(gi, "_terrain_codes", {})
@@ -300,6 +306,13 @@ def compare(engine: dict, ours: dict) -> Dict[str, dict]:
         traits = engine_named_traits(e["traits"])
         f("unit.traits").check(key, traits, o["traits"])
         f("unit.status").check(key, engine_statuses(e["status"]), o["status"])
+        if "resting" in e:                   # reported by the live stage's board
+            # The engine clears resting at the side's end of turn when the
+            # unit moved (unit.cpp:1284-1287), the simulator at the move:
+            # for the side to play, resting with full movement compares.
+            resting = bool(e["resting"]) and (e["side"] != engine["current_side"]
+                                              or e["moves"] == e["max_moves"])
+            f("unit.resting").check(key, resting, o["resting"])
         # Where the traits differ the numbers may differ for that reason
         # alone, so their diffs say so.
         item = key if traits == o["traits"] else (*key, "traits differ")
