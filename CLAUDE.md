@@ -996,6 +996,15 @@ State of play:
   "Measured"). **User order the same day: the focus turns to self-play;**
   imitation's remaining gains are parked (BACKLOG.md).
 
+- 2026-10-04 (0.12.1): **the demo plays the reference as a match plays
+  it.** `tools/sim_demo_game.py` built the raw player without the
+  checkpoint's memory, so `parity3` played its demo games at 0 slots; it
+  now plays `--memory` slots (default: the reference's) through the match
+  loop (`eval_players._play_one_eval_game`). Ten `parity3` self-games
+  were exported for the user to watch: seven ended on a leader's death
+  by turn 21, two on Hamlets ran to the 200-turn cap and a third there
+  ended on turn 194.
+
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
 2026-10-04; one checkpoint, its memory and one decode, all in

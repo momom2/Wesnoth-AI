@@ -21,7 +21,6 @@ checkpoint. The replay lands at `--out` (default
 from __future__ import annotations
 
 import argparse
-import copy
 import logging
 import random
 import shutil
@@ -36,7 +35,10 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from tools import reference_player
-from tools.eval_players import _load_policy
+from tools.eval_players import (
+    _load_policy, _play_one_eval_game, _PolicyPair, peek_checkpoint_arch,
+)
+from tools.eval_provenance import effective_memory
 from tools.sim_to_replay import export_replay, find_source_bz2
 from tools.wesnoth_sim import PvPDefaults, WesnothSim
 
@@ -46,12 +48,14 @@ log = logging.getLogger("sim_demo_game")
 
 def load_player(ckpt: Path, device, *, mcts_sims: int, temperature: float,
                 end_turn_offset: float, end_turn_rule: str = "joint",
-                seed: Optional[int] = None):
+                seed: Optional[int] = None, memory: Optional[int] = None):
     """The player both sides use: the checkpoint loaded as the eval path
     loads it (its arch and every structural flag, so a relevant-set
     checkpoint chooses its hex targets in the relevant-set basis), under
     the eval-contract search when `mcts_sims` > 0 (MCTSConfig defaults:
-    no material shapers), else the raw player at the given decode."""
+    no material shapers), else the raw player at the given decode, with
+    the checkpoint's memory as a match plays it: `memory` slots, all of
+    them when None."""
     policy = _load_policy(ckpt, device, label="demo")
     if mcts_sims > 0:
         from tools.mcts import MCTSConfig
@@ -59,8 +63,10 @@ def load_player(ckpt: Path, device, *, mcts_sims: int, temperature: float,
         return MCTSPolicy(policy, mcts_config=MCTSConfig(n_simulations=int(mcts_sims)),
                           rng_seed=seed)
     from tools.raw_player import RawPolicyPlayer
+    slots = int(peek_checkpoint_arch(ckpt, "demo").get("memory_slots", 0) or 0)
     return RawPolicyPlayer(policy, temperature, seed=seed, end_turn_rule=end_turn_rule,
-                           end_turn_offset=end_turn_offset)
+                           end_turn_offset=end_turn_offset,
+                           memory_slots=effective_memory(slots, memory))
 
 
 def _pick_replay_seed(pool: Path, rng: random.Random) -> Optional[Path]:
@@ -139,7 +145,8 @@ def main(argv) -> int:
     ap.add_argument("--mcts-sims", type=int, default=32,
                     help="Simulations per decision for --mcts "
                          "(32 = training/eval convention).")
-    decode = reference_player.load()["decode"]
+    reference = reference_player.load()
+    decode = reference["decode"]
     ap.add_argument("--temperature", type=float,
                     default=float(decode["raw_temperature"]),
                     help="The raw player's joint temperature (0 = argmax). "
@@ -148,6 +155,10 @@ def main(argv) -> int:
                     default=float(decode.get("raw_end_turn_offset", 0.0)),
                     help="Added to the end_turn actor logit before the "
                          "choice. Default: the reference player's.")
+    ap.add_argument("--memory", type=int, default=None,
+                    help="Memory slots the player uses, 0 to the checkpoint's "
+                         "count. Default: the reference player's for its "
+                         "checkpoint, else all of them.")
     ap.add_argument("--max-turns", type=int, default=40,
                     help="Per-game turn cap.")
     ap.add_argument("--seed", type=int, default=None,
@@ -206,9 +217,8 @@ def main(argv) -> int:
                     f"--scenario {args.scenario!r} not in "
                     f"LADDER_SCENARIO_IDS; proceeding anyway")
             # Sample factions/leaders through the PRODUCTION sampler
-            # (which applies the FORCED_FACTION rule -- every
-            # self-play game has a Knalgan side by default), then
-            # override only the map. Hand-rolling the faction draw
+            # (which applies the FORCED_FACTION rule), then override
+            # only the map. Hand-rolling the faction draw
             # here used to sample both sides uniformly, producing
             # replays OFF the training distribution (a Loy-vs-Loy
             # mirror that training can never generate; caught by the
@@ -258,28 +268,23 @@ def main(argv) -> int:
     from tools.device_select import select_inference_device, describe_device
     device = select_inference_device(args.device)
     log.info(f"device: {describe_device(device)}")
+    memory = args.memory
+    if memory is None and args.checkpoint is None:
+        memory = reference.get("memory_slots")
     policy = load_player(
         ckpt, device, mcts_sims=args.mcts_sims if args.mcts else 0,
         temperature=args.temperature, end_turn_offset=args.end_turn_offset,
-        seed=args.seed)
+        seed=args.seed, memory=memory)
     log.info(f"player: {type(policy).__name__} "
              + (f"({args.mcts_sims} simulations per decision)" if args.mcts else
                 f"(temperature {args.temperature}, end_turn offset "
-                f"{args.end_turn_offset})"))
+                f"{args.end_turn_offset}, memory slots {policy.memory_slots})"))
     log.info("running one game (this is headless -- progress in stderr)...")
     t0 = time.perf_counter()
-    game_label = "demo"
-    while not sim.done:
-        # Deepcopy the state before each select_action: a search player
-        # keeps references to the states it decided on, and `sim.step`
-        # mutates `sim.gs` in place (the contract in
-        # `transformer_policy.select_action`'s docstring).
-        pre_state = copy.deepcopy(sim.gs)
-        action = policy.select_action(pre_state, game_label=game_label,
-                                      sim=sim)
-        sim.step(action)
-    # Nothing trains here: drop whatever the player recorded.
-    policy.drop_pending(game_label)
+    # The match loop itself: its state snapshots, a bounced recruit
+    # decided again with the side's memory restored, the mask guard.
+    _play_one_eval_game(sim, _PolicyPair(policy, "demo", 1),
+                        _PolicyPair(policy, "demo", 2), game_label="demo")
     dt = time.perf_counter() - t0
 
     log.info(
