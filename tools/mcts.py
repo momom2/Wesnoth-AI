@@ -92,7 +92,7 @@ from wesnoth_ai.classes import (
     deep_state_fingerprint, state_key,
 )
 from wesnoth_ai.encoder import GameStateEncoder
-from wesnoth_ai.memory import refuse_memory_model
+from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.model import WesnothModel
 from tools.wesnoth_sim import WesnothSim
 from tools.draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
@@ -546,6 +546,15 @@ class MCTSEdge:
         return 0.0 if self.n_visits == 0 else self.w_value / self.n_visits
 
 
+@dataclass(frozen=True)
+class MemoryContext:
+    """A search over a model with a memory: the slots its players use
+    and each side's memory at the root, what that side's last real
+    decision wrote (None before its first: the learned initial memory)."""
+    k: int
+    states: Dict[int, Optional[torch.Tensor]]
+
+
 class MCTSNode:
     """One game state in the search tree. Owns its sim fork so
     multiple branches don't interfere."""
@@ -554,7 +563,7 @@ class MCTSNode:
                  "tt_hits", "tt_misses",
                  "cliffness", "value", "gumbel_action",
                  "moves_left", "masks",
-                 "_distill_stats", "is_sentinel")
+                 "_distill_stats", "is_sentinel", "memory_out", "memory_ctx")
 
     def __init__(self, sim: WesnothSim):
         self.sim:           WesnothSim   = sim
@@ -605,6 +614,30 @@ class MCTSNode:
         # target so the trainer stages it instead of rebuilding the
         # masks on the host. Negligible next to the node's sim fork.
         self.masks: Optional["PackedMasks"] = None
+        # A model with a memory: what this node's evaluation wrote for
+        # its side to move (the decision's memory at the root), and on
+        # the ROOT the search's MemoryContext (None elsewhere).
+        self.memory_out: Optional[torch.Tensor] = None
+        self.memory_ctx: Optional[MemoryContext] = None
+
+
+def _memory_in(root: "MCTSNode", leaf: "MCTSNode", path) -> Optional[MemoryState]:
+    """The memory `leaf`'s side reads at its evaluation: what the last
+    node of that side on the path from the root wrote, else the side's
+    memory at the root (docs/parity_memory_design_20260929.md, "Serving
+    and play": a fork carries both sides' memories). None without a
+    memory context."""
+    ctx = root.memory_ctx
+    if ctx is None:
+        return None
+    for node, _edge in reversed(path):
+        if node.side == leaf.side and node.memory_out is not None:
+            return MemoryState(ctx.k, node.memory_out)
+    return MemoryState(ctx.k, ctx.states.get(leaf.side))
+
+
+def _forward_one(model, encoded, memory: Optional[MemoryState]):
+    return model(encoded) if memory is None else model(encoded, memory=memory)
 
 
 def _packed_masks_of(encoded) -> Optional["PackedMasks"]:
@@ -739,10 +772,13 @@ def _expand(
     if node.is_terminal:
         node.expanded = True
         return _node_terminal_value(node, tiebreak)
+    memory = _memory_in(node, node, [])
     with torch.no_grad():
         encoded = encoder.encode(node.sim.gs)
         node.masks = _packed_masks_of(encoded)
-        output = model(encoded)
+        output = _forward_one(model, encoded, memory)
+        if memory is not None:
+            node.memory_out = output.memory
         # Sampler-on-CPU split: one bulk D2H here instead of dozens of
         # per-actor syncs inside the enumeration (no-op on CPU).
         encoded, output = _leaf_to_cpu(encoded, output)
@@ -1221,9 +1257,12 @@ def _run_one_sim(
         _backup(path, leaf.value, leaf.side, 0.0,
                 leaf_moves_left=leaf.moves_left)
         return
+    memory = _memory_in(root, leaf, path)
     with torch.no_grad():
         encoded = encoder.encode(leaf.sim.gs)
-        output = model(encoded)
+        output = _forward_one(model, encoded, memory)
+    if memory is not None:
+        leaf.memory_out = output.memory
     v = _populate_leaf(leaf, encoded, output,
                        aux_value_bonus=config.aux_value_bonus,
                        value_center=config.value_center,
@@ -1295,12 +1334,20 @@ def _run_sim_batch(
     # ----- Phase 2: one batched forward over the unique leaves --------
     if pending:
         unique_leaves: Dict[int, MCTSNode] = {}
-        for leaf, _ in pending:
+        leaf_paths: Dict[int, list] = {}
+        for leaf, path in pending:
             unique_leaves.setdefault(id(leaf), leaf)
+            leaf_paths.setdefault(id(leaf), path)
         unique_list = list(unique_leaves.values())
+        memories = (None if root.memory_ctx is None else
+                    [_memory_in(root, ln, leaf_paths[id(ln)]) for ln in unique_list])
         with torch.no_grad():
             encoded_list = [encoder.encode(ln.sim.gs) for ln in unique_list]
-            outputs = model.forward_batch(encoded_list)
+            outputs = (model.forward_batch(encoded_list) if memories is None
+                       else model.forward_batch(encoded_list, memory=memories))
+        if memories is not None:
+            for ln, out in zip(unique_list, outputs):
+                ln.memory_out = out.memory
         # B2 (docs/archive/gpu_perf_patches.md #2): read every leaf's scalar value
         # + cliffness in ONE batched D2H transfer instead of 2
         # serializing syncs per leaf. Values are identical to the
@@ -1555,6 +1602,7 @@ def mcts_search(
     reuse_root: Optional[MCTSNode] = None,
     n_sims_override: Optional[int] = None,
     decision_step:   int = 0,
+    memory:          Optional[MemoryContext] = None,
 ) -> MCTSNode:
     """Run MCTS from `sim`'s state. Returns the root node with
     populated visit counts on outgoing edges.
@@ -1587,12 +1635,21 @@ def mcts_search(
     Cost (B=1, CPU, default model): ~30-50 ms per simulation, model
     forward dominated. With B=8 on GPU: typically 5-10x speedup as
     forward overhead amortizes.
+
+    `memory`: required for a model with a memory: each side's memory at
+    the root. Every node keeps what its evaluation wrote; a leaf reads the
+    last memory of its side on its path (`_memory_in`); the root's write
+    is the decision's. One position reached by two paths holds two
+    memories, so such a search keeps no transposition table.
     """
     if config is None:
         config = MCTSConfig()
     if rng is None:
         rng = np.random.default_rng()
-    refuse_memory_model(model, "MCTS search")
+    slots = int(getattr(model, "memory_slots", 0) or 0)
+    if slots and memory is None:
+        raise ValueError(f"MCTS over a model with a memory ({slots} slots) needs each side's memory "
+                         f"at the root (memory=MemoryContext)")
     import time as _time
 
     # Opt-in leak detector: the caller's live state must be untouched
@@ -1609,6 +1666,7 @@ def mcts_search(
         # Fork so the caller's sim is untouched.
         root_sim = sim.fork()
         root = MCTSNode(root_sim)
+    root.memory_ctx = memory
 
     # Per-search transposition table. Built fresh and dropped at
     # function exit -- a stale TT across searches would carry
@@ -1616,7 +1674,7 @@ def mcts_search(
     # in size by states-explored-this-search (worst case ~n_sims).
     transpositions: Optional[Dict[int, MCTSNode]] = (
         {state_key(root_sim.gs): root}
-        if config.use_transposition_table else None
+        if config.use_transposition_table and memory is None else None
     )
     # TT instrumentation: hit/miss counts surface as attrs on the
     # returned root so callers can audit whether the table is

@@ -333,6 +333,8 @@ def test_the_imitation_trainers_checkpoint_carries_the_structure(tmp_path):
 
 
 def test_consumers_without_the_memory_state_refuse_a_memory_model():
+    """A consumer that carries each side's memory takes a memory model only
+    with its slots named (MCTS); one that does not carry it yet refuses it."""
     from tools.actor_pool import ActorPool
     from tools.mcts import mcts_search
     from tools.mcts_policy import MCTSPolicy
@@ -341,9 +343,10 @@ def test_consumers_without_the_memory_state_refuse_a_memory_model():
     from wesnoth_ai.transformer_policy import TransformerPolicy
     policy = TransformerPolicy(**ARCH, memory_slots=4)
     model, encoder = policy._inference_model, policy._inference_encoder
-    with pytest.raises(ValueError, match="memory_slots=4"):
+    with pytest.raises(ValueError, match="memory of 4 slots"):
         MCTSPolicy(policy)
-    with pytest.raises(ValueError, match="memory_slots=4"):
+    assert MCTSPolicy(policy, memory_slots=4).memory_slots == 4
+    with pytest.raises(ValueError, match="memory \\(4 slots\\)"):
         mcts_search(None, model, encoder)
     with pytest.raises(ValueError, match="memory_slots=4"):
         plan_turn(policy, None, 1, 0, None, None, None, "", False)

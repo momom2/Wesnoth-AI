@@ -44,13 +44,13 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import numpy as np
 
 from wesnoth_ai.classes import GameState, state_key
-from wesnoth_ai.memory import refuse_memory_model
+from wesnoth_ai.classes import PLAYER_SIDES
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
 from tools.draw_tiebreak import draw_tiebreak_z, material_margin
 from tools.mcts import (
-    MCTSConfig, mcts_search, extract_visit_counts, best_action,
+    MCTSConfig, MemoryContext, mcts_search, extract_visit_counts, best_action,
     sample_action, extract_gumbel_policy_target,
 )
 
@@ -170,7 +170,8 @@ class MCTSPolicy:
                  value_memory_games: int = 0,
                  value_memory_states_per_game: int = 32,
                  value_memory_batch: int = 256,
-                 rng_seed: Optional[int] = None):
+                 rng_seed: Optional[int] = None,
+                 memory_slots: Optional[int] = None):
         # GBC event-supervision labels (2026-08-14, docs/archive/gbc_spec.md):
         # when on, finalize_game attaches fog-censored hindsight
         # event labels to every experience (pure state diffs -- no
@@ -182,9 +183,20 @@ class MCTSPolicy:
         # pre-state, so events land at action resolution even on
         # TCS fast turns that record no training state.
         self._gbc_obs: Dict[str, dict] = {}
-        # Search, turn search and plan tournaments fork states and
-        # evaluate them with no side's memory state to hand.
-        refuse_memory_model(getattr(base, "_inference_model", None), "MCTS and turn search")
+        # A model with a memory (docs/parity_memory_design_20260929.md,
+        # "Serving and play"): the slots the searches use, named by the
+        # caller (0 searches it without its memory), and each side's
+        # memory per game, what its last decision wrote; a search reads
+        # them at its root (mcts.MemoryContext).
+        from tools.raw_player import model_memory_slots
+        model_slots = model_memory_slots(base)
+        if memory_slots is None and model_slots:
+            raise ValueError(f"the model carries a memory of {model_slots} slots: name the slots the "
+                             f"searches use (memory_slots=0 searches it without its memory)")
+        self.memory_slots = None if memory_slots is None else int(memory_slots)
+        self._memories: Dict[Tuple[str, int], object] = {}
+        # Per game, the last decision's (side key, memory before it).
+        self._memory_undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
@@ -497,6 +509,11 @@ class MCTSPolicy:
             if not full_move:
                 n_override = (cfg.playout_cap_fast_sims
                               or max(1, cfg.n_simulations // 4))
+        memory = None
+        if self.memory_slots is not None:
+            with self._lock:
+                memory = MemoryContext(self.memory_slots,
+                                       {s: self._memories.get((game_label, s)) for s in PLAYER_SIDES})
         root = mcts_search(
             sim,
             self._inference_model,
@@ -506,7 +523,15 @@ class MCTSPolicy:
             n_sims_override=n_override,
             decision_step=decision_step,
             rng=self._search_rng(),
+            memory=memory,
         )
+        if memory is not None:
+            # The root's evaluation is the decision: what it wrote is the
+            # side's memory from here (undone if the decision bounces).
+            key = (game_label, int(root.side))
+            with self._lock:
+                self._memory_undo[game_label] = (key, self._memories.get(key))
+                self._memories[key] = root.memory_out
         if self.search_stats_sink is not None:
             self.search_stats_sink(root)
         if self._mcts_config.gumbel_root:
@@ -837,6 +862,9 @@ class MCTSPolicy:
             self._played_outcomes.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
             self._gbc_obs.pop(game_label, None)
+            for key in [k for k in self._memories if k[0] == game_label]:
+                del self._memories[key]
+            self._memory_undo.pop(game_label, None)
 
     def _search_rng(self) -> Optional[np.random.Generator]:
         """A generator for one search's noise: None when this policy
@@ -919,6 +947,15 @@ class MCTSPolicy:
                 if pend:
                     pend.pop()
             self._reuse.pop(game_label, None)
+            # The side's memory goes back to what it was before the
+            # refused decision: the engine records nothing for it.
+            undo = self._memory_undo.pop(game_label, None)
+            if undo is not None:
+                key, before = undo
+                if before is None:
+                    self._memories.pop(key, None)
+                else:
+                    self._memories[key] = before
         # Roll back the per-decision counter the bounced call advanced.
         with self._base._lock:
             if self._base._decision_step > 0:

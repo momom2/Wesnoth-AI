@@ -91,6 +91,15 @@ def pick_index(priors: np.ndarray, temperature: float,
     return int(rng.choice(len(priors), p=p))
 
 
+def model_memory_slots(base) -> Optional[int]:
+    """The memory slots of the model a policy base runs: 0 for a model
+    without a memory, None when it does not say (a served model whose
+    transport carries no hello)."""
+    model = getattr(base, "_inference_model", None)
+    slots = getattr(model, "memory_slots", None)
+    return None if slots is None else int(slots or 0)
+
+
 class RawPolicyPlayer:
     """Same duck type the eval loop drives (`_PolicyPair`):
     select_action / drop_pending / drop_last_pending. Records no
@@ -132,6 +141,10 @@ class RawPolicyPlayer:
         # writes, and each side's state per game, from the side's previous
         # decision to its next (a bounced recruit decided again is one more
         # decision). None: a model without a memory.
+        model_slots = model_memory_slots(base)
+        if memory_slots is None and model_slots:
+            raise ValueError(f"the model carries a memory of {model_slots} slots: name the slots this "
+                             f"player uses (memory_slots=0 plays it without its memory)")
         self.memory_slots = None if memory_slots is None else int(memory_slots)
         self._memories: Dict[Tuple[str, int], object] = {}
         # Per game, the last decision's (side key, memory before it).
@@ -206,6 +219,32 @@ class RawPolicyPlayer:
         self._undo[game_label] = (key, self._memories.get(key))
         self._memories[key] = output.memory
         return output
+
+    def advance_memory(self, game_state, *, game_label: str = "default") -> None:
+        """The side to move's memory read and written at a decision this
+        player does not choose (a corpus game's history, a recorded turn
+        replayed): the forward a decision runs, without the choice."""
+        if self.memory_slots is None:
+            return
+        with torch.no_grad():
+            encoded = self._base._inference_encoder.encode(game_state)
+            self._forward(self._base, encoded, game_label, game_state)
+        self._undo.pop(game_label, None)
+
+    def memory_of(self, game_label: str, side: int):
+        """The memory `side` holds in game `game_label`: what its last
+        decision wrote, None before its first."""
+        return self._memories.get((game_label, int(side)))
+
+    def set_memory(self, game_label: str, side: int, state) -> None:
+        """Start `side` of game `game_label` from `state` (a memory
+        carried over from another player of the same game), None for the
+        learned initial memory."""
+        key = (game_label, int(side))
+        if state is None:
+            self._memories.pop(key, None)
+        else:
+            self._memories[key] = state
 
     def drop_pending(self, game_label: str) -> None:
         """The game is over: its sides' memories go."""

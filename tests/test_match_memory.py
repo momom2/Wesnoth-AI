@@ -77,6 +77,44 @@ def test_a_refused_decision_leaves_the_memory_as_it_was():
     assert states == [None, 1.0, 1.0, None, None]
 
 
+def test_a_memory_model_plays_only_with_its_slots_named():
+    """A player of a model with a memory refuses to guess its slots: a
+    caller that forgets them would play it at 0 without saying so. Zero
+    stays available when asked for; a model without a memory needs
+    nothing."""
+    def base(slots):
+        model = SimpleNamespace(memory_slots=slots)
+        return SimpleNamespace(_inference_model=model, _inference_encoder=None,
+                               _lock=threading.Lock(), _decision_step=0)
+    with pytest.raises(ValueError, match="memory of 64 slots"):
+        RawPolicyPlayer(base(64), 0.0)
+    assert RawPolicyPlayer(base(64), 0.0, memory_slots=0).memory_slots == 0
+    assert RawPolicyPlayer(base(0), 0.0).memory_slots is None
+
+
+def test_a_served_model_names_its_servers_slots_and_sends_each_position_its_memory():
+    from tools.inference_seam import RemoteModel
+
+    class _Transport:
+        def __init__(self, hello):
+            if hello is not None:
+                self.hello = hello
+            self.payloads = []
+
+        def infer_batch(self, payloads):
+            self.payloads.extend(payloads)
+            return [None] * len(payloads)
+
+    assert RemoteModel(_Transport({"memory_slots": 64})).memory_slots == 64
+    assert RemoteModel(_Transport({})).memory_slots == 0
+    assert RemoteModel(_Transport(None)).memory_slots is None
+    t = _Transport({"memory_slots": 8})
+    encoded = [SimpleNamespace(_raw=f"raw{i}", _masks=f"masks{i}") for i in range(2)]
+    memories = [MemoryState(8), MemoryState(8, torch.zeros(8, D))]
+    RemoteModel(t).forward_batch(encoded, memory=memories)
+    assert [(p[0], p[2]) for p in t.payloads] == [("raw0", memories[0]), ("raw1", memories[1])]
+
+
 def test_the_memory_size_is_an_estimand():
     assert effective_memory(0, None) is None and effective_memory(0, 0) is None
     assert effective_memory(64, None) == 64 and effective_memory(64, 16) == 16
