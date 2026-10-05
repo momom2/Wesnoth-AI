@@ -334,7 +334,8 @@ def test_the_imitation_trainers_checkpoint_carries_the_structure(tmp_path):
 
 def test_consumers_without_the_memory_state_refuse_a_memory_model():
     """A consumer that carries each side's memory takes a memory model only
-    with its slots named (MCTS); one that does not carry it yet refuses it."""
+    with its slots named (MCTS) or each side's memory (the turn search);
+    one that does not carry it yet refuses it."""
     from tools.actor_pool import ActorPool
     from tools.mcts import mcts_search
     from tools.mcts_policy import MCTSPolicy
@@ -348,7 +349,7 @@ def test_consumers_without_the_memory_state_refuse_a_memory_model():
     assert MCTSPolicy(policy, memory_slots=4).memory_slots == 4
     with pytest.raises(ValueError, match="memory \\(4 slots\\)"):
         mcts_search(None, model, encoder)
-    with pytest.raises(ValueError, match="memory_slots=4"):
+    with pytest.raises(ValueError, match="memory \\(4 slots\\)"):
         plan_turn(policy, None, 1, 0, None, None, None, "", False)
     with pytest.raises(ValueError, match="memory_slots=4"):
         ActorPool(SimpleNamespace(_inference_model=model), 1, None)

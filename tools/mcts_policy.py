@@ -45,12 +45,13 @@ import numpy as np
 
 from wesnoth_ai.classes import GameState, state_key
 from wesnoth_ai.classes import PLAYER_SIDES
+from wesnoth_ai.memory import SideMemories
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
 from tools.draw_tiebreak import draw_tiebreak_z, material_margin
 from tools.mcts import (
-    MCTSConfig, MemoryContext, mcts_search, extract_visit_counts, best_action,
+    MCTSConfig, mcts_search, extract_visit_counts, best_action,
     sample_action, extract_gumbel_policy_target,
 )
 
@@ -187,7 +188,7 @@ class MCTSPolicy:
         # "Serving and play"): the slots the searches use, named by the
         # caller (0 searches it without its memory), and each side's
         # memory per game, what its last decision wrote; a search reads
-        # them at its root (mcts.MemoryContext).
+        # them at its root (wesnoth_ai.memory.SideMemories).
         from tools.raw_player import model_memory_slots
         model_slots = model_memory_slots(base)
         if memory_slots is None and model_slots:
@@ -509,11 +510,7 @@ class MCTSPolicy:
             if not full_move:
                 n_override = (cfg.playout_cap_fast_sims
                               or max(1, cfg.n_simulations // 4))
-        memory = None
-        if self.memory_slots is not None:
-            with self._lock:
-                memory = MemoryContext(self.memory_slots,
-                                       {s: self._memories.get((game_label, s)) for s in PLAYER_SIDES})
+        memory = self._game_memories(game_label)
         root = mcts_search(
             sim,
             self._inference_model,
@@ -527,11 +524,8 @@ class MCTSPolicy:
         )
         if memory is not None:
             # The root's evaluation is the decision: what it wrote is the
-            # side's memory from here (undone if the decision bounces).
-            key = (game_label, int(root.side))
-            with self._lock:
-                self._memory_undo[game_label] = (key, self._memories.get(key))
-                self._memories[key] = root.memory_out
+            # side's memory from here.
+            self._commit_memory(game_label, root.side, root.memory_out)
         if self.search_stats_sink is not None:
             self.search_stats_sink(root)
         if self._mcts_config.gumbel_root:
@@ -660,6 +654,7 @@ class MCTSPolicy:
             # game_label would then inherit a stale trace).
             _gbc_rec = self._gbc_obs.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
+            self._forget_memories(game_label)
         tiebreak = self._mcts_config.draw_tiebreak
         if winner == 0 and tiebreak is not None and final_gs is None \
                 and states:
@@ -862,9 +857,32 @@ class MCTSPolicy:
             self._played_outcomes.pop(game_label, None)
             self._last_recorded.pop(game_label, None)
             self._gbc_obs.pop(game_label, None)
-            for key in [k for k in self._memories if k[0] == game_label]:
-                del self._memories[key]
-            self._memory_undo.pop(game_label, None)
+            self._forget_memories(game_label)
+
+    def _game_memories(self, game_label: str) -> Optional[SideMemories]:
+        """Each side's memory in the game, what its last decision wrote;
+        None when the searches run without one."""
+        if self.memory_slots is None:
+            return None
+        with self._lock:
+            return SideMemories(self.memory_slots,
+                                {s: self._memories.get((game_label, s)) for s in PLAYER_SIDES})
+
+    def _commit_memory(self, game_label: str, side: int, state) -> None:
+        """`state`, what the side's decision wrote, is its memory from
+        here; drop_last_pending restores the one before if the decision
+        bounces."""
+        key = (game_label, int(side))
+        with self._lock:
+            self._memory_undo[game_label] = (key, self._memories.get(key))
+            self._memories[key] = state
+
+    def _forget_memories(self, game_label: str) -> None:
+        """The game is over: its sides' memories go (caller holds
+        `self._lock`)."""
+        for key in [k for k in self._memories if k[0] == game_label]:
+            del self._memories[key]
+        self._memory_undo.pop(game_label, None)
 
     def _search_rng(self) -> Optional[np.random.Generator]:
         """A generator for one search's noise: None when this policy

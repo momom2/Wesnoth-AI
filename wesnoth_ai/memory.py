@@ -23,8 +23,8 @@ k (nested dropout: Rippel, Gelbart and Adams, ICML 2014).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import torch
@@ -135,6 +135,27 @@ class MemoryState:
     initial memory). What a player hands to a forward, local or served."""
     k: int
     state: Optional[torch.Tensor] = None
+
+
+@dataclass
+class SideMemories:
+    """Each side's memory along one line of play (a game, a search walk,
+    the root of a search): the slots its players use and, per side, what
+    its last decision on the line wrote (None before its first: the
+    learned initial memory). A walk that branches copies it."""
+    k: int
+    states: Dict[int, Optional[torch.Tensor]] = field(default_factory=dict)
+
+    def read(self, side: int) -> MemoryState:
+        """What `side`'s next decision on the line reads."""
+        return MemoryState(self.k, self.states.get(int(side)))
+
+    def write(self, side: int, state: torch.Tensor) -> None:
+        """`side`'s decision on the line wrote `state`."""
+        self.states[int(side)] = state
+
+    def copy(self) -> "SideMemories":
+        return SideMemories(self.k, dict(self.states))
 
 
 def refuse_memory_model(model, consumer: str) -> None:

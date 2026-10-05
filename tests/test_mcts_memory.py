@@ -46,14 +46,15 @@ def _side_1_can_only_end_its_turn(sim):
 
 @needs_core
 def test_every_node_reads_the_memory_its_side_holds_on_its_path():
-    from tools.mcts import MCTSConfig, MemoryContext, mcts_search
+    from tools.mcts import MCTSConfig, mcts_search
+    from wesnoth_ai.memory import SideMemories
     policy = _policy()
     model, encoder = policy._inference_model, policy._inference_encoder
     sim = _side_1_can_only_end_its_turn(fresh_scenario_sim(seed=5, max_turns=10))
     side_2_root = model.initial_memory(SLOTS) + 0.1
     root = mcts_search(sim, model, encoder, MCTSConfig(n_simulations=24, batch_size=4),
                        rng=np.random.default_rng(0),
-                       memory=MemoryContext(SLOTS, {1: None, 2: side_2_root}))
+                       memory=SideMemories(SLOTS, {1: None, 2: side_2_root}))
     checked = {1: 0, 2: 0}
 
     def walk(node, held):

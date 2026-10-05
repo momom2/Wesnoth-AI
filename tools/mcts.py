@@ -92,7 +92,7 @@ from wesnoth_ai.classes import (
     deep_state_fingerprint, state_key,
 )
 from wesnoth_ai.encoder import GameStateEncoder
-from wesnoth_ai.memory import MemoryState
+from wesnoth_ai.memory import MemoryState, SideMemories
 from wesnoth_ai.model import WesnothModel
 from tools.wesnoth_sim import WesnothSim
 from tools.draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
@@ -546,15 +546,6 @@ class MCTSEdge:
         return 0.0 if self.n_visits == 0 else self.w_value / self.n_visits
 
 
-@dataclass(frozen=True)
-class MemoryContext:
-    """A search over a model with a memory: the slots its players use
-    and each side's memory at the root, what that side's last real
-    decision wrote (None before its first: the learned initial memory)."""
-    k: int
-    states: Dict[int, Optional[torch.Tensor]]
-
-
 class MCTSNode:
     """One game state in the search tree. Owns its sim fork so
     multiple branches don't interfere."""
@@ -616,9 +607,9 @@ class MCTSNode:
         self.masks: Optional["PackedMasks"] = None
         # A model with a memory: what this node's evaluation wrote for
         # its side to move (the decision's memory at the root), and on
-        # the ROOT the search's MemoryContext (None elsewhere).
+        # the ROOT the search's SideMemories (None elsewhere).
         self.memory_out: Optional[torch.Tensor] = None
-        self.memory_ctx: Optional[MemoryContext] = None
+        self.memory_ctx: Optional[SideMemories] = None
 
 
 def _memory_in(root: "MCTSNode", leaf: "MCTSNode", path) -> Optional[MemoryState]:
@@ -1602,7 +1593,7 @@ def mcts_search(
     reuse_root: Optional[MCTSNode] = None,
     n_sims_override: Optional[int] = None,
     decision_step:   int = 0,
-    memory:          Optional[MemoryContext] = None,
+    memory:          Optional[SideMemories] = None,
 ) -> MCTSNode:
     """Run MCTS from `sim`'s state. Returns the root node with
     populated visit counts on outgoing edges.
@@ -1649,7 +1640,7 @@ def mcts_search(
     slots = int(getattr(model, "memory_slots", 0) or 0)
     if slots and memory is None:
         raise ValueError(f"MCTS over a model with a memory ({slots} slots) needs each side's memory "
-                         f"at the root (memory=MemoryContext)")
+                         f"at the root (memory=SideMemories)")
     import time as _time
 
     # Opt-in leak detector: the caller's live state must be untouched

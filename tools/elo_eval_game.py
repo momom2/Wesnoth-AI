@@ -426,11 +426,11 @@ def _build_player(spec: str, label: str, sims: int, device,
     `_effective_basis`). `inference_address`: play the raw player
     through a shared inference server (main() has checked sims == 0,
     a temperature and a checkpoint spec). `memory`: the slots a player of a
-    model with a memory uses (`_effective_memory`); only the raw player
-    carries a memory from one decision to the next."""
-    if memory is not None and (sims > 0 or raw_temperature is None):
-        raise SystemExit(f"{spec} has a memory, which only the raw player carries "
-                         f"(sims 0 with a raw temperature)")
+    model with a memory uses (`_effective_memory`); the raw player, MCTS
+    and the turn search carry it from one decision to the next."""
+    if memory is not None and (plan_tournament or (sims == 0 and raw_temperature is None)):
+        raise SystemExit(f"{spec} has a memory, which the legacy sampler and the plan tournament "
+                         f"do not carry: play it raw with a temperature, with MCTS or with the turn search")
     if spec == "random":
         # Deliberate random-init reference (round-24 C8: reaching
         # random init through a nonexistent PATH is how a typo
@@ -484,8 +484,8 @@ def _build_player(spec: str, label: str, sims: int, device,
             # than the leg trained (round-32 C3: boundary_frame
             # defaults to "opponent" while leg 5+ trains "mover").
             return cls(policy, mc, turn_config=ts_cfg,
-                       rng_seed=raw_seed), counter
-        return cls(policy, mc, rng_seed=raw_seed), counter
+                       rng_seed=raw_seed, memory_slots=memory), counter
+        return cls(policy, mc, rng_seed=raw_seed, memory_slots=memory), counter
     if raw_temperature is not None:
         from tools.raw_player import RawPolicyPlayer
         return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
