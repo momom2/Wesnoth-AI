@@ -107,6 +107,37 @@ def test_actor_pool_server_priors_end_to_end(monkeypatch):
 
 
 @pytest.mark.slow
+def test_actor_pool_plays_a_parity_memory_model_end_to_end():
+    """The recipe's model through the pool: the actors encode the parity
+    observation the learner's encoder reads, and every leaf's request
+    carries its side's memory (the server refuses a leaf without one, and
+    a parity model's server one without the sighting stream)."""
+    from tools.actor_pool import ActorPool
+
+    policy = TransformerPolicy(relevant_set_hexes=True, observation_parity=True, memory_slots=4,
+                               relevant_set_version=2, device=torch.device("cpu"), d_model=32,
+                               num_layers=1, num_heads=2, d_ff=64)
+    cfg = MCTSConfig(n_simulations=2, batch_size=1)
+    pool = ActorPool(
+        policy, 2, cfg,
+        scenario_opts=dict(mini_maps=True, mini_ratio=1.0,
+                           fogless_ratio=0.0, midgame_ratio=0.0,
+                           ladder_ratio=0.0),
+        max_turns=4,
+        iteration_timeout=300.0,
+        memory_slots=4,
+    )
+    pool.start()
+    try:
+        outcomes, exps = pool.run_iteration(0, 2, base_seed=7)
+    finally:
+        pool.shutdown()
+    assert not pool.last_serve_thread_errors, pool.last_serve_thread_errors
+    assert len(outcomes) >= 1, "pool produced no completed games"
+    assert len(exps) >= 1, "pool shipped no experiences"
+
+
+@pytest.mark.slow
 def test_actor_pool_streams_games_across_a_publication():
     """Continuous generation (tools/actor_stream.py) on the real pool:
     two windows of games with every actor playing throughout, a weight

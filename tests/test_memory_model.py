@@ -334,8 +334,8 @@ def test_the_imitation_trainers_checkpoint_carries_the_structure(tmp_path):
 
 def test_consumers_without_the_memory_state_refuse_a_memory_model():
     """A consumer that carries each side's memory takes a memory model only
-    with its slots named (MCTS) or each side's memory (the turn search);
-    one that does not carry it yet refuses it."""
+    with its slots named (MCTS, the pool) or each side's memory (the turn
+    search); one that does not carry it refuses it."""
     from tools.actor_pool import ActorPool
     from tools.mcts import mcts_search
     from tools.mcts_policy import MCTSPolicy
@@ -351,10 +351,41 @@ def test_consumers_without_the_memory_state_refuse_a_memory_model():
         mcts_search(None, model, encoder)
     with pytest.raises(ValueError, match="memory \\(4 slots\\)"):
         plan_turn(policy, None, 1, 0, None, None, None, "", False)
-    with pytest.raises(ValueError, match="memory_slots=4"):
+    with pytest.raises(ValueError, match="memory of 4 slots"):
         ActorPool(SimpleNamespace(_inference_model=model), 1, None)
     with pytest.raises(ValueError, match="memory_slots=4"):
         GraphedServe(model, encoder, CPU, graphs=False)
     parity_encoder, parity_model = _parity_pair(memory_slots=0)
     with pytest.raises(ValueError, match="obs8's streams only"):
         GraphedServe(parity_model, parity_encoder, CPU, graphs=False)
+
+
+def test_the_pool_plays_a_memory_model_only_where_the_memory_travels():
+    """Self-play carries each leaf's memory on the priors protocol's
+    request; the plan tournament and value grounding carry none."""
+    from tools.actor_pool import ActorPool
+    from tools.value_grounding import GroundingConfig
+    _, model = _parity_pair(memory_slots=4)
+    policy = SimpleNamespace(_inference_model=model)
+    assert ActorPool(policy, 1, None, memory_slots=4)._memory_slots == 4
+    with pytest.raises(ValueError, match="server-side priors"):
+        ActorPool(policy, 1, None, memory_slots=4, server_priors=False)
+    with pytest.raises(ValueError, match="plan tournament"):
+        ActorPool(policy, 1, None, memory_slots=4, pt_cfg=object())
+    with pytest.raises(ValueError, match="value grounding"):
+        ActorPool(policy, 1, None, memory_slots=4, ground_cfg=GroundingConfig(enabled=True))
+
+
+@pytest.mark.parametrize("memory_slots,parity,graphed", [(0, False, True), (4, True, False),
+                                                         (0, True, False), (4, False, False)])
+def test_the_graphed_pool_server_serves_eager_whatever_it_cannot_embed(memory_slots, parity, graphed):
+    """The graphed path embeds obs8's streams only: a model with the parity
+    observation or a memory falls back to the eager server. CUDA, bf16 and
+    the packed trunk are only read here, so a CPU model stands in."""
+    from tools.actor_pool import ActorPool
+    _, model = _parity_pair(memory_slots=memory_slots, parity=parity)
+    model.infer_packed_trunk = True
+    pool = ActorPool(SimpleNamespace(_inference_model=model), 1, None, graphed_serve=True,
+                     infer_bf16=True, device=torch.device("cuda"),
+                     memory_slots=memory_slots if memory_slots else None)
+    assert pool._graphed_serve_applies() is graphed
