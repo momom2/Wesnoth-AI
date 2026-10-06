@@ -1097,6 +1097,15 @@ State of play:
   to the slow tier, and 131 candidates kept with a reason each (code the
   measure cannot see, parity checks, engine rules, named-bug
   regressions, tripwires). CI's suite went from 546-625 s to 255-323 s.
+- 2026-10-06 (0.15.3, user approved the relaxed assertion): **the
+  serve-process pool test no longer rests on timing.** It required both
+  servers to serve in the stream's first window, which closes after two
+  completed games: one actor can fill it alone while the other is still
+  in the aborted iteration's leftover game or starved (actors run at
+  nice 5; on a loaded CI runner the second actor's first stream game
+  began up to 6.5 s after the opening). It now sums the windows until
+  each actor has completed a stream game. A leftover game's leaves count
+  in the stream's first window: requests carry no session tag.
 
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling

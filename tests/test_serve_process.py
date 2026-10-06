@@ -159,9 +159,21 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         assert all(g.t_start > t_open and g.outcome is not None for g in first.games), \
             [(g.actor, g.index, round(g.t_start - t_open, 3), g.outcome is None)
              for g in first.games]
-        # Both actors play through the first window, each on its own
-        # server, so both serve in it.
-        assert all(n > 0 for n in pool.last_leaves_per_server), pool.last_leaves_per_server
+        # Each actor plays the stream on its own server, so both servers
+        # serve. A window ends after its count of completed games, which
+        # one actor can fill alone while the other is still in iteration
+        # 2's leftover game or starved (the actors run at nice 5; on a
+        # loaded CI runner the second actor's first game of the stream
+        # began up to 6.5 s after the opening, 2026-10-06), so the
+        # windows are summed until every actor has completed a game of
+        # the stream.
+        served = list(pool.last_leaves_per_server)
+        played = {g.actor for g in first.games}
+        while played != {0, 1}:
+            more = stream.collect(1, timeout=600.0)
+            played |= {g.actor for g in more.games}
+            served = [a + b for a, b in zip(served, pool.last_leaves_per_server)]
+        assert all(n > 0 for n in served), served
         versions = []
 
         def publish():
