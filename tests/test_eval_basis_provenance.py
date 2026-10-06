@@ -87,3 +87,37 @@ def test_batch_pre_scan_refuses_other_basis(tmp_path):
               "--mcts-sims", "0", "--device", "cpu", "--jobs", "1",
               "--time-budget-min", "1", "--min-free-mb", "0"])
     assert sorted(out.glob("game_*.json")) == [out / "game_A_B_s1_10000.json"]
+
+
+def test_a_side_is_labelled_with_the_basis_and_view_it_plays_in(tmp_path):
+    """The labels a side's result carries, decided without a checkpoint
+    read: the --relevant-set flag forces the subset, a fresh network plays
+    the full board in the terrain set, and the flag is part of a worker's
+    policy cache key, so a forced side never reuses the plain policy."""
+    from types import SimpleNamespace
+
+    import torch
+    from tools import elo_eval_game as g
+    from tools.run_elo_batch import _want_bases
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    assert g._effective_basis("dummy", True, None) == "full"
+    assert g._effective_basis("random", False, None) == "full"
+    assert g._effective_basis("random", True, None) == "relset"
+    assert g._effective_terrain("random", None) == "set"
+    assert g._effective_terrain("dummy", None) == "class"
+    args = SimpleNamespace(spec_a="a.pt", relevant_set_a=True, spec_b="dummy", relevant_set_b=False)
+    assert _want_bases(args, lambda spec: "full") == ("relset", "full")
+    full = str(tmp_path / "full.pt")
+    TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2,
+                      d_ff=64).save_checkpoint(full)
+    g._POLICY_CACHE.clear()
+    g._WORKER_MODE = True
+    try:
+        plain = g._policy_for(full, torch.device("cpu"), "A", False, False, False)
+        forced = g._policy_for(full, torch.device("cpu"), "A", False, False, True)
+        assert plain is not forced
+        assert not plain._inference_encoder.relevant_set_hexes
+        assert forced._inference_encoder.relevant_set_hexes
+    finally:
+        g._WORKER_MODE = False
+        g._POLICY_CACHE.clear()
