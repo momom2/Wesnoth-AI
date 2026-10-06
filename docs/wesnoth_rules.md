@@ -2115,6 +2115,84 @@ back with `--parm`, choosing the sides from Wesnoth's own preprocessing
 of the scenario, and reads the applied experience modifier with the
 probe in the next section's experience entry.
 
+### An era's `[modify_unit_type] set_experience=` gives a command-line game a lobby's experience
+
+A command-line start cannot set the experience modifier. `--parm` writes
+only side attributes (`src/game_initialization/connect_engine.cpp:549-556`,
+1.18.4):
+
+```cpp
+		if(cmdline_opts.multiplayer_parm) {
+			for(const auto& [side_num, pname, pvalue] : *cmdline_opts.multiplayer_parm) {
+				if(side_num == side["side"].to_unsigned()) {
+					DBG_MP << "\tsetting side " << side["side"] << " " << pname << ": " << pvalue;
+					side[pname] = pvalue;
+```
+
+the command line has no option for the modifier or for modifications
+(`src/commandline_options.cpp:259-275`), and Lua's
+`wesnoth.scenario.mp_settings.experience_modifier` only reports the
+host's parameter. The modifier does one thing in play: it scales a unit
+type's base experience when a unit takes the type
+(`src/units/types.cpp:577-589`, `src/units/unit.cpp:980`):
+
+```cpp
+		int exp = (experience_needed_ * experience_modifier + 50) / 100;
+		if(exp < 1) {
+			exp = 1;
+		}
+...
+	max_experience_ = new_type.experience_needed(true);
+```
+
+An era's `[modify_unit_type]` replaces that base for the game. The era's
+children are copied into the scenario (`src/saved_game.cpp:367-370`):
+
+```cpp
+		// Copy modify_unit_type
+		for(const config& modlua : cfg->child_range("modify_unit_type")) {
+			starting_point_.add_child_at_total("modify_unit_type", modlua, pos++);
+		}
+```
+
+applied when the game starts (`src/play_controller.cpp:179-181`):
+
+```cpp
+	for(const config& modify_unit_type : level_.child_range("modify_unit_type")) {
+		unit_types.apply_scenario_fix(modify_unit_type);
+	}
+```
+
+and `set_experience=` sets the base (`src/units/types.cpp:1380-1382`), for
+the type's genders and variations as well (1402-1416):
+
+```cpp
+	if(auto p_setxp = cfg.get("set_experience")) {
+		experience_needed_ = p_setxp->to_int();
+	}
+```
+
+So an era that sets each type's base to its value at 70% plays, at the
+command line's 100%, a hosted game's experience: `(n * 100 + 50) / 100`
+is `n`. Every gameplay reader takes the scaled value (`unit.cpp:980`, the
+formula AI at `src/formula/callable_objects.cpp:433`, Lua's
+`unit_type.max_experience` at `src/scripting/lua_unit_type.cpp:58`); only
+interface tooltips read the modifier itself (`src/reports.cpp:542`,
+`src/gui/widgets/unit_preview_pane.cpp:359`). A scenario that declares its
+own `experience_modifier=` keeps it on the command line
+(`play_controller.cpp:160`), where the era would compound it, so
+`tools/live_vs_rca.py` starts such a scenario in the default era.
+`tools/lobby_era.py` writes the era (`add-ons/wesnoth_ai/eras/lobby_era.cfg`)
+from the simulator's unit table; no 1.18 core variation declares its own
+`experience=` (`data/core/units`, checked 2026-10-06), so a variation's
+value is its parent's. Not yet observed in a live game: the live tool
+checks every unit type against the engine's own base at a game's first
+decision (`lobby_era.experience_defects`).
+
+**Why non-obvious:** the modifier reads as a lobby setting that nothing
+else can write, and the per-type route works only because the engine
+applies it in exactly one formula.
+
 ---
 
 ## Replay structure

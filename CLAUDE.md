@@ -1113,6 +1113,19 @@ State of play:
   lines). Live games against the default AI run through
   `tools/live_vs_rca.py`; the turn stage and its executor stay for the
   hidden-units oracle, the executor running moves and end_turn.
+- 2026-10-06 (0.16.0, user order): **live games play a hosted game's 70%
+  experience.** A command-line start plays a scenario that declares no
+  experience modifier at 100% and has no way to set one. An era's
+  `[modify_unit_type] set_experience=` replaces a unit type's base, and
+  the modifier only scales that base, so the lobby era (the default era
+  plus each of 308 unit types at 70% of its base, written by
+  `tools/lobby_era.py` to `add-ons/wesnoth_ai/eras/lobby_era.cfg`) plays a
+  hosted game's experience at the command line's 100%
+  (docs/wesnoth_rules.md). `tools/live_vs_rca.py` starts its games in it
+  unless the scenario declares its own modifier, builds the simulator at
+  70%, and at the first decision checks every unit type against the
+  engine's own base. The simulator's training and eval paths already
+  played 70% or the scenario's own value. Not yet run in a live game.
 
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
@@ -1283,7 +1296,9 @@ stays at the root. So a bare name like `classes.py` below means
 - `tools/live_vs_rca.py` + `tools/live_mirror.py` — the reference
   against Wesnoth's default AI in a live game, the simulator mirroring it
   from the engine's log and checking the board at every decision; Lua
-  side `lua/live_stage.lua` and `lua/board_report.lua`.
+  side `lua/live_stage.lua` and `lua/board_report.lua`. Games start in
+  the lobby era, the default era with a hosted game's 70% experience
+  (`tools/lobby_era.py` writes `eras/lobby_era.cfg`).
 - `tools/hidden_units_oracle.py` (Lua: `lua/turn_stage.lua`, a custom
   AI stage that avoids the default AI's blacklist-on-failure rule, with
   `lua/state_collector.lua` and `lua/action_executor.lua`, which runs

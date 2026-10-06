@@ -40,10 +40,12 @@ Parked meanwhile:
 - **Live games against the default AI: done (0.13.0,
   `tools/live_vs_rca.py`).** Its board check found the appliers not
   resting side 1's starting units on the game's first side turn, nor
-  petrified units: fixed in 0.13.1 (records format 4). Open from it,
-  ordered by the user 2026-10-06: a command-line game plays 100%
-  experience, a lobby 70%; 70% becomes the default of training and
-  eval. The legacy eval path it superseded is deleted (0.15.5).
+  petrified units: fixed in 0.13.1 (records format 4). Since 0.16.0 its
+  games play a hosted game's 70% experience through the lobby era, and
+  the legacy eval path it superseded is deleted (0.15.5). Open: one live
+  game to see the lobby era load and pass the first-frame experience
+  check (Wesnoth on the laptop, a window, a few minutes; the add-on's
+  junction must point at a checkout that has the era).
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
 docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game
