@@ -202,7 +202,7 @@ def test_fork_capture_does_not_mutate_parent_encoding():
 
 
 def test_pad_helper_covers_direct_encoder_loads():
-    """Tools (eval_vs_builtin, supervised_train) load encoder state
+    """Tools (supervised_train) load encoder state
     WITHOUT going through
     TransformerPolicy.load_checkpoint; `pad_legacy_encoder_state` is
     their shim. Pins that (a) strict=False alone does NOT tolerate

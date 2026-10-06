@@ -393,8 +393,8 @@ class SideInfo:
     # Default-era faction name ("Drakes", "Knalgan Alliance", etc.) or
     # "Custom" / "" when unknown. Used by the encoder's faction
     # embedding so one model can learn all matchups. Absent from pre-
-    # faction-conditioning checkpoints — state_converter and the replay
-    # DataLoader default to "" for backwards compatibility.
+    # faction-conditioning checkpoints — the replay DataLoader defaults
+    # to "" for backwards compatibility.
     faction: str = ""
     # The side's player chose Random in the lobby: the opponent's prior
     # over its faction is uniform over the era's factions instead of the

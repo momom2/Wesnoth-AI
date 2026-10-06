@@ -1494,10 +1494,9 @@ note at the top. It applies to the REINFORCE path only.
 - **Static Bradley-Terry Elo ladder** — `tools/elo_ladder.py`,
   round-robin over the simulator; one jointly-fit number per player
   with a principled standard error.
-- **External baseline** — `tools/eval_vs_builtin.py` +
-  `tools/eval_runner.py`, the only remaining live-Wesnoth consumer,
-  pitting the model against the built-in RCA AI over a
-  (map × matchup × side-swap) matrix.
+- **External baseline** — `tools/live_vs_rca.py`, the reference live
+  against Wesnoth's default AI, the simulator mirroring the game from
+  the engine's log and checking the board at every decision.
 - ⚠ **Never merge the two numbers.** The in-lineage Elo is measured
   WITH search; the RCA eval is RAW policy. They are different
   objects. See CLAUDE.md §Current status.

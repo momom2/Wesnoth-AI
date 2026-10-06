@@ -102,7 +102,7 @@ def test_no_same_file_duals_at_runtime():
     import tools.validation_exports    # noqa: F401  export chain
     import tools.supervised_train      # noqa: F401  SL chain
     import tools.sim_demo_game         # noqa: F401  demo/export chain
-    import tools.eval_vs_builtin       # noqa: F401  live-eval chain
+    import tools.live_vs_rca           # noqa: F401  live-game chain
 
     def _project_file(mod) -> str:
         f = getattr(mod, "__file__", None)

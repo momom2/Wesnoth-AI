@@ -154,10 +154,7 @@ def _stats_for(unit_type: str) -> dict:
 # Map/hex-code parsing
 # ---------------------------------------------------------------------
 
-# The ONE terrain-base table. `state_converter.parse_terrain_code`
-# delegates here; it used to keep a copy under a "keep in sync"
-# comment, and the copy had drifted (Uu read UNWALKABLE there and
-# CAVE here, plus eleven codes missing). Add codes HERE only.
+# The ONE terrain-base table. Add codes HERE only.
 _TERRAIN_BASE = {
     "Aa": Terrain.FROZEN, "Gg": Terrain.FLAT, "Gs": Terrain.FLAT,
     "Gd": Terrain.FLAT, "Hh": Terrain.HILLS, "Ha": Terrain.HILLS,
@@ -515,8 +512,7 @@ def _build_unit(u: dict, apply_leader_traits: bool = False,
     resistances = [float(res.get(name, 100)) / 100.0 for name in _DT_NAMES_ORDERED]
 
     # Defense per terrain — needed for combat. Stored as a list aligned
-    # with the terrain order in classes.py (we keep the same convention
-    # as state_converter for cross-compat).
+    # with the terrain order in classes.py.
     terrain_keys = [
         "castle", "cave", "deep_water", "flat", "forest", "frozen",
         "fungus", "hills", "mountains", "reef", "sand", "shallow_water",

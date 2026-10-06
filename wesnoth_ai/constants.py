@@ -53,11 +53,6 @@ REPLAYS_PATH     = BASE_PATH / "training" / "replays"
 # Run configuration
 # ----------------------------------------------------------------------
 
-NUM_PARALLEL_GAMES   = 4      # Each game is a separate Wesnoth process.
-                              # Lua generates a random per-process game_id
-                              # so parallel games don't collide on the
-                              # IPC directory. See training_scenario.cfg
-                              # preload.
 # Was 2000 — with a 16-way actor pool (units + recruits + end_turn),
 # ~1/16 of random actions end the turn, so 2000 actions ≈ 60 turns.
 # That's far longer than necessary, and a random policy never finds a

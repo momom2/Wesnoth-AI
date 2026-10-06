@@ -385,10 +385,6 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   hitpoints` forms; `[modify_side] income=` as an offset; a recruit on a
   castle-village capturing it; an out-of-range weapon index replaced by 0
   without a warning; the order of turn events.
-- **Live-Wesnoth observation** (the legacy eval path only; the live
-  games observe through the simulator's mirror since 0.13.0): the
-  converted state has no `_fog_cleared`, our own fogged villages lose
-  their owner bit, and the time-of-day start offset is not set.
 - **Training:** `az_loop` trains on at most 4,000 experiences per step
   without saying so; `--stream` publishes trial weights of the line
   search and actors accumulate boundary pairs; `value_pretrain

@@ -13,8 +13,8 @@ Why this, and what it is NOT:
     a principled standard error -- strictly more informative than the
     pairwise win-rate `eval_sim` already prints.
   - NOT human-calibrated. The only opponents here are our own
-    policies + a scripted floor; RCA AI is live-Wesnoth
-    (`eval_vs_builtin.py`) and human strength is the replay-agreement
+    policies + a scripted floor; Wesnoth's default AI is played live
+    (`tools/live_vs_rca.py`) and human strength is the replay-agreement
     bridge (plan §3.4-2). This ladder measures RELATIVE internal
     progress, gauge-fixed by pinning one anchor player (default the
     random-init baseline) at a chosen Elo.

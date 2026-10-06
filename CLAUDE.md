@@ -1267,23 +1267,21 @@ stays at the root. So a bare name like `classes.py` below means
   `wesnoth_ai/encoder.py` and `wesnoth_ai/game_core.py` (`GameCore`);
   docs/rust_port_plan.md records the port.
 
-**Live-Wesnoth path (eval only).**
+**Live-Wesnoth path (evaluation and rule checks only).**
 - `main.py` — setup / maintenance CLI (`--check-setup`,
-  `--clean-games`). No longer drives training or `--display`.
-- `wesnoth_ai/wesnoth_interface.py` — one Wesnoth process per eval game; state
-  channel uses `std_print` → log-file tail (CA-blacklist bypass via
-  custom Lua AI stage); actions written atomically as `action.lua`
-  and read via `wesnoth.read_file`.
-- `add-ons/wesnoth_ai/` — Lua side: `lua/state_collector.lua`,
-  `lua/turn_stage.lua` (custom AI stage replacing default RCA so
-  failed actions don't blacklist the CA), `lua/action_executor.lua`,
-  `lua/json_encoder.lua`. `scenarios/training_scenario.cfg`.
+  `--clean-games`).
+- `wesnoth_ai/wesnoth_interface.py` — one Wesnoth process per game;
+  state channel uses `std_print` → log-file tail; actions written
+  atomically as `action.lua` and read via `wesnoth.read_file`.
 - `tools/live_vs_rca.py` + `tools/live_mirror.py` — the reference
   against Wesnoth's default AI in a live game, the simulator mirroring it
   from the engine's log and checking the board at every decision; Lua
-  side `lua/live_stage.lua` and `lua/board_report.lua`. Supersedes
-  `tools/eval_vs_builtin.py` + `tools/eval_runner.py` (deletion pending,
-  BACKLOG.md).
+  side `lua/live_stage.lua` and `lua/board_report.lua`.
+- `tools/hidden_units_oracle.py` (Lua: `lua/turn_stage.lua`, a custom
+  AI stage that avoids the default AI's blacklist-on-failure rule, with
+  `lua/state_collector.lua` and `lua/action_executor.lua`, which runs
+  moves) and `tools/scenario_init_oracle.py` (`lua/init_oracle.lua`):
+  the simulator's rules checked against the engine.
 - `tools/sim_demo_game.py` — headless one-game demo via the sim;
   exports a Wesnoth-loadable `.bz2` via
   `sim_to_replay.export_replay_from_scratch` (composes save WML
@@ -1311,7 +1309,7 @@ stays at the root. So a bare name like `classes.py` below means
 - **Wesnoth uses 1-indexed hex coordinates** (WML, replays, Lua).
 - **Python uses 0-indexed hex coordinates everywhere internally.**
 - The ±1 conversion happens where Wesnoth data enters or leaves Python:
-  the live bridge (`wesnoth_ai/state_converter.py`, both directions),
+  the live tools (`tools/live_mirror.py`, `tools/live_vs_rca.py`),
   the WML and replay readers (`tools/replay_extract.py`,
   `wesnoth_ai/rules/scenario_pool.py`, `tools/scenario_events.py`,
   `wesnoth_ai/rules/wml_state.py`) and the writers that emit WML or feed the
