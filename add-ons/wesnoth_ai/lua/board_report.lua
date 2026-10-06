@@ -106,19 +106,6 @@ local function collect_settings()
     }
 end
 
--- Every unit type's base experience and what its units need in this
--- game: the base scaled by the game's modifier (types.cpp:577-589). An
--- era's [modify_unit_type] set_experience= replaces the base the engine
--- scales, not the type's config, so `base` stays the engine's own.
-function M.experience_types()
-    local types = {}
-    for id, unit_type in pairs(wesnoth.unit_types) do
-        table.insert(types, { type = id, base = unit_type.__cfg.experience,
-                              applied = unit_type.max_experience })
-    end
-    return types
-end
-
 -- The record, of kind `kind`.
 function M.record(kind)
     local turn = wesnoth.current.turn

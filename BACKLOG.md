@@ -40,12 +40,13 @@ Parked meanwhile:
 - **Live games against the default AI: done (0.13.0,
   `tools/live_vs_rca.py`).** Its board check found the appliers not
   resting side 1's starting units on the game's first side turn, nor
-  petrified units: fixed in 0.13.1 (records format 4). Since 0.16.0 its
-  games play a hosted game's 70% experience through the lobby era, and
-  the legacy eval path it superseded is deleted (0.15.5). Open: one live
-  game to see the lobby era load and pass the first-frame experience
-  check (Wesnoth on the laptop, a window, a few minutes; the add-on's
-  junction must point at a checkout that has the era).
+  petrified units: fixed in 0.13.1 (records format 4). Open from it,
+  ordered by the user 2026-10-06: live games play 70% experience, the
+  default of training and eval. A command-line start cannot pass the
+  modifier (docs/wesnoth_rules.md); the route that does is a start save
+  written as a hosted game's creation writes it, loaded with `--load`
+  (awaiting the user's word). Rejected: emulating the modifier with an
+  era (0.16.1). The legacy eval path it superseded is deleted (0.15.5).
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
 docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game

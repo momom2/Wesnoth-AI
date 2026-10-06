@@ -3,9 +3,8 @@
 person can watch.
 
 Each game is a real multiplayer game started from the command line (the
-launch of tools/scenario_init_oracle.py: the scenario's own sides, both
-factions named, the lobby's side settings) in the lobby era, the default
-era with a hosted game's experience (tools/lobby_era.py): our side is
+launch of tools/scenario_init_oracle.py: the scenario's own sides, the
+default era, both factions named, the lobby's side settings): our side is
 played by lua/live_stage.lua, the other by the default (RCA) AI. The
 simulator mirrors the game from the engine's log (tools/live_mirror.py), so
 the player observes it as in a simulated match, its memory included. At
@@ -17,10 +16,9 @@ commands.
 
     python tools/live_vs_rca.py [--games 10] [--speed 4] [--seed S]
 
-A scenario that declares its own experience modifier plays it from the
-command line as a hosted game does, in the default era. At the first
-decision every unit type's experience is checked against a hosted
-game's, from the engine's own base; a difference stops the game.
+One known difference with a hosted game: a command-line start plays 100%
+experience where a lobby plays 70% (scenario_init_oracle's docstring); the
+simulator is built at the engine's value, so the two boards agree.
 Live Wesnoth runs on this machine, in a window, one game at a time.
 """
 from __future__ import annotations
@@ -38,11 +36,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools import lobby_era, reference_player  # noqa: E402
+from tools import reference_player  # noqa: E402
 from tools.live_mirror import (ENGINE_DEBUG_DOMAINS, ENGINE_LOG_DOMAINS, AiCandidateAction,  # noqa: E402
                                AiStop, EngineLog, EngineMessage, LiveMirror, LoggedCommand,
                                MirrorDivergence, SyncMarker, engine_commands)
-from tools.scenario_init_oracle import (compare, engine_declarations, lobby_experience_modifier,  # noqa: E402
+from tools.scenario_init_oracle import (applied_experience_modifier, compare, engine_declarations,  # noqa: E402
                                         lobby_parms, our_record, our_setup)
 from wesnoth_ai.constants import GAMES_PATH, WESNOTH_USERDATA_PATH  # noqa: E402
 
@@ -54,16 +52,8 @@ FRAME_TIMEOUT_S = 600.0        # the default AI's turn, at the watched speed
 END_WAIT_S = 20.0              # for the engine's end of scenario before closing it
 
 
-def launch_era(decl) -> str:
-    """The lobby era, unless the scenario declares its own experience
-    modifier, which a command-line start applies as a hosted game does
-    (src/play_controller.cpp:160): the era's values would compound it."""
-    declared = str(decl.scenario.get("experience_modifier", "")).strip()
-    return "era_default" if declared else lobby_era.ERA_ID
-
-
 def launch_args(scenario_id: str, factions, our_side: int, decl) -> list:
-    args = ["--multiplayer", f"--scenario={scenario_id}", f"--era={launch_era(decl)}",
+    args = ["--multiplayer", f"--scenario={scenario_id}", "--era=era_default",
             "--side", f"1:{factions[0]}", "--side", f"2:{factions[1]}",
             "--controller", "1:ai", "--controller", "2:ai",
             "--ai-config", f"{our_side}:{LIVE_AI_CONFIG}",
@@ -184,14 +174,11 @@ class LiveGame:
 
     def _build(self, frame: dict) -> None:
         """The simulator's game, built as the scenario-init oracle builds
-        it: the engine's leaders and start time, and a hosted game's
-        experience modifier, which the engine's game is checked to play."""
+        it: the engine's leaders and start time, its experience modifier."""
         from tools.wesnoth_sim import WesnothSim
         from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
-        modifier = lobby_experience_modifier(self.decl)
-        self._check_experience(frame, modifier)
         setup = our_setup(self.scenario_id, self.factions, frame)
-        gs = build_scenario_gamestate(setup, experience_modifier=modifier)
+        gs = build_scenario_gamestate(setup, experience_modifier=applied_experience_modifier(frame))
         sim = WesnothSim(gs, scenario_id=self.scenario_id, max_turns=self.max_turns)
         if sim.core is None:
             raise RuntimeError("the live mirror needs the Rust core (wesnoth_core of this source's phase)")
@@ -199,23 +186,6 @@ class LiveGame:
         self.engine_log = EngineLog(self.game.engine_log_path())
         log.info(f"game {self.index}: {self.scenario_id}, {self.factions[0]} ({setup.leader1}) vs "
                  f"{self.factions[1]} ({setup.leader2}), we play side {self.our_side}")
-
-    def _check_experience(self, frame: dict, modifier: int) -> None:
-        """Every unit type of the simulator's table needs, in the engine's
-        game, `modifier`% of the engine's own base experience."""
-        types = frame.get("experience_types")
-        if types is None:
-            raise RuntimeError(f"game {self.index}: the first frame reports no unit type experience "
-                               f"(an add-on older than this tool?)")
-        defects, unknown = lobby_era.experience_defects(types, modifier)
-        self._note(event="experience", modifier=modifier, era=launch_era(self.decl),
-                   types=len(types), unknown=len(unknown), defects=defects)
-        if unknown:
-            log.info(f"game {self.index}: {len(unknown)} unit types outside the simulator's table "
-                     f"(add-on units) keep the engine's experience")
-        if defects:
-            raise MirrorDivergence(f"game {self.index}: {len(defects)} unit types do not play a hosted "
-                                   f"game's experience at {modifier}%: {'; '.join(defects[:20])}")
 
     def _next_frame(self) -> Optional[dict]:
         """The next frame of ours, the engine's commands mirrored as they

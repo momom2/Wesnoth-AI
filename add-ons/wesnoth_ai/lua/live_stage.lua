@@ -67,12 +67,9 @@ local function announce()
         .. "the end screen reads Defeat whoever wins.", side, player))
 end
 
--- The first frame also carries every unit type's experience, which the
--- driver checks against a hosted game's (tools/lobby_era.py).
 local function emit_frame()
     local record = board.record("live")
     record.seq = seq
-    if seq == 1 then record.experience_types = board.experience_types() end
     std_print(FRAME_BEGIN)
     std_print(json.encode(record))
     std_print(FRAME_END)
