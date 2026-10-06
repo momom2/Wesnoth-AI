@@ -55,6 +55,7 @@ from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS, MINI_MAP_SCENAR
 from tools.traits import TRAITS  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 from wesnoth_ai.classes import PLAYER_SIDES  # noqa: E402
+from wesnoth_ai.rules.wml_state import MP_EXPERIENCE_MODIFIER  # noqa: E402
 
 log = logging.getLogger("scenario_init_oracle")
 
@@ -123,11 +124,6 @@ def lobby_parms(decl: Declared) -> List[Tuple[int, str, str]]:
     return parms
 
 
-LOBBY_XP_MODIFIER = 70   # settings::get_xp_modifier(""): the default when a scenario sets none
-
-
-
-
 def launch_args(scenario_id: str, factions: Tuple[str, str], decl: Declared) -> List[str]:
     args = ["--multiplayer", f"--scenario={scenario_id}", "--era=era_default",
             "--side", f"1:{factions[0]}", "--side", f"2:{factions[1]}",
@@ -166,7 +162,7 @@ def lobby_experience_modifier(decl: Declared) -> int:
     """What a lobby with map settings plays: the scenario's value through
     `lexical_cast_default<int>(value, 70)` (src/map_settings.cpp:50-53)."""
     value = str(decl.scenario.get("experience_modifier", "")).strip()
-    return int(value) if value.isdigit() else LOBBY_XP_MODIFIER
+    return int(value) if value.isdigit() else MP_EXPERIENCE_MODIFIER
 
 
 def our_setup(scenario_id: str, factions: Tuple[str, str], engine: dict) -> ScenarioSetup:

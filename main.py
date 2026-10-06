@@ -205,8 +205,8 @@ def check_setup() -> bool:
     # The stages the add-on's three users load: the hidden-units
     # oracle's turn stage (ai_config.cfg, with state_collector and
     # action_executor), the live games' stage (live_ai.cfg, with
-    # board_report) and the scenario-init oracle's (init_oracle_ai.cfg);
-    # json_encoder serves all three.
+    # board_report) and era (eras/lobby_era.cfg), and the scenario-init
+    # oracle's stage (init_oracle_ai.cfg); json_encoder serves all three.
     required_lua = [
         LUA_PATH / "state_collector.lua",
         LUA_PATH / "action_executor.lua",
@@ -221,6 +221,7 @@ def check_setup() -> bool:
         ADDONS_PATH / "ai_config.cfg",
         ADDONS_PATH / "live_ai.cfg",
         ADDONS_PATH / "init_oracle_ai.cfg",
+        ADDONS_PATH / "eras" / "lobby_era.cfg",
         ADDONS_PATH / "_main.cfg",
     ]
     for f in required_lua + required_other:
