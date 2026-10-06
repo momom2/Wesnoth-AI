@@ -1087,6 +1087,16 @@ State of play:
   is ready to merge when ruff is clean and its latest CI run is green on
   both tiers; before a push the laptop runs ruff and the tests the change
   touches. Every CI run lists its 30 slowest tests (Testing, Guidelines).
+- 2026-10-06 (0.15.2, user order): **the suite is trimmed to the tests
+  that pay for their time** (docs/test_trim_20261006.md). Measured on
+  CI per test: its time, and the Python and Rust lines it runs, each
+  weighted by one over the number of tests running it; the tests below a
+  quarter of the 20th percentile of that surface per second were
+  candidates. 52 were deleted, 13 slimmed with their assertions kept (the
+  MCTS self-play smoke from 210 s to 3.5 s on a small network), one moved
+  to the slow tier, and 131 candidates kept with a reason each (code the
+  measure cannot see, parity checks, engine rules, named-bug
+  regressions, tripwires). CI's suite went from 546-625 s to 255-323 s.
 
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling

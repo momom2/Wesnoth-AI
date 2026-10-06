@@ -59,11 +59,10 @@ def test_a_refused_action_is_neutral_even_with_a_tiebreak(ending):
     assert _terminal_value(sim, 2, cfg) == 0.0
 
 
-@pytest.mark.parametrize("ending", ["step_error", "noop_resample"])
-def test_a_sentinel_node_backs_up_its_parent_value(ending):
+def test_a_sentinel_node_backs_up_its_parent_value():
     """What the search actually reads: the sentinel child carries the
     parent's own estimate, whatever the tiebreak would say."""
-    node = MCTSNode(_drawn_sim(ending))
+    node = MCTSNode(_drawn_sim("step_error"))
     node.value = 0.37
     node.is_sentinel = True
     assert _node_terminal_value(node, DrawTiebreakConfig(cap=0.25)) == 0.37

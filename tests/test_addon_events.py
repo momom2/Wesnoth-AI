@@ -268,22 +268,6 @@ def test_pickadvance_narrows_advancement_resolution():
     assert adv4.name == "Elvish Hero", adv4.name
 
 
-def test_pickadvance_extractor_plumbing():
-    """The extractor pairs [fire_event] raise="menu item pickadvance"
-    with its dependent [input] and emits the compact pickadvance
-    command (0-indexed hex, override strings, flags); ignore=yes
-    picks are dropped."""
-    import inspect
-    from tools import replay_extract
-    src = inspect.getsource(replay_extract)
-    assert 'menu item pickadvance' in src
-    assert '"pickadvance",' in src
-    assert 'pending_pick_hex' in src
-    # forced-choice mode: the [input] follows a RECRUIT with no
-    # fire_event, so recruits must arm the pick target too.
-    assert src.count("pending_pick_hex = (") >= 2
-
-
 def test_turn1_healing_gate_split():
     """Engine parity, play_controller.cpp:484-507 (1.18.4): healing
     is gated by do_healing() -- false ONLY for the game's very first

@@ -156,7 +156,9 @@ def test_same_dispatch_order_gives_same_stream_under_any_completion_order():
     for arrival_seed in (1, 2):
         arrival = list(range(len(files)))
         random.Random(arrival_seed).shuffle(arrival)
-        s = _stub_stream([_StubProc(True)] * 3, alive_count=3, files=files,
+        # Every worker has queued its exit and ended, so close() waits
+        # for no one.
+        s = _stub_stream([_StubProc(False)] * 3, alive_count=3, files=files,
                          preload=[_file_msg(k, files[k]) for k in arrival]
                          + [("worker_exit",)] * 3)
         orders.append(_drain_files(s, len(files)))
@@ -223,7 +225,9 @@ def test_fewer_files_than_workers_retires_every_worker():
     """One file, three workers: the sentinels are not tied to refills,
     so all three workers get one and the stream ends."""
     files = ["only.json.gz"]
-    s = _stub_stream([_StubProc(True)] * 3, alive_count=3, files=files,
+    # Every worker has queued its exit and ended, so close() waits for
+    # no one.
+    s = _stub_stream([_StubProc(False)] * 3, alive_count=3, files=files,
                      preload=[_file_msg(0, files[0])] + [("worker_exit",)] * 3)
     assert _drain_files(s, 1) == files
     assert _queued(s._in_q).count(None) == 3

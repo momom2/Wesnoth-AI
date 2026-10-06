@@ -316,7 +316,7 @@ class _FakeProcess:
         self.killed += 1
 
 
-def _queue_pool(n: int = 2, tickets: int = 0):
+def _queue_pool(n: int = 2):
     """A pool holding REAL mp queues (no children spawned) and fake
     processes, ready for shutdown()."""
     from tools.actor_pool import ActorPool
@@ -331,8 +331,6 @@ def _queue_pool(n: int = 2, tickets: int = 0):
     pool._result_q = ctx.Queue()
     pool._server_q = ctx.Queue()
     pool._game_q = ctx.Queue()
-    for g in range(tickets):
-        pool._game_q.put((0, g, g))
     pool._procs = [_FakeProcess(f"actor-{i}", stubborn=(i == 0)) for i in range(n)]
     pool._server_procs = [_FakeProcess("serve-1")]
     pool._open_serving = None
@@ -380,22 +378,9 @@ def test_shutdown_terminates_and_then_joins_an_unresponsive_child():
     assert willing.terminated == 0 and willing.joins == pytest.approx([0.5], abs=0.1)
 
 
-def test_shutdown_drains_leftover_tickets_without_blocking():
-    """close() waits for the feeder to flush; a queue still full of
-    tickets no living child will read would hang the join. The drain is
-    what makes it safe."""
-    pool = _queue_pool(n=2, tickets=500)
-    game_q = pool._game_q
-
-    pool.shutdown(timeout=0.5)
-
-    with pytest.raises(ValueError):
-        game_q.put("after close")
-
-
 def test_shutdown_returns_with_big_messages_nobody_read():
-    """The 500-small-tickets case above passes even with a NON-blocking
-    drain, so it does not test the hazard.
+    """A queue of small tickets drains even when the drain does not
+    block, so it does not test the hazard; messages this size do.
 
     A `put()` only hands the object to the feeder thread; the bytes
     reach the pipe later. A `get_nowait()` can therefore miss a message

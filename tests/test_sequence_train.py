@@ -23,8 +23,8 @@ from tools.replay_dataset import ActionIndices, timeout_label  # noqa: E402
 from wesnoth_ai.imitation_loss import build_imitation_targets  # noqa: E402
 from wesnoth_ai.sequence_loss import (GameFacts, SequenceLabelError, belief_loss,  # noqa: E402
                                       step_labels)
-from wesnoth_ai.sequence_streams import (K_CHOICES, GameSide, Step, StreamSchedule,  # noqa: E402
-                                         epoch_order, memory_size)
+from wesnoth_ai.sequence_streams import (GameSide, Step, StreamSchedule,  # noqa: E402
+                                         epoch_order)
 
 
 def _schedule(n_sides=9, n_streams=3, seed=5):
@@ -58,12 +58,6 @@ def test_the_streams_walk_every_decision_once_in_order_and_resume_where_they_sto
     resumed, _ = _schedule()
     resumed.load_state_dict(json.loads(json.dumps(cut.state_dict())))
     assert head + _walk(resumed, T=4) == steps
-
-
-def test_half_the_game_sides_train_the_whole_memory():
-    ks = Counter(memory_size(20260929, GameSide(f"g{i}", 1 + i % 2)) for i in range(8000))
-    assert set(ks) == set(K_CHOICES)
-    assert abs(ks[64] / 8000 - 0.5) < 0.03 and abs(ks[0] / 8000 - 0.125) < 0.02
 
 
 def _position(label, hidden=(), no_visible=(True, True, False, True)):

@@ -607,7 +607,7 @@ def test_noop_resample_does_not_self_loop():
 # End-to-end smoke: --mcts CLI flag actually runs sim_self_play
 # ---------------------------------------------------------------------
 
-@pytest.mark.slow          # ~371s: see pytest.ini two-tier note
+@pytest.mark.slow          # plays a self-play game (about 4 s on CI): see pytest.ini
 def test_mcts_self_play_smoke(tmp_path):
     """Drive `tools/sim_self_play.py --mcts` for one tiny iteration
     and verify exit code 0 + an MCTS-mode log message. Catches:
@@ -615,10 +615,10 @@ def test_mcts_self_play_smoke(tmp_path):
       - CLI flag wiring on sim_self_play.py
       - the MCTSPolicy â†’ trainer.step_mcts contract end-to-end
 
-    The default model is 26M params; building it and running 2
-    MCTS sims per move for a 5-turn game on CPU took ~1 minute pre-2026-07 and ~6 minutes since true-reachability
-    masks made turns full-length (every unit really moves). The
-    15-minute timeout leaves slack for slower machines.
+    A small network (d_model 32, one layer) plays the 5-turn game with
+    2 MCTS sims per move: the wiring checked here is the same at any
+    network size, and the default 26M-parameter one costs minutes on a
+    CPU. The 15-minute timeout leaves slack for slower machines.
     """
     import os
     import subprocess
@@ -639,6 +639,7 @@ def test_mcts_self_play_smoke(tmp_path):
         "--mcts-sims", "2",
         "--checkpoint-out", str(ckpt_out),
         "--device", "cpu",
+        "--d-model", "32", "--num-layers", "1", "--num-heads", "2", "--d-ff", "64",
         "--log-level", "INFO",
     ]
     proc = subprocess.run(cmd, env=env, cwd=str(project_root),
@@ -1087,20 +1088,6 @@ def test_distill_stats_drain():
     assert out["distill_et_target"] == 0.8
     assert stub._distill_acc == {}
     assert MCTSPolicy.drain_distill_stats(stub) is None
-
-
-def test_playout_cap_cli_default_on():
-    """User ruling 2026-08-05: playout-cap randomization is ON by
-    default at the TRAINING entry point (and only there -- library
-    MCTSConfig stays False so eval paths search full-budget)."""
-    import inspect
-    from tools import sim_self_play
-    src = inspect.getsource(sim_self_play)
-    i = src.index('"--mcts-playout-cap"')
-    window = src[i:i + 400]
-    assert "BooleanOptionalAction" in window and "default=True" in window
-    from tools.mcts import MCTSConfig
-    assert MCTSConfig().playout_cap_randomization is False
 
 
 def test_infer_bf16_flag_noop_on_cpu():

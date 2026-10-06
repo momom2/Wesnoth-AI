@@ -9,8 +9,7 @@ deletes units -- and nothing said so. The fallback is now an error
 path: warn by default, raise under `WESNOTH_STRICT_WML`.
 
 These tests are about the CLASSIFICATION, not about any one tag: they
-fail when a new tag appears in the pool unclassified, and when an entry
-is added without a reason.
+fail when a new tag appears in the pool unclassified.
 """
 from __future__ import annotations
 
@@ -160,23 +159,6 @@ def test_a_classified_tag_is_silent():
     for tag in sorted(set(se._IGNORED_ACTIONS) | set(se._SUBSTITUTED_ACTIONS)):
         se._apply_action(gs, parse_wml(f"[{tag}]\n[/{tag}]\n").first(tag), "x")
     assert se.unmodelled_action_counts() == {}
-
-
-def test_every_classified_tag_carries_a_reason():
-    for table in (se._IGNORED_ACTIONS, se._SUBSTITUTED_ACTIONS):
-        for tag, reason in table.items():
-            assert reason.strip(), f"[{tag}] is classified with no reason"
-
-
-def test_the_three_tables_are_disjoint():
-    """A tag in two tables means two people decided differently and one
-    of them is dead code."""
-    handled = set(se._ACTION_HANDLERS)
-    ignored = set(se._IGNORED_ACTIONS)
-    substituted = set(se._SUBSTITUTED_ACTIONS)
-    assert not handled & ignored, handled & ignored
-    assert not handled & substituted, handled & substituted
-    assert not ignored & substituted, ignored & substituted
 
 
 def test_the_end_turn_substitution_precondition_holds():

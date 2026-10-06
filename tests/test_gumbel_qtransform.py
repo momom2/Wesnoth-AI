@@ -1,4 +1,4 @@
-"""Gumbel q-transform: soft targets, offset invariance, reference match.
+"""Gumbel q-transform: soft targets, offset invariance.
 
 The distillation target is softmax(logits + sigma(completed_q)). Before
 2026-07-28 sigma used the PAPER's c_scale=1.0 on RAW q in [-1,1] without
@@ -25,14 +25,6 @@ def _target(logits, qs, max_v, cfg):
     t = t - t.max()
     p = np.exp(t)
     return p / p.sum()
-
-
-def test_reference_defaults():
-    """Constants must match mctx's qtransform_completed_by_mix_value."""
-    cfg = MCTSConfig()
-    assert cfg.gumbel_c_scale == 0.1      # mctx value_scale
-    assert cfg.gumbel_c_visit == 50.0     # mctx maxvisit_init
-    assert cfg.gumbel_rescale_q is True   # mctx rescale_values
 
 
 def test_rescale_maps_to_unit_interval():

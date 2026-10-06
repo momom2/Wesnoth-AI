@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.rules.terrain_resolver import (  # noqa: E402
-    split_start_position, start_position_side, strip_start_position,
+    split_start_position, start_position_side,
 )
 
 # Border ring + two labelled hexes: side 10 at playable (0, 0) and a
@@ -64,12 +64,6 @@ def test_the_label_is_any_text_before_a_space():
     assert split_start_position("  Gg  ") == ("", "Gg")
     assert split_start_position("1 ") == ("", "1")
     assert split_start_position("") == ("", "") and split_start_position(None) == ("", "")
-
-
-def test_strip_returns_the_code_half():
-    assert strip_start_position("10 Wo") == "Wo"
-    assert strip_start_position("book_start Isc^Ii") == "Isc^Ii"
-    assert strip_start_position("Gg") == "Gg"
 
 
 def test_only_a_side_s_own_spelling_names_a_side():

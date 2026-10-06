@@ -42,7 +42,7 @@ def _consist(z, z_pair=None, v_anchor=None):
 
 
 def test_consist_states_skip_categorical_and_gradient_is_linear_in_gap():
-    policy = TransformerPolicy()
+    policy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64)
     tr = policy._trainer
     tr.config.grad_clip = 1e9
     tr.config.consist_bias = 0.0
@@ -148,7 +148,7 @@ def test_signal_telemetry_norms_are_opt_in_but_dv_always_logs():
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
     from wesnoth_ai.trainer import TrainStats
-    policy = TransformerPolicy()
+    policy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64)
     batch = [_consist(0.2, z_pair=0.1) for _ in range(4)]
     sig_pre = [[e.game_state for e in batch], [0.5] * 4]
     off = MCTSPolicy(policy, MCTSConfig(n_simulations=1))

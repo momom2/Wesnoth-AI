@@ -51,7 +51,3 @@ def test_expand_subtracts_value_center(monkeypatch):
     assert abs(centered - 0.35) < 1e-6
     assert abs(node.value - 0.35) < 1e-6
     assert len(node.edges) == 1 and node.expanded
-
-
-def test_value_center_defaults_off():
-    assert mcts.MCTSConfig().value_center == 0.0

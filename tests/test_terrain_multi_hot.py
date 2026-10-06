@@ -144,11 +144,3 @@ def test_raw_of_carries_every_switch_of_its_encoder():
     assert not np.array_equal(own.hex_terrain_ids, bare.hex_terrain_ids)
     assert np.array_equal(enc.encode(gs).hex_tokens.detach(),
                           enc.encode_from_raw(own).hex_tokens.detach())
-
-
-def test_the_pool_play_command_carries_the_flag():
-    import inspect
-    from tools import actor_pool, actor_worker
-    pool_src = inspect.getsource(actor_pool)
-    actor_src = inspect.getsource(actor_worker)
-    assert "self._terrain_multi_hot())" in pool_src and "terrain_multi_hot=_tmh" in actor_src

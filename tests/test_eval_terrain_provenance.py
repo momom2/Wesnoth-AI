@@ -78,35 +78,3 @@ def test_batch_pre_scan_refuses_other_view(tmp_path):
               "--mcts-sims", "0", "--device", "cpu", "--jobs", "1",
               "--time-budget-min", "1", "--min-free-mb", "0"])
     assert sorted(out.glob("game_*.json")) == [out / "game_A_B_s1_10000.json"]
-
-
-def test_effective_view_from_checkpoint_dummy_random_and_child_peek(tmp_path):
-    """A checkpoint plays in its own view, a fresh net in the set view,
-    'dummy' in none; the driver reads the same answer, once per spec,
-    in a child interpreter, together with the basis."""
-    import torch
-    from tools import elo_eval_game as g
-    from tools.run_elo_batch import (_checkpoint_basis, _checkpoint_flags, _checkpoint_terrain,
-                                     _want_terrains)
-    from wesnoth_ai.transformer_policy import TransformerPolicy
-    arch = dict(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2, d_ff=64)
-    fresh = str(tmp_path / "fresh.pt")
-    old = str(tmp_path / "old.pt")
-    TransformerPolicy(**arch).save_checkpoint(fresh)
-    TransformerPolicy(terrain_multi_hot=False, relevant_set_hexes=True, **arch).save_checkpoint(old)
-
-    assert g._effective_terrain("dummy", None) == "class"
-    assert g._effective_terrain("random", None) == "set"
-    assert g._effective_terrain(fresh, None) == "set"
-    assert g._effective_terrain(old, None) == "class"
-
-    assert _checkpoint_flags("dummy") == ("full", "class", 0)
-    assert _checkpoint_flags("random") == ("full", "set", 0)
-    assert _checkpoint_flags(old) == ("relset", "class", 0)
-    assert _checkpoint_terrain(fresh) == "set" and _checkpoint_basis(fresh) == "full"
-
-    class _Args:
-        spec_a, spec_b = old, "dummy"
-    assert _want_terrains(_Args, _checkpoint_terrain) == ("class", "class")
-    _Args.spec_b = fresh
-    assert _want_terrains(_Args, _checkpoint_terrain) == ("class", "set")

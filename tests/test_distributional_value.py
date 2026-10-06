@@ -102,22 +102,6 @@ def test_cliffness_equals_distribution_std_zero_when_concentrated():
     assert std.item() < 0.01, "near-one-hot distribution should have ~0 std"
 
 
-def test_cliffness_high_when_distribution_spread():
-    """A uniform distribution over [-1, +1] has std = (V_MAX - V_MIN) /
-    sqrt(12) for the *continuous* case; the discrete uniform-over-K
-    is close. This is the "high cliffness, network is uncertain"
-    regime — soft-TT should DISTRUST similarity transfer here."""
-    atoms = torch.linspace(VALUE_V_MIN, VALUE_V_MAX, VALUE_N_ATOMS)
-    probs = torch.full((1, VALUE_N_ATOMS), 1.0 / VALUE_N_ATOMS)
-    mean = (probs * atoms).sum(dim=-1, keepdim=True)
-    var = ((probs * atoms.pow(2)).sum(dim=-1, keepdim=True)
-           - mean.pow(2)).clamp_min(0)
-    std = var.sqrt().item()
-    # Continuous uniform on [-1, 1] has std = sqrt(1/3) ≈ 0.577.
-    # Discrete uniform on K=51 bins is very close.
-    assert 0.55 < std < 0.60, f"expected std≈0.577, got {std:.3f}"
-
-
 # ---------------------------------------------------------------------
 # Projection of scalar returns to bin distribution
 # ---------------------------------------------------------------------
@@ -204,15 +188,3 @@ def test_ce_loss_minimized_when_logits_match_target():
 # ---------------------------------------------------------------------
 # Forward → ModelOutput field shapes
 # ---------------------------------------------------------------------
-
-def test_modeloutput_carries_distributional_fields():
-    """The forward path populates `value`, `value_logits`, and
-    `cliffness`; downstream code (rollout, MCTS, trainer) reads
-    each of them. A regression that drops one of these from
-    `ModelOutput` would only surface as an attribute error in
-    the runtime path that uses it."""
-    from wesnoth_ai.model import ModelOutput
-    fields = ModelOutput.__dataclass_fields__
-    assert "value" in fields
-    assert "value_logits" in fields
-    assert "cliffness" in fields

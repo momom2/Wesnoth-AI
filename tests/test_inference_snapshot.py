@@ -4,62 +4,36 @@ train_step concurrency discussion).
 
 Verified:
 
-  1. Inference model + encoder are SEPARATE instances from the
-     trainer's model + encoder.
-  2. After train_step, inference weights match trainer weights.
-  3. Mutating the trainer's `_model.parameters()` directly does NOT
+  1. After train_step, inference weights match trainer weights, on
+     the TransformerPolicy and the MCTSPolicy paths.
+  2. Mutating the trainer's `_model.parameters()` directly does NOT
      affect inference until `_snapshot_inference_weights()` runs.
-  4. load_checkpoint syncs the inference snapshot.
-  5. Concurrency stress: rollouts on a worker thread + train_steps
-     on the main thread don't crash, produce no NaN, and inference
-     output stays on a consistent snapshot per call.
+  3. load_checkpoint syncs the inference snapshot and keeps the two
+     encoders on one vocabulary.
+
+The concurrency stress of rollouts against train_step is
+tests/test_parallel_rollouts.py's.
 """
 
 from __future__ import annotations
 
 import sys
-import threading
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-import pytest
 import torch
 
 from helpers.tiny_state import _gs
 from wesnoth_ai.transformer_policy import TransformerPolicy
 
 
-# ---------------------------------------------------------------------
-# Structural: the snapshot is a separate instance
-# ---------------------------------------------------------------------
-
-def test_inference_model_is_separate_object():
-    policy = TransformerPolicy()
-    assert policy._inference_model is not policy._model
-    assert policy._inference_encoder is not policy._encoder
-
-
-def test_inference_weights_match_trainer_at_init():
-    """At init, the inference snapshot is byte-equal to the
-    trainer's freshly-built weights."""
-    policy = TransformerPolicy()
-    for k, v_t in policy._model.state_dict().items():
-        v_i = policy._inference_model.state_dict()[k]
-        assert torch.allclose(v_t, v_i), f"mismatch at {k}"
-
-
-def test_vocab_dicts_shared_by_reference():
-    """Both encoders point to the same vocab dicts. Adding a new
-    type via either side appears on the other."""
-    policy = TransformerPolicy()
-    assert (policy._encoder.unit_type_to_id is
-            policy._inference_encoder.unit_type_to_id)
-    assert (policy._encoder.faction_to_id is
-            policy._inference_encoder.faction_to_id)
+def _small_policy() -> TransformerPolicy:
+    """A small network: these tests are about which weights the
+    inference copy holds, not about the network's size."""
+    return TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64)
 
 
 # ---------------------------------------------------------------------
@@ -144,7 +118,7 @@ def test_mcts_train_step_syncs_inference_weights():
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
     from wesnoth_ai.trainer import MCTSExperience, TrainStats
 
-    base = TransformerPolicy()
+    base = _small_policy()
 
     # Stand-in gradient step: perturb _model so it diverges from the
     # inference snapshot, exactly as a real optimizer.step() would.
@@ -172,7 +146,7 @@ def test_load_checkpoint_syncs_inference():
     inference snapshot too -- otherwise select_action keeps using
     initial-random weights until the first train_step."""
     import tempfile
-    policy = TransformerPolicy()
+    policy = _small_policy()
     # Save the current state.
     with tempfile.TemporaryDirectory() as td:
         ckpt_path = Path(td) / "ckpt.pt"
@@ -183,7 +157,7 @@ def test_load_checkpoint_syncs_inference():
         policy.save_checkpoint(ckpt_path)
 
         # Build a fresh policy + load. Verify inference matches.
-        policy2 = TransformerPolicy()
+        policy2 = _small_policy()
         policy2.load_checkpoint(ckpt_path)
         for k, v_t in policy2._model.state_dict().items():
             v_i = policy2._inference_model.state_dict()[k]
@@ -224,70 +198,3 @@ def test_load_checkpoint_preserves_vocab_sharing():
                 policy2._inference_encoder.faction_to_id)
         # ...and the loaded content is visible through BOTH handles.
         assert "Spearman" in policy2._inference_encoder.unit_type_to_id
-
-
-# ---------------------------------------------------------------------
-# Concurrency stress
-# ---------------------------------------------------------------------
-
-@pytest.mark.slow          # ~20s: see pytest.ini two-tier note
-def test_concurrent_rollout_and_train_step_no_nan():
-    """With a worker thread doing rollouts while the main thread
-    runs train_step, no forward should produce NaN. The lock keeps
-    inference from reading torn parameters during the snapshot
-    swap; the trainer-side gradient compute mutates `_model`
-    (lock-free, but the inference path doesn't read it)."""
-    policy = TransformerPolicy()
-    gs = _gs()
-
-    stop = threading.Event()
-    nan_seen = []
-    actions_seen = []
-
-    def rollout_thread():
-        i = 0
-        while not stop.is_set() and i < 30:
-            try:
-                # Different game_label per call to avoid debug
-                # same-state-twice tripwire (we're passing the same
-                # gs object intentionally for the stress test).
-                action = policy.select_action(gs, game_label=f"stress{i}")
-                actions_seen.append(action)
-                # No NaN check on action dict itself; check the
-                # inference model output instead.
-                with torch.no_grad():
-                    encoded = policy._inference_encoder.encode(gs)
-                    out = policy._inference_model(encoded)
-                    if torch.isnan(out.actor_logits).any():
-                        nan_seen.append("actor_logits")
-                    if torch.isnan(out.value).any():
-                        nan_seen.append("value")
-                i += 1
-            except Exception as e:
-                nan_seen.append(f"exception: {e}")
-                break
-
-    # Pre-populate enough rollouts so train_step has data.
-    for i in range(8):
-        policy.select_action(gs, game_label=f"warmup{i}")
-        policy.observe(f"warmup{i}", 1, reward=0.5, done=True)
-
-    t = threading.Thread(target=rollout_thread)
-    t.start()
-    # Run a few train_steps while rollouts are happening. Each
-    # train_step needs queue contents, so we top up after each.
-    for i in range(3):
-        # Top up the queue with a few synthetic trajectories.
-        for j in range(4):
-            policy.select_action(gs, game_label=f"trainfeed{i}_{j}")
-            policy.observe(f"trainfeed{i}_{j}", 1, reward=0.5, done=True)
-        try:
-            policy.train_step()
-        except Exception as e:
-            nan_seen.append(f"train_step exception: {e}")
-        time.sleep(0.05)
-    stop.set()
-    t.join(timeout=10.0)
-
-    assert not nan_seen, f"NaN / exceptions during stress: {nan_seen}"
-    assert len(actions_seen) > 0, "rollout thread never ran"

@@ -11,7 +11,6 @@ proportions over all five categories, guarded to sum to 1).
 
 from __future__ import annotations
 
-import copy
 import random
 import sys
 from pathlib import Path
@@ -75,17 +74,6 @@ def test_mix_guard_rejects_bad_sums():
         validate_mix(midgame=-0.1, ladder=1.1)  # out of range
     validate_mix(midgame=0.2, mini=0.2,
                  fogless=0.2, ladder=0.4)       # exact -> OK
-
-
-def test_fogless_setup_sets_fog_attr_and_survives_deepcopy():
-    rng = random.Random(7)
-    setup = random_setup(rng, category="fogless")
-    gs = build_scenario_gamestate(setup)
-    assert getattr(gs.global_info, "_fog", True) is False
-    # MCTS deepcopies states before encoding; the underscore attr
-    # must survive GlobalInfo.__deepcopy__.
-    gs2 = copy.deepcopy(gs)
-    assert getattr(gs2.global_info, "_fog", True) is False
 
 
 def test_fogged_setup_leaves_fog_attr_unset():

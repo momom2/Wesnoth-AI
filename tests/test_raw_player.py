@@ -7,7 +7,6 @@ import random
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,19 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from tests.helpers.eval_records import current_forced_faction  # noqa: E402
-
-
-def test_pick_index_temperatures():
-    from tools.raw_player import pick_index
-    priors = np.array([0.2, 0.5, 0.3])
-    rng = np.random.default_rng(0)
-    assert pick_index(priors, 0.0, rng) == 1
-    # Temperature 1 reproduces the prior; 0.1 concentrates on the mode.
-    draws = np.array([pick_index(priors, 1.0, rng) for _ in range(4000)])
-    freq = np.bincount(draws, minlength=3) / len(draws)
-    assert np.allclose(freq, priors, atol=0.04)
-    cold = [pick_index(priors, 0.1, rng) for _ in range(200)]
-    assert cold.count(1) >= 195
 
 
 def test_procedure_tag_carries_temperature():
@@ -119,14 +105,6 @@ def test_eval_game_guard_separates_temperature_estimands(tmp_path):
                     "combat_stream": "per_game", "observation_epoch": OBSERVATION_EPOCH,
                     "forced_faction": current_forced_faction()}), encoding="utf-8")
     assert main(base + ["--raw-temperature-a", "0"]) == 0
-
-
-def test_batch_driver_forwards_temperature():
-    import inspect
-    from tools import run_elo_batch
-    src = inspect.getsource(run_elo_batch)
-    assert "--raw-temperature-a" in src and "--raw-temperature-b" in src
-    assert "args.raw_temperature_a" in src
 
 
 def test_search_root_procedure_is_per_player():

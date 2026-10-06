@@ -84,11 +84,3 @@ def test_mixed_batch_refused():
     le = renc.encode(gs)
     with pytest.raises(ValueError, match="mixed"):
         InferenceServer(model, enc).infer_batch([le._raw, (le._raw, le._masks)])
-
-
-def test_actor_pool_play_command_carries_flag():
-    import inspect
-    from tools import actor_pool, actor_worker
-    pool_src = inspect.getsource(actor_pool)
-    actor_src = inspect.getsource(actor_worker)
-    assert "bool(self.server_priors)" in pool_src and "server_priors=_sp" in actor_src

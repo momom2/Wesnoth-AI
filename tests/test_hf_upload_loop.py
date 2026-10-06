@@ -26,7 +26,7 @@ def test_upload_timeout_kills_hanging_child(monkeypatch):
                         "import time\ntime.sleep(60)\n")
     t0 = time.monotonic()
     ok = hul.upload_with_timeout("some.pt", "tier-b/some.pt",
-                                 "repo/x", "tok", timeout_s=2)
+                                 "repo/x", "tok", timeout_s=1)
     dt = time.monotonic() - t0
     assert ok is False
     assert dt < 15, f"kill took {dt:.1f}s -- timeout not enforced"

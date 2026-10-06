@@ -60,16 +60,3 @@ def test_same_priors(enumerations):
 def test_every_branch_exercised(enumerations):
     kinds = {la.action["type"] for _, vec in enumerations for la in vec}
     assert {"recruit", "move", "attack", "end_turn"} <= kinds
-
-
-def test_reference_env_switch(monkeypatch):
-    import importlib
-    import wesnoth_ai.action_sampler as sampler
-    monkeypatch.setenv("WESNOTH_ENUM_REFERENCE", "1")
-    importlib.reload(sampler)
-    try:
-        assert sampler._ENUM_REFERENCE is True
-    finally:
-        monkeypatch.delenv("WESNOTH_ENUM_REFERENCE")
-        importlib.reload(sampler)
-        assert sampler._ENUM_REFERENCE is False

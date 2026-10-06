@@ -196,19 +196,6 @@ def test_superset_assert_FIRES_when_the_set_is_short(monkeypatch):
         enumerate_legal_actions_with_priors(shrunk, out, gs)
 
 
-def test_policy_threads_flag_to_both_encoders():
-    """Trainer and inference encoders must AGREE: a split would make the
-    replayed target_idx index a different hex basis than the one the action
-    was chosen in."""
-    from wesnoth_ai.transformer_policy import TransformerPolicy
-    on = TransformerPolicy(d_model=32, num_layers=2, num_heads=4, d_ff=64,
-                           relevant_set_hexes=True)
-    assert on._encoder.relevant_set_hexes and on._inference_encoder.relevant_set_hexes
-    off = TransformerPolicy(d_model=32, num_layers=2, num_heads=4, d_ff=64)
-    assert not off._encoder.relevant_set_hexes
-    assert not off._inference_encoder.relevant_set_hexes
-
-
 def test_holdout_probe_is_discarded_across_an_index_basis_change(tmp_path):
     """holdout CE is the ONE curve we rely on being comparable across
     restarts -- that's why the probe is persisted. Restoring a probe

@@ -5,14 +5,13 @@ compositions and compiles once (dynamic token count, offsets length and
 max_len: no recompile on the third shape); the native-dtype weight copy
 follows load_state_dict; a failing compile falls back to the eager loop
 with one WARNING; a recompile and dynamo giving up are detected; the
-switch requires the packed trunk. The inductor variant needs a C++
-compiler on PATH (MSVC's cl, gcc or clang) and is skipped without one;
-the aot_eager variant covers the dynamo side (tracing, dynamic shapes,
-the custom-op boundary, guards) everywhere."""
+switch requires the packed trunk. The aot_eager backend covers the
+dynamo side (tracing, dynamic shapes, the custom-op boundary, guards);
+inductor is compiled where production runs it, in the CUDA tier
+(tests/test_packed_compile_cuda.py)."""
 from __future__ import annotations
 
 import logging
-import shutil
 import sys
 from pathlib import Path
 
@@ -31,16 +30,6 @@ LOGGER = "wesnoth_ai.packed_trunk"
 SHAPES = ([(3, 2, 40), (1, 0, 25), (5, 3, 33), (2, 1, 40)],
           [(2, 0, 30), (3, 0, 12), (4, 2, 20)],
           [(2, 1, 18), (1, 2, 44)])
-
-
-def _has_cpp_compiler() -> bool:
-    # A C compiler alone is not enough: inductor's CPU backend compiles
-    # C++ (the box had gcc but no g++ and fell back to eager, 2026-09-05).
-    return any(shutil.which(c) for c in ("cl", "g++", "clang++"))
-
-
-BACKENDS = ["aot_eager", pytest.param("inductor", marks=pytest.mark.skipif(
-    not _has_cpp_compiler(), reason="inductor's CPU backend needs a C++ compiler on PATH"))]
 
 
 @pytest.fixture(autouse=True)
@@ -87,17 +76,15 @@ def _our_warnings(caplog):
             if r.name == LOGGER and r.levelno >= logging.WARNING]
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_compiled_packed_matches_eager_and_compiles_once(backend):
+def test_compiled_packed_matches_eager_and_compiles_once():
     model = _model()
-    model.configure_packed_compile(backend=backend)
-    tol = dict(atol=1e-4, rtol=1e-3) if backend == "inductor" else dict(atol=1e-5, rtol=1e-4)
+    model.configure_packed_compile(backend="aot_eager")
     for i, sizes in enumerate(SHAPES):
         eager, compiled = _eager_and_compiled(model, _streams(sizes, seed=i))
-        _assert_samples_equal(eager, compiled, **tol)
+        _assert_samples_equal(eager, compiled, atol=1e-5, rtol=1e-4)
         assert model.packed_compile_active, model.packed_compile_stats()
     stats = model.packed_compile_stats()
-    print(f"\n{backend}: warmup {stats['warmup_seconds']:.1f} s, "
+    print(f"\naot_eager: warmup {stats['warmup_seconds']:.1f} s, "
           f"{stats['cache_entries']} cache entry")
     assert stats["recompiles"] == 0 and stats["cache_entries"] == 1, stats
     assert stats["weights_dtype"] == "float32" and stats["fallback_reason"] is None

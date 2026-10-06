@@ -89,28 +89,27 @@ def test_batch_pre_scan_refuses_other_basis(tmp_path):
     assert sorted(out.glob("game_*.json")) == [out / "game_A_B_s1_10000.json"]
 
 
-def test_effective_basis_from_flag_checkpoint_dummy_and_child_peek(tmp_path):
-    """The basis a side plays in: 'dummy' has none; the CLI flag forces
-    the subset; a checkpoint trained in the subset carries it; the
-    driver reads the same answer in a child interpreter."""
+def test_a_side_is_labelled_with_the_basis_and_view_it_plays_in(tmp_path):
+    """The labels a side's result carries, decided without a checkpoint
+    read: the --relevant-set flag forces the subset, a fresh network plays
+    the full board in the terrain set, and the flag is part of a worker's
+    policy cache key, so a forced side never reuses the plain policy."""
+    from types import SimpleNamespace
+
     import torch
     from tools import elo_eval_game as g
-    from tools.run_elo_batch import _checkpoint_basis, _want_bases
+    from tools.run_elo_batch import _want_bases
     from wesnoth_ai.transformer_policy import TransformerPolicy
-    arch = dict(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2, d_ff=64)
-    full = str(tmp_path / "full.pt")
-    relset = str(tmp_path / "relset.pt")
-    TransformerPolicy(**arch).save_checkpoint(full)
-    TransformerPolicy(relevant_set_hexes=True, **arch).save_checkpoint(relset)
-
     assert g._effective_basis("dummy", True, None) == "full"
     assert g._effective_basis("random", False, None) == "full"
     assert g._effective_basis("random", True, None) == "relset"
-    assert g._effective_basis(full, False, None) == "full"
-    assert g._effective_basis(full, True, None) == "relset"
-    assert g._effective_basis(relset, False, None) == "relset"
-    # The flag is part of the worker cache key: a forced-subset policy
-    # and the plain one are distinct objects, the plain one unmutated.
+    assert g._effective_terrain("random", None) == "set"
+    assert g._effective_terrain("dummy", None) == "class"
+    args = SimpleNamespace(spec_a="a.pt", relevant_set_a=True, spec_b="dummy", relevant_set_b=False)
+    assert _want_bases(args, lambda spec: "full") == ("relset", "full")
+    full = str(tmp_path / "full.pt")
+    TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2,
+                      d_ff=64).save_checkpoint(full)
     g._POLICY_CACHE.clear()
     g._WORKER_MODE = True
     try:
@@ -119,19 +118,6 @@ def test_effective_basis_from_flag_checkpoint_dummy_and_child_peek(tmp_path):
         assert plain is not forced
         assert not plain._inference_encoder.relevant_set_hexes
         assert forced._inference_encoder.relevant_set_hexes
-        assert g._policy_for(full, torch.device("cpu"), "A", False, False, False) is plain
     finally:
         g._WORKER_MODE = False
         g._POLICY_CACHE.clear()
-
-    assert _checkpoint_basis("dummy") == "full" and _checkpoint_basis("random") == "full"
-    assert _checkpoint_basis(relset) == "relset"
-
-    class _Args:
-        spec_a, spec_b = relset, "dummy"
-        relevant_set_a = relevant_set_b = False
-    assert _want_bases(_Args, _checkpoint_basis) == ("relset", "full")
-    _Args.relevant_set_b = True
-    assert _want_bases(_Args, _checkpoint_basis) == ("relset", "full")    # dummy: no encoder
-    _Args.spec_b = full
-    assert _want_bases(_Args, _checkpoint_basis) == ("relset", "relset")

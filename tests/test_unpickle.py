@@ -1,15 +1,11 @@
 """wesnoth_ai/unpickle.py: a record pickled under a module's old path
-loads after the module moved, through every loader of project pickles."""
-import ast
-import inspect
+loads after the module moved."""
 import pickle
 import sys
 import types
-from pathlib import Path
 
 import pytest
 
-from helpers.source_tree import source_files
 from wesnoth_ai import unpickle
 
 
@@ -70,32 +66,3 @@ def test_the_pre_encoded_corpus_reader_maps_old_paths(monkeypatch, tmp_path):
     (raw, labels), = read_record(path)
     assert (raw.value, labels.value) == (1, 2)
     assert type(raw) is sys.modules["zz_new_home"].Record
-
-
-def _pickle_loads(path: Path):
-    """(line, call) for every read of a pickle that bypasses the
-    unpickler: pickle.load / loads / Unpickler, or those names imported
-    from pickle or _pickle."""
-    tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-    readers = {"load", "loads", "Unpickler"}
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Attribute) and node.attr in readers
-                and isinstance(node.value, ast.Name) and node.value.id in ("pickle", "_pickle")):
-            yield node.lineno, ast.unparse(node)
-        elif isinstance(node, ast.ImportFrom) and node.module in ("pickle", "_pickle"):
-            for alias in node.names:
-                if alias.name in readers:
-                    yield node.lineno, f"from {node.module} import {alias.name}"
-
-
-def test_every_project_pickle_is_read_through_the_unpickler():
-    """The production trees hold no other reader of pickles, so none
-    skips the table of moved modules."""
-    home = Path(inspect.getsourcefile(unpickle)).resolve()
-    files = source_files("wesnoth_ai", "tools", "scripts", "signal_profiler")
-    assert home in files, "the scan must reach the unpickler itself"
-    assert list(_pickle_loads(home)), "the scan must see the unpickler's own pickle.Unpickler"
-    bypass = [f"{path}:{line}: {text}" for path in files if path != home
-              for line, text in _pickle_loads(path)]
-    assert not bypass, ("read project pickles with wesnoth_ai.unpickle.load / loads, so a "
-                        "record written before a module moved still loads:\n" + "\n".join(bypass))
