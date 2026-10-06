@@ -161,7 +161,11 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
              for g in first.games]
         # Both actors play through the first window, each on its own
         # server, so both serve in it.
-        assert all(n > 0 for n in pool.last_leaves_per_server), pool.last_leaves_per_server
+        window = ([(g.actor, g.index, round(g.t_start - t_open, 3), round(g.t_end - t_open, 3))
+                   for g in first.games],
+                  {a: (i, round(t - t_open, 3)) for a, (i, t) in stream._in_flight.items()})
+        print("WINDOW", pool.last_leaves_per_server, window)          # temporary: the CI loop reads it
+        assert all(n > 0 for n in pool.last_leaves_per_server), (pool.last_leaves_per_server, window)
         versions = []
 
         def publish():
