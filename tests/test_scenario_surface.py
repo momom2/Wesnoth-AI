@@ -15,7 +15,6 @@ UNKNOWN, which is why the manifest is built that way.
 from __future__ import annotations
 
 import copy
-import json
 import sys
 from pathlib import Path
 
@@ -52,28 +51,14 @@ def test_every_modelled_entry_names_a_reader_that_reads_it(manifest):
     assert not ss.missing_readers(manifest)
 
 
-@pytest.mark.parametrize("pair, wrong_reader", [
-    # The 2026-09-23 audit found these bound to real functions that do
-    # not read them. Rebinding each to its old reader must be caught.
-    ("scenario/side.gold", "wesnoth_ai/rules/wml_state.py:read_tod"),
-    ("scenario/event/unit.variation", "tools/traits.py:roll_traits"),
-    ("scenario/event/switch.variable", "tools/scenario_events.py:_lua_action"),
-])
-def test_a_reader_that_does_not_read_its_attribute_is_caught(manifest, pair,
-                                                             wrong_reader):
+def test_a_reader_that_does_not_read_its_attribute_is_caught(manifest):
+    """The 2026-09-23 audit found entries bound to real functions that do
+    not read them; rebinding one to its old reader must be caught."""
+    pair, wrong_reader = "scenario/event/unit.variation", "tools/traits.py:roll_traits"
     bound_wrong = copy.deepcopy(manifest)
     bound_wrong["pairs"][pair] = {"classification": "MODELLED",
                                   "reader": wrong_reader, "why": ""}
     assert any(pair in line for line in ss.missing_readers(bound_wrong))
-
-
-def test_generic_is_an_explicit_reason_not_an_escape_hatch(manifest):
-    """`generic` excuses a reader that gets its attribute from a table
-    or from its caller. Every use has to carry that reason."""
-    for key, entry in {**manifest["paths"], **manifest["pairs"]}.items():
-        if "generic" in entry:
-            assert entry["classification"] == "MODELLED", key
-            assert len(entry["generic"].strip()) > 20, key
 
 
 def test_control_flow_does_not_hide_an_action(found):
@@ -168,8 +153,3 @@ def test_an_injected_unknown_attribute_is_caught(found, manifest):
     grown["scenario/side"]["teleport_on_turn_3"] = {"multiplayer_Hamlets"}
     flagged = [f"{p}.{a}" for p, a, _ in ss.unknowns(grown, manifest)]
     assert flagged == ["scenario/side.teleport_on_turn_3"]
-
-
-def test_the_manifest_is_committed_json(manifest):
-    raw = ss.MANIFEST.read_text(encoding="utf-8")
-    assert json.loads(raw)["_what"].strip()

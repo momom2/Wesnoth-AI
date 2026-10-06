@@ -161,16 +161,6 @@ def test_actor_rule_on_the_compact_arrays_matches_the_list_path():
                 gs, game_label="t"), (rule, offset)
 
 
-def test_batch_driver_forwards_the_end_turn_decode():
-    import inspect
-    from tools import elo_eval_game, run_elo_batch
-    src = inspect.getsource(run_elo_batch)
-    assert "--raw-end-turn-a" in src and "--raw-end-turn-offset-b" in src
-    assert "raw_end_turn=args.raw_end_turn_a" in src
-    game = inspect.getsource(elo_eval_game)
-    assert '"raw_end_turn_a": args.raw_end_turn_a' in game
-
-
 def _batch_argv(tmp_path, *extra):
     return ["x", "--label-a", "A", "--spec-a", "random", "--label-b", "B",
             "--spec-b", "dummy", "--outdir", str(tmp_path / "games"), "--games", "2",

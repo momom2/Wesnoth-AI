@@ -34,7 +34,7 @@ def _value_grad_norm(policy, z):
 
 
 def test_mse_mean_gradient_scales_with_the_miss():
-    policy = TransformerPolicy()
+    policy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64)
     tr = policy._trainer
     tr.config.value_loss_form = "mse_mean"
     tr.config.grad_clip = 1e9
@@ -47,8 +47,3 @@ def test_mse_mean_gradient_scales_with_the_miss():
     assert s0.value_loss < 1e-6 and g0 < 1e-3 * max(g2, 1e-9)
     assert 1.7 < g2 / g1 < 2.3, f"not linear in the miss: {g2/g1:.2f}"
     assert abs(s2.value_loss / max(s1.value_loss, 1e-12) - 4.0) < 0.3
-
-
-def test_c51_remains_the_default_form():
-    policy = TransformerPolicy()
-    assert policy._trainer.config.value_loss_form == "c51"

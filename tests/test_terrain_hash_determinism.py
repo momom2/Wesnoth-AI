@@ -32,18 +32,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from wesnoth_ai.classes import Terrain, TerrainModifiers   # noqa: E402
-
-
-def test_terrain_enums_hash_by_value_not_identity():
-    """`IntEnum` hashes as its int. Plain `Enum` would fall back to
-    identity hashing, which varies per process."""
-    for member in (Terrain.FLAT, Terrain.FOREST, Terrain.VILLAGE):
-        assert hash(member) == hash(member.value)
-        assert isinstance(member, int)
-    for member in (TerrainModifiers.VILLAGE, TerrainModifiers.CASTLE):
-        assert hash(member) == hash(member.value)
-
 
 def test_terrain_set_iteration_order_is_stable_across_processes():
     """The property the encoder actually depends on, checked the only

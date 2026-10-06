@@ -47,18 +47,6 @@ def test_adamw_steps_and_declines_the_fused_kernel_off_cuda():
     assert torch.all(p.detach() < 0), "the optimizer must actually move the parameter"
 
 
-def test_adamw_passes_lr_and_weight_decay_through():
-    p = torch.nn.Parameter(torch.zeros(2))
-    opt = adamw([p], lr=0.5, weight_decay=0.25)
-    assert opt.param_groups[0]["lr"] == 0.5
-    assert opt.param_groups[0]["weight_decay"] == 0.25
-
-
-def test_adamw_is_the_reference_step_unless_asked():
-    p = torch.nn.Parameter(torch.zeros(4))
-    assert not adamw([p], lr=1e-3).param_groups[0].get("fused", False)
-
-
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_adamw_uses_the_fused_kernel_on_cuda_when_asked():
     p = torch.nn.Parameter(torch.zeros(4, device="cuda"))

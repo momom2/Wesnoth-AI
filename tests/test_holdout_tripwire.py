@@ -329,7 +329,7 @@ def test_eval_value_metrics_by_decade_partitions_and_averages():
     their n-weighted CE must reproduce the pooled CE (equal game
     weights). Decade floors reflect each decade's own z-mix."""
     from wesnoth_ai.trainer import MCTSExperience
-    policy = TransformerPolicy()
+    policy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64)
 
     def _exp(turn, z):
         gs = _gs()

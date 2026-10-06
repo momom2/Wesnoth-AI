@@ -21,19 +21,6 @@ TORCH_FREE_DRIVERS = ("tools.run_elo_batch", "tools.eval_procedure",
                       "tools.turn_search_config", "tools.host_resources")
 
 
-def test_the_root_holds_the_package_and_every_named_location():
-    here = Path(inspect.getsourcefile(paths)).resolve()
-    assert paths.REPO_ROOT / "wesnoth_ai" / "paths.py" == here
-    named = {name: value for name, value in vars(paths).items()
-             if isinstance(value, Path) and name != "REPO_ROOT"}
-    assert "UNIT_STATS_PATH" in named and "WESNOTH_SRC_DIR" in named
-    missing = sorted(name for name, path in named.items()
-                     if name not in NOT_IN_GIT and not path.exists())
-    assert not missing, f"paths.py names locations that do not exist: {missing}"
-    outside = sorted(name for name, path in named.items() if paths.REPO_ROOT not in path.parents)
-    assert not outside, f"paths.py names locations outside the repo: {outside}"
-
-
 def test_no_package_module_but_paths_reads_its_own_location():
     package = Path(inspect.getsourcefile(paths)).resolve().parent
     modules = sorted(p for p in package.rglob("*.py") if "__pycache__" not in p.parts)

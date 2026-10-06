@@ -27,7 +27,8 @@ def _exps(game_id: str, z: float, n: int = 6):
 
 
 def _policy():
-    policy = TransformerPolicy()
+    # A small network: the rule decides on held-out loss, whatever the size.
+    policy = TransformerPolicy(d_model=32, num_layers=1, num_heads=2, d_ff=64)
     tr = policy._trainer
     tr.config.value_loss_form = "mse_mean"
     tr.config.grad_clip = 1.0

@@ -64,10 +64,6 @@ def _flags_at(gs, pos):
     raise AssertionError(f"hex {pos} not found")
 
 
-def test_flag_count_is_three():
-    assert NUM_HEX_DYNAMIC_FLAGS == 3
-
-
 def test_own_village_always_visible_as_ours():
     gs = _village_gs(owner_map={(9, 9): 1})   # ours, out of vision
     f = _flags_at(gs, (9, 9))

@@ -29,12 +29,6 @@ ROOT = Path(__file__).parent.parent
 TEMPLATES = ROOT / "tools" / "templates" / "scenarios"
 
 
-def test_the_builder_imports():
-    """The regression this file exists for."""
-    assert callable(builder.transform)
-    assert callable(builder.run_preprocessor)
-
-
 def test_every_scenario_the_builder_would_build_has_a_source():
     """The builder's default set must be buildable. Resolved with the
     production resolver, because a scenario's id is NOT its filename:

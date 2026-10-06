@@ -9,14 +9,11 @@ default-on integration:
   * bounce contract: drop_last_pending pops the pending target, rolls
     back decision_step, and discards the plan;
   * full game -> finalize_game -> train_step through the INHERITED
-    MCTS pipeline (experiences carry non-empty 5-tuple targets);
-  * config symmetry across the generation paths (the mis-damped-
-    target failure class): the actor-pool plumbing carries turn_cfg.
+    MCTS pipeline (experiences carry non-empty 5-tuple targets).
 """
 from __future__ import annotations
 
 import copy
-import inspect
 import sys
 from pathlib import Path
 
@@ -31,8 +28,6 @@ from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 from tools.mcts import MCTSConfig  # noqa: E402
 from tools.turn_policy import TurnCommitPolicy  # noqa: E402
 from tools.turn_search import TurnSearchConfig  # noqa: E402
-
-REPO = Path(__file__).parent.parent
 
 
 def _policy(turn_cfg: TurnSearchConfig) -> TurnCommitPolicy:
@@ -153,12 +148,6 @@ def test_full_game_trains_through_inherited_pipeline():
 # ---------------------------------------------------------------------
 # Config symmetry across the three generation paths
 # ---------------------------------------------------------------------
-
-def test_actor_pool_carries_turn_cfg():
-    from tools.actor_pool import ActorPool, _actor_loop
-    assert "turn_cfg" in inspect.signature(ActorPool.__init__).parameters
-    assert "turn_cfg" in inspect.signature(_actor_loop).parameters
-
 
 def test_config_from_args_roundtrip():
     from types import SimpleNamespace

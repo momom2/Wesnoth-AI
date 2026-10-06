@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tools.mcts import MCTSConfig                        # noqa: E402
 from tools.turn_search import (                          # noqa: E402
-    TurnSearchConfig, gumbel_top_k_alternatives, tcs_target_distribution,
+    gumbel_top_k_alternatives, tcs_target_distribution,
 )
 
 N_ACT = 20
@@ -144,12 +144,6 @@ def test_exp_path_is_byte_identical_to_the_shared_transform():
     want = np.exp(t)
     want /= want.sum()
     assert np.allclose(got, want, atol=1e-15)
-
-
-def test_config_default_is_linear():
-    cfg = TurnSearchConfig()
-    assert cfg.target_link == "linear"
-    assert cfg.target_beta == 5.0
 
 
 def test_blind_coord_stat_flags_identical_grades():

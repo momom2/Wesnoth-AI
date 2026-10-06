@@ -182,6 +182,7 @@ def _advance_cases(type_names):
     return cases
 
 
+@pytest.mark.slow          # about 11 s on CI: see pytest.ini two-tier note
 def test_advancement_equals_the_python_applier(type_names):
     """`_maybe_advance_unit` on a carrier and the core's advancement from
     the same unit and globals: the same unit, choice queue, events and
