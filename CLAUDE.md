@@ -1463,8 +1463,12 @@ it is ready, then deleted.
   touches them, so branch-side edits would conflict with each other.
 - **Parallel agent sessions** each use their own branch in their own
   worktree, so no session edits another's files.
-- **Pushing** a topic branch is free (user ruling 2026-09-23); pushing
-  `main` asks.
+- **Pushing** a topic branch is free (user ruling 2026-09-23).
+- **Trivial fixes go straight to `main`** (user ruling 2026-10-06):
+  corrections to records, docs and status entries, typos, and small
+  mechanical fixes that change no behaviour are committed to `main` and
+  pushed without asking, with their version bump. Anything else goes
+  through a topic branch; merging it, and pushing `main` for it, asks.
 - **Deleting a branch** that holds commits `main` does not have: tag
   its tip `archive/<name>` and push the tag first, so the work stays
   reachable.
@@ -1593,9 +1597,9 @@ many line-coverage tests.
 - **High autonomy** on reversible local work (edits, tests, reads),
   including creating, switching, committing on and pushing topic
   branches (see Branching).
-- **Ask before**: merging to `main` or committing to it directly,
-  pushing `main`, force-pushing, deleting a branch whose work is not
-  merged,
+- **Ask before**: merging a topic branch into `main` or pushing `main`
+  for anything beyond a trivial fix (Branching), force-pushing, deleting
+  a branch whose work is not merged,
   deleting tracked files, making architectural changes (new IPC,
   replacing the model, etc.).
 - **Give best effort**: production-quality code with edge cases handled,

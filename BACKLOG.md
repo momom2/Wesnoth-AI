@@ -13,10 +13,16 @@ memory at 64 slots. Every number from here is measured against it.
 **Next (user order 2026-10-04): self-play.** **User ruling 2026-10-05:
 self-play keeps the memory;** its size is open to discussion, its
 existence is not. It reaches every place that plays or trains the
-network since 0.14.0 (docs/memory_everywhere_20261005.md). **Next: the
-first self-play run with it,** `az_loop` on `parity3` (box proposal and
-cost first). The one size measurement is `parity2`'s: 16 and 64 slots
-within noise in play. Parked meanwhile:
+network since 0.14.0 (docs/memory_everywhere_20261005.md). **User
+ruling 2026-10-06: no self-play training on the current algorithm.**
+Search-distilled self-play as `az_loop` runs it would need far more
+compute than the project has; before any training launches, a new
+training algorithm must handle the reward's sparsity, multi-step turns
+whose plans are conditional on the dice (aleatoric outcomes inside the
+turn), and the simulator's speed without being bottlenecked on the
+network. **Next: that algorithm's design.** The one size measurement
+of the memory is `parity2`'s: 16 and 64 slots within noise in play.
+Parked meanwhile:
 
 - **Imitation's remaining gains.** The anneal rule's last estimate was
   0.061 of holdout loss a further epoch at the peak rate; a further run
@@ -34,14 +40,14 @@ within noise in play. Parked meanwhile:
 - **Live games against the default AI: done (0.13.0,
   `tools/live_vs_rca.py`).** Its board check found the appliers not
   resting side 1's starting units on the game's first side turn, nor
-  petrified units: fixed in 0.13.1 (records format 4). Open from it:
-  (b) a command-line game plays 100%
-  experience, a lobby 70% (a start from a composed save would play the
-  lobby's); (c) the legacy eval path (`tools/eval_vs_builtin.py`,
+  petrified units: fixed in 0.13.1 (records format 4). Open from it,
+  both ordered by the user 2026-10-06: (b) a command-line game plays
+  100% experience, a lobby 70%: 70% becomes the default of training and
+  eval; (c) the legacy eval path (`tools/eval_vs_builtin.py`,
   `eval_runner.py`, `eval_scenarios.py`, the turn stage's executor and
-  the converted state's gaps listed under "Live-Wesnoth observation")
-  is superseded and passed the policy's 0-based weapon to the 1-based
-  `ai.attack`: deletion is the user's call.
+  the converted state's gaps listed under "Live-Wesnoth observation"),
+  superseded and passing the policy's 0-based weapon to the 1-based
+  `ai.attack`, is deleted.
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
 docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game
@@ -74,11 +80,8 @@ docs/turn_proposer_design_20260905.md. **Found 2026-09-26: every search
 and playout runs on the true state under fog**
 (docs/hidden_information_20260926.md), the turn-gap grading included, so
 RICH carries a second caveat and a turn search needs a determinized root,
-drawn from a belief model, before it meets the 800-game gate. MCTS and
-the turn search refuse a model with a memory: against `parity2` they
-need its memory carried first. Found 2026-10-05: `tools/turn_gap.py`
-builds its player without the memory slots, so with `parity3` it would
-play at 0 slots without saying so.
+drawn from a belief model, before it meets the 800-game gate. MCTS,
+the turn search and the turn-gap tool carry the memory since 0.14.0.
 
 **3. The Rust core replaces the Python one** (user order 2026-09-28;
 docs/rust_core_port_20260928.md). Done (0.9.0): units, events, the
