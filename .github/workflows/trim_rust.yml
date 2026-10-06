@@ -1,0 +1,73 @@
+# Per-test coverage of the Rust core for the suite trim
+# (docs/test_trim_20261006.md). coverage.py cannot see the Rust core, the
+# simulator's state of record, so this run builds it with LLVM source-based
+# coverage and writes its counters per test. Temporary: runs on the trim
+# branch when this measurement changes.
+name: trim-rust
+
+on:
+  push:
+    branches: ["test/trim-suite"]
+    paths:
+      - ".github/trim_rust/**"
+      - ".github/workflows/trim_rust.yml"
+
+concurrency:
+  group: trim-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: .github/workflows/trim_rust.yml
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy scipy psutil pyyaml huggingface_hub requests pytest ruff==0.15.17
+      - name: Coverage build of the Rust core
+        # Only the crate itself is instrumented (flags after `--`), so the
+        # per-test profiles stay small.
+        run: |
+          rustup component add llvm-tools-preview
+          python .github/trim_rust/patch_lib.py
+          cargo rustc --release --lib --manifest-path rust/wesnoth_core/Cargo.toml -- -C instrument-coverage
+          purelib=$(python -c "import sysconfig; print(sysconfig.get_paths()['platlib'])")
+          cp rust/wesnoth_core/target/release/libwesnoth_core.so "$purelib/wesnoth_core.abi3.so"
+          python -c "import wesnoth_core as w; print(w.__file__, w.__phase__, hasattr(w, 'trim_coverage_dump'))"
+      - name: Full suite with per-test Rust profiles
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.github/trim_rust
+          TRIM_RUST_DIR: ${{ github.workspace }}/trim_out/rust
+          LLVM_PROFILE_FILE: ${{ github.workspace }}/trim_out/rust/outside-%p.profraw
+        run: |
+          mkdir -p trim_out/rust
+          python -m pytest -m "" -q -p rust_cov_plugin || echo "suite exit $?"
+      - name: Profiles to a database
+        if: always()
+        run: |
+          du -sh trim_out/rust
+          ls trim_out/rust | wc -l
+          so=$(python -c "import wesnoth_core; print(wesnoth_core.__file__)")
+          python .github/trim_rust/profiles_to_db.py --dir trim_out/rust --object "$so" --out trim_out/rust_coverage.sqlite
+          gzip -c trim_out/rust_coverage.sqlite > trim_out/rust_coverage.sqlite.gz
+          ls -la trim_out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-coverage
+          path: |
+            trim_out/rust_coverage.sqlite.gz
+            trim_out/rust/tests.tsv
