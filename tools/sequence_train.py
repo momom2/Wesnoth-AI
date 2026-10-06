@@ -21,8 +21,8 @@ gradient and in update space (`signal_telemetry.GradientProbe`). Every step
 writes a row in <out>.steps.jsonl: its losses, its learning rate, and per
 parameter group (wesnoth_ai/param_groups.py: the heads one by one, the
 memory's initial state, slot embedding and write) the norm of its gradient
-before the clip and of its update; the log line carries the memory's share
-of both.
+before the clip, read off the clip's own computation; the log line carries
+the memory's share of it.
 
 The holdout probe (`tools/sequence_probe.py`) runs every `--probe-every`
 positions and at the end; the first probe at or past `--barrier-positions`
@@ -86,7 +86,7 @@ from tools.preencode_sequences import (ENCODING, load_manifest, read_record,  # 
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
 from tools.signal_telemetry import (POLICY_SOURCES, GradientProbe,  # noqa: E402
                                     named_model_parameters, signal_group, summarize_gram)
-from wesnoth_ai.param_groups import MEMORY_GROUPS, StepNorms  # noqa: E402
+from wesnoth_ai.param_groups import MEMORY_GROUPS, GradientGroups, named_as  # noqa: E402
 from wesnoth_ai.checkpoint_structure import checkpoint_structure  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.encoder import GameStateEncoder  # noqa: E402
@@ -123,11 +123,11 @@ SIGNAL_TERMS = POLICY_SOURCES + ("value", "belief")
 SIGNAL_GROUPS = ("encoder", "trunk", "heads", "memory")
 
 
-def _squares(kind: str, norms: Dict[str, float]) -> Dict[str, float]:
-    """A step's squared norm and the memory's part of it, summable over
-    the steps a log line covers."""
-    return {f"{kind}_sq": sum(v * v for v in norms.values()),
-            f"{kind}_memory_sq": sum(norms.get(g, 0.0) ** 2 for g in MEMORY_GROUPS)}
+def _squares(norms: Dict[str, float]) -> Dict[str, float]:
+    """A step's squared gradient norm and the memory's part of it,
+    summable over the steps a log line covers."""
+    return {"grad_sq": sum(v * v for v in norms.values()),
+            "grad_memory_sq": sum(norms.get(g, 0.0) ** 2 for g in MEMORY_GROUPS)}
 
 
 def sequence_signal_group(name: str) -> str:
@@ -255,7 +255,7 @@ class Trainer:
                                                  self.arch)
         self.params = [p for p in list(self.encoder.parameters()) + list(self.model.parameters())
                        if p.requires_grad]
-        self.norms = StepNorms(named_model_parameters(self.model, self.encoder))
+        self.clip_groups = GradientGroups(named_as(self.params, self.model, self.encoder))
         self.opt = torch.optim.AdamW(self.params, lr=args.lr, weight_decay=args.weight_decay)
         self.loader = SequenceLoader(args.sequences)
         self.memories: Dict[int, torch.Tensor] = {}
@@ -415,14 +415,10 @@ class Trainer:
         for g in self.opt.param_groups:
             g["lr"] = lr
         loss.backward()
-        grads = self.norms.gradients()
-        norm = torch.nn.utils.clip_grad_norm_(self.params, self.args.grad_clip)
+        norm, grads = self.clip_groups.clip(self.args.grad_clip)
         finite = bool(torch.isfinite(norm)) and bool(torch.isfinite(loss.detach()))
-        updates: Dict[str, float] = {}
         if finite:
-            self.norms.before_update()
             self.opt.step()
-            updates = self.norms.updates()
             self._areas_step(lr)
             self.state["nonfinite_run"] = 0
         else:
@@ -461,20 +457,19 @@ class Trainer:
             self.state["next_signal"] += self.args.signal_every
         held = {g.file for g in self.schedule.upcoming(PREFETCH_SIDES)}
         self.loader.keep_only(held)
-        self._step_row(lr, float(loss.detach()), float(norm), grads, updates, sums)
+        self._step_row(lr, float(loss.detach()), float(norm), grads, finite, sums)
         return {"loss": float(loss.detach()), "grad_norm": float(norm),
                 "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": n_positions,
-                **_squares("grad", grads), **_squares("update", updates), **sums}
+                **_squares(grads), **sums}
 
-    def _step_row(self, lr: float, loss: float, norm: float, grads: Dict[str, float],
-                  updates: Dict[str, float], sums: Dict) -> None:
-        """The step's row in <out>.steps.jsonl (module docstring); a skipped
-        step's row has no update."""
+    def _step_row(self, lr: float, loss: float, norm: float, grads: Dict[str, float], applied: bool,
+                  sums: Dict) -> None:
+        """The step's row in <out>.steps.jsonl (module docstring)."""
         row = {"step": self.state["steps"], "positions": self.state["positions"], "lr": lr, "loss": loss,
                "policy": sums["policy"] / max(1, sums["policy_n"]),
                "value": sums["value"] / max(1, sums["value_n"]),
                "belief": sums["belief"] / max(1, sums["belief_n"]),
-               "grad_norm": norm, "grad": grads, "update": updates}
+               "grad_norm": norm, "grad": grads, "applied": applied}
         with open(self.args.out.with_suffix(".steps.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
 
@@ -651,12 +646,11 @@ class Trainer:
         tot = {k: sum(r[k] for r in rows) for k in rows[0] if k not in ("loss", "grad_norm", "memory_write_grad_norm")}
         el = time.time() - t0
         log.info("positions %d/%d steps %d | loss %.4f grad %.2f memory write grad %.3f | memory share of "
-                 "gradient %.3f of update %.3f | policy %.4f value %.4f belief %.4f | lr %.2e | %.1f positions/s",
+                 "gradient %.3f | policy %.4f value %.4f belief %.4f | lr %.2e | %.1f positions/s",
                  self.state["positions"], self.pass_total, self.state["steps"],
                  sum(r["loss"] for r in rows) / len(rows),
                  max(r["grad_norm"] for r in rows), max(r["memory_write_grad_norm"] for r in rows),
                  tot["grad_memory_sq"] / max(tot["grad_sq"], 1e-30),
-                 tot["update_memory_sq"] / max(tot["update_sq"], 1e-30),
                  tot["policy"] / max(1, tot["policy_n"]), tot["value"] / max(1, tot["value_n"]),
                  tot["belief"] / max(1, tot["belief_n"]), self._lr_now(),
                  (self.state["positions"] - self.start_positions) / max(el, 1e-9))

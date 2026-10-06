@@ -1,12 +1,12 @@
-"""The network's parameter groups, and the per-group norms of what a
-training step applies.
+"""The network's parameter groups, and the per-group norms of a training
+step's gradient.
 
 Every trained parameter belongs to one group: the first whose predicate
 claims its namespaced name ("model." or "encoder."), else the trunk. The
-trainers log, at every step, each group's gradient norm before the clip
-and the norm of the update the optimizer made (`StepNorms`), read off the
-step itself; the signal probes (tools/signal_telemetry.py) and the offline
-profiler (signal_profiler/) group the same way.
+trainers log, at every step, each group's gradient norm before the clip,
+read off the clip's own computation (`GradientGroups`); the signal probes
+(tools/signal_telemetry.py) and the offline profiler (signal_profiler/)
+group the same way.
 """
 from __future__ import annotations
 
@@ -54,43 +54,58 @@ def named_model_parameters(model: torch.nn.Module,
     return [(n, p) for n, p in named if p.requires_grad]
 
 
-class StepNorms:
-    """Per group, the L2 norm of a step's gradient (`gradients`, after the
-    backward passes and before the clip) and of its update (`updates`, the
-    parameters' change across the optimizer step that `before_update`
-    opens). Each reading is one transfer from the device."""
+def named_as(params: Sequence["torch.nn.Parameter"], model, encoder) -> List[Tuple[str, "torch.nn.Parameter"]]:
+    """`params` in their own order, each with its namespaced name: a clip
+    that sums the per-tensor norms in the trainer's order keeps its total
+    to the bit."""
+    names = {id(p): n for n, p in named_model_parameters(model, encoder)}
+    return [(names[id(p)], p) for p in params]
+
+
+class GradientGroups:
+    """Gradient clipping that also reads each group's gradient norm.
+
+    `clip` is `torch.nn.utils.clip_grad_norm_` over the named parameters,
+    split in two: the norm of every gradient tensor (the one pass over the
+    gradients the clip makes anyway), then the scaling by the total
+    (`clip_grads_with_norm_`). Each group's norm is summed from the same
+    per-tensor norms, so the reading costs no pass of its own: a sum over
+    a few hundred numbers and one transfer from the device."""
 
     def __init__(self, named: Sequence[Tuple[str, torch.nn.Parameter]]):
-        groups: Dict[str, List[torch.nn.Parameter]] = {}
-        for name, p in named:
-            groups.setdefault(group_of(name), []).append(p)
-        self.groups = {g: groups[g] for g in GROUP_ORDER if g in groups}
-        self._before: Optional[Dict[int, torch.Tensor]] = None
+        index = [group_of(name) for name, _ in named]
+        present = [g for g in GROUP_ORDER if g in set(index)]
+        groups = {g: i for i, g in enumerate(present)}
+        self.groups: Tuple[str, ...] = tuple(present)
+        self._params = [p for _, p in named]
+        self._group = [groups[g] for g in index]
+        self._index_cache: Dict[Tuple[int, ...], torch.Tensor] = {}
 
-    def gradients(self) -> Dict[str, float]:
-        return self._norms(lambda p: None if p.grad is None else p.grad.detach())
-
-    def before_update(self) -> None:
-        self._before = {id(p): p.detach().clone() for ps in self.groups.values() for p in ps}
-
-    def updates(self) -> Dict[str, float]:
-        before, self._before = self._before, None
-        if before is None:
-            raise RuntimeError("StepNorms.updates without before_update")
-        return self._norms(lambda p: p.detach() - before[id(p)])
-
-    def _norms(self, tensor_of) -> Dict[str, float]:
+    def clip(self, max_norm: float) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """Clip the gradients to `max_norm` (in place); the total norm before
+        the clip, as clip_grad_norm_ returns it, and each group's."""
         import torch
-        sums = []
-        for params in self.groups.values():
-            parts = [t.float().pow(2).sum() for t in map(tensor_of, params) if t is not None]
-            sums.append(torch.stack(parts).sum() if parts else torch.zeros((), device=params[0].device))
-        return dict(zip(self.groups, torch.stack(sums).sqrt().tolist()))
+        held = [i for i, p in enumerate(self._params) if p.grad is not None]
+        if not held:
+            return torch.zeros(()), {}
+        with torch.no_grad():
+            norms = torch.stack(torch._foreach_norm([self._params[i].grad for i in held]))
+            total = torch.linalg.vector_norm(norms)
+            torch.nn.utils.clip_grads_with_norm_([self._params[i] for i in held], max_norm, total)
+            key = tuple(held)
+            index = self._index_cache.get(key)
+            if index is None:
+                index = torch.tensor([self._group[i] for i in held], device=norms.device)
+                self._index_cache[key] = index
+            squares = torch.zeros(len(self.groups), device=norms.device, dtype=torch.float32)
+            squares.index_add_(0, index, norms.float().pow(2))
+        return total, dict(zip(self.groups, squares.sqrt().tolist()))
 
 
 def memory_share(norms: Dict[str, float]) -> Optional[float]:
-    """The memory's share of a step's squared norm (its gradient's or its
-    update's); None for a network without a memory or a zero step."""
+    """The memory's share of a step's squared gradient norm (the same before
+    and after the clip, which scales every group alike); None for a network
+    without a memory or a zero gradient."""
     if not any(g in norms for g in MEMORY_GROUPS):
         return None
     total = sum(v * v for v in norms.values())

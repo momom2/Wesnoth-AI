@@ -409,7 +409,7 @@ def signal_group(name: str) -> str:
     """The telemetry's coarse group of a namespaced parameter: encoder,
     trunk or heads. The memory's parts count as trunk here; the sequence
     trainer's probe gives the memory a group of its own, and the trainers'
-    step logs each part (wesnoth_ai.param_groups.StepNorms)."""
+    step logs each part (wesnoth_ai.param_groups.GradientGroups)."""
     group = group_of(name)
     if group in MEMORY_GROUPS:
         return "trunk"

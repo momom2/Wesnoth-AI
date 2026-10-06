@@ -280,7 +280,7 @@ def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_w
 
 
 @pytest.mark.slow
-def test_every_step_logs_where_its_gradient_and_update_go(tmp_path, pass_inputs):
+def test_every_step_logs_where_its_gradient_goes(tmp_path, pass_inputs):
     """<out>.steps.jsonl: a row per step whose per-group gradient norms make
     up the step's whole gradient norm, with the memory's write among them."""
     trainer = _trainer(pass_inputs, tmp_path)
@@ -289,7 +289,6 @@ def test_every_step_logs_where_its_gradient_and_update_go(tmp_path, pass_inputs)
     assert rows and [r["step"] for r in rows] == list(range(1, len(rows) + 1))
     for r in rows:
         assert sum(v * v for v in r["grad"].values()) == pytest.approx(r["grad_norm"] ** 2, rel=1e-4)
-        assert set(r["update"]) == set(r["grad"])
     assert any(r["grad"]["memory_write"] > 0 for r in rows)
 
 

@@ -13,11 +13,11 @@ Three data streams, every iteration, to az_history.csv:
   performance : decisive rate, actions/side-turn median (K), action
                 mix, and -- every --pin-every iterations -- raw net
                 vs raw seed and net+search vs seed+search matches;
-  signal      : the step's gradient norm before the clip and its applied
-                update's, per parameter group (the heads one by one, the
-                memory's initial state, slot embedding and write; the
-                memory's share of each); policy vs value gradient norm
-                and share (unclipped,
+  signal      : the step's gradient norm before the clip per parameter
+                group (the heads one by one, the memory's initial state,
+                slot embedding and write; the memory's share), read off
+                the clip; policy vs value gradient norm and share
+                (unclipped,
                 on a 128-state subsample), the loss split by term in
                 gradient and update space after the step (a row per
                 iteration in az_signal.jsonl, tools/az_signal.py),
@@ -108,12 +108,9 @@ COLUMNS = [
     "step_leaves_per_s", "window_timed_out",
     # pins
     "pin_step", "raw_vs_seed_wdl", "search_vs_seed_wdl",
-    # the step itself, per parameter group (wesnoth_ai/param_groups.py):
-    # the gradient's norm before the clip and the applied update's (the
-    # optimizer's proposal times step_alpha), and the memory's share of
-    # each squared norm
-    *[f"grad_norm_{g}" for g in GROUP_ORDER], *[f"update_norm_{g}" for g in GROUP_ORDER],
-    "grad_memory_share", "update_memory_share",
+    # the step's gradient norm before the clip per parameter group
+    # (wesnoth_ai/param_groups.py), and the memory's share of its square
+    *[f"grad_norm_{g}" for g in GROUP_ORDER], "grad_memory_share",
 ]
 
 
@@ -748,11 +745,8 @@ def main(argv) -> int:
                 # backtracking's final publish); the serve processes must
                 # hold them before the next iteration's PLAY.
                 row["server_weights_version"] = pool.sync_servers()
-            applied = {g: res.alpha * v for g, v in stats.update_norms.items()}
             row.update({f"grad_norm_{g}": v for g, v in stats.grad_norms.items()})
-            row.update({f"update_norm_{g}": v for g, v in applied.items()})
-            row.update(grad_memory_share=memory_share(stats.grad_norms),
-                       update_memory_share=memory_share(applied))
+            row.update(grad_memory_share=memory_share(stats.grad_norms))
             row.update(policy_loss=stats.policy_loss,
                        value_loss=stats.value_loss,
                        grad_norm=stats.grad_norm,

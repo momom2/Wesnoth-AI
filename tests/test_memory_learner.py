@@ -200,19 +200,38 @@ def test_an_in_process_memory_player_trains_through_its_own_queue():
 
 
 @needs_core
-def test_the_step_logs_where_its_gradient_and_update_go():
-    """Per parameter group, the step's gradient norm before the clip and its
-    update's: together they are the whole gradient and the parameters' real
-    change, and the memory's write and the belief head receive gradient."""
-    from wesnoth_ai.param_groups import memory_share, named_model_parameters
+def test_the_step_logs_where_its_gradient_goes():
+    """Per parameter group, the step's gradient norm before the clip:
+    together the whole gradient, with the memory's write and the belief
+    head receiving some."""
+    from wesnoth_ai.param_groups import memory_share
     policy = _policy()
     _, _, exps = _play(policy)
-    trainer = policy._trainer
-    named = named_model_parameters(trainer.model, trainer.encoder)
-    before = [p.detach().clone() for _, p in named]
-    stats = trainer.step_mcts(exps)
-    moved = sum(float((p.detach() - b).pow(2).sum()) for (_, p), b in zip(named, before))
+    stats = policy._trainer.step_mcts(exps)
     assert sum(v * v for v in stats.grad_norms.values()) == pytest.approx(stats.grad_norm ** 2, rel=1e-4)
-    assert sum(v * v for v in stats.update_norms.values()) == pytest.approx(moved, rel=1e-4)
     assert stats.grad_norms["memory_write"] > 0 and stats.grad_norms["belief_head"] > 0
     assert 0 < memory_share(stats.grad_norms) < 1
+
+
+def test_the_clip_that_reads_the_groups_is_clip_grad_norm_to_the_bit():
+    """The same gradients clipped both ways, below and above the bound:
+    identical gradients and total norms, so reading the groups changes no
+    training."""
+    from wesnoth_ai.param_groups import GradientGroups, named_model_parameters
+    torch.manual_seed(1)
+    nets = [_policy()._trainer for _ in range(2)]
+    for p, q in zip(*(list(t.model.parameters()) + list(t.encoder.parameters()) for t in nets)):
+        q.data.copy_(p.data)
+        if p.requires_grad and torch.rand(()) < 0.9:      # some tensors without a gradient
+            p.grad = torch.randn_like(p)
+            q.grad = p.grad.clone()
+    for bound in (1e6, 0.5):
+        a, b = nets
+        mine, groups = GradientGroups(named_model_parameters(a.model, a.encoder)).clip(bound)
+        theirs = torch.nn.utils.clip_grad_norm_(list(b.model.parameters()) + list(b.encoder.parameters()), bound)
+        assert torch.equal(mine, theirs)
+        for p, q in zip(list(a.model.parameters()) + list(a.encoder.parameters()),
+                        list(b.model.parameters()) + list(b.encoder.parameters())):
+            assert (p.grad is None) == (q.grad is None)
+            assert p.grad is None or torch.equal(p.grad, q.grad)
+        assert sum(v * v for v in groups.values()) == pytest.approx(float(mine) ** 2, rel=1e-5)
