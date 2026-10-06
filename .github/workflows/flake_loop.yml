@@ -28,8 +28,11 @@ jobs:
           python -m pip install numpy scipy psutil pyyaml huggingface_hub requests pytest
       - name: Build the Rust wheel
         run: python -m pip install ./rust/wesnoth_core
-      - name: Loop the test
+      - name: Loop the test with the CPU loaded
         run: |
+          # Three busy processes on the runner's four cores: the full suite's
+          # contention, where the failures were seen.
+          for k in 1 2 3; do (yes > /dev/null &) ; done
           fails=0
           for i in $(seq 1 40); do
             if python -m pytest -m "" -q -s -p no:cacheprovider \
