@@ -607,7 +607,7 @@ def test_noop_resample_does_not_self_loop():
 # End-to-end smoke: --mcts CLI flag actually runs sim_self_play
 # ---------------------------------------------------------------------
 
-@pytest.mark.slow          # ~371s: see pytest.ini two-tier note
+@pytest.mark.slow          # plays a self-play game (about 4 s on CI): see pytest.ini
 def test_mcts_self_play_smoke(tmp_path):
     """Drive `tools/sim_self_play.py --mcts` for one tiny iteration
     and verify exit code 0 + an MCTS-mode log message. Catches:
