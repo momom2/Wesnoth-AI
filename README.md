@@ -106,12 +106,12 @@ reference checkpoint so far is such an imitation product
 (`configs/reference_player.json` names the current one), and self-play
 starts from one (`az_loop --seed-checkpoint`).
 
-**The live-Wesnoth bridge is eval-only.**
-[`tools/eval_vs_builtin.py`](tools/eval_vs_builtin.py) (plus
-`wesnoth_ai.wesnoth_interface` and the Lua add-on under
-[`add-ons/wesnoth_ai/`](add-ons/wesnoth_ai/)) pits the trained model
-against Wesnoth's built-in RCA AI. Training no longer touches real
-Wesnoth.
+**Real Wesnoth is for evaluation and rule checks only.**
+[`tools/live_vs_rca.py`](tools/live_vs_rca.py) plays a checkpoint live
+against Wesnoth's default AI, the simulator mirroring the game from the
+engine's log (plus `wesnoth_ai.wesnoth_interface` and the Lua add-on
+under [`add-ons/wesnoth_ai/`](add-ons/wesnoth_ai/)). Training never
+touches real Wesnoth.
 
 ## Layout
 
@@ -168,9 +168,9 @@ add-ons/wesnoth_ai/   Lua side of the eval bridge.
 
 - **Coordinates:** Wesnoth is 1-indexed (WML, replays, Lua); Python is
   0-indexed internally. The ±1 conversion happens only where Wesnoth
-  data enters or leaves Python: the live bridge
-  (`wesnoth_ai/state_converter.py`) and the WML readers and writers
-  under `tools/` (listed in CLAUDE.md, "Coordinates"). Game logic, the
+  data enters or leaves Python: the WML and replay readers and writers
+  and the live tools under `tools/` (listed in CLAUDE.md,
+  "Coordinates"). Game logic, the
   encoder and the model work in 0-indexed coordinates only.
 - **Version pin:** `unit_stats.json` / `terrain_db.json` are committed
   1.18.4 scrapes. Unit stats might drift between releases and break combat

@@ -202,23 +202,25 @@ def check_setup() -> bool:
 
     print("✓ Project dirs ready")
 
-    # turn_stage.lua is the active AI stage (custom Lua engine that
-    # replaces the default Wesnoth RCA, bypassing its blacklist-on-
-    # failure rule); it loads state_collector / action_executor /
-    # json_encoder via wesnoth.require. ai_config.cfg holds the [ai]
-    # block both sides include from training_scenario.cfg.
-    # The MP variant + headless_*.lua are dormant artifacts of a prior
-    # headless experiment — present in-tree but not on the load path
-    # and not required here.
+    # The stages the add-on's three users load: the hidden-units
+    # oracle's turn stage (ai_config.cfg, with state_collector and
+    # action_executor), the live games' stage (live_ai.cfg, with
+    # board_report) and the scenario-init oracle's (init_oracle_ai.cfg);
+    # json_encoder serves all three.
     required_lua = [
         LUA_PATH / "state_collector.lua",
         LUA_PATH / "action_executor.lua",
         LUA_PATH / "turn_stage.lua",
         LUA_PATH / "json_encoder.lua",
+        LUA_PATH / "board_report.lua",
+        LUA_PATH / "live_stage.lua",
+        LUA_PATH / "init_oracle.lua",
     ]
     required_other = [
-        SCENARIOS_PATH / "training_scenario.cfg",
+        SCENARIOS_PATH / "oracle_scenario.cfg",
         ADDONS_PATH / "ai_config.cfg",
+        ADDONS_PATH / "live_ai.cfg",
+        ADDONS_PATH / "init_oracle_ai.cfg",
         ADDONS_PATH / "_main.cfg",
     ]
     for f in required_lua + required_other:
@@ -241,11 +243,13 @@ def check_setup() -> bool:
 
 
 def main() -> int:
-    """Setup + maintenance CLI for the live-Wesnoth eval pipeline.
+    """Setup + maintenance CLI for the tools that run real Wesnoth.
 
       - `--check-setup`: verify Wesnoth + add-on install link.
-        `tools/eval_vs_builtin.py` drives real Wesnoth subprocesses
-        for evaluation against the built-in RCA AI.
+        `tools/live_vs_rca.py` plays a checkpoint live against
+        Wesnoth's default AI; `tools/hidden_units_oracle.py` and
+        `tools/scenario_init_oracle.py` check the simulator's rules
+        against the engine.
       - `--clean-games`: sweep stale per-game state-channel dirs
         the live-Wesnoth Lua side can't clean (sandbox excludes
         `os.remove`).

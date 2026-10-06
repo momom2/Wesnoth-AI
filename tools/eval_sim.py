@@ -1,7 +1,7 @@
 """Sim-based evaluation: latest checkpoint vs reference checkpoint.
 
 Both policies play through the simulator (~1000× faster than spawning
-a Wesnoth subprocess per game, which `eval_vs_builtin.py` does).
+a Wesnoth subprocess per game).
 Trade-off:
 
   + Fast: a 30-game eval finishes in ~30-60s on DML/CUDA vs ~7-15min
@@ -17,11 +17,11 @@ Trade-off:
   - Doesn't test our policy against ANY external opponent (RCA AI
     in Wesnoth, real humans, etc.). The sim-eval can be gamed by a
     policy that beats its prior self by exploiting sim quirks.
-    Periodic Wesnoth-eval (`--backend wesnoth` in eval_daily) is
-    the cross-check.
+    The live games against Wesnoth's default AI
+    (`tools/live_vs_rca.py`) are the cross-check.
 
 The reference policy is whichever checkpoint we want to call
-"yesterday's version." Default selection logic (in `eval_daily`):
+"yesterday's version." `--reference auto` picks:
 
   1. The freshest `sim_selfplay_archive_*.pt` (typically 6h old,
      thanks to the archive interval). Direct "did the last 6h of
@@ -29,8 +29,7 @@ The reference policy is whichever checkpoint we want to call
   2. Fallback: `supervised_epoch*.pt` (the warmstart anchor).
   3. Fallback: random init (the model's lowest-bar baseline).
 
-Output JSON schema matches `eval_vs_builtin.py` so `eval_daily.py`'s
-history-writing code consumes both backends uniformly:
+Output JSON schema:
 
     {
       "n_games":     N,
@@ -92,8 +91,8 @@ def _summarize(
     results: List[GameResult], checkpoint: Path,
     reference: Optional[Path], wall_seconds: float,
 ) -> Dict:
-    """Roll up per-game records into the same JSON schema
-    eval_vs_builtin emits."""
+    """Roll up per-game records into the module docstring's JSON
+    schema."""
     overall = _bucket()
     by_faction: Dict[str, Dict[str, int]] = defaultdict(_bucket)
     by_matchup: Dict[str, Dict[str, int]] = defaultdict(_bucket)

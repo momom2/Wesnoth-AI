@@ -78,7 +78,7 @@ def _offenders(text: str) -> List[str]:
 # cannot read; each was checked by hand on 2026-09-14. A new one lands
 # here only after the same check, or by becoming a literal.
 _UNREADABLE_HELP = {
-    "tools/cleanup.py", "tools/eval_vs_builtin.py", "tools/net2net.py",
+    "tools/cleanup.py", "tools/net2net.py",
     "tools/run_elo_batch.py",
 }
 

@@ -36,8 +36,7 @@ log = logging.getLogger("eval_players")
 
 @dataclass
 class GameResult:
-    """One game's outcome, in the same shape eval_vs_builtin emits so
-    eval_daily's parser doesn't have to branch on backend."""
+    """One game's outcome as eval_sim reports it."""
     scenario_id:   str
     our_faction:   str
     opp_faction:   str
@@ -46,9 +45,7 @@ class GameResult:
     turns:         int
     our_actions:   int
     wall_seconds:  float
-    # Sim-specific extras useful for diagnosing the no-kills phase.
-    # eval_vs_builtin doesn't have these, eval_daily ignores unknown
-    # keys when summarizing -- so no schema break.
+    # Extras useful for diagnosing the no-kills phase.
     closest_approach_ours: Optional[int] = None
     closest_approach_opp:  Optional[int] = None
     attack_count_ours:     int = 0

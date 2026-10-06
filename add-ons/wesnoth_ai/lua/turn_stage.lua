@@ -15,8 +15,9 @@
 --   - Wait for `action.lua` with a fresh `seq` to appear in the game's
 --     IPC dir. Python atomically writes it; we read via
 --     wesnoth.read_file and track last-seen seq in wml.variables.
---   - Dispatch the action through action_executor (ai.move / ai.attack
---     / ai.recruit). Failures are logged but don't exit the loop.
+--   - Dispatch the action through action_executor (ai.move; the
+--     hidden-units oracle scripts moves only). Failures are logged but
+--     don't exit the loop.
 --   - Loop until Python sends { type = "end_turn" } or we time out.
 
 local state_collector = wesnoth.require("~add-ons/wesnoth_ai/lua/state_collector.lua")

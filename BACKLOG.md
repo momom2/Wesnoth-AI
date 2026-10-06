@@ -41,13 +41,9 @@ Parked meanwhile:
   `tools/live_vs_rca.py`).** Its board check found the appliers not
   resting side 1's starting units on the game's first side turn, nor
   petrified units: fixed in 0.13.1 (records format 4). Open from it,
-  both ordered by the user 2026-10-06: (b) a command-line game plays
-  100% experience, a lobby 70%: 70% becomes the default of training and
-  eval; (c) the legacy eval path (`tools/eval_vs_builtin.py`,
-  `eval_runner.py`, `eval_scenarios.py`, the turn stage's executor and
-  the converted state's gaps listed under "Live-Wesnoth observation"),
-  superseded and passing the policy's 0-based weapon to the 1-based
-  `ai.attack`, is deleted.
+  ordered by the user 2026-10-06: a command-line game plays 100%
+  experience, a lobby 70%; 70% becomes the default of training and
+  eval. The legacy eval path it superseded is deleted (0.15.5).
 
 **Done: the turn-ranking value function FAILS** (2026-09-26,
 docs/turn_value_prereg_20260925.md "Measured"): on 199 human-game
@@ -385,10 +381,6 @@ and hygiene) and not fixed in 0.6.1-0.6.7.
   hitpoints` forms; `[modify_side] income=` as an offset; a recruit on a
   castle-village capturing it; an out-of-range weapon index replaced by 0
   without a warning; the order of turn events.
-- **Live-Wesnoth observation** (the legacy eval path only; the live
-  games observe through the simulator's mirror since 0.13.0): the
-  converted state has no `_fog_cleared`, our own fogged villages lose
-  their owner bit, and the time-of-day start offset is not set.
 - **Training:** `az_loop` trains on at most 4,000 experiences per step
   without saying so; `--stream` publishes trial weights of the line
   search and actors accumulate boundary pairs; `value_pretrain
