@@ -30,7 +30,7 @@ from __future__ import annotations
 import contextlib
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -53,6 +53,7 @@ from wesnoth_ai.device import dml_sync
 from wesnoth_ai.encoder import RawEncoded
 from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.memory_step import reads_memory
+from wesnoth_ai.param_groups import GradientGroups, named_model_parameters
 from wesnoth_ai.model import UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout
 from wesnoth_ai.server_priors import (
@@ -399,6 +400,9 @@ class TrainStats:
     aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
     gbc_loss:       float = 0.0   # GBC event-supervision BCE; 0 when off
     belief_loss:    float = 0.0   # the belief head's BCE; 0 without one
+    # Per parameter group (wesnoth_ai/param_groups.py), the L2 norm of the
+    # step's gradient before the clip; empty for a step that applied nothing.
+    grad_norms:     Dict[str, float] = field(default_factory=dict)
     moves_left_loss: float = 0.0  # Lc0-style moves-left MSE; 0 when off
     # Boundary-consistency telemetry (T1-F, 2026-07-29): mean of
     # V(s_pre)+V(s_post) over sampled side-switch pairs of recorded
@@ -508,6 +512,9 @@ class Trainer:
         # used to serve here, so a run's training depended on whatever
         # the process had drawn before (2026-09-18).
         self.rng = random.Random()
+        # The step's clip, which also reads each parameter group's gradient
+        # norm (wesnoth_ai/param_groups.py); built at the first step.
+        self._gradient_groups: Optional[GradientGroups] = None
         self.device  = device
         # Default sink for step_mcts's per-stage seconds (keys
         # STEP_MCTS_STAGES): callers that reach step_mcts through
@@ -1624,14 +1631,14 @@ def _summed_stats(self, losses: Sequence["_ChunkFloats"], batch: "_MCTSBatch", N
         sum_value_loss += loss.value
         sum_actor_nlp_weighted += loss.actor_nlp
 
+    grads: Dict[str, float] = {}
     if no_grad:
         grad_norm = torch.tensor(0.0)
     else:
+        if self._gradient_groups is None:
+            self._gradient_groups = GradientGroups(named_model_parameters(self.model, self.encoder))
         with timer.stage("clip"):
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                list(self.model.parameters()) + list(self.encoder.parameters()),
-                self.config.grad_clip,
-            )
+            grad_norm, grads = self._gradient_groups.clip(self.config.grad_clip)
         with timer.stage("optimizer"):
             self.optimizer.step()
     timer.flush()
@@ -1671,6 +1678,7 @@ def _summed_stats(self, losses: Sequence["_ChunkFloats"], batch: "_MCTSBatch", N
         trust_loss     = float(sums["trust"]),
         gbc_loss       = float(sums["gbc"]),
         belief_loss    = float(sums["belief"]),
+        grad_norms     = grads,
         moves_left_loss = float(sums["ml"]),
         value_signal_states = batch.n_value_signal,
     )

@@ -1067,6 +1067,22 @@ State of play:
   reservoir, the replay buffer, value grounding, the plan tournament and
   the offline deep profiler refuse a memory model by name; the graphed
   serve path serves it eager.
+- 2026-10-06 (0.15.0, user order): **every training step logs where its
+  gradient goes, per parameter group, at no cost of its own.** The clip
+  is `clip_grad_norm_` in its two halves (each gradient tensor's norm,
+  then `clip_grads_with_norm_`), and each group's norm is summed from
+  those per-tensor norms in the trainer's own order, so the clipped
+  gradients are the old clip's to the bit (tested)
+  (`wesnoth_ai/param_groups.py`, `GradientGroups`). The groups are the
+  encoder, the trunk, each head and the memory's initial state, slot
+  embedding and write; the old groups counted the belief head and the
+  memory as trunk. `az_loop` writes `grad_norm_<group>` and
+  `grad_memory_share` to its history; the sequence trainer a row per
+  step in `<out>.steps.jsonl` and the memory's share on its log line.
+  Per-step update norms are not logged: an exact one needs another pass
+  over the weights or the optimizer's state (user ruling: the optimizer
+  step's cost stays as it was); the periodic signal rows keep the split
+  in update space.
 
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling

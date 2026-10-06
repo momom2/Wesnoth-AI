@@ -1622,6 +1622,7 @@ class MCTSPolicy:
             entropy=sum(s.entropy for s in stats) / k,
             total_loss=sum(s.total_loss for s in stats) / k,
             grad_norm=stats[-1].grad_norm,
+            grad_norms=stats[-1].grad_norms,
             mean_return=sum(s.mean_return for s in stats) / k,
             n_transitions=sum(s.n_transitions for s in stats),
             n_trajectories=buffer_size,
