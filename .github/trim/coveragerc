@@ -1,0 +1,19 @@
+# coverage.py configuration of the suite-trim measurement (CI only).
+# Every Python process of the run reads this file at start, through a
+# .pth hook and COVERAGE_PROCESS_START, so the environment is expanded
+# per process: a child started during a test takes that test's node id
+# as its static context (trim_plugin.py exports it as COV_TRIM_CONTEXT).
+[run]
+source = ${GITHUB_WORKSPACE}
+omit =
+    ${GITHUB_WORKSPACE}/tests/*
+    ${GITHUB_WORKSPACE}/conftest.py
+    ${GITHUB_WORKSPACE}/.github/*
+    ${GITHUB_WORKSPACE}/wesnoth_src/*
+    ${GITHUB_WORKSPACE}/kaggle/*
+data_file = ${GITHUB_WORKSPACE}/trim_out/coverage/data
+parallel = True
+context = ${COV_TRIM_CONTEXT}
+concurrency = thread
+patch = _exit
+sigterm = True
