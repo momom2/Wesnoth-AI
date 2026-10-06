@@ -603,7 +603,7 @@ Other edits in the minimal scope:
 
 An AST codemod keeps the import rewrites mechanical.
 
-**Order of steps.** Each step is one branch and must end with ruff clean, the fast tier green locally and CI's full run green.
+**Order of steps.** Each step is one branch and must end with ruff clean and CI's full run green.
 0. **Make moves safe (no moves yet).**
    - Add `paths.py` and switch the 24 lookups to it.
    - Make the 15 source-scanning tests resolve files through the module or a recursive package walk.

@@ -93,4 +93,4 @@ jobs:
 
       - name: Full suite, fast and slow tiers
         # pytest.ini adds -rfEs: failures, errors and skips are listed by name.
-        run: python -m pytest -m "" -q
+        run: python -m pytest -m "" -q --durations=30

@@ -1410,9 +1410,9 @@ it is ready, then deleted.
 - **Names:** `feature/<name>`, `fix/<name>`, `test/<name>`,
   `exp/<name>`; short, descriptive, hyphenated
   (`fix/heals-value-default`). One task, one branch.
-- **Ready to merge** = `ruff check .` clean, the fast tier green
-  locally, and the branch's latest CI run green (`gh run list --branch
-  <branch>`; see Testing).
+- **Ready to merge** = `ruff check .` clean and the branch's latest CI
+  run green, both tiers (`gh run list --branch <branch>`; see Testing).
+  CI is the gate; the laptop's full fast tier is not required.
 - **Merge with a merge commit** (`git merge --no-ff`), never squash:
   the commit messages are this project's lab notebook.
 - **`exp/` branches differ.** An experiment's code merges only if it
@@ -1489,19 +1489,22 @@ many line-coverage tests.
   hand, with the user's agreement.
 
 ### Guidelines
-- Run `pytest` after changes. This runs the FAST tier (6-14 minutes
-  on the laptop in the runs of 2026-09-24/25): tests marked `slow`
-  (full-game / subprocess / threading e2e, >10s each — see pytest.ini)
-  are excluded by default.
-- **CI runs the FULL suite — `pytest -m ""` — on every push**
-  (`.github/workflows/tests.yml`, GitHub Actions; the test step took
-  5-7 minutes in the runs of 2026-09-25). The slow tier holds the e2e
-  regression guards (MCTS self-play smoke, concurrent train-step races,
-  export validation); the fast tier alone does NOT cover them, and the
-  laptop does not run them (they generate self-play games). A branch
-  merges on a green run, and a training campaign launches from a commit
-  that has one. CI has no GPU and no corpora: the CUDA tests and the
-  tests that read replay, imitation or value data skip there.
+- **Before a push:** `ruff check .` and the test files that exercise
+  the change (`pytest tests/test_x.py ...`). The whole fast tier on the
+  laptop (a bare `pytest`: tests marked `slow`, full-game / subprocess /
+  threading e2e, are excluded by default, see pytest.ini) is optional.
+- **CI runs the FULL suite — `pytest -m ""` — on every push, and is the
+  merge gate** (`.github/workflows/tests.yml`, GitHub Actions). The slow
+  tier holds the e2e regression guards (MCTS self-play smoke,
+  concurrent train-step races, export validation); the fast tier alone
+  does NOT cover them, and the laptop does not run them (they generate
+  self-play games). A branch merges on a green run of its tip, and a
+  training campaign launches from a commit that has one. CI has no GPU
+  and no corpora: the CUDA tests and the tests that read replay,
+  imitation or value data skip there.
+- **"Slow" is measured.** Every CI run lists its 30 slowest tests
+  (`--durations=30`); a fast-tier test over 10 s moves to the slow tier
+  or is slimmed.
 - **Never run more than one pytest invocation at a time.** Each
   pytest spawns a Python process that imports torch + the model;
   parallel runs balloon memory (5+ GB per process) and a stuck
