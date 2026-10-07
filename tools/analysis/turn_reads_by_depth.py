@@ -17,6 +17,16 @@ branch exp/turn-value (`corrected_correlation`), and the value column
 reproduces the verdict's raw-outcome figures (read 1 0.311, read 3 0.449,
 read 7 0.588).
 
+The second table is what a planner would use: at each position, the
+candidate the read ranks first, and the gain of its truth over the base
+turn's (the player's own), averaged over positions, with a bootstrap over
+positions; beside it, the same read's gain minus the static read's (read 0),
+paired. With `--verdict`, both tables are also given against outcomes with
+each playout's own luck removed (the verdict's luck coefficients for the
+playout's HP and kill luck). The candidate turn's own dice stay in the
+truth on both bases: every playout starts from the turn's realized
+outcomes.
+
     python tools/analysis/turn_reads_by_depth.py --records validation.json [--verdict verdict.json]
 """
 from __future__ import annotations
@@ -32,6 +42,7 @@ import numpy as np
 GRADE_PLAYOUTS = 8          # the rollout grader's playouts, as in the verdict
 HORIZON_READS = 8
 BOOTSTRAP_RESAMPLES = 1000
+GAIN_RESAMPLES = 4000
 
 
 def _position_sums(grade, truth, positions, clusters):
@@ -85,23 +96,27 @@ def corrected_correlation(grade, truth, positions, clusters, seed: int = 0) -> d
             "corrected_se": _percentile_se(boots[:, 2]), "reliability": reliability}
 
 
-def load(records: Path):
-    """Per candidate: its position, its source game, its outcomes [P] and
+def load(records: Path) -> dict:
+    """Per candidate: its position, its source game, its slot (0 for the
+    base turn), its outcomes [P], its playouts' HP and kill luck [P, 2] and
     its reads [P, 8, (value, margin)]."""
     data = json.loads(records.read_text(encoding="utf-8"))
     rows = []
     for pos in data["positions"]:
-        for cand in [pos["base"]] + list(pos.get("alternatives", [])):
+        for slot, cand in enumerate([pos["base"]] + list(pos.get("alternatives", []))):
             if cand.get("terminal_in_turn") or not cand.get("reads"):
                 continue
-            rows.append((pos["index"], pos["meta"]["file"], cand["outcomes"],
-                         [r["horizon"] for r in cand["reads"]]))
-    playouts = max(len(r[2]) for r in rows)
+            rows.append((pos["index"], pos["meta"]["file"], slot, cand["outcomes"], cand["reads"]))
+    playouts = max(len(r[3]) for r in rows)
     outcomes = np.full((len(rows), playouts), np.nan)
+    luck = np.full((len(rows), playouts, 2), np.nan)
     reads = np.full((len(rows), playouts, HORIZON_READS, 2), np.nan)
-    for i, (_, _, outs, horizons) in enumerate(rows):
+    for i, (_, _, _, outs, playout_reads) in enumerate(rows):
         outcomes[i, :len(outs)] = outs
-        for p, horizon in enumerate(horizons):
+        for p, read in enumerate(playout_reads):
+            if read.get("luck"):
+                luck[i, p] = (read["luck"]["hp"], read["luck"]["kills"])
+            horizon = read["horizon"]
             for k in range(HORIZON_READS):
                 if k >= len(horizon):
                     reads[i, p, k, 0] = outs[p]
@@ -109,7 +124,58 @@ def load(records: Path):
                 value, margin = horizon[k]
                 reads[i, p, k, 0] = np.nan if value is None else value
                 reads[i, p, k, 1] = np.nan if margin is None else margin
-    return (np.array([r[0] for r in rows]), np.array([r[1] for r in rows]), outcomes, reads)
+    return {"positions": np.array([r[0] for r in rows]), "clusters": np.array([r[1] for r in rows]),
+            "slots": np.array([r[2] for r in rows]), "outcomes": outcomes, "luck": luck, "reads": reads}
+
+
+def without_playout_luck(outcomes: np.ndarray, luck: np.ndarray, beta) -> np.ndarray:
+    """The outcomes minus each playout's HP and kill luck, centred, by the
+    verdict's coefficients for them (its luck beta[0] and beta[1])."""
+    centred = luck - np.nanmean(luck, axis=(0, 1))
+    return outcomes - beta[0] * np.nan_to_num(centred[..., 0]) - beta[1] * np.nan_to_num(centred[..., 1])
+
+
+def selection_gains(grade: np.ndarray, truth: np.ndarray, positions: np.ndarray,
+                    slots: np.ndarray) -> dict:
+    """Per position: the truth of the candidate `grade` ranks first minus
+    the base turn's (slot 0)."""
+    gains = {}
+    for position in np.unique(positions):
+        rows = np.nonzero(positions == position)[0]
+        base = rows[slots[rows] == 0]
+        if len(rows) < 2 or len(base) == 0 or not np.isfinite(grade[rows]).any():
+            continue
+        best = rows[np.nanargmax(grade[rows])]
+        gains[int(position)] = truth[best] - truth[base[0]]
+    return gains
+
+
+def mean_and_se(values: np.ndarray, seed: int = 3):
+    rng = np.random.default_rng(seed)
+    boots = [values[rng.integers(0, len(values), len(values))].mean() for _ in range(GAIN_RESAMPLES)]
+    return float(values.mean()), float(np.std(boots))
+
+
+def mean_read(reads: np.ndarray, k: int, column: int) -> np.ndarray:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)          # a candidate with no read: NaN
+        return np.nanmean(reads[:, :GRADE_PLAYOUTS, k, column], axis=1)
+
+
+def gain_table(d: dict, truth: np.ndarray, label: str) -> None:
+    truth_mean = np.nanmean(truth, axis=1)
+    static = selection_gains(mean_read(d["reads"], 0, 1), truth_mean, d["positions"], d["slots"])
+    print(f"\nselection gain over the base turn, truth: {label}")
+    print("read  HP margin          minus static read   value head")
+    for k in range(HORIZON_READS):
+        margin = selection_gains(mean_read(d["reads"], k, 1), truth_mean, d["positions"], d["slots"])
+        value = selection_gains(mean_read(d["reads"], k, 0), truth_mean, d["positions"], d["slots"])
+        common = sorted(set(margin) & set(static))
+        m, m_se = mean_and_se(np.array([margin[p] for p in common]))
+        dm, dm_se = mean_and_se(np.array([margin[p] - static[p] for p in common]))
+        v, v_se = mean_and_se(np.array(list(value.values())))
+        print(f"{k:>4}  {m:+.3f} +- {m_se:.3f}   {dm:+.3f} +- {dm_se:.3f}     {v:+.3f} +- {v_se:.3f}"
+              f"   positions {len(common)}")
 
 
 def main(argv=None) -> int:
@@ -117,13 +183,16 @@ def main(argv=None) -> int:
     ap.add_argument("--records", type=Path, required=True, help="the turn-value validation.json")
     ap.add_argument("--verdict", type=Path, default=None, help="its verdict.json, to print the recorded figures beside")
     args = ap.parse_args(argv)
-    positions, clusters, outcomes, reads = load(args.records)
+    d = load(args.records)
+    positions, clusters, outcomes, reads = d["positions"], d["clusters"], d["outcomes"], d["reads"]
     truth = outcomes[:, GRADE_PLAYOUTS:]
-    recorded = {}
+    recorded, beta = {}, None
     if args.verdict:
-        v = json.loads(args.verdict.read_text(encoding="utf-8"))["validation"]
+        verdict = json.loads(args.verdict.read_text(encoding="utf-8"))
+        v = verdict["validation"]
         recorded = {1: v["rollout_r8_h1"]["raw"]["corrected"], 3: v["rollout"]["raw"]["corrected"],
                     7: v["rollout_r8_h7"]["raw"]["corrected"]}
+        beta = verdict["luck"]["beta"]
     print(f"{len(positions)} candidates at {len(set(positions.tolist()))} positions, "
           f"{outcomes.shape[1]} playouts each; grade over the first {GRADE_PLAYOUTS}, truth the rest (raw outcomes)")
     print("read  finished  value head          (recorded)  HP margin")
@@ -139,6 +208,10 @@ def main(argv=None) -> int:
         rec = f"{recorded[k]:.3f}" if k in recorded else "-"
         print(f"{k:>4}  {finished:8.3f}  {v['corrected']:.3f} +- {v['corrected_se']:.3f}   {rec:>9}   "
               f"{m['corrected']:.3f} +- {m['corrected_se']:.3f}")
+    gain_table(d, truth, "raw outcomes")
+    if beta is not None:
+        gain_table(d, without_playout_luck(outcomes, d["luck"], beta)[:, GRADE_PLAYOUTS:],
+                   "outcomes without the playouts' own luck")
     return 0
 
 
