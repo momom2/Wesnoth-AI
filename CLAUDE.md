@@ -1120,6 +1120,26 @@ State of play:
   the game reports another era and a 100% modifier, and every replay
   carries 308 type overrides. Live games play the command line's 100%
   until they start from a game created with the parameter (BACKLOG.md).
+- 2026-10-07 (0.17.0, user order): **Wesnoth runs from a local build
+  whose command-line games get a hosted game's settings.** The stock
+  1.18.8 `--multiplayer` start never writes the game settings into the
+  scenario, so it plays 100% experience;
+  `tools/wesnoth_build/commandline_game_settings_1.18.8.patch` makes it
+  call `configure_engine::write_parameters` with the lobby's map-settings
+  defaults, as the create dialog does. `.github/workflows/patched-wesnoth.yml`
+  cross-compiles the 1.18.8 tag with it through Wesnoth's own MinGW build
+  (20 minutes on GitHub Actions) into a portable folder, installed at
+  `Desktop\Perso\games\wesnoth-1.18.8-patched`, which
+  `wesnoth_ai/constants.py` uses when present. Defender's attack-surface
+  rule blocks any new unsigned executable; that folder carries an
+  exclusion the user added. The scenario-init oracle on Caves of the
+  Basilisk with it: experience modifier played 70 (100 with the Steam
+  build on 2026-09-23), every compared field agrees, the 17 units'
+  experience needs included
+  (`training/metrics/fidelity/scenario_init_oracle_patched_20261007.json`).
+  `tools/live_vs_rca.py` stops a game whose engine plays another modifier
+  than a hosted game. An upstream pull request for master is drafted, not
+  posted.
 
 Standing rules (full list in the plan): the reference player is
 `parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
@@ -1290,7 +1310,8 @@ stays at the root. So a bare name like `classes.py` below means
 - `tools/live_vs_rca.py` + `tools/live_mirror.py` — the reference
   against Wesnoth's default AI in a live game, the simulator mirroring it
   from the engine's log and checking the board at every decision; Lua
-  side `lua/live_stage.lua` and `lua/board_report.lua`.
+  side `lua/live_stage.lua` and `lua/board_report.lua`. It runs on the
+  project's patched Wesnoth (`tools/wesnoth_build/README.md`).
 - `tools/hidden_units_oracle.py` (Lua: `lua/turn_stage.lua`, a custom
   AI stage that avoids the default AI's blacklist-on-failure rule, with
   `lua/state_collector.lua` and `lua/action_executor.lua`, which runs

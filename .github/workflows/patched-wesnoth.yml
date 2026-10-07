@@ -1,0 +1,71 @@
+name: patched-wesnoth
+
+# Wesnoth with the project's local patches (tools/wesnoth_build/*.patch),
+# cross-compiled for Windows by Wesnoth's own MinGW build
+# (utils/dockerbuilds/make_mingw_build, the build behind the official Windows
+# installer) and packaged as a portable folder: the executables, their DLLs and
+# the game data. tools/wesnoth_build/README.md says how to install it.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/patched-wesnoth.yml"
+      - "tools/wesnoth_build/**"
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      WESNOTH_TAG: "1.18.8"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: project
+
+      - name: Fetch Wesnoth ${{ env.WESNOTH_TAG }}
+        run: >
+          git clone --depth 1 --branch "$WESNOTH_TAG" --recurse-submodules
+          --shallow-submodules https://github.com/wesnoth/wesnoth.git wesnoth
+
+      - name: Apply the local patches
+        run: |
+          cd wesnoth
+          for p in ../project/tools/wesnoth_build/*.patch; do
+            git apply --verbose "$p"
+          done
+
+      - name: Cross-compile with Wesnoth's MinGW build
+        run: cd wesnoth/utils/dockerbuilds && ./make_mingw_build
+
+      - name: Package a portable folder
+        run: |
+          set -eu
+          build=wesnoth/utils/dockerbuilds/mingwbuild
+          pkg="wesnoth-$WESNOTH_TAG-patched"
+          mkdir "$pkg"
+          # The build directory's other entries are links into the build
+          # container, and the installer duplicates the data below.
+          find "$build" -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dll' \) \
+            ! -name 'wesnoth-*-win64.exe' -exec cp {} "$pkg/" \;
+          cp -r wesnoth/data wesnoth/fonts wesnoth/images wesnoth/sounds "$pkg/"
+          cp wesnoth/COPYING wesnoth/copyright wesnoth/README.md wesnoth/changelog.md "$pkg/"
+          cp project/tools/wesnoth_build/*.patch "$pkg/"
+          {
+            echo "Wesnoth $WESNOTH_TAG, upstream commit $(git -C wesnoth rev-parse HEAD)"
+            echo "Built by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "from $GITHUB_REPOSITORY commit $GITHUB_SHA on $(date -u +%Y-%m-%dT%H:%MZ)"
+            echo "Patches applied:"
+            sha256sum project/tools/wesnoth_build/*.patch
+            echo "Executables:"
+            (cd "$pkg" && sha256sum ./*.exe)
+          } > "$pkg/BUILD_INFO.txt"
+          cat "$pkg/BUILD_INFO.txt"
+          ls "$pkg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wesnoth-${{ env.WESNOTH_TAG }}-patched-win64
+          path: wesnoth-${{ env.WESNOTH_TAG }}-patched
+          retention-days: 30

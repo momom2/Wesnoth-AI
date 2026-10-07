@@ -1,0 +1,63 @@
+From 56168213d9d36930c44558a61c58954616d7293b Mon Sep 17 00:00:00 2001
+From: momom2 <amaury.lorin@gmail.com>
+Date: Wed, 7 Oct 2026 09:43:35 +0200
+Subject: [PATCH] Write the game settings into the scenario in commandline MP
+ games (local patch)
+
+A game started with --multiplayer filled mp_game_settings but never wrote
+them into the scenario, which is where the game reads them, so it played
+100% experience and 1 gold per village where a game created in the lobby
+plays 70% and 2. With map settings, the commandline start now takes the
+scenario's own values and the lobby's defaults, as configure_engine does,
+and writes them with configure_engine::write_parameters. Turns stay the
+scenario's own or unlimited.
+
+Local patch on 1.18.8 for the Wesnoth_AI project; the upstream draft
+targets master. Written with an AI assistant (Claude).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/game_initialization/multiplayer.cpp | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/src/game_initialization/multiplayer.cpp b/src/game_initialization/multiplayer.cpp
+index dd516ea..1c0ade0 100644
+--- a/src/game_initialization/multiplayer.cpp
++++ b/src/game_initialization/multiplayer.cpp
+@@ -21,6 +21,7 @@
+ #include "events.hpp"
+ #include "formula/string_utils.hpp"
+ #include "game_config_manager.hpp"
++#include "game_initialization/configure_engine.hpp"
+ #include "game_initialization/mp_game_utils.hpp"
+ #include "game_initialization/playcampaign.hpp"
+ #include "gettext.hpp"
+@@ -771,6 +772,25 @@ void start_local_game_commandline(const commandline_options& cmdline_opts)
+ 		parameters.num_turns = state.get_starting_point()["turns"];
+ 	}
+ 
++	// Write the game settings into the scenario, which is where the game reads them, as
++	// the create dialog does (configure_engine::write_parameters): with map settings, the
++	// scenario's own values where it sets them and the lobby's defaults where it does
++	// not. The number of turns stays the scenario's own, or unlimited.
++	if(parameters.use_map_settings) {
++		ng::configure_engine configure(state);
++		configure.set_use_map_settings(true);
++		configure.set_num_turns(state.get_starting_point()["turns"].to_int(-1));
++		configure.set_village_gold(configure.village_gold_default());
++		configure.set_village_support(configure.village_support_default());
++		configure.set_xp_modifier(configure.xp_modifier_default());
++		configure.set_random_start_time(configure.random_start_time_default());
++		configure.set_fog_game(configure.fog_game_default());
++		configure.set_shroud_game(configure.shroud_game_default());
++		configure.write_parameters();
++		LOG_MP << "commandline game settings: experience modifier " << parameters.xp_modifier
++			<< ", village gold " << parameters.village_gold << ", village support " << parameters.village_support;
++	}
++
+ 	DBG_MP << "entering connect mode";
+ 
+ 	{
+-- 
+2.55.0.windows.5
+

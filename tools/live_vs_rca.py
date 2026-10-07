@@ -16,9 +16,11 @@ commands.
 
     python tools/live_vs_rca.py [--games 10] [--speed 4] [--seed S]
 
-One known difference with a hosted game: a command-line start plays 100%
-experience where a lobby plays 70% (scenario_init_oracle's docstring); the
-simulator is built at the engine's value, so the two boards agree.
+The engine must play a hosted game's experience modifier, which a stock
+command-line start does not (it plays 100% where a lobby plays 70%,
+scenario_init_oracle's docstring): the project's patched build does
+(tools/wesnoth_build), and a game whose engine plays another modifier stops
+at its first decision.
 Live Wesnoth runs on this machine, in a window, one game at a time.
 """
 from __future__ import annotations
@@ -41,7 +43,7 @@ from tools.live_mirror import (ENGINE_DEBUG_DOMAINS, ENGINE_LOG_DOMAINS, AiCandi
                                AiStop, EngineLog, EngineMessage, LiveMirror, LoggedCommand,
                                MirrorDivergence, SyncMarker, engine_commands)
 from tools.scenario_init_oracle import (applied_experience_modifier, compare, engine_declarations,  # noqa: E402
-                                        lobby_parms, our_record, our_setup)
+                                        lobby_experience_modifier, lobby_parms, our_record, our_setup)
 from wesnoth_ai.constants import GAMES_PATH, WESNOTH_USERDATA_PATH  # noqa: E402
 
 log = logging.getLogger("live_vs_rca")
@@ -174,11 +176,17 @@ class LiveGame:
 
     def _build(self, frame: dict) -> None:
         """The simulator's game, built as the scenario-init oracle builds
-        it: the engine's leaders and start time, its experience modifier."""
+        it: the engine's leaders and start time, and its experience
+        modifier, which must be a hosted game's."""
         from tools.wesnoth_sim import WesnothSim
+        from wesnoth_ai.constants import WESNOTH_PATH
         from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
+        applied, hosted = applied_experience_modifier(frame), lobby_experience_modifier(self.decl)
+        if applied != hosted:
+            raise RuntimeError(f"game {self.index}: {WESNOTH_PATH} plays {applied}% experience where a hosted "
+                               f"game plays {hosted}%; use the patched build (tools/wesnoth_build/README.md)")
         setup = our_setup(self.scenario_id, self.factions, frame)
-        gs = build_scenario_gamestate(setup, experience_modifier=applied_experience_modifier(frame))
+        gs = build_scenario_gamestate(setup, experience_modifier=applied)
         sim = WesnothSim(gs, scenario_id=self.scenario_id, max_turns=self.max_turns)
         if sim.core is None:
             raise RuntimeError("the live mirror needs the Rust core (wesnoth_core of this source's phase)")
