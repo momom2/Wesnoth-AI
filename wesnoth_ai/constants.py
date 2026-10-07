@@ -13,13 +13,18 @@ from wesnoth_ai.paths import ADDONS_DIR, REPO_ROOT
 # Paths
 # ----------------------------------------------------------------------
 
-# Wesnoth executable. Steam install on Windows by default; the
-# WESNOTH_EXE env var overrides (2026-08-04: lets the export-fidelity
-# sweep run a source-built 1.18.4 on a headless Linux eval box).
+# Wesnoth executable: the WESNOTH_EXE env var if set (2026-08-04: lets the
+# export-fidelity sweep run a source-built 1.18.4 on a headless Linux eval
+# box), else the project's patched 1.18.8 when installed, whose command-line
+# games get a hosted game's settings (tools/wesnoth_build/README.md), else
+# the Steam install.
 import os as _os
+PATCHED_WESNOTH_PATH = (Path.home() / "Desktop" / "Perso" / "games"
+                        / "wesnoth-1.18.8-patched" / "wesnoth.exe")
+STEAM_WESNOTH_PATH = Path(r"C:\Program Files (x86)\Steam\steamapps\common\wesnoth\wesnoth.exe")
 WESNOTH_PATH = Path(
     _os.environ.get("WESNOTH_EXE")
-    or r"C:\Program Files (x86)\Steam\steamapps\common\wesnoth\wesnoth.exe"
+    or (PATCHED_WESNOTH_PATH if PATCHED_WESNOTH_PATH.exists() else STEAM_WESNOTH_PATH)
 )
 
 # Wesnoth userdata — where add-ons live, where Wesnoth writes its logs,

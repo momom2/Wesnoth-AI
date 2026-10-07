@@ -2147,6 +2147,14 @@ Rejected: an era whose `[modify_unit_type] set_experience=` gives each unit
 type its scaled value (user ruling 2026-10-06), because it imitates a
 parameter the engine applies itself.
 
+The project's own Wesnoth build passes them (user order 2026-10-07):
+`tools/wesnoth_build/commandline_game_settings_1.18.8.patch` makes the
+command-line start call `configure_engine::write_parameters` with the
+lobby's map-settings defaults, the scenario's own values first, as the
+create dialog does. `.github/workflows/patched-wesnoth.yml` cross-compiles
+1.18.8 with it through Wesnoth's own MinGW build, and
+`wesnoth_ai/constants.py` uses that build when it is installed.
+
 ---
 
 ## Replay structure

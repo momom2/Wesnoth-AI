@@ -225,3 +225,15 @@ def test_the_driver_ends_the_game_on_the_command_still_open(played_game, tmp_pat
     assert game.engine_log.reader.open_command is not None and not game.mirror.sim.done
     game._drain()
     assert (game.mirror.sim.done, game.mirror.sim.winner) == (True, played_game.winner)
+
+
+def test_a_live_game_stops_when_its_engine_plays_another_experience_modifier(tmp_path):
+    """A stock command-line start plays 100% experience where a hosted
+    game plays 70%: such a game stops before its mirror is built."""
+    from tools.live_vs_rca import LiveGame
+    from tools.scenario_init_oracle import Declared
+    game = LiveGame(1, "multiplayer_Hamlets", ("Drakes", "Undead"), 1, Declared({}, {}), None, tmp_path, 4.0, 8)
+    frame = {"settings": {"experience_probe": {"type": "Dwarvish Berserker", "base": 100, "applied": 100}}}
+    with pytest.raises(RuntimeError, match="plays 100% experience where a hosted game plays 70%"):
+        game._build(frame)
+    assert game.mirror is None
