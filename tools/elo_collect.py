@@ -52,6 +52,8 @@ from tools.eval_provenance import LEGACY_FORCED_FACTION, bases_of, terrain_views
 #   moves_left_utility ELO_MOVES_LEFT_UTILITY (search only)
 #   forced_faction     the faction forced onto one side of every game,
 #                      or "none" (eval_provenance.forced_faction_tag)
+#   lookahead_*        a look-ahead side's configuration (eval_provenance.
+#                      lookahead_record_of), None for every other player
 # A None default means "legacy files cannot say": the field then
 # constrains nothing, the same silence-unconstrained rule the turn
 # horizon uses.
@@ -70,6 +72,7 @@ ESTIMAND_DEFAULTS = {
     "value_center_a": None, "value_center_b": None,
     "moves_left_utility": None,
     "forced_faction": LEGACY_FORCED_FACTION,
+    "lookahead_a": None, "lookahead_b": None,
 }
 
 
@@ -340,7 +343,13 @@ def main(argv) -> int:
     # 2026-08-17): every collected games dir records its PURE
     # per-pair W-D-L as an edge (idempotent by dir name) and the
     # global ratings refit. See tools/elo_catalog.py.
-    if not args.no_catalog and _proc_tag[0] != _proc_tag[1]:
+    from tools.eval_procedure import is_godview
+    if not args.no_catalog and any(is_godview(p) for p in _proc_tag):
+        # A god-view look-ahead sees through fog: an upper bound, never a
+        # rating beside fair players (wesnoth_ai/lookahead_world.py).
+        print(f"catalog SKIPPED: {_proc_tag} has a god-view side, an upper bound "
+              f"that never pools with fair procedures. Use --no-catalog to silence.")
+    elif not args.no_catalog and _proc_tag[0] != _proc_tag[1]:
         # A heterogeneous-procedure match (e.g. plan vs mcts) is not
         # representable as a catalog edge: the global refit assumes
         # one protocol per component (round-14 C1). The fit above

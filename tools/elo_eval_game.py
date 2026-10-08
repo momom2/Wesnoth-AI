@@ -73,7 +73,8 @@ from tools.eval_players import (_PolicyPair, _load_policy,
 from tools.inference_seam import RemoteEncoder
 from tools.eval_provenance import (_pt_config, basis_refusal, checkpoint_refusal,
                                    effective_memory, faction_refusal, file_sha256,
-                                   forced_faction_tag, memory_refusal, terrain_refusal)
+                                   forced_faction_tag, lookahead_config_refusal,
+                                   lookahead_record_of, memory_refusal, terrain_refusal)
 from wesnoth_ai.rules import scenario_pool
 from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
 from tools.wesnoth_sim import WesnothSim
@@ -96,7 +97,9 @@ def _search_policy_cls(turn_search: bool, plan_tournament: bool = False):
     return MCTSPolicy
 
 
-from tools.eval_procedure import end_turn_refusal, procedure_of as _procedure_of  # noqa: E402
+from tools.eval_procedure import (  # noqa: E402
+    end_turn_refusal, lookahead_refusal, procedure_of as _procedure_of,
+)
 
 
 # The knob machinery lives in tools/turn_search_config (torch-free,
@@ -414,7 +417,8 @@ def _build_player(spec: str, label: str, sims: int, device,
                   infer_packed_trunk: bool = False,
                   raw_end_turn: str = "joint",
                   raw_end_turn_offset: float = 0.0,
-                  memory: Optional[int] = None):
+                  memory: Optional[int] = None,
+                  lookahead=None):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
@@ -427,7 +431,10 @@ def _build_player(spec: str, label: str, sims: int, device,
     through a shared inference server (main() has checked sims == 0,
     a temperature and a checkpoint spec). `memory`: the slots a player of a
     model with a memory uses (`_effective_memory`); the raw player, MCTS
-    and the turn search carry it from one decision to the next."""
+    and the turn search carry it from one decision to the next.
+    `lookahead`: a look-ahead configuration (wesnoth_ai.lookahead_config)
+    that tilts this side's raw player (tools/lookahead_player.py; main has
+    checked the side plays the raw player at argmax)."""
     if memory is not None and (plan_tournament or (sims == 0 and raw_temperature is None)):
         raise SystemExit(f"{spec} has a memory, which the legacy sampler and the plan tournament "
                          f"do not carry: play it raw with a temperature, with MCTS or with the turn search")
@@ -441,9 +448,10 @@ def _build_player(spec: str, label: str, sims: int, device,
         from wesnoth_ai.dummy_policy import DummyPolicy
         return _ScriptedAdapter(DummyPolicy()), None
     if inference_address is not None:
-        return _remote_player(inference_address, raw_temperature, raw_seed,
-                              relevant_set, infer_bf16, infer_packed_trunk,
-                              raw_end_turn, raw_end_turn_offset, memory)
+        return _with_lookahead(*_remote_player(inference_address, raw_temperature, raw_seed,
+                                               relevant_set, infer_bf16, infer_packed_trunk,
+                                               raw_end_turn, raw_end_turn_offset, memory),
+                               lookahead)
     if memory is not None and infer_compile:
         raise SystemExit(f"{spec} has a memory, which a player keeps from one call to the next, and a "
                          f"compiled model may overwrite its outputs at its next call: play it with "
@@ -488,10 +496,41 @@ def _build_player(spec: str, label: str, sims: int, device,
         return cls(policy, mc, rng_seed=raw_seed, memory_slots=memory), counter
     if raw_temperature is not None:
         from tools.raw_player import RawPolicyPlayer
-        return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
-                               end_turn_rule=raw_end_turn,
-                               end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+        return _with_lookahead(RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
+                                               end_turn_rule=raw_end_turn,
+                                               end_turn_offset=raw_end_turn_offset,
+                                               memory_slots=memory), counter, lookahead)
     return policy, counter
+
+
+def _with_lookahead(player, counter, lookahead):
+    """(player, forward counter) with the raw player tilted by the
+    look-ahead configuration `lookahead` when there is one; a persistent
+    worker keeps the evaluator across games."""
+    if lookahead is None:
+        return player, counter
+    from tools.lookahead_player import lookahead_player
+    return lookahead_player(player, lookahead, keep=_WORKER_MODE), counter
+
+
+_LOOKAHEAD_CACHE: dict = {}
+
+
+def _lookahead_of(path):
+    """(config, record) of a look-ahead config file (eval_provenance.
+    lookahead_record_of), read once per path in worker mode; (None, None)
+    without one."""
+    if path is None:
+        return None, None
+    hit = _LOOKAHEAD_CACHE.get(str(path)) if _WORKER_MODE else None
+    if hit is None:
+        try:
+            hit = lookahead_record_of(path)
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"look-ahead config {path}: {e}") from e
+        if _WORKER_MODE:
+            _LOOKAHEAD_CACHE[str(path)] = hit
+    return hit
 
 
 def _check_shared_inference_args(args, sims_a: int, sims_b: int) -> bool:
@@ -600,6 +639,14 @@ def main(argv) -> int:
                          "an estimand field.")
     ap.add_argument("--memory-b", type=int, default=None,
                     help="Player B (see --memory-a).")
+    ap.add_argument("--lookahead-a", type=Path, default=None,
+                    help="Player A plays the look-ahead player (tools/lookahead_player.py) "
+                         "configured by this file (configs/lookahead.json): the raw player at "
+                         "argmax, its prior tilted by a one-step look-ahead. Needs sims 0 and "
+                         "--raw-temperature-a 0; procedure tag 'la:...', the configuration "
+                         "recorded as lookahead_a.")
+    ap.add_argument("--lookahead-b", type=Path, default=None,
+                    help="Player B (see --lookahead-a).")
     ap.add_argument("--relevant-set-a", action="store_true",
                     help="Encode side A's states with the relevant hex subset "
                          "(encoder relevant_set_hexes) whatever the checkpoint "
@@ -764,6 +811,10 @@ def main(argv) -> int:
         _why = end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset)
         if _why is not None:
             raise SystemExit(_why)
+        if getattr(args, f"lookahead_{_side}") is not None:
+            _why = lookahead_refusal(_side, _spec, _sims, _temp, _rule)
+            if _why is not None:
+                raise SystemExit(_why)
     for _n, _spec in (("spec_a", args.spec_a),
                       ("spec_b", args.spec_b)):
         if _spec not in ("dummy", "random") \
@@ -786,6 +837,8 @@ def main(argv) -> int:
     ckpt_b = _checkpoint_sha(args.spec_b, args.inference_address_b)
     memory_a = _effective_memory(args.spec_a, args.memory_a, args.inference_address_a)
     memory_b = _effective_memory(args.spec_b, args.memory_b, args.inference_address_b)
+    la_cfg_a, la_rec_a = _lookahead_of(args.lookahead_a)
+    la_cfg_b, la_rec_b = _lookahead_of(args.lookahead_b)
     # The faction random_setup forces onto one side; read once, so the
     # result records the value the setup used.
     forced_faction = scenario_pool.FORCED_FACTION
@@ -855,13 +908,13 @@ def main(argv) -> int:
                 args.no_turn_search or args.no_turn_search_a,
                 args.raw_temperature_a, args.gumbel_root_a,
                 raw_end_turn=args.raw_end_turn_a,
-                raw_end_turn_offset=args.raw_end_turn_offset_a)
+                raw_end_turn_offset=args.raw_end_turn_offset_a, lookahead=la_cfg_a)
             want_b = _procedure_of(
                 sims_b, args.plan_b,
                 args.no_turn_search or args.no_turn_search_b,
                 args.raw_temperature_b, args.gumbel_root_b,
                 raw_end_turn=args.raw_end_turn_b,
-                raw_end_turn_offset=args.raw_end_turn_offset_b)
+                raw_end_turn_offset=args.raw_end_turn_offset_b, lookahead=la_cfg_b)
             got_a = prev.get("procedure_a")
             got_b = prev.get("procedure_b")
             got_mt = prev.get("max_turns")
@@ -954,6 +1007,9 @@ def main(argv) -> int:
             _why = memory_refusal(out_path.name, prev, (memory_a, memory_b))
             if _why is not None:
                 raise SystemExit(_why)
+            _why = lookahead_config_refusal(out_path.name, prev, (la_rec_a, la_rec_b))
+            if _why is not None:
+                raise SystemExit(_why)
             if (got_a, got_b, got_mt) != (want_a, want_b,
                                           args.max_turns):
                 raise SystemExit(
@@ -1012,7 +1068,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_a,
         raw_end_turn_offset=args.raw_end_turn_offset_a,
-        memory=memory_a)
+        memory=memory_a, lookahead=la_cfg_a)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -1026,7 +1082,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_b,
         raw_end_turn_offset=args.raw_end_turn_offset_b,
-        memory=memory_b)
+        memory=memory_b, lookahead=la_cfg_b)
 
     rng = random.Random(args.seed)
     setup = random_setup(rng, forced_faction=forced_faction)
@@ -1079,13 +1135,13 @@ def main(argv) -> int:
             args.no_turn_search or args.no_turn_search_a,
             args.raw_temperature_a, args.gumbel_root_a,
             raw_end_turn=args.raw_end_turn_a,
-            raw_end_turn_offset=args.raw_end_turn_offset_a),
+            raw_end_turn_offset=args.raw_end_turn_offset_a, lookahead=la_cfg_a),
         "procedure_b": _procedure_of(
             sims_b, args.plan_b,
             args.no_turn_search or args.no_turn_search_b,
             args.raw_temperature_b, args.gumbel_root_b,
             raw_end_turn=args.raw_end_turn_b,
-            raw_end_turn_offset=args.raw_end_turn_offset_b),
+            raw_end_turn_offset=args.raw_end_turn_offset_b, lookahead=la_cfg_b),
         # The CLI probe flags as given; TCS and plan-tournament arms
         # never read them (2026-09-04 review).
         "relevant_set_a": bool(args.relevant_set_a),
@@ -1102,6 +1158,13 @@ def main(argv) -> int:
         # one; eval_provenance.effective_memory): an estimand field.
         "memory_a": memory_a,
         "memory_b": memory_b,
+        # A look-ahead side's configuration (eval_provenance.lookahead_record_of;
+        # None for every other player): an estimand field. Its telemetry per
+        # game (tools/lookahead_player.GameTelemetry) is not.
+        "lookahead_a": la_rec_a,
+        "lookahead_b": la_rec_b,
+        "lookahead_telemetry_a": (pa.pop_telemetry(game_label) if la_cfg_a is not None else None),
+        "lookahead_telemetry_b": (pb.pop_telemetry(game_label) if la_cfg_b is not None else None),
         # The checkpoint each side played (SHA-256 of the file; None for
         # 'dummy' and 'random'): a label names it only by convention.
         "checkpoint_sha256_a": ckpt_a,
