@@ -18,6 +18,8 @@ A configuration file (configs/lookahead.json) holds
                    {"name": "critic", "checkpoint": ..., "view": "obs" or
                    "true", "device": "cpu" or "cuda", "batch": ...}, or
                    {"name": "rollout"} (an interface, not implemented);
+                   a critic played on a box also names "checkpoint_hf"
+                   and "checkpoint_sha256" (tools/lookahead_gate.py ensure);
   max_attack_leaves  hit/miss sequences an attack may take before its
                    expansion is counted as failed.
 """

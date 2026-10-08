@@ -1,0 +1,13 @@
+{
+  "_comment": "Run Q7's arm (docs/lookahead_material_gate_prereg_20261009.md; scripts/lookahead_gate_box.sh): the look-ahead player (tools/lookahead_player.py) with the material evaluator, at the player's defaults (configs/lookahead.json), untuned. k: the prior's top 8 actions are the candidates. c: the advantage is clipped at 1 nat. sigma: the advantage Q - V is divided by 0.1. kinds 'all': every decision kind. determinization 'observed': the world the deciding side sees (wesnoth_ai/lookahead_world.py). evaluator: tanh of the mover's HP margin over the two player sides divided by hp_scale 250, the margin's spread in parity3's games (wesnoth_ai/critic.AUX_SCALE).",
+  "k": 8,
+  "c": 1.0,
+  "sigma": 0.1,
+  "kinds": "all",
+  "determinization": "observed",
+  "evaluator": {
+    "name": "material",
+    "hp_scale": 250.0
+  },
+  "max_attack_leaves": 512
+}
