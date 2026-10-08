@@ -1350,7 +1350,7 @@ the pool with one and two serve processes. Records:
 | `diff_core`, 600 replays through the phase-10 core | 600 clean, 0 divergences (159,923 commands in Rust) |
 | eleven suites, Python state of record | 117 passed |
 | the same, `WESNOTH_RUST_CORE=1` | 117 passed |
-| old-rule hider sample (`tools/analysis/hider_rule_sample.py`, seed 0) | 300 sampled, 150 with a hider, 4 reconstruct differently, 0 / 0 divergences (engine / old rule) |
+| old-rule hider sample (`tools/analysis/hider_rule_sample.py`, seed 0; retired with the Python applier, last in commit 07b2c91) | 300 sampled, 150 with a hider, 4 reconstruct differently, 0 / 0 divergences (engine / old rule) |
 
 The corpus sweep now covers the Silverhead Tentacle's `magical` and
 submerge (the combat half the 2026-09-13 review said was owed), the

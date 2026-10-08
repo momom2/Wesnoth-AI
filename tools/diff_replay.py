@@ -78,7 +78,7 @@ sys.path.insert(0, str(_ROOT / "tools"))
 
 from wesnoth_ai.classes import GameState, TerrainModifiers, Unit
 from tools.replay_dataset import _stats_for, record_core
-from tools.diff_core import is_rust_panic
+from wesnoth_ai.game_core import is_rust_panic
 # `_move_cost_at_hex` lives in `tools/wesnoth_sim.py`, not
 # `tools/replay_dataset.py`. We import it here for the pre-check that
 # validates a recorded move's MP cost against the unit's current_moves.

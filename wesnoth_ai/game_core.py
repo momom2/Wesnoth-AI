@@ -123,6 +123,14 @@ def core_enabled() -> bool:
     return game_core_class() is not None
 
 
+def is_rust_panic(exc: BaseException) -> bool:
+    """A Rust panic reaches Python as pyo3's `PanicException`, which
+    derives from BaseException precisely so that `except Exception`
+    does not catch it. It has no importable home (`pyo3_runtime` is
+    not a module), so it is recognised by its name."""
+    return type(exc).__name__ == "PanicException"
+
+
 def _view_fingerprint(gs: GameState) -> tuple:
     from wesnoth_ai.classes import state_key
     return (state_key(gs), bool(getattr(gs.global_info, "_fog", True)), id(gs.map.hexes))
@@ -980,4 +988,4 @@ def _observation_from_dict(d: dict, geometry):
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
            "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of", "snapshot_view",
-           "unit_db_fallbacks", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]
+           "unit_db_fallbacks", "is_rust_panic", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]

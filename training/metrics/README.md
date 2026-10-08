@@ -22,7 +22,12 @@ the document that quotes it names the directory.
 - `elo_catalog.json`, `elo_catalog_raw_t0.json` — the Elo catalogs
   (`tools/elo_catalog.py`).
 - `fidelity/` — the engine oracles and rule censuses (hidden units,
-  scenario init, vision, the counter weapon), one JSON per run.
+  scenario init, vision, the counter weapon), one JSON per run, and the
+  core's certification against the Python applier
+  (`core_certify_20261001/`). The two censuses' tools
+  (`tools/analysis/vision_rule_census.py`, `counter_weapon_census.py`)
+  and the certification (`scripts/core_certify_box.sh`, `tools/diff_core.py`)
+  were retired with the Python applier; commit 07b2c91 is the last that has them.
 - `value_head/` — the value-head study (docs/value_head_study_20260907.md).
 - `turn_gap/`, `turn_gap_ref_20260921/` — the turn-level gap under the
   seed and under the reference (docs/turn_gap_prereg_20260904.md,

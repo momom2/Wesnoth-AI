@@ -1260,7 +1260,8 @@ rule; the 4 disagreements left among 737 recorded choices are exact
 ties in expected damage, where the engine's choice rests on
 floating-point residue our strike DP does not reproduce
 (`training/metrics/fidelity/counter_weapon_census_20260925.json`,
-`tools/analysis/counter_weapon_census.py`).
+`tools/analysis/counter_weapon_census.py`, retired with the Python
+applier; last in commit 07b2c91).
 
 Ours: `tools/combat_outcomes._levelup_average_hp` and
 `_is_one_strike_fight`, applied in `_engine_marginals`. Tests:
@@ -3380,7 +3381,8 @@ map), the engine's turn-accumulated view differs from the disc at
 the disc holds (522.9 against 486.1 hexes seen); of 309,711 enemy units
 on the board at those decisions, 19,439 are shown only by the engine's
 view and 3,341 only by the disc
-(`tools/analysis/vision_rule_census.py`,
+(`tools/analysis/vision_rule_census.py`, retired with the Python applier;
+last in commit 07b2c91;
 `training/metrics/fidelity/vision_rule_census_20260924.json`).
 
 **Implemented by** `wesnoth_ai/visibility.py` (`unit_vision`, and the

@@ -233,22 +233,6 @@ def test_the_invariant_check_holds_each_side_to_the_villages_it_owns():
         assert found is not None and "village counts" in found, found
 
 
-def test_move_and_attack_equal_the_python_applier():
-    """Whole replays through both appliers, compared every fifth
-    command and after every init_side and attack (tools/diff_core)."""
-    from collections import Counter
-    from pathlib import Path
-    from tools.diff_core import diff_core
-    from tools.replay_dataset import filter_competitive_2p
-    root = next((Path(d) for d in ("replays_dataset", "replays_dataset_imitation") if Path(d).exists()), None)
-    if root is None:
-        pytest.skip("no replay corpus")
-    counts = Counter()
-    for gz in filter_competitive_2p(root)[:3]:
-        assert diff_core(gz, every=5, counts=counts) == []
-    assert counts[("move", "rust")] >= 100 and counts[("attack", "rust")] >= 20
-
-
 def _states_for_encoding():
     return _harvested() + _replay_states(n_games=2, per_game=3)
 
