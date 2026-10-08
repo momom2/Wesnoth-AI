@@ -166,6 +166,45 @@ def core_of(gs: GameState) -> Optional["CoreState"]:
     return hit[1]
 
 
+# The cores built for states that no core stands behind (`core_for`):
+# id(state) -> (weak reference to the state, CoreState, the state's
+# fingerprint when the core was built).
+_BUILT_CORES: Dict[int, tuple] = {}
+
+
+def core_for(gs: GameState) -> "CoreState":
+    """The core that answers for `gs`: the one it is bound to, or for a
+    state built by hand or copied (`copy.deepcopy`, a pickle) a core built
+    from it (`CoreState.from_state`, a few milliseconds). A built core
+    serves the state while its fingerprint (`state_key`, the fog switch,
+    the hex set) is unchanged, so one decision's encoding and mask share
+    it; an edit the fingerprint sees builds another."""
+    cs = core_of(gs)
+    if cs is not None:
+        return cs
+    fp = _view_fingerprint(gs)
+    key = id(gs)
+    hit = _BUILT_CORES.get(key)
+    if hit is not None and hit[0]() is gs and hit[2] == fp:
+        return hit[1]
+    cs = CoreState.from_state(gs)
+
+    def _drop(ref, key=key):
+        old = _BUILT_CORES.get(key)
+        if old is not None and old[0] is ref:
+            _BUILT_CORES.pop(key, None)
+
+    _BUILT_CORES[key] = (weakref.ref(gs, _drop), cs, fp)
+    return cs
+
+
+def view_of(cs: "CoreState") -> GameState:
+    """A view of `cs` (`CoreState.to_state`) bound to it."""
+    view = cs.to_state()
+    bind_view(view, cs)
+    return view
+
+
 def snapshot_view(gs: GameState) -> GameState:
     """A copy of `gs` to keep while the game goes on: for a view bound to
     a core, a view of a fork of that core (bound to it, so it is encoded
@@ -174,10 +213,38 @@ def snapshot_view(gs: GameState) -> GameState:
     cs = core_of(gs)
     if cs is None:
         return copy.deepcopy(gs)
-    fork = cs.fork()
-    view = fork.to_state()
-    bind_view(view, fork)
-    return view
+    return view_of(cs.fork())
+
+
+def _extension():
+    """`wesnoth_core` with the unit and terrain databases loaded, or
+    RuntimeError when the wheel is absent or older than this adapter."""
+    if game_core_class() is None:
+        raise RuntimeError(f"wesnoth_core is not installed at phase {_CORE_PHASE} or later: "
+                           f"pip install ./rust/wesnoth_core")
+    import wesnoth_core
+    return wesnoth_core
+
+
+def build_unit(record: dict, *, apply_leader_traits: bool = False, game_id: str = "",
+               exp_modifier: int = 100) -> Unit:
+    """A unit from a replay record's starting-unit entry (`uid`, `type`,
+    `side`, `x`, `y`, and optionally `is_leader`, `hp`, `max_hp`,
+    `max_moves`, `max_exp`, `cost`, `petrified`), built by the core: the
+    type's statistics at the game's experience modifier, and a leader's
+    traits when `apply_leader_traits`."""
+    return unit_from_fields(_extension().build_unit_fields(
+        record, bool(apply_leader_traits), str(game_id), int(exp_modifier)))
+
+
+def build_recruit_unit(unit_type: str, side: int, x: int, y: int, next_uid: int, game_id: str = "",
+                       trait_seed_hex: str = "", exp_modifier: int = 100) -> Unit:
+    """A fresh recruit with the traits its seed rolls (the engine's
+    `[random_seed]`; with none, a roll hashed from the game id, uid and
+    type), built by the core."""
+    return unit_from_fields(_extension().build_recruit_fields(
+        str(unit_type), int(side), int(x), int(y), int(next_uid), str(game_id),
+        str(trait_seed_hex), int(exp_modifier)))
 
 
 def unit_db_fallbacks() -> Dict[str, int]:
@@ -987,5 +1054,6 @@ def _observation_from_dict(d: dict, geometry):
 
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
-           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of", "snapshot_view",
+           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of", "core_for", "view_of",
+           "snapshot_view", "build_unit", "build_recruit_unit",
            "unit_db_fallbacks", "is_rust_panic", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]
