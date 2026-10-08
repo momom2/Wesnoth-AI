@@ -142,6 +142,24 @@ def test_a_run_keeps_the_best_holdout_checkpoint_and_records_as_it_goes(tmp_path
     assert len(values) == 2 and all(-1.0 <= v <= 1.0 for v in values)
 
 
+@needs_core
+def test_a_critic_short_of_time_lowers_its_rate_to_zero_within_its_time(tmp_path, monkeypatch):
+    """The schedule is fitted to the wall bound from the measured step
+    rate: a critic the bound cuts short anneals as fully as one that
+    finishes its epochs. The clock here reads one second per step."""
+    items = _items(8)
+    trainer = _trainer(tmp_path, monkeypatch, items, items[:4], max_epochs=20, max_minutes=0.25,
+                       rate_steps=2, evals_per_epoch=1)
+    trainer.clock = lambda: float(trainer.state["steps"])
+    assert trainer.run() == "schedule"
+    steps = [json.loads(line) for line in Path(f"{tmp_path / 'critic'}.steps.jsonl").read_text().splitlines()]
+    assert 2 < len(steps) < 40, "the time bound, not the 40 steps of 20 epochs, set the schedule"
+    assert steps[-1]["lr"] < 0.1 * steps[1]["lr"]
+    summary = json.loads(Path(f"{tmp_path / 'critic'}.summary.json").read_text())
+    assert summary["state"]["planned_steps"] == len(steps)
+    assert summary["state"]["step_seconds"] == pytest.approx(1.0)
+
+
 def test_the_size_curve_nests_its_games_and_shares_one_holdout():
     rows = [{"key": f"g{k}", "source": "M", "status": "ok", "positions": 3, "split": split, "size_u": u}
             for k, (split, u) in enumerate([("train", 0.1), ("train", 0.3), ("train", 0.6), ("holdout", 0.2),

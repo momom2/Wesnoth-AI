@@ -90,11 +90,37 @@ def test_the_true_state_shows_a_unit_the_observation_hides():
         cd.encode_view(cs, "god", vocab, FACTION_IDS)
 
 
+@needs_core
+def test_the_true_state_shows_a_hider_no_one_has_found():
+    """A Wose in forest ambushes: with fog or without, no side sees it
+    until an enemy stands next to it. The true state shows it, and the
+    walk's own core keeps it hidden."""
+    from helpers.parity_games import FACTION_IDS, core_of, record, vocab_of
+    vocab = vocab_of(["Lieutenant", "Spearman", "Wose"])
+    for fog in (True, False):
+        cs = core_of(record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 4, 3, False),
+                             ("Lieutenant", 2, 18, 3, True), ("Wose", 2, 6, 3, False)], fog=fog,
+                            special={(6, 3): "Gs^Fds"}))
+        cs.apply_command(["init_side", 1])
+        wose = cs.core.unit_id_at(6, 3)
+        assert wose not in cd.encode_view(cs, "obs", vocab, FACTION_IDS).unit_ids
+        assert wose in cd.encode_view(cs, "true", vocab, FACTION_IDS).unit_ids, f"fog={fog}"
+        assert wose not in cd.encode_view(cs, "obs", vocab, FACTION_IDS).unit_ids
+        assert cs.core.uncovered_export() == []
+
+
 def test_the_margin_is_the_movers_hit_points_less_every_other_sides():
     from types import SimpleNamespace as NS
     units = [NS(side=1, current_hp=30), NS(side=2, current_hp=12), NS(side=3, current_hp=1)]
     assert cd.hp_margin(NS(map=NS(units=units)), 1) == 17
     assert cd.hp_margin(NS(map=NS(units=units)), 2) == -19
+
+
+def test_the_aux_margin_counts_the_two_player_sides_only():
+    from types import SimpleNamespace as NS
+    units = [NS(side=1, current_hp=30), NS(side=2, current_hp=12), NS(side=3, current_hp=400)]
+    assert cd.player_hp_margin(NS(map=NS(units=units)), 1) == 18
+    assert cd.player_hp_margin(NS(map=NS(units=units)), 2) == -18
 
 
 class _Core:
@@ -113,9 +139,11 @@ class _Core:
                 self.core.turn_number += 1
 
     def to_state(self):
-        # Side 1's units total 10 x turn, side 2's 5 x turn.
+        # Side 1's units total 10 x turn, side 2's 5 x turn; a neutral
+        # side's 50 count for neither.
         t = self.core.turn_number
-        units = [self._ns(side=1, current_hp=10 * t), self._ns(side=2, current_hp=5 * t)]
+        units = [self._ns(side=1, current_hp=10 * t), self._ns(side=2, current_hp=5 * t),
+                 self._ns(side=3, current_hp=50)]
         return self._ns(map=self._ns(units=units))
 
 
@@ -159,6 +187,9 @@ def test_a_benchmark_game_on_the_training_side_stops_the_build():
     with pytest.raises(builder.HoldoutLeak):
         builder.corpus_training_rows(rows, ["bench.json.gz"])
     rows[0]["holdout"] = True
+    copy_of_bench = rows + [{"file": "renamed.json.gz", "holdout": False, "winner_side": 1, "match_key": "k1"}]
+    with pytest.raises(builder.HoldoutLeak, match="match"):
+        builder.corpus_training_rows(copy_of_bench, ["bench.json.gz"], bench_keys={"k1"})
     train, check = builder.corpus_training_rows(rows, ["bench.json.gz", "dropped.json.gz"])
     assert [r["file"] for r in train] == ["other.json.gz"]
     assert check == {"bench_games": 2, "in_holdout": 1, "absent_from_manifest": 1, "leaked": 0}
