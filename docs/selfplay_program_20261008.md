@@ -182,6 +182,9 @@ auxiliary head on the mover's HP-weighted material margin at its next turn
 start; positions drawn from every decision point and every side-turn start,
 at most 24 per game with the game's own seed; capped games left out (their
 label is undefined; the benchmark's own playouts capped 3.4% of the time).
+The auxiliary margin is a raw hit-point sum, the turn-value experiment's HP
+margin over the two player sides only: the mover's units' hit points less its
+opponent's, neither cost-weighted nor counting a neutral side's units.
 
 **Free readouts** (the same box, no training): at `parity3`'s decisions in 100
 of its recorded games, the distribution of the log-prior gap between its top
@@ -196,8 +199,9 @@ rising (T100 above T25 by 0.03-0.08); O100 below T100 by 0.03-0.10; TH
 between T50 and T100; Tsmall within 0.05 of T100.
 
 **Readings**, each with its next action:
-- **Pass:** some critic's selection gain exceeds the HP margin's by 2 paired
-  standard errors at read 0 or before end_turn. Step 2 builds an attack-only
+- **Pass:** for some critic at one read (read 0 or before end_turn), both its
+  selection gain and its corrected correlation exceed the HP margin's by 2
+  paired standard errors, on the luck-adjusted basis. Step 2 builds an attack-only
   operator with that critic (its observation form if O100 passes; the true
   form needs the world sampler first) and pre-registers its 800-game gate
   against `parity3`.
@@ -209,6 +213,42 @@ between T50 and T100; Tsmall within 0.05 of T100.
   rollouts, and the next measurement is the CPU planner's rung 0 with fresh
   dice (docs/selfplay_algorithm_design_20261007.md), priced for the user.
   The correlations are reported either way.
+
+**Operating characteristics** (simulated 2026-10-08, before any box run:
+`tools/critic_oc.py`, record
+`training/metrics/critic_step1_20261008/operating_characteristics.json`).
+A synthetic benchmark of the real one's 199 positions and 966 candidates,
+calibrated on its records: candidate values with the luck-adjusted truth's
+within-position spread (sd 0.167), concentrated on a few positions as the
+records' is (the HP margin's simulated standard errors 0.09 in correlation
+and 0.020 in selection gain, against 0.098 and 0.017 recorded), the base
+turn 0.042 ahead of the alternatives, each candidate's own playout noise,
+the HP margin's correlation 0.377; error correlations of 0.12 between a
+learned head and the margin and 0.27 between a head's two reads (`obs8`'s,
+measured), and 0.5 between two critics (assumed; 0.2 and 0.8 in the first
+row). Each draw goes through the readout's own statistics and readings, 80
+draws a row, under the Pass reading above:
+
+| critics' true correlation minus the margin's | Pass | Data-limited | Kill |
+|---|---|---|---|
+| 0 for all (0.2 to 0.8 between critics) | 0.00-0.05 | 0.04-0.10 | 0.85-0.96 |
+| +0.05 for all | 0.14 | 0.09 | 0.78 |
+| the predictions (T100 +0.10, T25 +0.05) | 0.17 | 0.24 | 0.59 |
+| +0.20 for T100, +0.12 for T25 | 0.57 | 0.14 | 0.29 |
+| below it, size +0.10 (T100 -0.05, T25 -0.15) | 0.01 | 0.40 | 0.59 |
+| -0.13 for all | 0.00 | 0.04 | 0.96 |
+
+Pass takes the best of twelve (critic, read) pairs, each needing both tests:
+with no critic better than the margin it fires on at most 0.05 of the draws
+(4 of 80 at 0.8 between critics, about +-0.025 from the draw count), so its
+bar stays at 2 paired standard errors, the smallest step of 0.25 that keeps
+it there. A critic 0.10 above the margin in correlation selects about 0.02
+better, one paired standard error (0.019): the predicted effects pass 0.17
+of the time, +0.20 passes 0.57. A size effect of 0.10 in correlation reads
+Data-limited 0.40 of the time (the paired standard error of T100 against T25
+is 0.06-0.10). The simulation treats the HP margin as continuous, while in the
+benchmark 83 of the 199 positions tie at the margin's top (74 of them with the
+base turn among the tied), where the margin picks the base turn.
 
 **Cost.** One box session: rebuilding and encoding about 22,000 games' sampled
 positions (CPU), six critic trainings of 10-40 minutes each, the readouts in
@@ -239,6 +279,17 @@ minutes: about 3 box-hours, $1.3-1.9 at $0.42-0.63/h. The Vast balance on
   - Corrected: the citations of Bridge and Tesauro and Galperin support
     rollouts, not a learned critic; the 2048 result favours a pre-chance
     afterstate value; the luck term's measured share here is 0.07.
+- Revised before any run, from the operating characteristics: Pass needed
+  only the selection-gain test, and fired on 0.09-0.14 of the null draws (the
+  best of twelve paired tests). It now needs, for one critic at one read, both
+  the selection-gain and the correlation difference with the HP margin above
+  2 paired standard errors: 0.00-0.05 under the null, 0.17 at the predictions,
+  0.57 at T100 +0.20. Data-limited and Kill are unchanged.
+- Adopted: the critic's auxiliary head trains its trunk (it reads the global
+  token with its gradient). The 2026-09-01 detach protects the policy's trunk
+  from the auxiliary heads; a critic is a network of its own with no policy to
+  disturb, and an auxiliary head that cannot reach the trunk would leave the
+  critic's value unchanged.
 - Parked, not rejected: the CPU turn planner
   (docs/selfplay_algorithm_design_20261007.md, landed on `main` with this
   document). Its rung 0 with fresh dice is step 1's kill branch.
