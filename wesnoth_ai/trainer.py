@@ -838,9 +838,9 @@ def _categorical_value_loss(
     weights: "Optional[torch.Tensor]" = None,   # [B] per-state
 ) -> torch.Tensor:
     """Cross-entropy between the predicted distribution Z(s) and the
-    projected target distribution. Sum-reduced over the batch (the
-    trainer's chunk loop divides by N to match the old .mean()
-    semantics).
+    projected target distribution. Sum-reduced over the batch; each
+    caller normalizes it: by the batch size N, or on the self-play path
+    (`step_mcts`) by the batch's total value weight.
 
     `label_smoothing` mixes eps of uniform mass into the projected
     target: with hard +-1 outcome targets and many replay updates the
