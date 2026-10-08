@@ -40,9 +40,10 @@ from wesnoth_ai.param_groups import group_of
 # its width and depth with the same width per attention head.
 FULL_ARCH = {"d_model": 384, "num_layers": 8, "num_heads": 12, "d_ff": 1536}
 SMALL_ARCH = {"d_model": 96, "num_layers": 2, "num_heads": 3, "d_ff": 384}
-# HP per unit of the aux head's target: a mid-game margin is tens of HP, a
-# decided game a few hundred, so the target sits within a few units of 0.
-AUX_SCALE = 100.0
+# HP per unit of the aux head's target, about the margin's spread: 229 HP
+# (standard deviation) over 753 positions of 32 games of the 2026-10-03
+# match (parity3 against parity2), 5th to 95th percentile -307 to +328.
+AUX_SCALE = 250.0
 # The groups the critic trains (wesnoth_ai.param_groups); "aux_ml" holds the
 # aux head.
 TRAINED_GROUPS = ("encoder", "trunk", "value_head", "aux_ml")
