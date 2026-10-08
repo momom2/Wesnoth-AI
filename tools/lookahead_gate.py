@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.eval_provenance import file_sha256  # noqa: E402
 from wesnoth_ai.lookahead_config import LookaheadConfig, load_config, procedure_tag  # noqa: E402
 
-SUMMED =("decisions", "operated", "states", "terminal_states", "forwards",
+SUMMED = ("decisions", "operated", "states", "terminal_states", "forwards",
           "seconds", "seconds_prior", "seconds_expand", "seconds_evaluate")
 SUMMED_BY_KEY = ("by_kind", "flips_by_kind", "flips_to_kind", "candidates_by_kind", "failed")
 MAXIMA = ("states_max", "seconds_max")
@@ -125,7 +125,7 @@ def summarize(outdir: Path, side: str = "a") -> Dict:
             maxima[k] = max(maxima[k], tel.get(k, 0))
         with_failures += bool(tel.get("failed"))
     if len(records) > 1 or len(procedures) > 1:
-        raise ValueError(f"{outdir} holds games of several look-ahead configurations: {sorted(procedures)}")
+        raise ValueError(f"{outdir} holds games of several look-ahead configurations: {sorted(map(str, procedures))}")
     d, n_op = totals["decisions"], totals["operated"]
     flips = sum(by_key["flips_by_kind"].values())
     # The decision kinds as the telemetry lists them (every kind of
