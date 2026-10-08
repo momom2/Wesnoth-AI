@@ -21,12 +21,14 @@
 #     reason names: Pass, Data-limited or Kill.
 #
 # Box: one RTX 4090, 32 or more cores, 64 GB, 120 GB of disk
-# (docs/box_specs.md "Current box shape"). Expected wall about 3.3 hours:
-# bring-up and tests 25 min, inputs 5, prior gaps 15, corpus 10, positions
-# 20, benchmark rebuild 3, the critics about 130 (T25 10, T50 15, T100 30,
-# O100 30, TH 40, Tsmall 5), the readout 5. About $1.4-2.1 at $0.42-0.63/h;
-# the pre-registration budgets about 3 box-hours. BOX_MAX_H, the dead-man's
-# switch, is 6 (1.8 times the estimate).
+# (docs/box_specs.md "Current box shape"). Expected wall about 3.6 hours:
+# bring-up and tests 25 min, inputs 5, prior gaps 10, corpus 10, positions
+# 15, benchmark rebuild 3, the critics about 145, the readout 5. The critics'
+# share assumes about 3 ms per trained position on the full network (parity3's
+# own passes cost 4.24 ms with its memory, policy losses and recomputation):
+# T25 10 min, T50 20, T100 and O100 35 each, TH 40 (its bound), Tsmall 5.
+# About $1.5-2.3 at $0.42-0.63/h; the pre-registration budgets about 3
+# box-hours. BOX_MAX_H, the dead-man's switch, is 6 (1.7 times the estimate).
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md). Every
 # step has a bound; the dead-man's switch finishes the entry after BOX_MAX_H
