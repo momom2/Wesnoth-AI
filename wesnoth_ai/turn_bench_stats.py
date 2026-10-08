@@ -22,14 +22,15 @@ from __future__ import annotations
 import functools
 import math
 import warnings
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
 TRUTH_FROM = 8                    # step 1's truth: the last 20 of 28 playouts
 CORRELATION_RESAMPLES = 1000      # tools/turn_value_fit.BOOTSTRAP_RESAMPLES
 GAIN_RESAMPLES = 4000             # tools/analysis/turn_reads_by_depth.GAIN_RESAMPLES
-BAR_SE = 2.0                      # "by 2 paired standard errors"
+BAR_SE = 2.0                      # "by 2 paired standard errors" (Data-limited)
+PASS_BAR_SE = 2.0                 # Pass: both differences with the HP margin, in paired SE
 READS = ("read0", "pre")          # right after the end_turn, and before it
 
 
@@ -242,38 +243,69 @@ def beats(diff: Optional[Dict], bar: float = BAR_SE) -> bool:
         and diff["mean"] > bar * diff["se"]
 
 
+def z_score(diff: Optional[Dict]) -> float:
+    """A paired difference in its standard errors (+inf for a positive
+    difference with none, -inf where undefined): `beats(diff, bar)` is
+    `z_score(diff) > bar` for every bar above 0."""
+    if not diff or not (math.isfinite(diff["mean"]) and math.isfinite(diff["se"])):
+        return -math.inf
+    if diff["se"] > 0:
+        return diff["mean"] / diff["se"]
+    return math.inf if diff["mean"] > 0 else -math.inf
+
+
+def pass_candidates(by_read: Mapping[str, Dict], critics: Sequence[str], margin: str = "hp_margin"
+                    ) -> List[Dict]:
+    """Every (critic, read) with its selection-gain and corrected-correlation
+    differences with the HP margin, and the smaller of their z-scores."""
+    out = []
+    for r in by_read:
+        for c in critics:
+            gain = by_read[r]["gains"]["differences"].get(f"{c}-{margin}")
+            corr = by_read[r]["correlations"]["differences"].get(f"{c}-{margin}")
+            out.append({"critic": c, "read": r, "gain": gain, "correlation": corr,
+                        "z": min(z_score(gain), z_score(corr))})
+    return out
+
+
+def pass_score(by_read: Mapping[str, Dict], critics: Sequence[str], margin: str = "hp_margin") -> float:
+    """The largest bar Pass clears: the reading is Pass at a bar below it."""
+    return max((p["z"] for p in pass_candidates(by_read, critics, margin)), default=-math.inf)
+
+
 def readings(by_read: Mapping[str, Dict], critics: Sequence[str], margin: str = "hp_margin",
-             large: str = "T100", small: str = "T25") -> Dict:
+             large: str = "T100", small: str = "T25", pass_bar: float = PASS_BAR_SE) -> Dict:
     """The pre-registered reading, applied mechanically to the luck-adjusted
     statistics of each read (`by_read[read]` holds "gains" and
     "correlations" as `paired_gains` and `paired_correlations` give them,
     each critic paired with `margin`, and `large` with `small`).
 
-    Pass: some critic's selection gain exceeds the HP margin's by 2 paired
-    standard errors at either read. Data-limited: otherwise, when `large`
+    Pass: for some critic at some read, both its selection-gain difference
+    and its corrected-correlation difference with the HP margin exceed
+    `pass_bar` paired standard errors. Data-limited: otherwise, when `large`
     beats `small` in correlation by 2 paired standard errors at either
     read. Kill: otherwise."""
-    passing = [{"critic": c, "read": r, **by_read[r]["gains"]["differences"][f"{c}-{margin}"]}
-               for r in by_read for c in critics
-               if beats(by_read[r]["gains"]["differences"].get(f"{c}-{margin}"))]
+    candidates = pass_candidates(by_read, critics, margin)
+    passing = [p for p in candidates if beats(p["gain"], pass_bar) and beats(p["correlation"], pass_bar)]
     if passing:
-        why = "; ".join(f"{p['critic']} at {p['read']}: selection gain over the HP margin's "
-                        f"{p['mean']:+.3f} +- {p['se']:.3f}" for p in passing)
-        return {"reading": "Pass", "why": why, "passing": passing}
+        why = "; ".join(f"{p['critic']} at {p['read']}: over the HP margin, selection gain "
+                        f"{p['gain']['mean']:+.3f} +- {p['gain']['se']:.3f}, correlation "
+                        f"{p['correlation']['mean']:+.3f} +- {p['correlation']['se']:.3f}" for p in passing)
+        return {"reading": "Pass", "why": why, "passing": passing, "pass_bar": pass_bar}
     size = [{"read": r, **by_read[r]["correlations"]["differences"][f"{large}-{small}"]}
             for r in by_read if f"{large}-{small}" in by_read[r]["correlations"]["differences"]]
     growing = [s for s in size if beats(s)]
     if growing:
         why = "; ".join(f"{large} over {small} in correlation at {s['read']}: {s['mean']:+.3f} +- {s['se']:.3f}"
                         for s in growing)
-        return {"reading": "Data-limited", "why": "no critic passes; " + why, "size": size}
-    best = max(((r, c, by_read[r]["gains"]["differences"][f"{c}-{margin}"]) for r in by_read for c in critics
-                if f"{c}-{margin}" in by_read[r]["gains"]["differences"]),
-               key=lambda t: t[2]["mean"] / t[2]["se"] if t[2]["se"] > 0 else -math.inf, default=None)
-    why = "no critic's selection gain exceeds the HP margin's by 2 paired SE"
-    if best is not None:
-        why += (f" (closest: {best[1]} at {best[0]}, {best[2]['mean']:+.3f} +- {best[2]['se']:.3f})")
+        return {"reading": "Data-limited", "why": "no critic passes; " + why, "size": size, "pass_bar": pass_bar}
+    why = (f"no critic beats the HP margin by {pass_bar:g} paired SE in both selection gain and correlation")
+    best = max(candidates, key=lambda p: p["z"], default=None)
+    if best is not None and best["gain"] and best["correlation"]:
+        why += (f" (closest: {best['critic']} at {best['read']}, gain {best['gain']['mean']:+.3f} +- "
+                f"{best['gain']['se']:.3f}, correlation {best['correlation']['mean']:+.3f} +- "
+                f"{best['correlation']['se']:.3f})")
     why += f", and {large} does not beat {small} in correlation by 2 paired SE"
     if size:
         why += " (" + ", ".join(f"{s['read']} {s['mean']:+.3f} +- {s['se']:.3f}" for s in size) + ")"
-    return {"reading": "Kill", "why": why, "size": size}
+    return {"reading": "Kill", "why": why, "size": size, "pass_bar": pass_bar}

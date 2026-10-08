@@ -196,8 +196,9 @@ rising (T100 above T25 by 0.03-0.08); O100 below T100 by 0.03-0.10; TH
 between T50 and T100; Tsmall within 0.05 of T100.
 
 **Readings**, each with its next action:
-- **Pass:** some critic's selection gain exceeds the HP margin's by 2 paired
-  standard errors at read 0 or before end_turn. Step 2 builds an attack-only
+- **Pass:** for some critic at one read (read 0 or before end_turn), both its
+  selection gain and its corrected correlation exceed the HP margin's by 2
+  paired standard errors, on the luck-adjusted basis. Step 2 builds an attack-only
   operator with that critic (its observation form if O100 passes; the true
   form needs the world sampler first) and pre-registers its 800-game gate
   against `parity3`.
@@ -223,23 +224,26 @@ the HP margin's correlation 0.377; error correlations of 0.12 between a
 learned head and the margin and 0.27 between a head's two reads (`obs8`'s,
 measured), and 0.5 between two critics (assumed; 0.2 and 0.8 in the first
 row). Each draw goes through the readout's own statistics and readings, 80
-draws a row:
+draws a row, under the Pass reading above:
 
 | critics' true correlation minus the margin's | Pass | Data-limited | Kill |
 |---|---|---|---|
-| 0 for all (0.2 to 0.8 between critics) | 0.09-0.14 | 0.04-0.10 | 0.76-0.88 |
-| +0.05 for all | 0.34 | 0.07 | 0.59 |
-| the predictions (T100 +0.10, T25 +0.05) | 0.36 | 0.20 | 0.44 |
-| +0.20 for T100, +0.12 for T25 | 0.70 | 0.10 | 0.20 |
-| below it, size +0.10 (T100 -0.05, T25 -0.15) | 0.04 | 0.39 | 0.57 |
-| -0.13 for all | 0.01 | 0.04 | 0.95 |
+| 0 for all (0.2 to 0.8 between critics) | 0.00-0.05 | 0.04-0.10 | 0.85-0.96 |
+| +0.05 for all | 0.14 | 0.09 | 0.78 |
+| the predictions (T100 +0.10, T25 +0.05) | 0.17 | 0.24 | 0.59 |
+| +0.20 for T100, +0.12 for T25 | 0.57 | 0.14 | 0.29 |
+| below it, size +0.10 (T100 -0.05, T25 -0.15) | 0.01 | 0.40 | 0.59 |
+| -0.13 for all | 0.00 | 0.04 | 0.96 |
 
-Pass takes the best of twelve paired tests (six critics, two reads): with no
-critic better than the margin it fires on about a tenth of the draws. A
-critic 0.10 above the margin in correlation selects about 0.02 better, one
-paired standard error (0.019), so the predicted effects pass about a third
-of the time. A size effect of 0.10 in correlation reads Data-limited 0.39 of
-the time (the paired standard error of T100 against T25 is 0.06-0.10).
+Pass takes the best of twelve (critic, read) pairs, each needing both tests:
+with no critic better than the margin it fires on at most 0.05 of the draws
+(4 of 80 at 0.8 between critics, about +-0.025 from the draw count), so its
+bar stays at 2 paired standard errors, the smallest step of 0.25 that keeps
+it there. A critic 0.10 above the margin in correlation selects about 0.02
+better, one paired standard error (0.019): the predicted effects pass 0.17
+of the time, +0.20 passes 0.57. A size effect of 0.10 in correlation reads
+Data-limited 0.40 of the time (the paired standard error of T100 against T25
+is 0.06-0.10).
 
 **Cost.** One box session: rebuilding and encoding about 22,000 games' sampled
 positions (CPU), six critic trainings of 10-40 minutes each, the readouts in
@@ -270,6 +274,17 @@ minutes: about 3 box-hours, $1.3-1.9 at $0.42-0.63/h. The Vast balance on
   - Corrected: the citations of Bridge and Tesauro and Galperin support
     rollouts, not a learned critic; the 2048 result favours a pre-chance
     afterstate value; the luck term's measured share here is 0.07.
+- Revised before any run, from the operating characteristics: Pass needed
+  only the selection-gain test, and fired on 0.09-0.14 of the null draws (the
+  best of twelve paired tests). It now needs, for one critic at one read, both
+  the selection-gain and the correlation difference with the HP margin above
+  2 paired standard errors: 0.00-0.05 under the null, 0.17 at the predictions,
+  0.57 at T100 +0.20. Data-limited and Kill are unchanged.
+- Adopted: the critic's auxiliary head trains its trunk (it reads the global
+  token with its gradient). The 2026-09-01 detach protects the policy's trunk
+  from the auxiliary heads; a critic is a network of its own with no policy to
+  disturb, and an auxiliary head that cannot reach the trunk would leave the
+  critic's value unchanged.
 - Parked, not rejected: the CPU turn planner
   (docs/selfplay_algorithm_design_20261007.md, landed on `main` with this
   document). Its rung 0 with fresh dice is step 1's kill branch.

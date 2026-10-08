@@ -36,6 +36,13 @@ Each simulated benchmark is read by the readout's own statistics
 bootstrap standard errors, at both reads) and its own readings function.
 The bootstraps run at a quarter of the readout's resamples, which adds
 noise to each standard error, not bias.
+
+Pass's bar (both differences with the HP margin, in paired standard
+errors) is the smallest of 2, 2.25, 2.5, ... at which Pass fires on at most
+MAX_NULL_PASS of the null draws, for every assumed correlation between
+critics; each draw's reading at a bar follows from its pass score
+(`turn_bench_stats.pass_score`), checked against the readings function at
+the default bar on every draw.
 """
 from __future__ import annotations
 
@@ -58,6 +65,8 @@ CRITICS = ("T25", "T50", "T100", "O100", "TH", "Tsmall")
 MARGIN = "hp_margin"
 TRUTH_PLAYOUTS = 20
 SPREAD_SIGMA = 0.9
+MAX_NULL_PASS = 0.05
+BAR_LADDER = tuple(2.0 + 0.25 * k for k in range(13))       # 2 to 5 paired SE
 KAPPA_CRITICS = 0.5
 KAPPA_MARGIN_READS = 0.9
 # The scenarios: each critic's true correlation; the HP margin's is the
@@ -179,7 +188,12 @@ def simulate(arrays: Dict, cal: Dict, effects: Dict[str, float], kappa_critics: 
                     "gains": S.paired_gains(g, truth.mean(axis=1), positions, arrays["slot"], pairs,
                                             resamples=gain_resamples)}
              for read, g in by_read.items()}
-    return {"reading": S.readings(stats, CRITICS)["reading"],
+    score = S.pass_score(stats, CRITICS)
+    limited = any(S.beats(stats[r]["correlations"]["differences"]["T100-T25"]) for r in stats)
+    reading = S.readings(stats, CRITICS)["reading"]
+    if reading != reading_at(score, limited, S.PASS_BAR_SE):
+        raise AssertionError("the pass score disagrees with the readings function")
+    return {"reading": reading, "pass_score": score, "data_limited": limited,
             "t100_gain": stats["read0"]["gains"]["differences"]["T100-hp_margin"],
             "t100_corr": stats["read0"]["correlations"]["differences"]["T100-hp_margin"],
             "size_corr": stats["read0"]["correlations"]["differences"]["T100-T25"],
@@ -187,25 +201,43 @@ def simulate(arrays: Dict, cal: Dict, effects: Dict[str, float], kappa_critics: 
             "margin_gain_se": stats["read0"]["gains"]["graders"][MARGIN]["se"]}
 
 
+def reading_at(score: float, limited: bool, bar: float) -> str:
+    """A draw's reading with Pass's bar at `bar`."""
+    return "Pass" if score > bar else "Data-limited" if limited else "Kill"
+
+
+def shares(results: Sequence[Dict], bar: float) -> Dict[str, float]:
+    readings = [reading_at(r["pass_score"], r["data_limited"], bar) for r in results]
+    return {f"p_{k}": readings.count(k) / len(readings) for k in ("Pass", "Data-limited", "Kill")}
+
+
 def run(arrays: Dict, sims: int, seed: int, kappas: Sequence[float], correlation_resamples: int,
         gain_resamples: int) -> Dict:
     cal = calibrate(arrays)
     rng = np.random.default_rng(seed)
-    rows = []
+    draws = []
     for name, effects in SCENARIOS.items():
         for kappa in (kappas if name.startswith("null") else kappas[:1]):
-            results = [simulate(arrays, cal, effects, kappa, rng, correlation_resamples, gain_resamples)
-                       for _ in range(sims)]
-            readings = [r["reading"] for r in results]
-            rows.append({"scenario": name, "kappa_critics": kappa, "effects": effects, "sims": sims,
-                         **{f"p_{k}": readings.count(k) / sims for k in ("Pass", "Data-limited", "Kill")},
-                         "t100_gain_minus_margin": float(np.mean([r["t100_gain"]["mean"] for r in results])),
-                         "t100_gain_minus_margin_se": float(np.mean([r["t100_gain"]["se"] for r in results])),
-                         "t100_corr_minus_margin_se": float(np.nanmean([r["t100_corr"]["se"] for r in results])),
-                         "t100_minus_t25_corr_se": float(np.nanmean([r["size_corr"]["se"] for r in results])),
-                         "margin_corr_se": float(np.nanmean([r["margin_corr_se"] for r in results])),
-                         "margin_gain_se": float(np.mean([r["margin_gain_se"] for r in results]))})
-    return {"calibration": {k: v for k, v in cal.items() if k != "noise_var"}, "rows": rows, "seed": seed,
+            draws.append((name, kappa, effects, [simulate(arrays, cal, effects, kappa, rng, correlation_resamples,
+                                                          gain_resamples) for _ in range(sims)]))
+    ladder = [{"bar": bar, **{f"{name}|{kappa}": shares(results, bar)["p_Pass"]
+                              for name, kappa, _, results in draws}} for bar in BAR_LADDER]
+    null = [f"{name}|{kappa}" for name, kappa, _, _ in draws if name.startswith("null")]
+    bar = next((row["bar"] for row in ladder if max(row[k] for k in null) <= MAX_NULL_PASS), None)
+    rows = []
+    for name, kappa, effects, results in draws:
+        rows.append({"scenario": name, "kappa_critics": kappa, "effects": effects, "sims": sims,
+                     **shares(results, bar if bar is not None else BAR_LADDER[-1]),
+                     "t100_gain_minus_margin": float(np.mean([r["t100_gain"]["mean"] for r in results])),
+                     "t100_gain_minus_margin_se": float(np.mean([r["t100_gain"]["se"] for r in results])),
+                     "t100_corr_minus_margin_se": float(np.nanmean([r["t100_corr"]["se"] for r in results])),
+                     "t100_minus_t25_corr_se": float(np.nanmean([r["size_corr"]["se"] for r in results])),
+                     "margin_corr_se": float(np.nanmean([r["margin_corr_se"] for r in results])),
+                     "margin_gain_se": float(np.mean([r["margin_gain_se"] for r in results]))})
+    return {"calibration": {k: v for k, v in cal.items() if k != "noise_var"}, "pass_bar": bar,
+            "rule": "Pass: a critic's selection-gain and corrected-correlation differences with the HP margin "
+                    "both above pass_bar paired SE at one read",
+            "max_null_pass": MAX_NULL_PASS, "ladder": ladder, "rows": rows, "seed": seed,
             "resamples": {"correlation": correlation_resamples, "gain": gain_resamples}}
 
 
@@ -214,13 +246,18 @@ def markdown(out: Dict) -> str:
     lines = [f"calibration: within-position sd of true values {math.sqrt(cal['var_v']):.3f}, base lead "
              f"{cal['base_advantage']:.3f}, spread sigma {SPREAD_SIGMA}, HP margin r {cal['r_margin']:.3f}, "
              f"obs8's head r {cal['r_head']:.3f}, error correlations head-margin {cal['kappa_head_margin']:.2f}, "
-             f"head's two reads {cal['kappa_head_reads']:.2f}", "",
+             f"head's two reads {cal['kappa_head_reads']:.2f}",
+             f"Pass's bar: {out['pass_bar']} paired SE (the smallest with null Pass at most {out['max_null_pass']})", "",
              "| scenario (critics' r minus the margin's) | kappa | Pass | Data-limited | Kill | "
              "T100 gain - margin (SE) | SE: T100-T25 r, margin r, margin gain |", "|---|---|---|---|---|---|---|"]
     for r in out["rows"]:
         lines.append(f"| {r['scenario']} | {r['kappa_critics']:.1f} | {r['p_Pass']:.2f} | {r['p_Data-limited']:.2f} | "
                      f"{r['p_Kill']:.2f} | {r['t100_gain_minus_margin']:+.3f} ({r['t100_gain_minus_margin_se']:.3f}) | "
                      f"{r['t100_minus_t25_corr_se']:.3f}, {r['margin_corr_se']:.3f}, {r['margin_gain_se']:.3f} |")
+    lines += ["", "Pass's share by bar: " + ", ".join(k.split("|")[0][:24] + "|" + k.split("|")[1]
+                                                       for k in out["ladder"][0] if k != "bar")]
+    for row in out["ladder"]:
+        lines.append(f"{row['bar']:.2f}: " + " ".join(f"{v:.3f}" for k, v in row.items() if k != "bar"))
     return "\n".join(lines)
 
 

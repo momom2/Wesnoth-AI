@@ -7,6 +7,154 @@
   "kappa_head_margin": 0.1160194139461451,
   "kappa_head_reads": 0.26524360045307976
  },
+ "pass_bar": 2.0,
+ "rule": "Pass: a critic's selection-gain and corrected-correlation differences with the HP margin both above pass_bar paired SE at one read",
+ "max_null_pass": 0.05,
+ "ladder": [
+  {
+   "bar": 2.0,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.025,
+   "null: every critic equals the HP margin|0.8": 0.05,
+   "+0.05 for every critic, no size effect|0.5": 0.1375,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.175,
+   "+0.20 for T100, T25 +0.12|0.5": 0.575,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0125,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 2.25,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.025,
+   "null: every critic equals the HP margin|0.8": 0.0125,
+   "+0.05 for every critic, no size effect|0.5": 0.1125,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0875,
+   "+0.20 for T100, T25 +0.12|0.5": 0.425,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 2.5,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0125,
+   "+0.05 for every critic, no size effect|0.5": 0.05,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.05,
+   "+0.20 for T100, T25 +0.12|0.5": 0.325,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 2.75,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0125,
+   "+0.05 for every critic, no size effect|0.5": 0.0375,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0125,
+   "+0.20 for T100, T25 +0.12|0.5": 0.2,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 3.0,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0125,
+   "+0.05 for every critic, no size effect|0.5": 0.025,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.1125,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 3.25,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0125,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.0625,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 3.5,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.05,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 3.75,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.0,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 4.0,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.0,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 4.25,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.0,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 4.5,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.0,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 4.75,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.0,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  },
+  {
+   "bar": 5.0,
+   "null: every critic equals the HP margin|0.5": 0.0,
+   "null: every critic equals the HP margin|0.2": 0.0,
+   "null: every critic equals the HP margin|0.8": 0.0,
+   "+0.05 for every critic, no size effect|0.5": 0.0,
+   "the lead's predictions (T100 +0.10, T25 +0.05)|0.5": 0.0,
+   "+0.20 for T100, T25 +0.12|0.5": 0.0,
+   "below the margin, size +0.10 (T100 -0.05, T25 -0.15)|0.5": 0.0,
+   "below the margin by 0.13, no size effect|0.5": 0.0
+  }
+ ],
  "rows": [
   {
    "scenario": "null: every critic equals the HP margin",
@@ -20,9 +168,9 @@
     "Tsmall": 0.0
    },
    "sims": 80,
-   "p_Pass": 0.0875,
+   "p_Pass": 0.0,
    "p_Data-limited": 0.0375,
-   "p_Kill": 0.875,
+   "p_Kill": 0.9625,
    "t100_gain_minus_margin": -0.0035857348955322865,
    "t100_gain_minus_margin_se": 0.018808671772026053,
    "t100_corr_minus_margin_se": 0.11634553165142884,
@@ -42,9 +190,9 @@
     "Tsmall": 0.0
    },
    "sims": 80,
-   "p_Pass": 0.0875,
+   "p_Pass": 0.025,
    "p_Data-limited": 0.0875,
-   "p_Kill": 0.825,
+   "p_Kill": 0.8875,
    "t100_gain_minus_margin": -0.0007159178859431287,
    "t100_gain_minus_margin_se": 0.01841165376793717,
    "t100_corr_minus_margin_se": 0.10237692750480613,
@@ -64,9 +212,9 @@
     "Tsmall": 0.0
    },
    "sims": 80,
-   "p_Pass": 0.1375,
+   "p_Pass": 0.05,
    "p_Data-limited": 0.1,
-   "p_Kill": 0.7625,
+   "p_Kill": 0.85,
    "t100_gain_minus_margin": 0.001002874846367857,
    "t100_gain_minus_margin_se": 0.01914263460016253,
    "t100_corr_minus_margin_se": 0.10702861761961349,
@@ -86,9 +234,9 @@
     "Tsmall": 0.05
    },
    "sims": 80,
-   "p_Pass": 0.3375,
-   "p_Data-limited": 0.075,
-   "p_Kill": 0.5875,
+   "p_Pass": 0.1375,
+   "p_Data-limited": 0.0875,
+   "p_Kill": 0.775,
    "t100_gain_minus_margin": 0.005218770433630794,
    "t100_gain_minus_margin_se": 0.018596009152114557,
    "t100_corr_minus_margin_se": 0.10712195859061946,
@@ -108,9 +256,9 @@
     "Tsmall": 0.07
    },
    "sims": 80,
-   "p_Pass": 0.3625,
-   "p_Data-limited": 0.2,
-   "p_Kill": 0.4375,
+   "p_Pass": 0.175,
+   "p_Data-limited": 0.2375,
+   "p_Kill": 0.5875,
    "t100_gain_minus_margin": 0.017393500893341154,
    "t100_gain_minus_margin_se": 0.018484178812025548,
    "t100_corr_minus_margin_se": 0.117814485649223,
@@ -130,9 +278,9 @@
     "Tsmall": 0.17
    },
    "sims": 80,
-   "p_Pass": 0.7,
-   "p_Data-limited": 0.1,
-   "p_Kill": 0.2,
+   "p_Pass": 0.575,
+   "p_Data-limited": 0.1375,
+   "p_Kill": 0.2875,
    "t100_gain_minus_margin": 0.026599323159134027,
    "t100_gain_minus_margin_se": 0.017839777885368474,
    "t100_corr_minus_margin_se": 0.09287168700441742,
@@ -152,9 +300,9 @@
     "Tsmall": -0.1
    },
    "sims": 80,
-   "p_Pass": 0.0375,
-   "p_Data-limited": 0.3875,
-   "p_Kill": 0.575,
+   "p_Pass": 0.0125,
+   "p_Data-limited": 0.4,
+   "p_Kill": 0.5875,
    "t100_gain_minus_margin": -0.009668174262645908,
    "t100_gain_minus_margin_se": 0.018616425362213935,
    "t100_corr_minus_margin_se": 0.10585505921464664,
@@ -174,9 +322,9 @@
     "Tsmall": -0.13
    },
    "sims": 80,
-   "p_Pass": 0.0125,
+   "p_Pass": 0.0,
    "p_Data-limited": 0.0375,
-   "p_Kill": 0.95,
+   "p_Kill": 0.9625,
    "t100_gain_minus_margin": -0.01567514917714867,
    "t100_gain_minus_margin_se": 0.01957389887461696,
    "t100_corr_minus_margin_se": 0.12509079897440617,
@@ -190,5 +338,5 @@
   "correlation": 250,
   "gain": 1000
  },
- "seconds": 45.8
+ "seconds": 42.6
 }

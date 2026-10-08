@@ -73,22 +73,35 @@ def test_a_grader_paired_with_itself_differs_by_nothing(arrays):
     assert corr["differences"]["head-hp"]["se"] > 0 and gains["differences"]["head-hp"]["se"] > 0
 
 
-def _stats(gain_pre=(0.0, 0.02), gain_read0=(0.0, 0.02), size=(0.0, 0.05)):
-    def by(gain):
-        return {"gains": {"differences": {f"{c}-hp_margin": {"mean": 0.0, "se": 0.02} for c in ("T25", "T100")}
-                          | {"TH-hp_margin": {"mean": gain[0], "se": gain[1]}}},
-                "correlations": {"differences": {"T100-T25": {"mean": size[0], "se": size[1]}}}}
-    return {"read0": by(gain_read0), "pre": by(gain_pre)}
+def _stats(gain_pre=(0.0, 0.02), gain_read0=(0.0, 0.02), corr_pre=(0.0, 0.1), corr_read0=(0.0, 0.1),
+           size=(0.0, 0.05)):
+    """Paired statistics in which only TH and T100-T25 differ from nothing."""
+    def by(gain, corr):
+        quiet = {f"{c}-hp_margin": {"mean": 0.0, "se": 0.02} for c in ("T25", "T100")}
+        return {"gains": {"differences": quiet | {"TH-hp_margin": {"mean": gain[0], "se": gain[1]}}},
+                "correlations": {"differences": quiet | {"TH-hp_margin": {"mean": corr[0], "se": corr[1]},
+                                                         "T100-T25": {"mean": size[0], "se": size[1]}}}}
+    return {"read0": by(gain_read0, corr_read0), "pre": by(gain_pre, corr_pre)}
 
 
-def test_the_readings_fire_as_registered():
+def test_pass_needs_both_differences_of_one_critic_at_one_read():
     critics = ("T25", "T100", "TH")
-    passing = S.readings(_stats(gain_pre=(0.05, 0.02)), critics)
+    passing = S.readings(_stats(gain_pre=(0.05, 0.02), corr_pre=(0.25, 0.1)), critics)
     assert passing["reading"] == "Pass" and passing["passing"][0]["critic"] == "TH"
     assert passing["passing"][0]["read"] == "pre"
-    assert S.readings(_stats(gain_pre=(0.04, 0.02)), critics)["reading"] != "Pass", "2 SE is not above 2 SE"
-    assert S.readings(_stats(gain_read0=(0.05, 0.02), size=(0.2, 0.05)), critics)["reading"] == "Pass"
-    limited = S.readings(_stats(size=(0.11, 0.05)), critics)
+    assert S.readings(_stats(gain_pre=(0.05, 0.02)), critics)["reading"] == "Kill", "the gain alone"
+    assert S.readings(_stats(corr_pre=(0.25, 0.1)), critics)["reading"] == "Kill", "the correlation alone"
+    assert S.readings(_stats(gain_read0=(0.05, 0.02), corr_pre=(0.25, 0.1)), critics)["reading"] == "Kill", \
+        "the two at different reads"
+    assert S.readings(_stats(gain_pre=(0.04, 0.02), corr_pre=(0.25, 0.1)), critics)["reading"] != "Pass", \
+        "2 SE is not above 2 SE"
+    assert S.readings(_stats(gain_pre=(0.05, 0.02), corr_pre=(0.25, 0.1)), critics, pass_bar=2.5)["reading"] == "Kill"
+    assert S.pass_score(_stats(gain_pre=(0.05, 0.02), corr_pre=(0.25, 0.1)), critics) == pytest.approx(2.5)
+
+
+def test_data_limited_and_kill_keep_their_definitions():
+    critics = ("T25", "T100", "TH")
+    limited = S.readings(_stats(gain_pre=(0.05, 0.02), size=(0.11, 0.05)), critics)
     assert limited["reading"] == "Data-limited" and "T100 over T25" in limited["why"]
     killed = S.readings(_stats(size=(0.10, 0.05)), critics)
     assert killed["reading"] == "Kill" and "closest" in killed["why"]
