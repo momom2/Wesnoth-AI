@@ -30,6 +30,7 @@ lead recommends; each states what it decides.
 |---|---|---|---|
 | Q1. Step 1, the critics (`scripts/critic_step1_box.sh` on `exp/value-policy-iteration`) | yes | about 3.6 h, $1.8 expected, $2.9 at its 6 h switch | the evaluator: Pass -> Q3, Data-limited -> Q4, Kill -> Q5 |
 | Q2. `parity3`'s baselines: the self-pin, 64 against 0 slots, 64 against 16 slots, 800 decisive each | yes (`scripts/parity3_baselines_box.sh`, docs/parity3_baselines_prereg_20261008.md) | about 1.5 h, $0.7 | the noise floor of every later match, and the memory's cost and size in play |
+| Q7. The look-ahead player with the material evaluator against `parity3` (docs/lookahead_material_gate_prereg_20261009.md) | box script being built (`feature/lookahead-gate-box`) | about 45 min, $0.3-0.5; can share Q2's rental | whether exact one-step look-ahead with plain material is already a teacher, and the baseline every critic gate is read against |
 | Q3. Step 2's gate: the look-ahead player with the critic against `parity3`, with the material evaluator as its control | being built (`feature/lookahead-player`); after Q1 Pass | priced by the build | whether the operator is a teacher (plan rule 2) |
 | Q4. 20,000 `parity3` self-play games and their critic | after Q1 Data-limited | about $3.5-5 | whether more games make the critic rank |
 | Q5. The rollout evaluator in the same player: gain test, then gate | after Q1 Kill | about $5-15 | whether rollouts make the operator a teacher |
