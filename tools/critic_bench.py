@@ -281,7 +281,7 @@ def benchmark_arrays(cache_path: Path, verdict_path: Path) -> Dict:
     head read offline before the end_turn (`value_reference`) and after it
     (`value_post`); and the verdict's luck coefficients."""
     import torch
-    c = torch.load(cache_path, map_location="cpu", weights_only=False)
+    c = torch.load(cache_path, map_location="cpu", weights_only=True)
     verdict = json.loads(Path(verdict_path).read_text(encoding="utf-8"))
 
     def column(values):
