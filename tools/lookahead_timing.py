@@ -59,6 +59,7 @@ def main(argv=None) -> int:
     ap.add_argument("--critic-view", choices=("obs", "true"), default="obs")
     ap.add_argument("--critic-device", choices=("cpu", "cuda"), default="cpu")
     ap.add_argument("--threads", type=int, default=2)
+    ap.add_argument("--out", type=Path, default=None, help="also write the record to this file")
     args = ap.parse_args(argv)
     torch.set_num_threads(args.threads)
     from tools.eval_players import _load_policy, peek_checkpoint_arch
@@ -93,12 +94,15 @@ def main(argv=None) -> int:
             sim.step(player.select_action(snapshot_view(sim.gs), game_label="t", sim=sim))
             n += 1
     tel = player.telemetry("t")
-    print(json.dumps({"scenario": setup.scenario_id, "turn": sim.turn_number, "warmup_decisions": args.warmup,
-                      "warmup_seconds_per_decision": round(warm / max(1, args.warmup), 4),
-                      "evaluator": cfg.evaluator.get("name"), "critic_arch": args.critic_arch,
-                      "evaluator_seconds_encode": round(player.evaluator.seconds_encode, 4),
-                      "evaluator_seconds_forward": round(player.evaluator.seconds_forward, 4),
-                      "telemetry": tel}, indent=1, default=str))
+    text = json.dumps({"scenario": setup.scenario_id, "turn": sim.turn_number, "warmup_decisions": args.warmup,
+                       "warmup_seconds_per_decision": round(warm / max(1, args.warmup), 4),
+                       "evaluator": cfg.evaluator.get("name"), "critic_arch": args.critic_arch,
+                       "evaluator_seconds_encode": round(player.evaluator.seconds_encode, 4),
+                       "evaluator_seconds_forward": round(player.evaluator.seconds_forward, 4),
+                       "telemetry": tel}, indent=1, default=str)
+    if args.out is not None:
+        args.out.write_text(text + "\n", encoding="utf-8")
+    print(text)
     return 0
 
 
