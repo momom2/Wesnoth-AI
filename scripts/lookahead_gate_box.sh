@@ -107,8 +107,10 @@ arms_problem() {                 # prints what is wrong with LOOKAHEAD_ARMS, not
             || { echo "arm name '${ARM_NAMES[i]}' is not made of letters, digits, _ and -"; return; }
         [[ ${ARM_CONFIGS[i]} != /* && ${ARM_CONFIGS[i]} != *..* ]] \
             || { echo "arm ${ARM_NAMES[i]}: its configuration ${ARM_CONFIGS[i]} is not a path inside the repository"; return; }
-        [[ ${ARM_SEEDS[i]} =~ ^(0|[1-9][0-9]*)$ ]] && (( ARM_SEEDS[i] + GAMES <= 1000000 )) \
-            || { echo "arm ${ARM_NAMES[i]}: seed base '${ARM_SEEDS[i]}' is not a number (no leading 0) of at most 1,000,000 - $GAMES (replacements add multiples of 1,000,000)"; return; }
+        if ! [[ ${ARM_SEEDS[i]} =~ ^(0|[1-9][0-9]*)$ ]] || (( ARM_SEEDS[i] + GAMES > 1000000 )); then
+            echo "arm ${ARM_NAMES[i]}: seed base '${ARM_SEEDS[i]}' is not a number (no leading 0) of at most 1,000,000 - $GAMES (replacements add multiples of 1,000,000)"
+            return
+        fi
         for (( j = 0; j < i; j++ )); do
             [ "${ARM_NAMES[i]}" != "${ARM_NAMES[j]}" ] || { echo "arm ${ARM_NAMES[i]} is named twice"; return; }
             gap=$(( ARM_SEEDS[i] - ARM_SEEDS[j] ))
