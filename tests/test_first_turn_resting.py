@@ -1,7 +1,7 @@
 """Every unit of a side rests from each of its turn starts, the game's
 first included, petrified units too (play_controller.cpp:509-514, 1.18.4;
-docs/wesnoth_rules.md "Resting lifecycle"), in both appliers; records of
-format 3 and earlier rebuild under the rule they were played with."""
+docs/wesnoth_rules.md "Resting lifecycle"); records of format 3 and
+earlier rebuild under the rule they were played with."""
 from __future__ import annotations
 
 import dataclasses
@@ -21,11 +21,7 @@ from tools.wesnoth_sim import WesnothSim  # noqa: E402
 from wesnoth_ai.game_core import game_core_class  # noqa: E402
 from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate  # noqa: E402
 
-CORE = pytest.param(True, marks=pytest.mark.skipif(game_core_class() is None,
-                                                   reason="needs the wesnoth_core wheel of this source's phase"))
-
-
-def _sim(*, use_core, petrify_leader=False, old_rule=False, max_turns=6):
+def _sim(*, petrify_leader=False, old_rule=False, max_turns=6):
     setup = scenario_setup(5)
     gs = build_scenario_gamestate(setup)
     if petrify_leader:
@@ -34,33 +30,30 @@ def _sim(*, use_core, petrify_leader=False, old_rule=False, max_turns=6):
             dataclasses.replace(leader, statuses=set(leader.statuses) | {"petrified"})}
     if old_rule:
         gs.global_info._skip_first_turn_resting = True
-    return WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=max_turns, use_core=use_core), setup
+    return WesnothSim(gs, scenario_id=setup.scenario_id, max_turns=max_turns), setup
 
 
-@pytest.mark.parametrize("use_core", [False, CORE])
-def test_side_1_rests_from_the_games_first_side_turn(use_core):
-    sim, _ = _sim(use_core=use_core)
+def test_side_1_rests_from_the_games_first_side_turn():
+    sim, _ = _sim()
     side1 = [u for u in sim.gs.map.units if u.side == 1]
     assert side1 and all("resting" in u.statuses for u in side1)
-    old, _ = _sim(use_core=use_core, old_rule=True)
+    old, _ = _sim(old_rule=True)
     assert not any("resting" in u.statuses for u in old.gs.map.units if u.side == 1)
 
 
-@pytest.mark.parametrize("use_core", [False, CORE])
-def test_a_petrified_unit_rests_with_its_side(use_core):
-    sim, _ = _sim(use_core=use_core, petrify_leader=True)
+def test_a_petrified_unit_rests_with_its_side():
+    sim, _ = _sim(petrify_leader=True)
     leader = next(u for u in sim.gs.map.units if u.side == 1 and u.is_leader)
     assert {"petrified", "resting"} <= set(leader.statuses)
 
 
-@pytest.mark.parametrize("use_core", [False, CORE])
-def test_a_leader_that_stood_still_on_turn_1_rest_heals_on_turn_2(use_core):
+def test_a_leader_that_stood_still_on_turn_1_rest_heals_on_turn_2():
     """Hurt during side 2's first turn, side 1's leader, which has not
     moved since the game began, heals the rest heal at its second turn;
     under the earlier rule it did not rest, so it did not heal."""
     healed = {}
     for old_rule in (False, True):
-        sim, _ = _sim(use_core=use_core, old_rule=old_rule)
+        sim, _ = _sim(old_rule=old_rule)
         sim.step({"type": "end_turn"})                         # side 1 ends turn 1 without acting
         gs = sim.gs
         leader = next(u for u in gs.map.units if u.side == 1 and u.is_leader)
@@ -74,7 +67,7 @@ def test_a_leader_that_stood_still_on_turn_1_rest_heals_on_turn_2(use_core):
 
 
 def _played_record(old_rule: bool) -> dict:
-    sim, setup = _sim(use_core=True, old_rule=old_rule, max_turns=4)
+    sim, setup = _sim(old_rule=old_rule, max_turns=4)
     policy = Brawler()
     while not sim.done:
         sim.step(policy.select_action(sim.gs, game_label="rest"))

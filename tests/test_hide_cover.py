@@ -97,7 +97,7 @@ def test_hide_cover_active_uses_the_engine_rule():
     from tools.replay_dataset import _rebuild_unit
     from wesnoth_ai.visibility import _hide_cover_active
 
-    sim = fresh_scenario_sim(0, max_turns=6, use_core=False)
+    sim = fresh_scenario_sim(0, max_turns=6)
     gs = sim.gs
     codes = getattr(gs.global_info, "_terrain_codes", None) or {}
     assert codes, "the scenario must carry terrain codes"

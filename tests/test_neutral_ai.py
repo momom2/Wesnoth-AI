@@ -24,10 +24,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.classes import Position
 from wesnoth_ai.core_compare import state_differences
 from sim_test_helpers import commit_view
-from wesnoth_ai.game_core import game_core_class
+from wesnoth_ai.game_core import CoreState
 from tests.test_neutral_ai_precondition import EXPECTED_ACTORS
 from tools.abilities import hex_neighbors
-from tools.replay_dataset import _apply_command, _rebuild_unit
+from tools.replay_dataset import _rebuild_unit
 from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
 
@@ -209,14 +209,11 @@ def test_tentacle_leader_kill_ends_game_for_opponent():
 # AI side too; docs/wesnoth_rules.md "End of a side's turn")
 # ---------------------------------------------------------------------
 
-_CORE = [False, pytest.param(True, marks=pytest.mark.skipif(
-    game_core_class() is None, reason="wesnoth_core.GameCore not available"))]
 _TRANSIENT = ("global _last_checkup_strikes", "global _last_advance_events",
               "global _last_move_walk")
 
 
-def _sim_with_a_hurt_tentacle(scenario_id: str, *, slowed: bool,
-                              use_core: bool = False):
+def _sim_with_a_hurt_tentacle(scenario_id: str, *, slowed: bool):
     """The scenario at side 1's first turn with its first tentacle down
     to 5 hit points and, with `slowed`, slowed as a Shaman's entangle
     would leave it. Returns the simulator, the tentacle's id, a copy of
@@ -226,8 +223,7 @@ def _sim_with_a_hurt_tentacle(scenario_id: str, *, slowed: bool,
         scenario_id=scenario_id,
         faction1="Knalgan Alliance", leader1="Dwarvish Steelclad",
         faction2="Rebels", leader2="Elvish Captain"))
-    sim = WesnothSim(gs, scenario_id=scenario_id, max_turns=10,
-                     use_core=use_core)
+    sim = WesnothSim(gs, scenario_id=scenario_id, max_turns=10)
     state = copy.deepcopy(sim.gs)
     tent = min((u for u in state.map.units if u.side == 3), key=lambda u: u.id)
     statuses = set(tent.statuses) | ({"slowed"} if slowed else set())
@@ -280,21 +276,19 @@ def test_a_tentacle_short_of_full_movement_stops_resting(scenario_id, pinned):
     assert _unit(sim, tid).current_hp - hp_before == (8 if pinned else 10)
 
 
-@pytest.mark.parametrize("use_core", _CORE)
 @pytest.mark.parametrize("scenario_id", sorted(EXPECTED_ACTORS))
-def test_a_neutral_turn_leaves_the_state_its_record_rebuilds(scenario_id, use_core):
+def test_a_neutral_turn_leaves_the_state_its_record_rebuilds(scenario_id):
     """The simulator's state equals its own command stream replayed
-    from the same start: a command recorded without being applied (or
-    applied without being recorded) breaks this, on every scenario
-    with an acting neutral side."""
-    sim, _tid, start, n_played = _sim_with_a_hurt_tentacle(
-        scenario_id, slowed=True, use_core=use_core)
+    from the same start on a core of its own: a command recorded without
+    being applied (or applied without being recorded) breaks this, on
+    every scenario with an acting neutral side."""
+    sim, _tid, start, n_played = _sim_with_a_hurt_tentacle(scenario_id, slowed=True)
     _play_rounds(sim, 2)
     assert sum(1 for rc in sim.command_history
                if rc.side == 3 and rc.kind == "end_turn") == 2
-    rebuilt = start
+    cs = CoreState.from_state(start)
     for rc in sim.command_history[n_played:]:
-        _apply_command(rebuilt, rc.cmd)
-    diffs = [d for d in state_differences(rebuilt, sim.gs, stash=False)
+        cs.apply_command(list(rc.cmd))
+    diffs = [d for d in state_differences(cs.to_state(), sim.gs, stash=False)
              if not d.startswith(_TRANSIENT)]
     assert not diffs, diffs[:3]

@@ -23,7 +23,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sim_test_helpers import fresh_scenario_sim  # noqa: E402
+from sim_test_helpers import commit_view, fresh_scenario_sim  # noqa: E402
 from tools.draw_tiebreak import DrawTiebreakConfig  # noqa: E402
 from tools.mcts import MCTSNode, _node_terminal_value, _terminal_value  # noqa: E402
 
@@ -32,11 +32,12 @@ def _drawn_sim(ended_by: str):
     """A sim whose game ended without a winner, tagged `ended_by`, with
     a material edge for side 1 so the tiebreak is non-zero."""
     from tools.replay_dataset import _replace_unit
-    sim = fresh_scenario_sim(0, max_turns=6, use_core=False)
+    sim = fresh_scenario_sim(0, max_turns=6)
     # Hurt side 2 so the material differential is non-zero (a scenario
     # starts with leaders only, and two healthy leaders are symmetric).
     hurt = next(u for u in sorted(sim.gs.map.units, key=lambda u: u.id) if u.side == 2)
     _replace_unit(sim.gs, hurt, current_hp=max(1, hurt.max_hp // 4))
+    commit_view(sim)
     sim.done, sim.winner, sim.ended_by = True, 0, ended_by
     return sim
 

@@ -162,18 +162,14 @@ def test_the_setting_outlives_the_turn_and_the_turn_end_empties_the_stack():
     assert delayed_shroud.vision_delayed(gs, 1)
 
 
-@pytest.mark.parametrize("use_core", [False, True])
-def test_the_policy_takes_over_a_delaying_side_with_updates_on(use_core):
+def test_the_policy_takes_over_a_delaying_side_with_updates_on():
     """A mid-game start from a game whose player delayed: the simulator
     records `[auto_shroud] active=yes` at the side's first turn, as the
     engine does when an AI takes control."""
     from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai import game_core as gc
-    if use_core and gc.game_core_class() is None:
-        pytest.skip("wesnoth_core.GameCore not available")
     gs = _game()
     gs.global_info._shroud_delayed = frozenset({1})
-    sim = WesnothSim(gs, scenario_id="", apply_scenario_events=False, use_core=use_core)
+    sim = WesnothSim(gs, scenario_id="", apply_scenario_events=False)
     assert [c.cmd for c in sim.command_history] == [["init_side", 1], ["auto_shroud", 1]]
     assert not delayed_shroud.delaying_sides(sim.gs)
 

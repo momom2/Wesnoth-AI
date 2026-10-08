@@ -3301,30 +3301,25 @@ def iter_replay_pairs(gz_path: Path, *, relevant_set: bool = False,
 def iter_record_pairs(data: dict, *, relevant_set: bool = False,
                       stats: Optional[Counter] = None, timeouts: bool = False
                       ) -> Iterator[Tuple[GameState, ActionIndices]]:
-    """`iter_replay_pairs` over an extracted record already in memory.
-    On the Rust core (`game_core.core_enabled`) each pair's state is a
-    fresh view; on the Python applier it is the one state the next
-    command mutates."""
-    from wesnoth_ai.game_core import core_enabled
-    if core_enabled():
-        yield from _iter_record_pairs_on_core(data, relevant_set=relevant_set, stats=stats,
-                                              timeouts=timeouts)
-        return
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    """`iter_replay_pairs` over an extracted record already in memory,
+    replayed on the Rust core (`record_core`): each pair's state is a
+    view of its own fork of the core."""
+    from wesnoth_ai.game_core import view_of
+    cs = record_core(data)
     engine = engine_issued_of(data)
     for i, cmd in enumerate(data.get("commands", [])):
         if i in engine:
             _count_engine_issued(stats, engine[i])
             if timeouts and engine[i] == TIMEOUT:
-                yield gs, timeout_label()
-        elif gs.global_info.current_side in PLAYER_SIDES:
+                yield view_of(cs.fork()), timeout_label()
+        elif int(cs.core.current_side) in PLAYER_SIDES:
+            gs = view_of(cs.fork())
             ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
             if ai is not None:
                 yield gs, ai
             elif stats is not None and cmd and cmd[0] in PAIRED_KINDS:
                 stats["unpaired"] += 1
-        _apply_command(gs, cmd)
+        cs.apply_command(list(cmd))
 
 
 def engine_issued_of(data: dict) -> Dict[int, str]:
@@ -3361,58 +3356,22 @@ def record_core(data: dict):
     return cs
 
 
-def _iter_record_pairs_on_core(data: dict, *, relevant_set: bool, stats: Optional[Counter],
-                               timeouts: bool = False) -> Iterator[Tuple[GameState, ActionIndices]]:
-    from wesnoth_ai.game_core import bind_view
-    cs = record_core(data)
-    engine = engine_issued_of(data)
-    for i, cmd in enumerate(data.get("commands", [])):
-        if i in engine:
-            _count_engine_issued(stats, engine[i])
-            if timeouts and engine[i] == TIMEOUT:
-                gs = cs.to_state()
-                bind_view(gs, cs.fork())
-                yield gs, timeout_label()
-        elif int(cs.core.current_side) in PLAYER_SIDES:
-            gs = cs.to_state()
-            bind_view(gs, cs.fork())
-            ai = _action_indices(gs, cmd, relevant_set=relevant_set, stats=stats)
-            if ai is not None:
-                yield gs, ai
-            elif stats is not None and cmd and cmd[0] in PAIRED_KINDS:
-                stats["unpaired"] += 1
-        cs.apply_command(list(cmd))
-
-
 def iter_replay_pairs_with_state(gz_path: Path
                                  ) -> Iterator[Tuple[GameState, Optional[ActionIndices]]]:
-    """Like iter_replay_pairs but yields the running state for EVERY
-    command (including init_side / recall) and yields the FINAL state
-    after the last command. Useful for tools that want to inspect or
-    dump the state at any point in the replay (e.g. save-state dumper)."""
-    from wesnoth_ai.game_core import core_enabled
+    """Like iter_replay_pairs but yields the state before EVERY command
+    (including init_side / recall), each a view of its own fork of the
+    core, and the FINAL state after the last command. Useful for tools
+    that want to inspect or dump the state at any point in the replay
+    (e.g. save-state dumper)."""
+    from wesnoth_ai.game_core import view_of
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
-    if core_enabled():
-        from wesnoth_ai.game_core import bind_view
-        cs = record_core(data)
-        for cmd in data.get("commands", []):
-            gs = cs.to_state()
-            bind_view(gs, cs.fork())
-            yield gs, _action_indices(gs, cmd)
-            cs.apply_command(list(cmd))
-        gs = cs.to_state()
-        bind_view(gs, cs)
-        yield gs, None
-        return
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
+    cs = record_core(data)
     for cmd in data.get("commands", []):
-        ai = _action_indices(gs, cmd)
-        yield gs, ai
-        _apply_command(gs, cmd)
-    # One more yield with the post-final state for "give me the end".
-    yield gs, None
+        gs = view_of(cs.fork())
+        yield gs, _action_indices(gs, cmd)
+        cs.apply_command(list(cmd))
+    yield view_of(cs), None
 
 
 def iter_dataset(dataset_dir: Path) -> Iterator[Tuple[GameState, ActionIndices]]:

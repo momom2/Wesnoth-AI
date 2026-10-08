@@ -113,16 +113,6 @@ def game_core_class():
     return _GAME_CORE
 
 
-def core_enabled() -> bool:
-    """The Rust-owned state as the state of record of the simulator and
-    of replay reconstruction: the wheel carries GameCore and
-    WESNOTH_RUST_CORE is not 0 (on by default since 2026-09-28; 0 keeps
-    the Python applier, the port's oracle, until its retirement)."""
-    if os.environ.get("WESNOTH_RUST_CORE", "1") == "0":
-        return False
-    return game_core_class() is not None
-
-
 def is_rust_panic(exc: BaseException) -> bool:
     """A Rust panic reaches Python as pyo3's `PanicException`, which
     derives from BaseException precisely so that `except Exception`
@@ -1054,6 +1044,6 @@ def _observation_from_dict(d: dict, geometry):
 
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
-           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of", "core_for", "view_of",
+           "game_core_class", "load_databases", "bind_view", "core_of", "core_for", "view_of",
            "snapshot_view", "build_unit", "build_recruit_unit",
            "unit_db_fallbacks", "is_rust_panic", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]

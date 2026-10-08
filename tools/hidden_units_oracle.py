@@ -13,10 +13,10 @@ at prestart from `games/oracle/setup.lua`), reads the engine's answer
 to "which units does side 1 see" (`[filter_vision]`, the engine's own
 predicate), orders a move through the AI stage and reads the route the
 engine chose, where the unit ended and what it can see afterwards.
-Then it builds the same position in the simulator, walks the SAME
-route through `replay_dataset._apply_command` (the reconstruction path,
-`pathfind_sim.walk_move_path`) and compares: landing hex, movement
-left, the visible set before and after.
+Then it builds the same position on the Rust core, walks the SAME
+route through the core's move command (the path replay reconstruction
+and the simulator take) and compares: landing hex, movement left, the
+visible set before and after.
 
     python tools/hidden_units_oracle.py [--only SUBSTR] [--limit N] [--out FILE.json] [--sim-only]
 
@@ -41,10 +41,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools.replay_dataset import _apply_command, _build_initial_gamestate  # noqa: E402
+from tools.replay_dataset import _build_initial_gamestate  # noqa: E402
 from wesnoth_ai.rules.terrain_resolver import hides_cover  # noqa: E402
 from wesnoth_ai.constants import GAMES_PATH  # noqa: E402
-from wesnoth_ai.visibility import units_visible_to  # noqa: E402
 
 log = logging.getLogger("hidden_units_oracle")
 
@@ -193,8 +192,8 @@ def setup_lua(case: Case) -> str:
 # The simulator's side
 # ---------------------------------------------------------------------
 def sim_state(case: Case):
-    """The case's position at side 1's first turn: on the Rust core
-    (`game_core.core_enabled`) a CoreState, else a Python state."""
+    """The case's position at side 1's first turn, on the Rust core (a
+    CoreState)."""
     data = {
         "game_id": f"oracle_{case.name}",
         "scenario_id": "ai_oracle",
@@ -210,38 +209,23 @@ def sim_state(case: Case):
              "gold": 0, "base_income": 2, "village_income": 2, "village_support": 1, "faction": ""}
             for s in (1, 2)],
     }
-    gs = _build_initial_gamestate(data)
-    from wesnoth_ai.game_core import CoreState, core_enabled
-    if core_enabled():
-        cs = CoreState.from_state(gs)
-        cs.apply_command(["init_side", 1])
-        return cs
-    _apply_command(gs, ["init_side", 1])
-    return gs
+    from wesnoth_ai.game_core import CoreState
+    cs = CoreState.from_state(_build_initial_gamestate(data))
+    cs.apply_command(["init_side", 1])
+    return cs
 
 
-def _apply(state, cmd) -> None:
-    if hasattr(state, "apply_command"):
-        state.apply_command(cmd)
-    else:
-        _apply_command(state, cmd)
+def _sim_visible(cs, side: int = 1) -> List[str]:
+    obs = cs.observe(side)
+    return sorted(uid for uid, v in zip(obs.unit_ids, obs.visible) if v)
 
 
-def _sim_visible(state, side: int = 1) -> List[str]:
-    if hasattr(state, "observe"):
-        obs = state.observe(side)
-        return sorted(uid for uid, v in zip(obs.unit_ids, obs.visible) if v)
-    return sorted(u.id for u in units_visible_to(state, side))
+def _sim_unit(cs, uid: str):
+    return next(u for u in cs.to_state().map.units if u.id == uid)
 
 
-def _sim_unit(state, uid: str):
-    gs = state.to_state() if hasattr(state, "to_state") else state
-    return next(u for u in gs.map.units if u.id == uid)
-
-
-def _last_walk(state) -> dict:
-    gs = state.to_state() if hasattr(state, "to_state") else state
-    return getattr(gs.global_info, "_last_move_walk", {}) or {}
+def _last_walk(cs) -> dict:
+    return getattr(cs.to_state().global_info, "_last_move_walk", {}) or {}
 
 
 def sim_predictions(case: Case, engine_paths: Optional[List[List[Tuple[int, int]]]] = None) -> dict:
@@ -250,10 +234,10 @@ def sim_predictions(case: Case, engine_paths: Optional[List[List[Tuple[int, int]
     after. `engine_paths` (Wesnoth coords) are the routes the engine
     chose; without them a straight line to the target is walked, which
     is what --sim-only prints."""
-    gs = sim_state(case)
-    out = {"visible_start": _sim_visible(gs), "moves": []}
+    cs = sim_state(case)
+    out = {"visible_start": _sim_visible(cs), "moves": []}
     for k, (uid, tx, ty) in enumerate(case.moves):
-        u = _sim_unit(gs, uid)
+        u = _sim_unit(cs, uid)
         if engine_paths is not None and k < len(engine_paths) and engine_paths[k]:
             path = engine_paths[k]
         else:
@@ -265,15 +249,15 @@ def sim_predictions(case: Case, engine_paths: Optional[List[List[Tuple[int, int]
                 path.append((x, y))
         xs = [p[0] - 1 for p in path]
         ys = [p[1] - 1 for p in path]
-        _apply(gs, ["move", xs, ys, u.side])
-        walk = _last_walk(gs)
-        u2 = _sim_unit(gs, uid)
+        cs.apply_command(["move", xs, ys, u.side])
+        walk = _last_walk(cs)
+        u2 = _sim_unit(cs, uid)
         out["moves"].append({
             "path": [list(p) for p in path],
             "landed": [u2.position.x + 1, u2.position.y + 1],
             "moves_left": int(u2.current_moves),
             "stop_reason": walk.get("stop_reason"),
-            "visible_after": _sim_visible(gs),
+            "visible_after": _sim_visible(cs),
         })
     return out
 

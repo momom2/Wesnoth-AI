@@ -89,13 +89,10 @@ def _encode_streams() -> bool:
 
 
 def _game_core() -> bool:
-    # `core_enabled()` is what WesnothSim and replay reconstruction
-    # consult, and it honours WESNOTH_RUST_CORE as well as the phase
-    # gate (unset means ON). Asking `game_core_class()` instead (phase
-    # only) would report RUST for a switch set to 0, the failure this
-    # file exists to correct.
-    from wesnoth_ai.game_core import core_enabled
-    return bool(core_enabled())
+    # `game_core_class()` is the gate every CoreState passes through:
+    # the wheel imports and is of the phase the adapter reads.
+    from wesnoth_ai.game_core import game_core_class
+    return game_core_class() is not None
 
 
 # name -> the production gate. Add a kernel here when you add a gate,

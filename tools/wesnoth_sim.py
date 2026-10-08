@@ -1,43 +1,40 @@
 """Headless Wesnoth simulator for self-play training and matches.
 
-Wesnoth's game logic reimplemented in-process: no engine subprocess,
-no rendering, no IPC, and no Wesnoth install on a GPU box (the WML it
-reads is committed under wesnoth_src/). The state of record is
-the Rust-owned `GameCore` (rust/wesnoth_core, `wesnoth_ai.game_core`)
-when the wheel is installed and `WESNOTH_RUST_CORE` is not 0; the
-Python applier is the other state of record until the port retires it
-(docs/rust_core_port_20260928.md).
+The game runs in-process: no engine subprocess, no rendering, no IPC,
+and no Wesnoth install on a GPU box (the WML it reads is committed under
+wesnoth_src/). The state of record is the Rust-owned `GameCore`
+(rust/wesnoth_core, adapter `wesnoth_ai.game_core`), which applies every
+command and answers every rule asked of a position; `sim.gs` is a view
+of it, refreshed in place after each command.
 
-The simulator reuses the replay-reconstruction machinery of
-tools/replay_dataset.py, which reads a replay's WML command stream and
-applies it to a `GameState`; it swaps the data source, querying a
-policy instead of reading commands. That machinery is checked against
-Wesnoth: combat strike for strike against the `[mp_checkup]` records
-of strict-sync replays (tests/test_combat_seed_alignment.py), and the
-whole replay corpus command by command (tools/diff_replay.py).
+The simulator plays the command vocabulary of replay reconstruction
+(`replay_dataset.record_core` applies a replay's WML command stream to
+the same core); it swaps the data source, querying a policy instead of
+reading commands. The core is checked against Wesnoth: combat strike for
+strike against the `[mp_checkup]` records of strict-sync replays
+(tests/test_combat_seed_alignment.py), the whole replay corpus command
+by command (tools/diff_replay.py), and the engine itself
+(tools/live_vs_rca.py, tools/hidden_units_oracle.py,
+tools/scenario_init_oracle.py).
 
-What's faithful to Wesnoth (because it shares the replay-recon code):
+What's faithful to Wesnoth:
   - Unit stats / attacks / resistances / abilities (via unit_stats.json).
-  - Combat math (combat.py).
-  - Trait engine (traits.py): capped defenses, undead/mechanical/elemental
-    statuses, defense_overrides.
-  - Plague reanimation (Walking Corpse / Soulless variants).
-  - Per-turn healing / poison / cures (mirrors heal.cpp::calculate_healing).
-  - Time-of-day cycle (lawful_bonus per turn).
+  - Combat math, traits (capped defenses, undead/mechanical/elemental
+    statuses, defense overrides) and plague reanimation.
+  - Per-turn healing / poison / cures (heal.cpp::calculate_healing).
+  - Time-of-day cycle (lawful_bonus per turn) and time areas.
   - Scenario events (time_area, store_locations, Aethermaw morph, etc).
   - Village capture on entry.
   - Slow-status drop at end_turn.
-  - Unit advancement at max experience, AMLA included
-    (replay_dataset._maybe_advance_unit): a replay's [choose] when
-    present, else advances_to[0]; self-play draws uniformly over the
-    targets after enable_uniform_advancement().
+  - Unit advancement at max experience, AMLA included: a replay's
+    [choose] when present, else advances_to[0]; self-play draws
+    uniformly over the targets after enable_uniform_advancement().
   - Random rolls. Every attack and recruit takes its seed from
     _next_seed(): a hash of the request counter, salted by _seed_salt
     when one is set (per-game luck in eval and self-play, independent
-    rolls across search forks). combat.MTRng, a bit-exact
-    std::mt19937, turns the seed into combat and trait rolls, and
-    sim_to_replay writes each seed into the exported replay's
-    [random_seed].
+    rolls across search forks). The core's bit-exact std::mt19937 turns
+    the seed into combat and trait rolls, and sim_to_replay writes each
+    seed into the exported replay's [random_seed].
 
 What's NOT covered (check before claiming self-play parity):
   - Default RCA AI as the opponent. For self-play we don't need this
@@ -73,12 +70,7 @@ sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai import delayed_shroud
 from wesnoth_ai.classes import PLAYER_SIDES, GameState, Position, state_digest
-from tools.replay_dataset import (
-    _apply_command,
-    _build_initial_gamestate,
-    _setup_scenario_events,
-    village_count_mismatches,
-)
+from tools.replay_dataset import _build_initial_gamestate
 from wesnoth_ai.paths import UNIT_STATS_PATH
 
 
@@ -334,16 +326,12 @@ def request_seed(request_id: int) -> str:
 # ---------------------------------------------------------------------
 # Wesnoth's recruit handler refuses a recruit if the side can't afford
 # the unit's cost (see wesnoth_src/src/synced_commands.cpp recruit
-# handler around the `u_type->cost() > beginning_gold` check). Our
-# `_apply_command` accepts any recruit and deducts its cost without a
-# floor, as `team::spend_gold` does, so the sim's move-validation
-# layer needs the cost to gate recruits before they reach
-# _apply_command.
+# handler around the `u_type->cost() > beginning_gold` check). The
+# core's recruit command accepts any recruit and deducts its cost without
+# a floor, as `team::spend_gold` does, so the sim's move-validation
+# layer needs the cost to gate recruits before they reach the core.
 
 _RECRUIT_COSTS_CACHE: Dict[str, int] = {}
-
-
-from wesnoth_ai.game_core import core_enabled  # noqa: E402  (the one switch)
 
 
 def nearest_vacant_castle(gs: GameState, leader) -> Optional[Tuple[int, int]]:
@@ -427,13 +415,13 @@ class RecordedCommand:
     reconstruct a Wesnoth-loadable replay.
 
     `kind` is one of "init_side" | "move" | "attack" | "recruit" |
-    "recall" | "end_turn". `cmd` is the raw command list as consumed
-    by `_apply_command`. `side` is the side that acted (0 for system
-    events that don't have a clear actor; in practice init_side and
-    end_turn carry the relevant side index).
+    "recall" | "end_turn". `cmd` is the raw command list as the core
+    applies it (`CoreState.apply_command`). `side` is the side that
+    acted (0 for system events that don't have a clear actor; in
+    practice init_side and end_turn carry the relevant side index).
 
-    `extras` stores side-channel data the WML format needs but
-    `_apply_command` doesn't: `leader_pos` for a recruit (the [from]
+    `extras` stores side-channel data the WML format needs but the
+    command doesn't: `leader_pos` for a recruit (the [from]
     coordinates), `advance_choices` and `checkup_strikes` for an
     attack, and an `attempted` comment on a truncated move or a
     forced end_turn. `WesnothSim._apply_and_record` is the one place
@@ -450,13 +438,10 @@ class RecordedCommand:
 # ---------------------------------------------------------------------
 
 class WesnothSim:
-    """One self-play game running fully in-process. Bit-exact game
-    logic via the existing replay-reconstruction code."""
+    """One self-play game running fully in-process on the Rust core, the
+    state of record replay reconstruction also plays."""
 
-    # Class defaults so an instance built without __init__ (fork(),
-    # test helpers that only exercise one method) reads a Python
-    # state of record rather than raising on a missing attribute.
-    core = None                                # the Rust-owned state (CoreState) or None
+    # The view of the core, built on first use (fork() leaves it unset).
     _gs: Optional[GameState] = None
 
     # Hard caps to prevent infinite games. The values are tuned for
@@ -482,10 +467,8 @@ class WesnothSim:
         begin_side: int = 1,
         no_progress_turns: int = 0,
         begin_turn: bool = True,
-        use_core: Optional[bool] = None,
     ):
-        self.core = None                       # the Rust-owned state (CoreState) or None
-        self.gs = initial_state
+        self.gs = initial_state                # the core (CoreState) built from the state
         self.scenario_id = scenario_id
         self.max_turns = max_turns
         self.max_actions_per_side = max_actions_per_side
@@ -504,19 +487,13 @@ class WesnothSim:
         #                                  that ended with real progress
 
         # Wire scenario-specific events (time_area, store_locations,
-        # Aethermaw morph, etc.) -- mirrors what replay_dataset does
-        # at the top of iter_replay_pairs. Mid-game starts pass
-        # False: reconstruction already fired them, and prestart
-        # unit placement (CoB statues) must not double-apply. On the
-        # core the setup runs in Rust.
-        if use_core if use_core is not None else core_enabled():
-            from wesnoth_ai.game_core import CoreState
-            self.core = CoreState.from_state(self._gs)
-            if apply_scenario_events:
-                self.core.setup_scenario(scenario_id)
-                self._refresh_view()
-        elif apply_scenario_events:
-            _setup_scenario_events(self.gs, scenario_id)
+        # Aethermaw morph, etc.), as replay reconstruction does
+        # (`replay_dataset.record_core`). Mid-game starts pass False:
+        # reconstruction already fired them, and prestart unit
+        # placement (CoB statues) must not double-apply.
+        if apply_scenario_events:
+            self.core.setup_scenario(scenario_id)
+            self._refresh_view()
 
         self.done:      bool = False
         self.winner:    int  = 0
@@ -683,30 +660,30 @@ class WesnothSim:
 
     @property
     def gs(self) -> GameState:
-        """The game state. With the core it is one Python view object
-        for the life of the sim, refreshed in place after every
-        command (built on first use for a fork): read it, never
-        mutate it (the mutating entry points are methods of this
-        class)."""
-        if self.core is not None and self._gs is None:
-            from wesnoth_ai.game_core import bind_view
-            self._gs = self.core.to_state()
-            bind_view(self._gs, self.core)
+        """The game state: one Python view object of the core for the
+        life of the sim, refreshed in place after every command (built
+        on first use for a fork). Read it, never mutate it: the mutating
+        entry points are methods of this class, and an edited view is
+        loaded back by assigning it (`sim.gs = view`)."""
+        if self._gs is None:
+            from wesnoth_ai.game_core import view_of
+            self._gs = view_of(self.core)
         return self._gs
 
     @gs.setter
     def gs(self, value: GameState) -> None:
+        """A state loaded as the game's: the core is built from it
+        (`CoreState.from_state`) and the state becomes its view."""
+        from wesnoth_ai.game_core import CoreState, bind_view
         self._gs = value
-        if getattr(self, "core", None) is not None:
-            from wesnoth_ai.game_core import CoreState, bind_view
-            self.core = CoreState.from_state(value)
-            bind_view(value, self.core)
+        self.core = CoreState.from_state(value)
+        bind_view(value, self.core)
 
     def _refresh_view(self) -> None:
         """After a core command: the view object takes the core's
         content in place, so every holder of `sim.gs`, its map, its
         sides or its global info reads the current state."""
-        if self.core is None or self._gs is None:
+        if self._gs is None:
             return
         fresh = self.core.to_state()
         view = self._gs
@@ -727,55 +704,35 @@ class WesnothSim:
 
     @property
     def current_side(self) -> int:
-        if self.core is not None:
-            return int(self.core.core.current_side)
-        return self._gs.global_info.current_side
+        return int(self.core.core.current_side)
 
     @property
     def turn_number(self) -> int:
-        if self.core is not None:
-            return int(self.core.core.turn_number)
-        return self._gs.global_info.turn_number
+        return int(self.core.core.turn_number)
 
     def _progress_fingerprint(self):
         """(unit count, hit points in play, village owners) for the
         no-progress tracker."""
-        if self.core is not None:
-            return self.core.core.progress_fingerprint()
-        gs = self._gs
-        owners = getattr(gs.global_info, "_village_owner", None) or {}
-        return (len(gs.map.units), sum(u.current_hp for u in gs.map.units), dict(owners))
+        return self.core.core.progress_fingerprint()
 
     def _set_current_side(self, side: int) -> None:
-        if self.core is not None:
-            self.core.core.set_global_int("current_side", int(side))
-            self._refresh_view()
-        else:
-            self._gs.global_info.current_side = side
+        self.core.core.set_global_int("current_side", int(side))
+        self._refresh_view()
 
     def _set_advance_salt(self, salt: str) -> None:
-        if self.core is not None:
-            self.core.core.set_advance_salt(salt)
-            self._refresh_view()
-        else:
-            self._gs.global_info._advance_salt = salt
+        self.core.core.set_advance_salt(salt)
+        self._refresh_view()
 
     def _clear_checkup_strikes(self) -> None:
         """The last attack's strike records, consumed by the recorder."""
-        if self.core is not None:
-            self.core.core.set_last_checkup_strikes([])
-            self._refresh_view()
-        else:
-            setattr(self._gs.global_info, "_last_checkup_strikes", None)
+        self.core.core.set_last_checkup_strikes([])
+        self._refresh_view()
 
     def _clear_advance_events(self) -> None:
         """The advancement events of the last attack, consumed by the
         command recorder (one [choose] per event in exports)."""
-        if self.core is not None:
-            self.core.core.clear_last_advance_events()
-            self._refresh_view()
-        else:
-            setattr(self._gs.global_info, "_last_advance_events", [])
+        self.core.core.clear_last_advance_events()
+        self._refresh_view()
 
     def _note_counter_outcomes(self, extras: dict) -> None:
         """Put the counter-weapon strike tables computed for the attack
@@ -796,19 +753,13 @@ class WesnothSim:
         hex a harness discovers): the per-turn rejection set the
         legality mask and the encoder read."""
         self.recruit_rejections.append((len(self.command_history), int(x), int(y)))
-        if self.core is not None:
-            self.core.core.add_recruit_rejected(int(x), int(y))
-            self._refresh_view()
-            return
-        gi = self._gs.global_info
-        rejected = getattr(gi, "_recruit_rejected_hexes", None) or set()
-        rejected.add((x, y))
-        setattr(gi, "_recruit_rejected_hexes", rejected)
+        self.core.core.add_recruit_rejected(int(x), int(y))
+        self._refresh_view()
 
     def fork(self) -> "WesnothSim":
-        """Cheap clone for MCTS-style branching. Deepcopies the
-        game state (via Map.__deepcopy__'s fast-path) and the small
-        scalar fields. **Drops command_history** -- forks aren't
+        """Cheap clone for MCTS-style branching. Forks the core
+        (`CoreState.fork`) and copies the small scalar fields; the
+        fork's view is built on first use. **Drops command_history** -- forks aren't
         meant to be exported to bz2; if you mutate the parent's
         command_history aliased to the fork, you'd corrupt the
         export pipeline. Forks always start with an empty history.
@@ -817,14 +768,9 @@ class WesnothSim:
         anything mutable downstream is properly isolated, immutable
         config (max_turns, max_actions_per_side, scenario_id) is
         aliased."""
-        import copy as _copy
         out = WesnothSim.__new__(WesnothSim)
-        out.core = None
-        if self.core is not None:
-            out.core = self.core.fork()
-            out._gs = None                   # the fork's view is built on first use
-        else:
-            out._gs = _copy.deepcopy(self._gs)
+        out.core = self.core.fork()
+        out._gs = None                       # the fork's view is built on first use
         out.scenario_id = self.scenario_id
         out.max_turns = self.max_turns
         out.max_actions_per_side = self.max_actions_per_side
@@ -855,9 +801,9 @@ class WesnothSim:
         """Self-play: pick advancements UNIFORMLY over `advances_to`
         (non-AMLA, >1 options) instead of the deterministic targets[0]
         (until a model advancement head replaces it). The choice is
-        drawn from a SEPARATE, reproducible RNG channel (see
-        replay_dataset._draw_uniform_advance) that never touches the
-        combat seed counter, so strict-sync export parity is untouched.
+        drawn from a SEPARATE, reproducible RNG channel (the core's
+        advancement counter, salted) that never touches the combat seed
+        counter, so strict-sync export parity is untouched.
 
         State lives on gs.global_info, so fork() carries it and MCTS
         search forks branch over advancement too; the per-step salt
@@ -866,13 +812,8 @@ class WesnothSim:
         ([choose] queue, else targets[0]). The channel takes the
         current `_seed_salt` at once, as a game record's rebuild does
         (tools/game_record.start_core)."""
-        if self.core is not None:
-            self.core.core.set_global_int("advance_uniform", 1)
-            self._refresh_view()
-        else:
-            self._gs.global_info._advance_uniform = True
-            if not hasattr(self._gs.global_info, "_advance_counter"):
-                self._gs.global_info._advance_counter = 0
+        self.core.core.set_global_int("advance_uniform", 1)
+        self._refresh_view()
         self._set_advance_salt(self._seed_salt)
 
     def enable_engagement_stats(self):
@@ -884,25 +825,19 @@ class WesnothSim:
         return self._engagement
 
     def _apply_with_stats(self, cmd) -> None:
-        """_apply_command with the thread-local engagement event sink
-        installed for the duration (combat + heal events from
-        replay_dataset). Plain _apply_command when stats are off."""
+        """The command on the core, with the thread-local engagement
+        event sink installed for the duration (the core's combat and
+        heal events) when stats are on."""
         es = getattr(self, "_engagement", None)
         if es is None:
-            if self.core is not None:
-                self.core.apply_command(cmd)
-                self._refresh_view()
-            else:
-                _apply_command(self.gs, cmd)
+            self.core.apply_command(cmd)
+            self._refresh_view()
             return
         from tools.engagement_stats import (clear_event_sink,
                                             set_event_sink)
         set_event_sink(es.on_event)
         try:
-            if self.core is None:
-                _apply_command(self.gs, cmd)
-            else:
-                self.core.apply_command(cmd)
+            self.core.apply_command(cmd)
         finally:
             clear_event_sink()
         self._refresh_view()
@@ -1280,8 +1215,8 @@ class WesnothSim:
                         # Verify the move actually landed: ZoC / ambush
                         # / village-capture stops can zero MP without
                         # changing position, but the position update
-                        # always succeeds when _apply_command accepts
-                        # the move. If for any reason the attacker
+                        # always succeeds when the core accepts the
+                        # move. If for any reason the attacker
                         # didn't land on attack_hex, abort: the next
                         # action_sampler call will pick a fresh action.
                         moved = next(
@@ -1301,8 +1236,8 @@ class WesnothSim:
 
         # Capture leader position BEFORE applying the action -- recruit
         # exports need it for the WML [from] block, and even though
-        # _apply_command's recruit handler doesn't move the leader,
-        # taking the snapshot here keeps `_action_to_command` pure.
+        # the recruit command doesn't move the leader, taking the
+        # snapshot here keeps `_action_to_command` pure.
         leader_pos: Optional[Tuple[int, int]] = None
         if action.get("type") == "recruit":
             for u in self.gs.map.units:
@@ -1367,8 +1302,7 @@ class WesnothSim:
         else:
             # Move MP, truncation (blocked/ambush), reveals, and the
             # ZoC / village-capture MP zeroing are all resolved
-            # INSIDE _apply_command's move handler via
-            # `pathfind_sim.walk_move_path` -- one truncation
+            # inside the core's move command -- one truncation
             # semantics shared with replay reconstruction.
             extras: dict = {}
             if cmd[0] == "recruit" and leader_pos is not None:
@@ -1426,8 +1360,8 @@ class WesnothSim:
     _MAX_CONSECUTIVE_REJECTS = 8
 
     def _begin_side_turn(self, side: int) -> None:
-        """Fire init_side(side). Replay-recon's _apply_command for
-        init_side handles: setting current_side, incrementing turn
+        """Fire init_side(side). The core's init_side handles: setting
+        current_side, incrementing turn
         (when side == 1), updating time-of-day, firing scenario
         turn-start events, and computing healing / poison / curing
         for `side`'s units. Game-over can also fire here (turn-limit
@@ -1445,113 +1379,48 @@ class WesnothSim:
 
     @property
     def digest_version(self) -> int:
-        """The `state_digest` version this game's fingerprints use: the
-        core's keeps each side's sighting record, which the Python
-        applier does not (classes.DIGEST_VERSION)."""
+        """The `state_digest` version this game's fingerprints use
+        (classes.DIGEST_VERSION, which covers each side's sighting
+        record)."""
         from wesnoth_ai.classes import DIGEST_VERSION
-        return DIGEST_VERSION if self.core is not None else 1
+        return DIGEST_VERSION
 
     def _assert_invariants(self, *, after_cmd: str) -> None:
-        """Cheap structural sanity check on the unit set. Catches
-        common bugs early -- rather than seeing them later as Wesnoth
-        OOSes or corrupt rewards. Each check below has actually
-        triggered during development of the sim.
+        """Cheap structural sanity check on the core's units and sides
+        (`GameCore.invariant_violation`). Catches common bugs early --
+        rather than seeing them later as Wesnoth OOSes or corrupt
+        rewards. Each check has actually triggered during development:
 
-        Invariants:
-
-          (a) `current_hp` in [0, max_hp]. HP > max_hp means an effect
-              (drain, healing) overshot; HP < 0 means we forgot to
-              clamp a damage roll. Verified against 1.18 source: drain
-              caps at `max_hp - hp` (attack.cpp:1037), healing caps in
-              calculate_healing (heal.cpp), WML `[effect]
-              apply_to=hitpoints` clamps unless `violate_maximum=yes`
-              (unit.cpp:2167-2170). The only mainline-supported paths
-              to over-cap are Lua `unit.hitpoints = N` (lua_unit.cpp:
-              437 -> unit.hpp:519, no clamp) and `set_max_hitpoints(N)`
-              with N below current hp (unit.hpp:515, no hp clamp) --
-              neither happens in 2p ladder PvP. If this fires on a 2p
-              replay, it's a real sim bug; if it fires on a campaign /
-              custom-era replay, the upstream filter should be
-              tightened to exclude it.
-
-          (b) `current_moves` in [0, max_moves]. MP > max_moves means
-              `_deduct_extra_mp` over-credited or `_begin_side_turn`
-              re-applied the reset twice; MP < 0 means we deducted
-              past zero somewhere.
-
+          (a) `current_hp` in [0, max_hp]. Drain caps at `max_hp - hp`
+              (attack.cpp:1037), healing caps in calculate_healing
+              (heal.cpp), WML `[effect] apply_to=hitpoints` clamps unless
+              `violate_maximum=yes` (unit.cpp:2167-2170). If this fires
+              on a 2p replay it is a real sim bug; on a campaign or
+              custom-era replay the upstream filter should exclude it.
+          (b) `current_moves` in [0, max_moves].
           (c) No two units on the same hex (Wesnoth never allows
-              stacking, and `_apply_command` for "move" doesn't check
-              -- the gate is in `_action_to_command`).
-
-          (d) Per side, AT MOST one leader. Two leaders on one side is
-              recoverable via `_check_game_over`'s heuristic but
-              indicates a recruit/recall logic bug.
-
-          (e) Each side's `nb_villages_controlled` equals the villages
-              `_village_owner` gives it. The engine has no separate
-              count (a team's villages are a set, src/team.cpp:437-468)
-              and income reads ours, so a transfer that moved one and
-              not the other paid the wrong income every turn after:
-              `[capture_village]` did, on WL Cold War and Summer Frosts,
-              until 2026-09-26.
+              stacking; the gate is in `_action_to_command`).
+          (d) Per side, AT MOST one leader.
+          (e) Each side's village count equals the villages the owner
+              map gives it. The engine has no separate count (a team's
+              villages are a set, src/team.cpp:437-468) and income reads
+              ours, so a transfer that moved one and not the other paid
+              the wrong income every turn after: `[capture_village]`
+              did, on WL Cold War and Summer Frosts, until 2026-09-26.
 
         Raises AssertionError with enough context to debug.
         """
-        if self.core is not None:
-            bad = self.core.core.invariant_violation()
-            if bad is not None:
-                raise AssertionError(f"sim invariant: {bad} (after cmd={after_cmd!r}, "
-                                     f"turn={self.turn_number})")
-            return
-        seen_hexes: Dict[Tuple[int, int], str] = {}
-        leaders_per_side: Dict[int, List[str]] = {}
-        for u in self.gs.map.units:
-            # (a) HP bounds.
-            if u.current_hp < 0 or u.current_hp > u.max_hp:
-                raise AssertionError(
-                    f"sim invariant: unit {u.id} ({u.name!r}) HP out of "
-                    f"range: current_hp={u.current_hp}, max_hp={u.max_hp} "
-                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
-            # (b) MP bounds.
-            if u.current_moves < 0 or u.current_moves > u.max_moves:
-                raise AssertionError(
-                    f"sim invariant: unit {u.id} ({u.name!r}) MP out of "
-                    f"range: current_moves={u.current_moves}, "
-                    f"max_moves={u.max_moves} "
-                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
-            # (c) No hex stacking.
-            key = (u.position.x, u.position.y)
-            if key in seen_hexes:
-                raise AssertionError(
-                    f"sim invariant: hex {key} occupied by both "
-                    f"{seen_hexes[key]!r} and {u.id!r} "
-                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
-            seen_hexes[key] = u.id
-            # (d) Leader count per side.
-            if u.is_leader:
-                leaders_per_side.setdefault(u.side, []).append(u.id)
-        for side, leaders in leaders_per_side.items():
-            if len(leaders) > 1:
-                raise AssertionError(
-                    f"sim invariant: side {side} has {len(leaders)} "
-                    f"leaders ({leaders!r}); at most one allowed "
-                    f"(after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
-        # (e) Village counts follow the owners.
-        bad = village_count_mismatches(self.gs)
-        if bad:
-            raise AssertionError(
-                f"sim invariant: village counts disagree with the owners "
-                f"{bad} (after cmd={after_cmd!r}, turn={self.gs.global_info.turn_number})")
+        bad = self.core.core.invariant_violation()
+        if bad is not None:
+            raise AssertionError(f"sim invariant: {bad} (after cmd={after_cmd!r}, "
+                                 f"turn={self.turn_number})")
 
     def _check_game_over(self) -> None:
         if self.done:
             return
         # Leader-alive heuristic: a side is alive iff it has at least
         # one canrecruit (leader) unit on the map.
-        if self.core is not None:
-            sides_alive = set(self.core.core.leader_sides())
-        else:
-            sides_alive = {u.side for u in self.gs.map.units if u.is_leader}
+        sides_alive = set(self.core.core.leader_sides())
         if 1 in sides_alive and 2 in sides_alive:
             # Both leaders alive -- check turn / action limits.
             if self.gs.global_info.turn_number > self.max_turns:
@@ -1579,16 +1448,15 @@ class WesnothSim:
     def _action_to_command(
         self, action: dict,
     ) -> Tuple[Optional[list], Optional[int]]:
-        """Translate the policy's action dict into the command list
-        format _apply_command consumes.
+        """Translate the policy's action dict into the command list the
+        core applies (`CoreState.apply_command`).
 
         Returns ``(cmd, terrain_cost)``:
-          - ``cmd`` is the list `_apply_command` consumes, or None if
-            the action was malformed / illegal (caller treats None as
-            an end-turn fallback);
-          - ``terrain_cost`` is the move's terrain MP cost when
-            ``cmd[0] == "move"``, else None. The caller uses this to
-            fix up MP after `_apply_command`'s flat 1-MP deduction.
+          - ``cmd`` is the command list, or None if the action was
+            malformed / illegal (caller treats None as an end-turn
+            fallback);
+          - ``terrain_cost`` is always None: the core charges each
+            move its terrain costs itself.
 
         Pure: never mutates the caller's `action` dict. The previous
         implementation stashed `action["_terrain_cost"] = cost` which
@@ -1698,15 +1566,13 @@ class WesnothSim:
             # Allocate a synced-RNG seed so combat damage rolls match
             # what Wesnoth replays back from the [random_seed]
             # follow-up command sim_to_replay emits. cmd[7] is the
-            # seed slot consumed by replay_dataset._apply_command.
+            # attack command's seed slot.
             seed = self._next_seed()
-            # Resolve the defender's counter-weapon NOW (exact
-            # engine-rating port, tools/combat_outcomes): the
+            # Resolve the defender's counter-weapon NOW (the core's
+            # port of the engine's rating, tools/combat_outcomes): the
             # command must carry a concrete index so the sim applies
             # retaliation and Wesnoth playback uses the same counter
-            # we resolved. Lazy import: combat_outcomes pulls in
-            # replay_dataset, which this module must not import at
-            # module level.
+            # we resolved.
             from tools.combat_outcomes import counter_weapon_choice
             att_u = next(
                 (u for u in self.gs.map.units
@@ -1748,7 +1614,7 @@ class WesnothSim:
             # current side's gold and the keep-castle network; if the
             # side can't afford the unit or the target hex isn't part
             # of the leader's castle, playback errors with "cannot
-            # recruit unit: ...". Our `_apply_command` is permissive --
+            # recruit unit: ...". The core's recruit is permissive --
             # it accepts the recruit and deducts the cost with no floor,
             # so gold can go negative -- so without this gate the sim
             # emits illegal recruits that Wesnoth rejects.
@@ -1828,8 +1694,8 @@ class WesnothSim:
         if atype == "recall":
             # Recall is NOT supported end-to-end. The sim has no
             # recall list (gs.global_info doesn't track per-side
-            # surviving units), `_apply_command` for "recall" is a
-            # no-op (replay_dataset.py:1341-1343), and
+            # surviving units), the core's "recall" only logs it
+            # (`CoreState._recall`), and
             # sim_to_replay._wml_for_command WOULD emit a [recall]
             # block citing a unit_id that doesn't exist on Wesnoth's
             # recall list -- playback then errors with "no such unit

@@ -20,10 +20,9 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from tools import game_record  # noqa: E402
 from wesnoth_ai.core_compare import state_differences  # noqa: E402
-from wesnoth_ai.game_core import game_core_class  # noqa: E402
 
-# What the simulator keeps on the state for its own bookkeeping and the
-# applier does not: the seed counter and the last command's side
+# What the simulator keeps on the state for its own bookkeeping and a
+# rebuild does not: the seed counter and the last command's side
 # channels.
 SIM_ONLY = ("_rng_request_counter", "_last_move_walk", "_last_checkup_strikes",
             "_last_advance_events")
@@ -37,7 +36,7 @@ def _differences(a, b):
             if not any(k in d for k in SIM_ONLY)]
 
 
-def _played_game(max_turns=8, use_core=False):
+def _played_game(max_turns=8):
     """A mini game fought to its cap by the deterministic Brawler, with
     a recruit rejection on the way, and the position after each step
     keyed by the index of the step's last command (a step that ends a
@@ -48,7 +47,7 @@ def _played_game(max_turns=8, use_core=False):
     from tools.wesnoth_sim import WesnothSim
     setup = scenario_setup(3, mini=True)
     sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id,
-                     max_turns=max_turns, use_core=use_core)
+                     max_turns=max_turns)
     sim._seed_salt = "record-test"
     sim.enable_uniform_advancement()
     after = {len(sim.command_history) - 1: copy.deepcopy(sim.gs)}
@@ -110,7 +109,7 @@ def _corpus_start(tmp_path, data):
               if m is not None)
     gs, scenario_id, _cut, begin_side, _provenance = mg
     sim = WesnothSim(gs, scenario_id=scenario_id, max_turns=gs.global_info.turn_number + 3,
-                     apply_scenario_events=False, begin_side=begin_side, use_core=False)
+                     apply_scenario_events=False, begin_side=begin_side)
     return sim, ("__midgame__",) + mg, data
 
 
@@ -140,12 +139,10 @@ def _duel_record(tmp_path):
 # ---------------------------------------------------------------------
 # Rebuilding
 # ---------------------------------------------------------------------
-@pytest.mark.parametrize("use_core", [False, pytest.param(True, marks=pytest.mark.skipif(
-    game_core_class() is None, reason="wesnoth_core.GameCore not available"))])
-def test_a_recorded_game_rebuilds_position_by_position(tmp_path, use_core):
-    """Played on either state of record, the game rebuilds on the Python
-    applier, its fingerprints checked, to the simulator's final position."""
-    sim, setup, _after = _played_game(use_core=use_core)
+def test_a_recorded_game_rebuilds_position_by_position(tmp_path):
+    """The game rebuilds from its record on a core of its own, its
+    fingerprints checked, to the simulator's final position."""
+    sim, setup, _after = _played_game()
     game_record.configure(tmp_path, "t")
     try:
         game_record.record_game(sim, setup, game_label="g", build={})
@@ -172,7 +169,7 @@ def test_a_game_with_an_acting_neutral_side_rebuilds_from_its_record(tmp_path):
                           faction1="Knalgan Alliance", leader1="Dwarvish Steelclad",
                           faction2="Rebels", leader2="Elvish Captain")
     sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id,
-                     max_turns=10, use_core=False)
+                     max_turns=10)
     for _ in range(6):
         sim.step({"type": "end_turn"})
     rec = _stored(game_record.game_record(sim, setup, game_label="neutral", build={}), tmp_path)
@@ -290,8 +287,7 @@ def test_a_search_policy_attaches_the_exact_distribution_of_the_attack_it_played
                                          chance_nodes=True, exact_outcome_enumeration=True,
                                          batch_size=1, add_root_noise=False),
                         rng_seed=5)
-    sim = WesnothSim(_build_initial_gamestate(_duel_data()), scenario_id="rec", max_turns=4,
-                     use_core=False)
+    sim = WesnothSim(_build_initial_gamestate(_duel_data()), scenario_id="rec", max_turns=4)
     sim._seed_salt = "search-test"
     play_one_game(sim, policy, lambda delta: 0.0, game_label="s",
                   cost_lookup=_recruit_cost_lookup())
@@ -309,8 +305,7 @@ def test_a_refused_step_keeps_the_previous_attacks_search_distribution():
     from tools.replay_dataset import _build_initial_gamestate
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.classes import Position
-    sim = WesnothSim(_build_initial_gamestate(_duel_data()), scenario_id="rec", max_turns=4,
-                     use_core=False)
+    sim = WesnothSim(_build_initial_gamestate(_duel_data()), scenario_id="rec", max_turns=4)
     spear, javelin = ({"type": "attack", "start_hex": Position(0, 0),
                        "target_hex": Position(1, 0), "attack_index": w} for w in (0, 1))
     reported = [enumerate_attack_outcomes(sim.gs, spear), enumerate_attack_outcomes(sim.gs, javelin)]
