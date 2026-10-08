@@ -20,7 +20,8 @@ player "raw:t<temperature>"; the legacy sampler stays "raw".
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -30,6 +31,28 @@ from wesnoth_ai.memory import MemoryState
 
 
 END_TURN_RULES = ("joint", "actor")
+# An action's kind as the compact priors number it (wesnoth_ai.server_priors).
+KIND_OF_TYPE = {"attack": 0, "move": 1, "recruit": 2, "end_turn": 3}
+KIND_NAMES = ("attack", "move", "recruit", "end_turn")
+
+
+@dataclass
+class Decoded:
+    """One decision's offered actions under the player's decode, before
+    its choice: the joint priors with the end_turn offset applied, each
+    element's kind (KIND_NAMES) and actor, and `action(i)`, which builds
+    element i's action dict."""
+    priors: np.ndarray
+    is_end: np.ndarray
+    actors: np.ndarray
+    kinds: np.ndarray
+    _build: Callable[[int], Dict]
+
+    def __len__(self) -> int:
+        return len(self.priors)
+
+    def action(self, i: int) -> Dict:
+        return self._build(int(i))
 
 
 def shift_end_turn_prior(priors: np.ndarray, is_end: np.ndarray, offset: float) -> np.ndarray:
@@ -150,36 +173,57 @@ class RawPolicyPlayer:
         # Per game, the last decision's (side key, memory before it).
         self._undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
 
-    def _select_compact(self, compact, encoded, decision_step: int) -> Optional[Dict]:
-        """The choice on the compact arrays, or None when the list path
-        applies (an oracle anneal the server cannot carry, which the
-        list path reports)."""
+    def _decode_compact(self, compact, encoded, decision_step: int):
+        """The decision on the compact arrays: a Decoded, None when nothing
+        is legal, or False when the list path applies (an oracle anneal the
+        server cannot carry, which the list path reports)."""
         from wesnoth_ai.action_sampler import combat_alphas_at
         from wesnoth_ai.server_priors import KIND_END_TURN, compact_action
         if any(combat_alphas_at(decision_step)) or any(combat_alphas_at(0)):
-            return None
+            return False
         n = len(compact.prior)
         if n == 0:
-            return {"type": "end_turn"}
+            return None
         idx = np.arange(n)
         if self.forbid_end_turn:
             acting = idx[compact.kind != KIND_END_TURN]
             if len(acting):
                 idx = acting
-        priors = np.asarray(compact.prior, dtype=np.float64)[idx]
-        is_end = np.asarray(compact.kind)[idx] == KIND_END_TURN
-        return compact_action(compact, int(idx[self._choose(
-            priors, np.asarray(compact.actor)[idx], is_end)]), encoded)
+        kinds = np.asarray(compact.kind, dtype=np.int64)[idx]
+        is_end = kinds == KIND_END_TURN
+        priors = shift_end_turn_prior(np.asarray(compact.prior, dtype=np.float64)[idx], is_end,
+                                      self.end_turn_offset)
+        return Decoded(priors, is_end, np.asarray(compact.actor)[idx], kinds,
+                       lambda i: compact_action(compact, int(idx[i]), encoded))
 
-    def _choose(self, priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray) -> int:
-        """The index chosen among `priors` under the player's rule."""
-        priors = shift_end_turn_prior(priors, is_end, self.end_turn_offset)
+    def _decode_list(self, legal) -> Optional[Decoded]:
+        """The decision on the list of legal actions (None when empty)."""
+        if not legal:
+            return None
+        if self.forbid_end_turn:
+            acting = [la for la in legal if la.action.get("type") != "end_turn"]
+            legal = acting or legal
+        kinds = np.array([KIND_OF_TYPE[la.action.get("type", "end_turn")] for la in legal], dtype=np.int64)
+        is_end = kinds == KIND_OF_TYPE["end_turn"]
+        priors = shift_end_turn_prior(np.array([la.prior for la in legal], dtype=np.float64), is_end,
+                                      self.end_turn_offset)
+        actors = np.array([la.actor_idx for la in legal], dtype=np.int64)
+        return Decoded(priors, is_end, actors, kinds, lambda i: legal[i].action)
+
+    def choose(self, decoded: Decoded) -> int:
+        """The index the player's rule chooses among a decision's offered
+        actions."""
         if self.end_turn_rule == "actor":
-            return actor_rule_index(priors, actors, is_end, self.temperature, self._rng)
-        return pick_index(priors, self.temperature, self._rng)
+            return actor_rule_index(decoded.priors, decoded.actors, decoded.is_end, self.temperature,
+                                    self._rng)
+        return pick_index(decoded.priors, self.temperature, self._rng)
 
-    def select_action(self, game_state, *, game_label: str = "default",
-                      sim=None) -> Dict:
+    def decode(self, game_state, *, game_label: str = "default") -> Optional[Decoded]:
+        """A decision up to its choice: the forward (the side's memory read
+        and written, the decision undoable by `drop_last_pending`) and the
+        offered actions under the decode; None when nothing is legal, where
+        the player ends its turn. The look-ahead player
+        (tools/lookahead_player.py) chooses on what this returns."""
         base = self._base
         # The inference model is read per call: elo_eval_game swaps a
         # forward-counting proxy onto the base before play.
@@ -191,20 +235,19 @@ class RawPolicyPlayer:
             output = self._forward(base, encoded, game_label, game_state)
             compact = getattr(output, "legal_compact", None)
             if compact is not None and self.compact_selection:
-                chosen = self._select_compact(compact, encoded, decision_step)
-                if chosen is not None:
-                    return chosen
+                decoded = self._decode_compact(compact, encoded, decision_step)
+                if decoded is not False:
+                    return decoded
             legal = enumerate_legal_actions_with_priors(
                 encoded, output, game_state, decision_step=decision_step)
-        if not legal:
+        return self._decode_list(legal)
+
+    def select_action(self, game_state, *, game_label: str = "default",
+                      sim=None) -> Dict:
+        decoded = self.decode(game_state, game_label=game_label)
+        if decoded is None:
             return {"type": "end_turn"}
-        if self.forbid_end_turn:
-            acting = [la for la in legal if la.action.get("type") != "end_turn"]
-            legal = acting or legal
-        priors = np.array([la.prior for la in legal], dtype=np.float64)
-        actors = np.array([la.actor_idx for la in legal], dtype=np.int64)
-        is_end = np.array([la.action.get("type") == "end_turn" for la in legal])
-        return legal[self._choose(priors, actors, is_end)].action
+        return decoded.action(self.choose(decoded))
 
     def legal_priors(self, game_state, *, game_label: str = "default"):
         """(legal actions, their priors under this player's decode): the

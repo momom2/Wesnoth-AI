@@ -522,6 +522,10 @@ class WesnothSim:
         self.winner:    int  = 0
         self.ended_by:  str  = ""
         self._actions_by_side: Dict[int, int] = {1: 0, 2: 0}
+        # The sides whose leader a determinized world took off the board
+        # because the deciding side could not see it (wesnoth_ai/
+        # lookahead_world.py): alive for the game-over check.
+        self.hidden_leader_sides: frozenset = frozenset()
 
         # Starting leaders, snapshotted BEFORE any play: replay export
         # renders [side] blocks from the STARTING setup, and reading
@@ -835,6 +839,7 @@ class WesnothSim:
         out.done     = self.done
         out.winner   = self.winner
         out.ended_by = self.ended_by
+        out.hidden_leader_sides = getattr(self, "hidden_leader_sides", frozenset())
         out._actions_by_side = dict(self._actions_by_side)
         out._rng_requests    = self._rng_requests
         out._seed_salt       = self._seed_salt
@@ -1127,6 +1132,33 @@ class WesnothSim:
             return None
         best = min(candidates, key=lambda pos: reach.cost[pos])
         return Position(x=best[0], y=best[1])
+
+    def attack_hex_for(self, action: dict) -> Optional[Position]:
+        """The hex an attack action's attacker strikes from: its own when
+        it stands next to the target, else the hex step()'s pre-move
+        takes it to (`_find_attack_hex`); None when the attacker or the
+        target is missing or no hex can be reached."""
+        from tools.abilities import hex_neighbors
+        start, target = action.get("start_hex"), action.get("target_hex")
+        if start is None or target is None:
+            return None
+        if (target.x, target.y) in hex_neighbors(start.x, start.y):
+            return start
+        attacker = next((u for u in self.gs.map.units if u.position.x == start.x
+                         and u.position.y == start.y and u.side == self.current_side), None)
+        defender = next((u for u in self.gs.map.units if u.position.x == target.x
+                         and u.position.y == target.y), None)
+        if attacker is None or defender is None:
+            return None
+        return self._find_attack_hex(attacker, target)
+
+    def attack_command(self, action: dict) -> Optional[list]:
+        """The attack command step() would apply for an attack action
+        whose attacker stands next to its target, the defender's weapon
+        chosen as step() chooses it; None when it does not translate.
+        Draws one seed from this sim's stream: call it on a fork."""
+        cmd, _ = self._action_to_command(action)
+        return cmd if cmd is not None and cmd[0] == "attack" else None
 
 
     def _refused(self, action: dict, kind: str) -> bool:
@@ -1552,6 +1584,7 @@ class WesnothSim:
             sides_alive = set(self.core.core.leader_sides())
         else:
             sides_alive = {u.side for u in self.gs.map.units if u.is_leader}
+        sides_alive |= getattr(self, "hidden_leader_sides", frozenset())
         if 1 in sides_alive and 2 in sides_alive:
             # Both leaders alive -- check turn / action limits.
             if self.gs.global_info.turn_number > self.max_turns:

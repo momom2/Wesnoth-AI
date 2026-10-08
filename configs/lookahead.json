@@ -1,0 +1,13 @@
+{
+  "_comment": "The look-ahead player (tools/lookahead_player.py; docs/selfplay_program_20261008.md 'The rounds', step 3), played with `run_elo_batch --lookahead-a configs/lookahead.json` beside `--mcts-sims 0 --raw-temperature-a 0 --raw-end-turn-offset-a -1.5`. k: the prior's top k actions are the candidates (0: no operator, the raw player). c: the clip of the advantage term in nats (0: the operator runs and changes nothing, the null control; a candidate whose log-prior gap to the argmax exceeds 2c never wins). sigma: the fixed scale the advantage Q - V is divided by. kinds: 'all', or 'attacks' (the candidates are the argmax and the attacks of the top k). determinization: 'observed' (the world the side sees: wesnoth_ai/lookahead_world.py) or 'godview' (the true state, an upper bound tagged '+godview'). evaluator: material {hp_scale: the HP margin read as tanh(margin / hp_scale); 250 is the margin's spread in parity3's games, wesnoth_ai/critic.AUX_SCALE}, critic {checkpoint, view 'obs' or 'true' (the critic's own), device 'cpu' or 'cuda', batch}, or rollout (an interface only). k, c and sigma here are placeholders until step 1's prior-gap readout sets them (docs/lookahead_gate_prereg_draft.md).",
+  "k": 8,
+  "c": 1.0,
+  "sigma": 0.1,
+  "kinds": "all",
+  "determinization": "observed",
+  "evaluator": {
+    "name": "material",
+    "hp_scale": 250.0
+  },
+  "max_attack_leaves": 512
+}

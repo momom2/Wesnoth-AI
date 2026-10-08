@@ -62,7 +62,8 @@ from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.paths import REPO_ROOT, TOOLS_DIR  # noqa: E402
 from tools.eval_provenance import (  # noqa: E402
     BASES, TERRAIN_VIEWS, _pt_config, basis_refusal, checkpoint_refusal, effective_memory,
-    faction_refusal, forced_faction_tag, memory_refusal, spec_sha256, terrain_refusal,
+    faction_refusal, forced_faction_tag, lookahead_config_refusal, lookahead_record_of,
+    memory_refusal, spec_sha256, terrain_refusal,
 )
 
 log = logging.getLogger("run_elo_batch")
@@ -527,6 +528,13 @@ def main(argv: List[str]) -> int:
                     help="Player B (see --memory-a).")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
+    ap.add_argument("--lookahead-a", type=Path, default=None,
+                    help="Player A plays the look-ahead player configured by this file "
+                         "(elo_eval_game --lookahead-a; configs/lookahead.json): needs sims 0 "
+                         "and --raw-temperature-a 0. Procedure tag 'la:...'; a god-view "
+                         "configuration ('+godview') pools with no other procedure.")
+    ap.add_argument("--lookahead-b", type=Path, default=None,
+                    help="Player B (see --lookahead-a).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch for search, both "
                          "players. 1 = sequential (canonical, CPU "
@@ -669,14 +677,22 @@ def main(argv: List[str]) -> int:
     if ((args.raw_temperature_a is not None and sims_a > 0)
             or (args.raw_temperature_b is not None and sims_b > 0)):
         ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
-    from tools.eval_procedure import end_turn_refusal
+    from tools.eval_procedure import end_turn_refusal, lookahead_refusal
     for _side, _spec, _sims, _temp in (("a", args.spec_a, sims_a, args.raw_temperature_a),
                                        ("b", args.spec_b, sims_b, args.raw_temperature_b)):
         _why = end_turn_refusal(_side, _spec, _sims, _temp,
                                 getattr(args, f"raw_end_turn_{_side}"),
                                 getattr(args, f"raw_end_turn_offset_{_side}"))
+        if _why is None and getattr(args, f"lookahead_{_side}") is not None:
+            _why = lookahead_refusal(_side, _spec, _sims, _temp, getattr(args, f"raw_end_turn_{_side}"))
         if _why is not None:
             ap.error(_why)
+    try:
+        la_a = lookahead_record_of(args.lookahead_a) if args.lookahead_a else (None, None)
+        la_b = lookahead_record_of(args.lookahead_b) if args.lookahead_b else (None, None)
+    except (OSError, ValueError) as e:
+        ap.error(f"look-ahead config: {e}")
+    want_lookahead = (la_a[1], la_b[1])
     if args.label_a == args.label_b:
         ap.error("--label-a and --label-b must differ (result files and "
                  "the workers' per-side policy cache are keyed by label)")
@@ -828,17 +844,17 @@ def main(argv: List[str]) -> int:
     # existing files as results WITHOUT launching a child, so the
     # per-game procedure guard never fires for them -- a stale-
     # estimand outdir would be silently reused. Refuse here.
-    from tools.eval_procedure import procedure_of
+    from tools.eval_procedure import godview_refusal, procedure_of
     want = (procedure_of(sims_a, args.plan_a,
                           args.no_turn_search or args.no_turn_search_a,
                           args.raw_temperature_a, args.gumbel_root_a,
                           raw_end_turn=args.raw_end_turn_a,
-                          raw_end_turn_offset=args.raw_end_turn_offset_a),
+                          raw_end_turn_offset=args.raw_end_turn_offset_a, lookahead=la_a[0]),
             procedure_of(sims_b, args.plan_b,
                           args.no_turn_search or args.no_turn_search_b,
                           args.raw_temperature_b, args.gumbel_root_b,
                           raw_end_turn=args.raw_end_turn_b,
-                          raw_end_turn_offset=args.raw_end_turn_offset_b))
+                          raw_end_turn_offset=args.raw_end_turn_offset_b, lookahead=la_b[0]))
     # Hex-basis pre-scan (see BASES): per-process bases are read from
     # the checkpoints here; under shared inference the servers report
     # theirs once launched (below), and the scan repeats there.
@@ -956,6 +972,9 @@ def main(argv: List[str]) -> int:
                 raise SystemExit(
                     f"{f.name} was played under a different --pt-* "
                     f"config: estimands don't mix -- fresh outdir.")
+        _why = godview_refusal({got, want})
+        if _why is not None:
+            raise SystemExit(f"{f.name}: {_why}. Use a fresh outdir.")
         if got != want:
             # Legacy files without procedure fields refuse too
             # (round-4 C11: the eval-side guard treats (None,None)
@@ -974,7 +993,8 @@ def main(argv: List[str]) -> int:
                     f"use a fresh outdir (round-32 C3).")
         for _why in (checkpoint_refusal(f.name, prev, want_ckpts),
                      faction_refusal(f.name, prev, want_faction),
-                     memory_refusal(f.name, prev, want_memories)):
+                     memory_refusal(f.name, prev, want_memories),
+                     lookahead_config_refusal(f.name, prev, want_lookahead)):
             if _why is not None:
                 raise SystemExit(_why)
 
@@ -1108,6 +1128,9 @@ def main(argv: List[str]) -> int:
             memory = getattr(args, f"memory_{side}")
             if memory is not None:
                 cmd += [f"--memory-{side}", str(memory)]
+            lookahead = getattr(args, f"lookahead_{side}")
+            if lookahead is not None:
+                cmd += [f"--lookahead-{side}", str(lookahead)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if servers:
@@ -1219,7 +1242,9 @@ def main(argv: List[str]) -> int:
              # The checkpoint per side and the forced faction (see
              # checkpoint_refusal, faction_refusal).
              "checkpoint_sha256_a": want_ckpts[0], "checkpoint_sha256_b": want_ckpts[1],
-             "forced_faction": want_faction}
+             "forced_faction": want_faction,
+             # A look-ahead side's configuration (see lookahead_config_refusal).
+             "lookahead_a": want_lookahead[0], "lookahead_b": want_lookahead[1]}
     if args.plan_a or args.plan_b:
         from types import SimpleNamespace
         from tools.plan_tournament import pt_knobs_dict

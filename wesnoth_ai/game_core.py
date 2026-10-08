@@ -548,11 +548,14 @@ class CoreState:
         self.terrain_synced = len(terrain_log)
         self.map_synced = version
 
-    def fork(self) -> "CoreState":
+    def fork(self, core=None) -> "CoreState":
         """A search fork: the core cloned, the statics copied as
         `GlobalInfo.__deepcopy__` copies them (dicts, sets and lists
-        shallow; the terrain codes and the hex set aliased)."""
-        return CoreState(core=self.core.fork(), game_id=self.game_id, statics=_fork_statics(self.statics),
+        shallow; the terrain codes and the hex set aliased). `core`: a
+        clone of this core made earlier (`self.core.fork()`) and changed
+        since, which the fork takes in place of a fresh clone."""
+        return CoreState(core=self.core.fork() if core is None else core, game_id=self.game_id,
+                         statics=_fork_statics(self.statics),
                          hexes_holder=self.hexes_holder, caches=self.caches, map_synced=self.map_synced,
                          terrain_synced=self.terrain_synced, _geometry=self._geometry)
 

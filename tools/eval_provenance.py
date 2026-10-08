@@ -192,6 +192,34 @@ def faction_refusal(name: str, record: dict, want: str) -> Optional[str]:
             f"outdir.")
 
 
+# The look-ahead player (tools/lookahead_player.py, 2026-10-09): a side
+# that plays one records its configuration as `lookahead_a`/`lookahead_b`
+# (wesnoth_ai.lookahead_config.config_record: every knob, and the critic
+# checkpoint's SHA-256); None for every other player. Its procedure tag
+# names the main knobs; the record holds them all, so it is an estimand
+# field like the memory.
+def lookahead_record_of(path) -> Tuple[object, dict]:
+    """(config, record) of a look-ahead config file, the critic's
+    checkpoint hashed."""
+    from wesnoth_ai.lookahead_config import config_record, load_config
+    cfg = load_config(path)
+    sha = None
+    if cfg.evaluator_name == "critic":
+        sha = file_sha256(Path(cfg.evaluator["checkpoint"]))
+    return cfg, config_record(cfg, sha)
+
+
+def lookahead_config_refusal(name: str, record: dict, want: Tuple[Optional[dict], Optional[dict]]) -> Optional[str]:
+    """The refusal to keep `record` in an outdir whose sides play the
+    look-ahead configurations `want` (None: not a look-ahead player);
+    None when they agree."""
+    got = (record.get("lookahead_a"), record.get("lookahead_b"))
+    if got == tuple(want):
+        return None
+    return (f"{name} was played with look-ahead configurations (a={got[0]}, b={got[1]}) but this "
+            f"run plays (a={want[0]}, b={want[1]}): refusing to mix. Use a fresh outdir.")
+
+
 def _pt_config(args):
     """TournamentConfig for eval: explicit --pt-* knobs override the
     code defaults so a match can play the SAME config the leg
