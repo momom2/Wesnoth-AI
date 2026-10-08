@@ -375,31 +375,31 @@ def test_petrify_that_kills_is_a_death_not_a_stone():
 
 
 def test_outcome_dp_enumerates_petrified_states():
-    """combat_outcomes._strike_dp models petrify exactly (no None bail):
-    a petrifying weapon yields d_petrified outcomes with the defender
-    alive and the attacker unharmed (fight ended before any counter)."""
+    """The outcome DP models petrify exactly (no None bail): a
+    petrifying weapon yields d_petrified outcomes with both units alive,
+    and the mass sums to 1."""
+    from helpers.parity_games import record, state_of
     from tools import combat_outcomes as co
-    gaze = cb.Weapon("gaze", damage=5, number=2, range="ranged",
-                     type="cold", specials=["petrifies"])
-    claw = cb.Weapon("claw", damage=6, number=2, range="melee",
-                     type="blade")
-    attacker = _mkunit([gaze], hp=40)
-    defender = _mkunit([claw], defense_pct=60, hp=40)    # cth=60: a mix
-    a_stats = cb._compute_battle_stats(attacker, defender, 0, 0, 0, 0,
-                                       is_attacker=True)
-    d_stats = cb._compute_battle_stats(defender, attacker, 0, 0, 0, 0,
-                                       is_attacker=False)
-    states = co._strike_dp(a_stats, d_stats, attacker, defender)
-    assert states is not None
-    # _ExtKey = (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_t, d_t)
-    petrified = [(k, p) for k, p in states.items() if k[7]]   # d_petrified
+    from tools.abilities import hex_neighbors
+    from wesnoth_ai.classes import Position
+    from wesnoth_ai.game_core import CoreState, view_of
+    a_pos = (3, 3)
+    d_pos = next(p for p in hex_neighbors(*a_pos) if p[1] == 3)
+    gs = state_of(record([("Spearman", 1, *a_pos, False), ("Spearman", 2, *d_pos, False)], fog=False))
+    javelin = next(u for u in gs.map.units if u.side == 1).attacks[1]
+    assert javelin.is_ranged
+    javelin.weapon_specials = {"petrifies"}
+    view = view_of(CoreState.from_state(gs))
+    dist = co.enumerate_attack_outcomes(view, {"type": "attack", "start_hex": Position(*a_pos),
+                                               "target_hex": Position(*d_pos), "attack_index": 1})
+    assert dist is not None
+    petrified = [k for k in dist.probs if k[7]]          # d_petrified
     assert petrified, "petrifying weapon must produce petrified outcomes"
-    for k, _p in petrified:
+    for k in petrified:
         assert k[1] > 0    # d_hp > 0 (petrify is survive-only)
-        assert k[0] > 0    # attacker alive (a dead attacker ends by death,
-                           # not petrify; it may still be counter-damaged
-                           # if it missed earlier strikes before stoning)
-    assert abs(sum(states.values()) - 1.0) < 1e-9   # mass conserved
+        assert k[0] > 0    # attacker alive
+    assert abs(sum(dist.probs.values()) - 1.0) < 1e-9   # mass conserved
+
 
 def test_every_recruitable_unit_has_real_stats():
     """`_stats_for` falls back to a generic 33 HP level-1 for a type it

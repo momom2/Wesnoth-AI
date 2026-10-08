@@ -1,9 +1,9 @@
 """Validation for tools/combat_outcomes.py: the exact outcome DP
 must agree with the bit-exact sim sampled under independent seed
 salts -- the strongest available cross-check, since the two paths
-share parameters (build_attack_context) but compute the
-distribution by entirely different means (probability propagation
-vs actual MT-seeded strike resolution).
+share the core's fight parameters but compute the distribution by
+entirely different means (probability propagation vs actual MT-seeded
+strike resolution).
 """
 from __future__ import annotations
 

@@ -142,8 +142,9 @@ def distribution_data(dist) -> Dict[str, Any]:
 
 
 def strike_table_data(states: Dict[tuple, float]) -> List[list]:
-    """A strike DP's final states (`combat_outcomes._strike_dp`) as
-    data: each state key with its probability."""
+    """A strike DP's final states (a counter-weapon strike table,
+    `combat_outcomes.counter_weapon_choice`) as data: each state key
+    with its probability."""
     return [[*key, p] for key, p in sorted(states.items(), key=lambda kv: -kv[1])]
 
 
