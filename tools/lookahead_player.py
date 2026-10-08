@@ -89,7 +89,7 @@ def tilted_choice(priors: np.ndarray, q: np.ndarray, sigma: float, c: float) -> 
     weights = priors[known] / priors[known].sum()
     v = float(np.dot(weights, q[known]))
     advantage = np.where(known, (np.where(known, q, v) - v) / float(sigma), 0.0)
-    scores = np.log(priors) + np.clip(advantage, -float(c), float(c))
+    scores = np.log(np.maximum(priors, 1e-300)) + np.clip(advantage, -float(c), float(c))
     return int(np.argmax(scores)), v
 
 

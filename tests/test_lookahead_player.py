@@ -85,6 +85,15 @@ class _Stub(Evaluator):
         return np.array([self.value_of(s.core.core, side) for s in states], dtype=np.float64)
 
 
+def _live(sim) -> tuple:
+    """What a look-ahead could corrupt in the live game: the core's whole
+    state as a view exports it, its state key, sighting records and
+    cleared hexes, and the simulator's dice counter."""
+    core = sim.core.core
+    return (deep_state_fingerprint(sim.core.to_state()), sim.core.state_key(),
+            [core.sightings_export(s) for s in (1, 2)], core.fog_cleared_export(), sim._rng_requests)
+
+
 def _decide(player, sim, label="g"):
     from wesnoth_ai.game_core import snapshot_view
     return player.select_action(snapshot_view(sim.gs), game_label=label, sim=sim)
@@ -101,9 +110,9 @@ def test_with_c_zero_the_player_plays_the_raw_players_game():
     n = 0
     while not raw_sim.done and n < 60:
         want = _decide(raw, raw_sim, "r")
-        before = deep_state_fingerprint(la_sim.gs)
+        before = _live(la_sim)
         got = _decide(la, la_sim, "l")
-        assert deep_state_fingerprint(la_sim.gs) == before, "the look-ahead changed the live game"
+        assert _live(la_sim) == before, "the look-ahead changed the live game"
         assert got == want, f"decision {n}"
         raw_sim.step(want)
         la_sim.step(got)
