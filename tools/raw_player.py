@@ -206,6 +206,26 @@ class RawPolicyPlayer:
         is_end = np.array([la.action.get("type") == "end_turn" for la in legal])
         return legal[self._choose(priors, actors, is_end)].action
 
+    def legal_priors(self, game_state, *, game_label: str = "default"):
+        """(legal actions, their priors under this player's decode): the
+        forward a decision runs on a local model, the side's memory read
+        and written, the end_turn offset applied, and no choice made. A
+        readout of a recorded game's decisions calls it where the player
+        decided."""
+        base = self._base
+        with base._lock:
+            decision_step = base._decision_step
+            base._decision_step += 1
+        with torch.no_grad():
+            encoded = base._inference_encoder.encode(game_state)
+            output = self._forward(base, encoded, game_label, game_state)
+            legal = enumerate_legal_actions_with_priors(
+                encoded, output, game_state, decision_step=decision_step)
+        self._undo.pop(game_label, None)
+        priors = np.array([la.prior for la in legal], dtype=np.float64)
+        is_end = np.array([la.action.get("type") == "end_turn" for la in legal], dtype=bool)
+        return legal, shift_end_turn_prior(priors, is_end, self.end_turn_offset)
+
     def _forward(self, base, encoded, game_label: str, game_state):
         """The model's output, the side's memory read and written when the
         model has one."""

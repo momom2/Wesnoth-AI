@@ -28,6 +28,7 @@ rebuild the game.
     GameRecordLog(path).write(rec)                        # one gzip member
     for rec in read_records(path): ...
     for k, gs, cmd in walk(rec): ...                      # a view of the state before each command
+    for k, cs, cmd in walk_core(rec): ...                 # the walk's own core (fork what you keep)
     gs = rebuild(rec)                                     # a view of the final state
 
 A log is a sequence of gzip members, one record each, so a log grows as
@@ -408,11 +409,13 @@ def _check(rec: Dict[str, Any], cs, want: Optional[str], where: str) -> None:
             f"is not the played game's")
 
 
-def _walk_core(rec: Dict[str, Any], verify: bool, end: Optional[list] = None
-               ) -> Iterator[Tuple[int, Any, list]]:
+def walk_core(rec: Dict[str, Any], verify: bool = True, end: Optional[list] = None
+              ) -> Iterator[Tuple[int, Any, list]]:
     """(index, the core before the command, command) for every command
-    of the record, the recruit rejections applied where they happened;
-    the core moves on after each step. When exhausted, the core holds
+    of the record, the recruit rejections applied where they happened.
+    The core is the walk's own and moves on after each step: fork it to
+    keep a position (`walk` does, at every command; a reader that keeps
+    a few positions forks only those). When exhausted, the core holds
     the final position, pointed at the side the game ended on, and is
     appended to `end`. With `verify`, see `walk`."""
     cs = start_core(rec, verify=verify)
@@ -446,7 +449,7 @@ def walk(rec: Dict[str, Any], *, verify: bool = True) -> Iterator[Tuple[int, Any
     the final position are checked against the record's fingerprints
     (format 2 on), and a difference raises `RecordMismatch`."""
     from wesnoth_ai.game_core import bind_view
-    for k, cs, cmd in _walk_core(rec, verify):
+    for k, cs, cmd in walk_core(rec, verify):
         snapshot = cs.fork()
         gs = snapshot.to_state()
         bind_view(gs, snapshot)
@@ -458,6 +461,6 @@ def rebuild(rec: Dict[str, Any], *, verify: bool = True):
     command, pointed at the side the simulator left it at. With
     `verify`, see `walk`."""
     end: list = []
-    for _step in _walk_core(rec, verify, end):
+    for _step in walk_core(rec, verify, end):
         pass
     return end[0].to_state()

@@ -12,8 +12,8 @@ outcomes. A read past the end of a game takes the outcome for the value and
 nothing for the margin, as the verdict's arrays do, so the margin averages
 only the playouts still running.
 
-The measure is the verdict's own, copied from tools/turn_value_fit.py on
-branch exp/turn-value (`corrected_correlation`), and the value column
+The measure is the verdict's own (tools/turn_value_fit.py on branch
+exp/turn-value, ported to wesnoth_ai/turn_bench_stats.py), and the value column
 reproduces the verdict's raw-outcome figures (read 1 0.311, read 3 0.449,
 read 7 0.588).
 
@@ -33,67 +33,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
+import sys
 import warnings
 from pathlib import Path
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from wesnoth_ai.turn_bench_stats import corrected_correlation, mean_and_se, selection_gains  # noqa: E402
+
 GRADE_PLAYOUTS = 8          # the rollout grader's playouts, as in the verdict
 HORIZON_READS = 8
-BOOTSTRAP_RESAMPLES = 1000
-GAIN_RESAMPLES = 4000
-
-
-def _position_sums(grade, truth, positions, clusters):
-    n = np.isfinite(truth).sum(axis=1)
-    usable = np.isfinite(grade) & (n >= 2)
-    rows_by_position = {}
-    for row in np.nonzero(usable)[0]:
-        rows_by_position.setdefault(int(positions[row]), []).append(int(row))
-    sums, owners = [], []
-    for rows in rows_by_position.values():
-        if len(rows) < 2:
-            continue
-        g = grade[rows]
-        y = np.nanmean(truth[rows], axis=1)
-        noise = np.nanvar(truth[rows], axis=1, ddof=1) / n[rows]
-        gc, yc = g - g.mean(), y - y.mean()
-        sums.append((gc @ yc, gc @ gc, yc @ yc, (1 - 1 / len(rows)) * noise.sum()))
-        owners.append(clusters[rows[0]])
-    return np.asarray(owners), np.asarray(sums, dtype=float).reshape(-1, 4)
-
-
-def _ratios(s):
-    sgy, sgg, syy, noise = s
-    if sgg <= 0 or syy <= 0:
-        return math.nan, math.nan, math.nan
-    reliability = 1.0 - noise / syy
-    observed = sgy / math.sqrt(sgg * syy)
-    corrected = observed / math.sqrt(reliability) if reliability > 0 else math.nan
-    return observed, reliability, corrected
-
-
-def _percentile_se(draws):
-    finite = draws[np.isfinite(draws)]
-    if len(finite) < 10:
-        return math.nan
-    low, high = np.percentile(finite, [15.87, 84.13])
-    return float(high - low) / 2.0
-
-
-def corrected_correlation(grade, truth, positions, clusters, seed: int = 0) -> dict:
-    owners, sums = _position_sums(grade, truth, positions, clusters)
-    _, cluster_of = np.unique(owners, return_inverse=True)
-    per_cluster = np.zeros((cluster_of.max() + 1, 4))
-    np.add.at(per_cluster, cluster_of, sums)
-    _, reliability, corrected = _ratios(per_cluster.sum(axis=0))
-    rng = np.random.default_rng(seed)
-    n = len(per_cluster)
-    boots = np.array([_ratios(per_cluster[rng.integers(0, n, n)].sum(axis=0))
-                      for _ in range(BOOTSTRAP_RESAMPLES)])
-    return {"positions": len(sums), "corrected": corrected,
-            "corrected_se": _percentile_se(boots[:, 2]), "reliability": reliability}
 
 
 def load(records: Path) -> dict:
@@ -133,27 +84,6 @@ def without_playout_luck(outcomes: np.ndarray, luck: np.ndarray, beta) -> np.nda
     verdict's coefficients for them (its luck beta[0] and beta[1])."""
     centred = luck - np.nanmean(luck, axis=(0, 1))
     return outcomes - beta[0] * np.nan_to_num(centred[..., 0]) - beta[1] * np.nan_to_num(centred[..., 1])
-
-
-def selection_gains(grade: np.ndarray, truth: np.ndarray, positions: np.ndarray,
-                    slots: np.ndarray) -> dict:
-    """Per position: the truth of the candidate `grade` ranks first minus
-    the base turn's (slot 0)."""
-    gains = {}
-    for position in np.unique(positions):
-        rows = np.nonzero(positions == position)[0]
-        base = rows[slots[rows] == 0]
-        if len(rows) < 2 or len(base) == 0 or not np.isfinite(grade[rows]).any():
-            continue
-        best = rows[np.nanargmax(grade[rows])]
-        gains[int(position)] = truth[best] - truth[base[0]]
-    return gains
-
-
-def mean_and_se(values: np.ndarray, seed: int = 3):
-    rng = np.random.default_rng(seed)
-    boots = [values[rng.integers(0, len(values), len(values))].mean() for _ in range(GAIN_RESAMPLES)]
-    return float(values.mean()), float(np.std(boots))
 
 
 def mean_read(reads: np.ndarray, k: int, column: int) -> np.ndarray:
