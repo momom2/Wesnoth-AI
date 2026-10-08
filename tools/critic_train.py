@@ -7,8 +7,12 @@ the positions of tools/critic_positions.py.
 
 One recipe for every critic: the value and aux losses of wesnoth_ai/critic.py,
 AdamW at the parity recipe's peak rate after its warm-up, the rate then
-lowered linearly toward 0 at the end of `--max-epochs`; batches drawn from a
-fresh order of the training positions each epoch. The training games are the
+lowered linearly to 0 at the schedule's end; batches drawn from a fresh order
+of the training positions each epoch. The schedule is `--max-epochs`, or
+fewer steps when they would not fit in `--max-minutes`: after `--rate-steps`
+steps the step and holdout-read times are measured and the schedule cut to
+what fits, so that a critic the time bound cuts short lowers its rate to 0 as
+one that runs its epochs does (it then ends by "schedule"). The training games are the
 source's games on the train side of the 95/5 split whose size draw is below
 `--fraction`; the holdout games are all of the source's holdout games, for
 every fraction. The holdout value loss is read every `--eval-every` positions
@@ -59,7 +63,10 @@ log = logging.getLogger("critic_train")
 DEFAULTS = {"lr": 2.8e-4, "warmup_steps": 300, "weight_decay": 1e-4, "grad_clip": 1.0, "batch": 64,
             "aux_weight": 0.25, "max_epochs": 4, "evals_per_epoch": 4, "max_eval_every": 50_000,
             "patience": 4, "max_minutes": 40.0, "signal_every": 25_000, "probe_positions": 32,
-            "seed": 20261008}
+            "seed": 20261008, "rate_steps": 200}
+# The share of the time left the fitted schedule plans for (the rest absorbs
+# the rate's drift and the last holdout read).
+SCHEDULE_SAFETY = 0.95
 SIGNAL_TERMS = ("value", "aux")
 Item = Tuple[bytes, float, float]                 # (packed encoding, z, aux target)
 
@@ -166,13 +173,17 @@ class CriticTrainer:
         self.autocast = torch.bfloat16 if device.type == "cuda" and not args.fp32 else None
         self.arch = arch
         self.epoch_steps = max(1, math.ceil(len(train) / args.batch))
-        self.total_steps = self.epoch_steps * args.max_epochs
+        self.full_steps = self.epoch_steps * args.max_epochs
+        self.total_steps = self.full_steps
         self.eval_every = max(args.batch, min(args.max_eval_every, len(train) // max(1, args.evals_per_epoch)))
         self.state = {"steps": 0, "positions": 0, "epoch": 0, "best": math.inf, "best_positions": 0,
-                      "reads": 0, "last_read": -1, "since_best": 0, "nonfinite_steps": 0, "next_signal": args.signal_every}
+                      "reads": 0, "last_read": -1, "since_best": 0, "nonfinite_steps": 0, "next_signal": args.signal_every,
+                      "planned_steps": self.full_steps, "step_seconds": None, "read_seconds": None}
         self.provenance = provenance
         self.stem = args.out.with_suffix("")
-        self.t0 = time.time()
+        self.clock = time.monotonic
+        self.t0 = self.clock()
+        self.reading_seconds = 0.0                       # spent in holdout reads so far
 
     # ---- one step ---------------------------------------------------
     def lr_now(self) -> float:
@@ -254,7 +265,9 @@ class CriticTrainer:
     def read_holdout(self) -> bool:
         """Read the holdout loss; save the checkpoint at a new lowest.
         True when the patience has run out."""
+        started = self.clock()
         h = self.holdout_loss()
+        self.reading_seconds += self.clock() - started
         self.state["reads"] += 1
         self.state["last_read"] = self.state["positions"]
         better = h["value"] < self.state["best"]
@@ -273,7 +286,25 @@ class CriticTrainer:
         return self.state["since_best"] >= self.args.patience
 
     def minutes(self) -> float:
-        return (time.time() - self.t0) / 60.0
+        return (self.clock() - self.t0) / 60.0
+
+    def fit_schedule(self) -> None:
+        """Cut the schedule to the steps that fit in the time bound, from
+        the step and read times measured so far (never more than the
+        epochs' steps)."""
+        steps, reads = self.state["steps"], self.state["reads"]
+        elapsed = self.clock() - self.t0
+        step_s = max(1e-9, (elapsed - self.reading_seconds) / max(1, steps))
+        # Before any read, one is taken to cost a third of a training step per position.
+        read_s = (self.reading_seconds / reads if reads
+                  else step_s * len(self.holdout) / self.args.batch / 3.0)
+        per_step = step_s + read_s * self.args.batch / self.eval_every
+        left = self.args.max_minutes * 60.0 - elapsed - read_s
+        more = max(0, int(SCHEDULE_SAFETY * left / per_step))
+        self.total_steps = min(self.full_steps, steps + more)
+        self.state.update(planned_steps=self.total_steps, step_seconds=step_s, read_seconds=read_s)
+        log.info("%.3f s a step, %.1f s a holdout read: %d steps planned of the epochs' %d", step_s, read_s,
+                 self.total_steps, self.full_steps)
 
     def save(self) -> None:
         from wesnoth_ai.constants import OBSERVATION_EPOCH
@@ -314,11 +345,14 @@ class CriticTrainer:
         log.info("%d training positions (%d steps an epoch), %d holdout positions; holdout read every %d",
                  len(self.train), self.epoch_steps, len(self.holdout), self.eval_every)
         next_read = self.eval_every
+        self.t0 = self.clock()
         for epoch in range(self.args.max_epochs):
             self.state["epoch"] = epoch
             order = np.random.default_rng(self.args.seed + epoch).permutation(len(self.train))
             for batch in Feeder(self.train, order, self.args.batch):
                 row = self.step(batch)
+                if self.state["steps"] == self.args.rate_steps:
+                    self.fit_schedule()
                 if self.state["positions"] >= self.state["next_signal"]:
                     self.signal_row(batch)
                     self.state["next_signal"] += self.args.signal_every
@@ -332,6 +366,10 @@ class CriticTrainer:
                         return self.finish("patience")
                     if self.minutes() >= self.args.max_minutes:
                         return self.finish("max_minutes")
+                if self.state["steps"] >= self.total_steps < self.full_steps:
+                    if self.state["positions"] != self.state["last_read"]:
+                        self.read_holdout()
+                    return self.finish("schedule")
             if self.state["positions"] != self.state["last_read"] and self.read_holdout():
                 return self.finish("patience")
             if self.minutes() >= self.args.max_minutes:

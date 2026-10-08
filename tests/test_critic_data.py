@@ -192,7 +192,8 @@ def test_a_benchmark_game_on_the_training_side_stops_the_build():
         builder.corpus_training_rows(copy_of_bench, ["bench.json.gz"], bench_keys={"k1"})
     train, check = builder.corpus_training_rows(rows, ["bench.json.gz", "dropped.json.gz"])
     assert [r["file"] for r in train] == ["other.json.gz"]
-    assert check == {"bench_games": 2, "in_holdout": 1, "absent_from_manifest": 1, "leaked": 0}
+    assert check == {"bench_games": 2, "in_holdout": 1, "absent_from_manifest": 1, "bench_match_keys": 0,
+                     "leaked": 0}
 
 
 def _write(path, rec):

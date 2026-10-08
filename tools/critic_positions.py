@@ -16,7 +16,9 @@ Sources:
      split. Every benchmark game the manifest holds must be on its holdout
      side, or the build stops before it starts (a leak); the benchmark's
      games the manifest lacks are counted; and no benchmark game is among
-     H's games.
+     H's games, under its own name or as a copy of the same match under
+     another (its match key, computed from the benchmark's own corpus files
+     with --bench-corpus, and read from the manifest for the games it holds).
 
 Each game is assigned to the 95/5 split and given its size draw
 (`critic_data.split_of`) from its key: `<match>/<game label>` for M, the
@@ -83,11 +85,13 @@ def match_tasks(match_dirs: Sequence[Path]) -> List[Tuple]:
     return tasks
 
 
-def corpus_training_rows(manifest_rows: Sequence[Dict], bench_files: Sequence[str]) -> Tuple[List[Dict], Dict]:
+def corpus_training_rows(manifest_rows: Sequence[Dict], bench_files: Sequence[str],
+                         bench_keys: Iterable[str] = ()) -> Tuple[List[Dict], Dict]:
     """The corpus's training rows and the benchmark check: every benchmark
     game in the manifest must be on its holdout side (HoldoutLeak
     otherwise), those the manifest lacks are counted, and the training rows
-    hold none of them."""
+    hold none of them, by file or by match key (`bench_keys`, plus the
+    manifest's keys of the benchmark games it holds)."""
     flags = {r["file"]: bool(r.get("holdout")) for r in manifest_rows}
     bench = set(bench_files)
     leaked = sorted(f for f in bench if f in flags and not flags[f])
@@ -96,9 +100,25 @@ def corpus_training_rows(manifest_rows: Sequence[Dict], bench_files: Sequence[st
     train = [r for r in manifest_rows if not r.get("holdout")]
     if bench & {r["file"] for r in train}:
         raise HoldoutLeak("a benchmark game is among the corpus's training rows")
+    keys = set(bench_keys) | {r["match_key"] for r in manifest_rows if r["file"] in bench and r.get("match_key")}
+    copies = sorted(r["file"] for r in train if r.get("match_key") in keys)
+    if copies:
+        raise HoldoutLeak(f"{len(copies)} training games share a benchmark game's match key: {copies[:5]}")
     check = {"bench_games": len(bench), "in_holdout": sum(f in flags for f in bench),
-             "absent_from_manifest": sum(f not in flags for f in bench), "leaked": 0}
+             "absent_from_manifest": sum(f not in flags for f in bench), "bench_match_keys": len(keys),
+             "leaked": 0}
     return train, check
+
+
+def bench_match_keys(corpus: Path, bench_files: Sequence[str]) -> Dict[str, str]:
+    """Each benchmark game's match key (tools/replay_dataset.match_key) from
+    the corpus the benchmark was played from; a file it lacks raises."""
+    from tools.replay_dataset import match_key
+    out = {}
+    for file in bench_files:
+        with gzip.open(Path(corpus) / file, "rt", encoding="utf-8") as f:
+            out[file] = match_key(json.load(f))
+    return out
 
 
 def corpus_tasks(rows: Sequence[Dict]) -> List[Tuple]:
@@ -248,6 +268,8 @@ def main(argv=None) -> int:
     ap.add_argument("--matches", type=Path, nargs="*", default=[], help="extracted match game directories (M)")
     ap.add_argument("--corpus", type=Path, default=None, help="the imitation corpus (H)")
     ap.add_argument("--bench", type=Path, default=Path("configs/bench_states.json"))
+    ap.add_argument("--bench-corpus", type=Path, default=None,
+                    help="the corpus the benchmark was played from (its games' match keys)")
     ap.add_argument("--cap", type=int, default=cd.MAX_POSITIONS_PER_GAME)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2),
                     help="0 builds in this process")
@@ -270,7 +292,8 @@ def main(argv=None) -> int:
         rows = [json.loads(line) for line in (args.corpus / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
                 if line.strip()]
         bench = [s["file"] for s in json.loads(args.bench.read_text(encoding="utf-8"))["states"]]
-        train_rows, bench_check = corpus_training_rows(rows, bench)
+        keys = {} if args.bench_corpus is None else bench_match_keys(args.bench_corpus, bench)
+        train_rows, bench_check = corpus_training_rows(rows, bench, keys.values())
         tasks += corpus_tasks(train_rows)[:args.limit]
     args.out.mkdir(parents=True, exist_ok=True)
     meta = {"fingerprint": fingerprint(type_to_id, faction_to_id, int(wesnoth_core.__phase__), args.cap),

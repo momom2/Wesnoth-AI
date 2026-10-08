@@ -182,6 +182,9 @@ auxiliary head on the mover's HP-weighted material margin at its next turn
 start; positions drawn from every decision point and every side-turn start,
 at most 24 per game with the game's own seed; capped games left out (their
 label is undefined; the benchmark's own playouts capped 3.4% of the time).
+The auxiliary margin is a raw hit-point sum, the turn-value experiment's HP
+margin over the two player sides only: the mover's units' hit points less its
+opponent's, neither cost-weighted nor counting a neutral side's units.
 
 **Free readouts** (the same box, no training): at `parity3`'s decisions in 100
 of its recorded games, the distribution of the log-prior gap between its top
@@ -243,7 +246,9 @@ it there. A critic 0.10 above the margin in correlation selects about 0.02
 better, one paired standard error (0.019): the predicted effects pass 0.17
 of the time, +0.20 passes 0.57. A size effect of 0.10 in correlation reads
 Data-limited 0.40 of the time (the paired standard error of T100 against T25
-is 0.06-0.10).
+is 0.06-0.10). The simulation treats the HP margin as continuous, while in the
+benchmark 83 of the 199 positions tie at the margin's top (74 of them with the
+base turn among the tied), where the margin picks the base turn.
 
 **Cost.** One box session: rebuilding and encoding about 22,000 games' sampled
 positions (CPU), six critic trainings of 10-40 minutes each, the readouts in

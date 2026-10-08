@@ -12,13 +12,18 @@
 #     its match against parity2 (tools/prior_gaps.py);
 #   the positions of M and H on all cores (tools/critic_positions.py), with
 #     its crash barrier: under 1% of the games failed, both sources present;
-#   the benchmark's states rebuilt and encoded (tools/critic_bench.py rebuild);
+#   the benchmark's states rebuilt and encoded (tools/critic_bench.py rebuild),
+#     its gate before any critic trains: no error, every recorded digest
+#     met, the 966 candidates that do not end the game all encoded;
 #   six critics (tools/critic_train.py): T25, T50, T100 (true state, 25, 50
 #     and 100% of M), O100 (the mover's observation, 100% of M), TH (true
 #     state, H), Tsmall (true state, 100% of M, a quarter of the width and
 #     depth, from scratch); each ends by patience, its epochs or 40 minutes;
 #   the readout (tools/critic_bench.py read, stats), whose reading the finish
-#     reason names: Pass, Data-limited or Kill.
+#     reason names: Pass, Data-limited or Kill (or READING_REFUSED when a
+#     critic did not read every rebuilt candidate).
+# The prior gaps are free readouts: their failure is noted in the finish
+# reason and the run goes on.
 #
 # Box: one RTX 4090, 32 or more cores, 64 GB, 120 GB of disk
 # (docs/box_specs.md "Current box shape"). Expected wall about 3.6 hours:
@@ -188,13 +193,16 @@ EOF
 fi
 
 # ---- the free readouts: parity3's prior gaps in 100 games of its match against parity2
+GAPS_NOTE=""
 if [ ! -f "$OUT/prior_gaps.json" ]; then
     box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the prior gaps: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
     rm -f "$OUT/prior_gaps.games.jsonl"
-    box_bounded "prior gaps" "$GAPS_CUT_MIN" prior_gaps.log python tools/prior_gaps.py \
-        --games "$MATCHES_DIR/imitation_anneal_20261003__cand64_vs_ref" --player cand64 --checkpoint "$REF" \
-        --out "$OUT/prior_gaps.json" --device cuda \
-        || box_finish "PRIOR_GAPS_${BOX_WHY^^} rc=$BOX_RC (prior_gaps.log)" 1
+    if ! box_bounded "prior gaps" "$GAPS_CUT_MIN" prior_gaps.log python tools/prior_gaps.py \
+            --games "$MATCHES_DIR/imitation_anneal_20261003__cand64_vs_ref" --player cand64 --checkpoint "$REF" \
+            --out "$OUT/prior_gaps.json" --device cuda; then
+        GAPS_NOTE="; PRIOR_GAPS_${BOX_WHY^^} rc=$BOX_RC (prior_gaps.log)"
+        echo "$(date -u +%FT%TZ) the prior gaps failed${GAPS_NOTE}; the run goes on" | tee -a "$OUT/prior_gaps.log"
+    fi
     box_upload_async
 fi
 
@@ -218,7 +226,8 @@ if ! all_critics_done; then
         from=$(box_size "$OUT/positions.log")
         box_bounded --stall "$OUT/positions.log" "$POSITIONS_STALL_MIN" positions "$POSITIONS_CUT_MIN" positions.log \
             python tools/critic_positions.py --out "$POS" --vocab-from "$REF" --matches "$MATCHES_DIR"/*__* \
-            --corpus "$CORPUS" --bench configs/bench_states.json --workers "$WORKERS"
+            --corpus "$CORPUS" --bench configs/bench_states.json \
+            --bench-corpus "$BENCH_DIR/replays_dataset_imitation" --workers "$WORKERS"
         tail -c "+$(( from + 1 ))" "$OUT/positions.log" | grep -q "BUILD_DONE" \
             || box_finish "POSITIONS_${BOX_WHY^^} rc=$BOX_RC (positions.log; it continues on re-entry)" 1
         cp -f "$POS/summary.json" "$OUT/positions_summary.json"
@@ -244,12 +253,15 @@ fi
 
 # ---- the benchmark's states: rebuilt from the corpus it was played from, encoded both ways
 box_upload_dir bench "$OUT/bench"
-if ! grep -q "REBUILD_DONE" "$OUT/bench_rebuild.log" 2>/dev/null || [ ! -f "$OUT/bench/states.pkl" ]; then
+if ! grep -q "REBUILD_GATE_PASSED" "$OUT/bench_rebuild.log" 2>/dev/null || [ ! -f "$OUT/bench/states.pkl" ]; then
     box_bounded "bench rebuild" 30 bench_rebuild.log python tools/critic_bench.py rebuild \
         --records "$BENCH_DIR/validation.json" --dataset "$BENCH_DIR/replays_dataset_imitation" \
-        --vocab-from "$REF" --out "$OUT/bench" --workers "$WORKERS" \
-        || box_finish "BENCH_REBUILD_${BOX_WHY^^} rc=$BOX_RC (bench_rebuild.log)" 1
-    cp -f "$OUT/bench/rebuild_summary.json" "$OUT/bench_rebuild_summary.json"
+        --vocab-from "$REF" --out "$OUT/bench" --workers "$WORKERS"
+    rc=$BOX_RC why=$BOX_WHY
+    cp -f "$OUT/bench/rebuild_summary.json" "$OUT/bench_rebuild_summary.json" 2>/dev/null
+    [ "$rc" -ne 3 ] || box_finish "BENCH_REBUILD_GATE_FAILED: $(grep -o 'REBUILD_GATE_FAILED.*' \
+        "$OUT/bench_rebuild.log" | tail -1 | cut -c1-300) (bench_rebuild_summary.json)" 1
+    [ "$rc" -eq 0 ] || box_finish "BENCH_REBUILD_${why^^} rc=$rc (bench_rebuild.log)" 1
 fi
 
 # ---- the six critics
@@ -283,9 +295,12 @@ for spec in "${CRITICS[@]}"; do
 done
 box_bounded "bench read" 20 bench_read.log python tools/critic_bench.py read --out "$OUT/bench" \
     "${read_args[@]}" --device cuda || box_finish "BENCH_READ_${BOX_WHY^^} rc=$BOX_RC (bench_read.log)" 1
-box_bounded "bench stats" 15 bench_stats.log python tools/critic_bench.py stats --out "$OUT/bench" \
-    || box_finish "BENCH_STATS_${BOX_WHY^^} rc=$BOX_RC (bench_stats.log)" 1
+box_bounded "bench stats" 15 bench_stats.log python tools/critic_bench.py stats --out "$OUT/bench"
+if [ "$BOX_RC" -eq 4 ]; then
+    box_finish "READING_REFUSED: $(grep -o 'READING_REFUSED.*' "$OUT/bench_stats.log" | tail -1 | cut -c1-300)$GAPS_NOTE" 1
+fi
+[ "$BOX_RC" -eq 0 ] || box_finish "BENCH_STATS_${BOX_WHY^^} rc=$BOX_RC (bench_stats.log)$GAPS_NOTE" 1
 cp -f "$OUT/bench/readout.json" "$OUT/readout.json"
 cp -f "$OUT/bench/readout.md" "$OUT/readout.md"
 reading=$(grep -o "READING [A-Za-z-]*" "$OUT/bench_stats.log" | tail -1)
-box_finish "CRITIC_STEP1_DONE ${reading:-READING_UNKNOWN} (readout.md, prior_gaps.json)"
+box_finish "CRITIC_STEP1_DONE ${reading:-READING_UNKNOWN} (readout.md, prior_gaps.json)$GAPS_NOTE"

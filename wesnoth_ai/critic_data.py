@@ -7,14 +7,15 @@ of them drawn with a generator seeded by the game's own seed
 (`sample_points`). Each position carries
 
   z     the game's outcome signed to the side to move: +1 won, -1 lost;
-  aux   the mover's HP margin (`hp_margin`) right after its next init_side,
-        NaN when the game ends first;
+  aux   the mover's HP margin over the two player sides (`player_hp_margin`)
+        right after its next init_side, NaN when the game ends first;
 
 and two encodings of the side to move, both through the Rust core with the
 parity recipe's switches (`ENCODING`), neither carrying a memory:
 
-  true  the position with fog off, on a fork of the core: every unit of
-        both sides, the enemy's gold, income and upkeep;
+  true  the position with fog off and every hider uncovered, on a fork of
+        the core: every unit of both sides, the enemy's gold, income and
+        upkeep;
   obs   the side's observation as the game was played (its fog, its
         sighting record).
 
@@ -34,7 +35,7 @@ import zlib
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
-from wesnoth_ai.classes import PLAYER_SIDES
+from wesnoth_ai.classes import PLAYER_SIDES, opponent_of
 
 MAX_POSITIONS_PER_GAME = 24
 VIEWS = ("true", "obs")
@@ -143,6 +144,15 @@ def hp_margin(gs, mover: int) -> int:
     return sum(u.current_hp if u.side == mover else -u.current_hp for u in gs.map.units)
 
 
+def player_hp_margin(gs, mover: int) -> int:
+    """The mover's units' total hit points minus its opponent's: the HP
+    margin over the two player sides, which a neutral side's units (statues,
+    tentacles) do not move."""
+    them = opponent_of(mover)
+    return sum(u.current_hp if u.side == mover else -u.current_hp
+               for u in gs.map.units if u.side in (mover, them))
+
+
 def signed_outcome(winner: int, side: int) -> float:
     return 1.0 if int(winner) == int(side) else -1.0
 
@@ -152,12 +162,15 @@ def signed_outcome(winner: int, side: int) -> float:
 # ---------------------------------------------------------------------
 
 def true_state(cs):
-    """A fork of the core with fog off: what the side to move would see if
-    nothing were hidden. The core it came from is left as it was."""
+    """A fork of the core with fog off and every unit uncovered: what the
+    side to move would see if nothing were hidden (a hider no one has found
+    stays hidden with fog off, rust/wesnoth_core/src/observe.rs). The core
+    it came from is left as it was."""
     fork = cs.fork()
     g = dict(fork.core.globals_export())
     g["fog_on"] = False
     fork.core.set_globals(g)
+    fork.core.set_uncovered([str(u["id"]) for u in fork.core.units_export()])
     return fork
 
 
@@ -215,7 +228,7 @@ def collect_positions(steps: Iterator[Tuple[int, Any, list]], end: list, chosen:
 
     def settle(cs, side: int) -> None:
         if pending[side]:
-            margin = hp_margin(cs.to_state(), side)
+            margin = player_hp_margin(cs.to_state(), side)
             for pos in pending[side]:
                 pos.aux = float(margin)
             pending[side] = []

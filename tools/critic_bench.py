@@ -26,7 +26,13 @@ rebuild  Each benchmark position again from its corpus game (the corpus the
          the margin is still the one before the end_turn; the playouts went
          on from there to the turn start read here. One pickle per position
          is appended to states.pkl as positions finish, a row to
-         rebuild.jsonl, and a resumed run skips the positions it holds.
+         rebuild.jsonl, and a resumed run skips the positions it holds (a
+         record a kill cut short is cut off first). The run is gated: any
+         position or candidate error, any digest that differs, or fewer
+         encoded candidates than the records hold outside the turns that end
+         the game (966 of the benchmark's 971: position 75's four and
+         (103, 0) end it) exits 3 with REBUILD_GATE_FAILED, before any
+         critic is read.
 reads    Each critic's value of each state in its own view, signed to the
          mover (the opponent moves at read 0): reads_<NAME>.json, one per
          critic, as each finishes.
@@ -37,7 +43,9 @@ stats    The pre-registered statistics at each read, against the
          the base turn, each paired against the static HP margin at the same
          state, and T100 against T25; then the reading
          (wesnoth_ai/turn_bench_stats.readings), printed with why it fires.
-         readout.json and readout.md.
+         readout.json and readout.md. A reading is refused (exit 4,
+         READING_REFUSED) when a grader has no read of a rebuilt candidate
+         or fewer than MIN_POSITIONS positions enter a statistic.
 extract  The benchmark's truth as arrays (BENCH_ARRAYS, committed): per
          candidate its position, slot, game, outcomes, playout and turn luck
          and recorded HP margin after the turn, and the verdict's luck
@@ -46,6 +54,7 @@ extract  The benchmark's truth as arrays (BENCH_ARRAYS, committed): per
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import math
@@ -68,7 +77,10 @@ from wesnoth_ai import turn_bench_stats as S  # noqa: E402
 log = logging.getLogger("critic_bench")
 
 BENCH_ARRAYS = Path(__file__).resolve().parent.parent / "training/metrics/turn_value_20260925/bench_truth.npz"
-DIGEST_VERSION = 1          # the benchmark's digests predate the sighting record (state_digest version 2)
+DIGEST_VERSION = 1
+MIN_POSITIONS = 190         # of the benchmark's 199 (198 with a base turn) a statistic must cover
+EXIT_GATE = 3
+EXIT_REFUSED = 4          # the benchmark's digests predate the sighting record (state_digest version 2)
 MARGIN = "hp_margin"
 SIZE_PAIR = ("T100", "T25")
 
@@ -171,20 +183,62 @@ def _rebuild(record: Dict) -> Dict:
                 "error": f"{type(e).__name__}: {e}"[:300]}
 
 
-def read_states(path: Path) -> Iterator[Dict]:
-    """The positions a rebuild appended, a cut last one skipped."""
+def whole_records(path: Path) -> Tuple[List[Dict], int]:
+    """The positions a rebuild appended and the byte where the last whole
+    one ends (a record a kill cut short is past it)."""
     from wesnoth_ai import unpickle
+    out: List[Dict] = []
+    end = 0
     if not path.exists():
-        return
+        return out, end
     with path.open("rb") as f:
         while True:
             try:
-                yield unpickle.load(f)
+                out.append(unpickle.load(f))
             except EOFError:
-                return
-            except (pickle.UnpicklingError, ValueError, AttributeError):
-                log.warning("%s: a cut record at the end is skipped", path)
-                return
+                break
+            except (pickle.UnpicklingError, ValueError, AttributeError, IndexError, KeyError):
+                log.warning("%s: a cut record past byte %d is skipped", path, end)
+                break
+            end = f.tell()
+    return out, end
+
+
+def read_states(path: Path) -> Iterator[Dict]:
+    """The positions a rebuild appended, a cut last one skipped."""
+    yield from whole_records(path)[0]
+
+
+def expected_counts(records: Sequence[Dict]) -> Dict[str, int]:
+    """What a full rebuild of `records` holds: every candidate, and encoded
+    every one that has a pre-end_turn state (the others ended the game in
+    their turn)."""
+    cands = [c for r in records for c in candidates(r)]
+    skipped = sum(1 for c in cands if c.get("terminal_in_turn") or not c.get("pre_end_turn"))
+    return {"positions": len(records), "candidates": len(cands), "skipped": skipped,
+            "encoded": len(cands) - skipped}
+
+
+def gate_problems(counts: Dict[str, int], expected: Dict[str, int]) -> List[str]:
+    """Why a rebuild cannot be read (none when it can)."""
+    problems = [f"{counts[k]} {k.replace('_', ' ')}" for k in ("position_errors", "errors", "digest_mismatch")
+                if counts[k]]
+    for k in ("positions", "candidates", "skipped", "encoded"):
+        if counts[k] != expected[k]:
+            problems.append(f"{counts[k]} {k} where the records hold {expected[k]}")
+    return problems
+
+
+@contextlib.contextmanager
+def rebuilt_positions(todo: Sequence[Dict], workers: int, init: Tuple) -> Iterator[Iterator[Dict]]:
+    """The rebuilt positions as they finish: on `workers` spawned
+    processes, or in this one when `workers` is 0."""
+    if workers <= 0:
+        _init(*init)
+        yield (_rebuild(r) for r in todo)
+        return
+    with mp.get_context("spawn").Pool(workers, initializer=_init, initargs=init) as pool:
+        yield pool.imap_unordered(_rebuild, todo)
 
 
 def cmd_rebuild(args) -> int:
@@ -193,14 +247,18 @@ def cmd_rebuild(args) -> int:
     records = json.loads(args.records.read_text(encoding="utf-8"))["positions"]
     args.out.mkdir(parents=True, exist_ok=True)
     states = args.out / "states.pkl"
-    done = {p["index"] for p in read_states(states)}
+    before, end = whole_records(states)
+    if states.exists() and states.stat().st_size > end:
+        with states.open("r+b") as f:                    # a record a kill cut short goes
+            f.truncate(end)
+    done = {p["index"] for p in before}
     todo = [r for r in records if r["index"] not in done]
     log.info("%d positions, %d rebuilt before", len(records), len(done))
     t0 = time.time()
+    init = (str(args.dataset), type_to_id, faction_to_id)
     with states.open("ab") as sink, (args.out / "rebuild.jsonl").open("a", encoding="utf-8") as rows, \
-            mp.get_context("spawn").Pool(args.workers, initializer=_init,
-                                         initargs=(str(args.dataset), type_to_id, faction_to_id)) as pool:
-        for i, pos in enumerate(pool.imap_unordered(_rebuild, todo), 1):
+            rebuilt_positions(todo, args.workers, init) as results:
+        for i, pos in enumerate(results, 1):
             pickle.dump(pos, sink, protocol=pickle.HIGHEST_PROTOCOL)
             sink.flush()
             rows.write(json.dumps({"index": pos["index"], "error": pos.get("error"),
@@ -210,8 +268,15 @@ def cmd_rebuild(args) -> int:
             if i % 20 == 0 or i == len(todo):
                 log.info("%d/%d positions, %.0f s", i, len(todo), time.time() - t0)
     counts = rebuild_counts(list(read_states(states)))
-    (args.out / "rebuild_summary.json").write_text(json.dumps(counts, indent=1), encoding="utf-8")
+    expected = expected_counts(records)
+    problems = gate_problems(counts, expected)
+    (args.out / "rebuild_summary.json").write_text(
+        json.dumps({"counts": counts, "expected": expected, "gate": problems}, indent=1), encoding="utf-8")
     log.info("REBUILD_DONE %s", counts)
+    if problems:
+        log.error("REBUILD_GATE_FAILED %s", "; ".join(problems))
+        return EXIT_GATE
+    log.info("REBUILD_GATE_PASSED %d candidates encoded", counts["encoded"])
     return 0
 
 
@@ -323,14 +388,16 @@ def grades_at(arrays: Dict, positions: Sequence[Dict], critic_reads: Dict[str, D
               ) -> Dict[str, np.ndarray]:
     """Per grader, a grade per benchmark row at `read` (NaN where the
     candidate did not rebuild; every row of a position whose base turn did
-    not rebuild)."""
+    not rebuild, a base that ended the game in its turn aside: the
+    benchmark has no row for it)."""
     row_of = {(int(i), int(s)): k for k, (i, s) in enumerate(zip(arrays["index"], arrays["slot"]))}
     n = len(arrays["index"])
     margin = np.full(n, np.nan)
     ok = np.zeros(n, dtype=bool)
     for pos in positions:
         cands = {c["slot"]: c for c in pos["candidates"]}
-        base_ok = "raws" in cands.get(0, {})
+        base = cands.get(0)
+        base_ok = base is None or "raws" in base or "skipped" in base
         for slot, cand in cands.items():
             k = row_of.get((int(pos["index"]), int(slot)))
             if k is None or "raws" not in cand or not base_ok:
@@ -373,6 +440,28 @@ def statistics(arrays: Dict, grades_by_read: Dict[str, Dict[str, np.ndarray]], c
     return out
 
 
+def refusal_reasons(arrays: Dict, positions: Sequence[Dict], grades: Dict[str, Dict[str, np.ndarray]],
+                    stats: Dict) -> List[str]:
+    """Why the statistics cannot be read: a grader without a read of a
+    rebuilt candidate, or a statistic over fewer than MIN_POSITIONS
+    positions."""
+    rebuilt = np.isfinite(grades[S.READS[0]][MARGIN]) | np.isfinite(grades[S.READS[1]][MARGIN])
+    out = []
+    if not rebuilt.any():
+        out.append("no rebuilt candidate")
+    for read, by_grader in grades.items():
+        for name, g in by_grader.items():
+            missing = int((rebuilt & ~np.isfinite(g)).sum())
+            if missing:
+                out.append(f"{name} has no read of {missing} rebuilt candidates at {read}")
+    for basis, by_read in stats.items():
+        for read, s in by_read.items():
+            if s["correlations"]["clusters"] < MIN_POSITIONS or s["gains"]["positions"] < MIN_POSITIONS:
+                out.append(f"{s['correlations']['clusters']} positions in the correlations and "
+                           f"{s['gains']['positions']} in the gains at {read} ({basis})")
+    return out
+
+
 def markdown(stats: Dict, reading: Dict, counts: Dict) -> str:
     lines = [f"# Step 1 readout: {reading['reading']}", "", reading["why"], "",
              f"rebuild: {json.dumps(counts)}", ""]
@@ -410,8 +499,15 @@ def cmd_stats(args) -> int:
     arrays = load_arrays(args.arrays)
     grades = {read: grades_at(arrays, positions, critic_reads, read) for read in S.READS}
     stats = statistics(arrays, grades, critics)
-    reading = S.readings(stats["adjusted"], critics, margin=MARGIN, large=SIZE_PAIR[0], small=SIZE_PAIR[1])
     counts = rebuild_counts(positions)
+    refusal = refusal_reasons(arrays, positions, grades, stats)
+    if refusal:
+        (args.out / "readout_refused.json").write_text(
+            json.dumps({"refused": refusal, "rebuild": counts, "statistics": stats}, indent=1, default=float),
+            encoding="utf-8")
+        print(f"READING_REFUSED: {'; '.join(refusal)}")
+        return EXIT_REFUSED
+    reading = S.readings(stats["adjusted"], critics, margin=MARGIN, large=SIZE_PAIR[0], small=SIZE_PAIR[1])
     out = {"reading": reading, "statistics": stats, "rebuild": counts, "code_version": __version__,
            "critics": {k: {f: v.get(f) for f in ("checkpoint", "sha256", "view", "meta", "training")}
                        for k, v in critic_reads.items()},
@@ -432,7 +528,8 @@ def main(argv=None) -> int:
     r.add_argument("--dataset", type=Path, required=True, help="the corpus the benchmark was played from")
     r.add_argument("--vocab-from", type=Path, required=True)
     r.add_argument("--out", type=Path, required=True)
-    r.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    r.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2),
+                   help="0 rebuilds in this process")
     d = sub.add_parser("read")
     d.add_argument("--out", type=Path, required=True)
     d.add_argument("--critic", action="append", required=True, help="NAME=CHECKPOINT")
