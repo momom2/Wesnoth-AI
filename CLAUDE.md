@@ -113,7 +113,10 @@ distillation; before any training launches, a new algorithm must handle
 the reward's sparsity, multi-step turns whose plans depend on the dice
 rolled inside the turn, and the simulator's speed without being
 bottlenecked on the network (2026-10-06). Imitation's remaining gains
-are parked (2026-10-04).
+are parked (2026-10-04). The program that answers the 2026-10-06 ruling
+is docs/selfplay_program_20261008.md (policy iteration with a one-step
+look-ahead over exact combat outcomes, its evaluator chosen by
+measurement); its step 1 is pre-registered there.
 
 Measured facts a new design starts from:
 - **Turn-level gaps exist.** Under `terrain`, 7 of 60 holdout positions

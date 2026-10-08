@@ -4,7 +4,23 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-10-05)
+## NEXT (2026-10-08)
+
+**0. The self-play program** (lead's decision 2026-10-08,
+docs/selfplay_program_20261008.md): policy iteration with a one-step
+look-ahead over the prior's top actions, exact combat outcomes as chance
+nodes, and Muesli's clipped target; each round's tilted player gated
+against `parity3` before it is distilled. Its evaluator, a critic learned
+from games or short rollouts scored by material, is chosen by
+measurement. **Step 1 is pre-registered** in that document and reviewed:
+six critics trained on records already on HF (a size curve inside the
+engine matches, an observation form, the human corpus, a small critic),
+judged by paired tests against the static HP margin on the turn-value
+benchmark, about $1.3-1.9 of one box. Its code is being built on
+`feature/critic-step1` (from `exp/value-policy-iteration`); the box needs
+the user's word. The CPU turn planner's proposal
+(docs/selfplay_algorithm_design_20261007.md) is parked as step 1's kill
+branch; a policy-gradient leg is parked on its cost.
 
 **1. `parity3` is the reference** (user ruling 2026-10-04): +82 +- 13
 Elo over `parity2` (800 decisive games,
@@ -20,7 +36,7 @@ compute than the project has; before any training launches, a new
 training algorithm must handle the reward's sparsity, multi-step turns
 whose plans are conditional on the dice (aleatoric outcomes inside the
 turn), and the simulator's speed without being bottlenecked on the
-network. **Next: that algorithm's design.** The one size measurement
+network. That algorithm is item 0's program. The one size measurement
 of the memory is `parity2`'s: 16 and 64 slots within noise in play.
 Parked meanwhile:
 
