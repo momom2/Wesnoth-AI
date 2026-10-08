@@ -210,6 +210,37 @@ between T50 and T100; Tsmall within 0.05 of T100.
   dice (docs/selfplay_algorithm_design_20261007.md), priced for the user.
   The correlations are reported either way.
 
+**Operating characteristics** (simulated 2026-10-08, before any box run:
+`tools/critic_oc.py`, record
+`training/metrics/critic_step1_20261008/operating_characteristics.json`).
+A synthetic benchmark of the real one's 199 positions and 966 candidates,
+calibrated on its records: candidate values with the luck-adjusted truth's
+within-position spread (sd 0.167), concentrated on a few positions as the
+records' is (the HP margin's simulated standard errors 0.09 in correlation
+and 0.020 in selection gain, against 0.098 and 0.017 recorded), the base
+turn 0.042 ahead of the alternatives, each candidate's own playout noise,
+the HP margin's correlation 0.377; error correlations of 0.12 between a
+learned head and the margin and 0.27 between a head's two reads (`obs8`'s,
+measured), and 0.5 between two critics (assumed; 0.2 and 0.8 in the first
+row). Each draw goes through the readout's own statistics and readings, 80
+draws a row:
+
+| critics' true correlation minus the margin's | Pass | Data-limited | Kill |
+|---|---|---|---|
+| 0 for all (0.2 to 0.8 between critics) | 0.09-0.14 | 0.04-0.10 | 0.76-0.88 |
+| +0.05 for all | 0.34 | 0.07 | 0.59 |
+| the predictions (T100 +0.10, T25 +0.05) | 0.36 | 0.20 | 0.44 |
+| +0.20 for T100, +0.12 for T25 | 0.70 | 0.10 | 0.20 |
+| below it, size +0.10 (T100 -0.05, T25 -0.15) | 0.04 | 0.39 | 0.57 |
+| -0.13 for all | 0.01 | 0.04 | 0.95 |
+
+Pass takes the best of twelve paired tests (six critics, two reads): with no
+critic better than the margin it fires on about a tenth of the draws. A
+critic 0.10 above the margin in correlation selects about 0.02 better, one
+paired standard error (0.019), so the predicted effects pass about a third
+of the time. A size effect of 0.10 in correlation reads Data-limited 0.39 of
+the time (the paired standard error of T100 against T25 is 0.06-0.10).
+
 **Cost.** One box session: rebuilding and encoding about 22,000 games' sampled
 positions (CPU), six critic trainings of 10-40 minutes each, the readouts in
 minutes: about 3 box-hours, $1.3-1.9 at $0.42-0.63/h. The Vast balance on
