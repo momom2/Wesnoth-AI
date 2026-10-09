@@ -187,6 +187,55 @@ def test_a_served_forward_writes_the_memory_the_local_forward_writes():
 
 
 @needs_core
+def test_the_player_computes_what_the_trainer_computed():
+    """One game through the trainer's path (its pre-encoded positions,
+    staged, embedded, the packed trunk, each side's memory carried as
+    tools/sequence_train.py carries it) and through the player's (the live
+    state encoded, the model's forward with the side's MemoryState): the
+    same outputs and the same memory at every decision."""
+    from helpers.parity_games import record
+    from tools.abilities import hex_neighbors
+    from tools.preencode_sequences import encode_game_sequence
+    from tools.replay_dataset import iter_record_pairs
+    encoder, model = _parity_pair()
+    enemy = (9, 2)
+    near = next(h for h in hex_neighbors(*enemy) if h[0] == 8)
+    start = next(h for h in hex_neighbors(*near) if h != enemy and h not in hex_neighbors(*enemy))
+    data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, *start, False),
+                   ("Lieutenant", 2, 18, 3, True), ("Spearman", 2, *enemy, False)], fog=True)
+    data["commands"] = [["init_side", 1], ["move", [start[0], near[0]], [start[1], near[1]], 1],
+                        ["attack", near[0], near[1], *enemy, 0, -1, "1"], ["end_turn"],
+                        ["init_side", 2], ["move", [18, 17], [3, 3], 2], ["end_turn"],
+                        ["init_side", 1], ["move", [1, 2], [3, 3], 1], ["end_turn"]]
+    k = model.memory_slots
+    seq = encode_game_sequence(data, "g", 1, dict(encoder.unit_type_to_id), dict(encoder.faction_to_id))
+    trained = {}
+    with torch.no_grad():
+        for side, positions in seq.sides.items():
+            memory, rows = model.initial_memory(k), []
+            for pos in positions:
+                staged = encoder.stage_raws([pos.raw], device=torch.device("cpu"))
+                out = model.forward_embedded(encoder.embed_staged(staged), memory=[memory]).float32()
+                memory = out.memory_padded[0, :k]
+                one = out.sample(0)
+                rows.append((one.actor_logits, one.value, memory))
+            trained[side] = rows
+    played, states = {1: [], 2: []}, {1: None, 2: None}
+    with torch.no_grad():
+        for gs, _ in iter_record_pairs(data, relevant_set=False, timeouts=True):
+            side = int(gs.global_info.current_side)
+            out = model(encoder.encode(gs), memory=MemoryState(k, states[side]))
+            states[side] = out.memory
+            played[side].append((out.actor_logits, out.value, out.memory))
+    assert [len(trained[s]) for s in (1, 2)] == [len(played[s]) for s in (1, 2)] == [5, 2]
+    for side in (1, 2):
+        for (la, va, ma), (lb, vb, mb) in zip(trained[side], played[side]):
+            assert torch.allclose(la, lb, atol=1e-5) and torch.allclose(va, vb, atol=1e-5)
+            assert torch.allclose(ma, mb, atol=1e-5)
+    assert not torch.allclose(trained[1][1][2], trained[1][0][2], atol=1e-5), "each decision writes the memory"
+
+
+@needs_core
 @pytest.mark.slow
 def test_an_eval_game_between_memory_players_records_their_sizes(tmp_path):
     """A real game, per process: the same checkpoint at 8 slots and at 0."""
