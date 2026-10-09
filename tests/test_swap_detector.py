@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from sim_test_helpers import commit_view                          # noqa: E402
 from tools.abilities import hex_neighbors, opposite_hex           # noqa: E402
 from tools.combat_outcomes import enumerate_attack_outcomes       # noqa: E402
-from tools.replay_dataset import _build_recruit_unit, _stats_for  # noqa: E402
+from tools.replay_dataset import _stats_for                       # noqa: E402
+from wesnoth_ai.game_core import build_recruit_unit               # noqa: E402
 from wesnoth_ai.rules.scenario_pool import (                                 # noqa: E402
     random_setup, build_scenario_gamestate, load_factions,
 )
@@ -69,11 +70,11 @@ def _thief_vs_leader(with_flanker: bool):
 
     assert "backstab" in _stats_for("Thief")["attacks"][0].get("specials", []), \
         "test premise: Thief's first attack has the backstab special"
-    gs.map.units.add(_build_recruit_unit(
+    gs.map.units.add(build_recruit_unit(
         "Thief", side=side, x=a_hex[0], y=a_hex[1], next_uid=8001,
         game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
     if with_flanker:
-        gs.map.units.add(_build_recruit_unit(
+        gs.map.units.add(build_recruit_unit(
             "Thief", side=side, x=opp_hex[0], y=opp_hex[1], next_uid=8002,
             game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
     commit_view(sim)
@@ -149,11 +150,11 @@ def _spearman_with_optional_leader(with_leader: bool):
 
     from tools.swap_detector import _has_leadership, _unit_level
     assert _has_leadership("Lieutenant") and _unit_level("Lieutenant") > _unit_level("Spearman")
-    gs.map.units.add(_build_recruit_unit(
+    gs.map.units.add(build_recruit_unit(
         "Spearman", side=side, x=a_hex[0], y=a_hex[1], next_uid=8100,
         game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
     if with_leader:
-        gs.map.units.add(_build_recruit_unit(
+        gs.map.units.add(build_recruit_unit(
             "Lieutenant", side=side, x=l_hex[0], y=l_hex[1], next_uid=8101,
             game_id="t", trait_seed_hex="12345678", exp_modifier=xpmod))
     commit_view(sim)
@@ -174,73 +175,9 @@ def test_leadership_setup_is_strictly_better():
     assert "<" not in cmp.vector.values()
 
 
-def test_pos_mp_dominance_criterion():
-    """(position, MP) dominance: a unit at X with m MP dominates (Y, n)
-    iff it can ACTUALLY reach Y (terrain/ZoC) landing with >= n MP."""
-    from tools.swap_detector import pos_mp_dominates, _reach
-    from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _build_recruit_unit
-    sim = fresh_scenario_sim(seed=7, max_turns=10,
-                             scenario_id="multiplayer_The_Freelands")
-    sim.gs.map.units.clear()
-    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
-    u = _build_recruit_unit("Spearman", side=1, x=10, y=10, next_uid=1,
-                            game_id="t", trait_seed_hex="12345678",
-                            exp_modifier=xpmod)
-    sim.gs.map.units.add(u)
-    m = int(u.current_moves)
-    # same hex: dominates (X, n) for n <= m, not for n > m.
-    assert pos_mp_dominates(sim.gs, u, (10, 10), m)
-    assert not pos_mp_dominates(sim.gs, u, (10, 10), m + 1)
-    # a reachable hex Y: dominates (Y, mp[Y]) exactly, not (Y, mp[Y]+1).
-    r = _reach(sim.gs, u)
-    Y = next((h for h in r.landable if h != (10, 10)), None)
-    assert Y is not None, "spearman should reach some hex"
-    n = r.mp[Y]
-    assert pos_mp_dominates(sim.gs, u, Y, n)
-    assert not pos_mp_dominates(sim.gs, u, Y, n + 1)
-
-
-def test_compare_states_uses_pos_mp_criterion():
-    """Side-turn state dominance: identical -> EQUAL; a unit that stayed
-    put with full MP strictly dominates the same unit that spent MP moving
-    to a hex it can still reach (the banking principle, generalized)."""
-    import copy
-    from tools.swap_detector import compare_states, _reach, _unit_by_id
-    from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _build_recruit_unit, _rebuild_unit
-    sim = fresh_scenario_sim(seed=7, max_turns=10,
-                             scenario_id="multiplayer_The_Freelands")
-    sim.gs.map.units.clear()
-    xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
-    u = _build_recruit_unit("Spearman", side=1, x=10, y=10, next_uid=1,
-                            game_id="t", trait_seed_hex="12345678",
-                            exp_modifier=xpmod)
-    sim.gs.map.units.add(u)
-    stayed = sim.gs
-    assert compare_states(stayed, copy.deepcopy(stayed), 1).verdict is Verdict.EQUAL
-
-    r = _reach(stayed, u)
-    Y = next((h for h in r.landable if h != (10, 10)), None)
-    assert Y is not None
-    n = r.mp[Y]
-    assert n < int(u.current_moves)             # moving there actually costs MP
-    moved = copy.deepcopy(stayed)
-    um = _unit_by_id(moved, u.id)
-    moved.map.units.discard(um)
-    moved.map.units.add(_rebuild_unit(
-        um, position=Position(Y[0], Y[1]), current_moves=n))
-
-    # candidate = stayed (X, full MP); baseline = moved (Y, n MP).
-    cmp = compare_states(moved, stayed, 1)
-    assert cmp.verdict is Verdict.STRICTLY_BETTER, (cmp.verdict, cmp.vector)
-    # and the reverse is WORSE.
-    assert compare_states(stayed, moved, 1).verdict is Verdict.WORSE
-
-
 def test_enumerate_children_via_sim_matches_dp():
-    """The sim-driven outcome enumerator (drives _apply_command with a
-    scripted hit/miss RNG) must reproduce the exact DP distribution --
+    """The sim-driven outcome enumerator (the core's fight with each
+    hit/miss sequence forced) must reproduce the exact DP distribution --
     proving its materialization is bit-faithful without re-implementing
     any post-combat bookkeeping."""
     from tools.swap_detector import (
@@ -249,7 +186,6 @@ def test_enumerate_children_via_sim_matches_dp():
         enumerate_attack_outcomes, outcome_key_for_child,
         choose_counter_weapon)
     from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _build_recruit_unit
     sim = fresh_scenario_sim(seed=11, max_turns=10,
                              scenario_id="multiplayer_The_Freelands")
     gs = sim.gs
@@ -258,10 +194,10 @@ def test_enumerate_children_via_sim_matches_dp():
     ax, ay = 10, 10
     dx, dy = next((h for h in hex_neighbors(ax, ay)
                    if 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y))
-    att = _build_recruit_unit("Spearman", side=1, x=ax, y=ay, next_uid=1,
+    att = build_recruit_unit("Spearman", side=1, x=ax, y=ay, next_uid=1,
                               game_id="t", trait_seed_hex="00000001",
                               exp_modifier=xpmod)
-    dfd = _build_recruit_unit("Orcish Grunt", side=2, x=dx, y=dy, next_uid=2,
+    dfd = build_recruit_unit("Orcish Grunt", side=2, x=dx, y=dy, next_uid=2,
                               game_id="t", trait_seed_hex="00000002",
                               exp_modifier=xpmod)
     gs.map.units.add(att)
@@ -287,69 +223,6 @@ def test_enumerate_children_via_sim_matches_dp():
             key, agg.get(key, 0.0), dp.probs.get(key, 0.0))
 
 
-def test_reconstruct_side_turn_and_compare_backstab():
-    """End-to-end: the SAME side-turn ({attack, flanker-move}) reconstructed
-    in its two orderings. Baseline [attack, move] attacks before the flanker
-    arrives (no backstab); candidate [move, attack] moves the flanker onto
-    the opposite hex first (backstab active). Both end with the flanker on
-    the same hex, so pure position is '=' and the verdict is STRICTLY_BETTER
-    (enemy HP stochastically lower, nothing worse). The defender is beefed
-    so the fight never kills -> no advancement bail. Exercises the move
-    command path in the reconstruction too."""
-    from tools.swap_detector import (
-        reconstruct_side_turn_dist, compare_state_distributions,
-        hex_neighbors, opposite_hex)
-    from tools.combat_outcomes import choose_counter_weapon
-    from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _build_recruit_unit
-
-    sim = fresh_scenario_sim(seed=5, max_turns=10,
-                             scenario_id="multiplayer_The_Freelands")
-    gs = sim.gs
-    gs.map.units.clear()
-    xpmod = int(getattr(gs.global_info, "_experience_modifier", 100) or 100)
-
-    def inb(h):
-        return 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y
-
-    dx, dy = 12, 12
-    A = next(h for h in hex_neighbors(dx, dy) if inb(h))
-    opp = opposite_hex((dx, dy), A)
-    assert opp is not None and inb(opp)
-    # flanker start hex: adjacent to opp (one-step move), not D/A/opp
-    S = next(h for h in hex_neighbors(*opp)
-             if inb(h) and h not in {(dx, dy), A, opp})
-
-    dfd = _build_recruit_unit("Orcish Grunt", side=2, x=dx, y=dy, next_uid=1,
-                              game_id="t", trait_seed_hex="00000001",
-                              exp_modifier=xpmod)
-    dfd.current_hp = 200          # can't die -> fight never advances
-    dfd.max_hp = 200
-    att = _build_recruit_unit("Thief", side=1, x=A[0], y=A[1], next_uid=2,
-                              game_id="t", trait_seed_hex="00000002",
-                              exp_modifier=xpmod)
-    flk = _build_recruit_unit("Thief", side=1, x=S[0], y=S[1], next_uid=3,
-                              game_id="t", trait_seed_hex="00000003",
-                              exp_modifier=xpmod)
-    for u in (dfd, att, flk):
-        gs.map.units.add(u)
-    commit_view(sim)
-
-    dw = choose_counter_weapon(gs, att, dfd, 0)
-    attack_cmd = ["attack", A[0], A[1], dx, dy, 0, dw, "deadbeef"]
-    move_cmd = ["move", [S[0], opp[0]], [S[1], opp[1]]]
-
-    pb = reconstruct_side_turn_dist(gs, [attack_cmd, move_cmd])   # no backstab
-    pc = reconstruct_side_turn_dist(gs, [move_cmd, attack_cmd])   # backstab
-    assert pb is not None and pc is not None
-
-    cmp = compare_state_distributions(pb, pc, 1)
-    assert cmp.verdict is Verdict.STRICTLY_BETTER, (cmp.verdict, cmp.vector)
-    assert "<" not in cmp.vector.values()
-    assert cmp.vector.get(f"hp:{dfd.id}") == ">", cmp.vector      # enemy lower
-    assert cmp.vector.get(f"pos:{flk.id}") == "=", cmp.vector     # same hex
-
-
 def test_enumerate_children_via_sim_matches_dp_with_advancement():
     """With advancement_choice='uniform' the sim-driven enumerator must
     still reproduce the exact DP distribution, INCLUDING the uniform spread
@@ -363,7 +236,6 @@ def test_enumerate_children_via_sim_matches_dp_with_advancement():
         enumerate_attack_outcomes, outcome_key_for_child,
         choose_counter_weapon)
     from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _build_recruit_unit
     assert len(_advance_targets("Spearman")) > 1, "test premise: 2 advances"
 
     sim = fresh_scenario_sim(seed=13, max_turns=10,
@@ -374,11 +246,11 @@ def test_enumerate_children_via_sim_matches_dp_with_advancement():
     ax, ay = 10, 10
     dx, dy = next((h for h in hex_neighbors(ax, ay)
                    if 0 <= h[0] < gs.map.size_x and 0 <= h[1] < gs.map.size_y))
-    att = _build_recruit_unit("Spearman", side=1, x=ax, y=ay, next_uid=1,
+    att = build_recruit_unit("Spearman", side=1, x=ax, y=ay, next_uid=1,
                               game_id="t", trait_seed_hex="00000001",
                               exp_modifier=xpmod)
     att.current_exp = att.max_exp - 1          # any XP levels it
-    dfd = _build_recruit_unit("Walking Corpse", side=2, x=dx, y=dy, next_uid=2,
+    dfd = build_recruit_unit("Walking Corpse", side=2, x=dx, y=dy, next_uid=2,
                               game_id="t", trait_seed_hex="00000002",
                               exp_modifier=xpmod)
     gs.map.units.add(att)
@@ -408,35 +280,6 @@ def test_enumerate_children_via_sim_matches_dp_with_advancement():
             key, agg.get(key, 0.0), dp.probs.get(key, 0.0))
 
 
-def test_lex_verdict_resolves_product_incomparable():
-    """A lex view breaks a product-order tie: candidate kills the enemy
-    more often (existence GT) but ends a unit at lower HP (hp LT). Product
-    order -> INCOMPARABLE; L1 (existence>hp>xp) -> STRICTLY_BETTER (decides
-    at existence); an hp-first view -> WORSE. Categories are product-rolled
-    across their per-unit members."""
-    from tools.swap_detector import (
-        lex_verdict, LEX_VIEWS, Sym, _rollup, _category_sym)
-    syms = {
-        "exist:e1": Sym.GT,    # enemy dead more often -> good for us
-        "hp:u1": Sym.LT,       # our unit ends lower HP -> bad
-        "xp:u1": Sym.EQ,
-        "pos:u1": Sym.EQ,
-        "gold": Sym.EQ,
-    }
-    assert _rollup(syms).verdict is Verdict.INCOMPARABLE       # GT and LT
-    assert lex_verdict(syms, LEX_VIEWS["L1_exist_hp_xp"]
-                       ).verdict is Verdict.STRICTLY_BETTER
-    assert lex_verdict(syms, ("hp", "existence", "xp")
-                       ).verdict is Verdict.WORSE
-    # a category with internally mixed members -> INCOMP -> INCOMPARABLE
-    mixed = {"xp:u1": Sym.GT, "xp:u2": Sym.LT}
-    assert _category_sym(list(mixed.values())) is Sym.INCOMP
-    assert lex_verdict(mixed, ("xp",)).verdict is Verdict.INCOMPARABLE
-    # all-equal -> EQUAL
-    assert lex_verdict({"hp:u1": Sym.EQ}, ("existence", "hp")
-                       ).verdict is Verdict.EQUAL
-
-
 def test_strong_attacker_first_flags_weaker_lead():
     """Two own units attack the same target; the recorded order leads with
     the LOWER solo-kill-probability unit (a Thief that can't kill an 18-HP
@@ -447,7 +290,6 @@ def test_strong_attacker_first_flags_weaker_lead():
         strong_attacker_first_findings, SideTurn, hex_neighbors)
     from tools.combat_outcomes import choose_counter_weapon
     from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _build_recruit_unit
 
     sim = fresh_scenario_sim(seed=9, max_turns=10,
                              scenario_id="multiplayer_The_Freelands")
@@ -461,13 +303,13 @@ def test_strong_attacker_first_flags_weaker_lead():
     dx, dy = 12, 12
     nb = [h for h in hex_neighbors(dx, dy) if inb(h)]
     sx, syx = nb[0], nb[1]
-    tgt = _build_recruit_unit("Walking Corpse", side=2, x=dx, y=dy, next_uid=1,
+    tgt = build_recruit_unit("Walking Corpse", side=2, x=dx, y=dy, next_uid=1,
                               game_id="t", trait_seed_hex="00000001",
                               exp_modifier=xpmod)
-    thief = _build_recruit_unit("Thief", side=1, x=sx[0], y=sx[1], next_uid=2,
+    thief = build_recruit_unit("Thief", side=1, x=sx[0], y=sx[1], next_uid=2,
                                 game_id="t", trait_seed_hex="00000002",
                                 exp_modifier=xpmod)
-    grunt = _build_recruit_unit("Orcish Grunt", side=1, x=syx[0], y=syx[1],
+    grunt = build_recruit_unit("Orcish Grunt", side=1, x=syx[0], y=syx[1],
                                 next_uid=3, game_id="t",
                                 trait_seed_hex="00000003", exp_modifier=xpmod)
     for u in (tgt, thief, grunt):

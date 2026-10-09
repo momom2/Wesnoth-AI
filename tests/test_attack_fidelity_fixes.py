@@ -14,10 +14,10 @@ decisive games in two clusters:
 
 2. "expecting a user choice" -- the export's advancement [choose]
    detection keyed on unit NAME CHANGE, which misses AMLA (name
-   unchanged) and undercounts double-advance chains. Now every
-   advancement step is recorded at the source
-   (replay_dataset._record_advance_event side-channel) with its
-   actual choice index.
+   unchanged) and undercounts double-advance chains. Every
+   advancement step is recorded at the source (the core's
+   `last_advance_events`, rust/wesnoth_core/src/core_units.rs
+   `advance_once`) with its actual choice index.
 """
 
 from __future__ import annotations

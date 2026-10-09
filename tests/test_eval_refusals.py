@@ -66,7 +66,7 @@ def test_a_result_records_the_draw_and_the_guard(tmp_path):
     assert result["leader_a"] and result["leader_b"]
     assert result["forced_end_turns_a"] >= 0 and result["max_actions_per_side"] == 2000
     import wesnoth_ai
-    assert result["code_version"] == wesnoth_ai.__version__ and isinstance(result["rust_core"], bool)
+    assert result["code_version"] == wesnoth_ai.__version__
 
 
 def test_the_reference_is_pinned_by_its_hash(tmp_path):

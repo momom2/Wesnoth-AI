@@ -13,19 +13,19 @@ and `marksman` / `deflect` are the same tag with another id. Every
 ability is likewise `[hides] id=submerge`, `[hides] id=ambush`
 (`wesnoth_src/data/core/macros/abilities.cfg`).
 
-Until 2026-09-13 `_apply_effect_to_unit` read the child TAG, so a
-granted `magical` was stored as `chance_to_hit` and a granted
-`submerge` as `hides`. Nothing consumes those names -- combat asks
-`"magical" in weapon.specials` (`wesnoth_ai/combat.py`) and the fog
-gate asks `"submerge" in unit.abilities` (`wesnoth_ai/visibility.py`)
--- so both were created and silently inert. `apply_to=new_ability` was
-not dispatched at all.
+Until 2026-09-13 the effect applier read the child TAG, so a granted
+`magical` was stored as `chance_to_hit` and a granted `submerge` as
+`hides`. Nothing consumes those names -- combat asks for "magical" among
+a weapon's specials and the fog gate for "submerge" among a unit's
+abilities -- so both were created and silently inert.
+`apply_to=new_ability` was not dispatched at all. The Rust core applies
+the effects (rust/wesnoth_core/src/effects.rs); these tests drive it.
 
 2p Silverhead Crossing, one of the 21 Ladder-pool maps, grants both to
 its side-3 Tentacle in a `prestart` `[object]` (351 corpus games play
 this map), so these ran wrong in every game on it.
 
-Dependencies: tools.scenario_events, wesnoth_ai.rules.scenario_pool, wesnoth_sim
+Dependencies: wesnoth_ai.game_core, wesnoth_ai.rules.scenario_pool, wesnoth_sim
 Dependents:   pytest only
 """
 from __future__ import annotations
@@ -38,32 +38,46 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.scenario_events import _effect_member_ids  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
+from wesnoth_ai import game_core as gc  # noqa: E402
 
 
 def _node(text: str):
     return parse_wml(text)
 
 
+def _applied(effect_wml: str, unit_type: str = "Spearman", **changes) -> dict:
+    """A recruit of `unit_type` with `changes`, after the core applied the
+    `[effect]` (`wesnoth_core.apply_effect_fields`)."""
+    import wesnoth_core
+    unit = gc.build_recruit_unit(unit_type, 1, 2, 2, 7, trait_seed_hex="00000001")
+    fields = gc.unit_fields(unit)
+    fields.update(changes)
+    return wesnoth_core.apply_effect_fields(fields, gc.wml_tuple(_node(effect_wml).first("effect")))
+
+
+def _melee_specials(fields: dict) -> set:
+    return next(set(sp) for (_t, _n, _d, ranged, sp) in fields["attacks"] if not ranged)
+
+
 def test_a_member_is_named_by_its_id_not_its_tag():
     """The three `[chance_to_hit]` specials must not collide."""
-    root = _node(
-        "[specials]\n"
+    out = _applied(
+        "[effect]\napply_to=attack\nrange=melee\n[set_specials]\n"
         "[chance_to_hit]\nid=magical\nvalue=70\n[/chance_to_hit]\n"
         "[chance_to_hit]\nid=marksman\nvalue=60\n[/chance_to_hit]\n"
         "[damage]\nid=backstab\nmultiply=2\n[/damage]\n"
-        "[/specials]\n")
-    assert _effect_member_ids(root.first("specials")) == {
-        "magical", "marksman", "backstab"}
+        "[/set_specials]\n[/effect]\n")
+    assert {"magical", "marksman", "backstab"} <= _melee_specials(out)
+    assert not {"chance_to_hit", "damage"} & _melee_specials(out)
 
 
 def test_a_block_without_an_id_falls_back_to_its_tag():
     """A hand-written scenario may write `[berserk]` with no id; the
     tag IS the identity there."""
-    root = _node("[specials]\n[berserk]\nvalue=30\n[/berserk]\n[/specials]\n")
-    assert _effect_member_ids(root.first("specials")) == {"berserk"}
-    assert _effect_member_ids(None) == set()
+    out = _applied("[effect]\napply_to=attack\nrange=melee\n[set_specials]\n"
+                   "[berserk]\nvalue=30\n[/berserk]\n[/set_specials]\n[/effect]\n")
+    assert "berserk" in _melee_specials(out)
 
 
 def test_silverhead_grants_a_working_submerge_and_magical():
@@ -107,24 +121,12 @@ def test_silverhead_grants_a_working_submerge_and_magical():
         "the granted [chance_to_hit] id=magical must reach combat as 'magical'"
 
 
-def test_an_unmodelled_apply_to_is_reported(caplog):
+def test_an_unmodelled_apply_to_is_reported():
     """Silence is how `new_ability` went missing for months."""
-    import logging
-
-    from tools.scenario_events import _APPLY_TO_GAPS_SEEN, _apply_effect_to_unit
-
-    root = _node("[effect]\napply_to=attack_anim_nonsense\n[/effect]\n")
-    eff = root.first("effect")
-    _APPLY_TO_GAPS_SEEN.discard("attack_anim_nonsense")
-
-    class _U:
-        abilities: set = set()
-        attacks: list = []
-        statuses: set = set()
-
-    with caplog.at_level(logging.WARNING, logger="scenario_events"):
-        _apply_effect_to_unit(_U(), eff)
-    assert any("attack_anim_nonsense" in r.getMessage() for r in caplog.records), \
+    import wesnoth_core
+    wesnoth_core.drain_warnings()
+    _applied("[effect]\napply_to=attack_anim_nonsense\n[/effect]\n")
+    assert any("attack_anim_nonsense" in w for w in wesnoth_core.drain_warnings()), \
         "an apply_to we do not model must warn, not vanish"
 
 
@@ -133,18 +135,7 @@ def test_an_unmodelled_apply_to_is_reported(caplog):
     ("remove_ability", {"regenerate"}),
 ])
 def test_new_and_remove_ability_use_the_id(apply_to, expected):
-    from tools.scenario_events import _apply_effect_to_unit
-
-    root = _node(f"[effect]\napply_to={apply_to}\n[abilities]\n"
-                 "[hides]\nid=submerge\n[/hides]\n[/abilities]\n[/effect]\n")
-
-    class _U:
-        def __init__(self):
-            self.abilities = {"regenerate", "submerge"} if apply_to == "remove_ability" \
-                else {"regenerate"}
-            self.attacks = []
-            self.statuses = set()
-
-    u = _U()
-    _apply_effect_to_unit(u, root.first("effect"))
-    assert set(u.abilities) == expected
+    before = ["regenerate", "submerge"] if apply_to == "remove_ability" else ["regenerate"]
+    out = _applied(f"[effect]\napply_to={apply_to}\n[abilities]\n"
+                   "[hides]\nid=submerge\n[/hides]\n[/abilities]\n[/effect]\n", abilities=before)
+    assert set(out["abilities"]) == expected

@@ -376,12 +376,6 @@ def _code_version() -> str:
     return str(getattr(wesnoth_ai, "__version__", "unknown"))
 
 
-def _rust_core_on() -> bool:
-    """Whether the simulator ran on the Rust core (`WESNOTH_RUST_CORE`)."""
-    from wesnoth_ai.game_core import core_enabled
-    return bool(core_enabled())
-
-
 def combat_salt(seed: int, shared_stream: bool = False) -> str:
     """The sim's combat-luck salt for the eval game on `seed`.
 
@@ -1171,7 +1165,6 @@ def main(argv) -> int:
         "forced_end_turns_a": int(sim.forced_end_turns.get(args.side_a, 0)),
         "forced_end_turns_b": int(sim.forced_end_turns.get(3 - args.side_a, 0)),
         "code_version": _code_version(),
-        "rust_core": _rust_core_on(),
         "outcome_a": r.outcome,          # win/loss/draw/timeout from A
         "margin_a": float(margin_a),     # final material, A's view
         "turns": sim.gs.global_info.turn_number,

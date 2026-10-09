@@ -20,7 +20,8 @@ of a seeded shuffle of the corpus manifest: 26,789 player decisions,
 counts use every third decision (8,907). Record:
 `training/metrics/observation_parity_20260926/census_total.json`, from
 `tools/analysis/observation_parity_census.py` (its docstring gives the
-command line that reproduces each slice).
+command line that reproduces each slice; the tool was retired with the
+Python applier, and commit 07b2c91 is the last that has it).
 
 ## The parity table
 

@@ -243,7 +243,7 @@ class Map:
           - mask, fog: never mutated by self-play (no side moves them).
           - hexes: nothing mutates a Hex or the hex set in place. A
             terrain morph (Aethermaw's turn-4 to 6 events,
-            `scenario_events._terrain_action`) is copy-on-write: it
+            `scenario_events.terrain_writes_applied`) is copy-on-write: it
             builds a new hex set and a new terrain-code dict and
             rebinds them on the one state it runs on, so a fork that
             crosses a morph leaves its parent's terrain alone. Village
@@ -258,9 +258,7 @@ class Map:
         replaced). A new set is required so add/remove on one copy
         doesn't leak to the other; the Unit *contents* are shared
         because the codebase never mutates a Unit in place (audited
-        2026-07-29: the one violator, `scenario_events._object_action`,
-        now uses the replace-unit pattern; `_apply_effect_to_unit`
-        documents the fork-private contract).
+        2026-07-29).
 
         The full aliased-vs-copied contract for a fork (this method +
         GlobalInfo.__deepcopy__) is pinned as an executable spec in
@@ -344,7 +342,7 @@ class GlobalInfo:
                 # Per-fork COPIES of any event that can still fire:
                 # `ScenarioEvent.fired` is MUTABLE state, and a search
                 # fork crossing a turn boundary latches first_time_only
-                # events (`fire_event` / `_fire_event_action`). With
+                # events. With
                 # shared elements the LIVE game inherited the fork's
                 # latch and skipped the event forever -- Aethermaw's
                 # turn-4/5/6 morphs never fired (found 2026-07-29,
@@ -361,7 +359,7 @@ class GlobalInfo:
                          else _copy.copy(ev) for ev in v])
             elif k == "_terrain_codes":
                 # ALIAS (don't copy). Nothing mutates the dict in place:
-                # a terrain-MORPH event (scenario_events._terrain_action)
+                # a terrain-MORPH event (scenario_events.terrain_writes_applied)
                 # builds a new dict and rebinds it on its own state, as
                 # it does the `hexes` set, which Map.__deepcopy__ also
                 # aliases. Copying this dict
@@ -550,7 +548,7 @@ def state_key(gs: "GameState") -> int:
 # (tools/game_record.py). 1 covers the content `state_key` covers; 2 adds
 # what each player side saw of the other sides' units (the Rust core's
 # sighting record and seen types, `global_info._sightings` and
-# `_seen_types` on a view of it), which the Python applier does not keep.
+# `_seen_types` on a view of it); records of format 2 were written with 1.
 DIGEST_VERSION = 2
 
 

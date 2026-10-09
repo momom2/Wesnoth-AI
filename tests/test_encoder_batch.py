@@ -10,7 +10,7 @@ counts / hex counts / recruit options, run them through both the
 single-sample loop and the batched method, and assert the resulting
 EncodedState tensors are element-equal field-by-field.
 
-Dependencies: encoder, classes, replay_dataset (to build a state).
+Dependencies: encoder, classes, sim_test_helpers (to build a state).
 Dependents: regression CI for encoder batching.
 """
 from __future__ import annotations
@@ -20,12 +20,8 @@ from pathlib import Path
 import pytest
 import torch
 
+from sim_test_helpers import replayed_state
 from wesnoth_ai.encoder import GameStateEncoder, encode_raw
-from tools.replay_dataset import (
-    _apply_command,
-    _build_initial_gamestate,
-    _setup_scenario_events,
-)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "strict_sync_hamlets_t9.bz2"
 
@@ -36,14 +32,7 @@ def _gs_at_step(replay_path: Path, n_apply: int):
     repo that's perfect for this. Returns a (gs, n_units) pair."""
     from tools.replay_extract import extract_replay
 
-    data = extract_replay(replay_path)
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
-    for i, cmd in enumerate(data["commands"]):
-        if i >= n_apply:
-            break
-        _apply_command(gs, cmd)
-    return gs
+    return replayed_state(extract_replay(replay_path), n_apply)
 
 
 def test_encode_from_raw_batch_parity():

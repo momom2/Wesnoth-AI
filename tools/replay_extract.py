@@ -1308,7 +1308,7 @@ def extract_replay(path: Path, *, cut_at_game_end: bool = False) -> Optional[dic
                             )
                             # The route's hex after the stop: an enemy on
                             # it blocked the move (move.cpp:449-485), which
-                            # the appliers check (`blocked_beyond`).
+                            # the core's move checks.
                             if stop + 1 < len(xs):
                                 order["next"] = [max(0, xs[stop + 1] - 1), max(0, ys[stop + 1] - 1)]
                             xs = xs[:stop + 1]

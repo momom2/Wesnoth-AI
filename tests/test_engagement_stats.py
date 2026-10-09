@@ -28,17 +28,26 @@ import torch
 from wesnoth_ai.classes import Position
 from helpers.tiny_state import _gs, _u
 from tools.engagement_stats import clear_event_sink, set_event_sink
-from tools.replay_dataset import _apply_command
+from wesnoth_ai.game_core import CoreState
 
 
-def _heal_events(gs, side=1):
+def _turn_start(gs, side=1):
+    """`side`'s turn start on the core of `gs` at turn 2: (the events
+    it emitted, the core)."""
+    gs.global_info.turn_number = 2
+    cs = CoreState.from_state(gs)
     events = []
     set_event_sink(lambda k, p: events.append((k, p)))
     try:
-        _apply_command(gs, ["init_side", side])
+        assert cs.apply_command(["init_side", side]) == "rust"
     finally:
         clear_event_sink()
-    return [p for k, p in events if k == "heal" and p["side"] == side]
+    return events, cs
+
+
+def _heal_events(gs, side=1):
+    events, cs = _turn_start(gs, side)
+    return [p for k, p in events if k == "heal" and p["side"] == side], cs
 
 
 def test_heal_attribution_village_with_cap():
@@ -50,13 +59,12 @@ def test_heal_attribution_village_with_cap():
     u1.statuses.add("resting")
     setattr(gs.global_info, "_terrain_codes",
             {(u1.position.x, u1.position.y): "Gg^Vh"})
-    evs = _heal_events(gs)
+    evs, cs = _heal_events(gs)
     assert sum(e["rest"] for e in evs) == 2
     assert sum(e["village"] for e in evs) == 1
     assert sum(e["ability"] for e in evs) == 0
-    # The healing loop REBUILDS unit objects; re-fetch before asserting.
-    u1_after = next(u for u in gs.map.units if u.id == "u1")
-    assert u1_after.current_hp == u1_after.max_hp
+    u1_after = cs.core.unit_export("u1")
+    assert u1_after["current_hp"] == u1_after["max_hp"]
 
 
 def test_heal_attribution_oasis_is_village_bucket():
@@ -67,7 +75,7 @@ def test_heal_attribution_oasis_is_village_bucket():
     u1.current_hp = u1.max_hp - 20
     setattr(gs.global_info, "_terrain_codes",
             {(u1.position.x, u1.position.y): "Dd^Do"})
-    evs = _heal_events(gs)
+    evs, _cs = _heal_events(gs)
     assert sum(e["village"] for e in evs) == 8
     assert sum(e["rest"] for e in evs) == 0
     assert sum(e["ability"] for e in evs) == 0
@@ -78,7 +86,7 @@ def test_heal_attribution_regen_is_ability_bucket():
     u1 = next(u for u in gs.map.units if u.id == "u1")
     u1.current_hp = u1.max_hp - 20
     u1.abilities.add("regenerate")
-    evs = _heal_events(gs)
+    evs, _cs = _heal_events(gs)
     assert sum(e["ability"] for e in evs) == 8
     assert sum(e["village"] for e in evs) == 0
 
@@ -92,20 +100,14 @@ def test_poison_cure_counted_and_heals_only_rest():
     u1.statuses.update({"poisoned", "resting"})
     setattr(gs.global_info, "_terrain_codes",
             {(u1.position.x, u1.position.y): "Gg^Vh"})
-    events = []
-    set_event_sink(lambda k, p: events.append((k, p)))
-    try:
-        _apply_command(gs, ["init_side", 1])
-    finally:
-        clear_event_sink()
+    events, cs = _turn_start(gs)
     heals = [p for k, p in events if k == "heal" and p["side"] == 1]
     poisons = [p for k, p in events if k == "poison" and p["side"] == 1]
     assert sum(e["rest"] for e in heals) == 2
     assert sum(e["village"] for e in heals) == 0, \
         "curing replaces healing"
     assert poisons == [{"side": 1, "cured": True, "damage": 0}]
-    u1_after = next(u for u in gs.map.units if u.id == "u1")
-    assert "poisoned" not in u1_after.statuses
+    assert "poisoned" not in cs.core.unit_export("u1")["statuses"]
 
 
 def test_poison_damage_net_of_rest():
@@ -113,16 +115,11 @@ def test_poison_damage_net_of_rest():
     gs = _gs()
     u1 = next(u for u in gs.map.units if u.id == "u1")
     u1.statuses.update({"poisoned", "resting"})
-    events = []
-    set_event_sink(lambda k, p: events.append((k, p)))
-    try:
-        _apply_command(gs, ["init_side", 1])
-    finally:
-        clear_event_sink()
+    events, cs = _turn_start(gs)
     poisons = [p for k, p in events if k == "poison" and p["side"] == 1]
     assert poisons == [{"side": 1, "cured": False, "damage": 6}]
-    u1_after = next(u for u in gs.map.units if u.id == "u1")
-    assert u1_after.current_hp == u1_after.max_hp - 6
+    u1_after = cs.core.unit_export("u1")
+    assert u1_after["current_hp"] == u1_after["max_hp"] - 6
 
 
 def test_sim_gate_rejects_statue_attack_and_counts():

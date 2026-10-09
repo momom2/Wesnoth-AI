@@ -2,17 +2,14 @@
 a side that turned "delay shroud updates" on sees the fog it has
 committed, not the fog its moves and recruits would have cleared, until
 an action that cannot be undone, `[update_shroud]` or `[auto_shroud]
-active=yes` commits them. Through the command applier replay
-reconstruction uses, against the Rust core over the same commands, and
-through the extractor that keeps the two commands.
+active=yes` commits them. Through the Rust core that applies the
+commands, and through the extractor that keeps the two commands.
 
-Each applier test fails when the moves and recruits clear fog at once,
+Each core test fails when the moves and recruits clear fog at once,
 which is what the simulator did until 2026-09-30.
 """
 from __future__ import annotations
 
-import copy
-import dataclasses
 import sys
 from collections import Counter
 from pathlib import Path
@@ -25,12 +22,12 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from helpers.synthetic_replay import (auto_shroud, move, side_block, turn,  # noqa: E402
                                       two_sides, update_shroud, write_replay)
-from tools.replay_dataset import (_apply_command, _build_initial_gamestate,  # noqa: E402
-                                  _clear_fog_if_advanced, _setup_scenario_events,
-                                  iter_record_pairs)
+from tools.replay_dataset import _build_initial_gamestate, iter_record_pairs  # noqa: E402
 from tools.replay_extract import extract_replay  # noqa: E402
 from wesnoth_ai import delayed_shroud  # noqa: E402
-from wesnoth_ai.visibility import units_visible_to  # noqa: E402
+from wesnoth_ai import game_core as gc  # noqa: E402
+
+pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
 
 # A Cavalryman at x=1 sees up to x=10 at turn start; after riding to x=5 it
 # would see the enemy Spearman at x=14. The Walking Corpse (level 0, no
@@ -43,6 +40,7 @@ FAR_ENEMY = "u3"
 
 
 def _game(units=UNITS, plan_unit_advance=False):
+    """The core of the board's start."""
     row = ", ".join(["Gg"] * 20)
     border = ", ".join(["Xv"] * 22)
     lines = [border] + [f"Xv, {row}, Xv"] * 2 + [border]
@@ -55,19 +53,22 @@ def _game(units=UNITS, plan_unit_advance=False):
                            for k in (1, 2)],
         "plan_unit_advance": plan_unit_advance,
     })
-    _setup_scenario_events(gs, "")
-    return gs
+    return gc.CoreState.from_state(gs)
 
 
-def _sees(gs, uid, side=1) -> bool:
-    return any(u.id == uid for u in units_visible_to(gs, side))
+def _sees(cs, uid, side=1) -> bool:
+    return uid in cs.core.visible_ids(side)
+
+
+def _apply(cs, cmd) -> None:
+    assert cs.apply_command(list(cmd)) == "rust", cmd
 
 
 def _play(commands, units=UNITS, plan_unit_advance=False):
-    gs = _game(units, plan_unit_advance)
+    cs = _game(units, plan_unit_advance)
     for cmd in [["init_side", 1], *commands]:
-        _apply_command(gs, list(cmd))
-    return gs
+        _apply(cs, cmd)
+    return cs
 
 
 def test_a_move_clears_fog_at_once_unless_the_side_delays():
@@ -78,26 +79,26 @@ def test_a_move_clears_fog_at_once_unless_the_side_delays():
 
 
 def test_turning_the_updates_back_on_commits_the_pending_vision():
-    gs = _play([["auto_shroud", 0], RIDE, ["auto_shroud", 1]])
-    assert _sees(gs, FAR_ENEMY)
-    assert not delayed_shroud.delaying_sides(gs)
+    cs = _play([["auto_shroud", 0], RIDE, ["auto_shroud", 1]])
+    assert _sees(cs, FAR_ENEMY)
+    assert not delayed_shroud.delaying_sides(cs.to_state())
 
 
 def test_an_attack_commits_the_pending_vision():
     """The Spearman at (0, 0) fights the Walking Corpse moved next to it."""
     units = UNITS[:4] + [("Walking Corpse", 2, 0, 1)]
-    gs = _play([["auto_shroud", 0], RIDE], units)
-    assert not _sees(gs, FAR_ENEMY)
-    _apply_command(gs, ["attack", 0, 0, 0, 1, 0, 0, "00c0ffee"])
-    assert _sees(gs, FAR_ENEMY)
+    cs = _play([["auto_shroud", 0], RIDE], units)
+    assert not _sees(cs, FAR_ENEMY)
+    _apply(cs, ["attack", 0, 0, 0, 1, 0, 0, "00c0ffee"])
+    assert _sees(cs, FAR_ENEMY)
 
 
 def test_an_attack_aborted_before_its_draw_still_commits():
     """No seed follows the attack (a disconnect): the engine's handler had
     cleared the stack before the fight."""
     units = UNITS[:4] + [("Walking Corpse", 2, 0, 1)]
-    gs = _play([["auto_shroud", 0], RIDE, ["attack", 0, 0, 0, 1, 0, 0, ""]], units)
-    assert _sees(gs, FAR_ENEMY)
+    cs = _play([["auto_shroud", 0], RIDE, ["attack", 0, 0, 0, 1, 0, 0, ""]], units)
+    assert _sees(cs, FAR_ENEMY)
 
 
 STEP = ["move", [0, 0], [0, 1], 1]          # the Spearman's first move: it reveals nothing
@@ -108,17 +109,17 @@ def test_the_plan_unit_advance_modification_makes_a_side_turns_first_move_final(
     assert _sees(first, FAR_ENEMY), "the turn's first move is committed with its own vision"
     second = _play([["auto_shroud", 0], STEP, RIDE], plan_unit_advance=True)
     assert not _sees(second, FAR_ENEMY), "later moves wait"
-    _apply_command(second, ["menu_item", "pickadvance"])
+    _apply(second, ["menu_item", "pickadvance"])
     assert _sees(second, FAR_ENEMY), "the menu's event commits"
     assert not _sees(_play([["auto_shroud", 0], RIDE]), FAR_ENEMY), "without the modification"
 
 
 def test_a_blocked_move_commits_the_pending_vision():
-    gs = _play([["auto_shroud", 0], RIDE])
-    _apply_command(gs, ["move", [0, 0, 1, 2, 3], [0, 1, 1, 1, 1], 1])
-    spearman = next(u for u in gs.map.units if u.id == "u1")
-    assert (spearman.position.x, spearman.position.y) == (1, 1), "stopped before the corpse"
-    assert _sees(gs, FAR_ENEMY)
+    cs = _play([["auto_shroud", 0], RIDE])
+    _apply(cs, ["move", [0, 0, 1, 2, 3], [0, 1, 1, 1, 1], 1])
+    spearman = cs.core.unit_export("u1")
+    assert (spearman["x"], spearman["y"]) == (1, 1), "stopped before the corpse"
+    assert _sees(cs, FAR_ENEMY)
 
 
 # The record of the blocked move above: the route cut at the stop, the
@@ -129,9 +130,9 @@ RAN_OUT = [*CUT_BEFORE_CORPSE[:4], {**CUT_BEFORE_CORPSE[4], "stopped_early": Fal
 
 
 def test_a_route_cut_before_an_enemy_is_a_blocked_move():
-    gs = _play([["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE])
-    assert _sees(gs, FAR_ENEMY), "the block made the move final"
-    assert "u5" in (getattr(gs.global_info, "_uncovered_units", None) or set()), "the blocker is revealed"
+    cs = _play([["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE])
+    assert _sees(cs, FAR_ENEMY), "the block made the move final"
+    assert "u5" in (cs.to_state().global_info._uncovered_units or set()), "the blocker is revealed"
     ended = _play([["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE[:4]])
     assert not _sees(ended, FAR_ENEMY), "a route that simply ended commits nothing"
     ran_out = _play([["auto_shroud", 0], RIDE, RAN_OUT])
@@ -141,39 +142,41 @@ def test_a_route_cut_before_an_enemy_is_a_blocked_move():
 def test_a_recruit_commits_only_when_it_drew_random_numbers():
     """A Skeleton's recruit draws nothing (empty seed) and waits; a
     Spearman's draws its traits and commits both."""
-    gs = _play([["auto_shroud", 0], ["recruit", "Skeleton", 9, 1, ""]])
-    assert not _sees(gs, FAR_ENEMY)
-    _apply_command(gs, ["recruit", "Spearman", 2, 1, "0badc0de"])
-    assert _sees(gs, FAR_ENEMY)
+    cs = _play([["auto_shroud", 0], ["recruit", "Skeleton", 9, 1, ""]])
+    assert not _sees(cs, FAR_ENEMY)
+    _apply(cs, ["recruit", "Spearman", 2, 1, "0badc0de"])
+    assert _sees(cs, FAR_ENEMY)
 
 
 def test_an_advancement_on_the_delaying_sides_turn_clears_nothing():
+    """The Cavalryman at x=1 sees up to x=10; advanced to a 9-move
+    Dragoon it sees the Spearman at x=11, unless its side delays."""
+    units = UNITS + [("Spearman", 2, 11, 0)]
     for delay, expected in ((False, True), (True, False)):
-        gs = _play([["auto_shroud", 0]] if delay else [])
-        before = next(u for u in gs.map.units if u.id == "u1")
-        _clear_fog_if_advanced(gs, before, dataclasses.replace(before, max_moves=14))
-        assert _sees(gs, FAR_ENEMY) is expected
+        cs = _play([["auto_shroud", 0]] if delay else [], units)
+        assert not _sees(cs, "u6")
+        cav = cs.core.unit_export("u2")
+        cs.core.update_unit("u2", {"current_exp": cav["max_exp"]})
+        assert cs.core.advance_unit_id("u2")
+        assert cs.core.unit_export("u2")["name"] == "Dragoon"
+        assert _sees(cs, "u6") is expected
 
 
 def test_the_setting_outlives_the_turn_and_the_turn_end_empties_the_stack():
-    gs = _play([["auto_shroud", 0], RIDE, ["end_turn"], ["init_side", 2], ["end_turn"],
-                ["init_side", 1]])
-    assert not delayed_shroud.pending_vision(gs)
-    assert delayed_shroud.vision_delayed(gs, 1)
+    view = _play([["auto_shroud", 0], RIDE, ["end_turn"], ["init_side", 2], ["end_turn"],
+                  ["init_side", 1]]).to_state()
+    assert not delayed_shroud.pending_vision(view)
+    assert delayed_shroud.vision_delayed(view, 1)
 
 
-@pytest.mark.parametrize("use_core", [False, True])
-def test_the_policy_takes_over_a_delaying_side_with_updates_on(use_core):
+def test_the_policy_takes_over_a_delaying_side_with_updates_on():
     """A mid-game start from a game whose player delayed: the simulator
     records `[auto_shroud] active=yes` at the side's first turn, as the
     engine does when an AI takes control."""
     from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai import game_core as gc
-    if use_core and gc.game_core_class() is None:
-        pytest.skip("wesnoth_core.GameCore not available")
-    gs = _game()
+    gs = _game().to_state()
     gs.global_info._shroud_delayed = frozenset({1})
-    sim = WesnothSim(gs, scenario_id="", apply_scenario_events=False, use_core=use_core)
+    sim = WesnothSim(gs, scenario_id="", apply_scenario_events=False)
     assert [c.cmd for c in sim.command_history] == [["init_side", 1], ["auto_shroud", 1]]
     assert not delayed_shroud.delaying_sides(sim.gs)
 
@@ -209,39 +212,3 @@ def test_the_extractor_keeps_the_commands_and_the_labels_skip_them(tmp_path):
     stats = Counter()
     labels = [ai.action_type for _gs, ai in iter_record_pairs(record, stats=stats)]
     assert labels == ["move", "end_turn", "end_turn"] and not stats["unpaired"]
-
-
-# ---- the Rust core against the applier --------------------------------
-
-SEQUENCES = {
-    "update": [["auto_shroud", 0], RIDE, ["update_shroud"]],
-    "aborted": [["auto_shroud", 0], RIDE, ["attack", 0, 0, 0, 1, 0, 0, ""]],
-    "modification": [["auto_shroud", 0], STEP, RIDE, ["menu_item", "pickadvance"], ["move", [5, 6], [0, 0], 1],
-                     ["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1], RIDE_BACK, ["update_shroud"]],
-    "blocked": [["auto_shroud", 0], RIDE, ["move", [0, 0, 1, 2, 3], [0, 1, 1, 1, 1], 1]],
-    "blocked_beyond": [["auto_shroud", 0], RIDE, CUT_BEFORE_CORPSE],
-    "ran_out": [["auto_shroud", 0], RIDE, RAN_OUT],
-    "recruits": [["auto_shroud", 0], ["recruit", "Skeleton", 9, 1, ""], RIDE,
-                 ["recruit", "Spearman", 2, 1, "0badc0de"]],
-    "switch": [["auto_shroud", 0], RIDE, ["auto_shroud", 1], ["move", [0, 1], [0, 0], 1]],
-    "turns": [["auto_shroud", 0], RIDE, ["end_turn"], ["init_side", 2], ["end_turn"],
-              ["init_side", 1], ["move", [5, 6], [0, 0], 1], ["update_shroud"]],
-}
-
-
-@pytest.mark.parametrize("name", sorted(SEQUENCES))
-def test_the_core_and_the_applier_agree_command_by_command(name):
-    from wesnoth_ai import game_core as gc
-    from wesnoth_ai.core_compare import state_differences
-    if gc.game_core_class() is None:
-        pytest.skip("wesnoth_core.GameCore not available")
-    gs = _game(plan_unit_advance=name == "modification")
-    cs = gc.CoreState.from_state(copy.deepcopy(gs))
-    pending_seen = False
-    for cmd in [["init_side", 1], *SEQUENCES[name]]:
-        _apply_command(gs, list(cmd))
-        assert cs.apply_command(list(cmd)) == "rust"
-        view = cs.to_state()
-        assert state_differences(gs, view, stash=False, map_and_events=False) == [], (name, cmd)
-        pending_seen |= bool(view.global_info._pending_vision)
-    assert pending_seen, "the sequence never left vision pending"

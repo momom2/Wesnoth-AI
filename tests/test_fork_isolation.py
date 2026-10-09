@@ -25,9 +25,10 @@ Instances so far:
     attrs straight onto shared Unit objects -- the same class as the
     [object] one, and dormant for the same reason.
 
-These tests exercise the production mutation paths directly on
-production forks -- no policy, no model, no RNG -- so they are
-deterministic and cannot be flaky.
+The Rust core is the state of record now and `WesnothSim.fork()`
+clones it (`CoreState.fork`). These tests fire the same events and
+actions inside a fork's core -- no policy, no model, no RNG -- and check
+the parent's core, so they are deterministic and cannot be flaky.
 """
 from __future__ import annotations
 
@@ -39,13 +40,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 
-from tools.replay_dataset import _fire_turn_events  # noqa: E402
-from tools.scenario_events import side_turn_event_names  # noqa: E402
 from tools.replay_extract import WMLNode  # noqa: E402
-from tools.scenario_events import (  # noqa: E402
-    _modify_unit_action, _object_action,
-)
 from wesnoth_ai.classes import deep_state_fingerprint  # noqa: E402
+from wesnoth_ai.game_core import wml_tuple  # noqa: E402
 
 
 # Aethermaw's `side 1 turn 4` [terrain] event morphs WML (13,13) ->
@@ -65,6 +62,26 @@ def _attack_sig(u):
 
 def _unit_by_id(gs, uid):
     return next(u for u in gs.map.units if u.id == uid)
+
+
+# The names the engine fires at side 1's turn-4 start (play_controller.cpp
+# :473-482; docs/wesnoth_rules.md "Turn events").
+_SIDE_1_TURN_4 = ["turn 4", "new turn", "side turn", "side 1 turn", "side turn 4",
+                  "side 1 turn 4"]
+
+
+def _run_action(sim, node) -> None:
+    """One WML action run on `sim`'s core as an event of its own (the
+    scenario's events left as they are)."""
+    core = sim.core.core
+    _fired, wml, stored = core.events_export()
+    events = list(sim.core.statics.get("_scenario_events") or [])
+    from wesnoth_ai.game_core import _event_actions
+    rows = [(ev.name, bool(ev.first_time_only), _event_actions(ev), ev.scenario_id, bool(f))
+            for ev, f in zip(events, _fired)]
+    core.load_events(rows + [("test action", False, [wml_tuple(node)], "test", False)], wml, stored)
+    core.fire_events(["test action"])
+    sim._refresh_view()
 
 
 # ---------------------------------------------------------------------
@@ -90,9 +107,9 @@ def test_fork_turn_event_latch_isolated():
     assert baseline != _MORPH_CODE
 
     fork = sim.fork()
-    # Production path: _apply_command("init_side") calls this at every
-    # turn rotation, including turn rotations stepped inside a fork.
-    _fire_turn_events(fork.gs, side_turn_event_names(1, 4, new_turn=True))
+    # The core fires these at side 1's turn-4 init_side, including turn
+    # rotations stepped inside a fork.
+    fork.core.core.fire_events(_SIDE_1_TURN_4)
 
     # Sanity: the FORK saw its morph and latched its own event.
     fork_events = getattr(fork.gs.global_info, "_scenario_events")
@@ -102,6 +119,8 @@ def test_fork_turn_event_latch_isolated():
                    "_terrain_codes")[_MORPH_HEX_PY] == _MORPH_CODE
 
     # THE leak assertions: the parent is untouched...
+    sim._refresh_view()
+    parent_t4 = [ev for ev in sim.gs.global_info._scenario_events if ev.name == "side 1 turn 4"]
     assert all(not ev.fired for ev in parent_t4), (
         "fork's event latch leaked to the parent: the LIVE game would "
         "never fire its first_time_only morph"
@@ -110,7 +129,8 @@ def test_fork_turn_event_latch_isolated():
                    "_terrain_codes")[_MORPH_HEX_PY] == baseline
 
     # ...and the REAL game still morphs when its own turn 4 arrives.
-    _fire_turn_events(sim.gs, side_turn_event_names(1, 4, new_turn=True))
+    sim.core.core.fire_events(_SIDE_1_TURN_4)
+    sim._refresh_view()
     assert getattr(sim.gs.global_info,
                    "_terrain_codes")[_MORPH_HEX_PY] == _MORPH_CODE
 
@@ -120,10 +140,8 @@ def test_fork_turn_event_latch_isolated():
 # ---------------------------------------------------------------------
 
 def test_fork_object_effect_isolated():
-    """`_object_action` applies WML [effect]s to units it pulls out of
-    `gs.map.units` -- exactly the Unit objects `Map.__deepcopy__`
-    shares across forks. An [object] fired inside a fork must not
-    rewrite the parent's units.
+    """An [object] applies WML [effect]s to the units it filters. Fired
+    inside a fork it must not rewrite the parent's units.
 
     (Dormant today: every [object] in the current pools fires from
     prestart / turn-1 events, which run in `WesnothSim.__init__`
@@ -146,7 +164,7 @@ def test_fork_object_effect_isolated():
     obj.children = [filt, eff_atk, eff_hp]
 
     fork = sim.fork()
-    _object_action(fork.gs, obj)
+    _run_action(fork, obj)
 
     # Sanity: the FORK's unit took the effects.
     fu = _unit_by_id(fork.gs, u.id)
@@ -162,8 +180,6 @@ def test_fork_object_effect_isolated():
     )
     assert pu.max_hp == before_max_hp
     assert pu.current_hp == before_hp
-    # Post-fix the fork holds its own replacement object.
-    assert fu is not pu
 
 
 def _modify_unit_node(u, **attrs):
@@ -177,10 +193,8 @@ def _modify_unit_node(u, **attrs):
 
 
 def test_fork_modify_unit_isolated():
-    """`[modify_unit]` writes the scalar attrs of units it pulls out of
-    `gs.map.units` -- the same fork-shared Unit objects as the
-    [object] case above. Fired inside a fork it must not rewrite the
-    parent's unit.
+    """`[modify_unit]` writes the scalar attrs of the units it filters.
+    Fired inside a fork it must not rewrite the parent's unit.
 
     (Dormant today: the only `[modify_unit]` in either pool is Marshy
     Fill's `start` event, which runs in `WesnothSim.__init__` before
@@ -195,8 +209,7 @@ def test_fork_modify_unit_isolated():
     assert (new_moves, new_hp) != (before_moves, before_hp)
 
     fork = sim.fork()
-    _modify_unit_action(fork.gs, _modify_unit_node(
-        u, moves=str(new_moves), hitpoints=str(new_hp)))
+    _run_action(fork, _modify_unit_node(u, moves=str(new_moves), hitpoints=str(new_hp)))
 
     # Sanity: the FORK's unit took the change.
     fu = _unit_by_id(fork.gs, u.id)
@@ -207,107 +220,20 @@ def test_fork_modify_unit_isolated():
     assert (pu.current_moves, pu.current_hp) == (before_moves, before_hp), (
         "[modify_unit] inside a fork leaked into the parent's unit"
     )
-    assert fu is not pu
 
 
 def test_modify_unit_applies_outside_a_fork():
-    """Positive control for the replace-unit rewrite: the handler must
-    still change the live game when no fork is involved -- a version
-    that quietly wrote to a discarded copy would pass the isolation
-    test above and break Marshy Fill's leader-MP tweak."""
+    """Positive control: the action must still change the live game when
+    no fork is involved -- a version that quietly wrote to a discarded
+    copy would pass the isolation test above and break Marshy Fill's
+    leader-MP tweak."""
     sim = fresh_scenario_sim(0)
     u = min((x for x in sim.gs.map.units if x.side == 1),
             key=lambda x: x.id)
     target = u.current_moves + 2
-    _modify_unit_action(sim.gs, _modify_unit_node(u, moves=str(target)))
+    _run_action(sim, _modify_unit_node(u, moves=str(target)))
     assert _unit_by_id(sim.gs, u.id).current_moves == target
-    # One element per id: discard+add must not double-insert.
     assert sum(1 for x in sim.gs.map.units if x.id == u.id) == 1
-
-
-def test_modify_unit_keeps_non_field_stashes():
-    """The replacement is a shallow copy, so the setattr-stashed extras
-    every downstream reader depends on (`_defense_table`,
-    `_trait_order`, `_object_effects`, `_feeding_count`) must survive.
-    `dataclasses.replace` would silently drop them."""
-    sim = fresh_scenario_sim(0)
-    u = min((x for x in sim.gs.map.units if x.side == 1),
-            key=lambda x: x.id)
-    setattr(u, "_trait_order", ["quick"])
-    setattr(u, "_feeding_count", 3)
-    _modify_unit_action(sim.gs, _modify_unit_node(
-        u, moves=str(u.current_moves + 1)))
-    new_u = _unit_by_id(sim.gs, u.id)
-    assert getattr(new_u, "_trait_order", None) == ["quick"]
-    assert getattr(new_u, "_feeding_count", None) == 3
-
-
-# ---------------------------------------------------------------------
-# 3. Executable spec of the fork-shared attack surface
-# ---------------------------------------------------------------------
-
-def test_fork_alias_contract():
-    """The definitive aliased-vs-copied list for `WesnothSim.fork()`
-    (2026-07-29 audit). If this test fails after a deepcopy change,
-    update BOTH the fast-path docstrings and the audit conclusion --
-    aliasing more is a perf choice that widens the mutation attack
-    surface; aliasing less is safe but slower.
-
-    The list is the PYTHON state of record's, so the sim is pinned to
-    it. On the Rust-owned state (docs/rust_port_plan.md 4) a fork
-    shares no unit object at all -- the safe side of the same
-    trade-off, asserted in tests/test_game_core.py."""
-    sim = fresh_scenario_sim(0, scenario_id=_AETHERMAW, use_core=False)
-    fork = sim.fork()
-    m, fm = sim.gs.map, fork.gs.map
-    gi, fgi = sim.gs.global_info, fork.gs.global_info
-
-    # Fresh outer objects.
-    assert fork.gs is not sim.gs
-    assert fm is not m
-    assert fgi is not gi
-
-    # ALIASED (immutable-by-contract; mutators must copy-on-write):
-    assert fm.mask is m.mask
-    assert fm.fog is m.fog
-    assert fm.hexes is m.hexes
-    assert getattr(fgi, "_terrain_codes") is getattr(gi, "_terrain_codes")
-
-    # COPIED containers with SHARED leaf objects:
-    assert fm.units is not m.units
-    parent_by_id = {u.id: u for u in m.units}
-    for u in fm.units:
-        assert parent_by_id[u.id] is u, (
-            "Unit contents are shared by design; mutators must use the "
-            "replace-unit pattern"
-        )
-
-    # FULLY per-fork:
-    assert fork.gs.sides is not sim.gs.sides
-    assert all(fs is not ps for fs, ps in zip(fork.gs.sides, sim.gs.sides))
-    pv = getattr(gi, "_village_owner", None)
-    if pv is not None:
-        fv = getattr(fgi, "_village_owner")
-        assert fv is not pv and fv == pv
-
-    # Scenario events: per-fork list; UNFIRED events must be per-fork
-    # objects (the `fired` latch is mutable state). Already-fired
-    # events may stay shared -- their only later mutation is an
-    # idempotent re-latch to True. Parsed WML actions stay shared
-    # (read-only after parse).
-    evs = getattr(gi, "_scenario_events")
-    fevs = getattr(fgi, "_scenario_events")
-    assert fevs is not evs and len(fevs) == len(evs)
-    for pe, fe in zip(evs, fevs):
-        if pe.fired:
-            continue
-        assert fe is not pe, (
-            "unfired ScenarioEvent shared across forks: the fired "
-            "latch would leak hypothetical futures into the live game"
-        )
-        assert fe.actions is pe.actions
-        assert (fe.name, fe.first_time_only, fe.fired) == \
-               (pe.name, pe.first_time_only, pe.fired)
 
 
 # ---------------------------------------------------------------------
@@ -322,7 +248,8 @@ def test_deep_fingerprint_stable_across_fork_mutation():
     fp0 = deep_state_fingerprint(sim.gs)
 
     fork = sim.fork()
-    _fire_turn_events(fork.gs, side_turn_event_names(1, 4, new_turn=True))   # terrain morph + event latch
+    fork.core.core.fire_events(_SIDE_1_TURN_4)   # terrain morph + event latch
+    fork._refresh_view()
     u = min((x for x in fork.gs.map.units if x.side == 1 and x.attacks),
             key=lambda x: x.id)
     obj = WMLNode("object")
@@ -331,12 +258,8 @@ def test_deep_fingerprint_stable_across_fork_mutation():
     eff = WMLNode("effect")
     eff.attrs = {"apply_to": "attack", "increase_damage": "5"}
     obj.children = [filt, eff]
-    # `[modify_unit]` FIRST: once `_object_action` has swapped in a
-    # fork-private copy, a later in-place write lands on that copy and
-    # this guard could no longer see the leak.
-    _modify_unit_action(fork.gs, _modify_unit_node(
-        u, moves="0", hitpoints="1"))  # unit scalar mutation
-    _object_action(fork.gs, obj)       # unit [effect] mutation
+    _run_action(fork, _modify_unit_node(u, moves="0", hitpoints="1"))  # unit scalar mutation
+    _run_action(fork, obj)             # unit [effect] mutation
     fork.step({"type": "end_turn"})    # a real production step too
 
     assert deep_state_fingerprint(sim.gs) == fp0, (

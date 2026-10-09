@@ -1,4 +1,4 @@
-"""Hex adjacency and the abilities that act on adjacent units.
+"""Hex adjacency, and the leadership ability's bonus.
 
 Wesnoth's hexes are flat-topped and laid out in columns, every odd
 column (0-indexed) half a hex lower than its neighbours, so which hexes
@@ -9,22 +9,15 @@ hex across a unit from one of them. On that geometry:
   - Leadership (`leadership_bonus`): an adjacent same-side unit with
     `leadership` and a HIGHER level adds 25% x (its level - the unit's
     level) to the unit's damage. Several leaders do not stack, the best
-    one counts, and the opponent's level plays no part.
-  - Illumination (`illuminate_step`): the unit's hex is lit when the
-    unit itself or any adjacent unit, of any side, has `illuminates`.
-  - Healing (`healer_heal_amount`, `adjacent_curer`): the best adjacent
-    same-side healer counts, 8 for `cures` or `heals+8` and 4 for
-    `heals+4`, without stacking; `cures` also clears poison.
-  - Backstab (`is_backstab_active`): the hex opposite the attacker
-    holds an enemy of the defender.
+    one counts, and the opponent's level plays no part; a petrified
+    unit projects none. The swap detector's leadership screen reads it.
 
-A petrified unit projects none of these abilities, and a petrified
-flanker does not enable backstab.
+The Rust core applies every ability in play
+(rust/wesnoth_core/src/core_attack.rs, core_step.rs).
 
 Dependencies: classes
-Dependents:   tools.replay_dataset, pathfind_sim, wesnoth_sim,
-              neutral_ai; wesnoth_ai.visibility, observe,
-              action_sampler, rewards (the geometry)
+Dependents:   tools.replay_dataset, wesnoth_sim, neutral_ai,
+              swap_detector; wesnoth_ai.observe, rewards (the geometry)
 """
 from __future__ import annotations
 
@@ -88,79 +81,10 @@ def opposite_hex(center: Tuple[int, int],
 # Ability scanners
 # ----------------------------------------------------------------------
 
-def _units_at(units: Iterable[Unit], x: int, y: int,
-              pos_index: Optional[dict] = None) -> List[Unit]:
-    if pos_index is not None:
-        return list(pos_index.get((x, y), ()))
-    return [u for u in units if u.position.x == x and u.position.y == y]
-
-
-def _adjacent_units(units: Iterable[Unit], x: int, y: int,
-                    pos_index: Optional[dict] = None) -> List[Unit]:
-    """If `pos_index` (a `(x, y) → list[Unit]` dict over `units`) is
-    provided, use O(6) hex-neighbor lookups against it. Otherwise fall
-    back to an O(N_units) listcomp.
-
-    Callers that issue multiple adjacency queries against the same
-    units snapshot — `init_side`'s healing loop is the prominent
-    example, with 2 queries × N units per side per turn — should
-    build the index once with `build_pos_index(units)` and pass it
-    in. The index is unsafe to memoize across `_apply_command`
-    boundaries because `_replace_unit` mutates `gs.map.units`
-    in-place (discard + add), so an id()-keyed memo would silently
-    serve stale data after any move/attack/recruit. Passing it
-    explicitly keeps the lifetime narrow and verifiable.
-    """
-    if pos_index is not None:
-        out: List[Unit] = []
-        for nx, ny in hex_neighbors(x, y):
-            out.extend(pos_index.get((nx, ny), ()))
-        return out
+def _adjacent_units(units: Iterable[Unit], x: int, y: int) -> List[Unit]:
+    """The units of `units` on a hex next to (x, y)."""
     pos = set(hex_neighbors(x, y))
     return [u for u in units if (u.position.x, u.position.y) in pos]
-
-
-def build_pos_index(units: Iterable[Unit]) -> dict:
-    """Build `(x, y) → list[Unit]` over `units`. O(N) one-time;
-    caller is responsible for not reusing the index after the unit
-    set mutates."""
-    out: dict = {}
-    for u in units:
-        out.setdefault((u.position.x, u.position.y), []).append(u)
-    return out
-
-
-def is_backstab_active(attacker: Unit, defender: Unit,
-                       all_units: Iterable[Unit]) -> bool:
-    """Backstab is active if the hex opposite the attacker (relative to
-    the defender) is occupied by a unit that's an enemy of the defender
-    (not necessarily the same side as the attacker; shared-team flank
-    qualifies). Excludes incapacitated/petrified flankers.
-
-    Concretely, Wesnoth's `[backstab]` special filters petrified
-    flankers (`wesnoth_src/data/core/macros/weapon_specials.cfg`).
-    Witnessed in 2p__Sullas_Ruins_Turn_37_(214794).bz2 cmd[420]:
-    Thief side 2 attacks Dwarvish Thunderer side 1 at (18,10), with
-    a petrified Yeti statue side 3 at (19,10) standing on the
-    opposite hex. Without the petrified filter, our sim activated
-    backstab (doubling dagger 5->10 dmg, 3 hits = 24 dmg, dropping
-    Thunderer 36->12). Wesnoth keeps backstab INACTIVE because the
-    statue is petrified, so 3 hits at 5 dmg = 15 dmg, Thunderer at
-    21 — surviving subsequent attacks where our sim killed it."""
-    opp = opposite_hex(
-        (defender.position.x, defender.position.y),
-        (attacker.position.x, attacker.position.y),
-    )
-    if opp is None:
-        return False
-    flanker = next(
-        (u for u in all_units
-         if (u.position.x, u.position.y) == opp
-         and u.side != defender.side
-         and "petrified" not in u.statuses),
-        None,
-    )
-    return flanker is not None
 
 
 def leadership_bonus(unit: Unit, all_units: Iterable[Unit],
@@ -239,96 +163,4 @@ def leadership_bonus(unit: Unit, all_units: Iterable[Unit],
     return best
 
 
-def illuminate_step(unit: Unit, all_units: Iterable[Unit]) -> int:
-    """Return +1 if `unit`'s hex is illuminated (self or any adjacent
-    unit has `illuminates`), else 0. Used to bump lawful_bonus by 25
-    at dusk or similar — caller multiplies.
-
-    NB: illumination is a TERRAIN-LIGHT modifier, not an ally-only
-    aura. Per `tod_manager::get_illuminated_time_of_day`
-    (tod_manager.cpp:237-262), Wesnoth scans all 7 hexes (loc + 6
-    adjacent) and contributes light from ANY unit with the
-    `illuminates` ability, regardless of side. Filtering by
-    `ally.side == unit.side` (the previous behavior) makes our sim
-    skip the enemy-cast illumination that boosts the attacker's
-    lawful_bonus when they strike INTO the illuminated hex.
-    Witnessed 2026-05-08 in 2p__Hamlets_Turn_20_(41655) cmd[731]:
-    Mage of Light (side 2) at (15,21) illuminates the surrounding
-    area; the side-1 Merman Netcaster striking from (16,21) is
-    lawful and should fight at first_watch+illumination = dusk
-    (0% modifier) instead of first_watch (-25%). Without this fix
-    Netcaster's club at 7×3 stays at 5 dmg/hit (lawful -25%) → 3
-    hits = 15 dmg max which DOES kill u46 only if all 3 land; with
-    the +25 lawful boost from u46's own illumination, 7×3 stays at
-    7 dmg/hit and 2 hits = 14 dmg already kills u46 outright. The
-    cascade was cmd[760] attack:attacker_missing because u59's
-    cmd[759] move couldn't pass through u46 (alive at hp=4 in our
-    sim).
-    """
-    if "illuminates" in unit.abilities and "petrified" not in unit.statuses:
-        return 1
-    for other in _adjacent_units(all_units, unit.position.x, unit.position.y):
-        # Petrified/incapacitated units project no abilities: the scan in
-        # `get_illuminated_time_of_day` gates on `!itor->incapacitated()`
-        # (docs/wesnoth_rules.md:443). A petrified illuminator (e.g. a
-        # statue with `illuminates` on the Basilisk/Sullas maps) must not
-        # light the hex, or a chaotic/lawful combatant fights at the wrong
-        # lawful_bonus and combat parity breaks.
-        if ("illuminates" in other.abilities
-                and "petrified" not in other.statuses):
-            return 1
-    return 0
-
-
-def healer_heal_amount(unit: Unit, all_units: Iterable[Unit],
-                       pos_index: Optional[dict] = None) -> int:
-    """Return total heal-per-turn this unit gets from adjacent healers
-    (capped at 8 per Wesnoth's rules — multiple healers don't stack
-    above 8; cures heals up to 8 too but additionally cures poison).
-
-    Callers issuing many queries against a stable units snapshot
-    (init_side healing) can pass `pos_index` to avoid O(N) scans;
-    see `_adjacent_units`.
-    """
-    if "regenerate" in unit.abilities:
-        return 0  # regenerate is self-healing, handled separately
-    best = 0
-    for ally in _adjacent_units(all_units, unit.position.x, unit.position.y,
-                                pos_index=pos_index):
-        if ally.side != unit.side:
-            continue
-        # Petrified/incapacitated healers project nothing (abilities.cpp
-        # get_abilities skips adjacent `it->incapacitated()`; see
-        # docs/wesnoth_rules.md).
-        if "petrified" in ally.statuses:
-            continue
-        if "cures" in ally.abilities or "heals_8" in ally.abilities or "heals+8" in ally.abilities:
-            best = max(best, 8)
-        elif "heals_4" in ally.abilities or "heals+4" in ally.abilities:
-            best = max(best, 4)
-    return best
-
-
-def adjacent_curer(unit: Unit, all_units: Iterable[Unit],
-                   pos_index: Optional[dict] = None) -> bool:
-    """Return True if any adjacent same-side unit has `cures` (clears
-    poison at init_side)."""
-    for ally in _adjacent_units(all_units, unit.position.x, unit.position.y,
-                                pos_index=pos_index):
-        if ally.side != unit.side:
-            continue
-        # Petrified/incapacitated curers project nothing (abilities.cpp
-        # get_abilities skips adjacent `it->incapacitated()`; see
-        # docs/wesnoth_rules.md).
-        if "petrified" in ally.statuses:
-            continue
-        if "cures" in ally.abilities:
-            return True
-    return False
-
-
-__all__ = [
-    "hex_neighbors", "opposite_hex",
-    "is_backstab_active", "leadership_bonus", "illuminate_step",
-    "healer_heal_amount", "adjacent_curer",
-]
+__all__ = ["hex_neighbors", "opposite_hex", "leadership_bonus"]

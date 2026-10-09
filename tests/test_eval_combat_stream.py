@@ -159,7 +159,7 @@ def test_a_salted_eval_sim_is_not_a_search_fork():
 def test_the_fork_flag_defaults_off_and_survives_a_fork():
     from sim_test_helpers import fresh_scenario_sim
 
-    sim = fresh_scenario_sim(0, max_turns=4, use_core=False)
+    sim = fresh_scenario_sim(0, max_turns=4)
     assert sim._is_search_fork is False, "a live sim is not a fork"
     sim._seed_salt = "elo:7"
     assert sim._is_search_fork is False, "a salt alone must not make it one"

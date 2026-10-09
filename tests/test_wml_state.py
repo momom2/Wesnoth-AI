@@ -162,13 +162,17 @@ def test_a_record_start_slot_reaches_the_state_wrapped():
     puts the board at second watch (the engine's wrap; a clamp put it at
     dawn), while a time area keeps its own slot (docs/wesnoth_rules.md
     "A time area keeps its own slot")."""
-    from tools.replay_dataset import _build_initial_gamestate, _lawful_bonus_at
-    gs = _build_initial_gamestate({"map_data": "Gg, Gg\nGg, Gg", "tod_start_index": -1})
+    from tools.replay_dataset import _build_initial_gamestate
+    from wesnoth_ai.game_core import CoreState
+    border = "Xv, Xv, Xv, Xv"
+    board = "\n".join([border, "Xv, Gg, Gg, Xv", "Xv, Gg, Gg, Xv", border])
+    gs = _build_initial_gamestate({"map_data": board, "tod_start_index": -1})
     assert gs.global_info._tod_start_offset == 5
     assert gs.global_info.time_of_day == "second_watch"
     gs.global_info._time_areas = {(0, 0): [0, 25, 25, 0, -25, -25]}
-    assert _lawful_bonus_at(gs, 1, 1, 1) == -25
-    assert [_lawful_bonus_at(gs, 0, 0, t) for t in (1, 2, 5)] == [0, 25, -25]
+    core = CoreState.from_state(gs).core
+    assert core.lawful_bonus(1, 1, 1) == -25
+    assert [core.lawful_bonus(0, 0, t) for t in (1, 2, 5)] == [0, 25, -25]
 
 
 def test_a_time_area_does_not_contribute_its_own_schedule():
@@ -269,8 +273,8 @@ def test_a_time_area_schedule_is_not_the_board_schedule():
 
 
 def test_the_quick_leader_gates_are_seen_even_though_they_are_not_modelled():
-    """`tools/traits.py` gives every 4-MP leader the quick trait
-    unconditionally. The era gates that on a WML variable and on a
+    """The core's unit builder gives every 4-MP leader the quick trait
+    unconditionally (rust/wesnoth_core/src/units.rs). The era gates that on a WML variable and on a
     per-unit one (eras.lua:5-22), and real scenarios use the second --
     Dark Forecast and Isle of Mists set `dont_make_me_quick`. Neither
     is ours, which is WHY the unconditional rule is right; this reads

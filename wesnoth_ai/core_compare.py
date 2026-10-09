@@ -2,9 +2,9 @@
 field for field (their underscore attributes optionally), the sides,
 the turn scalars, the stash the core keeps on `global_info`, the map
 (hex set, terrain codes, time areas) and the scenario's event state
-(latches, WML variables, stored locations). The certification of the
-core against the Python applier runs on it (tools/diff_core.py,
-tests/test_game_core.py)."""
+(latches, WML variables, stored locations). It certified the core
+against the Python applier over the corpus until the applier's
+retirement (0.18.0); the core's tests compare states with it."""
 from __future__ import annotations
 
 from typing import List

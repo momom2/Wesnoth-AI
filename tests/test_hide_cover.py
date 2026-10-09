@@ -90,31 +90,27 @@ def test_no_code_means_no_terrain_cover():
         assert not hides_cover(None, ability)
 
 
+def _seen_by_the_enemy(code: str, ability: str) -> bool:
+    """Whether side 1 sees a side-2 Spearman given `ability` and standing
+    on `code`, four hexes from side 1's Spearman, fog off: the cover
+    rule the core's fog gate and ambush stop both read."""
+    from helpers.parity_games import core_of, record, unit_id_at
+    cs = core_of(record([("Spearman", 1, 1, 3, False), ("Spearman", 2, 5, 3, False)],
+                        special={(5, 3): code}, fog=False))
+    hider = unit_id_at(cs, 5, 3)
+    cs.core.update_unit(hider, {"abilities": [ability]})
+    return hider in cs.core.visible_ids(1)
+
+
 def test_hide_cover_active_uses_the_engine_rule():
-    """End to end through the predicate the fog gate and the ambush stop
-    both consume."""
-    from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _rebuild_unit
-    from wesnoth_ai.visibility import _hide_cover_active
-
-    sim = fresh_scenario_sim(0, max_turns=6, use_core=False)
-    gs = sim.gs
-    codes = getattr(gs.global_info, "_terrain_codes", None) or {}
-    assert codes, "the scenario must carry terrain codes"
-    unit = next(iter(sorted(gs.map.units, key=lambda u: u.id)))
-    hidden = _rebuild_unit(unit, abilities={"ambush"})
-
-    # Put the code of a previously-regressed forest under the unit.
-    codes[(hidden.position.x, hidden.position.y)] = "Gs^Fms"
-    assert _hide_cover_active(gs, hidden), \
+    """End to end through the core's visibility."""
+    from wesnoth_ai.game_core import game_core_class
+    if game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    assert not _seen_by_the_enemy("Gs^Fms", "ambush"), \
         "ambush on a ^Fms forest must hide (it did not before 2026-09-13)"
-
-    codes[(hidden.position.x, hidden.position.y)] = "Gg"
-    assert not _hide_cover_active(gs, hidden), "open grass is not cover"
-
-    concealed = _rebuild_unit(unit, abilities={"concealment"})
-    codes[(concealed.position.x, concealed.position.y)] = "Gg^Ve"
-    assert _hide_cover_active(gs, concealed), \
+    assert _seen_by_the_enemy("Gg", "ambush"), "open grass is not cover"
+    assert not _seen_by_the_enemy("Gg^Ve", "concealment"), \
         "concealment in a ^Ve village must hide (it did not before 2026-09-13)"
 
 

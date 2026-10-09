@@ -127,15 +127,14 @@ def test_a_mobile_neutral_unit_is_refused_under_strict(actor_scenarios,
 def test_the_enclave_pin_survives_a_turn_refresh(actor_scenarios):
     """The pin is re-applied every `turn refresh`, so it has to hold
     after the event fires, not just at build."""
-    import tools.scenario_events as se
-
     for scenario_id, reason in sorted(EXPECTED_ACTORS.items()):
         if reason != "pinned":
             continue
-        gs = actor_scenarios[scenario_id].gs
-        for unit in (u for u in gs.map.units if u.side >= 3):
-            unit.current_moves = unit.max_moves     # as a new turn would
-        events = getattr(gs.global_info, "_scenario_events", []) or []
-        assert se.fire_event(gs, events, "turn refresh") >= 1, scenario_id
-        moves = [u.current_moves for u in gs.map.units if u.side >= 3]
+        core = actor_scenarios[scenario_id].core.core
+        neutral = [u.id for u in actor_scenarios[scenario_id].gs.map.units if u.side >= 3]
+        for uid in neutral:                         # as a new turn would
+            core.update_unit(uid, {"current_moves": core.unit_export(uid)["max_moves"]})
+        assert {core.unit_export(uid)["current_moves"] for uid in neutral} != {0}, scenario_id
+        core.fire_events(["turn refresh"])
+        moves = [core.unit_export(uid)["current_moves"] for uid in neutral]
         assert moves and set(moves) == {0}, f"{scenario_id}: {moves}"

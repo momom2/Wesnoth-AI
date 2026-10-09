@@ -121,11 +121,22 @@ encoding and every rule asked of a position are the core's, and it is
 the state of record of the simulator, reconstruction and the pipeline
 tools. Certified 2026-10-01 over the whole corpus (14,376 of 14,376
 replays, clean again on phase 29;
-training/metrics/fidelity/core_certify_20261001/). Next: the
-retirement: the Python applier, builders and rule versions go, and for
-each analysis or debugging tool still replaying records on the applier
-(the list in the plan) the user decides between deletion, the
-quarantine and a move to the core. Refactor step 4a is parked meanwhile (tag `archive/refactor-step4a-sim`).
+training/metrics/fidelity/core_certify_20261001/). **Retired 0.18.0
+(2026-10-09):** the Python applier, its builders, the Python rules and the
+`WESNOTH_RUST*` switches are gone (+2,724 / -17,369 lines); the tools that
+replay a record run on the core, and those that compared against or
+debugged with the applier are deleted (the lead's decisions, tool by tool,
+in the merge commit). An equivalence review played the same seeded games,
+encodings, masks, record walks and pre-encodings on both sides of the
+change and found them byte-identical, except the full-board masks after a
+terrain change, where the old path offered moves onto friendly-occupied
+hexes (Aethermaw; no checkpoint since `relset` uses the full board).
+Open, small: six Rust functions Python no longer calls
+(`encode_raw_streams`, `unit_reach_arrays`, `enumerate_moves`,
+`observe_side`, `reach_rows`, the combat `resolve_attack`) go with the next
+phase bump; 13 box scripts of past runs set the retired switches or call
+deleted tools and are records only. Refactor step 4a is parked (tag
+`archive/refactor-step4a-sim`).
 
 **Standing, taken whenever there is room (user, 2026-09-25):**
 
@@ -336,8 +347,8 @@ playouts and the turn-value playout reads run on the true state. Open:
   strength.
 - Re-grade the seven confirmed turn-gap pairs from sampled worlds once a
   belief model exists (with the second-salt re-realization of 15 and 57).
-- `Observation.detached()` (`wesnoth_ai/observe.py:202-208`) keeps rows
-  for hidden units; no consumer reads them. Drop them.
+- Done with the applier's retirement (0.18.0): `Observation.detached()`
+  and its rows for hidden units are gone.
 
 ## What the network observes against what a player sees (2026-09-26 crawl)
 

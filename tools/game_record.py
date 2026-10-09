@@ -4,8 +4,8 @@ A record holds what rebuilds the game position by position: the
 scenario setup (or, for a mid-game start, the corpus file, the digest
 of its content and the cut), the build arguments, the simulator's
 advancement channel, and the command list the simulator applied, in
-the form `tools.replay_dataset._apply_command` replays, attack and
-recruit seeds included. Recruit rejections, which change what the side
+the form the core applies (`game_core.CoreState.apply_command`), attack
+and recruit seeds included. Recruit rejections, which change what the side
 to move observes but apply no command, are kept beside it.
 
 A record also carries fingerprints of the game it was written from:
@@ -142,8 +142,9 @@ def distribution_data(dist) -> Dict[str, Any]:
 
 
 def strike_table_data(states: Dict[tuple, float]) -> List[list]:
-    """A strike DP's final states (`combat_outcomes._strike_dp`) as
-    data: each state key with its probability."""
+    """A strike DP's final states (a counter-weapon strike table,
+    `combat_outcomes.counter_weapon_choice`) as data: each state key
+    with its probability."""
     return [[*key, p] for key, p in sorted(states.items(), key=lambda kv: -kv[1])]
 
 

@@ -60,8 +60,8 @@ _DROPPED_GLOBALS = ("_hex_lookup_cache_id", "_hex_lookup_by_xy", "_hex_lookup_by
 # What each player side saw of the other sides' units, which the core keeps
 # (rust/wesnoth_core/src/core_sight.rs) and a view carries for
 # `classes.state_digest`: `_sightings` {side: ((id, type, hp, max hp, x,
-# y), ...)} and `_seen_types` {side: ((other side, type), ...)}. The Python
-# applier keeps neither, so the state comparisons leave them out.
+# y), ...)} and `_seen_types` {side: ((other side, type), ...)}. The state
+# comparisons (`core_compare`) leave them out.
 SIGHT_RECORDS = ("_sightings", "_seen_types", "_sightings_gone")
 # The players' sides, the ones that keep a sighting record.
 _RECORD_SIDES = (1, 2)
@@ -113,14 +113,12 @@ def game_core_class():
     return _GAME_CORE
 
 
-def core_enabled() -> bool:
-    """The Rust-owned state as the state of record of the simulator and
-    of replay reconstruction: the wheel carries GameCore and
-    WESNOTH_RUST_CORE is not 0 (on by default since 2026-09-28; 0 keeps
-    the Python applier, the port's oracle, until its retirement)."""
-    if os.environ.get("WESNOTH_RUST_CORE", "1") == "0":
-        return False
-    return game_core_class() is not None
+def is_rust_panic(exc: BaseException) -> bool:
+    """A Rust panic reaches Python as pyo3's `PanicException`, which
+    derives from BaseException precisely so that `except Exception`
+    does not catch it. It has no importable home (`pyo3_runtime` is
+    not a module), so it is recognised by its name."""
+    return type(exc).__name__ == "PanicException"
 
 
 def _view_fingerprint(gs: GameState) -> tuple:
@@ -158,6 +156,45 @@ def core_of(gs: GameState) -> Optional["CoreState"]:
     return hit[1]
 
 
+# The cores built for states that no core stands behind (`core_for`):
+# id(state) -> (weak reference to the state, CoreState, the state's
+# fingerprint when the core was built).
+_BUILT_CORES: Dict[int, tuple] = {}
+
+
+def core_for(gs: GameState) -> "CoreState":
+    """The core that answers for `gs`: the one it is bound to, or for a
+    state built by hand or copied (`copy.deepcopy`, a pickle) a core built
+    from it (`CoreState.from_state`, a few milliseconds). A built core
+    serves the state while its fingerprint (`state_key`, the fog switch,
+    the hex set) is unchanged, so one decision's encoding and mask share
+    it; an edit the fingerprint sees builds another."""
+    cs = core_of(gs)
+    if cs is not None:
+        return cs
+    fp = _view_fingerprint(gs)
+    key = id(gs)
+    hit = _BUILT_CORES.get(key)
+    if hit is not None and hit[0]() is gs and hit[2] == fp:
+        return hit[1]
+    cs = CoreState.from_state(gs)
+
+    def _drop(ref, key=key):
+        old = _BUILT_CORES.get(key)
+        if old is not None and old[0] is ref:
+            _BUILT_CORES.pop(key, None)
+
+    _BUILT_CORES[key] = (weakref.ref(gs, _drop), cs, fp)
+    return cs
+
+
+def view_of(cs: "CoreState") -> GameState:
+    """A view of `cs` (`CoreState.to_state`) bound to it."""
+    view = cs.to_state()
+    bind_view(view, cs)
+    return view
+
+
 def snapshot_view(gs: GameState) -> GameState:
     """A copy of `gs` to keep while the game goes on: for a view bound to
     a core, a view of a fork of that core (bound to it, so it is encoded
@@ -166,10 +203,38 @@ def snapshot_view(gs: GameState) -> GameState:
     cs = core_of(gs)
     if cs is None:
         return copy.deepcopy(gs)
-    fork = cs.fork()
-    view = fork.to_state()
-    bind_view(view, fork)
-    return view
+    return view_of(cs.fork())
+
+
+def _extension():
+    """`wesnoth_core` with the unit and terrain databases loaded, or
+    RuntimeError when the wheel is absent or older than this adapter."""
+    if game_core_class() is None:
+        raise RuntimeError(f"wesnoth_core is not installed at phase {_CORE_PHASE} or later: "
+                           f"pip install ./rust/wesnoth_core")
+    import wesnoth_core
+    return wesnoth_core
+
+
+def build_unit(record: dict, *, apply_leader_traits: bool = False, game_id: str = "",
+               exp_modifier: int = 100) -> Unit:
+    """A unit from a replay record's starting-unit entry (`uid`, `type`,
+    `side`, `x`, `y`, and optionally `is_leader`, `hp`, `max_hp`,
+    `max_moves`, `max_exp`, `cost`, `petrified`), built by the core: the
+    type's statistics at the game's experience modifier, and a leader's
+    traits when `apply_leader_traits`."""
+    return unit_from_fields(_extension().build_unit_fields(
+        record, bool(apply_leader_traits), str(game_id), int(exp_modifier)))
+
+
+def build_recruit_unit(unit_type: str, side: int, x: int, y: int, next_uid: int, game_id: str = "",
+                       trait_seed_hex: str = "", exp_modifier: int = 100) -> Unit:
+    """A fresh recruit with the traits its seed rolls (the engine's
+    `[random_seed]`; with none, a roll hashed from the game id, uid and
+    type), built by the core."""
+    return unit_from_fields(_extension().build_recruit_fields(
+        str(unit_type), int(side), int(x), int(y), int(next_uid), str(game_id),
+        str(trait_seed_hex), int(exp_modifier)))
 
 
 def unit_db_fallbacks() -> Dict[str, int]:
@@ -416,9 +481,9 @@ class CoreState:
             _strict_wml())
 
     def setup_scenario(self, scenario_id: str) -> None:
-        """`_setup_scenario_events` on the core: the scenario's WML read
-        here, its time areas, [side] modifications, events and prestart
-        and start run in the core. A scenario without WML is warned about
+        """The scenario's setup on the core: its WML read here, its time
+        areas, [side] modifications, events and prestart and start run in
+        the core. A scenario without WML is warned about
         once and runs without events."""
         from tools.scenario_events import collect_events
         from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
@@ -532,14 +597,12 @@ class CoreState:
         writes = terrain_log[self.terrain_synced:]
         st = self.statics
         if writes:
-            from tools.pathfind_sim import next_terrain_epoch
             from tools.scenario_events import terrain_writes_applied
             hexes, codes, raw = terrain_writes_applied(
                 st["hexes"], st.get("_terrain_codes"), st.get("_raw_map_data", "") or "", writes)
             st["hexes"] = hexes
             if codes is not None:
                 st["_terrain_codes"] = codes
-                st["_terrain_epoch"] = next_terrain_epoch()
             if raw:
                 st["_raw_map_data"] = raw
             self.hexes_holder = hexes
@@ -562,9 +625,10 @@ class CoreState:
     # ---- commands ----------------------------------------------------
 
     def apply_command(self, cmd: list) -> str:
-        """One replay or simulator command (`_apply_command`'s
-        vocabulary). Returns "rust" when the core applied it, "python" for
-        the recall bookkeeping and the kinds the applier ignores."""
+        """One replay or simulator command (the compact form
+        tools/replay_extract.py writes). Returns "rust" when the core
+        applied it, "python" for the recall bookkeeping and the kinds no
+        state change follows."""
         path = self._apply(cmd)
         _log_core_warnings()
         return path
@@ -666,8 +730,7 @@ class CoreState:
 
     def _recall(self, cmd: list) -> None:
         """A recall in a PvP replay: logged and noted for
-        tools/flag_replays_with_recalls.py, the state unchanged (the
-        Python applier's recall branch)."""
+        tools/flag_replays_with_recalls.py, the state unchanged."""
         unit_id = cmd[1] if len(cmd) > 1 else "<unknown>"
         tx = cmd[2] if len(cmd) > 2 else -1
         ty = cmd[3] if len(cmd) > 3 else -1
@@ -907,9 +970,7 @@ def _require_global_width(global_feats) -> None:
     """Refuse a core whose encoder emits a different number of global
     features than this one (a wheel built from an older or newer
     rust/wesnoth_core); the failure would otherwise surface as a shape
-    error inside the first forward pass, nowhere near its cause. The
-    Python kernel path has the same guard in
-    `encoder._rust_encode_kernel`."""
+    error inside the first forward pass, nowhere near its cause."""
     from wesnoth_ai import encoder as enc
     _require_width("global_feats", global_feats, enc.GLOBAL_FEAT_DIM)
 
@@ -979,5 +1040,6 @@ def _observation_from_dict(d: dict, geometry):
 
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
-           "game_core_class", "core_enabled", "load_databases", "bind_view", "core_of", "snapshot_view",
-           "unit_db_fallbacks", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]
+           "game_core_class", "load_databases", "bind_view", "core_of", "core_for", "view_of",
+           "snapshot_view", "build_unit", "build_recruit_unit",
+           "unit_db_fallbacks", "is_rust_panic", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]

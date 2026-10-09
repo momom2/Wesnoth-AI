@@ -6,12 +6,12 @@ events").
 turn, at the first side's turn start, then "side turn", "side S turn",
 "side turn N" and "side S turn N"; after the refresh, healing and
 income, the four refresh forms. The end of a side's turn fires four end
-forms and the end of the turn two more. Our applier used to fire "side S
-turn N", "turn N", "new turn" and "side turn" at every side's
-init_side, so a repeating "new turn" event ran once per side, and
+forms and the end of the turn two more. (Until 2026-09 the simulator
+fired "side S turn N", "turn N", "new turn" and "side turn" at every
+side's init_side, so a repeating "new turn" event ran once per side, and
 "side S turn", "side turn N", three refresh forms and every end form
-never ran. These tests drive the real applier (`_apply_command`) over a
-unit-less two-side game whose events count and log themselves.
+never ran.) These tests drive the Rust core over a unit-less two-side
+game whose events count and log themselves.
 """
 from __future__ import annotations
 
@@ -20,9 +20,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.replay_dataset import _apply_command, _build_initial_gamestate  # noqa: E402
+from tools.replay_dataset import _build_initial_gamestate  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
 from tools.scenario_events import collect_events  # noqa: E402
+from wesnoth_ai.game_core import CoreState  # noqa: E402
 
 # Every name the engine fires around the turns of a two-side game's
 # first two turns and the start of its third.
@@ -45,8 +46,8 @@ def _tag(name: str) -> str:
 
 
 def _game(extra_events: str = ""):
-    """A unit-less two-side game whose repeating event on each name adds
-    one to `count_<name>` and appends the name to `log`."""
+    """The core of a unit-less two-side game whose repeating event on
+    each name adds one to `count_<name>` and appends the name to `log`."""
     blocks = "".join(
         f"[event]\nname={name}\nfirst_time_only=no\n"
         f"[set_variable]\nname=count_{_tag(name)}\nadd=1\n[/set_variable]\n"
@@ -57,7 +58,7 @@ def _game(extra_events: str = ""):
                                    "starting_sides": [{"side": 1}, {"side": 2}]})
     gs.global_info._scenario_events = collect_events(root, "synthetic")
     gs.global_info._wml_variables = {}
-    return gs
+    return CoreState.from_state(gs)
 
 
 TWO_TURNS = [["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"],
@@ -65,15 +66,24 @@ TWO_TURNS = [["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"],
              ["init_side", 1]]
 
 
-def _variables(gs):
-    return gs.global_info._wml_variables
+def _variables(cs):
+    return cs.to_state().global_info._wml_variables
+
+
+def _logged(cs, cmd) -> list:
+    """The names `cmd` fires, in order: what it adds to the log."""
+    before = _variables(cs).get("log", "")
+    cs.apply_command(cmd)
+    after = _variables(cs)["log"]
+    assert after.startswith(before)
+    return after[len(before):].split(";")[1:]
 
 
 def test_each_turn_event_fires_as_often_as_the_engine_fires_it():
-    gs = _game()
+    cs = _game()
     for cmd in TWO_TURNS:
-        _apply_command(gs, cmd)
-    counts = {name: int(_variables(gs).get(f"count_{_tag(name)}", 0)) for name in NAMES}
+        cs.apply_command(cmd)
+    counts = {name: int(_variables(cs).get(f"count_{_tag(name)}", 0)) for name in NAMES}
     assert counts == {
         # Once per turn, at the side that opens it: turns 1, 2 and 3.
         "turn 1": 1, "turn 2": 1, "turn 3": 1, "new turn": 3,
@@ -99,19 +109,15 @@ def test_the_events_fire_in_the_engines_order():
     two, the four side forms, then the four refresh forms
     (play_controller.cpp:597-604, :473-482, :519-522); at a side's
     turn end, the four end forms (:585-588)."""
-    gs = _game()
+    cs = _game()
     for cmd in TWO_TURNS[:4]:
-        _apply_command(gs, cmd)
-    _variables(gs)["log"] = ""
-    _apply_command(gs, ["init_side", 1])
-    assert _variables(gs)["log"].split(";")[1:] == [
+        cs.apply_command(cmd)
+    assert _logged(cs, ["init_side", 1]) == [
         "turn_end", "turn_1_end",
         "turn_2", "new_turn",
         "side_turn", "side_1_turn", "side_turn_2", "side_1_turn_2",
         "turn_refresh", "side_1_turn_refresh", "turn_2_refresh"]
-    _variables(gs)["log"] = ""
-    _apply_command(gs, ["end_turn"])
-    assert _variables(gs)["log"].split(";")[1:] == [
+    assert _logged(cs, ["end_turn"]) == [
         "side_turn_end", "side_1_turn_end", "side_turn_2_end"]
 
 
@@ -120,24 +126,7 @@ def test_a_comma_separated_name_answers_to_each_name():
     commas): this one runs at both sides' turn starts."""
     both = ("[event]\nname=side 1 turn 2, side_2_turn_2\nfirst_time_only=no\n"
             "[set_variable]\nname=both\nadd=1\n[/set_variable]\n[/event]\n")
-    gs = _game(both)
+    cs = _game(both)
     for cmd in TWO_TURNS:
-        _apply_command(gs, cmd)
-    assert _variables(gs)["both"] == "2"
-
-
-def test_the_core_fires_the_turn_events_as_the_python_applier():
-    """The Rust core runs the scenario's events itself (events.rs): over
-    the same two turns, every name fires as often and in the same order
-    as in the Python applier (the counts and the log they leave)."""
-    import pytest
-    from wesnoth_ai.game_core import CoreState, game_core_class
-    if game_core_class() is None:
-        pytest.skip("wesnoth_core phase 21 not available")
-    py = _game()
-    core = CoreState.from_state(_game())
-    for cmd in TWO_TURNS:
-        _apply_command(py, cmd)
-        assert core.apply_command(cmd) == "rust"
-        assert core.to_state().global_info._wml_variables == _variables(py), cmd
-    assert int(_variables(py)["count_new_turn"]) == 3
+        cs.apply_command(cmd)
+    assert _variables(cs)["both"] == "2"

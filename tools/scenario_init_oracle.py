@@ -32,6 +32,7 @@ Runs Wesnoth minimized on this machine, one process per scenario (about
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import logging
 import sys
@@ -47,12 +48,11 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from wesnoth_ai.rules.build_scenario_templates import (LADDER_SRC, MINI_SRC,  # noqa: E402
                                                        index_preprocessed, run_preprocessor)
-from tools.replay_dataset import _lawful_bonus_at, side_income  # noqa: E402
+from tools.replay_dataset import side_income  # noqa: E402
 from tools.replay_extract import parse_wml  # noqa: E402
 from wesnoth_ai.rules.scenario_pool import (LADDER_SCENARIO_IDS, MINI_MAP_SCENARIO_IDS,  # noqa: E402
                                             ScenarioSetup, _scenario_tod_info,
                                             build_scenario_gamestate, classify_scenario)
-from tools.traits import TRAITS  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
 from wesnoth_ai.classes import PLAYER_SIDES  # noqa: E402
 
@@ -199,7 +199,24 @@ def our_statuses(unit) -> List[str]:
     return sorted(found)
 
 
+@functools.lru_cache(maxsize=1)
+def trait_names() -> frozenset:
+    """Every trait a unit type of the database rolls or must have."""
+    from wesnoth_ai.paths import UNIT_STATS_PATH
+    units = json.loads(UNIT_STATS_PATH.read_text(encoding="utf-8"))["units"]
+    names = set()
+    for t in units.values():
+        info = t.get("traits") or {}
+        names |= set(info.get("musthave", ())) | set(info.get("pool", ()))
+    return frozenset(names)
+
+
 def our_record(gs) -> dict:
+    """Our state at side 1's first turn as the engine's record reads: the
+    sides' economy, the units, the village owners, each hex's terrain and
+    lawful bonus (the core's, `GameCore.lawful_bonus`)."""
+    from wesnoth_ai.game_core import core_for
+    core = core_for(gs).core
     gi = gs.global_info
     sides = []
     for side, s in enumerate(gs.sides, start=1):
@@ -224,7 +241,7 @@ def our_record(gs) -> dict:
     return {"time_of_day": gi.time_of_day, "current_side": int(gi.current_side),
             "sides": sides, "units": units, "village_owners": owners,
             "terrain": {(x + 1, y + 1): code for (x, y), code in codes.items()},
-            "lawful_bonus": {(x + 1, y + 1): _lawful_bonus_at(gs, x, y, gi.turn_number) for (x, y) in codes},
+            "lawful_bonus": {(x + 1, y + 1): int(core.lawful_bonus(x, y, gi.turn_number)) for (x, y) in codes},
             "empty_sides": set(getattr(gi, "_null_controller_sides", ()) or ()),
             "acting_sides": set(getattr(gi, "_neutral_actor_sides", ()) or ()) | set(PLAYER_SIDES)}
 
@@ -272,10 +289,10 @@ def engine_statuses(statuses: List[str]) -> List[str]:
 
 
 def engine_named_traits(traits: List[str]) -> List[str]:
-    """The engine's traits that our units carry by name (tools/traits.TRAITS).
+    """The engine's traits that our units carry by name (`trait_names`).
     A custom [trait], such as the statues' remove_hp, exists in our state
     only through its effects, which the unit's numbers compare."""
-    return sorted(t for t in traits if t in TRAITS)
+    return sorted(t for t in traits if t in trait_names())
 
 
 def compare(engine: dict, ours: dict) -> Dict[str, dict]:

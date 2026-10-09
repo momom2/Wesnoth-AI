@@ -111,11 +111,11 @@ timeout 2m python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available()
 box_upload_async
 box_monitor_start
 
-# ---- the encoder and the observation against the Rust kernels, before anything trains
+# ---- the encoder and the observation on the Rust core, before anything trains
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests_obs.log"
     box_bounded tests 30 tests_obs.log python -m pytest tests/test_unit_vocab.py tests/test_game_record.py \
-        tests/test_time_of_day_features.py tests/test_terrain_multi_hot.py tests/test_rust_encode_raw.py \
+        tests/test_time_of_day_features.py tests/test_terrain_multi_hot.py \
         tests/test_game_core.py tests/test_vision.py tests/test_rust_observe.py \
         -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests_obs.log"

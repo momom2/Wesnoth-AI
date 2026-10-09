@@ -2734,11 +2734,10 @@ def main(argv: List[str]) -> int:
         )
         pt_cfg = pt_config_from_args(args)
         turn_cfg = turn_config_from_args(args)
-        # Report every kernel through its own phase gate: a wheel that
-        # imports may be too old for some of them (tools/kernel_status.py).
+        # The installed wheel against the source: a wheel that imports
+        # may be too old for the adapter (tools/kernel_status.py).
         from tools.kernel_status import banner as _kernel_banner
-        log.info("%s (WESNOTH_RUST=%s)", _kernel_banner(),
-                 os.environ.get("WESNOTH_RUST", "1"))
+        log.info("%s", _kernel_banner())
         from tools.value_grounding import (
             config_from_args as ground_config_from_args,
         )

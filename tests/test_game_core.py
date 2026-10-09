@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import copy
 
-import numpy as np
 import pytest
 
 from wesnoth_ai import core_compare as cc
@@ -94,9 +93,7 @@ def test_fork_is_isolated_and_keys_follow_content():
     assert fork.state_key() != cs.state_key()
     fork.core.update_unit(uid, {"current_hp": before})
     assert fork.state_key() == cs.state_key()
-    # Unlike the Python fork (which aliases Unit objects and relies on
-    # the replace-unit pattern, tests/test_fork_isolation.py), a core
-    # fork materializes its own units: no leaf object is shared.
+    # A core fork materializes its own units: no leaf object is shared.
     parent_units = {u.id: u for u in cs.to_state().map.units}
     assert all(parent_units[u.id] is not u for u in fork.to_state().map.units)
     fork.core.remove_unit(uid)
@@ -105,39 +102,11 @@ def test_fork_is_isolated_and_keys_follow_content():
     assert not cc.state_differences(gs, cs.to_state())
 
 
-def _apply_both(gs, cmd):
-    """The command on the Python state and on a core built from a
-    deep copy (its own event latches); (python state, core wrapper, path)."""
-    from tools.replay_dataset import _apply_command
-    py = copy.deepcopy(gs)
-    cs = gc.CoreState.from_state(copy.deepcopy(gs))
-    _apply_command(py, list(cmd))
-    path = cs.apply_command(list(cmd))
-    return py, cs, path
-
-
-def test_init_side_and_end_turn_equal_the_python_applier():
-    rust = checked = 0
-    for gs in _harvested() + _replay_states():
-        for side in (1, 2):
-            py, cs, path = _apply_both(gs, ["init_side", side])
-            rust += path == "rust"
-            diffs = cc.state_differences(py, cs.to_state(), stash=False)
-            assert not diffs, (side, "\n".join(diffs[:6]))
-            py2, cs2, path2 = _apply_both(py, ["end_turn"])
-            assert path2 == "rust"
-            diffs = cc.state_differences(py2, cs2.to_state(), stash=False)
-            assert not diffs, (side, "end_turn", "\n".join(diffs[:6]))
-            checked += 1
-    assert checked >= 16 and rust >= 8
-
-
 def test_init_side_pays_a_declared_zero_village_economy():
     """A declared `village_gold=0` pays nothing per village and a
     declared `village_support=0` supports no upkeep (team.cpp:236 and
-    :239-244); both appliers used to replace each 0 by the multiplayer
-    default. One village and a level-1 Spearman: side 1's turn-2 start
-    pays base_income minus 1."""
+    :239-244). One village and a level-1 Spearman: side 1's turn-2
+    start pays base_income minus 1."""
     import random
     from dataclasses import replace
     from wesnoth_ai.rules import scenario_pool as sp
@@ -148,9 +117,8 @@ def test_init_side_pays_a_declared_zero_village_economy():
     gs.sides[0] = replace(gs.sides[0], nb_villages_controlled=1)
     _with_upkeep_unit(gs, 1, "Spearman")
     want = gs.sides[0].current_gold + gs.sides[0].base_income - 1
-    py, cs, path = _apply_both(gs, ["init_side", 1])
-    assert path == "rust"
-    assert py.sides[0].current_gold == want
+    cs = gc.CoreState.from_state(gs)
+    assert cs.apply_command(["init_side", 1]) == "rust"
     assert cs.to_state().sides[0].current_gold == want
 
 
@@ -158,7 +126,7 @@ def test_init_side_hides_the_sides_revealed_hiders_again_after_turn_one():
     """unit::new_turn clears STATE_UNCOVERED inside `turn() > 1`
     (docs/wesnoth_rules.md "Hidden-unit visibility"): at a side's turn
     start after turn 1 its own revealed hiders hide again and the other
-    side's stay revealed; on turn 1 nothing changes. Both appliers."""
+    side's stay revealed; on turn 1 nothing changes."""
     checked = 0
     for gs in _harvested():
         by_side = {s: sorted(u.id for u in gs.map.units if u.side == s) for s in (1, 2)}
@@ -168,89 +136,51 @@ def test_init_side_hides_the_sides_revealed_hiders_again_after_turn_one():
         for side, turn, hidden in ((1, 3, {by_side[1][0]}), (2, 3, {by_side[2][0]}), (2, 1, set())):
             gs.global_info.turn_number = turn
             gs.global_info._uncovered_units = set(revealed)
-            py, cs, path = _apply_both(gs, ["init_side", side])
-            assert path == "rust"
-            assert py.global_info._uncovered_units == revealed - hidden, (side, turn)
+            cs = gc.CoreState.from_state(copy.deepcopy(gs))
+            assert cs.apply_command(["init_side", side]) == "rust"
             assert cs.to_state().global_info._uncovered_units == revealed - hidden, (side, turn)
             checked += 1
     assert checked >= 6
 
 
-def test_lawful_bonus_equals_the_python_helper():
-    from tools.replay_dataset import _lawful_bonus_at
-    n = 0
-    for gs in _harvested()[:3] + _replay_states(n_games=2, per_game=2):
-        cs = gc.CoreState.from_state(gs)
-        hexes = sorted(gs.map.hexes, key=lambda h: (h.position.y, h.position.x))
-        for h in hexes[::37]:
-            for turn in (1, 2, 5, 6, 9):
-                assert cs.core.lawful_bonus(h.position.x, h.position.y, turn) == \
-                    _lawful_bonus_at(gs, h.position.x, h.position.y, turn), (h.position, turn)
-                n += 1
-    assert n > 100
-
-
 def test_a_negative_start_slot_wraps_on_the_board_and_in_a_time_area():
     """The engine wraps `current_time` into the schedule with a modulo
     that is never negative (`fix_time_index`, src/tod_manager.cpp:66,
-    1.18.4), and so does the Python board index (`_tod_cycle_index`); a
-    time area reads its own slot, not the board's. The readers wrap the
-    slot before it reaches a state, so this state carries one set by
-    hand, and the core must agree with `_lawful_bonus_at` on both hexes."""
+    1.18.4); a time area reads its own slot, not the board's. The
+    readers wrap the slot before it reaches a state, so this state
+    carries one set by hand: turn 1 reads the board's slot before its
+    first, the last of the default cycle, and the area's own first
+    slot."""
     from tests.sim_test_helpers import replayed_state, three_side_record
-    from tools.replay_dataset import _lawful_bonus_at
+    from wesnoth_ai.combat import TOD_DEFAULT_CYCLE
     gs = replayed_state(three_side_record(), 0)
     gs.global_info._tod_start_offset = -1
     area, plain = (0, 1), (4, 4)
-    gs.global_info._time_areas = {area: [25, 0, -25, 0]}
+    cycle = [25, 0, -25, 0]
+    gs.global_info._time_areas = {area: list(cycle)}
     cs = gc.CoreState.from_state(gs)
-    for turn in range(8):
-        for x, y in (area, plain):
-            assert cs.core.lawful_bonus(x, y, turn) == _lawful_bonus_at(gs, x, y, turn), ((x, y), turn)
-    py, cs, path = _apply_both(gs, ["init_side", 1])
-    assert path == "rust"
-    assert cs.to_state().global_info.time_of_day == py.global_info.time_of_day == "second_watch"
+    for turn in range(1, 9):
+        assert cs.core.lawful_bonus(*plain, turn) == TOD_DEFAULT_CYCLE[(turn - 2) % 6][1], turn
+        assert cs.core.lawful_bonus(*area, turn) == cycle[(turn - 1) % 4], turn
+    assert cs.apply_command(["init_side", 1]) == "rust"
+    assert cs.to_state().global_info.time_of_day == "second_watch"
 
 
 def test_the_invariant_check_holds_each_side_to_the_villages_it_owns():
     """`WesnothSim._assert_invariants` (e) on the core: each side's
-    village count equals the villages the owner map gives it
-    (`replay_dataset.village_count_mismatches`). A count off its owners
-    and an owner off its count are both violations."""
+    village count equals the villages the owner map gives it. A count
+    off its owners and an owner off its count are both violations."""
     from dataclasses import replace
     from tests.sim_test_helpers import replayed_state, three_side_record
-    from tools.replay_dataset import village_count_mismatches
     gs = replayed_state(three_side_record(), 1)
-    assert not village_count_mismatches(gs)
     assert gc.CoreState.from_state(gs).core.invariant_violation() is None
     count_off = copy.deepcopy(gs)
     count_off.sides[2] = replace(count_off.sides[2], nb_villages_controlled=1)
     owner_off = copy.deepcopy(gs)
     del owner_off.global_info._village_owner[(9, 3)]
     for bad in (count_off, owner_off):
-        assert village_count_mismatches(bad)
         found = gc.CoreState.from_state(bad).core.invariant_violation()
         assert found is not None and "village counts" in found, found
-
-
-def test_move_and_attack_equal_the_python_applier():
-    """Whole replays through both appliers, compared every fifth
-    command and after every init_side and attack (tools/diff_core)."""
-    from collections import Counter
-    from pathlib import Path
-    from tools.diff_core import diff_core
-    from tools.replay_dataset import filter_competitive_2p
-    root = next((Path(d) for d in ("replays_dataset", "replays_dataset_imitation") if Path(d).exists()), None)
-    if root is None:
-        pytest.skip("no replay corpus")
-    counts = Counter()
-    for gz in filter_competitive_2p(root)[:3]:
-        assert diff_core(gz, every=5, counts=counts) == []
-    assert counts[("move", "rust")] >= 100 and counts[("attack", "rust")] >= 20
-
-
-def _states_for_encoding():
-    return _harvested() + _replay_states(n_games=2, per_game=3)
 
 
 def _vocab_of(states):
@@ -261,93 +191,15 @@ def _vocab_of(states):
     return {n: i for i, n in enumerate(names[:-1])}, {f: i for i, f in enumerate(factions)}
 
 
-def _assert_observations_equal(py_obs, core_obs):
-    """Observation records equal up to the unit order (the Python one
-    follows the unit set's iteration order)."""
-    from wesnoth_ai.observe import _ARRAY_FIELDS
-    assert (py_obs.side, py_obs.fog_on, py_obs.leader_on_keep) == \
-        (core_obs.side, core_obs.fog_on, core_obs.leader_on_keep)
-    assert sorted(py_obs.unit_ids) == sorted(core_obs.unit_ids)
-    perm = [py_obs.unit_ids.index(uid) for uid in core_obs.unit_ids]
-    per_unit = ("unit_hex", "visible", "acting", "unit_can_move", "unit_can_attack", "landable")
-    for k in _ARRAY_FIELDS:
-        a, b = getattr(py_obs, k), getattr(core_obs, k)
-        if a is None or b is None:
-            assert a is None and b is None, k
-            continue
-        if k in per_unit:
-            a = a[perm]
-        assert a.dtype == b.dtype and a.shape == b.shape and np.array_equal(a, b), k
-
-
-def test_observation_from_core_equals_observe():
-    from wesnoth_ai.observe import observe
-    n = 0
-    for gs in _states_for_encoding():
-        for fog in (True, False):
-            gs.global_info._fog = fog
-            cs = gc.CoreState.from_state(gs)
-            for side in (1, 2):
-                for reach in (False, True):
-                    py = observe(gs, side, reach=reach)
-                    assert py is not None
-                    _assert_observations_equal(py, cs.observe(side, reach=reach))
-                    n += 1
-    assert n >= 32
-
-
 BASES_AND_GATES = ((False, False), (True, False), (True, True), (False, True))
-# (relevant set, enemy-village gate, terrain multi-hot) per encoding checked.
-ENCODINGS = tuple((r, g, False) for r, g in BASES_AND_GATES) + ((False, False, True), (True, True, True))
-
-
-def _assert_raws_equal(py, core, label):
-    """Every RawEncoded field of the core's encoding equals the
-    encoder's, arrays byte for byte."""
-    import dataclasses
-    from wesnoth_ai.encoder import RawEncoded
-    for f in dataclasses.fields(RawEncoded):
-        a, b = getattr(py, f.name), getattr(core, f.name)
-        where = (f.name,) + tuple(label)
-        if f.name == "observation":
-            _assert_observations_equal(a, b)
-        elif isinstance(a, np.ndarray):
-            assert isinstance(b, np.ndarray), where
-            assert a.dtype == b.dtype and a.shape == b.shape, (where, a.dtype, b.dtype, a.shape, b.shape)
-            assert a.tobytes() == b.tobytes(), where
-        else:
-            assert a == b, where
-
-
-def test_encode_raw_from_core_is_byte_identical():
-    """Every RawEncoded field from the core equals the encoder's on the
-    Python state: both bases, fog on and off, the enemy-village gate,
-    the one-class and the multi-hot terrain view."""
-    from wesnoth_ai.encoder import encode_raw
-    states = _states_for_encoding()
-    type_to_id, faction_to_id = _vocab_of(states)
-    n = 0
-    for gs in states:
-        for fog in (True, False):
-            gs.global_info._fog = fog
-            for side in (1, 2):
-                gs.global_info.current_side = side
-                cs = gc.CoreState.from_state(gs)
-                for relevant, gate, multi in ENCODINGS:
-                    kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id,
-                              relevant_set=relevant, fog_hides_enemy_villages=gate,
-                              terrain_multi_hot=multi)
-                    _assert_raws_equal(encode_raw(gs, **kw), cs.encode_raw(**kw),
-                                       (side, fog, relevant, gate, multi))
-                    n += 1
-    assert n >= 96
+# (relevant set, enemy-village gate) per encoding checked.
 
 
 def test_encode_raw_from_core_reads_the_other_player_on_a_three_side_state():
     """A replayed game whose record declares a third side (a statue or
-    tentacle side) keeps a SideInfo for it: the core's enemy faction and
-    enemy village count are the other player's, as the encoder's are,
-    and neither the core nor its Rust entry encodes for the third side."""
+    tentacle side) keeps a SideInfo for it: the core's enemy faction is
+    the other player's, and neither the core nor its Rust entry encodes
+    for the third side."""
     from tests.sim_test_helpers import replayed_state, three_side_record
     from wesnoth_ai import encoder as enc
     n = 0
@@ -361,8 +213,9 @@ def test_encode_raw_from_core_reads_the_other_player_on_a_three_side_state():
             for relevant, gate in BASES_AND_GATES:
                 kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id,
                           relevant_set=relevant, fog_hides_enemy_villages=gate)
-                _assert_raws_equal(enc.encode_raw(gs, **kw), cs.encode_raw(**kw),
-                                   (side, fog, relevant, gate))
+                raw = cs.encode_raw(**kw)
+                assert raw.our_faction_id == faction_to_id[gs.sides[side - 1].faction]
+                assert raw.their_faction_id == faction_to_id[gs.sides[2 - side].faction]
                 n += 1
         gs = replayed_state(record, 5)
         type_to_id, faction_to_id = _vocab_of([gs])
@@ -379,89 +232,14 @@ def test_encode_raw_from_core_reads_the_other_player_on_a_three_side_state():
     assert n == 16
 
 
-def _one_sim(seed: int, *, mini: bool, max_turns: int, use_core: bool):
-    from tests.sim_test_helpers import scenario_setup
-    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
-    from tools.wesnoth_sim import WesnothSim
-    setup = scenario_setup(seed, mini=mini)
-    return WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id,
-                      max_turns=max_turns, use_core=use_core)
-
-
-def _twin_sims(seed: int, *, mini: bool, max_turns: int):
-    """Two simulators from one starting state: the Python state of
-    record and the core as the state of record."""
-    from tests.sim_test_helpers import scenario_setup
-    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
-    from tools.wesnoth_sim import WesnothSim
-    setup = scenario_setup(seed, mini=mini)
-    gs = build_scenario_gamestate(setup)
-    py = WesnothSim(copy.deepcopy(gs), scenario_id=setup.scenario_id, max_turns=max_turns, use_core=False)
-    core = WesnothSim(copy.deepcopy(gs), scenario_id=setup.scenario_id, max_turns=max_turns, use_core=True)
-    assert core.core is not None
-    return py, core
-
-
-def test_simulator_on_the_core_plays_the_python_game():
-    """Deterministic drivers play twin simulators, the Python state of
-    record against the core: the same commands with the same extras
-    (the recorder's attack and advancement side channels included),
-    the same end state, and a fork of the core sim leaves its parent
-    untouched. One game fights (`Brawler`), one random-walks."""
-    import wesnoth_ai.dummy_policy as dummy_policy
-    from tests.sim_test_helpers import Brawler
-    from wesnoth_ai.classes import state_key
-    from wesnoth_ai.dummy_policy import DummyPolicy
-    total = attacks = 0
-    cap = dummy_policy._BOOTSTRAP_UNITS
-    dummy_policy._BOOTSTRAP_UNITS = 8
-    try:
-        total, attacks = _twin_game(3, True, 10, Brawler(), state_key, total, attacks)
-        total, attacks = _twin_game(5, False, 4, DummyPolicy(), state_key, total, attacks)
-    finally:
-        dummy_policy._BOOTSTRAP_UNITS = cap
-    assert total >= 50 and attacks >= 5, (total, attacks)
-
-
-def _twin_game(seed, mini, max_turns, pol, state_key, total, attacks):
-    if True:
-        py, core = _twin_sims(seed, mini=mini, max_turns=max_turns)
-        forked = False
-        while not py.done:
-            action = pol.select_action(py.gs, game_label="det")
-            assert not core.done
-            if not forked and core.turn_number >= 2:
-                before = state_key(core.gs)
-                f = core.fork()
-                f.step({"type": "end_turn"})
-                assert state_key(core.gs) == before and state_key(f.gs) != before
-                forked = True
-            py.step(action)
-            core.step(action)
-            assert not cc.state_differences(py.gs, core.gs, stash=False), (seed, len(py.command_history))
-        assert core.done and (py.winner, py.ended_by) == (core.winner, core.ended_by)
-        assert state_key(py.gs) == state_key(core.gs)
-        assert len(py.command_history) == len(core.command_history) > 10
-        for a, b in zip(py.command_history, core.command_history):
-            assert (a.kind, a.side, a.cmd, a.extras) == (b.kind, b.side, b.cmd, b.extras)
-        assert py._rng_requests == core._rng_requests
-        total += len(py.command_history)
-        attacks += sum(1 for c in py.command_history if c.kind == "attack")
-    return total, attacks
-
-
 def test_an_event_terrain_change_reaches_everything_the_core_derives():
     """A [terrain] event rewrites hexes to a keep, a village, a forest
-    and deep water at side 1's turn 2. The core's per-hex facts after it
-    must equal what the Python state rebuilds from the new codes: the
-    encoding in both terrain views, the observation, and each unit's
-    movement class against the pathfinder's arrays."""
-    from tools.pathfind_sim import _terrain_arrays_for
-    from tools.replay_dataset import _apply_command, _terrain_def_pct, _stats_for
+    and deep water at side 1's turn 2, and a [time_area] over them sets
+    lawful_bonus -25. After it the core's view carries the new codes,
+    its encoding reads them, and the hexes take the area's bonus."""
     from tools.replay_extract import parse_wml
     from tools.scenario_events import collect_events
-    from wesnoth_ai.encoder import encode_raw
-    from wesnoth_ai.observe import map_geometry, observe
+    from wesnoth_ai.observe import map_geometry
     gs = _harvested()[0]
     gs.global_info.turn_number, gs.global_info.current_side = 1, 2
     keys = sorted((h.position.x, h.position.y) for h in gs.map.hexes)
@@ -481,44 +259,23 @@ def test_an_event_terrain_change_reaches_everything_the_core_derives():
     type_to_id, faction_to_id = _vocab_of([gs])
     before = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, terrain_multi_hot=True)
     for cmd in (["end_turn"], ["init_side", 1]):
-        _apply_command(gs, list(cmd))
-        cs.apply_command(list(cmd))
+        assert cs.apply_command(list(cmd)) == "rust"
     view = cs.to_state()
-    assert not cc.state_differences(gs, view, stash=False)
-    assert {view.global_info._terrain_codes[p] for p in picks} == set(codes)
+    assert [view.global_info._terrain_codes[p] for p in picks] == codes
     after = cs.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id, terrain_multi_hot=True)
     assert after.hex_terrain_ids.tobytes() != before.hex_terrain_ids.tobytes()
-    for multi in (False, True):
-        for relevant in (False, True):
-            kw = dict(type_to_id=type_to_id, faction_to_id=faction_to_id, relevant_set=relevant,
-                      terrain_multi_hot=multi)
-            _assert_raws_equal(encode_raw(gs, **kw), cs.encode_raw(**kw), (multi, relevant))
-    for side in (1, 2):
-        _assert_observations_equal(observe(gs, side, reach=True), cs.observe(side, reach=True))
-    geom_keys = cs.geometry().keys
-    for u in gs.map.units:
-        d = cs.core.unit_export(u.id)
-        mcost, dsub, defense = cs.core.class_arrays(d["class_id"])
-        _p, positions, _n, py_mcost, py_dsub = _terrain_arrays_for(u, gs)
-        at = {p: i for i, p in enumerate(positions)}
-        table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})
-        for k, p in enumerate(geom_keys):
-            assert (mcost[k], dsub[k]) == (py_mcost[at[p]], py_dsub[at[p]]), (u.name, p)
-            assert defense[k] == _terrain_def_pct(gs, p[0], p[1], table), (u.name, p)
+    turn = view.global_info.turn_number
+    assert all(cs.core.lawful_bonus(x, y, turn) == -25 for x, y in picks)
     assert map_geometry(view).keys  # the view's own geometry still builds
-
-
-def test_the_core_sets_up_every_scenario_as_the_python_setup():
-    """Every scenario generation or reconstruction loads, set up by the
-    core (`CoreState.setup_scenario`) and by the Python setup
-    (`_setup_scenario_events`): the same state, units' underscore
-    attributes included, then after two turns of turn events. Hornshark
+def test_the_core_sets_up_every_scenario_and_plays_its_turn_events():
+    """Every scenario generation or reconstruction loads sets up on the
+    core (`CoreState.setup_scenario`) and plays two turns of its turn
+    events with the state round-tripping through the view. Hornshark
     Island's preplaced units depend on the factions, so it runs with
-    each of the six as side 1. The engine agrees with the Python setup
-    on the pool (tools/scenario_init_oracle.py, 28 of 28, 2026-09-23)."""
+    each of the six as side 1. The engine agrees with the setup on the
+    pool (tools/scenario_init_oracle.py, 28 of 28, 2026-09-23)."""
     import dataclasses
     import random
-    from tools.replay_dataset import _apply_command, _setup_scenario_events
     from wesnoth_ai.rules import scenario_pool as sp
     from wesnoth_ai.rules.scenario_surface import CORPUS_SCENARIOS
     base = sp.random_setup(random.Random(4))
@@ -531,14 +288,11 @@ def test_the_core_sets_up_every_scenario_as_the_python_setup():
              ["init_side", 1], ["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 1]]
     for sid, setup in cases:
         gs = sp.build_scenario_gamestate(dataclasses.replace(setup, scenario_id=sid))
-        py = copy.deepcopy(gs)
-        _setup_scenario_events(py, sid)
         cs = gc.CoreState.from_state(gs)
         cs.setup_scenario(sid)
-        diffs = cc.state_differences(py, cs.to_state())
-        assert not diffs, (sid, setup.faction1, diffs[:4])
         for cmd in turns:
-            _apply_command(py, list(cmd))
-            cs.apply_command(list(cmd))
-        diffs = cc.state_differences(py, cs.to_state(), stash=False)
-        assert not diffs, (sid, setup.faction1, "turn 3", diffs[:4])
+            assert cs.apply_command(list(cmd)) == "rust", (sid, cmd)
+        view = cs.to_state()
+        assert view.global_info.turn_number == 3, sid
+        assert cs.core.invariant_violation() is None, sid
+        assert not cc.state_differences(view, gc.CoreState.from_state(view).to_state()), sid

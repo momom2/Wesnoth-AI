@@ -14,7 +14,7 @@ as of 2026-09-22 rather than assumed:
      hands the unit a move from its own hex to its own hex --
      "is guardian, staying still"
      (src/ai/default/ca_move_to_targets.cpp:269-277). Stashed as
-     `_ai_guardian` by `scenario_events._unit_action`.
+     `_ai_guardian` by the core's [unit] action (rust/wesnoth_core/src/events.rs).
   2. No movement left: the map pins it every `turn refresh`
      ({MODIFY_UNIT (role=monster) moves 0}).
   3. No landable hex: terrain-locked.
@@ -137,7 +137,7 @@ def _attacker_on_village(gs, u) -> bool:
 def _defender_cth_vs(gs, attacker, defender, a_weapon: int) -> float:
     """Defender's chance to hit the ATTACKER (analyze()'s
     terrain_quality input: `bc->get_defender_stats().chance_to_hit`),
-    from the EXACT BattleStats the combat resolver uses. Falls back
+    from the core's fight statistics, as the attack resolves. Falls back
     to 0.3 (typical open-terrain CTH is 30-40%) when the defender
     has no counter-weapon."""
     try:

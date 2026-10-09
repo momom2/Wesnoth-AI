@@ -2,133 +2,89 @@
 
 Pinned protection for the chain
   `_action_to_command -> request_seed(N) -> [random_seed request_id=N]`
-  → `mt_rng::seed_random(seed_str, 0)` → `combat.MTRng(seed_hex)`.
+  → `mt_rng::seed_random(seed_str, 0)` → the core's Mersenne Twister.
 
-Each per-strike (chance, hits, damage, dies) must match Wesnoth's
-recorded `[mp_checkup]` ground truth bit-exactly. The CLAUDE.md
-status note pins this at 731/731 across the historical strict-sync
-corpus; this test re-asserts the property on a small fixture so a
-silent regression (e.g. accidental MTRng reseed, request_seed
-increment bug, wrong attacker_first ordering) fails CI rather
-than only surfacing during a multi-week training run.
+Each per-strike (chance, hits, damage) the Rust core plays must match
+Wesnoth's recorded `[mp_checkup]` ground truth bit-exactly. A silent
+regression (a reseed, a request_seed increment bug, a wrong
+attacker_first ordering) then fails CI rather than surfacing during a
+multi-week training run.
 
 Fixture: `tests/fixtures/strict_sync_hamlets_t9.bz2` — a 9-turn AI-vs-AI
 strict-sync (oos_debug=yes) Hamlets replay with 29 [attack] commands
 and 1078 mp_checkup result entries.
-
-Dependencies: tools.replay_extract, tools.diff_combat_strike,
-              tools.verify_mp_checkup, tools.replay_dataset, combat.
-Dependents: regression CI.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tools.replay_extract import extract_replay
-from tools.diff_combat_strike import _verify_attack
 from tools.verify_mp_checkup import parse_replay as parse_strict_replay
-from tools.replay_dataset import (
-    _apply_command,
-    _build_initial_gamestate,
-    _setup_scenario_events,
-)
+from wesnoth_ai import game_core as gc
 
 FIXTURE = Path(__file__).parent / "fixtures" / "strict_sync_hamlets_t9.bz2"
 
+pytestmark = pytest.mark.skipif(gc.game_core_class() is None,
+                                reason="the installed wesnoth_core wheel is older than game_core needs")
 
-def _verified_strike_count(divergences):
-    """Collapse a list of StrikeMismatch into a single string for the
-    assertion message."""
-    if not divergences:
-        return "clean"
-    d = divergences[0]
-    return (f"strike[{d.strike_index}] field={d.field} "
-            f"ours={d.ours} wesnoth={d.wesnoth}: {d.detail}")
+
+def _played_strikes(cs) -> list:
+    """(chance, hits, damage) of each strike of the last attack the core
+    applied, from its [mp_checkup] record."""
+    flat = cs.core.last_checkup_strikes_export()
+    return [(int(flat[k]), bool(flat[k + 1]), int(flat[k + 2])) for k in range(0, len(flat), 4)]
+
+
+def _first_mismatch(played, recorded) -> str:
+    """The first strike where the core and the engine differ, or ""."""
+    for i, (chance, hits, damage) in enumerate(played):
+        if i >= len(recorded):
+            return f"the core plays {len(played)} strikes, the engine {len(recorded)}"
+        rec = recorded[i]
+        if chance != rec.chance:
+            return f"strike {i}: chance {chance} against {rec.chance}"
+        if hits != rec.hits:
+            return f"strike {i}: hits {hits} against {rec.hits} (chance {rec.chance})"
+        if hits and damage != rec.damage:
+            return f"strike {i}: damage {damage} against {rec.damage}"
+    if len(recorded) > len(played):
+        return f"the engine plays {len(recorded)} strikes, the core {len(played)}"
+    return ""
 
 
 def test_strict_sync_combat_bit_exact():
-    """Every recorded strike on the fixture must match our combat
-    resolver bit-exactly.
-
-    This is the single load-bearing assertion: if it fails, our
-    `_action_to_command` / `request_seed` / `combat.MTRng` / strike
-    ordering has drifted from Wesnoth.
-    """
-    # Parse Wesnoth's ground truth.
+    """Every recorded strike on the fixture matches the core's fight
+    bit-exactly."""
+    from tools.replay_dataset import record_core
     wesnoth_attacks = parse_strict_replay(FIXTURE)
     assert wesnoth_attacks, "fixture has no [attack] commands"
-    with_strikes = [a for a in wesnoth_attacks if a.strikes]
-    assert with_strikes, (
-        "fixture has no mp_checkup strike data; was it recorded "
-        "with oos_debug=yes?"
-    )
-
-    # Extract via the same path the training pipeline uses.
+    assert any(a.strikes for a in wesnoth_attacks), (
+        "fixture has no mp_checkup strike data; was it recorded with oos_debug=yes?")
     data = extract_replay(FIXTURE)
     assert data is not None, "extract_replay returned None on fixture"
 
-    # Walk the command stream, verifying each [attack] against the
-    # recorded strike sequence.
-    gs = _build_initial_gamestate(data)
-    _setup_scenario_events(gs, data.get("scenario_id", ""))
-
-    cmds = data["commands"]
+    cs = record_core(data)
     attack_idx = 0
-    n_checked = 0
-    n_clean = 0
     failures: list[str] = []
+    n_strikes = 0
+    for i, cmd in enumerate(data["commands"]):
+        cs.apply_command(list(cmd))
+        if cmd[0] != "attack":
+            continue
+        assert attack_idx < len(wesnoth_attacks), (
+            f"attack #{attack_idx + 1} at cmd[{i}] but Wesnoth recorded only {len(wesnoth_attacks)}")
+        recorded = wesnoth_attacks[attack_idx]
+        played = _played_strikes(cs)
+        n_strikes += len(played)
+        mismatch = _first_mismatch(played, recorded.strikes)
+        if mismatch:
+            failures.append(f"cmd[{i}] attack #{attack_idx} ({recorded.attacker_type} -> "
+                            f"{recorded.defender_type} weapons {cmd[5]}/{cmd[6]} seed {cmd[7]}): {mismatch}")
+        attack_idx += 1
 
-    for i, cmd in enumerate(cmds):
-        if cmd[0] == "attack":
-            assert attack_idx < len(wesnoth_attacks), (
-                f"sim emits attack #{attack_idx + 1} at cmd[{i}] but "
-                f"Wesnoth recorded only {len(wesnoth_attacks)}"
-            )
-            recorded = wesnoth_attacks[attack_idx]
-            mismatches = _verify_attack(gs, cmd, recorded.strikes)
-            n_checked += 1
-            if mismatches:
-                failures.append(
-                    f"cmd[{i}] attack #{attack_idx} "
-                    f"({recorded.attacker_type} -> "
-                    f"{recorded.defender_type} weap={cmd[5]}/{cmd[6]} "
-                    f"seed={cmd[7]}): "
-                    f"{_verified_strike_count(mismatches)}"
-                )
-            else:
-                n_clean += 1
-            attack_idx += 1
-        _apply_command(gs, cmd)
-
-    assert n_checked > 0, "no attacks were checked"
-    assert not failures, (
-        f"{len(failures)} of {n_checked} attacks diverged from "
-        f"Wesnoth ground truth:\n  " + "\n  ".join(failures)
-    )
-
-    # Sanity: every strike was actually verified.
-    total_recorded_strikes = sum(
-        len(a.strikes) for a in wesnoth_attacks[:n_checked]
-    )
-    assert total_recorded_strikes > 0, (
-        "no individual strikes were verified -- combat oracle is "
-        "effectively a no-op"
-    )
-
-
-def test_a_replay_without_strike_data_is_refused_not_mismatched(tmp_path, capsys):
-    """A replay recorded without oos_debug carries its [attack] commands
-    but no [mp_checkup] strikes. The verifier says so and exits with its
-    own code; it used to compare every attack against zero recorded
-    strikes and report each as a mismatch."""
-    import bz2
-    import re
-
-    from tools.diff_combat_strike import NO_STRIKE_DATA, main
-    text = bz2.decompress(FIXTURE.read_bytes()).decode("utf-8")
-    stripped = re.sub(r"\[mp_checkup\][\s\S]*?\[/mp_checkup\]", "", text)
-    assert stripped.count("[attack]") == text.count("[attack]") > 0
-    replay = tmp_path / "no_strikes.wml"
-    replay.write_text(stripped, encoding="utf-8")
-    assert main(["diff_combat_strike", str(replay), str(tmp_path / "unused.json.gz")]) == NO_STRIKE_DATA
-    assert "0 with strike data" in capsys.readouterr().out
+    assert attack_idx == len(wesnoth_attacks) > 0
+    assert n_strikes > 0, "no strike was compared"
+    assert not failures, (f"{len(failures)} of {attack_idx} attacks diverged from Wesnoth's record:\n  "
+                          + "\n  ".join(failures))

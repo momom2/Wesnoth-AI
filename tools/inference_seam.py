@@ -240,7 +240,6 @@ def build_light_encoded(
         global_token=_ph(1),
         end_turn_token=_ph(1),
         recruit_is_ours_np=raw.recruit_is_ours,
-        visible_unit_ids=frozenset(raw.unit_ids),
         hex_subset=bool(raw.hex_subset),
         observation=getattr(raw, "observation", None),
     )

@@ -1,12 +1,12 @@
 {
  "_what": "Every tag path and attribute a pool scenario declares, and what we do with it. List the unclassified ones with `python tools/analysis/scenario_surface.py --write-manifest`, then decide each by hand: a MODELLED entry must name a reader that really exists, which tests/test_scenario_surface.py checks.",
  "_classifications": {
-  "MODELLED": "a reader exists and is named file.py:symbol",
+  "MODELLED": "a reader exists and is named file:symbol (a Python definition or a Rust fn, const or static)",
   "IGNORED": "presentation; nothing downstream reads it",
   "SUBSTITUTED": "real behaviour the sim produces another way, or a value generation deliberately chooses itself",
   "UNKNOWN": "nobody has said; this is the bug state"
  },
- "_lookup": "An exact path.attribute entry wins over the path default. Control flow ([switch], [case], [if], [then], [else], [do], [foreach], [command]) is folded out of the path, because _apply_action dispatches a wrapped action with the same handler as a bare one. A path default is only allowed where every attribute under it is presentation. A MODELLED reader must NAME its attribute in its own source; a reader that gets it through a table or from its caller says so in `generic`.",
+ "_lookup": "An exact path.attribute entry wins over the path default. Control flow ([switch], [case], [if], [then], [else], [do], [foreach], [command]) is folded out of the path, because the core's apply_action dispatches a wrapped action with the same handler as a bare one. A path default is only allowed where every attribute under it is presentation. A MODELLED reader must NAME its attribute in its own source; a reader that gets it through a table or from its caller says so in `generic`.",
  "paths": {
   "scenario/event/item": {
    "classification": "IGNORED",
@@ -34,8 +34,8 @@
   },
   "scenario/event/unit/modifications/trait/effect": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
+   "reader": "rust/wesnoth_core/src/events.rs:own_modification_effects",
+   "why": "a placed unit's own modifications, applied by the core's apply_effect (rust/wesnoth_core/src/effects.rs); a named trait's effects come from the core's trait table (rust/wesnoth_core/src/units.rs) instead"
   },
   "scenario/item": {
    "classification": "IGNORED",
@@ -48,13 +48,13 @@
   },
   "scenario/side/unit/modifications/object/effect": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
+   "reader": "rust/wesnoth_core/src/events.rs:own_modification_effects",
+   "why": "a placed unit's own modifications, applied by the core's apply_effect (rust/wesnoth_core/src/effects.rs); a named trait's effects come from the core's trait table (rust/wesnoth_core/src/units.rs) instead"
   },
   "scenario/side/unit/modifications/trait/effect": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "a placed unit's own modifications, applied by scenario_events._apply_effect_to_unit; a named trait's effects come from tools/traits.py instead"
+   "reader": "rust/wesnoth_core/src/events.rs:own_modification_effects",
+   "why": "a placed unit's own modifications, applied by the core's apply_effect (rust/wesnoth_core/src/effects.rs); a named trait's effects come from the core's trait table (rust/wesnoth_core/src/units.rs) instead"
   },
   "scenario/terrain_graphics": {
    "classification": "IGNORED",
@@ -145,37 +145,37 @@
   },
   "scenario/event/case.value": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_switch_action",
+   "reader": "rust/wesnoth_core/src/events.rs:switch_action",
    "why": ""
   },
   "scenario/event/clear_variable.name": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_clear_variable_action",
+   "reader": "rust/wesnoth_core/src/events.rs:apply_action",
    "why": ""
   },
   "scenario/event/fire_event.name": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_fire_event_action",
+   "reader": "rust/wesnoth_core/src/events.rs:apply_action",
    "why": ""
   },
   "scenario/event/lua.code": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_lua_action",
+   "reader": "rust/wesnoth_core/src/events.rs:apply_action",
    "why": "pattern-matched, never executed: _lua_action recognises the pN_faction idiom Hornshark uses and nothing else"
   },
   "scenario/event/modify_unit.moves": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_MODIFY_UNIT_SCALARS",
-   "why": "the table _modify_unit_action walks; moves -> current_moves"
+   "reader": "rust/wesnoth_core/src/events.rs:modify_unit_action",
+   "why": "the table modify_unit_action walks; moves -> current_moves"
   },
   "scenario/event/modify_unit/filter.role": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "reader": "rust/wesnoth_core/src/events.rs:units_matching",
    "why": ""
   },
   "scenario/event/object.duration": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_object_action",
+   "stands_in": "rust/wesnoth_core/src/events.rs:object_action",
    "why": "UNREAD: the sim treats every [object] as permanent. Exact while every object declares duration=forever, which all 8 in the corpus scenarios do (measured 2026-09-23)"
   },
   "scenario/event/object.silent": {
@@ -184,12 +184,12 @@
   },
   "scenario/event/object/effect.apply_to": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.damage": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.description": {
@@ -198,7 +198,7 @@
   },
   "scenario/event/object/effect.heal_full": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.icon": {
@@ -207,17 +207,17 @@
   },
   "scenario/event/object/effect.increase_attacks": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.increase_damage": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.increase_total": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.name": {
@@ -226,17 +226,17 @@
   },
   "scenario/event/object/effect.number": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.range": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect.type": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/object/effect/abilities/hides.affect_self": {
@@ -254,7 +254,7 @@
   },
   "scenario/event/object/effect/abilities/hides.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_effect_member_ids",
+   "reader": "rust/wesnoth_core/src/effects.rs:member_ids",
    "why": "the ability is keyed by its id=, not by its tag"
   },
   "scenario/event/object/effect/abilities/hides.name": {
@@ -276,7 +276,7 @@
   },
   "scenario/event/object/effect/set_specials/firststrike.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_effect_member_ids",
+   "reader": "rust/wesnoth_core/src/effects.rs:member_ids",
    "why": ""
   },
   "scenario/event/object/effect/set_specials/firststrike.name": {
@@ -289,7 +289,7 @@
   },
   "scenario/event/object/effect/specials/chance_to_hit.cumulative": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_effect_member_ids",
+   "stands_in": "rust/wesnoth_core/src/effects.rs:member_ids",
    "why": "UNREAD, same as value: keyed by id=magical"
   },
   "scenario/event/object/effect/specials/chance_to_hit.description": {
@@ -298,7 +298,7 @@
   },
   "scenario/event/object/effect/specials/chance_to_hit.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_effect_member_ids",
+   "reader": "rust/wesnoth_core/src/effects.rs:member_ids",
    "why": "the special is keyed by its id=, not by its tag"
   },
   "scenario/event/object/effect/specials/chance_to_hit.name": {
@@ -311,82 +311,82 @@
   },
   "scenario/event/object/effect/specials/chance_to_hit.value": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_effect_member_ids",
+   "stands_in": "rust/wesnoth_core/src/effects.rs:member_ids",
    "why": "UNREAD. The special is keyed by id=magical and the sim applies the macro's flat 70; a scenario-written value would be ignored"
   },
   "scenario/event/object/filter.side": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "reader": "rust/wesnoth_core/src/events.rs:units_matching",
    "why": ""
   },
   "scenario/event/object/filter.type": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_units_matching_filter",
+   "stands_in": "rust/wesnoth_core/src/events.rs:units_matching",
    "why": "UNREAD. Hornshark's two MODIFY_BOWMAN objects filter on x, y AND type=Bowman; the location alone already pins the Bowman, measured over all 36 faction pairings (2026-09-23)"
   },
   "scenario/event/object/filter.x": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "reader": "rust/wesnoth_core/src/events.rs:units_matching",
    "why": ""
   },
   "scenario/event/object/filter.y": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "reader": "rust/wesnoth_core/src/events.rs:units_matching",
    "why": ""
   },
   "scenario/event/store_locations.variable": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_store_locations_action",
+   "reader": "rust/wesnoth_core/src/events.rs:store_locations_action",
    "why": ""
   },
   "scenario/event/store_locations.x": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "reader": "rust/wesnoth_core/src/events.rs:location_clause",
    "why": ""
   },
   "scenario/event/store_locations/or.terrain": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "reader": "rust/wesnoth_core/src/events.rs:location_clause",
    "why": ""
   },
   "scenario/event/store_locations/or.x": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "reader": "rust/wesnoth_core/src/events.rs:location_clause",
    "why": ""
   },
   "scenario/event/store_locations/or.y": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_eval_location_clause",
+   "reader": "rust/wesnoth_core/src/events.rs:location_clause",
    "why": ""
   },
   "scenario/event/switch.variable": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_switch_action",
+   "reader": "rust/wesnoth_core/src/events.rs:switch_action",
    "why": ""
   },
   "scenario/event/terrain.terrain": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_terrain_action",
+   "reader": "rust/wesnoth_core/src/events.rs:terrain_action",
    "why": ""
   },
   "scenario/event/terrain.x": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_terrain_action",
+   "reader": "rust/wesnoth_core/src/events.rs:terrain_action",
    "why": ""
   },
   "scenario/event/terrain.y": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_terrain_action",
+   "reader": "rust/wesnoth_core/src/events.rs:terrain_action",
    "why": ""
   },
   "scenario/event/time_area.find_in": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_time_area_action",
+   "reader": "rust/wesnoth_core/src/events.rs:time_area_action",
    "why": ""
   },
   "scenario/event/unit.ai_special": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": "guardian keeps the unit still (unit.cpp:659, ca_move_to_targets.cpp:269-277); tools/neutral_ai depends on it and checks it in _check_units_are_stationary"
   },
   "scenario/event/unit.generate_name": {
@@ -395,7 +395,7 @@
   },
   "scenario/event/unit.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": ""
   },
   "scenario/event/unit.name": {
@@ -408,22 +408,22 @@
   },
   "scenario/event/unit.random_traits": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/traits.py:roll_traits",
+   "stands_in": "rust/wesnoth_core/src/units.rs:roll_traits_with",
    "why": "UNREAD. Inert where measured: the only event-placed units with random_traits=yes are Tentacles, and race=monster has num_traits=0 (data/core/units.cfg:300), so Wesnoth rolls none either"
   },
   "scenario/event/unit.role": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_units_matching_filter",
+   "reader": "rust/wesnoth_core/src/events.rs:units_matching",
    "why": "stashed as _wml_role so a later [filter] role= can match it"
   },
   "scenario/event/unit.side": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": ""
   },
   "scenario/event/unit.type": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": ""
   },
   "scenario/event/unit.upkeep": {
@@ -433,27 +433,27 @@
   },
   "scenario/event/unit.variation": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": ""
   },
   "scenario/event/unit.x": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": ""
   },
   "scenario/event/unit.y": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": ""
   },
   "scenario/event/unit/abilities/heals.affect_allies": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_heals_ability",
+   "stands_in": "rust/wesnoth_core/src/events.rs:heals_ability",
    "why": "UNREAD. heals_4/heals_8 bake in the mainline {ABILITY_HEALS} semantics (heal adjacent allies, not self, slow poison)"
   },
   "scenario/event/unit/abilities/heals.affect_self": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_heals_ability",
+   "stands_in": "rust/wesnoth_core/src/events.rs:heals_ability",
    "why": "UNREAD, as affect_allies"
   },
   "scenario/event/unit/abilities/heals.description": {
@@ -474,7 +474,7 @@
   },
   "scenario/event/unit/abilities/heals.poison": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/scenario_events.py:_heals_ability",
+   "stands_in": "rust/wesnoth_core/src/events.rs:heals_ability",
    "why": "UNREAD, as affect_allies"
   },
   "scenario/event/unit/abilities/heals.special_note": {
@@ -483,7 +483,7 @@
   },
   "scenario/event/unit/abilities/heals.value": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_heals_ability",
+   "reader": "rust/wesnoth_core/src/events.rs:heals_ability",
    "why": ""
   },
   "scenario/event/unit/abilities/hides.affect_self": {
@@ -501,7 +501,7 @@
   },
   "scenario/event/unit/abilities/hides.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_unit_action",
+   "reader": "rust/wesnoth_core/src/events.rs:unit_action",
    "why": ""
   },
   "scenario/event/unit/abilities/hides.name": {
@@ -527,13 +527,13 @@
   },
   "scenario/event/unit/modifications/object/effect.apply_to": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_apply_effect_to_unit",
+   "reader": "rust/wesnoth_core/src/effects.rs:apply_effect",
    "why": ""
   },
   "scenario/event/unit/modifications/object/effect.replace": {
    "classification": "SUBSTITUTED",
    "stands_in": "tools/neutral_ai.py:_check_units_are_stationary",
-   "why": "apply_to=movement_costs is dropped by its own branch in _apply_effect_to_unit: silently for a neutral side's unit, with a warning for a player's. Inert because the only carriers are the mini-map Tentacles (castle=99), all guardians the neutral AI never moves -- a precondition that check enforces"
+   "why": "apply_to=movement_costs is dropped by its own branch in the core's apply_effect: silently for a neutral side's unit, with a warning for a player's. Inert because the only carriers are the mini-map Tentacles (castle=99), all guardians the neutral AI never moves -- a precondition that check enforces"
   },
   "scenario/event/unit/modifications/object/effect/movement_costs.castle": {
    "classification": "SUBSTITUTED",
@@ -551,7 +551,7 @@
   "scenario/event/unit/modifications/object/filter.type": {
    "classification": "SUBSTITUTED",
    "stands_in": "tools/neutral_ai.py:_check_units_are_stationary",
-   "why": "UNREAD by _units_matching_filter (x, y, id, side, role only). Part of the same unmodelled movement_costs object on the stationary Tentacles"
+   "why": "UNREAD by the core's units_matching (x, y, id, side, role only). Part of the same unmodelled movement_costs object on the stationary Tentacles"
   },
   "scenario/event/unit/modifications/trait.availability": {
    "classification": "IGNORED",
@@ -571,7 +571,7 @@
   },
   "scenario/event/unit/modifications/trait.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_trait_ids_from_modifications",
+   "reader": "rust/wesnoth_core/src/events.rs:trait_ids_of",
    "why": ""
   },
   "scenario/event/unit/modifications/trait.male_name": {
@@ -692,7 +692,7 @@
   },
   "scenario/side/unit.random_traits": {
    "classification": "SUBSTITUTED",
-   "stands_in": "tools/traits.py:roll_traits",
+   "stands_in": "rust/wesnoth_core/src/units.rs:roll_traits_with",
    "why": "UNREAD. Side units carrying it are petrified scenery statues, which never act"
   },
   "scenario/side/unit.type": {
@@ -720,8 +720,8 @@
   },
   "scenario/side/unit/modifications/trait.id": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:own_modification_effects",
-   "why": "decides whether the trait is named (tools/traits.py applies it) or custom (its effects apply here)"
+   "reader": "rust/wesnoth_core/src/events.rs:own_modification_effects",
+   "why": "decides whether the trait is named (the core's trait table applies it, rust/wesnoth_core/src/units.rs) or custom (its effects apply here)"
   },
   "scenario/side/unit/modifications/trait.name": {
    "classification": "IGNORED",
@@ -777,12 +777,12 @@
   },
   "scenario/time_area.x": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_time_area_action",
+   "reader": "rust/wesnoth_core/src/events.rs:time_area_action",
    "why": ""
   },
   "scenario/time_area.y": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_time_area_action",
+   "reader": "rust/wesnoth_core/src/events.rs:time_area_action",
    "why": ""
   },
   "scenario/time_area/time.blue": {
@@ -803,7 +803,7 @@
   },
   "scenario/time_area/time.lawful_bonus": {
    "classification": "MODELLED",
-   "reader": "tools/scenario_events.py:_parse_time_cycle",
+   "reader": "rust/wesnoth_core/src/events.rs:time_area_action",
    "why": ""
   },
   "scenario/time_area/time.name": {
