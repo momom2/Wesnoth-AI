@@ -94,8 +94,12 @@ Measured 2026-10-09 (docs/parity3_baselines_prereg_20261008.md): its
 self-pin reads -2.6 +- 12.3 Elo, and **the same checkpoint at 0 slots beats
 it by +105.5 +- 12.8 Elo** (16 slots play as 64); the memory player acts
 less per side-turn and stalls to the turn cap more. Whether the reference
-plays at 0 slots is the user's ruling, pending (`parity2`'s memory cost 37
-+- 12; tag `archive/exp-memory-in-play` holds that investigation).
+plays at 0 slots: **no (user ruling 2026-10-09): the memory stays, and
+that it plays worse is a design flaw to root-cause** (`parity2`'s memory
+cost 37 +- 12; tag `archive/exp-memory-in-play` holds that
+investigation, ported to `parity3` on `exp/memory-in-play-parity3`).
+Budget (user, 2026-10-09): about $100 on Vast for the foreseeable future;
+the lead decides runs, a costly one only when confident it pays.
 
 ### Self-play
 

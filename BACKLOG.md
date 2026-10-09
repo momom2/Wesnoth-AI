@@ -12,10 +12,13 @@ $1.47 in all):
   Elo** (810 games, 800 decisive); 16 slots play as 64 (0.0 +- 12.3); the
   self-pin reads -2.6 +- 12.3 (docs/parity3_baselines_prereg_20261008.md
   "Measured"). The memory player makes 9.6 decisions per side-turn against
-  11.0 and stalls to the turn cap far more often. **For the user:** whether
-  the reference plays at 0 slots (+105 Elo for nothing), and whether the
-  self-play program must carry the memory (ruling of 2026-10-05) when it
-  costs this much in play.
+  11.0 and stalls to the turn cap far more often. **User ruling 2026-10-09:
+  removing the memory is unacceptable; that it plays worse is a serious
+  design flaw to root-cause, not a metric to set aside.** The
+  investigation is being ported to `parity3` (branch
+  `exp/memory-in-play-parity3`: the counterfactual readings of 2026-10-02,
+  the memory reset at each side-turn, the memory player at stronger
+  end_turn offsets; about $1).
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic
@@ -36,8 +39,9 @@ measurement. Its code is on `exp/value-policy-iteration` (the critics, the
 look-ahead player, the gate script). The CPU turn planner's proposal
 (docs/selfplay_algorithm_design_20261007.md) is step 1's kill branch.
 
-**Runs** (user, 2026-10-08: budget 500€, about $540; each run approved
-before its box is rented).
+**Runs** (user, 2026-10-09: about $100 on Vast is the budget for the
+foreseeable future; the lead decides runs, cents-scale diagnostics freely,
+a costly run only when confident it proves worthwhile).
 
 | run | state | cost | decides |
 |---|---|---|---|
