@@ -12,7 +12,7 @@ real Wesnoth for swamp and mountain villages on Fallenstar Lake
 
 Regression target: an earlier session claimed "tentacles cannot
 move onto villages, even water ones" -- wrong. The resolver (and
-the sim, which delegates via wesnoth_sim._move_cost_at_hex's memo)
+the shaping reward's distances, through wesnoth_sim._move_cost_at_hex)
 prices water/swamp villages at the water/swamp cost for float
 movetypes; only dry-base villages stay impassable.
 """
@@ -80,8 +80,8 @@ def test_terrain_event_preserves_overlay_in_codes():
     defense resolvers walk the alias graph from that code, and the
     overlay can dominate it.
 
-    Regression (found 2026-07-29 via the Aethermaw export census):
-    `_terrain_action` stored the overlay-STRIPPED base ('Chw^Xo' ->
+    Regression (found 2026-07-29 via the Aethermaw export census): the
+    [terrain] handler stored the overlay-STRIPPED base ('Chw^Xo' ->
     'Chw'), so Aethermaw's turn-6 whirlpool walls (WML (22,19) /
     (28,22)) priced as walkable water-castles. Self-play moved units
     onto them, and the exported replays fail strict-sync in real
@@ -91,15 +91,15 @@ def test_terrain_event_preserves_overlay_in_codes():
     1743-1751), so the composite is impassable for every movetype.
     """
     from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _fire_turn_events
-    from tools.scenario_events import side_turn_event_names
     from tools.wesnoth_sim import _move_cost_at_hex
 
     sim = fresh_scenario_sim(0, scenario_id="multiplayer_Aethermaw")
+    # Production event path, both sides' full morph schedule: the turn
+    # starts fire the scenario's events up to side 2's turn 6.
+    while (sim.gs.global_info.turn_number, sim.gs.global_info.current_side) < (6, 2):
+        assert not sim.done
+        sim.step({"type": "end_turn"})
     gs = sim.gs
-    # Production event path, both sides' full morph schedule.
-    for side, turn in [(1, 4), (2, 4), (1, 5), (2, 5), (1, 6), (2, 6)]:
-        _fire_turn_events(gs, side_turn_event_names(side, turn, new_turn=side == 1))
 
     codes = getattr(gs.global_info, "_terrain_codes")
     # The two wall hexes keep their overlay (WML (22,19)/(28,22) ->
@@ -107,12 +107,19 @@ def test_terrain_event_preserves_overlay_in_codes():
     assert codes[(21, 18)] == "Chw^Xo"
     assert codes[(27, 21)] == "Chw^Xo"
 
-    # ...and price impassable for a real unit from the scenario.
+    # ...and price impassable for a real unit from the scenario, in the
+    # core's movement class (what its moves pay) and in the Python
+    # resolver (what the shaping reward reads).
     u = next(x for x in gs.map.units if x.side == 1)
-    assert _move_cost_at_hex(u, gs, 21, 18) >= 99
-    assert _move_cost_at_hex(u, gs, 27, 21) >= 99
+    core = sim.core
+    mcost = core.core.class_arrays(core.core.unit_export(u.id)["class_id"])[0]
+    at = core.geometry().pos_index
+    for pos in ((21, 18), (27, 21)):
+        assert mcost[at[pos]] >= 99, pos
+        assert _move_cost_at_hex(u, gs, *pos) >= 99, pos
 
     # Control -- the plain-code morphs stay walkable water-castles
     # (don't over-block): WML (13,13) -> python (12,12).
     assert codes[(12, 12)] == "Chw"
+    assert mcost[at[(12, 12)]] < 99
     assert _move_cost_at_hex(u, gs, 12, 12) < 99

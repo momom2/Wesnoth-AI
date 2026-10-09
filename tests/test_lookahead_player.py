@@ -44,7 +44,7 @@ def _sim(max_turns: int = 3, defender_hp: int = 0):
                            (17, 3): "Kh", (17, 2): "Ch"},
                   recruits={1: ["Spearman", "Bowman"], 2: ["Spearman"]}, fog=True,
                   villages={2: [(16, 6)]})
-    sim = WesnothSim(state_of(data), scenario_id="", apply_scenario_events=False, use_core=True,
+    sim = WesnothSim(state_of(data), scenario_id="", apply_scenario_events=False,
                      max_turns=max_turns)
     sim._seed_salt = "lookahead-test"
     return sim

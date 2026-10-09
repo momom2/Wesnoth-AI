@@ -1,10 +1,9 @@
-"""The Rust terrain resolver and movement classes equal the Python ones.
+"""The Rust terrain resolver equals the Python one.
 
-`wesnoth_core` resolves every terrain fact from a hex's code (terrain.rs)
-and computes the movement classes itself (core.rs `class_for`); the
-Python resolver (`wesnoth_ai.rules.terrain_resolver`) and the
-pathfinder's arrays (`tools.pathfind_sim._terrain_arrays_for`,
-`replay_dataset._terrain_def_pct`) are the oracle. Every code of the
+`wesnoth_core` resolves every terrain fact from a hex's code
+(terrain.rs); the Python resolver (`wesnoth_ai.rules.terrain_resolver`),
+which builds the hexes' terrain sets a state carries into the core, is
+the other reading of the same terrain database. Every code of the
 terrain database and of the tracked maps, every movement and defense
 table of the unit database. Skipped without the phase-18 wheel.
 """
@@ -107,56 +106,6 @@ def test_defense_equals_the_resolver_with_floors(codes, unit_stats):
             assert wesnoth_core.terrain_def_pct(code, pairs) == def_pct(code, table), (code, table)
             n += 1
     assert n > 10000
-
-
-def _state_with_every_type(seed: int, unit_stats, stride: int):
-    """A pool scenario's state with one unit of every `stride`-th type
-    on its first hexes, one of them feral-floored and one slowed."""
-    from dataclasses import replace
-    from tools.replay_dataset import _build_unit
-    from wesnoth_ai.rules import scenario_pool as sp
-    gs = sp.build_scenario_gamestate(sp.random_setup(random.Random(seed)))
-    hexes = sorted((h.position.x, h.position.y) for h in gs.map.hexes)
-    names = sorted(unit_stats["units"])[::stride] + ["Not A Unit Type"]
-    uid = 1000
-    for k, name in enumerate(names):
-        x, y = hexes[k % len(hexes)]
-        u = _build_unit({"uid": uid + k, "type": name, "side": 1, "x": x, "y": y})
-        if k == 1:
-            u._defense_table = {**u._defense_table, "village": -50}
-        if k == 2:
-            u = replace(u, statuses={"slowed"})
-            u._defense_table = dict(unit_stats["units"][name]["defense"])
-        gs.map.units.add(u)
-    return gs
-
-
-def test_movement_classes_equal_the_pathfinder_arrays(unit_stats):
-    """The core's class arrays for each unit, slowed and not, equal the
-    pathfinder's movement cost and defense subcost and the combat
-    defense of the Python state."""
-    from tools.pathfind_sim import _terrain_arrays_for
-    from tools.replay_dataset import _rebuild_unit, _stats_for, _terrain_def_pct
-    from wesnoth_ai.observe import map_geometry
-    checked = 0
-    for seed, stride in ((1, 9), (2, 11)):
-        gs = _state_with_every_type(seed, unit_stats, stride)
-        cs = gc.CoreState.from_state(gs)
-        keys = map_geometry(gs).keys
-        for u in gs.map.units:
-            d = cs.core.unit_export(u.id)
-            table = getattr(u, "_defense_table", None) or _stats_for(u.name).get("defense", {})
-            defense = [int(_terrain_def_pct(gs, x, y, table)) for (x, y) in keys]
-            for slowed, cid in ((False, d["class_id"]), (True, d["class_slowed_id"])):
-                st = set(u.statuses) | {"slowed"} if slowed else set(u.statuses) - {"slowed"}
-                _p, positions, _n, mcost, dsub = _terrain_arrays_for(_rebuild_unit(u, statuses=st), gs)
-                assert list(positions) == list(keys)
-                got = cs.core.class_arrays(cid)
-                assert list(got[0]) == [int(c) for c in mcost], (u.name, slowed)
-                assert list(got[1]) == [int(c) for c in dsub], (u.name, slowed)
-                assert list(got[2]) == defense, (u.name, slowed)
-                checked += 1
-    assert checked > 60
 
 
 def test_map_terrain_facts_follow_the_codes():

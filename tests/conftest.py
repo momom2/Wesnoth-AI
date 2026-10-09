@@ -61,13 +61,13 @@ def _source_phase() -> int:
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Say out loud when the installed Rust wheel is behind the source.
 
-    Every `tests/test_rust_*.py` and `tests/test_game_core.py` SKIPS
-    when the kernel it needs is missing, and a skip is quiet. That
-    turns "1,050 passed" into a statement about the Python paths only,
-    while reading like full coverage -- the same silence that let a
-    hand-rolled terrain table go wrong for months. This makes the hole
-    impossible to miss without failing a run that is legitimately
-    green for what it covers.
+    Every rule runs in the Rust core, and the tests run on the INSTALLED
+    wheel: one behind the source tests old Rust, and the tests that need
+    a newer phase skip, quietly. That turns "1,050 passed" into a
+    statement about another build while reading like full coverage --
+    the same silence that let a hand-rolled terrain table go wrong for
+    months. This makes the gap impossible to miss without failing a run
+    that is legitimately green for what it covers.
     """
     try:
         import wesnoth_core
@@ -91,12 +91,14 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         w(f"   installed wheel reports phase {have}. Check it by hand.")
         return
     if not have:
-        w("!! wesnoth_core is NOT INSTALLED: every Rust-path test skipped.",
+        w("!! wesnoth_core is NOT INSTALLED: the simulator cannot run, and every",
           yellow=True, bold=True)
+        w("   test that needs it skipped or failed.")
     else:
         w(f"!! wesnoth_core wheel is phase {have}; the source declares {want}.",
           yellow=True, bold=True)
         w(f"   installed exports: {', '.join(exports) or 'none'}")
-    w("   So tests/test_game_core.py and parts of tests/test_rust_*.py were")
-    w("   SKIPPED, and this run says nothing about the Rust paths. Certify")
-    w("   Rust changes on a box (CLAUDE.md, Testing).")
+        w("   So this run tested the installed wheel's Rust, not the source's, and")
+        w("   the tests that need a newer phase skipped.")
+    w("   Rebuild the wheel (pip install ./rust/wesnoth_core) or let CI certify")
+    w("   the Rust (CLAUDE.md, Testing).")

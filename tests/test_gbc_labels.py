@@ -128,7 +128,7 @@ def test_stream_labels_catch_fast_turn_events():
     from wesnoth_ai.gbc import diff_events_obs
 
     sim = fresh_scenario_sim(seed=0, max_turns=9, mini=False)
-    gs = sim.gs
+    gs = copy.deepcopy(sim.gs)               # an unbound copy to edit
     leader2 = next(u for u in gs.map.units if u.side == 2)
     victim = dataclasses.replace(leader2, id="gbc_stream_victim",
                                  is_leader=False)

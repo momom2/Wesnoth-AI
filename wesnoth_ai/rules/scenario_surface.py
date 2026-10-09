@@ -8,10 +8,12 @@ expansion contains, what do we actually READ?**
 
 A pair is one of:
 
-  MODELLED    -- a reader exists, and is named `file.py:symbol`. The
-                 test checks the symbol is really there, so deleting
-                 the reader fails here rather than silently changing
-                 what gets built.
+  MODELLED    -- a reader exists, and is named `file:symbol`, a Python
+                 definition or a Rust fn, const or static (the core's
+                 event dispatch, rust/wesnoth_core/src/events.rs). The
+                 test checks the symbol is really there and names the
+                 attribute, so deleting the reader fails here rather
+                 than silently changing what gets built.
   IGNORED     -- presentation; nothing downstream reads it, and the
                  entry says why.
   SUBSTITUTED -- real behaviour the sim produces some other way, or a
@@ -55,9 +57,9 @@ CORPUS_SCENARIOS = list(POOL) + ["multiplayer_Cynsaun_Battlefield",
                                  "multiplayer_Hornshark_Island",
                                  "around_mini"]
 
-# Control flow is not a semantic position. `_apply_action` dispatches a
-# [unit] inside [switch][case] or [if][then] with the same handler as a
-# top-level one, so it must read the same manifest entry; keying on the
+# Control flow is not a semantic position. The core's `apply_action`
+# dispatches a [unit] inside [switch][case] or [if][then] with the same
+# handler as a top-level one, so it must read the same manifest entry; keying on the
 # raw nesting made every wrapped action a fresh, unclassified path. The
 # wrappers' OWN attributes (`switch.variable`, `case.value`) are still
 # recorded, under the wrapper's name.
@@ -161,11 +163,15 @@ def masking_path_defaults(found=None, manifest=None) -> List[str]:
 
 def reader_source(rel: str, symbol: str) -> Optional[str]:
     """The source of a function, class or module-level assignment named
-    `symbol` in `rel`, or None when there is no such definition."""
+    `symbol` in `rel` (a Rust fn, const or static when `rel` is a .rs
+    file, its comments left out), or None when there is no such
+    definition."""
     path = REPO_ROOT / rel
     if not path.is_file():
         return None
     text = path.read_text(encoding="utf-8", errors="replace")
+    if rel.endswith(".rs"):
+        return _rust_item_source(text, symbol)
     for node in ast.walk(ast.parse(text)):
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name == symbol:
             return ast.get_source_segment(text, node)
@@ -174,6 +180,69 @@ def reader_source(rel: str, symbol: str) -> Optional[str]:
             if any(isinstance(t, ast.Name) and t.id == symbol for t in targets):
                 return ast.get_source_segment(text, node)
     return None
+
+
+def _rust_code(text: str) -> str:
+    """`text` with its comments blanked; string and char literals kept."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif c == "'" and (text[i + 1:i + 2] == "\\" or text[i + 2:i + 3] == "'"):
+            j = text.find("'", i + 2 if text[i + 1] == "\\" else i + 1)
+            out.append(text[i:j + 1])
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _rust_item_source(text: str, symbol: str) -> Optional[str]:
+    """The fn named `symbol` up to its closing brace, or the const or
+    static up to its semicolon."""
+    import re
+    code = _rust_code(text)
+    m = re.search(r"^[ \t]*(?:pub(?:\([a-z]+\))? )?(fn|const|static)\s+" + re.escape(symbol) + r"\b",
+                  code, re.M)
+    if m is None:
+        return None
+    depth, i = 0, m.end()
+    stop = "{" if m.group(1) == "fn" else None
+    while i < len(code):
+        c = code[i]
+        if c == '"':
+            i = _string_end(code, i)
+        elif c == "'" and code[i + 2:i + 3] == "'":
+            i += 2
+        elif c in "{[(":
+            depth += 1
+        elif c in "}])":
+            depth -= 1
+            if stop and depth == 0 and c == "}":
+                return code[m.start():i + 1]
+        elif c == ";" and depth == 0 and stop is None:
+            return code[m.start():i + 1]
+        i += 1
+    return None
+
+
+def _string_end(code: str, i: int) -> int:
+    j = i + 1
+    while code[j] != '"':
+        j += 2 if code[j] == "\\" else 1
+    return j
 
 
 def missing_readers(manifest=None) -> List[str]:

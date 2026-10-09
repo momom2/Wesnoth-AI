@@ -158,7 +158,12 @@ def test_recruit_rows_take_the_types_base_values():
         assert not row[enc.PARITY_POISONED_AT:].any()
     obs8 = parity_raw(cs, vocab_of(names), parity=False)
     for row, name in zip(obs8.recruit_feats, obs8.recruit_types):
-        assert np.array_equal(row, enc._recruit_features_for(name))
+        t = types[name]
+        align = [0.0] * enc.NUM_ALIGNMENTS
+        align[{"neutral": 0, "lawful": 1, "chaotic": 2, "liminal": 3}[t["alignment"]]] = 1.0
+        head = [t["hitpoints"] / enc.HP_NORM, 1.0, t["moves"] / enc.MOVES_NORM, 0.0,
+                t["experience"] / enc.EXP_NORM, 0.0, t["cost"] / enc.COST_NORM, 0.0, 0.0]
+        assert np.array_equal(row, np.asarray(head + align, dtype=np.float32)), name
 
 
 def _economy_record(fog: bool) -> dict:
@@ -272,22 +277,15 @@ def test_the_relevant_set_version_2():
 
 
 def test_the_paths_that_do_not_build_it_refuse_the_flag():
-    """The Python builders (a state not bound to a core), the kernel
-    `encode_raw_streams`, and the core without the terrain set view."""
-    import wesnoth_core
+    """A state not bound to a core (its sighting records are the view's
+    own core's), and the core without the terrain set view."""
     data = record([("Lieutenant", 1, 1, 3, True), ("Lieutenant", 2, 19, 3, True)])
     cs = core_of(data)
     cs.apply_command(["init_side", 1])
     view = cs.to_state()
-    with pytest.raises(ValueError, match="Rust core only"):
+    with pytest.raises(ValueError, match="own core"):
         enc.encode_raw(copy.deepcopy(view), type_to_id={}, faction_to_id={}, relevant_set=True,
                        terrain_multi_hot=True, observation_parity=True)
-    with pytest.raises(ValueError, match="observation_parity"):
-        wesnoth_core.encode_raw_streams(
-            np.zeros((0, enc.NUM_HEX_MODIFIERS), dtype=np.float32), np.zeros(0, dtype=np.int64),
-            np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.float64),
-            np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.float64), 0, 0, [0.0] * enc.GLOBAL_FEAT_DIM,
-            [1.0] * 8, enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, observation_parity=True)
     with pytest.raises(ValueError, match="terrain_multi_hot"):
         cs.encode_raw(type_to_id={}, faction_to_id={}, relevant_set=True, terrain_multi_hot=False,
                       observation_parity=True)

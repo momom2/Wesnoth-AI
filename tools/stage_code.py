@@ -36,7 +36,7 @@ Quickstart
 
     # build, requiring the scripts this particular run needs
     python tools/stage_code.py --out /tmp/stage_20260913d.tar.gz \\
-        --require tools/diff_replay.py tools/diff_core.py tools/bench_pool.py
+        --require tools/diff_replay.py tools/bench_pool.py
 
     # build and stage a run in one step (needs HF_TOKEN or a cached login)
     python tools/stage_code.py --out /tmp/stage_20260926a.tar.gz \\

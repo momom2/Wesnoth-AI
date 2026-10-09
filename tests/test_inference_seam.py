@@ -226,7 +226,6 @@ def test_light_encoded_fields_match_real_encode():
         assert light.unit_ids == real.unit_ids
         assert light.recruit_types == real.recruit_types
         assert light.pos_to_hex == real.pos_to_hex
-        assert light.visible_unit_ids == real.visible_unit_ids
         assert light.unit_tokens.size(1) == real.unit_tokens.size(1)
         assert light.recruit_tokens.size(1) == real.recruit_tokens.size(1)
         assert light.hex_tokens.size(1) == real.hex_tokens.size(1)

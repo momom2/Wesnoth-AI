@@ -157,45 +157,6 @@ def test_marker_propagates_through_encode():
                             relevant_set_hexes=True).encode(gs).hex_subset is True
 
 
-def test_superset_assert_FIRES_when_the_set_is_short(monkeypatch):
-    """The guard is only worth having if it actually trips. Shrink the
-    relevant set behind the encoder's back and require the mask build to
-    raise -- a silently shrunken action space is the failure mode this
-    exists to prevent (an excluded hex is an unorderable hex).
-
-    The guard belongs to the Python path. The Rust observation builds the
-    relevant set from its own landable rows (core_observe.rs), so it
-    cannot drop a landable hex; the test turns the kernel off."""
-    import pytest
-    import torch
-    import wesnoth_ai.encoder as enc_mod
-    import wesnoth_ai.observe as observe_mod
-    from wesnoth_ai.model import WesnothModel
-    from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
-    import wesnoth_ai.visibility as vis
-
-    import copy
-    monkeypatch.setattr(observe_mod, "observe", lambda *args, **kwargs: None)
-    gs = copy.deepcopy(_pool_state())      # not a view of the core: the Python path
-    model = WesnothModel(d_model=32, num_layers=2, num_heads=4, d_ff=64).eval()
-
-    # sanity: intact set enumerates without tripping
-    encoded = enc_mod.GameStateEncoder(d_model=32, relevant_set_hexes=True).encode(gs)
-    with torch.no_grad():
-        out = model(encoded)
-    enumerate_legal_actions_with_priors(encoded, out, gs)
-
-    # now drop hexes from the stream while the mask still offers them
-    full = vis.relevant_hexes_in_slot_order(gs)
-    monkeypatch.setattr(enc_mod, "relevant_hexes_in_slot_order",
-                        lambda g: full[: max(1, len(full) // 3)])
-    shrunk = enc_mod.GameStateEncoder(d_model=32, relevant_set_hexes=True).encode(gs)
-    with torch.no_grad():
-        out = model(shrunk)
-    with pytest.raises(AssertionError, match="relevant-set gap"):
-        enumerate_legal_actions_with_priors(shrunk, out, gs)
-
-
 def test_holdout_probe_is_discarded_across_an_index_basis_change(tmp_path):
     """holdout CE is the ONE curve we rely on being comparable across
     restarts -- that's why the probe is persisted. Restoring a probe

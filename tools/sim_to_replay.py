@@ -14,8 +14,8 @@ simulator's `command_history`.
 
 Caveats / known compromises:
 - ATTACK commands carry FULL `[checkup]` blocks (per-strike
-  chance/hits/damage + dies [result] children recorded by
-  combat.resolve_attack). Wesnoth's synced_checkup COMPARES stored
+  chance/hits/damage + dies [result] children recorded by the core's
+  fight). Wesnoth's synced_checkup COMPARES stored
   results against its own playback calculations and raises the
   SYNC/OOS error on mismatch -- every manual replay viewing doubles
   as a combat-parity verification (2026-06-12; fully non-interactive
@@ -187,7 +187,7 @@ def _wml_for_command(rc: RecordedCommand,
         # cmd = ["move", [sx, .., tx], [sy, .., ty], from_side] --
         # the FULL PLANNED path (Wesnoth records the planned path;
         # playback re-truncates on hidden blockers identically to
-        # our walk_move_path). skip_sighted="all" disables the
+        # the core's move). skip_sighted="all" disables the
         # sighted-move interrupt on playback
         # (synced_commands.cpp:305-314) -- the sim doesn't model
         # sighting interrupts, so exports must not re-check them.
@@ -574,8 +574,8 @@ def _build_replay_wml(history: List[RecordedCommand]) -> str:
         # `attack_unit_and_advance` path (attack -> RNG follow-up ->
         # advancer per side, attacker first then defender). The recorded
         # index can be non-zero: self-play enables uniform advancement
-        # (WesnothSim.enable_uniform_advancement), so `_advance_unit_once`
-        # draws targets[idx] and records that idx; we emit it verbatim
+        # (WesnothSim.enable_uniform_advancement), so the core's
+        # advancement draws targets[idx] and records that idx; we emit it verbatim
         # below (do NOT hardcode value=0 -- that would advance the wrong
         # type on Wesnoth playback and desync strict-sync export).
         if rc.kind == "attack":
@@ -1196,7 +1196,7 @@ def build_save_wml(
         )
 
     pvp = pvp_defaults or PvPDefaults()
-    # The economy the GAME was played under, read the way the applier
+    # The economy the GAME was played under, read the way the core
     # pays it (`wml_state.village_economy`, shared with
     # `dump_savestate`): the scenario's own village gold, which is 3
     # on five of the seven mini scenarios, and a declared 0 exported as

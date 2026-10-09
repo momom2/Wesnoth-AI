@@ -24,18 +24,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 import pytest
 from wesnoth_ai.classes import Position, Unit
-from tools.replay_dataset import _build_recruit_unit
 from tools.sim_to_replay import _build_replay_wml
 from tools.wesnoth_sim import RecordedCommand
+from wesnoth_ai.game_core import build_recruit_unit
 
 
 def _make(unit_type, side, x, y, uid, *, current_hp=None, current_exp=0,
-          is_leader=False, exp_modifier=100):
+          is_leader=False, exp_modifier=100, trait_seed_hex="12345678"):
     """Produce a Unit at full MP / specified HP / specified XP."""
-    base = _build_recruit_unit(unit_type, side=side, x=x, y=y,
-                               next_uid=uid, game_id="t",
-                               trait_seed_hex="12345678",
-                               exp_modifier=exp_modifier)
+    base = build_recruit_unit(unit_type, side=side, x=x, y=y,
+                              next_uid=uid, game_id="t",
+                              trait_seed_hex=trait_seed_hex,
+                              exp_modifier=exp_modifier)
     fresh = Unit(
         id=base.id, name=base.name, name_id=base.name_id, side=side,
         is_leader=is_leader, position=Position(x, y),
@@ -147,20 +147,19 @@ def test_damage_based_advance_detected(fresh_sim):
     assert "advance_choices" in rc.extras
 
 
-def test_a_quick_defender_keeps_its_extra_move_through_advancement(fresh_sim, monkeypatch):
+def test_a_quick_defender_keeps_its_extra_move_through_advancement(fresh_sim):
     """`unit::advance_to` restores the movement the unit had, clamped to
     the new total only after its traits are re-applied (unit.cpp:921 and
     :1026, stats_storage_resetter :186-207). A quick Spearman that has
     not moved (6/6) and levels while defending stays at 6/6 as any of
     its three advancements, all of base movement 5. Clamping to that 5
     before quick came back left it at 5/6 for the rest of the turn."""
-    import tools.traits as traits
+    from helpers.parity_games import seed_rolling
     from tools.replay_dataset import _rebuild_unit
     sim = fresh_sim
     xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
-    with monkeypatch.context() as m:
-        m.setattr(traits, "roll_traits", lambda *a, **k: ["quick", "resilient"])
-        spear = _make("Spearman", 2, 11, 10, 2, exp_modifier=xpmod)
+    spear = _make("Spearman", 2, 11, 10, 2, exp_modifier=xpmod,
+                  trait_seed_hex=seed_rolling("Spearman", "quick"))
     assert (spear.current_moves, spear.max_moves) == (6, 6)
     spear = _rebuild_unit(spear, current_exp=spear.max_exp - 1)   # +1 for the fight
     _run_attack(
@@ -250,26 +249,27 @@ def test_replay_recon_recall_flags_state(fresh_sim, caplog):
     recalls; the flag lets `tools/flag_replays_with_recalls.py`
     pick the replay out for inspection."""
     import logging
-    from tools.replay_dataset import _apply_command
+    from sim_test_helpers import commit_view
 
     sim = fresh_sim
-    sim.gs.global_info.current_side = 1
-    sim.gs.global_info.turn_number = 7
     sim.gs.game_id = "weird_pvp_replay_42"
+    commit_view(sim)
+    cs = sim.core
 
     # Pre-existing flags should be absent.
-    assert not getattr(sim.gs.global_info, "_has_recall", False)
+    assert not cs.statics.get("_has_recall", False)
 
-    with caplog.at_level(logging.ERROR, logger="replay_dataset"):
-        _apply_command(sim.gs, ["recall", "fighter_42", 5, 6])
+    with caplog.at_level(logging.ERROR, logger="game_core"):
+        cs.apply_command(["recall", "fighter_42", 5, 6])
 
     # The recon doesn't crash; flag is set; log captures the event.
-    assert getattr(sim.gs.global_info, "_has_recall") is True
-    log = getattr(sim.gs.global_info, "_recall_log", [])
+    view = cs.to_state()
+    assert getattr(view.global_info, "_has_recall") is True
+    log = getattr(view.global_info, "_recall_log", [])
     assert len(log) == 1
     entry = log[0]
-    assert entry["turn"] == 7
-    assert entry["side"] == 1
+    assert entry["turn"] == view.global_info.turn_number
+    assert entry["side"] == view.global_info.current_side
     assert entry["unit_id"] == "fighter_42"
     assert entry["x"] == 5
     assert entry["y"] == 6
@@ -283,15 +283,11 @@ def test_replay_recon_recall_flags_state(fresh_sim, caplog):
 
 def test_replay_recon_two_recalls_both_logged(fresh_sim):
     """Multiple recalls in one replay each append to the log."""
-    from tools.replay_dataset import _apply_command
+    cs = fresh_sim.core
+    cs.apply_command(["recall", "u1", 1, 1])
+    cs.apply_command(["recall", "u2", 2, 2])
 
-    sim = fresh_sim
-    sim.gs.global_info.current_side = 2
-    sim.gs.game_id = "double_recall"
-    _apply_command(sim.gs, ["recall", "u1", 1, 1])
-    _apply_command(sim.gs, ["recall", "u2", 2, 2])
-
-    log = getattr(sim.gs.global_info, "_recall_log", [])
+    log = getattr(cs.to_state().global_info, "_recall_log", [])
     assert len(log) == 2
     assert {(e["unit_id"], e["x"], e["y"]) for e in log} == {
         ("u1", 1, 1),
@@ -307,10 +303,12 @@ def test_recall_action_rejected_to_end_turn(fresh_sim):
     NEVER be 'recall'."""
     sim = fresh_sim
     # Place at least one leader so the sim doesn't error on missing leader.
+    from sim_test_helpers import commit_view
     leader = _make("Skeleton", 1, 5, 5, 1, is_leader=True)
     leader2 = _make("Skeleton", 2, 6, 5, 2, is_leader=True)
     sim.gs.map.units.add(leader)
     sim.gs.map.units.add(leader2)
+    commit_view(sim)
     sim._begin_side_turn(1)
     pre_count = len(sim.command_history)
     sim.step({"type": "recall", "unit_id": "u1",
@@ -331,12 +329,12 @@ def test_uniform_advancement_varies_by_salt_reproducibly():
     """enable_uniform_advancement makes a >1-option advance (Skeleton ->
     Revenant/Deathblade) draw from the SEPARATE, salt-aware RNG channel:
     reproducible per salt, spanning both options across salts, and
-    recorded for [choose] export. Combat is bypassed (direct
-    _maybe_advance_unit) so the test isolates the CHOICE, not whether
-    the advance fires. Default-OFF is covered by the existing tests
-    above (they record idx=0)."""
-    from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _maybe_advance_unit, _stats_for
+    recorded for [choose] export. Combat is bypassed (the core's
+    advancement of one unit) so the test isolates the CHOICE, not
+    whether the advance fires. Default-OFF is covered by the existing
+    tests above (they record idx=0)."""
+    from sim_test_helpers import commit_view, fresh_scenario_sim
+    from tools.replay_dataset import _stats_for
 
     targets = _stats_for("Skeleton").get("advances_to", [])
     assert len(targets) == 2, f"premise: Skeleton has 2 advances, got {targets}"
@@ -345,17 +343,19 @@ def test_uniform_advancement_varies_by_salt_reproducibly():
         sim = fresh_scenario_sim(seed=7, max_turns=10,
                                  scenario_id="multiplayer_The_Freelands")
         sim.gs.map.units.clear()
-        sim.enable_uniform_advancement()
-        sim.gs.global_info._advance_salt = salt        # bypass step() sync
         u = _make("Skeleton", 1, 10, 10, 1)
         u.current_exp = u.max_exp                       # one advance, carryover 0
         sim.gs.map.units.add(u)
-        out = _maybe_advance_unit(sim.gs, u)
-        assert out is not None and out.name in targets
-        ev = list(getattr(sim.gs.global_info, "_last_advance_events", []))
+        commit_view(sim)
+        sim.enable_uniform_advancement()
+        sim.core.core.set_advance_salt(salt)            # bypass step() sync
+        assert sim.core.core.advance_unit_id(u.id)
+        out = sim.core.core.unit_export(u.id)
+        assert out["name"] in targets
+        _choices, _pick, ev = sim.core.core.advance_state_export()
         assert ev and ev[-1][0] == 1                    # (side=1, idx)
-        assert targets[ev[-1][1]] == out.name           # recorded idx matches
-        return out.name
+        assert targets[ev[-1][1]] == out["name"]        # recorded idx matches
+        return out["name"]
 
     assert advanced_name("s1") == advanced_name("s1")   # reproducible per salt
     seen = {advanced_name(f"s{i}") for i in range(12)}
@@ -367,11 +367,12 @@ def test_feeding_advance_includes_kill_bump():
     """A feeding unit that kills-and-advances (Necrophage->Ghast) keys the
     advanced form at base+1 HP: data/lua/feeding.lua fires the +1 on the
     "die" event, which precedes advancement (1.18.4 attack.cpp), so the
-    advanced type includes this kill's bump. The DP must match the sim.
-    Guards the 2026-07-24 feeding fix in combat_outcomes._side_outcome_branches."""
-    from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import (enumerate_advancement_outcomes,
-                                      _maybe_advance_unit, _stats_for, _rebuild_unit)
+    advanced type includes this kill's bump. The exact outcome
+    distribution and the fight itself both give it (the 2026-07-24
+    feeding fix)."""
+    from sim_test_helpers import commit_view, fresh_scenario_sim
+    from tools.combat_outcomes import enumerate_attack_outcomes
+    from tools.replay_dataset import _stats_for
     assert "feeding" in _stats_for("Necrophage").get("abilities", [])
     assert _stats_for("Necrophage").get("advances_to") == ["Ghast"]
     sim = fresh_scenario_sim(seed=7, max_turns=10,
@@ -379,24 +380,24 @@ def test_feeding_advance_includes_kill_bump():
     sim.gs.map.units.clear()
     xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
     necro = _make("Necrophage", 1, 10, 10, 1, exp_modifier=xpmod)
+    necro.current_exp = necro.max_exp - 8                # a kill of a level-1 unit levels it
+    victim = _make("Spearman", 2, 11, 10, 2, current_hp=1, exp_modifier=xpmod)
+    for u in (necro, victim, _make("Skeleton", 1, 20, 20, 100, is_leader=True, exp_modifier=xpmod),
+              _make("Skeleton", 2, 21, 20, 101, is_leader=True, exp_modifier=xpmod)):
+        sim.gs.map.units.add(u)
+    commit_view(sim)
     ghast_full = _stats_for("Ghast")["hitpoints"] + 1        # +1 feed bump
 
-    # The feed-bumped post-combat unit _side_outcome_branches builds for
-    # a feeding kill: max_hp+1 and _feeding_count incremented.
-    post = _rebuild_unit(necro, max_hp=necro.max_hp + 1)
-    setattr(post, "_feeding_count", 1)
-    dp = enumerate_advancement_outcomes(sim.gs, post, hp_after=necro.max_hp + 1,
-                                        xp_after=necro.max_exp, choice="uniform")
-    assert dp == {("Ghast", ghast_full): 1.0}, dp
+    dist = enumerate_attack_outcomes(sim.gs, {"type": "attack", "start_hex": Position(10, 10),
+                                              "target_hex": Position(11, 10), "attack_index": 0},
+                                     advancement_choice="uniform")
+    killed = {k for k in dist.probs if k[1] == 0}
+    assert killed and all((k[8], k[0]) == ("Ghast", ghast_full) for k in killed), killed
 
-    # Parity: the sim's own advance of the same feed-bumped unit.
-    u2 = _rebuild_unit(necro, current_hp=necro.max_hp + 1,
-                       current_exp=necro.max_exp, max_hp=necro.max_hp + 1)
-    setattr(u2, "_feeding_count", 1)
-    sim.gs.map.units.add(u2)
-    sim.gs.global_info._advance_choices = [0]
-    adv = _maybe_advance_unit(sim.gs, u2)
-    assert (adv.name, adv.current_hp) == ("Ghast", ghast_full)
+    # The fight: the Necrophage's first claw kills the 1-HP Spearman.
+    sim.core.core.apply_attack_scripted(10, 10, 11, 10, 0, -1, [True], [0])
+    adv = sim.core.core.unit_export(necro.id)
+    assert (adv["name"], adv["current_hp"]) == ("Ghast", ghast_full)
 
 
 def test_petrified_unit_gets_no_init_side_healing_or_poison():
@@ -406,7 +407,7 @@ def test_petrified_unit_gets_no_init_side_healing_or_poison():
     fix (replay_dataset.py)."""
     from sim_test_helpers import fresh_scenario_sim
     from tools.replay_dataset import _rebuild_unit
-    from wesnoth_ai.combat import POISON_AMOUNT
+    POISON_AMOUNT = 8                            # game_config.hpp:36-48, 1.18.4
     sim = fresh_scenario_sim(seed=7, max_turns=10,
                              scenario_id="multiplayer_The_Freelands")
     sim.gs.map.units.clear()

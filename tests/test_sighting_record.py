@@ -193,26 +193,6 @@ def test_a_unit_that_leaves_the_board_in_view_leaves_the_record():
     assert cs.core.sightings_gone_export(2) == []
 
 
-def test_the_certification_compares_the_sighting_records(tmp_path, monkeypatch):
-    """diff_core --sightings holds the core's records against the oracle's
-    after every command: clean on a game where a unit walks out of side 1's
-    view, and a divergence once the oracle stops noting what a side sees."""
-    import gzip
-    import json
-    from collections import Counter
-    from tools import sighting_oracle
-    from tools.diff_core import diff_core
-    _cs, data, _start, _end = _cavalryman_walked_into_fog()
-    path = tmp_path / "g.json.gz"
-    path.write_bytes(gzip.compress(json.dumps(data).encode()))
-    counts = Counter()
-    assert diff_core(path, sightings=True, encode_every=1, counts=counts) == []
-    assert counts[("sightings", "rust")] == len(data["commands"])
-    monkeypatch.setattr(sighting_oracle.SightingOracle, "_note_visible", lambda self, gs: None)
-    out = diff_core(path, sightings=True)
-    assert out and "sightings" in out[0]
-
-
 def test_a_fight_the_side_defended_is_recorded_before_its_refog():
     """Side 2's Cavalryman kills side 1's Bowman, its only unit in view of
     it, and is hit back first. The fight was shown to side 1 before its fog
@@ -236,19 +216,6 @@ def test_a_fight_the_side_defended_is_recorded_before_its_refog():
     assert hp < full, "the record carries the hit points the fight left it"
 
 
-def _round2_note_fight(self, gs):
-    """Round 2's oracle: the fight read from the state after the command,
-    the refog decided by whether a unit holds the defender's id."""
-    from wesnoth_ai.visibility import is_scenery_unit, units_visible_to_python
-    fight = gs.global_info._last_fight
-    side = fight["defender_side"]
-    if any(u.id == fight["defender"] for u in gs.map.units):
-        return
-    for u in units_visible_to_python(gs, side, vis_set=self._seen_before.get(side)):
-        if u.side != side and not is_scenery_unit(u):
-            self._record(side, u, u.position.x, u.position.y)
-
-
 @pytest.mark.parametrize("units, attack, attacker_side, attacker_after", [
     ([("Lieutenant", 1, 1, 3, True), ("Bowman", 1, 15, 3, False, {"hp": 1}),
       ("Cavalryman", 2, 16, 3, False, {"max_exp": 1}), ("Lieutenant", 2, 18, 3, True)],
@@ -257,20 +224,14 @@ def _round2_note_fight(self, gs):
       ("Spearman", 2, 16, 3, False, {"hp": 1})],
      [15, 3, 16, 3], 1, "Walking Corpse"),
 ], ids=["the attacker advances", "the corpse takes the defender's id"])
-def test_a_defended_fight_is_certified_against_the_oracle(units, attack, attacker_side, attacker_after,
-                                                          tmp_path, monkeypatch):
+def test_a_defended_fight_records_the_attacker_as_the_fight_left_it(units, attack, attacker_side,
+                                                                    attacker_after):
     """A fight kills the defending side's only unit in view of the attacker,
     and its fog closes over the attacker. The engine refogs the side when
     the fight ends and advances the attacker only after: the side's record
-    holds the attacker as the fight left it. diff_core --sightings is clean,
-    and diverges under round 2's oracle, which read the fight from the state
-    after the command (the advanced attacker; the plague corpse under the
-    dead defender's id)."""
-    import gzip
-    import json
+    holds the attacker as the fight left it (not the advanced attacker, nor
+    the plague corpse under the dead defender's id)."""
     from helpers.parity_games import core_of, record
-    from tools import sighting_oracle
-    from tools.diff_core import diff_core
     data = record(units, fog=True, width=WIDTH, height=HEIGHT)
     turns = [["init_side", 1]] if attacker_side == 1 else [["init_side", 1], ["end_turn"], ["init_side", 2]]
     data["commands"] = [*turns, ["attack", *attack, 0, 0, "00000000"], ["end_turn"]]
@@ -282,12 +243,6 @@ def test_a_defended_fight_is_certified_against_the_oracle(units, attack, attacke
     assert attacker not in set(cs.core.visible_ids(side)), "the side's fog closed over the attacker"
     row = [r for r in cs.core.sightings_export(side) if r[0] == attacker][0]
     assert row[1] == units[1 if attacker_side == 1 else 2][0], "recorded before it advanced"
-    path = tmp_path / "g.json.gz"
-    path.write_bytes(gzip.compress(json.dumps(data).encode()))
-    assert diff_core(path, sightings=True, encode_every=1) == []
-    monkeypatch.setattr(sighting_oracle.SightingOracle, "_note_fight", _round2_note_fight)
-    out = diff_core(path, sightings=True)
-    assert out and "sightings" in out[0]
 
 
 def test_the_units_the_scenario_placed_are_not_seen_types():
@@ -295,13 +250,11 @@ def test_the_units_the_scenario_placed_are_not_seen_types():
     the Knalgan Alliance recruits: neither a unit the scenario placed nor
     what it advances to is a seen type. A leader is."""
     from helpers.parity_games import record, state_of
-    from tools.replay_dataset import _setup_scenario_events
     data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 14, 3, False, {"hp": 1}),
                    ("Mage", 1, 12, 3, False), ("Woodsman", 2, 15, 3, False, {"max_exp": 1}),
                    ("Lieutenant", 2, 18, 3, True)], fog=True, width=WIDTH, height=HEIGHT)
-    gs = state_of(data)
-    _setup_scenario_events(gs, "")
-    cs = gc.CoreState.from_state(gs)
+    cs = gc.CoreState.from_state(state_of(data))
+    cs.setup_scenario("")
     woodsman = cs.core.unit_id_at(15, 3, 0)
     assert set(cs.core.scenario_unit_ids()) == {cs.core.unit_id_at(x, 3, 0) for x in (12, 14, 15)}
     for command in (["init_side", 1], ["end_turn"], ["init_side", 2], ["attack", 15, 3, 14, 3, 0, 0, "00000000"]):

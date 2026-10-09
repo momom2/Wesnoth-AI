@@ -102,15 +102,15 @@ def _commit(sim) -> None:
 
 
 def _own_a_village(gs, side: int) -> None:
-    """Give `side` one village nobody owns, the way the game does
-    (`set_village_owner`), so its count and the owner map agree, as
-    the simulator's invariant requires."""
-    from tools.replay_dataset import _terrain_at, set_village_owner
+    """Give `side` one village nobody owns, its count and the owner map
+    agreeing, as the simulator's invariant requires."""
+    from sim_test_helpers import give_village
+    from wesnoth_ai.classes import Terrain
     owners = getattr(gs.global_info, "_village_owner", None) or {}
     x, y = min((h.position.x, h.position.y) for h in gs.map.hexes
-               if _terrain_at(gs, h.position.x, h.position.y) == "village"
+               if Terrain.VILLAGE in h.terrain_types
                and not owners.get((h.position.x, h.position.y)))
-    set_village_owner(gs, x, y, side)
+    give_village(gs, x, y, side)
 
 
 def test_a_village_actually_pays_the_scenario_rate():

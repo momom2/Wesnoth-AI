@@ -99,31 +99,23 @@ def test_a_terrain_event_keeps_the_start_label():
     (number_to_string_, translation.cpp:775-782). Splicing a fixed two
     characters recognized only a one-digit label, so rewriting "10 Kh"
     or "lake Gs^Vc" silently dropped the start position from the
-    map_data we export."""
-    from tools.replay_extract import WMLNode
-    from tools.scenario_events import _terrain_action
-    from wesnoth_ai.classes import GameState, GlobalInfo, Hex, Map, Position
+    map_data we export. A view of the core applies the core's terrain
+    log through `terrain_writes_applied`."""
+    from tools.scenario_events import terrain_writes_applied
+    from wesnoth_ai.classes import Hex, Position
 
-    gi = GlobalInfo(current_side=1, turn_number=1, time_of_day="dawn",
-                    village_gold=2, village_upkeep=1, base_income=2)
-    setattr(gi, "_raw_map_data", MAP_DATA)
-    setattr(gi, "_terrain_codes", {(0, 0): "Kh", (1, 1): "Gs^Vc"})
+    codes = {(0, 0): "Kh", (1, 1): "Gs^Vc"}
     hexes = {Hex(position=Position(x=x, y=y), terrain_types=set(), modifiers=set())
              for x in range(2) for y in range(2)}
-    gs = GameState(
-        game_id="t", global_info=gi, sides=[],
-        map=Map(size_x=2, size_y=2, mask=set(), fog=set(), hexes=hexes, units=set()),
-    )
 
     # WML (1,1) is the labelled keep; (2,2) is the named location.
-    action = WMLNode("terrain")
-    action.attrs = {"x": "1,2", "y": "1,2", "terrain": "Gg^Fp"}
-    _terrain_action(gs, action)
+    new_hexes, new_codes, raw = terrain_writes_applied(
+        hexes, codes, MAP_DATA, [(1, 1, "Gg^Fp"), (2, 2, "Gg^Fp")])
 
-    rows = [[c.strip() for c in row.split(",")]
-            for row in getattr(gs.global_info, "_raw_map_data").splitlines()]
+    rows = [[c.strip() for c in row.split(",")] for row in raw.splitlines()]
     assert rows[1][1] == "10 Gg^Fp", "side 10 still starts on that hex"
     assert rows[2][2] == "lake Gg^Fp", "the named location survives the morph"
     # The terrain code the resolvers read carries no label.
-    codes = getattr(gs.global_info, "_terrain_codes")
-    assert codes[(0, 0)] == "Gg^Fp" and codes[(1, 1)] == "Gg^Fp"
+    assert new_codes[(0, 0)] == "Gg^Fp" and new_codes[(1, 1)] == "Gg^Fp"
+    # New containers: a search fork aliasing the old ones is untouched.
+    assert codes == {(0, 0): "Kh", (1, 1): "Gs^Vc"} and new_hexes is not hexes

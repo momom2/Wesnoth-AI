@@ -113,7 +113,10 @@ distillation; before any training launches, a new algorithm must handle
 the reward's sparsity, multi-step turns whose plans depend on the dice
 rolled inside the turn, and the simulator's speed without being
 bottlenecked on the network (2026-10-06). Imitation's remaining gains
-are parked (2026-10-04).
+are parked (2026-10-04). The program that answers the 2026-10-06 ruling
+is docs/selfplay_program_20261008.md (policy iteration with a one-step
+look-ahead over exact combat outcomes, its evaluator chosen by
+measurement); its step 1 is pre-registered there.
 
 Measured facts a new design starts from:
 - **Turn-level gaps exist.** Under `terrain`, 7 of 60 holdout positions
@@ -150,9 +153,13 @@ repeats have differed by that much.
 
 The Rust core (`rust/wesnoth_core`, adapter `wesnoth_ai/game_core.py`)
 is the state of record of the simulator and of replay reconstruction
-(0.9.0), certified against the Python applier over the whole corpus
-(14,376 of 14,376 replays, 2026-10-01). The Python applier stays until
-its retirement (BACKLOG.md). `OBSERVATION_EPOCH` is 11 and
+(0.9.0), and answers every rule asked of a state: the commands, the
+scenario's events, combat, the reach, what a side sees, the observation
+and the encoding. It was certified against the Python applier over the
+whole corpus (14,376 of 14,376 replays, 2026-10-01); that applier and
+the Python rules it carried are retired (docs/rust_core_port_20260928.md),
+and the core is checked against the engine's records and oracles only.
+`OBSERVATION_EPOCH` is 11 and
 `CORPUS_VERSION` 5: caches of another epoch refuse to load, and Elo
 measured under one epoch does not chain onto another. Real Wesnoth
 checks the rules: the scenario-init oracle (28 of 28 scenarios), the
@@ -219,17 +226,16 @@ stays at the root. So a bare name like `classes.py` below means
 `wesnoth_ai/classes.py`.
 
 **Production path: in-process simulator.**
-- `tools/wesnoth_sim.py` — the game logic, in Python, with Rust kernels
-  (`rust/wesnoth_core`) for reach and legal-move enumeration, the
-  observation, the encoding and combat. Each kernel runs by default
-  when the installed wheel has the phase it needs; `WESNOTH_RUST=0`,
-  `WESNOTH_RUST_OBSERVE=0` and `WESNOTH_RUST_COMBAT=0` force the Python
-  paths, and `tools/kernel_status.py` says which run. The Rust-owned
-  state (`GameCore`) is opt-in (`WESNOTH_RUST_CORE=1`). Reuses the
-  replay-reconstruction machinery from `tools/replay_dataset.py`
-  (which is bit-exact against Wesnoth via `[mp_checkup]` oracle on
-  combat); just swaps the data source from "WML command stream"
-  to "policy queries."
+- `tools/wesnoth_sim.py` — the simulator: it drives a game on the Rust
+  core (`rust/wesnoth_core`, adapter `wesnoth_ai/game_core.py`), which
+  applies every command and answers every rule, and `sim.gs` is a view
+  of that core (`game_core.view_of`). Replay reconstruction runs on the
+  same core (`tools/replay_dataset.record_core`, bit-exact against
+  Wesnoth's `[mp_checkup]` oracle on combat); the simulator swaps the
+  data source from "WML command stream" to "policy queries". A state
+  built by hand or copied gets a core built from it
+  (`game_core.core_for`). `tools/kernel_status.py` says whether the
+  installed wheel serves the adapter and the source.
 - `tools/az_loop.py` — the self-play loop
   (docs/archive/az_minimal_spec.md): the actor pool
   (`tools/actor_pool.py`) plays N games per iteration under MCTS, then
@@ -294,13 +300,16 @@ stays at the root. So a bare name like `classes.py` below means
   result (`<game>.game.jsonl.gz`).
 
 **The Rust core.**
-- `rust/wesnoth_core/` — the kernels, installed with `pip install
-  ./rust/wesnoth_core`. `lib.rs` declares `__phase__`; a wheel of an
-  older phase serves only the kernels it has, and the rest run in
-  Python. The Python side of each kernel lives in `tools/pathfind_sim.py`
-  (reach, enumeration), `wesnoth_ai/observe.py`, `wesnoth_ai/combat.py`,
-  `wesnoth_ai/encoder.py` and `wesnoth_ai/game_core.py` (`GameCore`);
-  docs/rust_port_plan.md records the port.
+- `rust/wesnoth_core/` — the core, installed with `pip install
+  ./rust/wesnoth_core`. `lib.rs` declares `__phase__`; the adapter
+  (`wesnoth_ai/game_core.py`, `_CORE_PHASE`) refuses an older wheel.
+  Python reads the core through `game_core` (`CoreState`),
+  `wesnoth_ai/observe.py` (the observation), `wesnoth_ai/encoder.py`
+  (`encode_raw`), `tools/pathfind_sim.py` (the planner's context and
+  reach), `wesnoth_ai/visibility.py` (what a side sees) and
+  `tools/combat_outcomes.py` (fight outcomes, the counter weapon);
+  docs/rust_port_plan.md and docs/rust_core_port_20260928.md record the
+  port.
 
 **Live-Wesnoth path (evaluation and rule checks only).**
 - `main.py` — setup / maintenance CLI (`--check-setup`,
@@ -377,9 +386,12 @@ tests/test_combat_seed_alignment.py re-checks every strike of a
 touches combat, healing, or advancement must keep that parity.
 `tools/diff_replay.py` is the regression check (runs the simulator
 over a corpus, compares against the recorded WML command stream). New
-scenario events go in `tools/scenario_events.py`; new abilities in
-`tools/abilities.py`; both with citations: `src/<path>:<line>` at the
-1.18.4 tag for C++, `wesnoth_src/data/<path>:<line>` for WML and Lua.
+scenario events go in the core's event dispatch
+(`rust/wesnoth_core/src/events.rs`; `tools/scenario_events.py` parses
+them), new abilities and [effect] forms in the core (`core_attack.rs`,
+`core_step.rs`, `effects.rs`); both with citations: `src/<path>:<line>`
+at the 1.18.4 tag for C++, `wesnoth_src/data/<path>:<line>` for WML and
+Lua.
 
 Any mismatch between the simulator and Wesnoth (usually surfaced
 by OOS errors when strict syncing sim-produced replays) is a
@@ -612,12 +624,12 @@ many line-coverage tests.
   runs there; a green CI run certifies a Rust change, and a box is
   needed only for what CI cannot run (CUDA, throughput). The laptop's
   installed wheel is whatever was last installed and lags the source
-  until rebuilt (phase 1 against the source's 31 on 2026-10-08); with a
-  stale wheel `tests/test_game_core.py` skips in full and the other
-  `tests/test_rust_*.py` files skip in part (the suite prints a banner
-  saying so). Check `python -c "import wesnoth_core;
-  print(wesnoth_core.__phase__)"` against lib.rs before believing any
-  local core-on result.
+  until rebuilt (phase 1 against the source's 31 on 2026-10-08). Every
+  rule runs in the core, so a local run tests the installed wheel's
+  Rust: one older than the adapter's phase stops the simulator, and the
+  tests that need it skip or fail (the suite prints a banner saying so).
+  Check `python tools/kernel_status.py` before believing any local
+  result.
   The laptop builds the wheel since 2026-09-28, into the cargo target
   directory Defender excludes (any other directory is refused, "Accès
   refusé", os error 5): from `rust/wesnoth_core`,

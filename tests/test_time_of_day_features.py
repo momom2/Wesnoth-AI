@@ -109,31 +109,6 @@ def test_an_old_checkpoint_observes_what_it_always_did():
     assert torch.allclose(encoder.global_proj(day), encoder.global_proj(night))
 
 
-def test_a_stale_wheel_is_refused_rather_than_silently_narrow(monkeypatch):
-    """A kernel from before the widths changed composes six globals
-    where the encoder expects eight. numpy would broadcast or raise far
-    from the cause, so the phase is checked and the Python builders
-    take over."""
-    from tools import pathfind_sim
-
-    class _Stale:
-        __phase__ = enc_mod._ENCODE_KERNEL_PHASE - 1
-
-        @staticmethod
-        def encode_raw_streams(*a, **k):
-            raise AssertionError("the stale kernel must not be called")
-
-    monkeypatch.setattr(pathfind_sim, "_RUST", _Stale)
-    monkeypatch.setattr(enc_mod, "_warned_stale_kernel", False)
-    assert enc_mod._rust_encode_kernel() is None
-
-    class _Current(_Stale):
-        __phase__ = enc_mod._ENCODE_KERNEL_PHASE
-
-    monkeypatch.setattr(pathfind_sim, "_RUST", _Current)
-    assert enc_mod._rust_encode_kernel() is not None
-
-
 def test_a_stale_core_is_refused_at_the_point_of_encoding():
     """GameCore's own gate accepts any wheel from phase 7, but only
     phase 11 emits the time-of-day globals. A narrower core must fail

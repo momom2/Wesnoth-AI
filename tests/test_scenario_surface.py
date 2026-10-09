@@ -54,7 +54,10 @@ def test_every_modelled_entry_names_a_reader_that_reads_it(manifest):
 def test_a_reader_that_does_not_read_its_attribute_is_caught(manifest):
     """The 2026-09-23 audit found entries bound to real functions that do
     not read them; rebinding one to its old reader must be caught."""
-    pair, wrong_reader = "scenario/event/unit.variation", "tools/traits.py:roll_traits"
+    pair = "scenario/event/unit.variation"
+    assert manifest["pairs"][pair]["reader"] == "rust/wesnoth_core/src/events.rs:unit_action"
+    wrong_reader = "rust/wesnoth_core/src/events.rs:gold_action"
+    assert ss.reader_source(*wrong_reader.split(":")) is not None
     bound_wrong = copy.deepcopy(manifest)
     bound_wrong["pairs"][pair] = {"classification": "MODELLED",
                                   "reader": wrong_reader, "why": ""}

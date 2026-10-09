@@ -25,9 +25,10 @@ Masking rules (shared between the two paths):
     all-invalid actor would make every action a no-op.
   - Target hex mask per actor:
       * Unit actor MOVE: TRUE single-turn reachability from the
-        acting side's observable state, via the shared Wesnoth-
-        default planner (tools/pathfind_sim.unit_reach): terrain
-        costs, visible-enemy blocking + ZoC, ally pass-through.
+        acting side's observable state, the Rust core's reach rows
+        (`observe(reach=True)`, the planner `tools/pathfind_sim`
+        routes with): terrain costs, visible-enemy blocking + ZoC,
+        ally pass-through.
         Landing hexes exclude visibly-occupied ones; hexes under
         HIDDEN units stay offered (a human could order that move
         too -- the sim resolves it with Wesnoth's blocked/ambush
@@ -64,7 +65,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from wesnoth_ai.classes import GameState, TerrainModifiers, Unit
+from wesnoth_ai.classes import GameState, Unit
 from wesnoth_ai.combat_oracle import expected_attack_net_damage
 from wesnoth_ai.encoder import EncodedState
 from wesnoth_ai.model import ActorKind, ModelOutput
@@ -1211,168 +1212,6 @@ def _oracle_attack_bias(i, attack_row, u, unit_at, hex_xs, hex_ys,
         type_bias_np[i, UnitActionType.ATTACK] = type_alpha * best_score
 
 
-# numpy bundles for the Rust batch enumeration, keyed by id() of the
-# cached per-type terrain lists (pinned via the stored source ref so
-# ids can't be recycled). Same drop-all backstop as the terrain
-# caches they mirror.
-_RUST_TYPE_CACHE: Dict = {}
-
-
-def _rust_enumerate_rows(encoded, game_state, current_side, U, H,
-                         pos_to_hex, hex_xs, hex_ys, enemy_mask,
-                         reach_ctx, unit_id_to_obj, observation=None):
-    """One Rust call for every unit's move/attack row (docs/
-    rust_port_plan.md phase 2 — the state-granularity boundary the
-    phase-1 marshaling measurement demanded). Returns (move_rows,
-    attack_rows) as bool [U, H] arrays, or None when the fast path
-    doesn't apply (WESNOTH_RUST=0 or no wheel, a wheel too old for the
-    kernel, relevant-set stream — its debug invariant lives on the
-    Python path — or no acting units)."""
-    from tools import pathfind_sim as _pf
-    if _pf._RUST is None:
-        return None
-    if (observation is not None and observation.landable is not None
-            and observation.tok_of_hex is not None):
-        return _rows_from_observation(observation, encoded, U, H, hex_xs, hex_ys, enemy_mask)
-    enumerate_moves = _pf.enumerate_kernel()
-    if enumerate_moves is None or getattr(encoded, "hex_subset", False):
-        return None
-    eligible = []      # (slot, unit)
-    for i in range(U):
-        u = unit_id_to_obj.get(encoded.unit_ids[i])
-        if (u is None or u.side != current_side
-                or "petrified" in (u.statuses or set())):
-            continue
-        if not (u.current_moves > 0 or not u.has_attacked):
-            continue
-        eligible.append((i, u))
-    if len(eligible) < (1 if observation is not None else 2):
-        # Fixed wrapper overhead (~0.4ms: flag arrays + call) beats
-        # the Python path only when it amortizes over units
-        # (measured 2026-08-30: 1-unit fresh state 0.47ms python vs
-        # 0.85ms rust; 3-unit midgame 3.28ms vs 0.73ms). With the
-        # observation the flags are ready-made and the call is cheap.
-        return None
-
-    type_key_to_row: Dict[int, int] = {}
-    type_bundles = []  # (mcost_np, dsub_np)
-    unit_rows = []     # per eligible unit: type row
-    base = None        # (pos_to_idx, positions, nbrs_flat_np)
-    for _, u in eligible:
-        arrs = _pf._terrain_arrays_for(u, game_state)
-        pos_to_idx, positions, nbrs, mcost, dsub = arrs
-        if base is None:
-            bundle = _RUST_TYPE_CACHE.get(id(nbrs))
-            if bundle is None or bundle[0] is not nbrs:
-                flat = np.fromiter(
-                    (n for row in nbrs for n in row),
-                    dtype=np.int64, count=len(positions) * 6)
-                bundle = (nbrs, flat)
-                if len(_RUST_TYPE_CACHE) > 1024:
-                    _RUST_TYPE_CACHE.clear()
-                _RUST_TYPE_CACHE[id(nbrs)] = bundle
-            base = (pos_to_idx, positions, bundle[1])
-        row = type_key_to_row.get(id(mcost))
-        if row is None:
-            tb = _RUST_TYPE_CACHE.get(id(mcost))
-            if tb is None or tb[0] is not mcost:
-                tb = (mcost,
-                      np.asarray(mcost, dtype=np.int64),
-                      np.asarray(dsub, dtype=np.int64))
-                if len(_RUST_TYPE_CACHE) > 1024:
-                    _RUST_TYPE_CACHE.clear()
-                _RUST_TYPE_CACHE[id(mcost)] = tb
-            row = len(type_bundles)
-            type_bundles.append((tb[1], tb[2]))
-            type_key_to_row[id(mcost)] = row
-        unit_rows.append(row)
-
-    pos_to_idx, positions, nbrs_flat = base
-    Hm = len(positions)
-    # tok_of_hex is a pure function of (map ordering, token
-    # ordering); both are stable for one EncodedState — cache on it
-    # (mask builds repeat per encoded state in reforward paths).
-    tok_of_hex = getattr(encoded, "_rust_tok_of_hex", None)
-    if tok_of_hex is None or tok_of_hex.shape[0] != Hm:
-        tok_of_hex = np.full(Hm, -1, dtype=np.int64)
-        for pos, j in pos_to_hex.items():
-            mi = pos_to_idx.get(pos)
-            if mi is not None:
-                tok_of_hex[mi] = j
-        try:
-            encoded._rust_tok_of_hex = tok_of_hex
-        except Exception:  # noqa: BLE001 -- frozen dataclass: skip
-            pass
-
-    def _flags(coords) -> np.ndarray:
-        a = np.zeros(Hm, dtype=np.uint8)
-        for p in coords:
-            mi = pos_to_idx.get(p)
-            if mi is not None:
-                a[mi] = 1
-        return a
-
-    if observation is not None:
-        # The kernel's flags, map space = these positions (both follow
-        # gs.map.hexes; wesnoth_ai/observe.py).
-        zoc_a, enemy_a, ally_a, occ_a = (observation.zoc, observation.enemy,
-                                         observation.ally, observation.occupied)
-        if len(occ_a) != Hm:
-            return None
-    else:
-        zoc_a = _flags(reach_ctx.zoc_hexes)
-        enemy_a = _flags(reach_ctx.enemy_hexes)
-        ally_a = _flags(reach_ctx.ally_hexes)
-        occ_a = _flags(reach_ctx.occupied_visible)
-
-    unit_hexidx = np.full(U, -1, dtype=np.int64)
-    unit_type = np.zeros(U, dtype=np.int64)
-    unit_budget = np.zeros(U, dtype=np.int64)
-    unit_skirm = np.zeros(U, dtype=np.uint8)
-    unit_can_move = np.zeros(U, dtype=np.uint8)
-    unit_can_attack = np.zeros(U, dtype=np.uint8)
-    for (i, u), trow in zip(eligible, unit_rows):
-        mi = pos_to_idx.get((u.position.x, u.position.y))
-        if mi is None:
-            return None      # unit off the terrain map: bail to Python
-        unit_hexidx[i] = mi
-        unit_type[i] = trow
-        unit_budget[i] = int(u.current_moves)
-        unit_skirm[i] = 1 if "skirmisher" in (u.abilities or set()) else 0
-        unit_can_move[i] = 1 if u.current_moves > 0 else 0
-        unit_can_attack[i] = 0 if u.has_attacked else 1
-
-    enemy_hexids = []
-    for j in np.where(enemy_mask)[0]:
-        mi = pos_to_idx.get((int(hex_xs[j]), int(hex_ys[j])))
-        if mi is not None:
-            enemy_hexids.append(mi)
-    enemy_hexids = np.asarray(enemy_hexids, dtype=np.int64)
-
-    # The concatenated per-type stacks are stable for a given army
-    # composition on a given map — cache by the id-tuple of the
-    # source lists (pinned via type_bundles' array refs inside).
-    _stack_key = ("stack",) + tuple(type_key_to_row)
-    _stacked = _RUST_TYPE_CACHE.get(_stack_key)
-    if _stacked is None:
-        tm = np.concatenate([b[0] for b in type_bundles]) \
-            if type_bundles else np.zeros(0, dtype=np.int64)
-        td = np.concatenate([b[1] for b in type_bundles]) \
-            if type_bundles else np.zeros(0, dtype=np.int64)
-        if len(_RUST_TYPE_CACHE) > 1024:
-            _RUST_TYPE_CACHE.clear()
-        _RUST_TYPE_CACHE[_stack_key] = _stacked = (
-            tuple(type_bundles), tm, td)
-    tm, td = _stacked[1], _stacked[2]
-    mv, at = enumerate_moves(
-        nbrs_flat, tok_of_hex, tm, td,
-        unit_hexidx, unit_type, unit_budget, unit_skirm,
-        unit_can_move, unit_can_attack,
-        zoc_a, enemy_a, ally_a, occ_a, enemy_hexids, H)
-    return (mv.reshape(U, H).astype(bool),
-            at.reshape(U, H).astype(bool))
-
-
 def _rows_from_observation(observation, encoded, U, H, hex_xs, hex_ys, enemy_mask):
     """The move/attack rows in token space from the observation's
     landable rows (wesnoth_ai/observe.py, `observe(reach=True)`): the
@@ -1380,10 +1219,7 @@ def _rows_from_observation(observation, encoded, U, H, hex_xs, hex_ys, enemy_mas
     carries the rows into the basis the observation's `tok_of_hex`
     names (the full board or the relevant subset) and finds the
     attackable enemies there."""
-    from wesnoth_ai.observe import kernel_rows_from_reach
-    fn = kernel_rows_from_reach()
-    if fn is None:
-        return None
+    from wesnoth_core import rows_from_reach
     geom = observation.geometry
     Hm = len(geom.keys)
     obs_index = {uid: k for k, uid in enumerate(observation.unit_ids)}
@@ -1404,8 +1240,8 @@ def _rows_from_observation(observation, encoded, U, H, hex_xs, hex_ys, enemy_mas
         mi = geom.pos_index.get((int(hex_xs[j]), int(hex_ys[j])))
         if mi is not None:
             enemy_hexids.append(mi)
-    mv, at = fn(landable.reshape(-1), geom.nbrs, observation.tok_of_hex, unit_hexidx,
-                can_move, can_attack, np.asarray(enemy_hexids, dtype=np.int64), H)
+    mv, at = rows_from_reach(landable.reshape(-1), geom.nbrs, observation.tok_of_hex, unit_hexidx,
+                             can_move, can_attack, np.asarray(enemy_hexids, dtype=np.int64), H)
     return (np.asarray(mv).reshape(U, H).astype(bool),
             np.asarray(at).reshape(U, H).astype(bool))
 
@@ -1486,193 +1322,41 @@ def _build_legality_masks(
     # "what the policy can validly attempt given the information
     # it has observed."
     #
-    # Visible-set is computed once and used for both the unit_at
-    # dict (combat-oracle priors below need actual enemy refs;
-    # we only emit refs for visible enemies) and the occupancy
-    # array. Hidden enemies don't appear in either.
-    #
-    # Optimization #3 (2026-06-14): reuse the visible set the ENCODER
-    # already computed (stashed on EncodedState.visible_unit_ids,
-    # keyed by stable u.id) instead of calling units_visible_to a
-    # second time per decision. Falls back to the independent
-    # recompute (keyed by python id()) when the field is absent --
-    # hand-built EncodedState / tests -- so behavior is unchanged
-    # there. Both paths identify the same hidden enemies.
-    # The encoder's observation (wesnoth_ai/observe.py, the Rust
-    # kernel): occupancy, the reach context and the recruit network
-    # come from its map-space arrays instead of the passes below.
-    observation = getattr(encoded, "observation", None)
-    if observation is not None:
-        occupancy, unit_at = _occupancy_from_observation(
-            observation, encoded, pos_to_hex, H, game_state, current_side,
-            need_units=bool(target_alpha or type_alpha))
-        visible_unit_ids = None
-        _use_obj_id = False
-    elif encoded.visible_unit_ids is not None:
-        visible_unit_ids = encoded.visible_unit_ids   # by u.id
-        _use_obj_id = False
-    else:
-        from wesnoth_ai.visibility import units_visible_to as _units_visible_to
-        visible_unit_ids = {id(u) for u in _units_visible_to(
-            game_state, current_side)}
-        _use_obj_id = True
-    if observation is None:
-        occupancy = np.zeros(H, dtype=np.int8)
-        unit_at = {}
-    for u in (game_state.map.units if observation is None else ()):
-        _vis_key = id(u) if _use_obj_id else u.id
-        if u.side != current_side and _vis_key not in visible_unit_ids:
-            # Hidden enemy: leave occupancy=0 and DON'T add to
-            # unit_at. The hex looks empty to the legality mask;
-            # the policy may attempt to move into it, and the walk
-            # then stops next to the unit and reveals it
-            # (pathfind_sim.walk_move_path).
-            continue
-        key = (u.position.x, u.position.y)
-        unit_at[key] = u
-        j = pos_to_hex.get(key)
-        if j is None:
-            continue
-        from wesnoth_ai.visibility import is_scenery_unit
-        if is_scenery_unit(u):
-            # Statues AND attackless scenery-side objects: occupy
-            # the hex, never attackable. Checked BEFORE the own-side
-            # branch so a petrified unit on the side to move is
-            # inert too, matching the encoder. Armed side>=3
-            # combatants (tentacles) fall through to occupancy 2:
-            # attackable enemies (2026-07-14).
-            occupancy[j] = 3
-        elif u.side == current_side:
-            occupancy[j] = 1
-        else:
-            occupancy[j] = 2
-
+    # The side's observation (wesnoth_ai/observe.py, from the Rust
+    # core) gives the occupancy, the visible units (the combat-oracle
+    # priors need the enemy objects), each acting unit's landable row
+    # and the recruit network, all in map space. The sim's
+    # `_action_to_command` plans on the same core's reach, which is what
+    # makes "mask offers it => sim can route it" hold.
+    observation = _observation_with_reach(encoded, game_state, current_side)
+    occupancy, unit_at = _occupancy_from_observation(
+        observation, encoded, pos_to_hex, H, game_state, current_side,
+        need_units=bool(target_alpha or type_alpha))
     enemy_mask = occupancy == 2
 
     unit_id_to_obj = {u.id: u for u in game_state.map.units}
-
-    # Shared observable-state reach context for this decision: built
-    # from the SAME `unit_at` visibility classification the rest of
-    # the mask uses, so mask-internal state can't diverge. The sim's
-    # `_action_to_command` rebuilds the equivalent context via
-    # `ReachContext.for_side` on the same observable state, which is
-    # what makes "mask offers it => sim can route it" hold.
-    from tools.abilities import hex_neighbors as _hex_neighbors
-    from tools.pathfind_sim import ReachContext, emits_zoc, unit_reach
-    reach_ctx = ReachContext(
-        side=current_side,
-
-    )
-    if observation is not None:
-        # Built only if a unit falls back to the Python reach below.
-        _reach_ctx_filled = False
-    else:
-        _reach_ctx_filled = True
-        for _pos, _uu in unit_at.items():
-            reach_ctx.occupied_visible.add(_pos)
-            if _uu.side == current_side:
-                # Own-side units are pass-through regardless of state
-                # (pathfind.cpp:777-786 keys on is_enemy only).
-                reach_ctx.ally_hexes.add(_pos)
-                continue
-            reach_ctx.enemy_hexes.add(_pos)
-            if emits_zoc(_uu):
-                reach_ctx.zoc_hexes.update(_hex_neighbors(_pos[0], _pos[1]))
-
-    # Rust batch enumeration (phase 2): all units' move/attack rows
-    # in one call; None = Python path (no wheel / relevant-set).
-    _rust_rows = _rust_enumerate_rows(
-        encoded, game_state, current_side, U, H, pos_to_hex,
-        hex_xs, hex_ys, enemy_mask, reach_ctx, unit_id_to_obj,
-        observation=observation)
-    if _rust_rows is None and not _reach_ctx_filled:
-        _fill_reach_context(reach_ctx, observation)
+    move_rows, attack_rows = _rows_from_observation(
+        observation, encoded, U, H, hex_xs, hex_ys, enemy_mask)
 
     # ----- Unit actors (slots 0..U-1) -----
     for i in range(U):
-        uid = encoded.unit_ids[i]
-        u = unit_id_to_obj.get(uid)
+        u = unit_id_to_obj.get(encoded.unit_ids[i])
         if (u is None or u.side != current_side
                 or "petrified" in (u.statuses or set())):
             continue
-        can_move   = u.current_moves > 0
-        can_attack = not u.has_attacked
-        if not (can_move or can_attack):
+        if not (u.current_moves > 0 or not u.has_attacked):
             continue
-        ux, uy = u.position.x, u.position.y
-
-        if _rust_rows is not None:
-            # Batch-enumerated rows (identical semantics; certified
-            # by tests/test_rust_enumerate.py differential runs).
-            move_row = _rust_rows[0][i]
-            attack_row = _rust_rows[1][i]
-            if can_attack and attack_row.any() and (target_alpha or type_alpha):
-                _oracle_attack_bias(
-                    i, attack_row, u, unit_at, hex_xs, hex_ys,
-                    target_alpha, type_alpha, attack_bias_np,
-                    type_bias_np)
-            _finish = True
-        else:
-            _finish = False
-        # TRUE single-turn reachability via the shared Wesnoth-
-        # default planner (tools/pathfind_sim), replacing the old
-        # crow-flies `dist <= moves` approximation -- which offered
-        # hexes across impassable terrain / through ZoC that the
-        # unit could never reach, and whose failed orders used to
-        # burn the whole turn. `landable` = hexes this unit can END
-        # a move order on given the acting side's observable state.
-        if not _finish and _rust_rows is not None:
-            # The kernel path enumerated every eligible slot; a slot
-            # it skipped (a unit off the terrain map) needs the
-            # Python reach and the context sets.
-            if not _reach_ctx_filled:
-                _fill_reach_context(reach_ctx, observation)
-                _reach_ctx_filled = True
-        reach = None if _finish else unit_reach(u, game_state,
-                                                reach_ctx)
-
-        # Type-conditional target masks. UNIT actors split their
-        # legal targets across ATTACK (enemies with a reachable
-        # adjacent landing hex, or already adjacent) and MOVE
-        # (landable hexes).
-        if not _finish:
-            move_row   = np.zeros(H, dtype=bool)
-            attack_row = np.zeros(H, dtype=bool)
-        if not _finish and can_move:
-            for _lpos in reach.landable:
-                _j = pos_to_hex.get(_lpos)
-                # Under the RELEVANT-SUBSET hex stream a miss is a hard
-                # error, not an off-board coordinate: the mask is offering a
-                # destination that has no token to point at, i.e. the action
-                # space silently shrank. Full-board mode legitimately misses
-                # (off-board neighbours), so the check is gated on the
-                # marker. See docs/archive/autonomous_run.md cycles 16-19.
-                assert not (__debug__ and getattr(encoded, "hex_subset", False)
-                            and _j is None), (
-                    f"relevant-set gap: landable hex {_lpos} is mask-valid "
-                    f"but absent from the hex stream")
-                if _j is not None:
-                    move_row[_j] = True
-        if not _finish and can_attack:
-            # An enemy is attackable iff the unit is ALREADY adjacent
-            # or can LAND on a hex adjacent to it this turn (the
-            # move-to-attack normalization in WesnothSim.step then
-            # routes the approach). Replaces `dist <= moves + 1`,
-            # which ignored path obstructions entirely.
-            _attack_positions = {(ux, uy)}
-            if can_move:
-                _attack_positions |= reach.landable
-            for _j in np.where(enemy_mask)[0]:
-                _ex, _ey = int(hex_xs[_j]), int(hex_ys[_j])
-                for _n in _hex_neighbors(_ex, _ey):
-                    if _n in _attack_positions:
-                        attack_row[_j] = True
-                        break
-            if attack_row.any() and (target_alpha or type_alpha):
-                _oracle_attack_bias(
-                    i, attack_row, u, unit_at, hex_xs, hex_ys,
-                    target_alpha, type_alpha, attack_bias_np,
-                    type_bias_np)
+        # An enemy is attackable iff the unit is ALREADY adjacent or
+        # can LAND on a hex adjacent to it this turn (the
+        # move-to-attack normalization in WesnothSim.step then routes
+        # the approach).
+        move_row = move_rows[i]
+        attack_row = attack_rows[i]
+        if attack_row.any() and (target_alpha or type_alpha):
+            _oracle_attack_bias(
+                i, attack_row, u, unit_at, hex_xs, hex_ys,
+                target_alpha, type_alpha, attack_bias_np,
+                type_bias_np)
 
         # Per-type legality + union into legacy target_valid_np.
         if attack_row.any():
@@ -1687,7 +1371,7 @@ def _build_legality_masks(
             actor_valid_np[i] = 1.0
 
     # ----- Recruit actors (slots U..U+R-1) -----
-    if R > 0 and observation is not None:
+    if R > 0:
         recruit_hex_row = _row_from_map(observation.recruit_row, observation, pos_to_hex, H)
         if observation.leader_on_keep and recruit_hex_row.any():
             side_gold = 0
@@ -1707,80 +1391,6 @@ def _build_legality_masks(
                 a = U + r_off
                 target_valid_np[a] = recruit_hex_row.astype(np.float32)
                 actor_valid_np[a] = 1.0
-    elif R > 0:
-        leader = next(
-            (u for u in game_state.map.units
-             if u.side == current_side and u.is_leader),
-            None,
-        )
-        leader_on_keep = False
-        if leader is not None:
-            lhex_idx = pos_to_hex.get((leader.position.x, leader.position.y))
-            if lhex_idx is not None:
-                # Pull the actual Hex to inspect modifiers.
-                lhex = next(
-                    (h for h in game_state.map.hexes
-                     if h.position.x == leader.position.x
-                     and h.position.y == leader.position.y),
-                    None,
-                )
-                if lhex is not None and TerrainModifiers.KEEP in lhex.modifiers:
-                    leader_on_keep = True
-
-        if leader_on_keep and leader is not None:
-            # Side gold for affordability gating. Slots whose unit
-            # type costs more than this side's current gold get
-            # actor_valid=0; the policy never wastes a decision on an
-            # unaffordable recruit.
-            side_gold = 0
-            side_idx = current_side - 1
-            if 0 <= side_idx < len(game_state.sides):
-                side_gold = int(game_state.sides[side_idx].current_gold)
-            # Per-turn rejection history (per the CLAUDE.md
-            # legality-mask contract): hexes a previous recruit
-            # attempt bounced on this turn. Subtracted from the
-            # recruit hex mask so the policy can't re-attempt the
-            # same fog-occupied hex within the turn. Cleared at
-            # init_side, so next turn the hex is available again.
-            rejected = (
-                getattr(game_state.global_info,
-                        "_recruit_rejected_hexes", None) or set()
-            )
-            recruit_hex_row = _recruit_hex_mask(
-                game_state, pos_to_hex, unit_at, leader, H,
-                rejected_hexes=rejected,
-                hex_subset=getattr(encoded, "hex_subset", False),
-            )
-            if recruit_hex_row.any():
-                # Prefer the zero-copy numpy view the encoder
-                # stashed at encode time (`recruit_is_ours_np`);
-                # fall back to a device hop for callers that build
-                # EncodedState by hand without setting the field.
-                if encoded.recruit_is_ours_np is not None:
-                    recruit_is_ours_np = encoded.recruit_is_ours_np
-                else:
-                    recruit_is_ours_np = (
-                        encoded.recruit_is_ours.detach().cpu().numpy()[0]
-                    )
-                # Lazy import to avoid a circular dep at module-load
-                # time (action_sampler is imported from many places
-                # and tools/wesnoth_sim ultimately imports
-                # action_sampler too).
-                from tools.wesnoth_sim import _recruit_cost_for
-                for r_off in range(R):
-                    if recruit_is_ours_np[r_off] == 0:
-                        continue
-                    unit_type = encoded.recruit_types[r_off]
-                    cost = _recruit_cost_for(unit_type)
-                    if cost > side_gold:
-                        # Unaffordable -- mask off entirely.
-                        # actor_valid_np[a] stays 0 and target row
-                        # all zeros.
-                        continue
-                    a = U + r_off
-                    target_valid_np[a] = recruit_hex_row.astype(np.float32)
-                    actor_valid_np[a] = 1.0
-
     return LegalityMasks(
         actor_valid  = torch.from_numpy(actor_valid_np).to(device).unsqueeze(0),
         target_valid = torch.from_numpy(target_valid_np).to(device),
@@ -1792,6 +1402,27 @@ def _build_legality_masks(
     )
 
 
+def _observation_with_reach(encoded, game_state: GameState, side: int):
+    """The encoding's observation when it carries the acting units'
+    landable rows (the relevant-set basis), else the side's observation
+    with them from the core that answers for the state
+    (`game_core.core_for`), in the encoding's token space."""
+    observation = getattr(encoded, "observation", None)
+    if (observation is not None and observation.landable is not None
+            and observation.tok_of_hex is not None):
+        return observation
+    from wesnoth_ai.game_core import core_for
+    full = core_for(game_state).observe(side, reach=True)
+    if observation is not None and observation.tok_of_hex is not None:
+        full.tok_of_hex = observation.tok_of_hex
+    else:
+        tok_of_hex = np.full(len(full.geometry.keys), -1, dtype=np.int64)
+        for pos, j in encoded.pos_to_hex.items():
+            mi = full.geometry.pos_index.get(pos)
+            if mi is not None:
+                tok_of_hex[mi] = j
+        full.tok_of_hex = tok_of_hex
+    return full
 
 
 def _row_from_map(row_map: np.ndarray, observation, pos_to_hex, H: int) -> np.ndarray:
@@ -1830,58 +1461,3 @@ def _occupancy_from_observation(observation, encoded, pos_to_hex, H, game_state,
             if u.id in visible:
                 unit_at[(u.position.x, u.position.y)] = u
     return occupancy, unit_at
-
-
-def _fill_reach_context(reach_ctx, observation) -> None:
-    """The coordinate sets of the Python reach from the kernel's flags."""
-    keys = observation.geometry.keys
-    for arr, target in ((observation.occupied, reach_ctx.occupied_visible),
-                        (observation.enemy, reach_ctx.enemy_hexes),
-                        (observation.ally, reach_ctx.ally_hexes),
-                        (observation.zoc, reach_ctx.zoc_hexes)):
-        target.update(map(keys.__getitem__, np.nonzero(arr)[0].tolist()))
-
-
-def _recruit_hex_mask(
-    game_state: GameState,
-    pos_to_hex: Dict[Tuple[int, int], int],
-    unit_at:    Dict[Tuple[int, int], Unit],
-    leader:     Unit,
-    H:          int,
-    *,
-    rejected_hexes: Optional[set] = None,
-    hex_subset: bool = False,
-) -> np.ndarray:
-    """Compute [H] bool mask of hexes that form the leader's castle
-    network AND are visibly empty AND haven't been rejected this turn.
-    BFS through CASTLE/KEEP modifiers starting at the leader's keep.
-
-    Per the legality-mask contract (CLAUDE.md): a hex is "legal" iff
-    it can be VALIDLY ATTEMPTED given the policy's observable state.
-    Visible occupancy excludes hexes our units stand on. Rejection
-    history (`rejected_hexes`, scoped to current turn) excludes
-    hexes a prior attempt bounced -- prevents within-turn looping
-    on the same fog-hidden enemy. Both clear at the right boundary:
-    visible occupancy when our unit moves; rejection history at
-    init_side.
-
-    Fog hexes ARE legal (the model can attempt; bounce-on-fog is
-    handled by the harness retry loop, not the mask).
-    """
-    rejected_hexes = rejected_hexes or set()
-    from wesnoth_ai.visibility import leader_castle_network
-    _on_keep, network = leader_castle_network(game_state, leader)
-    valid = {
-        pos for pos in network
-        if pos not in unit_at and pos not in rejected_hexes
-    }
-
-    mask = np.zeros(H, dtype=bool)
-    for (x, y) in valid:
-        j = pos_to_hex.get((x, y))
-        assert not (__debug__ and hex_subset and j is None), (
-            f"relevant-set gap: recruit hex {(x, y)} is mask-valid but "
-            f"absent from the hex stream")
-        if j is not None:
-            mask[j] = True
-    return mask

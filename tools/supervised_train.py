@@ -349,14 +349,10 @@ def _pair_stream_serial(
         n = 0
         try:
             if rng is not None and max_pairs_per_replay:
-                # On the Python applier iter_replay_pairs yields ONE
-                # GameState object, mutated in place as the replay
-                # advances -- buffered entries MUST be copied or the
-                # whole reservoir collapses onto the final state (caught
-                # 2026-08-25: every sampled game read as one-sided,
-                # n_auc_games 0/150). snapshot_view copies a core's view
-                # as a view of a fork, which the encoder encodes through
-                # the core.
+                # A buffered entry is a copy of its pair's state
+                # (snapshot_view: a view of a fork of its core, which the
+                # encoder encodes through the core), so the reservoir
+                # never shares state with the walk that goes on.
                 buf: List[Tuple] = []
                 seen = 0
                 for state, ai in iter_replay_pairs(

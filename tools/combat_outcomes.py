@@ -1,58 +1,51 @@
 """Exact combat-outcome enumeration for MCTS chance nodes (Tier 1)
 and exact counter-weapon selection (`choose_counter_weapon`).
 
-A view bound to the Rust core (`game_core.bind_view`: the simulator's
-state, reconstruction's snapshots) is answered by the core
-(rust/wesnoth_core/src/outcomes.rs, the same DP, rules and float
-operations; tests/test_rust_outcomes.py compares the two exactly); the
-code below answers any other state and is the core's oracle until the
-Python applier's retirement (docs/rust_core_port_20260928.md).
+The Rust core answers both (rust/wesnoth_core/src/outcomes.rs) for the
+core behind a state (`game_core.core_for`: the core a view is bound
+to, or one built from a state no core stands behind).
 
-Mirrors Wesnoth's own attack-prediction approach (see
+The enumeration mirrors Wesnoth's own attack-prediction approach (see
 docs/wesnoth_rules.md "Combat-outcome prediction": a sparse DP over
-(attacker_hp, defender_hp) with slow-state planes), but implemented
-over OUR combat semantics: the per-strike transition function below
-is a probability-space transcription of `combat._perform_hit` /
-`combat.resolve_attack`, and all fight parameters come from the SAME
-`replay_dataset.build_attack_context` + `combat._compute_battle_stats`
-the bit-exact resolver uses -- parameter drift is impossible by
-construction. test_combat_outcomes.py additionally cross-checks the
-DP against empirical distributions from salted sim sampling.
+(attacker_hp, defender_hp) with slow-state planes) over the core's
+combat semantics: the per-strike transition is a probability-space
+transcription of the fight the core plays, with the same fight
+parameters, so parameter drift is impossible by construction.
+test_combat_outcomes.py cross-checks the DP against empirical
+distributions from salted sim sampling.
 
-The counter-weapon chooser at the bottom is a faithful port of
-`battle_context::choose_defender_weapon` (1.18.4 attack.cpp),
-reusing the same DP to stand in for the engine's combatant
-simulation; it decides which weapon a defender retaliates with for
-every sim-originated attack.
+The counter-weapon chooser is a faithful port of
+`battle_context::choose_defender_weapon` (1.18.4 attack.cpp), reusing
+the same DP to stand in for the engine's combatant simulation; it
+decides which weapon a defender retaliates with for every
+sim-originated attack.
 
 Where the engine truncates (berserk rounds at 99% dead mass) or
-switches to Monte-Carlo (fight_complexity > 50,000), we instead
-return None and let the chance-node machinery keep sampling through
+switches to Monte-Carlo (fight_complexity > 50,000), the DP instead
+returns None and lets the chance-node machinery keep sampling through
 the real sim -- the caller's fallback IS Monte-Carlo, so no second
 implementation is needed.
 
-Outcome key: (a_hp, d_hp, a_slowed, d_slowed, a_poisoned, d_poisoned)
-with a dead unit's flags canonicalized to False. Everything else the
-fight determines (XP, plague corpse spawn, death) is a deterministic
-function of the key given the pre-fight state, so the key uniquely
-identifies the successor game state. Fights that could trigger an
-ADVANCEMENT are refused (return None): the advanced unit's HP would
-diverge from the DP's accounting, so those fall back to sampling.
+Outcome key: (a_hp, d_hp, a_slowed, d_slowed, a_poisoned, d_poisoned,
+a_petrified, d_petrified, a_type, d_type) with a dead unit's flags
+canonicalized to False. Everything else the fight determines (XP,
+plague corpse spawn, death) is a deterministic function of the key
+given the pre-fight state, so the key uniquely identifies the
+successor game state. Without an advancement choice, fights that could
+trigger an ADVANCEMENT are refused (return None).
 """
 from __future__ import annotations
 
 import logging
-import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from wesnoth_ai import combat as cb
 from wesnoth_ai.classes import GameState, Unit
 
 log = logging.getLogger("combat_outcomes")
@@ -65,36 +58,6 @@ log = logging.getLogger("combat_outcomes")
 # HP collides; "" for a dead (absent) unit. Constant for non-advancement
 # fights, so they don't split those outcomes.
 OutcomeKey = Tuple[int, int, bool, bool, bool, bool, bool, bool, str, str]
-
-# Bail-out caps. The engine's threshold is on a different quantity
-# (hp_a * hp_b * slow planes > 50,000); ours bound the actual DP
-# work: live cells per step and total strike-events (berserk rounds
-# multiply the schedule). Typical fights: <= ~40 cells, <= 10 events.
-MAX_DP_STATES = 4096
-MAX_SCHEDULE  = 512
-
-# Probabilities below this are dropped and the rest renormalized --
-# the engine's round_prob_if_close_to_sure analog (it snaps at 1e-9;
-# we are slightly more lenient because our consumers renormalize).
-PROB_EPSILON = 1e-12
-
-
-def float_sum(values: Iterable[float]) -> float:
-    """CPython's `sum()` of floats since 3.12, on any interpreter: Neumaier's
-    compensated summation, the compensation added at the end. Python 3.11's
-    `sum()` adds left to right and can differ in the last bits; the core
-    copies 3.12's (rust/wesnoth_core/src/outcomes.rs `py_sum`)."""
-    total = compensation = 0.0
-    for x in values:
-        t = total + x
-        if abs(total) >= abs(x):
-            compensation += (total - t) + x
-        else:
-            compensation += (x - t) + total
-        total = t
-    if compensation and math.isfinite(compensation):
-        total += compensation
-    return total
 
 
 @dataclass
@@ -111,8 +74,8 @@ def _canonical(key: OutcomeKey) -> OutcomeKey:
     """Zero a dead unit's status flags: the unit is gone, so its
     slow/poison/petrified state is meaningless and must not split
     outcomes. (A killing blow with the petrifies special is a death,
-    never a petrify -- see combat._perform_hit_body -- so a_hp<=0 with
-    a_petrified never arises; canonicalizing is a belt-and-braces.)"""
+    never a petrify, so a_hp<=0 with a_petrified never arises;
+    canonicalizing is a belt-and-braces.)"""
     a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_ty, d_ty = key
     if a_hp <= 0:
         a_sl = a_po = a_pe = False
@@ -124,252 +87,10 @@ def _canonical(key: OutcomeKey) -> OutcomeKey:
             a_pe, d_pe, a_ty, d_ty)
 
 
-def _build_schedule(a_stats, d_stats) -> Optional[List[bool]]:
-    """Ordered strike events (True = attacker strikes), mirroring
-    `resolve_attack`'s loop exactly: alternate attacker/defender
-    while either has strikes left, defender first only on
-    firststrike, berserk refills both sides `rounds`-1 times."""
-    defender_first = (
-        d_stats is not None
-        and d_stats.firststrike
-        and not a_stats.firststrike
-    )
-    rounds_left = max(a_stats.rounds,
-                      d_stats.rounds if d_stats else 1) - 1
-    a_n = a_stats.n_attacks
-    d_n = d_stats.n_attacks if d_stats else 0
-    schedule: List[bool] = []
-    while True:
-        if len(schedule) > MAX_SCHEDULE:
-            return None
-        if not defender_first and a_n > 0:
-            schedule.append(True)
-            a_n -= 1
-        defender_first = False
-        if d_n > 0:
-            schedule.append(False)
-            d_n -= 1
-        if rounds_left > 0 and a_n == 0 and d_n == 0:
-            a_n = a_stats.n_attacks
-            d_n = d_stats.n_attacks if d_stats else 0
-            rounds_left -= 1
-            defender_first = (
-                d_stats is not None
-                and d_stats.firststrike
-                and not a_stats.firststrike
-            )
-            continue
-        if a_n <= 0 and d_n <= 0:
-            break
-    return schedule
-
-
-def _max_xp_gain(unit_level: int, opp_level: int) -> int:
-    """The largest XP the unit could gain from this fight: the kill
-    award (combat XP is always smaller). Mirrors resolve_attack's
-    awarding (KILL_EXPERIENCE * level, level-0 special-cased)."""
-    kill = (cb.KILL_EXPERIENCE * opp_level
-            if opp_level else cb.KILL_EXPERIENCE // 2)
-    combat = cb.COMBAT_EXPERIENCE * opp_level
-    return max(kill, combat)
-
-
-# ---------------------------------------------------------------------
-# Shared strike DP
-# ---------------------------------------------------------------------
-# Extended state: OutcomeKey + (a_touched, d_touched). The touched
-# flags exist for the counter-weapon chooser, which needs P(hit at
-# least once) for the engine's poison-probability formula; with
-# track_touched=False they stay False, so outcome enumeration pays
-# no extra states for them.
-# (a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_petrified, d_petrified, a_t, d_t)
-_ExtKey = Tuple[int, int, bool, bool, bool, bool, bool, bool, bool, bool]
-
-
-def _canonical_ext(key: _ExtKey) -> _ExtKey:
-    """Zero a dead unit's status flags (see `_canonical`). Touched
-    flags are kept: death implies the unit was hit, and the chooser's
-    marginals must count that mass."""
-    a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_t, d_t = key
-    if a_hp <= 0:
-        a_sl = a_po = a_pe = False
-    if d_hp <= 0:
-        d_sl = d_po = d_pe = False
-    return (max(0, a_hp), max(0, d_hp), a_sl, d_sl, a_po, d_po,
-            a_pe, d_pe, a_t, d_t)
-
-
-def _strike_dp(
-    a_stats, d_stats, a_cu, d_cu,
-    track_touched: bool = False,
-) -> Optional[Dict[_ExtKey, float]]:
-    """Run the per-strike probability DP over the fight schedule.
-    Returns the final extended-state distribution, or None past the
-    complexity caps (caller falls back to sampling / heuristic)."""
-    schedule = _build_schedule(a_stats, d_stats)
-    if schedule is None:
-        return None
-
-    init: _ExtKey = (
-        a_cu.hp, d_cu.hp,
-        a_cu.is_slowed, d_cu.is_slowed,
-        a_cu.is_poisoned, d_cu.is_poisoned,
-        a_cu.is_petrified, d_cu.is_petrified,
-        False, False,
-    )
-    states: Dict[_ExtKey, float] = {init: 1.0}
-
-    for attacker_strikes in schedule:
-        new: Dict[_ExtKey, float] = {}
-
-        def _add(key: _ExtKey, p: float) -> None:
-            new[key] = new.get(key, 0.0) + p
-
-        live_mass = 0.0
-        for key, p in states.items():
-            a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe, a_t, d_t = key
-            if a_hp <= 0 or d_hp <= 0 or a_pe or d_pe:
-                _add(key, p)          # fight over (death or petrify): absorb
-                continue
-            live_mass += p
-            if attacker_strikes:
-                st, st_hp, st_sl = a_stats, a_hp, a_sl
-                tg_hp = d_hp
-                tg_cu, st_cu = d_cu, a_cu
-            else:
-                st, st_hp, st_sl = d_stats, d_hp, d_sl
-                tg_hp = a_hp
-                tg_cu, st_cu = a_cu, d_cu
-
-            cth = max(0, min(100, st.cth)) / 100.0
-            # Miss branch.
-            if cth < 1.0:
-                _add(key, p * (1.0 - cth))
-            if cth <= 0.0:
-                continue
-            # Hit branch -- transcription of combat._perform_hit.
-            # Any landed strike marks the target "touched" (the
-            # engine counts hits, not damage, for poison odds).
-            a_t2, d_t2 = a_t, d_t
-            if track_touched:
-                if attacker_strikes:
-                    d_t2 = True
-                else:
-                    a_t2 = True
-            dmg = st.slow_damage if st_sl else st.damage
-            if dmg <= 0:
-                # A hit that deals no damage applies no statuses
-                # either (mirrors the early `return True`).
-                _add((a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe,
-                      a_t2, d_t2),
-                     p * cth)
-                continue
-            tg_hp_new = max(0, tg_hp - dmg)
-            damage_done = tg_hp - tg_hp_new
-            st_hp_new = st_hp
-            if (st.drains and damage_done > 0
-                    and not tg_cu.is_undrainable):
-                heal = (damage_done * st.drain_percent // 100
-                        + st.drain_constant)
-                if heal != 0:
-                    heal = min(heal, st_cu.max_hp - st_hp)
-                    heal = max(heal, 1 - st_hp)
-                    st_hp_new = st_hp + heal
-            # Status application only when the target survives.
-            a_sl2, d_sl2, a_po2, d_po2 = a_sl, d_sl, a_po, d_po
-            a_pe2, d_pe2 = a_pe, d_pe
-            if tg_hp_new > 0:
-                if st.poisons and not tg_cu.is_unpoisonable:
-                    if attacker_strikes:
-                        d_po2 = True
-                    else:
-                        a_po2 = True
-                if st.slows:
-                    if attacker_strikes:
-                        d_sl2 = True
-                    else:
-                        a_sl2 = True
-                # Petrify: a surviving petrifying hit turns the target
-                # to stone and ENDS the fight -- both sides' remaining
-                # strikes forfeit (combat._perform_hit_body sets
-                # is_petrified, n_attacks 0/-1; attack.cpp sets
-                # STATE_PETRIFIED). We only flag it here; the resulting
-                # state is terminal and gets frozen against the rest of
-                # the schedule by the absorb check at the top of the
-                # loop. A KILLING petrify blow is a death, not a petrify
-                # (this block is survive-only) -- matches the engine.
-                if st.petrifies:
-                    if attacker_strikes:
-                        d_pe2 = True
-                    else:
-                        a_pe2 = True
-            if attacker_strikes:
-                nkey = (st_hp_new, tg_hp_new,
-                        a_sl2, d_sl2, a_po2, d_po2, a_pe2, d_pe2, a_t2, d_t2)
-            else:
-                nkey = (tg_hp_new, st_hp_new,
-                        a_sl2, d_sl2, a_po2, d_po2, a_pe2, d_pe2, a_t2, d_t2)
-            _add(_canonical_ext(nkey) if (tg_hp_new <= 0) else nkey,
-                 p * cth)
-
-        states = new
-        if len(states) > MAX_DP_STATES:
-            return None
-        if live_mass <= PROB_EPSILON:
-            break   # everything absorbed; later strikes are no-ops
-
-    return states
-
-
-def _bound_core(gs: GameState):
-    """The Rust core behind a bound view (`game_core.core_of`), or None."""
-    from wesnoth_ai.game_core import core_of
-    cs = core_of(gs)
-    return None if cs is None else cs.core
-
-
-def _side_outcome_branches(gs, unit, cu, hp, sl, po, pe, *,
-                           opp_died, opp_level, opp_unit, choice):
-    """Branches for ONE combatant in a single combat outcome, as
-    {(type_name, hp, slowed, poisoned, petrified): prob}.
-
-    Normally a singleton (the post-combat state). If `choice` is set AND
-    this outcome pushes the survivor across its XP threshold, expands
-    into the advancement chain (advanced type, full HP, statuses
-    cleared), weighted by `choice` -- via
-    replay_dataset.enumerate_advancement_outcomes, which reuses the sim's
-    own advance for bit-exact HP.
-
-    Feeding is modeled to match the sim: a surviving feeder that kills a
-    plagueable opponent gains +1 HP / +1 max HP (data/lua/feeding.lua,
-    on the "die" event -- which fires BEFORE advancement per 1.18.4
-    attack.cpp, so the advanced form's HP includes this kill's bump)."""
-    if hp <= 0:
-        return {("", 0, False, False, False): 1.0}          # dead / absent
-    from tools.replay_dataset import (
-        enumerate_advancement_outcomes, _is_unplagueable, _rebuild_unit)
-    feed = (opp_died and "feeding" in (unit.abilities or set())
-            and opp_unit is not None and not _is_unplagueable(opp_unit))
-    hp_eff = hp + (1 if feed else 0)
-    base = {(unit.name, hp_eff, sl, po, pe): 1.0}
-    if choice is None:
-        return base
-    gain = _kill_xp(opp_level) if opp_died else cb.COMBAT_EXPERIENCE * opp_level
-    xp_after = cu.experience + gain
-    if xp_after < cu.max_experience:
-        return base                                          # no advance here
-    # Post-combat unit for advancement: apply the feed bump (max_hp +1 and
-    # the persistent _feeding_count) so a real advance reads base+count and
-    # an AMLA reads the +1'd max_hp -- exactly as the sim's write-back does.
-    post = unit
-    if feed:
-        post = _rebuild_unit(unit, max_hp=unit.max_hp + 1)
-        setattr(post, "_feeding_count",
-                int(getattr(unit, "_feeding_count", 0) or 0) + 1)
-    adv = enumerate_advancement_outcomes(gs, post, hp_eff, xp_after, choice)
-    # Advancement heals to full and clears poisoned/slowed/petrified.
-    return {(name, fhp, False, False, False): pr
-            for (name, fhp), pr in adv.items()}
+def _core(gs: GameState):
+    """The `wesnoth_core.GameCore` that answers for `gs`."""
+    from wesnoth_ai.game_core import core_for
+    return core_for(gs).core
 
 
 def enumerate_attack_outcomes(
@@ -384,116 +105,25 @@ def enumerate_attack_outcomes(
     should sample instead (complexity caps, missing units, or -- when
     `advancement_choice` is None -- a fight where a unit could advance).
 
-    `advancement_choice` (None = legacy behaviour): "uniform" (matches
-    self-play), a {type_name: prob} dict, or a callable(gs, unit,
-    targets) -> probs (a model head). When set, outcomes crossing an XP
-    threshold are RESOLVED into the advancement chain (new type + full
-    HP), so both the swap detector and MCTS's exact path see advancement
+    `advancement_choice`: None, or "uniform" (matches self-play): an
+    outcome crossing an XP threshold is then RESOLVED into the
+    advancement chain (new type + full HP, each target equally likely),
+    so both the swap detector and MCTS's exact path see advancement
     rather than bailing. Petrify is always modeled exactly."""
-    from tools.replay_dataset import build_attack_context
-
+    if advancement_choice not in (None, "uniform"):
+        raise ValueError(f"advancement_choice is None or 'uniform', not {advancement_choice!r}")
     start = action.get("start_hex")
     target = action.get("target_hex")
     if start is None or target is None:
         return None
-    core = _bound_core(gs)
-    if core is not None and advancement_choice in (None, "uniform"):
-        res = core.attack_outcomes(start.x, start.y, target.x, target.y,
-                                   int(action.get("attack_index", 0)),
-                                   advancement_choice == "uniform")
-        if res is None:
-            return None
-        probs, attacker_id, defender_id = res
-        return OutcomeDistribution(probs=probs, attacker_id=attacker_id,
-                                   defender_id=defender_id)
-    att = next((u for u in gs.map.units
-                if u.position.x == start.x and u.position.y == start.y),
-               None)
-    dfd = next((u for u in gs.map.units
-                if u.position.x == target.x and u.position.y == target.y),
-               None)
-    if att is None or dfd is None:
+    res = _core(gs).attack_outcomes(start.x, start.y, target.x, target.y,
+                                    int(action.get("attack_index", 0)),
+                                    advancement_choice == "uniform")
+    if res is None:
         return None
-
-    # Same counter-weapon resolution the sim applies at
-    # command-build time.
-    a_weapon = int(action.get("attack_index", 0))
-    d_weapon = choose_counter_weapon(gs, att, dfd, a_weapon)
-
-    ctx = build_attack_context(gs, att, dfd, a_weapon, d_weapon)
-    a_stats, d_stats = _stats_pair(ctx)
-    a_cu, d_cu = ctx.att_cu, ctx.dfd_cu
-
-    # Possible advancement: with no advancement_choice, keep the legacy
-    # bail-to-None (MCTS samples, the detector opts in). With a choice,
-    # RESOLVE it in the fold below.
-    a_may_adv = (a_cu.experience + _max_xp_gain(a_cu.level, d_cu.level)
-                 >= a_cu.max_experience)
-    d_may_adv = (d_cu.experience + _max_xp_gain(d_cu.level, a_cu.level)
-                 >= d_cu.max_experience)
-    if advancement_choice is None and (a_may_adv or d_may_adv):
-        return None
-
-    states = _strike_dp(a_stats, d_stats, a_cu, d_cu)
-    if states is None:
-        return None
-
-    # Fold combat states into OutcomeKeys, expanding advancement per
-    # side; canonicalize, drop dust, renormalize.
-    probs: Dict[OutcomeKey, float] = {}
-    for key, p in states.items():
-        if p < PROB_EPSILON:
-            continue
-        a_hp, d_hp, a_sl, d_sl, a_po, d_po, a_pe, d_pe = key[:8]
-        a_hp = max(0, a_hp)
-        d_hp = max(0, d_hp)
-        a_br = _side_outcome_branches(
-            gs, att, a_cu, a_hp, a_sl, a_po, a_pe,
-            opp_died=(d_hp <= 0), opp_level=d_cu.level, opp_unit=dfd,
-            choice=advancement_choice)
-        d_br = _side_outcome_branches(
-            gs, dfd, d_cu, d_hp, d_sl, d_po, d_pe,
-            opp_died=(a_hp <= 0), opp_level=a_cu.level, opp_unit=att,
-            choice=advancement_choice)
-        for (a_ty, ah, asl, apo, ape), pa in a_br.items():
-            for (d_ty, dh, dsl, dpo, dpe), pd in d_br.items():
-                ck = _canonical((ah, dh, asl, dsl, apo, dpo,
-                                 ape, dpe, a_ty, d_ty))
-                probs[ck] = probs.get(ck, 0.0) + p * pa * pd
-    total = float_sum(probs.values())
-    if not probs or total <= 0:
-        return None
-    probs = {k: v / total for k, v in probs.items()}
-    return OutcomeDistribution(
-        probs=probs,
-        attacker_id=att.id,
-        defender_id=dfd.id,
-    )
-
-
-def _stats_pair(ctx) -> Tuple["cb.BattleStats", Optional["cb.BattleStats"]]:
-    """Both sides' BattleStats for an AttackContext (defender None
-    when not retaliating) -- the exact stats resolve_attack uses."""
-    a_stats = cb._compute_battle_stats(
-        ctx.att_cu, ctx.dfd_cu, ctx.a_weapon,
-        ctx.d_weapon if ctx.d_weapon >= 0 else None,
-        ctx.a_lawful, ctx.d_lawful,
-        leadership_bonus=ctx.a_leadership,
-        is_attacker=True,
-        backstab_active=ctx.a_backstab,
-    )
-    d_stats = (
-        cb._compute_battle_stats(
-            ctx.dfd_cu, ctx.att_cu, ctx.d_weapon, ctx.a_weapon,
-            ctx.d_lawful, ctx.a_lawful,
-            leadership_bonus=ctx.d_leadership,
-            is_attacker=False,
-            backstab_active=ctx.d_backstab,
-        )
-        if ctx.d_weapon is not None and ctx.d_weapon >= 0
-        else None
-    )
-    return a_stats, d_stats
+    probs, attacker_id, defender_id = res
+    return OutcomeDistribution(probs=probs, attacker_id=attacker_id,
+                               defender_id=defender_id)
 
 
 def outcome_key_for_child(
@@ -525,238 +155,19 @@ def outcome_key_for_child(
 # ---------------------------------------------------------------------
 # Counter-weapon selection
 # ---------------------------------------------------------------------
-# Port of battle_context::choose_defender_weapon + better_defense /
-# better_combat + calculate_probability_of_debuff, all 1.18.4
-# (src/actions/attack.cpp, src/attack_prediction.cpp; fetched
-# verbatim 2026-06-12). The engine's `combatant` simulation is
-# replaced by our exact strike DP, which yields the same marginals
-# (death probability, average_hp, touched probability).
+# The core's port of battle_context::choose_defender_weapon +
+# better_defense / better_combat + calculate_probability_of_debuff, all
+# 1.18.4 (src/actions/attack.cpp, src/attack_prediction.cpp). The
+# engine's `combatant` simulation is replaced by the exact strike DP,
+# which yields the same marginals (death probability, average_hp,
+# touched probability).
 
-@dataclass
-class _CombatantMarginals:
-    """The combatant-simulation outputs better_combat consumes."""
-    death:    float    # hp_dist[0]
-    avg_hp:   float    # average_hp(0): sum p*hp over alive states
-    poisoned: float    # engine debuff formula, level-up cure applied
-
-
-def _probability_of_debuff(
-    initial_prob:    float,
-    enemy_gives:     bool,
-    prob_touched:    float,
-    prob_stay_alive: float,
-    kill_heals:      bool,
-    prob_kill:       float,
-) -> float:
-    """Verbatim port of `calculate_probability_of_debuff`
-    (1.18.4 src/attack_prediction.cpp): post-fight probability of
-    carrying a debuff, where leveling up on a kill cures it."""
-    prob_touched = max(prob_touched, 0.0)
-    prob_stay_alive = max(prob_stay_alive, 0.0)
-    prob_kill = min(max(prob_kill, 0.0), 1.0)
-
-    prob_already_debuffed_not_touched = initial_prob * (1.0 - prob_touched)
-    prob_already_debuffed_touched = initial_prob * prob_touched
-    prob_initially_healthy_touched = (1.0 - initial_prob) * prob_touched
-
-    prob_survive_if_not_hit = 1.0
-    prob_survive_if_hit = (
-        (prob_stay_alive - (1.0 - prob_touched)) / prob_touched
-        if prob_touched > 0.0 else 1.0)
-    prob_kill_if_survive = (
-        prob_kill / prob_stay_alive if prob_stay_alive > 0.0 else 0.0)
-
-    prob_debuff = 0.0
-    if not kill_heals:
-        prob_debuff += prob_already_debuffed_not_touched
-    else:
-        prob_debuff += (prob_already_debuffed_not_touched
-                        * (1.0 - prob_survive_if_not_hit
-                           * prob_kill_if_survive))
-    if not kill_heals:
-        prob_debuff += prob_already_debuffed_touched
-    else:
-        prob_debuff += (prob_already_debuffed_touched
-                        * (1.0 - prob_survive_if_hit
-                           * prob_kill_if_survive))
-    # "Originally not debuffed, not hit" never debuffs us.
-    if not enemy_gives:
-        pass
-    elif not kill_heals:
-        prob_debuff += prob_initially_healthy_touched
-    else:
-        prob_debuff += (prob_initially_healthy_touched
-                        * (1.0 - prob_survive_if_hit
-                           * prob_kill_if_survive))
-    return prob_debuff
-
-
-def _kill_xp(opp_level: int) -> int:
-    """game_config::kill_xp -- mirrors resolve_attack's award."""
-    return (cb.KILL_EXPERIENCE * opp_level
-            if opp_level else cb.KILL_EXPERIENCE // 2)
-
-
-def _is_one_strike_fight(a_stats, d_stats, a_cu, d_cu) -> bool:
-    """Whether `do_fight` (1.18.4 attack_prediction.cpp:2211-2244)
-    hands this fight to `one_strike_fight` rather than the exact
-    matrix: no slow, drain, petrify or berserk on either side, neither
-    combatant already slowed (a slowed unit starts with a non-empty
-    `summary[1]`, :1693-1698), and at most one strike each.
-
-    The engine's flags are the effective ones (attack.cpp:140-142 and
-    :218): a drain needs an opponent that is not undrainable. The
-    unslowable and unpetrifiable statuses appear only in the engine's
-    own WML test scenarios, so for slow and petrify the weapon special
-    decides."""
-    if a_cu.is_slowed or d_cu.is_slowed:
-        return False
-    sides = [(a_stats, d_cu)] if d_stats is None else [
-        (a_stats, d_cu), (d_stats, a_cu)]
-    for st, opp_cu in sides:
-        drains = st.drains and not opp_cu.is_undrainable
-        if (st.slows or drains or st.petrifies or st.rounds != 1
-                or st.n_attacks > 1):
-            return False
-    return True
-
-
-def _levelup_average_hp(cu, opp_cu, avg_hp: float, avg_hp_on_kill: float,
-                        death: float, kill: float,
-                        one_strike: bool) -> float:
-    """`combatant::average_hp()` once `combatant::fight` has applied the
-    level-up it predicts (`levelup_considered`, true for every
-    prediction `choose_defender_weapon` runs):
-
-      - the fight's XP alone reaches `max_experience`: every surviving
-        outcome is scored at full HP (`forced_levelup`);
-      - only a kill's XP reaches it: the outcomes where the opponent
-        dies are scored at full HP (`conditional_levelup`).
-
-    The matrix path does the second exactly (attack_prediction.cpp:
-    2189-2200, `merge_col` of the opponent's 0-HP column). The
-    one-strike path approximates it (:2038-2048 and :1733-1752): it
-    scales every surviving HP by `1 - kill / P(survive)` and adds the
-    kill probability at full HP, as if the unit's HP and the kill were
-    independent. `avg_hp` sums p * hp over surviving outcomes,
-    `avg_hp_on_kill` the same over those where the opponent died,
-    `death` is this unit's death probability and `kill` the
-    opponent's."""
-    if cu.experience + cb.COMBAT_EXPERIENCE * opp_cu.level >= cu.max_experience:
-        return (1.0 - death) * cu.max_hp
-    if cu.experience + _kill_xp(opp_cu.level) < cu.max_experience:
-        return avg_hp
-    if not one_strike:
-        return avg_hp - avg_hp_on_kill + kill * cu.max_hp
-    survive = 1.0 - death
-    scale = 1.0 - kill / survive if survive > sys.float_info.min else 0.0
-    return scale * avg_hp + kill * cu.max_hp
-
-
-def _engine_marginals(
-    states, a_stats, d_stats, a_cu, d_cu,
-) -> Tuple[_CombatantMarginals, _CombatantMarginals]:
-    """(attacker, defender) marginals from a touched-tracked DP,
-    matching what `combatant::fight` computes: exact death, avg_hp
-    after the level-up the engine predicts (`_levelup_average_hp`),
-    and `poisoned` via the engine's own approximation formula fed
-    with our exact touched probability. The engine approximates
-    P(hit at least once) incrementally; ours is exact -- a documented
-    (and strictly smaller-error) deviation."""
-    a_death = d_death = a_avg = d_avg = a_touch = d_touch = 0.0
-    a_avg_on_kill = d_avg_on_kill = 0.0
-    for (a_hp, d_hp, _asl, _dsl, _apo, _dpo, _ape, _dpe,
-         a_t, d_t), p in states.items():
-        if a_hp <= 0:
-            a_death += p
-        else:
-            a_avg += p * a_hp
-            if d_hp <= 0:
-                a_avg_on_kill += p * a_hp
-        if d_hp <= 0:
-            d_death += p
-        else:
-            d_avg += p * d_hp
-            if a_hp <= 0:
-                d_avg_on_kill += p * d_hp
-        if a_t:
-            a_touch += p
-        if d_t:
-            d_touch += p
-    one_strike = _is_one_strike_fight(a_stats, d_stats, a_cu, d_cu)
-    a_avg = _levelup_average_hp(a_cu, d_cu, a_avg, a_avg_on_kill,
-                                a_death, d_death, one_strike)
-    d_avg = _levelup_average_hp(d_cu, a_cu, d_avg, d_avg_on_kill,
-                                d_death, a_death, one_strike)
-
-    a_pois = _probability_of_debuff(
-        1.0 if a_cu.is_poisoned else 0.0,
-        bool(d_stats is not None and d_stats.poisons
-             and not a_cu.is_unpoisonable),
-        a_touch, 1.0 - a_death,
-        a_cu.experience + _kill_xp(d_cu.level) >= a_cu.max_experience,
-        d_death)
-    d_pois = _probability_of_debuff(
-        1.0 if d_cu.is_poisoned else 0.0,
-        bool(a_stats.poisons and not d_cu.is_unpoisonable),
-        d_touch, 1.0 - d_death,
-        d_cu.experience + _kill_xp(a_cu.level) >= d_cu.max_experience,
-        a_death)
-    # Level-up cure: combat XP alone reaching max_experience wipes
-    # debuffs (combatant::fight does this AFTER the formula).
-    if (a_cu.experience + cb.COMBAT_EXPERIENCE * d_cu.level
-            >= a_cu.max_experience):
-        a_pois = 0.0
-    if (d_cu.experience + cb.COMBAT_EXPERIENCE * a_cu.level
-            >= d_cu.max_experience):
-        d_pois = 0.0
-    return (_CombatantMarginals(a_death, a_avg, a_pois),
-            _CombatantMarginals(d_death, d_avg, d_pois))
-
-
-def _better_combat(
-    us_a: _CombatantMarginals, them_a: _CombatantMarginals,
-    us_b: _CombatantMarginals, them_b: _CombatantMarginals,
-    harm_weight: float,
-) -> bool:
-    """Verbatim port of battle_context::better_combat (1.18.4
-    attack.cpp): is fight A better for "us" than fight B?"""
-    # Compare: P(we kill them) - P(they kill us).
-    a = them_a.death - us_a.death * harm_weight
-    b = them_b.death - us_b.death * harm_weight
-    if a - b < -0.01:
-        return False
-    if a - b > 0.01:
-        return True
-    # Add poison, but only the mass that survives the fight.
-    poison_a_us = ((us_a.poisoned - us_a.death) * cb.POISON_AMOUNT
-                   if us_a.poisoned > 0 else 0.0)
-    poison_a_them = ((them_a.poisoned - them_a.death) * cb.POISON_AMOUNT
-                     if them_a.poisoned > 0 else 0.0)
-    poison_b_us = ((us_b.poisoned - us_b.death) * cb.POISON_AMOUNT
-                   if us_b.poisoned > 0 else 0.0)
-    poison_b_them = ((them_b.poisoned - them_b.death) * cb.POISON_AMOUNT
-                     if them_b.poisoned > 0 else 0.0)
-    # Compare: damage to them - damage to us.
-    a = ((us_a.avg_hp - poison_a_us) * harm_weight
-         - (them_a.avg_hp - poison_a_them))
-    b = ((us_b.avg_hp - poison_b_us) * harm_weight
-         - (them_b.avg_hp - poison_b_them))
-    if a - b < -0.01:
-        return False
-    if a - b > 0.01:
-        return True
-    # All else equal: go for most damage.
-    return them_a.avg_hp < them_b.avg_hp
-
-
-# Counter-weapon choices that fell back to the v1 heuristic. The
-# fallback picks a DIFFERENT weapon than the engine's
-# `choose_defender_weapon` would (tests/test_counter_weapon.py's
-# docstring says so), so a fight resolved through it is not the fight
-# Wesnoth would resolve -- and until 2026-09-13 it left no trace at
-# all: no log line, no counter, no test. Silence is exactly how the
-# hide-cover defect survived.
+# Counter-weapon choices that fell back to the v1 heuristic (a DP that
+# overflowed). The fallback picks a DIFFERENT weapon than the engine's
+# `choose_defender_weapon` would, so a fight resolved through it is not
+# the fight Wesnoth would resolve -- and until 2026-09-13 it left no
+# trace at all: no log line, no counter, no test. Silence is exactly how
+# the hide-cover defect survived.
 _FALLBACK_COUNTER_WEAPONS = 0
 
 
@@ -782,22 +193,6 @@ def _count_fallback() -> None:
             "silently (combat_outcomes.fallback_counter_weapon_count).")
 
 
-def _fallback_counter_weapon(d_stats_by_idx: Dict[int, object]) -> int:
-    """DP-overflow fallback (huge berserk/swarm fights the engine
-    itself would hand to Monte-Carlo): max damage x strikes among
-    the candidates, ties to the lowest index -- the pre-port v1
-    heuristic, kept deterministic where the engine is randomized.
-    Counted (`_count_fallback`)."""
-    _count_fallback()
-    best_idx, best_score = -1, -1
-    for i in sorted(d_stats_by_idx):
-        st = d_stats_by_idx[i]
-        score = st.damage * st.n_attacks
-        if score > best_score:
-            best_idx, best_score = i, score
-    return best_idx
-
-
 def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
                           a_weapon_idx: int) -> int:
     """`counter_weapon_choice` without its strike tables."""
@@ -807,29 +202,29 @@ def choose_counter_weapon(gs: GameState, att: Unit, dfd: Unit,
 def counter_weapon_choice(gs: GameState, att: Unit, dfd: Unit,
                           a_weapon_idx: int) -> Tuple[int, Dict[int, dict]]:
     """(the defender's counter-attack weapon, the strike tables
-    simulated to choose it: {defender weapon: _strike_dp final states},
+    simulated to choose it: {defender weapon: the DP's final states},
     empty when one weapon or none could answer).
 
-    Defender's counter-attack weapon for a sim-originated attack:
-    faithful port of battle_context::choose_defender_weapon (1.18.4
-    attack.cpp). Returns -1 when the defender cannot retaliate.
+    Defender's counter-attack weapon for a sim-originated attack: the
+    core's faithful port of battle_context::choose_defender_weapon
+    (1.18.4 attack.cpp). Returns -1 when the defender cannot retaliate.
 
     History: v1 (2026-06-12, after the retaliation bug) approximated
-    with max damage x strikes over matching-range weapons; this port
-    replaces it so the sim retaliates with the same weapon live
-    Wesnoth would pick. Exported replays record the result either
-    way (playback uses the recorded index, not the engine chooser).
+    with max damage x strikes over matching-range weapons; the port
+    makes the sim retaliate with the same weapon live Wesnoth would
+    pick. Exported replays record the result either way (playback uses
+    the recorded index, not the engine chooser).
 
     Engine quirk kept verbatim: the min_rating pass assigns
     max_weight BEFORE testing `weight > max_weight`, so that test is
     always false and min_rating never leaves 0 -- the eligibility
     filter is dead code in 1.18.4, and defense_weight has no effect
-    beyond its `> 0` candidate filter. Consequently we treat
-    defense_weight as 1.0 everywhere: the pinned 1.18.4 scrape
-    doesn't carry the attribute, and the only mainline setters
-    (Giant Scorpion / Scorpling sting, defense_weight=4.0,
-    wesnoth_src/data/core/units/monsters/) cannot influence the
-    choice through the dead filter anyway.
+    beyond its `> 0` candidate filter. Consequently defense_weight is
+    1.0 everywhere: the pinned 1.18.4 scrape doesn't carry the
+    attribute, and the only mainline setters (Giant Scorpion /
+    Scorpling sting, defense_weight=4.0,
+    wesnoth_src/data/core/units/monsters/) cannot influence the choice
+    through the dead filter anyway.
 
     Other documented deviations, outside the training pools:
     [disable] specials are unmodeled (no default-era weapon has
@@ -841,93 +236,15 @@ def counter_weapon_choice(gs: GameState, att: Unit, dfd: Unit,
     the DP does not reproduce bit for bit (4 of 737 recorded choices,
     training/metrics/fidelity/counter_weapon_census_20260925.json).
     """
-    from tools.replay_dataset import build_attack_context
-
-    core = _bound_core(gs)
-    if core is not None:
-        res = core.counter_weapon_choice(att.position.x, att.position.y,
-                                         dfd.position.x, dfd.position.y,
-                                         a_weapon_idx)
-        if res is None:
-            return -1, {}
-        weapon, tables, fallback = res
-        if fallback:
-            _count_fallback()
-        return weapon, tables
-    if (not getattr(att, "attacks", None)
-            or not getattr(dfd, "attacks", None)):
+    res = _core(gs).counter_weapon_choice(att.position.x, att.position.y,
+                                          dfd.position.x, dfd.position.y,
+                                          a_weapon_idx)
+    if res is None:
         return -1, {}
-    # Petrified defenders can't retaliate (their attacks are
-    # stripped engine-side; build_attack_context forces -1 too).
-    if "petrified" in dfd.statuses:
-        return -1, {}
-    if a_weapon_idx >= len(att.attacks):
-        a_weapon_idx = 0    # mirror build_attack_context's clamp
-
-    # Snapshot once (d_weapon=-1) for range filtering; weapon lists
-    # and indices match what combat will use by construction.
-    base = build_attack_context(gs, att, dfd, a_weapon_idx, -1)
-    if a_weapon_idx >= len(base.att_cu.weapons):
-        return -1, {}
-    att_range = base.att_cu.weapons[base.a_weapon].range
-
-    # What options does defender have? (range match; defense_weight
-    # > 0 always true -- see docstring.)
-    candidates = [i for i, w in enumerate(base.dfd_cu.weapons)
-                  if w.range == att_range]
-    if not candidates:
-        return -1, {}
-    if len(candidates) == 1:
-        # Only one usable weapon, don't simulate.
-        return candidates[0], {}
-
-    # Multiple options: simulate each candidate fight.
-    ctxs = {i: build_attack_context(gs, att, dfd, a_weapon_idx, i)
-            for i in candidates}
-    stats = {i: _stats_pair(ctxs[i]) for i in candidates}
-    d_stats_by_idx = {i: stats[i][1] for i in candidates}
-
-    sims: Dict[int, Tuple[_CombatantMarginals, _CombatantMarginals]] = {}
-    tables: Dict[int, dict] = {}
-    for i in candidates:
-        a_stats, d_stats = stats[i]
-        states = _strike_dp(a_stats, d_stats,
-                            ctxs[i].att_cu, ctxs[i].dfd_cu,
-                            track_touched=True)
-        if states is None:
-            return _fallback_counter_weapon(d_stats_by_idx), {}
-        tables[i] = states
-        sims[i] = _engine_marginals(states, a_stats, d_stats,
-                                    ctxs[i].att_cu, ctxs[i].dfd_cu)
-
-    # First pass: best weight + minimum simple rating for it.
-    # simple rating = blows * damage * cth * weight. Quirk kept
-    # verbatim (see docstring): min_rating stays 0.
-    min_rating = 0
-    max_weight = 0.0
-    for i in candidates:
-        weight = 1.0
-        if weight >= max_weight:
-            st = d_stats_by_idx[i]
-            max_weight = weight
-            rating = int(st.n_attacks * st.damage * st.cth * weight)
-            if weight > max_weight or rating < min_rating:
-                min_rating = rating
-
-    # Second pass: among eligible ratings, keep the better_defense
-    # winner (us = defender, them = attacker; harm_weight 1.0).
-    best_idx = -1
-    for i in candidates:
-        st = d_stats_by_idx[i]
-        simple_rating = int(st.n_attacks * st.damage * st.cth * 1.0)
-        att_m, dfd_m = sims[i]
-        if simple_rating >= min_rating and (
-                best_idx < 0
-                or _better_combat(dfd_m, att_m,
-                                  sims[best_idx][1], sims[best_idx][0],
-                                  1.0)):
-            best_idx = i
-    return best_idx, tables
+    weapon, tables, fallback = res
+    if fallback:
+        _count_fallback()
+    return weapon, tables
 
 
 def defender_chance_to_hit(gs: GameState, att: Unit, dfd: Unit,
@@ -936,14 +253,9 @@ def defender_chance_to_hit(gs: GameState, att: Unit, dfd: Unit,
     weapon it answers with (`choose_counter_weapon`); None when it does
     not answer."""
     d_weapon = choose_counter_weapon(gs, att, dfd, a_weapon_idx)
-    core = _bound_core(gs)
-    if core is not None:
-        res = core.fight_stats(att.position.x, att.position.y,
-                               dfd.position.x, dfd.position.y,
-                               a_weapon_idx, d_weapon)
-        if res is None or res[1] is None:
-            return None
-        return int(res[1]["cth"])
-    from tools.replay_dataset import build_attack_context
-    _a, d_stats = _stats_pair(build_attack_context(gs, att, dfd, a_weapon_idx, d_weapon))
-    return None if d_stats is None else int(d_stats.cth)
+    res = _core(gs).fight_stats(att.position.x, att.position.y,
+                                dfd.position.x, dfd.position.y,
+                                a_weapon_idx, d_weapon)
+    if res is None or res[1] is None:
+        return None
+    return int(res[1]["cth"])

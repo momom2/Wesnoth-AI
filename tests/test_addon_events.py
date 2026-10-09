@@ -2,11 +2,13 @@
 """Vendored add-on scenario events: [capture_village] + the Marshy
 Fill turn-1 leader-MP chain ([store_unit]/[if]/[set_variable
 sub=]/[modify_unit]) -- the 2026-08-06 whitelist-audit DISCUSS maps,
-included on user order after sim support landed.
+included on user order after sim support landed -- and the engine rules
+of the turn start, the end of turn and advancement that the add-on
+scenarios brought up.
 
 Production path throughout: WesnothSim(build_scenario_gamestate(...))
-fires prestart+start through tools/scenario_events, exactly as replay
-reconstruction does.
+fires prestart+start on the Rust core, exactly as replay reconstruction
+does (`replay_dataset.record_core`).
 """
 
 from __future__ import annotations
@@ -20,9 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate  # noqa: E402
 from tools.wesnoth_sim import WesnothSim  # noqa: E402
-from tools.scenario_events import (  # noqa: E402
-    fire_event, load_events_for_scenario,
-)
+from tools.scenario_events import load_events_for_scenario  # noqa: E402
+from wesnoth_ai import game_core as gc  # noqa: E402
 
 
 def _fresh_sim(sid, leader1="Elvish Captain", leader2="Elvish Captain"):
@@ -32,6 +33,37 @@ def _fresh_sim(sid, leader1="Elvish Captain", leader2="Elvish Captain"):
         faction2="Rebels", leader2=leader2)
     return WesnothSim(build_scenario_gamestate(setup),
                       scenario_id=sid, max_turns=10)
+
+
+def _core_of(units, sid="multiplayer_Weldyn_Channel", factions=("Rebels", "Rebels"), **extra):
+    """The core of a two-side game on `sid`'s map from replay-record
+    `units`, its scenario not set up."""
+    from tools.replay_dataset import _build_initial_gamestate
+    return gc.CoreState.from_state(_build_initial_gamestate({
+        "game_id": "t", "scenario_id": sid, "factions": list(factions),
+        "starting_sides": [{"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
+        "starting_units": units, "starting_villages": [], "commands": [], **extra}))
+
+
+def _unit(cs, uid):
+    return cs.core.unit_export(uid)
+
+
+def _load_events(cs, events) -> None:
+    """`events` (ScenarioEvent) as the core's event list, keeping its WML
+    and location variables."""
+    _fired, wml, stored = cs.core.events_export()
+    cs.core.load_events([(ev.name, bool(ev.first_time_only), gc._event_actions(ev), ev.scenario_id, False)
+                         for ev in events], wml, stored)
+
+
+def _run_actions(cs, wml: str) -> None:
+    """WML actions run on the core as an event of their own."""
+    from tools.replay_extract import parse_wml
+    from tools.scenario_events import collect_events
+    _load_events(cs, collect_events(parse_wml(f"[multiplayer]\n[event]\nname=test\n{wml}[/event]\n"
+                                              f"[/multiplayer]\n"), "test"))
+    cs.core.fire_events(["test"])
 
 
 def test_cold_war_prestart_capture_village_ownership():
@@ -59,17 +91,10 @@ def test_a_captured_village_is_counted_for_its_owner():
     handler wrote the owner only: Cold War started at counts 1 and 1
     with 2 and 3 villages owned, Summer Frosts at 1 and 1 with 1 and 2,
     and every turn paid side 2 short."""
-    from tools.replay_dataset import village_count_mismatches
     for sid, counts in (("WL_Cold_War", [2, 3]), ("WL_Summer_Frosts", [1, 2])):
         sim = _fresh_sim(sid)
         assert [s.nb_villages_controlled for s in sim.gs.sides] == counts, sid
-        assert village_count_mismatches(sim.gs) == {}, sid
-
-
-def _capture(gs, wml):
-    from tools.replay_extract import parse_wml
-    from tools.scenario_events import _capture_village_action
-    _capture_village_action(gs, parse_wml(wml).first("capture_village"))
+        assert sim.core.core.invariant_violation() is None, sid
 
 
 def test_capture_village_moves_releases_and_skips_what_is_not_a_village():
@@ -77,21 +102,25 @@ def test_capture_village_moves_releases_and_skips_what_is_not_a_village():
     the old owner loses the village and the new one gains it, no side
     leaves it to nobody, and a location that is not a village is
     skipped."""
-    from tools.replay_dataset import _terrain_at, village_count_mismatches
-    sim = _fresh_sim("WL_Cold_War")
-    gs = sim.gs
-    owner = gs.global_info._village_owner
-    _capture(gs, "[capture_village]\nside=1\nx=48\ny=19\n[/capture_village]\n")
-    assert owner[(47, 18)] == 1
-    assert [s.nb_villages_controlled for s in gs.sides] == [3, 2]
-    _capture(gs, "[capture_village]\nx=48\ny=19\n[/capture_village]\n")
-    assert (47, 18) not in owner
-    assert [s.nb_villages_controlled for s in gs.sides] == [2, 2]
-    field = next(h.position for h in gs.map.hexes
-                 if _terrain_at(gs, h.position.x, h.position.y) != "village")
-    _capture(gs, f"[capture_village]\nside=2\nx={field.x + 1}\ny={field.y + 1}\n[/capture_village]\n")
-    assert (field.x, field.y) not in owner
-    assert village_count_mismatches(gs) == {}
+    from wesnoth_ai.classes import Terrain
+    cs = _fresh_sim("WL_Cold_War").core
+
+    def owners():
+        return {(x, y): s for x, y, s in cs.core.village_owner_export()}
+
+    def counts():
+        return [s[4] for s in cs.core.sides_export()]
+
+    _run_actions(cs, "[capture_village]\nside=1\nx=48\ny=19\n[/capture_village]\n")
+    assert owners()[(47, 18)] == 1
+    assert counts() == [3, 2]
+    _run_actions(cs, "[capture_village]\nx=48\ny=19\n[/capture_village]\n")
+    assert (47, 18) not in owners()
+    assert counts() == [2, 2]
+    field = next(h.position for h in cs.to_state().map.hexes if Terrain.VILLAGE not in h.terrain_types)
+    _run_actions(cs, f"[capture_village]\nside=2\nx={field.x + 1}\ny={field.y + 1}\n[/capture_village]\n")
+    assert (field.x, field.y) not in owners()
+    assert cs.core.invariant_violation() is None
 
 
 def test_the_sim_invariant_catches_a_village_count_off_its_owners():
@@ -106,15 +135,9 @@ def test_the_sim_invariant_catches_a_village_count_off_its_owners():
         sim._assert_invariants(after_cmd="setup")
 
 
-def _marshy_leader(gs):
-    """Side 1's leader at WML (18,1), read fresh from the unit set.
-
-    `[modify_unit]` REPLACES the Unit object instead of writing to it
-    (the fork-safety pattern, `scenario_events._swap_unit`), so a
-    reference taken before an event fires goes stale."""
-    return next(u for u in gs.map.units
-                if u.side == 1 and u.position.x == 17
-                and u.position.y == 0)
+def _marshy_leader(cs) -> dict:
+    """Side 1's leader at WML (18,1)."""
+    return _unit(cs, cs.core.unit_id_at(17, 0))
 
 
 def test_marshy_fill_leader_mp_shave_6mp():
@@ -136,19 +159,17 @@ def test_marshy_fill_leader_mp_shave_6mp():
 def test_marshy_fill_leader_mp_branches():
     """The [if] branches on a re-fired fresh event list: moves >= 9
     -> 0; moves <= 4 -> untouched (condition greater_than=4 fails)."""
-    sim = _fresh_sim("WL_Marshy_Fill")
+    cs = _fresh_sim("WL_Marshy_Fill").core
     # >= 9 branch: else-arm of the inner [if] sets 0.
-    _marshy_leader(sim.gs).current_moves = 9
-    fire_event(sim.gs, load_events_for_scenario("WL_Marshy_Fill"),
-               "start")
-    moves = _marshy_leader(sim.gs).current_moves
-    assert moves == 0, moves
+    cs.core.update_unit(_marshy_leader(cs)["id"], {"current_moves": 9})
+    _load_events(cs, load_events_for_scenario("WL_Marshy_Fill"))
+    cs.core.fire_events(["start"])
+    assert _marshy_leader(cs)["current_moves"] == 0
     # <= 4 branch: outer [if] condition false, no [else] -> untouched.
-    _marshy_leader(sim.gs).current_moves = 4
-    fire_event(sim.gs, load_events_for_scenario("WL_Marshy_Fill"),
-               "start")
-    moves = _marshy_leader(sim.gs).current_moves
-    assert moves == 4, moves
+    cs.core.update_unit(_marshy_leader(cs)["id"], {"current_moves": 4})
+    _load_events(cs, load_events_for_scenario("WL_Marshy_Fill"))
+    cs.core.fire_events(["start"])
+    assert _marshy_leader(cs)["current_moves"] == 4
 
 
 def test_vendored_seamless_variant_shares_event_logic():
@@ -196,56 +217,43 @@ def test_pickadvance_narrows_advancement_resolution():
     list. Fail-before: value=0 advanced a Fighter to Captain
     (vanilla index 0) where the engine made the picked Hero (CotB
     74713, root-caused 2026-08-06 with the user's viewer ledger)."""
-    from tools import replay_dataset as rd
-    gs = rd._build_initial_gamestate({
-        "game_id": "t", "scenario_id": "multiplayer_Weldyn_Channel",
-        "factions": ["Rebels", "Rebels"],
-        "experience_modifier": 70,
-        "starting_sides": [
-            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
-        "starting_units": [
-            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
-             "y": 5, "is_leader": True},
-            {"uid": 2, "type": "Elvish Fighter", "side": 1, "x": 7,
-             "y": 7},
-            {"uid": 3, "type": "Elvish Fighter", "side": 1, "x": 9,
-             "y": 9},
-            {"uid": 4, "type": "Elvish Captain", "side": 2, "x": 20,
-             "y": 5, "is_leader": True}],
-        "starting_villages": [], "commands": [],
-    })
-    u2 = next(u for u in gs.map.units if u.id == "u2")
+    cs = _core_of([
+        {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5, "y": 5, "is_leader": True},
+        {"uid": 2, "type": "Elvish Fighter", "side": 1, "x": 7, "y": 7},
+        {"uid": 3, "type": "Elvish Fighter", "side": 1, "x": 9, "y": 9},
+        {"uid": 4, "type": "Elvish Captain", "side": 2, "x": 20, "y": 5, "is_leader": True}],
+        experience_modifier=70)
+
+    def advance(uid, choice):
+        cs.core.update_unit(uid, {"current_exp": _unit(cs, uid)["max_exp"]})
+        _choices, pick, _events = cs.core.advance_state_export()
+        cs.core.set_advance_state([choice], list(pick), [])
+        assert cs.core.advance_unit_id(uid)
+        return _unit(cs, uid)
 
     # unit-scoped pick: only u2 narrowed
-    rd._apply_command(gs, ["pickadvance", 7, 7, "Elvish Hero", "", 1, 0])
-    assert getattr(u2, "_pickadvance", None) == ["Elvish Hero"]
-    u3 = next(u for u in gs.map.units if u.id == "u3")
-    assert getattr(u3, "_pickadvance", None) is None
+    cs.apply_command(["pickadvance", 7, 7, "Elvish Hero", "", 1, 0])
+    assert _unit(cs, "u2")["pickadvance"] == ["Elvish Hero"]
+    assert _unit(cs, "u3")["pickadvance"] is None
 
     # advancement: recorded choose value=0 must resolve on the
     # narrowed list -> Hero (vanilla list is [Captain, Hero]).
-    u2.current_exp = u2.max_exp
-    setattr(gs.global_info, "_advance_choices", [0])
-    adv = rd._maybe_advance_unit(gs, u2)
-    assert adv.name == "Elvish Hero", adv.name
+    adv = advance("u2", 0)
+    assert adv["name"] == "Elvish Hero", adv["name"]
     # the advanced unit re-initializes: old narrowing cleared
-    assert getattr(adv, "_pickadvance", None) is None
+    assert adv["pickadvance"] is None
 
     # game-scoped pick: all current same-side same-type units narrow
     # via the unit list; future map recorded for new inits.
-    rd._apply_command(gs, ["pickadvance", 9, 9, "Elvish Hero",
-                           "Elvish Hero", 1, 1])
-    u3 = next(u for u in gs.map.units if u.id == "u3")
-    assert getattr(u3, "_pickadvance", None) == ["Elvish Hero"]
-    gmap = getattr(gs.global_info, "_pickadvance_game", {})
-    assert gmap.get((1, "Elvish Fighter")) == ["Elvish Hero"]
+    cs.apply_command(["pickadvance", 9, 9, "Elvish Hero", "Elvish Hero", 1, 1])
+    assert _unit(cs, "u3")["pickadvance"] == ["Elvish Hero"]
+    _choices, pick, _events = cs.core.advance_state_export()
+    assert (1, "Elvish Fighter", ["Elvish Hero"]) in [(s, t, list(v)) for s, t, v in pick]
 
     # sanity: a pick naming an illegal type is ignored at resolution
-    u3.current_exp = u3.max_exp
-    setattr(u3, "_pickadvance", ["Dwarvish Lord"])
-    setattr(gs.global_info, "_advance_choices", [0])
-    adv3 = rd._maybe_advance_unit(gs, u3)
-    assert adv3.name == "Elvish Captain", adv3.name
+    cs.core.update_unit("u3", {"pickadvance": ["Dwarvish Lord"]})
+    adv3 = advance("u3", 0)
+    assert adv3["name"] == "Elvish Captain", adv3["name"]
 
     # RECRUITS initialized after a game-override inherit it too: the
     # mod's initialize_unit runs on the "recruit" event (main.lua:231)
@@ -254,18 +262,14 @@ def test_pickadvance_narrows_advancement_resolution():
     # Goblin Knight (vanilla index 0) where the engine made a
     # Pillager — Hellhole 21368, weapon_oob on the Pillager's net at
     # turn 22; engine playback clean end-to-end (2026-08-07).
-    gs.global_info.current_side = 1
-    rd._apply_command(gs, ["recruit", "Elvish Fighter", 6, 5,
-                           "1a2b3c4d"])
-    fresh = next(u for u in gs.map.units
-                 if (u.position.x, u.position.y) == (6, 5))
-    assert getattr(fresh, "_pickadvance", None) == ["Elvish Hero"], (
+    cs.core.set_global_int("current_side", 1)
+    cs.apply_command(["recruit", "Elvish Fighter", 6, 5, "1a2b3c4d"])
+    fresh = cs.core.unit_id_at(6, 5)
+    assert _unit(cs, fresh)["pickadvance"] == ["Elvish Hero"], (
         "post-override recruit must inherit the game pick"
     )
-    fresh.current_exp = fresh.max_exp
-    setattr(gs.global_info, "_advance_choices", [0])
-    adv4 = rd._maybe_advance_unit(gs, fresh)
-    assert adv4.name == "Elvish Hero", adv4.name
+    adv4 = advance(fresh, 0)
+    assert adv4["name"] == "Elvish Hero", adv4["name"]
 
 
 def test_turn1_healing_gate_split():
@@ -275,46 +279,34 @@ def test_turn1_healing_gate_split():
     regenerating unit damaged on turn 1 heals at its own turn-1 init
     (Micro Isar tentacles, user-observed); nothing heals at the very
     first init; turn-1 inits never refresh MP."""
-    from tools import replay_dataset as rd
-    gs = rd._build_initial_gamestate({
-        "game_id": "t", "scenario_id": "multiplayer_Weldyn_Channel",
-        "factions": ["Rebels", "Rebels"],
-        "experience_modifier": 70,
-        "starting_sides": [
-            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
-        "starting_units": [
-            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
-             "y": 5, "is_leader": True},
-            {"uid": 2, "type": "Wose", "side": 2, "x": 20, "y": 5,
-             "is_leader": True}],
-        "starting_villages": [], "commands": [],
-    })
-    u1 = next(u for u in gs.map.units if u.id == "u1")
-    u2 = next(u for u in gs.map.units if u.id == "u2")
-    u1.current_hp -= 10
-    u2.current_hp -= 10
-    u2.current_moves = 1          # must NOT refresh on turn 1
+    cs = _core_of([
+        {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5, "y": 5, "is_leader": True},
+        {"uid": 2, "type": "Wose", "side": 2, "x": 20, "y": 5, "is_leader": True}],
+        experience_modifier=70)
+    for uid in ("u1", "u2"):
+        cs.core.update_unit(uid, {"current_hp": _unit(cs, uid)["max_hp"] - 10})
+    cs.core.update_unit("u2", {"current_moves": 1})          # must NOT refresh on turn 1
 
-    rd._apply_command(gs, ["init_side", 1])   # the game's FIRST init
-    u1 = next(u for u in gs.map.units if u.id == "u1")
-    assert u1.current_hp == u1.max_hp - 10, "no healing at first init"
+    cs.apply_command(["init_side", 1])   # the game's FIRST init
+    u1 = _unit(cs, "u1")
+    assert u1["current_hp"] == u1["max_hp"] - 10, "no healing at first init"
 
-    rd._apply_command(gs, ["init_side", 2])   # turn-1, non-first init
-    u2 = next(u for u in gs.map.units if u.id == "u2")
-    assert u2.current_hp == u2.max_hp - 10 + 8, \
-        f"regen must heal at turn-1 non-first init (got {u2.current_hp})"
-    assert u2.current_moves == 1, "no MP refresh on turn 1"
+    cs.apply_command(["init_side", 2])   # turn-1, non-first init
+    u2 = _unit(cs, "u2")
+    assert u2["current_hp"] == u2["max_hp"] - 10 + 8, \
+        f"regen must heal at turn-1 non-first init (got {u2['current_hp']})"
+    assert u2["current_moves"] == 1, "no MP refresh on turn 1"
 
-    rd._apply_command(gs, ["end_turn"])
-    rd._apply_command(gs, ["init_side", 1])   # turn 2 begins
-    u1 = next(u for u in gs.map.units if u.id == "u1")
-    assert u1.current_moves == u1.max_moves, "turn-2 init refreshes MP"
-    rd._apply_command(gs, ["end_turn"])
-    rd._apply_command(gs, ["init_side", 2])   # turn 2, side 2
-    u2 = next(u for u in gs.map.units if u.id == "u2")
+    cs.apply_command(["end_turn"])
+    cs.apply_command(["init_side", 1])   # turn 2 begins
+    u1 = _unit(cs, "u1")
+    assert u1["current_moves"] == u1["max_moves"], "turn-2 init refreshes MP"
+    cs.apply_command(["end_turn"])
+    cs.apply_command(["init_side", 2])   # turn 2, side 2
+    u2 = _unit(cs, "u2")
     # -10 +8 (t1 regen) = max-2; +8+2 at t2 clamps at max_hp.
-    assert u2.current_hp == u2.max_hp,         f"turn-2 regen+rest should clamp to full (got {u2.current_hp})"
-    assert u2.current_moves == u2.max_moves
+    assert u2["current_hp"] == u2["max_hp"], f"turn-2 regen+rest should clamp to full (got {u2['current_hp']})"
+    assert u2["current_moves"] == u2["max_moves"]
 
 
 def test_map_header_start_positions():
@@ -342,33 +334,25 @@ def test_object_effects_survive_advancement():
     Longbowman — every later defensive fight ran attacker-first and
     the HP ledger forked (16349, engine playback clean, user viewer
     frames 2026-08-07)."""
-    from tools import replay_dataset as rd
-    from wesnoth_ai.classes import AttackSpecial  # noqa: F401
-    gs = rd._build_initial_gamestate({
-        "game_id": "t", "scenario_id": "multiplayer_Hornshark_Island",
-        "factions": ["Rebels", "Loyalists"],
-        "starting_sides": [
-            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
-        "starting_units": [
-            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
-             "y": 5, "is_leader": True},
-            {"uid": 2, "type": "Bowman", "side": 2, "x": 27, "y": 23},
-            {"uid": 3, "type": "Dwarvish Lord", "side": 2, "x": 20,
-             "y": 5, "is_leader": True}],
-        "starting_villages": [], "commands": [],
-    })
-    rd._setup_scenario_events(gs, "multiplayer_Hornshark_Island")
-    u2 = next(u for u in gs.map.units if u.id == "u2")
-    ranged = next(a for a in u2.attacks if a.is_ranged)
-    assert "firststrike" in ranged.weapon_specials, (
+    cs = _core_of([
+        {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5, "y": 5, "is_leader": True},
+        {"uid": 2, "type": "Bowman", "side": 2, "x": 27, "y": 23},
+        {"uid": 3, "type": "Dwarvish Lord", "side": 2, "x": 20, "y": 5, "is_leader": True}],
+        sid="multiplayer_Hornshark_Island", factions=("Rebels", "Loyalists"))
+    cs.setup_scenario("multiplayer_Hornshark_Island")
+
+    def ranged_specials(u):
+        return next(set(sp) for (_t, _n, _d, ranged, sp) in u["attacks"] if ranged)
+
+    assert "firststrike" in ranged_specials(_unit(cs, "u2")), (
         "MODIFY_BOWMAN prestart object must grant ranged firststrike"
     )
-    u2.current_exp = u2.max_exp
-    setattr(gs.global_info, "_advance_choices", [0])
-    adv = rd._maybe_advance_unit(gs, u2)
-    assert adv.name == "Longbowman", adv.name
-    ranged2 = next(a for a in adv.attacks if a.is_ranged)
-    assert "firststrike" in ranged2.weapon_specials, (
+    cs.core.update_unit("u2", {"current_exp": _unit(cs, "u2")["max_exp"]})
+    cs.core.set_advance_state([0], [], [])
+    assert cs.core.advance_unit_id("u2")
+    adv = _unit(cs, "u2")
+    assert adv["name"] == "Longbowman", adv["name"]
+    assert "firststrike" in ranged_specials(adv), (
         "object-granted specials must survive advancement"
     )
 
@@ -378,32 +362,17 @@ def test_end_turn_mp_deficit_clears_resting():
     side's turn with remaining MP != max MP loses `resting`, even if
     it never moved or fought -- MP-draining events count as activity.
     A unit at full MP keeps resting."""
-    from tools import replay_dataset as rd
-    gs = rd._build_initial_gamestate({
-        "game_id": "t", "scenario_id": "multiplayer_Weldyn_Channel",
-        "factions": ["Rebels", "Rebels"],
-        "starting_sides": [
-            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
-        "starting_units": [
-            {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5,
-             "y": 5, "is_leader": True},
-            {"uid": 2, "type": "Elvish Fighter", "side": 1, "x": 7,
-             "y": 5, "is_leader": False}],
-        "starting_villages": [], "commands": [],
-    })
-    gs.global_info.current_side = 1
-    u1 = next(u for u in gs.map.units if u.id == "u1")
-    u2 = next(u for u in gs.map.units if u.id == "u2")
-    u1.statuses = set(u1.statuses) | {"resting"}
-    u2.statuses = set(u2.statuses) | {"resting"}
-    u1.current_moves = u1.max_moves - 1        # drained
-    u2.current_moves = u2.max_moves            # untouched
-    rd._apply_command(gs, ["end_turn"])
-    u1 = next(u for u in gs.map.units if u.id == "u1")
-    u2 = next(u for u in gs.map.units if u.id == "u2")
-    assert "resting" not in u1.statuses, \
+    cs = _core_of([
+        {"uid": 1, "type": "Elvish Captain", "side": 1, "x": 5, "y": 5, "is_leader": True},
+        {"uid": 2, "type": "Elvish Fighter", "side": 1, "x": 7, "y": 5, "is_leader": False}])
+    cs.core.set_global_int("current_side", 1)
+    for uid in ("u1", "u2"):
+        cs.core.update_unit(uid, {"statuses": sorted(set(_unit(cs, uid)["statuses"]) | {"resting"})})
+    cs.core.update_unit("u1", {"current_moves": _unit(cs, "u1")["max_moves"] - 1})   # drained
+    cs.apply_command(["end_turn"])
+    assert "resting" not in _unit(cs, "u1")["statuses"], \
         "MP deficit at end_turn must clear resting"
-    assert "resting" in u2.statuses, "full-MP unit keeps resting"
+    assert "resting" in _unit(cs, "u2")["statuses"], "full-MP unit keeps resting"
 
 
 def test_micro_isar_tentacle_never_rest_heals():
@@ -414,46 +383,31 @@ def test_micro_isar_tentacle_never_rest_heals():
     heals regen-only +8, never +10. User-verified viewer frames:
     turn 3 heal 7->15, turn 4 heal 15->23 (not 25); our former +2 rest
     left a 1-HP survivor whose ZoC forked the whole game."""
-    from tools import replay_dataset as rd
+    cs = _core_of([
+        {"uid": 1, "type": "Drake Flare", "side": 1, "x": 0, "y": 5, "is_leader": True},
+        {"uid": 2, "type": "Revenant", "side": 2, "x": 7, "y": 5, "is_leader": True}],
+        sid="enclave_micro_isar", factions=("Drakes", "Undead"))
+    cs.setup_scenario("enclave_micro_isar")
 
-    def tent(g):
-        return next(u for u in g.map.units
-                    if u.side == 3 and (u.position.x, u.position.y) == (3, 2))
+    def tent():
+        return _unit(cs, cs.core.unit_id_at(3, 2))
 
-    gs = rd._build_initial_gamestate({
-        "game_id": "t", "scenario_id": "enclave_micro_isar",
-        "factions": ["Drakes", "Undead"],
-        "starting_sides": [
-            {"side": 1, "gold": 100}, {"side": 2, "gold": 100}],
-        "starting_units": [
-            {"uid": 1, "type": "Drake Flare", "side": 1, "x": 0,
-             "y": 5, "is_leader": True},
-            {"uid": 2, "type": "Revenant", "side": 2, "x": 7,
-             "y": 5, "is_leader": True}],
-        "starting_villages": [], "commands": [],
-    })
-    rd._setup_scenario_events(gs, "enclave_micro_isar")
-    rd._apply_command(gs, ["init_side", 1])    # turn-1 spawn + refresh
-    t = tent(gs)
-    assert getattr(t, "_wml_role", None) == "monster"
-    assert t.max_moves > 0 and t.current_moves == 0, \
+    cs.apply_command(["init_side", 1])    # turn-1 spawn + refresh
+    t = tent()
+    assert t["side"] == 3 and t["wml_role"] == "monster"
+    assert t["max_moves"] > 0 and t["current_moves"] == 0, \
         "turn refresh MODIFY_UNIT must zero monster MP"
-    t.current_hp = 5                            # wounded
-    rd._apply_command(gs, ["end_turn"])
-    rd._apply_command(gs, ["init_side", 2])
-    rd._apply_command(gs, ["end_turn"])
-    rd._apply_command(gs, ["init_side", 3])     # own init: +8 regen
-    assert tent(gs).current_hp == 13, tent(gs).current_hp
-    rd._apply_command(gs, ["end_turn"])         # MP 0 != max: no rest
-    rd._apply_command(gs, ["init_side", 1])     # turn 2
-    rd._apply_command(gs, ["end_turn"])
-    rd._apply_command(gs, ["init_side", 2])
-    rd._apply_command(gs, ["end_turn"])
-    rd._apply_command(gs, ["init_side", 3])     # +8 only, NOT +10
-    t = tent(gs)
-    assert t.current_hp == 21, \
-        f"regen-only heal expected (13+8=21), got {t.current_hp}"
-    assert t.current_moves == 0, "turn-2 refresh must be re-zeroed"
+    cs.core.update_unit(t["id"], {"current_hp": 5})        # wounded
+    for cmd in (["end_turn"], ["init_side", 2], ["end_turn"], ["init_side", 3]):
+        cs.apply_command(cmd)             # own init: +8 regen
+    assert tent()["current_hp"] == 13, tent()["current_hp"]
+    for cmd in (["end_turn"], ["init_side", 1], ["end_turn"], ["init_side", 2],
+                ["end_turn"], ["init_side", 3]):
+        cs.apply_command(cmd)             # MP 0 != max at its end of turn: no rest
+    t = tent()
+    assert t["current_hp"] == 21, \
+        f"regen-only heal expected (13+8=21), got {t['current_hp']}"
+    assert t["current_moves"] == 0, "turn-2 refresh must be re-zeroed"
 
 
 def test_a_scenario_without_wml_is_said_once_and_an_import_failure_is_not_swallowed(
@@ -461,21 +415,20 @@ def test_a_scenario_without_wml_is_said_once_and_an_import_failure_is_not_swallo
     """A scenario whose WML is not found runs without its events, time
     areas and side modifications: that is warned about, once per id (the
     WL_Troll_Toll lookup bug ran silent this way). And if the event
-    interpreter cannot be imported the setup raises instead of returning
+    parser cannot be imported the setup raises instead of returning
     with no events, which played every game without its scenario."""
     import logging
-    import sys
 
     import pytest
 
     from tools import replay_dataset as rd
-    gs = rd._build_initial_gamestate({"map_data": "Gg, Gg\nGg, Gg"})
+    cs = gc.CoreState.from_state(rd._build_initial_gamestate({"map_data": "Gg, Gg\nGg, Gg"}))
     monkeypatch.setattr(rd, "_SCENARIOS_WITHOUT_WML", set())
     with caplog.at_level(logging.WARNING, logger="replay_dataset"):
-        rd._setup_scenario_events(gs, "no_such_scenario_id")
-        rd._setup_scenario_events(gs, "no_such_scenario_id")
-    assert gs.global_info._scenario_events == []
+        cs.setup_scenario("no_such_scenario_id")
+        cs.setup_scenario("no_such_scenario_id")
+    assert cs.statics["_scenario_events"] == []
     assert sum("no_such_scenario_id" in r.getMessage() for r in caplog.records) == 1
     monkeypatch.setitem(sys.modules, "tools.scenario_events", None)
     with pytest.raises(ImportError):
-        rd._setup_scenario_events(gs, "multiplayer_Hamlets")
+        cs.setup_scenario("multiplayer_Hamlets")

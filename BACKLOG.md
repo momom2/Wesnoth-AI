@@ -4,7 +4,40 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-10-05)
+## NEXT (2026-10-08)
+
+**0. The self-play program** (lead's decision 2026-10-08,
+docs/selfplay_program_20261008.md): policy iteration with a one-step
+look-ahead over the prior's top actions, exact combat outcomes as chance
+nodes, and Muesli's clipped target; each round's tilted player gated
+against `parity3` before it is distilled. Its evaluator, a critic learned
+from games or short rollouts scored by material, is chosen by
+measurement. **Step 1 is pre-registered** in that document and reviewed:
+six critics trained on records already on HF (a size curve inside the
+engine matches, an observation form, the human corpus, a small critic),
+judged by paired tests against the static HP margin on the turn-value
+benchmark, about $1.3-1.9 of one box. Its code is being built on
+`feature/critic-step1` (from `exp/value-policy-iteration`); the box needs
+the user's word. The CPU turn planner's proposal
+(docs/selfplay_algorithm_design_20261007.md) is parked as step 1's kill
+branch; a policy-gradient leg is parked on its cost.
+
+**Runs awaiting the user's approval** (user, 2026-10-08: budget 500€,
+about $540; no box is rented until a run is approved). In the order the
+lead recommends; each states what it decides.
+
+| run | ready | cost | decides |
+|---|---|---|---|
+| Q1. Step 1, the critics (`scripts/critic_step1_box.sh` on `exp/value-policy-iteration`) | yes | about 3.6 h, $1.8 expected, $2.9 at its 6 h switch | the evaluator: Pass -> Q3, Data-limited -> Q4, Kill -> Q5 |
+| Q2. `parity3`'s baselines: the self-pin, 64 against 0 slots, 64 against 16 slots, 800 decisive each | yes (`scripts/parity3_baselines_box.sh`, docs/parity3_baselines_prereg_20261008.md) | about 1.5 h, $0.7 | the noise floor of every later match, and the memory's cost and size in play |
+| Q7. The look-ahead player with the material evaluator against `parity3` (docs/lookahead_material_gate_prereg_20261009.md) | yes (`scripts/lookahead_gate_box.sh` on `exp/value-policy-iteration`, `LOOKAHEAD_ARMS=material:configs/lookahead_material_gate.json:103000`) | about 45 min, $0.3-0.5; can share Q2's rental | whether exact one-step look-ahead with plain material is already a teacher, and the baseline every critic gate is read against |
+| Q3. Step 2's gate: the look-ahead player with the critic against `parity3`, with the material evaluator as its control | being built (`feature/lookahead-player`); after Q1 Pass | priced by the build | whether the operator is a teacher (plan rule 2) |
+| Q4. 20,000 `parity3` self-play games and their critic | after Q1 Data-limited | about $3.5-5 | whether more games make the critic rank |
+| Q5. The rollout evaluator in the same player: gain test, then gate | after Q1 Kill | about $5-15 | whether rollouts make the operator a teacher |
+| Q6. A KL-anchored actor-critic leg from `parity3`, 50,000 games | a candidate, not built | about $30-60 | direct improvement by outcomes, the literature's most reliable route from an imitation seed; it trains on every decision, so it is bottlenecked on the network, against the ruling of 2026-10-06 |
+
+The rest of the budget is held for scaling whichever operator passes its
+gate: rounds of games, critic and distillation.
 
 **1. `parity3` is the reference** (user ruling 2026-10-04): +82 +- 13
 Elo over `parity2` (800 decisive games,
@@ -20,7 +53,7 @@ compute than the project has; before any training launches, a new
 training algorithm must handle the reward's sparsity, multi-step turns
 whose plans are conditional on the dice (aleatoric outcomes inside the
 turn), and the simulator's speed without being bottlenecked on the
-network. **Next: that algorithm's design.** The one size measurement
+network. That algorithm is item 0's program. The one size measurement
 of the memory is `parity2`'s: 16 and 64 slots within noise in play.
 Parked meanwhile:
 
@@ -88,11 +121,22 @@ encoding and every rule asked of a position are the core's, and it is
 the state of record of the simulator, reconstruction and the pipeline
 tools. Certified 2026-10-01 over the whole corpus (14,376 of 14,376
 replays, clean again on phase 29;
-training/metrics/fidelity/core_certify_20261001/). Next: the
-retirement: the Python applier, builders and rule versions go, and for
-each analysis or debugging tool still replaying records on the applier
-(the list in the plan) the user decides between deletion, the
-quarantine and a move to the core. Refactor step 4a is parked meanwhile (tag `archive/refactor-step4a-sim`).
+training/metrics/fidelity/core_certify_20261001/). **Retired 0.18.0
+(2026-10-09):** the Python applier, its builders, the Python rules and the
+`WESNOTH_RUST*` switches are gone (+2,724 / -17,369 lines); the tools that
+replay a record run on the core, and those that compared against or
+debugged with the applier are deleted (the lead's decisions, tool by tool,
+in the merge commit). An equivalence review played the same seeded games,
+encodings, masks, record walks and pre-encodings on both sides of the
+change and found them byte-identical, except the full-board masks after a
+terrain change, where the old path offered moves onto friendly-occupied
+hexes (Aethermaw; no checkpoint since `relset` uses the full board).
+Open, small: six Rust functions Python no longer calls
+(`encode_raw_streams`, `unit_reach_arrays`, `enumerate_moves`,
+`observe_side`, `reach_rows`, the combat `resolve_attack`) go with the next
+phase bump; 13 box scripts of past runs set the retired switches or call
+deleted tools and are records only. Refactor step 4a is parked (tag
+`archive/refactor-step4a-sim`).
 
 **Standing, taken whenever there is room (user, 2026-09-25):**
 
@@ -303,8 +347,8 @@ playouts and the turn-value playout reads run on the true state. Open:
   strength.
 - Re-grade the seven confirmed turn-gap pairs from sampled worlds once a
   belief model exists (with the second-salt re-realization of 15 and 57).
-- `Observation.detached()` (`wesnoth_ai/observe.py:202-208`) keeps rows
-  for hidden units; no consumer reads them. Drop them.
+- Done with the applier's retirement (0.18.0): `Observation.detached()`
+  and its rows for hidden units are gone.
 
 ## What the network observes against what a player sees (2026-09-26 crawl)
 

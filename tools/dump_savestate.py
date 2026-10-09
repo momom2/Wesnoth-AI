@@ -202,8 +202,8 @@ def _unit_block(u: Unit) -> List[str]:
       - All attribute values quoted (even numbers) — matches what
         real saves produce.
 
-    Trait IDs come from `u.traits` (populated by tools.traits during
-    recruit/leader-spawn).
+    Trait IDs come from `u.traits` (rolled by the core's unit builder
+    at recruit and leader spawn).
     """
     stats = _stats_for(u.name)
     traits = sorted(u.traits) if u.traits else []

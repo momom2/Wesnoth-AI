@@ -1,5 +1,5 @@
-"""Tests for the fog-of-war contract (`visibility.py`) and its
-integration into `encoder.py` and `action_sampler.py`.
+"""Tests for the fog-of-war contract (`visibility.py`, answered by the
+Rust core) and its integration into `encoder.py` and `action_sampler.py`.
 
 The contract:
   * Own-side units: always visible to own side.
@@ -14,63 +14,45 @@ The contract:
     enemies are treated as empty hexes -- the policy can
     attempt to move there (engine will reveal on contact) but
     cannot click-to-attack them.
+
+The boards are one row of grass (tests/helpers/parity_games.py), so a
+unit with m movement points sees m + 1 hexes each way.
 """
 from __future__ import annotations
 
 
 import pytest
 
-from wesnoth_ai.classes import (GameState, Map, GlobalInfo, Unit, Hex, Position,
-                     SideInfo, Terrain, Alignment)
+from wesnoth_ai import game_core as gc
 from wesnoth_ai import visibility
+
+pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
 
 
 # ---- helpers ------------------------------------------------------
 
-def _hexes_grid(w: int, h: int = 1, terrain=Terrain.FLAT):
-    """Build a w x h grid of plain hexes."""
-    return {Hex(position=Position(x=x, y=y),
-                terrain_types=frozenset({terrain}),
-                modifiers=frozenset())
-            for x in range(w) for y in range(h)}
+def _board(units, *, width=20, code=None, recruits=None):
+    """The core of a fogged one-row board and a view bound to it.
+    `units`: (id, type, side, x, extras) with extras among max_moves,
+    abilities, is_leader; `code` covers every hex."""
+    from helpers.parity_games import record, state_of
+    special = {(x, 0): code for x in range(width)} if code else None
+    gs = state_of(record([(t, s, x, 0, bool(extra.get("is_leader"))) for _uid, t, s, x, extra in units],
+                         width=width, height=1, special=special, fog=True, recruits=recruits))
+    cs = gc.CoreState.from_state(gs)
+    names = {}
+    for (uid, _t, _s, x, extra), u in zip(units, sorted(gs.map.units, key=lambda u: u.position.x)):
+        assert u.position.x == x
+        names[u.id] = uid
+        fields = {k: v for k, v in extra.items() if k in ("max_moves", "abilities")}
+        if fields:
+            cs.core.update_unit(u.id, fields)
+    return cs, names
 
 
-def _unit(uid: str, x: int, side: int, max_moves: int = 2,
-          abilities=frozenset(), is_leader=False, name='Test'):
-    """A unit of type `name`: the placeholder 'Test' pays 1 MP per hex on
-    boards without terrain codes; on coded terrain the vision tests use a
-    real type, whose movement costs the resolver knows."""
-    return Unit(
-        id=uid, name=name, name_id='test', side=side,
-        is_leader=is_leader, position=Position(x=x, y=0),
-        max_hp=10, max_moves=max_moves, max_exp=20, cost=10,
-        alignment=Alignment.NEUTRAL, levelup_names=tuple(),
-        current_hp=10, current_moves=max_moves, current_exp=0,
-        has_attacked=False, attacks=tuple(),
-        resistances={}, defenses={}, movement_costs={},
-        abilities=frozenset(abilities), traits=tuple(),
-        statuses=frozenset(),
-    )
-
-
-def _state(units, hexes, current_side=1, turn=1, recruits=()):
-    """Build a GameState with the given units + hexes."""
-    return GameState(
-        game_id='t',
-        map=Map(size_x=20, size_y=4, mask=set(), fog=set(),
-                hexes=hexes, units=set(units)),
-        global_info=GlobalInfo(current_side=current_side, turn_number=turn,
-                              time_of_day=None, village_gold=2,
-                              village_upkeep=1, base_income=2),
-        sides=[
-            SideInfo(player=1, recruits=tuple(recruits),
-                     current_gold=100, base_income=2,
-                     nb_villages_controlled=0, faction='h'),
-            SideInfo(player=2, recruits=tuple(recruits),
-                     current_gold=100, base_income=2,
-                     nb_villages_controlled=0, faction='h'),
-        ],
-    )
+def _seen(cs, names, side):
+    """The names of the units `side` sees."""
+    return {names[u.id] for u in visibility.units_visible_to(gc.view_of(cs), side)}
 
 
 # ---- own visibility -----------------------------------------------
@@ -78,142 +60,86 @@ def _state(units, hexes, current_side=1, turn=1, recruits=()):
 def test_own_units_always_visible():
     """Own-side units must always appear in `units_visible_to`,
     regardless of where they stand."""
-    units = [
-        _unit('mine_close', x=0, side=1),
-        _unit('mine_far',   x=18, side=1),   # far from everyone
-    ]
-    s = _state(units, _hexes_grid(20))
-    seen = visibility.units_visible_to(s, side=1)
-    assert {u.id for u in seen} == {'mine_close', 'mine_far'}
+    cs, names = _board([("mine_close", "Spearman", 1, 0, {}), ("mine_far", "Spearman", 1, 18, {})])
+    assert _seen(cs, names, 1) == {"mine_close", "mine_far"}
 
 
 # ---- enemy visibility ------------------------------------------------
 
 def test_enemy_in_sight_is_visible():
-    units = [
-        _unit('mine', x=0, side=1, max_moves=3),    # sees x <= 4
-        _unit('enemy_close', x=2, side=2),
-    ]
-    s = _state(units, _hexes_grid(20))
-    seen = {u.id for u in visibility.units_visible_to(s, side=1)}
-    assert 'enemy_close' in seen
+    cs, names = _board([("mine", "Spearman", 1, 0, {"max_moves": 3}),     # sees x <= 4
+                        ("enemy_close", "Spearman", 2, 2, {})])
+    assert "enemy_close" in _seen(cs, names, 1)
 
 
 def test_enemy_outside_sight_is_invisible():
-    units = [
-        _unit('mine', x=0, side=1, max_moves=3),    # sees x <= 4
-        _unit('enemy_far', x=10, side=2),            # far outside
-    ]
-    s = _state(units, _hexes_grid(20))
-    seen = {u.id for u in visibility.units_visible_to(s, side=1)}
-    assert 'mine' in seen
-    assert 'enemy_far' not in seen
+    cs, names = _board([("mine", "Spearman", 1, 0, {"max_moves": 3}),
+                        ("enemy_far", "Spearman", 2, 10, {})])
+    assert _seen(cs, names, 1) == {"mine"}
 
 
 def test_visibility_is_per_side():
     """Side 1 and side 2 may see different subsets of the same
     god-view unit list."""
-    units = [
-        _unit('a1', x=0, side=1, max_moves=2),
-        _unit('a2', x=15, side=1, max_moves=2),
-        _unit('b1', x=2, side=2, max_moves=2),    # near a1
-        _unit('b2', x=10, side=2, max_moves=2),   # nobody near
-    ]
-    s = _state(units, _hexes_grid(20))
-    seen1 = {u.id for u in visibility.units_visible_to(s, 1)}
-    seen2 = {u.id for u in visibility.units_visible_to(s, 2)}
+    two = {"max_moves": 2}
+    cs, names = _board([("a1", "Spearman", 1, 0, two), ("b1", "Spearman", 2, 2, two),
+                        ("b2", "Spearman", 2, 10, two), ("a2", "Spearman", 1, 15, two)])
     # Side 1 sees its own + b1 (close to a1); not b2.
-    assert seen1 == {'a1', 'a2', 'b1'}
+    assert _seen(cs, names, 1) == {"a1", "a2", "b1"}
     # Side 2 sees its own + a1 (close to b1); not a2.
-    assert seen2 == {'b1', 'b2', 'a1'}
+    assert _seen(cs, names, 2) == {"b1", "b2", "a1"}
 
 
 # ---- ambush handling ---------------------------------------------
 
 def test_ambush_unit_in_forest_is_hidden_until_uncovered():
     """Ambush on forest: not in sight set until in `_uncovered_units`.
-    The unit is within sight range, so the only reason it's hidden
-    is the ambush ability.
-
-    `_hide_cover_active` matches the engine's `*^F*` glob against
-    the hex's WML terrain CODE from `global_info._terrain_codes`
-    (NOT the `Hex.terrain_types` enum field), so this test
-    pre-populates that dict at the lurker's hex. Real game states
-    get these codes from the scenario parser; tests set them by hand.
+    The unit is within sight range, so the only reason it's hidden is
+    the ambush ability. The cover matches the engine's `*^F*` glob
+    against the hex's terrain CODE.
 
     The code is `Gs^Fms`, mixed deciduous forest, deliberately: the
-    hand-rolled defense-key table this predicate used until
-    2026-09-13 did NOT list it, so the lurker stayed visible there.
-    A code the old table happened to cover (`Gg^Fp`) would pass under
-    both rules and prove nothing about the fix.
+    hand-rolled defense-key table the predicate used until 2026-09-13
+    did NOT list it, so the lurker stayed visible there. A code the old
+    table happened to cover (`Gg^Fp`) would pass under both rules and
+    prove nothing about the fix.
 
     The observer is a Spearman: forest costs it 2 of its 3 MP, so it
-    reaches x=1 and sees x=2, where the lurker stands.
-    """
-    forest_hexes = {Hex(position=Position(x=x, y=0),
-                       terrain_types=frozenset({Terrain.FOREST}),
-                       modifiers=frozenset())
-                   for x in range(20)}
-    units = [
-        _unit('mine', x=0, side=1, max_moves=3, name='Spearman'),
-        _unit('lurker', x=2, side=2, max_moves=2,
-              abilities={'ambush'}),                # inside sight, on forest
-    ]
-    s = _state(units, forest_hexes)
-    # Populate WML terrain codes so the hex matches ambush's `*^F*`.
-    s.global_info._terrain_codes = {(x, 0): 'Gs^Fms' for x in range(20)}
-    seen = {u.id for u in visibility.units_visible_to(s, 1)}
-    assert 'lurker' not in seen
-
+    reaches x=1 and sees x=2, where the lurker stands."""
+    cs, names = _board([("mine", "Spearman", 1, 0, {"max_moves": 3}),
+                        ("lurker", "Spearman", 2, 2, {"abilities": ["ambush"]})], code="Gs^Fms")
+    assert "lurker" not in _seen(cs, names, 1)
     # Now mark it as uncovered (e.g., post-ambush trigger).
-    s.global_info._uncovered_units = {'lurker'}
-    seen = {u.id for u in visibility.units_visible_to(s, 1)}
-    assert 'lurker' in seen
+    lurker = next(uid for uid, name in names.items() if name == "lurker")
+    cs.core.set_uncovered([lurker])
+    assert "lurker" in _seen(cs, names, 1)
 
 
 def test_ambush_off_cover_terrain_does_not_hide():
     """The same ambush unit on FLAT terrain is NOT hiding (cover
     condition not met). Should be visible if in sight range."""
-    units = [
-        _unit('mine', x=0, side=1, max_moves=3),
-        _unit('lurker_outside_forest', x=2, side=2,
-              abilities={'ambush'}),  # FLAT here, no cover
-    ]
-    s = _state(units, _hexes_grid(20))  # default FLAT
-    seen = {u.id for u in visibility.units_visible_to(s, 1)}
-    assert 'lurker_outside_forest' in seen
+    cs, names = _board([("mine", "Spearman", 1, 0, {"max_moves": 3}),
+                        ("lurker_outside_forest", "Spearman", 2, 2, {"abilities": ["ambush"]})])
+    assert "lurker_outside_forest" in _seen(cs, names, 1)
 
 
 # ---- encoder integration -----------------------------------------
 
-def _encode_raw(s):
-    """Build the encoder's vocab dicts on the fly so encode_raw
-    can run on a synthetic state. The dicts need (at minimum)
-    the unit-type names that appear in `s`, plus a default
-    faction id of 0 for the placeholder faction string 'h'.
-    `encode_raw` is module-level (not a method) so we import it
-    directly rather than going through a GameStateEncoder."""
-    from wesnoth_ai.encoder import encode_raw
-    type_to_id = {u.name: i for i, u in enumerate(s.map.units)}
-    faction_to_id = {'h': 0}
-    return encode_raw(s, type_to_id=type_to_id,
-                      faction_to_id=faction_to_id)
+def _unit_names(cs, names):
+    """The names of the units the side to move's encoding carries."""
+    raw = cs.encode_raw(type_to_id={}, faction_to_id={})
+    return [names[uid] for uid in raw.unit_ids], raw
 
 
 def test_encoder_omits_fog_hidden_enemy_tokens():
     """Encoder's `encode_raw` must emit unit tokens only for
     visible units."""
-    units = [
-        _unit('mine_leader', x=0, side=1, max_moves=2, is_leader=True),
-        _unit('enemy_close', x=2, side=2),       # within sight
-        _unit('enemy_far',   x=15, side=2),      # outside sight
-    ]
-    s = _state(units, _hexes_grid(20))
-    raw = _encode_raw(s)
-    ids = list(raw.unit_ids)
-    assert 'mine_leader' in ids
-    assert 'enemy_close' in ids
-    assert 'enemy_far' not in ids
+    cs, names = _board([("mine_leader", "Spearman", 1, 0, {"max_moves": 2, "is_leader": True}),
+                        ("enemy_close", "Spearman", 2, 2, {}),       # within sight
+                        ("enemy_far", "Spearman", 2, 15, {})])       # outside sight
+    ids, _raw = _unit_names(cs, names)
+    assert "mine_leader" in ids and "enemy_close" in ids
+    assert "enemy_far" not in ids
 
 
 def test_encoder_omits_cover_hidden_enemy_tokens():
@@ -228,39 +154,31 @@ def test_encoder_omits_cover_hidden_enemy_tokens():
     `diff_replay` checks that recorded commands stay legal, never what
     the policy was shown.
     """
-    units = [
-        _unit('mine_leader', x=0, side=1, max_moves=5, is_leader=True, name='Spearman'),
-        _unit('plain_enemy', x=2, side=2),
-        _unit('lurker', x=3, side=2, abilities={'ambush'}),
-    ]
-    s = _state(units, _hexes_grid(20))
-    s.global_info._terrain_codes = {(x, 0): 'Gs^Fms' for x in range(20)}
-    ids = list(_encode_raw(s).unit_ids)
-    assert 'mine_leader' in ids and 'plain_enemy' in ids, \
+    cs, names = _board([("mine_leader", "Spearman", 1, 0, {"is_leader": True}),
+                        ("plain_enemy", "Spearman", 2, 2, {}),
+                        ("lurker", "Spearman", 2, 3, {"abilities": ["ambush"]})], code="Gs^Fms")
+    ids, _raw = _unit_names(cs, names)
+    assert "mine_leader" in ids and "plain_enemy" in ids, \
         "control: units in sight without cover keep their tokens"
-    assert 'lurker' not in ids, \
+    assert "lurker" not in ids, \
         "an ambusher on ^Fms must not reach the policy's observation"
 
     # Uncovered by a previous ambush trigger: the token comes back.
-    s.global_info._uncovered_units = {'lurker'}
-    assert 'lurker' in list(_encode_raw(s).unit_ids)
+    lurker = next(uid for uid, name in names.items() if name == "lurker")
+    cs.core.set_uncovered([lurker])
+    assert "lurker" in _unit_names(cs, names)[0]
 
 
 def test_encoder_recruit_phantoms_only_for_current_side():
     """encode_raw should emit recruit phantoms only for the side
     currently acting. Enemy recruit lists are fog-hidden."""
-    units = [
-        _unit('mine_leader', x=0, side=1, is_leader=True),
-        _unit('enemy_leader', x=2, side=2, is_leader=True),
-    ]
-    s = _state(units, _hexes_grid(20),
-               current_side=1,
-               recruits=('Soldier', 'Healer'))
-    raw = _encode_raw(s)
+    cs, names = _board([("mine_leader", "Lieutenant", 1, 0, {"is_leader": True}),
+                        ("enemy_leader", "Lieutenant", 2, 2, {"is_leader": True})],
+                       recruits={1: ["Spearman", "Mage"], 2: ["Elvish Fighter"]})
+    _ids, raw = _unit_names(cs, names)
+    assert raw.recruit_types == ["Spearman", "Mage"]
     # recruit_is_ours should be all 1.0 (only own side emitted).
     assert (raw.recruit_is_ours == 1.0).all()
-    # Number of phantoms == |our recruits|, not |our| + |their|.
-    assert len(raw.recruit_is_ours) == 2
 
 
 # ---- visible_hexes / visible_fraction -----------------------------
@@ -268,24 +186,37 @@ def test_encoder_recruit_phantoms_only_for_current_side():
 def test_visible_hexes_are_the_reach_and_the_ring_around_it():
     """A 2-MP unit on open ground reaches 2 hexes each way and sees the
     third (tests/test_vision.py covers terrain and the turn)."""
-    units = [_unit('u', x=5, side=1, max_moves=2)]
-    s = _state(units, _hexes_grid(20))
-    assert visibility.visible_hexes_for(s, 1) == {(x, 0) for x in range(2, 9)}
+    cs, _names = _board([("u", "Spearman", 1, 5, {"max_moves": 2})])
+    assert visibility.visible_hexes_for(gc.view_of(cs), 1) == {(x, 0) for x in range(2, 9)}
 
 
 def test_visible_fraction_in_unit_interval():
-    units = [_unit('u', x=5, side=1, max_moves=2)]
-    s = _state(units, _hexes_grid(20))
-    f = visibility.visible_fraction_for(s, 1)
-    assert 0.0 < f <= 1.0
-    assert f == pytest.approx(7/20)
+    cs, _names = _board([("u", "Spearman", 1, 5, {"max_moves": 2})])
+    assert visibility.visible_fraction_for(gc.view_of(cs), 1) == pytest.approx(7 / 20)
 
 
 # ---- move onto hidden units: Wesnoth blocked/ambush semantics ----
-# (2026-07-17: replaces the retired harness-side fog-bounce
-# pre-check `_would_move_bounce_on_fog` -- moves onto hidden enemies
-# now EXECUTE with the engine's partial-move resolution via
-# tools/pathfind_sim.walk_move_path.)
+# A move onto a hidden enemy EXECUTES with the engine's partial-move
+# resolution, on the Rust core (rust/wesnoth_core/src/core_move.rs).
+
+def _walk(units, path, *, special=None):
+    """The side-1 unit on the path's first hex walks it on a fogged
+    grass board (tests/helpers/parity_games.py): (landed hex, stop
+    reason, the mover's movement left, the uncovered unit ids, the core).
+    `units` as parity_games.record takes them."""
+    from helpers.parity_games import record, state_of, unit_id_at
+    from wesnoth_ai.game_core import CoreState, game_core_class
+    if game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    cs = CoreState.from_state(state_of(record(units, special=special, fog=True)))
+    mover = unit_id_at(cs, *path[0])
+    cs.core.apply_move([p[0] for p in path], [p[1] for p in path], 1)
+    _ox, _oy, lx, ly, reason = cs.core.last_move_walk_export()
+    return (lx, ly), reason, cs.core.unit_export(mover)["current_moves"], set(cs.core.uncovered_export()), cs
+
+
+ROW = [(x, 3) for x in range(1, 7)]
+
 
 def test_walk_blocked_by_hidden_enemy_keeps_mp():
     """A hidden unit ON a path hex stops the mover on the hex
@@ -293,79 +224,57 @@ def test_walk_blocked_by_hidden_enemy_keeps_mp():
     ambush/ZoC-final, move.cpp:1041-1043), and reveals the
     blocker.
 
-    Setup note: the mover gets max_moves=1, so it sees x <= 2 (its
-    reach and the ring around it) and the lurker at distance 3 is
-    fog-hidden and exerts no ZoC; the walk budget is an explicit 4."""
-    from tools.pathfind_sim import walk_move_path
-    units = [
-        _unit('mover', x=0, side=1, max_moves=1),
-        _unit('lurker', x=3, side=2),      # on the path, fog-hidden
-    ]
-    s = _state(units, _hexes_grid(6))
-    mover = next(u for u in s.map.units if u.id == 'mover')
-    out = walk_move_path(s, mover, [0, 1, 2, 3, 4], [0, 0, 0, 0, 0],
-                         budget=4)
-    assert out.stop_reason == "blocked"
-    assert out.final_idx == 2               # stopped BEFORE (3,0)
-    assert out.uncovered_ids == ['lurker']
-    # 2 MP spent on flat terrain, 2 kept (NOT zeroed).
-    assert out.mp_left == 2
+    Setup note: the mover's max_moves is 1, so it sees x <= 3 (its
+    reach and the ring around it) and the lurker at x=4 is fog-hidden
+    and exerts no ZoC; it walks on its 5 current moves."""
+    from helpers.parity_games import record, state_of, unit_id_at
+    from wesnoth_ai.game_core import CoreState, game_core_class
+    if game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    cs = CoreState.from_state(state_of(record(
+        [("Spearman", 1, *ROW[0], False), ("Spearman", 2, *ROW[3], False)], fog=True)))
+    mover, lurker = unit_id_at(cs, *ROW[0]), unit_id_at(cs, *ROW[3])
+    cs.core.update_unit(mover, {"max_moves": 1})
+    assert lurker not in cs.core.visible_ids(1)
+    cs.core.apply_move([p[0] for p in ROW[:5]], [p[1] for p in ROW[:5]], 1)
+    *_ordered, lx, ly, reason = cs.core.last_move_walk_export()
+    assert reason == "blocked"
+    assert (lx, ly) == ROW[2]               # stopped BEFORE the lurker
+    assert set(cs.core.uncovered_export()) == {lurker}
+    # 2 MP spent on flat terrain, 3 kept (NOT zeroed).
+    assert cs.core.unit_export(mover)["current_moves"] == 3
 
 
 def test_walk_ambush_by_hidden_hider_zeroes_mp():
     """Entering a hex adjacent to a hidden `hides` enemy stops the
     mover AT that hex, zeroes MP, and reveals the ambusher
-    (check_for_ambushers, move.cpp:422-440)."""
-    from tools.pathfind_sim import walk_move_path
-    units = [
-        _unit('mover', x=0, side=1, max_moves=4),
-        # Ambusher OFF the path (y=1) but adjacent to path hex (2,0).
-        # nightstalk covers via lawful_bonus<0; simpler: monkeypatch
-        # is avoided by giving it `ambush` and forest terrain below.
-        _unit('wose', x=2, side=2, abilities=frozenset({'ambush'})),
-    ]
-    hexes = _hexes_grid(6)
-    # Put the ambusher's hex on forest so its cover is active.
-    # Hide-cover resolution matches ambush's `*^F*` glob against the
-    # raw terrain-code dict (`_terrain_codes`), so stamp the code
-    # rather than the Hex enum. `Gs^Fms` is a forest the pre-2026-09-13
-    # defense-key table missed, so this asserts the move truncation on
-    # a hex where the old rule would NOT have stopped the mover -- the
-    # one thing the corpus sweep cannot check.
-    hexes = {h for h in hexes if not (h.position.x == 2 and h.position.y == 0)}
-    hexes.add(Hex(position=Position(x=2, y=0),
-                  terrain_types=frozenset({Terrain.FOREST}),
-                  modifiers=frozenset()))
-    s = _state(units, hexes)
-    s.global_info._terrain_codes = {(2, 0): "Gs^Fms"}
-    mover = next(u for u in s.map.units if u.id == 'mover')
-    # Path passes adjacent to (2,0): entering (1,0) is adjacent.
-    out = walk_move_path(s, mover, [0, 1], [0, 0])
-    assert out.stop_reason == "ambush"
-    assert out.final_idx == 1               # stopped AT the entered hex
-    assert 'wose' in out.uncovered_ids
-    assert out.mp_left == 0
+    (check_for_ambushers, move.cpp:422-440). The Elvish Ranger stands
+    off the path on `Gs^Fms`, a forest the pre-2026-09-13 defense-key
+    table missed, so this asserts the move truncation on a hex where the
+    old rule would NOT have stopped the mover -- the one thing the corpus
+    sweep cannot check."""
+    from tools.abilities import hex_neighbors
+    ranger = next(p for p in hex_neighbors(*ROW[1]) if p not in hex_neighbors(*ROW[0]) and p not in ROW)
+    landed, reason, mp_left, uncovered, cs = _walk(
+        [("Spearman", 1, *ROW[0], False), ("Elvish Ranger", 2, *ranger, False)], ROW[:3],
+        special={ranger: "Gs^Fms"})
+    assert reason == "ambush"
+    assert landed == ROW[1]                 # stopped AT the entered hex
+    assert uncovered == {cs.core.unit_id_at(*ranger, 0)}
+    assert mp_left == 0
 
 
 def test_walk_passes_through_ally_and_backtracks_off_it():
     """Own-side units are pass-through (pathfind.cpp:777-786), but
     a move may not END on one: the walk backtracks off occupied end
     hexes (plot_turn, move.cpp:776-780) with MP refunded."""
-    from tools.pathfind_sim import walk_move_path
-    units = [
-        _unit('mover', x=0, side=1, max_moves=4),
-        _unit('buddy', x=2, side=1),
-    ]
-    s = _state(units, _hexes_grid(6))
-    mover = next(u for u in s.map.units if u.id == 'mover')
+    units = [("Spearman", 1, *ROW[0], False), ("Spearman", 1, *ROW[2], False)]
     # Through the ally, landing beyond: fine.
-    out = walk_move_path(s, mover, [0, 1, 2, 3], [0, 0, 0, 0])
-    assert out.stop_reason == "end" and out.final_idx == 3
-    assert out.mp_left == 1
-    # Ordered to END on the ally's hex: backtrack to (1,0).
-    out2 = walk_move_path(s, mover, [0, 1, 2], [0, 0, 0])
-    assert out2.final_idx == 1
-    assert out2.mp_left == 3                # only 1 MP charged
+    landed, reason, mp_left, _unc, _cs = _walk(units, ROW[:4])
+    assert (landed, reason, mp_left) == (ROW[3], "end", 2)
+    # Ordered to END on the ally's hex: back to the hex before it.
+    landed, _reason, mp_left, _unc, _cs = _walk(units, ROW[:3])
+    assert (landed, mp_left) == (ROW[1], 4)  # only 1 MP charged
 
 
 def test_legality_mask_offers_a_reachable_empty_hex():
@@ -374,23 +283,27 @@ def test_legality_mask_offers_a_reachable_empty_hex():
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.action_sampler import _build_legality_masks
 
-    s = _state([_unit('mine', x=0, side=1, max_moves=2)], _hexes_grid(2), current_side=1)
+    cs, names = _board([("mine", "Spearman", 1, 0, {"max_moves": 2})], width=2)
+    s = gc.view_of(cs)
     enc = GameStateEncoder(d_model=8)
     enc.register_names(s)
     encoded = enc.encode(s)
     masks = _build_legality_masks(encoded, s)
     # `target_valid` is [A, H]: the unit's actor row, the hex's column.
-    row = masks.target_valid[encoded.unit_ids.index('mine')]
+    mine = next(uid for uid, name in names.items() if name == "mine")
+    row = masks.target_valid[encoded.unit_ids.index(mine)]
     assert float(row[encoded.pos_to_hex[(1, 0)]].item()) > 0.0
 
 
 def test_empty_state_zero_visibility():
-    """No units OR no hexes -> 0.0 fraction, empty visible set."""
-    assert visibility.visible_fraction_for(
-        _state([], set()), 1) == 0.0
-    assert visibility.visible_hexes_for(
-        _state([], set()), 1) == set()
-    # Side with no units on a populated map: also 0.
-    enemy_only = [_unit('e', x=0, side=2)]
-    s = _state(enemy_only, _hexes_grid(20))
-    assert visibility.visible_fraction_for(s, 1) == 0.0
+    """No hexes -> 0.0 fraction; a side with no units on a populated
+    map sees nothing."""
+    from wesnoth_ai.classes import GameState, GlobalInfo, Map
+    empty = GameState(game_id="t", map=Map(size_x=0, size_y=0, mask=set(), fog=set(), hexes=set(), units=set()),
+                      global_info=GlobalInfo(current_side=1, turn_number=1, time_of_day=None, village_gold=2,
+                                             village_upkeep=1, base_income=2), sides=[])
+    assert visibility.visible_fraction_for(empty, 1) == 0.0
+    cs, _names = _board([("e", "Spearman", 2, 0, {})])
+    view = gc.view_of(cs)
+    assert visibility.visible_hexes_for(view, 1) == set()
+    assert visibility.visible_fraction_for(view, 1) == 0.0
