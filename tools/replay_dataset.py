@@ -650,11 +650,6 @@ def _build_initial_gamestate(data: dict) -> GameState:
     # pass-through for tools that have the original .json.gz on hand.
     setattr(gs.global_info, "_raw_map_data", data.get("map_data", ""))
     setattr(gs.global_info, "_terrain_codes", terrain_codes)
-    # Terrain epoch: reach-planner cache key that survives deepcopy
-    # (MCTS forks share entries) and is BUMPED by terrain-morph
-    # events (see pathfind_sim._terrain_maps_for).
-    from tools.pathfind_sim import next_terrain_epoch
-    setattr(gs.global_info, "_terrain_epoch", next_terrain_epoch())
     # ToD start offset for random_start_time scenarios. 0 means turn-1
     # is dawn (the default 2p case). Other values shift the cycle so
     # that turn-1 reads as e.g. afternoon (offset=2) — matching the
@@ -758,16 +753,9 @@ def _tod_cycle_index(turn_number: int, start_offset: int = 0) -> int:
     encodes which ToD the server picked. The readers hand over an
     offset already in range (`wml_state.read_tod`,
     `_build_initial_gamestate`); the wrap is the engine's modulo
-    (`tod_manager::calculate_time_index_at_turn`), as the time-area
-    path in `_lawful_bonus_at` wraps, never a clamp to dawn."""
+    (`tod_manager::calculate_time_index_at_turn`), never a clamp to
+    dawn."""
     return (max(1, turn_number) - 1 + start_offset) % len(cb.TOD_DEFAULT_CYCLE)
-
-
-def _lawful_bonus_for_turn(turn_number: int, start_offset: int = 0) -> int:
-    """Default 6-step ToD cycle: dawn(0), morning(+25), afternoon(+25),
-    dusk(0), first_watch(-25), second_watch(-25). `start_offset`
-    handles random-start-time scenarios where turn-1 is not dawn."""
-    return cb.TOD_DEFAULT_CYCLE[_tod_cycle_index(turn_number, start_offset)][1]
 
 
 def _tod_for_turn(turn_number: int, start_offset: int = 0) -> str:
@@ -775,35 +763,6 @@ def _tod_for_turn(turn_number: int, start_offset: int = 0) -> str:
     first_watch / second_watch) for the given 1-indexed turn. Honors
     `start_offset` for random_start_time scenarios."""
     return cb.TOD_DEFAULT_CYCLE[_tod_cycle_index(turn_number, start_offset)][0]
-
-
-# The [illuminates] ability's value and max_value, both 25 in
-# `{ABILITY_ILLUMINATES}` (data/core/macros/abilities.cfg:232-236), the
-# only definition of it in the default era. The Rust core keeps it as
-# `ILLUMINATION` (core_attack.rs); tests/test_rust_constants.py compares.
-ILLUMINATES_VALUE = 25
-
-
-def apply_unit_illumination(base: int, illuminated: bool) -> int:
-    """`bounded_add(base, 25, max_sum=25, min_sum=0)`'s positive branch
-    (tod_manager.cpp:265-281): the [illuminates] ability on top of the
-    terrain-lit time of day, `min(base + 25, max(base, 25))`."""
-    if not illuminated:
-        return base
-    return min(base + ILLUMINATES_VALUE, max(base, ILLUMINATES_VALUE))
-
-
-def illuminated_lawful_bonus_at(gs: GameState, unit: Unit, turn: int) -> int:
-    """The lawful bonus the engine's `get_illuminated_time_of_day`
-    gives a unit's own hex: the time area or default cycle, the
-    terrain light (`_lawful_bonus_at`) and an [illuminates] unit on
-    the hex or next to it (`abilities.illuminate_step`). What combat
-    reads for both combatants and what a [hides] filter reads for
-    nightstalk (abilities.cpp:447-450 evaluates it with
-    use_flat_tod=false, filter.cpp:268-273)."""
-    from tools.abilities import illuminate_step
-    base = _lawful_bonus_at(gs, unit.position.x, unit.position.y, turn)
-    return apply_unit_illumination(base, illuminate_step(unit, gs.map.units) > 0)
 
 
 def side_income(gs: GameState, side: int) -> Tuple[int, int]:
@@ -829,47 +788,6 @@ def side_income(gs: GameState, side: int) -> Tuple[int, int]:
             continue
         upkeep += int(_stats_for(u.name).get("level", 1))
     return income, max(0, upkeep - owned * village_support)
-
-
-def _lawful_bonus_at(gs: GameState, x: int, y: int, turn_number: int) -> int:
-    """Per-hex lawful_bonus. Honors scenario-defined [time_area] zones
-    (Tombs of Kesorak's dark/illuminated regions, Elensefar Courtyard's
-    underground keeps, etc.) — those override the global ToD cycle on
-    their hexes with a cycle of their own, whose slot does not follow a
-    random start of the board's. Falls back to the default 6-step cycle,
-    shifted by the board's start slot, when no [time_area] applies.
-
-    On top of the base ToD, applies terrain-level light bonus per
-    `terrain.hpp:132`: the campfire overlay (^Ecf), wallfire (^Efs),
-    icicle (^Ii), eldritch fire (^Ebn) and similar "lit" overlays
-    add +25 to lawful_bonus and CLAMP via max_light / min_light --
-    e.g. ^Ecf with max=min=25 fixes the hex's lawful_bonus to exactly
-    25 regardless of base ToD. Without this, a Poacher on Rrc^Ecf
-    at Tombs of Kesorak's illuminated zone takes +25% chaotic-night
-    damage instead of -25% chaotic-day, killing units that should
-    survive (witnessed in 2p__Tombs_of_Kesorak_Turn_*_(208025) at
-    cmd[138]: Poacher retal-bow dmg should be 3 (4*0.75) but our
-    sim computed 4 (4*1.0), the cumulative drift over later attacks
-    killed the Dark Adept which Wesnoth keeps alive).
-    """
-    start_offset = int(getattr(gs.global_info, "_tod_start_offset", 0) or 0)
-    areas = getattr(gs.global_info, "_time_areas", None)
-    cycle = areas.get((x, y)) if areas else None
-    if cycle:
-        # An area keeps its own slot, stored phased to turn 1 (the
-        # core's [time_area] action); the board's start slot
-        # moves the board's cycle only (`tod_manager::resolve_random`).
-        base = int(cycle[(max(1, turn_number) - 1) % len(cycle)])
-    else:
-        base = _lawful_bonus_for_turn(turn_number, start_offset)
-    # Apply terrain light_bonus: bounded_add(base, light, max_light,
-    # min_light). The result is the unit's effective lawful_bonus.
-    codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
-    code = codes.get((x, y))
-    if code:
-        from wesnoth_ai.rules.terrain_resolver import terrain_light_bonus
-        return terrain_light_bonus(strip_start_position(code), base)
-    return base
 
 
 def _rebuild_unit(unit: Unit, **changes) -> Unit:

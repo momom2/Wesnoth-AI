@@ -597,14 +597,12 @@ class CoreState:
         writes = terrain_log[self.terrain_synced:]
         st = self.statics
         if writes:
-            from tools.pathfind_sim import next_terrain_epoch
             from tools.scenario_events import terrain_writes_applied
             hexes, codes, raw = terrain_writes_applied(
                 st["hexes"], st.get("_terrain_codes"), st.get("_raw_map_data", "") or "", writes)
             st["hexes"] = hexes
             if codes is not None:
                 st["_terrain_codes"] = codes
-                st["_terrain_epoch"] = next_terrain_epoch()
             if raw:
                 st["_raw_map_data"] = raw
             self.hexes_holder = hexes
@@ -972,9 +970,7 @@ def _require_global_width(global_feats) -> None:
     """Refuse a core whose encoder emits a different number of global
     features than this one (a wheel built from an older or newer
     rust/wesnoth_core); the failure would otherwise surface as a shape
-    error inside the first forward pass, nowhere near its cause. The
-    Python kernel path has the same guard in
-    `encoder._rust_encode_kernel`."""
+    error inside the first forward pass, nowhere near its cause."""
     from wesnoth_ai import encoder as enc
     _require_width("global_feats", global_feats, enc.GLOBAL_FEAT_DIM)
 

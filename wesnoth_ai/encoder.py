@@ -36,11 +36,7 @@ from wesnoth_ai.classes import (
     Alignment,
     GameState,
     Position,
-    SideInfo,
     Terrain,
-    TerrainModifiers,
-    Unit,
-    opponent_of,
 )
 
 
@@ -74,10 +70,8 @@ NUM_SIDE_CODES  = 3     # 0 = ours, 1 = theirs, 2 = neutral
 # mods can override in one place. Empty string is reserved for
 # "unknown/unset" -> id 0.
 from wesnoth_ai.constants import DEFAULT_FACTIONS as _DEFAULT_FACTIONS  # noqa: E402 -- re-export point documented above
-from wesnoth_ai.material import material_of_units  # noqa: E402
 from wesnoth_ai.visibility import (  # noqa: E402
-    relevant_hexes_in_slot_order, hexes_in_slot_order, own_recruit_types,
-                        visible_units_in_slot_order, is_scenery_unit)
+    hexes_in_slot_order)
 
 
 def pad_legacy_encoder_state(encoder_state: dict, encoder) -> dict:
@@ -352,8 +346,9 @@ PARITY_WIDTHS = ObservationWidths(NUM_TERRAINS_PARITY, NUM_HEX_DYNAMIC_FLAGS_PAR
 
 # Normalization divisors. Re-exported from `constants.py` so era
 # mods can override them in one place; see the comment block in
-# constants.py for scale rationale.
-from wesnoth_ai.constants import (  # noqa: E402 -- re-export point documented above
+# constants.py for scale rationale. The core's encoding reads them here
+# (`game_core.CoreState.encode_raw`).
+from wesnoth_ai.constants import (  # noqa: E402, F401 -- re-export point documented above
     HP_NORM, MOVES_NORM, EXP_NORM, COST_NORM,
     GOLD_NORM, INCOME_NORM, VILLAGES_NORM, TURN_NORM,
 )
@@ -416,19 +411,6 @@ class EncodedState:
     # build EncodedState by hand still work; the sampler falls back
     # to the device hop when this field is missing.
     recruit_is_ours_np: Optional[np.ndarray] = None
-
-    # Visible-unit id set (optimization #3, 2026-06-14). The encoder
-    # only emits VISIBLE units (units_visible_to), so the ids in
-    # `unit_ids` ARE the fog-visible set for `current_side` -- exactly
-    # what action_sampler._build_legality_masks needs to decide which
-    # enemies are hidden. Stashing it here lets the sampler skip a
-    # SECOND units_visible_to() call per decision (it was computing
-    # the identical set independently). Keyed by stable `u.id` (not
-    # python id()), so it stays correct even if the EncodedState is
-    # paired with a deep-copied GameState. `None` => sampler falls
-    # back to recomputing (hand-built EncodedState / tests), so
-    # behavior is unchanged there.
-    visible_unit_ids: Optional[frozenset] = None
 
     # True when the hex stream is the RELEVANT SUBSET rather than the whole
     # board (see encode_raw's `relevant_set`). Consumers that resolve a raw
@@ -528,7 +510,7 @@ class RawEncoded:
     # rather than only by type+side. Without these the sampler
     # collapses all of "our" recruits onto a single embedding cluster
     # and never learns which to pick. recruit_xs/ys = leader's keep
-    # of the recruit's side; recruit_feats = `_unit_features` of a
+    # of the recruit's side; recruit_feats = the unit features of a
     # full-HP / 0-MP / 0-XP / non-leader phantom of that type.
     recruit_types:    List[str]
     recruit_is_ours:  np.ndarray            # float32 [R]
@@ -1061,7 +1043,6 @@ class GameStateEncoder(nn.Module):
             global_token=global_token,
             end_turn_token=self.end_turn_token.view(1, 1, -1),
             recruit_is_ours_np=raw.recruit_is_ours,  # zero-copy view
-            visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
             material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
                                   device=global_token.device),
             observation=getattr(raw, "observation", None),
@@ -1490,7 +1471,6 @@ class GameStateEncoder(nn.Module):
                 global_token=global_emb[b:b + 1].unsqueeze(1),  # [1, 1, d]
                 end_turn_token=end_turn_token,
                 recruit_is_ours_np=raw.recruit_is_ours,
-                visible_unit_ids=frozenset(raw.unit_ids),  # opt #3
                 material=torch.tensor([[float(raw.material)]], dtype=torch.float32,
                                       device=global_emb.device),
                 observation=getattr(raw, "observation", None),
@@ -1502,10 +1482,6 @@ class GameStateEncoder(nn.Module):
 # ---------------------------------------------------------------------
 # encode_raw — phase-1 of encoding. Pure Python, vocab read-only.
 # ---------------------------------------------------------------------
-
-def _clamp_pos(v: int) -> int:
-    return max(0, min(v, MAX_MAP_SIZE - 1))
-
 
 def names_on_overflow_row(type_to_id: Dict[str, int]) -> List[str]:
     """The type names whose id reaches the overflow row (MAX_UNIT_TYPES
@@ -1554,12 +1530,6 @@ def type_row(name: str, type_to_id: Dict[str, int]) -> int:
     return min(i, overflow)
 
 
-def _side_info(sides: List[SideInfo], side: int) -> Optional[SideInfo]:
-    """The SideInfo of side number `side`, or None when the state
-    lists fewer sides."""
-    return sides[side - 1] if 0 < side <= len(sides) else None
-
-
 def encode_raw(
     game_state: GameState,
     *,
@@ -1571,14 +1541,16 @@ def encode_raw(
     observation_parity: bool = False,
     relevant_set_version: int = 1,
 ) -> RawEncoded:
-    """Build a `RawEncoded` from a GameState using read-only vocab.
+    """Build a `RawEncoded` from a GameState using read-only vocab, by
+    the Rust core that answers for the state (`game_core.core_for`: a
+    view's own core, or one built from a state made by hand or copied).
     `terrain_multi_hot`: the hex stream carries each hex's terrain
-    mask (Hex.terrain_mask) instead of its one class id. A view of the
-    Rust core (`game_core.bind_view`) is encoded by its core.
+    mask (Hex.terrain_mask) instead of its one class id.
     `observation_parity`: the parity observation (the layout above,
-    "The parity observation"), which only the core builds: a state not
-    bound to a core raises ValueError (encode a core's view; a deep copy
-    is unbound, `game_core.snapshot_view` keeps the binding).
+    "The parity observation"), which reads the sighting records of the
+    view's own core: a state not bound to a core raises ValueError
+    (encode a core's view; a deep copy is unbound,
+    `game_core.snapshot_view` keeps the binding).
 
     Self-contained: no torch, no nn modules, no GPU. The result is
     picklable, so workers can call this and ship results back to the
@@ -1591,415 +1563,28 @@ def encode_raw(
 
     Output bulk fields are numpy arrays (int64 / float32) so the
     trainer's `encode_from_raw` can wrap them with `torch.from_numpy`
-    in zero-copy O(1) time. The np.asarray calls here run in the
-    worker process and are hidden behind the main thread's GPU work.
-
-    Python gathers the facts (slot orderings, vocab ids, fog and
-    ownership predicates); the arrays are then composed either by one
-    call into the Rust wheel (docs/rust_port_plan.md phase 2b, see
-    `_rust_encode_kernel`) or by the `_python_*` builders below, which
-    are the reference the wheel is certified against
-    (tests/test_rust_encode_raw.py).
+    in zero-copy O(1) time.
 
     The side to move must be a player's (`classes.PLAYER_SIDES`); the
     global features describe the other player's side as the enemy.
     A state whose side to move is not a player's raises ValueError.
     """
-    from wesnoth_ai.game_core import core_of
-    core = core_of(game_state)
-    if core is not None:
-        return core.encode_raw(type_to_id=type_to_id, faction_to_id=faction_to_id,
-                               relevant_set=relevant_set, fog_hides_enemy_villages=fog_hides_enemy_villages,
-                               terrain_multi_hot=terrain_multi_hot, observation_parity=observation_parity,
-                               relevant_set_version=relevant_set_version)
-    if observation_parity or relevant_set_version != 1:
+    from wesnoth_ai.game_core import core_for, core_of
+    if (observation_parity or relevant_set_version != 1) and core_of(game_state) is None:
         raise ValueError(
-            "observation_parity and relevant_set_version 2 are built by the Rust core only "
-            "(GameCore.encode_streams), and this "
-            "state is not a view bound to a core: encode the simulator's view or a replay pair's, or "
-            "keep a copy with game_core.snapshot_view (copy.deepcopy drops the binding)")
-    current_side = game_state.global_info.current_side
-    them_side = opponent_of(current_side)
-    sides = game_state.sides
-
-    # ---- hexes ----
-    # Fog hexes are RETAINED. Wesnoth's fog of war hides UNITS on a
-    # hex from sides that don't have vision there, but the TERRAIN
-    # is still visible (the player saw the map at scenario start).
-    # Dropping fog hexes from our hex token stream silently makes
-    # them ineligible for the recruit hex mask (the BFS over the
-    # leader's castle network would skip them) -- so the policy
-    # could never attempt to recruit on fog castle hexes, even
-    # though Wesnoth would happily accept the attempt and bounce
-    # only if an enemy is actually there. Per the legality-mask
-    # contract in CLAUDE.md, we want fog hexes attemptable; the
-    # rejection-history feature handles the bounce case.
-    #
-    # Units in fog are filtered by the observation below (its visible
-    # units, wesnoth_ai/observe.py); `gs.map.units` holds every unit in
-    # the simulator, and only the live bridge's state collector leaves
-    # hidden enemies out of it.
-    # Hex stream: the FULL board, or (opt-in) only the hexes that can
-    # matter this decision. T2-A measured the relevant set at mean 0.30 of
-    # the board with ZERO superset violations over 1,840 decisions, which
-    # buys a 4.3-4.8x rollout forward -- the sequence length, not the
-    # parameter count, is what gates scaling here. Both orderings come from
-    # the SAME canonical (y,x) sort (relevant_hexes_in_slot_order FILTERS
-    # it rather than re-sorting), so slot indices stay deterministic --
-    # load-bearing, because the trainer replays target_idx against
-    # re-encoded states.
-    # One observation per decision through the Rust kernels (wesnoth_ai/
-    # observe.py): the seen hexes, the visible units, the mask builder's
-    # reach context and, in the relevant-set basis, the acting units'
-    # landable rows and the relevant hex set; None on the Python path.
-    from wesnoth_ai.observe import observe as _observe
-    observation = _observe(game_state, current_side, reach=relevant_set)
-    if relevant_set:
-        if observation is not None and observation.relevant is not None:
-            # The kernel's relevant mask over the cached full-board
-            # arrays; the token index goes to the mask builder.
-            static, observation.tok_of_hex = _relevant_subset_static(game_state, observation)
-            hexes = static.hexes
-            hex_positions = static.positions
-        else:
-            hexes = relevant_hexes_in_slot_order(game_state)   # slot contract
-            hex_positions = [h.position for h in hexes]
-            static = _build_static_hex_arrays(hexes) if hexes else None
-    else:
-        # Full board: the slot ordering and the static arrays are
-        # cached per hex set (see _static_hex_arrays).
-        static = _static_hex_arrays(game_state)
-        hexes = static.hexes
-        hex_positions = static.positions
-        if observation is not None:
-            observation.tok_of_hex = observation.geometry.full_slot
-    H = len(hex_positions)
-
-    # Per-turn rejection set (hexes a previous recruit attempt
-    # bounced this turn). Stashed on global_info by the harness;
-    # absent on fresh states. See CLAUDE.md legality-mask contract.
-    rejected_hexes = (
-        getattr(game_state.global_info, "_recruit_rejected_hexes", None)
-        or set()
-    )
-
-    # The hexes the side to move sees, shared between the
-    # village-ownership fog gate below and `units_visible_to` (which
-    # otherwise reads them again) -- read lazily, at most ONCE per
-    # encode.
-    # Fog toggle: underscore attr so GlobalInfo.__deepcopy__ carries
-    # it through MCTS state copies (non-underscore attrs are
-    # dropped; adversarial review 2026-07-11).
-    fog_on = getattr(game_state.global_info, "_fog", True)
-    _seen_cache: list = []
-
-    def _seen_hexes():
-        if not _seen_cache:
-            if observation is not None:
-                _seen_cache.append(observation.seen_set())
-            else:
-                from wesnoth_ai.visibility import visible_hexes_for
-                _seen_cache.append(
-                    visible_hexes_for(game_state, current_side))
-        return _seen_cache[0]
-
-    # Static per-map arrays come from a cache keyed on the hex set's
-    # identity (2026-09-04: the per-hex Python loop was ~1 ms of the
-    # 1.35 ms encode; terrain never changes within a self-play game
-    # -- morph events REPLACE gs.map.hexes, so the key changes with
-    # them). Only the dynamic bits (village ownership as the mover
-    # sees it, recruit rejections) are gathered per encode, over the
-    # village hexes alone.
-    if H == 0:
-        village_entries: List[Tuple[int, int, bool]] = []
-        rejected_slots: List[int] = []
-    else:
-        village_entries = _village_entries(
-            static, game_state, current_side, fog_on, _seen_hexes)
-        rejected_slots = _rejected_slots(static, rejected_hexes)
-
-    # ---- units ----
-    # Fog-of-war filter: the policy must only see units that the
-    # current side could see in real Wesnoth. The sim runs god-
-    # view internally (combat math etc. need ground truth), but
-    # for the encoder's observation we MUST filter -- otherwise
-    # the policy learns to use enemy positions it wouldn't have
-    # access to at deploy time. `units_visible_to` honors the
-    # three Wesnoth rules: own units always visible; enemy units
-    # on hexes the side does not see hidden; enemy units with an
-    # active hide-cover ability (ambush/concealment/submerge/
-    # nightstalk) hidden until uncovered (sim manages the
-    # `_uncovered_units` set per ambush-trigger). See
-    # `visibility.py` for the full contract.
-    # Slot contract (visibility.visible_units_in_slot_order): the
-    # label builder and any other slot consumer share THIS
-    # enumeration -- do not inline a sort here again.
-    if observation is not None:
-        # The kernel's visibility, in the slot contract's order.
-        units = sorted(observation.visible_units(),
-                       key=lambda u: (u.position.y, u.position.x, u.id))
-    else:
-        units = visible_units_in_slot_order(
-            game_state, current_side,
-            # Reuse the seen hexes if the village fog gate already read
-            # them; None lets the filter read them lazily.
-            vis_set=_seen_cache[0] if _seen_cache else None,
-        )
-    unit_positions = [u.position for u in units]
-    unit_ids       = [u.id for u in units]
-
-    # ---- recruits ----
-    # Fog-of-war filter: only the CURRENT side's recruit phantoms
-    # are emitted. In real Wesnoth a player never sees the enemy's
-    # recruit list (or even confirms which units they CAN recruit
-    # until one appears on the board). Previously we emitted
-    # phantoms for every side -- a fog leak on two counts:
-    #   1. The recruit type ids leaked which faction the enemy
-    #      picked (visible to humans from the lobby anyway, but
-    #      the policy shouldn't get a free token for it).
-    #   2. The phantom's positional coords (lx, ly) leaked the
-    #      enemy LEADER's keep coordinates -- god-view info that
-    #      Wesnoth's fog hides until you scout it.
-    # Looking up the current side's leader is straightforward;
-    # we no longer need a per-side dict because we only need OUR
-    # leader's position to coord-anchor OUR recruit phantoms.
-    own_leader_xy: Tuple[int, int] = (0, 0)
-    for u in game_state.map.units:
-        if u.is_leader and u.side == current_side:
-            own_leader_xy = (u.position.x, u.position.y)
-            break
-    # Recruit phantoms via the slot contract
-    # (visibility.own_recruit_types): CURRENT side only, side_info
-    # order -- the label builder resolves recruit slots through the
-    # same function.
-    own_recruits = own_recruit_types(game_state, current_side)
-
-    # ---- global ----
-    # The enemy is the other player's side, looked up by its number: a
-    # replayed game lists a SideInfo for every side its scenario
-    # declares, statues and tentacles included.
-    gi = game_state.global_info
-    us = _side_info(sides, current_side)
-    them = _side_info(sides, them_side)
-    our_gold       = us.current_gold if us else 0
-    our_income     = us.base_income if us else 0
-    our_villages   = us.nb_villages_controlled if us else 0
-    their_villages = them.nb_villages_controlled if them else 0
-    if fog_hides_enemy_villages and fog_on:
-        # Global feature 5 was the enemy's TRUE village count on every
-        # path (2026-09-08 contamination review): a player under fog
-        # never sees it (visibility.enemy_villages_visible_to cites
-        # the engine). Behind a checkpoint flag: the seed was trained
-        # with the count, its encoding stays byte-identical.
-        from wesnoth_ai.visibility import enemy_villages_visible_to
-        their_villages = enemy_villages_visible_to(game_state, current_side, _seen_hexes())
-
-    our_fac  = us.faction if us else ""
-    them_fac = them.faction if them else ""
-    our_faction_id   = _lookup_id(our_fac,  faction_to_id, MAX_FACTIONS)
-    their_faction_id = _lookup_id(them_fac, faction_to_id, MAX_FACTIONS)
-
-    # ---- arrays ----
-    # The time of day the board is under, and the one it moves to next.
-    # `_tod_start_offset` carries the slot a random-start scenario drew,
-    # so this is the phase the game is actually in rather than the one
-    # the turn number would imply.
-    from tools.replay_dataset import _lawful_bonus_for_turn
-    tod_offset = int(getattr(gi, "_tod_start_offset", 0) or 0)
-    lawful_bonus = _lawful_bonus_for_turn(gi.turn_number, tod_offset)
-    next_lawful_bonus = _lawful_bonus_for_turn(gi.turn_number + 1, tod_offset)
-
-    kernel = _rust_encode_kernel()
-    if kernel is not None:
-        hex_arrays, unit_arrays, recruit_arrays, global_feats_np = _rust_streams(
-            kernel, static, H, village_entries, rejected_slots, units,
-            current_side, type_to_id, own_recruits, own_leader_xy,
-            (gi.turn_number, current_side, our_gold, our_income,
-             our_villages, their_villages, lawful_bonus, next_lawful_bonus))
-    else:
-        hex_arrays = _python_hex_arrays(static, H, village_entries, rejected_slots)
-        unit_arrays = _python_unit_arrays(units, current_side, type_to_id)
-        recruit_arrays = _python_recruit_arrays(own_recruits, own_leader_xy, type_to_id)
-        global_feats_np = _python_global_feats(
-            gi.turn_number, current_side, our_gold, our_income,
-            our_villages, their_villages, lawful_bonus, next_lawful_bonus)
-    hex_modifier_flags_np, hex_dynamic_flags_np = hex_arrays
-    (unit_is_ours_np, unit_type_ids_np, unit_side_ids_np,
-     unit_xs_np, unit_ys_np, unit_feats_np) = unit_arrays
-    (recruit_is_ours_np, recruit_type_ids_np, recruit_side_ids_np,
-     recruit_xs_np, recruit_ys_np, recruit_feats_np) = recruit_arrays
-
-    return RawEncoded(
-        hex_subset=relevant_set,
-        hex_positions=hex_positions,
-        hex_xs=static.xs if H else np.empty(0, dtype=np.int64),
-        hex_ys=static.ys if H else np.empty(0, dtype=np.int64),
-        hex_terrain_ids=((static.terrain_masks if terrain_multi_hot else static.terrain_ids)
-                         if H else np.empty(0, dtype=np.int64)),
-        hex_modifier_flags=hex_modifier_flags_np,
-        hex_dynamic_flags=hex_dynamic_flags_np,
-        unit_positions=unit_positions,
-        unit_ids=unit_ids,
-        unit_is_ours=unit_is_ours_np,
-        unit_type_ids=unit_type_ids_np,
-        unit_side_ids=unit_side_ids_np,
-        unit_xs=unit_xs_np,
-        unit_ys=unit_ys_np,
-        unit_feats=unit_feats_np,
-        recruit_types=own_recruits,
-        recruit_is_ours=recruit_is_ours_np,
-        recruit_type_ids=recruit_type_ids_np,
-        recruit_side_ids=recruit_side_ids_np,
-        recruit_xs=recruit_xs_np,
-        recruit_ys=recruit_ys_np,
-        recruit_feats=recruit_feats_np,
-        global_feats=global_feats_np,
-        our_faction_id=our_faction_id,
-        their_faction_id=their_faction_id,
-        material=material_of_units(units, current_side),
-        observation=observation.detached() if observation is not None else None,
-    )
+            "observation_parity and relevant_set_version 2 read the sighting records of the view's "
+            "own core, and this state is not a view bound to a core: encode the simulator's view or a "
+            "replay pair's, or keep a copy with game_core.snapshot_view (copy.deepcopy drops the "
+            "binding)")
+    return core_for(game_state).encode_raw(
+        type_to_id=type_to_id, faction_to_id=faction_to_id, relevant_set=relevant_set,
+        fog_hides_enemy_villages=fog_hides_enemy_villages, terrain_multi_hot=terrain_multi_hot,
+        observation_parity=observation_parity, relevant_set_version=relevant_set_version)
 
 
 # ---------------------------------------------------------------------
-# encode_raw facts: the per-encode predicates Python owns
+# The recruit options' inputs to the core's encoding
 # ---------------------------------------------------------------------
-
-def _village_entries(static, game_state, current_side, fog_on,
-                     seen_hexes) -> List[Tuple[int, int, bool]]:
-    """Village ownership as the mover sees it, one (hex slot, owner
-    code, owner visible) per candidate hex. Candidates are the hexes
-    carrying the village MODIFIER (the static village bit) plus every
-    owner-map entry on the board (an owned hex without the modifier
-    gets the village bit too). Owner code: 1 = ours, 2 = another
-    side's, 0 = neutral. Owner visible is the fog gate: own villages
-    always, others when fog is off or the mover sees the hex --
-    evaluated in that order, so the seen hexes are read only when a
-    candidate that is not ours needs them."""
-    village_owner_map = (getattr(
-        game_state.global_info, "_village_owner", None) or {})
-    cand = set(static.village_idx)
-    if village_owner_map:
-        pos_index = static.pos_index
-        for key in village_owner_map:
-            j = pos_index.get(key)
-            if j is not None:
-                cand.add(j)
-    entries: List[Tuple[int, int, bool]] = []
-    for i in cand:
-        key = static.keys[i]
-        owner = village_owner_map.get(key, 0)
-        ours = owner == current_side
-        visible = ours or not fog_on or key in seen_hexes()
-        code = 1 if ours else (2 if owner not in (0, current_side) else 0)
-        entries.append((i, code, visible))
-    return entries
-
-
-def _rejected_slots(static, rejected_hexes) -> List[int]:
-    """Hex slots of this turn's bounced recruit attempts."""
-    if not rejected_hexes:
-        return []
-    pos_index = static.pos_index
-    return [j for j in (pos_index.get(key) for key in rejected_hexes)
-            if j is not None]
-
-
-# ---------------------------------------------------------------------
-# encode_raw arrays, Rust path (docs/rust_port_plan.md phase 2b)
-# ---------------------------------------------------------------------
-
-_EMPTY_HEX_MODIFIERS = np.zeros((0, NUM_HEX_MODIFIERS), dtype=np.float32)
-_EMPTY_I64 = np.zeros(0, dtype=np.int64)
-_EMPTY_F64 = np.zeros(0, dtype=np.float64)
-
-
-# The wheel phase whose `encode_raw_streams` composes the feature
-# widths this module expects. A kernel older than this emits a
-# narrower row -- a phase-10 wheel writes 6 global features where
-# GLOBAL_FEAT_DIM is now 8 -- and numpy would broadcast or raise far
-# from the cause, so the mismatch is caught here and the Python
-# builders take over.
-_ENCODE_KERNEL_PHASE = 11
-_warned_stale_kernel = False
-
-
-def _rust_encode_kernel():
-    """The wheel's `encode_raw_streams`, selected exactly as
-    tools.pathfind_sim selects its kernels (wheel importable and
-    WESNOTH_RUST != 0), else None for the Python builders. A wheel
-    built before phase 2b lacks the function, and one built before
-    `_ENCODE_KERNEL_PHASE` composes the wrong widths; both take the
-    Python path."""
-    global _warned_stale_kernel
-    from tools import pathfind_sim
-    kernel = getattr(pathfind_sim._RUST, "encode_raw_streams", None)
-    if kernel is None:
-        return None
-    phase = int(getattr(pathfind_sim._RUST, "__phase__", 0) or 0)
-    if phase < _ENCODE_KERNEL_PHASE:
-        if not _warned_stale_kernel:
-            _warned_stale_kernel = True
-            log.warning(
-                "wesnoth_core is phase %d; the encode kernel composes the "
-                "feature widths of phase %d or later (GLOBAL_FEAT_DIM=%d). "
-                "Using the PYTHON encoders, which are slower but current. "
-                "Rebuild the wheel: pip install rust/wesnoth_core.",
-                phase, _ENCODE_KERNEL_PHASE, GLOBAL_FEAT_DIM)
-        return None
-    return kernel
-
-
-def _rust_streams(kernel, static, H, village_entries, rejected_slots,
-                  units, current_side, type_to_id, own_recruits,
-                  own_leader_xy, global_values):
-    """Every RawEncoded array in one wheel call: Python gathers the
-    per-object facts as flat arrays, the kernel composes the features
-    in the reference builders' float order
-    (rust/wesnoth_core/src/encode.rs)."""
-    unit_ints, unit_stats = _unit_rows(units, current_side, type_to_id)
-    recruit_ids, recruit_stats = _recruit_rows(own_recruits, type_to_id)
-    leader_x, leader_y = own_leader_xy
-    return kernel(
-        static.modifier_flags if H else _EMPTY_HEX_MODIFIERS,
-        _flat_i64([v for entry in village_entries for v in entry]),
-        _flat_i64(rejected_slots),
-        _flat_i64(unit_ints), _flat_f64(unit_stats),
-        _flat_i64(recruit_ids), _flat_f64(recruit_stats),
-        leader_x, leader_y, global_values,
-        (HP_NORM, MOVES_NORM, EXP_NORM, COST_NORM,
-         GOLD_NORM, INCOME_NORM, VILLAGES_NORM, TURN_NORM),
-        MAX_MAP_SIZE - 1, NUM_ALIGNMENTS)
-
-
-def _flat_i64(values) -> np.ndarray:
-    return np.array(values, dtype=np.int64) if values else _EMPTY_I64
-
-
-def _flat_f64(values) -> np.ndarray:
-    return np.array(values, dtype=np.float64) if values else _EMPTY_F64
-
-
-def _unit_rows(units, current_side, type_to_id):
-    """Per visible unit, the facts the kernel composes (its column
-    constants): (type id, side code, x, y, alignment, is_leader,
-    has_attacked) and (max_hp, current_hp, max_moves, current_moves,
-    max_exp, current_exp, cost). Side code as `_python_unit_arrays`:
-    scenery is neutral (2) even on our side; armed side>=3 units are
-    enemies (1)."""
-    ints: List[int] = []
-    stats: List[float] = []
-    for u in units:
-        p = u.position
-        ints += (type_row(u.name, type_to_id),
-                 2 if is_scenery_unit(u)
-                 else (0 if u.side == current_side else 1),
-                 p.x, p.y, u.alignment.value,
-                 1 if u.is_leader else 0, 1 if u.has_attacked else 0)
-        stats += (u.max_hp, u.current_hp, u.max_moves, u.current_moves,
-                  u.max_exp, u.current_exp, u.cost)
-    return ints, stats
-
 
 def _recruit_rows(own_recruits, type_to_id):
     """Per recruit option: the vocab id and `_recruit_stats_for`."""
@@ -2011,122 +1596,12 @@ def _recruit_rows(own_recruits, type_to_id):
 
 
 # ---------------------------------------------------------------------
-# encode_raw arrays, Python path: the reference the wheel is
-# certified against (tests/test_rust_encode_raw.py). Keep verbatim.
-# ---------------------------------------------------------------------
-
-def _python_hex_arrays(static, H, village_entries, rejected_slots):
-    if H == 0:
-        return (np.empty((0, NUM_HEX_MODIFIERS), dtype=np.float32),
-                np.empty((0, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32))
-    hex_modifier_flags_np = static.modifier_flags.copy()
-    hex_dynamic_flags_np = np.zeros((H, NUM_HEX_DYNAMIC_FLAGS), dtype=np.float32)
-    for i, code, visible in village_entries:
-        if visible:
-            hex_modifier_flags_np[i, 0] = 1.0
-        if code == 1:
-            hex_dynamic_flags_np[i, 1] = 1.0
-        elif code == 2 and visible:
-            hex_dynamic_flags_np[i, 2] = 1.0
-    for j in rejected_slots:
-        hex_dynamic_flags_np[j, 0] = 1.0
-    return hex_modifier_flags_np, hex_dynamic_flags_np
-
-
-def _python_unit_arrays(units, current_side, type_to_id):
-    MAP_LIMIT = MAX_MAP_SIZE - 1   # avoid attribute lookup in tight loops
-    U = len(units)
-    unit_is_ours_np  = np.empty(U, dtype=np.float32)
-    unit_type_ids_np = np.empty(U, dtype=np.int64)
-    unit_side_ids_np = np.empty(U, dtype=np.int64)
-    unit_xs_np       = np.empty(U, dtype=np.int64)
-    unit_ys_np       = np.empty(U, dtype=np.int64)
-    unit_feats_np    = np.empty((U, UNIT_FEAT_DIM), dtype=np.float32)
-    for i, u in enumerate(units):
-        is_neutral = is_scenery_unit(u)
-        # Scenery is board furniture even if nominally on our side:
-        # neutral code AND is_ours=0 (matches the legality mask,
-        # where it is inert and never an actor). Armed side>=3
-        # combatants (tentacles) encode as ENEMIES (code 1) -- they
-        # are hostile and attackable (2026-07-14).
-        is_ours = u.side == current_side and not is_neutral
-        unit_is_ours_np[i]  = 1.0 if is_ours else 0.0
-        unit_side_ids_np[i] = (2 if is_neutral
-                               else (0 if is_ours else 1))
-        unit_type_ids_np[i] = type_row(u.name, type_to_id)
-        ux, uy = u.position.x, u.position.y
-        unit_xs_np[i] = 0 if ux < 0 else (MAP_LIMIT if ux > MAP_LIMIT else ux)
-        unit_ys_np[i] = 0 if uy < 0 else (MAP_LIMIT if uy > MAP_LIMIT else uy)
-        unit_feats_np[i] = _unit_features(u)
-    return (unit_is_ours_np, unit_type_ids_np, unit_side_ids_np,
-            unit_xs_np, unit_ys_np, unit_feats_np)
-
-
-def _python_recruit_arrays(own_recruits, own_leader_xy, type_to_id):
-    MAP_LIMIT = MAX_MAP_SIZE - 1
-    recruit_is_ours: List[float] = []
-    recruit_type_ids: List[int]  = []
-    recruit_side_ids: List[int]  = []
-    recruit_xs: List[int] = []
-    recruit_ys: List[int] = []
-    recruit_feats_rows: List[np.ndarray] = []
-    if own_recruits:
-        lx, ly = own_leader_xy
-        lx_clamped = 0 if lx < 0 else (MAP_LIMIT if lx > MAP_LIMIT else lx)
-        ly_clamped = 0 if ly < 0 else (MAP_LIMIT if ly > MAP_LIMIT else ly)
-        for name in own_recruits:
-            recruit_is_ours.append(1.0)
-            recruit_type_ids.append(type_row(name, type_to_id))
-            recruit_side_ids.append(0)   # 0 = ours
-            recruit_xs.append(lx_clamped)
-            recruit_ys.append(ly_clamped)
-            recruit_feats_rows.append(_recruit_features_for(name))
-    recruit_is_ours_np  = np.asarray(recruit_is_ours,  dtype=np.float32)
-    recruit_type_ids_np = np.asarray(recruit_type_ids, dtype=np.int64)
-    recruit_side_ids_np = np.asarray(recruit_side_ids, dtype=np.int64)
-    recruit_xs_np       = np.asarray(recruit_xs,       dtype=np.int64)
-    recruit_ys_np       = np.asarray(recruit_ys,       dtype=np.int64)
-    if recruit_feats_rows:
-        recruit_feats_np = np.stack(recruit_feats_rows, axis=0)
-    else:
-        recruit_feats_np = np.zeros((0, UNIT_FEAT_DIM), dtype=np.float32)
-    return (recruit_is_ours_np, recruit_type_ids_np, recruit_side_ids_np,
-            recruit_xs_np, recruit_ys_np, recruit_feats_np)
-
-
-def _python_global_feats(turn_number, current_side, our_gold, our_income,
-                         our_villages, their_villages,
-                         lawful_bonus, next_lawful_bonus) -> np.ndarray:
-    return np.array([
-        turn_number / TURN_NORM,
-        (current_side - 1.5) * 2.0,   # 1 → -1, 2 → +1
-        our_gold       / GOLD_NORM,
-        our_income     / INCOME_NORM,
-        our_villages   / VILLAGES_NORM,
-        their_villages / VILLAGES_NORM,
-        lawful_bonus      / LAWFUL_BONUS_NORM,
-        next_lawful_bonus / LAWFUL_BONUS_NORM,
-    ], dtype=np.float32)
-
-
-# ---------------------------------------------------------------------
-# Static per-map hex arrays (encode_raw fast path)
+# The full board's slot order, per hex set
 # ---------------------------------------------------------------------
 
 @dataclass
 class _StaticHexArrays:
-    xs: np.ndarray
-    ys: np.ndarray
-    terrain_ids: np.ndarray          # one class per hex (the legacy view)
-    terrain_masks: np.ndarray        # the hex's terrain set as a bitmask; a hex
-                                     # with no resolved set carries its class bit
-    modifier_flags: np.ndarray       # [H, NUM_HEX_MODIFIERS]; column 0 (owned
-                                     # village) is left 0 and set per encode
-    village_idx: List[int]           # hex indices carrying the village terrain
-                                     # or modifier
-    village_flags: np.ndarray        # [H] bool, the same fact per slot
-    keys: List[Tuple[int, int]]      # (x, y) per hex index
-    pos_index: Dict[Tuple[int, int], int]
+    keys: List[Tuple[int, int]]      # (x, y) per hex slot
     hex_set: object                  # the set the entry was built from: a
                                      # strong reference, so its id cannot be
                                      # recycled while the entry exists
@@ -2139,88 +1614,15 @@ _STATIC_HEX_CACHE: Dict[int, _StaticHexArrays] = {}
 
 
 def _build_static_hex_arrays(hexes, hex_set=None) -> _StaticHexArrays:
-    MAP_LIMIT = MAX_MAP_SIZE - 1
-    H = len(hexes)
-    xs = np.empty(H, dtype=np.int64)
-    ys = np.empty(H, dtype=np.int64)
-    tids = np.empty(H, dtype=np.int64)
-    tmasks = np.empty(H, dtype=np.int64)
-    mods_np = np.zeros((H, NUM_HEX_MODIFIERS), dtype=np.float32)
-    village_idx: List[int] = []
-    village_flags = np.zeros(H, dtype=bool)
-    keys: List[Tuple[int, int]] = []
-    terrain_village = Terrain.VILLAGE
-    terrain_castle = Terrain.CASTLE
-    terrain_flat_v = Terrain.FLAT.value
-    for i, h in enumerate(hexes):
-        p = h.position
-        keys.append((p.x, p.y))
-        xs[i] = 0 if p.x < 0 else (MAP_LIMIT if p.x > MAP_LIMIT else p.x)
-        ys[i] = 0 if p.y < 0 else (MAP_LIMIT if p.y > MAP_LIMIT else p.y)
-        tt = h.terrain_types
-        if not tt:
-            tids[i] = terrain_flat_v
-        elif terrain_village in tt:
-            tids[i] = terrain_village.value
-        elif terrain_castle in tt:
-            tids[i] = terrain_castle.value
-        else:
-            tids[i] = next(iter(tt)).value
-        mask = int(getattr(h, "terrain_mask", 0) or 0)
-        tmasks[i] = mask if mask else (1 << int(tids[i]))
-        mods = h.modifiers
-        if TerrainModifiers.VILLAGE in mods:
-            village_idx.append(i)
-            village_flags[i] = True
-        if TerrainModifiers.KEEP in mods:
-            mods_np[i, 1] = 1.0
-        if TerrainModifiers.CASTLE in mods:
-            mods_np[i, 2] = 1.0
     return _StaticHexArrays(
-        xs=xs, ys=ys, terrain_ids=tids, terrain_masks=tmasks, modifier_flags=mods_np,
-        village_idx=village_idx, village_flags=village_flags, keys=keys,
-        pos_index={k: i for i, k in enumerate(keys)},
-        hex_set=hex_set, n_hexes=H,
+        keys=[(h.position.x, h.position.y) for h in hexes], hex_set=hex_set, n_hexes=len(hexes),
         hexes=list(hexes), positions=[h.position for h in hexes])
 
 
-def _subset_static(full: _StaticHexArrays, idx: np.ndarray) -> _StaticHexArrays:
-    """The static arrays of the slots `idx` (ascending, so the subset
-    keeps the full board's row-major order) gathered from the cached
-    full-board arrays: no per-hex Python."""
-    keys = [full.keys[i] for i in idx.tolist()]
-    return _StaticHexArrays(
-        xs=full.xs[idx], ys=full.ys[idx], terrain_ids=full.terrain_ids[idx],
-        terrain_masks=full.terrain_masks[idx],
-        modifier_flags=full.modifier_flags[idx],
-        village_idx=np.flatnonzero(full.village_flags[idx]).tolist(),
-        village_flags=full.village_flags[idx], keys=keys,
-        pos_index={k: j for j, k in enumerate(keys)},
-        hex_set=None, n_hexes=len(keys),
-        hexes=[full.hexes[i] for i in idx.tolist()],
-        positions=[full.positions[i] for i in idx.tolist()])
-
-
-def _relevant_subset_static(game_state, observation) -> Tuple[_StaticHexArrays, np.ndarray]:
-    """The relevant subset's static arrays and the map-to-token index
-    from the observation's relevant mask (wesnoth_ai/observe.py): the
-    subset in the full board's slot order, as
-    `visibility.relevant_hexes_in_slot_order` filters it."""
-    full = _static_hex_arrays(game_state)
-    geom = observation.geometry
-    if len(geom.keys) != full.n_hexes:
-        raise ValueError("observation geometry and static hex arrays disagree")
-    rel_slot = np.zeros(full.n_hexes, dtype=bool)
-    rel_slot[geom.full_slot[observation.relevant != 0]] = True
-    idx = np.flatnonzero(rel_slot)
-    sub_of_full = np.full(full.n_hexes, -1, dtype=np.int64)
-    sub_of_full[idx] = np.arange(len(idx), dtype=np.int64)
-    return _subset_static(full, idx), sub_of_full[geom.full_slot]
-
-
 def _static_hex_arrays(game_state) -> _StaticHexArrays:
-    """Cached slot ordering + static arrays for the full board, keyed
-    on the identity of `game_state.map.hexes` (aliased across forks;
+    """Cached slot ordering for the full board (the hex positions of the
+    core's encoding), keyed on the identity of `game_state.map.hexes`
+    (aliased across forks;
     replaced, never mutated, by terrain-morph events). The entry holds
     the set itself, so a hit is an identity match (`is`) and a freed
     set's address can never serve another map (2026-09-04 review: the
@@ -2258,48 +1660,18 @@ def _first_terrain_id(terrain_types) -> int:
     return next(iter(terrain_types)).value
 
 
-def _modifier_flags(modifiers) -> List[float]:
-    return [
-        1.0 if TerrainModifiers.VILLAGE in modifiers else 0.0,
-        1.0 if TerrainModifiers.KEEP    in modifiers else 0.0,
-        1.0 if TerrainModifiers.CASTLE  in modifiers else 0.0,
-    ]
-
-
-def _unit_features(u: Unit) -> List[float]:
-    max_hp = max(u.max_hp, 1)
-    max_mv = max(u.max_moves, 1)
-    max_xp = max(u.max_exp, 1)
-
-    numeric = [
-        u.max_hp / HP_NORM,
-        u.current_hp / max_hp,
-        u.max_moves / MOVES_NORM,
-        u.current_moves / max_mv,
-        u.max_exp / EXP_NORM,
-        u.current_exp / max_xp,
-        u.cost / COST_NORM,
-        1.0 if u.is_leader else 0.0,
-        1.0 if u.has_attacked else 0.0,
-    ]
-    alignment_onehot = [0.0] * NUM_ALIGNMENTS
-    alignment_onehot[u.alignment.value] = 1.0
-    return numeric + alignment_onehot
-
-
 # ---------------------------------------------------------------------
 # Recruit phantom-unit features
 # ---------------------------------------------------------------------
 # A "recruit option" doesn't have a Unit instance until it's spawned,
-# but we want the same feature vector shape `_unit_features` produces
-# so the model treats recruits and on-board units consistently. Build a
-# phantom feature vector from the unit-stats DB (scraped from
-# wesnoth_src). HP / moves / xp / cost / alignment all come from the
-# stats; current_* fields are spawn defaults (full HP, 0 MP since
-# spawn turn, 0 XP); is_leader=False, has_attacked=False.
+# but the model reads it through the unit feature layout, so recruits and
+# on-board units are treated consistently. The core composes the phantom
+# feature vector from these stats (scraped from wesnoth_src): HP / moves
+# / xp / cost / alignment come from the stats; current_* fields are spawn
+# defaults (full HP, 0 MP since spawn turn, 0 XP); is_leader=False,
+# has_attacked=False.
 
 _RECRUIT_STATS_CACHE: Dict[str, Tuple[float, float, float, float, int]] = {}
-_RECRUIT_FEATS_CACHE: Dict[str, np.ndarray] = {}
 _RECRUIT_DB_WARN_FIRED: bool = False  # one-shot flag for unit-DB load fallback
 _FALLBACK_RECRUIT_STATS = {
     "hitpoints": 33, "moves": 5, "experience": 50, "cost": 14,
@@ -2352,29 +1724,4 @@ def _recruit_stats_for(unit_type: str) -> Tuple[float, float, float, float, int]
            float(stats.get("cost", 14)),
            _alignment_value(stats.get("alignment", "neutral")))
     _RECRUIT_STATS_CACHE[unit_type] = out
-    return out
-
-
-def _recruit_features_for(unit_type: str) -> np.ndarray:
-    """Return a [UNIT_FEAT_DIM] float32 phantom feature vector for
-    a recruit option of `unit_type`; cached per type."""
-    cached = _RECRUIT_FEATS_CACHE.get(unit_type)
-    if cached is not None:
-        return cached
-    max_hp, max_mv, max_xp, cost, align = _recruit_stats_for(unit_type)
-    numeric = [
-        max_hp / HP_NORM,
-        1.0,                      # current_hp = max on spawn
-        max_mv / MOVES_NORM,
-        0.0,                      # current_moves = 0 on spawn turn
-        max_xp / EXP_NORM,
-        0.0,                      # current_exp = 0
-        cost / COST_NORM,
-        0.0,                      # is_leader = False
-        0.0,                      # has_attacked = False
-    ]
-    alignment_onehot = [0.0] * NUM_ALIGNMENTS
-    alignment_onehot[align] = 1.0
-    out = np.asarray(numeric + alignment_onehot, dtype=np.float32)
-    _RECRUIT_FEATS_CACHE[unit_type] = out
     return out

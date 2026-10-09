@@ -1,4 +1,4 @@
-"""Hex adjacency, and two abilities that act on adjacent units.
+"""Hex adjacency, and the leadership ability's bonus.
 
 Wesnoth's hexes are flat-topped and laid out in columns, every odd
 column (0-indexed) half a hex lower than its neighbours, so which hexes
@@ -9,18 +9,15 @@ hex across a unit from one of them. On that geometry:
   - Leadership (`leadership_bonus`): an adjacent same-side unit with
     `leadership` and a HIGHER level adds 25% x (its level - the unit's
     level) to the unit's damage. Several leaders do not stack, the best
-    one counts, and the opponent's level plays no part. The swap
-    detector's leadership screen reads it.
-  - Illumination (`illuminate_step`): the unit's hex is lit when the
-    unit itself or any adjacent unit, of any side, has `illuminates`.
+    one counts, and the opponent's level plays no part; a petrified
+    unit projects none. The swap detector's leadership screen reads it.
 
-A petrified unit projects neither. The Rust core applies every ability
-in play (rust/wesnoth_core/src/core_attack.rs, core_step.rs).
+The Rust core applies every ability in play
+(rust/wesnoth_core/src/core_attack.rs, core_step.rs).
 
 Dependencies: classes
-Dependents:   tools.replay_dataset, pathfind_sim, wesnoth_sim,
-              neutral_ai, swap_detector; wesnoth_ai.visibility, observe,
-              action_sampler, rewards (the geometry)
+Dependents:   tools.replay_dataset, wesnoth_sim, neutral_ai,
+              swap_detector; wesnoth_ai.observe, rewards (the geometry)
 """
 from __future__ import annotations
 
@@ -166,45 +163,4 @@ def leadership_bonus(unit: Unit, all_units: Iterable[Unit],
     return best
 
 
-def illuminate_step(unit: Unit, all_units: Iterable[Unit]) -> int:
-    """Return +1 if `unit`'s hex is illuminated (self or any adjacent
-    unit has `illuminates`), else 0. Used to bump lawful_bonus by 25
-    at dusk or similar — caller multiplies.
-
-    NB: illumination is a TERRAIN-LIGHT modifier, not an ally-only
-    aura. Per `tod_manager::get_illuminated_time_of_day`
-    (tod_manager.cpp:237-262), Wesnoth scans all 7 hexes (loc + 6
-    adjacent) and contributes light from ANY unit with the
-    `illuminates` ability, regardless of side. Filtering by
-    `ally.side == unit.side` (the previous behavior) makes our sim
-    skip the enemy-cast illumination that boosts the attacker's
-    lawful_bonus when they strike INTO the illuminated hex.
-    Witnessed 2026-05-08 in 2p__Hamlets_Turn_20_(41655) cmd[731]:
-    Mage of Light (side 2) at (15,21) illuminates the surrounding
-    area; the side-1 Merman Netcaster striking from (16,21) is
-    lawful and should fight at first_watch+illumination = dusk
-    (0% modifier) instead of first_watch (-25%). Without this fix
-    Netcaster's club at 7×3 stays at 5 dmg/hit (lawful -25%) → 3
-    hits = 15 dmg max which DOES kill u46 only if all 3 land; with
-    the +25 lawful boost from u46's own illumination, 7×3 stays at
-    7 dmg/hit and 2 hits = 14 dmg already kills u46 outright. The
-    cascade was cmd[760] attack:attacker_missing because u59's
-    cmd[759] move couldn't pass through u46 (alive at hp=4 in our
-    sim).
-    """
-    if "illuminates" in unit.abilities and "petrified" not in unit.statuses:
-        return 1
-    for other in _adjacent_units(all_units, unit.position.x, unit.position.y):
-        # Petrified/incapacitated units project no abilities: the scan in
-        # `get_illuminated_time_of_day` gates on `!itor->incapacitated()`
-        # (docs/wesnoth_rules.md:443). A petrified illuminator (e.g. a
-        # statue with `illuminates` on the Basilisk/Sullas maps) must not
-        # light the hex, or a chaotic/lawful combatant fights at the wrong
-        # lawful_bonus and combat parity breaks.
-        if ("illuminates" in other.abilities
-                and "petrified" not in other.statuses):
-            return 1
-    return 0
-
-
-__all__ = ["hex_neighbors", "opposite_hex", "leadership_bonus", "illuminate_step"]
+__all__ = ["hex_neighbors", "opposite_hex", "leadership_bonus"]

@@ -142,11 +142,9 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
 # ---------------------------------------------------------------------
 # Terrain-aware movement-cost lookup
 # ---------------------------------------------------------------------
-# Wesnoth deducts terrain-dependent MP per hex entered. The sim's
-# move-validity checks and any exported replay's playback depend on
-# it: Wesnoth's playback runs `plot_turn` and rejects the whole move
-# with "corrupt movement" if the very first hex costs more than the
-# unit has remaining (src/actions/move.cpp, 1.18.4).
+# Wesnoth deducts terrain-dependent MP per hex entered. The core prices
+# the sim's moves; the shaping reward's approach distances
+# (wesnoth_ai/rewards.py) read the Python resolver below.
 
 _MOVETYPE_COSTS_CACHE: Dict[str, dict] = {}
 
@@ -213,19 +211,6 @@ def _movetype_costs(unit_type: str, slowed: bool = False) -> dict:
         log.debug(f"sim: movetype lookup failed for {unit_type!r}: {e}")
         _MOVETYPE_COSTS_CACHE[cache_key] = {}
         return {}
-
-
-def _move_cost(unit, terrain_key: str) -> int:
-    """How many MP does `unit` need to enter a hex of terrain
-    `terrain_key`? Falls back to 1 if data is missing (matches the
-    sim's pre-existing flat-cost behavior). Honors the `slowed`
-    status (doubles every cost except UNREACHABLE)."""
-    slowed = "slowed" in (getattr(unit, "statuses", set()) or set())
-    costs = _movetype_costs(unit.name, slowed=slowed)
-    cost = costs.get(terrain_key, 1)
-    # Wesnoth uses 99 as the impassable sentinel; anything >= 99 is
-    # effectively unenterable.
-    return int(cost) if cost is not None else 1
 
 
 def _describe_action(action: dict) -> str:
@@ -1615,21 +1600,23 @@ class WesnothSim:
             # it accepts the recruit and deducts the cost with no floor,
             # so gold can go negative -- so without this gate the sim
             # emits illegal recruits that Wesnoth rejects.
-            # Leader-on-keep + castle-network connectivity, via the
-            # SHARED helper the legality mask consumes
-            # (visibility.leader_castle_network) -- audit 2026-07-17
-            # found the sim skipped connectivity entirely, so a
-            # mask-less caller could emit recruits Wesnoth playback
-            # rejects ("cannot recruit unit: ..."). Violation = the
-            # caller ignored the mask -> loud reject + re-decide
-            # (bounded by the consecutive-reject guard).
-            from wesnoth_ai.visibility import leader_castle_network
+            # Leader-on-keep + castle-network connectivity, from the
+            # side's observation, the one the legality mask reads
+            # (`observe`, its `network`) -- audit 2026-07-17 found the
+            # sim skipped connectivity entirely, so a mask-less caller
+            # could emit recruits Wesnoth playback rejects ("cannot
+            # recruit unit: ..."). Violation = the caller ignored the
+            # mask -> loud reject + re-decide (bounded by the
+            # consecutive-reject guard).
             _leader = next(
                 (u for u in self.gs.map.units
                  if u.side == self.current_side and u.is_leader), None)
             if _leader is None:
                 return None, None
-            _on_keep, _network = leader_castle_network(self.gs, _leader)
+            _obs = self.core.observe(self.current_side)
+            _keys = _obs.geometry.keys
+            _on_keep = bool(_obs.leader_on_keep)
+            _network = {_keys[i] for i in _obs.network.nonzero()[0].tolist()}
             if not _on_keep or (target.x, target.y) not in _network:
                 (log.debug if self._is_search_fork else log.warning)(
                     f"sim: recruit {unit_type!r} on "

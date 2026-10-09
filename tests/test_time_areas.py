@@ -22,8 +22,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
+from wesnoth_ai.combat import TOD_DEFAULT_CYCLE
 from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
+
+
+def _board_bonus(turn: int, start_slot: int) -> int:
+    """The default cycle's lawful bonus on `turn` when turn 1 is slot
+    `start_slot` (the engine's modulo)."""
+    return TOD_DEFAULT_CYCLE[(max(1, turn) - 1 + start_slot) % len(TOD_DEFAULT_CYCLE)][1]
 
 
 def _fresh_sim(sid, tod_start=None):
@@ -55,30 +62,27 @@ def test_an_area_keeps_its_own_slot_when_the_board_starts_elsewhere():
     src/tod_manager.cpp, 1.18.4). Tombs of Kesorak's areas therefore read
     the same on every turn whether the game starts at dawn or at
     afternoon, while the board itself shifts by two slots."""
-    from tools.replay_dataset import _lawful_bonus_at, _lawful_bonus_for_turn
-    dawn = _fresh_sim("multiplayer_Tombs_of_Kesorak", tod_start=0).gs
-    afternoon = _fresh_sim("multiplayer_Tombs_of_Kesorak", tod_start=2).gs
-    areas = dawn.global_info._time_areas
+    dawn_sim = _fresh_sim("multiplayer_Tombs_of_Kesorak", tod_start=0)
+    dawn, afternoon = dawn_sim.core.core, _fresh_sim("multiplayer_Tombs_of_Kesorak", tod_start=2).core.core
+    areas = dawn_sim.gs.global_info._time_areas
     turns = range(1, 7)
     varying = 0
     for x, y in areas:
-        at_dawn = [_lawful_bonus_at(dawn, x, y, t) for t in turns]
-        assert [_lawful_bonus_at(afternoon, x, y, t) for t in turns] == at_dawn, (x, y)
+        at_dawn = [dawn.lawful_bonus(x, y, t) for t in turns]
+        assert [afternoon.lawful_bonus(x, y, t) for t in turns] == at_dawn, (x, y)
         varying += len(set(at_dawn)) > 1
     assert varying >= 4, "the areas must change with the turn for this to test anything"
-    plain = next((h.position.x, h.position.y) for h in dawn.map.hexes
+    plain = next((h.position.x, h.position.y) for h in dawn_sim.gs.map.hexes
                  if (h.position.x, h.position.y) not in areas
-                 and [_lawful_bonus_at(dawn, h.position.x, h.position.y, t) for t in turns]
-                 == [_lawful_bonus_for_turn(t, 0) for t in turns])
-    assert [_lawful_bonus_at(afternoon, *plain, t) for t in turns] == \
-        [_lawful_bonus_for_turn(t, 2) for t in turns]
+                 and [dawn.lawful_bonus(h.position.x, h.position.y, t) for t in turns]
+                 == [_board_bonus(t, 0) for t in turns])
+    assert [afternoon.lawful_bonus(*plain, t) for t in turns] == [_board_bonus(t, 2) for t in turns]
 
 
 def test_an_area_placed_later_starts_from_its_own_current_time():
     """`add_time_area` sets the area's slot to its current_time on the
     turn it is placed, so at turn t it reads slot
     (current_time + t - placed) mod len, whatever the board's slot."""
-    from tools.replay_dataset import _lawful_bonus_for_turn
     from tools.replay_extract import parse_wml
     from tools.scenario_events import collect_events
     from wesnoth_ai.game_core import CoreState, _event_actions
@@ -89,7 +93,7 @@ def test_an_area_placed_later_starts_from_its_own_current_time():
     x, y = next((h.position.x, h.position.y) for h in sorted(gs.map.hexes, key=lambda h: (h.position.y, h.position.x))
                 if (h.position.x, h.position.y) not in areas
                 and [core.lawful_bonus(h.position.x, h.position.y, t) for t in range(1, 7)]
-                == [_lawful_bonus_for_turn(t, 3) for t in range(1, 7)])
+                == [_board_bonus(t, 3) for t in range(1, 7)])
     declared = [-20, -10, 0, 10, 20, 5]
     times = "".join(f"[time]\nlawful_bonus={v}\n[/time]\n" for v in declared)
     events = collect_events(parse_wml(

@@ -78,11 +78,7 @@ sys.path.insert(0, str(_ROOT / "tools"))
 
 from wesnoth_ai.classes import GameState, TerrainModifiers, Unit
 from tools.replay_dataset import _stats_for, record_core
-from wesnoth_ai.game_core import is_rust_panic
-# `_move_cost_at_hex` lives in `tools/wesnoth_sim.py`, not
-# `tools/replay_dataset.py`. We import it here for the pre-check that
-# validates a recorded move's MP cost against the unit's current_moves.
-from tools.wesnoth_sim import _move_cost_at_hex
+from wesnoth_ai.game_core import core_for, is_rust_panic, view_of
 from tools.abilities import hex_neighbors
 
 
@@ -173,6 +169,22 @@ def _castle_network_from(gs: GameState, lx: int, ly: int) -> Set[Tuple[int, int]
 # ---------------------------------------------------------------------
 # Pre-checks per command kind
 # ---------------------------------------------------------------------
+
+def _move_costs(gs: GameState, unit: Unit):
+    """(x, y) -> the movement points `unit` pays to enter the hex, from
+    its movement class in the core behind `gs` (its slowed class when
+    slowed); 99 off the map."""
+    cs = core_for(gs)
+    d = cs.core.unit_export(unit.id)
+    slowed = "slowed" in d["statuses"]
+    mcost = cs.core.class_arrays(d["class_slowed_id"] if slowed else d["class_id"])[0]
+    index = cs.geometry().pos_index
+
+    def cost(x: int, y: int) -> int:
+        i = index.get((x, y))
+        return 99 if i is None else int(mcost[i])
+    return cost
+
 
 def _check_move(gs: GameState, cmd: list) -> Optional[Tuple[str, str]]:
     """Validate a recorded move command against `gs`. Returns
@@ -281,8 +293,9 @@ def _check_move(gs: GameState, cmd: list) -> Optional[Tuple[str, str]]:
         # src_missing — those we DO flag.
     # MP cost.
     total_cost = 0
+    move_cost = _move_costs(gs, unit)
     for i in range(1, len(xs)):
-        cost = _move_cost_at_hex(unit, gs, xs[i], ys[i])
+        cost = move_cost(xs[i], ys[i])
         if cost >= 99:
             return ("move:impassable",
                     f"step {i}: ({xs[i]},{ys[i]}) impassable for {unit.name}")
@@ -446,7 +459,7 @@ def diff_replay(
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
         data = json.load(f)
     cs = record_core(data)
-    gs = cs.to_state()                     # a view of the position before each command
+    gs = view_of(cs)                       # a view of the position before each command
 
     out: List[Divergence] = []
     commands = data.get("commands", [])
@@ -485,9 +498,9 @@ def diff_replay(
             ))
             if stop_on_first:
                 return out
-            gs = cs.to_state()
+            gs = view_of(cs)
             continue
-        gs = cs.to_state()
+        gs = view_of(cs)
 
         # Post-state invariants.
         if not skip_post_checks:

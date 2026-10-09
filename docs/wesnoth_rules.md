@@ -277,13 +277,11 @@ Petrified (`STATE_PETRIFIED`) → `incapacitated()` is true →
 emits no ZoC. Also has `attacks_left() = 0` and `movement_left() = 0`
 (unit.hpp:998 and 1299).
 
-Sim: `tools/pathfind_sim.emits_zoc` is the one predicate; the planner
-(`ReachContext.for_side`), the walker (`walk_move_path`), the legality
-mask's reach context (`action_sampler`) and the observation's unit flags
-(`wesnoth_ai/observe.py`) ask it. The Rust observation kernel
-(`observe.rs`, from phase 16) reads those flags for every visible enemy,
-scenery included, and the Rust core's walk (`core_move.rs`) applies the
-same rule. Every non-own side counts as an enemy.
+Sim: the Rust core applies the rule in the side's observable context,
+which the planner (`ReachContext.for_side`), the legality mask and the
+observation read (`core_observe.rs`), for every visible enemy, scenery
+included, and in its move (`core_move.rs`). Every non-own side counts as
+an enemy. Pinned by tests/test_zone_of_control.py.
 
 **Why non-obvious:** our "scenery" class (`visibility.is_scenery_unit`:
 petrified, or attackless on a side past 2) reads like "inert", and the
@@ -452,11 +450,11 @@ the table:
   `aliasof=_bas`, i.e. an embellishment that changes nothing). The
   table listed it as `["village"]`, so concealment applied on open
   farmland: 302 playable hexes of the Ladder pool, 640 of all tracked
-  maps. `*^V*` does not match it. The blast radius stops at cover --
-  `_terrain_keys_at`'s other callers are `wesnoth_sim._move_cost_at_hex`
+  maps. `*^V*` does not match it. The blast radius stopped at cover --
+  `_terrain_keys_at`'s other callers then were `wesnoth_sim._move_cost_at_hex`
   and `pathfind_sim.defense_pct_at`, both only as a fallback when the
   hex has no terrain code (pathfind also when `def_pct` raises), and
-  `replay_dataset._resolve_combat`, which passes an explicit
+  `replay_dataset._resolve_combat`, which passed an explicit
   `defense_pct` from `terrain_resolver.def_pct` alongside it. The
   encoder reads its village bit from `_parse_hex_code`, which `Gvs`
   fails.
@@ -479,8 +477,8 @@ does not track. Nightstalk's `time_of_day=chaotic` is evaluated on
 the ILLUMINATED time of day (abilities.cpp:447-450 runs the [hides]
 filter with use_flat_tod=false; filter.cpp:268-273 then calls
 get_illuminated_time_of_day), so an [illuminates] unit on or next to
-the hex lifts the cover: `replay_dataset.illuminated_lawful_bonus_at`
-is the one reading the hide predicate and combat share.
+the hex lifts the cover: the core reads the illuminated time of day for
+the hide predicate and for combat alike (core_attack.rs `illuminated`).
 
 **Verified against the engine (2026-09-20).** `tools/hidden_units_oracle.py`
 builds scripted positions on a 14x14 grass board in real Wesnoth (the
@@ -1408,7 +1406,7 @@ Without the area-illumination credit, the Netcaster's club did
 5/hit (lawful −25%) instead of 7/hit, leaving the MoL at 4 hp
 where Wesnoth had it dead. Cascade: cmd[760] attacker_missing.
 
-`tools/abilities.py::illuminate_step` no longer filters by side.
+The core's `illuminated` (core_attack.rs) does not filter by side.
 Test: `test_combat_rules.py::test_illuminate_lights_enemy_too`.
 
 ### Petrified/incapacitated units project NO adjacent abilities
@@ -1435,9 +1433,11 @@ flanker). Note this is the SOURCE-side rule; the RECIPIENT-side rule
 **Why non-obvious**: `heal.cpp` itself has no source-side check — the
 filtering is delegated to `unit::get_abilities`, so grepping the
 healing code alone misses it. Verified 2026-07-01 against the 1.18.4
-tag while fixing a review finding: all four `tools/abilities.py`
-scanners (`illuminate_step`, `leadership_bonus`, `healer_heal_amount`,
-`adjacent_curer`) now skip `"petrified" in source.statuses`.
+tag while fixing a review finding. The core skips a petrified source
+for illumination, leadership, healing and curing (core_attack.rs,
+core_step.rs), as `tools/abilities.leadership_bonus` does for the swap
+detector; pinned by
+`test_combat_rules.py::test_petrified_source_projects_no_adjacency_abilities`.
 
 ### AMLA grants +3 max_hp, +20% max_experience, AND clears poisoned/slowed
 
@@ -3385,10 +3385,10 @@ view and 3,341 only by the disc
 last in commit 07b2c91;
 `training/metrics/fidelity/vision_rule_census_20260924.json`).
 
-**Implemented by** `wesnoth_ai/visibility.py` (`unit_vision`, and the
-fog each side has cleared on `global_info._fog_cleared`, kept by the
-hooks in `tools/replay_dataset._apply_command`) and, for the Rust core,
-`rust/wesnoth_core/src/core_fog.rs`; pinned by tests/test_vision.py.
+**Implemented by** the Rust core, `rust/wesnoth_core/src/core_fog.rs`
+(each unit's vision and the fog each side has cleared, which a view
+carries on `global_info._fog_cleared`), read through
+`wesnoth_ai/visibility.py`; pinned by tests/test_vision.py.
 
 **Not modelled.** `vision=` and `[vision_costs]` (declared by the Dune
 Falconer, the Dune Sky Hunter, the Dragonfly and the Grand Dragonfly,

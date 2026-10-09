@@ -179,7 +179,7 @@ def test_affordability_mask_lets_affordable_recruit_through():
 
 def test_rejected_hex_blocked_by_recruit_mask():
     """A hex in the rejection set is excluded from
-    `_recruit_hex_mask`'s output."""
+    the recruit target mask."""
     from wesnoth_ai.action_sampler import _build_legality_masks
     from wesnoth_ai.encoder import GameStateEncoder
 
