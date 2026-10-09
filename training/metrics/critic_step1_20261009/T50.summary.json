@@ -1,0 +1,75 @@
+{
+ "state": {
+  "steps": 1956,
+  "positions": 125128,
+  "epoch": 1,
+  "best": 0.471191368241241,
+  "best_positions": 41728,
+  "reads": 6,
+  "last_read": 125128,
+  "since_best": 4,
+  "nonfinite_steps": 0,
+  "next_signal": 150000,
+  "planned_steps": 5216,
+  "step_seconds": 0.21024255621014162,
+  "read_seconds": 9.671157585666515
+ },
+ "ended_by": "patience",
+ "minutes": 7.990523476782255,
+ "train_positions": 83400,
+ "holdout_positions": 8832,
+ "epoch_steps": 1304,
+ "eval_every": 20850,
+ "args": {
+  "positions": "/workspace/positions",
+  "source": "M",
+  "view": "true",
+  "fraction": 0.5,
+  "arch": "full",
+  "init": "training/checkpoints/parity3.pt",
+  "out": "/workspace/criticstep1/T50.pt",
+  "device": "cuda",
+  "fp32": false,
+  "lr": 0.00028,
+  "warmup_steps": 300,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "batch": 64,
+  "aux_weight": 0.25,
+  "max_epochs": 4,
+  "evals_per_epoch": 4,
+  "max_eval_every": 50000,
+  "patience": 4,
+  "max_minutes": 40.0,
+  "signal_every": 25000,
+  "probe_positions": 32,
+  "seed": 20261008,
+  "rate_steps": 200,
+  "log_level": "INFO"
+ },
+ "init": {
+  "path": "training/checkpoints/parity3.pt",
+  "sha256": "efba0a78518fe3c1273b408f7471f457353598482cb66e977f55a8db47f8d5ec",
+  "missing": [
+   "aux_score_head.bias",
+   "aux_score_head.weight"
+  ],
+  "unexpected": [
+   "slot_memory.candidate.bias",
+   "slot_memory.candidate.weight",
+   "slot_memory.gate.bias",
+   "slot_memory.gate.weight",
+   "slot_memory.initial",
+   "slot_memory.slot_embed.weight"
+  ]
+ },
+ "provenance": {
+  "code_version": "0.18.1",
+  "positions_dir": "/workspace/positions",
+  "positions_fingerprint": "8e0bbcb1853d8878596b763445575dec19a58383",
+  "train_games": 3475,
+  "holdout_games": 368,
+  "seed": 20261008
+ },
+ "DONE": true
+}

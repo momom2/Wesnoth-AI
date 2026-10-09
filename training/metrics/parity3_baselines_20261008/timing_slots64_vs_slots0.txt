@@ -1,0 +1,1 @@
+slots64_vs_slots0: 750 s, 810 games, 800 decisive, rc=0 ok

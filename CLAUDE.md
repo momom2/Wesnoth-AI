@@ -90,10 +90,12 @@ chain across observation epochs):
 | `relset` | 2026-09-11 | +56 +- 12 over seed2's one-pass checkpoint: the relevant-set basis |
 | seed2 | 2026-09-11 | +33 +- 12 over the original imitation seed |
 
-Not measured for `parity3`: a self-pin, and whether its memory costs
-strength in play (at 64 slots it cost `parity2` 37 +- 12 Elo against 0
-slots; branch tag `archive/exp-memory-in-play` holds the investigation,
-which found no train/play mismatch).
+Measured 2026-10-09 (docs/parity3_baselines_prereg_20261008.md): its
+self-pin reads -2.6 +- 12.3 Elo, and **the same checkpoint at 0 slots beats
+it by +105.5 +- 12.8 Elo** (16 slots play as 64); the memory player acts
+less per side-turn and stalls to the turn cap more. Whether the reference
+plays at 0 slots is the user's ruling, pending (`parity2`'s memory cost 37
++- 12; tag `archive/exp-memory-in-play` holds that investigation).
 
 ### Self-play
 
@@ -116,7 +118,9 @@ bottlenecked on the network (2026-10-06). Imitation's remaining gains
 are parked (2026-10-04). The program that answers the 2026-10-06 ruling
 is docs/selfplay_program_20261008.md (policy iteration with a one-step
 look-ahead over exact combat outcomes, its evaluator chosen by
-measurement); its step 1 is pre-registered there.
+measurement). Step 1 read Kill on 2026-10-09: no learned critic a fair
+player can use selects better than material at this scale; the material
+look-ahead itself is neutral against `parity3` (-8.7 +- 12.3 Elo).
 
 Measured facts a new design starts from:
 - **Turn-level gaps exist.** Under `terrain`, 7 of 60 holdout positions

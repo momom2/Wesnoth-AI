@@ -1,0 +1,8 @@
+2026-10-09T09:27:48Z tests rc=0 ok 50 s
+2026-10-09T09:27:55Z reference rc=0 ok 7 s
+2026-10-09T09:27:55Z ensure material rc=0 ok 0 s
+2026-10-09T09:28:23Z decision timing material rc=0 ok 28 s
+2026-10-09T09:28:25Z gpu check rc=0 ok 2 s
+2026-10-09T09:54:34Z match material rc=0 ok 1569 s
+2026-10-09T09:54:37Z fit material rc=0 ok 2 s
+2026-10-09T09:54:37Z summary material rc=0 ok 0 s

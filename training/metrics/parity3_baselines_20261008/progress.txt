@@ -1,0 +1,18 @@
+Fri Oct  9 11:30:37 UTC 2026
+fitted: selfpin slots64_vs_slots0 slots64_vs_slots16
+selfpin: 1067 s, 1020 games, 800 decisive, rc=0 ok
+slots64_vs_slots0: 750 s, 810 games, 800 decisive, rc=0 ok
+slots64_vs_slots16: 1093 s, 1034 games, 800 decisive, rc=0 ok
+slots64_vs_slots16: 1005 s, 1021 games, 800 decisive, rc=0 ok
+selfpin: 1020 games
+slots64_vs_slots0: 810 games
+slots64_vs_slots16: 1021 games
+deadman.log restore.log RUN_STAGE upload.log status.txt stages.txt walls.txt match.walls selfpin.fit.json timing_selfpin.txt selfpin.log slots64_vs_slots0.fit.json timing_slots64_vs_slots0.txt slots64_vs_slots0.log pip.log staging.log build.log box.txt tests.log gpu.log slots64_vs_slots16.log timing_slots64_vs_slots16.txt slots64_vs_slots16.server_0.json slots64_vs_slots16.fit.json progress.txt.tmp 
+
+==> /workspace/parity3baselines/tests.log <==
+SKIPPED [1] tests/test_vision.py:121: wesnoth_src/data/core/units is not in this checkout
+88 passed, 1 skipped in 31.95s
+
+==> /workspace/parity3baselines/upload.log <==
+2026-10-09T11:13:54Z periodic round: 3 sent, 21 unchanged, 0 failed
+2026-10-09T11:13:54Z upload.log 2730 ok 1 s 4 kB/s

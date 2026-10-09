@@ -1,0 +1,53 @@
+{
+ "scenario": "multiplayer_Hamlets",
+ "turn": 18,
+ "warmup_decisions": 120,
+ "warmup_seconds_per_decision": 0.1303,
+ "evaluator": "material",
+ "critic_arch": null,
+ "evaluator_seconds_encode": 0.0,
+ "evaluator_seconds_forward": 0.0,
+ "telemetry": {
+  "decisions": 50,
+  "operated": 50,
+  "by_kind": {
+   "attack": 0,
+   "move": 30,
+   "recruit": 5,
+   "end_turn": 15
+  },
+  "flips_by_kind": {
+   "attack": 0,
+   "move": 3,
+   "recruit": 0,
+   "end_turn": 0
+  },
+  "flips_to_kind": {
+   "attack": 0,
+   "move": 0,
+   "recruit": 3,
+   "end_turn": 0
+  },
+  "candidates_by_kind": {
+   "attack": 0,
+   "move": 340,
+   "recruit": 28,
+   "end_turn": 32
+  },
+  "states": 400,
+  "states_max": 8,
+  "terminal_states": 0,
+  "forwards": 0,
+  "failed": {},
+  "seconds": 9.14272439898923,
+  "seconds_max": 0.29957832605578005,
+  "seconds_prior": 7.799338326556608,
+  "seconds_expand": 1.2626574088353664,
+  "seconds_evaluate": 0.06452191190328449,
+  "flips": 3,
+  "candidates": 400,
+  "states_per_decision": 8.0,
+  "seconds_per_decision": 0.1828544879797846,
+  "forwards_per_decision": 0.0
+ }
+}
