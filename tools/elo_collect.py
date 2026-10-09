@@ -44,7 +44,10 @@ from tools.eval_provenance import LEGACY_FORCED_FACTION, bases_of, terrain_views
 # them component-wise across dirs.
 #   basis_*            relevant-set vs full-board tokens
 #   terrain_*          the hex's terrain set vs one class per hex
-#   mcts_batch         batched (virtual-loss) search explores differently
+#   memory_*           the memory slots a side plays, None without one
+#   memory_reset_*     the raw player's memory reset at each of its
+#                      side's turns (procedure tag '+mr')
+#   mcts_batch        batched (virtual-loss) search explores differently
 #   infer_*/shared_*   precision, kernels and the inference path
 #   combat_stream      per-game vs one shared combat-luck vector
 #                      ("shared" = every pre-2026-09-13 result file)
@@ -59,6 +62,7 @@ ESTIMAND_DEFAULTS = {
     "basis_a": "full", "basis_b": "full",
     "terrain_a": "class", "terrain_b": "class",
     "memory_a": None, "memory_b": None,
+    "memory_reset_a": None, "memory_reset_b": None,
     "mcts_batch": 1,
     "infer_bf16": False, "infer_compile": False,
     "shared_inference": False, "infer_packed_trunk": False,

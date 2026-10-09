@@ -525,6 +525,12 @@ def main(argv: List[str]) -> int:
                          "(default: all of them); recorded per game as memory_a.")
     ap.add_argument("--memory-b", type=int, default=None,
                     help="Player B (see --memory-a).")
+    ap.add_argument("--memory-reset-a", action="store_true",
+                    help="The raw player A resets its memory to the learned initial memory "
+                         "at each of its side's turns (elo_eval_game --memory-reset-a; "
+                         "procedure tag '+mr').")
+    ap.add_argument("--memory-reset-b", action="store_true",
+                    help="Player B (see --memory-reset-a).")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
     ap.add_argument("--mcts-batch-size", type=int, default=1,
@@ -833,12 +839,14 @@ def main(argv: List[str]) -> int:
                           args.no_turn_search or args.no_turn_search_a,
                           args.raw_temperature_a, args.gumbel_root_a,
                           raw_end_turn=args.raw_end_turn_a,
-                          raw_end_turn_offset=args.raw_end_turn_offset_a),
+                          raw_end_turn_offset=args.raw_end_turn_offset_a,
+                          memory_reset=args.memory_reset_a),
             procedure_of(sims_b, args.plan_b,
                           args.no_turn_search or args.no_turn_search_b,
                           args.raw_temperature_b, args.gumbel_root_b,
                           raw_end_turn=args.raw_end_turn_b,
-                          raw_end_turn_offset=args.raw_end_turn_offset_b))
+                          raw_end_turn_offset=args.raw_end_turn_offset_b,
+                          memory_reset=args.memory_reset_b))
     # Hex-basis pre-scan (see BASES): per-process bases are read from
     # the checkpoints here; under shared inference the servers report
     # theirs once launched (below), and the scan repeats there.
@@ -851,6 +859,13 @@ def main(argv: List[str]) -> int:
     _sha_of = {spec: spec_sha256(spec) for spec in {args.spec_a, args.spec_b}}
     want_ckpts = (_sha_of[args.spec_a], _sha_of[args.spec_b])
     want_memories = _want_memories(args)
+    from tools.eval_procedure import memory_reset_refusal
+    for _side, _sims, _temp, _memory in (("a", sims_a, args.raw_temperature_a, want_memories[0]),
+                                         ("b", sims_b, args.raw_temperature_b, want_memories[1])):
+        _why = memory_reset_refusal(_side, _sims, _temp, _memory,
+                                    getattr(args, f"memory_reset_{_side}"))
+        if _why is not None:
+            raise SystemExit(_why)
     _refuse_a_changed_reference(args, _sha_of)
     from wesnoth_ai.rules import scenario_pool
     want_faction = forced_faction_tag(scenario_pool.FORCED_FACTION)
@@ -1108,6 +1123,8 @@ def main(argv: List[str]) -> int:
             memory = getattr(args, f"memory_{side}")
             if memory is not None:
                 cmd += [f"--memory-{side}", str(memory)]
+            if getattr(args, f"memory_reset_{side}"):
+                cmd.append(f"--memory-reset-{side}")
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if servers:
@@ -1216,6 +1233,8 @@ def main(argv: List[str]) -> int:
              "terrain_a": want_terrains[0], "terrain_b": want_terrains[1],
              # The memory slots per side (see memory_refusal).
              "memory_a": want_memories[0], "memory_b": want_memories[1],
+             "memory_reset_a": bool(args.memory_reset_a),
+             "memory_reset_b": bool(args.memory_reset_b),
              # The checkpoint per side and the forced faction (see
              # checkpoint_refusal, faction_refusal).
              "checkpoint_sha256_a": want_ckpts[0], "checkpoint_sha256_b": want_ckpts[1],

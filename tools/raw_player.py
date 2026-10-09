@@ -110,7 +110,8 @@ class RawPolicyPlayer:
     def __init__(self, base, temperature: float,
                  seed: Optional[int] = None, forbid_end_turn: bool = False,
                  compact_selection: bool = True, end_turn_rule: str = "joint",
-                 end_turn_offset: float = 0.0, memory_slots: Optional[int] = None):
+                 end_turn_offset: float = 0.0, memory_slots: Optional[int] = None,
+                 memory_reset_each_turn: bool = False):
         if temperature < 0.0:
             raise ValueError("temperature must be >= 0 (0 = argmax)")
         if end_turn_rule not in END_TURN_RULES:
@@ -149,6 +150,14 @@ class RawPolicyPlayer:
         self._memories: Dict[Tuple[str, int], object] = {}
         # Per game, the last decision's (side key, memory before it).
         self._undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
+        # The per-turn reset (docs/memory_in_play_parity3_prereg_20261009.md,
+        # procedure tag '+mr'): each of a side's turns starts from the
+        # learned initial memory, and the memory is carried within the turn
+        # only. Per side key, the game turn its memory was written in.
+        if memory_reset_each_turn and not self.memory_slots:
+            raise ValueError("a per-turn memory reset needs a player with memory slots")
+        self.memory_reset_each_turn = bool(memory_reset_each_turn)
+        self._memory_turns: Dict[Tuple[str, int], int] = {}
 
     def _select_compact(self, compact, encoded, decision_step: int) -> Optional[Dict]:
         """The choice on the compact arrays, or None when the list path
@@ -212,6 +221,8 @@ class RawPolicyPlayer:
         if self.memory_slots is None:
             return base._inference_model(encoded)
         key = (game_label, int(game_state.global_info.current_side))
+        if self.memory_reset_each_turn:
+            self._reset_at_turn_start(key, int(game_state.global_info.turn_number))
         output = base._inference_model(encoded, memory=MemoryState(self.memory_slots,
                                                                    self._memories.get(key)))
         if output.memory is None:
@@ -219,6 +230,15 @@ class RawPolicyPlayer:
         self._undo[game_label] = (key, self._memories.get(key))
         self._memories[key] = output.memory
         return output
+
+    def _reset_at_turn_start(self, key: Tuple[str, int], turn: int) -> None:
+        """Under the per-turn reset: the side's first decision of game turn
+        `turn` reads the learned initial memory. The reset happens before
+        the decision's undo point, so a refused first decision is decided
+        again from the initial memory too."""
+        if self._memory_turns.get(key) != turn:
+            self._memories.pop(key, None)
+            self._memory_turns[key] = turn
 
     def advance_memory(self, game_state, *, game_label: str = "default") -> None:
         """The side to move's memory read and written at a decision this
@@ -239,7 +259,10 @@ class RawPolicyPlayer:
     def set_memory(self, game_label: str, side: int, state) -> None:
         """Start `side` of game `game_label` from `state` (a memory
         carried over from another player of the same game), None for the
-        learned initial memory."""
+        learned initial memory. A player under the per-turn reset refuses
+        it: the turn the state belongs to is not known."""
+        if self.memory_reset_each_turn:
+            raise ValueError("set_memory on a player under the per-turn memory reset")
         key = (game_label, int(side))
         if state is None:
             self._memories.pop(key, None)
@@ -248,8 +271,9 @@ class RawPolicyPlayer:
 
     def drop_pending(self, game_label: str) -> None:
         """The game is over: its sides' memories go."""
-        for key in [k for k in self._memories if k[0] == game_label]:
-            del self._memories[key]
+        for store in (self._memories, self._memory_turns):
+            for key in [k for k in store if k[0] == game_label]:
+                del store[key]
         self._undo.pop(game_label, None)
 
     def drop_last_pending(self, game_label: str) -> bool:
