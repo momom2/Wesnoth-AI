@@ -33,7 +33,8 @@
 # 32 cores, docs/imitation_anneal_prereg_20261003.md); the readings 20 to 50
 # (the 2026-10-02 pre-registration's estimate for a source of the same size,
 # never measured: own holds 179,448 recorded commands, other 207,081, the
-# holdout a few hundred games); tempo, readout and final upload about 5.
+# holdout 312 games, training/metrics/imitation_anneal_20261003/box/
+# corpus_summary.json); tempo, readout and final upload about 5.
 # Identical match repeats have differed by 1.8x, which would bring the run
 # to about 2.8 hours. Cost at $0.42-0.63 an hour: $0.62-1.40 expected,
 # $1.20-1.80 at 2.8 h; BOX_MAX_H 4 caps it at $1.68-2.52 plus the final round.

@@ -5,8 +5,8 @@ at 64 slots at `raw:t0+eo-1.5` (configs/reference_player.json). The user
 rules that the memory stays and that its cost in play is a design flaw to
 root-cause. The 2026-10-02 investigation of `parity2`'s smaller cost (tag
 `archive/exp-memory-in-play`, docs/memory_in_play_prereg_20261002.md on
-that tag) found no difference between what the player computes and what the
-trainer computed (tests/test_match_memory.py); its box run was not made.
+that tag) found that the player computes what the trainer computed, decision
+by decision (tests/test_match_memory.py).
 
 ## Question
 
@@ -14,8 +14,8 @@ trainer computed (tests/test_match_memory.py); its box run was not made.
 games, 800 decisive; 16 slots play as 64: 0.0 +- 12.3), although the memory
 lowers the holdout policy loss (2.688 at 64 slots against 2.791 at 0;
 docs/parity3_baselines_prereg_20261008.md "Measured",
-docs/imitation_anneal_prereg_20261003.md "Measured"). What does the memory change in
-the player's decisions, and where in the game does the loss arise?
+docs/imitation_anneal_prereg_20261003.md "Measured"). What does the memory
+change in the player's decisions, and where in the game does the loss arise?
 
 ## What the records show
 
@@ -108,8 +108,8 @@ and at 0 slots (z), bf16 on the GPU, one state at a time:
   trajectories the memory player produced;
 - **other:** the 0-slot player's decisions in the same games, the memory
   carried along trajectories it did not produce;
-- **human:** both sides' decisions in the holdout games of the corpus at
-  `CORPUS_VERSION` 5, rebuilt from the raw replays as for `parity3`'s
+- **human:** both sides' decisions in the 312 holdout games of the corpus
+  at `CORPUS_VERSION` 5, rebuilt from the raw replays as for `parity3`'s
   training (the sequence trainer's positions, timeouts included).
 
 Per source and turn bucket (all, 1-5, 6-10, 11-15, 16+, and 6 and later):
@@ -223,7 +223,8 @@ minutes; each match 13 to 18 minutes (the baselines box: 64 slots against 0,
 raw replays and the corpus about 15 minutes (10 to build on 32 cores); the
 readings 20 to 50 minutes (the 2026-10-02 estimate for sources of this size,
 never measured, the least certain figure: **own** holds 179,448 recorded
-commands, **other** 207,081, at two forwards a decision; the CPU check above
+commands, **other** 207,081, **human** 312 games, at two forwards a
+decision; the CPU check above
 took 0.58 s a decision on 4 threads); tempo, readout and the final upload
 about 5. About 1.5 to 2.2 box-hours, $0.62-1.40 at $0.42-0.63 an hour; 2.8
 hours and $1.20-1.80 if the matches run 1.8x slower, as identical repeats
