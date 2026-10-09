@@ -68,7 +68,7 @@ class GradientGroups:
     `clip` is `torch.nn.utils.clip_grad_norm_` over the named parameters,
     split in two: the norm of every gradient tensor (the one pass over the
     gradients the clip makes anyway), then the scaling by the total
-    (`clip_grads_with_norm_`). Each group's norm is summed from the same
+    (`_scale_to_bound`). Each group's norm is summed from the same
     per-tensor norms, so the reading costs no pass of its own: a sum over
     a few hundred numbers and one transfer from the device."""
 
@@ -91,7 +91,7 @@ class GradientGroups:
         with torch.no_grad():
             norms = torch.stack(torch._foreach_norm([self._params[i].grad for i in held]))
             total = torch.linalg.vector_norm(norms)
-            torch.nn.utils.clip_grads_with_norm_([self._params[i] for i in held], max_norm, total)
+            _scale_to_bound([self._params[i].grad for i in held], max_norm, total)
             key = tuple(held)
             index = self._index_cache.get(key)
             if index is None:
@@ -100,6 +100,20 @@ class GradientGroups:
             squares = torch.zeros(len(self.groups), device=norms.device, dtype=torch.float32)
             squares.index_add_(0, index, norms.float().pow(2))
         return total, dict(zip(self.groups, squares.sqrt().tolist()))
+
+
+def _scale_to_bound(grads: List["torch.Tensor"], max_norm: float, total: "torch.Tensor") -> None:
+    """Scale the gradients in place so their total norm is at most
+    `max_norm`, exactly as `clip_grad_norm_` scales them after taking the
+    norm (PyTorch 2.5 inlines it; 2.6 names it `clip_grads_with_norm_`,
+    which the boxes' 2.5 image lacks)."""
+    import torch
+    coef = torch.clamp(max_norm / (total + 1e-6), max=1.0)
+    by_device: Dict["torch.device", List["torch.Tensor"]] = {}
+    for g in grads:
+        by_device.setdefault(g.device, []).append(g)
+    for device, group in by_device.items():
+        torch._foreach_mul_(group, coef.to(device))
 
 
 def memory_share(norms: Dict[str, float]) -> Optional[float]:
