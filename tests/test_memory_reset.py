@@ -111,6 +111,20 @@ def test_a_match_refuses_the_reset_for_a_side_without_memory_slots(tmp_path):
               "--memory-reset-a", "--max-turns", "2", "--device", "cpu"])
 
 
+@pytest.mark.slow
+def test_the_driver_refuses_a_reset_that_would_not_apply(tmp_path):
+    """Slow tier: each call reads the checkpoint's flags in a process of its own."""
+    from tools.run_elo_batch import main
+    spec = _memory_checkpoint(tmp_path)
+    argv = ["x", "--label-a", "A", "--spec-a", str(spec), "--label-b", "B", "--spec-b", "dummy",
+            "--outdir", str(tmp_path / "games"), "--games", "2", "--device", "cpu", "--jobs", "1",
+            "--time-budget-min", "0", "--min-free-mb", "0", "--mcts-sims", "0", "--raw-temperature-a", "0"]
+    for extra in (["--memory-a", "0", "--memory-reset-a"], ["--memory-reset-b"]):
+        with pytest.raises(SystemExit, match="memory-reset"):
+            main(argv + extra)
+    main(argv + ["--memory-reset-a"])            # control: a raw player with its memory takes it
+
+
 @needs_core
 @pytest.mark.slow
 def test_a_real_game_feeds_the_reset_side_the_initial_memory_at_each_of_its_turns(tmp_path, monkeypatch):
