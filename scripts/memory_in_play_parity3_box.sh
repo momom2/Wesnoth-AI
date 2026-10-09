@@ -357,16 +357,20 @@ if [ ! -f "$OUT/tempo_baselines.json" ]; then
         || echo "tempo baselines failed (tempo.log)"
 fi
 
-# ---- the readout, once every reading and every fit is here
-have_all=1
-for name in $SOURCES; do [ -f "$OUT/cf_$name.jsonl" ] || have_all=0; done
-for name in $MATCHES; do [ -f "$OUT/$name.fit.json" ] || have_all=0; done
-if [ "$have_all" -eq 1 ] && [ ! -f "$OUT/readout.json" ]; then
+# ---- the readout, once every reading is here; the matches' verdict only when all three hold
+# their decisive games (a cut match is not read)
+have_rows=1
+for name in $SOURCES; do [ -f "$OUT/cf_$name.jsonl" ] || have_rows=0; done
+fits=()
+if [ "$MATCHES_FAILED" -eq 0 ] && [ "$MATCHES_CUT" -eq 0 ]; then
+    fits=(--fit A1="$OUT/a1_eo25.fit.json" --fit A2="$OUT/a2_reset.fit.json" --fit A3="$OUT/a3_eo35.fit.json")
+fi
+if [ "$have_rows" -eq 1 ] && [ ! -f "$OUT/readout.json" ]; then
     box_bounded readout 20 readout.log python tools/analysis/memory_counterfactual_readout.py \
         own="$OUT/cf_own.jsonl" other="$OUT/cf_other.jsonl" human="$OUT/cf_human.jsonl" \
-        --fit A1="$OUT/a1_eo25.fit.json" --fit A2="$OUT/a2_reset.fit.json" --fit A3="$OUT/a3_eo35.fit.json" \
-        --opponent "$OPPONENT" --json "$OUT/readout.json" \
+        ${fits[@]+"${fits[@]}"} --opponent "$OPPONENT" --json "$OUT/readout.json" \
         || echo "READOUT_FAILED rc=$BOX_RC (readout.log)" | tee -a "$OUT/failures.txt"
+    [ "${#fits[@]}" -gt 0 ] || echo "the readout holds no match verdict: a match failed or was cut (match.walls)"
 fi
 
 box_on_round

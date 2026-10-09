@@ -269,6 +269,28 @@ def test_a_fit_gives_the_candidates_elo_against_the_opponent_whichever_is_anchor
         ro.candidate_elo(fit("cand", "other", 1.0), "parity3_slots0")
 
 
+def test_the_readout_reads_rows_and_fits_from_files(tmp_path):
+    def write(name, rows):
+        path = tmp_path / f"{name}.jsonl"
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        return f"{name}={path}"
+
+    def fit(name, elo):
+        path = tmp_path / f"{name}.fit.json"
+        path.write_text(json.dumps({"tables": {ro.FULL_PLAY: {name: {"elo": 0.0, "se": 0.0},
+                                                               "parity3_slots0": {"elo": elo, "se": 12.0}}}}))
+        return f"{name}={path}"
+    out = tmp_path / "readout.json"
+    assert ro.main([write("own", _w_own(0.2)), write("other", _w_own(0.0)), write("human", _w_human(0.1, -0.05)),
+                    "--fit", fit("A1", 60.0), "--fit", fit("A2", 5.0), "--fit", fit("A3", 70.0),
+                    "--json", str(out)]) == 0
+    result = json.loads(out.read_text(encoding="utf-8"))
+    assert result["matches"]["reading"] == "L" and result["matches"]["arms"]["A2"][2] == "recovers"
+    assert result["verdicts"]["W"]["W_supported"] and result["verdicts"]["tool_check"]
+    with pytest.raises(SystemExit):
+        ro.main([write("own", _w_own(0.2)), "--fit", fit("A1", 0.0)])
+
+
 def test_turn_tempo_counts_actions_per_side_turn_and_the_end_hazard():
     from tools.analysis import turn_tempo as tt
     commands = [["init_side", 1], ["move"], ["attack"], ["end_turn"], ["init_side", 2], ["recruit"],
