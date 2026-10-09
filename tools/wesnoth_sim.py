@@ -142,14 +142,11 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
 # ---------------------------------------------------------------------
 # Terrain-aware movement-cost lookup
 # ---------------------------------------------------------------------
-# Wesnoth deducts terrain-dependent MP per hex entered. _apply_command
-# in replay_dataset.py uses a flat 1-MP-per-step deduction (good enough
-# for replay reconstruction; replays already encode the realized
-# trajectory). For self-play simulation we need real costs because the
-# sim's move-validity check, AND any exported replay's playback,
-# depend on it. Wesnoth's playback runs `plot_turn` and rejects the
-# whole move with "corrupt movement" if the very first hex costs more
-# than the unit has remaining (see wesnoth_src/src/actions/move.cpp).
+# Wesnoth deducts terrain-dependent MP per hex entered. The sim's
+# move-validity checks and any exported replay's playback depend on
+# it: Wesnoth's playback runs `plot_turn` and rejects the whole move
+# with "corrupt movement" if the very first hex costs more than the
+# unit has remaining (src/actions/move.cpp, 1.18.4).
 
 _MOVETYPE_COSTS_CACHE: Dict[str, dict] = {}
 
@@ -534,9 +531,9 @@ class WesnothSim:
 
         # Per-action RNG-request counter. Increments on every command
         # that consumes a Wesnoth synced [random_seed] (recruit,
-        # attack). Both the sim's _build_recruit_unit / combat code
-        # and sim_to_replay's WML emitter derive seeds from this
-        # counter so the trait rolls / damage rolls agree bit-exact
+        # attack). Both the sim's commands (the core's trait and
+        # combat rolls) and sim_to_replay's WML emitter derive seeds
+        # from this counter so the trait rolls / damage rolls agree bit-exact
         # between simulator and Wesnoth playback.
         self._rng_requests: int = 0
 
@@ -848,7 +845,7 @@ class WesnothSim:
         command the simulator plays goes through here, so the stream a
         replay export or a rebuild walks is the stream that was played.
         `extras` carries what the caller knew before applying; the
-        applier's side channels add the rest."""
+        core's side channels add the rest."""
         self._apply_with_stats(cmd)
         recorded = dict(extras or {})
         recorded.update(self._side_channel_extras(cmd))
@@ -857,7 +854,7 @@ class WesnothSim:
 
     def _side_channel_extras(self, cmd: list) -> dict:
         """What a replay export needs from the command just applied,
-        read (and consumed) from the applier's side channels."""
+        read (and consumed) from the core's side channels."""
         extras: dict = {}
         gi = self.gs.global_info
         if cmd[0] == "move":
@@ -883,7 +880,7 @@ class WesnothSim:
                     for adv_side, _ in advance_choices:
                         if adv_side in (1, 2):
                             es.advancements[adv_side] += 1
-            # Per-strike checkup payloads stashed by resolve_attack.
+            # Per-strike checkup payloads the core's fight records.
             # Exported as [checkup][result] children; Wesnoth playback
             # compares each strike's chance/hits/damage/dies and
             # OOS-errors on divergence (see test_rng_accounting.py).
@@ -942,7 +939,7 @@ class WesnothSim:
     def _play_neutral_turn(self, side: int) -> None:
         """The neutral side's turn, opened and closed like every side's:
         its init_side, the default AI's attacks (tools/neutral_ai.py),
-        then its end_turn through the same applier. The engine ends an
+        then its end_turn through the same command. The engine ends an
         AI side's turn through the same finish_side_turn as a player's,
         so its slowed units recover and a unit short of full movement
         stops resting (docs/wesnoth_rules.md "End of a side's turn").
@@ -1510,7 +1507,7 @@ class WesnothSim:
             # this target, and the same knowledge Wesnoth's client
             # uses for a player's move order (mouse_events.cpp
             # get_route). Hidden units neither block nor ZoC here;
-            # they resolve at execution (walk_move_path: blocked /
+            # they resolve at execution (the core's move: blocked /
             # ambush truncation).
             from tools.pathfind_sim import (
                 ReachContext, unit_reach, route_to)
@@ -1687,8 +1684,7 @@ class WesnothSim:
             # `quick` (+1 MP) while Wesnoth's playback rolls a
             # different trait, leading to "corrupt movement" the
             # first time the unit's MP differs between the two views.
-            # cmd[4] is the trait_seed slot consumed by
-            # _build_recruit_unit's MTRng path.
+            # cmd[4] is the recruit command's trait seed slot.
             seed = self._next_seed()
             return ["recruit", unit_type, target.x, target.y, seed], None
         if atype == "recall":

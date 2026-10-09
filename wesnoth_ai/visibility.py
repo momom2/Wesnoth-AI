@@ -21,18 +21,13 @@ units ignored, plus every hex next to one of those (`unit_vision`).
 
 A side sees its fog: the hexes it has cleared, kept per side on
 `global_info._fog_cleared` ({side: frozenset of (x, y)}, replaced,
-never mutated, so search forks share it safely). The command applier
-(`tools.replay_dataset._apply_command`) keeps it as the engine does:
-
-  refog(state, side)          the side's units' vision from where they
-                              stand: at the side's turn start and end,
-                              and for the defender after a fight that
-                              killed, slowed or petrified it;
-  clear_fog(state, u, hexes)  adds u's vision from each hex: every hex
-                              a mover enters, a recruit's hex, an
-                              advanced unit's hex;
-  track_side(state, side)     starts tracking an untracked side before
-                              a command changes its units.
+never mutated, so search forks share it safely). The core keeps it
+as the engine does (rust/wesnoth_core/src/core_fog.rs): `refog` sets
+the side's units' vision from where they stand, at the side's turn
+start and end and for the defender after a fight that killed, slowed
+or petrified it; `clear_fog_from` adds a unit's vision from each hex a
+mover enters, a recruit's hex and an advanced unit's hex; `track_side`
+starts tracking an untracked side before a command changes its units.
 
 A side with no tracked fog sees its units' vision from where they
 stand (`side_vision`), which is what the engine clears for every side
@@ -203,13 +198,6 @@ def _fog_on(state: GameState) -> bool:
     return bool(getattr(state.global_info, "_fog", True))
 
 
-def _set_cleared(state: GameState, side: int, hexes: FrozenSet[Hex]) -> None:
-    """A new dict every time: search forks share the old one."""
-    cleared = dict(getattr(state.global_info, FOG_CLEARED, None) or {})
-    cleared[side] = hexes
-    setattr(state.global_info, FOG_CLEARED, cleared)
-
-
 def visible_hexes_for(state: GameState, side: int) -> AbstractSet[Hex]:
     """The hexes `side` sees: its cleared hexes when tracked, else its
     units' vision from where they stand. A frozenset."""
@@ -217,34 +205,6 @@ def visible_hexes_for(state: GameState, side: int) -> AbstractSet[Hex]:
     if tracked is not None:
         return tracked
     return side_vision(state, side)
-
-
-def track_side(state: GameState, side: int) -> None:
-    """Start tracking `side`'s fog from its units' vision, before a
-    command moves, replaces or removes its units."""
-    if not _fog_on(state):
-        return
-    if side in (getattr(state.global_info, FOG_CLEARED, None) or {}):
-        return
-    _set_cleared(state, side, side_vision(state, side))
-
-
-def refog(state: GameState, side: int) -> None:
-    """Recalculate `side`'s fog from where its units stand
-    (`actions::recalculate_fog`, src/actions/vision.cpp:702-736)."""
-    if _fog_on(state):
-        _set_cleared(state, side, side_vision(state, side))
-
-
-def clear_fog(state: GameState, unit: Unit, hexes: Iterable[Hex]) -> None:
-    """Add `unit`'s vision from each of `hexes` to its side's fog
-    (`shroud_clearer::clear_unit`, src/actions/vision.cpp:332-371)."""
-    hexes = list(hexes)
-    if not _fog_on(state) or not hexes:
-        return
-    base = visible_hexes_for(state, unit.side)
-    _set_cleared(state, unit.side, frozenset(base).union(
-        *(unit_vision(state, unit, at=h) for h in hexes)))
 
 
 def visible_fraction_for(state: GameState, side: int) -> float:
@@ -290,9 +250,9 @@ def _hide_cover_active(state: GameState, unit: Unit) -> bool:
     not a village. `terrain_resolver.hides_cover` matches the engine's
     globs instead; docs/wesnoth_rules.md has the census.
 
-    SINGLE source of truth since 2026-07-18 (the sim's duplicate
-    method was removed; walk_move_path and units_visible_to both
-    consume this one).
+    The core's move and observation read the same rule
+    (rust/wesnoth_core/src/core_move.rs and core_observe.rs
+    `HIDE_ABILITIES`, pinned equal by tests/test_rust_constants.py).
     """
     abilities = unit.abilities or set()
     if not (abilities & _AMBUSH_ABILITIES):

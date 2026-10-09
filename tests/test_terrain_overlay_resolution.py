@@ -80,8 +80,8 @@ def test_terrain_event_preserves_overlay_in_codes():
     defense resolvers walk the alias graph from that code, and the
     overlay can dominate it.
 
-    Regression (found 2026-07-29 via the Aethermaw export census):
-    `_terrain_action` stored the overlay-STRIPPED base ('Chw^Xo' ->
+    Regression (found 2026-07-29 via the Aethermaw export census): the
+    [terrain] handler stored the overlay-STRIPPED base ('Chw^Xo' ->
     'Chw'), so Aethermaw's turn-6 whirlpool walls (WML (22,19) /
     (28,22)) priced as walkable water-castles. Self-play moved units
     onto them, and the exported replays fail strict-sync in real
@@ -91,15 +91,15 @@ def test_terrain_event_preserves_overlay_in_codes():
     1743-1751), so the composite is impassable for every movetype.
     """
     from sim_test_helpers import fresh_scenario_sim
-    from tools.replay_dataset import _fire_turn_events
-    from tools.scenario_events import side_turn_event_names
     from tools.wesnoth_sim import _move_cost_at_hex
 
     sim = fresh_scenario_sim(0, scenario_id="multiplayer_Aethermaw")
+    # Production event path, both sides' full morph schedule: the turn
+    # starts fire the scenario's events up to side 2's turn 6.
+    while (sim.gs.global_info.turn_number, sim.gs.global_info.current_side) < (6, 2):
+        assert not sim.done
+        sim.step({"type": "end_turn"})
     gs = sim.gs
-    # Production event path, both sides' full morph schedule.
-    for side, turn in [(1, 4), (2, 4), (1, 5), (2, 5), (1, 6), (2, 6)]:
-        _fire_turn_events(gs, side_turn_event_names(side, turn, new_turn=side == 1))
 
     codes = getattr(gs.global_info, "_terrain_codes")
     # The two wall hexes keep their overlay (WML (22,19)/(28,22) ->

@@ -2,12 +2,12 @@
 """[time_area] zones on the FRESH-BUILD path (2026-07-15).
 
 Tombs of Kesorak and Elensefar Courtyard define per-hex ToD
-overrides (dark tombs / underground keeps). Reconstruction has
-long applied them (`setup_static_time_areas`, verified via replay
-parity); this pins that a fresh self-play sim gets the same zones
--- they attach at `WesnothSim.__init__` via
-`_setup_scenario_events`, NOT at bare `build_scenario_gamestate`
-(probing the wrong layer briefly looked like a missing-zones bug).
+overrides (dark tombs / underground keeps). Reconstruction applies
+them in the core's scenario setup (`CoreState.setup_scenario`,
+verified via replay parity); this pins that a fresh self-play sim
+gets the same zones -- they attach at `WesnothSim.__init__` through
+the same setup, NOT at bare `build_scenario_gamestate` (probing the
+wrong layer briefly looked like a missing-zones bug).
 
 Also pins that the global start-slot scan (`_scenario_tod_info`)
 ignoring [time_area] blocks does not disturb the zones themselves.
@@ -78,22 +78,28 @@ def test_an_area_placed_later_starts_from_its_own_current_time():
     """`add_time_area` sets the area's slot to its current_time on the
     turn it is placed, so at turn t it reads slot
     (current_time + t - placed) mod len, whatever the board's slot."""
-    from tools.replay_dataset import _lawful_bonus_at, _lawful_bonus_for_turn
+    from tools.replay_dataset import _lawful_bonus_for_turn
     from tools.replay_extract import parse_wml
-    from tools.scenario_events import _time_area_action
+    from tools.scenario_events import collect_events
+    from wesnoth_ai.game_core import CoreState, _event_actions
     gs = _fresh_sim("multiplayer_Tombs_of_Kesorak", tod_start=3).gs
-    areas = gs.global_info._time_areas
-    x, y = next((h.position.x, h.position.y) for h in gs.map.hexes
+    gs.global_info.turn_number = 4
+    core = CoreState.from_state(gs).core
+    areas = {(x, y) for x, y, _cycle in core.time_areas_export()}
+    x, y = next((h.position.x, h.position.y) for h in sorted(gs.map.hexes, key=lambda h: (h.position.y, h.position.x))
                 if (h.position.x, h.position.y) not in areas
-                and [_lawful_bonus_at(gs, h.position.x, h.position.y, t) for t in range(1, 7)]
+                and [core.lawful_bonus(h.position.x, h.position.y, t) for t in range(1, 7)]
                 == [_lawful_bonus_for_turn(t, 3) for t in range(1, 7)])
     declared = [-20, -10, 0, 10, 20, 5]
     times = "".join(f"[time]\nlawful_bonus={v}\n[/time]\n" for v in declared)
-    node = parse_wml(f"[time_area]\nx={x + 1}\ny={y + 1}\ncurrent_time=2\n"
-                     f"{times}[/time_area]\n").first("time_area")
-    gs.global_info.turn_number = 4
-    _time_area_action(gs, node)
-    assert [_lawful_bonus_at(gs, x, y, t) for t in range(4, 13)] == \
+    events = collect_events(parse_wml(
+        f"[multiplayer]\n[event]\nname=probe\n[time_area]\nx={x + 1}\ny={y + 1}\ncurrent_time=2\n"
+        f"{times}[/time_area]\n[/event]\n[/multiplayer]\n"), "probe")
+    _fired, wml, stored = core.events_export()
+    core.load_events([(ev.name, bool(ev.first_time_only), _event_actions(ev), ev.scenario_id, False)
+                      for ev in events], wml, stored)
+    core.fire_events(["probe"])
+    assert [core.lawful_bonus(x, y, t) for t in range(4, 13)] == \
         [declared[(2 + t - 4) % len(declared)] for t in range(4, 13)]
 
 

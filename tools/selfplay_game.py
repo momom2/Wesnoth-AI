@@ -271,9 +271,8 @@ def play_one_game(
     # REAL sim only (fork() never carries it -> MCTS pays nothing).
     eng = (sim.enable_engagement_stats()
            if hasattr(sim, "enable_engagement_stats") else None)
-    # Count via TERRAIN (map-build truth): the VILLAGE *modifier* is
-    # only stamped on owned villages at capture time
-    # (replay_dataset._parse_hex_code vs _capture_village).
+    # Count via TERRAIN (map-build truth): the hex's VILLAGE terrain
+    # type, not an ownership mark.
     from wesnoth_ai.classes import Terrain as _T
     map_total_villages = sum(
         1 for h in sim.gs.map.hexes if _T.VILLAGE in h.terrain_types)
@@ -371,8 +370,8 @@ def play_one_game(
         # Moves onto fog-hidden enemy hexes are NOT pre-bounced here
         # anymore (2026-07-17): the sim resolves them Wesnoth-
         # faithfully inside step() -- the unit walks the planned
-        # route and stops per the engine's blocked/ambush rules
-        # (tools/pathfind_sim.walk_move_path), revealing the hidden
+        # route and stops per the engine's blocked/ambush rules (the
+        # core's move command), revealing the hidden
         # unit. A real partial move, real information gained; no
         # re-decide loop needed. (The recruit bounce above stays: a
         # recruit has no partial-execution semantics to fall back

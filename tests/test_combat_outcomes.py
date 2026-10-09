@@ -240,8 +240,8 @@ def test_mcts_edge_exact_outcome_bookkeeping():
 
 def test_selfplay_attack_resolves_counter_and_retaliates():
     """Regression for the retaliation-free self-play bug (fixed
-    2026-06-12): the sim used to emit d_weapon=-1, which
-    resolve_attack maps to None = NO counter-attack, while Wesnoth
+    2026-06-12): the sim used to emit d_weapon=-1, which the
+    resolver read as None = NO counter-attack, while Wesnoth
     playback of the exported replay AUTO-SELECTS a counter
     (battle_context::choose_defender_weapon on -1) -- silent
     sim-vs-playback divergence that empty [checkup] blocks never
@@ -286,8 +286,8 @@ def test_advancement_multi_option_exact_matches_sampling():
     salted forks. The single-target test above can't exercise the uniform
     branch, the multi-advance recursion, or the type-in-key matching --
     this closes that coverage gap (2026-07-24 adversarial review)."""
-    from tools.replay_dataset import (_build_recruit_unit, _stats_for,
-                                      _rebuild_unit)
+    from tools.replay_dataset import _rebuild_unit, _stats_for
+    from wesnoth_ai.game_core import build_recruit_unit
     assert len(_stats_for("Skeleton").get("advances_to", [])) == 2
     sim, action = _engineered_fight()
     xpmod = int(getattr(sim.gs.global_info, "_experience_modifier", 100) or 100)
@@ -299,7 +299,7 @@ def test_advancement_multi_option_exact_matches_sampling():
     # Side-1 Skeleton at the brink of leveling; frail defender so the
     # Skeleton reliably survives and crosses its XP threshold (+1 combat
     # XP alone suffices) -> advances uniformly to Revenant or Deathblade.
-    sk = _build_recruit_unit("Skeleton", side=old_att.side, x=a_pos.x,
+    sk = build_recruit_unit("Skeleton", side=old_att.side, x=a_pos.x,
                              y=a_pos.y, next_uid=9001, game_id="t",
                              trait_seed_hex="12345678", exp_modifier=xpmod)
     sk = _rebuild_unit(sk, current_exp=sk.max_exp - 1)

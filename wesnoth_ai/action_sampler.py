@@ -1526,7 +1526,7 @@ def _build_legality_masks(
             # unit_at. The hex looks empty to the legality mask;
             # the policy may attempt to move into it, and the walk
             # then stops next to the unit and reveals it
-            # (pathfind_sim.walk_move_path).
+            # (rust/wesnoth_core/src/core_move.rs).
             continue
         key = (u.position.x, u.position.y)
         unit_at[key] = u

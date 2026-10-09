@@ -4,8 +4,8 @@ A record holds what rebuilds the game position by position: the
 scenario setup (or, for a mid-game start, the corpus file, the digest
 of its content and the cut), the build arguments, the simulator's
 advancement channel, and the command list the simulator applied, in
-the form `tools.replay_dataset._apply_command` replays, attack and
-recruit seeds included. Recruit rejections, which change what the side
+the form the core applies (`game_core.CoreState.apply_command`), attack
+and recruit seeds included. Recruit rejections, which change what the side
 to move observes but apply no command, are kept beside it.
 
 A record also carries fingerprints of the game it was written from:

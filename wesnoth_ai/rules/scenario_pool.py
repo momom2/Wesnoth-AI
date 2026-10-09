@@ -564,7 +564,7 @@ def build_scenario_gamestate(
     Reuses `_build_initial_gamestate` by constructing the dict that
     function consumes (mirrors the shape of a replay's extracted
     json.gz). Scenario events are NOT fired here -- they fire in
-    `WesnothSim.__init__` via `_setup_scenario_events`. So the
+    `WesnothSim.__init__` (`CoreState.setup_scenario`). So the
     caller wraps the returned state in `WesnothSim(gs, scenario_id=...)`
     before stepping.
 
@@ -857,7 +857,7 @@ def build_scenario_gamestate(
                 old, nb_villages_controlled=len(positions))
 
     # Stash pre-owned villages on global_info. The `_village_owner`
-    # map is consulted by _capture_village (to detect "revisit" vs
+    # map is consulted by a capture (to detect "revisit" vs
     # "capture") AND, since 2026-07-11, by the encoder's per-village
     # ownership flags. Marking these as owned at start avoids
     # spurious "captured a village!" rewards on turn 1 if a unit

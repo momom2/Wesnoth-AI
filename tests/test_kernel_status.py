@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools import kernel_status as ks  # noqa: E402
 
 EXPECTED = {"reach", "enumeration", "observation", "rows_from_reach",
-            "combat", "encode_streams", "GameCore"}
+            "encode_streams", "GameCore"}
 
 
 def test_every_kernel_is_reported_and_the_answer_is_a_bool():
@@ -38,8 +38,8 @@ def test_a_gate_that_raises_counts_as_python():
 
     saved = dict(ks._GATES)
     try:
-        ks._GATES["combat"] = _boom
-        assert ks.kernel_status()["combat"] is False
+        ks._GATES["reach"] = _boom
+        assert ks.kernel_status()["reach"] is False
     finally:
         ks._GATES.clear()
         ks._GATES.update(saved)

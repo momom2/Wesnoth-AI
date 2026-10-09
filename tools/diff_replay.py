@@ -18,7 +18,7 @@ each one is an authoritative trace of a Wesnoth game. If our sim
 considers any of the recorded commands illegal, our state has already
 diverged from what Wesnoth saw. If we apply a command and our
 post-state has impossible invariants (two units on the same hex,
-hp < 0, etc.), our command applier is buggy.
+hp < 0, etc.), the core's command is buggy.
 
 This tool is the fast feedback loop: run on a sample of replays,
 classify divergences by failure mode, fix the most common ones, repeat.
@@ -271,7 +271,7 @@ def _check_move(gs: GameState, cmd: list) -> Optional[Tuple[str, str]]:
         # move at the step before. Replays record the FULL planned
         # path. We can't distinguish "fog ambush" from "stale state"
         # without per-side fog tracking (we don't have it), so we
-        # ASSUME ambush and let _apply_command truncate the move at
+        # ASSUME ambush and let the core's move truncate it at
         # apply time (mirroring Wesnoth's runtime behavior). Don't
         # return a divergence here — that would over-count
         # legitimate Wesnoth behavior as sim bugs.

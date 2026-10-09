@@ -282,10 +282,27 @@ def test_visible_fraction_in_unit_interval():
 
 
 # ---- move onto hidden units: Wesnoth blocked/ambush semantics ----
-# (2026-07-17: replaces the retired harness-side fog-bounce
-# pre-check `_would_move_bounce_on_fog` -- moves onto hidden enemies
-# now EXECUTE with the engine's partial-move resolution via
-# tools/pathfind_sim.walk_move_path.)
+# A move onto a hidden enemy EXECUTES with the engine's partial-move
+# resolution, on the Rust core (rust/wesnoth_core/src/core_move.rs).
+
+def _walk(units, path, *, special=None):
+    """The side-1 unit on the path's first hex walks it on a fogged
+    grass board (tests/helpers/parity_games.py): (landed hex, stop
+    reason, the mover's movement left, the uncovered unit ids, the core).
+    `units` as parity_games.record takes them."""
+    from helpers.parity_games import record, state_of, unit_id_at
+    from wesnoth_ai.game_core import CoreState, game_core_class
+    if game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    cs = CoreState.from_state(state_of(record(units, special=special, fog=True)))
+    mover = unit_id_at(cs, *path[0])
+    cs.core.apply_move([p[0] for p in path], [p[1] for p in path], 1)
+    _ox, _oy, lx, ly, reason = cs.core.last_move_walk_export()
+    return (lx, ly), reason, cs.core.unit_export(mover)["current_moves"], set(cs.core.uncovered_export()), cs
+
+
+ROW = [(x, 3) for x in range(1, 7)]
+
 
 def test_walk_blocked_by_hidden_enemy_keeps_mp():
     """A hidden unit ON a path hex stops the mover on the hex
@@ -293,79 +310,57 @@ def test_walk_blocked_by_hidden_enemy_keeps_mp():
     ambush/ZoC-final, move.cpp:1041-1043), and reveals the
     blocker.
 
-    Setup note: the mover gets max_moves=1, so it sees x <= 2 (its
-    reach and the ring around it) and the lurker at distance 3 is
-    fog-hidden and exerts no ZoC; the walk budget is an explicit 4."""
-    from tools.pathfind_sim import walk_move_path
-    units = [
-        _unit('mover', x=0, side=1, max_moves=1),
-        _unit('lurker', x=3, side=2),      # on the path, fog-hidden
-    ]
-    s = _state(units, _hexes_grid(6))
-    mover = next(u for u in s.map.units if u.id == 'mover')
-    out = walk_move_path(s, mover, [0, 1, 2, 3, 4], [0, 0, 0, 0, 0],
-                         budget=4)
-    assert out.stop_reason == "blocked"
-    assert out.final_idx == 2               # stopped BEFORE (3,0)
-    assert out.uncovered_ids == ['lurker']
-    # 2 MP spent on flat terrain, 2 kept (NOT zeroed).
-    assert out.mp_left == 2
+    Setup note: the mover's max_moves is 1, so it sees x <= 3 (its
+    reach and the ring around it) and the lurker at x=4 is fog-hidden
+    and exerts no ZoC; it walks on its 5 current moves."""
+    from helpers.parity_games import record, state_of, unit_id_at
+    from wesnoth_ai.game_core import CoreState, game_core_class
+    if game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    cs = CoreState.from_state(state_of(record(
+        [("Spearman", 1, *ROW[0], False), ("Spearman", 2, *ROW[3], False)], fog=True)))
+    mover, lurker = unit_id_at(cs, *ROW[0]), unit_id_at(cs, *ROW[3])
+    cs.core.update_unit(mover, {"max_moves": 1})
+    assert lurker not in cs.core.visible_ids(1)
+    cs.core.apply_move([p[0] for p in ROW[:5]], [p[1] for p in ROW[:5]], 1)
+    *_ordered, lx, ly, reason = cs.core.last_move_walk_export()
+    assert reason == "blocked"
+    assert (lx, ly) == ROW[2]               # stopped BEFORE the lurker
+    assert set(cs.core.uncovered_export()) == {lurker}
+    # 2 MP spent on flat terrain, 3 kept (NOT zeroed).
+    assert cs.core.unit_export(mover)["current_moves"] == 3
 
 
 def test_walk_ambush_by_hidden_hider_zeroes_mp():
     """Entering a hex adjacent to a hidden `hides` enemy stops the
     mover AT that hex, zeroes MP, and reveals the ambusher
-    (check_for_ambushers, move.cpp:422-440)."""
-    from tools.pathfind_sim import walk_move_path
-    units = [
-        _unit('mover', x=0, side=1, max_moves=4),
-        # Ambusher OFF the path (y=1) but adjacent to path hex (2,0).
-        # nightstalk covers via lawful_bonus<0; simpler: monkeypatch
-        # is avoided by giving it `ambush` and forest terrain below.
-        _unit('wose', x=2, side=2, abilities=frozenset({'ambush'})),
-    ]
-    hexes = _hexes_grid(6)
-    # Put the ambusher's hex on forest so its cover is active.
-    # Hide-cover resolution matches ambush's `*^F*` glob against the
-    # raw terrain-code dict (`_terrain_codes`), so stamp the code
-    # rather than the Hex enum. `Gs^Fms` is a forest the pre-2026-09-13
-    # defense-key table missed, so this asserts the move truncation on
-    # a hex where the old rule would NOT have stopped the mover -- the
-    # one thing the corpus sweep cannot check.
-    hexes = {h for h in hexes if not (h.position.x == 2 and h.position.y == 0)}
-    hexes.add(Hex(position=Position(x=2, y=0),
-                  terrain_types=frozenset({Terrain.FOREST}),
-                  modifiers=frozenset()))
-    s = _state(units, hexes)
-    s.global_info._terrain_codes = {(2, 0): "Gs^Fms"}
-    mover = next(u for u in s.map.units if u.id == 'mover')
-    # Path passes adjacent to (2,0): entering (1,0) is adjacent.
-    out = walk_move_path(s, mover, [0, 1], [0, 0])
-    assert out.stop_reason == "ambush"
-    assert out.final_idx == 1               # stopped AT the entered hex
-    assert 'wose' in out.uncovered_ids
-    assert out.mp_left == 0
+    (check_for_ambushers, move.cpp:422-440). The Elvish Ranger stands
+    off the path on `Gs^Fms`, a forest the pre-2026-09-13 defense-key
+    table missed, so this asserts the move truncation on a hex where the
+    old rule would NOT have stopped the mover -- the one thing the corpus
+    sweep cannot check."""
+    from tools.abilities import hex_neighbors
+    ranger = next(p for p in hex_neighbors(*ROW[1]) if p not in hex_neighbors(*ROW[0]) and p not in ROW)
+    landed, reason, mp_left, uncovered, cs = _walk(
+        [("Spearman", 1, *ROW[0], False), ("Elvish Ranger", 2, *ranger, False)], ROW[:3],
+        special={ranger: "Gs^Fms"})
+    assert reason == "ambush"
+    assert landed == ROW[1]                 # stopped AT the entered hex
+    assert uncovered == {cs.core.unit_id_at(*ranger, 0)}
+    assert mp_left == 0
 
 
 def test_walk_passes_through_ally_and_backtracks_off_it():
     """Own-side units are pass-through (pathfind.cpp:777-786), but
     a move may not END on one: the walk backtracks off occupied end
     hexes (plot_turn, move.cpp:776-780) with MP refunded."""
-    from tools.pathfind_sim import walk_move_path
-    units = [
-        _unit('mover', x=0, side=1, max_moves=4),
-        _unit('buddy', x=2, side=1),
-    ]
-    s = _state(units, _hexes_grid(6))
-    mover = next(u for u in s.map.units if u.id == 'mover')
+    units = [("Spearman", 1, *ROW[0], False), ("Spearman", 1, *ROW[2], False)]
     # Through the ally, landing beyond: fine.
-    out = walk_move_path(s, mover, [0, 1, 2, 3], [0, 0, 0, 0])
-    assert out.stop_reason == "end" and out.final_idx == 3
-    assert out.mp_left == 1
-    # Ordered to END on the ally's hex: backtrack to (1,0).
-    out2 = walk_move_path(s, mover, [0, 1, 2], [0, 0, 0])
-    assert out2.final_idx == 1
-    assert out2.mp_left == 3                # only 1 MP charged
+    landed, reason, mp_left, _unc, _cs = _walk(units, ROW[:4])
+    assert (landed, reason, mp_left) == (ROW[3], "end", 2)
+    # Ordered to END on the ally's hex: back to the hex before it.
+    landed, _reason, mp_left, _unc, _cs = _walk(units, ROW[:3])
+    assert (landed, mp_left) == (ROW[1], 4)  # only 1 MP charged
 
 
 def test_legality_mask_offers_a_reachable_empty_hex():

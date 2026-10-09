@@ -57,11 +57,10 @@ def _record(scenario_id: str, monkeypatch) -> dict:
 
 @pytest.mark.parametrize("scenario_id", ["multiplayer_Basilisk", "multiplayer_thousand_stings_garrison"])
 def test_statues_carry_their_modifications_in_generation_and_reconstruction(scenario_id, monkeypatch):
-    from tools.replay_dataset import _build_initial_gamestate, _setup_scenario_events
+    from tools.replay_dataset import record_core
     from tools.wesnoth_sim import WesnothSim
 
-    rebuilt = _build_initial_gamestate(_record(scenario_id, monkeypatch))
-    _setup_scenario_events(rebuilt, scenario_id)
+    rebuilt = record_core(_record(scenario_id, monkeypatch)).to_state()
     generated = WesnothSim(_build(scenario_id), scenario_id=scenario_id).gs
     for gs in (rebuilt, generated):
         statues = [u for u in gs.map.units if "petrified" in u.statuses]

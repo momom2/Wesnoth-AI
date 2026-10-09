@@ -8,7 +8,8 @@ The two-level contract:
     observable state, so every mask-offered (actor, move-target)
     must be accepted by `_action_to_command` (no silent end_turn, no
     reject loop). God-view divergence (hidden units) resolves at
-    EXECUTION (walk_move_path), never at translation.
+    EXECUTION (the core's move, rust/wesnoth_core/src/core_move.rs),
+    never at translation.
 
 These tests drive REAL scenario states (production builders), per
 the tests-drive-real-code rule.

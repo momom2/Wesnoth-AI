@@ -78,11 +78,6 @@ def _rows_from_reach() -> bool:
     return observe.kernel_rows_from_reach() is not None
 
 
-def _combat() -> bool:
-    from wesnoth_ai.combat import rust_combat_kernel
-    return rust_combat_kernel() is not None
-
-
 def _encode_streams() -> bool:
     from wesnoth_ai.encoder import _rust_encode_kernel
     return _rust_encode_kernel() is not None
@@ -102,7 +97,6 @@ _GATES = {
     "enumeration": _enumeration,
     "observation": _observe,
     "rows_from_reach": _rows_from_reach,
-    "combat": _combat,
     "encode_streams": _encode_streams,
     "GameCore": _game_core,
 }

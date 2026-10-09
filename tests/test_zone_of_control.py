@@ -6,16 +6,18 @@ The engine's rule is the unit's own: `unit::emits_zoc()` is
 (src/units/types.cpp:215). Attacks play no part. The planner
 (`ReachContext.for_side`, which the legality mask shares) skipped every
 "scenery" unit -- petrified, or attackless on a side past 2 -- while the
-walker (`walk_move_path`) skipped only petrified and level-0 units, so a
-move the mask offered past an attackless level-1 unit was stopped by the
-walk at its first hex: the mask/sim contract broken on that board. All
-of them now ask `pathfind_sim.emits_zoc`. The observation's zone flags,
+move's walk skipped only petrified and level-0 units, so a move the mask
+offered past an attackless level-1 unit was stopped by the walk at its
+first hex: the mask/sim contract broken on that board. The planner asks
+`pathfind_sim.emits_zoc`; the walk is the Rust core's move
+(rust/wesnoth_core/src/core_move.rs). The observation's zone flags,
 which the mask's Rust reach rows read, come from the Rust kernel
 (observe.rs), fed that predicate by `wesnoth_ai.observe` and the unit's
 level by the Rust core.
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import sys
 from pathlib import Path
@@ -27,8 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tests.test_visibility import _hexes_grid, _state, _unit  # noqa: E402
 from tools.abilities import hex_neighbors  # noqa: E402
-from tools.pathfind_sim import (ReachContext, emits_zoc, route_to,  # noqa: E402
-                                unit_reach, walk_move_path)
+from tools.pathfind_sim import ReachContext, emits_zoc, route_to, unit_reach  # noqa: E402
 from wesnoth_ai.classes import Position  # noqa: E402
 from wesnoth_ai.visibility import is_scenery_unit  # noqa: E402
 
@@ -54,26 +55,57 @@ def test_the_level_decides_not_the_attacks():
     assert not emits_zoc(dataclasses.replace(stone, name="Peasant"))     # level 0
 
 
-def test_the_planner_sees_the_zone_the_walker_stops_in():
+def test_the_planner_sees_the_zone():
     s, mover, _stone = _board()
     ctx = ReachContext.for_side(s, 1)
     assert {(1, 0), (2, 0), (3, 0), (1, 1), (3, 1)} <= ctx.zoc_hexes
-    reach = unit_reach(mover, s, ctx)
-    assert (4, 0) not in reach.landable
-    out = walk_move_path(s, mover, [0, 1, 2, 3, 4], [0, 0, 0, 0, 0])
-    assert (out.stop_reason, out.final_idx, out.mp_left) == ("zoc", 1, 0)
+    assert (4, 0) not in unit_reach(mover, s, ctx).landable
+
+
+def _walking_board():
+    """The replayed three-side board with side 1's Elvish Captain moved
+    to (2, 2), three hexes west of the attackless side-3 stone, and its
+    Rust core."""
+    from wesnoth_ai.game_core import CoreState, game_core_class
+    if game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore is not available")
+    s, stone = _replayed_board()
+    mover = next(u for u in s.map.units if u.side == 1 and u.is_leader)
+    mover.position = Position(x=2, y=stone.position.y)
+    return s, mover, stone, CoreState.from_state(s)
+
+
+def _walk(cs, mover, path):
+    fork = cs.fork()
+    fork.core.apply_move([p[0] for p in path], [p[1] for p in path], 1)
+    *_ordered, lx, ly, reason = fork.core.last_move_walk_export()
+    return (lx, ly), reason, fork.core.unit_export(mover.id)["current_moves"]
+
+
+def test_the_walk_stops_in_the_zone_the_planner_sees():
+    s, mover, stone, cs = _walking_board()
+    zone = set(hex_neighbors(stone.position.x, stone.position.y))
+    assert zone <= ReachContext.for_side(s, 1).zoc_hexes
+    y = stone.position.y
+    entry = (stone.position.x - 1, y)
+    beyond = next(p for p in hex_neighbors(*entry)
+                  if p not in zone and p != (stone.position.x, y) and p[0] == entry[0])
+    landed, reason, mp_left = _walk(cs, mover, [(2, y), (3, y), entry, beyond])
+    assert (landed, reason, mp_left) == (entry, "zoc", 0)
 
 
 def test_every_planned_move_is_walked_to_its_end():
     """The mask/sim contract on this board: each hex the planner lets
     the mover land on, it reaches by the planned route."""
-    s, mover, _stone = _board()
+    s, mover, _stone, cs = _walking_board()
     reach = unit_reach(mover, s, ReachContext.for_side(s, 1))
-    assert reach.landable
+    assert len(reach.landable) > 4
     for target in sorted(reach.landable):
         path = route_to(reach, target)
-        out = walk_move_path(s, mover, [p[0] for p in path], [p[1] for p in path])
-        assert out.final_idx == len(path) - 1, (target, out)
+        if len(path) < 2:
+            continue
+        landed, _reason, _mp = _walk(cs, mover, path)
+        assert landed == tuple(target), (target, path)
 
 
 def _replayed_board():
@@ -82,7 +114,7 @@ def _replayed_board():
     our classification, a zone of control by the engine's. A replayed
     state carries the real unit types and sides the Rust core needs."""
     from tests.sim_test_helpers import replayed_state, three_side_record
-    s = replayed_state(three_side_record(fog=False), 1)
+    s = copy.deepcopy(replayed_state(three_side_record(fog=False), 1))   # an unbound copy to edit
     stone = next(u for u in s.map.units if u.side == 3)
     stone.statuses = set(stone.statuses) - {"petrified"}
     stone.attacks = []

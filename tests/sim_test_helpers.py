@@ -138,16 +138,34 @@ def three_side_record(*, third_side_acts: bool = False, fog: bool = False,
     }
 
 
+def give_village(gs, x: int, y: int, side: int) -> None:
+    """`side` takes the village at (x, y) on the view `gs`, each side's
+    village count following the owner map (the simulator asserts they
+    agree); `commit_view` hands it to the core."""
+    from dataclasses import replace
+    gi = gs.global_info
+    owner = dict(getattr(gi, "_village_owner", None) or {})
+    previous = owner.get((x, y), 0)
+    if previous == side:
+        return
+    owner[(x, y)] = side
+    gi._village_owner = owner
+    sides = gs.sides
+    sides[side - 1] = replace(sides[side - 1], nb_villages_controlled=sides[side - 1].nb_villages_controlled + 1)
+    if previous:
+        old = sides[previous - 1]
+        sides[previous - 1] = replace(old, nb_villages_controlled=old.nb_villages_controlled - 1)
+
+
 def replayed_state(record: dict, n_commands: int):
     """The record's state after its first `n_commands` commands, built
-    as replay reconstruction builds it."""
-    from tools.replay_dataset import (_apply_command, _build_initial_gamestate,
-                                      _setup_scenario_events)
-    gs = _build_initial_gamestate(record)
-    _setup_scenario_events(gs, record.get("scenario_id", ""))
+    as replay reconstruction builds it: a view of the core."""
+    from tools.replay_dataset import record_core
+    from wesnoth_ai.game_core import view_of
+    cs = record_core(record)
     for cmd in record["commands"][:n_commands]:
-        _apply_command(gs, cmd)
-    return gs
+        cs.apply_command(list(cmd))
+    return view_of(cs)
 
 
 class Brawler:

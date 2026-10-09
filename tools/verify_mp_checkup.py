@@ -15,11 +15,10 @@ in the replay between the player's [attack] and the next action.
 
 This module:
   - Parses a Wesnoth replay (.bz2 or decompressed) with mp_checkup blocks.
-  - For each [attack] command, walks through our combat.resolve_attack
-    and compares per-strike (chance, hits, damage, dies) against the
-    recorded values.
-  - Reports the FIRST divergence (which combat, which strike, what
-    differs) so we can trace it.
+  - Reads, for each [attack] command, the per-strike (chance, hits,
+    damage, dies) the engine recorded, which
+    tests/test_combat_seed_alignment.py compares strike by strike with
+    the fights the Rust core plays.
 
 How to produce a replay with mp_checkup data
 --------------------------------------------

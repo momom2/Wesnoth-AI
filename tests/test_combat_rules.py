@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Regression tests for Wesnoth combat-rule edge cases that diverged
-from upstream during the 2026-05-08 100%-clean push:
+from upstream during the 2026-05-08 100%-clean push, checked on the
+Rust core:
 
-  - accuracy / parry weapon attrs feed the CTH formula
-  - illuminate affects ALL units in the 7-hex area, not allies only
+  - weapon accuracy feeds the chance to hit, and marksman floors it
+  - illuminate lights every unit's hex in the 7-hex area, enemies
+    included, and a petrified unit projects no adjacency ability
   - AMLA grants +3 max_hp AND +20% max_experience AND clears
     poisoned/slowed
+  - a petrifying hit ends the fight; one that kills is a death
   - Walking Corpse:mounted preserves the parent unit's `[resistance]
     arcane=140` override after movetype switch
 
-These don't run a full replay — they exercise small surfaces in
-combat.py / tools.replay_dataset / tools.abilities / unit_stats.json
-so a future scrape regression or refactor catches the same bugs
-immediately.
+Each builds a small hand-made game (tests/helpers/parity_games.py) and
+asks the core, so a scrape regression or a core change catches the
+same bugs immediately.
 
-Dependencies: combat, tools.abilities, tools.replay_dataset, classes
+Dependencies: wesnoth_ai.game_core, tools.abilities, tools.replay_dataset
 Dependents:   pytest only
 """
 
@@ -29,79 +31,55 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from wesnoth_ai import combat as cb
+from helpers.parity_games import core_of, record, state_of, unit_id_at  # noqa: E402
+from tools.abilities import hex_neighbors  # noqa: E402
+from wesnoth_ai import game_core as gc  # noqa: E402
+
+pytestmark = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
+
+ATTACKER = (3, 3)
+
+
+def _east_of(pos):
+    """The neighbour of `pos` in the next column on its row."""
+    return next(p for p in hex_neighbors(*pos) if p[0] == pos[0] + 1 and p[1] == pos[1])
+
+
+def _duel(a_type, d_type, *, special=None, others=(), **kw):
+    """The core of a game with `a_type` (side 1) next to `d_type`
+    (side 2) on grass, `special` terrain codes by hex."""
+    d_pos = _east_of(ATTACKER)
+    units = [(a_type, 1, *ATTACKER, False), (d_type, 2, *d_pos, False), *others]
+    return core_of(record(units, special=special, fog=False, **kw)), d_pos
+
+
+def _attacker_cth(a_type, a_weapon, d_type, *, special=None):
+    cs, d_pos = _duel(a_type, d_type, special=special)
+    stats = cs.core.fight_stats(*ATTACKER, *d_pos, a_weapon, -1)
+    return int(stats[0]["cth"])
 
 
 # ---------------------------------------------------------------------
-# accuracy / parry — Elvish Champion sword (the only default-era user)
+# accuracy and marksman -- the Elvish Champion's sword is the only
+# default-era weapon with accuracy (no default-era weapon has parry)
 # ---------------------------------------------------------------------
-
-def _mkunit(weapons, *, defense_pct=60, alignment=cb.Alignment.NEUTRAL,
-            hp=40, level=1, abilities=None) -> cb.CombatUnit:
-    return cb.CombatUnit(
-        side=1, hp=hp, max_hp=hp, level=level,
-        experience=0, max_experience=50, alignment=alignment,
-        weapons=weapons,
-        resistance={k: 100 for k in cb.DAMAGE_TYPES},
-        defense_pct=defense_pct,
-        abilities=list(abilities or []),
-    )
-
 
 def test_accuracy_adds_to_cth():
-    """Champion sword (accuracy=10) attacking a 60%-to-be-hit target
-    should give cth=70, not 60. attack.cpp:168-169."""
-    sword = cb.Weapon("sword", damage=8, number=5, range="melee",
-                      type="blade", accuracy=10)
-    plain = cb.Weapon("staff", damage=5, number=2, range="melee",
-                      type="impact")
-    attacker = _mkunit([sword])
-    defender = _mkunit([plain], defense_pct=60)
-
-    stats = cb._compute_battle_stats(
-        attacker, defender, 0, 0, 0, 0, is_attacker=True,
-    )
-    assert stats.cth == 70, f"expected 70, got {stats.cth}"
+    """Champion sword (accuracy=10) against a target hit 60% of the time
+    plain: cth 70, not 60. attack.cpp:168-169."""
+    plain = _attacker_cth("Elvish Fighter", 0, "Spearman")
+    assert plain == 60
+    assert _attacker_cth("Elvish Champion", 0, "Spearman") == plain + 10
 
 
-def test_parry_subtracts_from_cth():
-    """A defender weapon with parry=10 should reduce attacker's cth
-    by 10 (only when defender retaliates with that weapon)."""
-    sword_no_acc = cb.Weapon("sword", damage=8, number=5, range="melee",
-                             type="blade")
-    parrying = cb.Weapon("rapier", damage=5, number=3, range="melee",
-                         type="blade", parry=10)
-    attacker = _mkunit([sword_no_acc])
-    defender = _mkunit([parrying], defense_pct=60)
-
-    stats = cb._compute_battle_stats(
-        attacker, defender, 0, 0, 0, 0, is_attacker=True,
-    )
-    assert stats.cth == 50, f"expected 50, got {stats.cth}"
-
-
-def test_accuracy_then_marksman_floor():
-    """marksman special floors cth at 60 AFTER accuracy is applied;
-    a sword with accuracy=10 vs 30%-to-hit terrain should end at 40
-    (not floored), but the same with marksman should floor up to 60."""
-    plain_acc = cb.Weapon("sword", damage=8, number=5, range="melee",
-                          type="blade", accuracy=10)
-    marksman_acc = cb.Weapon("longbow", damage=12, number=5,
-                             range="ranged", type="pierce",
-                             specials=["marksman"], accuracy=10)
-    target = _mkunit([cb.Weapon("none", 1, 1, "melee", "blade")],
-                     defense_pct=30)
-    a_plain = _mkunit([plain_acc])
-    a_mark = _mkunit([marksman_acc])
-
-    s_plain = cb._compute_battle_stats(
-        a_plain, target, 0, 0, 0, 0, is_attacker=True,
-    )
-    s_mark = cb._compute_battle_stats(
-        a_mark, target, 0, 0, 0, 0, is_attacker=True,
-    )
-    assert s_plain.cth == 40, f"plain expected 40, got {s_plain.cth}"
-    assert s_mark.cth == 60, f"marksman floored to 60, got {s_mark.cth}"
+def test_marksman_floors_cth_and_accuracy_is_not_floored():
+    """marksman floors an attacker's cth at 60; accuracy alone is added
+    without a floor. A target in forest, hit 30% of the time plain."""
+    forest = {_east_of(ATTACKER): "Gg^Fds"}
+    plain = _attacker_cth("Elvish Fighter", 1, "Elvish Fighter", special=forest)
+    assert plain < 50, "the fixture needs a target the floor lifts"
+    assert _attacker_cth("Elvish Marksman", 1, "Elvish Fighter", special=forest) == 60
+    assert _attacker_cth("Elvish Champion", 0, "Elvish Fighter", special=forest) == plain + 10
 
 
 def test_champion_sword_accuracy_in_scrape():
@@ -120,173 +98,157 @@ def test_champion_sword_accuracy_in_scrape():
 
 
 # ---------------------------------------------------------------------
-# Illuminate — affects all units in 7-hex area, not allies only
+# Illuminate -- every unit in the 7-hex area, not allies only; a
+# petrified unit projects no adjacency ability
 # ---------------------------------------------------------------------
 
+def _spear_damage_at_night(mage_status=None, with_mage=True):
+    """A side-2 Spearman's spear damage against an Elvish Fighter (no
+    pierce resistance) at first watch, a side-1 Mage of Light next to
+    the Spearman when `with_mage`."""
+    spear_pos = (6, 3)
+    target = _east_of(spear_pos)
+    mage = next(p for p in hex_neighbors(*spear_pos) if p != target and p not in hex_neighbors(*target))
+    units = [("Elvish Fighter", 1, *target, False), ("Spearman", 2, *spear_pos, False)]
+    if with_mage:
+        units.append(("Mage of Light", 1, *mage, False))
+    cs = core_of(record(units, fog=False, tod_start_index=4))
+    if mage_status:
+        cs.core.update_unit(unit_id_at(cs, *mage), {"statuses": [mage_status]})
+    spear = cs.core.unit_export(unit_id_at(cs, *spear_pos))["attacks"][0][2]
+    stats = cs.core.fight_stats(*spear_pos, *target, 0, -1)
+    return int(stats[0]["damage"]), spear
+
+
 def test_illuminate_lights_enemy_too():
-    """Mage of Light at (1,1) illuminates the area; a side-2 enemy
-    at adjacent (2,1) should also count as illuminated. Per
-    tod_manager.cpp:237-262 the scan iterates all 7 hexes regardless
-    of side."""
-    from wesnoth_ai.classes import Position, Unit
-    from tools.abilities import illuminate_step
-
-    illuminator = Unit(
-        id="u1", name="Mage of Light", name_id=0, side=1,
-        is_leader=False, position=Position(1, 1),
-        max_hp=27, max_moves=5, max_exp=80, cost=44,
-        alignment=None, levelup_names=[],
-        current_hp=27, current_moves=5, current_exp=0,
-        has_attacked=False, attacks=[],
-        resistances=[1.0]*6, defenses=[60]*14, movement_costs=[1]*14,
-        abilities={"illuminates"}, traits=set(), statuses=set(),
-    )
-    enemy = Unit(
-        id="u2", name="Orcish Grunt", name_id=0, side=2,
-        is_leader=False, position=Position(2, 1),
-        max_hp=38, max_moves=5, max_exp=42, cost=12,
-        alignment=None, levelup_names=[],
-        current_hp=38, current_moves=5, current_exp=0,
-        has_attacked=False, attacks=[],
-        resistances=[1.0]*6, defenses=[60]*14, movement_costs=[1]*14,
-        abilities=set(), traits=set(), statuses=set(),
-    )
-    units = {illuminator, enemy}
-    # Self-illumination always works
-    assert illuminate_step(illuminator, units) == 1
-    # Enemy adjacent to illuminator: also illuminated
-    # (the bug was filtering by ally.side == unit.side)
-    assert illuminate_step(enemy, units) == 1, (
-        "Enemy adjacent to a Mage of Light must be illuminated "
-        "(illumination is a terrain-light modifier, not an ally aura)"
-    )
-
-
-def _mk_unit(uid, name, side, x, y, *, abilities=frozenset(),
-             statuses=frozenset()):
-    from wesnoth_ai.classes import Position, Unit
-    return Unit(
-        id=uid, name=name, name_id=0, side=side, is_leader=False,
-        position=Position(x, y), max_hp=30, max_moves=5, max_exp=50,
-        cost=20, alignment=None, levelup_names=[], current_hp=30,
-        current_moves=5, current_exp=0, has_attacked=False, attacks=[],
-        resistances=[1.0]*6, defenses=[60]*14, movement_costs=[1]*14,
-        abilities=set(abilities), traits=set(), statuses=set(statuses),
-    )
+    """A side-1 Mage of Light next to a side-2 Spearman lights the
+    Spearman's hex at night: tod_manager.cpp:237-262 scans all 7 hexes
+    regardless of side."""
+    lit, spear = _spear_damage_at_night()
+    dark, _ = _spear_damage_at_night(with_mage=False)
+    assert lit == spear, "first watch lit by the enemy mage reads as neutral"
+    assert dark < lit
 
 
 def test_petrified_source_projects_no_adjacency_abilities():
     """A petrified/incapacitated unit projects NO adjacency ability:
     get_abilities skips adjacent units where it->incapacitated()
     (abilities.cpp; illuminate via tod_manager.cpp:443). Verified vs
-    the 1.18.4 tag 2026-07-01. Covers illuminate + heals + cures."""
-    from tools.abilities import (illuminate_step, healer_heal_amount,
-                                 adjacent_curer)
+    the 1.18.4 tag 2026-07-01. Covers illuminate, heals and cures."""
+    stoned, _ = _spear_damage_at_night("petrified")
+    dark, _ = _spear_damage_at_night(with_mage=False)
+    assert stoned == dark
 
-    # Illuminate: a petrified illuminator lights neither itself nor a
-    # neighbor (the reachable statue-map case; illuminate is side-agnostic).
-    illum = _mk_unit("u1", "Mage of Light", 1, 1, 1,
-                     abilities={"illuminates"}, statuses={"petrified"})
-    neighbor = _mk_unit("u2", "Spearman", 2, 2, 1)
-    units = {illum, neighbor}
-    assert illuminate_step(illum, units) == 0
-    assert illuminate_step(neighbor, units) == 0
+    def patient_after_turn_start(healer_status, patient_status):
+        healer, patient = (5, 3), _east_of((5, 3))
+        gs = state_of(record([("White Mage", 1, *healer, False), ("Spearman", 1, *patient, False),
+                              ("Spearman", 2, 15, 3, True)], fog=False))
+        gs.global_info.turn_number = 2
+        cs = gc.CoreState.from_state(gs)
+        pid = unit_id_at(cs, *patient)
+        cs.core.update_unit(pid, {"current_hp": 10, "statuses": [patient_status] if patient_status else []})
+        if healer_status:
+            cs.core.update_unit(unit_id_at(cs, *healer), {"statuses": [healer_status]})
+        assert cs.apply_command(["init_side", 1]) == "rust"
+        after = cs.core.unit_export(pid)
+        return after["current_hp"], set(after["statuses"])
 
-    # Heals / cures: a petrified same-side healer/curer projects nothing.
-    healer = _mk_unit("h1", "White Mage", 1, 1, 1,
-                      abilities={"heals_8", "cures"}, statuses={"petrified"})
-    patient = _mk_unit("p1", "Spearman", 1, 2, 1)
-    hunits = {healer, patient}
-    assert healer_heal_amount(patient, hunits) == 0
-    assert adjacent_curer(patient, hunits) is False
-
-    # Sanity: without petrification the same healer DOES project.
-    healer_ok = _mk_unit("h2", "White Mage", 1, 1, 1,
-                         abilities={"heals_8", "cures"})
-    ok_units = {healer_ok, patient}
-    assert healer_heal_amount(patient, ok_units) == 8
-    assert adjacent_curer(patient, ok_units) is True
+    hp_ok, _ = patient_after_turn_start(None, None)
+    hp_stone, _ = patient_after_turn_start("petrified", None)
+    assert hp_ok - hp_stone == 8, "a petrified White Mage heals nobody"
+    hp_cured, cured = patient_after_turn_start(None, "poisoned")
+    hp_sick, sick = patient_after_turn_start("petrified", "poisoned")
+    assert "poisoned" not in cured and "poisoned" in sick
+    assert hp_sick < hp_cured
 
 
 # ---------------------------------------------------------------------
-# AMLA — +3 max_hp, +20% max_exp, clear poisoned/slowed
+# AMLA -- +3 max_hp, +20% max_exp, clear poisoned/slowed
 # ---------------------------------------------------------------------
 
-def test_amla_increases_max_exp_20pct():
+@pytest.mark.parametrize("status", ["poisoned", "slowed"])
+def test_amla_grows_the_unit_and_clears_its_status(status):
     """After each AMLA, max_experience grows by div100rounded(max*20),
-    matching apply_modifier with `increase=20%`. Compounds across
-    AMLAs (string_utils.cpp:401-403, math.hpp:39-41)."""
-    from wesnoth_ai.classes import Position, Unit
-    from tools.replay_dataset import _maybe_advance_unit
-    from wesnoth_ai.classes import GameState, GlobalInfo, Map, SideInfo
-
-    sharpshooter = Unit(
-        id="u1", name="Elvish Sharpshooter", name_id=0, side=1,
-        is_leader=False, position=Position(0, 0),
-        max_hp=57, max_moves=6, max_exp=36, cost=62,
-        alignment=None, levelup_names=[],
-        current_hp=40, current_moves=6, current_exp=36,  # at threshold
-        has_attacked=False, attacks=[],
-        resistances=[1.0]*6, defenses=[50]*14, movement_costs=[1]*14,
-        abilities=set(), traits={"resilient", "intelligent"},
-        statuses={"poisoned"},  # must be cleared by AMLA
-    )
-    gs = GameState(
-        game_id="test",
-        map=Map(size_x=10, size_y=10, mask=set(), fog=set(),
-                hexes=set(), units={sharpshooter}),
-        global_info=GlobalInfo(
-            current_side=1, turn_number=10, time_of_day="dawn",
-            village_gold=2, village_upkeep=1, base_income=2,
-        ),
-        sides=[SideInfo(player="x", recruits=[], current_gold=0,
-                        base_income=2, nb_villages_controlled=0)],
-    )
-
-    advanced = _maybe_advance_unit(gs, sharpshooter)
-    assert advanced.max_hp == 60, f"expected +3 max_hp, got {advanced.max_hp}"
-    assert advanced.current_hp == 60, "AMLA should heal_full"
-    # 36 + div100rounded(36*20) = 36 + (720+50)//100 = 36 + 7 = 43
-    assert advanced.max_exp == 43, (
-        f"expected max_exp 43 after first AMLA from 36, got {advanced.max_exp}"
-    )
-    assert advanced.current_exp == 0, "XP should reset (carry over excess)"
-    assert "poisoned" not in advanced.statuses, (
-        "AMLA must remove poisoned status (amla.cfg:22-24)"
-    )
+    matching apply_modifier with `increase=20%` (string_utils.cpp:401-403,
+    math.hpp:39-41); max_hp grows by 3 with a full heal, and the
+    [effect][status] remove= entries of AMLA_DEFAULT clear poisoned and
+    slowed (amla.cfg:22-24)."""
+    cs, _ = _duel("Elvish Sharpshooter", "Spearman")
+    uid = unit_id_at(cs, *ATTACKER)
+    before = cs.core.unit_export(uid)
+    cs.core.update_unit(uid, {"current_exp": before["max_exp"], "current_hp": 20, "statuses": [status]})
+    assert cs.core.advance_unit_id(uid)
+    after = cs.core.unit_export(uid)
+    assert after["name"] == "Elvish Sharpshooter"
+    assert after["max_hp"] == before["max_hp"] + 3
+    assert after["current_hp"] == after["max_hp"], "AMLA heals full"
+    assert after["max_exp"] == before["max_exp"] + (before["max_exp"] * 20 + 50) // 100
+    assert after["current_exp"] == 0
+    assert status not in after["statuses"]
 
 
-def test_amla_clears_slowed():
-    """Same as above but with `slowed`. Both statuses are removed by
-    distinct [effect][status][remove=...] entries in AMLA_DEFAULT."""
-    from wesnoth_ai.classes import Position, Unit
-    from tools.replay_dataset import _maybe_advance_unit
-    from wesnoth_ai.classes import GameState, GlobalInfo, Map, SideInfo
+# ---------------------------------------------------------------------
+# petrify (turned to stone)
+# ---------------------------------------------------------------------
 
-    u = Unit(
-        id="u1", name="Elvish Sharpshooter", name_id=0, side=1,
-        is_leader=False, position=Position(0, 0),
-        max_hp=57, max_moves=6, max_exp=36, cost=62,
-        alignment=None, levelup_names=[],
-        current_hp=20, current_moves=6, current_exp=36,
-        has_attacked=False, attacks=[],
-        resistances=[1.0]*6, defenses=[50]*14, movement_costs=[1]*14,
-        abilities=set(), traits=set(),
-        statuses={"slowed"},
-    )
-    gs = GameState(
-        game_id="test",
-        map=Map(size_x=10, size_y=10, mask=set(), fog=set(),
-                hexes=set(), units={u}),
-        global_info=GlobalInfo(
-            current_side=1, turn_number=10, time_of_day="dawn",
-            village_gold=2, village_upkeep=1, base_income=2,
-        ),
-        sides=[SideInfo(player="x", recruits=[], current_gold=0,
-                        base_income=2, nb_villages_controlled=0)],
-    )
-    advanced = _maybe_advance_unit(gs, u)
-    assert "slowed" not in advanced.statuses
+def _petrifying_duel(defender_hp=None):
+    """A Spearman whose javelin petrifies next to an Elvish Fighter."""
+    cs, d_pos = _duel("Spearman", "Elvish Fighter")
+    view = cs.to_state()
+    attacker = next(u for u in view.map.units if u.side == 1)
+    attacker.attacks[1].weapon_specials = {"petrifies"}
+    cs = gc.CoreState.from_state(view)
+    if defender_hp is not None:
+        cs.core.update_unit(unit_id_at(cs, *d_pos), {"current_hp": defender_hp})
+    return cs, d_pos
+
+
+def test_petrify_stones_surviving_defender_and_ends_fight():
+    """A surviving petrifying hit petrifies the defender and forfeits the
+    rest of the fight (the attacker's other strikes and the defender's
+    counter), and awards COMBAT xp, not kill xp. Mirrors attack.cpp's
+    STATE_PETRIFIED + n_attacks 0/-1 (verified vs the 1.18.4 source)."""
+    cs, d_pos = _petrifying_duel()
+    aid, did = unit_id_at(cs, *ATTACKER), unit_id_at(cs, *d_pos)
+    a0, d0 = cs.core.unit_export(aid), cs.core.unit_export(did)
+    hit = int(cs.core.fight_stats(*ATTACKER, *d_pos, 1, 1)[0]["damage"])
+    cs.core.apply_attack_scripted(*ATTACKER, *d_pos, 1, 1, [True], [])
+    a1, d1 = cs.core.unit_export(aid), cs.core.unit_export(did)
+    assert "petrified" in d1["statuses"]
+    assert d1["current_hp"] == d0["current_hp"] - hit, "ONE hit, then stop"
+    assert a1["current_hp"] == a0["current_hp"], "the defender never counters"
+    assert "petrified" not in a1["statuses"]
+    assert a1["current_exp"] == a0["current_exp"] + 1, "combat xp of a level-1 defender"
+
+
+def test_petrify_that_kills_is_a_death_not_a_stone():
+    """A petrifying blow that drops the target to 0 hp is a death, not a
+    petrify -- the petrify branch is survive-only."""
+    cs, d_pos = _petrifying_duel(defender_hp=1)
+    aid, did = unit_id_at(cs, *ATTACKER), unit_id_at(cs, *d_pos)
+    a0 = cs.core.unit_export(aid)
+    cs.core.apply_attack_scripted(*ATTACKER, *d_pos, 1, 1, [True], [])
+    assert did not in cs.core.unit_ids()
+    assert cs.core.unit_export(aid)["current_exp"] == a0["current_exp"] + 8, "kill xp of a level-1 defender"
+
+
+def test_outcome_dp_enumerates_petrified_states():
+    """The outcome DP models petrify exactly (no None bail): a
+    petrifying weapon yields d_petrified outcomes with both units alive,
+    and the mass sums to 1."""
+    from tools import combat_outcomes as co
+    from wesnoth_ai.classes import Position
+    cs, d_pos = _petrifying_duel()
+    dist = co.enumerate_attack_outcomes(gc.view_of(cs), {
+        "type": "attack", "start_hex": Position(*ATTACKER),
+        "target_hex": Position(*d_pos), "attack_index": 1})
+    assert dist is not None
+    petrified = [k for k in dist.probs if k[7]]          # d_petrified
+    assert petrified, "petrifying weapon must produce petrified outcomes"
+    for k in petrified:
+        assert k[1] > 0    # d_hp > 0 (petrify is survive-only)
+        assert k[0] > 0    # attacker alive
+    assert abs(sum(dist.probs.values()) - 1.0) < 1e-9   # mass conserved
 
 
 # ---------------------------------------------------------------------
@@ -333,74 +295,6 @@ def test_wc_scorpion_variation_overrides_win():
     assert scorpion["resistance"]["arcane"] == 80
 
 
-# ---------------------------------------------------------------------
-# petrify (turned to stone) -- combat result + outcome DP
-# ---------------------------------------------------------------------
-
-def test_petrify_stones_surviving_defender_and_ends_fight():
-    """A surviving petrifying hit sets defender_petrified, forfeits the
-    rest of the fight (attacker's other strikes + defender's counter),
-    and awards COMBAT xp, not kill xp. Mirrors attack.cpp's
-    STATE_PETRIFIED + n_attacks 0/-1 (verified vs the 1.18.4 source)."""
-    gaze = cb.Weapon("gaze", damage=5, number=3, range="ranged",
-                     type="cold", specials=["petrifies"])
-    claw = cb.Weapon("claw", damage=9, number=2, range="melee",
-                     type="blade")
-    attacker = _mkunit([gaze], hp=40)
-    defender = _mkunit([claw], defense_pct=100, hp=40)   # cth=100: sure hit
-    result = cb.resolve_attack(attacker, defender, 0, 0, 0, 0,
-                               cb.MTRng("deadbeef"))
-    assert result.defender_petrified is True
-    assert result.defender_alive is True
-    assert result.defender_hp_after == 35     # ONE 5-dmg hit, then stop
-    assert result.attacker_hp_after == 40     # defender never counters
-    assert result.attacker_petrified is False
-    # combat xp (defender level 1), NOT kill xp
-    assert result.attacker_xp_after == cb.COMBAT_EXPERIENCE
-
-
-def test_petrify_that_kills_is_a_death_not_a_stone():
-    """A petrifying blow that drops the target to 0 hp is a death, not a
-    petrify -- the petrify branch is survive-only (_perform_hit_body)."""
-    gaze = cb.Weapon("gaze", damage=50, number=1, range="ranged",
-                     type="cold", specials=["petrifies"])
-    attacker = _mkunit([gaze], hp=40)
-    defender = _mkunit([cb.Weapon("claw", 9, 2, "melee", "blade")],
-                       defense_pct=100, hp=40)
-    result = cb.resolve_attack(attacker, defender, 0, 0, 0, 0,
-                               cb.MTRng("deadbeef"))
-    assert result.defender_alive is False
-    assert result.defender_petrified is False
-    assert result.attacker_xp_after == cb.KILL_EXPERIENCE   # kill, not combat
-
-
-def test_outcome_dp_enumerates_petrified_states():
-    """The outcome DP models petrify exactly (no None bail): a
-    petrifying weapon yields d_petrified outcomes with both units alive,
-    and the mass sums to 1."""
-    from helpers.parity_games import record, state_of
-    from tools import combat_outcomes as co
-    from tools.abilities import hex_neighbors
-    from wesnoth_ai.classes import Position
-    from wesnoth_ai.game_core import CoreState, view_of
-    a_pos = (3, 3)
-    d_pos = next(p for p in hex_neighbors(*a_pos) if p[1] == 3)
-    gs = state_of(record([("Spearman", 1, *a_pos, False), ("Spearman", 2, *d_pos, False)], fog=False))
-    javelin = next(u for u in gs.map.units if u.side == 1).attacks[1]
-    assert javelin.is_ranged
-    javelin.weapon_specials = {"petrifies"}
-    view = view_of(CoreState.from_state(gs))
-    dist = co.enumerate_attack_outcomes(view, {"type": "attack", "start_hex": Position(*a_pos),
-                                               "target_hex": Position(*d_pos), "attack_index": 1})
-    assert dist is not None
-    petrified = [k for k in dist.probs if k[7]]          # d_petrified
-    assert petrified, "petrifying weapon must produce petrified outcomes"
-    for k in petrified:
-        assert k[1] > 0    # d_hp > 0 (petrify is survive-only)
-        assert k[0] > 0    # attacker alive
-    assert abs(sum(dist.probs.values()) - 1.0) < 1e-9   # mass conserved
-
-
 def test_every_recruitable_unit_has_real_stats():
     """`_stats_for` falls back to a generic 33 HP level-1 for a type it
     does not know, which silently corrupts combat, the value head's
@@ -442,83 +336,3 @@ def test_the_unknown_type_fallback_is_reported():
     name = "Not A Wesnoth Unit (test)"
     assert _stats_for(name) is _FALLBACK_STATS
     assert name in unknown_unit_types()
-
-
-# ---------------------------------------------------------------------
-# the Rust combat bridge and the Python oracle agree about the
-# defender weapon index (wesnoth_ai/combat.py::_resolve_attack_rust)
-# ---------------------------------------------------------------------
-#
-# The bridge used to fold "index past the end of the weapon list" into
-# its `d_has` flag, so an out-of-range index resolved as a one-sided
-# fight while `_resolve_attack_python` -- the certified oracle -- raised
-# IndexError on the same input. These drive the real dispatch (the
-# module-level kernel handle is pointed at a stub, so they run without
-# the wheel) and fail if the two paths part ways again.
-
-def _stub_kernel(seen):
-    """Stands in for `wesnoth_core.resolve_attack`: records the `d_has`
-    flag the bridge computed, returns an inert fight and no strikes."""
-    import numpy as np
-
-    def kernel(*args):
-        seen.append(args[4])
-        return ((40, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-                np.zeros(0, dtype=np.int64))
-    return kernel
-
-
-def _bridged_fight(d_weapon_idx, seen, d_weapons=1):
-    """One fight through the public `resolve_attack` with the bridge
-    dispatched onto the stub -- the production entry point, not a copy."""
-    sword = cb.Weapon("sword", damage=6, number=3, range="melee", type="blade")
-    attacker = _mkunit([sword])
-    defender = _mkunit([cb.Weapon(f"axe{i}", 6, 3, "melee", "blade")
-                        for i in range(d_weapons)])
-    saved = (cb._RUST_COMBAT, cb._RUST_COMBAT_CHECKED)
-    cb._RUST_COMBAT, cb._RUST_COMBAT_CHECKED = _stub_kernel(seen), True
-    try:
-        return cb.resolve_attack(attacker, defender, 0, d_weapon_idx, 0, 0,
-                                 cb.MTRng("deadbeef"))
-    finally:
-        cb._RUST_COMBAT, cb._RUST_COMBAT_CHECKED = saved
-
-
-def test_rust_bridge_passes_the_defender_weapon_the_oracle_would_use():
-    """Positive control for the two tests below: the stub really is on
-    the production path, and the legitimate "no counter-attack"
-    encodings (None and -1) still reach the kernel as `d_has` False
-    while a valid index reaches it as True."""
-    seen = []
-    _bridged_fight(0, seen)
-    _bridged_fight(None, seen)
-    _bridged_fight(-1, seen)
-    assert seen == [True, False, False], (
-        f"bridge handed the kernel d_has={seen}; the stub may not be "
-        f"on the dispatch path at all")
-
-
-def test_rust_bridge_raises_on_an_out_of_range_defender_weapon():
-    """An index past the end of the weapon list is a caller bug, not a
-    third spelling of "no counter-attack". The bridge must raise rather
-    than drop a counter-attack the defender is owed."""
-    seen = []
-    with pytest.raises(IndexError):
-        _bridged_fight(1, seen, d_weapons=1)
-    assert seen == [], "the kernel was called with a bad weapon index"
-
-
-def test_the_oracle_raises_on_the_same_out_of_range_defender_weapon():
-    """The behaviour the bridge is matched against: `_compute_battle_stats`
-    indexes `defender.weapons[d_weapon_idx]` for any index >= 0."""
-    sword = cb.Weapon("sword", damage=6, number=3, range="melee", type="blade")
-    with pytest.raises(IndexError):
-        cb._resolve_attack_python(_mkunit([sword]),
-                                  _mkunit([cb.Weapon("axe", 6, 3, "melee", "blade")]),
-                                  0, 1, 0, 0, cb.MTRng("deadbeef"))
-    # control: the same fight with the in-range index resolves, so the
-    # raise above is about the index and not about the fixture.
-    got = cb._resolve_attack_python(_mkunit([sword]),
-                                    _mkunit([cb.Weapon("axe", 6, 3, "melee", "blade")]),
-                                    0, 0, 0, 0, cb.MTRng("deadbeef"))
-    assert got.attacker_hp_after < 40, "defender never countered; fixture is inert"

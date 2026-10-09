@@ -60,8 +60,8 @@ _DROPPED_GLOBALS = ("_hex_lookup_cache_id", "_hex_lookup_by_xy", "_hex_lookup_by
 # What each player side saw of the other sides' units, which the core keeps
 # (rust/wesnoth_core/src/core_sight.rs) and a view carries for
 # `classes.state_digest`: `_sightings` {side: ((id, type, hp, max hp, x,
-# y), ...)} and `_seen_types` {side: ((other side, type), ...)}. The Python
-# applier keeps neither, so the state comparisons leave them out.
+# y), ...)} and `_seen_types` {side: ((other side, type), ...)}. The state
+# comparisons (`core_compare`) leave them out.
 SIGHT_RECORDS = ("_sightings", "_seen_types", "_sightings_gone")
 # The players' sides, the ones that keep a sighting record.
 _RECORD_SIDES = (1, 2)
@@ -481,9 +481,9 @@ class CoreState:
             _strict_wml())
 
     def setup_scenario(self, scenario_id: str) -> None:
-        """`_setup_scenario_events` on the core: the scenario's WML read
-        here, its time areas, [side] modifications, events and prestart
-        and start run in the core. A scenario without WML is warned about
+        """The scenario's setup on the core: its WML read here, its time
+        areas, [side] modifications, events and prestart and start run in
+        the core. A scenario without WML is warned about
         once and runs without events."""
         from tools.scenario_events import collect_events
         from wesnoth_ai.rules.scenario_cfg import load_scenario_wml
@@ -627,9 +627,10 @@ class CoreState:
     # ---- commands ----------------------------------------------------
 
     def apply_command(self, cmd: list) -> str:
-        """One replay or simulator command (`_apply_command`'s
-        vocabulary). Returns "rust" when the core applied it, "python" for
-        the recall bookkeeping and the kinds the applier ignores."""
+        """One replay or simulator command (the compact form
+        tools/replay_extract.py writes). Returns "rust" when the core
+        applied it, "python" for the recall bookkeeping and the kinds no
+        state change follows."""
         path = self._apply(cmd)
         _log_core_warnings()
         return path
@@ -731,8 +732,7 @@ class CoreState:
 
     def _recall(self, cmd: list) -> None:
         """A recall in a PvP replay: logged and noted for
-        tools/flag_replays_with_recalls.py, the state unchanged (the
-        Python applier's recall branch)."""
+        tools/flag_replays_with_recalls.py, the state unchanged."""
         unit_id = cmd[1] if len(cmd) > 1 else "<unknown>"
         tx = cmd[2] if len(cmd) > 2 else -1
         ty = cmd[3] if len(cmd) > 3 else -1

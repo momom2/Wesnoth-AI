@@ -10,8 +10,8 @@ engine's 7 -- an engine-verified OOS caught by the 2026-08-04 export
 sweep, and silently-wrong training ToD on 2 of the 21 ladder maps.
 
 The test reconstructs a scratch wesnoth_src tree from the GIT INDEX
-(git show HEAD:...), i.e. exactly what a bare clone sees, and asserts
-the parsed cycles. It FAILS if schedules.cfg is ever dropped from
+(git show HEAD:...), i.e. exactly what a bare clone sees, sets the
+scenario up on the core from it, and asserts the areas' cycles. It FAILS if schedules.cfg is ever dropped from
 tracking, regardless of what the local Steam-robocopy tree contains.
 """
 import subprocess
@@ -55,8 +55,17 @@ def test_kesorak_time_areas_parse_from_tracked_files_only(tmp_path,
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(_git_show(rel), encoding="utf-8")
 
-    import tools.scenario_events as se
+    from wesnoth_ai import game_core as gc
     from wesnoth_ai.rules import scenario_cfg
+    from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
+    if gc.game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    sid = "multiplayer_Tombs_of_Kesorak"
+    gs = build_scenario_gamestate(ScenarioSetup(
+        scenario_id=sid, faction1="Rebels", leader1="Elvish Captain",
+        faction2="Loyalists", leader2="Lieutenant"))
+    gs.global_info._time_areas = {}
+    monkeypatch.setattr(gc, "_WML_TUPLES", {})
     monkeypatch.setattr(scenario_cfg, "WESNOTH_SRC", tmp_path / "wesnoth_src")
     monkeypatch.setattr(scenario_cfg, "_CORE_MACROS_CACHE", None)
     # load_scenario_wml caches parsed roots; clear anything keyed on
@@ -65,19 +74,17 @@ def test_kesorak_time_areas_parse_from_tracked_files_only(tmp_path,
         if hasattr(scenario_cfg, cache_attr):
             getattr(scenario_cfg, cache_attr).clear()
 
-    root = scenario_cfg.load_scenario_wml("multiplayer_Tombs_of_Kesorak")
+    root = scenario_cfg.load_scenario_wml(sid)
     assert root is not None, "scenario cfg not found in scratch tree"
 
-    cycles = {}
-    def walk(n):
-        for c in n.children:
-            if c.tag == "time_area":
-                cycles[c.attrs.get("x", "")] = se._parse_time_cycle(c)
-            walk(c)
-    walk(root)
+    cs = gc.CoreState.from_state(gs)
+    cs.setup_scenario(sid)
+    cycles = {(x + 1, y + 1): list(c) for x, y, c in cs.core.time_areas_export()}
 
     # Zone 3: the single darkened hex (WML 19,12) -- ALWAYS night.
-    assert cycles.get("19") == [-25], cycles
+    assert cycles.get((19, 12)) == [-25], cycles
     # Zone 1 (dark corners) and zone 2 (bright zone): full 6-cycles.
-    assert cycles.get("9,10,28,29") == [-25, 0, 0, -25, -25, -25], cycles
-    assert cycles.get("17,15,23,21") == [25, 25, 25, 25, 0, 0], cycles
+    for wml in ((9, 4), (10, 3), (28, 20), (29, 20)):
+        assert cycles.get(wml) == [-25, 0, 0, -25, -25, -25], (wml, cycles)
+    for wml in ((17, 2), (15, 7), (23, 17), (21, 22)):
+        assert cycles.get(wml) == [25, 25, 25, 25, 0, 0], (wml, cycles)

@@ -179,7 +179,7 @@ NUM_HEX_MODIFIERS = 3
 #   Neutral / non-village hexes carry 0/0.
 #
 # Moves have no rejection flag: a move onto a hex a hidden unit holds
-# stops next to it and reveals it (pathfind_sim.walk_move_path).
+# stops next to it and reveals it (rust/wesnoth_core/src/core_move.rs).
 # (Historical: the flag count was held at 1 for a while for
 # checkpoint compatibility of dynamic_flag_proj; it has been 3
 # since the fog/ZoC flags landed -- pad_legacy_encoder_state

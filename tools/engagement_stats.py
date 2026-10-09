@@ -4,9 +4,10 @@ Instruments the causal chain of winning — scout -> expand -> build ->
 engage -> convert -> finish — as per-game counters logged during
 ONLINE training (no anatomy runs, no per-turn persistence).
 
-Event flow: `replay_dataset`'s attack handler and healing loop emit
-typed events through a THREAD-LOCAL sink. `WesnothSim` sets the sink
-only around its own `_apply_command` calls and only when stats are
+Event flow: the core's attacks and init_side healing reach
+`emit_event` (`game_core.CoreState`) through a THREAD-LOCAL sink.
+`WesnothSim` sets the sink only around its own commands and only when
+stats are
 enabled on that instance (`sim.enable_engagement_stats()`), so:
 
   - MCTS search forks pay NOTHING (`fork()` never carries the

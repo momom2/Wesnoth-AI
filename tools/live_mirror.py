@@ -254,7 +254,7 @@ def _hex(node: WmlNode) -> Tuple[int, int]:
 
 
 def sim_command(cmd: LoggedCommand) -> list:
-    """The command in `_apply_command`'s vocabulary, WML's 1-based hexes
+    """The command in the core's vocabulary (`CoreState.apply_command`), WML's 1-based hexes
     made 0-based (as tools/replay_extract.py makes them)."""
     b = cmd.block
     if cmd.tag == "move":

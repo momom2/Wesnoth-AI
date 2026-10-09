@@ -250,13 +250,11 @@ def test_the_units_the_scenario_placed_are_not_seen_types():
     the Knalgan Alliance recruits: neither a unit the scenario placed nor
     what it advances to is a seen type. A leader is."""
     from helpers.parity_games import record, state_of
-    from tools.replay_dataset import _setup_scenario_events
     data = record([("Lieutenant", 1, 1, 3, True), ("Spearman", 1, 14, 3, False, {"hp": 1}),
                    ("Mage", 1, 12, 3, False), ("Woodsman", 2, 15, 3, False, {"max_exp": 1}),
                    ("Lieutenant", 2, 18, 3, True)], fog=True, width=WIDTH, height=HEIGHT)
-    gs = state_of(data)
-    _setup_scenario_events(gs, "")
-    cs = gc.CoreState.from_state(gs)
+    cs = gc.CoreState.from_state(state_of(data))
+    cs.setup_scenario("")
     woodsman = cs.core.unit_id_at(15, 3, 0)
     assert set(cs.core.scenario_unit_ids()) == {cs.core.unit_id_at(x, 3, 0) for x in (12, 14, 15)}
     for command in (["init_side", 1], ["end_turn"], ["init_side", 2], ["attack", 15, 3, 14, 3, 0, 0, "00000000"]):
