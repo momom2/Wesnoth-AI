@@ -8,95 +8,74 @@ the laptop as well as on CI.
 
 ## Where it stands
 
-Steps 1 to 4 and the rule moves of step 6 are done on `feature/rust-core-port`
-(phases 18 to 22). The core
-(`rust/wesnoth_core/src`, adapter `wesnoth_ai/game_core.py`) reads the unit and
-terrain databases, resolves every terrain fact and movement class from the
-hexes' codes, builds units itself (recruits with their trait roll, plague
-corpses, advancement with AMLA, pick-advance and re-applied traits and [object]
-effects), keeps each unit's former underscore attributes in its record, runs
-the scenario's events (setup, turn events, terrain changes, time areas), and
-encodes the terrain set `obs8` reads. Every command is applied in Rust; replay
-reconstruction and the simulator use the core unless `WESNOTH_RUST_CORE=0`, and
-every rule asked of a view of it (fight outcomes, move routes, what a side
-sees) is answered by it.
-Checked so far: differential tests against the Python code for every terrain
-code, unit type, trait roll, [effect] form and 476 advancement cases, and
-`tools/diff_core.py` over 134 imitation replays (up to four per scenario name,
-36 names), clean after the setup and every command.
+The port and the retirement are done (branch `refactor/retire-python-applier`).
+The core (`rust/wesnoth_core/src`, adapter `wesnoth_ai/game_core.py`) reads the
+unit and terrain databases, resolves every terrain fact and movement class from
+the hexes' codes, builds units itself (the initial state's units through
+`build_unit_fields`, recruits with their trait roll, plague corpses,
+advancement with AMLA, pick-advance and re-applied traits and [object]
+effects), runs the scenario's events (setup, turn events, terrain changes, time
+areas), applies every command, and answers every rule asked of a state. It is
+the state of record of the simulator and of replay reconstruction
+(`replay_dataset.record_core`), with no other.
 
-What Python still does, and step 6 removes:
+Before the retirement it was certified against the Python code: differential
+tests for every terrain code, unit type, trait roll, [effect] form and 476
+advancement cases, `tools/diff_core.py` over the whole corpus (14,376 of 14,376
+replays, 2026-10-01, the core equal to the Python applier after every command),
+and on 61 replays every attack's counter weapon, strike tables and outcome
+distributions equal to the last bit (3,906 attacks). Those tests and tools
+retired with the code they compared against (commit 07b2c91 has them). The core is checked against the engine's records and oracles: the
+strict-sync combat fixture (tests/test_combat_seed_alignment.py),
+`tools/diff_replay.py` over the replay corpus, the scenario-init and
+hidden-units oracles, and the live mirror against the default AI.
 
-| what | where |
-|---|---|
-| the oracle: the applier, the unit builders, the event interpreter, the Python versions of the rules the core answers | `replay_dataset._apply_command` and its builders, `tools/traits.py`, `tools/scenario_events.py` handlers, `combat_outcomes`, `pathfind_sim`, `visibility` |
-| the policy's encoding, observation and legality mask for a state no core stands behind | `encoder.encode_raw`, `observe.observe`, `action_sampler` over the Rust kernels |
-| tools that replay a record on the Python applier | about 25 modules (`game_record`, `midgame_starts`, `value_corpus`, the swap detector's side-turn particles, the diff and dump tools, benches) |
-
-
-### Step 6 in detail
+## How Python reads the core
 
 A view (`CoreState.to_state`) is a copy: editing it changes nothing in the
-core, and the tests that did (ten files) now hand an edited view back
-(`sim_test_helpers.commit_view`). A view reaches its core through
-`game_core.bind_view`: the simulator's view mirrors the live core (refreshed in
-place after every command), a reconstruction view is bound to a snapshot
-(`CoreState.fork`), and `encoder.encode_raw` encodes a bound view from its
-core, the observation and the legality mask's reach rows included. With
-`WESNOTH_CHECK_VIEWS` set (the test suite sets it) a bound view edited in
-place is refused. A state built by hand (tests, the live bridge) gets a core
-built from it (`CoreState.from_state`, a few milliseconds).
+core, and a test that edits one hands it back (`sim_test_helpers.commit_view`)
+or edits a copy. A view reaches its core through `game_core.bind_view`: the
+simulator's view mirrors the live core (refreshed in place after every
+command), and a reconstruction view is bound to a snapshot (`CoreState.fork`,
+`game_core.view_of`). With `WESNOTH_CHECK_VIEWS` set (the test suite sets it) a
+bound view edited in place is refused. A state built by hand or copied gets a
+core built from it (`game_core.core_for`, a few milliseconds, reused while the
+state is unchanged).
 
-Every rule the rest of the code asks of a state goes to the core for a bound
-view since phase 22, each with a differential test against the Python version,
-which answers any other state and stays the oracle until the retirement:
+| what Python asks | entry point | core |
+|---|---|---|
+| the encoding | `encoder.encode_raw` | `encode_streams` |
+| the observation, the relevant set, the acting units' landable rows | `observe.observe`, `visibility.relevant_hex_positions` | `observe` |
+| the legality masks' move and attack rows | `action_sampler._build_legality_masks` | the observation's rows, `rows_from_reach` |
+| the planner's context and a unit's single-turn reach | `pathfind_sim.ReachContext.for_side`, `unit_reach` | `side_context`, `unit_reach` |
+| what a side sees | `visibility.units_visible_to`, `visible_hexes_for` | `visible_ids`, `seen_export` |
+| the defender's weapon choice, an attack's exact outcomes, a fight's statistics | `combat_outcomes` | `counter_weapon_choice`, `attack_outcomes`, `fight_stats` |
+| an attack under a scripted hit-or-miss sequence | `swap_detector` | `apply_attack_scripted` |
 
-| rule | Python entry point | core | differential test |
-|---|---|---|---|
-| the defender's weapon choice (the engine's rating) | `combat_outcomes.counter_weapon_choice` | `counter_weapon_choice` | tests/test_rust_outcomes.py; `diff_core --outcomes` |
-| an attack's exact outcomes, advancement branches included | `combat_outcomes.enumerate_attack_outcomes` | `attack_outcomes` | the same |
-| a fight's statistics (the neutral AI's chance to hit) | `combat_outcomes.defender_chance_to_hit` | `fight_stats` | tests/test_rust_outcomes.py |
-| the planner's context and a unit's single-turn reach (move routes, the hex an attack is made from) | `pathfind_sim.ReachContext.for_side`, `unit_reach` | `side_context`, `unit_reach` | tests/test_rust_moves.py |
-| the units a side sees | `visibility.units_visible_to` | `visible_ids` | tests/test_rust_moves.py |
-| an attack's children under a scripted hit-or-miss sequence | `swap_detector.enumerate_children_via_sim` | `apply_attack_scripted` | tests/test_rust_outcomes.py |
-
-The outcome functions reuse the attack command's own fight setup, write-back
-and advancement code, and agree to the last bit and in their order; on 61
-corpus replays every attack's counter weapon, strike tables and distributions
-equal the Python's (3,906 attacks, `tools/diff_core.py --outcomes`, which the
-certification script runs over the whole corpus). The reach agrees in its
-movement points, costs and predecessors per hex and in the iteration order of
-its landable set, which decides ties between equally cheap attack hexes; the
-visible units agree in the view's order. The Python enumeration now offers a
-unit the advancements its pick-advance lists leave it, as the simulator does.
-The Python planner still assembles the core's arrays into `UnitReach` and
-picks routes and attack hexes from it (`route_to`, `_find_attack_hex`): data
+The Python planner assembles the core's arrays into `UnitReach` and picks
+routes and attack hexes from it (`route_to`, `_find_attack_hex`): data
 handling, no rule.
 
-Records are replayed on the core by the simulator's mid-game starts, game-record
-rebuilds (`game_record.start_core`, `walk`, `rebuild`), the value corpus and its
-builder, the replay outcome labeller, the validation exports, `diff_replay`,
-the benches and `value_head_by_phase` / `probe_teacher_advantage`. Still on the
-Python applier, each to be deleted, quarantined or moved to the core at the
-retirement (the user's call, tool by tool):
+## What Python keeps
 
-| tool | what it does on the applier |
-|---|---|
-| `tools/diff_core.py`, `tools/bench_core.py` | compares or times the core against the applier (they go with it) |
-| `tools/swap_detector.py` | its side-turn particles (a bound view's scripted fights already run on the core) |
-| `tools/diff_combat_strike.py`, `diff_unit_counter.py`, `diff_move_final_hex.py`, `dump_unit_states.py` | debugging walks of one replay against its strict-sync record |
-| `tools/analysis/counter_weapon_census.py`, `hider_rule_sample.py`, `vision_rule_census.py`, `observation_parity_census.py` | analyses of a Python rule or of a rule change, measured on the applier |
+The scenario parsing (`tools/scenario_events.py`: `collect_events`, and
+`terrain_writes_applied` for the views), the replay extraction, the scenario
+builder, the unit-stats lookups the encoder's recruit rows read
+(`replay_dataset._stats_for`), the time-of-day name of a turn, a side's income
+for the scenario-init oracle (`replay_dataset.side_income`), the vacant castle
+search of a recruit onto a hidden unit (`wesnoth_sim.nearest_vacant_castle`),
+the movement costs the shaping reward's approach distances read
+(`wesnoth_sim._move_cost_at_hex`), and the leadership bonus the swap detector's
+screen reads (`abilities.leadership_bonus`).
 
-`tools/wesnoth_sim.py` and `tools/hidden_units_oracle.py` keep a Python path for
-`WESNOTH_RUST_CORE=0` only.
-
-Then the deletions: the applier and its builders (the initial state's units
-built by the core's `build_unit_fields`), `tools/traits.py`, the handlers of
-`tools/scenario_events.py` (its parsing, `collect_events` and
-`terrain_writes_applied` stay for the views), the Python combat resolver, the
-Python reach and observation, `encoder.encode_raw`'s Python body and the Python
-fight outcomes (`tools/analysis/counter_weapon_census.py` reads their
-internals); about 25 tools that replay a record move to
-`replay_dataset.record_core`. The
-differential tests that compared against the deleted code go; the core is then
-checked against the engine's records and oracles only.
+Retired: the Python applier and its builders, `tools/traits.py`, the event
+handlers, the combat resolver, the fight outcomes, the reach, the vision and
+observation, `encoder.encode_raw`'s Python body, the `WESNOTH_RUST_CORE`,
+`WESNOTH_RUST`, `WESNOTH_RUST_OBSERVE` and `WESNOTH_RUST_COMBAT` switches, and
+the tools that compared against them or replayed a record on the applier
+(`tools/diff_core.py`, `bench_core.py`, `diff_combat_strike.py`,
+`diff_unit_counter.py`, `diff_move_final_hex.py`, `dump_unit_states.py`;
+`tools/analysis/counter_weapon_census.py`, `hider_rule_sample.py`,
+`vision_rule_census.py`, `observation_parity_census.py`), because the core
+answers every rule they computed and was certified against them first. The
+records those tools wrote stay where they are.
