@@ -235,3 +235,21 @@ def test_the_clip_that_reads_the_groups_is_clip_grad_norm_to_the_bit():
             assert (p.grad is None) == (q.grad is None)
             assert p.grad is None or torch.equal(p.grad, q.grad)
         assert sum(v * v for v in groups.values()) == pytest.approx(float(mine) ** 2, rel=1e-5)
+
+
+def test_the_clip_runs_on_the_box_images_pytorch(monkeypatch):
+    """The boxes' image ships PyTorch 2.5, which has no
+    `torch.nn.utils.clip_grads_with_norm_` (2.6): the clip must not need it."""
+    from wesnoth_ai.param_groups import GradientGroups, named_model_parameters
+    monkeypatch.delattr(torch.nn.utils, "clip_grads_with_norm_", raising=False)
+    torch.manual_seed(2)
+    trainer = _policy()._trainer
+    for p in list(trainer.model.parameters()) + list(trainer.encoder.parameters()):
+        if p.requires_grad:
+            p.grad = torch.randn_like(p)
+    total, _ = GradientGroups(named_model_parameters(trainer.model, trainer.encoder)).clip(0.5)
+    after = torch.linalg.vector_norm(torch.stack(
+        [p.grad.norm() for p in list(trainer.model.parameters()) + list(trainer.encoder.parameters())
+         if p.grad is not None]))
+    assert float(total) > 0.5
+    assert float(after) == pytest.approx(0.5, rel=1e-4)
