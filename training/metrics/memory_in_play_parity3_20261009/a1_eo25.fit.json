@@ -1,0 +1,25 @@
+{
+  "n_games": 804,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "parity3_eo25": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "parity3_slots0": {
+        "elo": 40.08208948219197,
+        "se": 12.357815565777644
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "parity3_eo25": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "parity3_slots0": {
+        "elo": 40.75603640138499,
+        "se": 12.329844295469108
+      }
+    }
+  }
+}

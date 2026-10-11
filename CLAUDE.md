@@ -96,8 +96,13 @@ it by +105.5 +- 12.8 Elo** (16 slots play as 64); the memory player acts
 less per side-turn and stalls to the turn cap more. Whether the reference
 plays at 0 slots: **no (user ruling 2026-10-09): the memory stays, and
 that it plays worse is a design flaw to root-cause** (`parity2`'s memory
-cost 37 +- 12; tag `archive/exp-memory-in-play` holds that
-investigation, ported to `parity3` on `exp/memory-in-play-parity3`).
+cost 37 +- 12). Root-caused 2026-10-11
+(docs/memory_in_play_parity3_prereg_20261009.md "Measured"): a stronger
+end_turn offset recovers 65 of the 105 Elo, the rest is the choice of
+actions; the memory, trained only to predict a human from that human's
+history, continues its own history's patterns in play (causal confusion
+of history-conditioned imitation). The remedy is training on its own
+trajectories.
 Budget (user, 2026-10-09): about $100 on Vast for the foreseeable future;
 the lead decides runs, a costly one only when confident it pays.
 

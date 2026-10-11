@@ -14,11 +14,17 @@ $1.47 in all):
   "Measured"). The memory player makes 9.6 decisions per side-turn against
   11.0 and stalls to the turn cap far more often. **User ruling 2026-10-09:
   removing the memory is unacceptable; that it plays worse is a serious
-  design flaw to root-cause, not a metric to set aside.** The
-  investigation is being ported to `parity3` (branch
-  `exp/memory-in-play-parity3`: the counterfactual readings of 2026-10-02,
-  the memory reset at each side-turn, the memory player at stronger
-  end_turn offsets; about $1).
+  design flaw to root-cause, not a metric to set aside.** **Root-caused
+  2026-10-11** (docs/memory_in_play_parity3_prereg_20261009.md
+  "Measured"): a stronger end_turn offset recovers 65 of the 105 Elo and no
+  more (the same at -2.5 and -3.5), a reset at each side-turn recovers
+  nothing, and the memory changes a quarter of the decisions on human and
+  own games alike: on human games it predicts the human better (+0.137 in
+  log prior, more the longer the game), on its own it plays worse and ends
+  turns four times as often. The memory was only ever trained to predict a
+  human from that human's history, never on the consequences of its own
+  play (causal confusion of history-conditioned imitation). The remedy is
+  training on its own trajectories; the next experiment designs it.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

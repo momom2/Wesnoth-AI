@@ -1,0 +1,11 @@
+{
+ "candidates": 19367,
+ "outcomes": 17341,
+ "games": 14376,
+ "errors": 0,
+ "quarantined": 2026,
+ "duplicates": 62,
+ "holdout": 312,
+ "corpus_version": 5,
+ "problems": []
+}

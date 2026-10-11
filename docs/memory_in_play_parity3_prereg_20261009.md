@@ -229,3 +229,63 @@ took 0.58 s a decision on 4 threads); tempo, readout and the final upload
 about 5. About 1.5 to 2.2 box-hours, $0.62-1.40 at $0.42-0.63 an hour; 2.8
 hours and $1.20-1.80 if the matches run 1.8x slower, as identical repeats
 have. `BOX_MAX_H` 4. Records in HF `tier-b/memory_in_play_parity3_20261009`.
+
+## Measured (2026-10-09; recorded 2026-10-11)
+
+Box 55036516 (RTX 4090, EPYC 7C13, $0.476/h), stage
+`tier-b/staging/stage_20261009_mem.tar.gz`, records in
+`training/metrics/memory_in_play_parity3_20261009/` (`readout.json`, the
+fits, the tempo records; games and the readers' rows on HF
+`tier-b/memory_in_play_parity3_20261009/`). The box stopped itself after the
+readout and was destroyed on 2026-10-11, two days of disk billed in between.
+
+**Matches** (against `parity3` at 0 slots at offset -1.5, 800 decisive each):
+
+| arm | Elo of the memory player | actions per side-turn, turns 6-15 |
+|---|---|---|
+| baselines, 64 slots at -1.5 | -105.5 +- 12.8 | 9.6 (2026-10-09) |
+| A1, 64 slots at -2.5 | -40.1 +- 12.4 | 12.2 |
+| A2, 64 slots reset each turn, -1.5 | -105.5 +- 12.8 | 9.3 |
+| A3, 64 slots at -3.5 | -41.0 +- 12.4 | 14.9 |
+
+A2 ran with the reset in all 802 games (procedure `raw:t0+eo-1.5+mr`);
+its count, 282 of 800, equals the baselines' by coincidence.
+
+**The pre-registered reading is Q**: no arm comes within two standard
+errors of 0. A stronger offset recovers about 65 of the 105 Elo, the same at
+-2.5 and -3.5 although the second acts 2.7 more times per side-turn: the
+remaining 40 Elo is not tempo. Resetting the memory at each side-turn
+recovers nothing (the caveat stands: a reset feeds an initial memory where
+training never showed one). W is refuted: on the memory player's own
+games its decisions differ from the 0-slot reading less when it is behind
+(agreement 0.78) than when level (0.73) or ahead (0.75), and on human games
+the memory's gain on the recorded label is the same on winning and losing
+sides (won minus lost -0.005 +- 0.006).
+
+**Readings** (turns 6 and later; reproduction on own 0.986, on other 0.983):
+
+| | own (memory player's games) | other (0-slot player's games) | human (holdout) |
+|---|---|---|---|
+| agreement, 64 slots against 0 | 0.749 | 0.783 | 0.743 |
+| disagreements where only the 64-slot reading ends the turn | 19.0% | 13.4% | 5.3% |
+| end_turn prior, 64 minus 0 slots | +0.016 +- 0.001 | +0.011 +- 0.001 | +0.003 +- 0.001 |
+
+On human games the memory raises the recorded label's prior by +0.137 +-
+0.006 in log (+0.107 in turns 1-5, rising to +0.190 from turn 16): moves
++0.152, recruits +0.193, end_turns +0.138, attacks +0.093.
+
+**What the readings say.** The memory changes about a quarter of the
+decisions on every kind of trajectory. On human ones those changes predict
+the human better, more so the longer the game: the memory continues the
+patterns of the history it reads (plans, tempo, style). On the player's own
+trajectories it continues the player's own patterns, and its turn endings
+come four times as often as on human ones (19.0% against 5.3% of
+disagreements). The memory was only ever trained to predict a human from
+that human's history and never on the consequences of its own play: more
+information predicts the demonstrator better and plays worse in closed loop,
+the causal confusion of history-conditioned imitation (de Haan et al.,
+NeurIPS 2019; Wen et al., NeurIPS 2020; Ortega et al. 2021). The remedy
+named by the reading is in training: the memory trained on its own
+trajectories.
+
+About $1.05 for the run and $0.6 of disk standing.
