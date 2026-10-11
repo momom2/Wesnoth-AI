@@ -1,0 +1,1 @@
+own64_vs_p3: 796 s, 807 games, 800 decisive, rc=0 ok

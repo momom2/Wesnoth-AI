@@ -1,0 +1,1 @@
+m1_own64: 699 s, 800 games, 800 decisive, rc=0 ok

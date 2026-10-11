@@ -1,0 +1,15 @@
+2026-10-11T19:51:01Z tests rc=0 ok 48 s
+2026-10-11T19:51:05Z reference rc=0 ok 4 s
+2026-10-11T19:51:09Z tuned rc=0 ok 4 s
+2026-10-11T19:51:12Z gpu check rc=0 ok 2 s
+2026-10-11T20:02:44Z match own0_vs_p3slots0 rc=0 ok 691 s
+2026-10-11T20:02:47Z fit own0_vs_p3slots0 rc=0 ok 3 s
+2026-10-11T20:02:49Z gpu check rc=0 ok 2 s
+2026-10-11T20:16:05Z match own64_vs_p3 rc=0 ok 796 s
+2026-10-11T20:16:08Z fit own64_vs_p3 rc=0 ok 3 s
+2026-10-11T20:16:10Z gpu check rc=0 ok 2 s
+2026-10-11T20:30:22Z match own64_vs_own0 rc=0 ok 852 s
+2026-10-11T20:30:25Z fit own64_vs_own0 rc=0 ok 3 s
+2026-10-11T20:30:27Z gpu check rc=0 ok 2 s
+2026-10-11T20:44:49Z match own64_selfplay rc=0 ok 862 s
+2026-10-11T20:44:52Z fit own64_selfplay rc=0 ok 3 s
