@@ -1,18 +1,21 @@
 """The crash barriers of the fine-tune on the memory player's own
 trajectories (docs/memory_own_trajectories_prereg_20261011.md
-"Measurements", revised before any run), read before any match on this
-run's records:
+"Measurements", revised before any run; round 2,
+docs/memory_own_round2_prereg_20261011.md, reads them with its own init
+checkpoint), read before any match on this run's records. The init
+checkpoint is the one the fine-tune started from (`--init`: `parity3` in
+round 1, `own1` in round 2):
 
-- the holdout imitation loss, `parity3`'s from the trainer's probe of the
-  starting weights (`--probe-at-start`, the first row of its
+- the holdout imitation loss, the init checkpoint's from the trainer's
+  probe of the starting weights (`--probe-at-start`, the first row of its
   <out>.probe.jsonl) and the student's from its final probe, on the same
   holdout game-sides: the student's at 0 slots within `--tolerance` (0.05)
-  of `parity3`'s at 0 slots (the base policy intact), and the student's at
-  64 slots no higher than `parity3`'s at 0 slots plus the tolerance (the
+  of the init's at 0 slots (the base policy intact), and the student's at
+  64 slots no higher than the init's at 0 slots plus the tolerance (the
   memory may give up what it predicted of humans, not break the policy);
 - on the held-out own game-sides (tools/own_trajectories.py holds out 5% of
-  the own games), the student's agreement with its target above
-  `parity3`'s at 64 slots, both in turns 6 and later: each network reads
+  the own games), the student's agreement with its target above the init
+  checkpoint's at 64 slots, both in turns 6 and later: each network reads
   every decision of a game-side at 64 slots, its memory carried along the
   game-side as in play (tools/own_targets.walk_sides, the match's forward),
   and agrees when its choice at the reference decode (the joint argmax after
@@ -28,7 +31,7 @@ read on the targets step's counts before training, by the box script.
 Writes `--out` (JSON) and exits 0 when every barrier passes, 8 when one
 fails.
 
-    python tools/own_barriers.py --student own.pt --teacher parity3.pt --own-sequences own_sequences \\
+    python tools/own_barriers.py --student own.pt --init parity3.pt --own-sequences own_sequences \\
         --probes own.probe.jsonl --out barriers.json
 """
 from __future__ import annotations
@@ -60,8 +63,8 @@ REPLAY_FLOOR = 0.95
 
 def holdout_ce_barrier(probe_rows: List[Dict], tolerance: float) -> Dict:
     """The holdout barriers (module docstring) on the trainer's probe rows:
-    the starting weights' (`parity3`'s) and the final ones' (the student's)
-    policy cross-entropy at 0 and 64 slots."""
+    the starting weights' (the init checkpoint's) and the final ones' (the
+    student's) policy cross-entropy at 0 and 64 slots."""
     start = next((r for r in probe_rows if int(r.get("positions", -1)) == 0 and not r.get("final")), None)
     final = next((r for r in reversed(probe_rows) if r.get("final")), None)
 
@@ -71,9 +74,9 @@ def holdout_ce_barrier(probe_rows: List[Dict], tolerance: float) -> Dict:
     p0, p64, s0, s64 = ce(start, 0), ce(start, 64), ce(final, 0), ce(final, 64)
     base_ok = p0 is not None and s0 is not None and abs(s0 - p0) <= tolerance
     memory_ok = p0 is not None and s64 is not None and s64 <= p0 + tolerance
-    return {"tolerance": tolerance, "parity3": {"k0": p0, "k64": p64}, "student": {"k0": s0, "k64": s64},
+    return {"tolerance": tolerance, "init": {"k0": p0, "k64": p64}, "student": {"k0": s0, "k64": s64},
             "base_policy": {"diff": None if s0 is None or p0 is None else s0 - p0, "pass": base_ok},
-            "memory_policy": {"student_k64_less_parity3_k0": None if s64 is None or p0 is None else s64 - p0,
+            "memory_policy": {"student_k64_less_init_k0": None if s64 is None or p0 is None else s64 - p0,
                               "pass": memory_ok},
             "pass": bool(base_ok and memory_ok)}
 
@@ -132,7 +135,8 @@ def agreement(server, walks: List[SideWalk], offset: float) -> Dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--student", type=Path, required=True)
-    ap.add_argument("--teacher", type=Path, required=True)
+    ap.add_argument("--init", type=Path, required=True,
+                    help="the checkpoint the fine-tune started from, read at 64 slots beside the student")
     ap.add_argument("--own-sequences", type=Path, required=True)
     ap.add_argument("--probes", type=Path, required=True, help="the fine-tune's <out>.probe.jsonl")
     ap.add_argument("--out", type=Path, required=True)
@@ -152,14 +156,14 @@ def main(argv=None) -> int:
     device = torch.device(args.device)
     reads = {}
     with torch.no_grad():
-        for name, spec in (("student", args.student), ("parity3", args.teacher)):
+        for name, spec in (("student", args.student), ("init", args.init)):
             server, slots = teacher_server(spec, device)
             if slots != SLOTS:
                 raise SystemExit(f"{spec} has {slots} memory slots, not {SLOTS}")
             reads[name] = agreement(server, walks, offset)
             log.info("%s on the held-out own game-sides: %s", name, json.dumps(reads[name]))
             del server
-    reads["pass"] = reads["student"]["agreement_late"] > reads["parity3"]["agreement_late"]
+    reads["pass"] = reads["student"]["agreement_late"] > reads["init"]["agreement_late"]
     result["agreement"] = reads
     result["pass"] = bool(result["holdout_ce"]["pass"] and reads["pass"])
     tmp = args.out.with_name(args.out.name + ".tmp")

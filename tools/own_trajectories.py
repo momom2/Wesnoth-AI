@@ -5,11 +5,12 @@ their recorded commands. Step two (tools/own_targets.py) decides which of
 those positions were decisions and labels them with the teacher's
 distribution.
 
-An own game-side is one a match played with the teacher's checkpoint (the
-result's `checkpoint_sha256_x`, against the SHA-256 of `--teacher`) at
-`--slots` slots (`memory_x`) without a per-turn memory reset
-(`memory_reset_x` false, or absent: matches before the reset existed,
-2026-10-09, had none). Labels are never read.
+An own game-side is one a match played with the player's checkpoint (the
+result's `checkpoint_sha256_x`, against `--player-sha256`, by default the
+SHA-256 of `--teacher`) at `--slots` slots (`memory_x`) without a per-turn
+memory reset (`memory_reset_x` false, or absent: matches before the reset
+existed, 2026-10-09, had none). Labels are never read. The encoding uses
+the teacher's vocabularies.
 
 A candidate is the position before one of the game-side's recorded commands
 (move, attack, recruit, end_turn), encoded by the pre-encoder's code
@@ -34,7 +35,7 @@ early (the record applies a rejection before the command it precedes).
     OUT/<name>.cand.zpkl          one OwnCandidateGame (zlib pickle)
     OUT/candidates_manifest.json  the selection, the encoding and the counts
 
-    python tools/own_trajectories.py --games DIR [DIR ...] --teacher CKPT --slots 64 \\
+    python tools/own_trajectories.py --games DIR [DIR ...] --teacher CKPT [--player-sha256 SHA] --slots 64 \\
         --out own_candidates --workers 30
 """
 from __future__ import annotations
@@ -89,7 +90,7 @@ def own_holdout(name: str) -> bool:
     return unit_draw("own_holdout", name) < OWN_HOLDOUT
 
 
-def select_own_sides(match_dirs: List[Path], teacher_sha256: str, slots: int
+def select_own_sides(match_dirs: List[Path], player_sha256: str, slots: int
                      ) -> Tuple[Dict[str, List[OwnSide]], Counter]:
     """The own game-sides of the match directories, by game, and the count
     of every game-side read by what became of it."""
@@ -109,7 +110,7 @@ def select_own_sides(match_dirs: List[Path], teacher_sha256: str, slots: int
             winner = side_a if outcome == "win" else 3 - side_a if outcome == "loss" else 0
             for x in ("a", "b"):
                 counts["game_sides"] += 1
-                if res.get(f"checkpoint_sha256_{x}") != teacher_sha256:
+                if res.get(f"checkpoint_sha256_{x}") != player_sha256:
                     counts["not_own: another checkpoint"] += 1
                 elif res.get(f"memory_{x}") != slots:
                     counts["not_own: another memory size"] += 1
@@ -256,7 +257,9 @@ def _worker_game(job: Tuple[str, List[dict]]) -> Tuple[str, str, Dict[str, int]]
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--games", type=Path, nargs="+", required=True, help="match directories")
-    ap.add_argument("--teacher", type=Path, required=True, help="the checkpoint whose game-sides are own")
+    ap.add_argument("--teacher", type=Path, required=True, help="the labelling's checkpoint (its vocabularies)")
+    ap.add_argument("--player-sha256", default=None,
+                    help="the SHA-256 of the checkpoint whose game-sides are own (default: the teacher's)")
     ap.add_argument("--slots", type=int, required=True, help="the memory size own game-sides played at")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
@@ -269,9 +272,10 @@ def main(argv=None) -> int:
     from tools.eval_provenance import file_sha256
     from tools.preencode_corpus import vocab_from_checkpoint
     teacher_sha = file_sha256(args.teacher)
+    player_sha = args.player_sha256 or teacher_sha
     type_to_id, faction_to_id = vocab_from_checkpoint(args.teacher)
     phase = int(wesnoth_core.__phase__)
-    games, counts = select_own_sides(args.games, teacher_sha, args.slots)
+    games, counts = select_own_sides(args.games, player_sha, args.slots)
     names = sorted(games)[:args.limit]
     log.info("%d own game-sides in %d games of %d results (%s)", counts["own"], len(games), counts["results"],
              json.dumps(dict(counts)))
@@ -285,7 +289,8 @@ def main(argv=None) -> int:
         for c in done.values():
             totals.update(c)
         manifest = {
-            "teacher": str(args.teacher), "teacher_sha256": teacher_sha, "slots": args.slots,
+            "teacher": str(args.teacher), "teacher_sha256": teacher_sha, "player_sha256": player_sha,
+            "slots": args.slots,
             "fingerprint": encoding_fingerprint(type_to_id, faction_to_id, 0, phase),
             "encoding": ENCODING, "observation_epoch": int(OBSERVATION_EPOCH), "core_phase": phase,
             "unit_type_to_id": type_to_id, "faction_to_id": faction_to_id,

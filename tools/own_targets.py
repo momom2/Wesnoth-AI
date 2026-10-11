@@ -329,7 +329,8 @@ def own_manifest(cand: dict, games: Dict[str, Dict[str, int]], top: int, referen
             for name, c in games.items()}
     keys = ("fingerprint", "encoding", "observation_epoch", "core_phase", "unit_type_to_id", "faction_to_id",
             "teacher", "teacher_sha256", "slots", "selection")
-    return {**{k: cand[k] for k in keys}, "source": "own", "top": top, "reference_offset": reference_offset,
+    return {**{k: cand[k] for k in keys}, "player_sha256": cand.get("player_sha256", cand["teacher_sha256"]),
+            "source": "own", "top": top, "reference_offset": reference_offset,
             "n_games": len(games), "totals": dict(totals), "errors": cand["errors"], "games": rows}
 
 
@@ -350,8 +351,12 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     from tools.eval_provenance import file_sha256
     cand = read_candidates_manifest(args.candidates)
-    if file_sha256(args.teacher) != cand["teacher_sha256"]:
-        raise SystemExit(f"{args.teacher} is not the checkpoint the candidates were selected for")
+    teacher_sha = file_sha256(args.teacher)
+    if teacher_sha != cand["teacher_sha256"]:
+        raise SystemExit(f"{args.teacher} is not the checkpoint the candidates were encoded for")
+    if cand.get("player_sha256", teacher_sha) != teacher_sha:
+        raise SystemExit(f"the candidates are another player's game-sides ({cand['player_sha256']}): the "
+                         f"segmentation and the replay read the policy that played, here the teacher")
     offset = args.reference_offset
     if offset is None:
         offset = float(json.loads(Path("configs/reference_player.json").read_text(encoding="utf-8"))
