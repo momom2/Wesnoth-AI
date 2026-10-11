@@ -8,16 +8,18 @@ A recorded command is one decision of the player, one forward of its
 network, but for one case: the simulator turns an attack on a unit the
 attacker does not stand next to into its approach move and the attack
 (`wesnoth_sim.attack_hex`), so a move followed by an attack from its end is
-one attack decision, or a move decision then an attack decision. The teacher
-at the match player's slots, its memory carried along the game-side from
-decision to decision as in play, tells them apart: the pair is one decision
-when the teacher puts the attack above the move at the move's position (the
-player's argmax took one of the two, and the end_turn offset scales both
-alike; on a tie the attack, which comes first in the reference order). Each
-game-side is then checked against its match's count of the player's
-forwards: its decisions plus its refused recruits (each decided again from
-the memory before it, tools/raw_player.py) must make that count, else the
-game-side is dropped and counted.
+one attack decision, or a move decision then an attack decision. The match's
+count of the player's forwards says how many pairs were one decision
+(`merges_owed`: candidates plus refused recruits, each decided again from
+the memory before it, tools/raw_player.py, less the forwards); when it says
+none, no pair is merged. Otherwise the teacher at the match player's slots,
+its memory carried along the game-side from decision to decision as in
+play, tells them apart: the pair is one decision when the teacher puts the
+attack above the move at the move's position (the player's argmax took one
+of the two, and the end_turn offset scales both alike; on a tie the attack,
+which comes first in the reference order). Each game-side is then checked
+against that count: its decisions plus its refused recruits must make it,
+else the game-side is dropped and counted.
 
 At every decision the teacher at 0 slots gives the target: its raw
 distribution over the legal actions (no end_turn offset), its 16 most
@@ -114,6 +116,7 @@ class SideWalk:
         self.state: Optional[torch.Tensor] = None
         self.kept: List[SequencePosition] = []
         self.counts: Counter = Counter()
+        self.merges_owed: Optional[int] = None    # the labelling's: `merges_owed`
 
     @property
     def done(self) -> bool:
@@ -186,6 +189,17 @@ def decode_of(compact, offset: float):
 # The targets
 # ---------------------------------------------------------------------------
 
+def merges_owed(side) -> Optional[int]:
+    """How many approach pairs the match's forward count says were one
+    decision: candidates plus refused recruits less the player's forwards
+    (None without a forward count). With none owed (0, or fewer, which the
+    count check then drops), no pair of the game-side is merged; with some,
+    each pair is decided by the teacher's reading."""
+    if side.forwards is None:
+        return None
+    return len(side.candidates) + side.rejections - side.forwards
+
+
 class OwnLabeller:
     """`on_position` for the candidates' walk (module docstring): keeps
     each decision with its target, checks a game-side's forward count when
@@ -204,8 +218,10 @@ class OwnLabeller:
         for game in games:
             self.games[game.file] = (game, [])
             for side in sorted(game.sides):
-                positions = [c.position for c in game.sides[side].candidates]
-                yield SideWalk(game.file, positions, payload=game.sides[side])
+                s = game.sides[side]
+                w = SideWalk(game.file, [c.position for c in s.candidates], payload=s)
+                w.merges_owed = merges_owed(s)
+                yield w
 
     def __call__(self, w: SideWalk, out, zero) -> int:
         if out is None:
@@ -214,13 +230,14 @@ class OwnLabeller:
         cand = w.payload.candidates[w.t]
         pos = cand.position
         merged = False
-        if cand.attack_label is not None:
+        if cand.attack_label is not None and (w.merges_owed is None or w.merges_owed > 0):
             p_attack = compact_key_prior(out.legal_compact, label_key(cand.attack_label))
             p_move = compact_key_prior(out.legal_compact, label_key(pos.label))
             merged = p_attack > 0.0 and p_attack >= p_move
-            w.counts["approach_pairs"] += 1
             w.counts["approach_merged"] += int(merged)
             w.counts["approach_neither_legal"] += int(p_attack == 0.0 and p_move == 0.0)
+        if cand.attack_label is not None:
+            w.counts["approach_pairs"] += 1
         label = cand.attack_label if merged else pos.label
         z = zero.legal_compact
         target = top_target(z.actor, z.kind, z.target, z.weapon, z.prior, self.top)

@@ -74,10 +74,11 @@ def epoch_order(game_sides: Sequence[GameSide], seed: int) -> List[GameSide]:
 
 class StreamSchedule:
     """The slots' walk over the order. `lengths` holds each game-side's
-    number of decisions; a game-side without any is passed over."""
+    number of decisions; a game-side without any is passed over. `name`
+    names the streams in a refusal (the corpus's, the own game-sides')."""
 
     def __init__(self, order: Sequence[GameSide], lengths: Dict[GameSide, int], n_streams: int,
-                 seed: int, k: Optional[int] = None, slot_offset: int = 0):
+                 seed: int, k: Optional[int] = None, slot_offset: int = 0, name: str = "corpus"):
         if n_streams < 1:
             raise ValueError(f"n_streams must be at least 1, got {n_streams}")
         self.order = [g for g in order if lengths.get(g, 0) > 0]
@@ -90,6 +91,7 @@ class StreamSchedule:
         # The trainer's slot numbers of this schedule's slots start here
         # (a second schedule's slots follow the first's).
         self.slot_offset = int(slot_offset)
+        self.name = name
         self.next_index = 0
         self.slots: List[Tuple[int, int]] = [(-1, 0)] * self.n_streams   # (order index, offset)
 
@@ -133,9 +135,17 @@ class StreamSchedule:
         held = [self.order[i] for i, _ in self.slots if i >= 0]
         return held + self.order[self.next_index:self.next_index + n]
 
+    def lengths_hash(self) -> str:
+        """A digest of every game-side's length: a resume over records that
+        came out otherwise would walk other positions under the saved
+        offsets."""
+        rows = sorted((g.file, g.side, n) for g, n in self.lengths.items())
+        return hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()
+
     def state_dict(self) -> Dict:
         return {"next_index": self.next_index, "slots": [list(s) for s in self.slots],
-                "n_streams": self.n_streams, "seed": self.seed, "n_order": len(self.order)}
+                "n_streams": self.n_streams, "seed": self.seed, "n_order": len(self.order),
+                "lengths_hash": self.lengths_hash()}
 
     def load_state_dict(self, state: Dict) -> None:
         if int(state["n_streams"]) != self.n_streams or int(state["seed"]) != self.seed \
@@ -143,6 +153,10 @@ class StreamSchedule:
             raise ValueError(f"the saved schedule ({state['n_streams']} streams, seed {state['seed']}, "
                              f"{state['n_order']} game-sides) is not this run's ({self.n_streams}, "
                              f"{self.seed}, {len(self.order)})")
+        saved = state.get("lengths_hash")              # absent from schedules saved before it was kept
+        if saved is not None and saved != self.lengths_hash():
+            raise ValueError(f"the saved {self.name} schedule walked game-sides of other lengths (hash "
+                             f"{saved[:12]}) than this run's {self.name} records ({self.lengths_hash()[:12]})")
         self.next_index = int(state["next_index"])
         self.slots = [(int(i), int(o)) for i, o in state["slots"]]
 

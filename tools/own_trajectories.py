@@ -26,6 +26,11 @@ Every game-side not kept is counted by reason (`counts`), and a game whose
 record does not rebuild or holds a position the encoder refuses is dropped
 whole with its reason (`errors`).
 
+Known and left as it is (no occurrence in the five recorded matches of the
+pre-registration): a recruit the engine relocated after a rejection is
+counted as one forward more, and its position shows the rejection bit
+early (the record applies a rejection before the command it precedes).
+
     OUT/<name>.cand.zpkl          one OwnCandidateGame (zlib pickle)
     OUT/candidates_manifest.json  the selection, the encoding and the counts
 

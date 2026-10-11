@@ -237,49 +237,99 @@ def _walk_out(priors, memory):
     return SimpleNamespace(legal_compact=compact, memory=memory)
 
 
-def test_an_approach_and_its_attack_are_one_decision_when_the_player_preferred_the_attack(tmp_path):
-    """A move followed by an attack from its end is one attack decision when
-    the teacher at the player's slots puts the attack above the move (the
-    attack's position is then no decision), and two decisions otherwise; a
-    game-side whose decisions and refused recruits miss the match's count
-    of its forwards is dropped and counted."""
-    from tools.own_targets import OwnLabeller, SideWalk
+MOVE = ActionIndices("move", actor_idx=0, target_idx=5, type_idx=1)
+ATTACK = ActionIndices("attack", actor_idx=0, target_idx=9, weapon_idx=0, type_idx=0)
+AFTER = ActionIndices("attack", actor_idx=0, target_idx=9, weapon_idx=0, type_idx=0)
+END = ActionIndices("end_turn", actor_idx=2)
+
+
+def _label_side(out_dir: Path, p_attack: float, p_move: float, forwards: int):
+    """One game-side of three candidates (an approach move with its attack's
+    label, the attack, an end_turn) and one refused recruit, labelled under
+    a teacher with the given priors: its decisions' labels and the counts."""
+    from tools.own_targets import OwnLabeller
     from wesnoth_ai.sequence_records import OwnCandidate, OwnCandidateGame, OwnCandidateSide, SequencePosition
     raw = SimpleNamespace(unit_positions=[0, 1], recruit_types=[])
-    move = ActionIndices("move", actor_idx=0, target_idx=5, type_idx=1)
-    attack = ActionIndices("attack", actor_idx=0, target_idx=9, weapon_idx=0, type_idx=0)
-    after = ActionIndices("attack", actor_idx=0, target_idx=9, weapon_idx=0, type_idx=0)
-    end = ActionIndices("end_turn", actor_idx=2)
 
     def position(label):
         return SequencePosition(raw=raw, label=label, hidden_tokens=np.zeros(0, np.int64),
                                 no_visible_unit=np.zeros(0, bool), turn=7)
 
-    def run(p_attack, p_move, forwards):
-        cands = [OwnCandidate(position(move), attack_label=attack), OwnCandidate(position(after)),
-                 OwnCandidate(position(end))]
-        game = OwnCandidateGame(file="g", winner=0, n_commands=6)
-        game.sides[1] = OwnCandidateSide(side=1, candidates=cands, forwards=forwards, rejections=1, offset=-1.5)
-        labeller = OwnLabeller(tmp_path, reference_offset=-1.5)
-        w = next(labeller.walks([game]))
-        out = _walk_out({(0, KIND_ATTACK, 9, 0): p_attack, (0, KIND_MOVE, 5, -1): p_move,
-                         (2, KIND_END_TURN, -1, -1): 0.1}, None)
-        labels = []
-        while not w.done:
-            labels.append(w.payload.candidates[w.t].attack_label if labeller(w, out, out) == 2
-                          else w.positions[w.t].label)
-            w.t += 2 if labels[-1] is attack else 1
-        labeller(w, None, None)
-        return labels, labeller.totals
+    cands = [OwnCandidate(position(MOVE), attack_label=ATTACK), OwnCandidate(position(AFTER)),
+             OwnCandidate(position(END))]
+    game = OwnCandidateGame(file="g", winner=0, n_commands=6)
+    game.sides[1] = OwnCandidateSide(side=1, candidates=cands, forwards=forwards, rejections=1, offset=-1.5)
+    labeller = OwnLabeller(out_dir, reference_offset=-1.5)
+    w = next(labeller.walks([game]))
+    out = _walk_out({(0, KIND_ATTACK, 9, 0): p_attack, (0, KIND_MOVE, 5, -1): p_move,
+                     (2, KIND_END_TURN, -1, -1): 0.1}, None)
+    labels = []
+    while not w.done:
+        merged = labeller(w, out, out) == 2
+        labels.append(w.payload.candidates[w.t].attack_label if merged else w.positions[w.t].label)
+        w.t += 2 if merged else 1
+    labeller(w, None, None)
+    return labels, labeller.totals
 
-    labels, totals = run(0.5, 0.4, forwards=3)
-    assert labels == [attack, end] and totals["approach_merged"] == 1 and totals["positions"] == 2
-    labels, totals = run(0.4, 0.5, forwards=4)
-    assert labels == [move, after, end] and totals["approach_merged"] == 0 and totals["positions"] == 3
-    labels, totals = run(0.5, 0.4, forwards=4)
+
+def test_an_approach_and_its_attack_are_one_decision_when_the_player_preferred_the_attack(tmp_path):
+    """A move followed by an attack from its end is one attack decision when
+    the match's forward count leaves room for a merge and the teacher at the
+    player's slots puts the attack above the move (the attack's position is
+    then no decision), and two decisions otherwise; a game-side whose
+    decisions and refused recruits miss the match's count of its forwards is
+    dropped and counted."""
+    labels, totals = _label_side(tmp_path, 0.5, 0.4, forwards=3)
+    assert labels == [ATTACK, END] and totals["approach_merged"] == 1 and totals["positions"] == 2
+    labels, totals = _label_side(tmp_path, 0.4, 0.5, forwards=2)
+    assert labels == [MOVE, AFTER, END] and totals["approach_merged"] == 0
     assert totals["dropped: forward count mismatch"] == 1 and totals["positions"] == 0
-    assert totals["positions_dropped"] == 2
-    assert isinstance(SideWalk, type)
+    assert totals["positions_dropped"] == 3
+
+
+def test_a_game_side_whose_count_leaves_no_merge_merges_nothing(tmp_path):
+    """Candidates plus refused recruits equal to the match's forwards leave
+    no room for a merge: a near tie the teacher would merge stays two
+    decisions, and the game-side is kept."""
+    labels, totals = _label_side(tmp_path, 0.5001, 0.5, forwards=4)
+    assert labels == [MOVE, AFTER, END] and totals["approach_merged"] == 0
+    assert totals["positions"] == 3 and totals["game_sides_kept"] == 1
+
+
+@pytest.mark.parametrize("student, passes", [
+    ({"k0": 2.80, "k64": 2.78}, True),
+    ({"k0": 2.86, "k64": 2.70}, False),
+    ({"k0": 2.80, "k64": 2.85}, False),
+], ids=["the memory gives up its gain", "the base policy moved", "the memory broke the policy"])
+def test_the_holdout_barriers_read_success_as_success(student, passes):
+    """Read on this run's records (parity3 at 2.79 at 0 slots, 2.69 at 64): the
+    student's loss at 0 slots within 0.05 of parity3's, its loss at 64 slots
+    no higher than parity3's at 0 slots plus 0.05. A student that stops
+    leaning on its memory passes."""
+    from tools.own_barriers import holdout_ce_barrier
+    start = {"positions": 0, "final": False, "k0": {"ce_all": 2.79}, "k64": {"ce_all": 2.69}}
+    final = {"positions": 2000384, "final": True, **{k: {"ce_all": v} for k, v in student.items()}}
+    assert holdout_ce_barrier([start, final], 0.05)["pass"] is passes
+
+
+@pytest.mark.parametrize("late, passes", [(951, True), (949, False)])
+def test_the_replay_barrier_wants_95_percent_of_late_decisions_reproduced(late, passes):
+    from tools.own_barriers import replay_barrier
+    assert replay_barrier({"repro_late": late, "decisions_late": 1000, "repro": 10, "decisions": 2000})["pass"] \
+        is passes
+
+
+def test_a_resume_refuses_streams_of_other_lengths():
+    """The schedule's state names its game-sides' lengths: a resume over
+    records of other lengths (a rebuilt corpus or own records that came out
+    otherwise) is refused, naming the streams."""
+    lengths = {GameSide(f"g{i}", s): 3 + i + s for i in range(6) for s in (1, 2)}
+    saved = StreamSchedule(epoch_order(list(lengths), 5), lengths, 2, 5, name="own").state_dict()
+    StreamSchedule(epoch_order(list(lengths), 5), lengths, 2, 5, name="own").load_state_dict(saved)
+    other = dict(lengths)
+    other[GameSide("g3", 1)] += 1
+    with pytest.raises(ValueError, match="own.*lengths"):
+        StreamSchedule(epoch_order(list(other), 5), other, 2, 5, name="own").load_state_dict(saved)
 
 
 # ---- the trainer -------------------------------------------------------------

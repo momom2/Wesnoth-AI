@@ -12,14 +12,19 @@
 #     by the results' checkpoint SHA-256, memory and reset fields
 #     (tools/own_trajectories.py), each decision labelled with the frozen
 #     `parity3`'s raw distribution at 0 slots, top 16 renormalised, on the
-#     GPU (tools/own_targets.py);
+#     GPU (tools/own_targets.py); the replay barrier (95% of the recorded
+#     decisions in turns 6 and later reproduced) stops the box before training;
 #   the fine-tune from `parity3` (tools/sequence_train.py --own-sequences):
-#     equal numbers of own and human positions per update, one pass of
-#     PASS_POSITIONS (about 1 million of each), the learning rate at a tenth
-#     of the recipe's peak, falling linearly to 0 over the pass's second
-#     half; the starting weights probed first (`--probe-at-start`);
-#   the crash barriers (tools/own_barriers.py): a failed one stops the box
-#     before any match;
+#     equal numbers of own and human positions per update, every own position
+#     at weight 1, one pass of PASS_POSITIONS (about 1 million of each), the
+#     learning rate at a tenth of the recipe's peak, falling linearly to 0
+#     over the pass's second half; the starting weights probed first
+#     (`--probe-at-start`);
+#   the holdout and agreement barriers (tools/own_barriers.py): a failed one
+#     stops the box before any match;
+# Known and left as it is (none in the five recorded matches): a recruit the
+# engine relocated after a rejection would count as one forward more and its
+# position would show the rejection bit early (tools/own_trajectories.py).
 #   two matches against `parity3` at 0 slots, PURE, both sides at the
 #     reference decode (raw:t0+eo-1.5), the Ladder maps with both factions
 #     drawn uniformly, 800 decisive games each, every game recorded whole:
@@ -205,6 +210,7 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
         tests/test_parity_integration.py tests/test_sighting_record.py tests/test_faction_posterior.py \
         tests/test_unit_vocab.py tests/test_raw_player.py tests/test_reference_player.py \
         tests/test_eval_workers.py tests/test_eval_inference_server.py tests/test_elo_collect.py \
+        tests/test_signal_telemetry.py \
         tests/test_corpus_v3.py tests/test_no_shroud.py -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
@@ -321,8 +327,8 @@ EOF
     box_mark "$CAND/CANDIDATES_DONE"
 fi
 
-# ---- the teacher's targets; the crash barrier: under 5% of the own game-sides dropped, and the
-# training game-sides hold their half of the pass
+# ---- the teacher's targets; the crash barriers: under 5% of the own game-sides dropped, the
+# training game-sides hold their half of the pass, and the replay reproduces 95% of the late decisions
 if [ "$NEED_OWN" = 1 ] && ! box_marked_this_stage "$OWN/OWN_DONE"; then
     if ! box_marked_this_stage "$OWN/STARTED"; then
         rm -rf "$OWN"
@@ -352,6 +358,18 @@ print("own sequences", summary, flush=True)
 dropped = sum(v for k, v in t.items() if k.startswith("dropped: "))
 assert dropped < 0.05 * max(1, t.get("game_sides", 0)), "5% or more of the own game-sides dropped"
 assert train >= int(sys.argv[3]) // 2, "the own training game-sides hold less than their half of the pass"
+EOF
+    # The replay barrier (pre-registered): the teacher at the player's slots, its memory carried,
+    # reproduces at least 95% of the recorded decisions in turns 6 and later.
+    box_bounded replay-check 10 targets.log python - "$OWN" "$OUT/replay.json" <<'EOF' \
+        || box_finish "REPLAY_BARRIER_FAILED rc=$BOX_RC (replay.json, targets.log)" 1
+import json, pathlib, sys
+from tools.own_barriers import replay_barrier
+from tools.preencode_sequences import load_manifest
+result = replay_barrier(load_manifest(pathlib.Path(sys.argv[1]))["totals"])
+pathlib.Path(sys.argv[2]).write_text(json.dumps(result, indent=1), encoding="utf-8")
+print("replay", result, flush=True)
+sys.exit(0 if result["pass"] else 1)
 EOF
     if ! { cp -f "$OWN/sequence_manifest.json" "$OUT/own_sequence_manifest.json.tmp" \
             && mv -f "$OUT/own_sequence_manifest.json.tmp" "$OUT/own_sequence_manifest.json"; }; then

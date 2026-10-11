@@ -1,11 +1,15 @@
 """The crash barriers of the fine-tune on the memory player's own
 trajectories (docs/memory_own_trajectories_prereg_20261011.md
-"Measurements"), read before any match:
+"Measurements", revised before any run), read before any match on this
+run's records:
 
-- the holdout imitation loss at 64 and at 0 slots within `--tolerance`
-  (0.05) of `parity3`'s: the trainer's probe of the starting weights
-  (`--probe-at-start`, the first row of its <out>.probe.jsonl) against its
-  final probe (the last row), on the same holdout game-sides;
+- the holdout imitation loss, `parity3`'s from the trainer's probe of the
+  starting weights (`--probe-at-start`, the first row of its
+  <out>.probe.jsonl) and the student's from its final probe, on the same
+  holdout game-sides: the student's at 0 slots within `--tolerance` (0.05)
+  of `parity3`'s at 0 slots (the base policy intact), and the student's at
+  64 slots no higher than `parity3`'s at 0 slots plus the tolerance (the
+  memory may give up what it predicted of humans, not break the policy);
 - on the held-out own game-sides (tools/own_trajectories.py holds out 5% of
   the own games), the student's agreement with its target above
   `parity3`'s at 64 slots, both in turns 6 and later: each network reads
@@ -15,6 +19,11 @@ trajectories (docs/memory_own_trajectories_prereg_20261011.md
   the end_turn offset of configs/reference_player.json) is the action the
   target's distribution decodes to at that offset (`own_loss.target_key`).
   The raw argmax's agreement (no offset) is reported beside it.
+
+The fourth barrier, the replay of the own trajectories (`replay_barrier`:
+at least 95% of the recorded decisions in turns 6 and later reproduced by
+the teacher at the player's slots, tools/own_targets.py's `repro_late`), is
+read on the targets step's counts before training, by the box script.
 
 Writes `--out` (JSON) and exits 0 when every barrier passes, 8 when one
 fails.
@@ -46,22 +55,37 @@ log = logging.getLogger("own_barriers")
 EXIT_BARRIER = 8
 TOLERANCE = 0.05
 SLOTS = 64
+REPLAY_FLOOR = 0.95
 
 
-def holdout_ce_barrier(probe_rows: List[Dict], tolerance: float, ks=(64, 0)) -> Dict:
-    """Per memory size, the final probe's holdout policy cross-entropy
-    against the starting weights', and whether it stays within `tolerance`."""
+def holdout_ce_barrier(probe_rows: List[Dict], tolerance: float) -> Dict:
+    """The holdout barriers (module docstring) on the trainer's probe rows:
+    the starting weights' (`parity3`'s) and the final ones' (the student's)
+    policy cross-entropy at 0 and 64 slots."""
     start = next((r for r in probe_rows if int(r.get("positions", -1)) == 0 and not r.get("final")), None)
     final = next((r for r in reversed(probe_rows) if r.get("final")), None)
-    out: Dict = {"tolerance": tolerance, "pass": start is not None and final is not None}
-    for k in ks:
-        a = None if start is None else start.get(f"k{k}", {}).get("ce_all")
-        b = None if final is None else final.get(f"k{k}", {}).get("ce_all")
-        diff = None if a is None or b is None else b - a
-        ok = diff is not None and abs(diff) <= tolerance
-        out[f"k{k}"] = {"start": a, "final": b, "diff": diff, "pass": ok}
-        out["pass"] = out["pass"] and ok
-    return out
+
+    def ce(row, k):
+        return None if row is None else row.get(f"k{k}", {}).get("ce_all")
+
+    p0, p64, s0, s64 = ce(start, 0), ce(start, 64), ce(final, 0), ce(final, 64)
+    base_ok = p0 is not None and s0 is not None and abs(s0 - p0) <= tolerance
+    memory_ok = p0 is not None and s64 is not None and s64 <= p0 + tolerance
+    return {"tolerance": tolerance, "parity3": {"k0": p0, "k64": p64}, "student": {"k0": s0, "k64": s64},
+            "base_policy": {"diff": None if s0 is None or p0 is None else s0 - p0, "pass": base_ok},
+            "memory_policy": {"student_k64_less_parity3_k0": None if s64 is None or p0 is None else s64 - p0,
+                              "pass": memory_ok},
+            "pass": bool(base_ok and memory_ok)}
+
+
+def replay_barrier(totals: Dict[str, int], floor: float = REPLAY_FLOOR) -> Dict:
+    """The replay barrier on the targets step's counts: the share of the
+    recorded decisions in turns 6 and later that the teacher at the
+    player's slots, its memory carried, reproduces at the player's decode."""
+    n_late = totals.get("decisions_late", 0)
+    late = totals.get("repro_late", 0) / max(1, n_late)
+    return {"repro_late": late, "repro": totals.get("repro", 0) / max(1, totals.get("decisions", 0)),
+            "decisions_late": n_late, "floor": floor, "pass": n_late > 0 and late >= floor}
 
 
 def own_holdout_sides(directory: Path) -> List[SideWalk]:

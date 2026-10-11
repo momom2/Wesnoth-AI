@@ -58,7 +58,7 @@ class OwnStreams:
         self.holdout: List[GameSide] = [GameSide(f, s) for f in sorted(rows) if rows[f]["holdout"]
                                         for s in (1, 2) if int(rows[f].get(f"positions_side{s}", 0)) > 0]
         self.schedule = StreamSchedule(epoch_order(list(lengths), seed), lengths, n_streams, seed,
-                                       k=self.slots, slot_offset=slot_offset)
+                                       k=self.slots, slot_offset=slot_offset, name="own")
         self.files = frozenset(rows)
 
     def meta(self, policy_weight: float) -> Dict:
