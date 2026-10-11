@@ -40,7 +40,9 @@ the states its own play reaches, labelled by an expert. Here:
   sides, the manifest's holdout split), so the memory keeps what it predicts
   of humans.
 - **Mixing and schedule:** equal numbers of own and human positions per
-  update; a fine-tune from `parity3` (HF
+  update, every own position carrying its soft policy loss at weight 1 (the
+  human recipe trains the policy on the winners' positions only, so own
+  policy rows are about twice the human ones per update); a fine-tune from `parity3` (HF
   `tier-b/imitation_anneal_20261003/lower.pt`) through the sequence trainer,
   one pass over about 1 million own and 1 million human positions, the
   learning rate at a tenth of the recipe's peak, falling linearly to 0 over
@@ -63,10 +65,16 @@ the Ladder pool with uniform factions, against `parity3` at 0 slots:
 - **M2:** the tuned checkpoint at 0 slots (whether tuning moved the base
   policy).
 
-Crash barriers, before the matches: the holdout imitation loss at 64 and at
-0 slots within 0.05 of `parity3`'s (2.688 at 64 slots), and on held-out own
-trajectories the student's agreement with its target's argmax above
-`parity3`'s at 64 slots (0.749 in turns 6 and later).
+Crash barriers, before the matches, all read on this run's records:
+`parity3`'s and the student's holdout imitation loss at 0 slots within
+0.05 of each other (the base policy intact); the student's at 64 slots no
+higher than `parity3`'s at 0 slots plus 0.05 (the memory may lose what it
+predicted of humans, which is the expected price, but not break the
+policy); on held-out own trajectories the student's agreement with its
+target, read at the decode, above `parity3`'s at 64 slots (0.749 in turns 6
+and later); and the replay of the own trajectories reproducing at least
+95% of the recorded decisions in turns 6 and later (the evidence that the
+student's memory is carried as the player's was).
 
 ## Predictions (the lead's)
 
@@ -100,3 +108,13 @@ minutes); encoding the own trajectories and their targets (a GPU pass of
 about 1.5 million forwards, about 10 minutes); the pass, about 2 million
 positions at 4.24 ms each (`parity3`'s hold pass 1), about 2.4 hours; two
 matches, about 35 minutes. About 3.5 box-hours, $1.5-2.2 at $0.42-0.63/h.
+
+## Decision record
+
+- Revised 2026-10-11, before any run, after the code review: the barrier
+  on the 64-slot holdout loss was within 0.05 of `parity3`'s at 64 slots;
+  a student that stops leaning on its memory loses up to the memory's gain
+  on human labels (`parity2`: 0.08 between 64 and 0 slots), so that barrier
+  would have stopped the run on the outcome it looks for. It now bounds the
+  64-slot loss by the 0-slot one. The own loss's weight (1 per position),
+  left unstated, is stated; the replay barrier is added.
