@@ -7,6 +7,7 @@ read the init checkpoint."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -37,7 +38,10 @@ def _bash(script: str) -> str:
     PATH and the POSIX tools after it (Git's bash on Windows starts without
     them)."""
     script = f'export PATH="{bash_path(Path(sys.executable).parent)}:/usr/bin:$PATH"\n{script}'
-    out = subprocess.run([BASH, "-c", script], capture_output=True, text=True, cwd=ROOT, timeout=120)
+    # The round variables are left out of the environment: on a box the running
+    # script has exported its own, which a preset keeps over its defaults.
+    env = {k: v for k, v in os.environ.items() if k not in PRESET_VARS + ("ROUND",)}
+    out = subprocess.run([BASH, "-c", script], capture_output=True, text=True, cwd=ROOT, timeout=120, env=env)
     assert out.returncode == 0, out.stderr
     return out.stdout
 
@@ -155,3 +159,12 @@ def test_the_barriers_read_the_init_checkpoint(tmp_path, monkeypatch):
     assert own_barriers.main(["--student", str(tmp_path / "student.pt"), "--init", str(tmp_path / "own1.pt"),
                               "--own-sequences", str(tmp_path), "--probes", str(probes), "--out", str(out),
                               "--offset", "-1.5", "--device", "cpu"]) == own_barriers.EXIT_BARRIER
+
+
+@needs_bash
+def test_a_preset_ignores_the_round_variables_of_the_calling_environment(monkeypatch):
+    """On a box the running script has exported round 2's HF_DIR; reading
+    round 1's preset there must still give round 1's."""
+    monkeypatch.setenv("HF_DIR", "tier-b/memory_own_round2_20261011")
+    monkeypatch.setenv("ROUND", "2")
+    assert preset(1)["HF_DIR"] == "tier-b/memory_own_trajectories_20261011"
