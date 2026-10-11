@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import random
 from dataclasses import dataclass
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # The memory sizes a game-side trains at and their weights: 1/8 each for
 # 0, 8, 16 and 32 slots, 1/2 for all 64 (the design's "Sizes").
@@ -77,13 +77,19 @@ class StreamSchedule:
     number of decisions; a game-side without any is passed over."""
 
     def __init__(self, order: Sequence[GameSide], lengths: Dict[GameSide, int], n_streams: int,
-                 seed: int):
+                 seed: int, k: Optional[int] = None, slot_offset: int = 0):
         if n_streams < 1:
             raise ValueError(f"n_streams must be at least 1, got {n_streams}")
         self.order = [g for g in order if lengths.get(g, 0) > 0]
         self.lengths = {g: int(lengths[g]) for g in self.order}
         self.seed = int(seed)
         self.n_streams = int(n_streams)
+        # Every game-side at `k` slots (the memory player's own game-sides,
+        # played at one size), else the nested-dropout draw.
+        self.k = None if k is None else int(k)
+        # The trainer's slot numbers of this schedule's slots start here
+        # (a second schedule's slots follow the first's).
+        self.slot_offset = int(slot_offset)
         self.next_index = 0
         self.slots: List[Tuple[int, int]] = [(-1, 0)] * self.n_streams   # (order index, offset)
 
@@ -111,8 +117,9 @@ class StreamSchedule:
                 if index < 0:
                     continue
                 g = self.order[index]
-                steps.append(Step(slot=s, game_side=g, offset=offset,
-                                  k=memory_size(self.seed, g), starts=offset == 0))
+                k = memory_size(self.seed, g) if self.k is None else self.k
+                steps.append(Step(slot=self.slot_offset + s, game_side=g, offset=offset, k=k,
+                                  starts=offset == 0))
                 offset += 1
                 self.slots[s] = (-1, 0) if offset >= self.lengths[g] else (index, offset)
             if not steps:
@@ -138,3 +145,12 @@ class StreamSchedule:
                              f"{self.seed}, {len(self.order)})")
         self.next_index = int(state["next_index"])
         self.slots = [(int(i), int(o)) for i, o in state["slots"]]
+
+
+def merge_windows(*windows: List[List[Step]]) -> List[List[Step]]:
+    """The time steps of several schedules' windows side by side: step t
+    holds each schedule's slots at its step t, in the order given (a
+    schedule that ran out adds nothing). Two schedules of equal slot
+    counts give every step equal numbers of their positions."""
+    n = max((len(w) for w in windows), default=0)
+    return [[s for w in windows if t < len(w) for s in w[t]] for t in range(n)]

@@ -37,8 +37,10 @@ class StepLabels:
 
 @dataclass(frozen=True)
 class GameFacts:
-    """What the losses read of a game: its winning side, its commands and
-    its policy weight (the per-game weight of `obs8`'s recipe)."""
+    """What the losses read of a game: its winning side (0 when it ended
+    without one), its commands and its policy weight (the per-game weight
+    of `obs8`'s recipe; 0 for the memory player's own games, whose policy
+    target is the teacher's distribution, `wesnoth_ai.own_loss`)."""
     winner: int
     n_commands: int
     policy_weight: float
@@ -68,7 +70,10 @@ def step_labels(positions: Sequence, steps: Sequence[Step], sizes: Sequence[Tupl
         facts = games[step.game_side.file]
         won = step.game_side.side == facts.winner
         p = min(1.0, value_states_per_game / max(1, facts.n_commands))
-        vw = value_weight if value_selected(seed, step.game_side, step.offset, p) else 0.0
+        # A game that ended without a winner (a match game cut at its turn
+        # cap) has no outcome to train the value on.
+        decided = facts.winner != 0
+        vw = value_weight if decided and value_selected(seed, step.game_side, step.offset, p) else 0.0
         pw = facts.policy_weight if won and not timeout else 0.0
         ais.append(ai)
         zw.append((1 if won else -1, vw, pw))

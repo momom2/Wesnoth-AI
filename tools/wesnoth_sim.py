@@ -371,6 +371,57 @@ def _recruit_cost_for(unit_type: str) -> int:
         return 14
 
 
+def attack_hex(gs: GameState, attacker, target) -> Optional[Position]:
+    """Pick a hex the attacker can move to and attack `target` from.
+
+    Returns the chosen attack hex (a neighbor of `target` the
+    attacker can LAND on this turn, per the shared
+    observable-state planner), or None if no such hex exists.
+
+    Why this helper: the policy emits attack actions with
+    `start_hex = unit's current position`. When `start_hex` isn't
+    adjacent to `target`, Wesnoth's replay engine rejects the
+    bare `[attack]` command (battle_context disables out-of-range
+    weapons; the attack handler then returns without consuming the
+    [random_seed] follow-up, and the next outer-loop iteration
+    errors with "found dependent command in replay while
+    is_synced=false"). So before recording an [attack], we have to
+    emit an explicit [move] putting the attacker on a neighbor of
+    the target hex -- mirroring what Wesnoth's UI does when the
+    player clicks an enemy from a non-adjacent unit.
+
+    Knowledge level: the plan runs on the ACTING SIDE'S
+    OBSERVABLE state (tools/pathfind_sim.ReachContext), exactly
+    like a player's own attack order -- hidden units neither
+    block nor ZoC the approach; they resolve during the nested
+    move's execution walk (blocked/ambush truncation aborts the
+    attack, as in Wesnoth).
+
+    Choice among candidate hexes: minimal Wesnoth float cost
+    (MP + defense/ally subcosts, pathfind.cpp:815-820), i.e. the
+    cheapest approach preferring defensible terrain -- the same
+    preference order Wesnoth's own pathfinder applies.
+    """
+    from tools.abilities import hex_neighbors
+    from tools.pathfind_sim import ReachContext, unit_reach
+
+    target_neighbors = set(hex_neighbors(target.x, target.y))
+    ctx = ReachContext.for_side(
+        gs, attacker.side, exclude_unit=attacker)
+    reach = unit_reach(attacker, gs, ctx)
+    # The attacker's own hex is a free "landing" if already
+    # adjacent (defensive: callers normally handle that case).
+    if reach.start in target_neighbors:
+        return Position(x=reach.start[0], y=reach.start[1])
+    candidates = [
+        pos for pos in reach.landable if pos in target_neighbors
+    ]
+    if not candidates:
+        return None
+    best = min(candidates, key=lambda pos: reach.cost[pos])
+    return Position(x=best[0], y=best[1])
+
+
 @dataclass
 class SimResult:
     """Outcome of a simulated game."""
@@ -996,55 +1047,8 @@ class WesnothSim:
         return h[:8]
 
     def _find_attack_hex(self, attacker, target) -> Optional[Position]:
-        """Pick a hex the attacker can move to and attack `target` from.
-
-        Returns the chosen attack hex (a neighbor of `target` the
-        attacker can LAND on this turn, per the shared
-        observable-state planner), or None if no such hex exists.
-
-        Why this helper: the policy emits attack actions with
-        `start_hex = unit's current position`. When `start_hex` isn't
-        adjacent to `target`, Wesnoth's replay engine rejects the
-        bare `[attack]` command (battle_context disables out-of-range
-        weapons; the attack handler then returns without consuming the
-        [random_seed] follow-up, and the next outer-loop iteration
-        errors with "found dependent command in replay while
-        is_synced=false"). So before recording an [attack], we have to
-        emit an explicit [move] putting the attacker on a neighbor of
-        the target hex -- mirroring what Wesnoth's UI does when the
-        player clicks an enemy from a non-adjacent unit.
-
-        Knowledge level: the plan runs on the ACTING SIDE'S
-        OBSERVABLE state (tools/pathfind_sim.ReachContext), exactly
-        like a player's own attack order -- hidden units neither
-        block nor ZoC the approach; they resolve during the nested
-        move's execution walk (blocked/ambush truncation aborts the
-        attack, as in Wesnoth).
-
-        Choice among candidate hexes: minimal Wesnoth float cost
-        (MP + defense/ally subcosts, pathfind.cpp:815-820), i.e. the
-        cheapest approach preferring defensible terrain -- the same
-        preference order Wesnoth's own pathfinder applies.
-        """
-        from tools.abilities import hex_neighbors
-        from tools.pathfind_sim import ReachContext, unit_reach
-
-        target_neighbors = set(hex_neighbors(target.x, target.y))
-        ctx = ReachContext.for_side(
-            self.gs, attacker.side, exclude_unit=attacker)
-        reach = unit_reach(attacker, self.gs, ctx)
-        # The attacker's own hex is a free "landing" if already
-        # adjacent (defensive: callers normally handle that case).
-        if reach.start in target_neighbors:
-            return Position(x=reach.start[0], y=reach.start[1])
-        candidates = [
-            pos for pos in reach.landable if pos in target_neighbors
-        ]
-        if not candidates:
-            return None
-        best = min(candidates, key=lambda pos: reach.cost[pos])
-        return Position(x=best[0], y=best[1])
-
+        """`attack_hex` on the simulator's state."""
+        return attack_hex(self.gs, attacker, target)
 
     def _refused(self, action: dict, kind: str) -> bool:
         """A refused action. The caller re-decides (`last_step_rejected`,
