@@ -101,8 +101,11 @@ cost 37 +- 12). Root-caused 2026-10-11
 end_turn offset recovers 65 of the 105 Elo, the rest is the choice of
 actions; the memory, trained only to predict a human from that human's
 history, continues its own history's patterns in play (causal confusion
-of history-conditioned imitation). The remedy is training on its own
-trajectories.
+of history-conditioned imitation). Round 1 of training on its own
+trajectories (2026-10-11, docs/memory_own_trajectories_prereg_20261011.md)
+brings the 64-slot player level with `parity3` at 0 slots (-4.3 +- 12.3)
+and the tuned network at 0 slots above it (+37.4 +- 12.3), pending
+confirmation.
 Budget (user, 2026-10-09): about $100 on Vast for the foreseeable future;
 the lead decides runs, a costly one only when confident it pays.
 

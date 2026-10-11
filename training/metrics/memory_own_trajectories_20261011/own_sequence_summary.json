@@ -1,0 +1,23 @@
+{
+ "games": 4455,
+ "train_positions": 1324483,
+ "holdout_positions": 78496,
+ "repro": 1386174,
+ "repro_late": 1141560,
+ "agree": 993198,
+ "agree_late": 791050,
+ "approach_merged": 556,
+ "decisions": 1404867,
+ "decisions_late": 1157009,
+ "approach_pairs": 140145,
+ "candidates": 1405423,
+ "game_sides": 5475,
+ "positions_side1": 710589,
+ "positions": 1402979,
+ "game_sides_kept": 5472,
+ "approach_neither_legal": 0,
+ "positions_side2": 692390,
+ "dropped: forward count mismatch": 3,
+ "forward_count_off_by": 3,
+ "positions_dropped": 1888
+}

@@ -24,7 +24,16 @@ $1.47 in all):
   turns four times as often. The memory was only ever trained to predict a
   human from that human's history, never on the consequences of its own
   play (causal confusion of history-conditioned imitation). The remedy is
-  training on its own trajectories; the next experiment designs it.
+  training on its own trajectories. **Round 1 measured 2026-10-11**
+  (docs/memory_own_trajectories_prereg_20261011.md "Measured", $2.1): a
+  fine-tune on 5,472 of its own recorded game-sides toward its memoryless
+  reading, mixed with the human corpus. The tuned checkpoint at 64 slots
+  ties `parity3` at 0 slots (-4.3 +- 12.3, it lost by 105.5), and at 0
+  slots beats it by +37.4 +- 12.3: training on its own games made the
+  network stronger, and the memory's cost against its own 0-slot reading
+  fell from 105 to about 42. Next: confirm both on fresh seeds and measure
+  the tuned checkpoint against the reference directly; the confirmation
+  games are round 2's own trajectories.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic
