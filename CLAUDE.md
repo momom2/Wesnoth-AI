@@ -72,17 +72,21 @@ rules; its phase 1 is closed.
 
 ### The reference player
 
-`parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
-2026-10-04): HF `tier-b/imitation_anneal_20261003/lower.pt`, local
-`training/checkpoints/parity3.pt`, pinned in
-`configs/reference_player.json`. It is imitation-trained
-(`tools/sequence_train.py` under the anneal rule,
+`own1` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted by the
+lead 2026-10-11 under the user's delegation): HF
+`tier-b/memory_own_trajectories_20261011/own.pt`, local
+`training/checkpoints/own1.pt`, pinned in `configs/reference_player.json`.
+It is `parity3` fine-tuned on its own recorded games toward its memoryless
+reading, mixed with the human corpus
+(docs/memory_own_trajectories_prereg_20261011.md); `parity3` itself was
+imitation-trained (`tools/sequence_train.py` under the anneal rule,
 docs/imitation_anneal_prereg_20261003.md). Its lineage, each step an
 800-decisive-game match under the observation of its day (Elo does not
 chain across observation epochs):
 
 | reference | adopted | over its predecessor |
 |---|---|---|
+| `own1` | 2026-10-11 | +88.6 +- 12.7 over `parity3`: trained on its own games, the memory's cost in play cut from 105 to about 22 Elo |
 | `parity3` | 2026-10-04 | +82 +- 13 over `parity2` |
 | `parity2` | 2026-10-02 | +191 +- 14 over `obs8`: the network observes what a player sees, and a 64-slot memory carries it from decision to decision |
 | `obs8` | 2026-09-25 | +73 +- 13 over `terrain`: the same recipe on the corrected observation |
@@ -90,7 +94,7 @@ chain across observation epochs):
 | `relset` | 2026-09-11 | +56 +- 12 over seed2's one-pass checkpoint: the relevant-set basis |
 | seed2 | 2026-09-11 | +33 +- 12 over the original imitation seed |
 
-Measured 2026-10-09 (docs/parity3_baselines_prereg_20261008.md): its
+Measured 2026-10-09 (docs/parity3_baselines_prereg_20261008.md): `parity3`'s
 self-pin reads -2.6 +- 12.3 Elo, and **the same checkpoint at 0 slots beats
 it by +105.5 +- 12.8 Elo** (16 slots play as 64); the memory player acts
 less per side-turn and stalls to the turn cap more. Whether the reference
@@ -103,9 +107,11 @@ actions; the memory, trained only to predict a human from that human's
 history, continues its own history's patterns in play (causal confusion
 of history-conditioned imitation). Round 1 of training on its own
 trajectories (2026-10-11, docs/memory_own_trajectories_prereg_20261011.md)
-brings the 64-slot player level with `parity3` at 0 slots (-4.3 +- 12.3)
-and the tuned network at 0 slots above it (+37.4 +- 12.3), pending
-confirmation.
+brings the 64-slot player level with `parity3` at 0 slots (-4.3 +- 12.3);
+confirmed on fresh seeds (docs/own_confirm_prereg_20261011.md): +88.6 +-
+12.7 over `parity3` at 64 slots, the memory costing it about 22 Elo against
+its own 0-slot reading (-21.7 +- 12.3), its 0-slot reading +22.6 +- 12.3
+over `parity3`'s (+37.4 in round 1).
 Budget (user, 2026-10-09): about $100 on Vast for the foreseeable future;
 the lead decides runs, a costly one only when confident it pays.
 
@@ -187,8 +193,8 @@ default AI with the simulator mirroring the engine's log
 ### Standing rulings
 
 Standing rules (full list in the plan): the reference player is
-`parity3` at `raw:t0+eo-1.5` with its memory at 64 slots (user ruling
-2026-10-04; one checkpoint, its memory and one decode, all in
+`own1` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted
+2026-10-11; one checkpoint, its memory and one decode, all in
 `configs/reference_player.json`, which
 `tools/reference_player.py --flags b` turns into run_elo_batch flags);
 every strength claim is a PURE match against it with the standard

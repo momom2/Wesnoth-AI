@@ -51,3 +51,30 @@ within one standard error of 0.
 Bring-up and tests about 15 minutes, four matches of 11 to 13 minutes
 (round 1's: 699 and 654 s for 800 games, none capped), the final upload a
 few minutes: about 1.2 box-hours, $0.50-0.76 at $0.42-0.63/h; BOX_MAX_H 2.5.
+
+## Measured (2026-10-11)
+
+Box 55438108 (RTX 4090, EPYC 7702, $0.427/h), stage
+`tier-b/staging/stage_20261011_confirm.tar.gz`, 19:49 to 20:45 UTC, about
+$0.45; records in `training/metrics/own_confirm_20261011/`, games on HF
+`tier-b/own_confirm_20261011/`. 800 decisive games each, at most 7 capped:
+
+| match | Elo of side A | prediction |
+|---|---|---|
+| C1, tuned at 0 slots against `parity3` at 0 | +22.6 +- 12.3 | +30 |
+| C2, tuned at 64 against `parity3` at 64 (the reference) | **+88.6 +- 12.7** | +95 |
+| C3, tuned at 64 against tuned at 0 | -21.7 +- 12.3 | -40 |
+| C4, tuned at 64 against itself | -6.9 +- 12.3 | within one SE of 0 |
+
+- **C1 does not confirm the gain at its bar** (1.8 standard errors against
+  the 2 required). Round 1's M2 read +37.4 +- 12.3 on other seeds; the two
+  together are about +30 +- 9, a pooling not pre-registered. The direction
+  holds; its size is uncertain.
+- **C2 clears +25:** the tuned checkpoint at 64 slots beats the reference
+  by 88.6 Elo, in line with the chain through `parity3` at 0 slots (-4.3 +
+  105.5). It is adopted as the reference `own1` (lead's decision under the
+  user's delegation of 2026-10-09; configs/reference_player.json).
+- **C3:** within the tuned weights the memory costs about 22 Elo (it cost
+  `parity3` 105.5): round 2's target.
+- C4 sits within one standard error of 0. Its games and the 64-slot sides
+  of C2 and C3 are 3,200 game-sides of the tuned player's own play.
