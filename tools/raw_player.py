@@ -47,7 +47,9 @@ KIND_OF_TYPE = {"attack": KIND_ATTACK, "move": KIND_MOVE, "recruit": KIND_RECRUI
                 "end_turn": KIND_END_TURN}
 # Attacks whose time of day the slope could not read (no unit of the side
 # on the attack's hex, no hex to strike from, a hex off the core's map):
-# they get modifier 0, are counted here, and the first one is logged.
+# they get modifier 0 and are counted here, by reason, for the process (the
+# first one logged) and on the player that asked (`RawPolicyPlayer.tod_unread`,
+# which a match records per game).
 TOD_UNREAD: Dict[str, int] = {}
 
 log = logging.getLogger("raw_player")
@@ -102,22 +104,25 @@ def shift_by_logits(priors: np.ndarray, logits: np.ndarray) -> np.ndarray:
     return out / total
 
 
-def _tod_unread(reason: str, detail: str) -> None:
+def _tod_unread(reason: str, detail: str, unread: Optional[Dict[str, int]]) -> None:
     if not TOD_UNREAD:
         log.warning("the attack time-of-day slope reads 0 for an attack: %s (%s); "
                     "counted in raw_player.TOD_UNREAD", reason, detail)
-    TOD_UNREAD[reason] = TOD_UNREAD.get(reason, 0) + 1
+    for counts in (TOD_UNREAD, unread):
+        if counts is not None:
+            counts[reason] = counts.get(reason, 0) + 1
 
 
-def attack_tod_modifiers(game_state, attacks: Sequence[Tuple[Tuple[int, int], Tuple[int, int]]]
-                         ) -> np.ndarray:
+def attack_tod_modifiers(game_state, attacks: Sequence[Tuple[Tuple[int, int], Tuple[int, int]]],
+                         unread: Optional[Dict[str, int]] = None) -> np.ndarray:
     """For each attack (the attacker's hex, the target's hex), the
     attacker's time-of-day damage modifier as a fraction (-0.25 to +0.25
     under the pool's schedules) at the hex it strikes from: the hex the
     simulator moves it to before the fight (`pathfind_sim.attack_hexes`,
     the side's observable reach), read from the core that answers for the
     state (`GameCore.combat_tod_modifier`: its alignment and fearless trait
-    under the illuminated time of day there, as the fight reads them)."""
+    under the illuminated time of day there, as the fight reads them).
+    An attack it cannot read is counted in TOD_UNREAD and `unread`."""
     from tools.pathfind_sim import attack_hexes
     from wesnoth_ai.game_core import core_for
     out = np.zeros(len(attacks), dtype=np.float64)
@@ -133,16 +138,16 @@ def attack_tod_modifiers(game_state, attacks: Sequence[Tuple[Tuple[int, int], Tu
         unit = units.get(start)
         if unit is None:
             for _ in ks:
-                _tod_unread("no unit of the side on the attack's hex", str(start))
+                _tod_unread("no unit of the side on the attack's hex", str(start), unread)
             continue
         strike = attack_hexes(game_state, unit, [attacks[k][1] for k in ks])
         for k, hexx in zip(ks, strike):
             if hexx is None:
-                _tod_unread("no hex to strike from", f"{start} -> {attacks[k][1]}")
+                _tod_unread("no hex to strike from", f"{start} -> {attacks[k][1]}", unread)
                 continue
             modifier = core.combat_tod_modifier(start[0], start[1], hexx[0], hexx[1])
             if modifier is None:
-                _tod_unread("a hex off the core's map", f"{start} -> {hexx}")
+                _tod_unread("a hex off the core's map", f"{start} -> {hexx}", unread)
                 continue
             out[k] = modifier / 100.0
     return out
@@ -230,6 +235,8 @@ class RawPolicyPlayer:
         self.attack_offset = float(attack_offset)
         self.recruit_offset = float(recruit_offset)
         self.attack_tod_slope = float(attack_tod_slope)
+        # The attacks whose time of day the slope could not read, by reason.
+        self.tod_unread: Dict[str, int] = {}
         # The continue-edit proposer of tools/turn_gap.py: keep acting
         # while any non-end action is legal (end_turn only when nothing
         # else is).
@@ -296,7 +303,8 @@ class RawPolicyPlayer:
         tod = None
         if self.attack_tod_slope:
             tod = np.zeros(len(kinds), dtype=np.float64)
-            tod[np.asarray(kinds) == KIND_ATTACK] = attack_tod_modifiers(game_state, attacks)
+            tod[np.asarray(kinds) == KIND_ATTACK] = attack_tod_modifiers(game_state, attacks,
+                                                                           self.tod_unread)
         return knob_logits(kinds, tod, self.attack_offset, self.recruit_offset,
                            self.attack_tod_slope)
 

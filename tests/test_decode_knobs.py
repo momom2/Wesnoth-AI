@@ -213,7 +213,11 @@ def test_the_slope_reads_the_hex_the_attack_strikes_from():
     lit = _view(units + [("Mage of Light", 1, *lamp, False)], tod=NIGHT, special=special)
     assert raw_player.attack_tod_modifiers(lit, [(start, target)]).tolist() == [0.0]
     assert core_for(lit).core.combat_tod_modifier(*start, *start) == -25      # unlit where it stands
-    # No unit on the hex, a hex off the map: no reading.
+    # An attack on the leader across the board has no hex to strike from:
+    # read as 0 and counted. No unit on the hex, a hex off the map: no reading.
+    unread = {}
+    assert raw_player.attack_tod_modifiers(lit, [(start, (19, 6))], unread).tolist() == [0.0]
+    assert unread == {"no hex to strike from": 1}
     assert core_for(lit).core.combat_tod_modifier(5, 5, *strike) is None
     assert core_for(lit).core.combat_tod_modifier(*start, 99, 99) is None
 

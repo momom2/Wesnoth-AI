@@ -494,6 +494,12 @@ def _build_player(spec: str, label: str, sims: int, device,
     return policy, counter
 
 
+def _tod_unread(player) -> Optional[int]:
+    """The attacks whose time of day a raw player's slope could not read."""
+    counts = getattr(player, "tod_unread", None)
+    return None if counts is None else int(sum(counts.values()))
+
+
 def _check_shared_inference_args(args, sims_a: int, sims_b: int) -> bool:
     """Whether this game plays through shared inference servers, after
     refusing the combinations that would mislabel the result: a
@@ -1125,8 +1131,11 @@ def main(argv) -> int:
         "raw_end_turn_b": args.raw_end_turn_b,
         "raw_end_turn_offset_a": args.raw_end_turn_offset_a,
         "raw_end_turn_offset_b": args.raw_end_turn_offset_b,
-        # The decode knobs (eval_procedure.RAW_KNOBS), also in the tags.
+        # The decode knobs (eval_procedure.RAW_KNOBS), also in the tags, and
+        # the attacks whose time of day the slope could not read (None: not
+        # a raw player).
         **raw_knob_fields(args),
+        "tod_unread_a": _tod_unread(pa), "tod_unread_b": _tod_unread(pb),
         # The horizon decides decisive-vs-absence, the quantity
         # the PURE fit is built on (round-24 C9).
         "max_turns": args.max_turns,
