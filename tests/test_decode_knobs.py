@@ -254,6 +254,7 @@ def test_the_knob_flags_round_trip_through_a_parser():
     import argparse
     ap = argparse.ArgumentParser()
     add_raw_knob_args(ap)
+    assert "--raw-attack-tod-slope-b" in ap.format_help()     # %-formatting renders the help
     knobs = {"attack_offset": -0.75, "recruit_offset": 0.0, "attack_tod_slope": 3.25}
     args = ap.parse_args(raw_knob_argv(knobs, "b"))
     assert raw_knobs_of(args, "b") == knobs and not any(raw_knobs_of(args, "a").values())

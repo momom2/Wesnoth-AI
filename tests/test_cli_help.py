@@ -80,6 +80,9 @@ def _offenders(text: str) -> List[str]:
 _UNREADABLE_HELP = {
     "tools/cleanup.py", "tools/net2net.py",
     "tools/run_elo_batch.py",
+    # The decode knobs' help (RAW_KNOB_HELP), rendered by
+    # tests/test_decode_knobs.py's format_help.
+    "tools/eval_procedure.py",
 }
 
 
