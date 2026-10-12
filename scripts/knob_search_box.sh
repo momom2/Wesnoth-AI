@@ -19,14 +19,15 @@
 #   the entry finishes NULL_ARM_SUSPECT; IGNORE_NULL_ARM=1 continues.
 #
 # Box: an RTX 4090 with at least 24 usable cores for the 20 workers
-# (docs/box_specs.md). Expected wall about 3.0 h: bring-up and tests about
-# 15 minutes; 7,200 decisive games at 0.87 to 1.38 s a game (800-decisive
+# (docs/box_specs.md). Expected wall 2.4 to 3.4 h: bring-up and tests about
+# 15 minutes; 7,200 decisive games at 0.87 to 1.34 s a game (800-decisive
 # matches of own1 at 64 slots took 692 to 1,070 s on 2026-10-11,
 # training/metrics/own_confirm_20261011 and memory_own_round2_20261011),
-# 1.7 to 2.8 h; about 40 s to bring up each of the 35 matches' servers and
+# 1.7 to 2.7 h; an estimated 40 s to bring up each of the 35 matches' servers and
 # workers, 0.4 h; the final upload a few minutes. Cost at $0.42-0.63 an
-# hour: $1.2-1.9 expected; BOX_MAX_H 4 caps it at $1.7-2.5 plus the final
-# round. A cut entry resumes on re-entry: the driver reads every count
+# hour: $1.0-2.1 expected; BOX_MAX_H 4 caps it at $1.7-2.5 plus the final
+# round. Identical match repeats have differed by 1.8x, which would pass
+# the switch: a cut entry resumes on re-entry, the driver reading every count
 # from the games directories. In walls.txt a stage's step that leaves more
 # of its stage to play reads rc=10 (the driver's "one match done").
 #
