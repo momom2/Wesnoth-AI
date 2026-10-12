@@ -1,0 +1,1 @@
+own1_eo25_vs_own1: 793 s, 800 games, 800 decisive, rc=0 ok

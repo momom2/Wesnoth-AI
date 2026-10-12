@@ -80,3 +80,34 @@ About 966 x 8 rollouts of about four half-turns, 300,000 decisions through
 the shared inference server (550 to 3,200 a second): 2 to 10 minutes; the
 match about 15 minutes; bring-up and tests about 15. About 45 minutes,
 $0.20-0.30. BOX_MAX_H 2.
+
+## Measured (2026-10-12)
+
+Box 55527865 (RTX 4090, EPYC 7V13, $0.459/h), stage
+`tier-b/staging/stage_20261012_regrade.tar.gz` (commit 0eac275 of
+`exp/rollout-regrade`), 09:13 to 09:38 UTC, about $0.2; records in
+`training/metrics/rollout_regrade_20261012/` (`readout.md`, `readout.json`,
+`rollouts.jsonl`, the match's fit). All 966 candidates graded, 7,728
+rollouts and 337,025 decisions in 540 s on 28 workers, no failure.
+
+**Reading: Fail.** The primary grader, the HP margin at read 2 from the
+mover's own view, selects -0.002 +- 0.018 over the base turn on the
+luck-adjusted truth (predicted +0.030; the same grader on the true state
+read +0.049 +- 0.017). It picks the "continue" edit at 36 of 198 positions,
+and without those -0.002 +- 0.021. Its within-position correlation, 0.317
++- 0.054, is below the static HP margin's 0.380. The other readings, not
+judged: the HP margin at read 4 +0.006 +- 0.017, the value head at read 2
++0.027 +- 0.019, at read 4 +0.003 +- 0.016.
+
+**The offset match:** `own1` at end_turn offset -2.5 against `own1` at
+-1.5, -12.2 +- 12.3 Elo over 800 decisive games: the reference decode
+stays at -1.5.
+
+**What it says.** Three measurements now agree: critics that see the true
+state rank candidate turns better than material and the fair ones do not
+(step 1), and rollouts gain on the true state and not from the mover's own
+view (here). What ranks a position in this game, at these depths, is where
+the units the mover cannot see stand. As pre-registered, no rollout teacher
+is built; the next evaluator is a belief over the hidden units: worlds
+sampled from what the side has seen and from the network's belief head,
+with the rollouts and the critics re-read on them.

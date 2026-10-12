@@ -48,7 +48,16 @@ $1.47 in all):
   advantage was mostly the value head). Next: the rollout evaluator (Q5),
   step A pre-registered (docs/rollout_regrade_prereg_20261012.md): the turn
   benchmark re-graded by rollouts from the mover's own view, with an
-  end_turn offset match for `own1`, about $0.3.
+  end_turn offset match for `own1`, about $0.3. **Measured 2026-10-12:
+  Fail** (docs/rollout_regrade_prereg_20261012.md "Measured"): -0.002 +-
+  0.018 against +0.049 on the true state; `own1` at offset -2.5 -12.2 +-
+  12.3, the decode stays. With step 1 it says the hidden units are what
+  makes a position rankable: the next evaluator is a belief over them.
+  Building meanwhile (user, 2026-10-12): the decode knobs tuned against
+  matches (docs/decode_knobs_prereg_20261012.md) and the look-ahead's
+  material evaluator fixed for gold and exposure
+  (docs/exposure_evaluator_prereg_20261012.md); the tactical engine waits
+  for a design discussion with the user.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

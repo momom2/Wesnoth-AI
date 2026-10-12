@@ -1,0 +1,9 @@
+2026-10-12T09:15:35Z tests rc=0 ok 55 s
+2026-10-12T09:15:46Z inputs rc=0 ok 11 s
+2026-10-12T09:15:51Z reference rc=0 ok 4 s
+2026-10-12T09:15:54Z gpu check rc=0 ok 3 s
+2026-10-12T09:24:54Z regrade rc=0 ok 540 s
+2026-10-12T09:24:55Z readout rc=0 ok 1 s
+2026-10-12T09:24:57Z gpu check rc=0 ok 2 s
+2026-10-12T09:38:10Z match own1_eo25_vs_own1 rc=0 ok 793 s
+2026-10-12T09:38:12Z fit own1_eo25_vs_own1 rc=0 ok 2 s

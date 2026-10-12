@@ -1,0 +1,13 @@
+Mon Oct 12 09:38:12 UTC 2026
+regrade: REGRADE_DONE; readout: READING Fail; match: fitted
+rollouts.jsonl: 971 candidate records
+own1_eo25_vs_own1: 793 s, 800 games, 800 decisive, rc=0 ok
+own1_eo25_vs_own1: 800 games
+
+==> /workspace/rolloutregrade/tests.log <==
+SKIPPED [1] tests/test_vision.py:121: wesnoth_src/data/core/units is not in this checkout
+103 passed, 1 skipped in 54.02s
+
+==> /workspace/rolloutregrade/upload.log <==
+2026-10-12T09:25:07Z periodic round: 6 sent, 16 unchanged, 0 failed
+2026-10-12T09:25:08Z upload.log 3114 ok 0 s 7 kB/s

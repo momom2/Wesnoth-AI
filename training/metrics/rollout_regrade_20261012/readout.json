@@ -1,0 +1,330 @@
+{
+ "reading": {
+  "reading": "Fail",
+  "why": "the gain is not above 0 by 2 SE; margin_r2: selection gain -0.002 +- 0.018 over 198 positions; 36 of 198 picks the continue edit, gain without them -0.002 +- 0.021 over 162 positions",
+  "pass_bar": 2.0
+ },
+ "statistics": {
+  "adjusted": {
+   "correlations": {
+    "clusters": 199,
+    "rows": 966,
+    "graders": {
+     "hp_margin": {
+      "corrected": 0.38045701678274485,
+      "corrected_se": 0.09686593023202097,
+      "reliability": 0.5110511532930206
+     },
+     "margin_r2": {
+      "corrected": 0.3165630130545302,
+      "corrected_se": 0.053835902960097576,
+      "reliability": 0.5110511532930206
+     },
+     "margin_r4": {
+      "corrected": 0.30162916548199414,
+      "corrected_se": 0.05140849547165263,
+      "reliability": 0.5110511532930206
+     },
+     "value_r2": {
+      "corrected": 0.3046552685803934,
+      "corrected_se": 0.05412751292306438,
+      "reliability": 0.5110511532930206
+     },
+     "value_r4": {
+      "corrected": 0.3087000022906904,
+      "corrected_se": 0.051650604782748744,
+      "reliability": 0.5110511532930206
+     }
+    },
+    "differences": {
+     "margin_r2-hp_margin": {
+      "mean": -0.06389400372821463,
+      "se": 0.09042721319408215
+     },
+     "margin_r4-hp_margin": {
+      "mean": -0.0788278513007507,
+      "se": 0.10015762984561012
+     },
+     "value_r2-hp_margin": {
+      "mean": -0.07580174820235147,
+      "se": 0.08327769568594295
+     },
+     "value_r4-hp_margin": {
+      "mean": -0.07175701449205446,
+      "se": 0.08688073033614938
+     }
+    }
+   },
+   "gains": {
+    "positions": 198,
+    "graders": {
+     "hp_margin": {
+      "mean": -0.009882066890242685,
+      "se": 0.017460375302522393
+     },
+     "margin_r2": {
+      "mean": -0.00247020968521193,
+      "se": 0.01833543971094517
+     },
+     "margin_r4": {
+      "mean": 0.005505123081194436,
+      "se": 0.017113720691351635
+     },
+     "value_r2": {
+      "mean": 0.027212094760012552,
+      "se": 0.01863679960868086
+     },
+     "value_r4": {
+      "mean": 0.0027200985346898495,
+      "se": 0.01573138798720902
+     }
+    },
+    "differences": {
+     "margin_r2-hp_margin": {
+      "mean": 0.007411857205030753,
+      "se": 0.017409465537141237
+     },
+     "margin_r4-hp_margin": {
+      "mean": 0.015387189971437124,
+      "se": 0.019286752280022083
+     },
+     "value_r2-hp_margin": {
+      "mean": 0.03709416165025524,
+      "se": 0.01933706778398951
+     },
+     "value_r4-hp_margin": {
+      "mean": 0.01260216542493254,
+      "se": 0.018071169948988518
+     }
+    }
+   },
+   "tempo": {
+    "hp_margin": {
+     "positions": 198,
+     "continue_picks": 6,
+     "continue_share": 0.030303030303030304,
+     "gain_without_continue": {
+      "mean": -0.010883506376067961,
+      "se": 0.018389819095170373,
+      "positions": 192
+     }
+    },
+    "margin_r2": {
+     "positions": 198,
+     "continue_picks": 36,
+     "continue_share": 0.18181818181818182,
+     "gain_without_continue": {
+      "mean": -0.002475678938619483,
+      "se": 0.0214844724008803,
+      "positions": 162
+     }
+    },
+    "margin_r4": {
+     "positions": 198,
+     "continue_picks": 43,
+     "continue_share": 0.21717171717171718,
+     "gain_without_continue": {
+      "mean": -0.001914208992094195,
+      "se": 0.019641758016089497,
+      "positions": 155
+     }
+    },
+    "value_r2": {
+     "positions": 198,
+     "continue_picks": 38,
+     "continue_share": 0.1919191919191919,
+     "gain_without_continue": {
+      "mean": 0.023549909255336638,
+      "se": 0.02099002757006887,
+      "positions": 160
+     }
+    },
+    "value_r4": {
+     "positions": 198,
+     "continue_picks": 25,
+     "continue_share": 0.12626262626262627,
+     "gain_without_continue": {
+      "mean": -0.0030369079960444103,
+      "se": 0.016684923653631712,
+      "positions": 173
+     }
+    }
+   }
+  },
+  "raw": {
+   "correlations": {
+    "clusters": 199,
+    "rows": 966,
+    "graders": {
+     "hp_margin": {
+      "corrected": 0.4605917337056986,
+      "corrected_se": 0.08443738369075324,
+      "reliability": 0.4958398533373315
+     },
+     "margin_r2": {
+      "corrected": 0.3441046346966354,
+      "corrected_se": 0.051282966247956474,
+      "reliability": 0.4958398533373315
+     },
+     "margin_r4": {
+      "corrected": 0.33037032579539205,
+      "corrected_se": 0.05034204305904985,
+      "reliability": 0.4958398533373315
+     },
+     "value_r2": {
+      "corrected": 0.3115522618381497,
+      "corrected_se": 0.05526963330466547,
+      "reliability": 0.4958398533373315
+     },
+     "value_r4": {
+      "corrected": 0.31928910883659545,
+      "corrected_se": 0.05130087155790308,
+      "reliability": 0.4958398533373315
+     }
+    },
+    "differences": {
+     "margin_r2-hp_margin": {
+      "mean": -0.11648709900906323,
+      "se": 0.082156322582381
+     },
+     "margin_r4-hp_margin": {
+      "mean": -0.13022140791030656,
+      "se": 0.0925051119089469
+     },
+     "value_r2-hp_margin": {
+      "mean": -0.1490394718675489,
+      "se": 0.07713044311306957
+     },
+     "value_r4-hp_margin": {
+      "mean": -0.14130262486910317,
+      "se": 0.07936213798085975
+     }
+    }
+   },
+   "gains": {
+    "positions": 198,
+    "graders": {
+     "hp_margin": {
+      "mean": 0.011363636363636367,
+      "se": 0.01828440924392808
+     },
+     "margin_r2": {
+      "mean": 0.0055555555555555575,
+      "se": 0.01896617950333055
+     },
+     "margin_r4": {
+      "mean": 0.017676767676767676,
+      "se": 0.017712350126795028
+     },
+     "value_r2": {
+      "mean": 0.034090909090909095,
+      "se": 0.019689587557329306
+     },
+     "value_r4": {
+      "mean": 0.012373737373737377,
+      "se": 0.016756024064256365
+     }
+    },
+    "differences": {
+     "margin_r2-hp_margin": {
+      "mean": -0.0058080808080808125,
+      "se": 0.01836485334594628
+     },
+     "margin_r4-hp_margin": {
+      "mean": 0.006313131313131311,
+      "se": 0.020159352410057688
+     },
+     "value_r2-hp_margin": {
+      "mean": 0.022727272727272724,
+      "se": 0.02032556813534576
+     },
+     "value_r4-hp_margin": {
+      "mean": 0.0010101010101010088,
+      "se": 0.018745001278628853
+     }
+    }
+   },
+   "tempo": {
+    "hp_margin": {
+     "positions": 198,
+     "continue_picks": 6,
+     "continue_share": 0.030303030303030304,
+     "gain_without_continue": {
+      "mean": 0.011718750000000005,
+      "se": 0.019277224112312395,
+      "positions": 192
+     }
+    },
+    "margin_r2": {
+     "positions": 198,
+     "continue_picks": 36,
+     "continue_share": 0.18181818181818182,
+     "gain_without_continue": {
+      "mean": 0.00462962962962963,
+      "se": 0.02227458667190647,
+      "positions": 162
+     }
+    },
+    "margin_r4": {
+     "positions": 198,
+     "continue_picks": 43,
+     "continue_share": 0.21717171717171718,
+     "gain_without_continue": {
+      "mean": 0.008387096774193544,
+      "se": 0.020408764671967387,
+      "positions": 155
+     }
+    },
+    "value_r2": {
+     "positions": 198,
+     "continue_picks": 38,
+     "continue_share": 0.1919191919191919,
+     "gain_without_continue": {
+      "mean": 0.032499999999999994,
+      "se": 0.022468256684512977,
+      "positions": 160
+     }
+    },
+    "value_r4": {
+     "positions": 198,
+     "continue_picks": 25,
+     "continue_share": 0.12626262626262627,
+     "gain_without_continue": {
+      "mean": 0.006936416184971099,
+      "se": 0.017936282665890594,
+      "positions": 173
+     }
+    }
+   }
+  }
+ },
+ "records": {
+  "benchmark_candidates": 966,
+  "recorded": 966,
+  "complete": 966,
+  "failed": 0,
+  "continue_edits": 173
+ },
+ "rollouts_ended_by_read": {
+  "2": 0.04192546583850932,
+  "4": 0.08967391304347826
+ },
+ "primary": "margin_r2",
+ "static": "hp_margin",
+ "code_version": "0.19.4",
+ "truth": {
+  "playouts": "9-28",
+  "basis": "luck-adjusted (verdict beta)",
+  "beta": [
+   0.002837253861866259,
+   0.03137160142858194,
+   0.0026591795988232026,
+   0.023802965371854383
+  ]
+ },
+ "sources": {
+  "rollouts": "/workspace/rolloutregrade/rollouts.jsonl",
+  "static": "training/metrics/critic_step1_20261009/rebuild.jsonl",
+  "arrays": "/workspace/Wesnoth-AI/training/metrics/turn_value_20260925/bench_truth.npz"
+ }
+}
