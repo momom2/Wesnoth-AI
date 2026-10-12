@@ -62,7 +62,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Set, Tuple
 
 from wesnoth_ai.classes import PLAYER_SIDES, opponent_of
 
@@ -121,31 +121,76 @@ def build_world(sim, side: int, determinization: str, salt: str) -> World:
 def _observe(cs, side: int):
     """Turn the core `cs` into the observed world of `side` in place;
     returns the removed unit ids and the sides whose leader was removed."""
-    core = cs.core
+    hidden = hidden_units(cs.core, side)
+    remove_units(cs.core, hidden)
+    display_villages(cs, side)
+    set_economy(cs.core, opponent_of(side), *side_economy(cs.core, side))
+    refog_opponent(cs.core, side)
+    return [d["id"] for d in hidden], leader_sides(hidden)
+
+
+# ---------------------------------------------------------------------
+# The steps of a world built for one side: the observed world above, and
+# the belief worlds (wesnoth_ai/belief_worlds.py) compose them
+# ---------------------------------------------------------------------
+
+def hidden_units(core, side: int) -> List[dict]:
+    """The units of the other sides that `side` does not see
+    (`GameCore.visible_ids`), as the core exports them."""
     visible = set(core.visible_ids(side))
-    hidden = [d for d in core.units_export() if int(d["side"]) != side and d["id"] not in visible]
-    for d in hidden:
+    return [d for d in core.units_export() if int(d["side"]) != side and d["id"] not in visible]
+
+
+def remove_units(core, units) -> None:
+    for d in units:
         core.remove_unit(d["id"])
+
+
+def leader_sides(units) -> Set[int]:
+    """The sides whose leader is among `units`."""
+    return {int(d["side"]) for d in units if d["is_leader"]}
+
+
+def display_villages(cs, side: int) -> None:
+    """Villages owned as `side`'s display shows them: its own, and another
+    side's only on a hex it sees; every side's village count follows."""
+    core = cs.core
     seen = core.seen_export(side)
     index = cs.geometry().pos_index
     owners = [(int(x), int(y), int(s)) for x, y, s in core.village_owner_export()
               if int(s) == side or seen[index[(int(x), int(y))]]]
     core.set_village_owner(owners)
     count = Counter(s for _, _, s in owners)
-    sides = core.sides_export()
-    opp = opponent_of(side)
-    own_gold, own_income = sides[side - 1][2], sides[side - 1][3]
+    core.set_sides([(player, list(recruits), int(gold), int(income), int(count.get(k + 1, 0)), faction)
+                    for k, (player, recruits, gold, income, _villages, faction) in enumerate(core.sides_export())])
+
+
+def side_economy(core, side: int) -> Tuple[int, int]:
+    """(gold, base income) of `side`."""
+    row = core.sides_export()[side - 1]
+    return int(row[2]), int(row[3])
+
+
+def set_economy(core, side: int, gold: int, income: int) -> None:
+    """Set `side`'s gold and base income; its upkeep and income then follow
+    from its units and villages."""
     rows = []
-    for k, (player, recruits, gold, income, _villages, faction) in enumerate(sides):
-        if k + 1 == opp:
-            gold, income = own_gold, own_income
-        rows.append((player, list(recruits), int(gold), int(income), int(count.get(k + 1, 0)), faction))
+    for k, (player, recruits, g, b, villages, faction) in enumerate(core.sides_export()):
+        if k + 1 == side:
+            g, b = gold, income
+        rows.append((player, list(recruits), int(g), int(b), int(villages), faction))
     core.set_sides(rows)
+
+
+def refog_opponent(core, side: int) -> None:
+    """`side`'s opponent: its fog recomputed from its units of the world
+    and its sighting record emptied, so nothing a removed unit saw reaches
+    what the opponent observes."""
+    opp = opponent_of(side)
     if opp in PLAYER_SIDES:
         core.refog_side(opp)
         core.set_sightings(opp, [])
         core.set_sightings_gone(opp, [])
-    return [d["id"] for d in hidden], {int(d["side"]) for d in hidden if d["is_leader"]}
 
 
 # ---------------------------------------------------------------------

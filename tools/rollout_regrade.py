@@ -22,6 +22,23 @@ begun), the mover's observed world (wesnoth_ai/lookahead_world.py, the
 the mover does not see removed, the opponent's gold and base income set to
 the mover's.
 
+The belief worlds (`--world ARM`, docs/belief_worlds_prereg_20261012.md):
+the rollouts start instead from the world of the arm, built by
+wesnoth_ai/belief_worlds.py from the same state: `true`, `true_units`,
+`roster_belief`, `roster_uniform`, `last_seen` and `none`; `observed`, the
+default, is the world above. The estimated arms read the mover's gold and
+base income at its turn start from the position's boundary (after its
+init_side), `last_seen` the mover's sighting record before the candidate's
+end_turn, and `roster_belief` the belief head of the checkpoint at 0 memory
+slots there, one forward per candidate: on each worker's own CPU copy of
+the checkpoint, since the shared server returns no belief (with
+`--workers 0`, on the local copy that plays). Every record names its
+world, and each rollout counts what the world did with the opponent's
+hidden units (`placement`). An arm's records go to their own files
+(`rollouts_<ARM>.jsonl`, `regrade_summary_<ARM>.json`; the observed world
+keeps `rollouts.jsonl`), so the arms can share an out dir; a file holding
+another world's records is refused.
+
 The rollouts. ROLLOUTS per candidate, both sides the checkpoint at 0 memory
 slots at raw:t0.5+eo-1.5, to the READS[-1]-th player turn start after the
 candidate or the game's end. Read k is the k-th player turn start after the
@@ -36,7 +53,9 @@ position's.
 
 Seeds. Rollout r of candidate (position i, slot c) draws its dice from the
 world salt "regrade:<seed>:p<i>:c<c>:r<r>"; side s samples with numpy seed
-crc32(salt) + s - 1. Both are recorded with each rollout.
+crc32(salt) + s - 1. Both are recorded with each rollout. The salts are the
+same in every world; a world's placement draws from its own stream
+(belief_worlds.placement_rng).
 
 Parallel play. One inference server (tools/eval_inference_server.py, the
 eval path's) holds the checkpoint; each of --workers spawned processes
@@ -75,6 +94,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from tools.rollout_worlds import ArmInputs, arm_inputs, inputs_record, out_files, record_world, world_inputs  # noqa: E402
+from wesnoth_ai.belief_worlds import ARMS  # noqa: E402
 from wesnoth_ai.classes import PLAYER_SIDES  # noqa: E402
 
 log = logging.getLogger("rollout_regrade")
@@ -193,15 +214,18 @@ def value_reader(pairs: Dict[int, object], mover: int) -> Callable[[object], flo
 
 
 def run_rollout(post_sim, mover: int, base, counter, cfg: RolloutConfig, index: int, slot: int,
-                r: int) -> Dict:
-    """Rollout r of candidate (index, slot): its record, or its error."""
+                r: int, world_name: str = "observed", inputs: Optional[Dict] = None) -> Dict:
+    """Rollout r of candidate (index, slot) in the world `world_name` built
+    with `inputs` (world_inputs): its record, or its error."""
+    from wesnoth_ai.belief_worlds import build_arm_world
     salt = rollout_salt(cfg.seed, index, slot, r)
     rec: Dict = {"r": r, "salt": salt, "seeds": [sampling_seed(salt, s) for s in PLAYER_SIDES]}
     label = f"rg{index}c{slot}r{r}"
     forwards, fwd_secs, t0 = counter.n_forwards, counter.fwd_secs, time.perf_counter()
     pairs = {}
     try:
-        world = mover_world(post_sim, mover, salt)
+        world, placement = build_arm_world(post_sim, mover, world_name, salt, **(inputs or {}))
+        rec["placement"] = placement.record()
         pairs = rollout_pairs(base, cfg, salt)
         rec.update(play_rollout(world.sim, pairs, mover, cfg.reads, value_reader(pairs, mover), label))
         rec["removed"] = len(world.removed_ids)
@@ -232,14 +256,16 @@ def step1_problem(row: Dict, step1_row: Optional[Dict]) -> Optional[str]:
 
 
 def candidate_record(boundary, record: Dict, slot: int, base, counter, cfg: RolloutConfig,
-                     step1_row: Optional[Dict]) -> Dict:
-    """One candidate's record: its rebuild's checks, then its rollouts
-    (none when it is skipped or its state is not step 1's)."""
+                     step1_row: Optional[Dict], arm: Optional[ArmInputs] = None) -> Dict:
+    """One candidate's record: its rebuild's checks, then its rollouts in
+    the arm's world (none when it is skipped or its state is not step
+    1's)."""
     from tools.critic_bench import candidates, rebuild_candidate
+    arm = arm or ArmInputs()
     cand = candidates(record)[slot]
     index, mover = int(record["index"]), int(record["side"])
-    row, _pre, post = rebuild_candidate(boundary, record, slot, cand)
-    rec: Dict = {"index": index, "slot": slot, "mover": mover,
+    row, pre, post = rebuild_candidate(boundary, record, slot, cand)
+    rec: Dict = {"index": index, "slot": slot, "mover": mover, "world": arm.world,
                  "proposer": "base" if slot == 0 else cand.get("proposer", "sample"),
                  "rebuild": row}
     if "skipped" in row:
@@ -255,7 +281,15 @@ def candidate_record(boundary, record: Dict, slot: int, base, counter, cfg: Roll
     if problem is not None:
         rec["error"] = f"step1_mismatch: {problem}"
         return rec
-    rec["rollouts"] = [run_rollout(post, mover, base, counter, cfg, index, slot, r) for r in range(cfg.rollouts)]
+    t0 = time.perf_counter()
+    try:
+        inputs = world_inputs(arm, boundary, pre, mover)
+    except Exception as e:  # noqa: BLE001 - counted per candidate
+        rec["error"] = f"world_inputs: {type(e).__name__}: {e}"[:300]
+        return rec
+    rec.update(inputs_record(inputs, time.perf_counter() - t0))
+    rec["rollouts"] = [run_rollout(post, mover, base, counter, cfg, index, slot, r, arm.world, inputs)
+                       for r in range(cfg.rollouts)]
     return rec
 
 
@@ -283,6 +317,7 @@ def _init_worker(spec: Dict, sink) -> None:
     _W.update(spec, sink=sink, cfg=RolloutConfig(**spec["cfg"]))
     try:
         _W["base"], _W["counter"] = make_base(spec)
+        _W["arm"] = arm_inputs(spec, _W["base"])
     except Exception as e:  # noqa: BLE001 - every task reports it
         _W["init_error"] = f"{type(e).__name__}: {e}"[:300]
         log.error("worker init failed: %s", _W["init_error"])
@@ -304,19 +339,20 @@ def make_base(spec: Dict):
 
 
 def position_records(record: Dict, slots: Sequence[int], base, counter, cfg: RolloutConfig, dataset: Path,
-                     step1: Dict[Tuple[int, int], Dict]) -> Iterable[Dict]:
+                     step1: Dict[Tuple[int, int], Dict], arm: Optional[ArmInputs] = None) -> Iterable[Dict]:
     """The records of `slots` of one position, as each finishes."""
     from tools.critic_bench import boundary_of
+    arm = arm or ArmInputs()
     index = int(record["index"])
     try:
         boundary = boundary_of(record, dataset)
     except Exception as e:  # noqa: BLE001 - every candidate of the position carries it
         for slot in slots:
-            yield {"index": index, "slot": slot, "mover": int(record["side"]),
+            yield {"index": index, "slot": slot, "mover": int(record["side"]), "world": arm.world,
                    "error": f"position: {type(e).__name__}: {e}"[:300]}
         return
     for slot in slots:
-        yield candidate_record(boundary, record, slot, base, counter, cfg, step1.get((index, slot)))
+        yield candidate_record(boundary, record, slot, base, counter, cfg, step1.get((index, slot)), arm)
 
 
 def _position_task(task: Tuple[Dict, List[int]]) -> int:
@@ -324,11 +360,11 @@ def _position_task(task: Tuple[Dict, List[int]]) -> int:
     if "init_error" in _W:
         for slot in slots:
             _W["sink"].put({"index": int(record["index"]), "slot": slot, "mover": int(record["side"]),
-                            "error": f"worker: {_W['init_error']}"})
+                            "world": _W.get("world", "observed"), "error": f"worker: {_W['init_error']}"})
         return len(slots)
     n = 0
     for rec in position_records(record, slots, _W["base"], _W["counter"], _W["cfg"], Path(_W["dataset"]),
-                                _W["step1"]):
+                                _W["step1"], _W["arm"]):
         _W["sink"].put(rec)
         n += 1
     return n
@@ -375,9 +411,10 @@ def run_parallel(tasks: Sequence[Tuple[Dict, List[int]]], spec: Dict, workers: i
 def run_local(tasks: Sequence[Tuple[Dict, List[int]]], spec: Dict, write: Callable[[Dict], None]) -> int:
     cfg = RolloutConfig(**spec["cfg"])
     base, counter = make_base(spec)
+    arm = arm_inputs(spec, base)
     got = 0
     for record, slots in tasks:
-        for rec in position_records(record, slots, base, counter, cfg, Path(spec["dataset"]), spec["step1"]):
+        for rec in position_records(record, slots, base, counter, cfg, Path(spec["dataset"]), spec["step1"], arm):
             write(rec)
             got += 1
     return got
@@ -454,8 +491,10 @@ def truncate_partial(path: Path) -> None:
 
 def summarize(records: Dict[Tuple[int, int], Dict], expected: int, cfg: RolloutConfig) -> Dict:
     """Counts of the run's last records: candidates by state, failures by
-    reason, and the rollouts' decisions and times."""
+    reason, the rollouts' decisions and times, and what their worlds did
+    with the opponent's hidden units (summed over the rollouts)."""
     states, reasons, rollout_reasons, ended = Counter(), Counter(), Counter(), Counter()
+    placement = Counter()
     decisions, per_decision, forwards = [], [], []
     for rec in records.values():
         if "skipped" in rec:
@@ -471,12 +510,14 @@ def summarize(records: Dict[Tuple[int, int], Dict], expected: int, cfg: RolloutC
                 rollout_reasons[ro["error"].split(":")[0]] += 1
                 continue
             ended[ro["ended_by"] or "running"] += 1
+            placement.update({k: int(v) for k, v in (ro.get("placement") or {}).items()})
             decisions.append(ro["decisions"])
             forwards.append(ro["forwards"])
             if ro["decisions"]:
                 per_decision.append((ro["seconds"] - ro["forward_seconds"]) / ro["decisions"])
     return {"candidates": {"expected": expected, "recorded": len(records), **states},
             "candidate_failures": dict(reasons), "rollout_failures": dict(rollout_reasons),
+            "placement": dict(placement),
             "rollouts": {"played": len(decisions), "ended_by": dict(ended),
                          "decisions": sum(decisions), "forwards": sum(forwards),
                          "decisions_median": statistics.median(decisions) if decisions else None,
@@ -495,9 +536,13 @@ def cmd_run(args) -> int:
     records = load_records(args.records)
     step1 = load_step1(args.step1)
     args.out.mkdir(parents=True, exist_ok=True)
-    sink_path = args.out / "rollouts.jsonl"
+    sink_path, summary_path = out_files(args.out, args.world)
     truncate_partial(sink_path)
-    done = {k for k, rec in last_records(read_rollouts(sink_path)).items() if is_complete(rec, cfg)}
+    before = read_rollouts(sink_path)
+    foreign = sorted({record_world(rec) for rec in before} - {args.world})
+    if foreign:
+        raise SystemExit(f"{sink_path} holds records of the world {foreign}, not {args.world}")
+    done = {k for k, rec in last_records(before).items() if is_complete(rec, cfg)}
     tasks = []
     for rec in records:
         slots = [s for s in range(len(candidates(rec))) if (int(rec["index"]), s) not in done]
@@ -505,11 +550,12 @@ def cmd_run(args) -> int:
             tasks.append((rec, slots))
     expected = sum(len(candidates(r)) for r in records)
     todo = sum(len(s) for _, s in tasks)
-    log.info("%d positions, %d candidates, %d complete before, %d to play, %d workers",
-             len(records), expected, len(done), todo, args.workers)
+    log.info("world %s: %d positions, %d candidates, %d complete before, %d to play, %d workers",
+             args.world, len(records), expected, len(done), todo, args.workers)
     spec = {"cfg": asdict(cfg), "dataset": str(args.dataset), "step1": step1, "checkpoint": str(args.checkpoint),
-            "device": args.device, "log_level": args.log_level}
-    header = {"config": asdict(cfg), "checkpoint": str(args.checkpoint), "records": str(args.records),
+            "device": args.device, "log_level": args.log_level, "world": args.world}
+    header = {"world": args.world, "config": asdict(cfg), "checkpoint": str(args.checkpoint),
+              "records": str(args.records),
               "step1": None if args.step1 is None else str(args.step1), "workers": args.workers,
               "code_version": __version__, "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
     t0 = time.time()
@@ -530,7 +576,7 @@ def cmd_run(args) -> int:
     header["wall_s"] = round(time.time() - t0, 1)
     summary = summarize(last_records(read_rollouts(sink_path)), expected, cfg)
     payload = dict(header, **summary, inference_server=server_stats)
-    (args.out / "regrade_summary.json").write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    summary_path.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     c = summary["candidates"]
     incomplete = c["recorded"] < expected or c.get("failed", 0) or c.get("rollout_failed", 0)
     log.info("REGRADE_%s %s; failures: candidates %s, rollouts %s", "INCOMPLETE" if incomplete else "DONE",
@@ -541,7 +587,8 @@ def cmd_run(args) -> int:
 def _with_server(args, spec: Dict, tasks, write) -> Optional[Dict]:
     """Run the tasks on workers behind one inference server; its stats."""
     from tools.eval_inference_server import launch_inference_server
-    server = launch_inference_server(str(args.checkpoint), args.out, tag="regrade", device=args.device,
+    tag = "regrade" if args.world == "observed" else f"regrade_{args.world}"
+    server = launch_inference_server(str(args.checkpoint), args.out, tag=tag, device=args.device,
                                      infer_bf16=None, window_ms=args.window_ms, max_batch=max(1, args.workers))
     log.info("inference server at %s: %s", server.address, server.info)
     spec = dict(spec, address=server.address, infer_bf16=bool(server.info["infer_bf16"]),
@@ -560,6 +607,8 @@ def main(argv=None) -> int:
     ap.add_argument("--checkpoint", type=Path, required=True, help="both sides' player and value head")
     ap.add_argument("--step1", type=Path, default=None, help="step 1's rebuild.jsonl, the states' check")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--world", default="observed", choices=ARMS,
+                    help="the world the rollouts start from (wesnoth_ai/belief_worlds.py)")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 4),
                     help="processes sharing one inference server; 0 plays here on a local copy")
     ap.add_argument("--device", default="cuda")
