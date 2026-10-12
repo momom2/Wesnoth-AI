@@ -65,9 +65,10 @@ BOX_OUT=$OUT
 VECTORS=$(seq -f 'kv%02g' 0 23)
 
 notes() {                        # the search's progress, for the finish reason
-    local done
-    done=$(grep -c '"event": "match"' "$OUT/search.jsonl" 2>/dev/null)
-    echo "matches recorded: ${done:-0}; rankings: $(grep -c '"event": "ranking"' "$OUT/search.jsonl" 2>/dev/null)"
+    local matches rankings
+    matches=$(grep -c '"event": "match"' "$OUT/search.jsonl" 2>/dev/null)
+    rankings=$(grep -c '"event": "ranking"' "$OUT/search.jsonl" 2>/dev/null)
+    echo "matches recorded: ${matches:-0}; rankings: ${rankings:-0}"
 }
 # shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
