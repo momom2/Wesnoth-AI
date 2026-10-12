@@ -1,8 +1,10 @@
 """The belief worlds of the rollout re-grade (wesnoth_ai/belief_worlds.py,
 tools/rollout_worlds.py) and their readout (tools/belief_readout.py): a
 placed unit never stands on a hex the mover sees, on one a unit holds or on
-one it cannot enter; the belief head's mass decides where RB puts a unit and
-a unit it gives no hex takes RU's rule; the estimates read the mover's gold
+one it cannot enter; RB occupies each token hex with its own probability and
+sends the units left over off the tokens; a hidden leader starts on its
+starting position when it can, after its sighting in LS; the estimates read
+the mover's gold
 at its turn start, which every candidate of a position shares; the last
 seen world puts a sighted unit at its sighting; nothing the mover sees
 differs between any world and the game; and the readout pairs its
@@ -59,21 +61,24 @@ def _tiny_policy():
 OPEN = {(12, 1), (13, 5), (19, 0), (17, 3), (16, 2), (16, 4), (15, 5)}   # grass beyond the mover's sight
 WATER = {(14, 0), (14, 6), (18, 6)}                                       # deep water: the merman's only
 VILLAGE = (19, 0)                                                         # side 2's, in side 1's fog
+START = (17, 3)                                                           # side 2's starting position
+SEEN_START = (8, 3)                                                       # a starting position side 1 sees
 
 
-def _post_sim():
+def _post_sim(start=START):
     """Side 1 has just ended its turn; side 2's four units stand beyond its
     sight, where cave wall leaves seven grass hexes (one a village of side
-    2's) and three of deep water (which only the Merman Fighter can
-    enter)."""
+    2's) and three of deep water (which only the Merman Fighter can enter);
+    side 2's leader starts on `start`."""
     from tools.wesnoth_sim import WesnothSim
-    special = {(2, 3): "Kh", VILLAGE: "Gg^Vh"}
+    special = {(2, 3): "1 Kh", VILLAGE: "Gg^Vh"}
     for x in range(11, 20):
         for y in range(7):
             if (x, y) in WATER:
                 special[(x, y)] = "Wo"
             elif (x, y) not in OPEN:
                 special[(x, y)] = "Xu"
+    special[start] = f"2 {special.get(start, 'Gg')}"
     units = [("Lieutenant", 1, 2, 3, True), ("Spearman", 1, 4, 3, False), ("Lieutenant", 2, 17, 3, True),
              ("Spearman", 2, 16, 2, False), ("Bowman", 2, 16, 4, False), ("Merman Fighter", 2, 15, 5, False)]
     data = record(units, special=special, fog=True, villages={2: [VILLAGE]}, gold=(100, 75))
@@ -81,11 +86,16 @@ def _post_sim():
     sim._seed_salt = "belief-worlds-test"
     sim.step({"type": "end_turn"})
     assert sim.current_side == 2 and not sim.done
+    assert bw.side_start(sim.core, 2) == start
     return sim
 
 
 def _side2(world) -> dict:
     return {d["id"]: d for d in world.sim.core.core.units_export() if d["side"] == 2}
+
+
+def _hexes(units: dict) -> dict:
+    return {(d["x"], d["y"]): d["name"] for d in units.values()}
 
 
 def _mover_view(cs, mover: int, vocab: dict) -> bytes:
@@ -100,8 +110,8 @@ def _mover_view(cs, mover: int, vocab: dict) -> bytes:
 
 @needs_core
 def test_a_placed_unit_never_stands_where_the_mover_sees_a_unit_holds_or_it_cannot_enter():
-    """RU, and RB under a belief spread over the whole map (seen and
-    impassable hexes included), over 30 salts: every placed unit stands on a
+    """RU, and RB under a belief occupying every hex of the map (seen and
+    impassable ones included), over 30 salts: every placed unit stands on a
     hex the mover does not see, no two share one, and its movement cost
     there is below UNREACHABLE_COST; the seven grass hexes, three of which
     the four units truly hold, are the land units' only choices."""
@@ -111,7 +121,7 @@ def test_a_placed_unit_never_stands_where_the_mover_sees_a_unit_holds_or_it_cann
     index = sim.core.geometry().pos_index
     unseen_walls = sum(1 for (x, y), j in index.items() if not seen[j] and (x, y) not in OPEN | WATER)
     assert unseen_walls > 5 * len(OPEN), "most hexes the mover does not see are cave wall"
-    everywhere = {hex_: 0.5 for hex_ in index}
+    everywhere = {hex_: 1.0 for hex_ in index}
     placed = set()
     for arm, belief in (("roster_uniform", None), ("roster_belief", everywhere)):
         for salt in SALTS:
@@ -150,31 +160,82 @@ def test_every_world_but_t_shows_the_villages_and_gold_the_mover_estimates():
             assert tuple(core.sides_export()[1][2:4]) == ESTIMATE, arm
 
 
+TOKENS = ((13, 5), (12, 1), (16, 2))      # the hexes with a token in the next two tests
+
+
 @needs_core
-def test_rb_puts_a_unit_where_the_belief_dominates_and_the_others_take_rus_rule():
-    """The belief names one hex, deep water: the merman, the only unit that
-    can enter it, lands there at every salt, and the three land units fall
-    back to the uniform rule (counted); under RU the merman lands there
-    rarely."""
+def test_rb_occupies_a_certain_token_hex_and_sends_the_other_units_off_the_tokens():
+    """Belief 1 at (13, 5) and 0 at the other two tokens: at every salt one
+    unit stands on (13, 5), none on the other tokens, the leader on its
+    start, and the other two units off the tokens by RU's rule (counted)."""
     sim = _post_sim()
-    belief = {(14, 0): 0.9}
-    at_hex = {"roster_belief": 0, "roster_uniform": 0}
-    for arm in at_hex:
+    belief = {TOKENS[0]: 1.0, TOKENS[1]: 0.0, TOKENS[2]: 0.0}
+    for salt in SALTS:
+        world, placement = bw.build_arm_world(sim, 1, "roster_belief", salt, turn_start=ESTIMATE, belief=belief)
+        hexes = _hexes(_side2(world))
+        assert TOKENS[0] in hexes and not set(TOKENS[1:]) & set(hexes), (salt, hexes)
+        assert hexes[START] == "Lieutenant" and placement.leader_at_start
+        assert (placement.occupied, placement.placed, placement.fallbacks, placement.left_out) == (1, 4, 2, 0)
+
+
+@needs_core
+def test_rb_with_no_belief_anywhere_sends_every_unit_off_the_tokens():
+    """Belief 0 at every token: no token hex is occupied and the three
+    units besides the leader all take RU's rule off the tokens."""
+    sim = _post_sim()
+    belief = {hex_: 0.0 for hex_ in TOKENS}
+    for salt in SALTS:
+        world, placement = bw.build_arm_world(sim, 1, "roster_belief", salt, turn_start=ESTIMATE, belief=belief)
+        assert not set(TOKENS) & set(_hexes(_side2(world))), salt
+        assert (placement.occupied, placement.placed, placement.fallbacks) == (0, 4, 3)
+
+
+@needs_core
+def test_rb_occupies_each_token_hex_with_its_own_probability():
+    """Beliefs 0.9, 0.5 and 0.1 at the three tokens, every one grass the
+    three units besides the leader can take: over 200 salts each token hex
+    holds a unit about as often as its belief says."""
+    sim = _post_sim()
+    belief = dict(zip(TOKENS, (0.9, 0.5, 0.1)))
+    held = {hex_: 0 for hex_ in TOKENS}
+    salts = [f"bw:p{k}" for k in range(200)]
+    for salt in salts:
+        world, placement = bw.build_arm_world(sim, 1, "roster_belief", salt, turn_start=ESTIMATE, belief=belief)
+        hexes = _hexes(_side2(world))
+        assert placement.occupied == sum(hex_ in hexes for hex_ in TOKENS)
+        for hex_ in TOKENS:
+            held[hex_] += hex_ in hexes
+    for hex_, p in belief.items():
+        assert abs(held[hex_] / len(salts) - p) < 0.12, (hex_, p, held[hex_])
+
+
+@needs_core
+def test_a_hidden_leader_starts_on_its_starting_position_when_it_qualifies():
+    """RB and RU put side 2's hidden leader on its starting position at
+    every salt; when the mover sees that hex, the leader is placed by the
+    arm's rule on a hex it does not see, and the record says so."""
+    seen_start = _post_sim(start=SEEN_START)
+    for arm in ("roster_belief", "roster_uniform"):
+        landed = set()
         for salt in SALTS:
-            world, placement = bw.build_arm_world(sim, 1, arm, salt, turn_start=ESTIMATE, belief=belief)
-            merman = next(d for d in _side2(world).values() if d["name"] == "Merman Fighter")
-            at_hex[arm] += (merman["x"], merman["y"]) == (14, 0)
-            assert placement.fallbacks == (3 if arm == "roster_belief" else 0)
-    assert at_hex["roster_belief"] == len(SALTS)
-    assert at_hex["roster_uniform"] <= len(SALTS) // 2
+            belief = {hex_: 0.5 for hex_ in TOKENS}
+            world, placement = bw.build_arm_world(_post_sim(), 1, arm, salt, turn_start=ESTIMATE, belief=belief)
+            assert _hexes(_side2(world))[START] == "Lieutenant" and placement.leader_at_start, (arm, salt)
+            world, placement = bw.build_arm_world(seen_start, 1, arm, salt, turn_start=ESTIMATE, belief=belief)
+            leader = _side2(world)["u3"]
+            assert not placement.leader_at_start and placement.placed == 4
+            assert (leader["x"], leader["y"]) in OPEN
+            landed.add((leader["x"], leader["y"]))
+        assert len(landed) >= 3, (arm, "the leader is placed as the others are")
 
 
 @needs_core
 def test_the_last_seen_world_puts_a_sighted_unit_at_its_sighting_with_its_hit_points():
     """The Bowman was seen at (12, 1) with 20 HP: it stands there with them.
     The merman's sighting falls on the hex the Bowman took, the Spearman's on
-    a hex the mover sees (left out); the leader was never sighted (removed:
-    its side stays alive); a row of the mover's own unit is ignored."""
+    a hex the mover sees (both left out); the leader, never sighted, takes
+    its starting position, or is removed when the mover sees that hex (its
+    side then stays alive); a row of the mover's own unit is ignored."""
     sim = _post_sim()
     rows = [("u5", "Bowman", 20, 33, 12, 1), ("u6", "Merman Fighter", 25, 38, 12, 1),
             ("u4", "Spearman", 30, 36, 5, 3), ("u1", "Lieutenant", 40, 48, 2, 3)]
@@ -182,17 +243,30 @@ def test_the_last_seen_world_puts_a_sighted_unit_at_its_sighting_with_its_hit_po
     assert (ids["Bowman"], ids["Merman Fighter"], ids["Spearman"], ids["Lieutenant"]) == ("u5", "u6", "u4", "u3")
     world, placement = bw.build_arm_world(sim, 1, "last_seen", "t", turn_start=ESTIMATE, sightings=rows)
     units = _side2(world)
-    assert set(units) == {"u5"}
+    assert set(units) == {"u5", "u3"}
     assert (units["u5"]["x"], units["u5"]["y"], units["u5"]["current_hp"]) == (12, 1, 20)
-    assert (placement.hidden, placement.placed, placement.left_out, placement.removed) == (4, 1, 2, 1)
-    assert world.sim.hidden_leader_sides == {2}
+    assert (units["u3"]["x"], units["u3"]["y"]) == START and placement.leader_at_start
+    assert (placement.hidden, placement.placed, placement.left_out, placement.removed) == (4, 2, 2, 0)
+    assert world.sim.hidden_leader_sides == frozenset()
     vocab = vocab_of(sim.core.core.type_names())
     assert _mover_view(world.sim.core, 1, vocab) == _mover_view(sim.core, 1, vocab)
-    clamped, placement = bw.build_arm_world(sim, 1, "last_seen", "t", turn_start=ESTIMATE,
-                                            sightings=[("u3", "Lieutenant", 999, 48, 19, 0)])
-    leader = _side2(clamped)["u3"]
+    seen_start = _post_sim(start=SEEN_START)
+    world, placement = bw.build_arm_world(seen_start, 1, "last_seen", "t", turn_start=ESTIMATE, sightings=rows)
+    assert set(_side2(world)) == {"u5"} and world.sim.hidden_leader_sides == {2}
+    assert (placement.placed, placement.left_out, placement.removed, placement.leader_at_start) == (1, 2, 1, False)
+
+
+@needs_core
+def test_a_leaders_sighting_comes_before_its_starting_position():
+    """The leader was seen at (19, 0), with more hit points than it has:
+    it stands there, not on its start, at its maximum hit points (the
+    clamp counted)."""
+    world, placement = bw.build_arm_world(_post_sim(), 1, "last_seen", "t", turn_start=ESTIMATE,
+                                          sightings=[("u3", "Lieutenant", 999, 48, 19, 0)])
+    leader = _side2(world)["u3"]
     assert (leader["x"], leader["y"], leader["current_hp"]) == (19, 0, leader["max_hp"])
-    assert placement.hp_clamped == 1 and clamped.sim.hidden_leader_sides == frozenset()
+    assert placement.hp_clamped == 1 and not placement.leader_at_start
+    assert world.sim.hidden_leader_sides == frozenset()
 
 
 # ---------------------------------------------------------------------
@@ -251,8 +325,9 @@ def test_nothing_the_mover_sees_differs_between_any_world_and_the_game():
     """Three of side 1's units, its leader among them, are in side 2's fog:
     in every arm, at four salts each, side 2's encoding of the world is its
     encoding of the state after the candidate; the counts add up, the
-    observed arm is the re-grade's world, and only the true and true-units
-    worlds keep the hidden units."""
+    observed arm is the re-grade's world, only the true and true-units
+    worlds keep the hidden units, and the placing worlds put the leader on
+    side 1's starting position, (20, 3) on this map."""
     boundary, pre, post = _candidate(0)
     mover = 2
     vocab = vocab_of(post.core.core.type_names())
@@ -266,6 +341,10 @@ def test_nothing_the_mover_sees_differs_between_any_world_and_the_game():
             assert p.hidden == 3 and p.leader_hidden
             assert p.hidden == p.kept + p.placed + p.left_out + p.removed, (arm, p)
             assert (p.kept == 3) == (arm in ("true", "true_units"))
+            assert p.leader_at_start == (arm in bw.PLACING_ARMS)
+            if p.leader_at_start:
+                leader = next(d for d in world.sim.core.core.units_export() if d["side"] == 1 and d["is_leader"])
+                assert (leader["x"], leader["y"]) == (20, 3)
     observed = bw.build_arm_world(post, mover, "observed", "s")[0].sim.core.core
     regrade = rr.mover_world(post, mover, "s").sim.core.core
     assert observed.units_export() == regrade.units_export() and observed.sides_export() == regrade.sides_export()
@@ -405,6 +484,7 @@ def test_an_rb_run_behind_the_server_reads_the_belief_on_its_own_copy(tmp_path):
         assert rec["belief"]["tokens"] > 100
         (rollout,) = rec["rollouts"]
         assert "error" not in rollout and rollout["placement"]["leader_hidden"]
+        assert rollout["placement"]["leader_at_start"]
         p = rollout["placement"]
         assert p["placed"] + p["left_out"] == p["hidden"] >= 2
     summary = json.loads((tmp_path / "out" / "regrade_summary_roster_belief.json").read_text(encoding="utf-8"))

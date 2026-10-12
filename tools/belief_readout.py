@@ -62,7 +62,7 @@ PAIRS = (("TU", "O2"), ("T", "TU"), ("RB", "RU"), ("RU", "O2"), ("LS", "O2"))
 PRIMARY = ro.PRIMARY
 GRADERS = ro.GRADERS
 EXIT_REFUSED = ro.EXIT_REFUSED
-PLACEMENT_COUNTS = ("hidden", "kept", "placed", "fallbacks", "left_out", "removed", "hp_clamped")
+PLACEMENT_COUNTS = ("hidden", "kept", "placed", "fallbacks", "occupied", "left_out", "removed", "hp_clamped")
 
 
 # ---------------------------------------------------------------------
@@ -124,10 +124,11 @@ def agreement_with(arrays: Dict, grades: Mapping[str, Mapping[str, np.ndarray]],
 
 def placement_counts(records: Mapping[str, Mapping[Tuple[int, int], Dict]]) -> Dict[str, Dict]:
     """Per arm: the placement counts summed over its played rollouts, the
-    rollouts and the positions whose opponent leader is hidden."""
+    rollouts and the positions whose opponent leader is hidden, and the
+    rollouts whose hidden leader went to its starting position."""
     out = {}
     for label, recs in records.items():
-        sums, rollouts, leader_rollouts, leader_positions = Counter(), 0, 0, set()
+        sums, rollouts, leader_rollouts, at_start, leader_positions = Counter(), 0, 0, 0, set()
         for (index, _slot), rec in recs.items():
             for ro_ in rec.get("rollouts") or ():
                 p = ro_.get("placement")
@@ -135,11 +136,13 @@ def placement_counts(records: Mapping[str, Mapping[Tuple[int, int], Dict]]) -> D
                     continue
                 rollouts += 1
                 sums.update({k: int(p.get(k, 0)) for k in PLACEMENT_COUNTS})
+                at_start += bool(p.get("leader_at_start"))
                 if p.get("leader_hidden"):
                     leader_rollouts += 1
                     leader_positions.add(index)
         out[label] = {"rollouts": rollouts, **{k: sums.get(k, 0) for k in PLACEMENT_COUNTS},
-                      "leader_hidden_rollouts": leader_rollouts, "leader_hidden_positions": len(leader_positions)}
+                      "leader_hidden_rollouts": leader_rollouts, "leader_hidden_positions": len(leader_positions),
+                      "leader_at_start_rollouts": at_start}
     return out
 
 
@@ -234,11 +237,13 @@ def markdown(stats: Dict, verdict: Dict, agreement: Dict, placement: Dict) -> st
               "|---|---|---|---|"]
     lines += [f"| {label} | {a['same_pick']} | {a['positions']} | {a['share']:.3f} |" for label, a in agreement.items()]
     lines += ["", "## Placements (summed over rollouts)", "",
-              "| arm | rollouts | " + " | ".join(PLACEMENT_COUNTS) + " | leader hidden: rollouts | positions |",
-              "|---" * (4 + len(PLACEMENT_COUNTS)) + "|"]
+              "| arm | rollouts | " + " | ".join(PLACEMENT_COUNTS)
+              + " | leader hidden: rollouts | positions | leader at its start: rollouts |",
+              "|---" * (5 + len(PLACEMENT_COUNTS)) + "|"]
     for label, p in placement.items():
         lines.append(f"| {label} | {p['rollouts']} | " + " | ".join(str(p[k]) for k in PLACEMENT_COUNTS)
-                     + f" | {p['leader_hidden_rollouts']} | {p['leader_hidden_positions']} |")
+                     + f" | {p['leader_hidden_rollouts']} | {p['leader_hidden_positions']}"
+                     + f" | {p['leader_at_start_rollouts']} |")
     return "\n".join(lines) + "\n"
 
 

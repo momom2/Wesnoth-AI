@@ -24,15 +24,21 @@ T the units of the scenario's other sides that the mover cannot see are
 removed, and the opponent's fog is recomputed from its units of the world
 with its sighting record emptied.
 
-Placement (RB, RU) draws from its own stream, `placement_rng(salt)`: the
-opponent's hidden units in a random order, each on a hex that the mover does
-not see, that holds no unit of the world (the units already placed
-included, the hidden units not yet placed excluded) and whose movement cost
-for that unit is below UNREACHABLE_COST. RB draws with probability
-proportional to the belief head's probability over the qualifying hexes that
-have a token (`belief_by_hex`); a unit with none of them takes RU's rule
-and counts as a fallback. RU draws uniformly over every qualifying hex of
-the map. A unit with no qualifying hex at all is left out (removed).
+Placement (RB, RU) draws from its own stream, `placement_rng(salt)`. A hex
+qualifies for a unit when the mover does not see it, no unit of the world
+holds it (the units already placed included, the hidden units not yet
+placed excluded) and the unit's movement cost there is below
+UNREACHABLE_COST. The opponent's leader, when hidden, goes first to its
+side's starting position (`side_start`: the map's start marker) when that
+hex qualifies; otherwise it is placed as the others. RB reads the belief
+head (`belief_by_hex`) as each hex token's own probability that a hidden
+unit stands there: every token hex is occupied with its probability, one
+independent draw each; the units still unplaced, in a random order, take
+the occupied hexes that qualify for them, in a random order (an occupied hex
+left over stays empty), and the units left over take RU's rule over the
+qualifying hexes without a token, counted as fallbacks. RU draws each
+unit's hex, in a random order, uniformly over every qualifying hex of the
+map. A unit with no hex left under its rule is left out (removed).
 
 Last seen (LS): the mover's sighting record at its end_turn decision (rows
 (id, type, hp, max hp, x, y)); each row whose unit is an opponent unit
@@ -40,7 +46,9 @@ hidden in the world's true state puts that unit, its own record with it, at
 the sighting's hex with the sighting's hit points (at most its maximum,
 counted when clamped), when the mover does not see that hex and no unit of
 the world holds it; otherwise the unit is left out. Rows are taken in id
-order. The opponent's other hidden units are removed.
+order. A hidden leader not placed so then goes to its side's starting
+position when that hex qualifies (with its own hit points). The opponent's
+other hidden units are removed.
 
 A placed unit is moved with `GameCore.update_unit` and keeps its id, so the
 mover's sighting record does not mark it gone: what the mover observes of
@@ -50,6 +58,7 @@ side whose leader was removed stays alive for the game-over check
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
@@ -65,6 +74,7 @@ ARM_LABELS = {"true": "T", "true_units": "TU", "roster_belief": "RB", "roster_un
               "last_seen": "LS", "none": "O2", "observed": "observed"}
 ARMS = tuple(ARM_LABELS)
 ESTIMATED_ARMS = ("true_units", "roster_belief", "roster_uniform", "last_seen", "none")
+PLACING_ARMS = ("roster_belief", "roster_uniform", "last_seen")
 PLACE_SALT = ":place"
 
 Hex = Tuple[int, int]
@@ -78,11 +88,13 @@ class Placement:
     hidden: int = 0              # the opponent's units the mover cannot see in the true state
     kept: int = 0                # left where they stand (T, TU)
     placed: int = 0              # put on a hex by the arm's rule (RB, RU, LS)
-    fallbacks: int = 0           # of the placed, RB's units that took RU's rule
+    fallbacks: int = 0           # of the placed, RB's units that took RU's rule off the token hexes
+    occupied: int = 0            # RB: the token hexes its draws occupied
     left_out: int = 0            # removed for want of a hex (RB, RU) or of their sighting's (LS)
     removed: int = 0             # removed by the arm's rule (O2, observed; LS: never sighted)
     hp_clamped: int = 0          # LS: sightings above the unit's maximum hit points
     leader_hidden: bool = False  # the opponent's leader is among the hidden
+    leader_at_start: bool = False  # RB, RU, LS: the hidden leader went to its side's starting position
 
     def record(self) -> Dict:
         return asdict(self)
@@ -122,6 +134,7 @@ def build_arm_world(post_sim, mover: int, arm: str, salt: str, *, turn_start: Op
     others = [d for d in hidden_units(core, mover) if int(d["side"]) != opp]
     remove_units(core, others)
     gone = list(others)
+    start = side_start(cs, opp) if arm in PLACING_ARMS and placement.leader_hidden else None
     if arm == "true_units":
         placement.kept = len(theirs)
     elif arm == "none":
@@ -131,12 +144,13 @@ def build_arm_world(post_sim, mover: int, arm: str, salt: str, *, turn_start: Op
     elif arm == "last_seen":
         if sightings is None:
             raise ValueError("the last_seen world needs the mover's sighting record")
-        gone += _apply(core, theirs, last_seen_hexes(cs, mover, theirs, sightings, placement))
+        gone += _apply(core, theirs, last_seen_hexes(cs, mover, theirs, sightings, placement, start))
     else:
         if arm == "roster_belief" and belief is None:
             raise ValueError("the roster_belief world needs the belief head's probabilities")
         weights = belief if arm == "roster_belief" else None
-        gone += _apply(core, theirs, roster_hexes(cs, mover, theirs, placement_rng(salt), weights, placement))
+        gone += _apply(core, theirs, roster_hexes(cs, mover, theirs, placement_rng(salt), weights, placement,
+                                                  start))
     display_villages(cs, mover)
     set_economy(core, opp, int(turn_start[0]), int(turn_start[1]))
     refog_opponent(core, mover)
@@ -191,72 +205,130 @@ def passable_for(core, unit: dict) -> np.ndarray:
     return np.asarray(core.class_arrays(int(unit["class_id"]))[0]) < UNREACHABLE_COST
 
 
-def belief_weights(cs, belief: Mapping[Hex, float]) -> np.ndarray:
-    """float64 [H]: the belief per hex in the core's hex order, 0 on a hex
-    without a token."""
+@functools.lru_cache(maxsize=16)
+def _map_starts(map_data: str) -> Dict[int, Hex]:
+    from wesnoth_ai.rules.wml_state import map_starting_positions
+    return map_starting_positions(map_data)
+
+
+def side_start(cs, side: int) -> Hex:
+    """`side`'s starting position, 0-indexed: its start marker on the map
+    of the game's record (wml_state.map_starting_positions over the map
+    data the state keeps)."""
+    start = _map_starts(str(cs.statics.get("_raw_map_data") or "")).get(int(side))
+    if start is None:
+        raise ValueError(f"the game's map names no starting position for side {side}")
+    return start
+
+
+def token_hexes(cs, belief: Mapping[Hex, float]) -> Tuple[np.ndarray, np.ndarray]:
+    """(the map indices of the hexes that have a token, ascending; the
+    belief at each), in the core's hex order."""
     index = cs.geometry().pos_index
-    out = np.zeros(len(index), dtype=np.float64)
-    for hex_, p in belief.items():
-        j = index.get((int(hex_[0]), int(hex_[1])))
-        if j is not None:
-            out[j] = float(p)
-    return out
+    pairs = sorted((index[(int(h[0]), int(h[1]))], float(p)) for h, p in belief.items()
+                   if (int(h[0]), int(h[1])) in index)
+    return np.array([j for j, _ in pairs], dtype=np.int64), np.array([p for _, p in pairs], dtype=np.float64)
 
 
-def _draw(rng: np.random.Generator, weights: np.ndarray) -> int:
-    """An index drawn with probability proportional to `weights` (>= 0,
-    some positive): a zero weight is never drawn."""
-    cumulative = np.cumsum(weights)
-    return int(np.searchsorted(cumulative, rng.random() * cumulative[-1], side="right"))
+def _leader(units: Sequence[dict]) -> Optional[dict]:
+    return next((d for d in units if d["is_leader"]), None)
+
+
+def _start_index(cs, unit: dict, start: Optional[Hex], free: np.ndarray) -> Optional[int]:
+    """The map index of `start` when it qualifies for `unit`, else None."""
+    if start is None:
+        return None
+    j = cs.geometry().pos_index.get((int(start[0]), int(start[1])))
+    return j if j is not None and free[j] and passable_for(cs.core, unit)[j] else None
+
+
+def _uniform(rng: np.random.Generator, ok: np.ndarray) -> Optional[int]:
+    """A qualifying index drawn uniformly, or None when none qualifies."""
+    choices = np.flatnonzero(ok)
+    return int(rng.choice(choices)) if len(choices) else None
 
 
 def roster_hexes(cs, mover: int, units: Sequence[dict], rng: np.random.Generator,
-                 belief: Optional[Mapping[Hex, float]], placement: Placement) -> Dict[str, Optional[Dict]]:
+                 belief: Optional[Mapping[Hex, float]], placement: Placement,
+                 start: Optional[Hex] = None) -> Dict[str, Optional[Dict]]:
     """Per unit id, its new hex (RB with `belief`, RU without) or None when
-    no hex qualifies; the counts go to `placement`."""
+    no hex is left for it under its rule; the counts go to `placement`.
+    `start`: the hidden leader's starting position."""
     core = cs.core
     keys = cs.geometry().keys
     free = free_hexes(cs, mover, units)
-    weights = None if belief is None else belief_weights(cs, belief)
     plan: Dict[str, Optional[Dict]] = {}
-    for k in rng.permutation(len(units)).tolist():
-        d = units[k]
-        ok = free & passable_for(core, d)
-        j = None
-        if weights is not None:
-            w = np.where(ok, weights, 0.0)
-            if w.sum() > 0:
-                j = _draw(rng, w)
-        if j is None and ok.any():
-            j = int(rng.choice(np.flatnonzero(ok)))
-            if weights is not None:
-                placement.fallbacks += 1
+
+    def place(d: dict, j: Optional[int]) -> bool:
         if j is None:
-            plan[d["id"]] = None
-            placement.left_out += 1
-            continue
+            return False
         free[j] = False
         plan[d["id"]] = {"x": int(keys[j][0]), "y": int(keys[j][1])}
         placement.placed += 1
+        return True
+
+    rest = list(units)
+    leader = _leader(units)
+    if leader is not None and place(leader, _start_index(cs, leader, start, free)):
+        placement.leader_at_start = True
+        rest = [d for d in rest if d is not leader]
+    order = [rest[k] for k in rng.permutation(len(rest)).tolist()]
+    if belief is None:
+        left = [d for d in order if not place(d, _uniform(rng, free & passable_for(core, d)))]
+    else:
+        left = _belief_hexes(cs, order, rng, belief, free, place, placement)
+    for d in left:
+        plan[d["id"]] = None
+    placement.left_out += len(left)
     return plan
 
 
+def _belief_hexes(cs, order: Sequence[dict], rng: np.random.Generator, belief: Mapping[Hex, float],
+                  free: np.ndarray, place, placement: Placement) -> List[dict]:
+    """RB's rule for the units of `order`: the token hexes occupied by one
+    draw each, taken in a random order by the units they qualify for, the
+    others off the tokens by RU's rule. Returns the units left out."""
+    core = cs.core
+    tokens, probs = token_hexes(cs, belief)
+    occupied = tokens[rng.random(len(tokens)) < probs]
+    placement.occupied = len(occupied)
+    open_hexes = [int(occupied[k]) for k in rng.permutation(len(occupied)).tolist()]
+    unplaced = []
+    for d in order:
+        ok = free & passable_for(core, d)
+        j = next((h for h in open_hexes if ok[h]), None)
+        if place(d, j):
+            open_hexes.remove(j)
+        else:
+            unplaced.append(d)
+    off_token = np.ones(len(free), dtype=bool)
+    off_token[tokens] = False
+    left = []
+    for d in unplaced:
+        if place(d, _uniform(rng, free & passable_for(core, d) & off_token)):
+            placement.fallbacks += 1
+        else:
+            left.append(d)
+    return left
+
+
 def last_seen_hexes(cs, mover: int, units: Sequence[dict], sightings: Sequence[SightRow],
-                    placement: Placement) -> Dict[str, Optional[Dict]]:
-    """Per unit id, its last sighting's hex and hit points, or None (left
-    out, or never sighted); the counts go to `placement`."""
+                    placement: Placement, start: Optional[Hex] = None) -> Dict[str, Optional[Dict]]:
+    """Per unit id, its last sighting's hex and hit points (the hidden
+    leader not placed so: its starting position when that hex qualifies),
+    or None; the counts go to `placement`."""
     index = cs.geometry().pos_index
     by_id = {d["id"]: d for d in units}
     free = free_hexes(cs, mover, units)
     plan: Dict[str, Optional[Dict]] = {}
+    left = set()
     for uid, _type, hp, _max_hp, x, y in sorted(tuple(r) for r in sightings):
         d = by_id.get(uid)
-        if d is None or uid in plan:
+        if d is None or uid in plan or uid in left:
             continue
         j = index.get((int(x), int(y)))
         if j is None or not free[j]:
-            plan[uid] = None
-            placement.left_out += 1
+            left.add(uid)
             continue
         free[j] = False
         hp = int(hp)
@@ -265,7 +337,16 @@ def last_seen_hexes(cs, mover: int, units: Sequence[dict], sightings: Sequence[S
             placement.hp_clamped += 1
         plan[uid] = {"x": int(x), "y": int(y), "current_hp": hp}
         placement.placed += 1
-    placement.removed = sum(1 for d in units if d["id"] not in plan)
+    leader = _leader(units)
+    if leader is not None and leader["id"] not in plan:
+        j = _start_index(cs, leader, start, free)
+        if j is not None:
+            plan[leader["id"]] = {"x": int(start[0]), "y": int(start[1])}
+            placement.placed += 1
+            placement.leader_at_start = True
+            left.discard(leader["id"])
+    placement.left_out = len(left)
+    placement.removed = sum(1 for d in units if d["id"] not in plan and d["id"] not in left)
     return plan
 
 
