@@ -96,7 +96,9 @@ def _search_policy_cls(turn_search: bool, plan_tournament: bool = False):
     return MCTSPolicy
 
 
-from tools.eval_procedure import end_turn_refusal, procedure_of as _procedure_of  # noqa: E402
+from tools.eval_procedure import (  # noqa: E402
+    add_raw_knob_args, end_turn_refusal, procedure_of as _procedure_of, raw_knob_fields, raw_knobs_of,
+)
 
 
 # The knob machinery lives in tools/turn_search_config (torch-free,
@@ -292,7 +294,7 @@ def _shared_client(address: str):
 def _remote_player(address: str, raw_temperature: float, raw_seed,
                    relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
                    raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
-                   memory: Optional[int] = None):
+                   memory: Optional[int] = None, raw_knobs: Optional[dict] = None):
     """The raw player over a shared inference server: a RemoteEncoder
     on the server's vocab with server-side priors, a RemoteModel
     behind the forward-counting proxy (its `fwd_secs` is the round
@@ -324,7 +326,8 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
                            end_turn_rule=raw_end_turn,
-                           end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+                           end_turn_offset=raw_end_turn_offset, memory_slots=memory,
+                           **(raw_knobs or {})), counter
 
 
 _MEMORY_CACHE: dict = {}
@@ -408,7 +411,8 @@ def _build_player(spec: str, label: str, sims: int, device,
                   infer_packed_trunk: bool = False,
                   raw_end_turn: str = "joint",
                   raw_end_turn_offset: float = 0.0,
-                  memory: Optional[int] = None):
+                  memory: Optional[int] = None,
+                  raw_knobs: Optional[dict] = None):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
@@ -421,7 +425,8 @@ def _build_player(spec: str, label: str, sims: int, device,
     through a shared inference server (main() has checked sims == 0,
     a temperature and a checkpoint spec). `memory`: the slots a player of a
     model with a memory uses (`_effective_memory`); the raw player, MCTS
-    and the turn search carry it from one decision to the next."""
+    and the turn search carry it from one decision to the next.
+    `raw_knobs`: the raw player's decode knobs (eval_procedure.RAW_KNOBS)."""
     if memory is not None and (plan_tournament or (sims == 0 and raw_temperature is None)):
         raise SystemExit(f"{spec} has a memory, which the legacy sampler and the plan tournament "
                          f"do not carry: play it raw with a temperature, with MCTS or with the turn search")
@@ -437,7 +442,7 @@ def _build_player(spec: str, label: str, sims: int, device,
     if inference_address is not None:
         return _remote_player(inference_address, raw_temperature, raw_seed,
                               relevant_set, infer_bf16, infer_packed_trunk,
-                              raw_end_turn, raw_end_turn_offset, memory)
+                              raw_end_turn, raw_end_turn_offset, memory, raw_knobs)
     if memory is not None and infer_compile:
         raise SystemExit(f"{spec} has a memory, which a player keeps from one call to the next, and a "
                          f"compiled model may overwrite its outputs at its next call: play it with "
@@ -484,7 +489,8 @@ def _build_player(spec: str, label: str, sims: int, device,
         from tools.raw_player import RawPolicyPlayer
         return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
                                end_turn_rule=raw_end_turn,
-                               end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+                               end_turn_offset=raw_end_turn_offset, memory_slots=memory,
+                               **(raw_knobs or {})), counter
     return policy, counter
 
 
@@ -588,6 +594,7 @@ def main(argv) -> int:
                          "tag '+eo<x>').")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
+    add_raw_knob_args(ap)
     ap.add_argument("--memory-a", type=int, default=None,
                     help="The memory slots player A uses when its model has a memory "
                          "(default: all of the checkpoint's); recorded as memory_a, "
@@ -755,7 +762,8 @@ def main(argv) -> int:
              args.raw_end_turn_offset_a),
             ("b", args.spec_b, sims_b, args.raw_temperature_b, args.raw_end_turn_b,
              args.raw_end_turn_offset_b)):
-        _why = end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset)
+        _why = end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset,
+                                raw_knobs_of(args, _side))
         if _why is not None:
             raise SystemExit(_why)
     for _n, _spec in (("spec_a", args.spec_a),
@@ -849,13 +857,15 @@ def main(argv) -> int:
                 args.no_turn_search or args.no_turn_search_a,
                 args.raw_temperature_a, args.gumbel_root_a,
                 raw_end_turn=args.raw_end_turn_a,
-                raw_end_turn_offset=args.raw_end_turn_offset_a)
+                raw_end_turn_offset=args.raw_end_turn_offset_a,
+                raw_knobs=raw_knobs_of(args, "a"))
             want_b = _procedure_of(
                 sims_b, args.plan_b,
                 args.no_turn_search or args.no_turn_search_b,
                 args.raw_temperature_b, args.gumbel_root_b,
                 raw_end_turn=args.raw_end_turn_b,
-                raw_end_turn_offset=args.raw_end_turn_offset_b)
+                raw_end_turn_offset=args.raw_end_turn_offset_b,
+                raw_knobs=raw_knobs_of(args, "b"))
             got_a = prev.get("procedure_a")
             got_b = prev.get("procedure_b")
             got_mt = prev.get("max_turns")
@@ -1006,7 +1016,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_a,
         raw_end_turn_offset=args.raw_end_turn_offset_a,
-        memory=memory_a)
+        memory=memory_a, raw_knobs=raw_knobs_of(args, "a"))
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -1020,7 +1030,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_b,
         raw_end_turn_offset=args.raw_end_turn_offset_b,
-        memory=memory_b)
+        memory=memory_b, raw_knobs=raw_knobs_of(args, "b"))
 
     rng = random.Random(args.seed)
     setup = random_setup(rng, forced_faction=forced_faction)
@@ -1073,13 +1083,15 @@ def main(argv) -> int:
             args.no_turn_search or args.no_turn_search_a,
             args.raw_temperature_a, args.gumbel_root_a,
             raw_end_turn=args.raw_end_turn_a,
-            raw_end_turn_offset=args.raw_end_turn_offset_a),
+            raw_end_turn_offset=args.raw_end_turn_offset_a,
+            raw_knobs=raw_knobs_of(args, "a")),
         "procedure_b": _procedure_of(
             sims_b, args.plan_b,
             args.no_turn_search or args.no_turn_search_b,
             args.raw_temperature_b, args.gumbel_root_b,
             raw_end_turn=args.raw_end_turn_b,
-            raw_end_turn_offset=args.raw_end_turn_offset_b),
+            raw_end_turn_offset=args.raw_end_turn_offset_b,
+            raw_knobs=raw_knobs_of(args, "b")),
         # The CLI probe flags as given; TCS and plan-tournament arms
         # never read them (2026-09-04 review).
         "relevant_set_a": bool(args.relevant_set_a),
@@ -1113,6 +1125,8 @@ def main(argv) -> int:
         "raw_end_turn_b": args.raw_end_turn_b,
         "raw_end_turn_offset_a": args.raw_end_turn_offset_a,
         "raw_end_turn_offset_b": args.raw_end_turn_offset_b,
+        # The decode knobs (eval_procedure.RAW_KNOBS), also in the tags.
+        **raw_knob_fields(args),
         # The horizon decides decisive-vs-absence, the quantity
         # the PURE fit is built on (round-24 C9).
         "max_turns": args.max_turns,

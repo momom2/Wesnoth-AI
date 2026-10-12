@@ -4,8 +4,9 @@ Both sides play the same checkpoint, loaded as the evaluation path loads
 it (`tools.eval_players._load_policy`: its architecture and every structural
 flag, the hex basis included). Each side decides with the reference
 player's decode by default (configs/reference_player.json: argmax with
-its end_turn logit offset); `--temperature` and `--end-turn-offset`
-change the decode, and `--mcts` plays the search player instead. The
+its end_turn logit offset and its decode knobs); `--temperature` and
+`--end-turn-offset` change the decode, and `--mcts` plays the search
+player instead. The
 game is written as a .bz2 replay that Wesnoth 1.18 opens (Load Game) and
 copied into Wesnoth's saves directory. No Wesnoth install is needed to
 play the game, only to watch it.
@@ -35,6 +36,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from tools import reference_player
+from tools.eval_procedure import decode_knobs
 from tools.eval_players import (
     _load_policy, _play_one_eval_game, _PolicyPair, peek_checkpoint_arch,
 )
@@ -48,14 +50,16 @@ log = logging.getLogger("sim_demo_game")
 
 def load_player(ckpt: Path, device, *, mcts_sims: int, temperature: float,
                 end_turn_offset: float, end_turn_rule: str = "joint",
-                seed: Optional[int] = None, memory: Optional[int] = None):
+                seed: Optional[int] = None, memory: Optional[int] = None,
+                raw_knobs: Optional[dict] = None):
     """The player both sides use: the checkpoint loaded as the eval path
     loads it (its arch and every structural flag, so a relevant-set
     checkpoint chooses its hex targets in the relevant-set basis), under
     the eval-contract search when `mcts_sims` > 0 (MCTSConfig defaults:
-    no material shapers), else the raw player at the given decode, with
-    the checkpoint's memory as a match plays it: `memory` slots, all of
-    them when None."""
+    no material shapers), else the raw player at the given decode (its
+    knobs `raw_knobs`, tools/eval_procedure.RAW_KNOBS), with the
+    checkpoint's memory as a match plays it: `memory` slots, all of them
+    when None."""
     policy = _load_policy(ckpt, device, label="demo")
     if mcts_sims > 0:
         from tools.mcts import MCTSConfig
@@ -66,7 +70,7 @@ def load_player(ckpt: Path, device, *, mcts_sims: int, temperature: float,
     slots = int(peek_checkpoint_arch(ckpt, "demo").get("memory_slots", 0) or 0)
     return RawPolicyPlayer(policy, temperature, seed=seed, end_turn_rule=end_turn_rule,
                            end_turn_offset=end_turn_offset,
-                           memory_slots=effective_memory(slots, memory))
+                           memory_slots=effective_memory(slots, memory), **(raw_knobs or {}))
 
 
 def _pick_replay_seed(pool: Path, rng: random.Random) -> Optional[Path]:
@@ -274,7 +278,7 @@ def main(argv) -> int:
     policy = load_player(
         ckpt, device, mcts_sims=args.mcts_sims if args.mcts else 0,
         temperature=args.temperature, end_turn_offset=args.end_turn_offset,
-        seed=args.seed, memory=memory)
+        seed=args.seed, memory=memory, raw_knobs=decode_knobs(reference["decode"]))
     log.info(f"player: {type(policy).__name__} "
              + (f"({args.mcts_sims} simulations per decision)" if args.mcts else
                 f"(temperature {args.temperature}, end_turn offset "

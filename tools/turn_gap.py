@@ -1142,6 +1142,10 @@ def _apply_reference(args) -> Optional[Dict]:
     if int(decode.get("mcts_sims", 0)) != 0 or float(decode.get("raw_temperature", 0.0)) != 0.0:
         raise SystemExit(f"the reference decode {decode} is not a raw argmax player; the "
                          f"base turn of this measurement is the argmax turn")
+    from tools.eval_procedure import decode_knobs
+    if any(decode_knobs(decode).values()):
+        raise SystemExit(f"the reference decode {decode} sets attack or recruit knobs, which "
+                         f"this measurement's players do not carry (tools/raw_player.py)")
     args.checkpoint = str(reference_player.ensure_checkpoint(ref))
     args.raw_end_turn = str(decode.get("raw_end_turn", "joint"))
     args.raw_end_turn_offset = float(decode.get("raw_end_turn_offset", 0.0))

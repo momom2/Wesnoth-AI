@@ -39,6 +39,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools import reference_player  # noqa: E402
+from tools.eval_procedure import decode_knobs  # noqa: E402
 from tools.live_mirror import (ENGINE_DEBUG_DOMAINS, ENGINE_LOG_DOMAINS, AiCandidateAction,  # noqa: E402
                                AiStop, EngineLog, EngineMessage, LiveMirror, LoggedCommand,
                                MirrorDivergence, SyncMarker, engine_commands)
@@ -359,7 +360,7 @@ def main(argv=None) -> int:
     player = load_player(reference_player.local_path(), torch.device("cpu"), mcts_sims=0,
                          temperature=float(decode["raw_temperature"]),
                          end_turn_offset=float(decode.get("raw_end_turn_offset", 0.0)),
-                         memory=ref.get("memory_slots"))
+                         memory=ref.get("memory_slots"), raw_knobs=decode_knobs(decode))
     seed = args.seed if args.seed is not None else int(time.time())
     rng = random.Random(seed)
     out = args.out or ROOT / "logs" / "live_vs_rca" / time.strftime("%Y%m%d_%H%M%S")

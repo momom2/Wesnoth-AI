@@ -1,5 +1,5 @@
 {
-  "_comment": "The reference player every strength claim is measured against (adopted by the project lead 2026-10-11 under the user's delegation of 2026-10-09; docs/plan_20260904.md 3, rule 1). One checkpoint, its memory, one decode. tools/reference_player.py reads this file: `--flags a|b` prints the run_elo_batch flags for that side, `--ensure` fetches the checkpoint from the model host when the local copy is missing.",
+  "_comment": "The reference player every strength claim is measured against (adopted by the project lead 2026-10-11 under the user's delegation of 2026-10-09; docs/plan_20260904.md 3, rule 1). One checkpoint, its memory, one decode: the decode block's knob vector (the end_turn offset, the attack and recruit offsets, the attack time-of-day slope; docs/decode_knobs_prereg_20261012.md) is adopted by editing it, procedure_tag with it. tools/reference_player.py reads this file: `--flags a|b` prints the run_elo_batch flags for that side, `--ensure` fetches the checkpoint from the model host when the local copy is missing.",
   "label": "own1",
   "checkpoint_local": "training/checkpoints/own1.pt",
   "checkpoint_hf": "tier-b/memory_own_trajectories_20261011/own.pt",
@@ -10,7 +10,10 @@
     "mcts_sims": 0,
     "raw_temperature": 0.0,
     "raw_end_turn": "joint",
-    "raw_end_turn_offset": -1.5
+    "raw_end_turn_offset": -1.5,
+    "raw_attack_offset": 0.0,
+    "raw_recruit_offset": 0.0,
+    "raw_attack_tod_slope": 0.0
   },
   "procedure_tag": "raw:t0+eo-1.5",
   "adopted": "2026-10-11",
