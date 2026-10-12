@@ -111,7 +111,11 @@ brings the 64-slot player level with `parity3` at 0 slots (-4.3 +- 12.3);
 confirmed on fresh seeds (docs/own_confirm_prereg_20261011.md): +88.6 +-
 12.7 over `parity3` at 64 slots, the memory costing it about 22 Elo against
 its own 0-slot reading (-21.7 +- 12.3), its 0-slot reading +22.6 +- 12.3
-over `parity3`'s (+37.4 in round 1).
+over `parity3`'s (+37.4 in round 1). Round 2 (2026-10-12,
+docs/memory_own_round2_prereg_20261011.md): within `own2` the memory no
+longer costs strength (+13.0 +- 12.3 for 64 slots against 0); its
+memoryless reading did not improve again (saturated), and `own2` against
+`own1` reads +16.5 +- 12.3.
 Budget (user, 2026-10-09): about $100 on Vast for the foreseeable future;
 the lead decides runs, a costly one only when confident it pays.
 

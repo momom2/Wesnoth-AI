@@ -71,3 +71,37 @@ corpus and pre-encoding 30, the candidates and targets about 50 (round 1's
 targets ran at 390 positions a second), the pass about 2.6 hours (217
 positions a second), three matches about 40 minutes: about 5.2 box-hours,
 $2.2-3.3 at $0.42-0.63/h. BOX_MAX_H 8.
+
+## Measured (2026-10-12)
+
+Box 55454553 (RTX 4090, EPYC 7702, $0.463/h), stage
+`tier-b/staging/stage_20261012_r2b.tar.gz` (commit bd5f33d of
+`exp/memory-own-trajectories`), 22:11 to 03:30 UTC, about $2.5; a first box
+(55449678) stopped at its test step on a test that read round 1's preset
+in an environment holding round 2's variables, fixed with a test that fails
+without the fix. Records in `training/metrics/memory_own_round2_20261011/`,
+`own2` and the games on HF `tier-b/memory_own_round2_20261011/`.
+
+**Data and barriers.** The generation match, `own1` against itself, read
+-3.5 +- 12.3 Elo; its 1,600 game-sides and the confirmation's 64-slot sides
+were the round's own trajectories; the replay reproduced 98.7% of the
+decisions in turns 6 and later. Holdout imitation loss, `own1` against
+`own2`: 2.812 against 2.805 at 0 slots, 2.709 against 2.705 at 64 slots.
+Agreement with the target at the decode on held-out own game-sides: `own2`
+0.910, `own1` 0.885. Every barrier passed.
+
+**Matches**, 800 decisive games each:
+
+| match | Elo of side A | prediction |
+|---|---|---|
+| R1, `own2` at 64 slots against `own1` at 64 | +16.5 +- 12.3 | +15 |
+| R2, `own2` at 0 slots against `own1` at 0 | -6.1 +- 12.3 | +10 |
+| R3, `own2` at 64 slots against `own2` at 0 | +13.0 +- 12.3 | -10 |
+
+**Reading: Saturated.** R2 lies within two standard errors of 0: a second
+round toward the memoryless reading did not improve the policy itself, so no
+further round of this form is run. What the round did for the memory: within
+`own2`'s weights the memory no longer costs strength (+13.0 +- 12.3 for 64
+slots against 0, where it cost `parity3` 105.5 and `own1` 21.7). R1 is short
+of +25, so `own2` is not the reference; `own1` stays. The next round needs a
+teacher better than the policy's own reading.

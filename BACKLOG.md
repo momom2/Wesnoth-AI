@@ -35,9 +35,14 @@ $1.47 in all):
   (docs/own_confirm_prereg_20261011.md, $0.45): +88.6 +- 12.7 over
   `parity3` at 64 slots, adopted as the reference `own1`; within its own
   weights the memory costs about 22 Elo (-21.7 +- 12.3); its 0-slot reading
-  +22.6 +- 12.3 over `parity3`'s, short of the 2-SE bar. Next: round 2 on
-  the aggregate of both rounds' own trajectories, `own1`'s memoryless
-  reading as the target.
+  +22.6 +- 12.3 over `parity3`'s, short of the 2-SE bar. **Round 2
+  measured 2026-10-12** (docs/memory_own_round2_prereg_20261011.md, $2.5):
+  saturated. On `own1`'s own games toward its memoryless reading, `own2`'s
+  memoryless reading does not improve again (-6.1 +- 12.3), and within
+  `own2` the memory no longer costs strength (+13.0 +- 12.3 for 64 slots
+  against 0); `own2` against `own1` at 64 slots +16.5 +- 12.3, short of the
+  bar, so `own1` stays the reference. The memory's flaw is closed. Next: a
+  teacher better than the policy's own reading.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

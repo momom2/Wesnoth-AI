@@ -1,0 +1,25 @@
+{
+ "selection": {
+  "results": 3208,
+  "game_sides": 6416,
+  "own": 4808,
+  "not_own: another memory size": 801,
+  "not_own: another checkpoint": 807
+ },
+ "games": 3208,
+ "done": 3208,
+ "errors": 0,
+ "error_kinds": {},
+ "teacher_sha256": "70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80",
+ "player_sha256": "70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80",
+ "core_phase": 31,
+ "target_off_subset": 6,
+ "hidden_units": 2673214,
+ "hidden_untokened": 630149,
+ "sighting_tokens": 337311,
+ "move_label_path_end": 635072,
+ "approach_pairs": 134799,
+ "candidates_side1": 560223,
+ "candidates_side2": 547595,
+ "candidates": 1107818
+}

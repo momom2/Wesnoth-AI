@@ -1,0 +1,2 @@
+2026-10-11T21:27:47Z entry: stage=tier-b/staging/stage_20261012_r2.tar.gz instance=55449678 host=9624d367c1d7 switch=8 h
+2026-10-11T22:11:32Z entry: stage=tier-b/staging/stage_20261012_r2b.tar.gz instance=55454553 host=243c789724f8 switch=8 h
