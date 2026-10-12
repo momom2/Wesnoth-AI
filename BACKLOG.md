@@ -42,7 +42,13 @@ $1.47 in all):
   `own2` the memory no longer costs strength (+13.0 +- 12.3 for 64 slots
   against 0); `own2` against `own1` at 64 slots +16.5 +- 12.3, short of the
   bar, so `own1` stays the reference. The memory's flaw is closed. Next: a
-  teacher better than the policy's own reading.
+  teacher better than the policy's own reading. **Self-play RL in rounds was
+  proposed and withdrawn before any code** (docs/selfplay_rl_rounds_prereg_20261012.md,
+  decision record: the played-action tilt is too weak at any N, the
+  advantage was mostly the value head). Next: the rollout evaluator (Q5),
+  step A pre-registered (docs/rollout_regrade_prereg_20261012.md): the turn
+  benchmark re-graded by rollouts from the mover's own view, with an
+  end_turn offset match for `own1`, about $0.3.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

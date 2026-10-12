@@ -1,5 +1,9 @@
 # Pre-registration: self-play RL in rounds, the advantage-tilted target (2026-10-12)
 
+**Withdrawn 2026-10-12, before any code or box, after an independent review
+(decision record at the end).** Kept as the record of why this form is not
+run.
+
 Written by the project lead before any code or box for it.
 
 ## Where it starts
@@ -103,3 +107,26 @@ at 390 positions a second about 30 minutes; the pass of 1.2 million
 positions at 217 a second about 90 minutes; the corpus once), three
 iterations and three matches: about 10 box-hours, $4.2-6.3 at
 $0.42-0.63/h. BOX_MAX_H 15.
+
+## Decision record
+
+- Rejected 2026-10-12, after an independent review, before any code or box:
+  - the played-action tilt moves a truly better alternative by about 0.01
+    to 0.04 nats an iteration (a simulation on `parity3`'s recorded prior
+    gaps, median top-two gap 0.59 nats), whatever the number of games: three
+    iterations would flip only near-ties;
+  - at lambda 0.95 about 93% of the advantage is the value head's TD errors,
+    a head whose fair form (O100 in step 1) ranks like material, so "the
+    result needs only a baseline" did not hold;
+  - the exponent of a noisy advantage inflates every played action (by 1.22
+    to 1.28 in expectation), and the behaviour policy carries the end_turn
+    offset, which the decode would apply twice;
+  - G1 could not separate the tilt from a third round of the saturated
+    distillation (round 2 still gave +16.5 at 64 slots);
+  - the pre-registered step after step 1's Kill is the rollout evaluator, and
+    the switch away from it was not argued.
+- What would make outcome-driven RL worth its money here: an importance-
+  weighted policy-gradient term with a trust region over many small
+  iterations, lambda 1 or luck-corrected advantages, a null arm with
+  permuted advantages, and on the order of 10^5 games (about $40 at the
+  measured rates). Not now.
