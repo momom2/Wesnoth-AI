@@ -77,10 +77,12 @@ class MaterialEvaluator(Evaluator):
 
 
 class MaterialExposureEvaluator(Evaluator):
-    """tanh(M / scale), M the state's material less its exposure for the
-    deciding side, in gold (wesnoth_ai/lookahead_exposure.py). Setting
-    `m_values` to a list records every state's M (the scale's calibration,
-    tools/lookahead_timing.py)."""
+    """tanh(M / scale), M the material less the exposure for the deciding
+    side, in gold (wesnoth_ai/lookahead_exposure.py), read on each
+    outcome's afterstate before any effect of the opponent's turn start
+    (`Outcome.board`: the end_turn candidate on the board as it stands at
+    the decision). Setting `m_values` to a list records every state's M
+    (the scale's calibration, tools/lookahead_timing.py)."""
     name = "material_exposure"
 
     def __init__(self, scale: float):
@@ -92,7 +94,7 @@ class MaterialExposureEvaluator(Evaluator):
     def values(self, states: Sequence, side: int) -> np.ndarray:
         out = np.empty(len(states), dtype=np.float64)
         for k, s in enumerate(states):
-            v = valuation(s.core.core, side)
+            v = valuation(s.board.core, side)
             self.counts["exposure_weapon_fallbacks"] += v.fallbacks
             self.counts["exposure_unvalued_attacks"] += v.unvalued
             if self.m_values is not None:

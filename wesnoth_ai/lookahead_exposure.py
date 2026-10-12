@@ -29,18 +29,21 @@ then assigned greedily (`assign_greedily`): repeatedly the (attacker,
 target) whose loss, capped by what is left of the target's value, is
 largest; each attacker once, each target's total at most its value.
 
+**Which state is read.** Every candidate is read on its own afterstate
+before any effect of the opponent's turn start (`Outcome.board`,
+wesnoth_ai/lookahead_world.py): end_turn changes nothing on the board until
+that turn starts, so its candidate is read on the board as it stands at the
+decision, and the opponent's income, healing and refreshed units count
+against no candidate.
+
 **Where the opponent's movement comes from.** Every opponent unit moves with
-its full movement (`max_moves`) in every state. In the state after end_turn
-the opponent's init_side has refreshed its units, so that is their movement
-left there too; a mid-turn state holds what the opponent's units ended their
-last turn with, which its next turn restores. Everything else is read as the
-state stands: hit points, statuses (a unit slowed now fights slowed), the
-time of day of the state's turn, the opponent's fog (its units' vision,
-which covers the hexes they reach wherever vision costs equal movement
-costs), the other units on the board (each attack is valued alone: two
-attackers may be counted from one hex). In the state after end_turn the
-material also holds what the opponent's init_side gave it, its income and
-its healing, which no mid-turn state holds yet.
+its full movement (`max_moves`): a state before the opponent's turn start
+holds what its units ended their last turn with, which that turn restores.
+Everything else is read as the state stands: hit points, statuses (a unit
+slowed now fights slowed), the time of day of the state's turn, the
+opponent's fog (its units' vision, which covers the hexes they reach
+wherever vision costs equal movement costs), the other units on the board
+(each attack is valued alone: two attackers may be counted from one hex).
 """
 from __future__ import annotations
 

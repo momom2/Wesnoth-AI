@@ -49,7 +49,8 @@ game's next draw. Advancements follow the simulator's rule on that stream.
 
 **Outcomes.** A move, a recruit or end_turn gives one state (end_turn:
 after the opponent's init_side, the neutral sides' turns between them
-played). An attack gives every distinct state its fight can end in: the
+played; its `afterstate` is the board at the decision, before any effect
+of that turn start). An attack gives every distinct state its fight can end in: the
 pre-move step() would make first, then every hit/miss sequence of the
 strikes run on a fork of the core with the strikes scripted, its
 probability the product of the strikes' chances, sequences merged by the
@@ -82,11 +83,20 @@ class ExpansionError(Exception):
 class Outcome:
     """One outcome state of a candidate: its probability, the core holding
     it, who moves there, and the game's result for the deciding side when
-    the game ended there (None otherwise)."""
+    the game ended there (None otherwise). `afterstate`: the board after
+    the action and before any effect of the opponent's turn start, where it
+    differs from `core`: for end_turn, the board as it stands at the
+    decision (end_turn changes nothing on the board until that turn
+    starts); `board` is it, else `core`."""
     prob: float
     core: object
     side_to_move: int
     terminal: Optional[float] = None
+    afterstate: Optional[object] = None
+
+    @property
+    def board(self):
+        return self.core if self.afterstate is None else self.afterstate
 
 
 @dataclass
@@ -166,7 +176,8 @@ def expand(world: World, action: dict, *, max_attack_leaves: int = 512) -> List[
     if played != kind:
         # The simulator ends the turn on an action it cannot translate.
         raise ExpansionError("not_applied", f"{kind} was played as {played or 'nothing'}")
-    return [Outcome(1.0, child.core, int(child.current_side), _sim_result(child, world.side))]
+    afterstate = world.sim.core.fork() if kind == "end_turn" else None
+    return [Outcome(1.0, child.core, int(child.current_side), _sim_result(child, world.side), afterstate)]
 
 
 def _sim_result(sim, side: int) -> Optional[float]:

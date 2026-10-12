@@ -31,8 +31,12 @@ expands in (the observed world: no unit it cannot see):
   of `tools/combat_outcomes.py`), each attack's expected loss in the same
   gold units, a unit's deaths counted once, the attacks assigned greedily
   (each opponent unit to its best target, best first, a target's expected
-  loss capped at its value). On the state after end_turn this is the
-  opponent's reply; mid-turn it is the threat on the units as they stand.
+  loss capped at its value), every opponent unit moving with its full
+  movement. Every candidate is read on its own afterstate before any
+  effect of the opponent's turn start: end_turn changes nothing on the
+  board until that turn starts, so its candidate is read on the board as
+  it stands, where the opponent's income, healing and refreshed units
+  would otherwise count against end_turn and against no other candidate.
 
 scale: the median absolute M over the first 50 timed decisions, fixed in the
 configuration before the match.
@@ -64,3 +68,11 @@ The exposure term's enumeration on top of the material look-ahead's 63 ms a
 decision: an estimated 100-200 ms a decision, measured on the box first
 (50 timed decisions); the match 25-45 minutes on a 20-worker 4090 box,
 about $0.3-0.5.
+
+## Decision record
+
+- Revised 2026-10-12, before any run, from the implementation's timing: the
+  end_turn candidate was read after the opponent's turn start, so its
+  income and healing moved end_turn's M by -12 to +7 gold against a scale
+  near 20 and flipped 4 of 6-7 end_turn choices to moves in two timing
+  runs; every candidate is now read before that turn start.

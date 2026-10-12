@@ -24,10 +24,11 @@ needs_core = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_co
 CASTLE = {(2, 3): "Kh", (2, 2): "Ch", (3, 3): "Ch", (1, 3): "Ch", (18, 3): "Kh"}
 
 
-def _sim(units, fog: bool = False):
+def _sim(units, fog: bool = False, villages=None):
     from tools.wesnoth_sim import WesnothSim
-    data = record([("Lieutenant", 1, 2, 3, True), ("Lieutenant", 2, 18, 3, True), *units], special=CASTLE,
-                  recruits={1: ["Spearman", "Bowman"], 2: ["Spearman"]}, fog=fog)
+    data = record([("Lieutenant", 1, 2, 3, True), ("Lieutenant", 2, 18, 3, True), *units],
+                  special={**CASTLE, **{hex_: "Gg^Vh" for owned in (villages or {}).values() for hex_ in owned}},
+                  recruits={1: ["Spearman", "Bowman"], 2: ["Spearman"]}, fog=fog, villages=villages)
     sim = WesnothSim(state_of(data), scenario_id="", apply_scenario_events=False, max_turns=3)
     sim._seed_salt = "exposure-test"
     return sim
@@ -87,6 +88,32 @@ def test_a_unit_moved_next_to_two_strong_enemies_reads_worse_than_one_kept_out_o
     assert "Dwarvish Fighter" in attackers and v_exposed.threats >= 2 and v_exposed.exposure > 0
     values = MaterialExposureEvaluator(20.0).values([exposed, safe], 1)
     assert values[0] < values[1]
+
+
+@needs_core
+def test_the_end_turn_candidate_is_read_on_the_board_before_the_opponents_turn_start():
+    """In turn 2, side 2 holds a village with a wounded Spearman on it: its
+    turn start pays it income and heals the Spearman. The end_turn
+    candidate's outcome state carries both, and the evaluator reads it as
+    the board stands at the decision: M is the current board's."""
+    from wesnoth_ai.lookahead_evaluators import MaterialExposureEvaluator
+    from wesnoth_ai.lookahead_world import expand
+    sim = _sim([("Spearman", 2, 16, 6, False, {"hp": 5})], villages={2: [(16, 6)]})
+    sim.step({"type": "end_turn"})
+    sim.step({"type": "end_turn"})
+    assert (sim.turn_number, int(sim.current_side)) == (2, 1)
+    world = _world(sim)
+    (out,) = expand(world, {"type": "end_turn"})
+    now, then = world.sim.core.core, out.core.core
+    spear = next(u["id"] for u in now.units_export() if u["name"] == "Spearman")
+    assert _units(then)[spear]["current_hp"] > _units(now)[spear]["current_hp"], "the turn start heals"
+    assert then.sides_export()[1][2] > now.sides_export()[1][2], "the turn start pays income"
+    root = valuation(now, 1)
+    assert valuation(then, 1).m < root.m
+    ev = MaterialExposureEvaluator(20.0)
+    ev.m_values = []
+    ev.values([out], 1)
+    assert ev.m_values == [root.m]
 
 
 def _expected_loss(dist, hp: int) -> float:
