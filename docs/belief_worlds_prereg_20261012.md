@@ -49,20 +49,28 @@ in every arm but T, as in the observed world. The opponent's fog is
 recomputed from its units of the world and its sighting record emptied, as
 in the observed world, in every arm but T.
 
-- **Placement (RB, RU).** Each rollout draws its own placement: the hidden
-  units in a random order, each on a hex the mover does not see, that holds
-  no unit and that is not impassable for that unit. RB draws the hex with
-  probability proportional to the belief head's probability on the hexes
-  that have a token (`own2` at 0 slots, read at the candidate's end_turn
-  decision; its memory adds little to it: holdout belief loss 0.01582 at 0
-  slots, 0.01555 at 64, the last-seen baseline 0.0490); a unit with no such
-  hex left takes RU's rule, counted. RU draws uniformly over every hex of
-  the map that qualifies.
+- **Placement (RB, RU).** Each rollout draws its own placement. A hex
+  qualifies for a unit when the mover does not see it, it holds no unit and
+  it is not impassable for that unit. The opponent's leader, when hidden,
+  goes first to its side's starting position when that hex qualifies (a
+  player knows where the enemy leader starts); otherwise it is placed as the
+  others. RB reads the belief head (`own2` at 0 slots, at the candidate's
+  end_turn decision; its memory adds little to it: holdout belief loss
+  0.01582 at 0 slots, 0.01555 at 64, the last-seen baseline 0.0490) as what
+  it was trained to be, each hex token's own probability that a hidden unit
+  stands there: every token hex is occupied with its probability, drawn
+  independently; the hidden units still unplaced, in a random order, take
+  the occupied hexes that qualify for them, in a random order, and those
+  left over take RU's rule over the hexes without a token, counted. RU
+  draws each unit's hex uniformly over every hex of the map that
+  qualifies.
 - **Last seen (LS).** The units of the mover's sighting record at its
   end_turn decision, each with its own record (the mover saw it, its type
   and traits with it) and the hit points it was seen with, at the hex of the
   sighting when that hex is one the mover does not see and holds no unit;
-  otherwise left out, counted.
+  otherwise left out, counted. The opponent's leader, when hidden and not
+  placed so, goes to its side's starting position when that hex qualifies,
+  as in RB and RU.
 
 ## Statistics
 
@@ -110,3 +118,15 @@ RB - RU +0.015; RU - O2 +0.010; LS - O2 +0.010; O2's own selection gain
 Six arms of about 7,700 rollouts at the re-grade's rate (540 s an arm on
 28 workers): about 55 minutes of rollouts and 15 of bring-up and tests,
 about $0.5 at $0.37-0.46 an hour. BOX_MAX_H 2.5.
+
+## Decision record
+
+- Revised 2026-10-12, before any run, on reading the implementation: hex
+  tokens cover only the part of the map near the mover's units (426 of 984
+  hexes on the first fixture position), so drawing every hidden unit's hex
+  in proportion to the belief over token hexes put units that stand far
+  away next to the mover's; the head's probabilities are per hex, so each
+  token hex is now occupied with its own probability and the units left over
+  go to the hexes without a token. A hidden leader placed anywhere on the
+  map could not recruit; it now starts from its side's starting position in
+  every arm that places units by an estimate.
