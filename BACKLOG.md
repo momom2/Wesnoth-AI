@@ -59,7 +59,11 @@ $1.47 in all):
   (docs/exposure_evaluator_prereg_20261012.md); the tactical engine waits
   for a design discussion with the user. **The fixed evaluator measured
   2026-10-12: neutral** (-8.7 +- 12.3 against `own1`; the recruiting fault
-  gone, 4% of its changes recruits against 55%).
+  gone, 4% of its changes recruits against 55%). **The decode knobs measured
+  2026-10-12: flat** (docs/decode_knobs_prereg_20261012.md "Measured"):
+  the search's winner (end_turn -3.0, attacks -0.59 with a time-of-day
+  slope 2.53) +1.7 +- 12.3 against `own1` on fresh seeds; the decode stays.
+  Next: the belief over hidden units, first as a re-grade in sampled worlds.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

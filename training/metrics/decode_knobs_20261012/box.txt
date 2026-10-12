@@ -1,0 +1,16 @@
+stage tier-b/staging/stage_20261012_knobs.tar.gz
+instance 55542194, host 237dce5b7969
+cores(all) 256, usable 31
+model name	: AMD EPYC 7742 64-Core Processor
+cpu.max n/a
+pids.max n/a
+               total        used        free      shared  buff/cache   available
+Mem:         1031834      355192      300861         371      375779      669936
+overlay          40G  1.2G   39G   3% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.95.05
+torch 2.5.1+cu124 cuda True
+code 0.19.5 epoch 11
+wheel phase 32, source phase 32
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 32 | source 32 | adapter 32 | current

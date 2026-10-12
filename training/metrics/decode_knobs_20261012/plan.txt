@@ -1,0 +1,26 @@
+kv00  raw:t0+eo-1.5                            raw_end_turn_offset=-1.5  raw_attack_offset=0  raw_recruit_offset=0  raw_attack_tod_slope=0
+kv01  raw:t0+eo-2.32+ao1.04+ro-0.37+at2.36     raw_end_turn_offset=-2.32  raw_attack_offset=1.04  raw_recruit_offset=-0.37  raw_attack_tod_slope=2.36
+kv02  raw:t0+eo-0.13+ao1.12+ro0.22+at1.39      raw_end_turn_offset=-0.13  raw_attack_offset=1.12  raw_recruit_offset=0.22  raw_attack_tod_slope=1.39
+kv03  raw:t0+eo-0.63+ao-0.54+ro0.67+at3.38     raw_end_turn_offset=-0.63  raw_attack_offset=-0.54  raw_recruit_offset=0.67  raw_attack_tod_slope=3.38
+kv04  raw:t0+eo-1.7+ao0.86+ro-0.79+at1.92      raw_end_turn_offset=-1.7  raw_attack_offset=0.86  raw_recruit_offset=-0.79  raw_attack_tod_slope=1.92
+kv05  raw:t0+eo-2.65+ao0.64+ro0.96+at0.82      raw_end_turn_offset=-2.65  raw_attack_offset=0.64  raw_recruit_offset=0.96  raw_attack_tod_slope=0.82
+kv06  raw:t0+eo-2.78+ao0.58+ro-0.87+at2.86     raw_end_turn_offset=-2.78  raw_attack_offset=0.58  raw_recruit_offset=-0.87  raw_attack_tod_slope=2.86
+kv07  raw:t0+eo-1.61+ao-0.02+ro0.06+at3.49     raw_end_turn_offset=-1.61  raw_attack_offset=-0.02  raw_recruit_offset=0.06  raw_attack_tod_slope=3.49
+kv08  raw:t0+eo-1.97+ao0.29+ro0.79+at1.91      raw_end_turn_offset=-1.97  raw_attack_offset=0.29  raw_recruit_offset=0.79  raw_attack_tod_slope=1.91
+kv09  raw:t0+eo-2.02+ao-0.24+ro-0.62+at2.7     raw_end_turn_offset=-2.02  raw_attack_offset=-0.24  raw_recruit_offset=-0.62  raw_attack_tod_slope=2.7
+kv10  raw:t0+eo-2.27+ao-0.44+ro0.61+at3.09     raw_end_turn_offset=-2.27  raw_attack_offset=-0.44  raw_recruit_offset=0.61  raw_attack_tod_slope=3.09
+kv11  raw:t0+eo-1.31+ao1.33+ro-0.27+at3.75     raw_end_turn_offset=-1.31  raw_attack_offset=1.33  raw_recruit_offset=-0.27  raw_attack_tod_slope=3.75
+kv12  raw:t0+eo-1.15+ao-0.97+ro0.44+at3.15     raw_end_turn_offset=-1.15  raw_attack_offset=-0.97  raw_recruit_offset=0.44  raw_attack_tod_slope=3.15
+kv13  raw:t0+eo-0.48+ao1.28+ro-0.71+at1.69     raw_end_turn_offset=-0.48  raw_attack_offset=1.28  raw_recruit_offset=-0.71  raw_attack_tod_slope=1.69
+kv14  raw:t0+eo-2.54+ao0.43+ro-0.05+at0.27     raw_end_turn_offset=-2.54  raw_attack_offset=0.43  raw_recruit_offset=-0.05  raw_attack_tod_slope=0.27
+kv15  raw:t0+eo-3+ao-0.59+ro-0.01+at2.53       raw_end_turn_offset=-3  raw_attack_offset=-0.59  raw_recruit_offset=-0.01  raw_attack_tod_slope=2.53
+kv16  raw:t0+eo-3.19+ao0.09+ro0.84+at0.91      raw_end_turn_offset=-3.19  raw_attack_offset=0.09  raw_recruit_offset=0.84  raw_attack_tod_slope=0.91
+kv17  raw:t0+eo-1.02+ao-0.18+ro-0.21+at0.15    raw_end_turn_offset=-1.02  raw_attack_offset=-0.18  raw_recruit_offset=-0.21  raw_attack_tod_slope=0.15
+kv18  raw:t0+eo-0.89+ao-0.76+ro0.52+at1.22     raw_end_turn_offset=-0.89  raw_attack_offset=-0.76  raw_recruit_offset=0.52  raw_attack_tod_slope=1.22
+kv19  raw:t0+eo-0.41+ao-0.05+ro-0.4+at3.89     raw_end_turn_offset=-0.41  raw_attack_offset=-0.05  raw_recruit_offset=-0.4  raw_attack_tod_slope=3.89
+kv20  raw:t0+eo-0.22+ao1.4+ro-0.93+at0.57      raw_end_turn_offset=-0.22  raw_attack_offset=1.4  raw_recruit_offset=-0.93  raw_attack_tod_slope=0.57
+kv21  raw:t0+eo-3.29+ao0.31+ro0.31+at1.08      raw_end_turn_offset=-3.29  raw_attack_offset=0.31  raw_recruit_offset=0.31  raw_attack_tod_slope=1.08
+kv22  raw:t0+eo-3.39+ao-0.89+ro-0.48+at2.13    raw_end_turn_offset=-3.39  raw_attack_offset=-0.89  raw_recruit_offset=-0.48  raw_attack_tod_slope=2.13
+kv23  raw:t0+eo-1.51+ao0.84+ro0.17+at0.44      raw_end_turn_offset=-1.51  raw_attack_offset=0.84  raw_recruit_offset=0.17  raw_attack_tod_slope=0.44
+/opt/conda/bin/python -u /workspace/Wesnoth-AI/tools/run_elo_batch.py --label-a kv00 --spec-a training/checkpoints/own1.pt --memory-a 64 --raw-end-turn-offset-a -1.5 --label-b own1 --spec-b training/checkpoints/own1.pt --memory-b 64 --raw-end-turn-offset-b -1.5 --outdir /workspace/knobsearch/games_kv00 --games 100 --max-extra-games 200 --seed-base 200000 --mcts-sims 0 --raw-temperature-a 0.0 --raw-temperature-b 0.0 --device cuda --jobs 20 --time-budget-min 60.0 --persistent-workers --shared-inference --no-infer-compile
+/opt/conda/bin/python -u /workspace/Wesnoth-AI/tools/run_elo_batch.py --label-a kv01 --spec-a training/checkpoints/own1.pt --memory-a 64 --raw-end-turn-offset-a -2.32 --raw-attack-offset-a 1.04 --raw-recruit-offset-a -0.37 --raw-attack-tod-slope-a 2.36 --label-b own1 --spec-b training/checkpoints/own1.pt --memory-b 64 --raw-end-turn-offset-b -1.5 --outdir /workspace/knobsearch/games_kv01 --games 100 --max-extra-games 200 --seed-base 201000 --mcts-sims 0 --raw-temperature-a 0.0 --raw-temperature-b 0.0 --device cuda --jobs 20 --time-budget-min 60.0 --persistent-workers --shared-inference --no-infer-compile
