@@ -5,6 +5,9 @@ then the look-ahead player (configs/lookahead.json or `--config`) decides
 the next `--decisions`, and the decision's telemetry is printed: seconds per
 decision split into the prior's forward, the expansions and the evaluator,
 the evaluator's states and forwards per decision, the candidates by kind.
+An evaluator that records each state's M (material_exposure) also gives the
+median |M| over the states it valued (`m_abs_median`, `m_states`): the
+scale `tools/lookahead_gate.py calibrate` writes into its configuration.
 
 `--critic-arch full|small` replaces the configuration's evaluator by an
 untrained critic of the reference's architecture or step 1's small one
@@ -20,6 +23,7 @@ import argparse
 import dataclasses
 import json
 import random
+import statistics
 import sys
 import tempfile
 import time
@@ -80,6 +84,8 @@ def main(argv=None) -> int:
                                                       "batch": 64})
         raw = RawPolicyPlayer(policy, 0.0, end_turn_offset=args.end_turn_offset, memory_slots=slots)
         player = lookahead_player(raw, cfg)
+        if hasattr(player.evaluator, "m_values"):
+            player.evaluator.m_values = []
         setup = random_setup(random.Random(args.seed))
         sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id)
         sim._seed_salt = f"elo:{args.seed}"
@@ -94,11 +100,14 @@ def main(argv=None) -> int:
             sim.step(player.select_action(snapshot_view(sim.gs), game_label="t", sim=sim))
             n += 1
     tel = player.telemetry("t")
+    m_values = getattr(player.evaluator, "m_values", None) or []
     text = json.dumps({"scenario": setup.scenario_id, "turn": sim.turn_number, "warmup_decisions": args.warmup,
                        "warmup_seconds_per_decision": round(warm / max(1, args.warmup), 4),
                        "evaluator": cfg.evaluator.get("name"), "critic_arch": args.critic_arch,
                        "evaluator_seconds_encode": round(player.evaluator.seconds_encode, 4),
                        "evaluator_seconds_forward": round(player.evaluator.seconds_forward, 4),
+                       "m_states": len(m_values),
+                       "m_abs_median": statistics.median(abs(m) for m in m_values) if m_values else None,
                        "telemetry": tel}, indent=1, default=str)
     if args.out is not None:
         args.out.write_text(text + "\n", encoding="utf-8")

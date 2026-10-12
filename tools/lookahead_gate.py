@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""The look-ahead gate's two helpers (scripts/lookahead_gate_box.sh): an
-arm's configuration made ready to play, and a match's look-ahead telemetry
-pooled into one small record.
+"""The look-ahead gate's helpers (scripts/lookahead_gate_box.sh): an arm's
+configuration made ready to play, its evaluator's scale calibrated on timed
+decisions, and a match's look-ahead telemetry pooled into one small record.
 
     python tools/lookahead_gate.py ensure configs/lookahead_material_gate.json
+    python tools/lookahead_gate.py calibrate configs/lookahead_exposure_gate.json exposure.decision_timing.json
     python tools/lookahead_gate.py summarize eval_games/la_material --out la_material.lookahead.json
 
 `ensure` loads a look-ahead configuration (wesnoth_ai/lookahead_config.py)
-and prints its procedure tag at the reference decode's end_turn offset. A
-critic evaluator names its checkpoint three ways:
+and prints its procedure tag at the reference decode's end_turn offset; it
+refuses a scale still to calibrate unless told it runs before the
+calibration (`--before-calibration`). A critic evaluator names its
+checkpoint three ways:
 
     "checkpoint"         the local path the player loads (relative to the
                          working directory, as the player reads it);
@@ -19,6 +22,14 @@ critic evaluator names its checkpoint three ways:
 
 The file is fetched when it is missing and its SHA-256 checked either way;
 a fetched file that does not match is not kept.
+
+`calibrate` replaces a scale to calibrate ("calibrate_scale": true, the
+material_exposure evaluator's) by the median |M| over the states the timed
+decisions valued (tools/lookahead_timing.py's `m_abs_median`), rewriting
+the configuration in place with "calibrate_scale" false and the
+measurement's size; a configuration with nothing to calibrate is left as it
+is. Run on every entry of a box, it reads the same timing record and writes
+the same scale.
 
 `summarize` pools the per-game telemetry (`lookahead_telemetry_<side>`,
 tools/lookahead_player.GameTelemetry) of every game result in a match
@@ -39,11 +50,12 @@ from typing import Callable, Dict, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.eval_provenance import file_sha256  # noqa: E402
-from wesnoth_ai.lookahead_config import LookaheadConfig, load_config, procedure_tag  # noqa: E402
+from wesnoth_ai.lookahead_config import (  # noqa: E402
+    LookaheadConfig, config_from_dict, load_config, procedure_tag)
 
 SUMMED = ("decisions", "operated", "states", "terminal_states", "forwards",
           "seconds", "seconds_prior", "seconds_expand", "seconds_evaluate")
-SUMMED_BY_KEY = ("by_kind", "flips_by_kind", "flips_to_kind", "candidates_by_kind", "failed")
+SUMMED_BY_KEY = ("by_kind", "flips_by_kind", "flips_to_kind", "candidates_by_kind", "failed", "evaluator_counts")
 MAXIMA = ("states_max", "seconds_max")
 
 Download = Callable[[str, str], str]    # (repo, path on the host) -> a local file
@@ -82,13 +94,43 @@ def ensure_critic(evaluator: Dict, default_repo: str, download: Optional[Downloa
 
 
 def ensure(config_path: Path, end_turn_offset: float, default_repo: str,
-           download: Optional[Download] = None) -> str:
+           download: Optional[Download] = None, before_calibration: bool = False) -> str:
     """The procedure tag of the configuration at `config_path`, its critic
-    checkpoint (if any) on the disk and checked."""
+    checkpoint (if any) on the disk and checked, its scale calibrated
+    unless `before_calibration`."""
     cfg: LookaheadConfig = load_config(config_path)
+    if cfg.scale_to_calibrate and not before_calibration:
+        raise ValueError("its evaluator's scale is a placeholder still to calibrate "
+                         "(tools/lookahead_gate.py calibrate)")
     if cfg.evaluator_name == "critic":
         ensure_critic(cfg.evaluator, default_repo, download)
     return procedure_tag(cfg, end_turn_offset)
+
+
+# ---- calibrate -----------------------------------------------------------------
+
+def calibrate(config_path: Path, timing_path: Path) -> Optional[float]:
+    """The scale written into the configuration at `config_path` from the
+    timing record at `timing_path` (module docstring); None when the
+    configuration has no scale to calibrate (the timing is not read)."""
+    raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    if not config_from_dict(raw).scale_to_calibrate:
+        return None
+    timing = json.loads(Path(timing_path).read_text(encoding="utf-8"))
+    median, states = timing.get("m_abs_median"), int(timing.get("m_states") or 0)
+    if states < 1 or not isinstance(median, (int, float)) or not median > 0:
+        raise ValueError(f"{timing_path} records no positive median |M| (m_states {states}, "
+                         f"m_abs_median {median!r})")
+    evaluator = raw["evaluator"]
+    evaluator.update({"scale": float(median), "calibrate_scale": False,
+                      "scale_measured": {"states": states,
+                                         "decisions": int(timing["telemetry"]["decisions"]),
+                                         "placeholder": evaluator["scale"]}})
+    config_from_dict(raw)
+    partial = Path(config_path).with_name(Path(config_path).name + ".partial")
+    partial.write_bytes((json.dumps(raw, indent=2) + "\n").encode("utf-8"))
+    partial.replace(config_path)
+    return float(median)
 
 
 # ---- summarize -----------------------------------------------------------------
@@ -163,6 +205,7 @@ def summarize(outdir: Path, side: str = "a") -> Dict:
         "seconds_max": round(float(maxima["seconds_max"]), 6),
         "failed": dict(sorted(by_key["failed"].items())),
         "games_with_failures": with_failures,
+        "evaluator_counts": dict(sorted(by_key["evaluator_counts"].items())),
     }
 
 
@@ -180,6 +223,11 @@ def main(argv=None) -> int:
     en.add_argument("config", type=Path)
     en.add_argument("--end-turn-offset", type=float, default=None,
                     help="the raw decode's end_turn offset (default: the reference's)")
+    en.add_argument("--before-calibration", action="store_true",
+                    help="accept a scale still to calibrate (the timed decisions that calibrate it)")
+    ca = sub.add_parser("calibrate", help="write the timed decisions' median |M| into a scale to calibrate")
+    ca.add_argument("config", type=Path)
+    ca.add_argument("timing", type=Path)
     su = sub.add_parser("summarize", help="pool a match's look-ahead telemetry")
     su.add_argument("outdir", type=Path)
     su.add_argument("--side", choices=("a", "b"), default="a")
@@ -191,9 +239,16 @@ def main(argv=None) -> int:
         if offset is None:
             offset = float(ref["decode"].get("raw_end_turn_offset", 0.0))
         try:
-            print(ensure(args.config, offset, ref["hf_repo"]))
+            print(ensure(args.config, offset, ref["hf_repo"], before_calibration=args.before_calibration))
         except (OSError, ValueError) as e:
             raise SystemExit(f"look-ahead config {args.config}: {e}") from e
+        return 0
+    if args.command == "calibrate":
+        try:
+            scale = calibrate(args.config, args.timing)
+        except (OSError, ValueError, KeyError) as e:
+            raise SystemExit(f"look-ahead config {args.config}: {e}") from e
+        print("nothing to calibrate" if scale is None else f"scale {scale:g}")
         return 0
     summary = summarize(args.outdir, args.side)
     text = json.dumps(summary, indent=1)

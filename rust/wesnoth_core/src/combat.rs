@@ -310,6 +310,7 @@ pub(crate) const DRAIN_CONSTANT: i64 = 0;
 
 /// What one fight is computed from: the two combatants' snapshots (the
 /// module doc's layout) and what their surroundings give them.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct FightInputs {
     pub a_ints: [i64; UNIT_INTS],
     pub a_flags: [u8; UNIT_FLAGS],

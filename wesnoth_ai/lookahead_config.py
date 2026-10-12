@@ -17,9 +17,14 @@ A configuration file (configs/lookahead.json) holds
   evaluator        {"name": "material", "hp_scale": ...},
                    {"name": "critic", "checkpoint": ..., "view": "obs" or
                    "true", "device": "cpu" or "cuda", "batch": ...}, or
+                   {"name": "material_exposure", "scale": ...,
+                   "calibrate_scale": true or false},
                    {"name": "rollout"} (an interface, not implemented);
                    a critic played on a box also names "checkpoint_hf"
                    and "checkpoint_sha256" (tools/lookahead_gate.py ensure);
+                   a scale to calibrate is replaced by the median |M| of
+                   timed decisions before a match plays it
+                   (tools/lookahead_gate.py calibrate);
   max_attack_leaves  hit/miss sequences an attack may take before its
                    expansion is counted as failed.
 """
@@ -32,7 +37,7 @@ from typing import Any, Dict, Optional
 
 KINDS = ("all", "attacks")
 DETERMINIZATIONS = ("observed", "godview")
-EVALUATORS = ("material", "critic", "rollout")
+EVALUATORS = ("material", "material_exposure", "critic", "rollout")
 CRITIC_VIEWS = ("obs", "true")
 GODVIEW_SUFFIX = "+godview"
 TAG_PREFIX = "la:"
@@ -64,6 +69,8 @@ class LookaheadConfig:
             raise ValueError(f"evaluator name must be one of {EVALUATORS}, got {name!r}")
         if name == "material" and not float(self.evaluator.get("hp_scale", 0)) > 0:
             raise ValueError("the material evaluator needs hp_scale > 0")
+        if name == "material_exposure" and not float(self.evaluator.get("scale", 0)) > 0:
+            raise ValueError("the material_exposure evaluator needs scale > 0")
         if name == "critic":
             if self.evaluator.get("view") not in CRITIC_VIEWS:
                 raise ValueError(f"the critic's view must be one of {CRITIC_VIEWS}")
@@ -81,6 +88,12 @@ class LookaheadConfig:
     @property
     def godview(self) -> bool:
         return self.determinization == "godview"
+
+    @property
+    def scale_to_calibrate(self) -> bool:
+        """The evaluator's scale is a placeholder that the timed decisions
+        replace before a match (tools/lookahead_gate.py calibrate)."""
+        return bool(self.evaluator.get("calibrate_scale", False))
 
 
 def config_from_dict(d: Dict[str, Any]) -> LookaheadConfig:

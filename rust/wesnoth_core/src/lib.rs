@@ -34,6 +34,7 @@ mod effects;
 mod events;
 mod outcomes;
 mod terrain;
+mod threats;
 mod units;
 mod wml;
 
@@ -643,6 +644,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // a mover that teleports out of view was last seen where it left.
     // 29: the sighting record follows the display with move animations off
     // (user ruling 2026-10-01): no sighting along a move's route.
-    m.add("__phase__", 31)?;
+    // 32: GameCore.threats: the attacks a side's units could make on another
+    // side's units on their next turn, with the attack dialog's weapon, the
+    // engine's counter and the target's exact expected loss (threats.rs).
+    m.add("__phase__", 32)?;
     Ok(())
 }

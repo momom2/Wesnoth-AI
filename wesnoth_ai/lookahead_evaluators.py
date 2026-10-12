@@ -5,6 +5,10 @@ signed to that side.
 
   material  tanh(the side's HP margin over the two player sides / hp_scale)
             (`critic_data.player_hp_margin`'s margin); no forward.
+  material_exposure
+            tanh(M / scale), M the side's material in gold less what the
+            opponent's units can take on its next turn
+            (wesnoth_ai/lookahead_exposure.py); no forward.
   critic    a step-1 critic checkpoint (wesnoth_ai/critic.py) read on each
             state's core under its view ("obs": the side to move's
             observation; "true": fog off and every unit uncovered,
@@ -14,17 +18,20 @@ signed to that side.
 
 Each evaluator counts the states it valued, its forwards (`forwards`:
 batched model calls; 0 for material) and its seconds encoding the states
-and running the model (`seconds_encode`, `seconds_forward`).
+and running the model (`seconds_encode`, `seconds_forward`); `counts` holds
+what an evaluator could not value exactly, by name (the player adds them to
+each game's telemetry).
 """
 from __future__ import annotations
 
 import math
 import time
-from typing import Dict, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
 from wesnoth_ai.classes import opponent_of
+from wesnoth_ai.lookahead_exposure import valuation
 
 
 class Evaluator:
@@ -36,6 +43,7 @@ class Evaluator:
         self.forwards = 0
         self.seconds_encode = 0.0
         self.seconds_forward = 0.0
+        self.counts: Dict[str, int] = {}
 
     def values(self, states: Sequence, side: int) -> np.ndarray:
         raise NotImplementedError
@@ -66,6 +74,32 @@ class MaterialEvaluator(Evaluator):
         self.states += len(states)
         return np.array([math.tanh(core_hp_margin(s.core.core, side) / self.hp_scale) for s in states],
                         dtype=np.float64)
+
+
+class MaterialExposureEvaluator(Evaluator):
+    """tanh(M / scale), M the state's material less its exposure for the
+    deciding side, in gold (wesnoth_ai/lookahead_exposure.py). Setting
+    `m_values` to a list records every state's M (the scale's calibration,
+    tools/lookahead_timing.py)."""
+    name = "material_exposure"
+
+    def __init__(self, scale: float):
+        super().__init__()
+        self.scale = float(scale)
+        self.m_values: Optional[List[float]] = None
+        self.counts = {"exposure_weapon_fallbacks": 0, "exposure_unvalued_attacks": 0}
+
+    def values(self, states: Sequence, side: int) -> np.ndarray:
+        out = np.empty(len(states), dtype=np.float64)
+        for k, s in enumerate(states):
+            v = valuation(s.core.core, side)
+            self.counts["exposure_weapon_fallbacks"] += v.fallbacks
+            self.counts["exposure_unvalued_attacks"] += v.unvalued
+            if self.m_values is not None:
+                self.m_values.append(v.m)
+            out[k] = math.tanh(v.m / self.scale)
+        self.states += len(states)
+        return out
 
 
 class CriticEvaluator(Evaluator):
@@ -120,6 +154,8 @@ def build_evaluator(spec: Dict) -> Evaluator:
     name = spec.get("name")
     if name == "material":
         return MaterialEvaluator(float(spec["hp_scale"]))
+    if name == "material_exposure":
+        return MaterialExposureEvaluator(float(spec["scale"]))
     if name == "critic":
         return CriticEvaluator(str(spec["checkpoint"]), str(spec["view"]), str(spec.get("device", "cpu")),
                                int(spec.get("batch", 64)))

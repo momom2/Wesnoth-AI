@@ -76,8 +76,10 @@ _RECORD_SIDES = (1, 2)
 # attack or a recruit with the numbers the engine drew for it (the live
 # mirror, tools/live_mirror.py), 31 marks every unit of the side resting at
 # each side-turn start, the first included (`skip_first_turn_resting` keeps
-# the earlier rule for records of format 3 and earlier).
-_CORE_PHASE = 31
+# the earlier rule for records of format 3 and earlier), 32 answers the
+# attacks a side could make on another's units next turn (`threats`, the
+# look-ahead's exposure, wesnoth_ai/lookahead_exposure.py).
+_CORE_PHASE = 32
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).

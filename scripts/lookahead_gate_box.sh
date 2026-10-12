@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # shellcheck source-path=SCRIPTDIR
-# Gate matches of the look-ahead player against the reference `parity3`, on
-# one box. LOOKAHEAD_ARMS lists the arms as NAME:CONFIG:SEED_BASE triples
+# Gate matches of the look-ahead player against the reference (REFERENCE,
+# `own1`: the label configs/reference_player.json must name), on one box.
+# LOOKAHEAD_ARMS lists the arms as NAME:CONFIG:SEED_BASE triples
 # (space-separated), and each arm is one match:
-#   side A: `parity3` (configs/reference_player.json, its SHA-256 checked) at
-#     64 slots and the reference decode, through the look-ahead player
-#     (tools/lookahead_player.py) configured by CONFIG, a file of the
-#     repository; labelled la_NAME;
-#   side B: `parity3` at 64 slots, raw, at the reference decode
+#   side A: the reference's checkpoint (configs/reference_player.json, its
+#     SHA-256 checked) at 64 slots and the reference decode, through the
+#     look-ahead player (tools/lookahead_player.py) configured by CONFIG, a
+#     file of the repository; labelled la_NAME;
+#   side B: the reference at 64 slots, raw, at the reference decode
 #     (raw:t0+eo-1.5);
 #   PURE, 800 decisive games, sides alternated, the Ladder maps with fog and
 #   both factions drawn uniformly, seeds SEED_BASE to SEED_BASE + 799 (the
@@ -21,33 +22,42 @@
 # Before the matches, on the wheel built from the stage: the tests of the
 # look-ahead player and of the match path; each arm's configuration loaded,
 # a critic's checkpoint fetched from the HF path its configuration names and
-# checked against the SHA-256 it records (tools/lookahead_gate.py ensure);
-# 50 decisions of each arm timed (tools/lookahead_timing.py, prior on the
-# CPU; recorded in NAME.decision_timing.json, not gating).
+# checked against the SHA-256 it records (tools/lookahead_gate.py ensure
+# --before-calibration); 50 decisions of each arm timed
+# (tools/lookahead_timing.py, prior on the CPU; recorded in
+# NAME.decision_timing.json); a scale to calibrate replaced by the median
+# |M| over the states those decisions valued (tools/lookahead_gate.py
+# calibrate; gating for such an arm, which plays only calibrated), the
+# configuration played kept as NAME.config.json and its procedure tag read
+# (tools/lookahead_gate.py ensure).
 #
-# The arm configured now (run Q7, docs/lookahead_material_gate_prereg_20261009.md):
-#   material:configs/lookahead_material_gate.json:103000
-# the material evaluator, k 8, c 1, sigma 0.1, every decision kind, the
-# observed world, untuned. A later gate (a critic) passes its own
-# LOOKAHEAD_ARMS, HF_DIR, MATCH_BUDGET_MIN, MATCH_CUT_MIN and BOX_MAX_H from
-# its pre-registration.
+# The arm configured now (docs/exposure_evaluator_prereg_20261012.md):
+#   exposure:configs/lookahead_exposure_gate.json:160000
+# the material_exposure evaluator (wesnoth_ai/lookahead_exposure.py) at the
+# material gate's k 8, c 1, sigma 0.1, every decision kind, the observed
+# world, against `own1`. The material arm of run Q7
+# (docs/lookahead_material_gate_prereg_20261009.md) was
+# material:configs/lookahead_material_gate.json:103000 against `parity3`,
+# its records under tier-b/lookahead_material_gate_20261009. A later gate
+# passes its own LOOKAHEAD_ARMS, HF_DIR, MATCH_BUDGET_MIN, MATCH_CUT_MIN and
+# BOX_MAX_H from its pre-registration.
 #
 # Box: an RTX 4090 with at least 24 usable cores for the 20 workers
 # (docs/box_specs.md; the parity-memory and anneal matches ran 20 workers on
-# 31 usable EPYC cores). Expected wall for the material arm: about 45
-# minutes. Bring-up and tests about 15 minutes (8 from the entry to the end
-# of the tests on the anneal box, and these tests add the look-ahead's);
-# the reference's fetch and the 50 timed decisions about 3; the match about
-# 23 minutes: the 944-game raw match of 2026-10-04 took 929 s at 20 workers
-# (training/metrics/imitation_anneal_20261003/box/match.walls), and the
-# material look-ahead adds about 35 ms of worker CPU per decision (measured
-# on a laptop core, docs/lookahead_gate_prereg_draft.md "Cost"), 268
-# decisions per game side, so 9.4 s a game and 7.4 minutes over 944 games
-# at 20 workers; the fit, the summary and the final upload a few minutes.
+# 31 usable EPYC cores). Expected wall for the exposure arm: about 55
+# minutes. Bring-up and tests about 15 minutes (the material gate's box);
+# the reference's fetch and the 50 timed decisions about 4; the match about
+# 32 minutes: the material arm's 991 games took 1,569 s at 20 workers with
+# 63 ms a look-ahead decision (training/metrics/lookahead_material_gate_20261009),
+# and the exposure term adds about 25 ms of worker CPU a decision (73 ms on
+# the laptop over 20 timed decisions of 14 states, where the expansions ran
+# 2.9 times the box's 32 ms), 268 decisions per game side, so 7 s a game and
+# about 6 minutes over 991 games at 20 workers; the fit, the summary and the
+# final upload a few minutes.
 # Identical match repeats have differed by 1.8x, which would bring the match
-# to 41 minutes and the run to about 1.05 h. Cost at $0.42-0.63 an hour:
-# $0.32-0.47 expected, $0.44-0.66 at 1.05 h; BOX_MAX_H 1.5 caps it at
-# $0.63-0.95 plus the final round.
+# to 58 minutes and the run to about 1.4 h. Cost at $0.42-0.63 an hour:
+# $0.39-0.58 expected, $0.59-0.88 at 1.4 h; BOX_MAX_H 2 caps it at
+# $0.84-1.26 plus the final round.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md): the
 # onstart of scripts/rent_box.py fetches the library of STAGE, then this
@@ -66,22 +76,22 @@ set -uo pipefail
 WORKDIR=/workspace
 OUT=$WORKDIR/lookaheadgate
 STAGE="${STAGE:-}"
-# Seed bases: the parity3 baselines play 100000 to 102799; every other seed
-# base named in the repository's history on 2026-10-09, this run's 103000
-# aside, is 90000 or below, and no committed game record has a seed in
-# 103000-103999 modulo 1,000,000.
-LOOKAHEAD_ARMS="${LOOKAHEAD_ARMS:-material:configs/lookahead_material_gate.json:103000}"
+# Seed bases: the exposure arm's 160000 (its pre-registration's); no seed
+# base named in the repository on 2026-10-12 lies in 159201-160799 (the
+# largest below it is 120000), and the material arm played 103000-103799.
+LOOKAHEAD_ARMS="${LOOKAHEAD_ARMS:-exposure:configs/lookahead_exposure_gate.json:160000}"
 GAMES="${GAMES:-800}"
 JOBS="${JOBS:-20}"
 SLOTS=64                                         # both sides' memory, the reference's
-export HF_DIR="${HF_DIR:-tier-b/lookahead_material_gate_20261009}"
+REFERENCE="${REFERENCE:-own1}"                   # the reference these matches measure
+export HF_DIR="${HF_DIR:-tier-b/lookahead_exposure_gate_20261012}"
 # Bounds in minutes, from the pre-registration's "Cost".
 TESTS_CUT_MIN="${TESTS_CUT_MIN:-20}"
 ENSURE_CUT_MIN="${ENSURE_CUT_MIN:-15}"           # a critic's download
-DECISION_TIMING_CUT_MIN="${DECISION_TIMING_CUT_MIN:-15}"  # about a minute: 170 decisions with the prior on the CPU
-MATCH_BUDGET_MIN="${MATCH_BUDGET_MIN:-60}"       # the match stops itself here (--time-budget-min)
+DECISION_TIMING_CUT_MIN="${DECISION_TIMING_CUT_MIN:-15}"  # a few minutes: 170 decisions with the prior on the CPU
+MATCH_BUDGET_MIN="${MATCH_BUDGET_MIN:-70}"       # the match stops itself here (--time-budget-min), above 58 at 1.8x
 MATCH_CUT_MIN="${MATCH_CUT_MIN:-90}"             # ...and a game in flight at 20 more
-BOX_MAX_H="${BOX_MAX_H:-1.5}"                    # 2 times the 0.75 box-hours expected; above the 1.05 of a match at 1.8x
+BOX_MAX_H="${BOX_MAX_H:-2}"                      # 2 times the 0.92 box-hours expected; above the 1.4 of a match at 1.8x
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
@@ -164,7 +174,8 @@ box_bind_run_stage
 # ---- the records of an earlier entry: fits, timings, summaries, logs, and each match's games as the tarball it went up as
 restored=(match.walls arms.txt)
 for name in "${ARM_NAMES[@]}"; do         # a match directory already here is not fetched again
-    restored+=("$name.fit.json" "timing_$name.txt" "$name.log" "$name.lookahead.json" "$name.decision_timing.json")
+    restored+=("$name.fit.json" "timing_$name.txt" "$name.log" "$name.lookahead.json" "$name.decision_timing.json"
+               "$name.config.json")
     [ -d "$OUT/games_$name" ] || restored+=("games_$name.tar.gz")
 done
 box_restore "${restored[@]}" || box_finish "RESTORE_FAILED (restore.log)" 1
@@ -195,7 +206,8 @@ box_monitor_start
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests.log"
     box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_lookahead_player.py \
-        tests/test_lookahead_gate.py tests/test_combat_outcomes.py tests/test_game_core.py tests/test_vision.py \
+        tests/test_lookahead_gate.py tests/test_lookahead_exposure.py tests/test_combat_outcomes.py \
+        tests/test_rust_outcomes.py tests/test_game_core.py tests/test_vision.py \
         tests/test_parity_integration.py tests/test_sighting_record.py tests/test_faction_posterior.py \
         tests/test_match_memory.py tests/test_raw_player.py tests/test_reference_player.py \
         tests/test_eval_workers.py tests/test_eval_inference_server.py tests/test_eval_match_failures.py \
@@ -211,8 +223,8 @@ box_bounded reference 15 staging.log python tools/reference_player.py --ensure \
 read -r REF_LABEL REF_PT EO < <(timeout 1m python -c "import json; r = json.load(open('configs/reference_player.json')); \
 print(r['label'], r['checkpoint_local'], r['decode']['raw_end_turn_offset'])") \
     || box_finish "REFERENCE_CONFIG_UNREADABLE (configs/reference_player.json)" 1
-[ "$REF_LABEL" = parity3 ] \
-    || box_finish "REFERENCE_CHANGED: configs/reference_player.json names $REF_LABEL; these matches measure parity3" 1
+[ "$REF_LABEL" = "$REFERENCE" ] \
+    || box_finish "REFERENCE_CHANGED: configs/reference_player.json names $REF_LABEL; these matches measure $REFERENCE" 1
 ref_side() {                     # ref_side SIDE LABEL SLOTS: the reference's match flags for SIDE, one per line, under LABEL with its memory at SLOTS
     local side=$1 label=$2 slots=$3 flags i
     mapfile -t flags < <(timeout 1m python tools/reference_player.py --flags "$side" | tr ' ' '\n')
@@ -233,22 +245,29 @@ side_ok() {                      # side_ok SIDE SLOTS FLAGS...: the flags play t
 mapfile -t REF_B < <(ref_side b "$REF_LABEL" "$SLOTS")
 side_ok b "$SLOTS" "${REF_B[@]}" || box_finish "REFERENCE_FLAGS_FAILED (tools/reference_player.py --flags b)" 1
 
-# ---- each arm: its configuration ready (a critic fetched and checked), its procedure tag, 50 decisions timed
+# ---- each arm: its configuration ready (a critic fetched and checked), 50 decisions timed, its scale
+# calibrated on them when it has one to calibrate, the configuration played kept, its procedure tag
 for (( i = 0; i < ${#ARM_NAMES[@]}; i++ )); do
     name=${ARM_NAMES[i]} config=${ARM_CONFIGS[i]}
-    box_bounded "ensure $name" "$ENSURE_CUT_MIN" staging.log python tools/lookahead_gate.py ensure "$config" \
+    box_bounded "ensure $name" "$ENSURE_CUT_MIN" staging.log \
+        python tools/lookahead_gate.py ensure "$config" --before-calibration \
         || box_finish "ARM_NOT_READY $name rc=$BOX_RC: $config (staging.log)" 1
-    tag=$(timeout 5m python tools/lookahead_gate.py ensure "$config" 2>> "$OUT/staging.log") \
-        || box_finish "ARM_NOT_READY $name: $config (staging.log)" 1
-    echo "$(box_stamp) arm $name: config $config (sha256 $(sha256sum "$config" | cut -c1-64)), seed base ${ARM_SEEDS[i]}, procedure $tag, label la_$name" \
-        | tee -a "$OUT/arms.txt"
     if [ ! -f "$OUT/$name.decision_timing.json" ]; then
         box_bounded "decision timing $name" "$DECISION_TIMING_CUT_MIN" "$name.decision_timing.log" \
             python tools/lookahead_timing.py --checkpoint "$REF_PT" --config "$config" \
             --end-turn-offset "$EO" --decisions 50 --out "$OUT/$name.decision_timing.json" \
-            || echo "the decision timing of $name did not finish: rc=$BOX_RC $BOX_WHY ($name.decision_timing.log); not gating" \
+            || echo "the decision timing of $name did not finish: rc=$BOX_RC $BOX_WHY ($name.decision_timing.log)" \
                 | tee -a "$OUT/match.walls"
     fi
+    # Gating only for an arm with a scale to calibrate: it reads the timing just recorded (or restored).
+    timeout 2m python tools/lookahead_gate.py calibrate "$config" "$OUT/$name.decision_timing.json" \
+        >> "$OUT/staging.log" 2>&1 \
+        || box_finish "ARM_NOT_CALIBRATED $name: $config ($name.decision_timing.log, staging.log)" 1
+    cp -f "$config" "$OUT/$name.config.json"
+    tag=$(timeout 5m python tools/lookahead_gate.py ensure "$config" 2>> "$OUT/staging.log") \
+        || box_finish "ARM_NOT_READY $name: $config (staging.log)" 1
+    echo "$(box_stamp) arm $name: config $config (sha256 $(sha256sum "$config" | cut -c1-64), kept as $name.config.json), seed base ${ARM_SEEDS[i]}, procedure $tag, label la_$name" \
+        | tee -a "$OUT/arms.txt"
 done
 box_upload_async
 

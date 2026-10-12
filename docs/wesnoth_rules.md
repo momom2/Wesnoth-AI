@@ -1266,6 +1266,59 @@ Ours: `tools/combat_outcomes._levelup_average_hp` and
 `tests/test_counter_weapon.py::test_an_attacker_the_fight_levels_is_scored_at_full_hp`,
 `test_levelup_scoring_follows_the_engine_fight_paths`.
 
+### The attacker's weapon: the attack dialog preselects `better_attack` at harm weight 0.5
+
+**Rule (added 2026-10-12):** when a player attacks, the dialog lists the
+attacker's weapons in order, each with the counter `choose_defender_weapon`
+picks for it, and preselects the first weapon unless a later one's predicted
+fight is better for the attacker by `better_combat` at harm weight 0.5. An
+attack with no weapon given (`attacker_weapon == -1`, the AI's and Lua's
+path) runs the same loop in `choose_attacker_weapon` at harm weight
+`1 - aggression`, 1.0 by the constructor's default `aggression = 0.0`.
+
+GitHub 1.18.4 tag, fetched 2026-10-12. `mouse_handler::fill_weapon_choices`,
+`src/mouse_events.cpp:1272-1296`:
+```cpp
+	int best = 0;
+	for(unsigned int i = 0; i < attacker->attacks().size(); i++) {
+		// skip weapons with attack_weight=0
+		if(attacker->attacks()[i].attack_weight() > 0) {
+			battle_context bc(pc_.get_units(), attacker->get_location(), defender->get_location(), i);
+			...
+			if(!bc_vector.empty() && bc.better_attack(bc_vector[best], 0.5)) {
+				// as some weapons can be hidden, i is not a valid index into the resulting vector
+				best = bc_vector.size();
+			}
+```
+`better_attack`, `src/actions/attack.cpp:451-460`, compares from the
+attacker's side:
+```cpp
+	return better_combat(
+		get_attacker_combatant(),
+		get_defender_combatant(),
+		that.get_attacker_combatant(),
+		that.get_defender_combatant(),
+		harm_weight
+	);
+```
+`better_combat` is the one the counter choice uses (the entry above): the
+kill balance `them.hp_dist[0] - us.hp_dist[0] * harm_weight`, then hit
+points kept net of poison, then damage done, each within 0.01.
+`attack_weight` defaults to 1 and no unit of the pinned scrape sets it.
+
+Ours: `GameCore.dialog_weapon` (rust/wesnoth_core/src/threats.rs), read by
+the look-ahead's exposure (`GameCore.threats`,
+wesnoth_ai/lookahead_exposure.py). Test:
+`tests/test_lookahead_exposure.py::test_an_attacks_expected_loss_is_the_enumerators_from_its_hex`
+(a Spearman attacks a Bowman with the spear, a Bowman a Spearman with the
+bow; either comparison read from the defender's side picks the other).
+
+**Why non-obvious:** the counter weapon has an engine rule the simulator
+ports, but the attacker's weapon in our games is the policy's choice, so no
+code needed the engine's until a model of the opponent's attacks did; and
+the dialog's harm weight (0.5) is not the one `battle_context` defaults to
+(1.0).
+
 ### Attacking a petrified defender
 
 `wesnoth_src/src/actions/attack.cpp` and `unit.hpp:1352-1355`:

@@ -107,6 +107,7 @@ class GameTelemetry:
     terminal_states: int = 0
     forwards: int = 0
     failed: Dict[str, int] = field(default_factory=dict)
+    evaluator_counts: Dict[str, int] = field(default_factory=dict)
     seconds: float = 0.0
     seconds_max: float = 0.0
     seconds_prior: float = 0.0
@@ -216,8 +217,11 @@ class LookaheadPlayer:
         evaluator batch over every outcome state where the game goes on."""
         pending = [o for outs in outcomes if outs for o in outs if o.terminal is None]
         before = self.evaluator.forwards
+        counts_before = dict(self.evaluator.counts)
         values = self.evaluator.values(pending, side) if pending else np.zeros(0)
         tel.forwards += self.evaluator.forwards - before
+        for name, n in self.evaluator.counts.items():
+            tel.evaluator_counts[name] = tel.evaluator_counts.get(name, 0) + n - counts_before.get(name, 0)
         tel.states += len(pending)
         tel.states_max = max(tel.states_max, len(pending))
         value_of = {id(o): float(v) for o, v in zip(pending, values)}

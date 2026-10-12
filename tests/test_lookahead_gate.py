@@ -14,11 +14,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.lookahead_gate import ensure, summarize  # noqa: E402
+from tools.lookahead_gate import calibrate, ensure, summarize  # noqa: E402
 from wesnoth_ai import game_core as gc  # noqa: E402
 from wesnoth_ai.lookahead_config import config_record, load_config  # noqa: E402
 
 GATE_CONFIG = Path(__file__).parent.parent / "configs" / "lookahead_material_gate.json"
+EXPOSURE_CONFIG = Path(__file__).parent.parent / "configs" / "lookahead_exposure_gate.json"
 
 
 @pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
@@ -122,3 +123,29 @@ def test_a_critic_arm_takes_only_the_checkpoint_its_configuration_records(tmp_pa
         ensure(config("unnamed", "", sha), -1.5, "repo", download)
     assert ensure(GATE_CONFIG, -1.5, "repo", download) == "la:material:k8c1s0.1+eo-1.5"
     assert len(fetched) == 2, "the material arm fetches nothing"
+
+
+def test_the_exposure_arm_plays_only_once_its_scale_is_calibrated(tmp_path):
+    """The exposure gate's configuration is refused until its placeholder
+    scale is replaced by the timed decisions' median |M|; calibrating twice
+    leaves the first calibration; a configuration with nothing to
+    calibrate is not touched."""
+    config = tmp_path / "exposure.json"
+    config.write_bytes(EXPOSURE_CONFIG.read_bytes())
+    timing = tmp_path / "timing.json"
+    timing.write_text(json.dumps({"m_states": 262, "m_abs_median": 17.5, "telemetry": {"decisions": 50}}),
+                      encoding="utf-8")
+    with pytest.raises(ValueError, match="calibrate"):
+        ensure(config, -1.5, "repo")
+    assert ensure(config, -1.5, "repo", before_calibration=True) == "la:material_exposure:k8c1s0.1+eo-1.5"
+    assert calibrate(config, timing) == 17.5
+    cfg = load_config(config)
+    assert cfg.evaluator["scale"] == 17.5 and not cfg.scale_to_calibrate
+    assert cfg.evaluator["scale_measured"] == {"states": 262, "decisions": 50,
+                                               "placeholder": load_config(EXPOSURE_CONFIG).evaluator["scale"]}
+    assert ensure(config, -1.5, "repo") == "la:material_exposure:k8c1s0.1+eo-1.5"
+    timing.write_text(json.dumps({"m_states": 10, "m_abs_median": 99.0, "telemetry": {"decisions": 50}}),
+                      encoding="utf-8")
+    assert calibrate(config, timing) is None and load_config(config).evaluator["scale"] == 17.5
+    before = GATE_CONFIG.read_bytes()
+    assert calibrate(GATE_CONFIG, tmp_path / "absent.json") is None and GATE_CONFIG.read_bytes() == before

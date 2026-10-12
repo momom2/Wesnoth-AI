@@ -101,7 +101,7 @@ fn kill_xp(level: i64) -> i64 {
 /// One cell of the strike DP: both combatants' hit points and statuses,
 /// and whether each was hit at least once.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct Cell {
+pub(crate) struct Cell {
     a_hp: i64,
     d_hp: i64,
     a_slowed: bool,
@@ -178,7 +178,7 @@ fn schedule(a: &Stats, d: Option<&Stats>) -> Option<Vec<bool>> {
 /// for a slowed striker), the drain heal, and on a survivor poison, slow
 /// and petrification. `track_touched` marks each side hit at least once
 /// (the engine's debuff odds count hits, not damage).
-fn strike_dp(a: &Stats, d: Option<&Stats>, au: &Unit, du: &Unit, track_touched: bool)
+pub(crate) fn strike_dp(a: &Stats, d: Option<&Stats>, au: &Unit, du: &Unit, track_touched: bool)
     -> Option<Vec<(Cell, f64)>> {
     let sched = schedule(a, d)?;
     let start = Cell {
@@ -278,7 +278,7 @@ fn strike_dp(a: &Stats, d: Option<&Stats>, au: &Unit, du: &Unit, track_touched: 
 /// death probability, the average hit points after the level-up it
 /// predicts, and the probability of ending poisoned.
 #[derive(Clone, Copy)]
-struct Marginals {
+pub(crate) struct Marginals {
     death: f64,
     avg_hp: f64,
     poisoned: f64,
@@ -357,7 +357,7 @@ fn levelup_average_hp(u: &Unit, opp: &Unit, avg_hp: f64, avg_hp_on_kill: f64, de
 /// Both combatants' marginals from a touched-tracked DP, as
 /// `combatant::fight` computes them; the touched probability is exact
 /// where the engine approximates it strike by strike.
-fn engine_marginals(states: &[(Cell, f64)], a: &Stats, d: Option<&Stats>, au: &Unit, du: &Unit)
+pub(crate) fn engine_marginals(states: &[(Cell, f64)], a: &Stats, d: Option<&Stats>, au: &Unit, du: &Unit)
     -> (Marginals, Marginals) {
     let (mut a_death, mut d_death, mut a_avg, mut d_avg) = (0.0, 0.0, 0.0, 0.0);
     let (mut a_touch, mut d_touch, mut a_avg_on_kill, mut d_avg_on_kill) = (0.0, 0.0, 0.0, 0.0);
@@ -414,7 +414,7 @@ fn engine_marginals(states: &[(Cell, f64)], a: &Stats, d: Option<&Stats>, au: &U
 /// `battle_context::better_combat` (attack.cpp): is fight A better for
 /// "us" than fight B? The kill balance, then the hit points kept net of
 /// the poison that survives the fight, then the damage done.
-fn better_combat(us_a: &Marginals, them_a: &Marginals, us_b: &Marginals, them_b: &Marginals,
+pub(crate) fn better_combat(us_a: &Marginals, them_a: &Marginals, us_b: &Marginals, them_b: &Marginals,
                  harm_weight: f64) -> bool {
     let a = them_a.death - us_a.death * harm_weight;
     let b = them_b.death - us_b.death * harm_weight;
@@ -440,18 +440,18 @@ fn better_combat(us_a: &Marginals, them_a: &Marginals, us_b: &Marginals, them_b:
 /// simulated to choose it (per candidate weapon, in weapon order; empty
 /// when one weapon or none could answer), and whether the DP overflowed
 /// into the heuristic fallback.
-struct CounterChoice {
-    weapon: i64,
+pub(crate) struct CounterChoice {
+    pub weapon: i64,
     tables: Vec<(usize, Vec<(Cell, f64)>)>,
-    fallback: bool,
+    pub fallback: bool,
 }
 
 /// One combatant's state in an outcome: type, hit points, slowed,
 /// poisoned, petrified. A dead unit is ("", 0, false, false, false).
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct Side {
+pub(crate) struct Side {
     name: String,
-    hp: i64,
+    pub hp: i64,
     slowed: bool,
     poisoned: bool,
     petrified: bool,
@@ -474,7 +474,7 @@ impl Side {
 }
 
 /// An attack's outcome: the attacker's side, then the defender's.
-type OutcomeKey = (Side, Side);
+pub(crate) type OutcomeKey = (Side, Side);
 
 /// The two sides' fight statistics as dicts, the defender's None when
 /// it does not answer.
@@ -495,7 +495,7 @@ impl GameCore {
     /// DP overflows (huge berserk or swarm fights, which the engine hands
     /// to Monte-Carlo) the choice falls back to the most damage x strikes,
     /// ties to the lowest index: a known divergence the caller counts.
-    fn counter_weapon(&self, a: usize, d: usize, a_weapon: i64) -> PyResult<CounterChoice> {
+    pub(crate) fn counter_weapon(&self, a: usize, d: usize, a_weapon: i64) -> PyResult<CounterChoice> {
         let none = CounterChoice { weapon: -1, tables: Vec::new(), fallback: false };
         if self.units[a].attacks.is_empty() || self.units[d].attacks.is_empty()
             || self.units[d].has_status("petrified") {
@@ -543,10 +543,18 @@ impl GameCore {
     /// (the caller samples). With it, a survivor past its cap becomes each
     /// unit its advancement can make, the choice uniform among the types
     /// it is offered.
-    fn outcome_distribution(&self, a: usize, d: usize, a_weapon: i64, uniform_advancement: bool)
+    pub(crate) fn outcome_distribution(&self, a: usize, d: usize, a_weapon: i64, uniform_advancement: bool)
         -> PyResult<Option<Vec<(OutcomeKey, f64)>>> {
         let counter = self.counter_weapon(a, d, a_weapon)?;
-        let (au, du, a_st, d_st) = fight_stats(&self.fight_inputs(a, d, a_weapon, counter.weapon)?);
+        self.outcome_distribution_with(a, d, a_weapon, counter.weapon, uniform_advancement)
+    }
+
+    /// `outcome_distribution` with the defender's counter `d_weapon`
+    /// already chosen (-1: none).
+    pub(crate) fn outcome_distribution_with(&self, a: usize, d: usize, a_weapon: i64, d_weapon: i64,
+                                            uniform_advancement: bool)
+        -> PyResult<Option<Vec<(OutcomeKey, f64)>>> {
+        let (au, du, a_st, d_st) = fight_stats(&self.fight_inputs(a, d, a_weapon, d_weapon)?);
         let may_advance = |u: &Unit, opp: &Unit| {
             u.experience + kill_xp(opp.level).max(COMBAT_EXPERIENCE * opp.level) >= u.max_experience
         };
