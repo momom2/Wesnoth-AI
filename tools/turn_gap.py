@@ -224,7 +224,7 @@ def load_reference_policy(spec: PolicySpec):
 def remote_policy(address: str):
     """A policy base over the shared inference server: a RemoteEncoder
     on the server's vocab with server-side priors and a RemoteModel,
-    the surface RawPolicyPlayer and _value_read consume (the same
+    the surface RawPolicyPlayer and value_read consume (the same
     construction as tools/elo_eval_game's shared-inference player)."""
     import threading
     from types import SimpleNamespace
@@ -409,7 +409,7 @@ def _continue_candidate(position: BoundaryPosition, base_actions: List[Dict],
         "n_decisions": sum(1 for a in actions if a.get("type") != "end_turn"),
         "actions": actions,
         "value_post": (None if sim.done else
-                       _value_read(player, sim.gs, mover, sim.player_memories)),
+                       value_read(player, sim.gs, mover, sim.player_memories)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         "post_state_key": state_key(sim.gs),
         "terminal_in_turn": bool(sim.done),
@@ -427,7 +427,7 @@ def _hp_margin(gs: GameState, mover: int) -> int:
     return ours - theirs
 
 
-def _value_read(policy, gs: GameState, mover: int,
+def value_read(policy, gs: GameState, mover: int,
                 memories: Optional[Dict[int, object]] = None) -> Optional[float]:
     """The policy's value head on `gs` from the mover's side (the head
     scores the side to move; after the mover's end_turn that is the
@@ -519,7 +519,7 @@ def _candidate_turn(position: BoundaryPosition, player, max_turns: int,
         # the value head on the post-turn state and the HP margin, both
         # from the mover's side, to be compared with the playout mean.
         "value_post": (None if sim.done else
-                       _value_read(player, sim.gs, mover, sim.player_memories)),
+                       value_read(player, sim.gs, mover, sim.player_memories)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         # Process-local (Python hash of a tuple with strings): used to
         # drop duplicate turns within a run, not comparable across runs.
@@ -707,7 +707,7 @@ def _replay_candidate(position: BoundaryPosition, actions: List[Dict], policy,
         "n_decisions": sum(1 for a in played if a.get("type") != "end_turn"),
         "actions": played,
         "value_post": (None if sim.done else
-                       _value_read(player or policy, sim.gs, mover, sim.player_memories)),
+                       value_read(player or policy, sim.gs, mover, sim.player_memories)),
         "hp_margin_post": _hp_margin(sim.gs, mover),
         "post_state_key": state_key(sim.gs),
         "terminal_in_turn": bool(sim.done),

@@ -292,18 +292,15 @@ def _shared_client(address: str):
     return client
 
 
-def _remote_player(address: str, raw_temperature: float, raw_seed,
-                   relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
-                   raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
-                   memory: Optional[int] = None):
-    """The raw player over a shared inference server: a RemoteEncoder
-    on the server's vocab with server-side priors, a RemoteModel
-    behind the forward-counting proxy (its `fwd_secs` is the round
-    trip: queue wait, batch, transport)."""
+def remote_base(address: str, relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool):
+    """(a policy base over a shared inference server, its forward counter):
+    a RemoteEncoder on the server's vocab and observation recipe with
+    server-side priors, a RemoteModel behind the forward-counting proxy
+    (its `fwd_secs` is the round trip: queue wait, batch, transport). The
+    server must serve the precision the caller records."""
     import threading
     from types import SimpleNamespace
     from tools.inference_seam import RemoteModel
-    from tools.raw_player import RawPolicyPlayer
     client = _shared_client(address)
     h = client.hello
     got = (bool(h["infer_bf16"]), bool(h["packed_trunk"]))
@@ -325,6 +322,17 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
         relevant_set_version=int(h.get("relevant_set_version", 1)))
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
+    return base, counter
+
+
+def _remote_player(address: str, raw_temperature: float, raw_seed,
+                   relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
+                   raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
+                   memory: Optional[int] = None):
+    """The raw player over a shared inference server (`remote_base`) and
+    its forward counter."""
+    from tools.raw_player import RawPolicyPlayer
+    base, counter = remote_base(address, relevant_set, infer_bf16, infer_packed_trunk)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
                            end_turn_rule=raw_end_turn,
                            end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter

@@ -79,6 +79,45 @@ class _PolicyPair:
 # Two-policy rollout
 # ---------------------------------------------------------------------
 
+def play_decision(sim: WesnothSim, actor: _PolicyPair, game_label: str) -> Dict:
+    """One decision of `actor` (the side to move's pair) on `sim`, stepped;
+    returns the action played. A recruit the engine refuses (its hex
+    occupied and no castle hex vacant) is decided again, as play_one_game
+    in tools/selfplay_game.py does; an action the legality mask offered and
+    the simulator refused raises."""
+    # Stable snapshot for select_action (see play_one_game in
+    # tools/selfplay_game.py for why this copy is load-bearing): a view of
+    # a fork of the simulator's core, which the encoder encodes through
+    # the core (game_core.snapshot_view).
+    pre_state = snapshot_view(sim.gs)
+    from tools.mcts import fork_guard
+    with fork_guard(sim):
+        action = actor.select_action(pre_state, game_label, sim)
+    while _would_recruit_bounce(action, sim.gs):
+        tgt = action["target_hex"]
+        sim.reject_recruit_hex(tgt.x, tgt.y)
+        # Discard the bounced decision AND any cached plan (round-24 C6:
+        # without this, a search policy that serves from a cached plan --
+        # PlanTournamentPolicy, TurnCommitPolicy -- kept serving the SAME
+        # plan and silently forfeited the recruit).
+        actor.drop_last_pending(game_label)
+        pre_state = snapshot_view(sim.gs)
+        action = actor.select_action(pre_state, game_label, sim)
+    commands_before = len(sim.command_history)
+    sim.step(action)
+    if (sim.last_step_refusal == "mask_disagreement"
+            and getattr(actor.policy, "consults_legality_mask", True)):
+        # The simulator refused an action the legality mask offered. A
+        # match does not play on: the argmax player would repeat it (8
+        # times for a move, then lose the turn), and the verdict would
+        # silently count the damage (2026-09-29 audit). Scripted players
+        # pick without the mask and are refused by design.
+        raise RuntimeError(f"{game_label}: the simulator refused {action!r}, which the "
+                           f"legality mask offered (a mask/simulator disagreement)")
+    note_search_outcomes(sim, actor.policy, game_label, commands_before)
+    return action
+
+
 def _play_one_eval_game(
     sim: WesnothSim,
     pair_a: _PolicyPair,
@@ -120,49 +159,11 @@ def _play_one_eval_game(
             unplayed_side_turns += 1
             sim.step({"type": "end_turn"})
             continue
-        # Stable snapshot for select_action (see play_one_game in
-        # tools/selfplay_game.py for why this copy is load-bearing): a
-        # view of a fork of the simulator's core, which the encoder
-        # encodes through the core (game_core.snapshot_view).
-        pre_state = snapshot_view(sim.gs)
-        from tools.mcts import fork_guard
-        with fork_guard(sim):
-            action = actor.select_action(pre_state, game_label, sim)
-
-        # A recruit the engine refuses (its hex occupied and no castle
-        # hex vacant) is re-decided. Same pattern as play_one_game in
-        # tools/selfplay_game.py.
-        while _would_recruit_bounce(action, sim.gs):
-            tgt = action["target_hex"]
-            sim.reject_recruit_hex(tgt.x, tgt.y)
-            # Discard the bounced decision AND any cached plan
-            # (round-24 C6: without this, a search policy that
-            # serves from a cached plan -- PlanTournamentPolicy,
-            # TurnCommitPolicy -- kept serving the SAME plan and
-            # silently forfeited the recruit; play_one_game in
-            # tools/selfplay_game.py has always done this).
-            actor.drop_last_pending(game_label)
-            pre_state = snapshot_view(sim.gs)
-            action = actor.select_action(pre_state, game_label, sim)
-
-        atype = action.get("type", "end_turn")
-        if acting_side == our_side and atype == "attack":
+        action = play_decision(sim, actor, game_label)
+        if acting_side == our_side and action.get("type", "end_turn") == "attack":
             attack_count_ours += 1
         if acting_side == our_side:
             our_actions += 1
-
-        commands_before = len(sim.command_history)
-        sim.step(action)
-        if (sim.last_step_refusal == "mask_disagreement"
-                and getattr(actor.policy, "consults_legality_mask", True)):
-            # The simulator refused an action the legality mask offered. A
-            # match does not play on: the argmax player would repeat it
-            # (8 times for a move, then lose the turn), and the verdict
-            # would silently count the damage (2026-09-29 audit). Scripted
-            # players pick without the mask and are refused by design.
-            raise RuntimeError(f"{game_label}: the simulator refused {action!r}, which the "
-                               f"legality mask offered (a mask/simulator disagreement)")
-        note_search_outcomes(sim, actor.policy, game_label, commands_before)
         _update_closest_approach(sim.gs, closest_approach)
 
     wall = time.perf_counter() - t0

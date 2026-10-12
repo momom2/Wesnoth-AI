@@ -189,11 +189,11 @@ def paired_correlations(grades: Mapping[str, np.ndarray], truth: np.ndarray, pos
 # Selection gains
 # ---------------------------------------------------------------------
 
-def selection_gains(grade: np.ndarray, truth: np.ndarray, positions: np.ndarray,
-                    slots: np.ndarray) -> Dict[int, float]:
-    """Per position: the truth of the candidate `grade` ranks first (the
-    first of a tie, in row order) minus the base turn's (slot 0)."""
-    grade, truth = np.asarray(grade, dtype=float), np.asarray(truth, dtype=float)
+def selections(grade: np.ndarray, positions: np.ndarray, slots: np.ndarray) -> Dict[int, Tuple[int, int]]:
+    """Per position the grader ranks (two or more rows, a base turn, a
+    finite grade): (the row `grade` ranks first, the first of a tie in row
+    order; the base turn's row, slot 0)."""
+    grade = np.asarray(grade, dtype=float)
     rows, starts, lengths = _segments(positions, np.arange(len(grade)))
     if len(rows) == 0:
         return {}
@@ -205,8 +205,16 @@ def selection_gains(grade: np.ndarray, truth: np.ndarray, positions: np.ndarray,
     base = np.minimum.reduceat(np.where(np.asarray(slots)[rows] == 0, order, never), starts)
     ok = (lengths >= 2) & (base < never) & np.isfinite(top)
     keys = np.asarray(positions)[rows[starts]]
-    gain = truth[rows[np.where(ok, best, 0)]] - truth[rows[np.where(ok, base, 0)]]
-    return {int(k): float(v) for k, v, good in zip(keys, gain, ok) if good}
+    picked, based = rows[np.where(ok, best, 0)], rows[np.where(ok, base, 0)]
+    return {int(k): (int(b), int(z)) for k, b, z, good in zip(keys, picked, based, ok) if good}
+
+
+def selection_gains(grade: np.ndarray, truth: np.ndarray, positions: np.ndarray,
+                    slots: np.ndarray) -> Dict[int, float]:
+    """Per position: the truth of the candidate `grade` ranks first (the
+    first of a tie, in row order) minus the base turn's (slot 0)."""
+    truth = np.asarray(truth, dtype=float)
+    return {k: float(truth[best] - truth[base]) for k, (best, base) in selections(grade, positions, slots).items()}
 
 
 def mean_and_se(values: np.ndarray, seed: int = 3, resamples: int = GAIN_RESAMPLES) -> Tuple[float, float]:

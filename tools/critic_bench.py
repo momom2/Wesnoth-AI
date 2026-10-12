@@ -109,9 +109,9 @@ def apply_turn(cs, commands: Sequence[list], rejections: Sequence[Sequence[int]]
         cs.core.add_recruit_rejected(x, y)
 
 
-def end_turn(cs, scenario_id: str, salt: str):
-    """The core after the simulator's end_turn from `cs`'s position: the
-    next player side's turn begun, as the benchmark's playouts started."""
+def end_turn_sim(cs, scenario_id: str, salt: str):
+    """The simulator after its end_turn from `cs`'s position: the next
+    player side's turn begun, as the benchmark's playouts started."""
     from tools.wesnoth_sim import WesnothSim
     gs = cs.to_state()
     sim = WesnothSim(gs, scenario_id, max_turns=int(gs.global_info.turn_number) + 30,
@@ -121,49 +121,65 @@ def end_turn(cs, scenario_id: str, salt: str):
     sim.step({"type": "end_turn"})
     if sim.done:
         raise RuntimeError("the end_turn ended the game")
-    return sim.core
+    return sim
+
+
+def boundary_of(record: Dict, dataset: Path):
+    """The core at the position's turn start, rebuilt from its corpus game."""
+    import gzip
+    from tools.bench_states import reconstruct_boundary
+    from wesnoth_ai.game_core import core_of
+    meta = record["meta"]
+    with gzip.open(Path(dataset) / meta["file"], "rt", encoding="utf-8") as f:
+        data = json.load(f)
+    res = reconstruct_boundary(data, int(meta["cut_turn"]))
+    if res is None or res[1] != int(meta["begin_side"]):
+        raise RuntimeError(f"{meta['file']}: the boundary does not reconstruct")
+    return core_of(res[0])
+
+
+def rebuild_candidate(boundary, record: Dict, slot: int, cand: Dict) -> Tuple[Dict, object, object]:
+    """One candidate's checks, the core before its end_turn and the
+    simulator right after it (both None when it is skipped or fails; the
+    row says why)."""
+    from wesnoth_ai.classes import state_digest
+    row: Dict = {"slot": slot}
+    snap = cand.get("pre_end_turn")
+    if cand.get("terminal_in_turn") or not snap:
+        row["skipped"] = "terminal_in_turn" if cand.get("terminal_in_turn") else "no_snapshot"
+        return row, None, None
+    mover = int(record["side"])
+    try:
+        pre = boundary.fork()
+        apply_turn(pre, snap["commands"], snap.get("rejections", []))
+        row["digest_ok"] = state_digest(pre.to_state(), version=DIGEST_VERSION) == snap["digest"]
+        post = end_turn_sim(pre.fork(), record["meta"]["scenario_id"], record.get("turn_salt") or "")
+        row["hp_margin_pre"] = cd.hp_margin(pre.to_state(), mover)
+        row["hp_margin_post"] = cd.hp_margin(post.core.to_state(), mover)
+        row["hp_margin_post_recorded"] = cand.get("hp_margin_post")
+        row["margin_ok"] = row["hp_margin_post"] == cand.get("hp_margin_post")
+        row["to_move"] = {"pre": int(pre.core.current_side), "read0": int(post.core.core.current_side)}
+    except Exception as e:  # noqa: BLE001 - counted per candidate
+        row["error"] = f"{type(e).__name__}: {e}"[:300]
+        return row, None, None
+    return row, pre, post
 
 
 def rebuild_position(record: Dict, dataset: Path, type_to_id: Dict[str, int],
                      faction_to_id: Dict[str, int]) -> Dict:
     """One position's candidates: per slot its checks and, when they hold,
     its encodings {read: {view: packed}} and the side to move at each read."""
-    import gzip
-    from tools.bench_states import reconstruct_boundary
-    from wesnoth_ai.classes import state_digest
-    from wesnoth_ai.game_core import core_of
-    meta = record["meta"]
-    out = {"index": record["index"], "file": meta["file"], "candidates": []}
-    with gzip.open(Path(dataset) / meta["file"], "rt", encoding="utf-8") as f:
-        data = json.load(f)
-    res = reconstruct_boundary(data, int(meta["cut_turn"]))
-    if res is None or res[1] != int(meta["begin_side"]):
-        raise RuntimeError(f"{meta['file']}: the boundary does not reconstruct")
-    boundary = core_of(res[0])
-    mover = int(record["side"])
+    out = {"index": record["index"], "file": record["meta"]["file"], "candidates": []}
+    boundary = boundary_of(record, dataset)
     for slot, cand in enumerate(candidates(record)):
-        row: Dict = {"slot": slot}
-        snap = cand.get("pre_end_turn")
-        if cand.get("terminal_in_turn") or not snap:
-            row["skipped"] = "terminal_in_turn" if cand.get("terminal_in_turn") else "no_snapshot"
-            out["candidates"].append(row)
-            continue
-        try:
-            pre = boundary.fork()
-            apply_turn(pre, snap["commands"], snap.get("rejections", []))
-            row["digest_ok"] = state_digest(pre.to_state(), version=DIGEST_VERSION) == snap["digest"]
-            post = end_turn(pre.fork(), meta["scenario_id"], record.get("turn_salt") or "")
-            row["hp_margin_pre"] = cd.hp_margin(pre.to_state(), mover)
-            row["hp_margin_post"] = cd.hp_margin(post.to_state(), mover)
-            row["hp_margin_post_recorded"] = cand.get("hp_margin_post")
-            row["margin_ok"] = row["hp_margin_post"] == cand.get("hp_margin_post")
-            row["to_move"] = {"pre": int(pre.core.current_side), "read0": int(post.core.current_side)}
-            if row["digest_ok"]:
+        row, pre, post = rebuild_candidate(boundary, record, slot, cand)
+        if pre is not None and row["digest_ok"]:
+            try:
                 row["raws"] = {read: {view: cd.pack_raw(cd.encode_view(cs, view, type_to_id, faction_to_id))
                                       for view in cd.VIEWS}
-                               for read, cs in (("pre", pre), ("read0", post))}
-        except Exception as e:  # noqa: BLE001 - counted per candidate
-            row["error"] = f"{type(e).__name__}: {e}"[:300]
+                               for read, cs in (("pre", pre), ("read0", post.core))}
+            except Exception as e:  # noqa: BLE001 - counted per candidate
+                row["error"] = f"{type(e).__name__}: {e}"[:300]
         out["candidates"].append(row)
     return out
 
