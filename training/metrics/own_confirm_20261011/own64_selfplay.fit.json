@@ -1,0 +1,25 @@
+{
+  "n_games": 800,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "own64a": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own64b": {
+        "elo": -6.9409599148651875,
+        "se": 12.27848261625912
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "own64a": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own64b": {
+        "elo": -6.9409599148651875,
+        "se": 12.27848261625912
+      }
+    }
+  }
+}

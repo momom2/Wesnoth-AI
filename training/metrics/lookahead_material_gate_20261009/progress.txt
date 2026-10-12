@@ -1,0 +1,13 @@
+Fri Oct  9 09:54:37 UTC 2026
+fitted: material
+material: 1569 s, 991 games, 800 decisive, rc=0 ok
+material: 991 games
+deadman.log restore.log upload.log stages.txt RUN_STAGE pip.log staging.log build.log box.txt tests.log walls.txt arms.txt material.decision_timing.log material.decision_timing.json gpu.log material.log timing_material.txt match.walls material.server_0.json material.fit.json material.lookahead.json progress.txt.tmp 
+
+==> /workspace/lookaheadgate/tests.log <==
+SKIPPED [1] tests/test_vision.py:121: wesnoth_src/data/core/units is not in this checkout
+109 passed, 1 skipped in 48.70s
+
+==> /workspace/lookaheadgate/upload.log <==
+2026-10-09T09:28:33Z periodic round: 9 sent, 7 unchanged, 0 failed
+2026-10-09T09:28:34Z upload.log 2146 ok 1 s 3 kB/s

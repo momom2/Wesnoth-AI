@@ -1,0 +1,20 @@
+Fri Oct  9 15:40:34 UTC 2026
+done: a1_eo25 a2_reset a3_eo35 cf_own cf_other cf_human readout
+a1_eo25: 696 s, 804 games, 800 decisive, rc=0 ok
+a2_reset: 773 s, 802 games, 800 decisive, rc=0 ok
+a3_eo35: 740 s, 800 games, 800 decisive, rc=0 ok
+a1_eo25: 804 games
+a2_reset: 802 games
+a3_eo35: 800 games
+2026-10-09 15:40:11,951 memory_counterfactual 6479 rows in 424 s
+2026-10-09 15:32:59,654 memory_counterfactual 14072 rows in 1089 s
+2026-10-09 15:14:42,418 memory_counterfactual 12781 rows in 947 s
+deadman.log restore.log upload.log stages.txt RUN_STAGE pip.log staging.log build.log box.txt tests.log walls.txt gpu.log a1_eo25.log timing_a1_eo25.txt match.walls a1_eo25.server_0.json a1_eo25.fit.json tempo.log tempo_a1_eo25.json a2_reset.log timing_a2_reset.txt a2_reset.server_0.json a2_reset.fit.json tempo_a2_reset.json a3_eo35.log progress.txt timing_a3_eo35.txt a3_eo35.server_0.json a3_eo35.fit.json tempo_a3_eo35.json corpus_build.log corpus_summary.json cf_own.log cf_own.jsonl cf_other.log cf_human.jsonl cf_other.jsonl cf_human.log tempo_baselines.json readout.log readout.json progress.txt.tmp 
+
+==> /workspace/memoryinplay3/tests.log <==
+SKIPPED [1] tests/test_vision.py:121: wesnoth_src/data/core/units is not in this checkout
+137 passed, 1 skipped in 44.29s
+
+==> /workspace/memoryinplay3/upload.log <==
+2026-10-09T15:40:19Z periodic round: 4 sent, 37 unchanged, 0 failed
+2026-10-09T15:40:19Z upload.log 14215 ok 1 s 24 kB/s

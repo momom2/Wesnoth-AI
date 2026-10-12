@@ -1,0 +1,1 @@
+own0_vs_p3slots0: 692 s, 803 games, 800 decisive, rc=0 ok

@@ -1,0 +1,19 @@
+Sun Oct 11 20:44:52 UTC 2026
+fitted: own0_vs_p3slots0 own64_vs_p3 own64_vs_own0 own64_selfplay
+own0_vs_p3slots0: 692 s, 803 games, 800 decisive, rc=0 ok
+own64_vs_p3: 796 s, 807 games, 800 decisive, rc=0 ok
+own64_vs_own0: 852 s, 801 games, 800 decisive, rc=0 ok
+own64_selfplay: 862 s, 800 games, 800 decisive, rc=0 ok
+own0_vs_p3slots0: 803 games
+own64_vs_p3: 807 games
+own64_vs_own0: 801 games
+own64_selfplay: 800 games
+deadman.log restore.log upload.log stages.txt RUN_STAGE pip.log staging.log build.log box.txt tests.log walls.txt gpu.log own0_vs_p3slots0.log timing_own0_vs_p3slots0.txt match.walls own0_vs_p3slots0.server_0.json own0_vs_p3slots0.server_1.json own0_vs_p3slots0.fit.json own64_vs_p3.log timing_own64_vs_p3.txt own64_vs_p3.server_0.json own64_vs_p3.server_1.json own64_vs_p3.fit.json own64_vs_own0.log progress.txt timing_own64_vs_own0.txt own64_vs_own0.server_0.json own64_vs_own0.fit.json own64_selfplay.log timing_own64_selfplay.txt own64_selfplay.server_0.json own64_selfplay.fit.json progress.txt.tmp 
+
+==> /workspace/ownconfirm/tests.log <==
+SKIPPED [1] tests/test_vision.py:121: wesnoth_src/data/core/units is not in this checkout
+88 passed, 1 skipped in 46.38s
+
+==> /workspace/ownconfirm/upload.log <==
+2026-10-11T20:30:32Z periodic round: 8 sent, 23 unchanged, 0 failed
+2026-10-11T20:30:32Z upload.log 5404 ok 1 s 7 kB/s

@@ -1,0 +1,11 @@
+{"positions": 41024, "step": 641, "epoch": 0, "holdout_value": 0.5285580279170603, "holdout_aux": 0.15023192291493787, "holdout_positions": 8832, "best": true, "minutes": 1.0391306090323875}
+{"positions": 81984, "step": 1281, "epoch": 0, "holdout_value": 0.5318203594373621, "holdout_aux": 0.12777362087913557, "holdout_positions": 8832, "best": false, "minutes": 2.102732035626347}
+{"positions": 123008, "step": 1922, "epoch": 0, "holdout_value": 0.49395474273225537, "holdout_aux": 0.10313906385826709, "holdout_positions": 8832, "best": true, "minutes": 3.154014485197452}
+{"positions": 163968, "step": 2562, "epoch": 0, "holdout_value": 0.49708595234846725, "holdout_aux": 0.0781025971435863, "holdout_positions": 8832, "best": false, "minutes": 4.19966703717752}
+{"positions": 204992, "step": 3203, "epoch": 1, "holdout_value": 0.4997946617827899, "holdout_aux": 0.09040314995536958, "holdout_positions": 8832, "best": false, "minutes": 5.279928633663803}
+{"positions": 245952, "step": 3843, "epoch": 1, "holdout_value": 0.5123513323133406, "holdout_aux": 0.07770009215076977, "holdout_positions": 8832, "best": false, "minutes": 6.400642195514714}
+{"positions": 286976, "step": 4484, "epoch": 1, "holdout_value": 0.48993823882462323, "holdout_aux": 0.07597522092586655, "holdout_positions": 8832, "best": true, "minutes": 7.489368707477115}
+{"positions": 327936, "step": 5124, "epoch": 1, "holdout_value": 0.5116349467332812, "holdout_aux": 0.08630523791248004, "holdout_positions": 8832, "best": false, "minutes": 8.601465016199898}
+{"positions": 368960, "step": 5765, "epoch": 2, "holdout_value": 0.49169715045802836, "holdout_aux": 0.07191551207557814, "holdout_positions": 8832, "best": false, "minutes": 9.69984527824757}
+{"positions": 409920, "step": 6405, "epoch": 2, "holdout_value": 0.496753794937462, "holdout_aux": 0.06119791097955801, "holdout_positions": 8832, "best": false, "minutes": 10.799408139133204}
+{"positions": 450944, "step": 7046, "epoch": 2, "holdout_value": 0.5090820542064266, "holdout_aux": 0.06309208951622768, "holdout_positions": 8832, "best": false, "minutes": 11.950320970111838}

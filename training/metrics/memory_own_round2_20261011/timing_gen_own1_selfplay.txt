@@ -1,0 +1,1 @@
+gen_own1_selfplay: 811 s, 800 games, 800 decisive, rc=0 ok

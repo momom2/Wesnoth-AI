@@ -1,0 +1,45 @@
+{
+ "holdout_ce": {
+  "tolerance": 0.05,
+  "parity3": {
+   "k0": 2.7906855361161016,
+   "k64": 2.6878533368540944
+  },
+  "student": {
+   "k0": 2.8117019328439565,
+   "k64": 2.709412960069757
+  },
+  "base_policy": {
+   "diff": 0.021016396727854936,
+   "pass": true
+  },
+  "memory_policy": {
+   "student_k64_less_parity3_k0": -0.08127257604634464,
+   "pass": true
+  },
+  "pass": true
+ },
+ "offset": -1.5,
+ "agreement": {
+  "student": {
+   "agreement": 0.8677002649816551,
+   "agreement_late": 0.8616515545025136,
+   "raw_agreement": 0.8909625968202202,
+   "raw_agreement_late": 0.8867726796373081,
+   "n": 78496,
+   "n_late": 65841,
+   "n_game_sides": 277
+  },
+  "parity3": {
+   "agreement": 0.6955258866693844,
+   "agreement_late": 0.6723318297109704,
+   "raw_agreement": 0.7749184671830411,
+   "raw_agreement_late": 0.7640679819565317,
+   "n": 78496,
+   "n_late": 65841,
+   "n_game_sides": 277
+  },
+  "pass": true
+ },
+ "pass": true
+}

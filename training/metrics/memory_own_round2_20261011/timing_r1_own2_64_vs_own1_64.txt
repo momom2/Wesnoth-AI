@@ -1,0 +1,1 @@
+r1_own2_64_vs_own1_64: 956 s, 801 games, 800 decisive, rc=0 ok

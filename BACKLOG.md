@@ -4,40 +4,84 @@ Live backlog for `docs/plan_20260904.md`. The pre-restart backlog
 (1,055 lines of rulings and open items, 2026-05 to 2026-09-04) is
 archived verbatim at `docs/archive/backlog_20260904.md`.
 
-## NEXT (2026-10-08)
+## NEXT (2026-10-09)
+
+**Measured 2026-10-09** (runs Q1, Q2, Q7 approved by the user; five boxes,
+$1.47 in all):
+- **`parity3` without its memory beats `parity3` with it by +105.5 +- 12.8
+  Elo** (810 games, 800 decisive); 16 slots play as 64 (0.0 +- 12.3); the
+  self-pin reads -2.6 +- 12.3 (docs/parity3_baselines_prereg_20261008.md
+  "Measured"). The memory player makes 9.6 decisions per side-turn against
+  11.0 and stalls to the turn cap far more often. **User ruling 2026-10-09:
+  removing the memory is unacceptable; that it plays worse is a serious
+  design flaw to root-cause, not a metric to set aside.** **Root-caused
+  2026-10-11** (docs/memory_in_play_parity3_prereg_20261009.md
+  "Measured"): a stronger end_turn offset recovers 65 of the 105 Elo and no
+  more (the same at -2.5 and -3.5), a reset at each side-turn recovers
+  nothing, and the memory changes a quarter of the decisions on human and
+  own games alike: on human games it predicts the human better (+0.137 in
+  log prior, more the longer the game), on its own it plays worse and ends
+  turns four times as often. The memory was only ever trained to predict a
+  human from that human's history, never on the consequences of its own
+  play (causal confusion of history-conditioned imitation). The remedy is
+  training on its own trajectories. **Round 1 measured 2026-10-11**
+  (docs/memory_own_trajectories_prereg_20261011.md "Measured", $2.1): a
+  fine-tune on 5,472 of its own recorded game-sides toward its memoryless
+  reading, mixed with the human corpus. The tuned checkpoint at 64 slots
+  ties `parity3` at 0 slots (-4.3 +- 12.3, it lost by 105.5), and at 0
+  slots beats it by +37.4 +- 12.3: training on its own games made the
+  network stronger, and the memory's cost against its own 0-slot reading
+  fell from 105 to about 42. **Confirmed 2026-10-11**
+  (docs/own_confirm_prereg_20261011.md, $0.45): +88.6 +- 12.7 over
+  `parity3` at 64 slots, adopted as the reference `own1`; within its own
+  weights the memory costs about 22 Elo (-21.7 +- 12.3); its 0-slot reading
+  +22.6 +- 12.3 over `parity3`'s, short of the 2-SE bar. **Round 2
+  measured 2026-10-12** (docs/memory_own_round2_prereg_20261011.md, $2.5):
+  saturated. On `own1`'s own games toward its memoryless reading, `own2`'s
+  memoryless reading does not improve again (-6.1 +- 12.3), and within
+  `own2` the memory no longer costs strength (+13.0 +- 12.3 for 64 slots
+  against 0); `own2` against `own1` at 64 slots +16.5 +- 12.3, short of the
+  bar, so `own1` stays the reference. The memory's flaw is closed. Next: a
+  teacher better than the policy's own reading. **Self-play RL in rounds was
+  proposed and withdrawn before any code** (docs/selfplay_rl_rounds_prereg_20261012.md,
+  decision record: the played-action tilt is too weak at any N, the
+  advantage was mostly the value head). Next: the rollout evaluator (Q5),
+  step A pre-registered (docs/rollout_regrade_prereg_20261012.md): the turn
+  benchmark re-graded by rollouts from the mover's own view, with an
+  end_turn offset match for `own1`, about $0.3.
+- **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
+  measured"): critics on the true state select better than material by
+  about 2 standard errors but do not clear the correlation test; the critic
+  a fair player can use (its own observation) does no better than material;
+  more games of the same kind do not help. The learned-critic operator is
+  not built at this scale. Pre-registered next: the rollout evaluator (Q5),
+  priced for the user.
+- **The material look-ahead is neutral** (-8.7 +- 12.3 Elo,
+  docs/lookahead_material_gate_prereg_20261009.md "Measured"): the material
+  read right after an action mostly rewards recruiting.
 
 **0. The self-play program** (lead's decision 2026-10-08,
 docs/selfplay_program_20261008.md): policy iteration with a one-step
 look-ahead over the prior's top actions, exact combat outcomes as chance
 nodes, and Muesli's clipped target; each round's tilted player gated
-against `parity3` before it is distilled. Its evaluator, a critic learned
-from games or short rollouts scored by material, is chosen by
-measurement. **Step 1 is pre-registered** in that document and reviewed:
-six critics trained on records already on HF (a size curve inside the
-engine matches, an observation form, the human corpus, a small critic),
-judged by paired tests against the static HP margin on the turn-value
-benchmark, about $1.3-1.9 of one box. Its code is being built on
-`feature/critic-step1` (from `exp/value-policy-iteration`); the box needs
-the user's word. The CPU turn planner's proposal
-(docs/selfplay_algorithm_design_20261007.md) is parked as step 1's kill
-branch; a policy-gradient leg is parked on its cost.
+against `parity3` before it is distilled; its evaluator chosen by
+measurement. Its code is on `exp/value-policy-iteration` (the critics, the
+look-ahead player, the gate script). The CPU turn planner's proposal
+(docs/selfplay_algorithm_design_20261007.md) is step 1's kill branch.
 
-**Runs awaiting the user's approval** (user, 2026-10-08: budget 500€,
-about $540; no box is rented until a run is approved). In the order the
-lead recommends; each states what it decides.
+**Runs** (user, 2026-10-09: about $100 on Vast is the budget for the
+foreseeable future; the lead decides runs, cents-scale diagnostics freely,
+a costly run only when confident it proves worthwhile).
 
-| run | ready | cost | decides |
+| run | state | cost | decides |
 |---|---|---|---|
-| Q1. Step 1, the critics (`scripts/critic_step1_box.sh` on `exp/value-policy-iteration`) | yes | about 3.6 h, $1.8 expected, $2.9 at its 6 h switch | the evaluator: Pass -> Q3, Data-limited -> Q4, Kill -> Q5 |
-| Q2. `parity3`'s baselines: the self-pin, 64 against 0 slots, 64 against 16 slots, 800 decisive each | yes (`scripts/parity3_baselines_box.sh`, docs/parity3_baselines_prereg_20261008.md) | about 1.5 h, $0.7 | the noise floor of every later match, and the memory's cost and size in play |
-| Q7. The look-ahead player with the material evaluator against `parity3` (docs/lookahead_material_gate_prereg_20261009.md) | yes (`scripts/lookahead_gate_box.sh` on `exp/value-policy-iteration`, `LOOKAHEAD_ARMS=material:configs/lookahead_material_gate.json:103000`) | about 45 min, $0.3-0.5; can share Q2's rental | whether exact one-step look-ahead with plain material is already a teacher, and the baseline every critic gate is read against |
-| Q3. Step 2's gate: the look-ahead player with the critic against `parity3`, with the material evaluator as its control | being built (`feature/lookahead-player`); after Q1 Pass | priced by the build | whether the operator is a teacher (plan rule 2) |
-| Q4. 20,000 `parity3` self-play games and their critic | after Q1 Data-limited | about $3.5-5 | whether more games make the critic rank |
-| Q5. The rollout evaluator in the same player: gain test, then gate | after Q1 Kill | about $5-15 | whether rollouts make the operator a teacher |
-| Q6. A KL-anchored actor-critic leg from `parity3`, 50,000 games | a candidate, not built | about $30-60 | direct improvement by outcomes, the literature's most reliable route from an imitation seed; it trains on every decision, so it is bottlenecked on the network, against the ruling of 2026-10-06 |
-
-The rest of the budget is held for scaling whichever operator passes its
-gate: rounds of games, critic and distillation.
+| Q1. Step 1, the critics | done 2026-10-09: Kill | about $0.6 | the evaluator is not a learned critic at this scale |
+| Q2. `parity3`'s baselines | done 2026-10-09 | about $0.6 | the memory costs 105 Elo; 16 slots = 64; harness symmetric |
+| Q7. The material look-ahead gate | done 2026-10-09: neutral | about $0.3 | material is no teacher; recruiting bias |
+| Q3. Step 2's gate with a critic | dropped (Q1 Kill) | - | - |
+| Q4. 20,000 self-play games for the critic | dropped (Q1 Kill; the size curve is flat) | - | - |
+| Q5. The rollout evaluator: gain test with fresh dice, then gate | not built; pre-registered next after Q1 Kill | about $3-8 plus a build | whether rollouts make the operator a teacher |
+| Q6. A KL-anchored actor-critic leg from `parity3`, 50,000 games | a candidate, not built | about $15-30 at 0 slots | direct improvement by outcomes with a privileged critic as baseline (the true-state critics carry ranking information material lacks); bottlenecked on the network, against the ruling of 2026-10-06 |
 
 **1. `parity3` is the reference** (user ruling 2026-10-04): +82 +- 13
 Elo over `parity2` (800 decisive games,

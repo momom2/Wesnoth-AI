@@ -1,0 +1,9 @@
+Fri Oct  9 11:03:17 UTC 2026
+critics done: T25 T50 T100 O100
+2026-10-09 10:12:28,920 critic_positions INFO 21485/21485 games, 509989 positions, {'capped': 217, 'ok': 21264, 'no_winner': 4}, 50 s
+2026-10-09 10:24:38,714 critic_train INFO positions 125128 epoch 1: holdout value 0.6634 aux 0.0800
+2026-10-09 10:24:38,715 critic_train INFO CRITIC_TRAIN_DONE /workspace/criticstep1/T50.pt: ended by patience after 125128 positions, best holdout value 0.4712 at 41728
+
+==> /workspace/criticstep1/train_TH.log <==
+2026-10-09 11:03:00,365 critic_train INFO step 1800 positions 115200 lr 2.38e-04 value 0.4815 aux 0.0719 grad 0.942 5.9 min
+2026-10-09 11:03:09,758 critic_train INFO step 1850 positions 118400 lr 2.37e-04 value 0.4608 aux 0.0488 grad 1.707 6.0 min

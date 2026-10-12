@@ -255,6 +255,66 @@ positions (CPU), six critic trainings of 10-40 minutes each, the readouts in
 minutes: about 3 box-hours, $1.3-1.9 at $0.42-0.63/h. The Vast balance on
 2026-10-08 is $4.35.
 
+## Step 1, measured (2026-10-09): Kill
+
+Box 55000517 (RTX 4090, EPYC 7B13, $0.447/h; the first box, 54996163,
+stopped at its test step on a PyTorch 2.5 incompatibility fixed in 0.18.1),
+stage `tier-b/staging/stage_20261009_q1b.tar.gz`, records in
+`training/metrics/critic_step1_20261009/` (`readout.md`, `readout.json`,
+`prior_gaps.json`, the critics' summaries; checkpoints and positions on HF
+`tier-b/critic_step1_20261009/`). 509,989 positions from 21,485 games (M:
+7,200 engine-match games, 217 capped left out; H: 14,064 human games); the
+benchmark rebuilt in full (966 candidates, no error, no digest mismatch, no
+benchmark game in H's training rows). Every critic ended by holdout patience
+early (T100 in 14 minutes, its best holdout loss half way through its
+first epoch).
+
+**The reading is Kill:** no critic clears both paired tests against the HP
+margin. On the luck-adjusted basis, at the state after the candidate turn:
+
+| grader | corrected r | minus HP margin | selection gain | minus HP margin |
+|---|---|---|---|---|
+| HP margin | 0.380 +- 0.097 | - | -0.010 +- 0.017 | - |
+| T100 (true state, all of M) | 0.518 +- 0.056 | +0.137 +- 0.093 | +0.031 +- 0.019 | +0.041 +- 0.017 |
+| T50 | 0.493 +- 0.071 | +0.113 +- 0.064 | +0.024 +- 0.018 | +0.034 +- 0.016 |
+| T25 | 0.498 +- 0.058 | +0.117 +- 0.077 | +0.030 +- 0.018 | +0.040 +- 0.018 |
+| O100 (the mover's observation) | 0.396 +- 0.056 | +0.015 +- 0.077 | +0.014 +- 0.017 | +0.024 +- 0.017 |
+| TH (true state, human corpus) | 0.351 +- 0.047 | -0.029 +- 0.106 | +0.024 +- 0.018 | +0.034 +- 0.018 |
+| Tsmall | 0.218 +- 0.067 | -0.162 +- 0.082 | -0.012 +- 0.018 | -0.002 +- 0.019 |
+
+T100 against T25: correlation +0.020 +- 0.047, selection gain +0.001 +- 0.016.
+Before end_turn every critic reads lower (`readout.md`).
+
+What the numbers say beyond the reading:
+- The true-state critics trained on engine games select better than the HP
+  margin by 2.1 to 2.4 paired standard errors (T25, T50, T100, nested data,
+  not independent); their correlation differences are 1.5 to 1.8 standard
+  errors, held under 2 by the HP margin's own spread (+-0.097). A selection
+  test alone, the rule before the operating characteristics tightened it,
+  would have read Pass. The binding reading is the pre-registered one.
+- The critic a fair player can use does not beat material: O100, the
+  mover's own observation, selects +0.024 +- 0.017 over the HP margin and
+  ranks with it. What the true-state critics see that O100 does not is the
+  hidden units; a fair operator would need them from a belief.
+- More games of the same kind do not help at this scale: the size curve is
+  flat from 1,700 to 6,800 training games, while the holdout value loss on
+  the critics' own games falls with them (0.492, 0.471, 0.460 for T25, T50,
+  T100). More data predicts outcomes better and ranks alternatives no
+  better.
+- Human games make a worse critic for this benchmark than engine games (TH
+  below T25 on eight times the games): the truth is `obs8`'s continuation,
+  which engine games predict and human games do not.
+- The prior-gap readout (27,171 decisions of `parity3` in 100 of its match
+  games, its replayed choice agreeing with the recorded one at 98.2%): the
+  median log-prior gap between the top action and the second is 0.59 nats,
+  the eighth 2.18; a clip of c = 1 could flip the argmax at 88% of decisions;
+  25% of decisions hold two or more attacks in their top eight; the top
+  action is end_turn at 15%.
+
+**Consequence, as pre-registered:** the learned-critic operator is not
+built at this scale; the evaluator is rollouts, and the next measurement is
+the CPU planner's rung 0 with fresh dice, priced for the user. Under $1 for the box.
+
 ## Decision record
 
 - Adopted: one-step look-ahead over the prior's top actions with exact chance

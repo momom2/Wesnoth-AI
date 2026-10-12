@@ -1,0 +1,20 @@
+{
+ "counts": {
+  "positions": 200,
+  "position_errors": 0,
+  "candidates": 971,
+  "skipped": 5,
+  "errors": 0,
+  "digest_mismatch": 0,
+  "post_margin_differs": 102,
+  "post_margin_differs_recorded_is_pre": 102,
+  "encoded": 966
+ },
+ "expected": {
+  "positions": 200,
+  "candidates": 971,
+  "skipped": 5,
+  "encoded": 966
+ },
+ "gate": []
+}

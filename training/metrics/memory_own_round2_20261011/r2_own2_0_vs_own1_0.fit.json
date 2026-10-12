@@ -1,0 +1,25 @@
+{
+  "n_games": 801,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "own1_slots0": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own2_0": {
+        "elo": -6.0731505523648295,
+        "se": 12.27790830970821
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "own1_slots0": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own2_0": {
+        "elo": -6.065576505722314,
+        "se": 12.270246693522134
+      }
+    }
+  }
+}

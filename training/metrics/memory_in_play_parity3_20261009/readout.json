@@ -1,0 +1,7219 @@
+{
+ "readings": {
+  "own": {
+   "games": 810,
+   "decisions": 179397,
+   "reproduction": 0.9856,
+   "all": {
+    "decisions": 179397,
+    "agreement": 0.7615,
+    "disagreements": 42783,
+    "only_m_ends": 7258,
+    "only_z_ends": 1882,
+    "both_act": 33643,
+    "share_only_m_ends": 0.1696,
+    "share_only_z_ends": 0.044,
+    "share_both_act": 0.7864,
+    "agree_rate": [
+     0.77641,
+     0.00251
+    ],
+    "p_end_m": [
+     0.09931,
+     0.00091
+    ],
+    "p_end_z": [
+     0.08751,
+     0.00096
+    ],
+    "p_end_diff": [
+     0.0118,
+     0.00081
+    ],
+    "max_act_m": [
+     0.30687,
+     0.00156
+    ],
+    "max_act_z": [
+     0.28051,
+     0.00158
+    ],
+    "only_m_ends_rate": [
+     0.03482,
+     0.00181
+    ],
+    "only_z_ends_rate": [
+     0.01025,
+     0.00038
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 47910,
+      "agreement": 0.7897,
+      "disagreements": 10075,
+      "only_m_ends": 1436,
+      "only_z_ends": 349,
+      "both_act": 8290,
+      "share_only_m_ends": 0.1425,
+      "share_only_z_ends": 0.0346,
+      "share_both_act": 0.8228,
+      "agree_rate": [
+       0.81587,
+       0.0045
+      ],
+      "p_end_m": [
+       0.07525,
+       0.00176
+      ],
+      "p_end_z": [
+       0.06899,
+       0.00167
+      ],
+      "p_end_diff": [
+       0.00627,
+       0.00076
+      ],
+      "max_act_m": [
+       0.31881,
+       0.00266
+      ],
+      "max_act_z": [
+       0.29974,
+       0.00261
+      ],
+      "only_m_ends_rate": [
+       0.0198,
+       0.00155
+      ],
+      "only_z_ends_rate": [
+       0.00549,
+       0.00045
+      ]
+     },
+     "level": {
+      "decisions": 77035,
+      "agreement": 0.7443,
+      "disagreements": 19698,
+      "only_m_ends": 3988,
+      "only_z_ends": 949,
+      "both_act": 14761,
+      "share_only_m_ends": 0.2025,
+      "share_only_z_ends": 0.0482,
+      "share_both_act": 0.7494,
+      "agree_rate": [
+       0.76648,
+       0.00425
+      ],
+      "p_end_m": [
+       0.11297,
+       0.00367
+      ],
+      "p_end_z": [
+       0.09715,
+       0.00343
+      ],
+      "p_end_diff": [
+       0.01582,
+       0.00135
+      ],
+      "max_act_m": [
+       0.28141,
+       0.00278
+      ],
+      "max_act_z": [
+       0.25625,
+       0.00266
+      ],
+      "only_m_ends_rate": [
+       0.04534,
+       0.00312
+      ],
+      "only_z_ends_rate": [
+       0.01364,
+       0.00122
+      ]
+     },
+     "ahead": {
+      "decisions": 54452,
+      "agreement": 0.7611,
+      "disagreements": 13010,
+      "only_m_ends": 1834,
+      "only_z_ends": 584,
+      "both_act": 10592,
+      "share_only_m_ends": 0.141,
+      "share_only_z_ends": 0.0449,
+      "share_both_act": 0.8141,
+      "agree_rate": [
+       0.80703,
+       0.00525
+      ],
+      "p_end_m": [
+       0.1734,
+       0.0048
+      ],
+      "p_end_z": [
+       0.16396,
+       0.0049
+      ],
+      "p_end_diff": [
+       0.00944,
+       0.00117
+      ],
+      "max_act_m": [
+       0.28328,
+       0.00313
+      ],
+      "max_act_z": [
+       0.26176,
+       0.00296
+      ],
+      "only_m_ends_rate": [
+       0.03505,
+       0.00348
+      ],
+      "only_z_ends_rate": [
+       0.01072,
+       0.00112
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 72768,
+      "agreement": 0.7656,
+      "disagreements": 17058,
+      "only_m_ends": 2132,
+      "only_z_ends": 741,
+      "both_act": 14185,
+      "share_only_m_ends": 0.125,
+      "share_only_z_ends": 0.0434,
+      "share_both_act": 0.8316,
+      "agree_rate": [
+       0.77908,
+       0.00342
+      ],
+      "p_end_m": [
+       0.08304,
+       0.00108
+      ],
+      "p_end_z": [
+       0.07608,
+       0.00131
+      ],
+      "p_end_diff": [
+       0.00696,
+       0.00102
+      ],
+      "max_act_m": [
+       0.31876,
+       0.00229
+      ],
+      "max_act_z": [
+       0.28809,
+       0.00237
+      ],
+      "only_m_ends_rate": [
+       0.02508,
+       0.00168
+      ],
+      "only_z_ends_rate": [
+       0.00983,
+       0.00055
+      ]
+     },
+     "lost": {
+      "decisions": 101948,
+      "agreement": 0.768,
+      "disagreements": 23650,
+      "only_m_ends": 3755,
+      "only_z_ends": 1105,
+      "both_act": 18790,
+      "share_only_m_ends": 0.1588,
+      "share_only_z_ends": 0.0467,
+      "share_both_act": 0.7945,
+      "agree_rate": [
+       0.78006,
+       0.00289
+      ],
+      "p_end_m": [
+       0.10631,
+       0.00092
+      ],
+      "p_end_z": [
+       0.09393,
+       0.00122
+      ],
+      "p_end_diff": [
+       0.01238,
+       0.00086
+      ],
+      "max_act_m": [
+       0.30355,
+       0.00178
+      ],
+      "max_act_z": [
+       0.27932,
+       0.00185
+      ],
+      "only_m_ends_rate": [
+       0.03406,
+       0.00145
+      ],
+      "only_z_ends_rate": [
+       0.01054,
+       0.00052
+      ]
+     },
+     "capped": {
+      "decisions": 4681,
+      "agreement": 0.5567,
+      "disagreements": 2075,
+      "only_m_ends": 1371,
+      "only_z_ends": 36,
+      "both_act": 668,
+      "share_only_m_ends": 0.6607,
+      "share_only_z_ends": 0.0173,
+      "share_both_act": 0.3219,
+      "agree_rate": [
+       0.51205,
+       0.05442
+      ],
+      "p_end_m": [
+       0.19543,
+       0.02093
+      ],
+      "p_end_z": [
+       0.077,
+       0.00884
+      ],
+      "p_end_diff": [
+       0.11843,
+       0.0177
+      ],
+      "max_act_m": [
+       0.14287,
+       0.01476
+      ],
+      "max_act_z": [
+       0.12857,
+       0.01298
+      ],
+      "only_m_ends_rate": [
+       0.34866,
+       0.06333
+      ],
+      "only_z_ends_rate": [
+       0.00715,
+       0.00284
+      ]
+     }
+    }
+   },
+   "1-5": {
+    "decisions": 34945,
+    "agreement": 0.814,
+    "disagreements": 6501,
+    "only_m_ends": 371,
+    "only_z_ends": 538,
+    "both_act": 5592,
+    "share_only_m_ends": 0.0571,
+    "share_only_z_ends": 0.0828,
+    "share_both_act": 0.8602,
+    "agree_rate": [
+     0.81567,
+     0.00229
+    ],
+    "p_end_m": [
+     0.12241,
+     0.00078
+    ],
+    "p_end_z": [
+     0.12633,
+     0.00095
+    ],
+    "p_end_diff": [
+     -0.00392,
+     0.00046
+    ],
+    "max_act_m": [
+     0.26629,
+     0.00164
+    ],
+    "max_act_z": [
+     0.24518,
+     0.00158
+    ],
+    "only_m_ends_rate": [
+     0.0117,
+     0.00066
+    ],
+    "only_z_ends_rate": [
+     0.01541,
+     0.00083
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 8792,
+      "agreement": 0.8248,
+      "disagreements": 1540,
+      "only_m_ends": 52,
+      "only_z_ends": 90,
+      "both_act": 1398,
+      "share_only_m_ends": 0.0338,
+      "share_only_z_ends": 0.0584,
+      "share_both_act": 0.9078,
+      "agree_rate": [
+       0.84589,
+       0.0069
+      ],
+      "p_end_m": [
+       0.04208,
+       0.00178
+      ],
+      "p_end_z": [
+       0.04516,
+       0.00186
+      ],
+      "p_end_diff": [
+       -0.00308,
+       0.00031
+      ],
+      "max_act_m": [
+       0.28124,
+       0.00398
+      ],
+      "max_act_z": [
+       0.26581,
+       0.0039
+      ],
+      "only_m_ends_rate": [
+       0.00275,
+       0.00043
+      ],
+      "only_z_ends_rate": [
+       0.00525,
+       0.0008
+      ]
+     },
+     "level": {
+      "decisions": 16706,
+      "agreement": 0.7994,
+      "disagreements": 3352,
+      "only_m_ends": 210,
+      "only_z_ends": 307,
+      "both_act": 2835,
+      "share_only_m_ends": 0.0626,
+      "share_only_z_ends": 0.0916,
+      "share_both_act": 0.8458,
+      "agree_rate": [
+       0.81609,
+       0.00463
+      ],
+      "p_end_m": [
+       0.13103,
+       0.00459
+      ],
+      "p_end_z": [
+       0.13316,
+       0.00441
+      ],
+      "p_end_diff": [
+       -0.00213,
+       0.00097
+      ],
+      "max_act_m": [
+       0.25733,
+       0.00316
+      ],
+      "max_act_z": [
+       0.2368,
+       0.00299
+      ],
+      "only_m_ends_rate": [
+       0.01593,
+       0.00166
+      ],
+      "only_z_ends_rate": [
+       0.01778,
+       0.00162
+      ]
+     },
+     "ahead": {
+      "decisions": 9447,
+      "agreement": 0.8297,
+      "disagreements": 1609,
+      "only_m_ends": 109,
+      "only_z_ends": 141,
+      "both_act": 1359,
+      "share_only_m_ends": 0.0677,
+      "share_only_z_ends": 0.0876,
+      "share_both_act": 0.8446,
+      "agree_rate": [
+       0.86396,
+       0.00561
+      ],
+      "p_end_m": [
+       0.24293,
+       0.00608
+      ],
+      "p_end_z": [
+       0.24383,
+       0.00619
+      ],
+      "p_end_diff": [
+       -0.0009,
+       0.00111
+      ],
+      "max_act_m": [
+       0.24601,
+       0.0033
+      ],
+      "max_act_z": [
+       0.23385,
+       0.00333
+      ],
+      "only_m_ends_rate": [
+       0.01319,
+       0.00236
+      ],
+      "only_z_ends_rate": [
+       0.01211,
+       0.00155
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 12742,
+      "agreement": 0.8149,
+      "disagreements": 2358,
+      "only_m_ends": 112,
+      "only_z_ends": 204,
+      "both_act": 2042,
+      "share_only_m_ends": 0.0475,
+      "share_only_z_ends": 0.0865,
+      "share_both_act": 0.866,
+      "agree_rate": [
+       0.81617,
+       0.00395
+      ],
+      "p_end_m": [
+       0.12171,
+       0.00133
+      ],
+      "p_end_z": [
+       0.12748,
+       0.00157
+      ],
+      "p_end_diff": [
+       -0.00577,
+       0.00074
+      ],
+      "max_act_m": [
+       0.2763,
+       0.00276
+      ],
+      "max_act_z": [
+       0.25399,
+       0.00269
+      ],
+      "only_m_ends_rate": [
+       0.00988,
+       0.00095
+      ],
+      "only_z_ends_rate": [
+       0.01597,
+       0.00135
+      ]
+     },
+     "lost": {
+      "decisions": 21803,
+      "agreement": 0.8139,
+      "disagreements": 4058,
+      "only_m_ends": 258,
+      "only_z_ends": 330,
+      "both_act": 3470,
+      "share_only_m_ends": 0.0636,
+      "share_only_z_ends": 0.0813,
+      "share_both_act": 0.8551,
+      "agree_rate": [
+       0.81591,
+       0.00284
+      ],
+      "p_end_m": [
+       0.12259,
+       0.00098
+      ],
+      "p_end_z": [
+       0.12555,
+       0.0012
+      ],
+      "p_end_diff": [
+       -0.00296,
+       0.00058
+      ],
+      "max_act_m": [
+       0.26119,
+       0.00203
+      ],
+      "max_act_z": [
+       0.24058,
+       0.00195
+      ],
+      "only_m_ends_rate": [
+       0.01286,
+       0.00088
+      ],
+      "only_z_ends_rate": [
+       0.01523,
+       0.00106
+      ]
+     },
+     "capped": {
+      "decisions": 400,
+      "agreement": 0.7875,
+      "disagreements": 85,
+      "only_m_ends": 1,
+      "only_z_ends": 4,
+      "both_act": 80,
+      "share_only_m_ends": 0.0118,
+      "share_only_z_ends": 0.0471,
+      "share_both_act": 0.9412,
+      "agree_rate": [
+       0.78935,
+       0.0188
+      ],
+      "p_end_m": [
+       0.13279,
+       0.00738
+      ],
+      "p_end_z": [
+       0.13423,
+       0.00839
+      ],
+      "p_end_diff": [
+       -0.00144,
+       0.00321
+      ],
+      "max_act_m": [
+       0.24825,
+       0.0128
+      ],
+      "max_act_z": [
+       0.23436,
+       0.01163
+      ],
+      "only_m_ends_rate": [
+       0.00286,
+       0.00286
+      ],
+      "only_z_ends_rate": [
+       0.00937,
+       0.00724
+      ]
+     }
+    }
+   },
+   "6-10": {
+    "decisions": 40136,
+    "agreement": 0.7679,
+    "disagreements": 9315,
+    "only_m_ends": 1308,
+    "only_z_ends": 434,
+    "both_act": 7573,
+    "share_only_m_ends": 0.1404,
+    "share_only_z_ends": 0.0466,
+    "share_both_act": 0.813,
+    "agree_rate": [
+     0.75286,
+     0.00408
+    ],
+    "p_end_m": [
+     0.09627,
+     0.00143
+    ],
+    "p_end_z": [
+     0.07439,
+     0.00113
+    ],
+    "p_end_diff": [
+     0.02188,
+     0.0013
+    ],
+    "max_act_m": [
+     0.28763,
+     0.00335
+    ],
+    "max_act_z": [
+     0.25986,
+     0.00338
+    ],
+    "only_m_ends_rate": [
+     0.04639,
+     0.00222
+    ],
+    "only_z_ends_rate": [
+     0.01013,
+     0.00074
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 9756,
+      "agreement": 0.7882,
+      "disagreements": 2066,
+      "only_m_ends": 250,
+      "only_z_ends": 58,
+      "both_act": 1758,
+      "share_only_m_ends": 0.121,
+      "share_only_z_ends": 0.0281,
+      "share_both_act": 0.8509,
+      "agree_rate": [
+       0.79824,
+       0.00727
+      ],
+      "p_end_m": [
+       0.06865,
+       0.00279
+      ],
+      "p_end_z": [
+       0.05554,
+       0.00251
+      ],
+      "p_end_diff": [
+       0.01311,
+       0.00149
+      ],
+      "max_act_m": [
+       0.31677,
+       0.00514
+      ],
+      "max_act_z": [
+       0.29551,
+       0.00521
+      ],
+      "only_m_ends_rate": [
+       0.02366,
+       0.00259
+      ],
+      "only_z_ends_rate": [
+       0.00467,
+       0.00075
+      ]
+     },
+     "level": {
+      "decisions": 20677,
+      "agreement": 0.7637,
+      "disagreements": 4887,
+      "only_m_ends": 708,
+      "only_z_ends": 246,
+      "both_act": 3933,
+      "share_only_m_ends": 0.1449,
+      "share_only_z_ends": 0.0503,
+      "share_both_act": 0.8048,
+      "agree_rate": [
+       0.74708,
+       0.00656
+      ],
+      "p_end_m": [
+       0.11147,
+       0.00422
+      ],
+      "p_end_z": [
+       0.08136,
+       0.00304
+      ],
+      "p_end_diff": [
+       0.03011,
+       0.00243
+      ],
+      "max_act_m": [
+       0.27134,
+       0.00434
+      ],
+      "max_act_z": [
+       0.24585,
+       0.00424
+      ],
+      "only_m_ends_rate": [
+       0.06206,
+       0.00548
+      ],
+      "only_z_ends_rate": [
+       0.01011,
+       0.00099
+      ]
+     },
+     "ahead": {
+      "decisions": 9703,
+      "agreement": 0.7566,
+      "disagreements": 2362,
+      "only_m_ends": 350,
+      "only_z_ends": 130,
+      "both_act": 1882,
+      "share_only_m_ends": 0.1482,
+      "share_only_z_ends": 0.055,
+      "share_both_act": 0.7968,
+      "agree_rate": [
+       0.72165,
+       0.01146
+      ],
+      "p_end_m": [
+       0.16706,
+       0.00721
+      ],
+      "p_end_z": [
+       0.13684,
+       0.00666
+      ],
+      "p_end_diff": [
+       0.03022,
+       0.00359
+      ],
+      "max_act_m": [
+       0.2648,
+       0.00683
+      ],
+      "max_act_z": [
+       0.23805,
+       0.00647
+      ],
+      "only_m_ends_rate": [
+       0.09011,
+       0.01015
+      ],
+      "only_z_ends_rate": [
+       0.01517,
+       0.00259
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 15597,
+      "agreement": 0.7778,
+      "disagreements": 3466,
+      "only_m_ends": 388,
+      "only_z_ends": 173,
+      "both_act": 2905,
+      "share_only_m_ends": 0.1119,
+      "share_only_z_ends": 0.0499,
+      "share_both_act": 0.8381,
+      "agree_rate": [
+       0.76923,
+       0.00572
+      ],
+      "p_end_m": [
+       0.08562,
+       0.00233
+      ],
+      "p_end_z": [
+       0.06973,
+       0.00163
+      ],
+      "p_end_diff": [
+       0.01589,
+       0.00201
+      ],
+      "max_act_m": [
+       0.30373,
+       0.0055
+      ],
+      "max_act_z": [
+       0.27454,
+       0.00556
+      ],
+      "only_m_ends_rate": [
+       0.03565,
+       0.00319
+      ],
+      "only_z_ends_rate": [
+       0.0101,
+       0.0011
+      ]
+     },
+     "lost": {
+      "decisions": 24186,
+      "agreement": 0.7624,
+      "disagreements": 5746,
+      "only_m_ends": 899,
+      "only_z_ends": 259,
+      "both_act": 4588,
+      "share_only_m_ends": 0.1565,
+      "share_only_z_ends": 0.0451,
+      "share_both_act": 0.7985,
+      "agree_rate": [
+       0.74571,
+       0.00544
+      ],
+      "p_end_m": [
+       0.10181,
+       0.00176
+      ],
+      "p_end_z": [
+       0.07707,
+       0.00151
+      ],
+      "p_end_diff": [
+       0.02474,
+       0.00166
+      ],
+      "max_act_m": [
+       0.28091,
+       0.00417
+      ],
+      "max_act_z": [
+       0.25401,
+       0.00422
+      ],
+      "only_m_ends_rate": [
+       0.05141,
+       0.00293
+      ],
+      "only_z_ends_rate": [
+       0.01024,
+       0.00099
+      ]
+     },
+     "capped": {
+      "decisions": 353,
+      "agreement": 0.7082,
+      "disagreements": 103,
+      "only_m_ends": 21,
+      "only_z_ends": 2,
+      "both_act": 80,
+      "share_only_m_ends": 0.2039,
+      "share_only_z_ends": 0.0194,
+      "share_both_act": 0.7767,
+      "agree_rate": [
+       0.65861,
+       0.04688
+      ],
+      "p_end_m": [
+       0.11223,
+       0.02
+      ],
+      "p_end_z": [
+       0.06774,
+       0.00933
+      ],
+      "p_end_diff": [
+       0.04449,
+       0.01733
+      ],
+      "max_act_m": [
+       0.17813,
+       0.02809
+      ],
+      "max_act_z": [
+       0.14575,
+       0.02661
+      ],
+      "only_m_ends_rate": [
+       0.09158,
+       0.02644
+      ],
+      "only_z_ends_rate": [
+       0.005,
+       0.005
+      ]
+     }
+    }
+   },
+   "11-15": {
+    "decisions": 35323,
+    "agreement": 0.7643,
+    "disagreements": 8325,
+    "only_m_ends": 1245,
+    "only_z_ends": 319,
+    "both_act": 6761,
+    "share_only_m_ends": 0.1495,
+    "share_only_z_ends": 0.0383,
+    "share_both_act": 0.8121,
+    "agree_rate": [
+     0.74997,
+     0.0048
+    ],
+    "p_end_m": [
+     0.10269,
+     0.00217
+    ],
+    "p_end_z": [
+     0.07746,
+     0.00194
+    ],
+    "p_end_diff": [
+     0.02524,
+     0.00163
+    ],
+    "max_act_m": [
+     0.30547,
+     0.00367
+    ],
+    "max_act_z": [
+     0.27902,
+     0.0037
+    ],
+    "only_m_ends_rate": [
+     0.05271,
+     0.00293
+    ],
+    "only_z_ends_rate": [
+     0.00807,
+     0.00064
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 10840,
+      "agreement": 0.8027,
+      "disagreements": 2139,
+      "only_m_ends": 250,
+      "only_z_ends": 75,
+      "both_act": 1814,
+      "share_only_m_ends": 0.1169,
+      "share_only_z_ends": 0.0351,
+      "share_both_act": 0.8481,
+      "agree_rate": [
+       0.79606,
+       0.00687
+      ],
+      "p_end_m": [
+       0.09362,
+       0.00381
+      ],
+      "p_end_z": [
+       0.0809,
+       0.00372
+      ],
+      "p_end_diff": [
+       0.01272,
+       0.00161
+      ],
+      "max_act_m": [
+       0.33473,
+       0.00478
+      ],
+      "max_act_z": [
+       0.31654,
+       0.00473
+      ],
+      "only_m_ends_rate": [
+       0.02593,
+       0.00299
+      ],
+      "only_z_ends_rate": [
+       0.00611,
+       0.00088
+      ]
+     },
+     "level": {
+      "decisions": 14104,
+      "agreement": 0.7474,
+      "disagreements": 3562,
+      "only_m_ends": 645,
+      "only_z_ends": 133,
+      "both_act": 2784,
+      "share_only_m_ends": 0.1811,
+      "share_only_z_ends": 0.0373,
+      "share_both_act": 0.7816,
+      "agree_rate": [
+       0.72413,
+       0.00879
+      ],
+      "p_end_m": [
+       0.11119,
+       0.00517
+      ],
+      "p_end_z": [
+       0.07492,
+       0.00409
+      ],
+      "p_end_diff": [
+       0.03627,
+       0.00288
+      ],
+      "max_act_m": [
+       0.27676,
+       0.0057
+      ],
+      "max_act_z": [
+       0.24989,
+       0.00553
+      ],
+      "only_m_ends_rate": [
+       0.07967,
+       0.00714
+      ],
+      "only_z_ends_rate": [
+       0.00773,
+       0.0011
+      ]
+     },
+     "ahead": {
+      "decisions": 10379,
+      "agreement": 0.7472,
+      "disagreements": 2624,
+      "only_m_ends": 350,
+      "only_z_ends": 111,
+      "both_act": 2163,
+      "share_only_m_ends": 0.1334,
+      "share_only_z_ends": 0.0423,
+      "share_both_act": 0.8243,
+      "agree_rate": [
+       0.7166,
+       0.01219
+      ],
+      "p_end_m": [
+       0.14548,
+       0.00886
+      ],
+      "p_end_z": [
+       0.11199,
+       0.00762
+      ],
+      "p_end_diff": [
+       0.03349,
+       0.00389
+      ],
+      "max_act_m": [
+       0.28719,
+       0.00695
+      ],
+      "max_act_z": [
+       0.25938,
+       0.0066
+      ],
+      "only_m_ends_rate": [
+       0.09168,
+       0.01132
+      ],
+      "only_z_ends_rate": [
+       0.00993,
+       0.00161
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 14182,
+      "agreement": 0.7568,
+      "disagreements": 3449,
+      "only_m_ends": 426,
+      "only_z_ends": 131,
+      "both_act": 2892,
+      "share_only_m_ends": 0.1235,
+      "share_only_z_ends": 0.038,
+      "share_both_act": 0.8385,
+      "agree_rate": [
+       0.74523,
+       0.00807
+      ],
+      "p_end_m": [
+       0.07903,
+       0.00286
+      ],
+      "p_end_z": [
+       0.05858,
+       0.00184
+      ],
+      "p_end_diff": [
+       0.02045,
+       0.00269
+      ],
+      "max_act_m": [
+       0.31064,
+       0.00632
+      ],
+      "max_act_z": [
+       0.27837,
+       0.00622
+      ],
+      "only_m_ends_rate": [
+       0.04799,
+       0.00505
+      ],
+      "only_z_ends_rate": [
+       0.00802,
+       0.00108
+      ]
+     },
+     "lost": {
+      "decisions": 20883,
+      "agreement": 0.7702,
+      "disagreements": 4798,
+      "only_m_ends": 791,
+      "only_z_ends": 185,
+      "both_act": 3822,
+      "share_only_m_ends": 0.1649,
+      "share_only_z_ends": 0.0386,
+      "share_both_act": 0.7966,
+      "agree_rate": [
+       0.75522,
+       0.00584
+      ],
+      "p_end_m": [
+       0.11399,
+       0.00277
+      ],
+      "p_end_z": [
+       0.08789,
+       0.00274
+      ],
+      "p_end_diff": [
+       0.0261,
+       0.00195
+      ],
+      "max_act_m": [
+       0.30637,
+       0.00444
+      ],
+      "max_act_z": [
+       0.28309,
+       0.00453
+      ],
+      "only_m_ends_rate": [
+       0.05254,
+       0.00333
+      ],
+      "only_z_ends_rate": [
+       0.00803,
+       0.00081
+      ]
+     },
+     "capped": {
+      "decisions": 258,
+      "agreement": 0.6977,
+      "disagreements": 78,
+      "only_m_ends": 28,
+      "only_z_ends": 3,
+      "both_act": 47,
+      "share_only_m_ends": 0.359,
+      "share_only_z_ends": 0.0385,
+      "share_both_act": 0.6026,
+      "agree_rate": [
+       0.62211,
+       0.0756
+      ],
+      "p_end_m": [
+       0.16815,
+       0.02622
+      ],
+      "p_end_z": [
+       0.0626,
+       0.00675
+      ],
+      "p_end_diff": [
+       0.10555,
+       0.0251
+      ],
+      "max_act_m": [
+       0.13197,
+       0.02255
+      ],
+      "max_act_z": [
+       0.10346,
+       0.01928
+      ],
+      "only_m_ends_rate": [
+       0.18039,
+       0.06409
+      ],
+      "only_z_ends_rate": [
+       0.01089,
+       0.00618
+      ]
+     }
+    }
+   },
+   "16+": {
+    "decisions": 68993,
+    "agreement": 0.7298,
+    "disagreements": 18642,
+    "only_m_ends": 4334,
+    "only_z_ends": 591,
+    "both_act": 13717,
+    "share_only_m_ends": 0.2325,
+    "share_only_z_ends": 0.0317,
+    "share_both_act": 0.7358,
+    "agree_rate": [
+     0.76291,
+     0.00493
+    ],
+    "p_end_m": [
+     0.1115,
+     0.00334
+    ],
+    "p_end_z": [
+     0.09284,
+     0.00327
+    ],
+    "p_end_diff": [
+     0.01867,
+     0.00152
+    ],
+    "max_act_m": [
+     0.32148,
+     0.00305
+    ],
+    "max_act_z": [
+     0.29572,
+     0.00303
+    ],
+    "only_m_ends_rate": [
+     0.04844,
+     0.00364
+    ],
+    "only_z_ends_rate": [
+     0.00672,
+     0.00053
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 18522,
+      "agreement": 0.7662,
+      "disagreements": 4330,
+      "only_m_ends": 884,
+      "only_z_ends": 126,
+      "both_act": 3320,
+      "share_only_m_ends": 0.2042,
+      "share_only_z_ends": 0.0291,
+      "share_both_act": 0.7667,
+      "agree_rate": [
+       0.7811,
+       0.00673
+      ],
+      "p_end_m": [
+       0.13072,
+       0.00465
+      ],
+      "p_end_z": [
+       0.11576,
+       0.00457
+      ],
+      "p_end_diff": [
+       0.01496,
+       0.00189
+      ],
+      "max_act_m": [
+       0.32703,
+       0.00384
+      ],
+      "max_act_z": [
+       0.30869,
+       0.00381
+      ],
+      "only_m_ends_rate": [
+       0.04105,
+       0.00409
+      ],
+      "only_z_ends_rate": [
+       0.0054,
+       0.00073
+      ]
+     },
+     "level": {
+      "decisions": 25548,
+      "agreement": 0.6909,
+      "disagreements": 7897,
+      "only_m_ends": 2425,
+      "only_z_ends": 263,
+      "both_act": 5209,
+      "share_only_m_ends": 0.3071,
+      "share_only_z_ends": 0.0333,
+      "share_both_act": 0.6596,
+      "agree_rate": [
+       0.72174,
+       0.00882
+      ],
+      "p_end_m": [
+       0.10248,
+       0.00581
+      ],
+      "p_end_z": [
+       0.06874,
+       0.00495
+      ],
+      "p_end_diff": [
+       0.03374,
+       0.00297
+      ],
+      "max_act_m": [
+       0.2871,
+       0.00536
+      ],
+      "max_act_z": [
+       0.26041,
+       0.00529
+      ],
+      "only_m_ends_rate": [
+       0.07832,
+       0.00754
+      ],
+      "only_z_ends_rate": [
+       0.00897,
+       0.00137
+      ]
+     },
+     "ahead": {
+      "decisions": 24923,
+      "agreement": 0.7426,
+      "disagreements": 6415,
+      "only_m_ends": 1025,
+      "only_z_ends": 202,
+      "both_act": 5188,
+      "share_only_m_ends": 0.1598,
+      "share_only_z_ends": 0.0315,
+      "share_both_act": 0.8087,
+      "agree_rate": [
+       0.73705,
+       0.01075
+      ],
+      "p_end_m": [
+       0.10757,
+       0.00805
+      ],
+      "p_end_z": [
+       0.08315,
+       0.00691
+      ],
+      "p_end_diff": [
+       0.02441,
+       0.00332
+      ],
+      "max_act_m": [
+       0.31652,
+       0.00632
+      ],
+      "max_act_z": [
+       0.28457,
+       0.00602
+      ],
+      "only_m_ends_rate": [
+       0.06812,
+       0.01009
+      ],
+      "only_z_ends_rate": [
+       0.00882,
+       0.00208
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 30247,
+      "agreement": 0.7426,
+      "disagreements": 7785,
+      "only_m_ends": 1206,
+      "only_z_ends": 233,
+      "both_act": 6346,
+      "share_only_m_ends": 0.1549,
+      "share_only_z_ends": 0.0299,
+      "share_both_act": 0.8152,
+      "agree_rate": [
+       0.76922,
+       0.00643
+      ],
+      "p_end_m": [
+       0.0626,
+       0.00187
+      ],
+      "p_end_z": [
+       0.05063,
+       0.00193
+      ],
+      "p_end_diff": [
+       0.01197,
+       0.00161
+      ],
+      "max_act_m": [
+       0.34099,
+       0.00478
+      ],
+      "max_act_z": [
+       0.30625,
+       0.00507
+      ],
+      "only_m_ends_rate": [
+       0.03029,
+       0.0028
+      ],
+      "only_z_ends_rate": [
+       0.00645,
+       0.00071
+      ]
+     },
+     "lost": {
+      "decisions": 35076,
+      "agreement": 0.742,
+      "disagreements": 9048,
+      "only_m_ends": 1807,
+      "only_z_ends": 331,
+      "both_act": 6910,
+      "share_only_m_ends": 0.1997,
+      "share_only_z_ends": 0.0366,
+      "share_both_act": 0.7637,
+      "agree_rate": [
+       0.76887,
+       0.00591
+      ],
+      "p_end_m": [
+       0.13425,
+       0.00441
+      ],
+      "p_end_z": [
+       0.11571,
+       0.00455
+      ],
+      "p_end_diff": [
+       0.01854,
+       0.00176
+      ],
+      "max_act_m": [
+       0.31694,
+       0.00345
+      ],
+      "max_act_z": [
+       0.2955,
+       0.00344
+      ],
+      "only_m_ends_rate": [
+       0.04663,
+       0.00333
+      ],
+      "only_z_ends_rate": [
+       0.00686,
+       0.00073
+      ]
+     },
+     "capped": {
+      "decisions": 3670,
+      "agreement": 0.5071,
+      "disagreements": 1809,
+      "only_m_ends": 1321,
+      "only_z_ends": 27,
+      "both_act": 461,
+      "share_only_m_ends": 0.7302,
+      "share_only_z_ends": 0.0149,
+      "share_both_act": 0.2548,
+      "agree_rate": [
+       0.43237,
+       0.07238
+      ],
+      "p_end_m": [
+       0.22325,
+       0.02909
+      ],
+      "p_end_z": [
+       0.07417,
+       0.0131
+      ],
+      "p_end_diff": [
+       0.14908,
+       0.02243
+      ],
+      "max_act_m": [
+       0.11595,
+       0.02003
+      ],
+      "max_act_z": [
+       0.10546,
+       0.01746
+      ],
+      "only_m_ends_rate": [
+       0.45386,
+       0.08568
+      ],
+      "only_z_ends_rate": [
+       0.00721,
+       0.00284
+      ]
+     }
+    }
+   },
+   "late (6+)": {
+    "decisions": 144452,
+    "agreement": 0.7488,
+    "disagreements": 36282,
+    "only_m_ends": 6887,
+    "only_z_ends": 1344,
+    "both_act": 28051,
+    "share_only_m_ends": 0.1898,
+    "share_only_z_ends": 0.037,
+    "share_both_act": 0.7731,
+    "agree_rate": [
+     0.76777,
+     0.00304
+    ],
+    "p_end_m": [
+     0.09274,
+     0.00113
+    ],
+    "p_end_z": [
+     0.07641,
+     0.00111
+    ],
+    "p_end_diff": [
+     0.01634,
+     0.00095
+    ],
+    "max_act_m": [
+     0.32344,
+     0.00208
+    ],
+    "max_act_z": [
+     0.29604,
+     0.00213
+    ],
+    "only_m_ends_rate": [
+     0.0408,
+     0.00212
+    ],
+    "only_z_ends_rate": [
+     0.00837,
+     0.0004
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 39118,
+      "agreement": 0.7818,
+      "disagreements": 8535,
+      "only_m_ends": 1384,
+      "only_z_ends": 259,
+      "both_act": 6892,
+      "share_only_m_ends": 0.1622,
+      "share_only_z_ends": 0.0303,
+      "share_both_act": 0.8075,
+      "agree_rate": [
+       0.79596,
+       0.00446
+      ],
+      "p_end_m": [
+       0.09155,
+       0.00198
+      ],
+      "p_end_z": [
+       0.08011,
+       0.00198
+      ],
+      "p_end_diff": [
+       0.01144,
+       0.00106
+      ],
+      "max_act_m": [
+       0.33511,
+       0.00279
+      ],
+      "max_act_z": [
+       0.31466,
+       0.0028
+      ],
+      "only_m_ends_rate": [
+       0.02884,
+       0.00215
+      ],
+      "only_z_ends_rate": [
+       0.00577,
+       0.00051
+      ]
+     },
+     "level": {
+      "decisions": 60329,
+      "agreement": 0.7291,
+      "disagreements": 16346,
+      "only_m_ends": 3778,
+      "only_z_ends": 642,
+      "both_act": 11926,
+      "share_only_m_ends": 0.2311,
+      "share_only_z_ends": 0.0393,
+      "share_both_act": 0.7296,
+      "agree_rate": [
+       0.74756,
+       0.00548
+      ],
+      "p_end_m": [
+       0.10166,
+       0.00341
+      ],
+      "p_end_z": [
+       0.07604,
+       0.00265
+      ],
+      "p_end_diff": [
+       0.02562,
+       0.00185
+      ],
+      "max_act_m": [
+       0.29761,
+       0.00345
+      ],
+      "max_act_z": [
+       0.27087,
+       0.00339
+      ],
+      "only_m_ends_rate": [
+       0.06213,
+       0.0049
+      ],
+      "only_z_ends_rate": [
+       0.00934,
+       0.0008
+      ]
+     },
+     "ahead": {
+      "decisions": 45005,
+      "agreement": 0.7467,
+      "disagreements": 11401,
+      "only_m_ends": 1725,
+      "only_z_ends": 443,
+      "both_act": 9233,
+      "share_only_m_ends": 0.1513,
+      "share_only_z_ends": 0.0389,
+      "share_both_act": 0.8098,
+      "agree_rate": [
+       0.73289,
+       0.00795
+      ],
+      "p_end_m": [
+       0.13244,
+       0.00568
+      ],
+      "p_end_z": [
+       0.1079,
+       0.00491
+      ],
+      "p_end_diff": [
+       0.02454,
+       0.00246
+      ],
+      "max_act_m": [
+       0.30212,
+       0.00497
+      ],
+      "max_act_z": [
+       0.27249,
+       0.00472
+      ],
+      "only_m_ends_rate": [
+       0.07614,
+       0.00791
+      ],
+      "only_z_ends_rate": [
+       0.01202,
+       0.00179
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 60026,
+      "agreement": 0.7551,
+      "disagreements": 14700,
+      "only_m_ends": 2020,
+      "only_z_ends": 537,
+      "both_act": 12143,
+      "share_only_m_ends": 0.1374,
+      "share_only_z_ends": 0.0365,
+      "share_both_act": 0.8261,
+      "agree_rate": [
+       0.77439,
+       0.00434
+      ],
+      "p_end_m": [
+       0.07123,
+       0.00128
+      ],
+      "p_end_z": [
+       0.06134,
+       0.00136
+      ],
+      "p_end_diff": [
+       0.00989,
+       0.00116
+      ],
+      "max_act_m": [
+       0.33653,
+       0.00344
+      ],
+      "max_act_z": [
+       0.30389,
+       0.00359
+      ],
+      "only_m_ends_rate": [
+       0.02812,
+       0.00198
+      ],
+      "only_z_ends_rate": [
+       0.00803,
+       0.00058
+      ]
+     },
+     "lost": {
+      "decisions": 80145,
+      "agreement": 0.7555,
+      "disagreements": 19592,
+      "only_m_ends": 3497,
+      "only_z_ends": 775,
+      "both_act": 15320,
+      "share_only_m_ends": 0.1785,
+      "share_only_z_ends": 0.0396,
+      "share_both_act": 0.782,
+      "agree_rate": [
+       0.76977,
+       0.00354
+      ],
+      "p_end_m": [
+       0.10239,
+       0.00114
+      ],
+      "p_end_z": [
+       0.08478,
+       0.00143
+      ],
+      "p_end_diff": [
+       0.01761,
+       0.00105
+      ],
+      "max_act_m": [
+       0.32003,
+       0.00233
+      ],
+      "max_act_z": [
+       0.29525,
+       0.00244
+      ],
+      "only_m_ends_rate": [
+       0.04096,
+       0.00182
+      ],
+      "only_z_ends_rate": [
+       0.00859,
+       0.00054
+      ]
+     },
+     "capped": {
+      "decisions": 4281,
+      "agreement": 0.5352,
+      "disagreements": 1990,
+      "only_m_ends": 1370,
+      "only_z_ends": 32,
+      "both_act": 588,
+      "share_only_m_ends": 0.6884,
+      "share_only_z_ends": 0.0161,
+      "share_both_act": 0.2955,
+      "agree_rate": [
+       0.47871,
+       0.06241
+      ],
+      "p_end_m": [
+       0.20433,
+       0.02418
+      ],
+      "p_end_z": [
+       0.07167,
+       0.00986
+      ],
+      "p_end_diff": [
+       0.13266,
+       0.02017
+      ],
+      "max_act_m": [
+       0.12919,
+       0.01693
+      ],
+      "max_act_z": [
+       0.11516,
+       0.01494
+      ],
+      "only_m_ends_rate": [
+       0.39034,
+       0.07221
+      ],
+      "only_z_ends_rate": [
+       0.00698,
+       0.00263
+      ]
+     }
+    }
+   }
+  },
+  "other": {
+   "games": 810,
+   "decisions": 207034,
+   "reproduction": 0.9828,
+   "all": {
+    "decisions": 207034,
+    "agreement": 0.7887,
+    "disagreements": 43753,
+    "only_m_ends": 5428,
+    "only_z_ends": 2414,
+    "both_act": 35911,
+    "share_only_m_ends": 0.1241,
+    "share_only_z_ends": 0.0552,
+    "share_both_act": 0.8208,
+    "agree_rate": [
+     0.80204,
+     0.00167
+    ],
+    "p_end_m": [
+     0.09348,
+     0.001
+    ],
+    "p_end_z": [
+     0.0852,
+     0.0008
+    ],
+    "p_end_diff": [
+     0.00827,
+     0.00073
+    ],
+    "max_act_m": [
+     0.31351,
+     0.00166
+    ],
+    "max_act_z": [
+     0.28232,
+     0.00173
+    ],
+    "only_m_ends_rate": [
+     0.02117,
+     0.00077
+    ],
+    "only_z_ends_rate": [
+     0.01123,
+     0.00029
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 40895,
+      "agreement": 0.8102,
+      "disagreements": 7762,
+      "only_m_ends": 756,
+      "only_z_ends": 343,
+      "both_act": 6663,
+      "share_only_m_ends": 0.0974,
+      "share_only_z_ends": 0.0442,
+      "share_both_act": 0.8584,
+      "agree_rate": [
+       0.83933,
+       0.00449
+      ],
+      "p_end_m": [
+       0.06007,
+       0.00198
+      ],
+      "p_end_z": [
+       0.05769,
+       0.00179
+      ],
+      "p_end_diff": [
+       0.00237,
+       0.00065
+      ],
+      "max_act_m": [
+       0.29934,
+       0.003
+      ],
+      "max_act_z": [
+       0.27951,
+       0.00294
+      ],
+      "only_m_ends_rate": [
+       0.00929,
+       0.00078
+      ],
+      "only_z_ends_rate": [
+       0.00508,
+       0.00042
+      ]
+     },
+     "level": {
+      "decisions": 86951,
+      "agreement": 0.7793,
+      "disagreements": 19188,
+      "only_m_ends": 3062,
+      "only_z_ends": 1126,
+      "both_act": 15000,
+      "share_only_m_ends": 0.1596,
+      "share_only_z_ends": 0.0587,
+      "share_both_act": 0.7817,
+      "agree_rate": [
+       0.79494,
+       0.00355
+      ],
+      "p_end_m": [
+       0.0945,
+       0.00263
+      ],
+      "p_end_z": [
+       0.08404,
+       0.00246
+      ],
+      "p_end_diff": [
+       0.01046,
+       0.00103
+      ],
+      "max_act_m": [
+       0.2926,
+       0.00259
+      ],
+      "max_act_z": [
+       0.26407,
+       0.00258
+      ],
+      "only_m_ends_rate": [
+       0.02489,
+       0.00131
+      ],
+      "only_z_ends_rate": [
+       0.01208,
+       0.0006
+      ]
+     },
+     "ahead": {
+      "decisions": 79188,
+      "agreement": 0.7878,
+      "disagreements": 16803,
+      "only_m_ends": 1610,
+      "only_z_ends": 945,
+      "both_act": 14248,
+      "share_only_m_ends": 0.0958,
+      "share_only_z_ends": 0.0562,
+      "share_both_act": 0.8479,
+      "agree_rate": [
+       0.82559,
+       0.0038
+      ],
+      "p_end_m": [
+       0.13726,
+       0.00407
+      ],
+      "p_end_z": [
+       0.13313,
+       0.00411
+      ],
+      "p_end_diff": [
+       0.00413,
+       0.00081
+      ],
+      "max_act_m": [
+       0.31634,
+       0.0027
+      ],
+      "max_act_z": [
+       0.28654,
+       0.00259
+      ],
+      "only_m_ends_rate": [
+       0.0165,
+       0.00124
+      ],
+      "only_z_ends_rate": [
+       0.01413,
+       0.00174
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 135320,
+      "agreement": 0.789,
+      "disagreements": 28557,
+      "only_m_ends": 3109,
+      "only_z_ends": 1529,
+      "both_act": 23919,
+      "share_only_m_ends": 0.1089,
+      "share_only_z_ends": 0.0535,
+      "share_both_act": 0.8376,
+      "agree_rate": [
+       0.79972,
+       0.00206
+      ],
+      "p_end_m": [
+       0.08435,
+       0.0008
+      ],
+      "p_end_z": [
+       0.07714,
+       0.00075
+      ],
+      "p_end_diff": [
+       0.00721,
+       0.00067
+      ],
+      "max_act_m": [
+       0.3184,
+       0.00189
+      ],
+      "max_act_z": [
+       0.285,
+       0.00201
+      ],
+      "only_m_ends_rate": [
+       0.0197,
+       0.00086
+      ],
+      "only_z_ends_rate": [
+       0.01084,
+       0.00034
+      ]
+     },
+     "lost": {
+      "decisions": 63022,
+      "agreement": 0.7918,
+      "disagreements": 13123,
+      "only_m_ends": 1768,
+      "only_z_ends": 768,
+      "both_act": 10587,
+      "share_only_m_ends": 0.1347,
+      "share_only_z_ends": 0.0585,
+      "share_both_act": 0.8068,
+      "agree_rate": [
+       0.80722,
+       0.0028
+      ],
+      "p_end_m": [
+       0.10571,
+       0.0013
+      ],
+      "p_end_z": [
+       0.09907,
+       0.00138
+      ],
+      "p_end_diff": [
+       0.00664,
+       0.00106
+      ],
+      "max_act_m": [
+       0.31028,
+       0.0025
+      ],
+      "max_act_z": [
+       0.28287,
+       0.00267
+      ],
+      "only_m_ends_rate": [
+       0.0217,
+       0.00129
+      ],
+      "only_z_ends_rate": [
+       0.01188,
+       0.00055
+      ]
+     },
+     "capped": {
+      "decisions": 8692,
+      "agreement": 0.7615,
+      "disagreements": 2073,
+      "only_m_ends": 551,
+      "only_z_ends": 117,
+      "both_act": 1405,
+      "share_only_m_ends": 0.2658,
+      "share_only_z_ends": 0.0564,
+      "share_both_act": 0.6778,
+      "agree_rate": [
+       0.77561,
+       0.02754
+      ],
+      "p_end_m": [
+       0.22125,
+       0.03359
+      ],
+      "p_end_z": [
+       0.11169,
+       0.01594
+      ],
+      "p_end_diff": [
+       0.10956,
+       0.02021
+      ],
+      "max_act_m": [
+       0.15171,
+       0.0275
+      ],
+      "max_act_z": [
+       0.12812,
+       0.02685
+      ],
+      "only_m_ends_rate": [
+       0.0823,
+       0.01279
+      ],
+      "only_z_ends_rate": [
+       0.01338,
+       0.00207
+      ]
+     }
+    }
+   },
+   "1-5": {
+    "decisions": 33870,
+    "agreement": 0.8174,
+    "disagreements": 6184,
+    "only_m_ends": 383,
+    "only_z_ends": 495,
+    "both_act": 5306,
+    "share_only_m_ends": 0.0619,
+    "share_only_z_ends": 0.08,
+    "share_both_act": 0.858,
+    "agree_rate": [
+     0.81934,
+     0.00237
+    ],
+    "p_end_m": [
+     0.12205,
+     0.00083
+    ],
+    "p_end_z": [
+     0.12454,
+     0.00084
+    ],
+    "p_end_diff": [
+     -0.00248,
+     0.00042
+    ],
+    "max_act_m": [
+     0.26676,
+     0.00177
+    ],
+    "max_act_z": [
+     0.24472,
+     0.00172
+    ],
+    "only_m_ends_rate": [
+     0.0117,
+     0.00068
+    ],
+    "only_z_ends_rate": [
+     0.01537,
+     0.00064
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 8842,
+      "agreement": 0.8248,
+      "disagreements": 1549,
+      "only_m_ends": 68,
+      "only_z_ends": 68,
+      "both_act": 1413,
+      "share_only_m_ends": 0.0439,
+      "share_only_z_ends": 0.0439,
+      "share_both_act": 0.9122,
+      "agree_rate": [
+       0.85192,
+       0.00607
+      ],
+      "p_end_m": [
+       0.04408,
+       0.00188
+      ],
+      "p_end_z": [
+       0.0464,
+       0.00187
+      ],
+      "p_end_diff": [
+       -0.00232,
+       0.00033
+      ],
+      "max_act_m": [
+       0.27027,
+       0.00353
+      ],
+      "max_act_z": [
+       0.25474,
+       0.00345
+      ],
+      "only_m_ends_rate": [
+       0.00356,
+       0.00055
+      ],
+      "only_z_ends_rate": [
+       0.00392,
+       0.00053
+      ]
+     },
+     "level": {
+      "decisions": 16045,
+      "agreement": 0.7986,
+      "disagreements": 3231,
+      "only_m_ends": 226,
+      "only_z_ends": 287,
+      "both_act": 2718,
+      "share_only_m_ends": 0.0699,
+      "share_only_z_ends": 0.0888,
+      "share_both_act": 0.8412,
+      "agree_rate": [
+       0.79797,
+       0.00581
+      ],
+      "p_end_m": [
+       0.12587,
+       0.00436
+      ],
+      "p_end_z": [
+       0.12824,
+       0.00427
+      ],
+      "p_end_diff": [
+       -0.00237,
+       0.00076
+      ],
+      "max_act_m": [
+       0.25397,
+       0.00296
+      ],
+      "max_act_z": [
+       0.23236,
+       0.00289
+      ],
+      "only_m_ends_rate": [
+       0.01516,
+       0.00146
+      ],
+      "only_z_ends_rate": [
+       0.01848,
+       0.00128
+      ]
+     },
+     "ahead": {
+      "decisions": 8983,
+      "agreement": 0.8437,
+      "disagreements": 1404,
+      "only_m_ends": 89,
+      "only_z_ends": 140,
+      "both_act": 1175,
+      "share_only_m_ends": 0.0634,
+      "share_only_z_ends": 0.0997,
+      "share_both_act": 0.8369,
+      "agree_rate": [
+       0.87674,
+       0.00574
+      ],
+      "p_end_m": [
+       0.24826,
+       0.00648
+      ],
+      "p_end_z": [
+       0.24877,
+       0.00652
+      ],
+      "p_end_diff": [
+       -0.00051,
+       0.00101
+      ],
+      "max_act_m": [
+       0.25651,
+       0.00351
+      ],
+      "max_act_z": [
+       0.24414,
+       0.0035
+      ],
+      "only_m_ends_rate": [
+       0.00755,
+       0.00111
+      ],
+      "only_z_ends_rate": [
+       0.01928,
+       0.00346
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 21636,
+      "agreement": 0.8156,
+      "disagreements": 3989,
+      "only_m_ends": 254,
+      "only_z_ends": 311,
+      "both_act": 3424,
+      "share_only_m_ends": 0.0637,
+      "share_only_z_ends": 0.078,
+      "share_both_act": 0.8584,
+      "agree_rate": [
+       0.81771,
+       0.00298
+      ],
+      "p_end_m": [
+       0.12197,
+       0.001
+      ],
+      "p_end_z": [
+       0.12394,
+       0.00102
+      ],
+      "p_end_diff": [
+       -0.00198,
+       0.00051
+      ],
+      "max_act_m": [
+       0.26663,
+       0.00218
+      ],
+      "max_act_z": [
+       0.24462,
+       0.00213
+      ],
+      "only_m_ends_rate": [
+       0.01195,
+       0.00083
+      ],
+      "only_z_ends_rate": [
+       0.015,
+       0.00081
+      ]
+     },
+     "lost": {
+      "decisions": 11879,
+      "agreement": 0.8202,
+      "disagreements": 2136,
+      "only_m_ends": 129,
+      "only_z_ends": 174,
+      "both_act": 1833,
+      "share_only_m_ends": 0.0604,
+      "share_only_z_ends": 0.0815,
+      "share_both_act": 0.8581,
+      "agree_rate": [
+       0.82179,
+       0.00403
+      ],
+      "p_end_m": [
+       0.12196,
+       0.0015
+      ],
+      "p_end_z": [
+       0.12536,
+       0.00151
+      ],
+      "p_end_diff": [
+       -0.0034,
+       0.00076
+      ],
+      "max_act_m": [
+       0.26799,
+       0.0031
+      ],
+      "max_act_z": [
+       0.24575,
+       0.00301
+      ],
+      "only_m_ends_rate": [
+       0.01164,
+       0.00119
+      ],
+      "only_z_ends_rate": [
+       0.01554,
+       0.00106
+      ]
+     },
+     "capped": {
+      "decisions": 355,
+      "agreement": 0.8338,
+      "disagreements": 59,
+      "only_m_ends": 0,
+      "only_z_ends": 10,
+      "both_act": 49,
+      "share_only_m_ends": 0.0,
+      "share_only_z_ends": 0.1695,
+      "share_both_act": 0.8305,
+      "agree_rate": [
+       0.83476,
+       0.01314
+      ],
+      "p_end_m": [
+       0.12889,
+       0.00849
+      ],
+      "p_end_z": [
+       0.13192,
+       0.00751
+      ],
+      "p_end_diff": [
+       -0.00303,
+       0.00296
+      ],
+      "max_act_m": [
+       0.23844,
+       0.00945
+      ],
+      "max_act_z": [
+       0.22089,
+       0.00835
+      ],
+      "only_m_ends_rate": [
+       0.0,
+       0.0
+      ],
+      "only_z_ends_rate": [
+       0.02964,
+       0.00773
+      ]
+     }
+    }
+   },
+   "6-10": {
+    "decisions": 44062,
+    "agreement": 0.792,
+    "disagreements": 9166,
+    "only_m_ends": 1113,
+    "only_z_ends": 511,
+    "both_act": 7542,
+    "share_only_m_ends": 0.1214,
+    "share_only_z_ends": 0.0557,
+    "share_both_act": 0.8228,
+    "agree_rate": [
+     0.78823,
+     0.00268
+    ],
+    "p_end_m": [
+     0.09772,
+     0.00149
+    ],
+    "p_end_z": [
+     0.07988,
+     0.00085
+    ],
+    "p_end_diff": [
+     0.01784,
+     0.00112
+    ],
+    "max_act_m": [
+     0.29473,
+     0.00316
+    ],
+    "max_act_z": [
+     0.26353,
+     0.00322
+    ],
+    "only_m_ends_rate": [
+     0.03045,
+     0.00135
+    ],
+    "only_z_ends_rate": [
+     0.0124,
+     0.0006
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 8107,
+      "agreement": 0.7972,
+      "disagreements": 1644,
+      "only_m_ends": 160,
+      "only_z_ends": 65,
+      "both_act": 1419,
+      "share_only_m_ends": 0.0973,
+      "share_only_z_ends": 0.0395,
+      "share_both_act": 0.8631,
+      "agree_rate": [
+       0.80589,
+       0.00752
+      ],
+      "p_end_m": [
+       0.05941,
+       0.00299
+      ],
+      "p_end_z": [
+       0.04914,
+       0.00245
+      ],
+      "p_end_diff": [
+       0.01027,
+       0.00132
+      ],
+      "max_act_m": [
+       0.30135,
+       0.0062
+      ],
+      "max_act_z": [
+       0.27511,
+       0.00632
+      ],
+      "only_m_ends_rate": [
+       0.01415,
+       0.00169
+      ],
+      "only_z_ends_rate": [
+       0.00634,
+       0.00096
+      ]
+     },
+     "level": {
+      "decisions": 22166,
+      "agreement": 0.788,
+      "disagreements": 4700,
+      "only_m_ends": 623,
+      "only_z_ends": 270,
+      "both_act": 3807,
+      "share_only_m_ends": 0.1326,
+      "share_only_z_ends": 0.0574,
+      "share_both_act": 0.81,
+      "agree_rate": [
+       0.78878,
+       0.00456
+      ],
+      "p_end_m": [
+       0.1003,
+       0.0037
+      ],
+      "p_end_z": [
+       0.08047,
+       0.00295
+      ],
+      "p_end_diff": [
+       0.01982,
+       0.00158
+      ],
+      "max_act_m": [
+       0.28488,
+       0.00422
+      ],
+      "max_act_z": [
+       0.25495,
+       0.00421
+      ],
+      "only_m_ends_rate": [
+       0.0323,
+       0.00227
+      ],
+      "only_z_ends_rate": [
+       0.0131,
+       0.0012
+      ]
+     },
+     "ahead": {
+      "decisions": 13789,
+      "agreement": 0.7953,
+      "disagreements": 2822,
+      "only_m_ends": 330,
+      "only_z_ends": 176,
+      "both_act": 2316,
+      "share_only_m_ends": 0.1169,
+      "share_only_z_ends": 0.0624,
+      "share_both_act": 0.8207,
+      "agree_rate": [
+       0.79507,
+       0.0067
+      ],
+      "p_end_m": [
+       0.15638,
+       0.00698
+      ],
+      "p_end_z": [
+       0.14157,
+       0.0063
+      ],
+      "p_end_diff": [
+       0.01481,
+       0.00235
+      ],
+      "max_act_m": [
+       0.30016,
+       0.0054
+      ],
+      "max_act_z": [
+       0.26781,
+       0.00515
+      ],
+      "only_m_ends_rate": [
+       0.03507,
+       0.00344
+      ],
+      "only_z_ends_rate": [
+       0.02361,
+       0.00382
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 29540,
+      "agreement": 0.793,
+      "disagreements": 6116,
+      "only_m_ends": 738,
+      "only_z_ends": 334,
+      "both_act": 5044,
+      "share_only_m_ends": 0.1207,
+      "share_only_z_ends": 0.0546,
+      "share_both_act": 0.8247,
+      "agree_rate": [
+       0.78934,
+       0.00331
+      ],
+      "p_end_m": [
+       0.09337,
+       0.00184
+      ],
+      "p_end_z": [
+       0.07514,
+       0.00095
+      ],
+      "p_end_diff": [
+       0.01824,
+       0.00139
+      ],
+      "max_act_m": [
+       0.29714,
+       0.00395
+      ],
+      "max_act_z": [
+       0.26517,
+       0.00405
+      ],
+      "only_m_ends_rate": [
+       0.03028,
+       0.00173
+      ],
+      "only_z_ends_rate": [
+       0.01198,
+       0.0007
+      ]
+     },
+     "lost": {
+      "decisions": 14144,
+      "agreement": 0.7926,
+      "disagreements": 2933,
+      "only_m_ends": 349,
+      "only_z_ends": 169,
+      "both_act": 2415,
+      "share_only_m_ends": 0.119,
+      "share_only_z_ends": 0.0576,
+      "share_both_act": 0.8234,
+      "agree_rate": [
+       0.78971,
+       0.00452
+      ],
+      "p_end_m": [
+       0.10442,
+       0.00248
+      ],
+      "p_end_z": [
+       0.08861,
+       0.00157
+      ],
+      "p_end_diff": [
+       0.0158,
+       0.00187
+      ],
+      "max_act_m": [
+       0.29445,
+       0.00526
+      ],
+      "max_act_z": [
+       0.26453,
+       0.00536
+      ],
+      "only_m_ends_rate": [
+       0.02924,
+       0.00212
+      ],
+      "only_z_ends_rate": [
+       0.01285,
+       0.0011
+      ]
+     },
+     "capped": {
+      "decisions": 378,
+      "agreement": 0.6905,
+      "disagreements": 117,
+      "only_m_ends": 26,
+      "only_z_ends": 8,
+      "both_act": 83,
+      "share_only_m_ends": 0.2222,
+      "share_only_z_ends": 0.0684,
+      "share_both_act": 0.7094,
+      "agree_rate": [
+       0.68989,
+       0.02252
+      ],
+      "p_end_m": [
+       0.13425,
+       0.01561
+      ],
+      "p_end_z": [
+       0.08021,
+       0.00707
+      ],
+      "p_end_diff": [
+       0.05404,
+       0.01131
+      ],
+      "max_act_m": [
+       0.17856,
+       0.01594
+      ],
+      "max_act_z": [
+       0.15116,
+       0.01569
+      ],
+      "only_m_ends_rate": [
+       0.07353,
+       0.01345
+      ],
+      "only_z_ends_rate": [
+       0.02169,
+       0.0072
+      ]
+     }
+    }
+   },
+   "11-15": {
+    "decisions": 41593,
+    "agreement": 0.7985,
+    "disagreements": 8380,
+    "only_m_ends": 970,
+    "only_z_ends": 412,
+    "both_act": 6998,
+    "share_only_m_ends": 0.1158,
+    "share_only_z_ends": 0.0492,
+    "share_both_act": 0.8351,
+    "agree_rate": [
+     0.79906,
+     0.00322
+    ],
+    "p_end_m": [
+     0.09557,
+     0.00214
+    ],
+    "p_end_z": [
+     0.0785,
+     0.0015
+    ],
+    "p_end_diff": [
+     0.01706,
+     0.00146
+    ],
+    "max_act_m": [
+     0.31333,
+     0.00346
+    ],
+    "max_act_z": [
+     0.28141,
+     0.00352
+    ],
+    "only_m_ends_rate": [
+     0.02853,
+     0.00171
+    ],
+    "only_z_ends_rate": [
+     0.00981,
+     0.00055
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 7499,
+      "agreement": 0.8165,
+      "disagreements": 1376,
+      "only_m_ends": 135,
+      "only_z_ends": 46,
+      "both_act": 1195,
+      "share_only_m_ends": 0.0981,
+      "share_only_z_ends": 0.0334,
+      "share_both_act": 0.8685,
+      "agree_rate": [
+       0.8249,
+       0.00793
+      ],
+      "p_end_m": [
+       0.08538,
+       0.00459
+      ],
+      "p_end_z": [
+       0.07529,
+       0.00411
+      ],
+      "p_end_diff": [
+       0.01008,
+       0.0019
+      ],
+      "max_act_m": [
+       0.31721,
+       0.00606
+      ],
+      "max_act_z": [
+       0.29334,
+       0.00615
+      ],
+      "only_m_ends_rate": [
+       0.01774,
+       0.00301
+      ],
+      "only_z_ends_rate": [
+       0.00469,
+       0.00079
+      ]
+     },
+     "level": {
+      "decisions": 15851,
+      "agreement": 0.7811,
+      "disagreements": 3469,
+      "only_m_ends": 525,
+      "only_z_ends": 183,
+      "both_act": 2761,
+      "share_only_m_ends": 0.1513,
+      "share_only_z_ends": 0.0528,
+      "share_both_act": 0.7959,
+      "agree_rate": [
+       0.78659,
+       0.00562
+      ],
+      "p_end_m": [
+       0.09678,
+       0.00441
+      ],
+      "p_end_z": [
+       0.07385,
+       0.00361
+      ],
+      "p_end_diff": [
+       0.02293,
+       0.00222
+      ],
+      "max_act_m": [
+       0.29264,
+       0.00521
+      ],
+      "max_act_z": [
+       0.26265,
+       0.0053
+      ],
+      "only_m_ends_rate": [
+       0.03523,
+       0.00289
+      ],
+      "only_z_ends_rate": [
+       0.01105,
+       0.00128
+      ]
+     },
+     "ahead": {
+      "decisions": 18243,
+      "agreement": 0.8062,
+      "disagreements": 3535,
+      "only_m_ends": 310,
+      "only_z_ends": 183,
+      "both_act": 3042,
+      "share_only_m_ends": 0.0877,
+      "share_only_z_ends": 0.0518,
+      "share_both_act": 0.8605,
+      "agree_rate": [
+       0.80818,
+       0.00648
+      ],
+      "p_end_m": [
+       0.11595,
+       0.00629
+      ],
+      "p_end_z": [
+       0.10547,
+       0.0056
+      ],
+      "p_end_diff": [
+       0.01049,
+       0.002
+      ],
+      "max_act_m": [
+       0.32508,
+       0.00519
+      ],
+      "max_act_z": [
+       0.28994,
+       0.00503
+      ],
+      "only_m_ends_rate": [
+       0.02352,
+       0.00306
+      ],
+      "only_z_ends_rate": [
+       0.01541,
+       0.00309
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 29238,
+      "agreement": 0.7979,
+      "disagreements": 5909,
+      "only_m_ends": 656,
+      "only_z_ends": 288,
+      "both_act": 4965,
+      "share_only_m_ends": 0.111,
+      "share_only_z_ends": 0.0487,
+      "share_both_act": 0.8402,
+      "agree_rate": [
+       0.79618,
+       0.00383
+      ],
+      "p_end_m": [
+       0.08279,
+       0.00223
+      ],
+      "p_end_z": [
+       0.06666,
+       0.00113
+      ],
+      "p_end_diff": [
+       0.01613,
+       0.00172
+      ],
+      "max_act_m": [
+       0.31979,
+       0.00419
+      ],
+      "max_act_z": [
+       0.28491,
+       0.00428
+      ],
+      "only_m_ends_rate": [
+       0.0275,
+       0.00214
+      ],
+      "only_z_ends_rate": [
+       0.01027,
+       0.00069
+      ]
+     },
+     "lost": {
+      "decisions": 12023,
+      "agreement": 0.8021,
+      "disagreements": 2379,
+      "only_m_ends": 293,
+      "only_z_ends": 118,
+      "both_act": 1968,
+      "share_only_m_ends": 0.1232,
+      "share_only_z_ends": 0.0496,
+      "share_both_act": 0.8272,
+      "agree_rate": [
+       0.80763,
+       0.00589
+      ],
+      "p_end_m": [
+       0.11689,
+       0.00408
+      ],
+      "p_end_z": [
+       0.10106,
+       0.00344
+      ],
+      "p_end_diff": [
+       0.01582,
+       0.00251
+      ],
+      "max_act_m": [
+       0.30727,
+       0.00592
+      ],
+      "max_act_z": [
+       0.28116,
+       0.00605
+      ],
+      "only_m_ends_rate": [
+       0.02855,
+       0.00273
+      ],
+      "only_z_ends_rate": [
+       0.00865,
+       0.00091
+      ]
+     },
+     "capped": {
+      "decisions": 332,
+      "agreement": 0.7229,
+      "disagreements": 92,
+      "only_m_ends": 21,
+      "only_z_ends": 6,
+      "both_act": 65,
+      "share_only_m_ends": 0.2283,
+      "share_only_z_ends": 0.0652,
+      "share_both_act": 0.7065,
+      "agree_rate": [
+       0.72288,
+       0.02722
+      ],
+      "p_end_m": [
+       0.17743,
+       0.02578
+      ],
+      "p_end_z": [
+       0.08438,
+       0.00901
+      ],
+      "p_end_diff": [
+       0.09305,
+       0.01893
+      ],
+      "max_act_m": [
+       0.1541,
+       0.02073
+      ],
+      "max_act_z": [
+       0.119,
+       0.019
+      ],
+      "only_m_ends_rate": [
+       0.07715,
+       0.02307
+      ],
+      "only_z_ends_rate": [
+       0.0163,
+       0.00609
+      ]
+     }
+    }
+   },
+   "16+": {
+    "decisions": 87509,
+    "agreement": 0.7712,
+    "disagreements": 20023,
+    "only_m_ends": 2962,
+    "only_z_ends": 996,
+    "both_act": 16065,
+    "share_only_m_ends": 0.1479,
+    "share_only_z_ends": 0.0497,
+    "share_both_act": 0.8023,
+    "agree_rate": [
+     0.80376,
+     0.00345
+    ],
+    "p_end_m": [
+     0.08525,
+     0.00257
+    ],
+    "p_end_z": [
+     0.07585,
+     0.00226
+    ],
+    "p_end_diff": [
+     0.00939,
+     0.00117
+    ],
+    "max_act_m": [
+     0.33411,
+     0.00319
+    ],
+    "max_act_z": [
+     0.30007,
+     0.00335
+    ],
+    "only_m_ends_rate": [
+     0.02044,
+     0.00126
+    ],
+    "only_z_ends_rate": [
+     0.00909,
+     0.0005
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 16447,
+      "agreement": 0.8059,
+      "disagreements": 3193,
+      "only_m_ends": 393,
+      "only_z_ends": 164,
+      "both_act": 2636,
+      "share_only_m_ends": 0.1231,
+      "share_only_z_ends": 0.0514,
+      "share_both_act": 0.8256,
+      "agree_rate": [
+       0.81442,
+       0.0076
+      ],
+      "p_end_m": [
+       0.10256,
+       0.00515
+      ],
+      "p_end_z": [
+       0.09496,
+       0.00481
+      ],
+      "p_end_diff": [
+       0.0076,
+       0.00181
+      ],
+      "max_act_m": [
+       0.32259,
+       0.00549
+      ],
+      "max_act_z": [
+       0.29948,
+       0.00548
+      ],
+      "only_m_ends_rate": [
+       0.01706,
+       0.00215
+      ],
+      "only_z_ends_rate": [
+       0.00785,
+       0.00098
+      ]
+     },
+     "level": {
+      "decisions": 32889,
+      "agreement": 0.7632,
+      "disagreements": 7788,
+      "only_m_ends": 1688,
+      "only_z_ends": 386,
+      "both_act": 5714,
+      "share_only_m_ends": 0.2167,
+      "share_only_z_ends": 0.0496,
+      "share_both_act": 0.7337,
+      "agree_rate": [
+       0.78454,
+       0.0066
+      ],
+      "p_end_m": [
+       0.10028,
+       0.00584
+      ],
+      "p_end_z": [
+       0.07624,
+       0.00485
+      ],
+      "p_end_diff": [
+       0.02405,
+       0.00246
+      ],
+      "max_act_m": [
+       0.2919,
+       0.00552
+      ],
+      "max_act_z": [
+       0.25997,
+       0.00548
+      ],
+      "only_m_ends_rate": [
+       0.03864,
+       0.00364
+      ],
+      "only_z_ends_rate": [
+       0.0115,
+       0.00188
+      ]
+     },
+     "ahead": {
+      "decisions": 38173,
+      "agreement": 0.7631,
+      "disagreements": 9042,
+      "only_m_ends": 881,
+      "only_z_ends": 446,
+      "both_act": 7715,
+      "share_only_m_ends": 0.0974,
+      "share_only_z_ends": 0.0493,
+      "share_both_act": 0.8532,
+      "agree_rate": [
+       0.80375,
+       0.00503
+      ],
+      "p_end_m": [
+       0.0754,
+       0.0035
+      ],
+      "p_end_z": [
+       0.07018,
+       0.00312
+      ],
+      "p_end_diff": [
+       0.00522,
+       0.00132
+      ],
+      "max_act_m": [
+       0.34574,
+       0.00422
+      ],
+      "max_act_z": [
+       0.30721,
+       0.00441
+      ],
+      "only_m_ends_rate": [
+       0.01737,
+       0.00249
+      ],
+      "only_z_ends_rate": [
+       0.01105,
+       0.00153
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 54906,
+      "agreement": 0.7716,
+      "disagreements": 12543,
+      "only_m_ends": 1461,
+      "only_z_ends": 596,
+      "both_act": 10486,
+      "share_only_m_ends": 0.1165,
+      "share_only_z_ends": 0.0475,
+      "share_both_act": 0.836,
+      "agree_rate": [
+       0.80073,
+       0.00428
+      ],
+      "p_end_m": [
+       0.06163,
+       0.00144
+      ],
+      "p_end_z": [
+       0.05573,
+       0.00127
+      ],
+      "p_end_diff": [
+       0.00589,
+       0.00091
+      ],
+      "max_act_m": [
+       0.34339,
+       0.00369
+      ],
+      "max_act_z": [
+       0.30489,
+       0.00399
+      ],
+      "only_m_ends_rate": [
+       0.01657,
+       0.00126
+      ],
+      "only_z_ends_rate": [
+       0.00867,
+       0.00054
+      ]
+     },
+     "lost": {
+      "decisions": 24976,
+      "agreement": 0.7728,
+      "disagreements": 5675,
+      "only_m_ends": 997,
+      "only_z_ends": 307,
+      "both_act": 4371,
+      "share_only_m_ends": 0.1757,
+      "share_only_z_ends": 0.0541,
+      "share_both_act": 0.7702,
+      "agree_rate": [
+       0.81087,
+       0.00592
+      ],
+      "p_end_m": [
+       0.12395,
+       0.00515
+      ],
+      "p_end_z": [
+       0.11415,
+       0.00529
+      ],
+      "p_end_diff": [
+       0.0098,
+       0.00173
+      ],
+      "max_act_m": [
+       0.32633,
+       0.00498
+      ],
+      "max_act_z": [
+       0.30063,
+       0.00524
+      ],
+      "only_m_ends_rate": [
+       0.0243,
+       0.00245
+      ],
+      "only_z_ends_rate": [
+       0.00983,
+       0.00109
+      ]
+     },
+     "capped": {
+      "decisions": 7627,
+      "agreement": 0.7633,
+      "disagreements": 1805,
+      "only_m_ends": 504,
+      "only_z_ends": 93,
+      "both_act": 1208,
+      "share_only_m_ends": 0.2792,
+      "share_only_z_ends": 0.0515,
+      "share_both_act": 0.6693,
+      "agree_rate": [
+       0.78561,
+       0.02994
+      ],
+      "p_end_m": [
+       0.252,
+       0.04316
+      ],
+      "p_end_z": [
+       0.11973,
+       0.0194
+      ],
+      "p_end_diff": [
+       0.13227,
+       0.02678
+      ],
+      "max_act_m": [
+       0.13198,
+       0.03332
+      ],
+      "max_act_z": [
+       0.11052,
+       0.03157
+      ],
+      "only_m_ends_rate": [
+       0.09316,
+       0.0151
+      ],
+      "only_z_ends_rate": [
+       0.01101,
+       0.00241
+      ]
+     }
+    }
+   },
+   "late (6+)": {
+    "decisions": 173164,
+    "agreement": 0.783,
+    "disagreements": 37569,
+    "only_m_ends": 5045,
+    "only_z_ends": 1919,
+    "both_act": 30605,
+    "share_only_m_ends": 0.1343,
+    "share_only_z_ends": 0.0511,
+    "share_both_act": 0.8146,
+    "agree_rate": [
+     0.80012,
+     0.00201
+    ],
+    "p_end_m": [
+     0.08568,
+     0.00118
+    ],
+    "p_end_z": [
+     0.07515,
+     0.0009
+    ],
+    "p_end_diff": [
+     0.01053,
+     0.00081
+    ],
+    "max_act_m": [
+     0.32756,
+     0.00201
+    ],
+    "max_act_z": [
+     0.29465,
+     0.0021
+    ],
+    "only_m_ends_rate": [
+     0.02299,
+     0.0009
+    ],
+    "only_z_ends_rate": [
+     0.01021,
+     0.00035
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 32053,
+      "agreement": 0.8062,
+      "disagreements": 6213,
+      "only_m_ends": 688,
+      "only_z_ends": 275,
+      "both_act": 5250,
+      "share_only_m_ends": 0.1107,
+      "share_only_z_ends": 0.0443,
+      "share_both_act": 0.845,
+      "agree_rate": [
+       0.81659,
+       0.00523
+      ],
+      "p_end_m": [
+       0.07559,
+       0.00272
+      ],
+      "p_end_z": [
+       0.06794,
+       0.00244
+      ],
+      "p_end_diff": [
+       0.00765,
+       0.0011
+      ],
+      "max_act_m": [
+       0.32017,
+       0.004
+      ],
+      "max_act_z": [
+       0.29646,
+       0.00417
+      ],
+      "only_m_ends_rate": [
+       0.01509,
+       0.00131
+      ],
+      "only_z_ends_rate": [
+       0.00642,
+       0.00059
+      ]
+     },
+     "level": {
+      "decisions": 70906,
+      "agreement": 0.775,
+      "disagreements": 15957,
+      "only_m_ends": 2836,
+      "only_z_ends": 839,
+      "both_act": 12282,
+      "share_only_m_ends": 0.1777,
+      "share_only_z_ends": 0.0526,
+      "share_both_act": 0.7697,
+      "agree_rate": [
+       0.79364,
+       0.00358
+      ],
+      "p_end_m": [
+       0.08589,
+       0.00279
+      ],
+      "p_end_z": [
+       0.07058,
+       0.00236
+      ],
+      "p_end_diff": [
+       0.01531,
+       0.00124
+      ],
+      "max_act_m": [
+       0.30871,
+       0.00326
+      ],
+      "max_act_z": [
+       0.27792,
+       0.0033
+      ],
+      "only_m_ends_rate": [
+       0.02891,
+       0.00164
+      ],
+      "only_z_ends_rate": [
+       0.01086,
+       0.00075
+      ]
+     },
+     "ahead": {
+      "decisions": 70205,
+      "agreement": 0.7807,
+      "disagreements": 15399,
+      "only_m_ends": 1521,
+      "only_z_ends": 805,
+      "both_act": 13073,
+      "share_only_m_ends": 0.0988,
+      "share_only_z_ends": 0.0523,
+      "share_both_act": 0.849,
+      "agree_rate": [
+       0.79954,
+       0.00416
+      ],
+      "p_end_m": [
+       0.10306,
+       0.00367
+      ],
+      "p_end_z": [
+       0.09637,
+       0.00339
+      ],
+      "p_end_diff": [
+       0.00669,
+       0.00118
+      ],
+      "max_act_m": [
+       0.33384,
+       0.00325
+      ],
+      "max_act_z": [
+       0.29698,
+       0.00321
+      ],
+      "only_m_ends_rate": [
+       0.02341,
+       0.00216
+      ],
+      "only_z_ends_rate": [
+       0.01474,
+       0.00204
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 113684,
+      "agreement": 0.7839,
+      "disagreements": 24568,
+      "only_m_ends": 2855,
+      "only_z_ends": 1218,
+      "both_act": 20495,
+      "share_only_m_ends": 0.1162,
+      "share_only_z_ends": 0.0496,
+      "share_both_act": 0.8342,
+      "agree_rate": [
+       0.79774,
+       0.00242
+      ],
+      "p_end_m": [
+       0.07413,
+       0.0009
+      ],
+      "p_end_z": [
+       0.0651,
+       0.00072
+      ],
+      "p_end_diff": [
+       0.00903,
+       0.00074
+      ],
+      "max_act_m": [
+       0.33218,
+       0.00229
+      ],
+      "max_act_z": [
+       0.29657,
+       0.00244
+      ],
+      "only_m_ends_rate": [
+       0.02086,
+       0.00099
+      ],
+      "only_z_ends_rate": [
+       0.01001,
+       0.0004
+      ]
+     },
+     "lost": {
+      "decisions": 51143,
+      "agreement": 0.7852,
+      "disagreements": 10987,
+      "only_m_ends": 1639,
+      "only_z_ends": 594,
+      "both_act": 8754,
+      "share_only_m_ends": 0.1492,
+      "share_only_z_ends": 0.0541,
+      "share_both_act": 0.7968,
+      "agree_rate": [
+       0.80549,
+       0.00353
+      ],
+      "p_end_m": [
+       0.10174,
+       0.00163
+      ],
+      "p_end_z": [
+       0.09237,
+       0.00164
+      ],
+      "p_end_diff": [
+       0.00937,
+       0.00118
+      ],
+      "max_act_m": [
+       0.32565,
+       0.00315
+      ],
+      "max_act_z": [
+       0.29739,
+       0.00338
+      ],
+      "only_m_ends_rate": [
+       0.02457,
+       0.00161
+      ],
+      "only_z_ends_rate": [
+       0.0105,
+       0.00067
+      ]
+     },
+     "capped": {
+      "decisions": 8337,
+      "agreement": 0.7584,
+      "disagreements": 2014,
+      "only_m_ends": 551,
+      "only_z_ends": 107,
+      "both_act": 1356,
+      "share_only_m_ends": 0.2736,
+      "share_only_z_ends": 0.0531,
+      "share_both_act": 0.6733,
+      "agree_rate": [
+       0.77272,
+       0.02804
+      ],
+      "p_end_m": [
+       0.23192,
+       0.03697
+      ],
+      "p_end_z": [
+       0.11219,
+       0.01678
+      ],
+      "p_end_diff": [
+       0.11973,
+       0.02301
+      ],
+      "max_act_m": [
+       0.14292,
+       0.02974
+      ],
+      "max_act_z": [
+       0.1194,
+       0.02876
+      ],
+      "only_m_ends_rate": [
+       0.08862,
+       0.0139
+      ],
+      "only_z_ends_rate": [
+       0.01217,
+       0.00203
+      ]
+     }
+    }
+   }
+  },
+  "human": {
+   "games": 312,
+   "decisions": 80833,
+   "all": {
+    "decisions": 80833,
+    "agreement": 0.7546,
+    "disagreements": 19840,
+    "only_m_ends": 1090,
+    "only_z_ends": 510,
+    "both_act": 18240,
+    "share_only_m_ends": 0.0549,
+    "share_only_z_ends": 0.0257,
+    "share_both_act": 0.9194,
+    "agree_rate": [
+     0.79195,
+     0.00489
+    ],
+    "p_end_m": [
+     0.11942,
+     0.00283
+    ],
+    "p_end_z": [
+     0.11641,
+     0.00301
+    ],
+    "p_end_diff": [
+     0.003,
+     0.00053
+    ],
+    "max_act_m": [
+     0.37316,
+     0.00331
+    ],
+    "max_act_z": [
+     0.35519,
+     0.00369
+    ],
+    "only_m_ends_rate": [
+     0.01267,
+     0.00066
+    ],
+    "only_z_ends_rate": [
+     0.00556,
+     0.00038
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 19675,
+      "agreement": 0.7741,
+      "disagreements": 4444,
+      "only_m_ends": 208,
+      "only_z_ends": 69,
+      "both_act": 4167,
+      "share_only_m_ends": 0.0468,
+      "share_only_z_ends": 0.0155,
+      "share_both_act": 0.9377,
+      "agree_rate": [
+       0.81197,
+       0.00582
+      ],
+      "p_end_m": [
+       0.09171,
+       0.00336
+      ],
+      "p_end_z": [
+       0.08971,
+       0.00349
+      ],
+      "p_end_diff": [
+       0.002,
+       0.00075
+      ],
+      "max_act_m": [
+       0.37642,
+       0.00412
+      ],
+      "max_act_z": [
+       0.36321,
+       0.00417
+      ],
+      "only_m_ends_rate": [
+       0.00877,
+       0.00091
+      ],
+      "only_z_ends_rate": [
+       0.00279,
+       0.00045
+      ]
+     },
+     "level": {
+      "decisions": 34675,
+      "agreement": 0.7446,
+      "disagreements": 8856,
+      "only_m_ends": 490,
+      "only_z_ends": 276,
+      "both_act": 8090,
+      "share_only_m_ends": 0.0553,
+      "share_only_z_ends": 0.0312,
+      "share_both_act": 0.9135,
+      "agree_rate": [
+       0.79072,
+       0.00587
+      ],
+      "p_end_m": [
+       0.11726,
+       0.00337
+      ],
+      "p_end_z": [
+       0.11449,
+       0.00351
+      ],
+      "p_end_diff": [
+       0.00277,
+       0.00073
+      ],
+      "max_act_m": [
+       0.36315,
+       0.00436
+      ],
+      "max_act_z": [
+       0.34505,
+       0.00471
+      ],
+      "only_m_ends_rate": [
+       0.01303,
+       0.00119
+      ],
+      "only_z_ends_rate": [
+       0.00587,
+       0.00055
+      ]
+     },
+     "ahead": {
+      "decisions": 26483,
+      "agreement": 0.753,
+      "disagreements": 6540,
+      "only_m_ends": 392,
+      "only_z_ends": 165,
+      "both_act": 5983,
+      "share_only_m_ends": 0.0599,
+      "share_only_z_ends": 0.0252,
+      "share_both_act": 0.9148,
+      "agree_rate": [
+       0.79869,
+       0.00597
+      ],
+      "p_end_m": [
+       0.15477,
+       0.00464
+      ],
+      "p_end_z": [
+       0.15064,
+       0.00469
+      ],
+      "p_end_diff": [
+       0.00413,
+       0.00086
+      ],
+      "max_act_m": [
+       0.37011,
+       0.00412
+      ],
+      "max_act_z": [
+       0.35318,
+       0.00443
+      ],
+      "only_m_ends_rate": [
+       0.01498,
+       0.00135
+      ],
+      "only_z_ends_rate": [
+       0.00729,
+       0.00103
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 44278,
+      "agreement": 0.7532,
+      "disagreements": 10927,
+      "only_m_ends": 526,
+      "only_z_ends": 304,
+      "both_act": 10097,
+      "share_only_m_ends": 0.0481,
+      "share_only_z_ends": 0.0278,
+      "share_both_act": 0.924,
+      "agree_rate": [
+       0.79044,
+       0.0052
+      ],
+      "p_end_m": [
+       0.11219,
+       0.00292
+      ],
+      "p_end_z": [
+       0.11023,
+       0.00301
+      ],
+      "p_end_diff": [
+       0.00196,
+       0.00063
+      ],
+      "max_act_m": [
+       0.37817,
+       0.00369
+      ],
+      "max_act_z": [
+       0.3588,
+       0.00407
+      ],
+      "only_m_ends_rate": [
+       0.01131,
+       0.00089
+      ],
+      "only_z_ends_rate": [
+       0.00621,
+       0.0005
+      ]
+     },
+     "lost": {
+      "decisions": 36555,
+      "agreement": 0.7562,
+      "disagreements": 8913,
+      "only_m_ends": 564,
+      "only_z_ends": 206,
+      "both_act": 8143,
+      "share_only_m_ends": 0.0633,
+      "share_only_z_ends": 0.0231,
+      "share_both_act": 0.9136,
+      "agree_rate": [
+       0.79425,
+       0.00556
+      ],
+      "p_end_m": [
+       0.13085,
+       0.00323
+      ],
+      "p_end_z": [
+       0.12581,
+       0.00355
+      ],
+      "p_end_diff": [
+       0.00504,
+       0.00092
+      ],
+      "max_act_m": [
+       0.36498,
+       0.00357
+      ],
+      "max_act_z": [
+       0.34982,
+       0.00382
+      ],
+      "only_m_ends_rate": [
+       0.01491,
+       0.00099
+      ],
+      "only_z_ends_rate": [
+       0.00481,
+       0.00048
+      ]
+     },
+     "capped": {
+      "decisions": 0,
+      "agreement": null,
+      "disagreements": 0,
+      "only_m_ends": 0,
+      "only_z_ends": 0,
+      "both_act": 0,
+      "share_only_m_ends": null,
+      "share_only_z_ends": null,
+      "share_both_act": null,
+      "agree_rate": [
+       null,
+       null
+      ],
+      "p_end_m": [
+       null,
+       null
+      ],
+      "p_end_z": [
+       null,
+       null
+      ],
+      "p_end_diff": [
+       null,
+       null
+      ],
+      "max_act_m": [
+       null,
+       null
+      ],
+      "max_act_z": [
+       null,
+       null
+      ],
+      "only_m_ends_rate": [
+       null,
+       null
+      ],
+      "only_z_ends_rate": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_gain": {
+     "all": {
+      "decisions": 80833,
+      "unscored": 2,
+      "prior_m": [
+       0.34628,
+       0.00564
+      ],
+      "prior_z": [
+       0.3223,
+       0.00607
+      ],
+      "log_prior_gain": [
+       0.12612,
+       0.0049
+      ]
+     },
+     "attack": {
+      "decisions": 17131,
+      "unscored": 0,
+      "prior_m": [
+       0.62569,
+       0.00488
+      ],
+      "prior_z": [
+       0.58628,
+       0.00468
+      ],
+      "log_prior_gain": [
+       0.09542,
+       0.00498
+      ]
+     },
+     "end_turn": {
+      "decisions": 7120,
+      "unscored": 0,
+      "prior_m": [
+       0.73843,
+       0.00658
+      ],
+      "prior_z": [
+       0.69968,
+       0.00792
+      ],
+      "log_prior_gain": [
+       0.11216,
+       0.00978
+      ]
+     },
+     "move": {
+      "decisions": 48643,
+      "unscored": 0,
+      "prior_m": [
+       0.20952,
+       0.00543
+      ],
+      "prior_z": [
+       0.19053,
+       0.00572
+      ],
+      "log_prior_gain": [
+       0.14243,
+       0.00563
+      ]
+     },
+     "recruit": {
+      "decisions": 7937,
+      "unscored": 0,
+      "prior_m": [
+       0.13946,
+       0.00391
+      ],
+      "prior_z": [
+       0.12932,
+       0.00391
+      ],
+      "log_prior_gain": [
+       0.09778,
+       0.00768
+      ]
+     },
+     "timeout": {
+      "decisions": 2,
+      "unscored": 2,
+      "prior_m": [
+       null,
+       null
+      ],
+      "prior_z": [
+       null,
+       null
+      ],
+      "log_prior_gain": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_by_outcome": {
+     "won": {
+      "all": {
+       "decisions": 44278,
+       "unscored": 1,
+       "prior_m": [
+        0.34663,
+        0.00577
+       ],
+       "prior_z": [
+        0.32275,
+        0.00616
+       ],
+       "log_prior_gain": [
+        0.12282,
+        0.00542
+       ]
+      },
+      "attack": {
+       "decisions": 9294,
+       "unscored": 0,
+       "prior_m": [
+        0.63773,
+        0.00629
+       ],
+       "prior_z": [
+        0.59897,
+        0.00609
+       ],
+       "log_prior_gain": [
+        0.08254,
+        0.00599
+       ]
+      },
+      "end_turn": {
+       "decisions": 3536,
+       "unscored": 0,
+       "prior_m": [
+        0.74225,
+        0.00796
+       ],
+       "prior_z": [
+        0.70844,
+        0.00896
+       ],
+       "log_prior_gain": [
+        0.08224,
+        0.00932
+       ]
+      },
+      "move": {
+       "decisions": 27150,
+       "unscored": 0,
+       "prior_m": [
+        0.21384,
+        0.00572
+       ],
+       "prior_z": [
+        0.1939,
+        0.00592
+       ],
+       "log_prior_gain": [
+        0.14191,
+        0.00661
+       ]
+      },
+      "recruit": {
+       "decisions": 4297,
+       "unscored": 0,
+       "prior_m": [
+        0.14233,
+        0.00474
+       ],
+       "prior_z": [
+        0.13162,
+        0.0047
+       ],
+       "log_prior_gain": [
+        0.10638,
+        0.01058
+       ]
+      },
+      "timeout": {
+       "decisions": 1,
+       "unscored": 1,
+       "prior_m": [
+        null,
+        null
+       ],
+       "prior_z": [
+        null,
+        null
+       ],
+       "log_prior_gain": [
+        null,
+        null
+       ]
+      }
+     },
+     "lost": {
+      "all": {
+       "decisions": 36555,
+       "unscored": 1,
+       "prior_m": [
+        0.34548,
+        0.00617
+       ],
+       "prior_z": [
+        0.32189,
+        0.00661
+       ],
+       "log_prior_gain": [
+        0.12809,
+        0.00591
+       ]
+      },
+      "attack": {
+       "decisions": 7837,
+       "unscored": 0,
+       "prior_m": [
+        0.60539,
+        0.00694
+       ],
+       "prior_z": [
+        0.56577,
+        0.00665
+       ],
+       "log_prior_gain": [
+        0.11129,
+        0.00705
+       ]
+      },
+      "end_turn": {
+       "decisions": 3584,
+       "unscored": 0,
+       "prior_m": [
+        0.73428,
+        0.00828
+       ],
+       "prior_z": [
+        0.69057,
+        0.01021
+       ],
+       "log_prior_gain": [
+        0.14205,
+        0.01537
+       ]
+      },
+      "move": {
+       "decisions": 21493,
+       "unscored": 0,
+       "prior_m": [
+        0.20606,
+        0.00644
+       ],
+       "prior_z": [
+        0.1891,
+        0.00666
+       ],
+       "log_prior_gain": [
+        0.13739,
+        0.00679
+       ]
+      },
+      "recruit": {
+       "decisions": 3640,
+       "unscored": 0,
+       "prior_m": [
+        0.13131,
+        0.00469
+       ],
+       "prior_z": [
+        0.12317,
+        0.0046
+       ],
+       "log_prior_gain": [
+        0.0797,
+        0.00995
+       ]
+      },
+      "timeout": {
+       "decisions": 1,
+       "unscored": 1,
+       "prior_m": [
+        null,
+        null
+       ],
+       "prior_z": [
+        null,
+        null
+       ],
+       "log_prior_gain": [
+        null,
+        null
+       ]
+      }
+     }
+    },
+    "label_gain_won_minus_lost": [
+     -0.00526,
+     0.00574
+    ]
+   },
+   "1-5": {
+    "decisions": 25968,
+    "agreement": 0.7796,
+    "disagreements": 5724,
+    "only_m_ends": 347,
+    "only_z_ends": 163,
+    "both_act": 5214,
+    "share_only_m_ends": 0.0606,
+    "share_only_z_ends": 0.0285,
+    "share_both_act": 0.9109,
+    "agree_rate": [
+     0.80027,
+     0.00511
+    ],
+    "p_end_m": [
+     0.13974,
+     0.00272
+    ],
+    "p_end_z": [
+     0.13766,
+     0.00292
+    ],
+    "p_end_diff": [
+     0.00208,
+     0.00061
+    ],
+    "max_act_m": [
+     0.33848,
+     0.00433
+    ],
+    "max_act_z": [
+     0.32267,
+     0.00461
+    ],
+    "only_m_ends_rate": [
+     0.0128,
+     0.00086
+    ],
+    "only_z_ends_rate": [
+     0.00581,
+     0.00052
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 6010,
+      "agreement": 0.7908,
+      "disagreements": 1257,
+      "only_m_ends": 51,
+      "only_z_ends": 18,
+      "both_act": 1188,
+      "share_only_m_ends": 0.0406,
+      "share_only_z_ends": 0.0143,
+      "share_both_act": 0.9451,
+      "agree_rate": [
+       0.81289,
+       0.00795
+      ],
+      "p_end_m": [
+       0.0772,
+       0.00406
+      ],
+      "p_end_z": [
+       0.07754,
+       0.00412
+      ],
+      "p_end_diff": [
+       -0.00034,
+       0.00068
+      ],
+      "max_act_m": [
+       0.32998,
+       0.00603
+      ],
+      "max_act_z": [
+       0.31741,
+       0.00604
+      ],
+      "only_m_ends_rate": [
+       0.00608,
+       0.00101
+      ],
+      "only_z_ends_rate": [
+       0.0018,
+       0.00049
+      ]
+     },
+     "level": {
+      "decisions": 13367,
+      "agreement": 0.7614,
+      "disagreements": 3189,
+      "only_m_ends": 178,
+      "only_z_ends": 99,
+      "both_act": 2912,
+      "share_only_m_ends": 0.0558,
+      "share_only_z_ends": 0.031,
+      "share_both_act": 0.9131,
+      "agree_rate": [
+       0.79985,
+       0.00654
+      ],
+      "p_end_m": [
+       0.13108,
+       0.00374
+      ],
+      "p_end_z": [
+       0.1292,
+       0.00382
+      ],
+      "p_end_diff": [
+       0.00188,
+       0.00092
+      ],
+      "max_act_m": [
+       0.33954,
+       0.00511
+      ],
+      "max_act_z": [
+       0.32233,
+       0.00543
+      ],
+      "only_m_ends_rate": [
+       0.01163,
+       0.00122
+      ],
+      "only_z_ends_rate": [
+       0.0062,
+       0.00076
+      ]
+     },
+     "ahead": {
+      "decisions": 6591,
+      "agreement": 0.8061,
+      "disagreements": 1278,
+      "only_m_ends": 118,
+      "only_z_ends": 46,
+      "both_act": 1114,
+      "share_only_m_ends": 0.0923,
+      "share_only_z_ends": 0.036,
+      "share_both_act": 0.8717,
+      "agree_rate": [
+       0.83604,
+       0.00718
+      ],
+      "p_end_m": [
+       0.21452,
+       0.00498
+      ],
+      "p_end_z": [
+       0.20935,
+       0.00516
+      ],
+      "p_end_diff": [
+       0.00518,
+       0.00117
+      ],
+      "max_act_m": [
+       0.31164,
+       0.00562
+      ],
+      "max_act_z": [
+       0.30512,
+       0.0057
+      ],
+      "only_m_ends_rate": [
+       0.01723,
+       0.00207
+      ],
+      "only_z_ends_rate": [
+       0.00606,
+       0.00113
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 13354,
+      "agreement": 0.7849,
+      "disagreements": 2872,
+      "only_m_ends": 153,
+      "only_z_ends": 80,
+      "both_act": 2639,
+      "share_only_m_ends": 0.0533,
+      "share_only_z_ends": 0.0279,
+      "share_both_act": 0.9189,
+      "agree_rate": [
+       0.80656,
+       0.00567
+      ],
+      "p_end_m": [
+       0.13781,
+       0.00306
+      ],
+      "p_end_z": [
+       0.13721,
+       0.0032
+      ],
+      "p_end_diff": [
+       0.0006,
+       0.00078
+      ],
+      "max_act_m": [
+       0.34298,
+       0.00469
+      ],
+      "max_act_z": [
+       0.326,
+       0.00499
+      ],
+      "only_m_ends_rate": [
+       0.01108,
+       0.00114
+      ],
+      "only_z_ends_rate": [
+       0.00573,
+       0.00069
+      ]
+     },
+     "lost": {
+      "decisions": 12614,
+      "agreement": 0.7739,
+      "disagreements": 2852,
+      "only_m_ends": 194,
+      "only_z_ends": 83,
+      "both_act": 2575,
+      "share_only_m_ends": 0.068,
+      "share_only_z_ends": 0.0291,
+      "share_both_act": 0.9029,
+      "agree_rate": [
+       0.796,
+       0.00626
+      ],
+      "p_end_m": [
+       0.14533,
+       0.00329
+      ],
+      "p_end_z": [
+       0.14109,
+       0.00364
+      ],
+      "p_end_diff": [
+       0.00424,
+       0.00099
+      ],
+      "max_act_m": [
+       0.33122,
+       0.00471
+      ],
+      "max_act_z": [
+       0.31769,
+       0.00491
+      ],
+      "only_m_ends_rate": [
+       0.01476,
+       0.00125
+      ],
+      "only_z_ends_rate": [
+       0.00577,
+       0.00069
+      ]
+     },
+     "capped": {
+      "decisions": 0,
+      "agreement": null,
+      "disagreements": 0,
+      "only_m_ends": 0,
+      "only_z_ends": 0,
+      "both_act": 0,
+      "share_only_m_ends": null,
+      "share_only_z_ends": null,
+      "share_both_act": null,
+      "agree_rate": [
+       null,
+       null
+      ],
+      "p_end_m": [
+       null,
+       null
+      ],
+      "p_end_z": [
+       null,
+       null
+      ],
+      "p_end_diff": [
+       null,
+       null
+      ],
+      "max_act_m": [
+       null,
+       null
+      ],
+      "max_act_z": [
+       null,
+       null
+      ],
+      "only_m_ends_rate": [
+       null,
+       null
+      ],
+      "only_z_ends_rate": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_gain": {
+     "all": {
+      "decisions": 25968,
+      "unscored": 0,
+      "prior_m": [
+       0.32477,
+       0.00657
+      ],
+      "prior_z": [
+       0.3051,
+       0.00685
+      ],
+      "log_prior_gain": [
+       0.1075,
+       0.00496
+      ]
+     },
+     "attack": {
+      "decisions": 2493,
+      "unscored": 0,
+      "prior_m": [
+       0.64328,
+       0.00975
+      ],
+      "prior_z": [
+       0.58909,
+       0.00965
+      ],
+      "log_prior_gain": [
+       0.13317,
+       0.01465
+      ]
+     },
+     "end_turn": {
+      "decisions": 3087,
+      "unscored": 0,
+      "prior_m": [
+       0.76402,
+       0.00664
+      ],
+      "prior_z": [
+       0.73282,
+       0.00768
+      ],
+      "log_prior_gain": [
+       0.0852,
+       0.00938
+      ]
+     },
+     "move": {
+      "decisions": 15877,
+      "unscored": 0,
+      "prior_m": [
+       0.23651,
+       0.00544
+      ],
+      "prior_z": [
+       0.21823,
+       0.0056
+      ],
+      "log_prior_gain": [
+       0.12629,
+       0.00612
+      ]
+     },
+     "recruit": {
+      "decisions": 4511,
+      "unscored": 0,
+      "prior_m": [
+       0.13481,
+       0.00384
+      ],
+      "prior_z": [
+       0.12937,
+       0.00386
+      ],
+      "log_prior_gain": [
+       0.04862,
+       0.00637
+      ]
+     }
+    },
+    "label_by_outcome": {
+     "won": {
+      "all": {
+       "decisions": 13354,
+       "unscored": 0,
+       "prior_m": [
+        0.32882,
+        0.00682
+       ],
+       "prior_z": [
+        0.30998,
+        0.00707
+       ],
+       "log_prior_gain": [
+        0.09829,
+        0.00571
+       ]
+      },
+      "attack": {
+       "decisions": 1220,
+       "unscored": 0,
+       "prior_m": [
+        0.64866,
+        0.01342
+       ],
+       "prior_z": [
+        0.59729,
+        0.01294
+       ],
+       "log_prior_gain": [
+        0.10848,
+        0.01793
+       ]
+      },
+      "end_turn": {
+       "decisions": 1544,
+       "unscored": 0,
+       "prior_m": [
+        0.76985,
+        0.0087
+       ],
+       "prior_z": [
+        0.74453,
+        0.00957
+       ],
+       "log_prior_gain": [
+        0.05898,
+        0.01057
+       ]
+      },
+      "move": {
+       "decisions": 8274,
+       "unscored": 0,
+       "prior_m": [
+        0.24468,
+        0.0061
+       ],
+       "prior_z": [
+        0.22616,
+        0.00617
+       ],
+       "log_prior_gain": [
+        0.11739,
+        0.00734
+       ]
+      },
+      "recruit": {
+       "decisions": 2316,
+       "unscored": 0,
+       "prior_m": [
+        0.14024,
+        0.00499
+       ],
+       "prior_z": [
+        0.13533,
+        0.00502
+       ],
+       "log_prior_gain": [
+        0.04649,
+        0.00891
+       ]
+      }
+     },
+     "lost": {
+      "all": {
+       "decisions": 12614,
+       "unscored": 0,
+       "prior_m": [
+        0.32066,
+        0.00708
+       ],
+       "prior_z": [
+        0.30053,
+        0.00737
+       ],
+       "log_prior_gain": [
+        0.11417,
+        0.00652
+       ]
+      },
+      "attack": {
+       "decisions": 1273,
+       "unscored": 0,
+       "prior_m": [
+        0.62651,
+        0.01252
+       ],
+       "prior_z": [
+        0.57273,
+        0.01216
+       ],
+       "log_prior_gain": [
+        0.14574,
+        0.0162
+       ]
+      },
+      "end_turn": {
+       "decisions": 1543,
+       "unscored": 0,
+       "prior_m": [
+        0.75804,
+        0.00889
+       ],
+       "prior_z": [
+        0.72091,
+        0.01061
+       ],
+       "log_prior_gain": [
+        0.11161,
+        0.01495
+       ]
+      },
+      "move": {
+       "decisions": 7603,
+       "unscored": 0,
+       "prior_m": [
+        0.23074,
+        0.00665
+       ],
+       "prior_z": [
+        0.21368,
+        0.00676
+       ],
+       "log_prior_gain": [
+        0.12656,
+        0.00833
+       ]
+      },
+      "recruit": {
+       "decisions": 2195,
+       "unscored": 0,
+       "prior_m": [
+        0.12783,
+        0.00457
+       ],
+       "prior_z": [
+        0.12273,
+        0.0045
+       ],
+       "log_prior_gain": [
+        0.04487,
+        0.00881
+       ]
+      }
+     }
+    },
+    "label_gain_won_minus_lost": [
+     -0.01588,
+     0.0074
+    ]
+   },
+   "6-10": {
+    "decisions": 28899,
+    "agreement": 0.7415,
+    "disagreements": 7469,
+    "only_m_ends": 411,
+    "only_z_ends": 174,
+    "both_act": 6884,
+    "share_only_m_ends": 0.055,
+    "share_only_z_ends": 0.0233,
+    "share_both_act": 0.9217,
+    "agree_rate": [
+     0.77747,
+     0.00632
+    ],
+    "p_end_m": [
+     0.09767,
+     0.0032
+    ],
+    "p_end_z": [
+     0.09367,
+     0.00333
+    ],
+    "p_end_diff": [
+     0.004,
+     0.0007
+    ],
+    "max_act_m": [
+     0.39053,
+     0.00484
+    ],
+    "max_act_z": [
+     0.3718,
+     0.00531
+    ],
+    "only_m_ends_rate": [
+     0.0126,
+     0.00094
+    ],
+    "only_z_ends_rate": [
+     0.00492,
+     0.00048
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 6918,
+      "agreement": 0.7663,
+      "disagreements": 1617,
+      "only_m_ends": 79,
+      "only_z_ends": 23,
+      "both_act": 1515,
+      "share_only_m_ends": 0.0489,
+      "share_only_z_ends": 0.0142,
+      "share_both_act": 0.9369,
+      "agree_rate": [
+       0.7944,
+       0.00866
+      ],
+      "p_end_m": [
+       0.0836,
+       0.00534
+      ],
+      "p_end_z": [
+       0.08017,
+       0.00546
+      ],
+      "p_end_diff": [
+       0.00343,
+       0.00113
+      ],
+      "max_act_m": [
+       0.382,
+       0.00598
+      ],
+      "max_act_z": [
+       0.36661,
+       0.00606
+      ],
+      "only_m_ends_rate": [
+       0.00924,
+       0.00147
+      ],
+      "only_z_ends_rate": [
+       0.00251,
+       0.00064
+      ]
+     },
+     "level": {
+      "decisions": 13055,
+      "agreement": 0.73,
+      "disagreements": 3525,
+      "only_m_ends": 195,
+      "only_z_ends": 90,
+      "both_act": 3240,
+      "share_only_m_ends": 0.0553,
+      "share_only_z_ends": 0.0255,
+      "share_both_act": 0.9191,
+      "agree_rate": [
+       0.77558,
+       0.00855
+      ],
+      "p_end_m": [
+       0.09594,
+       0.00639
+      ],
+      "p_end_z": [
+       0.093,
+       0.00664
+      ],
+      "p_end_diff": [
+       0.00294,
+       0.00108
+      ],
+      "max_act_m": [
+       0.37873,
+       0.00665
+      ],
+      "max_act_z": [
+       0.35659,
+       0.00679
+      ],
+      "only_m_ends_rate": [
+       0.01327,
+       0.00171
+      ],
+      "only_z_ends_rate": [
+       0.00492,
+       0.00088
+      ]
+     },
+     "ahead": {
+      "decisions": 8926,
+      "agreement": 0.7393,
+      "disagreements": 2327,
+      "only_m_ends": 137,
+      "only_z_ends": 61,
+      "both_act": 2129,
+      "share_only_m_ends": 0.0589,
+      "share_only_z_ends": 0.0262,
+      "share_both_act": 0.9149,
+      "agree_rate": [
+       0.78273,
+       0.00876
+      ],
+      "p_end_m": [
+       0.15276,
+       0.00874
+      ],
+      "p_end_z": [
+       0.14421,
+       0.00854
+      ],
+      "p_end_diff": [
+       0.00855,
+       0.0021
+      ],
+      "max_act_m": [
+       0.38584,
+       0.00727
+      ],
+      "max_act_z": [
+       0.36668,
+       0.00763
+      ],
+      "only_m_ends_rate": [
+       0.01731,
+       0.00238
+      ],
+      "only_z_ends_rate": [
+       0.01085,
+       0.0027
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 15943,
+      "agreement": 0.7411,
+      "disagreements": 4128,
+      "only_m_ends": 205,
+      "only_z_ends": 115,
+      "both_act": 3808,
+      "share_only_m_ends": 0.0497,
+      "share_only_z_ends": 0.0279,
+      "share_both_act": 0.9225,
+      "agree_rate": [
+       0.7786,
+       0.007
+      ],
+      "p_end_m": [
+       0.09014,
+       0.0033
+      ],
+      "p_end_z": [
+       0.0875,
+       0.00338
+      ],
+      "p_end_diff": [
+       0.00264,
+       0.00079
+      ],
+      "max_act_m": [
+       0.39357,
+       0.00517
+      ],
+      "max_act_z": [
+       0.37439,
+       0.00567
+      ],
+      "only_m_ends_rate": [
+       0.01209,
+       0.00121
+      ],
+      "only_z_ends_rate": [
+       0.00606,
+       0.00073
+      ]
+     },
+     "lost": {
+      "decisions": 12956,
+      "agreement": 0.7421,
+      "disagreements": 3341,
+      "only_m_ends": 206,
+      "only_z_ends": 59,
+      "both_act": 3076,
+      "share_only_m_ends": 0.0617,
+      "share_only_z_ends": 0.0177,
+      "share_both_act": 0.9207,
+      "agree_rate": [
+       0.77305,
+       0.00755
+      ],
+      "p_end_m": [
+       0.11374,
+       0.00449
+      ],
+      "p_end_z": [
+       0.10704,
+       0.00477
+      ],
+      "p_end_diff": [
+       0.0067,
+       0.00127
+      ],
+      "max_act_m": [
+       0.37427,
+       0.00486
+      ],
+      "max_act_z": [
+       0.35647,
+       0.00508
+      ],
+      "only_m_ends_rate": [
+       0.01482,
+       0.00158
+      ],
+      "only_z_ends_rate": [
+       0.0038,
+       0.00059
+      ]
+     },
+     "capped": {
+      "decisions": 0,
+      "agreement": null,
+      "disagreements": 0,
+      "only_m_ends": 0,
+      "only_z_ends": 0,
+      "both_act": 0,
+      "share_only_m_ends": null,
+      "share_only_z_ends": null,
+      "share_both_act": null,
+      "agree_rate": [
+       null,
+       null
+      ],
+      "p_end_m": [
+       null,
+       null
+      ],
+      "p_end_z": [
+       null,
+       null
+      ],
+      "p_end_diff": [
+       null,
+       null
+      ],
+      "max_act_m": [
+       null,
+       null
+      ],
+      "max_act_z": [
+       null,
+       null
+      ],
+      "only_m_ends_rate": [
+       null,
+       null
+      ],
+      "only_z_ends_rate": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_gain": {
+     "all": {
+      "decisions": 28899,
+      "unscored": 2,
+      "prior_m": [
+       0.34739,
+       0.00644
+      ],
+      "prior_z": [
+       0.32171,
+       0.00699
+      ],
+      "log_prior_gain": [
+       0.13969,
+       0.00641
+      ]
+     },
+     "attack": {
+      "decisions": 7573,
+      "unscored": 0,
+      "prior_m": [
+       0.62189,
+       0.00676
+      ],
+      "prior_z": [
+       0.58326,
+       0.00666
+      ],
+      "log_prior_gain": [
+       0.09578,
+       0.00672
+      ]
+     },
+     "end_turn": {
+      "decisions": 2242,
+      "unscored": 0,
+      "prior_m": [
+       0.70708,
+       0.01039
+      ],
+      "prior_z": [
+       0.65905,
+       0.0119
+      ],
+      "log_prior_gain": [
+       0.14603,
+       0.01438
+      ]
+     },
+     "move": {
+      "decisions": 17164,
+      "unscored": 0,
+      "prior_m": [
+       0.17974,
+       0.0059
+      ],
+      "prior_z": [
+       0.16134,
+       0.00639
+      ],
+      "log_prior_gain": [
+       0.15105,
+       0.00801
+      ]
+     },
+     "recruit": {
+      "decisions": 1918,
+      "unscored": 0,
+      "prior_m": [
+       0.13968,
+       0.0066
+      ],
+      "prior_z": [
+       0.1204,
+       0.00628
+      ],
+      "log_prior_gain": [
+       0.18605,
+       0.01895
+      ]
+     },
+     "timeout": {
+      "decisions": 2,
+      "unscored": 2,
+      "prior_m": [
+       null,
+       null
+      ],
+      "prior_z": [
+       null,
+       null
+      ],
+      "log_prior_gain": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_by_outcome": {
+     "won": {
+      "all": {
+       "decisions": 15943,
+       "unscored": 1,
+       "prior_m": [
+        0.34419,
+        0.00647
+       ],
+       "prior_z": [
+        0.3189,
+        0.00692
+       ],
+       "log_prior_gain": [
+        0.13465,
+        0.00723
+       ]
+      },
+      "attack": {
+       "decisions": 4076,
+       "unscored": 0,
+       "prior_m": [
+        0.63641,
+        0.00841
+       ],
+       "prior_z": [
+        0.59949,
+        0.00824
+       ],
+       "log_prior_gain": [
+        0.08185,
+        0.00765
+       ]
+      },
+      "end_turn": {
+       "decisions": 1111,
+       "unscored": 0,
+       "prior_m": [
+        0.71402,
+        0.01179
+       ],
+       "prior_z": [
+        0.67157,
+        0.01305
+       ],
+       "log_prior_gain": [
+        0.09806,
+        0.01308
+       ]
+      },
+      "move": {
+       "decisions": 9655,
+       "unscored": 0,
+       "prior_m": [
+        0.18435,
+        0.00607
+       ],
+       "prior_z": [
+        0.1651,
+        0.0065
+       ],
+       "log_prior_gain": [
+        0.14888,
+        0.00962
+       ]
+      },
+      "recruit": {
+       "decisions": 1100,
+       "unscored": 0,
+       "prior_m": [
+        0.13392,
+        0.00686
+       ],
+       "prior_z": [
+        0.11203,
+        0.00628
+       ],
+       "log_prior_gain": [
+        0.21134,
+        0.02318
+       ]
+      },
+      "timeout": {
+       "decisions": 1,
+       "unscored": 1,
+       "prior_m": [
+        null,
+        null
+       ],
+       "prior_z": [
+        null,
+        null
+       ],
+       "log_prior_gain": [
+        null,
+        null
+       ]
+      }
+     },
+     "lost": {
+      "all": {
+       "decisions": 12956,
+       "unscored": 1,
+       "prior_m": [
+        0.34396,
+        0.0074
+       ],
+       "prior_z": [
+        0.31696,
+        0.00795
+       ],
+       "log_prior_gain": [
+        0.15241,
+        0.00872
+       ]
+      },
+      "attack": {
+       "decisions": 3497,
+       "unscored": 0,
+       "prior_m": [
+        0.59181,
+        0.00938
+       ],
+       "prior_z": [
+        0.54926,
+        0.00903
+       ],
+       "log_prior_gain": [
+        0.12069,
+        0.0101
+       ]
+      },
+      "end_turn": {
+       "decisions": 1131,
+       "unscored": 0,
+       "prior_m": [
+        0.69694,
+        0.01327
+       ],
+       "prior_z": [
+        0.64313,
+        0.01542
+       ],
+       "log_prior_gain": [
+        0.19605,
+        0.02431
+       ]
+      },
+      "move": {
+       "decisions": 7509,
+       "unscored": 0,
+       "prior_m": [
+        0.1663,
+        0.00695
+       ],
+       "prior_z": [
+        0.14855,
+        0.00714
+       ],
+       "log_prior_gain": [
+        0.15604,
+        0.01046
+       ]
+      },
+      "recruit": {
+       "decisions": 818,
+       "unscored": 0,
+       "prior_m": [
+        0.12276,
+        0.00739
+       ],
+       "prior_z": [
+        0.10819,
+        0.00677
+       ],
+       "log_prior_gain": [
+        0.16353,
+        0.02424
+       ]
+      },
+      "timeout": {
+       "decisions": 1,
+       "unscored": 1,
+       "prior_m": [
+        null,
+        null
+       ],
+       "prior_z": [
+        null,
+        null
+       ],
+       "log_prior_gain": [
+        null,
+        null
+       ]
+      }
+     }
+    },
+    "label_gain_won_minus_lost": [
+     -0.01029,
+     0.00961
+    ]
+   },
+   "11-15": {
+    "decisions": 15088,
+    "agreement": 0.7497,
+    "disagreements": 3777,
+    "only_m_ends": 211,
+    "only_z_ends": 105,
+    "both_act": 3461,
+    "share_only_m_ends": 0.0559,
+    "share_only_z_ends": 0.0278,
+    "share_both_act": 0.9163,
+    "agree_rate": [
+     0.77813,
+     0.0074
+    ],
+    "p_end_m": [
+     0.08347,
+     0.0042
+    ],
+    "p_end_z": [
+     0.078,
+     0.00393
+    ],
+    "p_end_diff": [
+     0.00546,
+     0.00101
+    ],
+    "max_act_m": [
+     0.38309,
+     0.0049
+    ],
+    "max_act_z": [
+     0.36385,
+     0.0053
+    ],
+    "only_m_ends_rate": [
+     0.01379,
+     0.00147
+    ],
+    "only_z_ends_rate": [
+     0.00566,
+     0.0008
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 4030,
+      "agreement": 0.7739,
+      "disagreements": 911,
+      "only_m_ends": 53,
+      "only_z_ends": 17,
+      "both_act": 841,
+      "share_only_m_ends": 0.0582,
+      "share_only_z_ends": 0.0187,
+      "share_both_act": 0.9232,
+      "agree_rate": [
+       0.80412,
+       0.01069
+      ],
+      "p_end_m": [
+       0.0925,
+       0.00739
+      ],
+      "p_end_z": [
+       0.08703,
+       0.00725
+      ],
+      "p_end_diff": [
+       0.00547,
+       0.00154
+      ],
+      "max_act_m": [
+       0.38534,
+       0.00731
+      ],
+      "max_act_z": [
+       0.37415,
+       0.00767
+      ],
+      "only_m_ends_rate": [
+       0.0134,
+       0.00265
+      ],
+      "only_z_ends_rate": [
+       0.00547,
+       0.00193
+      ]
+     },
+     "level": {
+      "decisions": 4883,
+      "agreement": 0.7395,
+      "disagreements": 1272,
+      "only_m_ends": 75,
+      "only_z_ends": 54,
+      "both_act": 1143,
+      "share_only_m_ends": 0.059,
+      "share_only_z_ends": 0.0425,
+      "share_both_act": 0.8986,
+      "agree_rate": [
+       0.77001,
+       0.0135
+      ],
+      "p_end_m": [
+       0.09043,
+       0.0079
+      ],
+      "p_end_z": [
+       0.081,
+       0.00776
+      ],
+      "p_end_diff": [
+       0.00943,
+       0.00229
+      ],
+      "max_act_m": [
+       0.3583,
+       0.00845
+      ],
+      "max_act_z": [
+       0.33937,
+       0.00838
+      ],
+      "only_m_ends_rate": [
+       0.01619,
+       0.00277
+      ],
+      "only_z_ends_rate": [
+       0.00968,
+       0.00205
+      ]
+     },
+     "ahead": {
+      "decisions": 6175,
+      "agreement": 0.7419,
+      "disagreements": 1594,
+      "only_m_ends": 83,
+      "only_z_ends": 34,
+      "both_act": 1477,
+      "share_only_m_ends": 0.0521,
+      "share_only_z_ends": 0.0213,
+      "share_both_act": 0.9266,
+      "agree_rate": [
+       0.76743,
+       0.01121
+      ],
+      "p_end_m": [
+       0.12077,
+       0.01228
+      ],
+      "p_end_z": [
+       0.11086,
+       0.01108
+      ],
+      "p_end_diff": [
+       0.00991,
+       0.00363
+      ],
+      "max_act_m": [
+       0.35933,
+       0.00793
+      ],
+      "max_act_z": [
+       0.34085,
+       0.0076
+      ],
+      "only_m_ends_rate": [
+       0.0207,
+       0.00694
+      ],
+      "only_z_ends_rate": [
+       0.0053,
+       0.00136
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 8598,
+      "agreement": 0.7431,
+      "disagreements": 2209,
+      "only_m_ends": 96,
+      "only_z_ends": 69,
+      "both_act": 2044,
+      "share_only_m_ends": 0.0435,
+      "share_only_z_ends": 0.0312,
+      "share_both_act": 0.9253,
+      "agree_rate": [
+       0.77288,
+       0.00867
+      ],
+      "p_end_m": [
+       0.07138,
+       0.00436
+      ],
+      "p_end_z": [
+       0.06732,
+       0.00396
+      ],
+      "p_end_diff": [
+       0.00406,
+       0.00115
+      ],
+      "max_act_m": [
+       0.38291,
+       0.00598
+      ],
+      "max_act_z": [
+       0.36151,
+       0.00639
+      ],
+      "only_m_ends_rate": [
+       0.01044,
+       0.00138
+      ],
+      "only_z_ends_rate": [
+       0.0061,
+       0.0011
+      ]
+     },
+     "lost": {
+      "decisions": 6490,
+      "agreement": 0.7584,
+      "disagreements": 1568,
+      "only_m_ends": 115,
+      "only_z_ends": 36,
+      "both_act": 1417,
+      "share_only_m_ends": 0.0733,
+      "share_only_z_ends": 0.023,
+      "share_both_act": 0.9037,
+      "agree_rate": [
+       0.78937,
+       0.00946
+      ],
+      "p_end_m": [
+       0.1122,
+       0.00687
+      ],
+      "p_end_z": [
+       0.10432,
+       0.00669
+      ],
+      "p_end_diff": [
+       0.00788,
+       0.00161
+      ],
+      "max_act_m": [
+       0.37425,
+       0.00647
+      ],
+      "max_act_z": [
+       0.36003,
+       0.00659
+      ],
+      "only_m_ends_rate": [
+       0.01899,
+       0.00278
+      ],
+      "only_z_ends_rate": [
+       0.00691,
+       0.0018
+      ]
+     },
+     "capped": {
+      "decisions": 0,
+      "agreement": null,
+      "disagreements": 0,
+      "only_m_ends": 0,
+      "only_z_ends": 0,
+      "both_act": 0,
+      "share_only_m_ends": null,
+      "share_only_z_ends": null,
+      "share_both_act": null,
+      "agree_rate": [
+       null,
+       null
+      ],
+      "p_end_m": [
+       null,
+       null
+      ],
+      "p_end_z": [
+       null,
+       null
+      ],
+      "p_end_diff": [
+       null,
+       null
+      ],
+      "max_act_m": [
+       null,
+       null
+      ],
+      "max_act_z": [
+       null,
+       null
+      ],
+      "only_m_ends_rate": [
+       null,
+       null
+      ],
+      "only_z_ends_rate": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_gain": {
+     "all": {
+      "decisions": 15088,
+      "unscored": 0,
+      "prior_m": [
+       0.32702,
+       0.00605
+      ],
+      "prior_z": [
+       0.29815,
+       0.00645
+      ],
+      "log_prior_gain": [
+       0.15321,
+       0.00983
+      ]
+     },
+     "attack": {
+      "decisions": 4077,
+      "unscored": 0,
+      "prior_m": [
+       0.63025,
+       0.01062
+      ],
+      "prior_z": [
+       0.58849,
+       0.00998
+      ],
+      "log_prior_gain": [
+       0.09657,
+       0.00835
+      ]
+     },
+     "end_turn": {
+      "decisions": 1059,
+      "unscored": 0,
+      "prior_m": [
+       0.68239,
+       0.01535
+      ],
+      "prior_z": [
+       0.62697,
+       0.017
+      ],
+      "log_prior_gain": [
+       0.17057,
+       0.0215
+      ]
+     },
+     "move": {
+      "decisions": 9009,
+      "unscored": 0,
+      "prior_m": [
+       0.15302,
+       0.00485
+      ],
+      "prior_z": [
+       0.13267,
+       0.00505
+      ],
+      "log_prior_gain": [
+       0.16664,
+       0.01267
+      ]
+     },
+     "recruit": {
+      "decisions": 943,
+      "unscored": 0,
+      "prior_m": [
+       0.11263,
+       0.00686
+      ],
+      "prior_z": [
+       0.09494,
+       0.00637
+      ],
+      "log_prior_gain": [
+       0.23795,
+       0.0369
+      ]
+     }
+    },
+    "label_by_outcome": {
+     "won": {
+      "all": {
+       "decisions": 8598,
+       "unscored": 0,
+       "prior_m": [
+        0.32383,
+        0.00723
+       ],
+       "prior_z": [
+        0.29506,
+        0.00755
+       ],
+       "log_prior_gain": [
+        0.15766,
+        0.01189
+       ]
+      },
+      "attack": {
+       "decisions": 2268,
+       "unscored": 0,
+       "prior_m": [
+        0.63968,
+        0.01234
+       ],
+       "prior_z": [
+        0.59825,
+        0.01154
+       ],
+       "log_prior_gain": [
+        0.08709,
+        0.01058
+       ]
+      },
+      "end_turn": {
+       "decisions": 518,
+       "unscored": 0,
+       "prior_m": [
+        0.70323,
+        0.01773
+       ],
+       "prior_z": [
+        0.64848,
+        0.01909
+       ],
+       "log_prior_gain": [
+        0.15141,
+        0.02447
+       ]
+      },
+      "move": {
+       "decisions": 5261,
+       "unscored": 0,
+       "prior_m": [
+        0.15107,
+        0.00524
+       ],
+       "prior_z": [
+        0.1299,
+        0.00528
+       ],
+       "log_prior_gain": [
+        0.17423,
+        0.01561
+       ]
+      },
+      "recruit": {
+       "decisions": 551,
+       "unscored": 0,
+       "prior_m": [
+        0.10934,
+        0.00734
+       ],
+       "prior_z": [
+        0.08838,
+        0.00647
+       ],
+       "log_prior_gain": [
+        0.27007,
+        0.04258
+       ]
+      }
+     },
+     "lost": {
+      "all": {
+       "decisions": 6490,
+       "unscored": 0,
+       "prior_m": [
+        0.33504,
+        0.00806
+       ],
+       "prior_z": [
+        0.30848,
+        0.00868
+       ],
+       "log_prior_gain": [
+        0.13914,
+        0.01247
+       ]
+      },
+      "attack": {
+       "decisions": 1809,
+       "unscored": 0,
+       "prior_m": [
+        0.59222,
+        0.01378
+       ],
+       "prior_z": [
+        0.55236,
+        0.01388
+       ],
+       "log_prior_gain": [
+        0.11051,
+        0.01255
+       ]
+      },
+      "end_turn": {
+       "decisions": 541,
+       "unscored": 0,
+       "prior_m": [
+        0.6647,
+        0.01926
+       ],
+       "prior_z": [
+        0.61004,
+        0.02128
+       ],
+       "log_prior_gain": [
+        0.18818,
+        0.02927
+       ]
+      },
+      "move": {
+       "decisions": 3748,
+       "unscored": 0,
+       "prior_m": [
+        0.15149,
+        0.00595
+       ],
+       "prior_z": [
+        0.13569,
+        0.0064
+       ],
+       "log_prior_gain": [
+        0.14215,
+        0.01811
+       ]
+      },
+      "recruit": {
+       "decisions": 392,
+       "unscored": 0,
+       "prior_m": [
+        0.09886,
+        0.00863
+       ],
+       "prior_z": [
+        0.08569,
+        0.00802
+       ],
+       "log_prior_gain": [
+        0.2016,
+        0.043
+       ]
+      }
+     }
+    },
+    "label_gain_won_minus_lost": [
+     0.01735,
+     0.01499
+    ]
+   },
+   "16+": {
+    "decisions": 10878,
+    "agreement": 0.7362,
+    "disagreements": 2870,
+    "only_m_ends": 121,
+    "only_z_ends": 68,
+    "both_act": 2681,
+    "share_only_m_ends": 0.0422,
+    "share_only_z_ends": 0.0237,
+    "share_both_act": 0.9341,
+    "agree_rate": [
+     0.74879,
+     0.01223
+    ],
+    "p_end_m": [
+     0.07426,
+     0.00494
+    ],
+    "p_end_z": [
+     0.07001,
+     0.00529
+    ],
+    "p_end_diff": [
+     0.00425,
+     0.00139
+    ],
+    "max_act_m": [
+     0.37394,
+     0.0068
+    ],
+    "max_act_z": [
+     0.3503,
+     0.00772
+    ],
+    "only_m_ends_rate": [
+     0.01133,
+     0.00149
+    ],
+    "only_z_ends_rate": [
+     0.00482,
+     0.00105
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 2717,
+      "agreement": 0.7575,
+      "disagreements": 659,
+      "only_m_ends": 25,
+      "only_z_ends": 11,
+      "both_act": 623,
+      "share_only_m_ends": 0.0379,
+      "share_only_z_ends": 0.0167,
+      "share_both_act": 0.9454,
+      "agree_rate": [
+       0.7832,
+       0.0138
+      ],
+      "p_end_m": [
+       0.10189,
+       0.01047
+      ],
+      "p_end_z": [
+       0.09873,
+       0.01149
+      ],
+      "p_end_diff": [
+       0.00315,
+       0.00252
+      ],
+      "max_act_m": [
+       0.38753,
+       0.01022
+      ],
+      "max_act_z": [
+       0.37245,
+       0.01011
+      ],
+      "only_m_ends_rate": [
+       0.00715,
+       0.00199
+      ],
+      "only_z_ends_rate": [
+       0.00367,
+       0.00162
+      ]
+     },
+     "level": {
+      "decisions": 3370,
+      "agreement": 0.7418,
+      "disagreements": 870,
+      "only_m_ends": 42,
+      "only_z_ends": 33,
+      "both_act": 795,
+      "share_only_m_ends": 0.0483,
+      "share_only_z_ends": 0.0379,
+      "share_both_act": 0.9138,
+      "agree_rate": [
+       0.76976,
+       0.02025
+      ],
+      "p_end_m": [
+       0.0852,
+       0.01849
+      ],
+      "p_end_z": [
+       0.08239,
+       0.02161
+      ],
+      "p_end_diff": [
+       0.00281,
+       0.00385
+      ],
+      "max_act_m": [
+       0.37787,
+       0.01199
+      ],
+      "max_act_z": [
+       0.35156,
+       0.01298
+      ],
+      "only_m_ends_rate": [
+       0.01608,
+       0.00402
+      ],
+      "only_z_ends_rate": [
+       0.00471,
+       0.00151
+      ]
+     },
+     "ahead": {
+      "decisions": 4791,
+      "agreement": 0.7201,
+      "disagreements": 1341,
+      "only_m_ends": 54,
+      "only_z_ends": 24,
+      "both_act": 1263,
+      "share_only_m_ends": 0.0403,
+      "share_only_z_ends": 0.0179,
+      "share_both_act": 0.9418,
+      "agree_rate": [
+       0.74338,
+       0.01498
+      ],
+      "p_end_m": [
+       0.07413,
+       0.00712
+      ],
+      "p_end_z": [
+       0.07063,
+       0.00715
+      ],
+      "p_end_diff": [
+       0.0035,
+       0.00145
+      ],
+      "max_act_m": [
+       0.37232,
+       0.00808
+      ],
+      "max_act_z": [
+       0.34393,
+       0.009
+      ],
+      "only_m_ends_rate": [
+       0.01241,
+       0.00245
+      ],
+      "only_z_ends_rate": [
+       0.00487,
+       0.00153
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 6383,
+      "agreement": 0.7308,
+      "disagreements": 1718,
+      "only_m_ends": 72,
+      "only_z_ends": 40,
+      "both_act": 1606,
+      "share_only_m_ends": 0.0419,
+      "share_only_z_ends": 0.0233,
+      "share_both_act": 0.9348,
+      "agree_rate": [
+       0.73602,
+       0.01418
+      ],
+      "p_end_m": [
+       0.0622,
+       0.00462
+      ],
+      "p_end_z": [
+       0.05808,
+       0.00456
+      ],
+      "p_end_diff": [
+       0.00412,
+       0.00147
+      ],
+      "max_act_m": [
+       0.37057,
+       0.00798
+      ],
+      "max_act_z": [
+       0.34502,
+       0.00907
+      ],
+      "only_m_ends_rate": [
+       0.01099,
+       0.00173
+      ],
+      "only_z_ends_rate": [
+       0.00544,
+       0.00137
+      ]
+     },
+     "lost": {
+      "decisions": 4495,
+      "agreement": 0.7437,
+      "disagreements": 1152,
+      "only_m_ends": 49,
+      "only_z_ends": 28,
+      "both_act": 1075,
+      "share_only_m_ends": 0.0425,
+      "share_only_z_ends": 0.0243,
+      "share_both_act": 0.9332,
+      "agree_rate": [
+       0.77363,
+       0.01301
+      ],
+      "p_end_m": [
+       0.10723,
+       0.0094
+      ],
+      "p_end_z": [
+       0.10235,
+       0.01061
+      ],
+      "p_end_diff": [
+       0.00488,
+       0.00246
+      ],
+      "max_act_m": [
+       0.37344,
+       0.00801
+      ],
+      "max_act_z": [
+       0.35736,
+       0.00778
+      ],
+      "only_m_ends_rate": [
+       0.0114,
+       0.00238
+      ],
+      "only_z_ends_rate": [
+       0.0039,
+       0.00147
+      ]
+     },
+     "capped": {
+      "decisions": 0,
+      "agreement": null,
+      "disagreements": 0,
+      "only_m_ends": 0,
+      "only_z_ends": 0,
+      "both_act": 0,
+      "share_only_m_ends": null,
+      "share_only_z_ends": null,
+      "share_both_act": null,
+      "agree_rate": [
+       null,
+       null
+      ],
+      "p_end_m": [
+       null,
+       null
+      ],
+      "p_end_z": [
+       null,
+       null
+      ],
+      "p_end_diff": [
+       null,
+       null
+      ],
+      "max_act_m": [
+       null,
+       null
+      ],
+      "max_act_z": [
+       null,
+       null
+      ],
+      "only_m_ends_rate": [
+       null,
+       null
+      ],
+      "only_z_ends_rate": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_gain": {
+     "all": {
+      "decisions": 10878,
+      "unscored": 0,
+      "prior_m": [
+       0.30587,
+       0.00824
+      ],
+      "prior_z": [
+       0.273,
+       0.00887
+      ],
+      "log_prior_gain": [
+       0.19049,
+       0.01976
+      ]
+     },
+     "attack": {
+      "decisions": 2988,
+      "unscored": 0,
+      "prior_m": [
+       0.59153,
+       0.01489
+      ],
+      "prior_z": [
+       0.54429,
+       0.0151
+      ],
+      "log_prior_gain": [
+       0.11797,
+       0.01378
+      ]
+     },
+     "end_turn": {
+      "decisions": 732,
+      "unscored": 0,
+      "prior_m": [
+       0.65406,
+       0.0251
+      ],
+      "prior_z": [
+       0.59939,
+       0.02866
+      ],
+      "log_prior_gain": [
+       0.20634,
+       0.03548
+      ]
+     },
+     "move": {
+      "decisions": 6593,
+      "unscored": 0,
+      "prior_m": [
+       0.13328,
+       0.00631
+      ],
+      "prior_z": [
+       0.10882,
+       0.00615
+      ],
+      "log_prior_gain": [
+       0.2126,
+       0.02553
+      ]
+     },
+     "recruit": {
+      "decisions": 565,
+      "unscored": 0,
+      "prior_m": [
+       0.11395,
+       0.00906
+      ],
+      "prior_z": [
+       0.08862,
+       0.00791
+      ],
+      "log_prior_gain": [
+       0.28872,
+       0.05805
+      ]
+     }
+    },
+    "label_by_outcome": {
+     "won": {
+      "all": {
+       "decisions": 6383,
+       "unscored": 0,
+       "prior_m": [
+        0.29404,
+        0.00941
+       ],
+       "prior_z": [
+        0.26016,
+        0.00997
+       ],
+       "log_prior_gain": [
+        0.19549,
+        0.02648
+       ]
+      },
+      "attack": {
+       "decisions": 1730,
+       "unscored": 0,
+       "prior_m": [
+        0.60389,
+        0.01844
+       ],
+       "prior_z": [
+        0.55219,
+        0.01763
+       ],
+       "log_prior_gain": [
+        0.10995,
+        0.01893
+       ]
+      },
+      "end_turn": {
+       "decisions": 363,
+       "unscored": 0,
+       "prior_m": [
+        0.65238,
+        0.02961
+       ],
+       "prior_z": [
+        0.59986,
+        0.03298
+       ],
+       "log_prior_gain": [
+        0.17655,
+        0.04002
+       ]
+      },
+      "move": {
+       "decisions": 3960,
+       "unscored": 0,
+       "prior_m": [
+        0.13257,
+        0.00672
+       ],
+       "prior_z": [
+        0.10823,
+        0.00646
+       ],
+       "log_prior_gain": [
+        0.21258,
+        0.03101
+       ]
+      },
+      "recruit": {
+       "decisions": 330,
+       "unscored": 0,
+       "prior_m": [
+        0.11331,
+        0.01134
+       ],
+       "prior_z": [
+        0.08828,
+        0.01035
+       ],
+       "log_prior_gain": [
+        0.26598,
+        0.06859
+       ]
+      }
+     },
+     "lost": {
+      "all": {
+       "decisions": 4495,
+       "unscored": 0,
+       "prior_m": [
+        0.32936,
+        0.01147
+       ],
+       "prior_z": [
+        0.29971,
+        0.01168
+       ],
+       "log_prior_gain": [
+        0.17283,
+        0.01816
+       ]
+      },
+      "attack": {
+       "decisions": 1258,
+       "unscored": 0,
+       "prior_m": [
+        0.55646,
+        0.02164
+       ],
+       "prior_z": [
+        0.51879,
+        0.02115
+       ],
+       "log_prior_gain": [
+        0.1409,
+        0.02042
+       ]
+      },
+      "end_turn": {
+       "decisions": 369,
+       "unscored": 0,
+       "prior_m": [
+        0.67307,
+        0.0301
+       ],
+       "prior_z": [
+        0.61879,
+        0.03468
+       ],
+       "log_prior_gain": [
+        0.22601,
+        0.04508
+       ]
+      },
+      "move": {
+       "decisions": 2633,
+       "unscored": 0,
+       "prior_m": [
+        0.13853,
+        0.00785
+       ],
+       "prior_z": [
+        0.11577,
+        0.00713
+       ],
+       "log_prior_gain": [
+        0.17598,
+        0.02628
+       ]
+      },
+      "recruit": {
+       "decisions": 235,
+       "unscored": 0,
+       "prior_m": [
+        0.10233,
+        0.01028
+       ],
+       "prior_z": [
+        0.08309,
+        0.00847
+       ],
+       "log_prior_gain": [
+        0.25616,
+        0.07579
+       ]
+      }
+     }
+    },
+    "label_gain_won_minus_lost": [
+     0.03431,
+     0.03044
+    ]
+   },
+   "late (6+)": {
+    "decisions": 54865,
+    "agreement": 0.7427,
+    "disagreements": 14116,
+    "only_m_ends": 743,
+    "only_z_ends": 347,
+    "both_act": 13026,
+    "share_only_m_ends": 0.0526,
+    "share_only_z_ends": 0.0246,
+    "share_both_act": 0.9228,
+    "agree_rate": [
+     0.78494,
+     0.00579
+    ],
+    "p_end_m": [
+     0.09591,
+     0.00319
+    ],
+    "p_end_z": [
+     0.09256,
+     0.00329
+    ],
+    "p_end_diff": [
+     0.00335,
+     0.00062
+    ],
+    "max_act_m": [
+     0.39813,
+     0.00433
+    ],
+    "max_act_z": [
+     0.37951,
+     0.00482
+    ],
+    "only_m_ends_rate": [
+     0.01158,
+     0.00079
+    ],
+    "only_z_ends_rate": [
+     0.00495,
+     0.00043
+    ],
+    "by_standing": {
+     "behind": {
+      "decisions": 13665,
+      "agreement": 0.7668,
+      "disagreements": 3187,
+      "only_m_ends": 157,
+      "only_z_ends": 51,
+      "both_act": 2979,
+      "share_only_m_ends": 0.0493,
+      "share_only_z_ends": 0.016,
+      "share_both_act": 0.9347,
+      "agree_rate": [
+       0.80354,
+       0.00724
+      ],
+      "p_end_m": [
+       0.0913,
+       0.00512
+      ],
+      "p_end_z": [
+       0.08803,
+       0.00524
+      ],
+      "p_end_diff": [
+       0.00327,
+       0.00103
+      ],
+      "max_act_m": [
+       0.39263,
+       0.00492
+      ],
+      "max_act_z": [
+       0.37859,
+       0.00497
+      ],
+      "only_m_ends_rate": [
+       0.00948,
+       0.00121
+      ],
+      "only_z_ends_rate": [
+       0.00332,
+       0.00066
+      ]
+     },
+     "level": {
+      "decisions": 21308,
+      "agreement": 0.734,
+      "disagreements": 5667,
+      "only_m_ends": 312,
+      "only_z_ends": 177,
+      "both_act": 5178,
+      "share_only_m_ends": 0.0551,
+      "share_only_z_ends": 0.0312,
+      "share_both_act": 0.9137,
+      "agree_rate": [
+       0.78019,
+       0.00805
+      ],
+      "p_end_m": [
+       0.09391,
+       0.00613
+      ],
+      "p_end_z": [
+       0.09068,
+       0.00632
+      ],
+      "p_end_diff": [
+       0.00323,
+       0.00094
+      ],
+      "max_act_m": [
+       0.38439,
+       0.00614
+      ],
+      "max_act_z": [
+       0.36273,
+       0.00628
+      ],
+      "only_m_ends_rate": [
+       0.01322,
+       0.00162
+      ],
+      "only_z_ends_rate": [
+       0.00498,
+       0.00071
+      ]
+     },
+     "ahead": {
+      "decisions": 19892,
+      "agreement": 0.7355,
+      "disagreements": 5262,
+      "only_m_ends": 274,
+      "only_z_ends": 119,
+      "both_act": 4869,
+      "share_only_m_ends": 0.0521,
+      "share_only_z_ends": 0.0226,
+      "share_both_act": 0.9253,
+      "agree_rate": [
+       0.78357,
+       0.00754
+      ],
+      "p_end_m": [
+       0.12535,
+       0.00701
+      ],
+      "p_end_z": [
+       0.12084,
+       0.00695
+      ],
+      "p_end_diff": [
+       0.00451,
+       0.00135
+      ],
+      "max_act_m": [
+       0.39848,
+       0.00606
+      ],
+      "max_act_z": [
+       0.37904,
+       0.00655
+      ],
+      "only_m_ends_rate": [
+       0.01426,
+       0.0018
+      ],
+      "only_z_ends_rate": [
+       0.00766,
+       0.00169
+      ]
+     }
+    },
+    "by_outcome": {
+     "won": {
+      "decisions": 30924,
+      "agreement": 0.7395,
+      "disagreements": 8055,
+      "only_m_ends": 373,
+      "only_z_ends": 224,
+      "both_act": 7458,
+      "share_only_m_ends": 0.0463,
+      "share_only_z_ends": 0.0278,
+      "share_both_act": 0.9259,
+      "agree_rate": [
+       0.78247,
+       0.00647
+      ],
+      "p_end_m": [
+       0.08644,
+       0.00324
+      ],
+      "p_end_z": [
+       0.08409,
+       0.00331
+      ],
+      "p_end_diff": [
+       0.00235,
+       0.00074
+      ],
+      "max_act_m": [
+       0.40079,
+       0.00472
+      ],
+      "max_act_z": [
+       0.38096,
+       0.00528
+      ],
+      "only_m_ends_rate": [
+       0.01101,
+       0.00104
+      ],
+      "only_z_ends_rate": [
+       0.00602,
+       0.00064
+      ]
+     },
+     "lost": {
+      "decisions": 23941,
+      "agreement": 0.7468,
+      "disagreements": 6061,
+      "only_m_ends": 370,
+      "only_z_ends": 123,
+      "both_act": 5568,
+      "share_only_m_ends": 0.061,
+      "share_only_z_ends": 0.0203,
+      "share_both_act": 0.9187,
+      "agree_rate": [
+       0.78539,
+       0.00665
+      ],
+      "p_end_m": [
+       0.11573,
+       0.00451
+      ],
+      "p_end_z": [
+       0.11019,
+       0.00473
+      ],
+      "p_end_diff": [
+       0.00554,
+       0.00108
+      ],
+      "max_act_m": [
+       0.38236,
+       0.0042
+      ],
+      "max_act_z": [
+       0.36585,
+       0.00436
+      ],
+      "only_m_ends_rate": [
+       0.01366,
+       0.00116
+      ],
+      "only_z_ends_rate": [
+       0.00388,
+       0.0005
+      ]
+     },
+     "capped": {
+      "decisions": 0,
+      "agreement": null,
+      "disagreements": 0,
+      "only_m_ends": 0,
+      "only_z_ends": 0,
+      "both_act": 0,
+      "share_only_m_ends": null,
+      "share_only_z_ends": null,
+      "share_both_act": null,
+      "agree_rate": [
+       null,
+       null
+      ],
+      "p_end_m": [
+       null,
+       null
+      ],
+      "p_end_z": [
+       null,
+       null
+      ],
+      "p_end_diff": [
+       null,
+       null
+      ],
+      "max_act_m": [
+       null,
+       null
+      ],
+      "max_act_z": [
+       null,
+       null
+      ],
+      "only_m_ends_rate": [
+       null,
+       null
+      ],
+      "only_z_ends_rate": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_gain": {
+     "all": {
+      "decisions": 54865,
+      "unscored": 2,
+      "prior_m": [
+       0.35475,
+       0.0059
+      ],
+      "prior_z": [
+       0.32911,
+       0.00648
+      ],
+      "log_prior_gain": [
+       0.13725,
+       0.00611
+      ]
+     },
+     "attack": {
+      "decisions": 14638,
+      "unscored": 0,
+      "prior_m": [
+       0.62056,
+       0.00619
+      ],
+      "prior_z": [
+       0.58306,
+       0.00602
+      ],
+      "log_prior_gain": [
+       0.09272,
+       0.0058
+      ]
+     },
+     "end_turn": {
+      "decisions": 4033,
+      "unscored": 0,
+      "prior_m": [
+       0.71358,
+       0.00994
+      ],
+      "prior_z": [
+       0.66785,
+       0.0113
+      ],
+      "log_prior_gain": [
+       0.13778,
+       0.01275
+      ]
+     },
+     "move": {
+      "decisions": 32766,
+      "unscored": 0,
+      "prior_m": [
+       0.18056,
+       0.00568
+      ],
+      "prior_z": [
+       0.16201,
+       0.0062
+      ],
+      "log_prior_gain": [
+       0.15178,
+       0.00779
+      ]
+     },
+     "recruit": {
+      "decisions": 3426,
+      "unscored": 0,
+      "prior_m": [
+       0.14011,
+       0.00612
+      ],
+      "prior_z": [
+       0.12032,
+       0.00592
+      ],
+      "log_prior_gain": [
+       0.19295,
+       0.0181
+      ]
+     },
+     "timeout": {
+      "decisions": 2,
+      "unscored": 2,
+      "prior_m": [
+       null,
+       null
+      ],
+      "prior_z": [
+       null,
+       null
+      ],
+      "log_prior_gain": [
+       null,
+       null
+      ]
+     }
+    },
+    "label_by_outcome": {
+     "won": {
+      "all": {
+       "decisions": 30924,
+       "unscored": 1,
+       "prior_m": [
+        0.34994,
+        0.00593
+       ],
+       "prior_z": [
+        0.3239,
+        0.00645
+       ],
+       "log_prior_gain": [
+        0.13595,
+        0.00691
+       ]
+      },
+      "attack": {
+       "decisions": 8074,
+       "unscored": 0,
+       "prior_m": [
+        0.6311,
+        0.00766
+       ],
+       "prior_z": [
+        0.59338,
+        0.00749
+       ],
+       "log_prior_gain": [
+        0.0824,
+        0.00673
+       ]
+      },
+      "end_turn": {
+       "decisions": 1992,
+       "unscored": 0,
+       "prior_m": [
+        0.71904,
+        0.01093
+       ],
+       "prior_z": [
+        0.67536,
+        0.01219
+       ],
+       "log_prior_gain": [
+        0.10724,
+        0.0127
+       ]
+      },
+      "move": {
+       "decisions": 18876,
+       "unscored": 0,
+       "prior_m": [
+        0.18386,
+        0.00585
+       ],
+       "prior_z": [
+        0.16425,
+        0.00629
+       ],
+       "log_prior_gain": [
+        0.15133,
+        0.00923
+       ]
+      },
+      "recruit": {
+       "decisions": 1981,
+       "unscored": 0,
+       "prior_m": [
+        0.13323,
+        0.00605
+       ],
+       "prior_z": [
+        0.11032,
+        0.00566
+       ],
+       "log_prior_gain": [
+        0.22418,
+        0.02163
+       ]
+      },
+      "timeout": {
+       "decisions": 1,
+       "unscored": 1,
+       "prior_m": [
+        null,
+        null
+       ],
+       "prior_z": [
+        null,
+        null
+       ],
+       "log_prior_gain": [
+        null,
+        null
+       ]
+      }
+     },
+     "lost": {
+      "all": {
+       "decisions": 23941,
+       "unscored": 1,
+       "prior_m": [
+        0.35416,
+        0.00675
+       ],
+       "prior_z": [
+        0.32851,
+        0.00726
+       ],
+       "log_prior_gain": [
+        0.14313,
+        0.00783
+       ]
+      },
+      "attack": {
+       "decisions": 6564,
+       "unscored": 0,
+       "prior_m": [
+        0.59491,
+        0.00845
+       ],
+       "prior_z": [
+        0.55657,
+        0.00812
+       ],
+       "log_prior_gain": [
+        0.11119,
+        0.00819
+       ]
+      },
+      "end_turn": {
+       "decisions": 2041,
+       "unscored": 0,
+       "prior_m": [
+        0.70533,
+        0.01251
+       ],
+       "prior_z": [
+        0.65742,
+        0.0143
+       ],
+       "log_prior_gain": [
+        0.17059,
+        0.01975
+       ]
+      },
+      "move": {
+       "decisions": 13890,
+       "unscored": 0,
+       "prior_m": [
+        0.168,
+        0.00668
+       ],
+       "prior_z": [
+        0.15105,
+        0.0069
+       ],
+       "log_prior_gain": [
+        0.15087,
+        0.01003
+       ]
+      },
+      "recruit": {
+       "decisions": 1445,
+       "unscored": 0,
+       "prior_m": [
+        0.1237,
+        0.00698
+       ],
+       "prior_z": [
+        0.10953,
+        0.00644
+       ],
+       "log_prior_gain": [
+        0.15964,
+        0.02248
+       ]
+      },
+      "timeout": {
+       "decisions": 1,
+       "unscored": 1,
+       "prior_m": [
+        null,
+        null
+       ],
+       "prior_z": [
+        null,
+        null
+       ],
+       "log_prior_gain": [
+        null,
+        null
+       ]
+      }
+     }
+    },
+    "label_gain_won_minus_lost": [
+     0.00036,
+     0.0086
+    ]
+   }
+  }
+ },
+ "verdicts": {
+  "tool_check": true,
+  "own_late_share_only_m_ends": 0.1898,
+  "own_late_p_end_diff": [
+   0.01634,
+   0.00095
+  ],
+  "own_minus_human_p_end_diff": [
+   0.01299,
+   0.00113,
+   "differs"
+  ],
+  "own_minus_human_only_m_ends_rate": [
+   0.02922,
+   0.00226,
+   "differs"
+  ],
+  "W": {
+   "own_agreement_ahead_minus_behind": [
+    -0.06307,
+    0.00912
+   ],
+   "own_holds": false,
+   "human_gain_won": [
+    0.12282,
+    0.00542
+   ],
+   "human_gain_won_minus_lost": [
+    -0.00526,
+    0.00574
+   ],
+   "human_holds": false,
+   "W_supported": false
+  }
+ },
+ "matches": {
+  "arms": {
+   "A1": [
+    -40.08,
+    12.36,
+    "trails"
+   ],
+   "A2": [
+    -105.49,
+    12.85,
+    "trails"
+   ],
+   "A3": [
+    -40.96,
+    12.36,
+    "trails"
+   ]
+  },
+  "reading": "Q"
+ }
+}
