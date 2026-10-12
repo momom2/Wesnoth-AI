@@ -57,7 +57,9 @@ $1.47 in all):
   matches (docs/decode_knobs_prereg_20261012.md) and the look-ahead's
   material evaluator fixed for gold and exposure
   (docs/exposure_evaluator_prereg_20261012.md); the tactical engine waits
-  for a design discussion with the user.
+  for a design discussion with the user. **The fixed evaluator measured
+  2026-10-12: neutral** (-8.7 +- 12.3 against `own1`; the recruiting fault
+  gone, 4% of its changes recruits against 55%).
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

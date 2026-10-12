@@ -1,0 +1,25 @@
+{
+  "n_games": 800,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "la_exposure": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own1": {
+        "elo": 8.67684929685618,
+        "se": 12.279861280857636
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "la_exposure": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own1": {
+        "elo": 8.67684929685618,
+        "se": 12.279861280857636
+      }
+    }
+  }
+}

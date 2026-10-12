@@ -1,0 +1,8 @@
+2026-10-12T10:57:00Z tests rc=0 ok 43 s
+2026-10-12T10:57:18Z reference rc=0 ok 18 s
+2026-10-12T10:57:19Z ensure exposure rc=0 ok 0 s
+2026-10-12T10:57:42Z decision timing exposure rc=0 ok 23 s
+2026-10-12T10:57:44Z gpu check rc=0 ok 2 s
+2026-10-12T11:16:52Z match exposure rc=0 ok 1148 s
+2026-10-12T11:16:53Z fit exposure rc=0 ok 1 s
+2026-10-12T11:16:54Z summary exposure rc=0 ok 1 s

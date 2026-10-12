@@ -1,0 +1,1 @@
+exposure: 1148 s, 800 games, 800 decisive, rc=0 ok

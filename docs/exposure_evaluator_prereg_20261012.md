@@ -76,3 +76,25 @@ about $0.3-0.5.
   income and healing moved end_turn's M by -12 to +7 gold against a scale
   near 20 and flipped 4 of 6-7 end_turn choices to moves in two timing
   runs; every candidate is now read before that turn start.
+
+## Measured (2026-10-12)
+
+Box 55541127 (RTX 4090, EPYC 7413, $0.371/h), stage
+`tier-b/staging/stage_20261012_exposure.tar.gz` (commit 4c9351d of
+`exp/exposure-evaluator`), 10:54 to 11:17 UTC, about $0.15; records in
+`training/metrics/lookahead_exposure_gate_20261012/`, games on HF
+`tier-b/lookahead_exposure_gate_20261012/`.
+
+**Neutral: -8.7 +- 12.3 Elo** for the look-ahead player with the fixed
+evaluator against `own1` (390-410 over 800 decisive games, none capped;
+predicted +5, -20 to +30). The operator changed 8.0% of the decisions (the
+old evaluator 4.1%); of the 15,064 changed, 596 became recruits (4%;
+predicted under 15%, the old evaluator 55%), 3,605 attacks, 854 end_turns
+and 10,009 moves, most of them a move in place of another move. 76 ms a
+decision on the box (the prior 24, the expansions 24, the evaluator 28);
+613 attack expansions over the 512-sequence cap kept their prior score.
+
+The fix removed the recruiting fault and the change of evaluator moved
+twice as many decisions without moving the result. Like every fair
+evaluator measured so far (docs/rollout_regrade_prereg_20261012.md
+"Measured"), it reads only the units the side can see.

@@ -1,0 +1,86 @@
+{
+ "outdir": "games_exposure",
+ "side": "a",
+ "procedure": "la:material_exposure:k8c1s0.1+eo-1.5",
+ "lookahead": {
+  "c": 1.0,
+  "determinization": "observed",
+  "evaluator": {
+   "calibrate_scale": false,
+   "name": "material_exposure",
+   "scale": 19.662116420370698,
+   "scale_measured": {
+    "decisions": 50,
+    "placeholder": 20.0,
+    "states": 525
+   }
+  },
+  "k": 8,
+  "kinds": "all",
+  "max_attack_leaves": 512,
+  "sigma": 0.1
+ },
+ "games": 800,
+ "games_without_telemetry": 0,
+ "outcomes_a": {
+  "loss": 410,
+  "win": 390
+ },
+ "decisions": 188367,
+ "operated": 186147,
+ "operated_share": 0.988214,
+ "flips": 15064,
+ "flip_rate": 0.079972,
+ "flip_rate_operated": 0.080925,
+ "decisions_by_kind": {
+  "attack": 43779,
+  "move": 110185,
+  "recruit": 18530,
+  "end_turn": 15873
+ },
+ "flips_by_kind": {
+  "attack": 1305,
+  "move": 13040,
+  "recruit": 382,
+  "end_turn": 337
+ },
+ "flip_rate_by_kind": {
+  "attack": 0.029809,
+  "move": 0.118346,
+  "recruit": 0.020615,
+  "end_turn": 0.021231
+ },
+ "flips_to_kind": {
+  "attack": 3605,
+  "move": 10009,
+  "recruit": 596,
+  "end_turn": 854
+ },
+ "candidates_by_kind": {
+  "attack": 181354,
+  "move": 1100683,
+  "recruit": 158880,
+  "end_turn": 43515
+ },
+ "candidates_per_operated": 7.974515,
+ "states_per_decision": 16.384691,
+ "states_per_operated": 16.580095,
+ "states_max": 153,
+ "terminal_states": 4653,
+ "forwards_per_decision": 0.0,
+ "seconds_per_decision": {
+  "total": 0.076067,
+  "prior": 0.023932,
+  "expand": 0.024087,
+  "evaluate": 0.027546
+ },
+ "seconds_max": 2.490572,
+ "failed": {
+  "attack_leaves": 613
+ },
+ "games_with_failures": 72,
+ "evaluator_counts": {
+  "exposure_unvalued_attacks": 0,
+  "exposure_weapon_fallbacks": 0
+ }
+}

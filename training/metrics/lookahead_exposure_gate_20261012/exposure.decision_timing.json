@@ -1,0 +1,59 @@
+{
+ "scenario": "multiplayer_Hamlets",
+ "turn": 12,
+ "warmup_decisions": 120,
+ "warmup_seconds_per_decision": 0.1026,
+ "evaluator": "material_exposure",
+ "critic_arch": null,
+ "evaluator_seconds_encode": 0.0,
+ "evaluator_seconds_forward": 0.0,
+ "m_states": 525,
+ "m_abs_median": 19.662116420370698,
+ "telemetry": {
+  "decisions": 50,
+  "operated": 50,
+  "by_kind": {
+   "attack": 3,
+   "move": 34,
+   "recruit": 5,
+   "end_turn": 8
+  },
+  "flips_by_kind": {
+   "attack": 0,
+   "move": 5,
+   "recruit": 0,
+   "end_turn": 1
+  },
+  "flips_to_kind": {
+   "attack": 0,
+   "move": 4,
+   "recruit": 1,
+   "end_turn": 1
+  },
+  "candidates_by_kind": {
+   "attack": 10,
+   "move": 338,
+   "recruit": 34,
+   "end_turn": 18
+  },
+  "states": 525,
+  "states_max": 46,
+  "terminal_states": 0,
+  "forwards": 0,
+  "failed": {},
+  "evaluator_counts": {
+   "exposure_weapon_fallbacks": 0,
+   "exposure_unvalued_attacks": 0
+  },
+  "seconds": 8.03277301293565,
+  "seconds_max": 0.2531550689600408,
+  "seconds_prior": 6.194685007852968,
+  "seconds_expand": 0.7608014880679548,
+  "seconds_evaluate": 1.0651044397964142,
+  "flips": 6,
+  "candidates": 400,
+  "states_per_decision": 10.5,
+  "seconds_per_decision": 0.160655460258713,
+  "forwards_per_decision": 0.0
+ }
+}

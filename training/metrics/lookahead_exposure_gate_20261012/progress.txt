@@ -1,0 +1,13 @@
+Mon Oct 12 11:16:54 UTC 2026
+fitted: exposure
+exposure: 1148 s, 800 games, 800 decisive, rc=0 ok
+exposure: 800 games
+deadman.log restore.log upload.log stages.txt RUN_STAGE pip.log staging.log build.log box.txt tests.log walls.txt exposure.decision_timing.log exposure.decision_timing.json exposure.config.json arms.txt gpu.log exposure.log timing_exposure.txt match.walls exposure.server_0.json exposure.fit.json exposure.lookahead.json progress.txt.tmp 
+
+==> /workspace/lookaheadgate/tests.log <==
+SKIPPED [1] tests/test_vision.py:121: wesnoth_src/data/core/units is not in this checkout
+118 passed, 1 skipped in 41.88s
+
+==> /workspace/lookaheadgate/upload.log <==
+2026-10-12T10:57:56Z periodic round: 10 sent, 7 unchanged, 0 failed
+2026-10-12T10:57:57Z upload.log 2385 ok 1 s 2 kB/s

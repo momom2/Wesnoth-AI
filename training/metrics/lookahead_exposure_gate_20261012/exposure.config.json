@@ -1,0 +1,19 @@
+{
+  "_comment": "The exposure gate's arm (docs/exposure_evaluator_prereg_20261012.md; scripts/lookahead_gate_box.sh): the material gate's configuration (configs/lookahead_material_gate.json: k 8, c 1, sigma 0.1, every decision kind, the observed world) with the material_exposure evaluator (wesnoth_ai/lookahead_exposure.py): tanh(M / scale), M the deciding side's material in gold (cost x hp / max_hp per unit, plus gold, own less the opponent's) less the expected material the opponent's units can take on its next turn. scale: a placeholder the box replaces before the match by the median |M| over the states its 50 timed decisions valued (tools/lookahead_gate.py calibrate, calibrate_scale); 20 is that median rounded on the laptop's 20 timed decisions of 2026-10-12 (18.0 over 262 states).",
+  "k": 8,
+  "c": 1.0,
+  "sigma": 0.1,
+  "kinds": "all",
+  "determinization": "observed",
+  "evaluator": {
+    "name": "material_exposure",
+    "scale": 19.662116420370698,
+    "calibrate_scale": false,
+    "scale_measured": {
+      "states": 525,
+      "decisions": 50,
+      "placeholder": 20.0
+    }
+  },
+  "max_attack_leaves": 512
+}

@@ -1,0 +1,1 @@
+2026-10-12T10:57:42Z arm exposure: config configs/lookahead_exposure_gate.json (sha256 d5172fc986cc4aca806ed40b03c460c9477719f116833d2ece0ed3e129cda212, kept as exposure.config.json), seed base 160000, procedure la:material_exposure:k8c1s0.1+eo-1.5, label la_exposure
