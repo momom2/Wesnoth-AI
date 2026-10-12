@@ -30,9 +30,10 @@
 #
 # Box: an RTX 4090 with at least 32 usable cores (docs/box_specs.md).
 # Expected wall about 50 minutes: bring-up and tests 15 (as the 2026-10-11
-# runs), inputs 3 (about 480 MB), the re-grade 8 to 12, the readout 1, the
-# match 13 to 16 (round 2's 64-slot matches: 796 to 956 s for 800 games,
-# training/metrics/memory_own_round2_20261011/match.walls), the uploads 3.
+# runs), inputs 3 (about 480 MB), the re-grade 7 to 12, the readout 1, the
+# match 14 to 18 (the 64-slot matches of 2026-10-11: 796 to 1,070 s for 800
+# games, training/metrics/own_confirm_20261011/match.walls and
+# memory_own_round2_20261011/match.walls), the uploads 3.
 # The re-grade: 7,728 rollouts of about 51 decisions and 2 value reads each
 # (53 forwards per rollout at benchmark position 103 on the laptop,
 # 2026-10-12), about 410,000 forwards; the worker's own time per decision
@@ -203,8 +204,9 @@ box_bounded reference 15 staging.log python tools/reference_player.py --ensure \
 read -r REF_LABEL REF_PT EO < <(timeout 1m python -c "import json; r = json.load(open('configs/reference_player.json')); \
 print(r['label'], r['checkpoint_local'], r['decode']['raw_end_turn_offset'])") \
     || box_finish "REFERENCE_CONFIG_UNREADABLE (configs/reference_player.json)" 1
-[ "$REF_LABEL" = own1 ] && [ "$EO" = -1.5 ] \
-    || box_finish "REFERENCE_CHANGED: configs/reference_player.json names $REF_LABEL at $EO; this match measures own1 at -1.5" 1
+if [ "$REF_LABEL" != own1 ] || [ "$EO" != -1.5 ]; then
+    box_finish "REFERENCE_CHANGED: configs/reference_player.json names $REF_LABEL at $EO; this match measures own1 at -1.5" 1
+fi
 
 # ---- the re-grade, resumed once when it leaves a candidate incomplete
 regrade() {
