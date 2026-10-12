@@ -1,0 +1,16 @@
+2026-10-09T09:26:01Z tests rc=0 ok 41 s
+2026-10-09T09:26:08Z reference rc=0 ok 7 s
+2026-10-09T09:26:11Z gpu check rc=0 ok 2 s
+2026-10-09T09:43:58Z match selfpin rc=0 ok 1067 s
+2026-10-09T09:44:00Z fit selfpin rc=0 ok 2 s
+2026-10-09T09:44:02Z gpu check rc=0 ok 2 s
+2026-10-09T09:56:32Z match slots64_vs_slots0 rc=0 ok 750 s
+2026-10-09T09:56:34Z fit slots64_vs_slots0 rc=0 ok 2 s
+2026-10-09T09:56:36Z gpu check rc=0 ok 2 s
+2026-10-09T10:14:49Z match slots64_vs_slots16 rc=0 ok 1093 s
+2026-10-09T10:14:51Z fit slots64_vs_slots16 rc=0 ok 2 s
+2026-10-09T11:13:44Z tests rc=0 ok 33 s
+2026-10-09T11:13:48Z reference rc=0 ok 4 s
+2026-10-09T11:13:50Z gpu check rc=0 ok 2 s
+2026-10-09T11:30:35Z match slots64_vs_slots16 rc=0 ok 1005 s
+2026-10-09T11:30:37Z fit slots64_vs_slots16 rc=0 ok 2 s

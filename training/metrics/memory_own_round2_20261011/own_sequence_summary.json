@@ -1,0 +1,20 @@
+{
+ "games": 3208,
+ "train_positions": 1053244,
+ "holdout_positions": 54464,
+ "repro": 1093077,
+ "repro_late": 891739,
+ "agree": 984451,
+ "agree_late": 803414,
+ "approach_merged": 110,
+ "decisions": 1107708,
+ "decisions_late": 903735,
+ "approach_pairs": 134799,
+ "candidates": 1107818,
+ "game_sides": 4808,
+ "positions_side2": 547542,
+ "positions": 1107708,
+ "game_sides_kept": 4808,
+ "positions_side1": 560166,
+ "approach_neither_legal": 0
+}

@@ -1,0 +1,25 @@
+{
+  "n_games": 800,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "own1a": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own1b": {
+        "elo": -3.4701337178674114,
+        "se": 12.276645118908796
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "own1a": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own1b": {
+        "elo": -3.4701337178674114,
+        "se": 12.276645118908796
+      }
+    }
+  }
+}

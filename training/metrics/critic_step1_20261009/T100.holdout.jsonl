@@ -1,0 +1,6 @@
+{"positions": 41024, "step": 641, "epoch": 0, "holdout_value": 0.49333118107439816, "holdout_aux": 0.12484624511591554, "holdout_positions": 8832, "best": true, "minutes": 2.4330068439633274}
+{"positions": 81984, "step": 1281, "epoch": 0, "holdout_value": 0.4594824613760347, "holdout_aux": 0.09089307931081639, "holdout_positions": 8832, "best": true, "minutes": 4.81168375404862}
+{"positions": 123008, "step": 1922, "epoch": 0, "holdout_value": 0.46703466319519543, "holdout_aux": 0.0663717218336669, "holdout_positions": 8832, "best": false, "minutes": 7.23029955595266}
+{"positions": 163968, "step": 2562, "epoch": 0, "holdout_value": 0.5155809400738149, "holdout_aux": 0.06182551646063326, "holdout_positions": 8832, "best": false, "minutes": 9.600260829847928}
+{"positions": 204992, "step": 3203, "epoch": 1, "holdout_value": 0.5647020622871924, "holdout_aux": 0.0648260124285712, "holdout_positions": 8832, "best": false, "minutes": 11.965195160452277}
+{"positions": 245952, "step": 3843, "epoch": 1, "holdout_value": 0.5692937532304854, "holdout_aux": 0.062095731224691995, "holdout_positions": 8832, "best": false, "minutes": 14.371151289452488}

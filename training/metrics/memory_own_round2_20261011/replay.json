@@ -1,0 +1,7 @@
+{
+ "repro_late": 0.9867261973919346,
+ "repro": 0.9867916454516894,
+ "decisions_late": 903735,
+ "floor": 0.95,
+ "pass": true
+}

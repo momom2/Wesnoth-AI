@@ -1,0 +1,25 @@
+{
+  "n_games": 807,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "own64": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "parity3": {
+        "elo": -88.6238421906317,
+        "se": 12.677577717647655
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "own64": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "parity3": {
+        "elo": -88.73949984654253,
+        "se": 12.623592877827054
+      }
+    }
+  }
+}

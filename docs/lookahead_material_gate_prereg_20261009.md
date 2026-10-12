@@ -73,3 +73,30 @@ timed on the box; the match about 23 minutes (the 944-game raw match of
 2026-10-04 took 929 s at 20 workers, and the look-ahead adds about 35 ms of
 worker CPU per decision, 268 decisions per game side). About 45 minutes,
 $0.32-0.47 at $0.42-0.63 an hour. It can share a rental with run Q2.
+
+## Measured (2026-10-09)
+
+Box 54996224 (RTX 4090, EPYC 7B13, $0.432/h), stage
+`tier-b/staging/stage_20261009_q7.tar.gz`, records in
+`training/metrics/lookahead_material_gate_20261009/` (games on HF
+`tier-b/lookahead_material_gate_20261009/games_material.tar.gz`). 991 games
+in 1,569 s, 800 decisive: the look-ahead side won 390 and lost 410, 191
+games reached the turn cap (19%).
+
+**Neutral: p 0.4875 +- 0.018, -8.7 +- 12.3 Elo** for the look-ahead player
+against `parity3` (`elo_collect`, PURE). Inside the predicted 0.44-0.52.
+
+The operator ran at 99% of decisions and changed 4.1% of them (predicted
+3-10%), but not where predicted: of 10,632 changed decisions, 5,817 became a
+recruit (2,573 a move, 2,219 an attack, 23 end_turn), taken from moves
+(5,171), end_turns (3,102), attacks (1,287) and recruits (1,072). A recruit
+puts its hit points on the board at once, so the HP margin read right after
+it rewards recruiting regardless of the position; the material evaluator
+almost never prefers ending the turn. The measurement says a one-step value
+must see past the action's immediate material to tilt the prior usefully,
+which is what a critic is for.
+
+Cost per decision on the box: 63 ms (the prior 26, the expansions 32, the
+evaluator 4), 14.7 states per decision; 692 attack expansions over the
+512-sequence cap kept their prior score (71 games). About $0.32 for the
+box.

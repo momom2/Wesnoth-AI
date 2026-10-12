@@ -1,0 +1,1 @@
+2026-10-09T09:27:55Z arm material: config configs/lookahead_material_gate.json (sha256 5382b363fe585c4653b81133c3ae8488365a6e19fadf3a72fd3eefdcdb1019dd), seed base 103000, procedure la:material:k8c1s0.1+eo-1.5, label la_material

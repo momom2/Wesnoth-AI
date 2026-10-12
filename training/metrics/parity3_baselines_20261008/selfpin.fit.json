@@ -1,0 +1,25 @@
+{
+  "n_games": 1020,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "parity3a": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "parity3b": {
+        "elo": -2.602562426240076,
+        "se": 12.276377219464498
+      }
+    },
+    "MATERIAL-SIGN (diagnostic)": {
+      "parity3a": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "parity3b": {
+        "elo": -3.4030038770061877,
+        "se": 10.873822986420498
+      }
+    }
+  }
+}

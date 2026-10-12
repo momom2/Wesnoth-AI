@@ -1,0 +1,2 @@
+2026-10-09T10:14:51Z PARITY3_BASELINES_DONE fitted: selfpin slots64_vs_slots0 slots64_vs_slots16; 0 cut stage=tier-b/staging/stage_20261009_q2.tar.gz
+2026-10-09T11:30:37Z PARITY3_BASELINES_DONE fitted: selfpin slots64_vs_slots0 slots64_vs_slots16; 0 cut stage=tier-b/staging/stage_20261009_q2.tar.gz

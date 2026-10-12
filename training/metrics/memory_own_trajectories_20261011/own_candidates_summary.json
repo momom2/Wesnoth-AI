@@ -1,0 +1,23 @@
+{
+ "selection": {
+  "results": 4455,
+  "game_sides": 8910,
+  "own": 5475,
+  "not_own: another memory size": 3435
+ },
+ "games": 4455,
+ "done": 4455,
+ "errors": 0,
+ "error_kinds": {},
+ "teacher_sha256": "efba0a78518fe3c1273b408f7471f457353598482cb66e977f55a8db47f8d5ec",
+ "core_phase": 31,
+ "target_off_subset": 7,
+ "hidden_units": 4260622,
+ "hidden_untokened": 1248996,
+ "sighting_tokens": 376014,
+ "move_label_path_end": 759778,
+ "approach_pairs": 140145,
+ "candidates_side1": 712325,
+ "candidates": 1405423,
+ "candidates_side2": 693098
+}

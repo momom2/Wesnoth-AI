@@ -1,0 +1,16 @@
+stage tier-b/staging/stage_20261009_q7.tar.gz
+instance 54996224, host a67a612ec007
+cores(all) 128, usable 31
+model name	: AMD EPYC 7B13 64-Core Processor
+cpu.max 3071999 100000
+pids.max 7680
+               total        used        free      shared  buff/cache   available
+Mem:          257560       44285       49159          62      164115      210965
+overlay          40G  1.2G   39G   3% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 595.58.03
+torch 2.5.1+cu124 cuda True
+code 0.18.0 epoch 11
+wheel phase 31, source phase 31
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 31 | source 31 | adapter 31 | current

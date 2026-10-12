@@ -1,0 +1,2 @@
+2026-10-11T21:30:14Z TESTS_FAILED rc=1 (tests.log) stage=tier-b/staging/stage_20261012_r2.tar.gz
+2026-10-12T03:29:58Z MEMORY_OWN_DONE round 2, done: own train barriers gen_own1_selfplay r1_own2_64_vs_own1_64 r2_own2_0_vs_own1_0 r3_own2_64_vs_own2_0; training at positions 2000384/2000000 steps 3907 stage=tier-b/staging/stage_20261012_r2b.tar.gz
