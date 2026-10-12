@@ -643,6 +643,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // a mover that teleports out of view was last seen where it left.
     // 29: the sighting record follows the display with move animations off
     // (user ruling 2026-10-01): no sighting along a move's route.
-    m.add("__phase__", 31)?;
+    // 32: GameCore.combat_tod_modifier, the combat modifier a unit fights
+    // with from a given hex (the raw player's attack time-of-day knob).
+    m.add("__phase__", 32)?;
     Ok(())
 }

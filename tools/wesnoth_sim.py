@@ -1024,26 +1024,14 @@ class WesnothSim:
         Choice among candidate hexes: minimal Wesnoth float cost
         (MP + defense/ally subcosts, pathfind.cpp:815-820), i.e. the
         cheapest approach preferring defensible terrain -- the same
-        preference order Wesnoth's own pathfinder applies.
+        preference order Wesnoth's own pathfinder applies
+        (`pathfind_sim.attack_hexes`, which the raw player's attack
+        time-of-day knob reads too). The attacker's own hex counts when it
+        is already adjacent (defensive: callers normally handle that case).
         """
-        from tools.abilities import hex_neighbors
-        from tools.pathfind_sim import ReachContext, unit_reach
-
-        target_neighbors = set(hex_neighbors(target.x, target.y))
-        ctx = ReachContext.for_side(
-            self.gs, attacker.side, exclude_unit=attacker)
-        reach = unit_reach(attacker, self.gs, ctx)
-        # The attacker's own hex is a free "landing" if already
-        # adjacent (defensive: callers normally handle that case).
-        if reach.start in target_neighbors:
-            return Position(x=reach.start[0], y=reach.start[1])
-        candidates = [
-            pos for pos in reach.landable if pos in target_neighbors
-        ]
-        if not candidates:
-            return None
-        best = min(candidates, key=lambda pos: reach.cost[pos])
-        return Position(x=best[0], y=best[1])
+        from tools.pathfind_sim import attack_hexes
+        best = attack_hexes(self.gs, attacker, [(target.x, target.y)])[0]
+        return None if best is None else Position(x=best[0], y=best[1])
 
 
     def _refused(self, action: dict, kind: str) -> bool:

@@ -150,6 +150,33 @@ def _reach_from_arrays(start, positions, mp_l, cost_l, prev_l,
                      landable=landable)
 
 
+def attack_hexes(gs, attacker, targets: List[Coord]) -> List[Optional[Coord]]:
+    """The hex `attacker` strikes each target from when ordered to attack
+    it: its own hex when already adjacent, else the neighbour of the
+    target it can land on this turn at the least Wesnoth float cost
+    (MP + defense/ally subcosts, pathfind.cpp:815-820), the preference
+    Wesnoth's own pathfinder applies; None when it can land on none. The
+    reach is the acting side's observable one (`ReachContext.for_side`),
+    computed once for all the targets and only when one of them is not
+    adjacent. `WesnothSim._find_attack_hex` routes an attack by it, and the
+    raw player's attack time-of-day knob reads the time of day there."""
+    from tools.abilities import hex_neighbors
+    start = (attacker.position.x, attacker.position.y)
+    rings = [set(hex_neighbors(tx, ty)) for tx, ty in targets]
+    reach = None
+    out: List[Optional[Coord]] = []
+    for ring in rings:
+        if start in ring:
+            out.append(start)
+            continue
+        if reach is None:
+            reach = unit_reach(attacker, gs, ReachContext.for_side(gs, attacker.side,
+                                                                   exclude_unit=attacker))
+        candidates = [pos for pos in reach.landable if pos in ring]
+        out.append(min(candidates, key=lambda pos: reach.cost[pos]) if candidates else None)
+    return out
+
+
 def route_to(reach: UnitReach, target: Coord) -> Optional[List[Coord]]:
     """Preferred route start..target, or None if unreached."""
     if target not in reach.mp:

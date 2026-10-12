@@ -199,10 +199,20 @@ impl GameCore {
     /// any side illuminates and is not petrified.
     pub(crate) fn illuminated(&self, i: usize) -> bool {
         let u = &self.units[i];
+        self.illuminated_at(i, u.x, u.y)
+    }
+
+    /// `illuminated` with unit `i` standing on (x, y): it illuminates, or
+    /// a unit next to that hex does (`get_illuminated_time_of_day` reads
+    /// the units on the hex and its six neighbours, src/tod_manager.cpp:
+    /// 221-262, 1.18.4). Unit `i` on its old hex counts only when it
+    /// illuminates, which the first test has answered.
+    pub(crate) fn illuminated_at(&self, i: usize, x: i64, y: i64) -> bool {
+        let u = &self.units[i];
         if u.has_ability("illuminates") && !u.has_status("petrified") {
             return true;
         }
-        let adj = neighbours(u.x, u.y);
+        let adj = neighbours(x, y);
         self.units.iter().any(|o| adj.contains(&(o.x, o.y)) && o.has_ability("illuminates") && !o.has_status("petrified"))
     }
 
@@ -367,6 +377,19 @@ impl GameCore {
         self.attack(py, a, d, a_weapon, d_weapon, &mut rng)?;
         self.note_sightings();
         Ok(Some(rng.calls()))
+    }
+
+    /// The combat modifier, in percent, the unit on (ux, uy) fights with
+    /// from the hex (hx, hy), standing there: its alignment and fearless
+    /// trait under the illuminated time of day of that hex, as a fight
+    /// from it reads them (`fight_inputs`; attack.cpp `combat_modifier`).
+    /// The raw player's attack time-of-day knob reads it at the hex an
+    /// attack strikes from (tools/raw_player.py). None when no unit
+    /// stands on (ux, uy) or (hx, hy) is off the map.
+    fn combat_tod_modifier(&self, ux: i64, uy: i64, hx: i64, hy: i64) -> Option<i64> {
+        let i = self.unit_at(ux, uy)?;
+        let hex = *self.map.pos_index.get(&(hx, hy))?;
+        Some(self.time_of_day_modifier_at(i, hex as i64, hx, hy))
     }
 }
 

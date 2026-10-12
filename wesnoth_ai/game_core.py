@@ -76,8 +76,10 @@ _RECORD_SIDES = (1, 2)
 # attack or a recruit with the numbers the engine drew for it (the live
 # mirror, tools/live_mirror.py), 31 marks every unit of the side resting at
 # each side-turn start, the first included (`skip_first_turn_resting` keeps
-# the earlier rule for records of format 3 and earlier).
-_CORE_PHASE = 31
+# the earlier rule for records of format 3 and earlier), 32 answers the
+# combat modifier a unit fights with from a given hex (`combat_tod_modifier`,
+# the raw player's attack time-of-day knob).
+_CORE_PHASE = 32
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).

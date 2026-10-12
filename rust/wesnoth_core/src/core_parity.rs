@@ -180,8 +180,17 @@ impl GameCore {
     /// shows it (reports.cpp `attack_info`).
     fn time_of_day_modifier(&self, i: usize) -> i64 {
         let u = &self.units[i];
+        self.time_of_day_modifier_at(i, u.hex, u.x, u.y)
+    }
+
+    /// `time_of_day_modifier` with unit `i` standing on hex `hex`, at
+    /// (x, y): the modifier a fight from that hex reads (the raw player's
+    /// attack time-of-day knob, `combat_tod_modifier`).
+    pub(crate) fn time_of_day_modifier_at(&self, i: usize, hex: i64, x: i64, y: i64) -> i64 {
+        let u = &self.units[i];
         let alignment = if u.type_idx >= 0 { self.type_rec(u.type_idx).alignment } else { 1 };
-        let bonus = apply_illumination(self.lawful_bonus_at(u.hex, self.global.turn_number), self.illuminated(i));
+        let bonus = apply_illumination(self.lawful_bonus_at(hex, self.global.turn_number),
+                                       self.illuminated_at(i, x, y));
         combat_modifier(alignment, bonus, u.has_trait("fearless"))
     }
 
