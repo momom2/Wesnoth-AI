@@ -1,0 +1,16 @@
+Mon Oct 12 18:22:14 UTC 2026
+arms: TU REGRADE_DONE O2 REGRADE_DONE RB REGRADE_DONE RU REGRADE_DONE LS REGRADE_DONE T REGRADE_DONE; readout: READING Unresolved ceiling: TU - O2 +0.015 +- 0.015 is not above 0 by 2 SE
+rollouts_true_units.jsonl: 971 candidate records
+rollouts_none.jsonl: 971 candidate records
+rollouts_roster_belief.jsonl: 971 candidate records
+rollouts_roster_uniform.jsonl: 971 candidate records
+rollouts_last_seen.jsonl: 971 candidate records
+rollouts_true.jsonl: 971 candidate records
+
+==> /workspace/beliefworlds/tests.log <==
+SKIPPED [1] tests/test_vision.py:121: wesnoth_src/data/core/units is not in this checkout
+81 passed, 1 skipped in 50.06s
+
+==> /workspace/beliefworlds/upload.log <==
+2026-10-12T18:16:37Z periodic round: 5 sent, 36 unchanged, 0 failed
+2026-10-12T18:16:38Z upload.log 6152 ok 1 s 7 kB/s

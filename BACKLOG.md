@@ -63,7 +63,13 @@ $1.47 in all):
   2026-10-12: flat** (docs/decode_knobs_prereg_20261012.md "Measured"):
   the search's winner (end_turn -3.0, attacks -0.59 with a time-of-day
   slope 2.53) +1.7 +- 12.3 against `own1` on fresh seeds; the decode stays.
-  Next: the belief over hidden units, first as a re-grade in sampled worlds.
+  **The re-grade in belief worlds measured 2026-10-12: unresolved ceiling**
+  (docs/belief_worlds_prereg_20261012.md "Measured", $0.45): with `own2`'s
+  rollouts the true state selects +0.033 +- 0.016 over the base turn, and
+  knowing the hidden units against not knowing them +0.015 +- 0.015 at the
+  primary read; the benchmark cannot decompose a ceiling that small. The
+  value read resolves it (+0.037 +- 0.015) and there the roster placed at
+  random recovers most of it, the belief head's hexes nothing more.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

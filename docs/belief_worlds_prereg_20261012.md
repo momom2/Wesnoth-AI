@@ -130,3 +130,49 @@ about $0.5 at $0.37-0.46 an hour. BOX_MAX_H 2.5.
   go to the hexes without a token. A hidden leader placed anywhere on the
   map could not recruit; it now starts from its side's starting position in
   every arm that places units by an estimate.
+
+## Measured (2026-10-12)
+
+Box 55588563 (RTX 4090, EPYC 7742, $0.371/h), stage
+`tier-b/staging/stage_20261012_belief.tar.gz` (commit b3d4e77 of
+`exp/belief-worlds`, CI green), 17:15 to 18:22 UTC, about $0.45; records in
+`training/metrics/belief_worlds_20261012/` (`belief_readout.md`,
+`belief_readout.json`, the six arms' summaries), the rollouts on HF
+`tier-b/belief_worlds_20261012/`. Every arm graded all 966 candidates
+(7,728 rollouts an arm, 575 to 685 s each), no failure.
+
+**Reading: Unresolved ceiling.** TU - O2 is +0.015 +- 0.015 for the
+primary grader (predicted +0.040): what knowing the hidden units is worth
+to these rollouts is not resolved on this benchmark, and nothing is built
+on the decomposition.
+
+The primary grader, the HP margin at read 2, its selection gain over the
+base turn on the luck-adjusted truth: T +0.033 +- 0.016, TU +0.013 +-
+0.017, RB +0.035 +- 0.018, RU +0.021 +- 0.018, LS +0.011 +- 0.017, O2 -0.002
++- 0.018 (the re-grade's observed world, its gold read after the
+candidate: -0.002 +- 0.018). Paired: T - TU +0.021 +- 0.010, RB - RU +0.014
++- 0.013, RU - O2 +0.024 +- 0.016, LS - O2 +0.013 +- 0.015.
+
+Reported, not judged: the value head at read 2 resolves the ceiling, TU -
+O2 +0.037 +- 0.015 (T +0.050, TU +0.044, RU +0.038, RB +0.024, LS +0.022,
+O2 +0.008), and there RU - O2 is +0.030 +- 0.016 and RB - RU -0.014 +-
+0.014. Each arm's agreement with TU's pick: 0.61 to 0.62 for T, RB, RU and
+LS, 0.46 for O2. The opponent's leader was hidden at 135 of the 198
+positions; in RB and RU it went to its start in 4,288 of the 4,368
+rollouts where it was hidden. RB's occupancy draw left 8,563 of 22,824 units
+to the hexes without a token.
+
+**What it says.**
+- With today's rollout player the true-state ceiling is itself small,
+  +0.033 +- 0.016. On 198 positions, the paired standard errors are
+  0.010-0.016, so no decomposition of it resolves.
+- The gold the re-grade read after the candidate did not cause its Fail:
+  O2 and the observed world read the same.
+- At point estimates, every world that holds the opponent's units ranks
+  above the world without them, under all four graders.
+- Where the value head resolves the gap, placing the true roster uniformly
+  recovers most of it and the belief head's hexes add nothing: what exists
+  matters more than where it stands. That is a reading of an unjudged
+  grader, recorded so that a future belief model starts from the roster.
+- A rollout teacher's whole upside on this benchmark, even seeing through
+  fog, is a few hundredths of a game result per turn chosen among five.
