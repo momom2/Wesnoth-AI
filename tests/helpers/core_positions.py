@@ -8,9 +8,11 @@ from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def core_positions():
-    """Some fifty positions from three Ladder games (cached per process)."""
+    """Some sixty positions from four Ladder games (cached per process),
+    one on Thousand Stings Garrison, whose statues are petrified units."""
     from tools.random_positions import harvest
     positions = []
     for seed in (17, 23, 31):
         positions += harvest(seed, decisions=600, every=25, max_turns=24)
+    positions += harvest(101, decisions=200, every=25, max_turns=8)
     return tuple(positions)

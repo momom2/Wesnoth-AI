@@ -2,7 +2,7 @@
 (rust/wesnoth_core/src/core_masks.rs) are the Python builder's
 (`action_sampler._build_legality_masks` packed by `server_priors.pack_masks`),
 array for array, on played positions in every token basis: attacks,
-moves, recruits, a rejected recruit hex, units out of moves."""
+moves, recruits, a rejected recruit hex, units out of moves, statues."""
 from __future__ import annotations
 
 import sys
@@ -57,7 +57,7 @@ def _same(a, b, where: str) -> None:
 def test_the_core_packs_the_masks_the_python_builder_packs(relevant_set, version, parity):
     from helpers.core_positions import core_positions
     core_enc, python_enc = _encoders(relevant_set, version, parity)
-    seen = {"attack": 0, "recruit": 0, "rejected": 0, "idle_unit": 0}
+    seen = {"attack": 0, "recruit": 0, "rejected": 0, "idle_unit": 0, "statue": 0}
     for k, gs in enumerate(core_positions()):
         got = core_enc.encode(gs)
         assert got._raw.core_masks is not None
@@ -70,6 +70,8 @@ def test_the_core_packs_the_masks_the_python_builder_packs(relevant_set, version
         seen["recruit"] += int(m.actor_mask[U:U + R].any())
         seen["rejected"] += int(bool(gs.global_info._recruit_rejected_hexes))
         seen["idle_unit"] += int(((got._raw.unit_is_ours != 0) & (m.actor_mask[:U] == 0)).any())
+        obs = got._raw.observation
+        seen["statue"] += int((obs.inert[obs.tok_of_hex >= 0] != 0).any())
     assert all(seen.values()), seen
 
 
