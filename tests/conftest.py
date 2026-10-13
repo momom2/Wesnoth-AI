@@ -57,6 +57,15 @@ def pass_inputs(tmp_path_factory):
     return pass_arguments(tmp_path_factory.mktemp("pass"))
 
 
+@pytest.fixture(scope="session")
+def own_pass_inputs(pass_inputs, tmp_path_factory):
+    """The test pass with the player's own game-sides beside the corpus's
+    (tests/helpers/own_pass.py), half the streams theirs as in production,
+    over a pass of 24 positions."""
+    from helpers.own_pass import own_arguments
+    return [*own_arguments(tmp_path_factory.mktemp("own_pass"), pass_inputs), "--pass-positions", "24"]
+
+
 def _source_phase() -> int:
     """`__phase__` as declared in the Rust source, or 0."""
     import re

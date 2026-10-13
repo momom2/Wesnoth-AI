@@ -186,15 +186,21 @@ def test_a_prebuilt_trunk_index_gives_the_forward_the_index_built_inside_gives(p
         assert (x is None and y is None) or torch.equal(x, y)
 
 
-def test_a_trunk_index_for_another_batch_is_refused():
+@pytest.mark.parametrize("sightings, ks", [([2, 0], [5, 3]), ([2, 0], [4, 1]), ([2, 0], [2, 4]), ([0, 2], [4, 2])],
+                         ids=["wider memory", "same widest memory", "memory rows swapped", "sighting rows swapped"])
+def test_a_trunk_index_for_another_batch_is_refused(sightings, ks):
+    """The batch holds sightings [2, 0] and memories of 4 and 2 slots; an
+    index built for other per-row counts is refused, also when the widest
+    row and the totals are the same (its masks would cover other tokens)."""
     encoder, model = _parity_pair()
     raws = [hand_raw(21, U=3, R=2, H=9, parity=True, S=2), hand_raw(22, U=1, R=0, H=5, parity=True, S=0)]
     streams = encoder.encode_from_raw_embedded(raws)
+    assert list(streams.sighting_counts) == [2, 0]
     states = [torch.zeros(4, D), torch.zeros(2, D)]
     with torch.no_grad():
         for packed in (False, True):
-            other = model.trunk_index(streams.sizes, streams.sighting_counts, [5, 3], CPU, packed)
-            with pytest.raises(ValueError, match="another batch|stream widths"):
+            other = model.trunk_index(streams.sizes, sightings, ks, CPU, packed)
+            with pytest.raises(ValueError, match="another batch"):
                 model.forward_embedded(streams, packed=packed, memory=states, index=other)
             with pytest.raises(ValueError, match="trunk index reached"):
                 model.forward_embedded(streams, packed=not packed, memory=states, index=other)
@@ -230,13 +236,17 @@ def _three_windows(pass_inputs, tmp_path, *extra):
 
 
 @pytest.mark.slow
-def test_kept_activations_train_what_recomputed_ones_train(tmp_path, pass_inputs):
+@pytest.mark.parametrize("own", [False, True], ids=["corpus", "own"])
+def test_kept_activations_train_what_recomputed_ones_train(tmp_path, request, own):
     """Budget 0, a budget that keeps the last time step of every window, and
     one that keeps them all: the same losses, logged sums, gradients,
     parameters and carried memories, to the bit (the recomputation restores
-    the random state its forward drew from, so the dropout masks agree)."""
+    the random state its forward drew from, so the dropout masks agree); on
+    the corpus alone, and with own game-sides on half the streams."""
+    pass_inputs = request.getfixturevalue("own_pass_inputs" if own else "pass_inputs")
     none = _three_windows(pass_inputs, tmp_path / "none")
     assert [w["kept"] for w in none] == [0, 0, 0]
+    assert all((w["result"].get("own_n", 0) > 0) == own for w in none)
     last = max(w["tokens"][-1] for w in none)
     assert all(len(w["tokens"]) == 2 for w in none)
     assert last < min(sum(w["tokens"]) for w in none), "no budget keeps exactly one step of every window"
@@ -363,6 +373,63 @@ def test_the_gradient_check_passes_the_packed_trunk(tmp_path, pass_inputs):
     assert check["pass"] and len(check["windows"]) == 2
     cosines = [c for w in check["windows"] for c in w["cosine"].values() if c is not None]
     assert len(cosines) > 5 and min(cosines) > 0.9999
+
+
+def _run_file(path: Path, tokens) -> Path:
+    """A bench run's records: its windows hold 512 positions each, and the
+    given (real, padded) trunk tokens (None: a tree that does not count them)."""
+    rows = [{"kind": "config", "code": {}, "streams": 32}]
+    for i, t in enumerate(tokens):
+        row = {"kind": "window", "i": i, "seconds": 2.0 + 0.1 * i, "positions": 512}
+        if t is not None:
+            row.update(tokens_real=t[0], tokens_padded=t[1])
+        rows.append(row)
+    rows.append({"kind": "total", "windows": len(tokens), "positions": 512 * len(tokens), "seconds": 9.0,
+                 "positions_per_second": 512 * len(tokens) / 9.0})
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return path
+
+
+def test_the_comparison_refuses_runs_whose_windows_ran_other_tokens(tmp_path):
+    """Every window holds 512 positions whatever it trains; the trunk's
+    tokens tell the windows apart when both runs count them."""
+    from tools import bench_sequence_step as bench
+    same = [(9000, 15000), (9100, 15200), (8900, 14800)]
+    a = _run_file(tmp_path / "a.jsonl", same)
+    assert bench.main(["compare", str(a), str(_run_file(tmp_path / "b.jsonl", same))]) == 0
+    for name, other in (("real", [(9000, 15000), (9101, 15200), (8900, 14800)]),
+                        ("padded", [(9000, 15000), (9100, 15200), (8900, 14900)])):
+        with pytest.raises(SystemExit, match="other tokens"):
+            bench.main(["compare", str(a), str(_run_file(tmp_path / f"{name}.jsonl", other))])
+    base = _run_file(tmp_path / "base.jsonl", [None, None, None])
+    assert bench.main(["compare", str(base), str(a)]) == 0
+
+
+def test_a_failed_profile_leaves_a_row_that_names_its_error(tmp_path, monkeypatch):
+    """The profile comes after the timed windows' total: its failure is a
+    row of the run, not the run's failure."""
+    from tools import bench_sequence_step as bench
+
+    def broken(trainer, n, workdir):
+        raise RuntimeError("CUPTI_ERROR_NOT_INITIALIZED")
+    monkeypatch.setattr(bench, "profile_windows", broken)
+    row = bench.profile_row(SimpleNamespace(), 3, tmp_path)
+    assert row["kind"] == "profile" and row["error"] == "RuntimeError" and "CUPTI" in row["message"]
+
+
+def test_the_code_record_names_every_trainer_source_by_its_git_blob():
+    """The sources the process loaded from the tree, each by the id git
+    gives its bytes (`git ls-tree -r <commit>` lists a commit's)."""
+    from tools import bench_sequence_step as bench
+    from tools import sequence_train  # noqa: F401  (the trainer's modules loaded, as a run loads them)
+    root = Path(__file__).resolve().parent.parent
+    sources = bench.code_identity(root)["sources"]
+    for path in ("tools/sequence_train.py", "tools/bench_sequence_step.py", "wesnoth_ai/model.py",
+                 "wesnoth_ai/memory.py"):
+        blob = subprocess.run(["git", "hash-object", path], cwd=root, capture_output=True, text=True,
+                              check=True).stdout.strip()
+        assert sources[path] == blob, path
+    assert all(p.split("/")[0] in ("tools", "wesnoth_ai") for p in sources)
 
 
 def test_the_kernel_classes_and_the_idle_fraction_read_a_trace(tmp_path):

@@ -34,7 +34,7 @@ import torch
 
 from wesnoth_ai.memory import MemoryBatch
 from wesnoth_ai.model_output import ActorKind
-from wesnoth_ai.packed_trunk import FlatLayout, padded_gather_index
+from wesnoth_ai.packed_trunk import BatchCounts, FlatLayout, batch_counts, padded_gather_index
 
 
 @dataclass
@@ -221,18 +221,23 @@ class PaddedIndex:
     """The padded trunk's index arrays of one batch on the compute device:
     forward_embedded's gather of the stream rows into the padded layout,
     forward_streams' key-padding mask and compact actor index (device views
-    of one buffer) and the actor kinds (host). Built once by
-    `padded_index`, so a forward run twice (the trainer's activation
-    checkpointing) neither rebuilds them nor waits for a copy."""
+    of one buffer) and the actor kinds (host), with the batch counts and
+    stream widths they were built for. Built once by `padded_index`, so a
+    forward run twice (the trainer's activation checkpointing) neither
+    rebuilds them nor waits for a copy."""
     gather: torch.Tensor                      # int64 [B * L]: stream row per padded slot
     pad_mask: torch.Tensor                    # bool [B, seq_len]
     actor: torch.Tensor                       # int64 [B, A_max]
     actor_kind: torch.Tensor                  # int64 [B, A_max], on the host
     widths: Tuple[int, int, int, int, int]    # stream_widths of the batch
+    counts: BatchCounts                       # batch_counts of the batch
 
-    def check(self, widths: Tuple[int, int, int, int, int]) -> None:
-        if tuple(widths) != self.widths:
-            raise ValueError(f"a padded index built for stream widths {self.widths} reached a batch of {widths}")
+    def check(self, widths: Tuple[int, int, int, int, int], counts: BatchCounts) -> None:
+        """Refuses a batch other than the one the index was built for: its
+        masks mark each row's pads by the row's own counts."""
+        if tuple(widths) != self.widths or counts != self.counts:
+            raise ValueError(f"a padded index built for another batch: widths {self.widths} and counts "
+                             f"{self.counts}, the batch's {tuple(widths)} and {counts}")
 
 
 def padded_index(sizes, *, sightings: Optional[Sequence[int]], memory: Optional[Sequence[int]],
@@ -256,7 +261,8 @@ def padded_index(sizes, *, sightings: Optional[Sequence[int]], memory: Optional[
     dev = host if device.type == "cpu" else host.to(device, non_blocking=True)
     views = layout.torch_views(dev)
     return PaddedIndex(gather=views["gather"], pad_mask=views["pad"].view(torch.bool), actor=views["actor"],
-                       actor_kind=torch.from_numpy(kind), widths=widths)
+                       actor_kind=torch.from_numpy(kind), widths=widths,
+                       counts=batch_counts(sizes, sightings, memory))
 
 
 def random_padded_streams(sizes, d_model: int, device, seed: int = 0):

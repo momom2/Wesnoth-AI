@@ -34,9 +34,9 @@ share; the timing stream (P0) does now.
 |---|---|---|---|
 | P0 | every steps.jsonl row carries the window's timing; `tools/bench_sequence_step.py` | unchanged | `test_every_steps_row_counts_the_tokens_its_trunk_ran`, `test_the_loader_clocks_its_reads_and_the_waits_for_them`, `test_the_benchmark_times_two_runs_and_compares_them` |
 | P1 | `--packed-trunk` (default off) | changed: no pad token, flash varlen attention, no dropout | `test_the_packed_trunk_trains_what_the_padded_trunk_trains_without_dropout`, `test_a_pass_resumes_on_its_own_trunk_and_a_new_pass_starts_from_either`, `test_the_gradient_check_passes_the_packed_trunk`; box: the gradient check and the holdout acceptance below |
-| P2 | `--activation-budget-gb` (default 0) | unchanged | `test_kept_activations_train_what_recomputed_ones_train` |
-| P3 | no wait for the device in the forward loop; one read per window | unchanged | `test_the_staged_own_batch_holds_each_field_as_defined`, `test_the_staged_belief_targets_are_the_ones_the_positions_define`, `test_a_prebuilt_trunk_index_gives_the_forward_the_index_built_inside_gives`, `test_a_non_finite_carried_memory_resets_its_slot_only`; CUDA (box only): `tests/test_trainer_speed_cuda.py` |
-| P4 | telemetry row every 100,000 positions (was 25,000) | unchanged | the resume test (weights identical with rows written) |
+| P2 | `--activation-budget-gb` (default 0) | unchanged | `test_kept_activations_train_what_recomputed_ones_train`, on the corpus alone and with own game-sides |
+| P3 | no wait for the device in the forward loop; one read per window | unchanged | `test_the_staged_own_batch_holds_each_field_as_defined`, `test_the_staged_belief_targets_are_the_ones_the_positions_define`, `test_a_prebuilt_trunk_index_gives_the_forward_the_index_built_inside_gives`, `test_a_trunk_index_for_another_batch_is_refused`, `test_a_non_finite_carried_memory_resets_its_slot_only`; CUDA (box only): `tests/test_trainer_speed_cuda.py`, with and without own game-sides |
+| P4 | telemetry row every 100,000 positions (was 25,000) | unchanged | `test_the_telemetry_rows_leave_the_weights_untouched` |
 | P5 | columnar records | not done | its gate is the preload arm's reading |
 
 **P0.** Each row of `<out>.steps.jsonl` gains `seconds` (the window's wall
@@ -73,18 +73,28 @@ non-blocking copy (`own_loss.stage_own_batch`); the belief target and mask are
 filled with numpy into a pinned buffer (`sequence_loss.step_labels`,
 `StepLabels.belief_on`); the trunk's index arrays are built once per time step
 (`WesnothModel.trunk_index`) and passed to the forward and its recomputation
-(`forward_embedded(index=...)`); the clip's group norms stay on the device
+(`forward_embedded(index=...)`), which refuses an index built for other
+per-row counts; the clip's group norms stay on the device
 (`GradientGroups.clip_on_device`); after the backward pass one transfer reads
 the finiteness of the loss, the norm and every carried memory, the loss, the
 group norms and every logged value (`tools/sequence_window.py`). The host's
 sums take the same float32 values in the same order.
 
-Before and after on the laptop (CPU, the fixture of
-tests/helpers/sequence_pass.py, every dropout at 0.3, three windows of two
-time steps, `bench_sequence_step.py trace`): the base commit bd5f33d and this
-branch print the same SHA-256 of the returned values, every gradient before
-it is zeroed, the parameters after each step and the carried memories
-(`0e1693af...`), at budgets 0, 1e-6 and 100 GiB.
+Before and after on the laptop (CPU, every dropout at 0.3, three windows of
+two time steps, `bench_sequence_step.py trace`): the base commit bd5f33d and
+this branch print the same SHA-256 of the returned values, every gradient
+before it is zeroed, the parameters after each step and the carried
+memories, at budgets 0, 1e-6 and 100 GiB. On the corpus fixture of
+tests/helpers/sequence_pass.py: `0e1693af...`. With own game-sides on half
+the streams (tests/helpers/own_pass.py; 4 streams, 2 of them own, a pass of
+24 positions), the path production runs on 16 of its 32 streams:
+`be996ef5...`; the own loss enters the digest (at weight 0.5 it reads
+`7a4b9134...`).
+
+**P4** is not measured by the bench, whose arms move every telemetry row
+past their windows. Round 2's records give its share: 80 rows took 168 s of
+the pass's 11,599 (1.9 to 2.5 s each); at the new cadence 20 rows take about
+42 s, so it saves about 1.1% of a pass.
 
 **P5** is not done: the plan does it only if the bench's preload arm, on the
 configuration after P1-P3, runs at least 5% faster than the streaming arm.
@@ -98,16 +108,29 @@ own1 (its own sequences rebuilt once and cached on HF). Each arm: 20 untimed
 windows, 80 timed ones between two device synchronizations, nvidia-smi every
 100 ms, 3 windows under the profiler (kernel time by class, the GPU's idle
 fraction). The arms, in order: base, this, base, this (valid when the two base
-runs agree within 3%), the activation budget (calibrated: a short arm measures
-the bytes a kept token takes, the budget fits the worst window under 22 GiB),
-the packed trunk (after its gradient check), the packed trunk with its budget,
-and the fastest configuration with every record preloaded (P5's gate).
+runs agree within 3%), the gradient check, the activation budget
+(calibrated: a short arm measures the bytes a kept token takes, the budget
+fits the worst window under 22 GiB), the packed trunk (when its gradient check
+passed), the packed trunk with its budget, the fastest configuration with
+every record preloaded (P5's gate), and this stage's defaults again.
 `bench_sequence_step.py compare` gives each change's speedup: the median of
 the per-window time ratios (the schedule depends only on the seed, so window
 i holds the same positions in every arm) with a bootstrap 95% interval, and
 the ratio of positions a second from the synchronized totals. It refuses two
 runs whose first records differ in a field other than the code and the ones
-named. `speed.json` gathers them.
+named, and two runs whose windows ran other trunk tokens when both count
+them (the base does not; the trace above covers it). `speed.json` gathers
+them, with `valid` (the two base arms agree within 3%) and `flags_valid`
+(this_1 and a last arm of this stage's defaults, this_3, which brackets the
+flag arms, agree within 3%).
+
+The order puts the base-against-this arms first: the gradient check runs
+after them, and anything but a pass, a crash or a cut included, leaves only
+the packed arms out. An arm whose process fails after its total row (the
+profile, which records its own error) keeps its timed windows. Each arm's
+first record names the code that ran: the git blob id of every source the
+process loaded from the tree's `tools` and `wesnoth_ai`, so the base arms
+check offline against `git ls-tree -r bd5f33d -- tools wesnoth_ai`.
 
 ## P1's acceptance (pending, a box)
 

@@ -126,17 +126,31 @@ class PackedIndex:
     memory: Optional[torch.Tensor] = None
 
 
+BatchCounts = Tuple[Tuple[Tuple[int, int, int], ...], Optional[Tuple[int, ...]], Optional[Tuple[int, ...]]]
+
+
+def batch_counts(sizes, sightings: Optional[Sequence[int]], memory: Optional[Sequence[int]]) -> BatchCounts:
+    """A batch's per-row counts as one comparable value: each row's (units,
+    recruits, hexes), its sightings and its memory slots (None for a stream
+    the batch does not carry). A trunk index built for a batch is valid for
+    another exactly when their counts are equal."""
+    return (tuple((int(u), int(r), int(h)) for u, r, h in sizes),
+            None if sightings is None else tuple(int(s) for s in sightings),
+            None if memory is None else tuple(int(k) for k in memory))
+
+
 @dataclass
 class PackedEmbeddedIndex:
     """A forward_embedded call's packed layout, built once and on the
     device (`WesnothModel.trunk_index`): the layout (its actor kinds read
-    on the host), its device index, and the stream rows of the memory's
-    active slots (`memory.stream_row_index`; None for a batch without
-    memory tokens). A forward run twice (activation checkpointing) neither
-    rebuilds it nor waits for a copy."""
+    on the host), its device index, the stream rows of the memory's active
+    slots (`memory.stream_row_index`; None for a batch without memory
+    tokens), and the batch counts it was built for. A forward run twice
+    (activation checkpointing) neither rebuilds it nor waits for a copy."""
     layout: PackedLayout
     index: PackedIndex
     memory_rows: Optional[torch.Tensor]
+    counts: BatchCounts
 
 
 def host_to_device(array: np.ndarray, device: torch.device) -> torch.Tensor:

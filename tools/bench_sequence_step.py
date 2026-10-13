@@ -14,7 +14,9 @@ every probe, telemetry row and checkpoint moved past the bench. `--repo DIR`
 times or traces the code of another tree (a code stage of the base commit):
 its `tools` and `wesnoth_ai` are imported instead of this tree's.
 
-run: a first record read from the live objects (the code, the versions,
+run: a first record read from the live objects (the code: its commit, its
+code stage, its version and the git blob id of every source the process
+loaded from the tree's tools and wesnoth_ai; the versions,
 the streams, the autocast, every dropout probability, the trunk, the
 activation budget, the attention kernels allowed, the learning rate and
 clip, the init checkpoint's SHA-256, the records' fingerprints, the
@@ -24,8 +26,9 @@ bfloat16 autocast; `--not-production` lifts it); `--warmup` untimed
 windows; `--windows` timed ones, each row its wall time and the trainer's
 timing fields, the total between two device synchronizations; nvidia-smi
 sampled every `--smi-ms` during them; `--profile-windows` more under
-torch.profiler, the kernel time by class and the device's idle fraction.
-`--preload` reads every record the bench's windows need before the first
+torch.profiler, the kernel time by class and the device's idle fraction
+(a profile that fails leaves a row naming its error; the timed windows
+stand). `--preload` reads every record the bench's windows need before the first
 one (the loader's cost, measured as the difference from a streaming run).
 Rows are appended as they come.
 
@@ -33,7 +36,9 @@ compare: per-window ratio of wall times (the schedule depends only on the
 seed, so window i holds the same positions in both runs), its median with a
 bootstrap 95% interval, and positions a second from each run's
 synchronized total. Refuses two runs whose first records differ in a field
-other than the code and the `--allow`ed ones.
+other than the code and the `--allow`ed ones, and two runs whose windows
+ran other trunk tokens (real or padded) when both count them; a tree that
+does not count them (the base) relies on `trace` for that.
 
 trace: the SHA-256 of N windows on the CPU, every dropout probability set to
 `--dropout`: the returned losses and sums, every gradient before it is
@@ -74,6 +79,9 @@ NOT_PASSED = 8
 GRADCHECK_COSINE = 0.99
 GRADCHECK_LOSS = 0.005
 FAR = 10 ** 18                          # a position no bench reaches
+# A window's trunk tokens, counted from its records whatever the trunk
+# (tools/sequence_timing.trunk_tokens): equal in two runs of one schedule.
+TOKEN_FIELDS = ("tokens_real", "tokens_padded")
 
 
 # ---- the trainer ------------------------------------------------------------
@@ -146,9 +154,35 @@ def file_sha256(path) -> Optional[str]:
     return h.hexdigest()
 
 
+def git_blob_id(path: Path) -> str:
+    """The id git gives a file's bytes (`git hash-object`, `git ls-tree`)."""
+    data = Path(path).read_bytes()
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def loaded_sources(root: Path) -> Dict[str, str]:
+    """The git blob id of every module this process loaded from the tree's
+    tools and wesnoth_ai, by its path in the tree: a code stage carries no
+    commit, and these name the code that ran (`git ls-tree -r <commit>
+    -- tools wesnoth_ai` lists a commit's)."""
+    found = {}
+    for module in list(sys.modules.values()):
+        path = getattr(module, "__file__", None)
+        if not path or not path.endswith(".py"):
+            continue
+        try:
+            rel = Path(path).resolve().relative_to(root)
+        except ValueError:
+            continue
+        if rel.parts[0] in ("tools", "wesnoth_ai"):
+            found[rel.as_posix()] = git_blob_id(Path(path))
+    return dict(sorted(found.items()))
+
+
 def code_identity(root: Path) -> Dict:
     """The tree's commit (git, when it is a checkout), the code stage it was
-    unpacked from (boxlib's .staged_from) and its version."""
+    unpacked from (boxlib's .staged_from), its version and the sources the
+    process loaded from it."""
     commit = None
     try:
         commit = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True,
@@ -158,7 +192,8 @@ def code_identity(root: Path) -> Dict:
     staged = root / ".staged_from"
     import wesnoth_ai
     return {"commit": commit, "staged_from": staged.read_text().strip() if staged.exists() else None,
-            "version": getattr(wesnoth_ai, "__version__", None), "root": str(root)}
+            "version": getattr(wesnoth_ai, "__version__", None), "root": str(root),
+            "sources": loaded_sources(root.resolve())}
 
 
 def config_record(root: Path, args, trainer, train_argv, bench: Dict) -> Dict:
@@ -340,6 +375,16 @@ def profile_windows(trainer, n: int, workdir: Path) -> Dict:
         path.unlink(missing_ok=True)
 
 
+def profile_row(trainer, n: int, workdir: Path) -> Dict:
+    """The profile's row; one naming the error when profiling, exporting or
+    reading the trace fails (the timed windows' records stand)."""
+    try:
+        return {"kind": "profile", **profile_windows(trainer, n, workdir)}
+    except Exception as e:                  # any failure of an informational step
+        logging.getLogger(__name__).exception("the profile failed")
+        return {"kind": "profile", "error": type(e).__name__, "message": str(e)[:500]}
+
+
 # ---- run ----------------------------------------------------------------------
 
 def run(opts, train_argv) -> int:
@@ -380,7 +425,7 @@ def run(opts, train_argv) -> int:
     if sampler is not None:
         rows.write({"kind": "gpu", **sampler.stop()})
     if opts.profile_windows and device.type == "cuda":
-        rows.write({"kind": "profile", **profile_windows(trainer, opts.profile_windows, Path(opts.out).parent)})
+        rows.write(profile_row(trainer, opts.profile_windows, Path(opts.out).parent))
     return 0
 
 
@@ -418,6 +463,9 @@ def compare(opts) -> int:
         raise SystemExit(f"the runs differ in {', '.join(differ)}: not a comparison of one change")
     if [w["positions"] for w in wa] != [w["positions"] for w in wb]:
         raise SystemExit("the runs' windows hold other positions: not the same schedule")
+    for key in TOKEN_FIELDS:
+        if all(key in w for w in wa + wb) and [w[key] for w in wa] != [w[key] for w in wb]:
+            raise SystemExit(f"the runs' windows ran other tokens ({key}): not the same positions")
     med, lo, hi = median_ratio([w["seconds"] for w in wa], [w["seconds"] for w in wb])
     out = {"a": str(opts.a), "b": str(opts.b), "windows": len(wa),
            "a_positions_per_second": ta["positions_per_second"],

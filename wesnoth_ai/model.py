@@ -51,7 +51,7 @@ from wesnoth_ai.model_output import (
     PaddedOutput, TokenKind, UnitActionType,
 )
 from wesnoth_ai.packed_trunk import (
-    CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights,
+    CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, batch_counts,
     build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, host_to_device,
     packed_trunk, padded_gather_index,
 )
@@ -69,16 +69,13 @@ __all__ = [
 ]
 
 
-def _check_packed_index(prebuilt: PackedEmbeddedIndex, n_before_globals: int, mem, B: int) -> None:
-    """A prebuilt packed index describes this batch: its segments hold the
-    batch's stream tokens, its memory slots and two tokens per sample (its
-    global and its end_turn), and its memory rows are the batch's."""
-    slots = sum(mem.counts) if mem is not None else 0
-    layout = prebuilt.layout
-    rows = 0 if prebuilt.memory_rows is None else prebuilt.memory_rows.numel()
-    if len(layout.cu_seqlens) != B + 1 or int(layout.cu_seqlens[-1]) != n_before_globals + slots + 2 * B \
-            or (mem is not None and mem.K_max and rows != slots):
-        raise ValueError("a packed trunk index built for another batch")
+def _check_packed_index(prebuilt: PackedEmbeddedIndex, sizes, sightings, mem) -> None:
+    """A prebuilt packed index was built for this batch's per-row counts:
+    its segments and memory rows are laid out row by row."""
+    counts = batch_counts(sizes, sightings, mem.counts if mem is not None else None)
+    if counts != prebuilt.counts:
+        raise ValueError(f"a packed trunk index built for another batch: counts {prebuilt.counts}, "
+                         f"the batch's {counts}")
 
 
 class WesnothModel(nn.Module):
@@ -561,7 +558,9 @@ class WesnothModel(nn.Module):
             actor_idx = torch.from_numpy(idx_np).to(device)
             actor_kind = torch.from_numpy(kind_np)          # stays on CPU
         else:
-            index.check((H_max, U_max, R_max, S_max, K_max))
+            index.check((H_max, U_max, R_max, S_max, K_max),
+                        batch_counts(sizes, extras.sighting_counts if extras is not None else None,
+                                     extras.memory_counts if extras is not None else None))
             pad_mask, actor_idx, actor_kind = index.pad_mask, index.actor, index.actor_kind
 
         x = self.encoder(x, src_key_padding_mask=pad_mask)   # [B, seq_len, d]
@@ -687,7 +686,8 @@ class WesnothModel(nn.Module):
                                      memory=memory_counts, S_max=S_max, K_max=K_max)
         rows = (host_to_device(stream_row_index(memory_counts, K_max), device)
                 if memory_counts is not None and K_max else None)
-        return PackedEmbeddedIndex(layout=layout, index=layout.to_device(device), memory_rows=rows)
+        return PackedEmbeddedIndex(layout=layout, index=layout.to_device(device), memory_rows=rows,
+                                   counts=batch_counts(sizes, sighting_counts, memory_counts))
 
     def _forward_embedded_packed(self, streams: EmbeddedStreams, H_max: int, U_max: int,
                                  R_max: int, S_max: int, material, memory,
@@ -699,7 +699,7 @@ class WesnothModel(nn.Module):
         mem = memory_batch(self, memory, len(sizes), tokens.device)
         n_before_globals = sum(u + r + h for u, r, h in sizes) + sum(streams.sighting_counts or ())
         if prebuilt is not None:
-            _check_packed_index(prebuilt, n_before_globals, mem, len(sizes))
+            _check_packed_index(prebuilt, sizes, streams.sighting_counts, mem)
         if mem is not None and mem.K_max:
             rows = None if prebuilt is None else prebuilt.memory_rows
             tokens = torch.cat([tokens[:n_before_globals], self.slot_memory.stream_rows(mem, rows),

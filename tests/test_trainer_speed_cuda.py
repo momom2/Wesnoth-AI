@@ -3,7 +3,7 @@ item P3); skipped without a GPU (CI, the laptop), run by
 scripts/trainer_speed_box.sh. The pinned non-blocking staging puts on the
 device what the blocking copies it replaced put there, and a window's
 forward loop, backward pass and clip never wait for the device: the one
-wait is the read after them."""
+wait is the read after them, with own game-sides in the window or not."""
 from __future__ import annotations
 
 import numpy as np
@@ -80,14 +80,19 @@ def test_the_pinned_staging_equals_the_blocking_copies(tmp_path, pass_inputs):
         assert torch.equal(getattr(on_device, name), _blocking(getattr(on_host, name).numpy())), name
 
 
+@pytest.mark.parametrize("own", [False, True], ids=["corpus", "own"])
 @pytest.mark.parametrize("extra", [(), ("--activation-budget-gb", "100"), ("--packed-trunk",)],
                          ids=["padded", "kept activations", "packed"])
-def test_a_window_waits_for_the_device_once(tmp_path, pass_inputs, monkeypatch, extra):
+def test_a_window_waits_for_the_device_once(tmp_path, request, monkeypatch, extra, own):
     """Under torch.cuda.set_sync_debug_mode("error") from the window's start
     to its read: staging, forwards, the backward pass with its
-    recomputations, and the clip raise on any synchronizing call."""
+    recomputations, and the clip raise on any synchronizing call; on the
+    corpus alone, and with own game-sides on half the streams (their staging
+    and soft-target loss), as production runs."""
     from tools import sequence_train
-    trainer = _trainer(pass_inputs, tmp_path, "--window", "1", *extra)
+    inputs = request.getfixturevalue("own_pass_inputs" if own else "pass_inputs")
+    trainer = _trainer(inputs, tmp_path, "--window", "1", *extra)
+    assert (trainer.own is not None) == own
     assert trainer.train_window()                # the first window builds what is built once
     real = sequence_train.read_window
     reads = []
@@ -101,7 +106,8 @@ def test_a_window_waits_for_the_device_once(tmp_path, pass_inputs, monkeypatch, 
     torch.cuda.synchronize()
     try:
         torch.cuda.set_sync_debug_mode("error")
-        assert trainer.train_window()
+        sums = trainer.train_window()
     finally:
         torch.cuda.set_sync_debug_mode(0)
-    assert reads == [1]
+    assert sums and reads == [1]
+    assert (sums.get("own_n", 0) > 0) == own
