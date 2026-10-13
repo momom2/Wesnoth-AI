@@ -531,6 +531,11 @@ box_build_wheel() {              # the Rust wheel from BOX_REPO, once per stage 
             && timeout 10m sh /tmp/rustup.sh -y --profile minimal >> "$log" 2>&1
     fi
     export PATH="$HOME/.cargo/bin:$PATH"
+    # A host can carry rustup with no default toolchain, whose cargo then
+    # refuses to run (2026-10-13).
+    if ! cargo --version >> "$log" 2>&1 && command -v rustup >/dev/null 2>&1; then
+        timeout 10m rustup default stable >> "$log" 2>&1
+    fi
     timeout 5m python -m pip install -q maturin >> "$log" 2>&1
     # The stage keeps the laptop's modification times, older than any
     # earlier build here: without this cargo reuses a stale build.
