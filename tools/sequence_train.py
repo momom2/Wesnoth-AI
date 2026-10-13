@@ -105,17 +105,17 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.columnize_sequences import columns_problem  # noqa: E402
 from tools.lr_law import Areas, probe_points, read_points  # noqa: E402
 from tools.lr_law import decide as law_decide  # noqa: E402
 from tools.preencode_sequences import ENCODING, load_manifest, read_record, record_path  # noqa: E402
-from tools.sequence_checkpoints import TrainerCheckpoints  # noqa: E402
 from tools.sequence_args import parse_args  # noqa: E402,F401 (sequence_train.parse_args)
 from tools.sequence_batched import WindowForwards  # noqa: E402
+from tools.sequence_checkpoints import TrainerCheckpoints  # noqa: E402
+from tools.sequence_inputs import ColumnInputs, RecordInputs  # noqa: E402
 from tools.sequence_memory import MemoryRouter  # noqa: E402
 from tools.sequence_own import OwnStreams  # noqa: E402
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
-from tools.columnize_sequences import columns_problem  # noqa: E402
-from tools.sequence_inputs import ColumnInputs, RecordInputs  # noqa: E402
 from tools.sequence_setup import (ARCH, PREFETCH_SIDES, ColumnLoader, SequenceLoader,  # noqa: E402
                                   build_modules, game_facts, lr_factor, own_stream_count, save_checkpoint)
 from tools.sequence_telemetry import (SIGNAL_STREAMS, SIGNAL_TERMS, TrainerTelemetry,  # noqa: E402
