@@ -157,14 +157,3 @@ class SideMemories:
     def copy(self) -> "SideMemories":
         return SideMemories(self.k, dict(self.states))
 
-
-def refuse_memory_model(model, consumer: str) -> None:
-    """Raise when `model` carries a memory: `consumer` does not keep each
-    side's memory state from one decision to the next yet
-    (docs/parity_memory_design_20260929.md, "Serving and play")."""
-    slots = int(getattr(model, "memory_slots", 0) or 0)
-    if slots > 0:
-        raise ValueError(
-            f"{consumer} cannot play a model with a memory (memory_slots={slots}): it does not "
-            f"carry each side's memory state from one decision to the next yet "
-            f"(docs/parity_memory_design_20260929.md, \"Serving and play\")")
