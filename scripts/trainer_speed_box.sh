@@ -391,7 +391,7 @@ arm preload "$BOX_REPO" "$WARMUP" "$WINDOWS" 0 "--preload" ${FASTEST_FLAGS[@]+"$
     || echo "the preload arm failed: no reading of the loader's cost" >> "$OUT/budgets.txt"
 echo "preload: $FASTEST's flags (${FASTEST_FLAGS[*]})" >> "$OUT/budgets.txt"
 # this_1 again after every flag arm: their comparisons with this_1 hold when the two agree.
-arm this_3 "$BOX_REPO" "$WARMUP" "$WINDOWS" 0 "" \
+arm this_3 "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" \
     || echo "the last arm failed: the flag arms' drift is not read" >> "$OUT/budgets.txt"
 
 # ---- the comparisons and speed.json
