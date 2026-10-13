@@ -50,16 +50,22 @@ lowering of the rate over part of an epoch).
 Speed (docs/trainer_speed_20261013.md). The forward loop never waits for
 the device: every host array crosses in a pinned non-blocking copy, the
 trunk's index arrays are built once per time step (the recomputation in
-the backward pass reuses them), and the window's logged values, gradient
+the backward pass reuses them), each step's memory batch is one gather
+(tools/sequence_memory.py), and the window's logged values, gradient
 norms and finiteness flags come back in one transfer after the backward
-pass (tools/sequence_window.py). `--activation-budget-gb G` keeps the
+pass (tools/sequence_window.py). `--columns` reads the records' columns
+(tools/columnize_sequences.py writes them): the same batches, without a
+Python object per position. `--activation-budget-gb G` keeps the
 activations of as many of the window's last time steps as fit in G GiB
 instead of recomputing them (the same arithmetic: the recomputation
 restores the random state its forward drew from). `--packed-trunk` runs the
 trunk on the real tokens only, with flash varlen attention on CUDA under
 bfloat16 and no dropout: other arithmetic than the padded trunk's, so a
-network it trains needs its own acceptance. Every steps.jsonl row carries
-the window's timing (tools/sequence_timing.py).
+network it trains needs its own acceptance. `--window-batched` (with the
+packed trunk) embeds a window at once and runs the heads and losses once
+over its time steps (tools/sequence_batched.py): other rounding, its own
+acceptance likewise. Every steps.jsonl row carries the window's timing
+(tools/sequence_timing.py).
 
 `--own-sequences DIR` trains the memory player's own game-sides beside the
 corpus's on `--own-streams` of the slots, toward a teacher's distribution

@@ -37,7 +37,7 @@ share; the timing stream (P0) does now.
 | P2 | `--activation-budget-gb` (default 0) | unchanged | `test_kept_activations_train_what_recomputed_ones_train`, on the corpus alone and with own game-sides |
 | P3 | no wait for the device in the forward loop; one read per window | unchanged | `test_the_staged_own_batch_holds_each_field_as_defined`, `test_the_staged_belief_targets_are_the_ones_the_positions_define`, `test_a_prebuilt_trunk_index_gives_the_forward_the_index_built_inside_gives`, `test_a_trunk_index_for_another_batch_is_refused`, `test_a_non_finite_carried_memory_resets_its_slot_only`; CUDA (box only): `tests/test_trainer_speed_cuda.py`, with and without own game-sides |
 | P4 | telemetry row every 100,000 positions (was 25,000) | unchanged | `test_the_telemetry_rows_leave_the_weights_untouched` |
-| P5 | columnar records | not done | its gate is the preload arm's reading |
+| P5 | columnar records | unchanged | done in round 2 (R2): the preload arm ran 29% faster than the streaming one |
 
 **P0.** Each row of `<out>.steps.jsonl` gains `seconds` (the window's wall
 time on the host), `tokens_real` and `tokens_padded` (the trunk's real tokens
@@ -96,12 +96,15 @@ past their windows. Round 2's records give its share: 80 rows took 168 s of
 the pass's 11,599 (1.9 to 2.5 s each); at the new cadence 20 rows take about
 42 s, so it saves about 1.1% of a pass.
 
-**P5** is not done: the plan does it only if the bench's preload arm, on the
-configuration after P1-P3, runs at least 5% faster than the streaming arm.
+**P5** ran its gate on the box: the preload arm, on the packed trunk with kept
+activations, ran 709.9 positions a second against the streaming arm's 548.9
+(1.29 on the totals; the median window 1.13, 95% interval 1.07-1.25). Round 2
+does it (R2).
 
 ## The benchmark
 
-`scripts/trainer_speed_box.sh` on one 4090: the base code (a code stage of
+The first round's script (`scripts/trainer_speed_box.sh` at e2d2877; the file
+now runs round 2's arms, below) on one 4090: the base code (a code stage of
 bd5f33d, `BASE_STAGE`) and this stage, timed with this stage's
 `tools/bench_sequence_step.py run` under round 2's training arguments from
 own1 (its own sequences rebuilt once and cached on HF). Each arm: 20 untimed
@@ -143,6 +146,140 @@ ending with a probe at k0 and k64. Paired over holdout game-sides, the
 packed-minus-padded difference in ce_all (k0, k64) and in belief must be no
 larger than the repeat-minus-padded difference, within 2 paired standard
 errors. A checkpoint trained with the flag still gets its own match.
+
+## Round 2 (branch feature/trainer-speed-2)
+
+### What binds after round 1
+
+The first round's box run (training/metrics/trainer_speed_20261013/, one
+RTX 4090, round 2's windows): base 249.6 positions a second, the packed
+trunk with kept activations 548.9, the same with every record read first
+709.9. On the packed arms the GPU is busy 10-13% of a window under the
+profiler (27,677 kernels a window, 0.32 s of kernel time; the window takes
+0.55 s at the median with the records preloaded): the step is host-bound.
+Two costs: the loader (unpickling about 1,000 positions a step on threads
+that hold the GIL, then the collector walking the objects: 0.30 s of GC a
+window on average in the streaming arm, 0.06 s preloaded), and the number of
+Python dispatches and kernel launches a time step (about 1,700 kernels).
+
+### The items
+
+| item | what changed | arithmetic | test |
+|---|---|---|---|
+| R1 | the memory batch gathered in one `index_select` (tools/sequence_memory.py) | unchanged | `test_the_routed_memories_train_what_per_row_memories_train` |
+| R2 | columnar records and `--columns` (P5) | unchanged | tests/test_sequence_columns.py |
+| R3 | `FlatLayout.torch_views` one view per field; targets copied to the device once; the heads' widths read off the modules | unchanged | the trace digests below; the staging tests |
+| R4 | `--window-batched` (default off) | changed: rounding | `test_the_batched_window_trains_what_the_stepped_window_trains_within_rounding`; box: the gradient check |
+
+**R1.** Each row's memory was a slice of the step that wrote it, padded by a
+copy per row (`SlotMemory.batch`); the backward pass ran a zero fill, a copy
+and an add per row: on the CPU counter below, R1 removes 195 backward ops and
+30 forward ops a time step at 32 streams. The router
+builds the padded batch with one gather from a pool of the previous step's
+output, a copy of the initial memory per starting row and the carried
+memories; its backward is one scatter. The previous output joins the pool
+only when a row reads it: unread, it would get a zero gradient, and AdamW
+would then decay the memory write's weights in a window that trained none of
+them (the trace below caught it on the corpus fixture).
+
+**R2.** `wesnoth_ai/sequence_columns.py` stores what the step reads as
+columns per game-side: every field concatenated over the positions, offsets
+where its length varies, every array in the pickle's dtype, one zlib blob per
+side (inflate releases the GIL). Reading a game-side is one inflate and one
+`np.frombuffer` per array; a position is a slice of each; no Python object
+exists per position. On 40 real games the columns are 2.7 times smaller than
+the pickles and read in about a twentieth of the time (laptop). What the step
+does not read is left out (the `Position` objects, unit ids, recruit names,
+the label's hexes); the pickles stay the records of the probe and the other
+tools. `tools/columnize_sequences.py` writes them beside the pickles of a
+corpus or own directory, reads every game back and compares each position
+with the pickled one byte for byte; the trainer refuses columns of other
+records (the manifest's fingerprint) or missing games. `tools/sequence_inputs.py`
+stages a time step from either: the columns' path concatenates each field's
+slices into the pinned buffer and writes the own rows' masks with one indexed
+write per field; the staged buffers are the pickles' byte for byte.
+
+**R3.** A staged field was three dispatched views (a slice, a dtype view, a
+shape view); a step stages some 60 fields. `torch_views` now makes one view
+of the buffer per dtype and one `as_strided` per field (the same tensors:
+storage, offset, shape and strides). `ImitationTargets.views` copies to the
+device once (a recomputed forward copied again). The trainer no longer runs a
+forward to read the heads' widths.
+
+**R4.** `--window-batched` (tools/sequence_batched.py, packed trunk only)
+stages and embeds the window's positions at once, runs each step's packed
+trunk and memory write on its rows of that embedding
+(`WesnothModel.packed_step_trunk`), and runs the heads and the losses once over
+every step's trunk outputs (`window_heads`, `packed_trunk.window_head_index`).
+Its rounding differs from the stepped forward's: the embedding's and the
+heads' matrix products run over more rows, each embedding table's gradient is
+summed over the window in one kernel, the softmaxes run over rows padded to
+the window's widths, the loss is summed in another order. On the CPU every
+window's loss agrees within 1e-7 relative and every gradient within 1e-4 of
+its largest element; the only gradient whose cosine is far from 1 is the actor
+head's bias, which is zero but for rounding (1e-9). A network it trains needs
+its own acceptance, as the packed trunk's.
+
+Dispatched ops a window on the CPU (`TorchDispatchMode` count, 32 streams of
+which 16 own, 8 time steps, d_model 32, 8 layers, attention counted as one op
+as on CUDA; views counted apart; the pickles' path and the columns' dispatch
+the same ops):
+
+| code | forward ops + views | backward ops + views |
+|---|---|---|
+| round 1 (e2d2877) | 3,033 + 4,095 | 5,768 + 3,318 |
+| this branch, stepped | 2,793 + 2,284 | 4,207 + 3,129 |
+| this branch, `--window-batched` | 1,060 + 897 | 2,637 + 2,200 |
+
+### Bit-exactness
+
+`bench_sequence_step.py trace` (CPU, every dropout at 0.3, three windows)
+prints the same digest from round 1's tree (e2d2877) and this branch, with and
+without `--columns`, at budgets 0, 1e-6 and 100 GiB: the corpus fixture
+`0e1693af...`; with own game-sides (tests/helpers/own_pass.py)
+`607c8890...`; and on 40 real games beside the own fixture's game repeated,
+8 streams of which 4 own, windows of 4, the padded trunk `764dd90b...`, the
+packed trunk `3daea995...`, six packed windows (own game-sides ending and
+starting inside windows) `0cf2145c...`. In the suite: the router against
+per-row memories over whole passes (padded and packed, corpus and own),
+columns against pickles (every position, every staged byte, whole passes,
+hand-built game-sides with hidden tokens, sightings, timeouts and own
+biases), each test broken once by hand to see it fail.
+
+### The benchmark
+
+`scripts/trainer_speed_box.sh` on one 4090. Every arm runs the first round's
+fastest flags (the packed trunk, `--activation-budget-gb 19.18
+--activation-bytes-per-token 102139`, its packed_budget arm's), so every arm
+keeps the same time steps. The arms, in order: base_1, this_1, base_2, this_2
+(round 1's code against this branch's: R1 and R3; valid when the two base runs
+agree within 3%), the gradient check of `--window-batched` against the
+stepped forward (a crash barrier for the batched arms), columns (R2),
+batched_pickles (R4 alone), batched (R2 and R4), preload (the fastest of
+columns and batched with every record read first: what the columnar loader
+still costs), this_3 (brackets the flag arms). Expected wall about 1 hour
+($0.45 at $0.42 an hour) with the own sequences restored from the first
+round's HF cache.
+
+### Not done
+
+- Decoding or staging in Rust: no per-position decoding remains (one inflate
+  and a few `np.frombuffer` per game-side), and the staging is one numpy
+  concatenation per field; what binds is PyTorch's dispatch per op, which
+  Rust cannot remove from the Python graph.
+- CUDA graphs: the window's backward needs every time step's activations at
+  once, so each time step would need its own captured graph per shape bucket,
+  each holding its own activations (16 steps times the token buckets, about a
+  GiB each, on a 24 GiB card); bucketing pads the token count, which changes
+  the matrix products' tiling, and the varlen kernel's grid follows max_len.
+- One cast of the trunk's weights a window instead of one a step (about 70
+  cast kernels a time step forward): the weights' gradients would sum in
+  bfloat16 across the window's steps.
+- Host-built loss masks, skipping the value head's moments in training,
+  int32 offsets built on the host: under 1% of a step's dispatches each.
+- Prefetching the next window's inputs on a thread: the staging is a few
+  milliseconds a window once the records are columns, and Python threads
+  share the GIL with the dispatching thread.
 
 ## Rejected
 
