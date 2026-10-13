@@ -20,11 +20,12 @@
 #     recorded in cuda_tests.log and named in the finish line;
 #   own1 from HF, its SHA-256 checked; the corpus rebuilt at version 5 and
 #     pre-encoded with own1's vocabularies;
-#   round 2's own sequences: own_sequences_r2.tar.gz from HF_DIR when an
-#     earlier session left it there, else built as round 2 built them (the
-#     confirmation's three matches and round 2's generation match, own1's
-#     64-slot sides, labelled by own1 at 0 slots) and sent to HF for the
-#     next session (CACHE_OWN=0: not sent);
+#   round 2's own sequences: OWN_CACHE from HF when an earlier session left
+#     it there (default: this run's HF_DIR/own_sequences_r2.tar.gz; a later
+#     session with an HF_DIR of its own names the first session's), else
+#     built as round 2 built them (the confirmation's three matches and round
+#     2's generation match, own1's 64-slot sides, labelled by own1 at 0 slots)
+#     and sent to HF_DIR as own_sequences_r2.tar.gz (CACHE_OWN=0: not sent);
 #   the packed trunk's gradient check (gradcheck.json): its gradients against
 #     the padded trunk's at dropout 0, a crash barrier; a failure leaves the
 #     packed arms out;
@@ -78,6 +79,7 @@ PASS_POSITIONS="${PASS_POSITIONS:-2000000}"
 DECAY_FROM="${DECAY_FROM:-0.5}"
 PROBE_EVERY="${PROBE_EVERY:-1200000}"
 CACHE_OWN="${CACHE_OWN:-1}"
+OWN_CACHE="${OWN_CACHE:-$HF_DIR/own_sequences_r2.tar.gz}"
 WARMUP="${WARMUP:-20}"
 WINDOWS="${WINDOWS:-80}"
 PROFILE_WINDOWS="${PROFILE_WINDOWS:-3}"
@@ -217,7 +219,7 @@ fi
 
 # ---- round 2's own sequences: from HF when an earlier session sent them, else built and sent
 if ! box_marked_this_stage "$OWN/OWN_DONE"; then
-    box_bounded own-restore 30 staging.log python - "$HF_DIR/own_sequences_r2.tar.gz" "$WORKDIR" <<'EOF'
+    box_bounded own-restore 30 staging.log python - "$OWN_CACHE" "$WORKDIR" <<'EOF'
 import sys, tarfile
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import EntryNotFoundError
@@ -273,7 +275,7 @@ TRAIN_ARGS=(--sequences "$SEQ" --dataset "$CORPUS" --own-sequences "$OWN" --seed
             --lr "$LR" --warmup-steps 0 --decay-from "$DECAY_FROM" --pass-positions "$PASS_POSITIONS"
             --probe-every "$PROBE_EVERY" --barrier-positions 1000000 --probe-ks "0,64" --probe-at-start
             --init-from "$INIT_PT" --init-other-records)
-arm() {                          # arm NAME REPO WARMUP WINDOWS PROFILE BENCH_FLAGS TRAIN_FLAGS...: one bench run, once
+arm() {                          # arm NAME REPO WARMUP WINDOWS PROFILE BENCH_FLAGS TRAIN_FLAGS...: one bench run, once; false when it failed
     local name=$1 repo=$2 warmup=$3 windows=$4 profile=$5 bench_flags=$6
     shift 6
     ! box_marked_this_stage "$OUT/arm_$name.done" || return 0
@@ -285,7 +287,10 @@ arm() {                          # arm NAME REPO WARMUP WINDOWS PROFILE BENCH_FL
         --out "$OUT/arm_$name.jsonl" --repo "$repo" --warmup "$warmup" --windows "$windows" \
         --profile-windows "$profile" $bench_flags -- "${TRAIN_ARGS[@]}" --out "$OUT/arm_$name.pt" "$@"
     cd "$BOX_REPO" || box_finish "NO_REPO $BOX_REPO" 1
-    [ "$BOX_RC" -eq 0 ] || box_finish "ARM_FAILED $name rc=$BOX_RC $BOX_WHY (arm_$name.log) $(notes)" 1
+    if [ "$BOX_RC" -ne 0 ]; then
+        echo "ARM_FAILED $name rc=$BOX_RC $BOX_WHY (arm_$name.log)" | tee -a "$OUT/arms_failed.txt"
+        return 1
+    fi
     box_mark "$OUT/arm_$name.done"
 }
 window_stat() {                  # window_stat ARM STAT: over the arm's timed windows, the max peak or the measured bytes per kept token
@@ -308,7 +313,7 @@ budget_for() {                   # budget_for ARM: the GiB of activations that f
 budget_arms() {                  # budget_arms CAL NAME BASE_ARM CAL_GB TRAIN_FLAGS...: calibrate the bytes per token, then time the budget
     local cal=$1 name=$2 base=$3 cal_gb=$4 bpt budget
     shift 4
-    arm "$cal" "$BOX_REPO" "$CAL_WARMUP" "$CAL_WINDOWS" 0 "" "$@" --activation-budget-gb "$cal_gb"
+    arm "$cal" "$BOX_REPO" "$CAL_WARMUP" "$CAL_WINDOWS" 0 "" "$@" --activation-budget-gb "$cal_gb" || return 1
     bpt=$(window_stat "$cal" bpt)
     budget=$(budget_for "$base")
     echo "$name: $bpt bytes per kept token measured, budget $budget GiB" | tee -a "$OUT/budgets.txt"
@@ -332,10 +337,14 @@ if [ ! -f "$OUT/gradcheck.json" ]; then
 fi
 PACKED_OK=$(timeout 1m python -c "import json, sys; print(int(json.load(open(sys.argv[1]))['pass']))" "$OUT/gradcheck.json")
 
-arm base_1 "$BASE_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" ""
-arm this_1 "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" ""
-arm base_2 "$BASE_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" ""
-arm this_2 "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" ""
+# The base and this stage's defaults, alternated; a budget or packed arm that fails (out of
+# memory, say) is recorded in arms_failed.txt and the bench goes on without it.
+for name in base_1 this_1 base_2 this_2; do
+    repo=$BOX_REPO
+    [ "${name%_*}" = this ] || repo=$BASE_REPO
+    arm "$name" "$repo" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" \
+        || box_finish "ARM_FAILED $name (arm_$name.log) $(notes)" 1
+done
 box_upload
 FASTEST=this_1
 FASTEST_FLAGS=()
@@ -345,8 +354,7 @@ if budget_arms cal_padded budget this_1 "$CAL_PADDED_GB"; then
                    --activation-bytes-per-token "$(( $(window_stat cal_padded bpt) * 105 / 100 ))")
 fi
 box_upload
-if [ "$PACKED_OK" = 1 ]; then
-    arm packed "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" --packed-trunk
+if [ "$PACKED_OK" = 1 ] && arm packed "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" --packed-trunk; then
     FASTEST=packed
     FASTEST_FLAGS=(--packed-trunk)
     if budget_arms cal_packed packed_budget packed "$CAL_PACKED_GB" --packed-trunk; then
@@ -354,9 +362,10 @@ if [ "$PACKED_OK" = 1 ]; then
         FASTEST_FLAGS=(--packed-trunk --activation-budget-gb "$(budget_for packed)" \
                        --activation-bytes-per-token "$(( $(window_stat cal_packed bpt) * 105 / 100 ))")
     fi
-    box_upload
 fi
-arm preload "$BOX_REPO" "$WARMUP" "$WINDOWS" 0 "--preload" ${FASTEST_FLAGS[@]+"${FASTEST_FLAGS[@]}"}
+box_upload
+arm preload "$BOX_REPO" "$WARMUP" "$WINDOWS" 0 "--preload" ${FASTEST_FLAGS[@]+"${FASTEST_FLAGS[@]}"} \
+    || echo "the preload arm failed: no reading of the loader's cost" >> "$OUT/budgets.txt"
 echo "preload: $FASTEST's flags (${FASTEST_FLAGS[*]})" >> "$OUT/budgets.txt"
 
 # ---- the comparisons and speed.json
@@ -411,4 +420,5 @@ print(json.dumps({k: summary[k] for k in ("valid", "budget_peaks_under_cap", "gr
       {a: v["positions_per_second"] for a, v in arms.items()}, flush=True)
 EOF
 SUMMARY=$(tail -n 1 "$OUT/compare.log" | cut -c1-400)
-box_finish "TRAINER_SPEED_DONE $SUMMARY; cuda tests: ${CUDA_TESTS:-none}"
+FAILED_ARMS=$(cut -d' ' -f2 "$OUT/arms_failed.txt" 2>/dev/null | tr '\n' ' ')
+box_finish "TRAINER_SPEED_DONE $SUMMARY; cuda tests: ${CUDA_TESTS:-none}; failed arms: ${FAILED_ARMS:-none}"
