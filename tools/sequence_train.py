@@ -95,7 +95,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from torch.utils.checkpoint import checkpoint
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
@@ -105,6 +104,7 @@ from tools.lr_law import decide as law_decide  # noqa: E402
 from tools.preencode_sequences import ENCODING, load_manifest, read_record, record_path  # noqa: E402
 from tools.sequence_checkpoints import TrainerCheckpoints  # noqa: E402
 from tools.sequence_args import parse_args  # noqa: E402,F401 (sequence_train.parse_args)
+from tools.sequence_batched import WindowForwards  # noqa: E402
 from tools.sequence_memory import MemoryRouter  # noqa: E402
 from tools.sequence_own import OwnStreams  # noqa: E402
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
@@ -137,7 +137,7 @@ EXIT_REVIEW = 7                  # the anneal rule: the probes left the law, sto
 NONFINITE_LIMIT = 3
 
 
-class Trainer(TrainerCheckpoints, TrainerTelemetry):
+class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
     def __init__(self, args, device: torch.device):
         self.args, self.device = args, device
         man = load_manifest(args.sequences)
@@ -323,44 +323,17 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         self.clock.start()
         self.loader.prefetch(self._upcoming())
         start_memories = {s: m for s, m in self.memories.items() if s in self.signal_slots}
-        n_kept = self._kept_steps(window)
         router = MemoryRouter(self.model, self.device, self.memories)
-        total = torch.zeros((), device=self.device)
-        logs, own_sums, own_counts = [], [], []
-        n_positions = tokens_real = tokens_padded = kept_tokens = kept_bytes = 0
-        for t, steps in enumerate(window):
-            mems = router.batch(steps)
-            x = self.inputs.stage(steps)
-            staged, targets, b_target, b_mask, own = x.staged, x.targets, x.belief_target, x.belief_mask, x.own
-            index = self._trunk_index(steps, staged)
-            real, padded = trunk_tokens(staged.sizes, staged.sighting_counts, [s.k for s in steps])
-            tokens_real, tokens_padded = tokens_real + real, tokens_padded + padded
-            fn, inputs = ((self._step_forward, (staged, mems, targets, b_target, b_mask, index)) if own is None else
-                          (self._step_forward_own, (staged, mems, targets, b_target, b_mask, own, index)))
-            if t >= len(window) - n_kept:
-                before = self.clock.memory_allocated()
-                outputs = fn(*inputs)
-                kept_bytes += self.clock.memory_allocated() - before
-                kept_tokens += real if self.packed else padded
-            else:
-                outputs = checkpoint(fn, *inputs, use_reentrant=False)
-            pv, bsum, mem_padded, log_t, bl = outputs[:5]
-            if own is not None:
-                own_sums.append(outputs[5].sum())
-                own_counts.append(outputs[5].numel())
-            total = total + pv + self.args.belief_weight * bsum
-            router.wrote(steps, mem_padded)
-            logs.append((targets, log_t, bl))
-            n_positions += len(steps)
+        fw = (self._batched_forward if self.args.window_batched else self._stepped_forward)(window, router)
         self.memories = router.memories()
-        loss = total / float(self.args.streams * self.args.window)
+        loss = fw.total / float(self.args.streams * self.args.window)
         lr = self._lr_now()
         for g in self.opt.param_groups:
             g["lr"] = lr
         loss.backward()
         norm, group_norms = self.clip_groups.clip_on_device(self.args.grad_clip)
         slots = list(self.memories)
-        read = read_window(loss, norm, group_norms, [self.memories[s] for s in slots], logs, own_sums,
+        read = read_window(loss, norm, group_norms, [self.memories[s] for s in slots], fw.logs, fw.own_sums,
                            self.device)
         if read.finite:
             self.opt.step()
@@ -376,9 +349,10 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         self.opt.zero_grad(set_to_none=True)
         self.memories = self._carried(slots, read.memory_finite)
         grads = {} if read.group_norms is None else dict(zip(self.clip_groups.groups, read.group_norms))
-        sums = window_sums(read, logs, own_counts, with_own=self.own is not None)
-        self.last_timing = self.clock.finish(tokens_real, tokens_padded, n_kept, kept_tokens, kept_bytes)
-        self.state["positions"] += n_positions
+        sums = window_sums(read, fw.logs, fw.own_counts, with_own=self.own is not None)
+        self.last_timing = self.clock.finish(fw.tokens_real, fw.tokens_padded, fw.n_kept, fw.kept_tokens,
+                                             fw.kept_bytes)
+        self.state["positions"] += fw.n_positions
         self.state["steps"] += 1
         self.state["windows"] += 1
         if self.state["positions"] >= self.state["next_signal"]:
@@ -387,7 +361,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         self.loader.keep_only(self._upcoming())
         self._step_row(lr, read.loss, read.norm, grads, read.finite, sums, self.last_timing)
         return {"loss": read.loss, "grad_norm": read.norm,
-                "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": n_positions,
+                "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": fw.n_positions,
                 **_squares(grads), **sums}
 
     def _carried(self, slots, finite) -> Dict[int, torch.Tensor]:
@@ -569,6 +543,8 @@ def build_trainer(args) -> Trainer:
     device = torch.device(args.device)
     if args.packed_trunk and args.fp32 and device.type == "cuda":
         raise SystemExit("--packed-trunk runs flash varlen attention, which takes bfloat16: not with --fp32")
+    if args.window_batched and not args.packed_trunk:
+        raise SystemExit("--window-batched runs the packed trunk's layout: with --packed-trunk")
     if args.activation_budget_gb < 0:
         raise SystemExit(f"--activation-budget-gb {args.activation_budget_gb}: a size, 0 or more")
     trainer = Trainer(args, device)

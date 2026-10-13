@@ -92,3 +92,62 @@ def test_the_routed_memories_train_what_per_row_memories_train(tmp_path, request
     _assert_same(routed, per_row)
     assert [w["write_trained"] for w in routed] == [w["write_trained"] for w in per_row]
     assert not all(w["write_trained"] for w in per_row), "a window in which no step reads an earlier write"
+
+
+def _rate_zero_pass(pass_inputs, tmp_path, *extra):
+    """A whole pass in windows of three time steps from the same weights at
+    a learning rate of 0 (AdamW then leaves every weight as it is), dropout
+    0, the packed trunk with every activation kept: per window its returned
+    values, gradients and carried memories."""
+    trainer = _trainer(pass_inputs, tmp_path, "--window", "3", "--packed-trunk", "--activation-budget-gb", "1000",
+                       *extra)
+    set_dropout(trainer, 0.0)
+    trainer._lr_now = lambda: 0.0
+    seen, zero_grad = [], trainer.opt.zero_grad
+
+    def hooked(*a, **kw):
+        seen.append([None if p.grad is None else p.grad.clone() for p in trainer.params])
+        return zero_grad(*a, **kw)
+
+    trainer.opt.zero_grad = hooked
+    out = []
+    while True:
+        result = trainer.train_window()
+        if not result:
+            return out
+        out.append((result, seen[-1], {s: m.clone() for s, m in trainer.memories.items()}))
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("own", [False, True], ids=["corpus", "own"])
+def test_the_batched_window_trains_what_the_stepped_window_trains_within_rounding(tmp_path, request, own):
+    """`--window-batched` against the stepped forward, a whole pass from the
+    same weights: every window's loss, logged sums, gradients and carried
+    memories agree within float32 rounding (the batched forward sums in
+    another order and multiplies matrices of more rows, nothing more)."""
+    pass_inputs = request.getfixturevalue("own_pass_inputs" if own else "pass_inputs")
+    stepped = _rate_zero_pass(pass_inputs, tmp_path / "stepped")
+    batched = _rate_zero_pass(pass_inputs, tmp_path / "batched", "--window-batched")
+    assert len(stepped) == len(batched) >= 2
+    for (ra, ga, ma), (rb, gb, mb) in zip(stepped, batched):
+        assert rb["positions"] == ra["positions"] and rb.get("own_n") == ra.get("own_n")
+        for key in ("loss", "policy", "value", "belief", "own"):
+            if key in ra:
+                assert rb[key] == pytest.approx(ra[key], rel=1e-5, abs=1e-6), key
+        trained = 0
+        for x, y in zip(ga, gb):
+            assert (x is None) == (y is None)
+            if x is not None:
+                assert (x - y).abs().max() <= 1e-4 * x.abs().max() + 1e-7
+                trained += bool(x.abs().max() > 1e-6)
+        assert trained > 10
+        assert ma.keys() == mb.keys()
+        assert all(torch.allclose(ma[s], mb[s], rtol=1e-5, atol=1e-6) for s in ma)
+
+
+def test_the_batched_window_needs_the_packed_trunk(tmp_path):
+    from tools import sequence_train
+    args = sequence_train.parse_args(["--sequences", str(tmp_path), "--dataset", str(tmp_path), "--device", "cpu",
+                                      "--out", str(tmp_path / "x.pt"), "--window-batched"])
+    with pytest.raises(SystemExit, match="--packed-trunk"):
+        sequence_train.build_trainer(args)

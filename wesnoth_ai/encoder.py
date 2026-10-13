@@ -1264,24 +1264,31 @@ class GameStateEncoder(nn.Module):
     def embed_staged(self, staged: "StagedBatch") -> EmbeddedStreams:
         """The second half of `encode_from_raw_embedded`: the learned
         embeddings of a staged batch, in stream order."""
-        v, totals, their = staged.views, staged.totals, (staged.their_field,)
-        parts = []
-        if totals["hex"]:
-            parts.append(self._hex_embedding(v["hex_xs"], v["hex_ys"], v["hex_terrain_ids"],
-                                             v["hex_modifier_flags"], v["hex_dynamic_flags"]))
-        if totals["unit"]:
-            parts.append(self._unit_embedding(v["unit_type_ids"], v["unit_side_ids"],
-                                              v["unit_xs"], v["unit_ys"], v["unit_feats"]))
-        if totals["recruit"]:
-            parts.append(self._unit_embedding(v["recruit_type_ids"], v["recruit_side_ids"],
-                                              v["recruit_xs"], v["recruit_ys"], v["recruit_feats"]))
-        if totals.get("sighting"):
-            parts.append(self._sighting_embedding(v["sight_type_ids"], v["sight_xs"],
-                                                  v["sight_ys"], v["sight_feats"]))
-        parts.append(self._global_embedding(v["global_feats"], v["our_faction_id"], v[their[0]]))
-        parts.append(self.end_turn_token.view(1, -1))
+        parts = list(self.embed_streams(staged).values())
         return EmbeddedStreams(tokens=torch.cat(parts, dim=0), sizes=list(staged.sizes),
                                sighting_counts=staged.sighting_counts)
+
+    def embed_streams(self, staged: "StagedBatch") -> Dict[str, torch.Tensor]:
+        """The learned embeddings of a staged batch by stream, in stream
+        order: "hex", "unit", "recruit" and "sighting" (each present when the
+        batch holds such tokens), "global" [B, d] and "end_turn" [1, d]."""
+        v, totals, their = staged.views, staged.totals, (staged.their_field,)
+        parts = {}
+        if totals["hex"]:
+            parts["hex"] = self._hex_embedding(v["hex_xs"], v["hex_ys"], v["hex_terrain_ids"],
+                                               v["hex_modifier_flags"], v["hex_dynamic_flags"])
+        if totals["unit"]:
+            parts["unit"] = self._unit_embedding(v["unit_type_ids"], v["unit_side_ids"],
+                                                 v["unit_xs"], v["unit_ys"], v["unit_feats"])
+        if totals["recruit"]:
+            parts["recruit"] = self._unit_embedding(v["recruit_type_ids"], v["recruit_side_ids"],
+                                                    v["recruit_xs"], v["recruit_ys"], v["recruit_feats"])
+        if totals.get("sighting"):
+            parts["sighting"] = self._sighting_embedding(v["sight_type_ids"], v["sight_xs"],
+                                                         v["sight_ys"], v["sight_feats"])
+        parts["global"] = self._global_embedding(v["global_feats"], v["our_faction_id"], v[their[0]])
+        parts["end_turn"] = self.end_turn_token.view(1, -1)
+        return parts
 
     def _embed_streams(self, raws: List[RawEncoded], device) -> dict:
         """The trained embeddings of every stream for a batch, as

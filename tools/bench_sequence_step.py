@@ -5,7 +5,8 @@ where they were (docs/trainer_speed_20261013.md, "Benchmark").
     python tools/bench_sequence_step.py run --out arm.jsonl [--repo DIR] [--preload] -- TRAIN_ARGS
     python tools/bench_sequence_step.py compare A.jsonl B.jsonl [--allow FIELD ...] [--out ratio.json]
     python tools/bench_sequence_step.py trace [--repo DIR] [--windows 3] [--dropout 0.3] -- TRAIN_ARGS
-    python tools/bench_sequence_step.py gradcheck --out check.json [--windows 3] -- TRAIN_ARGS
+    python tools/bench_sequence_step.py gradcheck --out check.json [--windows 3] [--reference=FLAGS]
+        [--candidate=FLAGS] -- TRAIN_ARGS
 
 TRAIN_ARGS is the training command line, verbatim (the round preset's of
 scripts/memory_own_trajectories_box.sh). The trainer is built from it as
@@ -45,12 +46,13 @@ trace: the SHA-256 of N windows on the CPU, every dropout probability set to
 zeroed, the parameters after each step and the carried memories. Two trees
 whose change only moves bytes print the same digest.
 
-gradcheck: the packed trunk against the padded one with its dropout at 0,
-both from the same weights at a learning rate of 0 (AdamW then leaves the
-weights as they are): per window the loss and, per parameter group, the
-cosine of the two gradients. Passes (exit 0, else 8) when every cosine is
-at least 0.99 and every loss within 0.5%: a crash barrier before a packed
-pass, not a verdict.
+gradcheck: a candidate configuration (`--candidate`, the training flags it
+adds; default the packed trunk) against a reference (`--reference`; default
+none, the padded trunk), every dropout at 0, both from the same weights at a
+learning rate of 0 (AdamW then leaves the weights as they are): per window
+the loss and, per parameter group, the cosine of the two gradients. Passes
+(exit 0, else 8) when every cosine is at least 0.99 and every loss within
+0.5%: a crash barrier before a pass on the candidate, not a verdict.
 """
 from __future__ import annotations
 
@@ -211,6 +213,7 @@ def config_record(root: Path, args, trainer, train_argv, bench: Dict) -> Dict:
         "autocast": str(trainer.autocast), "dropout": dropout_probabilities(trainer),
         "trunk": getattr(trainer, "trunk", "padded"), "activation_budget_gb": budget,
         "columns": bool(getattr(args, "columns", False)),
+        "window_batched": bool(getattr(args, "window_batched", False)),
         "activation_bytes_per_token": getattr(trainer, "bytes_per_token", None) if budget > 0 else None,
         "sdpa": {"flash": torch.backends.cuda.flash_sdp_enabled(),
                  "mem_efficient": torch.backends.cuda.mem_efficient_sdp_enabled(),
@@ -554,16 +557,17 @@ def gradient_cosine(a: torch.Tensor, b: torch.Tensor) -> Optional[float]:
 
 
 def gradcheck(opts, train_argv) -> int:
+    import shlex
     use_repo(None)
     trainers = []
-    for extra in ((), ("--packed-trunk",)):
+    for extra in (shlex.split(opts.reference), shlex.split(opts.candidate)):
         _, _, t = build(list(train_argv) + list(extra))
         quiet(t)
         t._lr_now = lambda: 0.0              # AdamW at rate 0 leaves every weight as it is
+        set_dropout(t, 0.0)
         trainers.append(t)
-    padded, packed = trainers
-    packed.args.out = packed.args.out.with_name(packed.args.out.stem + "_packed.pt")   # its own steps.jsonl
-    set_dropout(padded, 0.0)
+    reference, candidate = trainers
+    candidate.args.out = candidate.args.out.with_name(candidate.args.out.stem + "_candidate.pt")   # its own steps.jsonl
     captured: List[Dict[str, torch.Tensor]] = [{}, {}]
     for slot, t in enumerate(trainers):
         zero_grad = t.opt.zero_grad
@@ -574,7 +578,7 @@ def gradcheck(opts, train_argv) -> int:
         t.opt.zero_grad = hooked
     rows, ok = [], True
     for i in range(opts.windows):
-        ra, rb = padded.train_window(), packed.train_window()
+        ra, rb = reference.train_window(), candidate.train_window()
         if not ra or not rb:
             raise SystemExit(f"the pass ran out after {i} windows")
         groups = set(captured[0]) | set(captured[1])
@@ -584,9 +588,10 @@ def gradcheck(opts, train_argv) -> int:
         rel = abs(rb["loss"] - ra["loss"]) / max(abs(ra["loss"]), 1e-12)
         good = rel <= GRADCHECK_LOSS and all(c is None or c >= GRADCHECK_COSINE for c in cos.values())
         ok = ok and good
-        rows.append({"i": i, "loss_padded": ra["loss"], "loss_packed": rb["loss"], "loss_rel": round(rel, 6),
+        rows.append({"i": i, "loss_reference": ra["loss"], "loss_candidate": rb["loss"], "loss_rel": round(rel, 6),
                      "cosine": cos, "pass": good})
-    result = {"pass": ok, "min_cosine": GRADCHECK_COSINE, "max_loss_rel": GRADCHECK_LOSS, "windows": rows}
+    result = {"pass": ok, "reference": opts.reference, "candidate": opts.candidate, "min_cosine": GRADCHECK_COSINE,
+              "max_loss_rel": GRADCHECK_LOSS, "windows": rows}
     text = json.dumps(result, indent=1)
     print(text)
     Path(opts.out).write_text(text + "\n", encoding="utf-8")
@@ -623,9 +628,12 @@ def parse(argv: Sequence[str]):
     t.add_argument("--windows", type=int, default=3)
     t.add_argument("--dropout", type=float, default=0.3)
     t.add_argument("--threads", type=int, default=4)
-    g = sub.add_parser("gradcheck", help="the packed trunk's gradients against the padded trunk's")
+    g = sub.add_parser("gradcheck", help="a candidate's gradients against a reference's (default: packed against padded)")
     g.add_argument("--out", type=Path, required=True)
     g.add_argument("--windows", type=int, default=3)
+    g.add_argument("--reference", default="", help="the reference's training flags (write --reference=FLAGS)")
+    g.add_argument("--candidate", default="--packed-trunk",
+                   help="the candidate's training flags (write --candidate=FLAGS)")
     opts = ap.parse_args(argv)
     if opts.command != "compare" and not train:
         ap.error("the training arguments follow `--`")

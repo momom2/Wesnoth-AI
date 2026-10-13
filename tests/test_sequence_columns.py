@@ -28,24 +28,6 @@ def _with(args, flag, value):
     return out
 
 
-@pytest.fixture(scope="module")
-def columnar(pass_inputs, own_pass_inputs, tmp_path_factory):
-    """The test passes' sequence directories copied and given their columns
-    by the converter's command line: {"corpus": args, "own": args}."""
-    from tools import columnize_sequences
-    root = tmp_path_factory.mktemp("columns")
-    out = {}
-    corpus = root / "corpus"
-    shutil.copytree(_option(pass_inputs, "--sequences"), corpus)
-    assert columnize_sequences.main(["--sequences", str(corpus), "--workers", "1", "--log-level", "WARNING"]) == 0
-    out["corpus"] = _with(pass_inputs, "--sequences", corpus)
-    own = root / "own"
-    shutil.copytree(_option(own_pass_inputs, "--own-sequences"), own)
-    assert columnize_sequences.main(["--sequences", str(own), "--workers", "1", "--log-level", "WARNING"]) == 0
-    out["own"] = _with(_with(own_pass_inputs, "--sequences", corpus), "--own-sequences", own)
-    return out
-
-
 def _trainer(args, tmp_path, *extra):
     from tools import sequence_train
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -55,6 +37,7 @@ def _trainer(args, tmp_path, *extra):
 
 # ---- the records ---------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_every_position_read_from_columns_is_the_pickled_one(columnar):
     """Both test passes' records, own masks and targets included: every
     position read back from the columns equals the pickled one in every
@@ -81,6 +64,7 @@ def test_every_position_read_from_columns_is_the_pickled_one(columnar):
     assert seen["corpus"] > 10 and seen["own"] > 10
 
 
+@pytest.mark.slow
 def test_a_difference_in_any_kept_field_is_named(columnar):
     """`position_difference` is the converter's acceptance: a position
     differing in one value of an array, a label index, a dtype or an own
@@ -105,6 +89,7 @@ def test_a_difference_in_any_kept_field_is_named(columnar):
         == "masks.move_valid"
 
 
+@pytest.mark.slow
 def test_the_trainer_refuses_columns_of_other_records(columnar, tmp_path):
     """`--columns` over a directory whose columns were written from other
     records (another manifest fingerprint), or that lacks a game's, stops
@@ -145,6 +130,7 @@ def _inputs_bytes(x):
     return out
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kind", ["corpus", "own"])
 def test_the_columns_stage_the_pickles_bytes(columnar, tmp_path, monkeypatch, kind):
     """Every time step of the pass, game-sides at memory sizes of their own

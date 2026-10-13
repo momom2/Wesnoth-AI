@@ -299,6 +299,55 @@ def build_packed_layout(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max
                         memory=mem.reshape(-1))
 
 
+@dataclass
+class WindowHeadIndex:
+    """Where the heads read every row of a window's time steps in the
+    steps' packed trunk outputs, concatenated (`WesnothModel.window_heads`):
+    each row's actor and hex slots at the window's widths and its global
+    token (device views of one buffer), with the rows' actor kinds and sizes
+    (host)."""
+    actor: torch.Tensor                 # [n * A_max]
+    hex: torch.Tensor                   # [n * H_max]
+    glob: torch.Tensor                  # [n]
+    actor_kind: torch.Tensor            # [n, A_max], on the host
+    sizes: List[Tuple[int, int, int]]
+    A_max: int
+    H_max: int
+
+
+def window_head_index(layouts: Sequence[PackedLayout], sizes: Sequence[Tuple[int, int, int]],
+                      end_turn_kind: int, device: torch.device) -> WindowHeadIndex:
+    """The heads' index over the concatenation of the steps' packed outputs,
+    from each step's layout (`sizes`: every row's (U, R, H), step after
+    step), at the widths one batch of all the rows has (the most units plus
+    the most recruits plus one, the most hexes). A row's slots past its
+    step's widths point at its end_turn token, as its step's padded slots
+    do, with the end_turn kind."""
+    A_max = max(u for u, _, _ in sizes) + max(r for _, r, _ in sizes) + 1
+    H_max = max(h for _, _, h in sizes)
+    actor, hexes, glob, kinds = [], [], [], []
+    offset = 0
+    for layout in layouts:
+        B = len(layout.glob)
+        end = layout.cu_seqlens[1:, None] - 1 + offset
+        a = np.repeat(end, A_max, axis=1)
+        a[:, :layout.actor_kind.shape[1]] = layout.actor.reshape(B, -1) + offset
+        h = np.repeat(end, H_max, axis=1)
+        h[:, :layout.hex.size // max(B, 1)] = layout.hex.reshape(B, -1) + offset
+        k = np.full((B, A_max), end_turn_kind, dtype=np.int64)
+        k[:, :layout.actor_kind.shape[1]] = layout.actor_kind
+        actor.append(a.reshape(-1))
+        hexes.append(h.reshape(-1))
+        glob.append(layout.glob + offset)
+        kinds.append(k)
+        offset += int(layout.cu_seqlens[-1])
+    parts = [np.concatenate(actor), np.concatenate(hexes), np.concatenate(glob)]
+    flat = host_to_device(np.concatenate(parts), device)
+    a, h, g = torch.split(flat, [len(x) for x in parts])
+    return WindowHeadIndex(actor=a, hex=h, glob=g, actor_kind=torch.from_numpy(np.concatenate(kinds)),
+                           sizes=[tuple(int(x) for x in s) for s in sizes], A_max=A_max, H_max=H_max)
+
+
 def padded_gather_index(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max: int,
                         R_max: int, *, sightings: Optional[Sequence[int]] = None,
                         S_max: Optional[int] = None) -> np.ndarray:

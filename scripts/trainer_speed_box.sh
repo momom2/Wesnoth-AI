@@ -1,66 +1,68 @@
 #!/usr/bin/env bash
 # shellcheck source-path=SCRIPTDIR
-# The sequence trainer's speed on one box (docs/trainer_speed_20261013.md,
-# "Benchmark"): the step of the base code and of this stage, its flags off
-# and on, timed under round 2's training arguments
+# The sequence trainer's speed on one box, round 2 (docs/trainer_speed_20261013.md,
+# "Round 2"): the first round's fastest configuration (the packed trunk with
+# kept activations, the pickled records streamed) against this stage's
+# changes, timed under round 2's training arguments
 # (scripts/memory_own_trajectories_box.sh, ROUND=2: from own1, its own
 # game-sides beside the corpus's) by tools/bench_sequence_step.py.
 #
 # Two code stages: STAGE, this branch's (tools/stage_code.py --script
-# scripts/trainer_speed_box.sh), and BASE_STAGE, the commit the work branched
-# from (exp/memory-own-trajectories at bd5f33d), staged from a checkout of it
-# with tools/stage_code.py --out ... --upload tier-b/staging/<name>.tar.gz. The
+# scripts/trainer_speed_box.sh), and BASE_STAGE, the first round's
+# (feature/trainer-speed at e2d2877), staged from a checkout of it with
+# tools/stage_code.py --out ... --upload tier-b/staging/<name>.tar.gz. The
 # base stage is unpacked beside this one and its trainer timed with this
 # stage's bench (--repo); both use this stage's Rust wheel (the work changes
 # no Rust).
 #
+# Every arm runs the first round's fastest flags, FLAGS: the packed trunk and
+# the activation budget its packed_budget arm timed (BUDGET_GB, with the bytes
+# a kept token measured, BYTES_PER_TOKEN; training/metrics/
+# trainer_speed_20261013/budgets.txt), so every arm keeps the same time steps.
+#
 # The steps:
 #   the tests of this path on this wheel and GPU: the CPU-path tests gate the
-#     run; the CUDA staging tests (tests/test_trainer_speed_cuda.py) are
-#     recorded in cuda_tests.log and named in the finish line;
+#     run; the CUDA tests (tests/test_trainer_speed_cuda.py and the CUDA tests
+#     of tests/test_sequence_columns.py) are recorded in cuda_tests.log and
+#     named in the finish line;
 #   own1 from HF, its SHA-256 checked; the corpus rebuilt at version 5 and
 #     pre-encoded with own1's vocabularies;
-#   round 2's own sequences: OWN_CACHE from HF when an earlier session left
-#     it there (default: this run's HF_DIR/own_sequences_r2.tar.gz; a later
-#     session with an HF_DIR of its own names the first session's), else
-#     built as round 2 built them (the confirmation's three matches and round
-#     2's generation match, own1's 64-slot sides, labelled by own1 at 0 slots)
+#   round 2's own sequences: OWN_CACHE from HF (the first round's), else built
+#     as round 2 built them (the confirmation's three matches and round 2's
+#     generation match, own1's 64-slot sides, labelled by own1 at 0 slots)
 #     and sent to HF_DIR as own_sequences_r2.tar.gz (CACHE_OWN=0: not sent);
+#   the columns of the corpus's and the own sequences
+#     (tools/columnize_sequences.py, every position checked against its pickle);
 #   the arms, each WARMUP untimed windows, WINDOWS timed and PROFILE_WINDOWS
 #     profiled (arm_NAME.jsonl, with the trainer's rows in
 #     arm_NAME.steps.jsonl); an arm whose process fails after its total row
 #     (the profile) keeps its timed windows:
-#       base_1, this_1, base_2, this_2: the base code and this stage's
-#         defaults, alternated, first; the session is valid when the two base
-#         runs agree within 3% (VALID_SPREAD), and one of them failing ends
-#         the run;
-#       the packed trunk's gradient check (gradcheck.json): its gradients
-#         against the padded trunk's at dropout 0, a crash barrier; anything
-#         but a pass (a crash or a cut included) leaves the packed arms out;
-#       cal_padded (short): a budget of CAL_PADDED_GB, the activation bytes
-#         a padded token measured;
-#       budget: this stage with the activation budget that fits the worst
-#         window under PEAK_GB (22 GiB) after this_1's peak and MARGIN_GB;
-#       packed: --packed-trunk; cal_packed (short) and packed_budget as
-#         above on the packed trunk;
-#       preload: the fastest configuration with every record read first;
-#       this_3: this stage's defaults again, after every flag arm; the flag
-#         arms' comparisons with this_1 hold when this_1 and this_3 agree
-#         within VALID_SPREAD;
+#       base_1, this_1, base_2, this_2: the first round's code and this
+#         stage's, alternated, first (this stage's launch changes, which keep
+#         the arithmetic); the session is valid when the two base runs agree
+#         within 3% (VALID_SPREAD), and one of them failing ends the run;
+#       the window-batched forward's gradient check (gradcheck.json): its
+#         gradients against the stepped forward's, both on the packed trunk,
+#         a crash barrier; anything but a pass leaves the batched arms out;
+#       columns: this stage reading the columnar records (--columns);
+#       batched_pickles: --window-batched on the pickled records;
+#       batched: --columns --window-batched, every change together;
+#       preload: the fastest of columns and batched with every record read
+#         first (what the columnar loader still costs);
+#       this_3: this_1 again, after every flag arm; the flag arms'
+#         comparisons with this_1 hold when this_1 and this_3 agree within
+#         VALID_SPREAD;
 #     a flag arm, the gradient check or this_3 that fails is recorded in
 #     arms_failed.txt and the bench goes on without it;
 #   compare (cmp_A_vs_B.json) and speed.json: positions a second per arm and
-#     each change's speedup, median and 95% interval over the windows (P4,
-#     the telemetry cadence, is not measured: every arm moves its rows past
-#     the bench);
+#     each change's speedup, median and 95% interval over the windows;
 #   the records to HF, the instance stopped.
 #
-# Expected wall on a 4090 (round 2's walls.txt): bring-up and tests 15
-# minutes, inputs 2, corpus and pre-encoding 7, the own sequences 55 the first
-# time (candidates 3, targets 48, the upload a few) or 5 from HF, the
-# gradient check 3, nine arms of about 6 minutes and two calibrations of 3:
-# 2.5 hours the first time, 1.6 after; $1.1 and $0.7 at $0.42 an hour.
-# BOX_MAX_H 4 caps the first at about $1.7 plus the final round.
+# Expected wall on a 4090 (the first round's walls.txt): bring-up and tests 15
+# minutes, inputs 2, corpus and pre-encoding 7, the own sequences 5 from HF,
+# the columns 5, the gradient check 2, nine arms of 2 to 4 minutes: about 1
+# hour, $0.45 at $0.42 an hour; 2.2 hours and $0.95 if the own sequences must
+# be built again. BOX_MAX_H 3 caps it at about $1.3 plus the final round.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md). No
 # periodic upload rounds while the arms run (they would share the machine
@@ -72,9 +74,9 @@ set -uo pipefail
 WORKDIR=/workspace
 STAGE="${STAGE:-}"
 BASE_STAGE="${BASE_STAGE:-}"
-HF_DIR="${HF_DIR:-tier-b/trainer_speed_20261013}"
+HF_DIR="${HF_DIR:-tier-b/trainer_speed_2_20261014}"
 export HF_DIR
-BOX_MAX_H="${BOX_MAX_H:-4}"
+BOX_MAX_H="${BOX_MAX_H:-3}"
 RAW_TAR="${RAW_TAR:-tier-b/corpus_v3/raw_corpus_20260929.tar}"
 INIT_HF="${INIT_HF:-tier-b/memory_own_trajectories_20261011/own.pt}"
 INIT_SHA256="${INIT_SHA256:-70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80}"
@@ -88,16 +90,12 @@ PASS_POSITIONS="${PASS_POSITIONS:-2000000}"
 DECAY_FROM="${DECAY_FROM:-0.5}"
 PROBE_EVERY="${PROBE_EVERY:-1200000}"
 CACHE_OWN="${CACHE_OWN:-1}"
-OWN_CACHE="${OWN_CACHE:-$HF_DIR/own_sequences_r2.tar.gz}"
+OWN_CACHE="${OWN_CACHE:-tier-b/trainer_speed_20261013/own_sequences_r2.tar.gz}"
 WARMUP="${WARMUP:-20}"
 WINDOWS="${WINDOWS:-80}"
 PROFILE_WINDOWS="${PROFILE_WINDOWS:-3}"
-CAL_WARMUP="${CAL_WARMUP:-3}"
-CAL_WINDOWS="${CAL_WINDOWS:-10}"
-CAL_PADDED_GB="${CAL_PADDED_GB:-4}"             # about one padded time step (docs/design_constants.md)
-CAL_PACKED_GB="${CAL_PACKED_GB:-2.5}"           # about two packed time steps
-PEAK_GB="${PEAK_GB:-22}"
-MARGIN_GB="${MARGIN_GB:-1}"
+BUDGET_GB="${BUDGET_GB:-19.18}"                 # the first round's packed_budget arm
+BYTES_PER_TOKEN="${BYTES_PER_TOKEN:-102139}"
 VALID_SPREAD="${VALID_SPREAD:-0.03}"
 WORKERS="${WORKERS:-}"
 # Bounds in minutes.
@@ -110,6 +108,8 @@ CAND_CUT_MIN="${CAND_CUT_MIN:-60}"
 CAND_STALL_MIN="${CAND_STALL_MIN:-20}"
 TARGETS_CUT_MIN="${TARGETS_CUT_MIN:-120}"
 TARGETS_STALL_MIN="${TARGETS_STALL_MIN:-20}"
+COLUMNS_CUT_MIN="${COLUMNS_CUT_MIN:-40}"
+COLUMNS_STALL_MIN="${COLUMNS_STALL_MIN:-10}"
 ARM_CUT_MIN="${ARM_CUT_MIN:-25}"
 OUT=$WORKDIR/trainer_speed
 BOX_OUT=$OUT
@@ -124,7 +124,7 @@ OWN_GAMES=$WORKDIR/own_games_r2
 CAND=$WORKDIR/own_candidates_r2
 OWN=$WORKDIR/own_sequences_r2
 INIT_PT=$WORKDIR/own1.pt
-ARMS="base_1 this_1 base_2 this_2 cal_padded budget packed cal_packed packed_budget preload this_3"
+ARMS="base_1 this_1 base_2 this_2 columns batched_pickles batched preload this_3"
 
 notes() {                        # what is done, for the finish reason
     local name done_=()
@@ -167,9 +167,10 @@ box_upload
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests.log"
     box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_sequence_train.py \
-        tests/test_sequence_speed.py tests/test_own_loss.py tests/test_own_trajectories.py \
-        tests/test_memory_model.py tests/test_packed_trunk.py tests/test_packed_trunk_cuda.py \
-        tests/test_packed_embed.py tests/test_preencode_sequences.py tests/test_memory_learner.py \
+        tests/test_sequence_speed.py tests/test_sequence_columns.py tests/test_sequence_launches.py \
+        tests/test_own_loss.py tests/test_own_trajectories.py tests/test_memory_model.py \
+        tests/test_packed_trunk.py tests/test_packed_trunk_cuda.py tests/test_packed_embed.py \
+        tests/test_preencode_sequences.py tests/test_memory_learner.py \
         -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
@@ -281,22 +282,44 @@ EOF
 fi
 cp -f "$OWN/sequence_manifest.json" "$OUT/own_sequence_manifest.json" || box_finish "OWN_MANIFEST_MISSING" 1
 
+# ---- the columns of the corpus's and the own sequences, every position checked against its pickle
+for dir in "$SEQ" "$OWN"; do
+    name=$(basename "$dir")
+    if ! box_marked_this_stage "$dir/COLUMNS_DONE"; then
+        from=$(box_size "$OUT/columns.log")
+        box_bounded --stall "$OUT/columns.log" "$COLUMNS_STALL_MIN" "columns $name" "$COLUMNS_CUT_MIN" \
+            columns.log python tools/columnize_sequences.py --sequences "$dir" --workers "$WORKERS"
+        case $BOX_RC in
+            0) tail -c "+$(( from + 1 ))" "$OUT/columns.log" | grep -q "COLUMNS_DONE" \
+                   || box_finish "COLUMNS_UNFINISHED $name (columns.log)" 1 ;;
+            2) box_finish "COLUMNS_MISMATCH $name: games whose columns differ from their pickles (columns.log)" 1 ;;
+            *) box_finish "COLUMNS_${BOX_WHY^^} rc=$BOX_RC $name (columns.log)" 1 ;;
+        esac
+        box_mark "$dir/COLUMNS_DONE"
+    fi
+    timeout 1m python -c "import json, sys; m = json.load(open(sys.argv[1])); m.pop('games'); print(json.dumps(m))" \
+        "$dir/columns_manifest.json" > "$OUT/columns_$name.json" || box_finish "COLUMNS_MANIFEST_MISSING $name" 1
+done
+box_upload
+
 # ---- the arms (begin): tests/test_trainer_speed_box.py runs this block with the library stubbed
 TRAIN_ARGS=(--sequences "$SEQ" --dataset "$CORPUS" --own-sequences "$OWN" --seed "$RUN_SEED" --device cuda
             --lr "$LR" --warmup-steps 0 --decay-from "$DECAY_FROM" --pass-positions "$PASS_POSITIONS"
             --probe-every "$PROBE_EVERY" --barrier-positions 1000000 --probe-ks "0,64" --probe-at-start
             --init-from "$INIT_PT" --init-other-records)
-arm() {                          # arm NAME REPO WARMUP WINDOWS PROFILE BENCH_FLAGS TRAIN_FLAGS...: one bench run, once; false when it failed
-    local name=$1 repo=$2 warmup=$3 windows=$4 profile=$5 bench_flags=$6
-    shift 6
+FLAGS=(--packed-trunk --activation-budget-gb "$BUDGET_GB" --activation-bytes-per-token "$BYTES_PER_TOKEN")
+arm() {                          # arm NAME REPO BENCH_FLAGS TRAIN_FLAGS...: one bench run of FLAGS and TRAIN_FLAGS, once; false when it failed
+    local name=$1 repo=$2 bench_flags=$3
+    shift 3
     ! box_marked_this_stage "$OUT/arm_$name.done" || return 0
     box_gpu_ok || box_finish "GPU_UNRESPONSIVE before arm $name: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
     rm -f "$OUT/arm_$name.jsonl" "$OUT/arm_$name.steps.jsonl" "$OUT/arm_$name.smi.csv"
     cd "$repo" || box_finish "NO_REPO $repo" 1
     # shellcheck disable=SC2086 # bench_flags is a list of flags
     box_bounded "arm $name" "$ARM_CUT_MIN" "arm_$name.log" python "$BOX_REPO/tools/bench_sequence_step.py" run \
-        --out "$OUT/arm_$name.jsonl" --repo "$repo" --warmup "$warmup" --windows "$windows" \
-        --profile-windows "$profile" $bench_flags -- "${TRAIN_ARGS[@]}" --out "$OUT/arm_$name.pt" "$@"
+        --out "$OUT/arm_$name.jsonl" --repo "$repo" --warmup "$WARMUP" --windows "$WINDOWS" \
+        --profile-windows "$PROFILE_WINDOWS" $bench_flags -- "${TRAIN_ARGS[@]}" --out "$OUT/arm_$name.pt" \
+        "${FLAGS[@]}" "$@"
     cd "$BOX_REPO" || box_finish "NO_REPO $BOX_REPO" 1
     if [ "$BOX_RC" -ne 0 ]; then
         if ! grep -q '"kind": "total"' "$OUT/arm_$name.jsonl" 2>/dev/null; then
@@ -308,37 +331,15 @@ arm() {                          # arm NAME REPO WARMUP WINDOWS PROFILE BENCH_FL
     fi
     box_mark "$OUT/arm_$name.done"
 }
-window_stat() {                  # window_stat ARM STAT: over the arm's timed windows, the max peak or the measured bytes per kept token
-    timeout 1m python - "$OUT/arm_$1.jsonl" "$2" <<'EOF'
+arm_rate() {                     # arm_rate ARM: its positions a second, 0 when it has no total
+    timeout 1m python - "$OUT/arm_$1.jsonl" <<'EOF'
 import json, sys
-rows = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
-win = [r for r in rows if r["kind"] == "window"]
-if sys.argv[2] == "peak":
-    print(max(r["peak_gb"] for r in win))
-else:
-    kept = [r for r in win if r.get("kept_steps")]
-    tokens = sum(r["kept_tokens"] for r in kept)
-    print(round(sum(r["kept_gb"] for r in kept) * 2 ** 30 / tokens) if tokens else "none")
+try:
+    rows = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+    print(next(r["positions_per_second"] for r in rows if r["kind"] == "total"))
+except (OSError, StopIteration, ValueError):
+    print(0)
 EOF
-}
-budget_for() {                   # budget_for ARM: the GiB of activations that fit the arm's worst window under PEAK_GB
-    timeout 1m python -c "import sys; b = $PEAK_GB - $MARGIN_GB - float(sys.argv[1]); print(round(b, 2) if b > 0 else 0)" \
-        "$(window_stat "$1" peak)"
-}
-budget_arms() {                  # budget_arms CAL NAME BASE_ARM CAL_GB TRAIN_FLAGS...: calibrate the bytes per token, then time the budget
-    local cal=$1 name=$2 base=$3 cal_gb=$4 bpt budget
-    shift 4
-    arm "$cal" "$BOX_REPO" "$CAL_WARMUP" "$CAL_WINDOWS" 0 "" "$@" --activation-budget-gb "$cal_gb" || return 1
-    bpt=$(window_stat "$cal" bpt)
-    budget=$(budget_for "$base")
-    echo "$name: $bpt bytes per kept token measured, budget $budget GiB" | tee -a "$OUT/budgets.txt"
-    if [[ ! $bpt =~ ^[0-9]+$ ]] || [ "$budget" = 0 ]; then
-        echo "$name: no budget to time" | tee -a "$OUT/budgets.txt"
-        return 1
-    fi
-    # Five percent over the measurement: a token kept beyond the estimate costs memory, not numbers.
-    arm "$name" "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" "$@" --activation-budget-gb "$budget" \
-        --activation-bytes-per-token "$(( bpt * 105 / 100 ))"
 }
 gradcheck_failed() {             # gradcheck_failed: a check that did not finish passes nothing
     echo "GRADCHECK_FAILED gradcheck rc=$BOX_RC $BOX_WHY (gradcheck.log)" | tee -a "$OUT/arms_failed.txt"
@@ -346,53 +347,53 @@ gradcheck_failed() {             # gradcheck_failed: a check that did not finish
         > "$OUT/gradcheck.json"
 }
 
-# The base and this stage's defaults, alternated: the comparison the session is for, before
-# anything that could end it. A later arm that fails (out of memory, say) is recorded in
+# The base and this stage, alternated: the comparison the session is for, before anything
+# that could end it. A later arm that fails (out of memory, say) is recorded in
 # arms_failed.txt and the bench goes on without it.
 for name in base_1 this_1 base_2 this_2; do
     repo=$BOX_REPO
     [ "${name%_*}" = this ] || repo=$BASE_REPO
-    arm "$name" "$repo" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" \
-        || box_finish "ARM_FAILED $name (arm_$name.log) $(notes)" 1
+    arm "$name" "$repo" "" || box_finish "ARM_FAILED $name (arm_$name.log) $(notes)" 1
 done
 box_upload
-# The packed trunk's gradient check, a crash barrier: anything but a pass (exit 0) leaves the
-# packed arms out, a check that did not finish (an exception, a cut) included.
+# The window-batched forward's gradient check, a crash barrier: anything but a pass (exit 0)
+# leaves the batched arms out, a check that did not finish (an exception, a cut) included.
 if [ ! -f "$OUT/gradcheck.json" ]; then
     rm -f "$OUT/gradcheck.json.pending"
     box_bounded gradcheck 20 gradcheck.log python tools/bench_sequence_step.py gradcheck \
-        --out "$OUT/gradcheck.json.pending" -- "${TRAIN_ARGS[@]}" --out "$OUT/gradcheck_arm.pt"
+        --out "$OUT/gradcheck.json.pending" --reference=--packed-trunk \
+        "--candidate=--packed-trunk --window-batched" -- "${TRAIN_ARGS[@]}" --out "$OUT/gradcheck_arm.pt"
     case $BOX_RC in
         0|8) mv -f "$OUT/gradcheck.json.pending" "$OUT/gradcheck.json" || gradcheck_failed ;;
         *) gradcheck_failed ;;
     esac
     box_upload
 fi
-PACKED_OK=$(timeout 1m python -c "import json, sys; print(int(json.load(open(sys.argv[1]))['pass']))" "$OUT/gradcheck.json")
+BATCHED_OK=$(timeout 1m python -c "import json, sys; print(int(json.load(open(sys.argv[1]))['pass']))" \
+    "$OUT/gradcheck.json")
 FASTEST=this_1
 FASTEST_FLAGS=()
-if budget_arms cal_padded budget this_1 "$CAL_PADDED_GB"; then
-    FASTEST=budget
-    FASTEST_FLAGS=(--activation-budget-gb "$(budget_for this_1)" \
-                   --activation-bytes-per-token "$(( $(window_stat cal_padded bpt) * 105 / 100 ))")
+if arm columns "$BOX_REPO" "" --columns; then
+    FASTEST=columns
+    FASTEST_FLAGS=(--columns)
 fi
-box_upload
-if [ "$PACKED_OK" = 1 ] && arm packed "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" --packed-trunk; then
-    FASTEST=packed
-    FASTEST_FLAGS=(--packed-trunk)
-    if budget_arms cal_packed packed_budget packed "$CAL_PACKED_GB" --packed-trunk; then
-        FASTEST=packed_budget
-        FASTEST_FLAGS=(--packed-trunk --activation-budget-gb "$(budget_for packed)" \
-                       --activation-bytes-per-token "$(( $(window_stat cal_packed bpt) * 105 / 100 ))")
+if [ "$BATCHED_OK" = 1 ]; then
+    arm batched_pickles "$BOX_REPO" "" --window-batched || true
+    if arm batched "$BOX_REPO" "" --columns --window-batched \
+            && timeout 1m python -c "import sys; sys.exit(0 if float(sys.argv[1]) > float(sys.argv[2]) else 1)" \
+               "$(arm_rate batched)" "$(arm_rate "$FASTEST")"; then
+        FASTEST=batched
+        FASTEST_FLAGS=(--columns --window-batched)
     fi
 fi
 box_upload
-arm preload "$BOX_REPO" "$WARMUP" "$WINDOWS" 0 "--preload" ${FASTEST_FLAGS[@]+"${FASTEST_FLAGS[@]}"} \
-    || echo "the preload arm failed: no reading of the loader's cost" >> "$OUT/budgets.txt"
-echo "preload: $FASTEST's flags (${FASTEST_FLAGS[*]})" >> "$OUT/budgets.txt"
+if [ "$FASTEST" != this_1 ]; then
+    arm preload "$BOX_REPO" "--preload" "${FASTEST_FLAGS[@]}" \
+        || echo "the preload arm failed: no reading of the columnar loader's cost" >> "$OUT/budgets.txt"
+    echo "preload: $FASTEST's flags (${FASTEST_FLAGS[*]})" >> "$OUT/budgets.txt"
+fi
 # this_1 again after every flag arm: their comparisons with this_1 hold when the two agree.
-arm this_3 "$BOX_REPO" "$WARMUP" "$WINDOWS" "$PROFILE_WINDOWS" "" \
-    || echo "the last arm failed: the flag arms' drift is not read" >> "$OUT/budgets.txt"
+arm this_3 "$BOX_REPO" "" || echo "the last arm failed: the flag arms' drift is not read" >> "$OUT/budgets.txt"
 
 # ---- the comparisons and speed.json
 compare() {                      # compare A B FIELD...: B's speedup over A, the fields allowed to differ
@@ -409,14 +410,14 @@ compare this_1 this_2
 compare this_1 this_3
 compare base_1 this_1 code
 compare base_2 this_2 code
-compare this_1 budget activation_budget_gb activation_bytes_per_token
-compare this_1 packed trunk
-compare this_1 packed_budget trunk activation_budget_gb activation_bytes_per_token
-compare base_1 "$FASTEST" code trunk activation_budget_gb activation_bytes_per_token
+compare this_1 columns columns
+compare this_1 batched_pickles window_batched
+compare columns batched window_batched
+compare base_1 batched code columns window_batched
 compare "$FASTEST" preload bench
-box_bounded summary 5 compare.log python - "$OUT" "$VALID_SPREAD" "$PEAK_GB" <<'EOF'
+box_bounded summary 5 compare.log python - "$OUT" "$VALID_SPREAD" <<'EOF'
 import json, pathlib, sys
-out, spread, peak_cap = pathlib.Path(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])
+out, spread = pathlib.Path(sys.argv[1]), float(sys.argv[2])
 arms, cmps = {}, {}
 for p in sorted(out.glob("arm_*.jsonl")):
     if p.name.endswith(".steps.jsonl"):
@@ -427,11 +428,17 @@ for p in sorted(out.glob("arm_*.jsonl")):
     if total is None:
         continue
     peaks = [r["peak_gb"] for r in win if r.get("peak_gb") is not None]
+
+    def mean(key):
+        vals = [r[key] for r in win if r.get(key) is not None]
+        return round(sum(vals) / len(vals), 4) if vals else None
     arm = arms[p.stem[4:]] = {"positions_per_second": total["positions_per_second"], "windows": total["windows"],
                               "peak_gb_max": max(peaks) if peaks else None,
-                              "kept_steps_mean": sum(r.get("kept_steps") or 0 for r in win) / max(1, len(win))}
+                              "kept_steps_mean": sum(r.get("kept_steps") or 0 for r in win) / max(1, len(win)),
+                              "gc_seconds_mean": mean("gc_seconds"), "decode_seconds_mean": mean("decode_seconds"),
+                              "loader_wait_seconds_mean": mean("loader_wait_seconds")}
     for r in rows:
-        if r["kind"] in ("gpu", "profile"):
+        if r["kind"] in ("gpu", "profile", "preload"):
             arm[r["kind"]] = r
 for p in sorted(out.glob("cmp_*.json")):
     c = json.loads(p.read_text(encoding="utf-8"))
@@ -447,13 +454,9 @@ summary = {"arms": arms, "comparisons": cmps,
            # base against this holds when the two base runs agree; the flag arms against
            # this_1 when this_1 and this_3, which brackets them, agree.
            "valid": agree("base_1_vs_base_2"), "flags_valid": agree("this_1_vs_this_3"),
-           "budget_peaks_under_cap": {a: arms[a]["peak_gb_max"] <= peak_cap
-                                      for a in ("budget", "packed_budget") if a in arms},
-           "gradcheck": json.loads(check.read_text(encoding="utf-8"))["pass"] if check.exists() else None,
-           "not_measured": {"P4": "the telemetry cadence: every arm moves its rows past the bench; in round 2's "
-                                  "records its 80 rows took 168 s of the pass's 11,599"}}
+           "gradcheck": json.loads(check.read_text(encoding="utf-8"))["pass"] if check.exists() else None}
 (out / "speed.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
-print(json.dumps({k: summary[k] for k in ("valid", "flags_valid", "budget_peaks_under_cap", "gradcheck")}),
+print(json.dumps({k: summary[k] for k in ("valid", "flags_valid", "gradcheck")}),
       {a: v["positions_per_second"] for a, v in arms.items()}, flush=True)
 EOF
 SUMMARY=$(tail -n 1 "$OUT/compare.log" | cut -c1-400)

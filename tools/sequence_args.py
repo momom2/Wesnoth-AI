@@ -57,6 +57,11 @@ def parse_args(argv=None):
     ap.add_argument("--activation-bytes-per-token", type=float, default=None,
                     help="the activation bytes a trunk token keeps, measured (default: the estimate of "
                          "tools/sequence_timing.py for the trunk and architecture)")
+    ap.add_argument("--window-batched", action="store_true",
+                    help="embed a window's positions at once and run the heads and losses once over its time steps' "
+                         "trunk outputs; per time step only the packed trunk and the memory's write run "
+                         "(tools/sequence_batched.py): other rounding than the stepped forward, so a network it "
+                         "trains needs its own acceptance; with --packed-trunk")
     ap.add_argument("--columns", action="store_true",
                     help="read the records' columns (tools/columnize_sequences.py writes them beside the pickles): "
                          "the same batches, without unpickling a Python object per position")

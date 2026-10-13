@@ -38,20 +38,21 @@ obs8's, parameter for parameter.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.encoder import EncodedState
-from wesnoth_ai.memory import MemoryState, SlotMemory, stream_row_index
+from wesnoth_ai.memory import MemoryBatch, MemoryState, SlotMemory, stream_row_index
 from wesnoth_ai.model_output import (
     MAX_ATTACKS, VALUE_N_ATOMS, VALUE_V_MAX, VALUE_V_MIN, ActorKind, ModelOutput,
     PaddedOutput, TokenKind, UnitActionType,
 )
 from wesnoth_ai.packed_trunk import (
-    CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, batch_counts,
+    CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, WindowHeadIndex,
+    batch_counts,
     build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, host_to_device,
     packed_trunk, padded_gather_index,
 )
@@ -750,6 +751,45 @@ class WesnothModel(nn.Module):
         return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
                            sizes, unit_ctx, material=material, memory_padded=new_memory,
                            memory_counts=extras.memory_counts if extras is not None else None)
+
+    def packed_step_trunk(self, before: Sequence[torch.Tensor], after: Sequence[torch.Tensor],
+                          memory: MemoryBatch, index: PackedEmbeddedIndex
+                          ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """One time step of the window-batched sequence trainer
+        (tools/sequence_window_batched.py): the packed trunk on the step's
+        stream tokens, `before` the memory (hex, unit, recruit and sighting
+        rows) and `after` it (the globals and the end_turn row), with the
+        memory's tokens between them, and the memory's write. Returns the
+        trunk's output [total, d] in the packed layout of `index` and the new
+        memory [B, K_max, d]; the heads run later, over a window's outputs
+        (`window_heads`)."""
+        if not getattr(self, "_packed_trunk_checked", False):
+            check_packed_trunk_supported(self.encoder)
+            self._packed_trunk_checked = True
+        if self.infer_compile_packed or self.has_gbc:
+            raise ValueError("the window-batched trunk runs the eager packed trunk of a model without GBC heads")
+        rows = [self.slot_memory.stream_rows(memory, index.memory_rows)] if memory.K_max else []
+        tokens = torch.cat(list(before) + rows + list(after))
+        x = tokens.index_select(0, index.index.src) + self.token_kind_embed(index.index.kind)
+        x = packed_trunk(self.encoder, x, index.index)
+        new_memory = None
+        if memory.K_max:
+            h_memory = x.index_select(0, index.index.memory).view(len(memory.counts), memory.K_max, self.d_model)
+            new_memory = self.slot_memory.write(h_memory, memory)
+        return x, new_memory
+
+    def window_heads(self, x: torch.Tensor, index: WindowHeadIndex) -> "PaddedOutput":
+        """The heads over a window's trunk outputs `x` (each time step's
+        `packed_step_trunk` output, concatenated): every row of every step
+        laid out at the window's widths (`packed_trunk.window_head_index`),
+        the padded slots pointing at their row's end_turn token as in one
+        batch's layout."""
+        d = self.d_model
+        n = len(index.sizes)
+        actor_ctx = x.index_select(0, index.actor).view(n, index.A_max, d)
+        hex_ctx = x.index_select(0, index.hex).view(n, index.H_max, d)
+        global_ctx = x.index_select(0, index.glob).view(n, 1, d)
+        return self._heads(actor_ctx, hex_ctx, global_ctx, index.actor_kind, index.sizes, None)
 
     # ------------------------------------------------------------------
     # Compiled packed trunk (design note section 13)

@@ -66,6 +66,31 @@ def own_pass_inputs(pass_inputs, tmp_path_factory):
     return [*own_arguments(tmp_path_factory.mktemp("own_pass"), pass_inputs), "--pass-positions", "24"]
 
 
+@pytest.fixture(scope="session")
+def columnar(pass_inputs, own_pass_inputs, tmp_path_factory):
+    """The test passes' sequence directories copied and given their columns
+    by the converter's command line (tools/columnize_sequences.py): the two
+    passes' arguments on the copies, {"corpus": args, "own": args}."""
+    import shutil
+    from tools import columnize_sequences
+
+    def option(args, flag):
+        return Path(args[args.index(flag) + 1])
+
+    def replaced(args, flag, value):
+        out = list(args)
+        out[out.index(flag) + 1] = str(value)
+        return out
+    root = tmp_path_factory.mktemp("columns")
+    for name, args, flag in (("corpus", pass_inputs, "--sequences"), ("own", own_pass_inputs, "--own-sequences")):
+        shutil.copytree(option(args, flag), root / name)
+        assert columnize_sequences.main(["--sequences", str(root / name), "--workers", "1",
+                                         "--log-level", "WARNING"]) == 0
+    corpus = replaced(pass_inputs, "--sequences", root / "corpus")
+    return {"corpus": corpus,
+            "own": replaced(replaced(own_pass_inputs, "--sequences", root / "corpus"), "--own-sequences", root / "own")}
+
+
 def _source_phase() -> int:
     """`__phase__` as declared in the Rust source, or 0."""
     import re

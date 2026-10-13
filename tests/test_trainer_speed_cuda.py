@@ -1,9 +1,11 @@
 """The sequence trainer's staging on CUDA (docs/trainer_speed_20261013.md,
-item P3); skipped without a GPU (CI, the laptop), run by
+item P3 and round 2); skipped without a GPU (CI, the laptop), run by
 scripts/trainer_speed_box.sh. The pinned non-blocking staging puts on the
-device what the blocking copies it replaced put there, and a window's
-forward loop, backward pass and clip never wait for the device: the one
-wait is the read after them, with own game-sides in the window or not."""
+device what the blocking copies it replaced put there, the columnar records
+stage the pickles' bytes on the device, and a window's forward loop,
+backward pass and clip never wait for the device: the one wait is the read
+after them, with own game-sides in the window or not, from pickles or
+columns, stepped or batched over the window."""
 from __future__ import annotations
 
 import numpy as np
@@ -81,8 +83,11 @@ def test_the_pinned_staging_equals_the_blocking_copies(tmp_path, pass_inputs):
 
 
 @pytest.mark.parametrize("own", [False, True], ids=["corpus", "own"])
-@pytest.mark.parametrize("extra", [(), ("--activation-budget-gb", "100"), ("--packed-trunk",)],
-                         ids=["padded", "kept activations", "packed"])
+@pytest.mark.parametrize("extra", [(), ("--activation-budget-gb", "100"), ("--packed-trunk",),
+                                   ("--packed-trunk", "--columns"), ("--packed-trunk", "--window-batched"),
+                                   ("--packed-trunk", "--activation-budget-gb", "100", "--columns",
+                                    "--window-batched")],
+                         ids=["padded", "kept activations", "packed", "columns", "batched", "batched columns kept"])
 def test_a_window_waits_for_the_device_once(tmp_path, request, monkeypatch, extra, own):
     """Under torch.cuda.set_sync_debug_mode("error") from the window's start
     to its read: staging, forwards, the backward pass with its
@@ -90,8 +95,11 @@ def test_a_window_waits_for_the_device_once(tmp_path, request, monkeypatch, extr
     corpus alone, and with own game-sides on half the streams (their staging
     and soft-target loss), as production runs."""
     from tools import sequence_train
-    inputs = request.getfixturevalue("own_pass_inputs" if own else "pass_inputs")
-    trainer = _trainer(inputs, tmp_path, "--window", "1", *extra)
+    if "--columns" in extra:
+        inputs = request.getfixturevalue("columnar")["own" if own else "corpus"]
+    else:
+        inputs = request.getfixturevalue("own_pass_inputs" if own else "pass_inputs")
+    trainer = _trainer(inputs, tmp_path, "--window", "2", *extra)
     assert (trainer.own is not None) == own
     assert trainer.train_window()                # the first window builds what is built once
     real = sequence_train.read_window
@@ -111,3 +119,34 @@ def test_a_window_waits_for_the_device_once(tmp_path, request, monkeypatch, extr
         torch.cuda.set_sync_debug_mode(0)
     assert sums and reads == [1]
     assert (sums.get("own_n", 0) > 0) == own
+
+
+@pytest.mark.parametrize("kind", ["corpus", "own"])
+def test_the_columns_stage_the_pickles_bytes_on_the_device(tmp_path, columnar, kind):
+    """Every time step of the pass staged on CUDA from columns and from the
+    pickles: every device tensor of the staged batch, the belief targets,
+    the imitation targets and the own rows' batch the same bytes."""
+    trainers = [_trainer(columnar[kind], tmp_path / name, "--window", "2", *extra)
+                for name, extra in (("pickles", ()), ("columns", ("--columns",)))]
+    n = 0
+    while True:
+        windows = [t._window() for t in trainers]
+        if not windows[0]:
+            break
+        for steps in windows[0]:
+            a, b = (t.inputs.stage(steps) for t in trainers)
+            pairs = [(a.staged.views, b.staged.views), ({"t": a.belief_target, "m": a.belief_mask},
+                                                         {"t": b.belief_target, "m": b.belief_mask}),
+                     (a.targets.views(CUDA), b.targets.views(CUDA))]
+            if a.own is not None:
+                pairs.append(({"rows": a.own.rows, "prob": a.own.prob, **a.own.views},
+                              {"rows": b.own.rows, "prob": b.own.prob, **b.own.views}))
+            torch.cuda.synchronize()
+            for x, y in pairs:
+                assert x.keys() == y.keys()
+                for k in x:
+                    assert x[k].device.type == "cuda" and x[k].dtype == y[k].dtype and x[k].shape == y[k].shape, k
+                    assert torch.equal(x[k].view(torch.uint8) if x[k].dtype == torch.bool else x[k],
+                                       y[k].view(torch.uint8) if y[k].dtype == torch.bool else y[k]), k
+            n += 1
+    assert n > 0
