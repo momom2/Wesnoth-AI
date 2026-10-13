@@ -78,11 +78,12 @@ def check_sighting_stream(model, counts: Optional[Sequence[int]], B: int) -> Non
         raise ValueError(f"{len(counts)} sighting counts for {B} samples")
 
 
-def memory_batch(model, memory: Optional[Sequence[torch.Tensor]], B: int,
-                 device: torch.device) -> Optional[MemoryBatch]:
+def memory_batch(model, memory, B: int, device: torch.device) -> Optional[MemoryBatch]:
     """A batch's memory states padded for the trunk, checked against
     `model`: required by a model with memory slots, refused by one
-    without."""
+    without. `memory` holds each sample's state, or is a `MemoryBatch`
+    already padded (the sequence trainer gathers its batch in one
+    indexing, tools/sequence_memory.py)."""
     if model.slot_memory is None:
         if memory is not None:
             raise ValueError("memory states passed to a model without memory slots")
@@ -92,6 +93,13 @@ def memory_batch(model, memory: Optional[Sequence[torch.Tensor]], B: int,
             f"this model has memory_slots={model.memory_slots}: every forward takes each "
             f"sample's memory state (initial_memory(k) at a game-side's first decision, "
             f"the returned memory after it; [0, d] for k = 0)")
+    if isinstance(memory, MemoryBatch):
+        if len(memory.counts) != B or memory.padded.size(0) != B:
+            raise ValueError(f"a memory batch of {len(memory.counts)} samples for {B}")
+        if memory.K_max > model.memory_slots or memory.padded.size(2) != model.d_model:
+            raise ValueError(f"a memory batch of {memory.K_max} slots of width {memory.padded.size(2)} for a "
+                             f"memory of {model.memory_slots} slots of width {model.d_model}")
+        return memory
     if len(memory) != B:
         raise ValueError(f"{len(memory)} memory states for {B} samples")
     return model.slot_memory.batch(memory, device)

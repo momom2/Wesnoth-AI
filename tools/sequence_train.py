@@ -105,6 +105,7 @@ from tools.lr_law import decide as law_decide  # noqa: E402
 from tools.preencode_sequences import ENCODING, load_manifest, read_record, record_path  # noqa: E402
 from tools.sequence_checkpoints import TrainerCheckpoints  # noqa: E402
 from tools.sequence_args import parse_args  # noqa: E402,F401 (sequence_train.parse_args)
+from tools.sequence_memory import MemoryRouter  # noqa: E402
 from tools.sequence_own import OwnStreams  # noqa: E402
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
 from tools.sequence_setup import (ARCH, PREFETCH_SIDES, SequenceLoader,  # noqa: E402
@@ -285,7 +286,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
                 parts.log_tensor(), bl.detach(), soft.detach())
 
     def _own_batch(self, steps, staged):
-        """The step's own rows staged for their loss (after `_prepare`, which
+        """The step's own rows staged for their loss (after `_stage`, which
         staged the step), None without any."""
         if self.own is None:
             return None
@@ -293,14 +294,12 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         n_types, n_weapons, _ = self.head_shapes
         return self.own.batch(steps, positions, staged.sizes, n_types, n_weapons, self.device)
 
-    def _prepare(self, steps, memories: Dict[int, torch.Tensor]):
-        """One time step's inputs: the staged batch, each slot's memory (the
-        learned initial one at a game-side's first decision), the imitation
-        targets and the belief targets."""
+    def _stage(self, steps, mems):
+        """One time step's inputs but the memory: the staged batch, the
+        imitation targets and the belief targets. `mems`: the step's
+        memories, which the first call reads the heads' shapes with."""
         positions = [self.loader.sides(s.game_side)[s.offset] for s in steps]
         staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
-        mems = [self.model.initial_memory(s.k).to(self.device) if s.starts else memories[s.slot]
-                for s in steps]
         labels = step_labels(positions, steps, staged.sizes, self.games, seed=self.args.seed,
                              value_states_per_game=self.args.value_states_per_game,
                              value_weight=self.value_weight, pin=self.device.type == "cuda")
@@ -309,6 +308,17 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
                                           n_weapons=n_weapons, n_atoms=n_atoms,
                                           type_loss_weights=self.type_loss_weights, device=self.device)
         b_target, b_mask = labels.belief_on(self.device)
+        return staged, targets, b_target, b_mask
+
+    def _prepare(self, steps, memories: Dict[int, torch.Tensor]):
+        """One time step's inputs: the staged batch, each slot's memory (the
+        learned initial one at a game-side's first decision, else the slot's
+        entry in `memories`), the imitation targets and the belief targets.
+        The telemetry's path; a window routes its memories through
+        `MemoryRouter`, to the same values."""
+        mems = [self.model.initial_memory(s.k).to(self.device) if s.starts else memories[s.slot]
+                for s in steps]
+        staged, targets, b_target, b_mask = self._stage(steps, mems)
         return staged, mems, targets, b_target, b_mask
 
     def _trunk_index(self, steps, staged):
@@ -338,11 +348,13 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         self.loader.prefetch(g.file for g in self._upcoming())
         start_memories = {s: m for s, m in self.memories.items() if s in self.signal_slots}
         n_kept = self._kept_steps(window)
+        router = MemoryRouter(self.model, self.device, self.memories)
         total = torch.zeros((), device=self.device)
         logs, own_sums, own_counts = [], [], []
         n_positions = tokens_real = tokens_padded = kept_tokens = kept_bytes = 0
         for t, steps in enumerate(window):
-            staged, mems, targets, b_target, b_mask = self._prepare(steps, self.memories)
+            mems = router.batch(steps)
+            staged, targets, b_target, b_mask = self._stage(steps, mems)
             index = self._trunk_index(steps, staged)
             own = self._own_batch(steps, staged)
             real, padded = trunk_tokens(staged.sizes, staged.sighting_counts, [s.k for s in steps])
@@ -361,10 +373,10 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
                 own_sums.append(outputs[5].sum())
                 own_counts.append(outputs[5].numel())
             total = total + pv + self.args.belief_weight * bsum
-            for b, s in enumerate(steps):
-                self.memories[s.slot] = mem_padded[b, :s.k]
+            router.wrote(steps, mem_padded)
             logs.append((targets, log_t, bl))
             n_positions += len(steps)
+        self.memories = router.memories()
         loss = total / float(self.args.streams * self.args.window)
         lr = self._lr_now()
         for g in self.opt.param_groups:
