@@ -25,6 +25,7 @@ mod core_observe;
 mod core_fog;
 mod core_encode;
 mod core_masks;
+mod core_view;
 mod core_parity;
 mod core_shroud;
 mod core_sight;
@@ -646,7 +647,8 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // (user ruling 2026-10-01): no sighting along a move's route.
     // 32: encode_streams builds the decision's packed legality masks beside
     // the encoding when given the recruit costs (core_masks.rs), and the
-    // module declares the mask layout's constants (mask_layout).
+    // module declares the mask layout's constants (mask_layout);
+    // GameCore.units_view builds the Python view's units (core_view.rs).
     m.add("__phase__", 32)?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;

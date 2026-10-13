@@ -77,7 +77,8 @@ _RECORD_SIDES = (1, 2)
 # mirror, tools/live_mirror.py), 31 marks every unit of the side resting at
 # each side-turn start, the first included (`skip_first_turn_resting` keeps
 # the earlier rule for records of format 3 and earlier), 32 builds the
-# decision's packed legality masks beside the encoding (`encode_raw(masks=True)`).
+# decision's packed legality masks beside the encoding (`encode_raw(masks=True)`)
+# and the view's units (`units_view`).
 _CORE_PHASE = 32
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
@@ -377,6 +378,21 @@ def unit_fields(u: Unit) -> dict:
     }
 
 
+_VIEW_TYPES: Optional[tuple] = None
+
+
+def _view_types() -> tuple:
+    """What `GameCore.units_view` builds a view's units from (rust/
+    wesnoth_core/src/core_view.rs): object.__new__, the classes, the enum
+    members by value and `wml_node`."""
+    global _VIEW_TYPES
+    if _VIEW_TYPES is None:
+        from wesnoth_ai.classes import Alignment, DamageType
+        _VIEW_TYPES = (object.__new__, Unit, Position, Attack, {int(m): m for m in Alignment},
+                       {int(m): m for m in DamageType}, wml_node)
+    return _VIEW_TYPES
+
+
 def unit_from_fields(d: dict) -> Unit:
     """The dataclass back from the core's export (`GameCore.unit_export`),
     its record fields set as the underscore attributes they stand for."""
@@ -560,7 +576,7 @@ class CoreState:
         gi._seen_types = {side: tuple(core.seen_types_export(side)) for side in _RECORD_SIDES}
         gi._sightings_gone = {side: tuple(core.sightings_gone_export(side)) for side in _RECORD_SIDES}
         self._events_into(gi)
-        units = {unit_from_fields(d) for d in core.units_export()}
+        units = set(core.units_view(_view_types()))
         chose_random = self.statics.get("chose_random") or ()
         sides = [SideInfo(player=p, recruits=list(r), current_gold=gold, base_income=b,
                           nb_villages_controlled=v, faction=f,
