@@ -94,12 +94,12 @@ def test_the_routed_memories_train_what_per_row_memories_train(tmp_path, request
     assert not all(w["write_trained"] for w in per_row), "a window in which no step reads an earlier write"
 
 
-def _rate_zero_pass(pass_inputs, tmp_path, *extra):
+def _rate_zero_pass(pass_inputs, tmp_path, budget, *extra):
     """A whole pass in windows of three time steps from the same weights at
     a learning rate of 0 (AdamW then leaves every weight as it is), dropout
-    0, the packed trunk with every activation kept: per window its returned
-    values, gradients and carried memories."""
-    trainer = _trainer(pass_inputs, tmp_path, "--window", "3", "--packed-trunk", "--activation-budget-gb", "1000",
+    0, the packed trunk under an activation budget of `budget` GiB: per
+    window its returned values, gradients and carried memories."""
+    trainer = _trainer(pass_inputs, tmp_path, "--window", "3", "--packed-trunk", "--activation-budget-gb", budget,
                        *extra)
     set_dropout(trainer, 0.0)
     trainer._lr_now = lambda: 0.0
@@ -119,15 +119,17 @@ def _rate_zero_pass(pass_inputs, tmp_path, *extra):
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("budget", ["0", "1000"], ids=["recomputed", "kept"])
 @pytest.mark.parametrize("own", [False, True], ids=["corpus", "own"])
-def test_the_batched_window_trains_what_the_stepped_window_trains_within_rounding(tmp_path, request, own):
+def test_the_batched_window_trains_what_the_stepped_window_trains_within_rounding(tmp_path, request, own, budget):
     """`--window-batched` against the stepped forward, a whole pass from the
-    same weights: every window's loss, logged sums, gradients and carried
+    same weights, every time step's trunk recomputed in the backward pass or
+    every one kept: every window's loss, logged sums, gradients and carried
     memories agree within float32 rounding (the batched forward sums in
     another order and multiplies matrices of more rows, nothing more)."""
     pass_inputs = request.getfixturevalue("own_pass_inputs" if own else "pass_inputs")
-    stepped = _rate_zero_pass(pass_inputs, tmp_path / "stepped")
-    batched = _rate_zero_pass(pass_inputs, tmp_path / "batched", "--window-batched")
+    stepped = _rate_zero_pass(pass_inputs, tmp_path / "stepped", budget)
+    batched = _rate_zero_pass(pass_inputs, tmp_path / "batched", budget, "--window-batched")
     assert len(stepped) == len(batched) >= 2
     for (ra, ga, ma), (rb, gb, mb) in zip(stepped, batched):
         assert rb["positions"] == ra["positions"] and rb.get("own_n") == ra.get("own_n")
