@@ -1,0 +1,19 @@
+{
+ "a": "/workspace/trainer_speed/arm_this_1.jsonl",
+ "b": "/workspace/trainer_speed/arm_this_2.jsonl",
+ "windows": 80,
+ "a_positions_per_second": 259.63,
+ "b_positions_per_second": 261.24,
+ "speedup_total": 1.0062,
+ "window_time_ratio_median": 0.9979,
+ "window_time_ratio_ci95": [
+  0.9921,
+  1.003
+ ],
+ "speedup_median": 1.0021,
+ "speedup_ci95": [
+  0.997,
+  1.008
+ ],
+ "differ": {}
+}

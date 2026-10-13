@@ -1,0 +1,28 @@
+{
+ "a": "/workspace/trainer_speed/arm_this_1.jsonl",
+ "b": "/workspace/trainer_speed/arm_budget.jsonl",
+ "windows": 80,
+ "a_positions_per_second": 259.63,
+ "b_positions_per_second": 277.52,
+ "speedup_total": 1.0689,
+ "window_time_ratio_median": 0.9348,
+ "window_time_ratio_ci95": [
+  0.92,
+  0.9467
+ ],
+ "speedup_median": 1.0698,
+ "speedup_ci95": [
+  1.0563,
+  1.0869
+ ],
+ "differ": {
+  "activation_budget_gb": [
+   0.0,
+   15.97
+  ],
+  "activation_bytes_per_token": [
+   null,
+   150329.0
+  ]
+ }
+}

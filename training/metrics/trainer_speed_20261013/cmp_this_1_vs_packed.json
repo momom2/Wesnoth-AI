@@ -1,0 +1,24 @@
+{
+ "a": "/workspace/trainer_speed/arm_this_1.jsonl",
+ "b": "/workspace/trainer_speed/arm_packed.jsonl",
+ "windows": 80,
+ "a_positions_per_second": 259.63,
+ "b_positions_per_second": 388.69,
+ "speedup_total": 1.4971,
+ "window_time_ratio_median": 0.6386,
+ "window_time_ratio_ci95": [
+  0.6081,
+  0.657
+ ],
+ "speedup_median": 1.5658,
+ "speedup_ci95": [
+  1.5222,
+  1.6445
+ ],
+ "differ": {
+  "trunk": [
+   "padded",
+   "packed"
+  ]
+ }
+}

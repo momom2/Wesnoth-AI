@@ -1,0 +1,16 @@
+stage tier-b/staging/stage_20261013_trainer_speed2.tar.gz
+instance 55755728, host be4c18ac5b36
+cores(all) 128, usable 31
+model name	: AMD EPYC 7B12 64-Core Processor
+cpu.max n/a
+pids.max n/a
+               total        used        free      shared  buff/cache   available
+Mem:          257763       27063       72636          86      158062      228873
+overlay         150G  1.3G  149G   1% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 590.48.01
+torch 2.5.1+cu124 cuda True
+code 0.19.1 epoch 11
+wheel phase 31, source phase 31
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 31 | source 31 | adapter 31 | current

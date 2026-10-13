@@ -1,0 +1,32 @@
+{
+ "a": "/workspace/trainer_speed/arm_this_1.jsonl",
+ "b": "/workspace/trainer_speed/arm_packed_budget.jsonl",
+ "windows": 80,
+ "a_positions_per_second": 259.63,
+ "b_positions_per_second": 548.88,
+ "speedup_total": 2.1141,
+ "window_time_ratio_median": 0.4353,
+ "window_time_ratio_ci95": [
+  0.4283,
+  0.4649
+ ],
+ "speedup_median": 2.2974,
+ "speedup_ci95": [
+  2.1509,
+  2.3346
+ ],
+ "differ": {
+  "trunk": [
+   "padded",
+   "packed"
+  ],
+  "activation_budget_gb": [
+   0.0,
+   19.18
+  ],
+  "activation_bytes_per_token": [
+   null,
+   102139.0
+  ]
+ }
+}

@@ -1,0 +1,375 @@
+{
+ "arms": {
+  "base_1": {
+   "positions_per_second": 249.6,
+   "windows": 80,
+   "peak_gb_max": null,
+   "kept_steps_mean": 0.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 1637,
+    "utilization_mean": 71.1,
+    "utilization_median": 90.0,
+    "sm_clock_mean": 2764,
+    "power_mean": 285.4
+   },
+   "profile": {
+    "kind": "profile",
+    "windows": 3,
+    "wall_seconds": 12.939,
+    "kernels": 124360,
+    "ms_per_window": {
+     "attention": 479.13,
+     "elementwise_norm": 626.6,
+     "gemm": 303.97,
+     "memcpy": 25.95
+    },
+    "share": {
+     "attention": 0.3337,
+     "elementwise_norm": 0.4365,
+     "gemm": 0.2117,
+     "memcpy": 0.0181
+    },
+    "idle_fraction": 0.6671
+   }
+  },
+  "base_2": {
+   "positions_per_second": 250.76,
+   "windows": 80,
+   "peak_gb_max": null,
+   "kept_steps_mean": 0.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 1629,
+    "utilization_mean": 68.4,
+    "utilization_median": 88.0,
+    "sm_clock_mean": 2755,
+    "power_mean": 288.8
+   },
+   "profile": {
+    "kind": "profile",
+    "windows": 3,
+    "wall_seconds": 12.786,
+    "kernels": 124360,
+    "ms_per_window": {
+     "attention": 479.36,
+     "elementwise_norm": 626.88,
+     "gemm": 304.27,
+     "memcpy": 25.97
+    },
+    "share": {
+     "attention": 0.3337,
+     "elementwise_norm": 0.4364,
+     "gemm": 0.2118,
+     "memcpy": 0.0181
+    },
+    "idle_fraction": 0.663
+   }
+  },
+  "budget": {
+   "positions_per_second": 277.52,
+   "windows": 80,
+   "peak_gb_max": 15.497,
+   "kept_steps_mean": 4.35,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 1472,
+    "utilization_mean": 73.4,
+    "utilization_median": 100.0,
+    "sm_clock_mean": 2754,
+    "power_mean": 293.6
+   },
+   "profile": {
+    "kind": "profile",
+    "windows": 3,
+    "wall_seconds": 11.7,
+    "kernels": 117525,
+    "ms_per_window": {
+     "attention": 450.37,
+     "elementwise_norm": 591.04,
+     "gemm": 286.41,
+     "memcpy": 25.52
+    },
+    "share": {
+     "attention": 0.3328,
+     "elementwise_norm": 0.4367,
+     "gemm": 0.2116,
+     "memcpy": 0.0189
+    },
+    "idle_fraction": 0.653
+   }
+  },
+  "cal_packed": {
+   "positions_per_second": 447.34,
+   "windows": 10,
+   "peak_gb_max": 2.556,
+   "kept_steps_mean": 2.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 113,
+    "utilization_mean": 32.8,
+    "utilization_median": 34.0,
+    "sm_clock_mean": 2775,
+    "power_mean": 179.3
+   }
+  },
+  "cal_padded": {
+   "positions_per_second": 316.69,
+   "windows": 10,
+   "peak_gb_max": 4.045,
+   "kept_steps_mean": 1.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 161,
+    "utilization_mean": 70.6,
+    "utilization_median": 100.0,
+    "sm_clock_mean": 2779,
+    "power_mean": 293.8
+   }
+  },
+  "packed": {
+   "positions_per_second": 388.69,
+   "windows": 80,
+   "peak_gb_max": 1.815,
+   "kept_steps_mean": 0.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 1051,
+    "utilization_mean": 32.1,
+    "utilization_median": 34.0,
+    "sm_clock_mean": 2765,
+    "power_mean": 176.2
+   },
+   "profile": {
+    "kind": "profile",
+    "windows": 3,
+    "wall_seconds": 12.73,
+    "kernels": 106853,
+    "ms_per_window": {
+     "attention": 64.91,
+     "elementwise_norm": 182.09,
+     "gemm": 184.75,
+     "memcpy": 7.32
+    },
+    "share": {
+     "attention": 0.1478,
+     "elementwise_norm": 0.4147,
+     "gemm": 0.4208,
+     "memcpy": 0.0167
+    },
+    "idle_fraction": 0.8965
+   }
+  },
+  "packed_budget": {
+   "positions_per_second": 548.88,
+   "windows": 80,
+   "peak_gb_max": 18.569,
+   "kept_steps_mean": 15.4625,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 744,
+    "utilization_mean": 34.2,
+    "utilization_median": 33.0,
+    "sm_clock_mean": 2769,
+    "power_mean": 181.3
+   },
+   "profile": {
+    "kind": "profile",
+    "windows": 3,
+    "wall_seconds": 7.155,
+    "kernels": 83032,
+    "ms_per_window": {
+     "attention": 48.36,
+     "elementwise_norm": 134.07,
+     "gemm": 130.43,
+     "memcpy": 6.25
+    },
+    "share": {
+     "attention": 0.1515,
+     "elementwise_norm": 0.4201,
+     "gemm": 0.4087,
+     "memcpy": 0.0196
+    },
+    "idle_fraction": 0.8662
+   }
+  },
+  "preload": {
+   "positions_per_second": 709.9,
+   "windows": 80,
+   "peak_gb_max": 18.569,
+   "kept_steps_mean": 15.4625,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 575,
+    "utilization_mean": 44.6,
+    "utilization_median": 44.0,
+    "sm_clock_mean": 2772,
+    "power_mean": 212.4
+   }
+  },
+  "this_1": {
+   "positions_per_second": 259.63,
+   "windows": 80,
+   "peak_gb_max": 5.033,
+   "kept_steps_mean": 0.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 1574,
+    "utilization_mean": 73.1,
+    "utilization_median": 100.0,
+    "sm_clock_mean": 2758,
+    "power_mean": 296.0
+   },
+   "profile": {
+    "kind": "profile",
+    "windows": 3,
+    "wall_seconds": 12.51,
+    "kernels": 123631,
+    "ms_per_window": {
+     "attention": 479.39,
+     "elementwise_norm": 627.09,
+     "gemm": 304.35,
+     "memcpy": 25.57
+    },
+    "share": {
+     "attention": 0.3337,
+     "elementwise_norm": 0.4366,
+     "gemm": 0.2119,
+     "memcpy": 0.0178
+    },
+    "idle_fraction": 0.6555
+   }
+  },
+  "this_2": {
+   "positions_per_second": 261.24,
+   "windows": 80,
+   "peak_gb_max": 5.033,
+   "kept_steps_mean": 0.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 1564,
+    "utilization_mean": 71.5,
+    "utilization_median": 100.0,
+    "sm_clock_mean": 2756,
+    "power_mean": 296.1
+   },
+   "profile": {
+    "kind": "profile",
+    "windows": 3,
+    "wall_seconds": 12.324,
+    "kernels": 123631,
+    "ms_per_window": {
+     "attention": 479.3,
+     "elementwise_norm": 627.05,
+     "gemm": 304.38,
+     "memcpy": 25.57
+    },
+    "share": {
+     "attention": 0.3337,
+     "elementwise_norm": 0.4366,
+     "gemm": 0.2119,
+     "memcpy": 0.0178
+    },
+    "idle_fraction": 0.6504
+   }
+  },
+  "this_3": {
+   "positions_per_second": 258.01,
+   "windows": 80,
+   "peak_gb_max": 5.033,
+   "kept_steps_mean": 0.0,
+   "gpu": {
+    "kind": "gpu",
+    "samples": 1583,
+    "utilization_mean": 72.4,
+    "utilization_median": 100.0,
+    "sm_clock_mean": 2757,
+    "power_mean": 293.9
+   }
+  }
+ },
+ "comparisons": {
+  "base_1_vs_base_2": {
+   "speedup_total": 1.0046,
+   "speedup_median": 1.0008,
+   "speedup_ci95": [
+    0.9931,
+    1.0066
+   ]
+  },
+  "base_1_vs_packed_budget": {
+   "speedup_total": 2.199,
+   "speedup_median": 2.3351,
+   "speedup_ci95": [
+    2.237,
+    2.3918
+   ]
+  },
+  "base_1_vs_this_1": {
+   "speedup_total": 1.0402,
+   "speedup_median": 1.0463,
+   "speedup_ci95": [
+    1.0417,
+    1.057
+   ]
+  },
+  "base_2_vs_this_2": {
+   "speedup_total": 1.0418,
+   "speedup_median": 1.0459,
+   "speedup_ci95": [
+    1.0396,
+    1.0548
+   ]
+  },
+  "packed_budget_vs_preload": {
+   "speedup_total": 1.2934,
+   "speedup_median": 1.1327,
+   "speedup_ci95": [
+    1.0714,
+    1.2526
+   ]
+  },
+  "this_1_vs_budget": {
+   "speedup_total": 1.0689,
+   "speedup_median": 1.0698,
+   "speedup_ci95": [
+    1.0563,
+    1.0869
+   ]
+  },
+  "this_1_vs_packed": {
+   "speedup_total": 1.4971,
+   "speedup_median": 1.5658,
+   "speedup_ci95": [
+    1.5222,
+    1.6445
+   ]
+  },
+  "this_1_vs_packed_budget": {
+   "speedup_total": 2.1141,
+   "speedup_median": 2.2974,
+   "speedup_ci95": [
+    2.1509,
+    2.3346
+   ]
+  },
+  "this_1_vs_this_2": {
+   "speedup_total": 1.0062,
+   "speedup_median": 1.0021,
+   "speedup_ci95": [
+    0.997,
+    1.008
+   ]
+  }
+ },
+ "valid": true,
+ "flags_valid": false,
+ "budget_peaks_under_cap": {
+  "budget": true,
+  "packed_budget": true
+ },
+ "gradcheck": true,
+ "not_measured": {
+  "P4": "the telemetry cadence: every arm moves its rows past the bench; in round 2's records its 80 rows took 168 s of the pass's 11,599"
+ }
+}

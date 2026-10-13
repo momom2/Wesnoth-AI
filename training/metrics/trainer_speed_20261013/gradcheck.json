@@ -1,0 +1,67 @@
+{
+ "pass": true,
+ "min_cosine": 0.99,
+ "max_loss_rel": 0.005,
+ "windows": [
+  {
+   "i": 0,
+   "loss_padded": 2.501351833343506,
+   "loss_packed": 2.5025582313537598,
+   "loss_rel": 0.000482,
+   "cosine": {
+    "actor_head": 0.999968,
+    "belief_head": 0.999999,
+    "encoder": 0.998641,
+    "memory_initial": 0.997155,
+    "memory_slots": 0.997283,
+    "memory_write": 0.997898,
+    "target_proj": 0.999842,
+    "trunk": 0.996927,
+    "type_head": 0.999998,
+    "value_head": 0.999996,
+    "weapon_head": 0.999798
+   },
+   "pass": true
+  },
+  {
+   "i": 1,
+   "loss_padded": 2.8694279193878174,
+   "loss_packed": 2.8698689937591553,
+   "loss_rel": 0.000154,
+   "cosine": {
+    "actor_head": 0.999957,
+    "belief_head": 0.999737,
+    "encoder": 0.999592,
+    "memory_initial": 0.995694,
+    "memory_slots": 0.998671,
+    "memory_write": 0.998822,
+    "target_proj": 0.999616,
+    "trunk": 0.997657,
+    "type_head": 0.999828,
+    "value_head": 0.999992,
+    "weapon_head": 0.999986
+   },
+   "pass": true
+  },
+  {
+   "i": 2,
+   "loss_padded": 2.2183144092559814,
+   "loss_packed": 2.2180426120758057,
+   "loss_rel": 0.000123,
+   "cosine": {
+    "actor_head": 0.999946,
+    "belief_head": 0.999995,
+    "encoder": 0.999359,
+    "memory_initial": 0.998429,
+    "memory_slots": 0.999289,
+    "memory_write": 0.998671,
+    "target_proj": 0.999678,
+    "trunk": 0.997973,
+    "type_head": 0.999988,
+    "value_head": 0.999985,
+    "weapon_head": 0.99999
+   },
+   "pass": true
+  }
+ ]
+}

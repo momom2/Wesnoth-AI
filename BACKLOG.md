@@ -70,6 +70,15 @@ $1.47 in all):
   primary read; the benchmark cannot decompose a ceiling that small. The
   value read resolves it (+0.037 +- 0.015) and there the roster placed at
   random recovers most of it, the belief head's hexes nothing more.
+  **The sequence trainer's speed measured 2026-10-13** (branch
+  `feature/trainer-speed`, records `training/metrics/trainer_speed_20261013/`,
+  about $0.75): on one 4090, the same windows of round 2's training,
+  249.6 and 250.8 positions a second for the base code, 259.6 with the host
+  waits removed, 277.5 with kept activations, 388.7 on the packed trunk and
+  548.9 with both (2.2x the base); 709.9 with every record read first, so
+  the loader now costs about a fifth of the step. The packed trunk changes
+  the arithmetic (gradient cosine at least 0.995 against the padded trunk)
+  and needs its holdout acceptance before a pass uses it.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

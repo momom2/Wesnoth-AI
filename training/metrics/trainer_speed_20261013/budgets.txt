@@ -1,0 +1,3 @@
+budget: 143171 bytes per kept token measured, budget 15.97 GiB
+packed_budget: 97276 bytes per kept token measured, budget 19.18 GiB
+preload: packed_budget's flags (--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139)
