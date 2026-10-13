@@ -251,3 +251,27 @@ def test_a_worker_plays_its_games_at_once_as_it_plays_them_alone(tmp_path):
     assert server_t["batches"] == server_t["requests"] == server_a["requests"]
     stages = json.loads(workers_t[0].read_text(encoding="utf-8"))
     assert stages["decisions"] == sum(g[2] + g[3] for g in together.values())
+
+
+def test_a_game_thread_reports_a_game_that_dies_of_a_base_exception(capsys, monkeypatch):
+    """A Rust panic reaches Python as a BaseException; in a worker playing
+    several games the thread still answers its job (failed), so the driver
+    does not wait for it until the game's timeout."""
+    import io
+    from tools import elo_eval_game as g
+
+    class PanicException(BaseException):
+        pass
+
+    def fake_main(argv):
+        if argv == ["boom"]:
+            raise PanicException("the core panicked")
+        return 0
+    monkeypatch.setattr(g, "main", fake_main)
+    monkeypatch.setattr(g, "_WORKER_MODE", False)
+    jobs = [{"job": 3, "argv": ["boom"]}, {"job": 4, "argv": ["fine"]}]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(j) + "\n" for j in jobs)))
+    assert g.worker_loop(games=2) == 0
+    out = capsys.readouterr()
+    assert "__DONE__ 3 1" in out.out and "__DONE__ 4 0" in out.out
+    assert "the core panicked" in out.err

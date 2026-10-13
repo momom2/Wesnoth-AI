@@ -302,6 +302,17 @@ def worker_loop(games: int = 1) -> int:
     def play(job: int, argv) -> None:
         _emit(f"__DONE__ {job} {_run_job(argv)}")
 
+    def play_in_thread(job: int, argv) -> None:
+        # A game thread answers for every way its game ends: an exception
+        # the executor kept (a Rust panic is a BaseException) would leave
+        # the driver waiting for this job until its timeout.
+        try:
+            play(job, argv)
+        except BaseException:                          # noqa: BLE001
+            import traceback as _tb
+            _tb.print_exc(file=sys.stderr)
+            _emit(f"__DONE__ {job} 1")
+
     try:
         for line in sys.stdin:
             line = line.strip()
@@ -311,7 +322,7 @@ def worker_loop(games: int = 1) -> int:
             if games <= 1:
                 play(msg["job"], msg["argv"])
             else:
-                pool.submit(play, msg["job"], msg["argv"])
+                pool.submit(play_in_thread, msg["job"], msg["argv"])
     finally:
         pool.shutdown(wait=True)
     return 0
