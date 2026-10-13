@@ -135,8 +135,6 @@ timeout 2m python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available()
 box_upload
 
 # ---- the tests of what this stage changed, on this wheel; the CUDA tests are recorded
-# (test_cuda_seam_matches_reference_enumeration fails on main as well: its
-# CPU reference and its CUDA forward differ by more than its tolerance)
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests.log"
     box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_graphed_serve.py \
