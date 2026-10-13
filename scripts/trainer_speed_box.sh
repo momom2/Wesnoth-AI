@@ -206,11 +206,13 @@ EOF
     rm -rf "$CORPUS" "${CORPUS}_duplicates"
     from=$(box_size "$OUT/corpus_build.log")
     box_bounded --stall "$OUT/corpus_build.log" "$BUILD_STALL_MIN" corpus "$BUILD_CUT_MIN" corpus_build.log \
-        python tools/build_imitation_dataset.py --raw-root "$RAW" --out "$CORPUS" --workers "$WORKERS"
+        python tools/build_imitation_dataset.py --raw-root "$RAW" --out "$CORPUS" --workers "$WORKERS" \
+        --dispositions "$RAW/training/logs/replay_dispositions.jsonl.gz"
     tail -c "+$(( from + 1 ))" "$OUT/corpus_build.log" | grep -q "BUILD_DONE" \
         || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (corpus_build.log)" 1
     box_bounded corpus-check 10 corpus_build.log \
         python tools/build_imitation_dataset.py --out "$CORPUS" --check "$OUT/corpus_summary.json" \
+        --dispositions "$RAW/training/logs/replay_dispositions.jsonl.gz" \
         || box_finish "CORPUS_BARRIER rc=$BOX_RC (corpus_build.log)" 1
     box_mark "$BOX_STATE/CORPUS_DONE"
 fi
