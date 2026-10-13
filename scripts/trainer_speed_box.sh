@@ -119,7 +119,7 @@ notes() {                        # what is done, for the finish reason
     local name done_=()
     [ ! -f "$OUT/gradcheck.json" ] || done_+=(gradcheck)
     for name in $ARMS; do
-        [ ! -f "$OUT/arm_$name.done" ] || done_+=("$name")
+        ! box_marked_this_stage "$OUT/arm_$name.done" || done_+=("$name")
     done
     echo "done: ${done_[*]:-nothing}"
 }
@@ -271,12 +271,12 @@ cp -f "$OWN/sequence_manifest.json" "$OUT/own_sequence_manifest.json" || box_fin
 # ---- the arms
 TRAIN_ARGS=(--sequences "$SEQ" --dataset "$CORPUS" --own-sequences "$OWN" --seed "$RUN_SEED" --device cuda
             --lr "$LR" --warmup-steps 0 --decay-from "$DECAY_FROM" --pass-positions "$PASS_POSITIONS"
-            --probe-every "$PROBE_EVERY" --barrier-positions 1000000 --probe-ks 0,64 --probe-at-start
+            --probe-every "$PROBE_EVERY" --barrier-positions 1000000 --probe-ks "0,64" --probe-at-start
             --init-from "$INIT_PT" --init-other-records)
 arm() {                          # arm NAME REPO WARMUP WINDOWS PROFILE BENCH_FLAGS TRAIN_FLAGS...: one bench run, once
     local name=$1 repo=$2 warmup=$3 windows=$4 profile=$5 bench_flags=$6
     shift 6
-    [ ! -f "$OUT/arm_$name.done" ] || return 0
+    ! box_marked_this_stage "$OUT/arm_$name.done" || return 0
     box_gpu_ok || box_finish "GPU_UNRESPONSIVE before arm $name: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
     rm -f "$OUT/arm_$name.jsonl" "$OUT/arm_$name.steps.jsonl" "$OUT/arm_$name.smi.csv"
     cd "$repo" || box_finish "NO_REPO $repo" 1
@@ -363,7 +363,9 @@ echo "preload: $FASTEST's flags (${FASTEST_FLAGS[*]})" >> "$OUT/budgets.txt"
 compare() {                      # compare A B FIELD...: B's speedup over A, the fields allowed to differ
     local a=$1 b=$2
     shift 2
-    [ -f "$OUT/arm_$a.done" ] && [ -f "$OUT/arm_$b.done" ] || return 0
+    if [ ! -f "$OUT/arm_$a.done" ] || [ ! -f "$OUT/arm_$b.done" ]; then
+        return 0
+    fi
     box_bounded "compare $a $b" 5 compare.log python tools/bench_sequence_step.py compare \
         "$OUT/arm_$a.jsonl" "$OUT/arm_$b.jsonl" --allow "$@" --out "$OUT/cmp_${a}_vs_$b.json"
 }

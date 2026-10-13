@@ -379,6 +379,24 @@ def test_the_kernel_classes_and_the_idle_fraction_read_a_trace(tmp_path):
     assert got["idle_fraction"] == pytest.approx(1 - 450 / 1000)
 
 
+# ---- the telemetry's cadence -------------------------------------------------------------
+
+@pytest.mark.slow
+def test_the_telemetry_rows_leave_the_weights_untouched(tmp_path, pass_inputs):
+    """A pass with a telemetry row after every window ends with the weights
+    of a pass without any (dropout drawing): the cadence is free to change."""
+    weights = []
+    for name, every in (("rows", "1"), ("none", "1000000")):
+        trainer = _trainer(pass_inputs, tmp_path / name, "--window", "2", "--signal-every", every)
+        set_dropout(trainer, 0.3)
+        while trainer.train_window():
+            pass
+        weights.append([p.detach().clone() for p in trainer.params])
+    rows = (tmp_path / "rows" / "arm.signal.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(rows) == 3 and not (tmp_path / "none" / "arm.signal.jsonl").exists()
+    assert all(torch.equal(a, b) for a, b in zip(*weights))
+
+
 # ---- the read-back -------------------------------------------------------------------
 
 @pytest.mark.slow
