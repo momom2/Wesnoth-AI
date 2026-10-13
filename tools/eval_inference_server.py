@@ -691,6 +691,11 @@ def main(argv: List[str]) -> int:
             # arm spent its infer time capturing 72 of them,
             # docs/box_specs.md).
             graphed = GraphedServe(model, encoder, device, caps=eval_caps(args.max_batch))
+            # The largest bucket first, before any game: the graphs' shared
+            # pool reaches its size now, or the server serves eager from the
+            # start (wesnoth_ai/graphed_serve.py, "Memory").
+            with torch.no_grad():
+                log.info("graphed serve preflight: %s", graphed.preflight())
     server = InferenceServer(model, encoder, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
                              packed_embed=packed_embed, graphed=graphed)
@@ -698,7 +703,7 @@ def main(argv: List[str]) -> int:
         "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
         "device": device.type, "infer_bf16": bf16,
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
-        "graphed": graphed is not None,
+        "graphed": graphed is not None and graphed.disabled is None,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),

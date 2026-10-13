@@ -45,11 +45,32 @@ written from the trunk's outputs at those rows, ride back with the
 priors. A model with the material value input or the GBC context is
 refused (the priors protocol carries neither).
 
+Memory. Every bucket's graph is captured into ONE memory pool, so the
+graphs together hold about what the largest capture needs, not the sum
+of every capture's (the 2026-10-13 box run: 58-63 buckets of private
+pools ran a 4090 out of memory at 40 and 60 games in flight). Sharing
+is safe here because no device tensor a capture allocates outlives it
+(each replay copies its inputs in from pinned host buffers and its
+outputs out to one) and the replays run one after another on one
+stream: a graph never reads what another wrote. `preflight` captures
+the largest bucket first, from synthetic leaves, so the pool reaches
+its size before any game is served, and a server knows at start whether
+it fits. A bucket is captured only while `capture_reserve_mb` of device
+memory stays available; one that is not captured, or whose capture
+fails, is served by the caller's eager path, and a failed capture
+leaves the device probed (an error that poisoned it is raised).
+
+The combat oracle's mask biases ride the static masks only with
+`biases=True` (their buffer is [segments, actors, hexes] float32, the
+largest copy of a replay); off, its value since 2026-08-06, a batch
+carrying a bias is served eagerly.
+
 Not graphed: the wire (`tools/inference_seam.output_to_wire`). A batch
 that exceeds a cap (segments, actor slots, hex slots, tokens, a segment
-longer than `max_len`, sightings past the actor cap, legal entries)
-returns None from `infer` and the caller serves it on the eager path;
-the counters say how often.
+longer than `max_len`, sightings past the actor cap, legal entries),
+carries a bias without `biases`, or lands on a bucket that is not
+captured returns None from `infer` and the caller serves it on the
+eager path; the counters say how often.
 """
 from __future__ import annotations
 
@@ -128,10 +149,17 @@ def pool_caps(max_batch: int) -> Caps:
 # batch replays at its bucket's rows, so a coarse step pads the trunk's
 # dense layers (up to 60% at 5,000 tokens into 8,192); every bucket
 # costs one capture.
-_T_CAPS = (1024, 2048, 3072, 4096, 5120, 6144, 8192, 10240, 12288, 16384, 20480, 24576, 32768)
+_T_CAPS = (1024, 2048, 3072, 4096, 5120, 6144, 8192, 10240, 12288, 16384, 20480, 24576, 28672,
+           32768, 40960, 49152, 57344)
 # Rows per leaf the largest bucket reserves: a relevant-set leaf runs
 # 250-400 hex, unit and recruit tokens, plus a 64-slot memory.
 _ROWS_PER_LEAF = 512
+# The eval server's segment buckets below its max batch: a batch replays
+# at its bucket's segments, and the heads and the priors run on all of them.
+_EVAL_B_CAPS = (8, 16, 24, 32, 48, 64, 96)
+# Device memory a capture leaves free for the eager path and cuBLAS's
+# workspaces (a capture is not attempted below it).
+CAPTURE_RESERVE_MB = 2048
 
 
 def _token_caps(leaves: int) -> Tuple[int, ...]:
@@ -145,7 +173,7 @@ def eval_caps(max_batch: int) -> Caps:
     decision in flight per game), so the segment axis is bucketed
     coarsely (every bucket costs one capture), and the token rows reach
     a full batch of the largest leaves."""
-    b_caps = tuple(sorted({b for b in (8, 16, 24, 32, 48, 64) if b < max_batch} | {max_batch}))
+    b_caps = tuple(sorted({b for b in _EVAL_B_CAPS if b < max_batch} | {max_batch}))
     return Caps(b_cap=max_batch, b_caps=b_caps, t_caps=_token_caps(max_batch))
 
 
@@ -299,7 +327,8 @@ class GraphedServe:
     several through its lock."""
 
     def __init__(self, model, encoder, device: torch.device, *, caps: Caps = Caps(),
-                 graphs: bool = True, extras: Optional[Sequence[str]] = None):
+                 graphs: bool = True, extras: Optional[Sequence[str]] = None,
+                 biases: bool = False, capture_reserve_mb: float = CAPTURE_RESERVE_MB):
         if getattr(model, "has_gbc", False):
             raise ValueError("graphed serve does not carry the GBC unit context")
         if getattr(model, "has_value_material", False):
@@ -328,13 +357,19 @@ class GraphedServe:
         self._weights: Optional[PackedTrunkWeights] = None
         self._initial: Optional[Tuple[int, np.ndarray]] = None   # (weights version, initial memory)
         self._states: Dict[Bucket, _State] = {}
-        # One private memory pool per graph: sharing one across
-        # graphs is safe only when they replay in capture order, and
-        # buckets replay in whatever order the batches arrive.
+        self.biases = bool(biases)
+        # One memory pool for every bucket's graph (module docstring, "Memory").
+        self._pool = torch.cuda.graph_pool_handle() if self.graphs else None
+        self.capture_reserve_bytes = int(capture_reserve_mb * 2 ** 20)
         self._lock = threading.Lock()
         self.fallbacks: Dict[str, int] = {}
         self.served = 0
         self.capture_s = 0.0
+        self.capture_failures: List[str] = []
+        self.preflight_info: Optional[Dict[str, object]] = None
+        # Set when the largest bucket could not be captured: no batch is
+        # graphed then, and the caller serves them all eagerly.
+        self.disabled: Optional[str] = None
 
     # -- buckets ---------------------------------------------------------
 
@@ -393,7 +428,7 @@ class GraphedServe:
             ("memory", torch.int64, (bucket.b_cap * self.k_cap,)),
         ])
         ml = mask_layout(bucket.b_cap, bucket.a_cap, bucket.h_cap, self.T, self.W,
-                         type_bias=True, attack_bias=True)
+                         type_bias=self.biases, attack_bias=self.biases)
         sighting_rows = caps[3] if self.parity else 0
         st = _State(
             bucket=bucket,
@@ -520,30 +555,52 @@ class GraphedServe:
             # the default "global" mode makes those calls fail and the
             # capture with them ("operation failed due to a previous
             # error during capture", the 2026-09-14 pool arm).
-            with torch.cuda.graph(g, capture_error_mode="thread_local"):
+            with torch.cuda.graph(g, pool=self._pool, capture_error_mode="thread_local"):
                 self._body(st)
             torch.cuda.synchronize(self.device)
         st.graph = g
         st.capture_s = time.perf_counter() - t0
         self.capture_s += st.capture_s
 
-    def _run(self, st: _State) -> None:
+    def _available_bytes(self) -> int:
+        """Device memory a capture could take: the driver's free memory and
+        the blocks the caching allocator holds unused (the shared pool's
+        among them)."""
+        free, _total = torch.cuda.mem_get_info(self.device)
+        return int(free + torch.cuda.memory_reserved(self.device)
+                   - torch.cuda.memory_allocated(self.device))
+
+    def _probe_device(self) -> None:
+        """Raise when the device can no longer run work (a sticky fault)."""
+        torch.cuda.synchronize(self.device)
+        (torch.ones(1, device=self.device) + 1).item()
+
+    def _run(self, st: _State) -> Optional[str]:
+        """Run the bucket's body: its graph's replay (captured on first
+        use), or on CPU the body itself; None when it ran. Otherwise why
+        the bucket has no graph, and the caller serves the batch eagerly:
+        "memory" (less than the reserve is available; a later batch tries
+        again), "capture_failed" (now or before; the device was probed)."""
         if not self.graphs:
             self._body(st)
-            return
+            return None
         with _GRAPH_LOCK:
             if st.graph is None:
+                if self._available_bytes() < self.capture_reserve_bytes:
+                    return "memory"
                 try:
                     self._capture(st)
-                except Exception as e:                   # noqa: BLE001 -- eager serves this bucket
-                    log.warning("graphed serve: capture failed for %s (%s: %s); this bucket "
-                                "runs its static body eagerly", st.bucket, type(e).__name__, e)
+                except Exception as e:                   # noqa: BLE001 -- the eager path serves this bucket
                     st.graph = False                     # type: ignore[assignment]
-            if st.graph:
-                st.graph.replay()
-                st.replays += 1
-                return
-        self._body(st)
+                    self.capture_failures.append(f"{st.bucket}: {type(e).__name__}: {e}"[:400])
+                    log.warning("graphed serve: capture failed for %s (%s: %s); the eager path "
+                                "serves this bucket", st.bucket, type(e).__name__, e)
+                    self._probe_device()
+            if not st.graph:
+                return "capture_failed"
+            st.graph.replay()
+            st.replays += 1
+            return None
 
     # -- one batch ---------------------------------------------------------
 
@@ -596,6 +653,12 @@ class GraphedServe:
             raise ValueError(f"graphed serve: a model of {self.k_cap} memory slots "
                              f"{'needs' if self.k_cap else 'takes no'} memory states")
         c = self.caps
+        if self.disabled is not None:
+            self._fallback("disabled")
+            return None
+        if not self.biases and any(p.type_bias is not None or p.attack_bias is not None for p in packs):
+            self._fallback("biases")
+            return None
         sizes = [(r.unit_xs.shape[0], r.recruit_type_ids.shape[0], r.hex_xs.shape[0]) for r in raws]
         sightings = [r.sight_xs.shape[0] for r in raws] if self.parity else None
         slots = [int(m.k) for m in memories] if memories is not None else None
@@ -639,7 +702,10 @@ class GraphedServe:
                 return None
             st.actor_kind = torch.from_numpy(sidx.actor_kind)
             self._current_weights()
-            self._run(st)
+            why = self._run(st)
+            if why is not None:
+                self._fallback(why)
+                return None
             n_extras = len(self.extras) + (1 if self.k_cap else 0)
             pending = PendingPriors(host=st.out_host, layout=st.out_layout, n_samples=B,
                                     capacity=c.capacity, n_extras=n_extras, device=self.device)
@@ -655,11 +721,98 @@ class GraphedServe:
                             actor_kind=st.actor_kind[:B, :A_max], sizes=[tuple(s) for s in sizes],
                             memory=host[-1] if self.k_cap else None)
 
+    # -- the largest bucket, first -------------------------------------------
+
+    def _synthetic_leaves(self, sizes: Sequence[Tuple[int, int, int]], sightings: Sequence[int]):
+        """Leaves of the given (units, recruits, hexes) and sighting counts,
+        every array zero: what a capture's memory depends on is the shapes."""
+        from wesnoth_ai.encoder import RawEncoded
+        from wesnoth_ai.memory import MemoryState
+        fields = dict(self.encoder._stream_fields())
+        raws, packs, memories = [], [], []
+        for (U, R, H), S in zip(sizes, sightings):
+            n = {"hex": H, "unit": U, "recruit": R, "sighting": S}
+            arrays = {name: np.zeros((n[stream],) + tuple(shape), dtype=torch.empty(0, dtype=dt).numpy().dtype)
+                      for stream, spec in fields.items() for name, dt, shape in spec}
+            raw = RawEncoded(
+                hex_positions=None, unit_positions=None, unit_ids=None, recruit_types=None,
+                unit_is_ours=np.zeros(U, np.float32), recruit_is_ours=np.zeros(R, np.float32),
+                global_feats=np.zeros(self.encoder.widths.global_feats, np.float32),
+                our_faction_id=0, their_faction_id=0,
+                **{k: v for k, v in arrays.items() if not k.startswith("sight_")})
+            if self.parity:
+                raw.their_faction_probs = np.zeros(MAX_FACTIONS, np.float32)
+                for k, v in arrays.items():
+                    if k.startswith("sight_"):
+                        setattr(raw, k, v)
+            A, HB = U + R + 1, (H + 7) // 8
+            actor_mask = np.zeros(A, np.uint8)
+            actor_mask[-1] = 1
+            packs.append(PackedMasks(
+                actor_mask=actor_mask, type_valid=np.zeros((A, self.T), np.uint8),
+                attack_valid=np.zeros((A, HB), np.uint8), move_valid=np.zeros((A, HB), np.uint8),
+                union_valid=np.zeros((A, HB), np.uint8), n_attacks=np.zeros(A, np.int8),
+                end_turn_bias=0.0, n_units=U, n_recruits=R, n_hexes=H))
+            raws.append(raw)
+            memories.append(MemoryState(self.k_cap, None))
+        return raws, packs, (memories if self.k_cap else None)
+
+    def preflight(self) -> Dict[str, object]:
+        """Capture the largest bucket of the caps (the most segments, actor
+        and hex slots and token rows) from synthetic leaves, before any
+        batch is served, so the shared pool reaches its size at start. When
+        it cannot be captured the instance is disabled (every batch goes to
+        the caller's eager path) and the reason is kept; the device is
+        probed either way."""
+        c = self.caps
+        B, A, H, T = max(c.segment_caps), max(c.a_caps), max(c.h_caps), max(c.t_caps)
+        K, S = self.k_cap, (A if self.parity else 0)
+        # Leaf 0 holds the most units (sightings as many) and as many hexes
+        # as its segment's length allows (past the second hex cap, so the
+        # batch takes the largest); the others share the remaining rows, at
+        # least one hex each, so it lands on the largest token bucket.
+        h0 = min(H, c.max_len - (A - 1) - S - K - 2)
+        first = h0 + (A - 1) + S + K + 2
+        per_other = max(0, (T - first) // max(1, B - 1) - (K + 2 + 1))
+        other_h = int(min(h0, max(1, per_other)))
+        sizes = [(A - 1, 0, h0)] + [(1, 0, other_h)] * (B - 1)
+        sightings = [S] + [0] * (B - 1)
+        info: Dict[str, object] = {"bucket": f"{B}x{A}x{H}x{T}", "tokens": int(
+            sum(u + r + h + K + 2 for u, r, h in sizes) + sum(sightings))}
+        t0 = time.perf_counter()
+        before = torch.cuda.memory_reserved(self.device) if self.graphs else 0
+        raws, packs, memories = self._synthetic_leaves(sizes, sightings)
+        try:
+            served = self.infer(raws, packs, memories)
+        except Exception as e:                           # noqa: BLE001 -- recorded, the caller serves eagerly
+            served = None
+            self.capture_failures.append(f"preflight: {type(e).__name__}: {e}"[:400])
+            if self.graphs:
+                self._probe_device()
+        if served is None or (self.graphs and not any(st.graph for st in self._states.values())):
+            self.disabled = (f"the largest bucket {info['bucket']} could not be captured: "
+                             f"{self.capture_failures[-1] if self.capture_failures else dict(self.fallbacks)}")
+            log.warning("graphed serve: %s; every batch is served eagerly", self.disabled)
+        info.update(ok=self.disabled is None, seconds=round(time.perf_counter() - t0, 2))
+        if self.graphs:
+            info["pool_mb"] = round((torch.cuda.memory_reserved(self.device) - before) / 2 ** 20)
+            info["available_mb"] = round(self._available_bytes() / 2 ** 20)
+        # The synthetic batch is not a served one.
+        self.served = max(0, self.served - (served is not None))
+        self.preflight_info = info
+        return info
+
     def summary(self) -> Dict[str, object]:
-        return {"graphs": self.graphs, "served": self.served, "fallbacks": dict(self.fallbacks),
-                "capture_s": round(self.capture_s, 2),
-                "buckets": {f"{b.b_cap}x{b.a_cap}x{b.h_cap}x{b.t_cap}": st.replays
-                            for b, st in self._states.items()}}
+        out: Dict[str, object] = {"graphs": self.graphs, "served": self.served,
+                                  "fallbacks": dict(self.fallbacks), "disabled": self.disabled,
+                                  "preflight": self.preflight_info,
+                                  "capture_failures": list(self.capture_failures)}
+        if self.graphs:
+            out["max_memory_reserved_mb"] = round(torch.cuda.max_memory_reserved(self.device) / 2 ** 20)
+        out["capture_s"] = round(self.capture_s, 2)
+        out["buckets"] = {f"{b.b_cap}x{b.a_cap}x{b.h_cap}x{b.t_cap}": st.replays
+                          for b, st in self._states.items()}
+        return out
 
 
 __all__ = ["Caps", "Bucket", "StaticIndex", "GraphedBatch", "static_index", "static_sources",

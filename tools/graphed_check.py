@@ -3,9 +3,13 @@
 
 The CPU tests run the static-shape body without a graph
 (tests/test_graphed_serve.py); the capture and the replay need CUDA. This
-check serves the same batches of played positions (tools/random_positions.py),
-each with a memory state, through the eager server and through the graphed
-one (`--graphed`'s caps, `graphed_serve.eval_caps`), and compares per leaf:
+check first runs the server's preflight at `--max-batch` (the deepest
+in-flight depth of the benchmark: the largest bucket of its caps captured
+into the graphs' shared pool, from synthetic leaves), then serves the same
+batches of played positions (tools/random_positions.py, reused to fill the
+largest batch), each with a memory state, through the eager server and
+through the graphed one (`--graphed`'s caps, `graphed_serve.eval_caps`),
+the eager path running beside the full pool, and compares per leaf:
 the legal actions (the same set, in the same order), the chosen action at
 argmax, the priors, the value and the new memory state. bf16 batched
 numerics differ with the padded shapes, so the priors and the states agree
@@ -15,8 +19,10 @@ call, the captures excluded).
 
     python tools/graphed_check.py --checkpoint own1.pt --device cuda --out graphed_check.json
 
-Exit 0 when every batch was served from a graph and the comparisons hold,
-8 when one does not hold (the graphed arms of a benchmark are skipped).
+Exit 0 when the preflight fit, every batch was served from a graph and
+the comparisons hold, 8 when one does not hold (the graphed arms of a
+benchmark are skipped). The record keeps the preflight (the bucket, the
+pool's size, the memory left) and the device's peak reserved memory.
 """
 from __future__ import annotations
 
@@ -52,6 +58,8 @@ def _servers(spec: Path, device: torch.device, max_batch: int):
         check_packed_trunk_supported(model.encoder)
         model.infer_packed_trunk = True
     gserve = GraphedServe(model, encoder, device, caps=eval_caps(max_batch))
+    with torch.no_grad():
+        print(json.dumps({"preflight": gserve.preflight()}), flush=True)
     kw = dict(device=device, output_device=torch.device("cpu"), autocast_bf16=cuda, packed_embed=True)
     return (InferenceServer(model, encoder, **kw), InferenceServer(model, encoder, graphed=gserve, **kw),
             gserve, policy)
@@ -120,8 +128,9 @@ def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--checkpoint", type=Path, required=True)
     ap.add_argument("--device", default="cuda")
-    ap.add_argument("--max-batch", type=int, default=40, help="the server's max batch (the caps)")
-    ap.add_argument("--batch-sizes", default="1,4,9,16,20,32,40")
+    ap.add_argument("--max-batch", type=int, default=120,
+                    help="the server's max batch (the caps): the benchmark's deepest in-flight depth")
+    ap.add_argument("--batch-sizes", default="1,4,9,16,20,32,40,60,80,120")
     ap.add_argument("--games", type=int, default=3, help="games the positions are harvested from")
     ap.add_argument("--repeats", type=int, default=30)
     ap.add_argument("--seed", type=int, default=20261013)
@@ -134,7 +143,9 @@ def main(argv: List[str]) -> int:
     eager, graphed, gserve, policy = _servers(args.checkpoint, device, args.max_batch)
     slots = int(getattr(policy._inference_model, "memory_slots", 0) or 0)
     leaves = _leaves(policy, args.games, slots, args.seed)
-    sizes = [int(b) for b in args.batch_sizes.split(",") if int(b) <= min(args.max_batch, len(leaves))]
+    sizes = [int(b) for b in args.batch_sizes.split(",") if int(b) <= args.max_batch]
+    while len(leaves) < max(sizes, default=0):          # the largest batch, from the positions again
+        leaves = leaves + leaves[:max(sizes) - len(leaves)]
     rows, totals = [], {"leaves": 0, "same_legal": 0, "same_argmax": 0}
     worst = {"max_prior_diff": 0.0, "max_value_diff": 0.0, "max_memory_diff": 0.0}
     with torch.no_grad():
@@ -154,6 +165,7 @@ def main(argv: List[str]) -> int:
     summary = gserve.summary()
     n = max(1, totals["leaves"])
     checks = {
+        "preflight fit": bool(summary["preflight"] and summary["preflight"]["ok"]),
         "every batch graphed": not summary["fallbacks"] and (summary["graphs"] or device.type != "cuda"),
         "legal sets equal": totals["same_legal"] == totals["leaves"],
         "argmax agreement": totals["same_argmax"] / n >= args.min_argmax,

@@ -4,6 +4,7 @@ same shapes padded to its caps; CPU, so the body runs eagerly and the
 graph capture itself is certified on a box."""
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -255,3 +256,85 @@ def test_static_body_serves_the_parity_memory_model_as_the_eager_path():
             assert o.memory.shape == (m.k, 32)
             assert torch.allclose(r.memory, o.memory, atol=1e-5)
     assert graphed.served == 2 and not graphed.fallbacks, graphed.summary()
+
+
+def _small_parity_serve(policy, **kw):
+    from wesnoth_ai.graphed_serve import Caps, GraphedServe
+    caps = Caps(b_caps=(4, 8), a_caps=(64, 128), h_caps=(512, 1024), t_caps=(2048, 4096, 8192),
+                max_len=2048)
+    return GraphedServe(policy._inference_model, policy._inference_encoder, torch.device("cpu"),
+                        graphs=False, caps=caps, **kw)
+
+
+def test_the_preflight_runs_the_largest_bucket():
+    """The preflight's synthetic batch lands on the largest bucket of the
+    caps (the most segments, actor and hex slots and token rows)."""
+    policy = _parity_policy(8)
+    serve = _small_parity_serve(policy)
+    with torch.no_grad():
+        info = serve.preflight()
+    assert info["ok"] and serve.disabled is None, info
+    assert list(serve.summary()["buckets"]) == ["8x128x1024x8192"] == [info["bucket"]]
+    assert serve.served == 0, "the synthetic batch is not a served one"
+
+
+def test_a_bucket_without_a_graph_goes_to_the_eager_path(monkeypatch):
+    """A capture that fails, or that too little memory is left for, leaves
+    the batch to the caller's eager path, which serves what it always
+    serves; a failed bucket is not captured again; a failed preflight
+    disables the instance; a batch carrying the oracle's biases goes
+    eager without `biases`."""
+    from helpers.core_positions import core_positions
+    from tools.inference_seam import InferenceServer
+    from wesnoth_ai.memory import MemoryState
+    policy = _parity_policy(8)
+    enc, model = policy._inference_encoder, policy._inference_model
+    states = list(core_positions()[:3])
+    _, triples = _parity_triples(policy, states, [MemoryState(8, None)] * 3)
+    serve = _small_parity_serve(policy)
+    serve.graphs = True                       # the CUDA branch of _run, on the CPU
+    probes, captures = [], []
+    monkeypatch.setattr(serve, "_probe_device", lambda: probes.append(1))
+    monkeypatch.setattr(serve, "_available_bytes", lambda: 10 * serve.capture_reserve_bytes)
+
+    def failing_capture(st):
+        captures.append(st.bucket)
+        raise RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+    monkeypatch.setattr(serve, "_capture", failing_capture)
+    eager = InferenceServer(model, enc)
+    served = InferenceServer(model, enc, graphed=serve)
+    with torch.no_grad():
+        for _ in range(2):
+            ref, got = eager.infer_batch(triples), served.infer_batch(triples)
+            for r, o in zip(ref, got):
+                assert torch.equal(r.value, o.value) and torch.equal(r.memory, o.memory)
+                assert np.array_equal(r.legal_compact.prior, o.legal_compact.prior)
+    assert len(captures) == 1 and len(probes) == 1, "one capture attempt, the device probed after it"
+    assert serve.fallbacks == {"capture_failed": 2} and serve.served == 0
+    assert "out of memory" in serve.capture_failures[0]
+    assert served._graphed_serve() is serve, "a failed capture does not turn the graphed path off"
+    # Too little memory left: no capture is tried, and a later batch may try.
+    low = _small_parity_serve(policy)
+    low.graphs = True
+    monkeypatch.setattr(low, "_available_bytes", lambda: low.capture_reserve_bytes - 1)
+    monkeypatch.setattr(low, "_capture", failing_capture)
+    with torch.no_grad():
+        assert low.infer([t[0] for t in triples], [t[1] for t in triples], [t[2] for t in triples]) is None
+    assert low.fallbacks == {"memory": 1} and len(captures) == 1
+    # A preflight that cannot capture disables the instance.
+    dead = _small_parity_serve(policy)
+    dead.graphs = True
+    monkeypatch.setattr(dead, "_probe_device", lambda: None)
+    monkeypatch.setattr(dead, "_available_bytes", lambda: 10 * dead.capture_reserve_bytes)
+    monkeypatch.setattr(dead, "_capture", failing_capture)
+    with torch.no_grad():
+        assert not dead.preflight()["ok"]
+        assert dead.infer([t[0] for t in triples], [t[1] for t in triples], [t[2] for t in triples]) is None
+    assert dead.disabled and dead.fallbacks["disabled"] == 1
+    # The oracle's biases ride the static masks only on request.
+    biased = (triples[0][0], dataclasses.replace(triples[0][1], type_bias=np.zeros_like(
+        triples[0][1].type_valid, dtype=np.float32)), triples[0][2])
+    plain = _small_parity_serve(policy)
+    with torch.no_grad():
+        assert plain.infer([biased[0]], [biased[1]], [biased[2]]) is None
+    assert plain.fallbacks == {"biases": 1}
