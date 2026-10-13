@@ -1,0 +1,78 @@
+{
+ "pass": true,
+ "checks": {
+  "every batch graphed": true,
+  "legal sets equal": true,
+  "argmax agreement": true,
+  "value": true,
+  "memory": true
+ },
+ "totals": {
+  "leaves": 268,
+  "same_legal": 268,
+  "same_argmax": 268
+ },
+ "worst": {
+  "max_prior_diff": 0.01534337015351106,
+  "max_value_diff": 0.004146963357925415,
+  "max_memory_diff": 0.030373185873031616
+ },
+ "argmax_agreement": 1.0,
+ "timing": [
+  {
+   "batch": 1,
+   "eager_ms": 8.332,
+   "graphed_ms": 2.086
+  },
+  {
+   "batch": 4,
+   "eager_ms": 8.655,
+   "graphed_ms": 2.271
+  },
+  {
+   "batch": 9,
+   "eager_ms": 9.338,
+   "graphed_ms": 3.271
+  },
+  {
+   "batch": 16,
+   "eager_ms": 10.243,
+   "graphed_ms": 4.9
+  },
+  {
+   "batch": 20,
+   "eager_ms": 10.744,
+   "graphed_ms": 5.819
+  },
+  {
+   "batch": 32,
+   "eager_ms": 11.977,
+   "graphed_ms": 8.979
+  },
+  {
+   "batch": 40,
+   "eager_ms": 12.858,
+   "graphed_ms": 11.574
+  }
+ ],
+ "graphed_serve": {
+  "graphs": true,
+  "served": 275,
+  "fallbacks": {},
+  "capture_s": 1.29,
+  "buckets": {
+   "8x64x512x1024": 109,
+   "8x64x512x2048": 6,
+   "16x64x512x2048": 31,
+   "16x64x512x4096": 1,
+   "16x64x512x3072": 2,
+   "16x64x512x5120": 32,
+   "24x64x512x6144": 32,
+   "32x64x512x10240": 31,
+   "48x64x512x12288": 31
+  }
+ },
+ "positions": 44,
+ "memory_slots": 64,
+ "device": "cuda"
+}

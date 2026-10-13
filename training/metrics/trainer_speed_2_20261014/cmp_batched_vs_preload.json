@@ -1,0 +1,34 @@
+{
+ "a": "/workspace/trainer_speed/arm_batched.jsonl",
+ "b": "/workspace/trainer_speed/arm_preload.jsonl",
+ "windows": 80,
+ "a_positions_per_second": 1241.91,
+ "b_positions_per_second": 1323.8,
+ "speedup_total": 1.0659,
+ "window_time_ratio_median": 0.9444,
+ "window_time_ratio_ci95": [
+  0.9347,
+  0.9574
+ ],
+ "speedup_median": 1.0588,
+ "speedup_ci95": [
+  1.0445,
+  1.0699
+ ],
+ "differ": {
+  "bench": [
+   {
+    "warmup": 20,
+    "windows": 80,
+    "profile_windows": 3,
+    "preload": false
+   },
+   {
+    "warmup": 20,
+    "windows": 80,
+    "profile_windows": 3,
+    "preload": true
+   }
+  ]
+ }
+}

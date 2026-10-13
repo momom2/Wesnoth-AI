@@ -1,0 +1,1 @@
+{"arm": "graphed_inflight3", "repo": "/workspace/Wesnoth-AI", "jobs": 60, "flags": "--worker-games 3 --graphed-serve", "slots": 400, "wall_s": 193, "games": 400, "failed_games": 0, "rc": 0, "why": "ok"}

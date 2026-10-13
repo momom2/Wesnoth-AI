@@ -1,0 +1,1 @@
+2026-10-13T21:17:50Z TRAINER_SPEED_DONE {"valid": true, "flags_valid": false, "gradcheck": true} {'base_1': 520.06, 'base_2': 506.89, 'batched': 1241.91, 'batched_pickles': 558.78, 'columns': 942.0, 'preload': 1323.8, 'this_1': 488.43, 'this_2': 500.23, 'this_3': 559.3}; cuda tests: 15 passed ; failed: none stage=tier-b/staging/stage_20261013_trainer_speed4.tar.gz

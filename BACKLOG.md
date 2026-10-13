@@ -79,6 +79,19 @@ $1.47 in all):
   the loader now costs about a fifth of the step. The packed trunk changes
   the arithmetic (gradient cosine at least 0.995 against the padded trunk)
   and needs its holdout acceptance before a pass uses it.
+  **Round 2 measured 2026-10-13/14**: the trainer
+  (`feature/trainer-speed-2`, `training/metrics/trainer_speed_2_20261014/`)
+  1,242 positions a second with columnar records and the window batched
+  (520 for round 1's best on that box; the GPU now about 80% busy), 1,324
+  with every record read first; the window-batched mode changes rounding
+  (gradient cosine at least 0.99996) and needs the same acceptance as the
+  packed trunk. Self-play generation (`feature/generation-speed`,
+  `training/metrics/generation_speed_r2_20261013/`): own1 against itself at
+  the reference decode, 3,700-3,790 games an hour for main, 8,150-8,210
+  with 120 games in flight (six per worker process, play unchanged); the
+  inference server's batch cost is nearly flat in its size, so depth is
+  the lever. A million games now cost about $110 to generate and train
+  on, against about $250.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

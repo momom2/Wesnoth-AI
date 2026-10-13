@@ -1,0 +1,2 @@
+ARM_FAILED graphed_inflight2 rc=1 failed (arm_graphed_inflight2.log)
+ARM_FAILED graphed_inflight3 rc=1 failed (arm_graphed_inflight3.log)

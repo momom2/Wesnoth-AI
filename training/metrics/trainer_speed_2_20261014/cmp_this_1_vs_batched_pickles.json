@@ -1,0 +1,24 @@
+{
+ "a": "/workspace/trainer_speed/arm_this_1.jsonl",
+ "b": "/workspace/trainer_speed/arm_batched_pickles.jsonl",
+ "windows": 80,
+ "a_positions_per_second": 488.43,
+ "b_positions_per_second": 558.78,
+ "speedup_total": 1.144,
+ "window_time_ratio_median": 0.8158,
+ "window_time_ratio_ci95": [
+  0.7922,
+  0.8419
+ ],
+ "speedup_median": 1.2257,
+ "speedup_ci95": [
+  1.1877,
+  1.2623
+ ],
+ "differ": {
+  "window_batched": [
+   false,
+   true
+  ]
+ }
+}

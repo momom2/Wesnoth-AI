@@ -1,0 +1,1 @@
+{"arm": "graphed", "repo": "/workspace/Wesnoth-AI", "jobs": 20, "flags": "--graphed-serve", "slots": 400, "wall_s": 235, "games": 400, "failed_games": 0, "rc": 0, "why": "ok"}

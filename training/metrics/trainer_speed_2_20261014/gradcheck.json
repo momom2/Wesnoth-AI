@@ -1,0 +1,69 @@
+{
+ "pass": true,
+ "reference": "--packed-trunk",
+ "candidate": "--packed-trunk --window-batched",
+ "min_cosine": 0.99,
+ "max_loss_rel": 0.005,
+ "windows": [
+  {
+   "i": 0,
+   "loss_reference": 2.5025582313537598,
+   "loss_candidate": 2.5025882720947266,
+   "loss_rel": 1.2e-05,
+   "cosine": {
+    "actor_head": 0.999997,
+    "belief_head": 0.999999,
+    "encoder": 0.999993,
+    "memory_initial": 0.999975,
+    "memory_slots": 0.99997,
+    "memory_write": 0.999975,
+    "target_proj": 0.999995,
+    "trunk": 0.999983,
+    "type_head": 0.999998,
+    "value_head": 0.999996,
+    "weapon_head": 0.999962
+   },
+   "pass": true
+  },
+  {
+   "i": 1,
+   "loss_reference": 2.8698689937591553,
+   "loss_candidate": 2.869920253753662,
+   "loss_rel": 1.8e-05,
+   "cosine": {
+    "actor_head": 0.999997,
+    "belief_head": 0.999997,
+    "encoder": 0.999982,
+    "memory_initial": 0.999959,
+    "memory_slots": 0.999897,
+    "memory_write": 0.999945,
+    "target_proj": 0.999991,
+    "trunk": 0.999933,
+    "type_head": 0.999988,
+    "value_head": 0.999997,
+    "weapon_head": 0.999992
+   },
+   "pass": true
+  },
+  {
+   "i": 2,
+   "loss_reference": 2.2180426120758057,
+   "loss_candidate": 2.218046188354492,
+   "loss_rel": 2e-06,
+   "cosine": {
+    "actor_head": 0.999996,
+    "belief_head": 0.999998,
+    "encoder": 0.999952,
+    "memory_initial": 0.999988,
+    "memory_slots": 0.999979,
+    "memory_write": 0.999976,
+    "target_proj": 0.999978,
+    "trunk": 0.999911,
+    "type_head": 0.999995,
+    "value_head": 0.999993,
+    "weapon_head": 0.999997
+   },
+   "pass": true
+  }
+ ]
+}

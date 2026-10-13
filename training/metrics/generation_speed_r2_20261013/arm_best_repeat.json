@@ -1,0 +1,1 @@
+{"arm": "best_repeat", "repo": "/workspace/Wesnoth-AI", "jobs": 120, "flags": "--worker-games 6", "slots": 600, "wall_s": 265, "games": 600, "failed_games": 0, "rc": 4, "why": "failed"}
