@@ -1,4 +1,5 @@
-"""Packed (variable-length) transformer trunk for batched inference
+"""Packed (variable-length) transformer trunk for batched inference and
+for the sequence trainer's `--packed-trunk`
 (docs/gpu_forward_design_20260904.md sections 4.3 and 5.3).
 
 A padded batch [B, L_max, d] carries three interior pad runs per row
@@ -123,6 +124,28 @@ class PackedIndex:
     cu_host: List[int]       # the same offsets on the host, for the SDPA fallback
     max_len: int
     memory: Optional[torch.Tensor] = None
+
+
+@dataclass
+class PackedEmbeddedIndex:
+    """A forward_embedded call's packed layout, built once and on the
+    device (`WesnothModel.trunk_index`): the layout (its actor kinds read
+    on the host), its device index, and the stream rows of the memory's
+    active slots (`memory.stream_row_index`; None for a batch without
+    memory tokens). A forward run twice (activation checkpointing) neither
+    rebuilds it nor waits for a copy."""
+    layout: PackedLayout
+    index: PackedIndex
+    memory_rows: Optional[torch.Tensor]
+
+
+def host_to_device(array: np.ndarray, device: torch.device) -> torch.Tensor:
+    """A host array on `device`: pinned and non-blocking on CUDA (no host
+    synchronization), the array itself on the CPU."""
+    t = torch.from_numpy(array)
+    if device.type == "cuda":
+        return t.pin_memory().to(device, non_blocking=True)
+    return t if device.type == "cpu" else t.to(device)
 
 
 def _ragged_arange(counts: np.ndarray) -> np.ndarray:
@@ -412,9 +435,13 @@ def _same_activation(a, b) -> bool:
 
 def packed_trunk(encoder: nn.TransformerEncoder, x: torch.Tensor,
                  index: PackedIndex) -> torch.Tensor:
-    """The encoder stack on the packed [total, d] tensor. Inference
-    only: the layers' dropouts are identities in eval mode and are
-    omitted."""
+    """The encoder stack on the packed [total, d] tensor. The layers'
+    dropouts are omitted: identities in eval mode, and a network trained
+    on this path (tools/sequence_train.py --packed-trunk) trains without
+    dropout. Differentiable: the flash varlen kernel's backward is
+    defined for its query, key and value (torch 2.5.1
+    tools/autograd/derivatives.yaml:2862-2864,
+    `_flash_attention_backward_symint` with the cumulative lengths)."""
     for layer in encoder.layers:
         x = layer.norm1(x + _self_attention(layer.self_attn, x, index))
         x = layer.norm2(x + layer.linear2(layer.activation(layer.linear1(x))))

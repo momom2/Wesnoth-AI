@@ -38,6 +38,13 @@ MEMORY_GATE_BIAS_INIT = -2.0
 INITIAL_MEMORY_STD = 0.02
 
 
+def stream_row_index(counts: Sequence[int], K_max: int) -> np.ndarray:
+    """int64 [sum k_b]: the row of each active slot in a batch's memory
+    tokens flattened to [B * K_max, d], sample after sample."""
+    return np.concatenate([b * K_max + np.arange(k, dtype=np.int64) for b, k in enumerate(counts)]
+                          or [np.zeros(0, np.int64)])
+
+
 @dataclass
 class MemoryBatch:
     """A batch's memory states as the trunk reads them: [B, K_max, d]
@@ -94,17 +101,17 @@ class SlotMemory(nn.Module):
         slot embedding; the key-padding mask hides them."""
         return batch.padded + self.slot_embed.weight[:batch.K_max]
 
-    def stream_rows(self, batch: MemoryBatch) -> torch.Tensor:
+    def stream_rows(self, batch: MemoryBatch, index: Optional[torch.Tensor] = None) -> torch.Tensor:
         """[sum k_b, d]: the memory tokens of every sample's active slots,
-        sample after sample (the stream order of the packed layout)."""
-        rows = np.concatenate([b * batch.K_max + np.arange(k, dtype=np.int64)
-                               for b, k in enumerate(batch.counts)] or [np.zeros(0, np.int64)])
+        sample after sample (the stream order of the packed layout).
+        `index`: `stream_row_index` of the batch already on the device."""
         tokens = self.tokens(batch).reshape(-1, self.d_model)
-        index = torch.from_numpy(rows)
-        if tokens.device.type == "cuda":
-            index = index.pin_memory().to(tokens.device, non_blocking=True)
-        elif tokens.device.type != "cpu":
-            index = index.to(tokens.device)
+        if index is None:
+            index = torch.from_numpy(stream_row_index(batch.counts, batch.K_max))
+            if tokens.device.type == "cuda":
+                index = index.pin_memory().to(tokens.device, non_blocking=True)
+            elif tokens.device.type != "cpu":
+                index = index.to(tokens.device)
         return tokens.index_select(0, index)
 
     def write(self, h: torch.Tensor, batch: MemoryBatch) -> torch.Tensor:

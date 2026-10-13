@@ -84,22 +84,33 @@ class GradientGroups:
     def clip(self, max_norm: float) -> Tuple[torch.Tensor, Dict[str, float]]:
         """Clip the gradients to `max_norm` (in place); the total norm before
         the clip, as clip_grad_norm_ returns it, and each group's."""
+        total, groups = self.clip_on_device(max_norm)
+        return total, ({} if groups is None else dict(zip(self.groups, groups.tolist())))
+
+    def clip_on_device(self, max_norm: float) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """`clip` without reading anything back: the total norm and the
+        groups' norms ([len(groups)], in `groups` order) stay on the
+        gradients' device, for a caller that reads them with the rest of
+        its step in one transfer. (A zero total on the host and None when no
+        parameter holds a gradient.)"""
         import torch
         held = [i for i, p in enumerate(self._params) if p.grad is not None]
         if not held:
-            return torch.zeros(()), {}
+            return torch.zeros(()), None
         with torch.no_grad():
             norms = torch.stack(torch._foreach_norm([self._params[i].grad for i in held]))
             total = torch.linalg.vector_norm(norms)
             _scale_to_bound([self._params[i].grad for i in held], max_norm, total)
             key = tuple(held)
             index = self._index_cache.get(key)
-            if index is None:
-                index = torch.tensor([self._group[i] for i in held], device=norms.device)
-                self._index_cache[key] = index
+            if index is None:            # pinned and non-blocking on CUDA: the clip never waits for the device
+                index = torch.tensor([self._group[i] for i in held])
+                if norms.device.type == "cuda":
+                    index = index.pin_memory().to(norms.device, non_blocking=True)
+                index = self._index_cache[key] = index.to(norms.device)
             squares = torch.zeros(len(self.groups), device=norms.device, dtype=torch.float32)
             squares.index_add_(0, index, norms.float().pow(2))
-        return total, dict(zip(self.groups, squares.sqrt().tolist()))
+        return total, squares.sqrt()
 
 
 def _scale_to_bound(grads: List["torch.Tensor"], max_norm: float, total: "torch.Tensor") -> None:

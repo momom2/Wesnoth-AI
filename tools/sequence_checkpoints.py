@@ -15,17 +15,26 @@ from wesnoth_ai.constants import OBSERVATION_EPOCH
 
 log = logging.getLogger("sequence_train")
 
+# What a resume must share with the pass it continues, and the value a key
+# holds in a checkpoint written before it was recorded.
+RESUME_KEYS = ("seed", "streams", "window", "fingerprint", "arch", "decay_from", "pass_positions",
+               "anneal_rule", "own", "trunk")
+RECORDED_LATER = {"trunk": "padded"}
+
 
 class TrainerCheckpoints:
     """The trainer's starting points (a part of `sequence_train.Trainer`)."""
 
     def resume(self, path: Path) -> None:
+        """Continue `path`'s pass. A new pass may start from another trunk's
+        checkpoint (`init_from`); a resume continues on the trunk its pass
+        trained on."""
         ck = torch.load(path, map_location="cpu", weights_only=True)
         meta = ck.get("training_meta", {})
-        for key in ("seed", "streams", "window", "fingerprint", "arch", "decay_from", "pass_positions",
-                    "anneal_rule", "own"):
-            if meta.get(key) != self.meta[key]:
-                raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
+        for key in RESUME_KEYS:
+            saved = meta.get(key, RECORDED_LATER.get(key))
+            if saved != self.meta[key]:
+                raise SystemExit(f"{path} was trained with {key}={saved!r}; this run has "
                                  f"{self.meta[key]!r}")
         self.meta["init_from"] = meta.get("init_from")
         self.model.load_state_dict(ck["model_state"])

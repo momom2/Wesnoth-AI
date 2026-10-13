@@ -150,6 +150,9 @@ LR="${LR:-2.8e-5}"                               # a tenth of the recipe's peak,
 PASS_POSITIONS="${PASS_POSITIONS:-2000000}"      # about 1 million own and 1 million human positions
 DECAY_FROM="${DECAY_FROM:-0.5}"                  # the rate falls linearly to 0 over the pass's second half
 PROBE_EVERY="${PROBE_EVERY:-1200000}"            # one probe inside the pass (the recipe's memory barrier), then the final one
+# 1: the pass trains on the packed trunk (--packed-trunk: no dropout, other arithmetic than the padded
+# trunk's; docs/trainer_speed_20261013.md); 0: the padded trunk, as rounds 1 and 2 ran.
+PACKED_TRUNK="${PACKED_TRUNK:-0}"
 WORKERS="${WORKERS:-}"                           # default: box_workers (cores, memory-bounded), after box_init
 GAMES="${GAMES:-800}"
 JOBS="${JOBS:-20}"
@@ -276,7 +279,8 @@ box_monitor_start
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests.log"
     box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_own_trajectories.py \
-        tests/test_sequence_train.py tests/test_preencode_sequences.py tests/test_lr_law.py \
+        tests/test_sequence_train.py tests/test_sequence_speed.py tests/test_own_loss.py \
+        tests/test_preencode_sequences.py tests/test_lr_law.py \
         tests/test_memory_model.py tests/test_match_memory.py tests/test_server_priors.py \
         tests/test_game_record.py tests/test_attack_pathfinding.py tests/test_game_core.py tests/test_vision.py \
         tests/test_parity_integration.py tests/test_sighting_record.py tests/test_faction_posterior.py \
@@ -591,13 +595,16 @@ fi
 
 # ---- the fine-tune from the init checkpoint
 train_attempt() {                # train_attempt MINUTES: the pass, continuing own.pt when present; sets BOX_RC, BOX_WHY
-    local start=(--init-from "$INIT_PT" --init-other-records)
+    local start=(--init-from "$INIT_PT" --init-other-records) trunk=()
     [ ! -f "$OUT/own.pt" ] || start=(--resume)
+    if [ "$PACKED_TRUNK" = 1 ]; then
+        trunk=(--packed-trunk)
+    fi
     box_bounded --stall "$OUT/train.log" "$TRAIN_STALL_MIN" train "$1" train.log \
         python tools/sequence_train.py --sequences "$SEQ" --dataset "$CORPUS" --own-sequences "$OWN" \
         --out "$OUT/own.pt" --seed "$RUN_SEED" --device cuda --lr "$LR" --warmup-steps 0 \
         --decay-from "$DECAY_FROM" --pass-positions "$PASS_POSITIONS" --probe-every "$PROBE_EVERY" \
-        --barrier-positions 1000000 --probe-ks 0,64 --probe-at-start "${start[@]}"
+        --barrier-positions 1000000 --probe-ks 0,64 --probe-at-start "${start[@]}" ${trunk[@]+"${trunk[@]}"}
 }
 if [ ! -f "$OUT/TRAIN_DONE" ]; then
     box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the pass: rc=$BOX_RC $BOX_WHY (gpu.log)" 1

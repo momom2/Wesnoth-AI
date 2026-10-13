@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import torch
 
@@ -26,7 +28,7 @@ MEMORY_SLOTS = 64
 DEFAULTS = {"streams": 32, "window": 16, "lr": 2.8e-4, "warmup_steps": 300, "weight_decay": 1e-4,
             "grad_clip": 1.0, "value_states_per_game": 16, "belief_weight": 1.0,
             "seed": 20260929, "probe_every": 500_000, "barrier_positions": 500_000,
-            "checkpoint_every": 250_000, "probe_ks": (0, 16, 64), "signal_every": 25_000}
+            "checkpoint_every": 250_000, "probe_ks": (0, 16, 64), "signal_every": 100_000}
 # Game-sides the loader fetches ahead of the slots, and its threads.
 PREFETCH_SIDES = 64
 LOADER_THREADS = 4
@@ -36,7 +38,9 @@ class SequenceLoader:
     """The game records the slots read, fetched ahead on threads (the zlib
     half releases the GIL) and dropped once no slot or upcoming game-side
     needs them. The records named in `own_files` are read from
-    `own_directory`."""
+    `own_directory`. Its clocks (tools/sequence_timing.py): `wait_seconds`,
+    the time the caller waited for a record still being read, and
+    `decode_seconds`, the CPU time its threads spent reading records."""
 
     def __init__(self, directory: Path, own_directory: Optional[Path] = None, own_files=frozenset()):
         self.directory = Path(directory)
@@ -44,12 +48,26 @@ class SequenceLoader:
         self.own_files = frozenset(own_files)
         self._pool = ThreadPoolExecutor(LOADER_THREADS)
         self._records: Dict[str, object] = {}
+        self._held: Set[str] = set()
+        self._lock = threading.Lock()
+        self.wait_seconds = 0.0
+        self.decode_seconds = 0.0
+
+    def _path(self, f: str) -> Path:
+        return record_path(self.own_directory if f in self.own_files else self.directory, f)
+
+    def _read(self, path: Path):
+        t0 = time.thread_time()
+        rec = read_record(path)
+        spent = time.thread_time() - t0
+        with self._lock:
+            self.decode_seconds += spent
+        return rec
 
     def prefetch(self, files) -> None:
         for f in files:
             if f not in self._records:
-                where = self.own_directory if f in self.own_files else self.directory
-                self._records[f] = self._pool.submit(read_record, record_path(where, f))
+                self._records[f] = self._pool.submit(self._read, self._path(f))
 
     def sides(self, game_side: GameSide):
         rec = self._records.get(game_side.file)
@@ -57,11 +75,23 @@ class SequenceLoader:
             self.prefetch([game_side.file])
             rec = self._records[game_side.file]
         if not hasattr(rec, "sides"):
+            if not rec.done():
+                t0 = time.perf_counter()
+                rec.result()
+                self.wait_seconds += time.perf_counter() - t0
             rec = self._records[game_side.file] = rec.result()
         return rec.sides[game_side.side]
 
+    def hold(self, files) -> None:
+        """Read `files` now, on the calling thread, and keep them whatever
+        `keep_only` is told (a benchmark's preloaded records)."""
+        for f in files:
+            if f not in self._held:
+                self._records[f] = read_record(self._path(f))
+                self._held.add(f)
+
     def keep_only(self, files) -> None:
-        keep = set(files)
+        keep = set(files) | self._held
         for f in [f for f in self._records if f not in keep]:
             del self._records[f]
 

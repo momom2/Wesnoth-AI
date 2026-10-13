@@ -1,13 +1,13 @@
 """The sequence trainer's always-on telemetry (tools/sequence_train.py,
 user ruling 2026-09-01): the gradient split by loss term over the parameter
-groups (<out>.signal.jsonl), a row per step (<out>.steps.jsonl) and the log
-line."""
+groups (<out>.signal.jsonl, every `--signal-every` positions), a row per
+step with its timing (<out>.steps.jsonl) and the log line."""
 from __future__ import annotations
 
 import json
 import logging
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 
@@ -50,8 +50,9 @@ class TrainerTelemetry:
                              sequence_signal_group, SIGNAL_GROUPS, self.opt)
 
     def _step_row(self, lr: float, loss: float, norm: float, grads: Dict[str, float], applied: bool,
-                  sums: Dict) -> None:
-        """The step's row in <out>.steps.jsonl (module docstring)."""
+                  sums: Dict, timing: Optional[Dict] = None) -> None:
+        """The step's row in <out>.steps.jsonl (module docstring), with the
+        window's timing (tools/sequence_timing.py)."""
         row = {"step": self.state["steps"], "positions": self.state["positions"], "lr": lr, "loss": loss,
                "policy": sums["policy"] / max(1, sums["policy_n"]),
                "value": sums["value"] / max(1, sums["value_n"]),
@@ -59,6 +60,7 @@ class TrainerTelemetry:
                "grad_norm": norm, "grad": grads, "applied": applied}
         if "own" in sums:
             row["own"] = sums["own"] / max(1, sums["own_n"])
+        row.update(timing or {})
         with open(self.args.out.with_suffix(".steps.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
 
@@ -77,9 +79,7 @@ class TrainerTelemetry:
                 if not steps:
                     continue
                 staged, mems, targets, b_target, b_mask = self._prepare(steps, memories)
-                with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
-                    out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems)
-                out = out.float32()
+                out = self._forward(staged, mems, self._trunk_index(steps, staged))
                 for term, loss in imitation_loss_parts(out, targets).source_losses().items():
                     terms[term] = terms[term] + loss
                 terms["belief"] = terms["belief"] + self.args.belief_weight * \

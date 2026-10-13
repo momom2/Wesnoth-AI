@@ -32,6 +32,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from wesnoth_ai.packed_trunk import FlatLayout
 from wesnoth_ai.sequence_records import OwnTarget
 from wesnoth_ai.server_priors import (KIND_ATTACK, KIND_END_TURN, KIND_MOVE, KIND_RECRUIT,
                                       _unpack_bits, mask_layout, write_masks)
@@ -144,28 +145,48 @@ def stage_own_batch(rows: Sequence[int], packs: Sequence, targets: Sequence[OwnT
                     device: torch.device) -> OwnBatch:
     """The batch's own rows staged for `own_policy_loss`: `A_max` and
     `H_max` are the padded output's actor and hex widths (the whole
-    batch's, own and human rows together)."""
+    batch's, own and human rows together). The masks, the rows and the
+    targets cross to the device in one buffer (pinned on CUDA) and one
+    non-blocking copy: nothing here waits for the device. The masks lie at
+    the buffer's start, as when they had a buffer of their own; the rows
+    and targets from the next `_TARGETS_ALIGNMENT` boundary."""
     n = len(rows)
-    layout = mask_layout(n, A_max, H_max, n_types, n_weapons,
-                         type_bias=any(p.type_bias is not None for p in packs),
-                         attack_bias=any(p.attack_bias is not None for p in packs))
-    host = torch.zeros(layout.nbytes, dtype=torch.uint8, pin_memory=(device.type == "cuda"))
-    write_masks(layout.numpy_views(host.numpy()), packs)
-    views = layout.torch_views(host if device.type == "cpu" else host.to(device, non_blocking=True))
+    masks = mask_layout(n, A_max, H_max, n_types, n_weapons,
+                        type_bias=any(p.type_bias is not None for p in packs),
+                        attack_bias=any(p.attack_bias is not None for p in packs))
     K = max((len(t.prior) for t in targets), default=1)
-    arrays = {name: np.zeros((n, K), dtype=np.int64) for name in ("actor", "kind", "target", "weapon")}
-    arrays["kind"][:] = KIND_END_TURN
-    prob = np.zeros((n, K), dtype=np.float32)
+    own = FlatLayout([("rows", torch.int64, (n,))]
+                     + [(name, torch.int64, (n, K)) for name in ("actor", "kind", "target", "weapon")]
+                     + [("prob", torch.float32, (n, K))])
+    base = -(-masks.nbytes // _TARGETS_ALIGNMENT) * _TARGETS_ALIGNMENT
+    host = torch.zeros(base + own.nbytes, dtype=torch.uint8, pin_memory=(device.type == "cuda"))
+    write_masks(masks.numpy_views(host.numpy()[:masks.nbytes]), packs)
+    _write_targets(own.numpy_views(host.numpy()[base:]), rows, targets)
+    buf = host if device.type == "cpu" else host.to(device, non_blocking=True)
+    t = own.torch_views(buf[base:])
+    return OwnBatch(rows=t["rows"], views=masks.torch_views(buf[:masks.nbytes]), actor=t["actor"],
+                    kind=t["kind"], target=t["target"], weapon=t["weapon"], prob=t["prob"])
+
+
+# The byte boundary the targets start on in the staging buffer: the
+# alignment of a fresh block of torch's CUDA caching allocator, which the
+# targets had when each was a tensor of its own.
+_TARGETS_ALIGNMENT = 512
+
+
+def _write_targets(hv: Dict[str, np.ndarray], rows: Sequence[int], targets: Sequence[OwnTarget]) -> None:
+    """The rows and the targets as [n, K] arrays into ZEROED views: past a
+    target's actions, kind end_turn and probability 0 (index 0 elsewhere);
+    an end_turn's target and a non-attack's weapon (-1) read as 0."""
+    hv["rows"][:] = np.asarray(list(rows), dtype=np.int64)
+    hv["kind"][:] = KIND_END_TURN
     for r, t in enumerate(targets):
         m = len(t.prior)
-        arrays["actor"][r, :m] = t.actor
-        arrays["kind"][r, :m] = t.kind
-        arrays["target"][r, :m] = np.maximum(t.target, 0)
-        arrays["weapon"][r, :m] = np.maximum(t.weapon, 0)
-        prob[r, :m] = t.prob
-    to = {name: torch.from_numpy(a).to(device) for name, a in arrays.items()}
-    return OwnBatch(rows=torch.as_tensor(list(rows), dtype=torch.long, device=device), views=views,
-                    prob=torch.from_numpy(prob).to(device), **to)
+        hv["actor"][r, :m] = t.actor
+        hv["kind"][r, :m] = t.kind
+        hv["target"][r, :m] = np.maximum(t.target, 0)
+        hv["weapon"][r, :m] = np.maximum(t.weapon, 0)
+        hv["prob"][r, :m] = t.prob
 
 
 def _log_softmax_masked(logits: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:

@@ -47,6 +47,20 @@ Durations", 2024); the checkpoint where the cooldown starts is kept as
 the learning rate's schedule, `--decay-from` included, runs over those N (a
 lowering of the rate over part of an epoch).
 
+Speed (docs/trainer_speed_20261013.md). The forward loop never waits for
+the device: every host array crosses in a pinned non-blocking copy, the
+trunk's index arrays are built once per time step (the recomputation in
+the backward pass reuses them), and the window's logged values, gradient
+norms and finiteness flags come back in one transfer after the backward
+pass (tools/sequence_window.py). `--activation-budget-gb G` keeps the
+activations of as many of the window's last time steps as fit in G GiB
+instead of recomputing them (the same arithmetic: the recomputation
+restores the random state its forward drew from). `--packed-trunk` runs the
+trunk on the real tokens only, with flash varlen attention on CUDA under
+bfloat16 and no dropout: other arithmetic than the padded trunk's, so a
+network it trains needs its own acceptance. Every steps.jsonl row carries
+the window's timing (tools/sequence_timing.py).
+
 `--own-sequences DIR` trains the memory player's own game-sides beside the
 corpus's on `--own-streams` of the slots, toward a teacher's distribution
 (tools/sequence_own.py, docs/memory_own_trajectories_prereg_20261011.md);
@@ -73,7 +87,6 @@ a checkpoint written before they were kept.
 """
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import sys
@@ -91,12 +104,16 @@ from tools.lr_law import Areas, probe_points, read_points  # noqa: E402
 from tools.lr_law import decide as law_decide  # noqa: E402
 from tools.preencode_sequences import ENCODING, load_manifest, read_record, record_path  # noqa: E402
 from tools.sequence_checkpoints import TrainerCheckpoints  # noqa: E402
+from tools.sequence_args import parse_args  # noqa: E402,F401 (sequence_train.parse_args)
 from tools.sequence_own import OwnStreams  # noqa: E402
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
-from tools.sequence_setup import (ARCH, DEFAULTS, PREFETCH_SIDES, SequenceLoader,  # noqa: E402
+from tools.sequence_setup import (ARCH, PREFETCH_SIDES, SequenceLoader,  # noqa: E402
                                   build_modules, game_facts, lr_factor, own_stream_count, save_checkpoint)
 from tools.sequence_telemetry import (SIGNAL_STREAMS, SIGNAL_TERMS, TrainerTelemetry,  # noqa: E402
                                       _squares)
+from tools.sequence_timing import (GIB, WindowClock, bytes_per_token, plan_kept_steps,  # noqa: E402
+                                   position_sizes, trunk_tokens)
+from tools.sequence_window import read_window, window_sums  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts  # noqa: E402
 from wesnoth_ai.own_loss import own_policy_loss  # noqa: E402
@@ -168,6 +185,12 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         self.rates: Optional[Tuple[float, float]] = None
         self.start_positions = 0                 # where this process's run began (the logged rate)
         self.autocast = torch.bfloat16 if (device.type == "cuda" and not args.fp32) else None
+        self.packed = bool(args.packed_trunk)
+        self.trunk = "packed" if self.packed else "padded"
+        self.budget_bytes = float(args.activation_budget_gb) * GIB
+        self.bytes_per_token = bytes_per_token(self.trunk, self.arch, args.activation_bytes_per_token)
+        self.clock = WindowClock(device, self.loader)
+        self.last_timing: Optional[Dict] = None
         from tools.supervised_train import _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
         self.type_loss_weights = dict(_DEFAULT_ACTION_TYPE_LOSS_WEIGHT)
         self.value_weight = float(json.loads(Path(args.imitation_config).read_text(encoding="utf-8"))
@@ -177,7 +200,8 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
                      "fingerprint": man["fingerprint"], "value_weight": self.value_weight,
                      "arch": dict(self.arch), "decay_from": args.decay_from, "init_from": None,
                      "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule,
-                     "own": None if self.own is None else self.own.meta(args.own_policy_weight)}
+                     "own": None if self.own is None else self.own.meta(args.own_policy_weight),
+                     "trunk": self.trunk}
         self.head_shapes: Optional[Tuple[int, int, int]] = None
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
@@ -228,28 +252,32 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
             # resumed run draws what the uncut run draws.
             devices = [self.device.index or 0] if self.device.type == "cuda" else []
             with torch.no_grad(), torch.random.fork_rng(devices=devices):
-                out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems)
+                out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems,
+                                                  packed=self.packed)
             self.head_shapes = (out.type_logits.shape[2], out.weapon_logits.shape[2], out.value_logits.shape[1])
         return self.head_shapes
 
-    def _step_forward(self, staged, mems, targets, b_target, b_mask):
-        """One time step's forward and losses; recomputed in the backward pass."""
+    def _forward(self, staged, mems, index):
+        """The network on one time step, on this run's trunk."""
         with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
             streams = self.encoder.embed_staged(staged)
-            out = self.model.forward_embedded(streams, memory=mems)
-        out = out.float32()
+            out = self.model.forward_embedded(streams, memory=mems, packed=self.packed, index=index)
+        return out.float32()
+
+    def _step_forward(self, staged, mems, targets, b_target, b_mask, index=None):
+        """One time step's forward and losses; recomputed in the backward
+        pass unless its activations are kept. `index`: the step's
+        `_trunk_index` (built inside the forward without it)."""
+        out = self._forward(staged, mems, index)
         parts = imitation_loss_parts(out, targets)
         bl = belief_loss(out.belief_logits, b_target, b_mask)
         return parts.total, bl.sum(), out.memory_padded, parts.log_tensor(), bl.detach()
 
-    def _step_forward_own(self, staged, mems, targets, b_target, b_mask, own):
+    def _step_forward_own(self, staged, mems, targets, b_target, b_mask, own, index=None):
         """`_step_forward` for a time step that holds own rows: their
         soft-target loss joins the policy and value losses, and comes back
         per row for the log."""
-        with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
-            streams = self.encoder.embed_staged(staged)
-            out = self.model.forward_embedded(streams, memory=mems)
-        out = out.float32()
+        out = self._forward(staged, mems, index)
         parts = imitation_loss_parts(out, targets)
         bl = belief_loss(out.belief_logits, b_target, b_mask)
         soft = own_policy_loss(out, own)
@@ -275,38 +303,63 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
                 for s in steps]
         labels = step_labels(positions, steps, staged.sizes, self.games, seed=self.args.seed,
                              value_states_per_game=self.args.value_states_per_game,
-                             value_weight=self.value_weight)
+                             value_weight=self.value_weight, pin=self.device.type == "cuda")
         n_types, n_weapons, n_atoms = self._head_shapes(staged, mems)
         targets = build_imitation_targets(labels.ais, labels.zw, staged.sizes, n_types=n_types,
                                           n_weapons=n_weapons, n_atoms=n_atoms,
                                           type_loss_weights=self.type_loss_weights, device=self.device)
-        b_target = labels.belief_target.to(self.device, non_blocking=True)
-        b_mask = labels.belief_mask.to(self.device, non_blocking=True)
+        b_target, b_mask = labels.belief_on(self.device)
         return staged, mems, targets, b_target, b_mask
+
+    def _trunk_index(self, steps, staged):
+        """The step's trunk index arrays on the device (`WesnothModel.trunk_index`),
+        built once for its forward and the forward's recomputation."""
+        return self.model.trunk_index(staged.sizes, staged.sighting_counts, [s.k for s in steps],
+                                      self.device, packed=self.packed)
+
+    def _kept_steps(self, window) -> int:
+        """How many of the window's last time steps keep their activations
+        under `--activation-budget-gb` (tools/sequence_timing.py), from their
+        records' token counts."""
+        if self.budget_bytes <= 0:
+            return 0
+        step_bytes = []
+        for steps in window:
+            sizes, sightings = position_sizes([self.loader.sides(s.game_side)[s.offset].raw for s in steps])
+            real, padded = trunk_tokens(sizes, sightings, [s.k for s in steps])
+            step_bytes.append((real if self.packed else padded) * self.bytes_per_token)
+        return plan_kept_steps(step_bytes, self.budget_bytes)
 
     def train_window(self) -> Dict[str, float]:
         window = self._window()
         if not window:
             return {}
+        self.clock.start()
         self.loader.prefetch(g.file for g in self._upcoming())
         start_memories = {s: m for s, m in self.memories.items() if s in self.signal_slots}
+        n_kept = self._kept_steps(window)
         total = torch.zeros((), device=self.device)
-        sums = {"policy": 0.0, "policy_n": 0, "value": 0.0, "value_n": 0, "belief": 0.0, "belief_n": 0}
-        if self.own is not None:
-            sums.update(own=0.0, own_n=0)
-        logs = []
-        n_positions = 0
-        for steps in window:
+        logs, own_sums, own_counts = [], [], []
+        n_positions = tokens_real = tokens_padded = kept_tokens = kept_bytes = 0
+        for t, steps in enumerate(window):
             staged, mems, targets, b_target, b_mask = self._prepare(steps, self.memories)
+            index = self._trunk_index(steps, staged)
             own = self._own_batch(steps, staged)
-            if own is None:
-                pv, bsum, mem_padded, log_t, bl = checkpoint(self._step_forward, staged, mems, targets,
-                                                             b_target, b_mask, use_reentrant=False)
+            real, padded = trunk_tokens(staged.sizes, staged.sighting_counts, [s.k for s in steps])
+            tokens_real, tokens_padded = tokens_real + real, tokens_padded + padded
+            fn, inputs = ((self._step_forward, (staged, mems, targets, b_target, b_mask, index)) if own is None else
+                          (self._step_forward_own, (staged, mems, targets, b_target, b_mask, own, index)))
+            if t >= len(window) - n_kept:
+                before = self.clock.memory_allocated()
+                outputs = fn(*inputs)
+                kept_bytes += self.clock.memory_allocated() - before
+                kept_tokens += real if self.packed else padded
             else:
-                pv, bsum, mem_padded, log_t, bl, own_ce = checkpoint(
-                    self._step_forward_own, staged, mems, targets, b_target, b_mask, own, use_reentrant=False)
-                sums["own"] += float(own_ce.sum())
-                sums["own_n"] += int(own_ce.numel())
+                outputs = checkpoint(fn, *inputs, use_reentrant=False)
+            pv, bsum, mem_padded, log_t, bl = outputs[:5]
+            if own is not None:
+                own_sums.append(outputs[5].sum())
+                own_counts.append(outputs[5].numel())
             total = total + pv + self.args.belief_weight * bsum
             for b, s in enumerate(steps):
                 self.memories[s.slot] = mem_padded[b, :s.k]
@@ -317,9 +370,11 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         for g in self.opt.param_groups:
             g["lr"] = lr
         loss.backward()
-        norm, grads = self.clip_groups.clip(self.args.grad_clip)
-        finite = bool(torch.isfinite(norm)) and bool(torch.isfinite(loss.detach()))
-        if finite:
+        norm, group_norms = self.clip_groups.clip_on_device(self.args.grad_clip)
+        slots = list(self.memories)
+        read = read_window(loss, norm, group_norms, [self.memories[s] for s in slots], logs, own_sums,
+                           self.device)
+        if read.finite:
             self.opt.step()
             self._areas_step(lr)
             self.state["nonfinite_run"] = 0
@@ -329,28 +384,12 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
             self.state["nonfinite_steps"] = self.state.get("nonfinite_steps", 0) + 1
             self.state["nonfinite_run"] = self.state.get("nonfinite_run", 0) + 1
             log.warning("non-finite step %d (loss %s, gradient norm %s): update skipped",
-                        self.state["steps"], float(loss.detach()), float(norm))
+                        self.state["steps"], read.loss, read.norm)
         self.opt.zero_grad(set_to_none=True)
-        carried = {}
-        for s, m in self.memories.items():
-            if bool(torch.isfinite(m).all()):
-                carried[s] = m.detach()
-            else:                        # counted: the slot's game-side goes on from the initial memory
-                self.state["memory_resets"] = self.state.get("memory_resets", 0) + 1
-                log.warning("slot %d's carried memory is not finite at step %d: reset", s, self.state["steps"])
-                carried[s] = self.model.initial_memory(m.shape[0]).detach().to(self.device)
-        self.memories = carried
-        for targets, log_t, bl in logs:
-            vals = log_t.cpu()
-            pw = torch.from_numpy(targets.policy_w)
-            ok_policy = pw > 0
-            sums["policy"] += float(vals[:4].sum(0)[ok_policy].sum())
-            sums["policy_n"] += int(ok_policy.sum())
-            ok_value = torch.from_numpy(targets.ok["value"])
-            sums["value"] += float(vals[4][ok_value].sum())
-            sums["value_n"] += int(ok_value.sum())
-            sums["belief"] += float(bl.sum())
-            sums["belief_n"] += int(bl.numel())
+        self.memories = self._carried(slots, read.memory_finite)
+        grads = {} if read.group_norms is None else dict(zip(self.clip_groups.groups, read.group_norms))
+        sums = window_sums(read, logs, own_counts, with_own=self.own is not None)
+        self.last_timing = self.clock.finish(tokens_real, tokens_padded, n_kept, kept_tokens, kept_bytes)
         self.state["positions"] += n_positions
         self.state["steps"] += 1
         self.state["windows"] += 1
@@ -359,10 +398,25 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
             self.state["next_signal"] += self.args.signal_every
         held = {g.file for g in self._upcoming()}
         self.loader.keep_only(held)
-        self._step_row(lr, float(loss.detach()), float(norm), grads, finite, sums)
-        return {"loss": float(loss.detach()), "grad_norm": float(norm),
+        self._step_row(lr, read.loss, read.norm, grads, read.finite, sums, self.last_timing)
+        return {"loss": read.loss, "grad_norm": read.norm,
                 "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": n_positions,
                 **_squares(grads), **sums}
+
+    def _carried(self, slots, finite) -> Dict[int, torch.Tensor]:
+        """The memories the slots carry into the next window, detached; a
+        slot whose memory is not finite starts again from the learned
+        initial memory (counted)."""
+        carried = {}
+        for s, ok in zip(slots, finite):
+            m = self.memories[s]
+            if ok:
+                carried[s] = m.detach()
+            else:
+                self.state["memory_resets"] = self.state.get("memory_resets", 0) + 1
+                log.warning("slot %d's carried memory is not finite at step %d: reset", s, self.state["steps"])
+                carried[s] = self.model.initial_memory(m.shape[0]).detach().to(self.device)
+        return carried
 
     # ---- probe, checkpoints, the pass -----------------------------------
     def run_probe(self, final: bool = False) -> Dict:
@@ -502,60 +556,11 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
 
 
 
-def parse_args(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--sequences", type=Path, required=True)
-    ap.add_argument("--dataset", type=Path, required=True, help="the corpus directory with manifest.jsonl")
-    ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--resume", action="store_true", help="continue from --out")
-    ap.add_argument("--init-from", type=Path, default=None,
-                    help="start a new pass from this checkpoint's weights and optimizer state")
-    ap.add_argument("--decay-from", type=float, default=None,
-                    help="hold the learning rate until this fraction of the pass, then lower it linearly "
-                         "to 0 at its end; the checkpoint there is kept as <out>.stable.pt")
-    ap.add_argument("--pass-positions", type=int, default=None,
-                    help="end the pass after this many positions; the rate's schedule runs over them")
-    ap.add_argument("--anneal-rule", type=float, default=None,
-                    help="after every probe, stop when one more epoch at the peak rate would lower the "
-                         "fitted holdout loss by this much or less (tools/lr_law.py; exit 6, or 7 to look)")
-    ap.add_argument("--law-points", type=Path, default=None,
-                    help="the earlier passes' probe points the anneal rule fits with this pass's")
-    ap.add_argument("--law-key", default="k64", help="the probe's slot reading the anneal rule fits")
-    ap.add_argument("--initial-areas", default=None,
-                    help="with --init-from a checkpoint that does not carry them: its rate history's areas "
-                         "as JSON (tools/lr_law.py replay --areas-at)")
-    ap.add_argument("--own-sequences", type=Path, default=None,
-                    help="the memory player's own game-sides (tools/own_targets.py), trained beside the corpus's")
-    ap.add_argument("--own-streams", type=int, default=None,
-                    help="with --own-sequences: the streams own game-sides take (default: half of --streams)")
-    ap.add_argument("--own-policy-weight", type=float, default=1.0,
-                    help="the weight of an own position's soft-target policy loss")
-    ap.add_argument("--init-other-records", action="store_true",
-                    help="with --init-from: a checkpoint whose records another core phase or corpus version built "
-                         "(its vocabularies, encoding and observation epoch must be this run's)")
-    ap.add_argument("--probe-at-start", action="store_true", help="probe the starting weights before training")
-    ap.add_argument("--imitation-config", type=Path, default=Path("configs/imitation.json"))
-    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--fp32", action="store_true", help="no bfloat16 autocast on CUDA")
-    ap.add_argument("--max-positions", type=int, default=None, help="stop after this many (a smoke run)")
-    ap.add_argument("--log-seconds", type=float, default=60.0)
-    for key in ("streams", "window", "warmup_steps", "value_states_per_game", "seed", "probe_every",
-                "barrier_positions", "checkpoint_every", "signal_every"):
-        ap.add_argument("--" + key.replace("_", "-"), type=int, default=DEFAULTS[key])
-    for key, value in ARCH.items():
-        ap.add_argument("--" + key.replace("_", "-"), type=int, default=value)
-    for key in ("lr", "weight_decay", "grad_clip", "belief_weight"):
-        ap.add_argument("--" + key.replace("_", "-"), type=float, default=DEFAULTS[key])
-    ap.add_argument("--probe-ks", type=lambda s: tuple(int(x) for x in s.split(",")),
-                    default=DEFAULTS["probe_ks"])
-    ap.add_argument("--log-level", default="INFO")
-    return ap.parse_args(argv)
-
-
-def main(argv=None) -> int:
-    args = parse_args(argv)
-    logging.basicConfig(level=getattr(logging, args.log_level),
-                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+def build_trainer(args) -> Trainer:
+    """The trainer of `args` at the point its pass starts or continues: the
+    arguments checked, the seed set, the checkpoint it resumes or starts
+    from loaded (what `main` runs; tools/bench_sequence_step.py builds the
+    same)."""
     torch.manual_seed(args.seed)
     if args.resume and args.init_from is not None:
         raise SystemExit("--resume continues --out's own pass; --init-from starts a new one: not both")
@@ -574,7 +579,12 @@ def main(argv=None) -> int:
                          f"is not a file")
     if args.anneal_rule is not None and args.law_key not in {f"k{k}" for k in args.probe_ks}:
         raise SystemExit(f"--law-key {args.law_key}: the probe reads {', '.join(f'k{k}' for k in args.probe_ks)}")
-    trainer = Trainer(args, torch.device(args.device))
+    device = torch.device(args.device)
+    if args.packed_trunk and args.fp32 and device.type == "cuda":
+        raise SystemExit("--packed-trunk runs flash varlen attention, which takes bfloat16: not with --fp32")
+    if args.activation_budget_gb < 0:
+        raise SystemExit(f"--activation-budget-gb {args.activation_budget_gb}: a size, 0 or more")
+    trainer = Trainer(args, device)
     if args.resume:
         trainer.resume(args.out)
     elif args.init_from is not None:
@@ -582,7 +592,14 @@ def main(argv=None) -> int:
     if args.anneal_rule is not None and trainer.state.get("areas") is None:
         raise SystemExit("--anneal-rule needs the rate history's areas, which the starting checkpoint does "
                          "not carry: pass --initial-areas")
-    return trainer.run()
+    return trainer
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    logging.basicConfig(level=getattr(logging, args.log_level),
+                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    return build_trainer(args).run()
 
 
 if __name__ == "__main__":

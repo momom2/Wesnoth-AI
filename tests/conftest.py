@@ -46,6 +46,17 @@ def _game_records_in_tmp(tmp_path_factory):
         os.environ["WESNOTH_GAME_RECORD_DIR"] = old
 
 
+@pytest.fixture(scope="session")
+def pass_inputs(tmp_path_factory):
+    """The sequence trainer's test pass (tests/helpers/sequence_pass.py),
+    pre-encoded once per session for every module that trains on it."""
+    from wesnoth_ai import game_core as gc
+    if gc.game_core_class() is None:
+        pytest.skip("wesnoth_core.GameCore not available")
+    from helpers.sequence_pass import pass_arguments
+    return pass_arguments(tmp_path_factory.mktemp("pass"))
+
+
 def _source_phase() -> int:
     """`__phase__` as declared in the Rust source, or 0."""
     import re
