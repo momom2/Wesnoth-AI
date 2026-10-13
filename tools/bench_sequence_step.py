@@ -210,6 +210,7 @@ def config_record(root: Path, args, trainer, train_argv, bench: Dict) -> Dict:
         "own_slots": own.slots if own is not None else None,
         "autocast": str(trainer.autocast), "dropout": dropout_probabilities(trainer),
         "trunk": getattr(trainer, "trunk", "padded"), "activation_budget_gb": budget,
+        "columns": bool(getattr(args, "columns", False)),
         "activation_bytes_per_token": getattr(trainer, "bytes_per_token", None) if budget > 0 else None,
         "sdpa": {"flash": torch.backends.cuda.flash_sdp_enabled(),
                  "mem_efficient": torch.backends.cuda.mem_efficient_sdp_enabled(),

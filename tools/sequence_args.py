@@ -57,6 +57,9 @@ def parse_args(argv=None):
     ap.add_argument("--activation-bytes-per-token", type=float, default=None,
                     help="the activation bytes a trunk token keeps, measured (default: the estimate of "
                          "tools/sequence_timing.py for the trunk and architecture)")
+    ap.add_argument("--columns", action="store_true",
+                    help="read the records' columns (tools/columnize_sequences.py writes them beside the pickles): "
+                         "the same batches, without unpickling a Python object per position")
     ap.add_argument("--max-positions", type=int, default=None, help="stop after this many (a smoke run)")
     ap.add_argument("--log-seconds", type=float, default=60.0)
     for key in ("streams", "window", "warmup_steps", "value_states_per_game", "seed", "probe_every",

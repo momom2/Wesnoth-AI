@@ -85,26 +85,39 @@ def test_every_steps_row_counts_the_tokens_its_trunk_ran(tmp_path, pass_inputs):
         assert r["gc_seconds"] >= 0 and r["loader_wait_seconds"] >= 0 and r["decode_seconds"] >= 0
 
 
-def test_the_loader_clocks_its_reads_and_the_waits_for_them(tmp_path, monkeypatch):
+@pytest.mark.parametrize("columns", [False, True], ids=["pickles", "columns"])
+def test_the_loader_clocks_its_reads_and_the_waits_for_them(tmp_path, monkeypatch, columns):
     """decode_seconds: the CPU time its threads spent reading records;
-    wait_seconds: the time the caller waited for a read not yet done."""
+    wait_seconds: the time the caller waited for a read not yet done; for
+    the pickled records' loader and the columns' alike."""
     from tools import sequence_setup
+    from wesnoth_ai.sequence_columns import ColumnarSide
 
-    def slow_read(path):
+    def burn():
         t0 = time.thread_time()
         while time.thread_time() - t0 < 0.05:          # 50 ms of CPU
             pass
+
+    def slow_read(path):
+        burn()
         return SimpleNamespace(sides={1: [path.name]})
 
+    def slow_side(path, side):
+        burn()
+        return ColumnarSide(file=path.name, side=side, n=0, arrays={})
+
     monkeypatch.setattr(sequence_setup, "read_record", slow_read)
-    loader = sequence_setup.SequenceLoader(tmp_path)
-    loader.prefetch(["a", "b"])
-    assert loader.sides(GameSide("b", 1)) == ["b.seq.zpkl"]
-    assert loader.sides(GameSide("a", 1)) == ["a.seq.zpkl"]
+    monkeypatch.setattr(sequence_setup, "read_side", slow_side)
+    loader = (sequence_setup.ColumnLoader if columns else sequence_setup.SequenceLoader)(tmp_path)
+    read = loader.side if columns else loader.sides
+    loader.prefetch([GameSide("a", 1), GameSide("b", 1)])
+    got = read(GameSide("b", 1))
+    assert (got.file if columns else got) == ("b.seq.cols" if columns else ["b.seq.zpkl"])
+    assert read(GameSide("a", 1)) is not None
     assert loader.wait_seconds > 0.01
     assert loader.decode_seconds >= 0.09
     waited = loader.wait_seconds
-    assert loader.sides(GameSide("a", 1)) and loader.wait_seconds == waited, "a record already read costs no wait"
+    assert read(GameSide("a", 1)) is not None and loader.wait_seconds == waited, "a record already read costs no wait"
 
 
 def test_the_kept_steps_are_the_longest_suffix_that_fits():

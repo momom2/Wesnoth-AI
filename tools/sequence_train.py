@@ -108,18 +108,20 @@ from tools.sequence_args import parse_args  # noqa: E402,F401 (sequence_train.pa
 from tools.sequence_memory import MemoryRouter  # noqa: E402
 from tools.sequence_own import OwnStreams  # noqa: E402
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
-from tools.sequence_setup import (ARCH, PREFETCH_SIDES, SequenceLoader,  # noqa: E402
+from tools.columnize_sequences import columns_problem  # noqa: E402
+from tools.sequence_inputs import ColumnInputs, RecordInputs  # noqa: E402
+from tools.sequence_setup import (ARCH, PREFETCH_SIDES, ColumnLoader, SequenceLoader,  # noqa: E402
                                   build_modules, game_facts, lr_factor, own_stream_count, save_checkpoint)
 from tools.sequence_telemetry import (SIGNAL_STREAMS, SIGNAL_TERMS, TrainerTelemetry,  # noqa: E402
                                       _squares)
 from tools.sequence_timing import (GIB, WindowClock, bytes_per_token, plan_kept_steps,  # noqa: E402
-                                   position_sizes, trunk_tokens)
+                                   trunk_tokens)
 from tools.sequence_window import read_window, window_sums  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
-from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts  # noqa: E402
+from wesnoth_ai.imitation_loss import imitation_loss_parts  # noqa: E402
 from wesnoth_ai.own_loss import own_policy_loss  # noqa: E402
 from wesnoth_ai.param_groups import GradientGroups, named_as  # noqa: E402
-from wesnoth_ai.sequence_loss import belief_loss, step_labels  # noqa: E402
+from wesnoth_ai.sequence_loss import belief_loss  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide, StreamSchedule, epoch_order, merge_windows  # noqa: E402
 
 log = logging.getLogger("sequence_train")
@@ -169,8 +171,16 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
                        if p.requires_grad]
         self.clip_groups = GradientGroups(named_as(self.params, self.model, self.encoder))
         self.opt = torch.optim.AdamW(self.params, lr=args.lr, weight_decay=args.weight_decay)
-        self.loader = (SequenceLoader(args.sequences) if self.own is None
-                       else SequenceLoader(args.sequences, self.own.directory, self.own.files))
+        own_directory, own_files = (None, frozenset()) if self.own is None else (self.own.directory, self.own.files)
+        if args.columns:
+            for directory, games in [(args.sequences, man["games"])] + (
+                    [] if self.own is None else [(self.own.directory, self.own.files)]):
+                problem = columns_problem(directory, games)
+                if problem is not None:
+                    raise SystemExit(problem)
+            self.loader = ColumnLoader(args.sequences, own_directory, own_files)
+        else:
+            self.loader = SequenceLoader(args.sequences, own_directory, own_files)
         # The telemetry's slots and terms: with own streams, the first slots
         # of each kind and the own loss as a term of its own.
         half = SIGNAL_STREAMS // 2
@@ -196,6 +206,9 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         self.type_loss_weights = dict(_DEFAULT_ACTION_TYPE_LOSS_WEIGHT)
         self.value_weight = float(json.loads(Path(args.imitation_config).read_text(encoding="utf-8"))
                                   .get("value_from_outcome_weight", 1.0))
+        self.inputs = (ColumnInputs if args.columns else RecordInputs)(
+            self.loader, self.encoder, self.model, self.own, self.games, args, self.value_weight,
+            self.type_loss_weights, device)
         self.meta = {"seed": args.seed, "streams": args.streams, "window": args.window, "lr": args.lr,
                      "warmup_steps": args.warmup_steps, "sequences": str(args.sequences),
                      "fingerprint": man["fingerprint"], "value_weight": self.value_weight,
@@ -203,7 +216,6 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
                      "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule,
                      "own": None if self.own is None else self.own.meta(args.own_policy_weight),
                      "trunk": self.trunk}
-        self.head_shapes: Optional[Tuple[int, int, int]] = None
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
                  args.streams, args.window)
@@ -247,17 +259,6 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         areas.step(lr, warming=(self.state["steps"] + 1) < self.args.warmup_steps)
         self.state["areas"] = areas.to_dict()
 
-    def _head_shapes(self, staged, mems) -> Tuple[int, int, int]:
-        if self.head_shapes is None:
-            # A forward outside the training's random stream (dropout), so a
-            # resumed run draws what the uncut run draws.
-            devices = [self.device.index or 0] if self.device.type == "cuda" else []
-            with torch.no_grad(), torch.random.fork_rng(devices=devices):
-                out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems,
-                                                  packed=self.packed)
-            self.head_shapes = (out.type_logits.shape[2], out.weapon_logits.shape[2], out.value_logits.shape[1])
-        return self.head_shapes
-
     def _forward(self, staged, mems, index):
         """The network on one time step, on this run's trunk."""
         with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
@@ -285,41 +286,16 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         return (parts.total + self.args.own_policy_weight * soft.sum(), bl.sum(), out.memory_padded,
                 parts.log_tensor(), bl.detach(), soft.detach())
 
-    def _own_batch(self, steps, staged):
-        """The step's own rows staged for their loss (after `_stage`, which
-        staged the step), None without any."""
-        if self.own is None:
-            return None
-        positions = [self.loader.sides(s.game_side)[s.offset] for s in steps]
-        n_types, n_weapons, _ = self.head_shapes
-        return self.own.batch(steps, positions, staged.sizes, n_types, n_weapons, self.device)
-
-    def _stage(self, steps, mems):
-        """One time step's inputs but the memory: the staged batch, the
-        imitation targets and the belief targets. `mems`: the step's
-        memories, which the first call reads the heads' shapes with."""
-        positions = [self.loader.sides(s.game_side)[s.offset] for s in steps]
-        staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
-        labels = step_labels(positions, steps, staged.sizes, self.games, seed=self.args.seed,
-                             value_states_per_game=self.args.value_states_per_game,
-                             value_weight=self.value_weight, pin=self.device.type == "cuda")
-        n_types, n_weapons, n_atoms = self._head_shapes(staged, mems)
-        targets = build_imitation_targets(labels.ais, labels.zw, staged.sizes, n_types=n_types,
-                                          n_weapons=n_weapons, n_atoms=n_atoms,
-                                          type_loss_weights=self.type_loss_weights, device=self.device)
-        b_target, b_mask = labels.belief_on(self.device)
-        return staged, targets, b_target, b_mask
-
     def _prepare(self, steps, memories: Dict[int, torch.Tensor]):
         """One time step's inputs: the staged batch, each slot's memory (the
         learned initial one at a game-side's first decision, else the slot's
         entry in `memories`), the imitation targets and the belief targets.
-        The telemetry's path; a window routes its memories through
-        `MemoryRouter`, to the same values."""
+        The telemetry's path; a window stages through `self.inputs` and
+        routes its memories through `MemoryRouter`, to the same values."""
         mems = [self.model.initial_memory(s.k).to(self.device) if s.starts else memories[s.slot]
                 for s in steps]
-        staged, targets, b_target, b_mask = self._stage(steps, mems)
-        return staged, mems, targets, b_target, b_mask
+        x = self.inputs.stage(steps)
+        return x.staged, mems, x.targets, x.belief_target, x.belief_mask
 
     def _trunk_index(self, steps, staged):
         """The step's trunk index arrays on the device (`WesnothModel.trunk_index`),
@@ -335,7 +311,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
             return 0
         step_bytes = []
         for steps in window:
-            sizes, sightings = position_sizes([self.loader.sides(s.game_side)[s.offset].raw for s in steps])
+            sizes, sightings = self.inputs.sizes(steps)
             real, padded = trunk_tokens(sizes, sightings, [s.k for s in steps])
             step_bytes.append((real if self.packed else padded) * self.bytes_per_token)
         return plan_kept_steps(step_bytes, self.budget_bytes)
@@ -345,7 +321,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         if not window:
             return {}
         self.clock.start()
-        self.loader.prefetch(g.file for g in self._upcoming())
+        self.loader.prefetch(self._upcoming())
         start_memories = {s: m for s, m in self.memories.items() if s in self.signal_slots}
         n_kept = self._kept_steps(window)
         router = MemoryRouter(self.model, self.device, self.memories)
@@ -354,9 +330,9 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         n_positions = tokens_real = tokens_padded = kept_tokens = kept_bytes = 0
         for t, steps in enumerate(window):
             mems = router.batch(steps)
-            staged, targets, b_target, b_mask = self._stage(steps, mems)
+            x = self.inputs.stage(steps)
+            staged, targets, b_target, b_mask, own = x.staged, x.targets, x.belief_target, x.belief_mask, x.own
             index = self._trunk_index(steps, staged)
-            own = self._own_batch(steps, staged)
             real, padded = trunk_tokens(staged.sizes, staged.sighting_counts, [s.k for s in steps])
             tokens_real, tokens_padded = tokens_real + real, tokens_padded + padded
             fn, inputs = ((self._step_forward, (staged, mems, targets, b_target, b_mask, index)) if own is None else
@@ -408,8 +384,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry):
         if self.state["positions"] >= self.state["next_signal"]:
             self.signal_row(window, start_memories)
             self.state["next_signal"] += self.args.signal_every
-        held = {g.file for g in self._upcoming()}
-        self.loader.keep_only(held)
+        self.loader.keep_only(self._upcoming())
         self._step_row(lr, read.loss, read.norm, grads, read.finite, sums, self.last_timing)
         return {"loss": read.loss, "grad_norm": read.norm,
                 "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": n_positions,

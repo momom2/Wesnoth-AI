@@ -18,7 +18,7 @@ are made per starting row, in row order, as before.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -38,12 +38,16 @@ class MemoryRouter:
         self._previous: Optional[torch.Tensor] = None          # the last step's padded output
         self._previous_rows: Dict[int, int] = {}               # slot -> its row in it
         self._latest: Dict[int, Tuple[torch.Tensor, int, int]] = {}   # slot -> (padded output, row, k)
+        # What the last batch's rows read: ("initial" | "carried", state, None)
+        # or ("previous", the previous step's output, its row).
+        self.read: List[Tuple[str, torch.Tensor, Optional[int]]] = []
 
     def batch(self, steps: Sequence[Step]) -> MemoryBatch:
         """The step's memories, padded: what `SlotMemory.batch` gives for
         the same states."""
         d = self.model.d_model
         parts, n_rows, starts = [], 0, []
+        self.read = []
         # The previous output joins the pool only when a row reads it: a pool
         # that held it unread would send it a zero gradient, which gives the
         # memory's write a zero gradient where it has none, and the optimizer
@@ -55,8 +59,10 @@ class MemoryRouter:
         for s in steps:
             if not s.starts and s.slot in self._previous_rows:
                 starts.append(self._previous_rows[s.slot] * K)
+                self.read.append(("previous", self._previous, self._previous_rows[s.slot]))
                 continue
             state = self.model.initial_memory(s.k).to(self.device) if s.starts else self.carried[s.slot]
+            self.read.append(("initial" if s.starts else "carried", state, None))
             if state.shape != (s.k, d):
                 raise ValueError(f"slot {s.slot} carries a memory of shape {tuple(state.shape)}, its "
                                  f"game-side runs at {s.k} slots of width {d}")

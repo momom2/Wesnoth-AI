@@ -78,15 +78,16 @@ class TrainerTelemetry:
                 steps = [s for s in steps if s.slot in self.signal_slots]
                 if not steps:
                     continue
-                staged, mems, targets, b_target, b_mask = self._prepare(steps, memories)
-                out = self._forward(staged, mems, self._trunk_index(steps, staged))
-                for term, loss in imitation_loss_parts(out, targets).source_losses().items():
+                mems = [self.model.initial_memory(s.k).to(self.device) if s.starts else memories[s.slot]
+                        for s in steps]
+                x = self.inputs.stage(steps)
+                out = self._forward(x.staged, mems, self._trunk_index(steps, x.staged))
+                for term, loss in imitation_loss_parts(out, x.targets).source_losses().items():
                     terms[term] = terms[term] + loss
                 terms["belief"] = terms["belief"] + self.args.belief_weight * \
-                    belief_loss(out.belief_logits, b_target, b_mask).sum()
-                own = self._own_batch(steps, staged)
-                if own is not None:
-                    terms["own"] = terms["own"] + self.args.own_policy_weight * own_policy_loss(out, own).sum()
+                    belief_loss(out.belief_logits, x.belief_target, x.belief_mask).sum()
+                if x.own is not None:
+                    terms["own"] = terms["own"] + self.args.own_policy_weight * own_policy_loss(out, x.own).sum()
                 for b, s in enumerate(steps):
                     memories[s.slot] = out.memory_padded[b, :s.k]
                 n += len(steps)

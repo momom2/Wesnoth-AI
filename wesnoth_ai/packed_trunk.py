@@ -350,24 +350,44 @@ class FlatLayout:
     in decreasing element size, so every offset is a multiple of its
     field's element size (what `Tensor.view(dtype)` requires) with no
     padding bytes."""
-    __slots__ = ("fields", "nbytes")
+    __slots__ = ("fields", "nbytes", "_dtype_ends")
 
     def __init__(self, fields: Sequence[Tuple[str, torch.dtype, Tuple[int, ...]]]):
         self.fields: List[Tuple[str, torch.dtype, Tuple[int, ...], int, int]] = []
+        self._dtype_ends: Dict[torch.dtype, int] = {}
         off = 0
         for name, dt, shape in sorted(fields, key=lambda f: -f[1].itemsize):
             n = math.prod(shape) * dt.itemsize
             self.fields.append((name, dt, tuple(shape), off, n))
             off += n
+            self._dtype_ends[dt] = off
         self.nbytes = off
 
     def torch_views(self, buf: torch.Tensor) -> Dict[str, torch.Tensor]:
-        return {name: buf[off:off + n].view(dt).view(shape)
-                for name, dt, shape, off, n in self.fields}
+        """Each field as a contiguous view of `buf` (uint8). One view of the
+        buffer per dtype, then one `as_strided` per field: every view is a
+        dispatched op, and a step stages a few hundred fields."""
+        typed: Dict[torch.dtype, torch.Tensor] = {}
+        out = {}
+        for name, dt, shape, off, _ in self.fields:
+            whole = typed.get(dt)
+            if whole is None:
+                whole = typed[dt] = buf[:self._dtype_ends[dt]].view(dt)
+            out[name] = whole.as_strided(shape, _contiguous_strides(shape),
+                                         whole.storage_offset() + off // dt.itemsize)
+        return out
 
     def numpy_views(self, buf: np.ndarray) -> Dict[str, np.ndarray]:
         return {name: buf[off:off + n].view(_NP_DTYPE[dt]).reshape(shape)
                 for name, dt, shape, off, n in self.fields}
+
+
+def _contiguous_strides(shape: Tuple[int, ...]) -> Tuple[int, ...]:
+    strides, step = [], 1
+    for size in reversed(shape):
+        strides.append(step)
+        step *= max(size, 1)
+    return tuple(reversed(strides))
 
 
 # ---------------------------------------------------------------------

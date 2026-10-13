@@ -23,7 +23,7 @@ flow's total); seed and seed2 trained this way, so `total` keeps it.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -49,10 +49,16 @@ class ImitationTargets:
     ok: Dict[str, np.ndarray]          # host copies of the flags, for the log
     policy_w: np.ndarray
     n: int
+    _on: Dict[torch.device, Dict[str, torch.Tensor]] = field(default_factory=dict, repr=False)
 
     def views(self, device: torch.device) -> Dict[str, torch.Tensor]:
-        buf = self.host if device.type == "cpu" else self.host.to(device, non_blocking=True)
-        return self.layout.torch_views(buf)
+        """The labels on `device`, copied there once (a forward recomputed
+        in the backward pass reads them again)."""
+        device = torch.device(device)
+        if device not in self._on:
+            buf = self.host if device.type == "cpu" else self.host.to(device, non_blocking=True)
+            self._on[device] = self.layout.torch_views(buf)
+        return self._on[device]
 
 
 def build_imitation_targets(

@@ -190,18 +190,22 @@ def _trainer(pass_inputs, tmp_path, *extra):
 
 
 @pytest.mark.slow
-def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_windows(tmp_path, pass_inputs):
+def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_windows(tmp_path, pass_inputs,
+                                                                                       monkeypatch):
     """Windows of two over game-sides of three decisions: a game-side's first
     decision reads the learned initial memory, the next decision in the same
     window reads the previous write with its gradient, and a window's first
     decision of a continuing game-side reads a detached state."""
+    from tools import sequence_memory
     trainer = _trainer(pass_inputs, tmp_path, "--window", "2")
-    prepare, train_window = trainer._prepare, trainer.train_window
     reads, where = [], {"t": 0}
+    batch, train_window = sequence_memory.MemoryRouter.batch, trainer.train_window
 
-    def spy_prepare(steps, memories):
-        out = prepare(steps, memories)
-        for s, m in zip(steps, out[1]):
+    def spy_batch(router, steps):
+        out = batch(router, steps)
+        for b, (s, (kind, source, row)) in enumerate(zip(steps, router.read)):
+            m = source if row is None else source[row, :s.k]
+            assert torch.equal(out.padded[b, :s.k], m), "the batch's row is the state it read"
             initial = s.k > 0 and torch.equal(m, trainer.model.initial_memory(s.k))
             reads.append((where["t"], s.starts, s.k, bool(m.requires_grad), initial))
         where["t"] += 1
@@ -211,7 +215,8 @@ def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_w
         where["t"] = 0
         return train_window()
 
-    trainer._prepare, trainer.train_window = spy_prepare, spy_window
+    monkeypatch.setattr(sequence_memory.MemoryRouter, "batch", spy_batch)
+    trainer.train_window = spy_window
     assert trainer.run() == 0
     cases = set()
     for t, starts, k, grad, initial in reads:

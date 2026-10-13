@@ -18,6 +18,7 @@ from wesnoth_ai.checkpoint_structure import checkpoint_structure
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.model import WesnothModel
+from wesnoth_ai.sequence_columns import ColumnarSide, columns_path, read_side, read_sides
 from wesnoth_ai.sequence_loss import GameFacts
 from wesnoth_ai.sequence_streams import GameSide, StreamSchedule
 
@@ -64,15 +65,17 @@ class SequenceLoader:
             self.decode_seconds += spent
         return rec
 
-    def prefetch(self, files) -> None:
-        for f in files:
+    def prefetch(self, game_sides) -> None:
+        """Start reading the records of `game_sides` (both sides of a game
+        are one record)."""
+        for f in dict.fromkeys(g.file for g in game_sides):
             if f not in self._records:
                 self._records[f] = self._pool.submit(self._read, self._path(f))
 
     def sides(self, game_side: GameSide):
         rec = self._records.get(game_side.file)
         if rec is None:
-            self.prefetch([game_side.file])
+            self.prefetch([game_side])
             rec = self._records[game_side.file]
         if not hasattr(rec, "sides"):
             if not rec.done():
@@ -90,10 +93,73 @@ class SequenceLoader:
                 self._records[f] = read_record(self._path(f))
                 self._held.add(f)
 
-    def keep_only(self, files) -> None:
-        keep = set(files) | self._held
+    def keep_only(self, game_sides) -> None:
+        """Drop every record but those of `game_sides` and the held ones."""
+        keep = {g.file for g in game_sides} | self._held
         for f in [f for f in self._records if f not in keep]:
             del self._records[f]
+
+
+class ColumnLoader:
+    """`SequenceLoader` for columnar records (wesnoth_ai/sequence_columns.py),
+    one game-side at a time: a game-side's read is one zlib inflate, which
+    releases the GIL, and its positions are slices of a few arrays, so the
+    loader's threads build no Python object per position and the collector
+    has none to walk. Same clocks."""
+
+    def __init__(self, directory: Path, own_directory: Optional[Path] = None, own_files=frozenset()):
+        self.directory = Path(directory)
+        self.own_directory = None if own_directory is None else Path(own_directory)
+        self.own_files = frozenset(own_files)
+        self._pool = ThreadPoolExecutor(LOADER_THREADS)
+        self._sides: Dict[GameSide, object] = {}
+        self._held: Set[GameSide] = set()
+        self._lock = threading.Lock()
+        self.wait_seconds = 0.0
+        self.decode_seconds = 0.0
+
+    def _path(self, f: str) -> Path:
+        return columns_path(self.own_directory if f in self.own_files else self.directory, f)
+
+    def _read(self, game_side: GameSide) -> ColumnarSide:
+        t0 = time.thread_time()
+        side = read_side(self._path(game_side.file), game_side.side)
+        spent = time.thread_time() - t0
+        with self._lock:
+            self.decode_seconds += spent
+        return side
+
+    def prefetch(self, game_sides) -> None:
+        for g in game_sides:
+            if g not in self._sides:
+                self._sides[g] = self._pool.submit(self._read, g)
+
+    def side(self, game_side: GameSide) -> ColumnarSide:
+        side = self._sides.get(game_side)
+        if side is None:
+            self.prefetch([game_side])
+            side = self._sides[game_side]
+        if not isinstance(side, ColumnarSide):
+            if not side.done():
+                t0 = time.perf_counter()
+                side.result()
+                self.wait_seconds += time.perf_counter() - t0
+            side = self._sides[game_side] = side.result()
+        return side
+
+    def hold(self, files) -> None:
+        """Read both sides of `files` now and keep them whatever `keep_only`
+        is told (a benchmark's preloaded records)."""
+        for f in files:
+            for s, side in read_sides(self._path(f)).items():
+                g = GameSide(f, s)
+                self._sides[g] = side
+                self._held.add(g)
+
+    def keep_only(self, game_sides) -> None:
+        keep = set(game_sides) | self._held
+        for g in [g for g in self._sides if g not in keep]:
+            del self._sides[g]
 
 
 def game_facts(dataset: Path, games: Dict[str, Dict[str, int]]) -> Tuple[Dict[str, GameFacts], List[str], List[str]]:

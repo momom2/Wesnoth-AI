@@ -536,7 +536,7 @@ def test_the_memory_along_an_own_game_side_is_the_players(corpus, tmp_path):
             for i in range(n):
                 step = Step(slot=1, game_side=g, offset=i, k=SLOTS, starts=i == 0)
                 staged, mems, targets, b_target, b_mask = trainer._prepare([step], memories)
-                own = trainer._own_batch([step], staged)
+                own = trainer.inputs.stage([step]).own
                 total, _, mem, _, _, ce = trainer._step_forward_own(staged, mems, targets, b_target, b_mask, own)
                 memories[1] = mem[0, :SLOTS]
                 assert torch.isfinite(total) and float(ce[0]) >= 0.0
