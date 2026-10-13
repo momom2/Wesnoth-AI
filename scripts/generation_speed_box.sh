@@ -20,8 +20,9 @@
 # so every arm plays the same games (up to bf16 near-tie flips: batch
 # composition differs from run to run). The arms, in this order:
 #   base_1, this_1, base_2, this_2: main and this stage's defaults (the
-#     worker's Rust masks and its decisions on the simulator's view, the
-#     stage timing), 20 games in flight, alternated; the session is valid
+#     worker's masks and the view's units built by the core, the raw
+#     player's decisions on the simulator's view, the stage timing), 20
+#     games in flight, alternated; the session is valid
 #     when the two base runs agree within VALID_SPREAD on the server's
 #     decisions per second;
 #   the graphed check (tools/graphed_check.py, graphed_check.json): the
@@ -117,7 +118,7 @@ box_upload
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests.log"
     box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_graphed_serve.py \
-        tests/test_core_masks.py tests/test_decision_state.py tests/test_eval_workers.py \
+        tests/test_core_masks.py tests/test_core_view.py tests/test_decision_state.py tests/test_eval_workers.py \
         tests/test_eval_inference_server.py tests/test_stage_timing.py tests/test_match_memory.py \
         tests/test_server_priors.py tests/test_game_core.py tests/test_memory_model.py \
         tests/test_eval_match_failures.py tests/test_raw_player.py tests/test_raw_player_compact.py \
