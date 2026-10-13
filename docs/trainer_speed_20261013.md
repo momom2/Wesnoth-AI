@@ -187,7 +187,7 @@ columns per game-side: every field concatenated over the positions, offsets
 where its length varies, every array in the pickle's dtype, one zlib blob per
 side (inflate releases the GIL). Reading a game-side is one inflate and one
 `np.frombuffer` per array; a position is a slice of each; no Python object
-exists per position. On 40 real games the columns are 2.7 times smaller than
+exists per position. On 40 real games the columns are 2.5 times smaller than
 the pickles and read in about a twentieth of the time (laptop). What the step
 does not read is left out (the `Position` objects, unit ids, recruit names,
 the label's hexes); the pickles stay the records of the probe and the other
