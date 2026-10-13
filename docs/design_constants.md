@@ -44,6 +44,7 @@ defended by experiment, the experiment goes in BACKLOG.md.
 - [`CERT_RESERVE_PAD` (tools/plan_tournament.py)](#cert_reserve_pad--20-toolsplan_tournamentpy)
 - [`_T_CRIT` (tools/plan_tournament.py)](#_t_crit--2-337-3-20-4-172-5-161-toolsplan_tournamentpy)
 - [Search tempo bonus: `tempo_bonus`](#search-tempo-bonus-tempo_bonus-2026-09-04-default-is-00)
+- [Activation bytes per token (tools/sequence_timing.py)](#activation-bytes-per-token-toolssequence_timingpy-2026-10-13)
 
 ---
 
@@ -399,3 +400,45 @@ it fixed while the head's level is trained to the labels. It is a
 config constant, not a weight, so it can be revised from
 measurement (e.g. the value of a tempo estimated from handover
 pairs once the head learns tempo).
+
+## Activation bytes per token (tools/sequence_timing.py, 2026-10-13)
+
+`ACTIVATION_BYTES_PER_TOKEN_LAYER = {"padded": 17_000, "packed": 10_800}`:
+the bytes one trunk token leaves for the backward pass in one layer of the
+sequence trainer's network (d_model 384, d_ff 1536, 12 heads) under
+bfloat16 autocast. `--activation-budget-gb` divides its budget by these
+(times the layers, scaled by d_model / 384) to decide how many of a
+window's last time steps keep their activations instead of being
+recomputed (`plan_kept_steps`). The padded trunk's count is per padded
+token, the packed trunk's per real token.
+
+Derivation: an estimate from the tensors autograd saves in one post-norm
+`nn.TransformerEncoderLayer`, per token (2 bytes in bfloat16, 4 in
+float32, 1 for a dropout mask):
+
+| saved for the backward pass | padded | packed |
+|---|---|---|
+| in-projection input (bf16, d) | 768 | 768 |
+| q, k, v (bf16, 3d) | 2,304 | 2,304 |
+| attention output, out-projection input (bf16, d) | 1,536 | 768 |
+| softmax log-sum-exp (fp32, per head) | 48 | 48 |
+| dropout masks after attention, in the MLP, after the MLP (d, d_ff, d) | 2,304 | 0 |
+| norm1 input, norm2 input (fp32, 2 x d) | 3,072 | 3,072 |
+| linear1 input (bf16, d) | 768 | 768 |
+| ReLU output (bf16, d_ff) | 3,072 | 3,072 |
+| dropout output, linear2 input (bf16, d_ff) | 3,072 | 0 |
+| **total** | **about 17,000** | **about 10,800** |
+
+The padded figure is the readers' count of the 2026-10-13 plan
+(docs/trainer_speed_20261013.md); the packed path saves no dropout masks
+or dropout outputs (it has no dropout) and one copy of the attention
+output instead of the MHA path's layout copy. Both are estimates, not
+measurements: every steps.jsonl row records the bytes the kept steps
+measured (`kept_gb`, from `torch.cuda.memory_allocated` around their
+forwards) over their tokens (`kept_tokens`), and
+`--activation-bytes-per-token` takes the measured figure in their place
+(scripts/trainer_speed_box.sh measures it before it chooses a budget).
+Too low a figure keeps more steps than fit: the step runs out of device
+memory. Too high keeps fewer: slower, never wrong. Whichever figure is
+used, the numbers trained are the same (the recomputation restores the
+random state its forward drew from).

@@ -5,7 +5,6 @@ names no action; the belief loss averages over the tokens with no visible
 unit; and a pass cut and resumed ends with the weights of the uncut pass."""
 from __future__ import annotations
 
-import gzip
 import json
 import sys
 from collections import Counter
@@ -19,6 +18,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from helpers.sequence_pass import synthetic_dataset as _dataset  # noqa: E402
 from tools.replay_dataset import ActionIndices, timeout_label  # noqa: E402
 from wesnoth_ai.imitation_loss import build_imitation_targets  # noqa: E402
 from wesnoth_ai.sequence_loss import (GameFacts, SequenceLabelError, belief_loss,  # noqa: E402
@@ -98,53 +98,7 @@ def test_the_belief_loss_averages_over_the_tokens_with_no_visible_unit():
     assert belief_loss(logits, target, torch.zeros_like(mask)).item() == 0.0
 
 
-# ---- a whole pass, cut and resumed --------------------------------------
-
-def _dataset(tmp_path):
-    """Three small games written from scratch, extracted into a corpus
-    directory with its manifest; the third is held out."""
-    from helpers.synthetic_replay import move, turn, two_sides, write_replay
-    from tools.replay_extract import extract_replay
-    rides = [[(3, 5), (3, 6)], [(3, 5), (4, 5)], [(3, 5), (3, 4)]]
-    dataset = tmp_path / "corpus"
-    dataset.mkdir()
-    rows = []
-    for i, ride in enumerate(rides):
-        commands = [*turn(1, move(1, ride)), *turn(2, move(2, [(11, 4), (11, 5)])),
-                    *turn(1), *turn(2)]
-        rec = extract_replay(write_replay(tmp_path / f"g{i}.bz2",
-                                          two_sides(extra1=[("Cavalryman", 3, 5, False)]), commands))
-        name = f"g{i}.json.gz"
-        with gzip.open(dataset / name, "wt", encoding="utf-8") as f:
-            json.dump(rec, f)
-        rows.append({"file": name, "winner_side": 1 + i % 2, "winner_actions": 3,
-                     "holdout": i == 2, "corpus_version": 4})
-    (dataset / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    return dataset
-
-
-@pytest.fixture(scope="module")
-def pass_inputs(tmp_path_factory):
-    """The three games pre-encoded by the script run by path, as the box
-    runs it (its worker processes pickle the records, which this process
-    must be able to read), and the trainer's arguments for a tiny network."""
-    from wesnoth_ai import game_core as gc
-    if gc.game_core_class() is None:
-        pytest.skip("wesnoth_core.GameCore not available")
-    import subprocess
-    tmp_path = tmp_path_factory.mktemp("pass")
-    dataset = _dataset(tmp_path)
-    sequences = tmp_path / "sequences"
-    root = Path(__file__).resolve().parent.parent
-    subprocess.run([sys.executable, str(root / "tools" / "preencode_sequences.py"), "--dataset", str(dataset),
-                    "--out", str(sequences), "--workers", "1", "--log-level", "WARNING"],
-                   cwd=root, check=True, timeout=600)
-    common = ["--sequences", str(sequences), "--dataset", str(dataset), "--device", "cpu",
-              "--streams", "2", "--window", "3", "--warmup-steps", "2", "--checkpoint-every", "1000000",
-              "--log-level", "WARNING", "--probe-ks", "0,8", "--signal-every", "3",
-              "--d-model", "32", "--num-layers", "1", "--num-heads", "2", "--d-ff", "64"]
-    return common
-
+# ---- a whole pass, cut and resumed (the pass_inputs fixture: tests/conftest.py) ----
 
 @pytest.mark.slow
 def test_a_resumed_pass_ends_with_the_weights_of_the_uncut_pass(tmp_path, pass_inputs):
@@ -236,18 +190,22 @@ def _trainer(pass_inputs, tmp_path, *extra):
 
 
 @pytest.mark.slow
-def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_windows(tmp_path, pass_inputs):
+def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_windows(tmp_path, pass_inputs,
+                                                                                       monkeypatch):
     """Windows of two over game-sides of three decisions: a game-side's first
     decision reads the learned initial memory, the next decision in the same
     window reads the previous write with its gradient, and a window's first
     decision of a continuing game-side reads a detached state."""
+    from tools import sequence_memory
     trainer = _trainer(pass_inputs, tmp_path, "--window", "2")
-    prepare, train_window = trainer._prepare, trainer.train_window
     reads, where = [], {"t": 0}
+    batch, train_window = sequence_memory.MemoryRouter.batch, trainer.train_window
 
-    def spy_prepare(steps, memories):
-        out = prepare(steps, memories)
-        for s, m in zip(steps, out[1]):
+    def spy_batch(router, steps):
+        out = batch(router, steps)
+        for b, (s, (kind, source, row)) in enumerate(zip(steps, router.read)):
+            m = source if row is None else source[row, :s.k]
+            assert torch.equal(out.padded[b, :s.k], m), "the batch's row is the state it read"
             initial = s.k > 0 and torch.equal(m, trainer.model.initial_memory(s.k))
             reads.append((where["t"], s.starts, s.k, bool(m.requires_grad), initial))
         where["t"] += 1
@@ -257,7 +215,8 @@ def test_a_memory_carries_its_gradient_within_a_window_and_is_detached_between_w
         where["t"] = 0
         return train_window()
 
-    trainer._prepare, trainer.train_window = spy_prepare, spy_window
+    monkeypatch.setattr(sequence_memory.MemoryRouter, "batch", spy_batch)
+    trainer.train_window = spy_window
     assert trainer.run() == 0
     cases = set()
     for t, starts, k, grad, initial in reads:

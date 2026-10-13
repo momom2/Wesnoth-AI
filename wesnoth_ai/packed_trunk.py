@@ -1,4 +1,5 @@
-"""Packed (variable-length) transformer trunk for batched inference
+"""Packed (variable-length) transformer trunk for batched inference and
+for the sequence trainer's `--packed-trunk`
 (docs/gpu_forward_design_20260904.md sections 4.3 and 5.3).
 
 A padded batch [B, L_max, d] carries three interior pad runs per row
@@ -123,6 +124,42 @@ class PackedIndex:
     cu_host: List[int]       # the same offsets on the host, for the SDPA fallback
     max_len: int
     memory: Optional[torch.Tensor] = None
+
+
+BatchCounts = Tuple[Tuple[Tuple[int, int, int], ...], Optional[Tuple[int, ...]], Optional[Tuple[int, ...]]]
+
+
+def batch_counts(sizes, sightings: Optional[Sequence[int]], memory: Optional[Sequence[int]]) -> BatchCounts:
+    """A batch's per-row counts as one comparable value: each row's (units,
+    recruits, hexes), its sightings and its memory slots (None for a stream
+    the batch does not carry). A trunk index built for a batch is valid for
+    another exactly when their counts are equal."""
+    return (tuple((int(u), int(r), int(h)) for u, r, h in sizes),
+            None if sightings is None else tuple(int(s) for s in sightings),
+            None if memory is None else tuple(int(k) for k in memory))
+
+
+@dataclass
+class PackedEmbeddedIndex:
+    """A forward_embedded call's packed layout, built once and on the
+    device (`WesnothModel.trunk_index`): the layout (its actor kinds read
+    on the host), its device index, the stream rows of the memory's active
+    slots (`memory.stream_row_index`; None for a batch without memory
+    tokens), and the batch counts it was built for. A forward run twice
+    (activation checkpointing) neither rebuilds it nor waits for a copy."""
+    layout: PackedLayout
+    index: PackedIndex
+    memory_rows: Optional[torch.Tensor]
+    counts: BatchCounts
+
+
+def host_to_device(array: np.ndarray, device: torch.device) -> torch.Tensor:
+    """A host array on `device`: pinned and non-blocking on CUDA (no host
+    synchronization), the array itself on the CPU."""
+    t = torch.from_numpy(array)
+    if device.type == "cuda":
+        return t.pin_memory().to(device, non_blocking=True)
+    return t if device.type == "cpu" else t.to(device)
 
 
 def _ragged_arange(counts: np.ndarray) -> np.ndarray:
@@ -262,6 +299,55 @@ def build_packed_layout(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max
                         memory=mem.reshape(-1))
 
 
+@dataclass
+class WindowHeadIndex:
+    """Where the heads read every row of a window's time steps in the
+    steps' packed trunk outputs, concatenated (`WesnothModel.window_heads`):
+    each row's actor and hex slots at the window's widths and its global
+    token (device views of one buffer), with the rows' actor kinds and sizes
+    (host)."""
+    actor: torch.Tensor                 # [n * A_max]
+    hex: torch.Tensor                   # [n * H_max]
+    glob: torch.Tensor                  # [n]
+    actor_kind: torch.Tensor            # [n, A_max], on the host
+    sizes: List[Tuple[int, int, int]]
+    A_max: int
+    H_max: int
+
+
+def window_head_index(layouts: Sequence[PackedLayout], sizes: Sequence[Tuple[int, int, int]],
+                      end_turn_kind: int, device: torch.device) -> WindowHeadIndex:
+    """The heads' index over the concatenation of the steps' packed outputs,
+    from each step's layout (`sizes`: every row's (U, R, H), step after
+    step), at the widths one batch of all the rows has (the most units plus
+    the most recruits plus one, the most hexes). A row's slots past its
+    step's widths point at its end_turn token, as its step's padded slots
+    do, with the end_turn kind."""
+    A_max = max(u for u, _, _ in sizes) + max(r for _, r, _ in sizes) + 1
+    H_max = max(h for _, _, h in sizes)
+    actor, hexes, glob, kinds = [], [], [], []
+    offset = 0
+    for layout in layouts:
+        B = len(layout.glob)
+        end = layout.cu_seqlens[1:, None] - 1 + offset
+        a = np.repeat(end, A_max, axis=1)
+        a[:, :layout.actor_kind.shape[1]] = layout.actor.reshape(B, -1) + offset
+        h = np.repeat(end, H_max, axis=1)
+        h[:, :layout.hex.size // max(B, 1)] = layout.hex.reshape(B, -1) + offset
+        k = np.full((B, A_max), end_turn_kind, dtype=np.int64)
+        k[:, :layout.actor_kind.shape[1]] = layout.actor_kind
+        actor.append(a.reshape(-1))
+        hexes.append(h.reshape(-1))
+        glob.append(layout.glob + offset)
+        kinds.append(k)
+        offset += int(layout.cu_seqlens[-1])
+    parts = [np.concatenate(actor), np.concatenate(hexes), np.concatenate(glob)]
+    flat = host_to_device(np.concatenate(parts), device)
+    a, h, g = torch.split(flat, [len(x) for x in parts])
+    return WindowHeadIndex(actor=a, hex=h, glob=g, actor_kind=torch.from_numpy(np.concatenate(kinds)),
+                           sizes=[tuple(int(x) for x in s) for s in sizes], A_max=A_max, H_max=H_max)
+
+
 def padded_gather_index(sizes: Sequence[Tuple[int, int, int]], H_max: int, U_max: int,
                         R_max: int, *, sightings: Optional[Sequence[int]] = None,
                         S_max: Optional[int] = None) -> np.ndarray:
@@ -313,24 +399,44 @@ class FlatLayout:
     in decreasing element size, so every offset is a multiple of its
     field's element size (what `Tensor.view(dtype)` requires) with no
     padding bytes."""
-    __slots__ = ("fields", "nbytes")
+    __slots__ = ("fields", "nbytes", "_dtype_ends")
 
     def __init__(self, fields: Sequence[Tuple[str, torch.dtype, Tuple[int, ...]]]):
         self.fields: List[Tuple[str, torch.dtype, Tuple[int, ...], int, int]] = []
+        self._dtype_ends: Dict[torch.dtype, int] = {}
         off = 0
         for name, dt, shape in sorted(fields, key=lambda f: -f[1].itemsize):
             n = math.prod(shape) * dt.itemsize
             self.fields.append((name, dt, tuple(shape), off, n))
             off += n
+            self._dtype_ends[dt] = off
         self.nbytes = off
 
     def torch_views(self, buf: torch.Tensor) -> Dict[str, torch.Tensor]:
-        return {name: buf[off:off + n].view(dt).view(shape)
-                for name, dt, shape, off, n in self.fields}
+        """Each field as a contiguous view of `buf` (uint8). One view of the
+        buffer per dtype, then one `as_strided` per field: every view is a
+        dispatched op, and a step stages a few hundred fields."""
+        typed: Dict[torch.dtype, torch.Tensor] = {}
+        out = {}
+        for name, dt, shape, off, _ in self.fields:
+            whole = typed.get(dt)
+            if whole is None:
+                whole = typed[dt] = buf[:self._dtype_ends[dt]].view(dt)
+            out[name] = whole.as_strided(shape, _contiguous_strides(shape),
+                                         whole.storage_offset() + off // dt.itemsize)
+        return out
 
     def numpy_views(self, buf: np.ndarray) -> Dict[str, np.ndarray]:
         return {name: buf[off:off + n].view(_NP_DTYPE[dt]).reshape(shape)
                 for name, dt, shape, off, n in self.fields}
+
+
+def _contiguous_strides(shape: Tuple[int, ...]) -> Tuple[int, ...]:
+    strides, step = [], 1
+    for size in reversed(shape):
+        strides.append(step)
+        step *= max(size, 1)
+    return tuple(reversed(strides))
 
 
 # ---------------------------------------------------------------------
@@ -412,9 +518,13 @@ def _same_activation(a, b) -> bool:
 
 def packed_trunk(encoder: nn.TransformerEncoder, x: torch.Tensor,
                  index: PackedIndex) -> torch.Tensor:
-    """The encoder stack on the packed [total, d] tensor. Inference
-    only: the layers' dropouts are identities in eval mode and are
-    omitted."""
+    """The encoder stack on the packed [total, d] tensor. The layers'
+    dropouts are omitted: identities in eval mode, and a network trained
+    on this path (tools/sequence_train.py --packed-trunk) trains without
+    dropout. Differentiable: the flash varlen kernel's backward is
+    defined for its query, key and value (torch 2.5.1
+    tools/autograd/derivatives.yaml:2862-2864,
+    `_flash_attention_backward_symint` with the cumulative lengths)."""
     for layer in encoder.layers:
         x = layer.norm1(x + _self_attention(layer.self_attn, x, index))
         x = layer.norm2(x + layer.linear2(layer.activation(layer.linear1(x))))

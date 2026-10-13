@@ -47,6 +47,36 @@ Durations", 2024); the checkpoint where the cooldown starts is kept as
 the learning rate's schedule, `--decay-from` included, runs over those N (a
 lowering of the rate over part of an epoch).
 
+Speed (docs/trainer_speed_20261013.md). The forward loop never waits for
+the device: every host array crosses in a pinned non-blocking copy, the
+trunk's index arrays are built once per time step (the recomputation in
+the backward pass reuses them), each step's memory batch is one gather
+(tools/sequence_memory.py), and the window's logged values, gradient
+norms and finiteness flags come back in one transfer after the backward
+pass (tools/sequence_window.py). `--columns` reads the records' columns
+(tools/columnize_sequences.py writes them): the same batches, without a
+Python object per position. `--activation-budget-gb G` keeps the
+activations of as many of the window's last time steps as fit in G GiB
+instead of recomputing them (the same arithmetic: the recomputation
+restores the random state its forward drew from). `--packed-trunk` runs the
+trunk on the real tokens only, with flash varlen attention on CUDA under
+bfloat16 and no dropout: other arithmetic than the padded trunk's, so a
+network it trains needs its own acceptance. `--window-batched` (with the
+packed trunk) embeds a window at once and runs the heads and losses once
+over its time steps (tools/sequence_batched.py): other rounding, its own
+acceptance likewise. Every steps.jsonl row carries the window's timing
+(tools/sequence_timing.py).
+
+`--own-sequences DIR` trains the memory player's own game-sides beside the
+corpus's on `--own-streams` of the slots, toward a teacher's distribution
+(tools/sequence_own.py, docs/memory_own_trajectories_prereg_20261011.md);
+the telemetry then splits that loss out as the term "own". Without it the
+trainer runs as it did before own streams existed. `--init-other-records`
+lets `--init-from` start from a checkpoint whose records another core phase
+or corpus version built, provided its vocabularies, encoding and
+observation epoch are this run's. `--probe-at-start` probes the starting
+weights before the first step.
+
 `--anneal-rule T` runs the rule of tools/lr_law.py after every probe: the
 law of the holdout loss against the learning-rate history, fitted to this
 pass's probes and the earlier passes' (`--law-points`). While one more epoch
@@ -63,51 +93,45 @@ a checkpoint written before they were kept.
 """
 from __future__ import annotations
 
-import argparse
 import json
 import logging
-import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from torch.utils.checkpoint import checkpoint
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.columnize_sequences import columns_problem  # noqa: E402
 from tools.lr_law import Areas, probe_points, read_points  # noqa: E402
 from tools.lr_law import decide as law_decide  # noqa: E402
-from tools.preencode_sequences import (ENCODING, load_manifest, read_record,  # noqa: E402
-                                       record_path)
+from tools.preencode_sequences import ENCODING, load_manifest, read_record, record_path  # noqa: E402
+from tools.sequence_args import parse_args  # noqa: E402,F401 (sequence_train.parse_args)
+from tools.sequence_batched import WindowForwards  # noqa: E402
+from tools.sequence_checkpoints import TrainerCheckpoints  # noqa: E402
+from tools.sequence_inputs import ColumnInputs, RecordInputs  # noqa: E402
+from tools.sequence_memory import MemoryRouter  # noqa: E402
+from tools.sequence_own import OwnStreams  # noqa: E402
 from tools.sequence_probe import fit_last_seen_rates, memory_barrier_passes, probe  # noqa: E402
-from tools.signal_telemetry import (POLICY_SOURCES, GradientProbe,  # noqa: E402
-                                    named_model_parameters, signal_group, summarize_gram)
-from wesnoth_ai.param_groups import MEMORY_GROUPS, GradientGroups, named_as  # noqa: E402
-from wesnoth_ai.checkpoint_structure import checkpoint_structure  # noqa: E402
+from tools.sequence_setup import (ARCH, PREFETCH_SIDES, ColumnLoader, SequenceLoader,  # noqa: E402
+                                  build_modules, game_facts, lr_factor, own_stream_count, save_checkpoint)
+from tools.sequence_telemetry import (SIGNAL_STREAMS, SIGNAL_TERMS, TrainerTelemetry,  # noqa: E402
+                                      _squares)
+from tools.sequence_timing import (GIB, WindowClock, bytes_per_token, plan_kept_steps,  # noqa: E402
+                                   trunk_tokens)
+from tools.sequence_window import read_window, window_sums  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
-from wesnoth_ai.encoder import GameStateEncoder  # noqa: E402
-from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts  # noqa: E402
-from wesnoth_ai.model import WesnothModel  # noqa: E402
-from wesnoth_ai.sequence_loss import GameFacts, belief_loss, step_labels  # noqa: E402
-from wesnoth_ai.sequence_streams import GameSide, StreamSchedule, epoch_order  # noqa: E402
+from wesnoth_ai.imitation_loss import imitation_loss_parts  # noqa: E402
+from wesnoth_ai.own_loss import own_policy_loss  # noqa: E402
+from wesnoth_ai.param_groups import GradientGroups, named_as  # noqa: E402
+from wesnoth_ai.sequence_loss import belief_loss  # noqa: E402
+from wesnoth_ai.sequence_streams import GameSide, StreamSchedule, epoch_order, merge_windows  # noqa: E402
 
 log = logging.getLogger("sequence_train")
 
-# The recipe's architecture; the flags of the same names change it (a smoke run).
-ARCH = {"d_model": 384, "num_layers": 8, "num_heads": 12, "d_ff": 1536}
-MEMORY_SLOTS = 64
-# The recipe (docs/parity_memory_design_20260929.md "Training").
-DEFAULTS = {"streams": 32, "window": 16, "lr": 2.8e-4, "warmup_steps": 300, "weight_decay": 1e-4,
-            "grad_clip": 1.0, "value_states_per_game": 16, "belief_weight": 1.0,
-            "seed": 20260929, "probe_every": 500_000, "barrier_positions": 500_000,
-            "checkpoint_every": 250_000, "probe_ks": (0, 16, 64), "signal_every": 25_000}
-# Game-sides the loader fetches ahead of the slots, and its threads.
-PREFETCH_SIDES = 64
-LOADER_THREADS = 4
 # Training game-sides the last-seen baseline's rates are fitted on.
 BASELINE_FIT_SIDES = 400
 EXIT_MEMORY_BARRIER = 3
@@ -117,122 +141,9 @@ EXIT_LOWER = 6                   # the anneal rule: lower the rate from here
 EXIT_REVIEW = 7                  # the anneal rule: the probes left the law, stop and look
 # Non-finite steps in a row that stop the pass (a single one is skipped and counted).
 NONFINITE_LIMIT = 3
-# The telemetry's slots, terms and parameter groups.
-SIGNAL_STREAMS = 4
-SIGNAL_TERMS = POLICY_SOURCES + ("value", "belief")
-SIGNAL_GROUPS = ("encoder", "trunk", "heads", "memory")
 
 
-def _squares(norms: Dict[str, float]) -> Dict[str, float]:
-    """A step's squared gradient norm and the memory's part of it,
-    summable over the steps a log line covers."""
-    return {"grad_sq": sum(v * v for v in norms.values()),
-            "grad_memory_sq": sum(norms.get(g, 0.0) ** 2 for g in MEMORY_GROUPS)}
-
-
-def sequence_signal_group(name: str) -> str:
-    """The telemetry group of a namespaced parameter: the learned memory
-    (its initial state, slot embedding and write), else the encoder, the
-    trunk or the heads."""
-    return "memory" if name.startswith("model.slot_memory.") else signal_group(name)
-
-
-class SequenceLoader:
-    """The game records the slots read, fetched ahead on threads (the zlib
-    half releases the GIL) and dropped once no slot or upcoming game-side
-    needs them."""
-
-    def __init__(self, directory: Path):
-        self.directory = Path(directory)
-        self._pool = ThreadPoolExecutor(LOADER_THREADS)
-        self._records: Dict[str, object] = {}
-
-    def prefetch(self, files) -> None:
-        for f in files:
-            if f not in self._records:
-                self._records[f] = self._pool.submit(read_record, record_path(self.directory, f))
-
-    def sides(self, game_side: GameSide):
-        rec = self._records.get(game_side.file)
-        if rec is None:
-            self.prefetch([game_side.file])
-            rec = self._records[game_side.file]
-        if not hasattr(rec, "sides"):
-            rec = self._records[game_side.file] = rec.result()
-        return rec.sides[game_side.side]
-
-    def keep_only(self, files) -> None:
-        keep = set(files)
-        for f in [f for f in self._records if f not in keep]:
-            del self._records[f]
-
-
-def game_facts(dataset: Path, games: Dict[str, Dict[str, int]]) -> Tuple[Dict[str, GameFacts], List[str], List[str]]:
-    """Each pre-encoded game's facts, and the train and holdout files, from
-    the dataset's manifest. The policy weight is `obs8`'s per-game weight:
-    the median winner's action count over the game's, clipped to [0.25, 4]."""
-    rows = [json.loads(line) for line in (Path(dataset) / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
-            if line.strip()]
-    acts = sorted(r["winner_actions"] for r in rows if r["winner_actions"] > 0)
-    median = acts[len(acts) // 2] if acts else 1
-    facts, train, holdout = {}, [], []
-    for r in rows:
-        f = r["file"]
-        if f not in games:
-            continue
-        w = max(0.25, min(4.0, median / r["winner_actions"])) if r["winner_actions"] > 0 else 1.0
-        facts[f] = GameFacts(winner=int(r["winner_side"]), n_commands=int(games[f]["n_commands"]),
-                             policy_weight=float(w))
-        (holdout if r.get("holdout") else train).append(f)
-    return facts, sorted(train), sorted(holdout)
-
-
-def build_modules(unit_type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                  device: torch.device, arch: Dict[str, int]) -> Tuple[GameStateEncoder, WesnothModel]:
-    encoder = GameStateEncoder(d_model=arch["d_model"], relevant_set_hexes=True,
-                               fog_hides_enemy_villages=True, terrain_multi_hot=True,
-                               observation_parity=True, relevant_set_version=2,
-                               unit_type_to_id=unit_type_to_id, faction_to_id=faction_to_id).to(device)
-    encoder.freeze_vocab()
-    model = WesnothModel(observation_parity=True, memory_slots=MEMORY_SLOTS, **arch).to(device)
-    return encoder, model
-
-
-def lr_factor(positions: int, total: int, decay_from: Optional[float]) -> float:
-    """The learning rate's multiplier at `positions` of a pass of `total`:
-    1, then from the fraction `decay_from` of the pass falling linearly to
-    0 at its end."""
-    if decay_from is None:
-        return 1.0
-    start = decay_from * total
-    if positions < start:
-        return 1.0
-    return max(0.0, (total - positions) / max(1.0, total - start))
-
-
-def save_checkpoint(path: Path, encoder, model, opt, state: Dict, schedule: StreamSchedule,
-                    memories: Dict[int, torch.Tensor], meta: Dict, arch: Dict[str, int]) -> None:
-    """Atomic: a temporary file, then a rename. Loadable by the policy
-    loader (`eval_players.peek_checkpoint_arch`, `TransformerPolicy`)."""
-    payload = {
-        "observation_epoch": int(OBSERVATION_EPOCH), "arch": dict(arch),
-        "relevant_set_hexes": True, "fog_hides_enemy_villages": True, "terrain_multi_hot": True,
-        **checkpoint_structure(model, encoder),
-        "model_state": model.state_dict(), "encoder_state": encoder.state_dict(),
-        "unit_type_to_id": dict(encoder.unit_type_to_id), "faction_to_id": dict(encoder.faction_to_id),
-        "optimizer_state": opt.state_dict(), "training_meta": dict(meta),
-        "sequence_resume": {"state": dict(state), "schedule": schedule.state_dict(),
-                            "memories": {int(s): m.detach().cpu() for s, m in memories.items()},
-                            "rng": {"cpu": torch.get_rng_state(),
-                                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []}},
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    torch.save(payload, tmp)
-    os.replace(tmp, path)
-
-
-class Trainer:
+class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
     def __init__(self, args, device: torch.device):
         self.args, self.device = args, device
         man = load_manifest(args.sequences)
@@ -247,9 +158,18 @@ class Trainer:
                    for f in train for s in (1, 2)}
         self.holdout = [GameSide(f, s) for f in holdout for s in (1, 2)
                         if int(man["games"][f].get(f"positions_side{s}", 0)) > 0]
-        self.schedule = StreamSchedule(epoch_order(list(lengths), args.seed), lengths, args.streams, args.seed)
-        self.pass_total = (self.schedule.total_positions if args.pass_positions is None
-                           else min(int(args.pass_positions), self.schedule.total_positions))
+        own_streams = own_stream_count(args)
+        self.schedule = StreamSchedule(epoch_order(list(lengths), args.seed), lengths, args.streams - own_streams,
+                                       args.seed)
+        self.own: Optional[OwnStreams] = None
+        if own_streams:
+            self.own = OwnStreams(args.own_sequences, man, args.seed, own_streams,
+                                  slot_offset=args.streams - own_streams)
+            self.games.update(self.own.games)
+        total = self.schedule.total_positions + (self.own.schedule.total_positions if self.own else 0)
+        self.pass_total = total if args.pass_positions is None else min(int(args.pass_positions), total)
+        if self.own is not None:
+            self._check_own_shares()
         self.arch = {k: int(getattr(args, k)) for k in ARCH}
         self.encoder, self.model = build_modules(man["unit_type_to_id"], man["faction_to_id"], device,
                                                  self.arch)
@@ -257,7 +177,23 @@ class Trainer:
                        if p.requires_grad]
         self.clip_groups = GradientGroups(named_as(self.params, self.model, self.encoder))
         self.opt = torch.optim.AdamW(self.params, lr=args.lr, weight_decay=args.weight_decay)
-        self.loader = SequenceLoader(args.sequences)
+        own_directory, own_files = (None, frozenset()) if self.own is None else (self.own.directory, self.own.files)
+        if args.columns:
+            for directory, games in [(args.sequences, man["games"])] + (
+                    [] if self.own is None else [(self.own.directory, self.own.files)]):
+                problem = columns_problem(directory, games)
+                if problem is not None:
+                    raise SystemExit(problem)
+            self.loader = ColumnLoader(args.sequences, own_directory, own_files)
+        else:
+            self.loader = SequenceLoader(args.sequences, own_directory, own_files)
+        # The telemetry's slots and terms: with own streams, the first slots
+        # of each kind and the own loss as a term of its own.
+        half = SIGNAL_STREAMS // 2
+        self.signal_slots = (set(range(SIGNAL_STREAMS)) if self.own is None else
+                             set(range(half)) | set(range(args.streams - own_streams,
+                                                          args.streams - own_streams + half)))
+        self.signal_terms = SIGNAL_TERMS + (() if self.own is None else ("own",))
         self.memories: Dict[int, torch.Tensor] = {}
         self.state = {"positions": 0, "steps": 0, "windows": 0, "next_probe": args.probe_every,
                       "barrier_done": False, "next_checkpoint": args.checkpoint_every,
@@ -266,78 +202,55 @@ class Trainer:
         self.rates: Optional[Tuple[float, float]] = None
         self.start_positions = 0                 # where this process's run began (the logged rate)
         self.autocast = torch.bfloat16 if (device.type == "cuda" and not args.fp32) else None
+        self.packed = bool(args.packed_trunk)
+        self.trunk = "packed" if self.packed else "padded"
+        self.budget_bytes = float(args.activation_budget_gb) * GIB
+        self.bytes_per_token = bytes_per_token(self.trunk, self.arch, args.activation_bytes_per_token)
+        self.clock = WindowClock(device, self.loader)
+        self.last_timing: Optional[Dict] = None
         from tools.supervised_train import _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
         self.type_loss_weights = dict(_DEFAULT_ACTION_TYPE_LOSS_WEIGHT)
         self.value_weight = float(json.loads(Path(args.imitation_config).read_text(encoding="utf-8"))
                                   .get("value_from_outcome_weight", 1.0))
+        self.inputs = (ColumnInputs if args.columns else RecordInputs)(
+            self.loader, self.encoder, self.model, self.own, self.games, args, self.value_weight,
+            self.type_loss_weights, device)
         self.meta = {"seed": args.seed, "streams": args.streams, "window": args.window, "lr": args.lr,
                      "warmup_steps": args.warmup_steps, "sequences": str(args.sequences),
                      "fingerprint": man["fingerprint"], "value_weight": self.value_weight,
                      "arch": dict(self.arch), "decay_from": args.decay_from, "init_from": None,
-                     "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule}
-        self.head_shapes: Optional[Tuple[int, int, int]] = None
+                     "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule,
+                     "own": None if self.own is None else self.own.meta(args.own_policy_weight),
+                     "trunk": self.trunk}
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
                  args.streams, args.window)
+        if self.own is not None:
+            log.info("own: %d training game-sides (%d positions) on %d of the streams at %d slots, %d holdout "
+                     "game-sides", len(self.own.schedule.order), self.own.schedule.total_positions, own_streams,
+                     self.own.slots, len(self.own.holdout))
 
-    def _signal_probe(self) -> GradientProbe:
-        """The telemetry over the optimizer's current param groups (built
-        again whenever its state is loaded, which replaces them)."""
-        return GradientProbe(named_model_parameters(self.model, self.encoder),
-                             sequence_signal_group, SIGNAL_GROUPS, self.opt)
+    def _check_own_shares(self) -> None:
+        """Each kind of game-side holds its share of the pass, so every step
+        mixes them in the slots' proportion to the pass's end."""
+        for name, schedule in (("corpus", self.schedule), ("own", self.own.schedule)):
+            share = self.pass_total * schedule.n_streams / self.args.streams
+            if schedule.total_positions < share:
+                raise SystemExit(f"the {name} game-sides hold {schedule.total_positions} positions, fewer than "
+                                 f"their {share:.0f} of a pass of {self.pass_total}: pass --pass-positions")
 
-    # ---- resume ---------------------------------------------------------
-    def resume(self, path: Path) -> None:
-        ck = torch.load(path, map_location="cpu", weights_only=True)
-        meta = ck.get("training_meta", {})
-        for key in ("seed", "streams", "window", "fingerprint", "arch", "decay_from", "pass_positions",
-                    "anneal_rule"):
-            if meta.get(key) != self.meta[key]:
-                raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
-                                 f"{self.meta[key]!r}")
-        self.meta["init_from"] = meta.get("init_from")
-        self.model.load_state_dict(ck["model_state"])
-        self.encoder.load_state_dict(ck["encoder_state"])
-        self.opt.load_state_dict(ck["optimizer_state"])
-        self.signal = self._signal_probe()
-        saved = ck["sequence_resume"]
-        self.state.update(saved["state"])
-        self.schedule.load_state_dict(saved["schedule"])
-        self.memories = {int(s): m.to(self.device) for s, m in saved["memories"].items()}
-        torch.set_rng_state(saved["rng"]["cpu"])
-        if saved["rng"]["cuda"] and torch.cuda.is_available():
-            torch.cuda.set_rng_state_all(saved["rng"]["cuda"])
-        log.info("resumed at %d positions, %d steps", self.state["positions"], self.state["steps"])
+    def _window(self):
+        """The next window's time steps, the own slots' beside the corpus's."""
+        if self.own is None:
+            return self.schedule.window(self.args.window)
+        return merge_windows(self.schedule.window(self.args.window), self.own.schedule.window(self.args.window))
 
-    def init_from(self, path: Path) -> None:
-        """A new pass from `path`'s weights and optimizer state: the same
-        encoding (fingerprint), streams, window and architecture; this run's
-        schedule, carried memories and learning rate. A checkpoint whose
-        memory barrier failed starts nothing."""
-        ck = torch.load(path, map_location="cpu", weights_only=True)
-        meta = ck.get("training_meta", {})
-        for key in ("streams", "window", "fingerprint", "arch"):
-            if meta.get(key) != self.meta[key]:
-                raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
-                                 f"{self.meta[key]!r}")
-        state = ck.get("sequence_resume", {}).get("state", {})
-        if state.get("barrier_failed"):
-            raise SystemExit(f"{path} failed its memory barrier: no pass starts from it")
-        self.model.load_state_dict(ck["model_state"])
-        self.encoder.load_state_dict(ck["encoder_state"])
-        self.opt.load_state_dict(ck["optimizer_state"])
-        self.signal = self._signal_probe()
-        areas = state.get("areas")
-        if areas is not None and self.args.initial_areas is not None:
-            raise SystemExit(f"{path} carries its rate history's areas; --initial-areas would replace them")
-        if areas is None and self.args.initial_areas is not None:
-            areas = json.loads(self.args.initial_areas)
-        self.state["areas"] = None if areas is None else Areas.from_dict(areas).to_dict()
-        self.meta["init_from"] = {"path": str(path), "seed": meta.get("seed"),
-                                  "positions": int(state.get("positions", 0)), "steps": int(state.get("steps", 0)),
-                                  "init_from": meta.get("init_from"), "areas": self.state["areas"]}
-        log.info("a new pass from %s, which trained %d positions in %d steps", path,
-                 self.meta["init_from"]["positions"], self.meta["init_from"]["steps"])
+    def _upcoming(self) -> List[GameSide]:
+        upcoming = self.schedule.upcoming(PREFETCH_SIDES)
+        return upcoming if self.own is None else upcoming + self.own.schedule.upcoming(PREFETCH_SIDES)
+
+    def _exhausted(self) -> bool:
+        return self.schedule.exhausted() or (self.own is not None and self.own.schedule.exhausted())
 
     # ---- one window -----------------------------------------------------
     def _lr_now(self) -> float:
@@ -352,72 +265,83 @@ class Trainer:
         areas.step(lr, warming=(self.state["steps"] + 1) < self.args.warmup_steps)
         self.state["areas"] = areas.to_dict()
 
-    def _head_shapes(self, staged, mems) -> Tuple[int, int, int]:
-        if self.head_shapes is None:
-            # A forward outside the training's random stream (dropout), so a
-            # resumed run draws what the uncut run draws.
-            devices = [self.device.index or 0] if self.device.type == "cuda" else []
-            with torch.no_grad(), torch.random.fork_rng(devices=devices):
-                out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems)
-            self.head_shapes = (out.type_logits.shape[2], out.weapon_logits.shape[2], out.value_logits.shape[1])
-        return self.head_shapes
-
-    def _step_forward(self, staged, mems, targets, b_target, b_mask):
-        """One time step's forward and losses; recomputed in the backward pass."""
+    def _forward(self, staged, mems, index):
+        """The network on one time step, on this run's trunk."""
         with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
             streams = self.encoder.embed_staged(staged)
-            out = self.model.forward_embedded(streams, memory=mems)
-        out = out.float32()
+            out = self.model.forward_embedded(streams, memory=mems, packed=self.packed, index=index)
+        return out.float32()
+
+    def _step_forward(self, staged, mems, targets, b_target, b_mask, index=None):
+        """One time step's forward and losses; recomputed in the backward
+        pass unless its activations are kept. `index`: the step's
+        `_trunk_index` (built inside the forward without it)."""
+        out = self._forward(staged, mems, index)
         parts = imitation_loss_parts(out, targets)
         bl = belief_loss(out.belief_logits, b_target, b_mask)
         return parts.total, bl.sum(), out.memory_padded, parts.log_tensor(), bl.detach()
 
+    def _step_forward_own(self, staged, mems, targets, b_target, b_mask, own, index=None):
+        """`_step_forward` for a time step that holds own rows: their
+        soft-target loss joins the policy and value losses, and comes back
+        per row for the log."""
+        out = self._forward(staged, mems, index)
+        parts = imitation_loss_parts(out, targets)
+        bl = belief_loss(out.belief_logits, b_target, b_mask)
+        soft = own_policy_loss(out, own)
+        return (parts.total + self.args.own_policy_weight * soft.sum(), bl.sum(), out.memory_padded,
+                parts.log_tensor(), bl.detach(), soft.detach())
+
     def _prepare(self, steps, memories: Dict[int, torch.Tensor]):
         """One time step's inputs: the staged batch, each slot's memory (the
-        learned initial one at a game-side's first decision), the imitation
-        targets and the belief targets."""
-        positions = [self.loader.sides(s.game_side)[s.offset] for s in steps]
-        staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
+        learned initial one at a game-side's first decision, else the slot's
+        entry in `memories`), the imitation targets and the belief targets.
+        The telemetry's path; a window stages through `self.inputs` and
+        routes its memories through `MemoryRouter`, to the same values."""
         mems = [self.model.initial_memory(s.k).to(self.device) if s.starts else memories[s.slot]
                 for s in steps]
-        labels = step_labels(positions, steps, staged.sizes, self.games, seed=self.args.seed,
-                             value_states_per_game=self.args.value_states_per_game,
-                             value_weight=self.value_weight)
-        n_types, n_weapons, n_atoms = self._head_shapes(staged, mems)
-        targets = build_imitation_targets(labels.ais, labels.zw, staged.sizes, n_types=n_types,
-                                          n_weapons=n_weapons, n_atoms=n_atoms,
-                                          type_loss_weights=self.type_loss_weights, device=self.device)
-        b_target = labels.belief_target.to(self.device, non_blocking=True)
-        b_mask = labels.belief_mask.to(self.device, non_blocking=True)
-        return staged, mems, targets, b_target, b_mask
+        x = self.inputs.stage(steps)
+        return x.staged, mems, x.targets, x.belief_target, x.belief_mask
+
+    def _trunk_index(self, steps, staged):
+        """The step's trunk index arrays on the device (`WesnothModel.trunk_index`),
+        built once for its forward and the forward's recomputation."""
+        return self.model.trunk_index(staged.sizes, staged.sighting_counts, [s.k for s in steps],
+                                      self.device, packed=self.packed)
+
+    def _kept_steps(self, window) -> int:
+        """How many of the window's last time steps keep their activations
+        under `--activation-budget-gb` (tools/sequence_timing.py), from their
+        records' token counts."""
+        if self.budget_bytes <= 0:
+            return 0
+        step_bytes = []
+        for steps in window:
+            sizes, sightings = self.inputs.sizes(steps)
+            real, padded = trunk_tokens(sizes, sightings, [s.k for s in steps])
+            step_bytes.append((real if self.packed else padded) * self.bytes_per_token)
+        return plan_kept_steps(step_bytes, self.budget_bytes)
 
     def train_window(self) -> Dict[str, float]:
-        window = self.schedule.window(self.args.window)
+        window = self._window()
         if not window:
             return {}
-        self.loader.prefetch(g.file for g in self.schedule.upcoming(PREFETCH_SIDES))
-        start_memories = {s: m for s, m in self.memories.items() if s < SIGNAL_STREAMS}
-        total = torch.zeros((), device=self.device)
-        sums = {"policy": 0.0, "policy_n": 0, "value": 0.0, "value_n": 0, "belief": 0.0, "belief_n": 0}
-        logs = []
-        n_positions = 0
-        for steps in window:
-            staged, mems, targets, b_target, b_mask = self._prepare(steps, self.memories)
-            pv, bsum, mem_padded, log_t, bl = checkpoint(self._step_forward, staged, mems, targets,
-                                                         b_target, b_mask, use_reentrant=False)
-            total = total + pv + self.args.belief_weight * bsum
-            for b, s in enumerate(steps):
-                self.memories[s.slot] = mem_padded[b, :s.k]
-            logs.append((targets, log_t, bl))
-            n_positions += len(steps)
-        loss = total / float(self.args.streams * self.args.window)
+        self.clock.start()
+        self.loader.prefetch(self._upcoming())
+        start_memories = {s: m for s, m in self.memories.items() if s in self.signal_slots}
+        router = MemoryRouter(self.model, self.device, self.memories)
+        fw = (self._batched_forward if self.args.window_batched else self._stepped_forward)(window, router)
+        self.memories = router.memories()
+        loss = fw.total / float(self.args.streams * self.args.window)
         lr = self._lr_now()
         for g in self.opt.param_groups:
             g["lr"] = lr
         loss.backward()
-        norm, grads = self.clip_groups.clip(self.args.grad_clip)
-        finite = bool(torch.isfinite(norm)) and bool(torch.isfinite(loss.detach()))
-        if finite:
+        norm, group_norms = self.clip_groups.clip_on_device(self.args.grad_clip)
+        slots = list(self.memories)
+        read = read_window(loss, norm, group_norms, [self.memories[s] for s in slots], fw.logs, fw.own_sums,
+                           self.device)
+        if read.finite:
             self.opt.step()
             self._areas_step(lr)
             self.state["nonfinite_run"] = 0
@@ -427,88 +351,39 @@ class Trainer:
             self.state["nonfinite_steps"] = self.state.get("nonfinite_steps", 0) + 1
             self.state["nonfinite_run"] = self.state.get("nonfinite_run", 0) + 1
             log.warning("non-finite step %d (loss %s, gradient norm %s): update skipped",
-                        self.state["steps"], float(loss.detach()), float(norm))
+                        self.state["steps"], read.loss, read.norm)
         self.opt.zero_grad(set_to_none=True)
-        carried = {}
-        for s, m in self.memories.items():
-            if bool(torch.isfinite(m).all()):
-                carried[s] = m.detach()
-            else:                        # counted: the slot's game-side goes on from the initial memory
-                self.state["memory_resets"] = self.state.get("memory_resets", 0) + 1
-                log.warning("slot %d's carried memory is not finite at step %d: reset", s, self.state["steps"])
-                carried[s] = self.model.initial_memory(m.shape[0]).detach().to(self.device)
-        self.memories = carried
-        for targets, log_t, bl in logs:
-            vals = log_t.cpu()
-            pw = torch.from_numpy(targets.policy_w)
-            ok_policy = pw > 0
-            sums["policy"] += float(vals[:4].sum(0)[ok_policy].sum())
-            sums["policy_n"] += int(ok_policy.sum())
-            ok_value = torch.from_numpy(targets.ok["value"])
-            sums["value"] += float(vals[4][ok_value].sum())
-            sums["value_n"] += int(ok_value.sum())
-            sums["belief"] += float(bl.sum())
-            sums["belief_n"] += int(bl.numel())
-        self.state["positions"] += n_positions
+        self.memories = self._carried(slots, read.memory_finite)
+        grads = {} if read.group_norms is None else dict(zip(self.clip_groups.groups, read.group_norms))
+        sums = window_sums(read, fw.logs, fw.own_counts, with_own=self.own is not None)
+        self.last_timing = self.clock.finish(fw.tokens_real, fw.tokens_padded, fw.n_kept, fw.kept_tokens,
+                                             fw.kept_bytes)
+        self.state["positions"] += fw.n_positions
         self.state["steps"] += 1
         self.state["windows"] += 1
         if self.state["positions"] >= self.state["next_signal"]:
             self.signal_row(window, start_memories)
             self.state["next_signal"] += self.args.signal_every
-        held = {g.file for g in self.schedule.upcoming(PREFETCH_SIDES)}
-        self.loader.keep_only(held)
-        self._step_row(lr, float(loss.detach()), float(norm), grads, finite, sums)
-        return {"loss": float(loss.detach()), "grad_norm": float(norm),
-                "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": n_positions,
+        self.loader.keep_only(self._upcoming())
+        self._step_row(lr, read.loss, read.norm, grads, read.finite, sums, self.last_timing)
+        return {"loss": read.loss, "grad_norm": read.norm,
+                "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": fw.n_positions,
                 **_squares(grads), **sums}
 
-    def _step_row(self, lr: float, loss: float, norm: float, grads: Dict[str, float], applied: bool,
-                  sums: Dict) -> None:
-        """The step's row in <out>.steps.jsonl (module docstring)."""
-        row = {"step": self.state["steps"], "positions": self.state["positions"], "lr": lr, "loss": loss,
-               "policy": sums["policy"] / max(1, sums["policy_n"]),
-               "value": sums["value"] / max(1, sums["value_n"]),
-               "belief": sums["belief"] / max(1, sums["belief_n"]),
-               "grad_norm": norm, "grad": grads, "applied": applied}
-        with open(self.args.out.with_suffix(".steps.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
-
-    def signal_row(self, window, start_memories: Dict[int, torch.Tensor]) -> None:
-        """The telemetry row: the window just trained, on its first
-        SIGNAL_STREAMS slots from the memories they started it with, its loss
-        split by term in gradient and update space (the optimizer's state
-        read, nothing written, the training's random stream untouched)."""
-        t0 = time.time()
-        memories = dict(start_memories)
-        terms = {t: torch.zeros((), device=self.device) for t in SIGNAL_TERMS}
-        n = 0
-        with self.signal.fork_rng():
-            for steps in window:
-                steps = [s for s in steps if s.slot < SIGNAL_STREAMS]
-                if not steps:
-                    continue
-                staged, mems, targets, b_target, b_mask = self._prepare(steps, memories)
-                with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
-                    out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems)
-                out = out.float32()
-                for term, loss in imitation_loss_parts(out, targets).source_losses().items():
-                    terms[term] = terms[term] + loss
-                terms["belief"] = terms["belief"] + self.args.belief_weight * \
-                    belief_loss(out.belief_logits, b_target, b_mask).sum()
-                for b, s in enumerate(steps):
-                    memories[s.slot] = out.memory_padded[b, :s.k]
-                n += len(steps)
-            if not n:
-                return
-            gradient, update, stateless = self.signal.grams(terms, 1.0 / n)
-        kw = dict(policy_terms=POLICY_SOURCES, shared_groups=("encoder", "trunk", "memory"))
-        row = {"positions": self.state["positions"], "steps": self.state["steps"], "probe_positions": n,
-               "gradient": summarize_gram(gradient.tolist(), SIGNAL_TERMS, SIGNAL_GROUPS, **kw),
-               "update": None if update is None else summarize_gram(update.tolist(), SIGNAL_TERMS,
-                                                                    SIGNAL_GROUPS, **kw),
-               "stateless": stateless, "seconds": round(time.time() - t0, 2)}
-        with open(self.args.out.with_suffix(".signal.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+    def _carried(self, slots, finite) -> Dict[int, torch.Tensor]:
+        """The memories the slots carry into the next window, detached; a
+        slot whose memory is not finite starts again from the learned
+        initial memory (counted)."""
+        carried = {}
+        for s, ok in zip(slots, finite):
+            m = self.memories[s]
+            if ok:
+                carried[s] = m.detach()
+            else:
+                self.state["memory_resets"] = self.state.get("memory_resets", 0) + 1
+                log.warning("slot %d's carried memory is not finite at step %d: reset", s, self.state["steps"])
+                carried[s] = self.model.initial_memory(m.shape[0]).detach().to(self.device)
+        return carried
 
     # ---- probe, checkpoints, the pass -----------------------------------
     def run_probe(self, final: bool = False) -> Dict:
@@ -534,7 +409,10 @@ class Trainer:
 
     def save(self) -> None:
         save_checkpoint(self.args.out, self.encoder, self.model, self.opt, self.state, self.schedule,
-                        self.memories, self.meta, self.arch)
+                        self.memories, self.meta, self.arch, self._own_schedule())
+
+    def _own_schedule(self) -> Optional[StreamSchedule]:
+        return None if self.own is None else self.own.schedule
 
     def _keep_stable(self) -> None:
         """Once the cooldown starts, the checkpoint there is kept as
@@ -548,7 +426,7 @@ class Trainer:
         self.state["stable_saved"] = True
         stable = self.args.out.with_name(self.args.out.stem + ".stable.pt")
         save_checkpoint(stable, self.encoder, self.model, self.opt, self.state, self.schedule,
-                        self.memories, self.meta, self.arch)
+                        self.memories, self.meta, self.arch, self._own_schedule())
         self.save()                              # the flag only once the stable file exists
         log.info("the cooldown starts at %d positions: the checkpoint is kept as %s",
                  self.state["positions"], stable)
@@ -561,11 +439,15 @@ class Trainer:
             log.info("ANNEAL_RULE decided %r earlier in this pass (the .anneal.jsonl): no training past it",
                      self.state["anneal"])
             return EXIT_LOWER if self.state["anneal"] == "lower" else EXIT_REVIEW
+        if self.args.probe_at_start and not self.state.get("start_probed") and self.state["positions"] == 0:
+            self.run_probe()
+            self.state["start_probed"] = True
+            self.save()
         t0, last_log = time.time(), time.time()
         self.start_positions = self.state["positions"]
         window_logs: List[Dict] = []
         limit = self.args.max_positions
-        while (not self.schedule.exhausted() and self.state["positions"] < self.pass_total
+        while (not self._exhausted() and self.state["positions"] < self.pass_total
                and (limit is None or self.state["positions"] < limit)):
             window_logs.append(self.train_window())
             if self.state.get("nonfinite_run", 0) >= NONFINITE_LIMIT:
@@ -639,67 +521,13 @@ class Trainer:
         self.state["anneal"] = decision.action
         return EXIT_LOWER if decision.action == "lower" else EXIT_REVIEW
 
-    def _log(self, rows: List[Dict], t0: float) -> None:
-        rows = [r for r in rows if r]
-        if not rows:
-            return
-        tot = {k: sum(r[k] for r in rows) for k in rows[0] if k not in ("loss", "grad_norm", "memory_write_grad_norm")}
-        el = time.time() - t0
-        log.info("positions %d/%d steps %d | loss %.4f grad %.2f memory write grad %.3f | memory share of "
-                 "gradient %.3f | policy %.4f value %.4f belief %.4f | lr %.2e | %.1f positions/s",
-                 self.state["positions"], self.pass_total, self.state["steps"],
-                 sum(r["loss"] for r in rows) / len(rows),
-                 max(r["grad_norm"] for r in rows), max(r["memory_write_grad_norm"] for r in rows),
-                 tot["grad_memory_sq"] / max(tot["grad_sq"], 1e-30),
-                 tot["policy"] / max(1, tot["policy_n"]), tot["value"] / max(1, tot["value_n"]),
-                 tot["belief"] / max(1, tot["belief_n"]), self._lr_now(),
-                 (self.state["positions"] - self.start_positions) / max(el, 1e-9))
 
 
-def parse_args(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--sequences", type=Path, required=True)
-    ap.add_argument("--dataset", type=Path, required=True, help="the corpus directory with manifest.jsonl")
-    ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--resume", action="store_true", help="continue from --out")
-    ap.add_argument("--init-from", type=Path, default=None,
-                    help="start a new pass from this checkpoint's weights and optimizer state")
-    ap.add_argument("--decay-from", type=float, default=None,
-                    help="hold the learning rate until this fraction of the pass, then lower it linearly "
-                         "to 0 at its end; the checkpoint there is kept as <out>.stable.pt")
-    ap.add_argument("--pass-positions", type=int, default=None,
-                    help="end the pass after this many positions; the rate's schedule runs over them")
-    ap.add_argument("--anneal-rule", type=float, default=None,
-                    help="after every probe, stop when one more epoch at the peak rate would lower the "
-                         "fitted holdout loss by this much or less (tools/lr_law.py; exit 6, or 7 to look)")
-    ap.add_argument("--law-points", type=Path, default=None,
-                    help="the earlier passes' probe points the anneal rule fits with this pass's")
-    ap.add_argument("--law-key", default="k64", help="the probe's slot reading the anneal rule fits")
-    ap.add_argument("--initial-areas", default=None,
-                    help="with --init-from a checkpoint that does not carry them: its rate history's areas "
-                         "as JSON (tools/lr_law.py replay --areas-at)")
-    ap.add_argument("--imitation-config", type=Path, default=Path("configs/imitation.json"))
-    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--fp32", action="store_true", help="no bfloat16 autocast on CUDA")
-    ap.add_argument("--max-positions", type=int, default=None, help="stop after this many (a smoke run)")
-    ap.add_argument("--log-seconds", type=float, default=60.0)
-    for key in ("streams", "window", "warmup_steps", "value_states_per_game", "seed", "probe_every",
-                "barrier_positions", "checkpoint_every", "signal_every"):
-        ap.add_argument("--" + key.replace("_", "-"), type=int, default=DEFAULTS[key])
-    for key, value in ARCH.items():
-        ap.add_argument("--" + key.replace("_", "-"), type=int, default=value)
-    for key in ("lr", "weight_decay", "grad_clip", "belief_weight"):
-        ap.add_argument("--" + key.replace("_", "-"), type=float, default=DEFAULTS[key])
-    ap.add_argument("--probe-ks", type=lambda s: tuple(int(x) for x in s.split(",")),
-                    default=DEFAULTS["probe_ks"])
-    ap.add_argument("--log-level", default="INFO")
-    return ap.parse_args(argv)
-
-
-def main(argv=None) -> int:
-    args = parse_args(argv)
-    logging.basicConfig(level=getattr(logging, args.log_level),
-                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+def build_trainer(args) -> Trainer:
+    """The trainer of `args` at the point its pass starts or continues: the
+    arguments checked, the seed set, the checkpoint it resumes or starts
+    from loaded (what `main` runs; tools/bench_sequence_step.py builds the
+    same)."""
     torch.manual_seed(args.seed)
     if args.resume and args.init_from is not None:
         raise SystemExit("--resume continues --out's own pass; --init-from starts a new one: not both")
@@ -709,12 +537,23 @@ def main(argv=None) -> int:
         raise SystemExit(f"--pass-positions {args.pass_positions}: a pass of at least one position")
     if args.initial_areas is not None and args.init_from is None:
         raise SystemExit("--initial-areas gives the areas of the checkpoint --init-from starts from")
+    if args.init_other_records and args.init_from is None:
+        raise SystemExit("--init-other-records qualifies --init-from")
+    if args.own_streams is not None and args.own_sequences is None:
+        raise SystemExit("--own-streams gives the streams of --own-sequences")
     if args.anneal_rule is not None and (args.law_points is None or not args.law_points.is_file()):
         raise SystemExit(f"--anneal-rule fits the earlier passes' probes: --law-points {args.law_points} "
                          f"is not a file")
     if args.anneal_rule is not None and args.law_key not in {f"k{k}" for k in args.probe_ks}:
         raise SystemExit(f"--law-key {args.law_key}: the probe reads {', '.join(f'k{k}' for k in args.probe_ks)}")
-    trainer = Trainer(args, torch.device(args.device))
+    device = torch.device(args.device)
+    if args.packed_trunk and args.fp32 and device.type == "cuda":
+        raise SystemExit("--packed-trunk runs flash varlen attention, which takes bfloat16: not with --fp32")
+    if args.window_batched and not args.packed_trunk:
+        raise SystemExit("--window-batched runs the packed trunk's layout: with --packed-trunk")
+    if args.activation_budget_gb < 0:
+        raise SystemExit(f"--activation-budget-gb {args.activation_budget_gb}: a size, 0 or more")
+    trainer = Trainer(args, device)
     if args.resume:
         trainer.resume(args.out)
     elif args.init_from is not None:
@@ -722,7 +561,14 @@ def main(argv=None) -> int:
     if args.anneal_rule is not None and trainer.state.get("areas") is None:
         raise SystemExit("--anneal-rule needs the rate history's areas, which the starting checkpoint does "
                          "not carry: pass --initial-areas")
-    return trainer.run()
+    return trainer
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    logging.basicConfig(level=getattr(logging, args.log_level),
+                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    return build_trainer(args).run()
 
 
 if __name__ == "__main__":

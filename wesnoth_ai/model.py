@@ -38,27 +38,29 @@ obs8's, parameter for parameter.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.encoder import EncodedState
-from wesnoth_ai.memory import MemoryState, SlotMemory
+from wesnoth_ai.memory import MemoryBatch, MemoryState, SlotMemory, stream_row_index
 from wesnoth_ai.model_output import (
     MAX_ATTACKS, VALUE_N_ATOMS, VALUE_V_MAX, VALUE_V_MIN, ActorKind, ModelOutput,
     PaddedOutput, TokenKind, UnitActionType,
 )
 from wesnoth_ai.packed_trunk import (
-    CompiledPackedTrunk, EmbeddedStreams, PackedTrunkWeights, build_packed_layout,
-    check_packed_trunk_supported, flash_varlen_applies, packed_trunk, padded_gather_index,
+    CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, WindowHeadIndex,
+    batch_counts,
+    build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, host_to_device,
+    packed_trunk, padded_gather_index,
 )
 from wesnoth_ai.material import MATERIAL_SCALE
-from wesnoth_ai.padded_streams import (ExtraStreams, check_sighting_stream, extra_streams,
-                                       material_batch, memory_batch, pad_encoded_streams,
-                                       pad_sighting_streams, padded_trunk_index,
-                                       random_padded_streams)
+from wesnoth_ai.padded_streams import (ExtraStreams, PaddedIndex, check_sighting_stream,
+                                       extra_streams, material_batch, memory_batch,
+                                       pad_encoded_streams, pad_sighting_streams, padded_index,
+                                       padded_trunk_index, random_padded_streams, stream_widths)
 
 __all__ = [
     "WesnothModel",
@@ -66,6 +68,15 @@ __all__ = [
     "ModelOutput", "PaddedOutput", "TokenKind", "ActorKind", "UnitActionType",
     "MAX_ATTACKS", "VALUE_N_ATOMS", "VALUE_V_MIN", "VALUE_V_MAX", "random_padded_streams",
 ]
+
+
+def _check_packed_index(prebuilt: PackedEmbeddedIndex, sizes, sightings, mem) -> None:
+    """A prebuilt packed index was built for this batch's per-row counts:
+    its segments and memory rows are laid out row by row."""
+    counts = batch_counts(sizes, sightings, mem.counts if mem is not None else None)
+    if counts != prebuilt.counts:
+        raise ValueError(f"a packed trunk index built for another batch: counts {prebuilt.counts}, "
+                         f"the batch's {counts}")
 
 
 class WesnothModel(nn.Module):
@@ -482,7 +493,8 @@ class WesnothModel(nn.Module):
                         material: Optional[torch.Tensor] = None, *,
                         sighting_batch: Optional[torch.Tensor] = None,
                         sighting_counts: Optional[Sequence[int]] = None,
-                        memory: Optional[Sequence[torch.Tensor]] = None) -> "PaddedOutput":
+                        memory: Optional[Sequence[torch.Tensor]] = None,
+                        index: Optional[PaddedIndex] = None) -> "PaddedOutput":
         """Batched forward over already-padded streams ([B, L_max, d]
         each, WITHOUT token-kind embeddings) and per-sample sizes
         (U_b, R_b, H_b). The inference server feeds this straight from
@@ -499,7 +511,10 @@ class WesnothModel(nn.Module):
         `sighting_counts` (required with `observation_parity`), and
         `memory`, each sample's state, float32 [k_b, d] (required with
         memory slots). The output then carries `belief_logits` and the
-        new states in `memory`."""
+        new states in `memory`.
+
+        `index`: the padded trunk's index arrays already on the device
+        (`trunk_index`); built here otherwise."""
         if self.infer_compile_packed and not self.infer_packed_trunk:
             raise ValueError("infer_compile_packed requires infer_packed_trunk")
         extras = extra_streams(self, len(sizes), hex_batch.device, sighting_batch,
@@ -507,6 +522,8 @@ class WesnothModel(nn.Module):
         if packed is None:
             packed = self._packed_trunk_applies(hex_batch)
         if packed:
+            if index is not None:
+                raise ValueError("a padded trunk index reached the packed trunk")
             return self._forward_streams_packed(hex_batch, unit_batch, recruit_batch,
                                                 global_batch, end_turn_batch, sizes,
                                                 material=material, extras=extras)
@@ -532,14 +549,20 @@ class WesnothModel(nn.Module):
 
         # Key-padding mask and the compact actor gather index, built
         # host-side in numpy (padded_streams.padded_trunk_index) and
-        # moved once.
-        pad_np, idx_np, kind_np = padded_trunk_index(
-            sizes, H_max, U_max, R_max,
-            sightings=extras.sighting_counts if extras is not None else None, S_max=S_max,
-            memory=extras.memory_counts if extras is not None else None, K_max=K_max)
-        pad_mask = torch.from_numpy(pad_np).to(device)
-        actor_idx = torch.from_numpy(idx_np).to(device)
-        actor_kind = torch.from_numpy(kind_np)          # stays on CPU
+        # moved once, or given already on the device.
+        if index is None:
+            pad_np, idx_np, kind_np = padded_trunk_index(
+                sizes, H_max, U_max, R_max,
+                sightings=extras.sighting_counts if extras is not None else None, S_max=S_max,
+                memory=extras.memory_counts if extras is not None else None, K_max=K_max)
+            pad_mask = torch.from_numpy(pad_np).to(device)
+            actor_idx = torch.from_numpy(idx_np).to(device)
+            actor_kind = torch.from_numpy(kind_np)          # stays on CPU
+        else:
+            index.check((H_max, U_max, R_max, S_max, K_max),
+                        batch_counts(sizes, extras.sighting_counts if extras is not None else None,
+                                     extras.memory_counts if extras is not None else None))
+            pad_mask, actor_idx, actor_kind = index.pad_mask, index.actor, index.actor_kind
 
         x = self.encoder(x, src_key_padding_mask=pad_mask)   # [B, seq_len, d]
         o = H_max + U_max + R_max + S_max + K_max           # the global token's slot
@@ -601,7 +624,8 @@ class WesnothModel(nn.Module):
     def forward_embedded(self, streams: EmbeddedStreams,
                          packed: Optional[bool] = None,
                          material: Optional[torch.Tensor] = None,
-                         memory: Optional[Sequence[torch.Tensor]] = None) -> "PaddedOutput":
+                         memory: Optional[Sequence[torch.Tensor]] = None,
+                         index=None) -> "PaddedOutput":
         """Batched forward over stream-ordered token embeddings
         (encoder.encode_from_raw_embedded; the server's packed-embed
         path and the imitation trainer's). With the packed trunk, one
@@ -612,27 +636,32 @@ class WesnothModel(nn.Module):
         and forward_streams runs unchanged. Same PaddedOutput as
         forward_streams on the same streams; `packed`, `material` and
         `memory` as in forward_streams, the sighting counts from
-        `streams`."""
+        `streams`. `index`: the batch's `trunk_index` for this trunk,
+        already on the device (a caller that runs the forward twice builds
+        it once); built here otherwise."""
         if self.infer_compile_packed and not self.infer_packed_trunk:
             raise ValueError("infer_compile_packed requires infer_packed_trunk")
         tokens, sizes = streams.tokens, streams.sizes
         sight_counts = streams.sighting_counts
         B, d = len(sizes), self.d_model
-        U_max, R_max, H_max = (max(s[i] for s in sizes) for i in (0, 1, 2))
-        S_max = max(sight_counts, default=0) if sight_counts is not None else 0
+        H_max, U_max, R_max, S_max, _ = stream_widths(sizes, sight_counts)
         check_sighting_stream(self, sight_counts, B)
         if packed is None:
             packed = self._packed_trunk_applies(tokens)
         if packed:
+            if index is not None and not isinstance(index, PackedEmbeddedIndex):
+                raise ValueError("a padded trunk index reached the packed trunk")
             return self._forward_embedded_packed(streams, H_max, U_max, R_max, S_max,
-                                                 material, memory)
+                                                 material, memory, prebuilt=index)
+        if index is not None and not isinstance(index, PaddedIndex):
+            raise ValueError("a packed trunk index reached the padded trunk")
         L = H_max + U_max + R_max + S_max + 2
-        idx = torch.from_numpy(padded_gather_index(sizes, H_max, U_max, R_max,
-                                                   sightings=sight_counts, S_max=S_max))
-        if tokens.device.type == "cuda":
-            idx = idx.pin_memory().to(tokens.device, non_blocking=True)
-        elif tokens.device.type != "cpu":
-            idx = idx.to(tokens.device)
+        if index is None:
+            idx = host_to_device(padded_gather_index(sizes, H_max, U_max, R_max,
+                                                     sightings=sight_counts, S_max=S_max),
+                                 tokens.device)
+        else:
+            idx = index.gather
         rows = torch.cat([tokens, tokens.new_zeros(1, d)]).index_select(0, idx).view(B, L, d)
         o = H_max + U_max + R_max
         g = o + S_max                                        # the global token's slot
@@ -640,24 +669,50 @@ class WesnothModel(nn.Module):
                                     rows[:, H_max + U_max:o], rows[:, g:g + 1], rows[:, g + 1:],
                                     sizes, packed=False, material=material,
                                     sighting_batch=rows[:, o:g] if sight_counts is not None else None,
-                                    sighting_counts=sight_counts, memory=memory)
+                                    sighting_counts=sight_counts, memory=memory, index=index)
+
+    def trunk_index(self, sizes, sighting_counts: Optional[Sequence[int]],
+                    memory_counts: Optional[Sequence[int]], device: torch.device,
+                    packed: bool):
+        """The index arrays of a forward_embedded call on a batch of these
+        sizes (U_b, R_b, H_b), sighting counts and memory slot counts (None
+        for a stream the model does not read), on `device`, built host-side
+        and copied without a host synchronization: a `PaddedIndex` for the
+        padded trunk, a `PackedEmbeddedIndex` for the packed one."""
+        if not packed:
+            return padded_index(sizes, sightings=sighting_counts, memory=memory_counts, device=device)
+        H_max, U_max, R_max, S_max, K_max = stream_widths(sizes, sighting_counts, memory_counts)
+        layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
+                                     source="streams", sightings=sighting_counts,
+                                     memory=memory_counts, S_max=S_max, K_max=K_max)
+        rows = (host_to_device(stream_row_index(memory_counts, K_max), device)
+                if memory_counts is not None and K_max else None)
+        return PackedEmbeddedIndex(layout=layout, index=layout.to_device(device), memory_rows=rows,
+                                   counts=batch_counts(sizes, sighting_counts, memory_counts))
 
     def _forward_embedded_packed(self, streams: EmbeddedStreams, H_max: int, U_max: int,
-                                 R_max: int, S_max: int, material, memory) -> "PaddedOutput":
+                                 R_max: int, S_max: int, material, memory,
+                                 prebuilt: Optional[PackedEmbeddedIndex] = None) -> "PaddedOutput":
         """forward_embedded on the packed trunk: the memory tokens join the
         stream rows before the globals, one gather orders every row into
         the packed layout."""
         tokens, sizes = streams.tokens, streams.sizes
         mem = memory_batch(self, memory, len(sizes), tokens.device)
+        n_before_globals = sum(u + r + h for u, r, h in sizes) + sum(streams.sighting_counts or ())
+        if prebuilt is not None:
+            _check_packed_index(prebuilt, sizes, streams.sighting_counts, mem)
         if mem is not None and mem.K_max:
-            n_before_globals = sum(u + r + h for u, r, h in sizes) + sum(streams.sighting_counts or ())
-            tokens = torch.cat([tokens[:n_before_globals], self.slot_memory.stream_rows(mem),
+            rows = None if prebuilt is None else prebuilt.memory_rows
+            tokens = torch.cat([tokens[:n_before_globals], self.slot_memory.stream_rows(mem, rows),
                                 tokens[n_before_globals:]])
-        layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
-                                     source="streams", sightings=streams.sighting_counts,
-                                     memory=mem.counts if mem is not None else None,
-                                     S_max=S_max, K_max=mem.K_max if mem is not None else 0)
-        index = layout.to_device(tokens.device)
+        if prebuilt is None:
+            layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
+                                         source="streams", sightings=streams.sighting_counts,
+                                         memory=mem.counts if mem is not None else None,
+                                         S_max=S_max, K_max=mem.K_max if mem is not None else 0)
+            index = layout.to_device(tokens.device)
+        else:
+            layout, index = prebuilt.layout, prebuilt.index
         x = tokens.index_select(0, index.src) + self.token_kind_embed(index.kind)
         extras = (ExtraStreams(sighting=None, sighting_counts=streams.sighting_counts, memory=mem)
                   if streams.sighting_counts is not None or mem is not None else None)
@@ -678,6 +733,9 @@ class WesnothModel(nn.Module):
         d = self.d_model
         B = len(sizes)
         A_max = U_max + R_max + 1
+        if self.infer_compile_packed and self.training:
+            raise ValueError("the compiled packed trunk (infer_compile_packed) serves inference only: its "
+                             "attention op has no backward and its weights are a frozen copy")
         if self.infer_compile_packed:
             x = self._run_compiled_packed_trunk(x, index)
         else:
@@ -693,6 +751,45 @@ class WesnothModel(nn.Module):
         return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
                            sizes, unit_ctx, material=material, memory_padded=new_memory,
                            memory_counts=extras.memory_counts if extras is not None else None)
+
+    def packed_step_trunk(self, before: Sequence[torch.Tensor], after: Sequence[torch.Tensor],
+                          memory: MemoryBatch, index: PackedEmbeddedIndex
+                          ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """One time step of the window-batched sequence trainer
+        (tools/sequence_window_batched.py): the packed trunk on the step's
+        stream tokens, `before` the memory (hex, unit, recruit and sighting
+        rows) and `after` it (the globals and the end_turn row), with the
+        memory's tokens between them, and the memory's write. Returns the
+        trunk's output [total, d] in the packed layout of `index` and the new
+        memory [B, K_max, d]; the heads run later, over a window's outputs
+        (`window_heads`)."""
+        if not getattr(self, "_packed_trunk_checked", False):
+            check_packed_trunk_supported(self.encoder)
+            self._packed_trunk_checked = True
+        if self.infer_compile_packed or self.has_gbc:
+            raise ValueError("the window-batched trunk runs the eager packed trunk of a model without GBC heads")
+        rows = [self.slot_memory.stream_rows(memory, index.memory_rows)] if memory.K_max else []
+        tokens = torch.cat(list(before) + rows + list(after))
+        x = tokens.index_select(0, index.index.src) + self.token_kind_embed(index.index.kind)
+        x = packed_trunk(self.encoder, x, index.index)
+        new_memory = None
+        if memory.K_max:
+            h_memory = x.index_select(0, index.index.memory).view(len(memory.counts), memory.K_max, self.d_model)
+            new_memory = self.slot_memory.write(h_memory, memory)
+        return x, new_memory
+
+    def window_heads(self, x: torch.Tensor, index: WindowHeadIndex) -> "PaddedOutput":
+        """The heads over a window's trunk outputs `x` (each time step's
+        `packed_step_trunk` output, concatenated): every row of every step
+        laid out at the window's widths (`packed_trunk.window_head_index`),
+        the padded slots pointing at their row's end_turn token as in one
+        batch's layout."""
+        d = self.d_model
+        n = len(index.sizes)
+        actor_ctx = x.index_select(0, index.actor).view(n, index.A_max, d)
+        hex_ctx = x.index_select(0, index.hex).view(n, index.H_max, d)
+        global_ctx = x.index_select(0, index.glob).view(n, 1, d)
+        return self._heads(actor_ctx, hex_ctx, global_ctx, index.actor_kind, index.sizes, None)
 
     # ------------------------------------------------------------------
     # Compiled packed trunk (design note section 13)

@@ -13,6 +13,9 @@ module builds them and the padded trunk's index arrays:
   checked against the model's flags.
 - padded_trunk_index: the key-padding mask, the compact actor gather
   index and the actor kinds of the padded trunk, host-side numpy.
+- padded_index: those arrays and forward_embedded's gather index on the
+  device, from one pinned non-blocking copy (`PaddedIndex`), for a
+  caller that runs one forward twice.
 - random_padded_streams: random streams for given sizes
   (warmup_packed_compile and the packed-trunk tests).
 
@@ -24,13 +27,14 @@ re-exports random_padded_streams.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 
 from wesnoth_ai.memory import MemoryBatch
 from wesnoth_ai.model_output import ActorKind
+from wesnoth_ai.packed_trunk import BatchCounts, FlatLayout, batch_counts, padded_gather_index
 
 
 @dataclass
@@ -74,11 +78,12 @@ def check_sighting_stream(model, counts: Optional[Sequence[int]], B: int) -> Non
         raise ValueError(f"{len(counts)} sighting counts for {B} samples")
 
 
-def memory_batch(model, memory: Optional[Sequence[torch.Tensor]], B: int,
-                 device: torch.device) -> Optional[MemoryBatch]:
+def memory_batch(model, memory, B: int, device: torch.device) -> Optional[MemoryBatch]:
     """A batch's memory states padded for the trunk, checked against
     `model`: required by a model with memory slots, refused by one
-    without."""
+    without. `memory` holds each sample's state, or is a `MemoryBatch`
+    already padded (the sequence trainer gathers its batch in one
+    indexing, tools/sequence_memory.py)."""
     if model.slot_memory is None:
         if memory is not None:
             raise ValueError("memory states passed to a model without memory slots")
@@ -88,6 +93,13 @@ def memory_batch(model, memory: Optional[Sequence[torch.Tensor]], B: int,
             f"this model has memory_slots={model.memory_slots}: every forward takes each "
             f"sample's memory state (initial_memory(k) at a game-side's first decision, "
             f"the returned memory after it; [0, d] for k = 0)")
+    if isinstance(memory, MemoryBatch):
+        if len(memory.counts) != B or memory.padded.size(0) != B:
+            raise ValueError(f"a memory batch of {len(memory.counts)} samples for {B}")
+        if memory.K_max > model.memory_slots or memory.padded.size(2) != model.d_model:
+            raise ValueError(f"a memory batch of {memory.K_max} slots of width {memory.padded.size(2)} for a "
+                             f"memory of {model.memory_slots} slots of width {model.d_model}")
+        return memory
     if len(memory) != B:
         raise ValueError(f"{len(memory)} memory states for {B} samples")
     return model.slot_memory.batch(memory, device)
@@ -200,6 +212,65 @@ def padded_trunk_index(sizes, H_max: int, U_max: int, R_max: int, *,
         kind_np[b, :U_b] = ActorKind.UNIT
         kind_np[b, U_b:U_b + R_b] = ActorKind.RECRUIT
     return pad_np, idx_np, kind_np
+
+
+def stream_widths(sizes, sightings: Optional[Sequence[int]] = None,
+                  memory: Optional[Sequence[int]] = None) -> Tuple[int, int, int, int, int]:
+    """(H_max, U_max, R_max, S_max, K_max) of a batch: the widths its
+    padded streams take, 0 for a stream the batch does not carry."""
+    U_max, R_max, H_max = (max(s[i] for s in sizes) for i in (0, 1, 2))
+    S_max = max(sightings, default=0) if sightings is not None else 0
+    K_max = max(memory, default=0) if memory is not None else 0
+    return H_max, U_max, R_max, S_max, K_max
+
+
+@dataclass
+class PaddedIndex:
+    """The padded trunk's index arrays of one batch on the compute device:
+    forward_embedded's gather of the stream rows into the padded layout,
+    forward_streams' key-padding mask and compact actor index (device views
+    of one buffer) and the actor kinds (host), with the batch counts and
+    stream widths they were built for. Built once by `padded_index`, so a
+    forward run twice (the trainer's activation checkpointing) neither
+    rebuilds them nor waits for a copy."""
+    gather: torch.Tensor                      # int64 [B * L]: stream row per padded slot
+    pad_mask: torch.Tensor                    # bool [B, seq_len]
+    actor: torch.Tensor                       # int64 [B, A_max]
+    actor_kind: torch.Tensor                  # int64 [B, A_max], on the host
+    widths: Tuple[int, int, int, int, int]    # stream_widths of the batch
+    counts: BatchCounts                       # batch_counts of the batch
+
+    def check(self, widths: Tuple[int, int, int, int, int], counts: BatchCounts) -> None:
+        """Refuses a batch other than the one the index was built for: its
+        masks mark each row's pads by the row's own counts."""
+        if tuple(widths) != self.widths or counts != self.counts:
+            raise ValueError(f"a padded index built for another batch: widths {self.widths} and counts "
+                             f"{self.counts}, the batch's {tuple(widths)} and {counts}")
+
+
+def padded_index(sizes, *, sightings: Optional[Sequence[int]], memory: Optional[Sequence[int]],
+                 device: torch.device) -> PaddedIndex:
+    """`padded_gather_index` and `padded_trunk_index` of a batch of
+    per-sample sizes (U_b, R_b, H_b), sighting counts and memory slot
+    counts (None for a stream the model does not read), copied to `device`
+    in one pinned non-blocking transfer (no host synchronization)."""
+    widths = stream_widths(sizes, sightings, memory)
+    H_max, U_max, R_max, S_max, K_max = widths
+    gather = padded_gather_index(sizes, H_max, U_max, R_max, sightings=sightings, S_max=S_max)
+    pad, actor, kind = padded_trunk_index(sizes, H_max, U_max, R_max, sightings=sightings, S_max=S_max,
+                                          memory=memory, K_max=K_max)
+    layout = FlatLayout([("gather", torch.int64, gather.shape), ("actor", torch.int64, actor.shape),
+                         ("pad", torch.uint8, pad.shape)])
+    host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=(device.type == "cuda"))
+    hv = layout.numpy_views(host.numpy())
+    hv["gather"][...] = gather
+    hv["actor"][...] = actor
+    hv["pad"][...] = pad
+    dev = host if device.type == "cpu" else host.to(device, non_blocking=True)
+    views = layout.torch_views(dev)
+    return PaddedIndex(gather=views["gather"], pad_mask=views["pad"].view(torch.bool), actor=views["actor"],
+                       actor_kind=torch.from_numpy(kind), widths=widths,
+                       counts=batch_counts(sizes, sightings, memory))
 
 
 def random_padded_streams(sizes, d_model: int, device, seed: int = 0):
