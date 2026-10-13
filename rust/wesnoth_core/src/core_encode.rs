@@ -19,6 +19,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::core::GameCore;
+use crate::core_masks::UNIT_ACTION_TYPES;
 use crate::core_observe::{observation_dict, CoreObservation};
 use crate::core_parity::{
     recruit_extra, widen, ParityNorms, GLOBAL_EXTRA, HAS_ATTACKED_COL, HEX_EXTRA, NUM_PARITY_NORMS, SIGHT_FEAT_DIM,
@@ -91,15 +92,23 @@ impl GameCore {
     /// sight_type_ids, sight_xs, sight_ys and sight_feats hold the
     /// sighting stream. `relevant_set_version` 2 (with `relevant_set`)
     /// widens the relevant set (`relevant_positions`).
+    ///
+    /// With `recruit_costs` (the gold of each of the side's recruit
+    /// options, in its recruit-list order) the decision's packed legality
+    /// masks come with the encoding (core_masks.rs): mask_actor [A],
+    /// mask_type_valid [A, 2], mask_attack_bits, mask_move_bits,
+    /// mask_union_bits [A, ceil(HT / 8)] and mask_n_attacks [A].
     #[pyo3(signature = (side, relevant_set, type_vocab, recruit_type_ids, recruit_stats,
                         fog_hides_enemy_villages, norms, map_limit, num_alignments, terrain_multi_hot=false,
-                        observation_parity=false, parity_norms=None, relevant_set_version=1))]
+                        observation_parity=false, parity_norms=None, relevant_set_version=1,
+                        recruit_costs=None))]
     #[allow(clippy::too_many_arguments)]
     fn encode_streams<'py>(&self, py: Python<'py>, side: i64, relevant_set: bool, type_vocab: Vec<i64>,
                            recruit_type_ids: Vec<i64>, recruit_stats: Vec<f64>, fog_hides_enemy_villages: bool,
                            norms: [f64; NUM_NORMS], map_limit: i64, num_alignments: usize,
                            terrain_multi_hot: bool, observation_parity: bool,
-                           parity_norms: Option<[f64; NUM_PARITY_NORMS]>, relevant_set_version: i64)
+                           parity_norms: Option<[f64; NUM_PARITY_NORMS]>, relevant_set_version: i64,
+                           recruit_costs: Option<Vec<i64>>)
         -> PyResult<Bound<'py, PyDict>> {
         let them_side = opponent_of(side)?;
         let parity = parity_norms_of(observation_parity, terrain_multi_hot, parity_norms)?;
@@ -261,7 +270,33 @@ impl GameCore {
         let to2 = |rows: usize, cols: usize, data: Vec<f32>| -> Bound<'py, PyArray2<f32>> {
             Array2::from_shape_vec((rows, cols), data).expect("row-major buffer sized rows*cols").into_pyarray(py)
         };
+        let masks = match &recruit_costs {
+            Some(costs) => {
+                if costs.len() != c.r {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "{} recruit costs for {} recruit options", costs.len(), c.r)));
+                }
+                // The full board's observation carries no reach; the masks read
+                // the acting units' landable rows from one that does.
+                let reach_obs = if relevant_set { None } else { Some(self.observe_core(side, true)?) };
+                let mobs = reach_obs.as_ref().unwrap_or(&obs);
+                Some(self.leaf_masks(side, mobs, &slots, &tok_of_hex, &vis, &c.is_ours, costs)?)
+            }
+            None => None,
+        };
         let d = PyDict::new(py);
+        if let Some(mk) = masks {
+            let a = mk.actor_mask.len();
+            let u8_2d = |cols: usize, data: Vec<u8>| -> Bound<'py, PyArray2<u8>> {
+                Array2::from_shape_vec((a, cols), data).expect("row-major buffer sized A*cols").into_pyarray(py)
+            };
+            d.set_item("mask_actor", mk.actor_mask.into_pyarray(py))?;
+            d.set_item("mask_type_valid", u8_2d(UNIT_ACTION_TYPES, mk.type_valid))?;
+            d.set_item("mask_attack_bits", u8_2d(mk.bytes_per_row, mk.attack_bits))?;
+            d.set_item("mask_move_bits", u8_2d(mk.bytes_per_row, mk.move_bits))?;
+            d.set_item("mask_union_bits", u8_2d(mk.bytes_per_row, mk.union_bits))?;
+            d.set_item("mask_n_attacks", mk.n_attacks.into_pyarray(py))?;
+        }
         d.set_item("full_slots", full_slots.into_pyarray(py))?;
         d.set_item("hex_xs", hex_xs.into_pyarray(py))?;
         d.set_item("hex_ys", hex_ys.into_pyarray(py))?;

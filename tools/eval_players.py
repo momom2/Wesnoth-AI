@@ -31,6 +31,18 @@ from tools.wesnoth_sim import WesnothSim
 log = logging.getLogger("eval_players")
 
 
+def _decision_state(sim: WesnothSim, policy) -> GameState:
+    """The state `policy` decides on: the simulator's own view for a
+    player that only reads it while deciding (`reads_state_only`), else a
+    snapshot (a view of a fork of the core, `game_core.snapshot_view`),
+    which a player that keeps the state needs. Both are views of the same
+    content, encoded through the core."""
+    with stage("snapshot"):
+        if getattr(policy, "reads_state_only", False):
+            return sim.gs
+        return snapshot_view(sim.gs)
+
+
 def _timed_bounce(action: Dict, gs: GameState) -> bool:
     """`_would_recruit_bounce`, its time recorded as the "bounce" stage."""
     with stage("bounce"):
@@ -128,14 +140,12 @@ def _play_one_eval_game(
             unplayed_side_turns += 1
             sim.step({"type": "end_turn"})
             continue
-        # Stable snapshot for select_action (see play_one_game in
-        # tools/selfplay_game.py for why this copy is load-bearing): a
-        # view of a fork of the simulator's core, which the encoder
-        # encodes through the core (game_core.snapshot_view).
+        # A stable snapshot for a player that keeps the state (see
+        # play_one_game in tools/selfplay_game.py for why that copy is
+        # load-bearing), the simulator's view for one that only reads it.
         if timer is not None:
             timer.begin_decision()
-        with stage("snapshot"):
-            pre_state = snapshot_view(sim.gs)
+        pre_state = _decision_state(sim, actor.policy)
         from tools.mcts import fork_guard
         with fork_guard(sim), stage("decide"):
             action = actor.select_action(pre_state, game_label, sim)
@@ -153,8 +163,7 @@ def _play_one_eval_game(
             # silently forfeited the recruit; play_one_game in
             # tools/selfplay_game.py has always done this).
             actor.drop_last_pending(game_label)
-            with stage("snapshot"):
-                pre_state = snapshot_view(sim.gs)
+            pre_state = _decision_state(sim, actor.policy)
             with stage("decide"):
                 action = actor.select_action(pre_state, game_label, sim)
 

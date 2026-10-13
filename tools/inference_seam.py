@@ -664,7 +664,8 @@ class RemoteEncoder:
 
     def raw_of(self, game_state: GameState) -> RawEncoded:
         """The RawEncoded `encode` ships for `game_state` (a memory player
-        keeps it for the learner, tools/memory_trace.py)."""
+        keeps it for the learner, tools/memory_trace.py); with server-side
+        priors the core builds the packed masks beside it."""
         return encode_raw(
             game_state,
             type_to_id=self._type_to_id,
@@ -674,6 +675,7 @@ class RemoteEncoder:
             terrain_multi_hot=self.terrain_multi_hot,
             observation_parity=self.observation_parity,
             relevant_set_version=self.relevant_set_version,
+            masks=self._server_priors,
         )
 
     def encode(self, game_state: GameState) -> EncodedState:

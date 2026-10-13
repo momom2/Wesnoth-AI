@@ -77,7 +77,9 @@ def _harvest(seed: int, decisions: int, every: int, max_turns: int):
         if sim.done:
             break
         sightings = parity.raw_of(sim.gs).sight_xs.shape[0]
-        if k % every == every - 1 or (sightings and sighted < 3 and k % 3 == 0):
+        # The first decisions (the recruits), two per `every` decisions, and
+        # up to three positions with a sighting.
+        if k in (0, 2) or k % every in (every // 2, every - 1) or (sightings and sighted < 3 and k % 3 == 0):
             out.append(snapshot_view(sim.gs))
             sighted += bool(sightings)
         if not rejected and k >= every:
@@ -104,7 +106,7 @@ def _harvest(seed: int, decisions: int, every: int, max_turns: int):
 
 @lru_cache(maxsize=1)
 def core_positions():
-    """Some forty positions from three Ladder games (cached per process)."""
+    """Some fifty positions from three Ladder games (cached per process)."""
     positions = []
     for seed in (17, 23, 31):
         positions += _harvest(seed, decisions=600, every=25, max_turns=24)

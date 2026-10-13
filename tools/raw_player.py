@@ -107,6 +107,10 @@ class RawPolicyPlayer:
     training targets."""
 
     trainable = False
+    # It reads the state only while it decides and keeps nothing of it,
+    # so a game loop hands it the simulator's own view instead of a
+    # snapshot (`eval_players._decision_state`).
+    reads_state_only = True
 
     def __init__(self, base, temperature: float,
                  seed: Optional[int] = None, forbid_end_turn: bool = False,
