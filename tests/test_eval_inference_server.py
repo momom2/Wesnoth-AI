@@ -227,6 +227,13 @@ def test_shared_inference_end_to_end(tmp_path):
     stats = json.loads((out / ".inference_server_0.json").read_text(encoding="utf-8"))
     assert stats["requests"] == stats["leaves"] == forwards
     assert stats["batches"] >= 1 and stats["connections"] == 2
+    # Every decision's stages, from both workers, summed per decision.
+    stages = json.loads((out / ".worker_stages.json").read_text(encoding="utf-8"))
+    assert stages["workers"] == 2 and stages["decisions"] == forwards
+    per = stages["stage_ms_per_decision"]
+    for name in ("snapshot", "decide", "encode_raw", "masks", "pack", "round_trip", "step"):
+        assert per[name] > 0, name
+    assert per["round_trip"] < per["decide"] < stages["decision_wall_ms"]
     assert not list(out.glob(".inference_server_1.*")), "one server for one spec"
 
 

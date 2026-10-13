@@ -157,9 +157,9 @@ class _CountingModel:
 # forward-counting proxy -- side A's counter read 0 on 2026-09-04).
 _WORKER_MODE = False
 _POLICY_CACHE: dict = {}
-# Shared inference: one connection per server address (the hello
-# handshake is paid once; across games in worker mode).
-_CLIENT_CACHE: dict = {}
+# Shared inference: one connection per server address and thread (the
+# hello handshake is paid once; across games in worker mode).
+_CLIENT_CACHE = threading.local()
 # The basis a checkpoint carries (peeked once per spec in worker mode).
 _BASIS_CACHE: dict = {}
 
@@ -256,29 +256,64 @@ def _effective_basis(spec, relevant_set: bool, inference_address) -> str:
     return basis
 
 
-def worker_loop() -> int:
-    """`elo_eval_game.py --worker`: one JSON argv list per stdin line,
-    `__DONE__ <rc>` per game on stdout (see tools/eval_workers.py)."""
-    import json as _json
+# Every line this process writes to stdout goes through `_emit`: a worker
+# playing several games writes from several threads, and the driver reads
+# the `__DONE__` lines whole.
+_STDOUT_LOCK = threading.Lock()
+
+
+def _emit(line: str) -> None:
+    with _STDOUT_LOCK:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+
+
+def _run_job(argv) -> int:
+    """One game of a worker; its return code, never an exception."""
     import traceback as _tb
+    try:
+        return int(main(argv) or 0)
+    except SystemExit as e:
+        # main refuses with SystemExit("<reason>"): keep the reason
+        # visible in the worker's stderr as one-process mode does.
+        if e.code is not None and not isinstance(e.code, int):
+            print(str(e.code), file=sys.stderr, flush=True)
+        return e.code if isinstance(e.code, int) else 1
+    except Exception:                            # noqa: BLE001
+        _tb.print_exc(file=sys.stderr)
+        return 1
+
+
+def worker_loop(games: int = 1) -> int:
+    """`elo_eval_game.py --worker [--worker-games G]`: one
+    `{"job": N, "argv": [...]}` per stdin line, `__DONE__ <N> <rc>` per
+    game on stdout (see tools/eval_workers.py). Up to `games` games run
+    at once, each in its own thread, with its own players, simulator and
+    inference connection (`_shared_client` is per thread); the driver
+    admits at most that many per worker."""
+    import json as _json
+    from concurrent.futures import ThreadPoolExecutor
     global _WORKER_MODE
     _WORKER_MODE = True
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rc = main(_json.loads(line))
-        except SystemExit as e:
-            # main refuses with SystemExit("<reason>"): keep the reason
-            # visible in the worker's stderr as one-process mode does.
-            if e.code is not None and not isinstance(e.code, int):
-                print(str(e.code), file=sys.stderr, flush=True)
-            rc = e.code if isinstance(e.code, int) else 1
-        except Exception:                            # noqa: BLE001
-            _tb.print_exc(file=sys.stderr)
-            rc = 1
-        print(f"__DONE__ {int(rc or 0)}", flush=True)
+    from wesnoth_ai.game_core import game_core_class
+    game_core_class()                      # the databases load once, before any thread
+    pool = ThreadPoolExecutor(max_workers=max(1, int(games)), thread_name_prefix="game")
+
+    def play(job: int, argv) -> None:
+        _emit(f"__DONE__ {job} {_run_job(argv)}")
+
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            msg = _json.loads(line)
+            if games <= 1:
+                play(msg["job"], msg["argv"])
+            else:
+                pool.submit(play, msg["job"], msg["argv"])
+    finally:
+        pool.shutdown(wait=True)
     return 0
 
 
@@ -306,11 +341,16 @@ def _note_worker_stages(outdir: Path, timer: StageTimer) -> None:
 
 
 def _shared_client(address: str):
+    """This thread's connection to the server at `address` (one request
+    in flight per connection: each game thread of a worker has its own)."""
     from tools.eval_inference_server import EvalInferenceClient
-    client = _CLIENT_CACHE.get(address)
+    cache = getattr(_CLIENT_CACHE, "clients", None)
+    if cache is None:
+        cache = _CLIENT_CACHE.clients = {}
+    client = cache.get(address)
     if client is None or client.broken:
         client = EvalInferenceClient(address)
-        _CLIENT_CACHE[address] = client
+        cache[address] = client
     return client
 
 
@@ -1014,7 +1054,7 @@ def main(argv) -> int:
                                          forced_faction_tag(forced_faction))):
                 if _why is not None:
                     raise SystemExit(_why)
-            print(f"exists, skipping: {out_path.name}")
+            _emit(f"exists, skipping: {out_path.name}")
             return 0
 
     timer = StageTimer()
@@ -1238,11 +1278,18 @@ def main(argv) -> int:
     _tmp = out_path.with_suffix(".json.tmp")
     _tmp.write_text(json.dumps(result), encoding="utf-8")
     os.replace(_tmp, out_path)
-    print(json.dumps(result))
+    _emit(json.dumps(result))
     return 0
+
+
+def _worker_games(argv) -> int:
+    """`--worker-games G` on a worker's command line, 1 without it."""
+    if "--worker-games" in argv:
+        return int(argv[argv.index("--worker-games") + 1])
+    return 1
 
 
 if __name__ == "__main__":
     if "--worker" in sys.argv[1:]:
-        sys.exit(worker_loop())
+        sys.exit(worker_loop(_worker_games(sys.argv)))
     sys.exit(main(sys.argv))

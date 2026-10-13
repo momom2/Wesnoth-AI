@@ -7,15 +7,17 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 SCRIPT = Path(__file__).parent.parent / "tools" / "elo_eval_game.py"
 
 
-def _argv(out: Path, seed: int):
+def _argv(out: Path, seed: int, turns: int = 2):
     return [str(SCRIPT), "A", "dummy", "B", "dummy", "1", str(seed), str(out),
-            "--mcts-sims", "0", "--max-turns", "2", "--device", "cpu"]
+            "--mcts-sims", "0", "--max-turns", str(turns), "--device", "cpu"]
 
 
 def test_one_worker_plays_two_games(tmp_path):
@@ -140,13 +142,13 @@ def test_random_reference_is_never_cached_and_refusals_keep_their_reason(capsys)
     argv = ["x", "A", "dummy", "B", "dummy", "1", "3", "unused_dir",
             "--mcts-sims", "4", "--raw-temperature-a", "0"]        # refused: sims > 0
     old = sys.stdin
-    sys.stdin = io.StringIO(json.dumps(argv) + "\n")
+    sys.stdin = io.StringIO(json.dumps({"job": 7, "argv": argv}) + "\n")
     try:
         assert g.worker_loop() == 0
     finally:
         sys.stdin = old
     captured = capsys.readouterr()
-    assert "__DONE__ 1" in captured.out
+    assert "__DONE__ 7 1" in captured.out
     assert "raw-temperature" in captured.err.lower() or "sims" in captured.err.lower()
 
 
@@ -171,3 +173,81 @@ def test_timeout_artifact_passes_the_resume_guards(tmp_path):
     # slot, a no-result with no replacement allowed.
     rc = main(common)
     assert rc == EXIT_GUARD_SPENT
+
+
+def test_a_timed_out_game_stops_its_worker_mates_who_play_again(tmp_path):
+    """Two games in one worker: killing one (the per-game timeout) kills
+    the process, and the other is reported as collateral, not as a
+    failure, for the loop to play again."""
+    from tools.eval_workers import COLLATERAL_RC, WorkerPool
+    pool = WorkerPool([sys.executable, "-u", str(SCRIPT), "--worker"], 1, tmp_path, slots=2)
+    try:
+        h1, _ = pool.submit(_argv(tmp_path, 21, turns=200), game_tag="1_21")
+        h2, _ = pool.submit(_argv(tmp_path, 23, turns=200), game_tag="2_23")
+        assert h1.pid == h2.pid and pool.workers[0].in_flight == 2
+        h1.kill()
+        assert h2.wait(timeout=60) == COLLATERAL_RC and h2.collateral
+        assert h1.returncode != 0 and not h1.collateral
+        h3, _ = pool.submit(_argv(tmp_path, 25), game_tag="3_25")
+        assert h3.wait(timeout=180) == 0 and h3.pid != h1.pid
+    finally:
+        pool.shutdown()
+
+
+def _tiny_memory_checkpoint(path: Path) -> str:
+    """A random tiny net with the parity observation and an 8-slot memory,
+    its vocab holding the Ladder unit types."""
+    import torch
+    from sim_test_helpers import fresh_scenario_sim
+    from wesnoth_ai.transformer_policy import TransformerPolicy
+    torch.manual_seed(2)
+    pol = TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2,
+                            d_ff=64, relevant_set_hexes=True, fog_hides_enemy_villages=True,
+                            terrain_multi_hot=True, observation_parity=True, memory_slots=8,
+                            relevant_set_version=2)
+    for seed in range(3):
+        pol._inference_encoder.register_names(fresh_scenario_sim(seed=seed).gs)
+    pol.save_checkpoint(path)
+    return str(path)
+
+
+@pytest.mark.slow
+def test_a_worker_plays_its_games_at_once_as_it_plays_them_alone(tmp_path):
+    """Two games of a memory model through the shared server, played at
+    once by one worker (two threads, two connections) and one after the
+    other by one worker: each game's commands, seeds included, and result
+    are the same. The server answers each leaf alone (max batch 1), so a
+    leaf's outputs do not depend on what it is batched with."""
+    from tools.game_record import read_records
+    from tools.run_elo_batch import main
+    spec = _tiny_memory_checkpoint(tmp_path / "tiny.pt")
+
+    def play(out: Path, jobs: int, per_worker: int):
+        main(["x", "--label-a", "A", "--spec-a", spec, "--label-b", "B", "--spec-b", spec,
+              "--outdir", str(out), "--games", "2", "--mcts-sims", "0",
+              "--raw-temperature-a", "0", "--raw-temperature-b", "0",
+              "--raw-end-turn-offset-a", "-6", "--raw-end-turn-offset-b", "-6",
+              "--memory-a", "8", "--memory-b", "8", "--max-turns", "3", "--device", "cpu",
+              "--jobs", str(jobs), "--worker-games", str(per_worker), "--persistent-workers",
+              "--shared-inference", "--inference-max-batch", "1", "--max-extra-games", "0",
+              "--time-budget-min", "5", "--min-free-mb", "0"])
+        games = {}
+        for f in sorted(out.glob("game_*.json")):
+            r = json.loads(f.read_text(encoding="utf-8"))
+            rec = next(read_records(f.with_name(f.stem + ".game.jsonl.gz")))
+            games[f.name] = (r["outcome_a"], r["turns"], r["forwards_a"], r["forwards_b"],
+                             rec["commands"], rec["final_digest"])
+        server = json.loads((out / ".inference_server_0.json").read_text(encoding="utf-8"))
+        workers = sorted(out.glob(".worker_stages_*.json"))
+        return games, server, workers
+
+    together, server_t, workers_t = play(tmp_path / "together", jobs=2, per_worker=2)
+    alone, server_a, workers_a = play(tmp_path / "alone", jobs=1, per_worker=1)
+    assert len(together) == 2 and together == alone
+    assert all(len(g[4]) > 10 for g in together.values()), "the games played some commands"
+    # One worker process in each run; together it held two connections.
+    assert len(workers_t) == len(workers_a) == 1
+    assert server_t["connections"] == 2 and server_a["connections"] == 1
+    assert server_t["batches"] == server_t["requests"] == server_a["requests"]
+    stages = json.loads(workers_t[0].read_text(encoding="utf-8"))
+    assert stages["decisions"] == sum(g[2] + g[3] for g in together.values())
