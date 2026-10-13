@@ -8,9 +8,9 @@
 # game-sides beside the corpus's) by tools/bench_sequence_step.py.
 #
 # Two code stages: STAGE, this branch's (tools/stage_code.py --script
-# scripts/trainer_speed_box.sh), and BASE_STAGE, the first round's
-# (feature/trainer-speed at e2d2877), staged from a checkout of it with
-# tools/stage_code.py --out ... --upload tier-b/staging/<name>.tar.gz. The
+# scripts/trainer_speed_box.sh), and BASE_STAGE, the first round's: the stage
+# its box ran, tier-b/staging/stage_20261013_trainer_speed2.tar.gz (its tools
+# and wesnoth_ai are feature/trainer-speed's at e2d2877, blob for blob). The
 # base stage is unpacked beside this one and its trainer timed with this
 # stage's bench (--repo); both use this stage's Rust wheel (the work changes
 # no Rust).
@@ -90,7 +90,7 @@ PASS_POSITIONS="${PASS_POSITIONS:-2000000}"
 DECAY_FROM="${DECAY_FROM:-0.5}"
 PROBE_EVERY="${PROBE_EVERY:-1200000}"
 CACHE_OWN="${CACHE_OWN:-1}"
-OWN_CACHE="${OWN_CACHE:-tier-b/trainer_speed_20261013/own_sequences_r2.tar.gz}"
+OWN_CACHE="${OWN_CACHE:-tier-b/trainer_speed_20261013b/own_sequences_r2.tar.gz}"   # the first round's
 WARMUP="${WARMUP:-20}"
 WINDOWS="${WINDOWS:-80}"
 PROFILE_WINDOWS="${PROFILE_WINDOWS:-3}"

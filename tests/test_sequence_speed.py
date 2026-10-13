@@ -10,6 +10,7 @@ import json
 import subprocess
 import sys
 import time
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -94,9 +95,12 @@ def test_the_loader_clocks_its_reads_and_the_waits_for_them(tmp_path, monkeypatc
     from wesnoth_ai.sequence_columns import ColumnarSide
 
     def burn():
-        t0 = time.thread_time()
-        while time.thread_time() - t0 < 0.05:          # 50 ms of CPU
-            pass
+        # 50 ms of CPU in zlib, which releases the GIL as the loaders' inflate
+        # does: a loop of Python bytecode would hold it, and the calling thread
+        # could reach its read only after the read was done (no wait to clock).
+        data, t0 = bytes(range(256)) * 4096, time.thread_time()
+        while time.thread_time() - t0 < 0.05:
+            zlib.compress(data, 6)
 
     def slow_read(path):
         burn()
