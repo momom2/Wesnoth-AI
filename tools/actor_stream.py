@@ -455,7 +455,9 @@ class ActorStream:
             t_start=t0, elapsed=window.seconds, n_games=len(window.games),
             n_exps=len(window.experiences), ds0=ds0,
             total_decisions=window.decisions, finish_times=finish,
-            distill_dicts=distill)
+            distill_dicts=distill,
+            games_per_actor=[sum(1 for g in window.games if g.actor == aid)
+                             for aid in range(pool._n)])
         pool.last_straddle_mean = window.straddle_mean
         pool.last_straddle_max = window.straddle_max
         pool.last_straddled_share = window.straddled_share
