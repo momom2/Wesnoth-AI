@@ -340,7 +340,6 @@ def test_consumers_without_the_memory_state_refuse_a_memory_model():
     from tools.mcts import mcts_search
     from tools.mcts_policy import MCTSPolicy
     from tools.turn_search import plan_turn
-    from wesnoth_ai.graphed_serve import GraphedServe
     from wesnoth_ai.transformer_policy import TransformerPolicy
     policy = TransformerPolicy(**ARCH, memory_slots=4)
     model, encoder = policy._inference_model, policy._inference_encoder
@@ -353,11 +352,6 @@ def test_consumers_without_the_memory_state_refuse_a_memory_model():
         plan_turn(policy, None, 1, 0, None, None, None, "", False)
     with pytest.raises(ValueError, match="memory of 4 slots"):
         ActorPool(SimpleNamespace(_inference_model=model), 1, None)
-    with pytest.raises(ValueError, match="memory_slots=4"):
-        GraphedServe(model, encoder, CPU, graphs=False)
-    parity_encoder, parity_model = _parity_pair(memory_slots=0)
-    with pytest.raises(ValueError, match="obs8's streams only"):
-        GraphedServe(parity_model, parity_encoder, CPU, graphs=False)
 
 
 def test_the_pool_plays_a_memory_model_only_where_the_memory_travels():
@@ -376,16 +370,19 @@ def test_the_pool_plays_a_memory_model_only_where_the_memory_travels():
         ActorPool(policy, 1, None, memory_slots=4, ground_cfg=GroundingConfig(enabled=True))
 
 
-@pytest.mark.parametrize("memory_slots,parity,graphed", [(0, False, True), (4, True, False),
-                                                         (0, True, False), (4, False, False)])
-def test_the_graphed_pool_server_serves_eager_whatever_it_cannot_embed(memory_slots, parity, graphed):
-    """The graphed path embeds obs8's streams only: a model with the parity
-    observation or a memory falls back to the eager server. CUDA, bf16 and
-    the packed trunk are only read here, so a CPU model stands in."""
+@pytest.mark.parametrize("memory_slots,parity", [(0, False), (4, True), (0, True), (4, False)])
+def test_the_graphed_pool_server_serves_every_observation(memory_slots, parity):
+    """The graphed path embeds the parity observation and the memory
+    (wesnoth_ai/graphed_serve.py), so the pool serves every model through
+    it on CUDA with bf16 and the packed trunk, and eagerly without the
+    packed trunk. CUDA, bf16 and the packed trunk are only read here, so a
+    CPU model stands in."""
     from tools.actor_pool import ActorPool
     _, model = _parity_pair(memory_slots=memory_slots, parity=parity)
     model.infer_packed_trunk = True
     pool = ActorPool(SimpleNamespace(_inference_model=model), 1, None, graphed_serve=True,
                      infer_bf16=True, device=torch.device("cuda"),
                      memory_slots=memory_slots if memory_slots else None)
-    assert pool._graphed_serve_applies() is graphed
+    assert pool._graphed_serve_applies() is True
+    model.infer_packed_trunk = False
+    assert pool._graphed_serve_applies() is False

@@ -27,6 +27,7 @@ import torch
 
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
 from wesnoth_ai.memory import MemoryState
+from wesnoth_ai.stage_timing import stage
 
 
 END_TURN_RULES = ("joint", "actor")
@@ -191,7 +192,8 @@ class RawPolicyPlayer:
             output = self._forward(base, encoded, game_label, game_state)
             compact = getattr(output, "legal_compact", None)
             if compact is not None and self.compact_selection:
-                chosen = self._select_compact(compact, encoded, decision_step)
+                with stage("select"):
+                    chosen = self._select_compact(compact, encoded, decision_step)
                 if chosen is not None:
                     return chosen
             legal = enumerate_legal_actions_with_priors(

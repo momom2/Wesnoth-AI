@@ -60,6 +60,7 @@ import torch
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.encoder import EncodedState, RawEncoded, encode_raw
 from wesnoth_ai.model import ModelOutput
+from wesnoth_ai.stage_timing import stage
 
 log = logging.getLogger(__name__)
 
@@ -426,11 +427,10 @@ class InferenceServer:
                 return batched_outputs_to_cpu(outs)
         return [move_model_output(o, self._out_dev) for o in outs]
 
-    def _memory_states(self, memories) -> Optional[List[torch.Tensor]]:
-        """The batch's memory states for a model with a memory (each
-        leaf's, or its learned initial memory at a game-side's first
-        decision), None for a model without one. A leaf without a memory
-        for a model with one, or the reverse, is refused."""
+    def _checked_memories(self, memories) -> Optional[list]:
+        """The batch's `MemoryState`s for a model with a memory, None for a
+        model without one. A leaf without a memory for a model with one,
+        or the reverse, is refused."""
         slots = int(getattr(self._model, "memory_slots", 0) or 0)
         given = [m is not None for m in (memories or [])]
         if not slots:
@@ -439,6 +439,13 @@ class InferenceServer:
             return None
         if not memories or not all(given):
             raise ValueError(f"a model with a memory ({slots} slots) needs every leaf's memory")
+        return list(memories)
+
+    def _memory_states(self, memories) -> Optional[List[torch.Tensor]]:
+        """The eager forward's memory states: each leaf's, or its learned
+        initial memory at a game-side's first decision, on the device."""
+        if memories is None:
+            return None
         return [self._model.initial_memory(m.k).to(self._device) if m.state is None
                 else torch.as_tensor(m.state, dtype=torch.float32).to(self._device) for m in memories]
 
@@ -448,9 +455,9 @@ class InferenceServer:
         placeholder logits (the actor never reads them). The head
         outputs ride back in the priors' one device->host transfer.
         With a memory (`memories`: one `MemoryState` per leaf) each reply
-        carries the leaf's new state; the parity observation and the
-        memory run the embedded path (the padded one has no sighting
-        stream), and the graphed path serves neither.
+        carries the leaf's new state; eagerly, the parity observation and
+        the memory run the embedded path (the padded one has no sighting
+        stream).
 
         On CUDA with `stats`, a pair of stream events brackets encode
         + forward + priors: the elapsed milliseconds are the stream's
@@ -469,13 +476,13 @@ class InferenceServer:
             ev_start.record()
         t0 = time.perf_counter()
         graphed = None
-        states = self._memory_states(memories)
+        memories = self._checked_memories(memories)
         extended = bool(getattr(model, "extended_streams", False))
-        gserve = None if extended else self._graphed_serve()
+        gserve = self._graphed_serve()
         new_memory = None
         if gserve is not None:
             try:
-                graphed = gserve.infer(raws, packs)
+                graphed = gserve.infer(raws, packs, memories)
             except Exception:                        # noqa: BLE001 -- the eager path serves from here on
                 log.exception("graphed serve failed on a batch of %d; serving eager from now on",
                               len(raws))
@@ -483,8 +490,12 @@ class InferenceServer:
                 self._graphed = self._graphed_factory = None
                 self._graphed_by_thread.clear()
         if graphed is not None:
-            compact, host, actor_kind, sizes = graphed
-            names = list(gserve.extras)
+            compact, actor_kind, sizes = graphed.compact, graphed.actor_kind, graphed.sizes
+            names = list(graphed.extras)
+            host = [graphed.extras[n] for n in names]
+            if graphed.memory is not None:
+                new_memory = torch.from_numpy(graphed.memory)
+                memory_counts = [int(m.k) for m in memories]
             t1 = t2 = t3 = t4 = time.perf_counter()
             if timing:
                 # The graphed path waited for the device inside `infer`;
@@ -494,6 +505,7 @@ class InferenceServer:
                 ev_end.synchronize()
         else:
             with torch.no_grad():
+                states = self._memory_states(memories)
                 if self._packed_embed or extended:
                     streams = self._encoder.encode_from_raw_embedded(raws, device=self._device)
 
@@ -665,14 +677,17 @@ class RemoteEncoder:
         )
 
     def encode(self, game_state: GameState) -> EncodedState:
-        raw = self.raw_of(game_state)
-        enc = build_light_encoded(raw, self._device)
+        with stage("encode_raw"):
+            raw = self.raw_of(game_state)
+        with stage("light_encoded"):
+            enc = build_light_encoded(raw, self._device)
         # Stash the wire payload for RemoteModel; EncodedState is a
         # plain dataclass (no __slots__), so this attribute sticks.
         enc._raw = raw
         if self._server_priors:
             from wesnoth_ai.server_priors import pack_masks
-            enc._masks = pack_masks(enc, game_state)
+            with stage("masks"):
+                enc._masks = pack_masks(enc, game_state)
         return enc
 
 

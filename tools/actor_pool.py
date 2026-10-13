@@ -405,11 +405,6 @@ class ActorPool:
         if not ok:
             log.warning("graphed_serve needs cuda, bf16 inference and the packed trunk; "
                         "serving eager")
-        elif getattr(base, "extended_streams", False):
-            # wesnoth_ai/graphed_serve.py embeds obs8's streams only.
-            log.warning("graphed_serve has no sighting or memory stream; a model with the parity "
-                        "observation or a memory serves eager")
-            ok = False
         return ok
 
     def _graphed_for(self, model, encoder):

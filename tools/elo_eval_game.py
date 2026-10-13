@@ -56,6 +56,7 @@ import os
 import logging
 import random
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -66,6 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import torch
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH
+from wesnoth_ai.stage_timing import StageTimer, stage, timing
 from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_players import (_PolicyPair, _load_policy,
@@ -280,6 +282,29 @@ def worker_loop() -> int:
     return 0
 
 
+_WORKER_STAGES = StageTimer()
+_WORKER_STAGES_LOCK = threading.Lock()
+
+
+def _note_worker_stages(outdir: Path, timer: StageTimer) -> None:
+    """Add a finished game's stage times to this worker's running total
+    and rewrite `.worker_stages_<pid>.json` in the outdir (one file per
+    worker process; tools/worker_stages.py sums them). One-process games
+    write nothing: their result files carry the same numbers."""
+    if not _WORKER_MODE:
+        return
+    with _WORKER_STAGES_LOCK:
+        _WORKER_STAGES.merge(timer)
+        snapshot = dict(_WORKER_STAGES.as_dict(), pid=os.getpid())
+        path = Path(outdir) / f".worker_stages_{os.getpid()}.json"
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(snapshot), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError as e:
+            log.warning("could not write %s: %s", path, e)
+
+
 def _shared_client(address: str):
     from tools.eval_inference_server import EvalInferenceClient
     client = _CLIENT_CACHE.get(address)
@@ -362,11 +387,12 @@ class _VocabCheckedRemoteEncoder(RemoteEncoder):
         self._warned_names: set = set()
 
     def encode(self, game_state):
-        for u in game_state.map.units:
-            if u.name not in self._type_to_id and u.name not in self._warned_names:
-                self._warned_names.add(u.name)
-                log.warning("unit type %r is not in the server's vocab; "
-                            "aliased to the overflow bucket", u.name)
+        with stage("vocab_check"):
+            for u in game_state.map.units:
+                if u.name not in self._type_to_id and u.name not in self._warned_names:
+                    self._warned_names.add(u.name)
+                    log.warning("unit type %r is not in the server's vocab; "
+                                "aliased to the overflow bucket", u.name)
         return super().encode(game_state)
 
 
@@ -991,6 +1017,8 @@ def main(argv) -> int:
             print(f"exists, skipping: {out_path.name}")
             return 0
 
+    timer = StageTimer()
+    t_setup = time.perf_counter()
     pt_cfg = _pt_config(args) if (args.plan_a or args.plan_b) else None
     ts_cfg = _ts_config(args)
     pa, cnt_a = _build_player(
@@ -1039,12 +1067,14 @@ def main(argv) -> int:
     # a salted seed reaches [random_seed] unchanged.
     sim._seed_salt = combat_salt(args.seed, args.shared_combat_stream)
     game_label = out_path.stem
+    timer.add("game_setup", time.perf_counter() - t_setup)
     t0 = time.time()
-    r = _play_one_eval_game(
-        sim,
-        _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
-        _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
-        game_label=game_label)
+    with timing(timer):
+        r = _play_one_eval_game(
+            sim,
+            _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
+            _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
+            game_label=game_label)
     margin_a = material_margin(sim.gs, args.side_a,
                                DrawTiebreakConfig(cap=0.3))
     if pt_cfg is None:
@@ -1189,6 +1219,7 @@ def main(argv) -> int:
     _rec_path = out_path.with_name(out_path.stem + ".game.jsonl.gz")
     _rec_tmp = _rec_path.with_name(_rec_path.name + ".tmp")
     _rec_tmp.unlink(missing_ok=True)
+    t_record = time.perf_counter()
     GameRecordLog(_rec_tmp).write(game_record(
         sim, setup, game_label=game_label,
         players={"a": {"label": args.label_a, "spec": str(args.spec_a), "side": args.side_a,
@@ -1197,6 +1228,11 @@ def main(argv) -> int:
                        "procedure": result["procedure_b"], "memory": memory_b}},
         extra={"seed": args.seed}))
     os.replace(_rec_tmp, _rec_path)
+    timer.add("game_record", time.perf_counter() - t_record)
+    # Where this game's decisions spent their time (wesnoth_ai/stage_timing.py):
+    # not an estimand, a reading; the worker's running total goes beside it.
+    result["worker_stages"] = timer.as_dict()
+    _note_worker_stages(args.outdir, timer)
     # Atomic publish (round-24 C11): a kill mid-write must never
     # leave a truncated file occupying the slot.
     _tmp = out_path.with_suffix(".json.tmp")
