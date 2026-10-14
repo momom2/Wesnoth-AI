@@ -50,13 +50,8 @@ whose change only moves bytes print the same digest.
 
 gradcheck: candidate configurations (`--candidate`, repeated, the training
 flags each adds; default the packed trunk) against one reference
-(`--reference`; default none, the padded trunk), every dropout at 0, all from
-the same weights at a learning rate of 0 (AdamW then leaves the weights as
-they are): per window and candidate the loss and, per parameter group, the
-cosine of its gradient with the reference's. A candidate passes when every
-cosine is at least 0.99 and every loss within 0.5%; the command exits 0 when
-every candidate passes, else 8, and its JSON gives each candidate's verdict:
-a crash barrier before a pass on the candidate, not a verdict on it.
+(`--reference`; default none, the padded trunk), each candidate on its own
+(tools/bench_gradcheck.py).
 
 interleave, interleave-summary: several configurations timed in one
 process, window by window in turn (tools/bench_interleave.py).
@@ -84,10 +79,6 @@ import torch
 PRODUCTION = {"streams": 32, "window": 16, "own_streams": 16, "own_slots": 64, "autocast": "torch.bfloat16"}
 # Fields two runs may differ in whatever is under test.
 ALWAYS_ALLOWED = ("kind", "code", "argv", "started")
-NOT_PASSED = 8
-GRADCHECK_COSINE = 0.99
-GRADCHECK_LOSS = 0.005
-DEFAULT_CANDIDATE = "--packed-trunk"
 # Two arms of the same flags agree when their median window-time ratio is
 # within this of 1 (tools/bench_interleave.py).
 INTERLEAVE_SPREAD = 0.03
@@ -553,97 +544,6 @@ def trace(opts, train_argv) -> int:
     return 0
 
 
-# ---- gradcheck ------------------------------------------------------------------
-
-def _group_gradients(trainer) -> Dict[str, torch.Tensor]:
-    from wesnoth_ai.param_groups import group_of, named_as
-    flat: Dict[str, List[torch.Tensor]] = {}
-    for name, p in named_as(trainer.params, trainer.model, trainer.encoder):
-        if p.grad is not None:
-            flat.setdefault(group_of(name), []).append(p.grad.detach().float().reshape(-1))
-    return {g: torch.cat(ts) for g, ts in flat.items()}
-
-
-def gradient_cosine(a: torch.Tensor, b: torch.Tensor) -> Optional[float]:
-    """The cosine of two gradients; None when both are zero (a head no
-    label of the window trains), 0 when only one is."""
-    na, nb = float(a.norm()), float(b.norm())
-    if na == 0.0 and nb == 0.0:
-        return None
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return round(float(torch.dot(a.double(), b.double()) / (na * nb)), 6)
-
-
-def _rate_zero(t) -> None:
-    """No probe, rate 0 (AdamW then leaves every weight as it is), no dropout."""
-    quiet(t)
-    t._lr_now = lambda: 0.0
-    set_dropout(t, 0.0)
-
-
-def _capture_gradients(t, slot: int, captured: List[Dict[str, torch.Tensor]]) -> None:
-    """Each window's gradients by group into captured[slot], read as the
-    optimizer zeroes them."""
-    zero_grad = t.opt.zero_grad
-
-    def hooked(*a, **kw):
-        captured[slot] = _group_gradients(t)
-        return zero_grad(*a, **kw)
-    t.opt.zero_grad = hooked
-
-
-def compare_window(ra: Dict, rb: Dict, ga: Dict[str, torch.Tensor], gb: Dict[str, torch.Tensor], i: int) -> Dict:
-    """One window's reading of a candidate against the reference."""
-    if set(ga) != set(gb):
-        raise SystemExit(f"the trunks trained other groups: {sorted(set(ga) ^ set(gb))}")
-    cos = {g: gradient_cosine(ga[g], gb[g]) for g in sorted(ga)}
-    rel = abs(rb["loss"] - ra["loss"]) / max(abs(ra["loss"]), 1e-12)
-    good = rel <= GRADCHECK_LOSS and all(c is None or c >= GRADCHECK_COSINE for c in cos.values())
-    return {"i": i, "loss_reference": ra["loss"], "loss_candidate": rb["loss"], "loss_rel": round(rel, 6),
-            "cosine": cos, "pass": good}
-
-
-def gradcheck(opts, train_argv) -> int:
-    """Every candidate against the one reference, window by window, from the
-    same weights at rate 0: the reference's gradients are read once a window
-    and every candidate's compared with them (module docstring)."""
-    import shlex
-    use_repo(None)
-    candidates = opts.candidate or [DEFAULT_CANDIDATE]
-    _, _, reference = build(list(train_argv) + shlex.split(opts.reference))
-    _rate_zero(reference)
-    trainers = []
-    for n, flags in enumerate(candidates):
-        _, _, t = build(list(train_argv) + shlex.split(flags))
-        _rate_zero(t)
-        suffix = "_candidate" if len(candidates) == 1 else f"_candidate{n}"
-        t.args.out = t.args.out.with_name(t.args.out.stem + suffix + ".pt")      # its own steps.jsonl
-        trainers.append(t)
-    captured: List[Dict[str, torch.Tensor]] = [{} for _ in range(len(trainers) + 1)]
-    for slot, t in enumerate([reference] + trainers):
-        _capture_gradients(t, slot, captured)
-    rows: List[List[Dict]] = [[] for _ in trainers]
-    for i in range(opts.windows):
-        ra = reference.train_window()
-        if not ra:
-            raise SystemExit(f"the pass ran out after {i} windows")
-        for n, t in enumerate(trainers):
-            rb = t.train_window()
-            if not rb:
-                raise SystemExit(f"the pass ran out after {i} windows")
-            rows[n].append(compare_window(ra, rb, captured[0], captured[n + 1], i))
-    results = [{"candidate": flags, "pass": all(w["pass"] for w in windows), "windows": windows}
-               for flags, windows in zip(candidates, rows)]
-    ok = all(r["pass"] for r in results)
-    result = {"pass": ok, "reference": opts.reference, "min_cosine": GRADCHECK_COSINE,
-              "max_loss_rel": GRADCHECK_LOSS, "candidates": results}
-    text = json.dumps(result, indent=1)
-    print(text)
-    Path(opts.out).write_text(text + "\n", encoding="utf-8")
-    return 0 if ok else NOT_PASSED
-
-
 # ---- the command line -------------------------------------------------------------
 
 def parse(argv: Sequence[str]):
@@ -674,13 +574,13 @@ def parse(argv: Sequence[str]):
     t.add_argument("--windows", type=int, default=3)
     t.add_argument("--dropout", type=float, default=0.3)
     t.add_argument("--threads", type=int, default=4)
-    g = sub.add_parser("gradcheck", help="a candidate's gradients against a reference's (default: packed against padded)")
+    g = sub.add_parser("gradcheck", help="each candidate's gradients against a reference's (default: packed against padded)")
     g.add_argument("--out", type=Path, required=True)
     g.add_argument("--windows", type=int, default=3)
     g.add_argument("--reference", default="", help="the reference's training flags (write --reference=FLAGS)")
     g.add_argument("--candidate", action="append", default=None,
                    help="a candidate's training flags (write --candidate=FLAGS; repeat for several; default "
-                        f"{DEFAULT_CANDIDATE})")
+                        "--packed-trunk)")
     i = sub.add_parser("interleave", help="time several configurations window by window in one process")
     i.add_argument("--out", type=Path, required=True, help="the rows (JSONL, a new file)")
     i.add_argument("--arm", action="append", required=True, help="NAME=FLAGS: an arm's training flags")
@@ -710,12 +610,13 @@ def main(argv=None) -> int:
         return compare(opts)
     if opts.command == "trace":
         return trace(opts, train)
+    use_repo(None)
     if opts.command in ("interleave", "interleave-summary"):
-        use_repo(None)
         from tools import bench_interleave
         return (bench_interleave.interleave(opts, train) if opts.command == "interleave"
                 else bench_interleave.summary_command(opts))
-    return gradcheck(opts, train)
+    from tools import bench_gradcheck
+    return bench_gradcheck.gradcheck(opts, train)
 
 
 if __name__ == "__main__":

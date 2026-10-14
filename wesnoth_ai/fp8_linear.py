@@ -23,13 +23,22 @@ of cublasCommonArgs, Blas.cpp:96-119); the inner dimension and both of the
 second operand's divisible by 16 (Blas.cpp:1012-1021); never two e5m2
 operands (Blas.cpp:1027). It has no derivative (tools/autograd/derivatives.yaml
 holds no entry), so the backward pass is written here. The weight
-gradient's inner dimension is the token count, padded with zero rows to a
-multiple of 16.
+gradient's inner dimension is the token count, padded with 1 to 16 zero rows
+to a multiple of 16.
 
 On the CPU the products are emulated: the float8 operands' exact values
 multiplied in float32, scaled, the bias added, cast once. Both paths check
-the layouts `_scaled_mm` requires, so a CPU test fails where the CUDA kernel
-would refuse.
+the layouts `_scaled_mm` requires when they run eagerly, so a CPU test fails
+where the CUDA kernel would refuse.
+
+Inside torch.compile (the compiled block, `--compiled-trunk --fp8-trunk`)
+the backward pass is traced in dynamo's strict mode, which at torch 2.5.1
+refuses every `is_*` attribute and `stride()` of a tensor
+(torch/_dynamo/config.py:443-453, torch/_dynamo/variables/tensor.py:370):
+the operand check is skipped while compiling (the eager tests check the same
+code's operands, and _scaled_mm's meta kernel checks the layouts at trace
+time), the device is read from `.device`, and the padding is never empty, so
+no guard on the dynamic size adds a graph.
 """
 from __future__ import annotations
 
@@ -82,8 +91,9 @@ def scaled_mm(a8: torch.Tensor, b8: torch.Tensor, a_inverse: torch.Tensor, b_inv
               out_dtype: torch.dtype, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
     """(a8 * a_inverse) @ (b8 * b_inverse) + bias in out_dtype, the product
     accumulated in float32: `_scaled_mm` on CUDA, emulated on the CPU."""
-    check_operands(a8, b8)
-    if a8.is_cuda:
+    if not torch.compiler.is_compiling():
+        check_operands(a8, b8)
+    if a8.device.type == "cuda":
         if bias is not None and (out_dtype == torch.float32 or bias.dtype != out_dtype):
             # _scaled_mm takes a bias only in the 16-bit output's dtype (Blas.cpp:1033-1040).
             out = torch._scaled_mm(a8, b8, scale_a=a_inverse, scale_b=b_inverse, out_dtype=out_dtype)
@@ -106,13 +116,13 @@ def _column_major(t8: torch.Tensor) -> torch.Tensor:
 
 
 def _pad_rows(t8: torch.Tensor) -> torch.Tensor:
-    """t8 [R, C] with zero rows up to a multiple of GEMM_MULTIPLE rows (a
-    zero byte is +0 in both float8 formats)."""
-    pad = -t8.shape[0] % GEMM_MULTIPLE
-    if not pad:
-        return t8
+    """t8 [R, C] with 1 to GEMM_MULTIPLE zero rows, up to the next multiple
+    of GEMM_MULTIPLE above R (a zero byte is +0 in both float8 formats).
+    Never none: a padding of zero rows would be an empty tensor, which
+    dynamo guards on, compiling a second graph for the token counts that are
+    multiples (module docstring)."""
     raw = t8.view(torch.uint8)
-    return torch.cat([raw, raw.new_zeros(pad, raw.shape[1])]).view(t8.dtype)
+    return torch.cat([raw, raw.new_zeros(GEMM_MULTIPLE - raw.shape[0] % GEMM_MULTIPLE, raw.shape[1])]).view(t8.dtype)
 
 
 class _Fp8Linear(torch.autograd.Function):

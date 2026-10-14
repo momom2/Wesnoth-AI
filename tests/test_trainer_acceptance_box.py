@@ -1,10 +1,11 @@
 """scripts/trainer_acceptance_box.sh's passes, run by bash with the box library
-stubbed (no box, GPU or HF): the gradient check of B and B8 against A gates
-the passes, the passes run A, B, A2, B8, B64 and BHALF from own1 with their
-flags and rates, the real readout reads every finished arm against A; B
-failing its check ends the run and B8 failing its own leaves B8 out; A's
-pass failing stops the run and resumes on re-entry, another's is left out
-and stays out; ARMS picks the passes."""
+stubbed (no box, GPU or HF): the gradient checks of B and B8 against A,
+each in a process of its own, gate the passes, the passes run A, B, A2, B8,
+B64 and BHALF from own1 with their flags and rates, the real readout reads
+every finished arm against A; B failing its check ends the run and B8
+failing its own, or its check process dying, leaves B8 out and the others
+run; A's pass failing stops the run and resumes on re-entry, another's is
+left out and stays out; ARMS picks the passes."""
 from __future__ import annotations
 
 import json
@@ -58,7 +59,7 @@ import json, os, sys
 name, args = sys.argv[1], sys.argv[2:]
 def opt(flag):
     return args[args.index(flag) + 1]
-if name == "gradcheck":
+if name.startswith("gradcheck "):
     if os.environ.get("GRADCHECK_RC"):
         sys.exit(int(os.environ["GRADCHECK_RC"]))
     fail = os.environ.get("FAIL_CHECK", "").split()
@@ -120,16 +121,21 @@ def _passes(steps):
     return {s.split()[1]: s for s in steps if s.startswith("pass ")}
 
 
+def _checks(steps):
+    return {s.split()[1]: s for s in steps if s.startswith("gradcheck ")}
+
+
 def test_the_check_gates_the_arms_and_the_readout_reads_every_one(tmp_path):
     out = tmp_path / "out"
     got = _run(tmp_path, out)
     assert got["rc"] == 0 and "TRAINER_ACCEPTANCE_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
-    assert got["names"] == ["gradcheck", "pass A", "pass B", "pass A2", "pass B8", "pass B64", "pass BHALF",
-                            "readout"]
-    check = got["steps"][0]
-    assert f"--reference={A_FLAGS}" in check and "--init-from own1.pt" in check
-    assert f"--candidate={B_FLAGS} " in check
-    assert "--candidate=--packed-trunk --window-batched --fp8-trunk " in check     # fp8 takes no fused ReLU
+    assert got["names"] == ["gradcheck", "gradcheck", "pass A", "pass B", "pass A2", "pass B8", "pass B64",
+                            "pass BHALF", "readout"]
+    checks = _checks(got["steps"])
+    assert list(checks) == ["B", "B8"] and all(c.count("--candidate=") == 1 for c in checks.values())
+    assert all(f"--reference={A_FLAGS}" in c and "--init-from own1.pt" in c for c in checks.values())
+    assert f"--candidate={B_FLAGS} " in checks["B"]
+    assert "--candidate=--packed-trunk --window-batched --fp8-trunk " in checks["B8"]     # fp8 takes no fused ReLU
     passes = _passes(got["steps"])
     assert passes["A"].endswith(f"--lr 2.8e-5 {A_FLAGS}") and passes["A2"].endswith(f"--lr 2.8e-5 {A_FLAGS}")
     assert passes["B"].endswith(f"--lr 2.8e-5 {B_FLAGS}")
@@ -152,6 +158,9 @@ def test_b_failing_its_check_ends_the_run_and_b8_failing_its_own_leaves_b8_out(t
     assert got["rc"] == 1 and got["finish"].startswith("B_GRADCHECK_FAILED") and got["names"] == ["gradcheck"]
     unfinished = _run(tmp_path, tmp_path / "rc", GRADCHECK_RC="1")
     assert unfinished["rc"] == 1 and unfinished["finish"].startswith("B_GRADCHECK_UNFINISHED")
+    died = _run(tmp_path, tmp_path / "died", STUB_gradcheck_B8="crash")
+    assert died["rc"] == 0 and "TRAINER_ACCEPTANCE_DONE" in died["finish"], (died["finish"], died["stderr"][-2000:])
+    assert "pass B8" not in died["names"] and "pass B" in died["names"] and "LEFT_OUT B8" in died["failed"]
     b8 = _run(tmp_path, tmp_path / "b8", FAIL_CHECK="B8")
     assert b8["rc"] == 0 and "TRAINER_ACCEPTANCE_DONE" in b8["finish"], (b8["finish"], b8["stderr"][-2000:])
     assert "pass B8" not in b8["names"] and "LEFT_OUT B8: its gradient check" in b8["failed"]
@@ -162,7 +171,7 @@ def test_a_failed_pass_of_a_stops_the_run_and_resumes_on_re_entry(tmp_path):
     out = tmp_path / "out"
     got = _run(tmp_path, out, STUB_pass_A="crash")
     assert got["rc"] == 1 and got["finish"].startswith("PASS_FAILED A"), got["finish"]
-    assert got["names"] == ["gradcheck", "pass A"]
+    assert got["names"] == ["gradcheck", "gradcheck", "pass A"]
     (out / "pass_A.pt").write_text("a checkpoint the pass wrote before it died")
     again = _run(tmp_path, out)
     assert again["rc"] == 0 and "TRAINER_ACCEPTANCE_DONE" in again["finish"], again["finish"]
@@ -182,7 +191,7 @@ def test_another_failed_pass_is_left_out_and_stays_out_on_re_entry(tmp_path):
 def test_arms_picks_the_passes(tmp_path):
     got = _run(tmp_path, tmp_path / "few", ARMS="A B B64")
     assert got["rc"] == 0 and got["names"] == ["gradcheck", "pass A", "pass B", "pass B64", "readout"], got["stderr"]
-    assert got["steps"][0].count("--candidate=") == 1
+    assert list(_checks(got["steps"])) == ["B"]
     result = json.loads((tmp_path / "few" / "acceptance.json").read_text())
     assert "A2" not in result["files"] and result["arms"]["B"]["pass"] is None
     no_a = _run(tmp_path, tmp_path / "no_a", ARMS="B A2")

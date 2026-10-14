@@ -33,15 +33,19 @@
 # criterion is the lead's to pre-register; the readout gives every difference
 # with its error.
 #
-# Before the passes, a crash barrier: B's and B8's gradients against A's from
-# the same weights at rate 0 over 3 windows (tools/bench_sequence_step.py
-# gradcheck, gradcheck.json). B failing it, or a check that does not finish,
-# ends the run before money goes into the passes; B8 failing it leaves B8
-# out. B64 and BHALF are B's arithmetic: B's check covers them.
+# Before the passes, a crash barrier: B's gradients against A's from the same
+# weights at rate 0 over 3 windows (tools/bench_sequence_step.py gradcheck,
+# gradcheck_B.json), then B8's in a process of its own (gradcheck_B8.json).
+# B failing its check, or its check not finishing, ends the run before money
+# goes into the passes; B8's check decides B8 alone, which it leaves out when
+# it fails or does not finish. B64 and BHALF are B's arithmetic: B's check
+# covers them.
 #
 # A pass that fails ends the run when it is A's (nothing to compare against);
 # any other is recorded in arms_failed.txt and the run goes on, and a re-entry
-# leaves it failed (delete its pass_NAME.failed to run it again). A pass
+# leaves it failed (delete its pass_NAME.failed to run it again). The readout
+# sets aside an arm whose probe does not hold A's holdout counts, or A2's
+# (then without a bound), and reads the others. A pass
 # interrupted by a re-entry resumes from its last checkpoint (every 250,000
 # positions).
 #
@@ -97,7 +101,7 @@ BOX_OUT=$OUT
 
 notes() {                        # what is done, for the finish reason
     local name done_=()
-    [ ! -f "$OUT/gradcheck.json" ] || done_+=(gradcheck)
+    [ ! -f "$OUT/gradcheck_B.json" ] || done_+=(gradcheck)
     for name in $ARMS; do
         ! box_marked_this_stage "$OUT/pass_$name.done" || done_+=("$name")
     done
@@ -111,7 +115,7 @@ box_init
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
 box_bind_run_stage
 # shellcheck disable=SC2046 # one name per pass and file
-box_restore gradcheck.json cuda_tests.log tests.log arms_failed.txt \
+box_restore gradcheck_B.json gradcheck_B8.json cuda_tests.log tests.log arms_failed.txt \
     $(for p in $ARMS; do echo "pass_$p.probe_sides.jsonl"; done) || box_finish "RESTORE_FAILED (restore.log)" 1
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 for name in $ARMS; do
@@ -206,8 +210,26 @@ train_pass() {                   # train_pass NAME: the pass, once; resumed from
     box_mark "$OUT/pass_$name.done"
     box_upload
 }
-check_passed() {                 # check_passed FLAGS: the gradient check passed the candidate FLAGS
-    timeout 1m python - "$OUT/gradcheck.json" "$1" <<'EOF'
+check_failed() {                 # check_failed NAME: NAME's check did not finish, so NAME does not pass
+    printf '{"pass": false, "rc": %d, "why": "%s", "log": "gradcheck_%s.log", "candidates": []}\n' "$BOX_RC" \
+        "$BOX_WHY" "$1" > "$OUT/gradcheck_$1.json"
+}
+run_check() {                    # run_check NAME FLAGS: NAME's gradients against A's, once, in a process of its own
+    local name=$1 flags=$2
+    [ ! -f "$OUT/gradcheck_$name.json" ] || return 0
+    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the gradient check of $name: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+    rm -f "$OUT/gradcheck_$name.json.pending"
+    box_bounded "gradcheck $name" "$GRADCHECK_CUT_MIN" "gradcheck_$name.log" python tools/bench_sequence_step.py \
+        gradcheck --out "$OUT/gradcheck_$name.json.pending" "--reference=$A_FLAGS" "--candidate=$flags" \
+        -- "${COMMON[@]}" --lr "$LR" "${INIT[@]}" --out "$OUT/gradcheck_arm_$name.pt"
+    case $BOX_RC in
+        0|8) mv -f "$OUT/gradcheck_$name.json.pending" "$OUT/gradcheck_$name.json" || check_failed "$name" ;;
+        *) check_failed "$name" ;;
+    esac
+    box_upload
+}
+check_passed() {                 # check_passed NAME FLAGS: NAME's own check passed the candidate FLAGS
+    timeout 1m python - "$OUT/gradcheck_$1.json" "$2" <<'EOF'
 import json, sys
 check = json.load(open(sys.argv[1], encoding="utf-8"))
 want = " ".join(sys.argv[2].split())
@@ -215,25 +237,16 @@ sys.exit(0 if any(" ".join(c["candidate"].split()) == want and c["pass"] for c i
 EOF
 }
 
-# The barrier: B's and B8's gradients against A's, from the same weights at rate 0.
-if [ ! -f "$OUT/gradcheck.json" ]; then
-    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the gradient check: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-    rm -f "$OUT/gradcheck.json.pending"
-    candidates=("--candidate=$B_FLAGS")
-    ! in_arms B8 || candidates+=("--candidate=$B8_FLAGS")
-    box_bounded gradcheck "$GRADCHECK_CUT_MIN" gradcheck.log python tools/bench_sequence_step.py gradcheck \
-        --out "$OUT/gradcheck.json.pending" "--reference=$A_FLAGS" "${candidates[@]}" -- "${COMMON[@]}" \
-        --lr "$LR" "${INIT[@]}" --out "$OUT/gradcheck_arm.pt"
-    case $BOX_RC in
-        0|8) mv -f "$OUT/gradcheck.json.pending" "$OUT/gradcheck.json" ;;
-        *) box_upload
-           box_finish "B_GRADCHECK_UNFINISHED rc=$BOX_RC $BOX_WHY (gradcheck.log)" 1 ;;
-    esac
-    box_upload
+# The barrier: B's gradients against A's, then B8's, each in a process of its own.
+run_check B "$B_FLAGS"
+if ! check_passed B "$B_FLAGS"; then
+    ! grep -q '"rc"' "$OUT/gradcheck_B.json" \
+        || box_finish "B_GRADCHECK_UNFINISHED (gradcheck_B.json, gradcheck_B.log)" 1
+    box_finish "B_GRADCHECK_FAILED: B's gradients are not A's within the check (gradcheck_B.json)" 1
 fi
-check_passed "$B_FLAGS" || box_finish "B_GRADCHECK_FAILED: B's gradients are not A's within the check (gradcheck.json)" 1
-if in_arms B8 && [ ! -f "$OUT/pass_B8.failed" ] && ! check_passed "$B8_FLAGS"; then
-    left_out B8 "its gradient check did not pass (gradcheck.json)"
+if in_arms B8 && [ ! -f "$OUT/pass_B8.failed" ]; then
+    run_check B8 "$B8_FLAGS"
+    check_passed B8 "$B8_FLAGS" || left_out B8 "its gradient check did not pass or did not finish (gradcheck_B8.json)"
 fi
 
 for name in "${ARM_NAMES[@]}"; do

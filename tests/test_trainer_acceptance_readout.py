@@ -3,8 +3,9 @@ and the probe's per-game-side sums it reads: a repeat that changes nothing
 reads 0, a shift of every decision reads the shift with no error, a shift of
 one game reads its share with an error between games, the verdict follows
 the bound, every arm is judged against A with the one noise and read
-against B, no repeat gives no verdict, other game-sides or counts are
-refused; on the test pass the sums give back the probe's own readings."""
+against B, no repeat gives no verdict, a pass of other game-sides or counts
+or an unreadable one is set aside while the others are read; on the test
+pass the sums give back the probe's own readings."""
 from __future__ import annotations
 
 import json
@@ -43,6 +44,7 @@ def _write(path, sides, earlier=None):
 
 def _read(tmp_path, a, a2, b, earlier=None, **more):
     """The readout of A, A2 (None: no repeat), B and the arms in `more`."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     arms = {"B": _write(tmp_path / "b.jsonl", b),
             **{name: _write(tmp_path / f"{name}.jsonl", sides) for name, sides in more.items()}}
     return readout.readout(_write(tmp_path / "a.jsonl", a, earlier),
@@ -100,14 +102,22 @@ def test_without_a_repeat_the_differences_stand_without_a_verdict(tmp_path):
         readout.readout(tmp_path / "a.jsonl", None, {"A2": tmp_path / "b.jsonl"})
 
 
-def test_other_game_sides_or_counts_are_refused(tmp_path):
+def test_a_pass_of_other_game_sides_or_counts_is_set_aside_and_the_others_read(tmp_path):
     fewer = [s for s in _sides() if s["file"] != "g3"]
-    with pytest.raises(SystemExit, match="other game-sides"):
-        _read(tmp_path, _sides(), _sides(), fewer)
+    out = _read(tmp_path / "arm", _sides(), _sides(), _sides(ce=1.02), B64=fewer)
+    assert out["arms"]["B64"]["pass"] is None and "other game-sides" in out["arms"]["B64"]["refused"]
+    assert out["arms"]["B"]["readings"]["ce_all_k0"]["minus_A"]["diff"] == pytest.approx(0.02)
+    assert "B64: set aside" in readout.table(out)
     recount = _sides()
     recount[0]["k64"][0] += 1
-    with pytest.raises(SystemExit, match="other decisions"):
-        _read(tmp_path, _sides(), recount, _sides())
+    noisy = _read(tmp_path / "a2", _sides(), recount, _sides(ce=1.02))
+    assert "other decisions" in noisy["refused"]["A2"] and noisy["arms"]["B"]["pass"] is None
+    assert "A2_minus_A" not in noisy["readings"]["ce_all_k0"]
+    assert noisy["arms"]["B"]["readings"]["ce_all_k0"]["minus_A"]["diff"] == pytest.approx(0.02)
+    (tmp_path / "empty.jsonl").write_text("", encoding="utf-8")
+    empty = readout.readout(tmp_path / "arm" / "a.jsonl", None, {"B": tmp_path / "empty.jsonl",
+                                                                 "B8": tmp_path / "arm" / "b.jsonl"})
+    assert "no probe" in empty["arms"]["B"]["refused"] and empty["arms"]["B8"]["readings"]
 
 
 @pytest.mark.slow

@@ -2,7 +2,7 @@
 reference round by round, A/A pairs of identical flags judging the session,
 rounds of other positions flagged; on the test pass, every arm runs the same
 windows in rotated order, the fused ReLU's losses are the packed trunk's,
-and an arm that fails leaves the others timed."""
+and an arm that fails, to build or in a window, leaves the others timed."""
 from __future__ import annotations
 
 import json
@@ -104,3 +104,36 @@ def test_an_interleaved_run_times_every_arm_on_the_same_windows(tmp_path, pass_i
     assert summary["arms"]["fused"]["against_reference"]["same_positions"]
     assert summary["arms"]["bad"]["windows"] == 1 and summary["arms"]["bad"]["against_reference"] is None
     assert rows[-1]["kind"] == "summary"
+
+
+@pytest.mark.slow
+def test_an_arm_that_fails_to_build_or_exits_leaves_the_others_timed(tmp_path, pass_inputs, monkeypatch):
+    """The reference refused at construction (fp8 with the fused ReLU) and an
+    arm that exits in its first round (a pass out of positions): both
+    recorded with their stage, the two others timed every round and paired,
+    with no ratio to the missing reference."""
+    from tools import bench_sequence_step as bench
+    real = bench_interleave.timed_window
+
+    def quits(trainer):
+        if trainer.args.out.stem == "arm_quits" and trainer.state["windows"] >= 1:
+            raise SystemExit("the pass ran out of positions before the bench's last window")
+        return real(trainer)
+    monkeypatch.setattr(bench_interleave, "timed_window", quits)
+    out = tmp_path / "rows.jsonl"
+    code = bench.main(["interleave", "--out", str(out), "--arm", "refused=--packed-trunk --fused-relu --fp8-trunk",
+                       "--arm", "ok=--packed-trunk", "--arm", "ok2=--packed-trunk", "--arm", "quits=--packed-trunk",
+                       "--reference", "refused", "--warmup", "1", "--rounds", "2", "--profile-windows", "0",
+                       "--not-production", "--summary", str(tmp_path / "speed.json"), "--", *pass_inputs, *QUIET,
+                       "--window", "1"])
+    assert code == 0
+    rows = bench_interleave.read_rows(out)
+    errors = {r["arm"]: r for r in rows if r["kind"] == "error"}
+    assert errors["refused"]["stage"] == "build" and "not both" in errors["refused"]["message"]
+    assert errors["quits"]["stage"] == "window" and errors["quits"]["i"] == 0
+    windows = [r for r in rows if r["kind"] == "window"]
+    assert sorted((r["arm"], r["i"]) for r in windows) == [("ok", 0), ("ok", 1), ("ok2", 0), ("ok2", 1)]
+    summary = json.loads((tmp_path / "speed.json").read_text(encoding="utf-8"))
+    assert summary["arms"]["refused"]["windows"] == 0 and summary["arms"]["refused"]["error"]["stage"] == "build"
+    assert summary["arms"]["ok"]["against_reference"] is None and summary["arms"]["ok"]["windows"] == 2
+    assert [(p["a"], p["b"]) for p in summary["aa"]] == [("ok", "ok2")]

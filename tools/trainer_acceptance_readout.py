@@ -11,8 +11,10 @@ compared on their final holdout probes over the same holdout game-sides.
 Each file is a pass's <out>.probe_sides.jsonl (tools/sequence_train.py); its
 final probe gives, per holdout game-side and per probe run, the decisions,
 the summed policy cross-entropy over them, the positions and the summed
-belief loss. Every pass must hold the same game-sides with the same counts
-(the same holdout, the same labels), else the readout refuses.
+belief loss. A pass is read only when it holds A's game-sides with A's
+counts (the same holdout, the same labels): an arm or A2 that does not, or
+whose file cannot be read, is set aside with its reason (`refused`), and the
+others are read without it (without A2, with no bound).
 
 Per reading (ce_all and belief at each probe run: k0, k64, k64_reset) the
 pooled value of each pass (as the probe's ce_all and belief: summed over
@@ -126,15 +128,32 @@ def _verdict(readings: Dict[str, Dict], key: str) -> Optional[bool]:
     return all(r[key] for r in judged)
 
 
+def _readable(files: Dict[str, Path]) -> Tuple[Dict[str, Dict[SidesKey, Dict]], Dict[str, str], List[str]]:
+    """(the passes read, the reason each other pass was set aside, A's probe
+    runs): A must be read; every other pass is checked against A alone."""
+    a = final_sides(files["A"])
+    runs = check_same_holdout({"A": a})
+    passes, refused = {"A": a}, {}
+    for name, path in files.items():
+        if name == "A":
+            continue
+        try:
+            sides = final_sides(path)
+            check_same_holdout({"A": a, name: sides})
+            passes[name] = sides
+        except (OSError, ValueError, KeyError, SystemExit) as e:     # one bad pass leaves the others read
+            refused[name] = str(e) or type(e).__name__
+    return passes, refused, runs
+
+
 def readout(a: Path, a2: Optional[Path], arms: Dict[str, Path]) -> Dict:
     """Every arm against A, with A2 - A as the noise (module docstring)."""
     if not arms or set(arms) & set(REFERENCES):
         raise SystemExit(f"arms {sorted(arms)}: at least one, none named {' or '.join(REFERENCES)}")
     files = {"A": a, **({"A2": a2} if a2 is not None else {}), **arms}
-    passes = {name: final_sides(path) for name, path in files.items()}
-    runs = check_same_holdout(passes)
+    passes, refused, runs = _readable(files)
     readings: Dict[str, Dict] = {}
-    by_arm: Dict[str, Dict[str, Dict]] = {name: {} for name in arms}
+    by_arm: Dict[str, Dict[str, Dict]] = {name: {} for name in arms if name in passes}
     for run in runs:
         for reading, count, total in READINGS:
             key = f"{reading}_{run}"
@@ -143,13 +162,19 @@ def readout(a: Path, a2: Optional[Path], arms: Dict[str, Path]) -> Dict:
             readings[key] = {"A": pooled(g["A"])}
             if noise is not None:
                 readings[key].update(A2=pooled(g["A2"]), A2_minus_A=noise)
-            for name in arms:
+            for name in by_arm:
                 by_arm[name][key] = _arm_reading(name, g, noise)
+    result_arms = {}
+    for name in arms:
+        if name in by_arm:
+            r = by_arm[name]
+            result_arms[name] = {"pass": _verdict(r, "within"), "not_worse": _verdict(r, "not_worse"), "readings": r}
+        else:
+            result_arms[name] = {"pass": None, "not_worse": None, "refused": refused[name], "readings": {}}
     return {"files": {k: str(v) for k, v in files.items()},
             "game_sides": len(passes["A"]), "games": len({f for f, _ in passes["A"]}),
             "judged": [k for k in JUDGED if k in readings], "readings": readings,
-            "arms": {name: {"pass": _verdict(r, "within"), "not_worse": _verdict(r, "not_worse"), "readings": r}
-                     for name, r in by_arm.items()}}
+            "refused": refused, "arms": result_arms}
 
 
 def _fmt(d: Optional[Dict]) -> str:
@@ -162,7 +187,12 @@ def table(result: Dict) -> str:
     lines = [f"{'reading':<18} {'A':>9} {'A2-A':>18}"]
     for key, r in result["readings"].items():
         lines.append(f"{key:<18} {r['A']:9.5f} {_fmt(r.get('A2_minus_A')):>18}")
+    if "A2" in result.get("refused", {}):
+        lines.append(f"A2 set aside: {result['refused']['A2']}")
     for name, arm in result["arms"].items():
+        if "refused" in arm:
+            lines += ["", f"{name}: set aside: {arm['refused']}"]
+            continue
         lines += ["", f"{name:<18} {'value':>9} {name + '-A':>18} {name + '-B':>18} {'bound':>9}  within"]
         for key, r in arm["readings"].items():
             lines.append(f"{key:<18} {r['value']:9.5f} {_fmt(r['minus_A']):>18} {_fmt(r.get('minus_B')):>18} "

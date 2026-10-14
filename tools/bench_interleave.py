@@ -27,8 +27,11 @@ every pair's median ratio is within `--spread` of 1. A round whose arms ran
 other positions or trunk tokens than the reference marks the arm
 `same_positions: false`.
 
-An arm whose window raises (out of memory, a compile error) is recorded
-(`kind: error`) and left out of the later rounds; the others go on. The
+An arm that fails to build (a refusal of its arguments, out of memory) or
+whose window raises (out of memory, a compile error, a pass out of
+positions) is recorded (`kind: error`, with `stage` build or window) and
+left out of the later rounds, its trainer released; the others go on, the
+reference's failure included (the others then have no ratio). The
 rows: a config per arm (bench_sequence_step.config_record with `arm` and
 `flags`), a preload row per arm, a warm-up row per arm (each window's time,
 the first holding any compile, and the compiled trunk's dynamo counts), a
@@ -38,6 +41,7 @@ entries), and the summary.
 """
 from __future__ import annotations
 
+import gc
 import json
 import re
 import shlex
@@ -88,50 +92,69 @@ def block_stats(trainer) -> Optional[Dict]:
     return None if stats is None else stats()
 
 
-def _build_arms(opts, train_argv, rows: Rows, root: Path) -> Dict[str, object]:
-    trainers = {}
+def _build_arm(opts, train_argv, rows: Rows, root: Path, name: str, flags: str, bench: Dict):
+    """One arm's trainer, its config and preload rows written."""
     n_windows = opts.warmup + opts.rounds + opts.profile_windows
+    argv = list(train_argv) + shlex.split(flags) + ["--out", str(Path(opts.out).parent / f"arm_{name}.pt")]
+    _, args, trainer = build(argv)
+    quiet(trainer)
+    record = config_record(root, args, trainer, argv, bench)
+    problems = production_problems(record)
+    if problems and not opts.not_production:
+        raise SystemExit(f"arm {name}: not production's arguments (--not-production to run anyway): "
+                         + "; ".join(problems))
+    rows.write({**record, "arm": name, "flags": flags})
+    t0 = time.perf_counter()
+    files = bench_files(trainer, n_windows)
+    trainer.loader.hold(sorted(files))
+    rows.write({"kind": "preload", "arm": name, "records": len(files),
+                "seconds": round(time.perf_counter() - t0, 1)})
+    return trainer
+
+
+def _build_arms(opts, train_argv, rows: Rows, root: Path) -> Dict[str, object]:
+    """Every arm's trainer; an arm that fails to build is recorded and left out."""
+    trainers = {}
     bench = {"warmup": opts.warmup, "rounds": opts.rounds, "profile_windows": opts.profile_windows,
              "preload": True, "interleaved": True}
     for name, flags in parse_arms(opts.arm):
-        argv = list(train_argv) + shlex.split(flags) + ["--out", str(Path(opts.out).parent / f"arm_{name}.pt")]
-        _, args, trainer = build(argv)
-        quiet(trainer)
-        record = config_record(root, args, trainer, argv, bench)
-        problems = production_problems(record)
-        if problems and not opts.not_production:
-            raise SystemExit(f"arm {name}: not production's arguments (--not-production to run anyway): "
-                             + "; ".join(problems))
-        rows.write({**record, "arm": name, "flags": flags})
-        t0 = time.perf_counter()
-        files = bench_files(trainer, n_windows)
-        trainer.loader.hold(sorted(files))
-        rows.write({"kind": "preload", "arm": name, "records": len(files),
-                    "seconds": round(time.perf_counter() - t0, 1)})
-        trainers[name] = trainer
+        try:
+            trainers[name] = _build_arm(opts, train_argv, rows, root, name, flags, bench)
+        except (Exception, SystemExit) as e:     # one arm's failure leaves the others built
+            rows.write(_error_row(name, None, e, "build", flags))
     return trainers
 
 
-def _error_row(name: str, i: Optional[int], e: BaseException) -> Dict:
+def _error_row(name: str, i: Optional[int], e: BaseException, stage: str, flags: Optional[str] = None) -> Dict:
+    """The failure of an arm, its memory released."""
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    return {"kind": "error", "arm": name, "i": i, "error": type(e).__name__, "message": str(e)[:500]}
+    row = {"kind": "error", "arm": name, "i": i, "stage": stage, "error": type(e).__name__,
+           "message": str(e)[:500]}
+    return row if flags is None else {**row, "flags": flags}
 
 
 def interleave(opts, train_argv) -> int:
     root = use_repo(None)
+    names = [name for name, _ in parse_arms(opts.arm)]
+    reference = opts.reference or names[0]
+    if reference not in names:
+        raise SystemExit(f"--reference {reference}: not an arm")
     rows = Rows(opts.out)
     trainers = _build_arms(opts, train_argv, rows, root)
-    reference = opts.reference or next(iter(trainers))
-    if reference not in trainers:
-        raise SystemExit(f"--reference {reference}: not an arm")
     alive = list(trainers)
+
+    def drop(name: str, i: Optional[int], e: BaseException) -> None:
+        alive.remove(name)
+        del trainers[name]
+        rows.write(_error_row(name, i, e, "window"))
+
     for name in list(alive):
         try:
             seconds = [round(timed_window(trainers[name])[0], 4) for _ in range(opts.warmup)]
-        except Exception as e:               # any arm's failure leaves the others timed
-            rows.write(_error_row(name, None, e))
-            alive.remove(name)
+        except (Exception, SystemExit) as e:     # one arm's failure leaves the others timed
+            drop(name, None, e)
             continue
         rows.write({"kind": "warmup", "arm": name, "seconds": seconds, "trunk_block": block_stats(trainers[name])})
     for r in range(opts.rounds):
@@ -139,14 +162,12 @@ def interleave(opts, train_argv) -> int:
         for slot, name in enumerate(alive[k:] + alive[:k]):
             try:
                 seconds, result = timed_window(trainers[name])
-            except Exception as e:           # any arm's failure leaves the others timed
-                rows.write(_error_row(name, r, e))
-                alive.remove(name)
+            except (Exception, SystemExit) as e:     # one arm's failure leaves the others timed
+                drop(name, r, e)
                 continue
             rows.write({**window_row(r, seconds, result, trainers[name]), "arm": name, "slot": slot})
-    device = next(iter(trainers.values())).device
     for name in alive:
-        if opts.profile_windows and device.type == "cuda":
+        if opts.profile_windows and trainers[name].device.type == "cuda":
             rows.write({**profile_row(trainers[name], opts.profile_windows, Path(opts.out).parent), "arm": name})
         rows.write({"kind": "after", "arm": name, "trunk_block": block_stats(trainers[name])})
     summary = summarize(read_rows(opts.out), reference, opts.spread)
@@ -192,6 +213,9 @@ def _arm_entry(flags: str, windows: Dict[int, Dict]) -> Dict:
 def summarize(rows: Sequence[Dict], reference: Optional[str] = None, spread: float = INTERLEAVE_SPREAD) -> Dict:
     """Each arm's speed against the reference and the A/A pairs (module docstring)."""
     configs = {r["arm"]: r for r in rows if r["kind"] == "config"}
+    for r in rows:                                # an arm that failed to build has its error row only
+        if r["kind"] == "error" and r.get("stage") == "build" and r["arm"] not in configs:
+            configs[r["arm"]] = {"arm": r["arm"], "flags": r.get("flags", "")}
     if not configs:
         raise SystemExit("no arm's config row")
     reference = reference or next(iter(configs))

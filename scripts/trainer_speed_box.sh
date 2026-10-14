@@ -20,13 +20,15 @@
 #     its product against the CPU emulation), and named in the finish line;
 #   the trainer's inputs (scripts/trainer_inputs.sh: own1, the corpus at
 #     version 5 and its sequences, round 2's own sequences from HF, the columns);
-#   the gradient check (gradcheck.json): every candidate against the reference
-#     flags, FASTEST, from the same weights at rate 0 over 3 windows, a crash
-#     barrier per candidate: a candidate that fails it, or a check that does not
-#     finish, leaves that arm, or every candidate arm, out of the timing;
+#   the gradient check (gradcheck_NAME.json): each candidate against the
+#     reference flags, FASTEST, in a process of its own, from the same weights
+#     at rate 0 over 3 windows, a crash barrier per candidate: a candidate that
+#     fails it, or whose check does not finish, is left out of the timing and
+#     the others go on;
 #   the timing (interleave.jsonl, speed.json): every arm a trainer of its own in
 #     one process, the records read first, the arms taking turns window by
-#     window (tools/bench_interleave.py): ref (FASTEST), each passing candidate,
+#     window (tools/bench_interleave.py; an arm that fails to build or in a
+#     window is recorded and the others go on): ref (FASTEST), each passing candidate,
 #     and ref2 (FASTEST again, the A/A pair: the session is valid when ref2's
 #     median window-time ratio to ref is within VALID_SPREAD of 1); WARMUP
 #     windows each (the first holds any compile), ROUNDS rounds, PROFILE_WINDOWS
@@ -40,15 +42,16 @@
 #     resident, about 0.3 GB each) and the time steps kept under the activation
 #     budget. Timing only: the learning rate a larger step needs is the
 #     acceptance's question (scripts/trainer_acceptance_box.sh);
-#   the records to HF, the instance stopped.
+#   the records to HF, the instance stopped. A timing that leaves no summary is
+#     named in the finish line; the sweep runs all the same.
 #
 # The candidates (CANDIDATES, a list of the names), on FASTEST: bf16
 # (--trunk-bf16), relu (--fused-relu), compiled (--compiled-trunk, inductor),
 # bf16_relu, bf16_compiled, fp8 (--fp8-trunk) and compiled_fp8.
 #
 # Expected wall on a 4090 (round 2's walls.txt): bring-up and tests 15
-# minutes, the inputs 10 with the own sequences from HF, the gradient check 5
-# (eight trainers, three compiles), the timing 12 (nine trainers built and
+# minutes, the inputs 10 with the own sequences from HF, the gradient check 7
+# (seven processes of two trainers each, three compiles), the timing 12 (nine trainers built and
 # their records read, 5 + 40 + 3 windows each at about 0.4 s, the compiles,
 # the profiles), the sweep 12 (three trainers, 5 + 20 + 1 windows of 0.4, 0.8
 # and 1.6 s or more): about 55 minutes, $0.40 at $0.42 an hour; 95 minutes and
@@ -95,7 +98,10 @@ BOX_OUT=$OUT
 
 notes() {                        # what is done, for the finish reason
     local done_=()
-    [ ! -f "$OUT/gradcheck.json" ] || done_+=(gradcheck)
+    local name
+    for name in $CANDIDATES; do
+        [ ! -f "$OUT/gradcheck_$name.json" ] || done_+=("gradcheck_$name")
+    done
     [ ! -f "$OUT/speed.json" ] || done_+=(timing)
     [ ! -f "$OUT/sweep.json" ] || done_+=(sweep)
     echo "done: ${done_[*]:-nothing}"
@@ -107,8 +113,9 @@ box_init
 [ -n "$WORKERS" ] || WORKERS=$(box_workers)
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
 box_bind_run_stage
-box_restore speed.json gradcheck.json interleave.jsonl sweep.json sweep.jsonl cuda_tests.log tests.log \
-    || box_finish "RESTORE_FAILED (restore.log)" 1
+# shellcheck disable=SC2046 # one name per candidate
+box_restore speed.json interleave.jsonl sweep.json sweep.jsonl cuda_tests.log tests.log \
+    $(for name in $CANDIDATES; do echo "gradcheck_$name.json"; done) || box_finish "RESTORE_FAILED (restore.log)" 1
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
 # ---- the code and the Rust wheel
@@ -169,13 +176,13 @@ candidate_flags() {              # candidate_flags NAME: the flags NAME adds to 
 for name in "${CANDIDATE_NAMES[@]}"; do
     candidate_flags "$name" > /dev/null
 done
-gradcheck_failed() {             # gradcheck_failed: a check that did not finish passes no candidate
-    echo "GRADCHECK_FAILED rc=$BOX_RC $BOX_WHY (gradcheck.log)" | tee -a "$OUT/arms_failed.txt"
-    printf '{"pass": false, "rc": %d, "why": "%s", "log": "gradcheck.log", "candidates": []}\n' "$BOX_RC" "$BOX_WHY" \
-        > "$OUT/gradcheck.json"
+gradcheck_failed() {             # gradcheck_failed NAME: NAME's check did not finish, so NAME does not pass
+    echo "GRADCHECK_FAILED $1 rc=$BOX_RC $BOX_WHY (gradcheck_$1.log)" | tee -a "$OUT/arms_failed.txt"
+    printf '{"pass": false, "rc": %d, "why": "%s", "log": "gradcheck_%s.log", "candidates": []}\n' "$BOX_RC" \
+        "$BOX_WHY" "$1" > "$OUT/gradcheck_$1.json"
 }
-passed() {                       # passed NAME: the gradient check passed NAME's flags
-    timeout 1m python - "$OUT/gradcheck.json" "$FASTEST $(candidate_flags "$1")" <<'EOF'
+passed() {                       # passed NAME: NAME's own gradient check passed its flags
+    timeout 1m python - "$OUT/gradcheck_$1.json" "$FASTEST $(candidate_flags "$1")" <<'EOF'
 import json, sys
 check = json.load(open(sys.argv[1], encoding="utf-8"))
 want = " ".join(sys.argv[2].split())
@@ -183,25 +190,20 @@ sys.exit(0 if any(" ".join(c["candidate"].split()) == want and c["pass"] for c i
 EOF
 }
 
-# The gradient check: every candidate against FASTEST, a crash barrier per candidate.
-if [ ! -f "$OUT/gradcheck.json" ] && [ "${#CANDIDATE_NAMES[@]}" -eq 0 ]; then
-    printf '{"pass": true, "candidates": []}\n' > "$OUT/gradcheck.json"
-elif [ ! -f "$OUT/gradcheck.json" ]; then
-    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the gradient check: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-    rm -f "$OUT/gradcheck.json.pending"
-    check_args=()
-    for name in "${CANDIDATE_NAMES[@]}"; do
-        check_args+=("--candidate=$FASTEST $(candidate_flags "$name")")
-    done
-    box_bounded gradcheck "$GRADCHECK_CUT_MIN" gradcheck.log python tools/bench_sequence_step.py gradcheck \
-        --out "$OUT/gradcheck.json.pending" "--reference=$FASTEST" "${check_args[@]}" -- "${TRAIN_ARGS[@]}" \
-        --out "$OUT/gradcheck_arm.pt"
+# The gradient check: each candidate against FASTEST in a process of its own, a crash barrier per candidate.
+for name in "${CANDIDATE_NAMES[@]}"; do
+    [ ! -f "$OUT/gradcheck_$name.json" ] || continue
+    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the gradient check of $name: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+    rm -f "$OUT/gradcheck_$name.json.pending"
+    box_bounded "gradcheck $name" "$GRADCHECK_CUT_MIN" "gradcheck_$name.log" python tools/bench_sequence_step.py \
+        gradcheck --out "$OUT/gradcheck_$name.json.pending" "--reference=$FASTEST" \
+        "--candidate=$FASTEST $(candidate_flags "$name")" -- "${TRAIN_ARGS[@]}" --out "$OUT/gradcheck_arm_$name.pt"
     case $BOX_RC in
-        0|8) mv -f "$OUT/gradcheck.json.pending" "$OUT/gradcheck.json" || gradcheck_failed ;;
-        *) gradcheck_failed ;;
+        0|8) mv -f "$OUT/gradcheck_$name.json.pending" "$OUT/gradcheck_$name.json" || gradcheck_failed "$name" ;;
+        *) gradcheck_failed "$name" ;;
     esac
     box_upload
-fi
+done
 
 # The timing: ref, every candidate that passed, ref2, interleaved in one process.
 if [ ! -f "$OUT/speed.json" ]; then
@@ -211,7 +213,7 @@ if [ ! -f "$OUT/speed.json" ]; then
         if passed "$name"; then
             arms+=("--arm=$name=$FASTEST $(candidate_flags "$name")")
         else
-            echo "LEFT_OUT $name: its gradient check did not pass (gradcheck.json)" | tee -a "$OUT/arms_failed.txt"
+            echo "LEFT_OUT $name: its gradient check did not pass (gradcheck_$name.json)" | tee -a "$OUT/arms_failed.txt"
         fi
     done
     arms+=("--arm=ref2=$FASTEST")
@@ -226,9 +228,11 @@ if [ ! -f "$OUT/speed.json" ]; then
         box_bounded timing-summary 5 timing.log python tools/bench_sequence_step.py interleave-summary \
             "$OUT/interleave.jsonl" --reference ref --spread "$VALID_SPREAD" --out "$OUT/speed.json"
     fi
+    if [ "$BOX_RC" -ne 0 ] && [ ! -f "$OUT/speed.json" ]; then
+        echo "TIMING_FAILED rc=$BOX_RC $BOX_WHY: no summary (timing.log)" | tee -a "$OUT/arms_failed.txt"
+    fi
     box_upload
 fi
-[ -f "$OUT/speed.json" ] || box_finish "TIMING_FAILED: no speed.json (timing.log) $(notes)" 1
 
 # The streams sweep: SWEEP_FLAGS at each count of SWEEP_STREAMS, half of them own.
 read -r -a SWEEP_COUNTS <<< "$SWEEP_STREAMS"
@@ -254,10 +258,13 @@ if [ "${#SWEEP_COUNTS[@]}" -gt 0 ] && [ ! -f "$OUT/sweep.json" ]; then
 fi
 SUMMARY=$(timeout 1m python - "$OUT/speed.json" "$OUT/sweep.json" <<'EOF'
 import json, os, sys
-s = json.load(open(sys.argv[1], encoding="utf-8"))
-rates = {a: v["positions_per_second"] for a, v in s["arms"].items()}
-speedups = {a: (v.get("against_reference") or {}).get("speedup_median") for a, v in s["arms"].items() if a != "ref"}
-out = {"valid": s["valid"], "rates": rates, "speedup_median": speedups}
+out = {"timing": None}
+if os.path.exists(sys.argv[1]):
+    s = json.load(open(sys.argv[1], encoding="utf-8"))
+    rates = {a: v["positions_per_second"] for a, v in s["arms"].items()}
+    speedups = {a: (v.get("against_reference") or {}).get("speedup_median") for a, v in s["arms"].items()
+                if a != "ref"}
+    out = {"valid": s["valid"], "rates": rates, "speedup_median": speedups}
 if os.path.exists(sys.argv[2]):
     w = json.load(open(sys.argv[2], encoding="utf-8"))
     out["sweep"] = {a: [v["positions_per_second"], v["peak_gb_max"]] for a, v in w["arms"].items()}
@@ -265,5 +272,7 @@ print(json.dumps(out))
 EOF
 )
 FAILED_STEPS=$(cut -d' ' -f1-2 "$OUT/arms_failed.txt" 2>/dev/null | tr '\n' ' ')
+[ -f "$OUT/speed.json" ] || [ -f "$OUT/sweep.json" ] \
+    || box_finish "TIMING_FAILED: no speed.json, no sweep.json; left out: ${FAILED_STEPS:-none} $(notes)" 1
 box_finish "TRAINER_SPEED_DONE ${SUMMARY:0:700}; cuda tests: ${CUDA_TESTS:-none}; left out: ${FAILED_STEPS:-none}"
 # ---- the arms (end)

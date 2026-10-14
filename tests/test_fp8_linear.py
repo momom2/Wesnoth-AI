@@ -5,8 +5,12 @@ F.linear's, for token counts on and off the padding's multiple; every
 product takes the operands torch._scaled_mm takes on CUDA, and the check
 refuses the layouts it refuses; the packed trunk under --fp8-trunk runs near
 the autocast trunk, recomputes to the bit under activation checkpointing, and
-refuses what it cannot run."""
+refuses what it cannot run; the compiled block holds the fp8 products under
+the box's torch's strict mode."""
 from __future__ import annotations
+
+import inspect
+import re
 
 import numpy as np
 import pytest
@@ -159,3 +163,42 @@ def test_the_fp8_trunk_refuses_what_it_cannot_run():
         check_trunk_mode_supported(_encoder(), TrunkMode(fp8=True, fused_relu=True))
     with pytest.raises(ValueError, match="multiples of 16"):
         check_trunk_mode_supported(_encoder(d_ff=72), TrunkMode(fp8=True))
+
+
+# What torch 2.5.1 (the box's) bans in the backward pass of an
+# autograd.Function that dynamo traces (torch/_dynamo/config.py:443-453);
+# later versions ban less, so the test restores 2.5.1's list.
+BOX_STRICT_MODE_BANS = ["stride", "requires_grad", "storage_offset", "layout", "data"] + [
+    name for name, _ in inspect.getmembers(torch.Tensor) if re.match(r"^is_.*", name)]
+
+
+def test_the_fp8_block_compiles_whole_under_the_box_torch_s_strict_mode(monkeypatch):
+    """The compiled block with fp8 products (`--compiled-trunk --fp8-trunk`)
+    under fullgraph and torch 2.5.1's strict-mode bans, aot_eager on the CPU:
+    one graph for token counts on and off the padding's multiple, its output
+    and gradients the eager fp8 block's within a few fp8 roundings."""
+    import torch._dynamo.config as dynamo_config
+    from wesnoth_ai.packed_trunk import _dynamo_cache_entries
+    from wesnoth_ai.trunk_modes import CompiledBlock, _block_weights, layer_block
+    if not hasattr(dynamo_config, "_autograd_backward_strict_mode_banned_ops"):
+        pytest.skip("this torch has no strict-mode ban list")
+    monkeypatch.setattr(dynamo_config, "_autograd_backward_strict_mode_banned_ops", BOX_STRICT_MODE_BANS)
+    torch._dynamo.reset()
+    layer = _encoder().layers[0]
+    weights = _block_weights(layer)
+    block = CompiledBlock("aot_eager")
+    for n in (37, 48, 61):
+        runs = []
+        for fn in (lambda h, c: layer_block(h, c, *weights, layer.norm1.eps, False, True),
+                   lambda h, c: block(h, c, *weights, eps=layer.norm1.eps, fused_relu=False, fp8=True)):
+            torch.manual_seed(n)
+            h = torch.randn(n, D, requires_grad=True)
+            ctx = torch.randn(n, D, requires_grad=True)
+            for p in layer.parameters():
+                p.grad = None
+            y = fn(h, ctx)
+            (y * torch.linspace(-1.0, 1.0, y.numel()).view_as(y)).sum().backward()
+            runs.append([y.detach(), h.grad, ctx.grad] + [p.grad for p in weights if p is not None])
+        for a, c in zip(*runs):
+            assert float((c - a).pow(2).mean().sqrt()) <= 0.02 * float(a.pow(2).mean().sqrt()), n
+    assert _dynamo_cache_entries(layer_block) == 1, "one graph for every token count"

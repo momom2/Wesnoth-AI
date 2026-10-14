@@ -514,8 +514,22 @@ divisible by 16 (Blas.cpp:1012-1021), and never two e5m2 operands
 (Blas.cpp:1027). It has no derivative (derivatives.yaml holds no entry), so
 `wesnoth_ai/fp8_linear.py` writes the backward pass; inductor lowers it
 (torch/_inductor/kernel/mm_scaled.py:244) and it has a meta kernel
-(_meta_registrations.py:5593), so the compiled block may hold it (the box's
-tests compile it).
+(_meta_registrations.py:5593), so the compiled block can hold it. Dynamo
+traces an `autograd.Function`'s backward pass in strict mode, which at torch
+2.5.1 refuses every `is_*` attribute and `stride()` of a tensor
+(torch/_dynamo/config.py:443-453, variables/tensor.py:370; later versions
+refuse fewer): while compiling, the operand check is skipped, the device is
+read from `.device`, and the weight gradient's padding is never empty (an
+empty tensor's size is guarded on, which compiled a second graph for token
+counts that are multiples of 16). The box's first round-4 bench died on
+this in the compiled fp8 candidate's check;
+`test_the_fp8_block_compiles_whole_under_the_box_torch_s_strict_mode` restores
+2.5.1's ban list on the laptop's torch and compiles the block (aot_eager,
+fullgraph) over three token counts in one graph. Eager on the 4090, the fp8
+trunk read an output RMS error of 2.1% against the bfloat16 trunk and
+gradient cosines of 0.996 or more, and `_scaled_mm` matched the CPU
+emulation within one bfloat16 rounding (the first round-4 bench's
+cuda_tests.log, code stage stage_20261014_trainer4_speed).
 
 Each of a layer's four linears (in- and out-projection, both feed-forward
 linears) multiplies e4m3 copies of its input and weight in the forward pass,
@@ -560,8 +574,28 @@ half of them own, interleaved in one process as in the timing, outside
 production's arguments (`--not-production`): positions a second, the
 window's peak device memory (every arm's weights and optimizer state
 resident, about 0.3 GB each), and the time steps kept under the activation
-budget, which does not grow with the streams. An arm out of memory is
-recorded and left out. Timing only: the learning rate is the acceptance's.
+budget, which does not grow with the streams. A pass may start from a
+checkpoint of other streams (`--init-from` logs it and records the
+checkpoint's streams in the new pass's `init_from`); only a resume needs its
+own pass's streams. Timing only: the learning rate is the acceptance's.
+
+### Every arm fails alone
+
+One failing configuration must not empty the others' records. The gradient
+check builds and runs each candidate on its own (tools/bench_gradcheck.py):
+a candidate refused at construction or failing in a window is recorded as
+failed with its reason and its windows so far, and the others are checked;
+both box scripts run each candidate's check in a process of its own, so a
+crash leaves out that candidate only. The interleaved timing and the sweep
+record an arm that fails to build or in a window (`kind: error` with its
+`stage`), release it and time the rest, the reference's failure included. In
+the speed script a timing that leaves no summary is named and the sweep runs
+all the same. In the acceptance B's own check decides B, B8's decides B8,
+and the readout sets aside an arm (or A2, then without a bound) whose probe
+does not hold A's holdout counts and reads the others. Tests inject each
+failure: tests/test_bench_gradcheck.py,
+`test_an_arm_that_fails_to_build_or_exits_leaves_the_others_timed`, and the
+box-script tests' crashed check processes.
 `CANDIDATES` picks the candidates (`CANDIDATES='fp8 compiled_fp8'
 SWEEP_STREAMS='32 64 128'` times only this round's arms). Expected with
 every candidate: about 55 minutes, $0.40 at $0.42 an hour; 95 minutes and
@@ -600,7 +634,8 @@ walked, its final probe at 0 and 64 slots; `ARMS` picks them (A required).
 The fixed part (bring-up and tests 15 minutes, the inputs 10, the barrier 4)
 costs $0.20; all six arms about 2 hours 30 minutes, $1.07. Each wall
 includes the 5.4-minute final probe. The barrier checks B's and B8's
-gradients against A's: B failing ends the run, B8 failing leaves B8 out.
+gradients against A's, each in a process of its own: B failing ends the run,
+B8 failing or crashing leaves B8 out.
 A failed pass of A ends the run; another arm's is left out and the run goes
 on. The readout pairs every arm against A by game with A2 - A as the noise
 (the round-3 criterion per arm) and reads each arm against B as well, the
