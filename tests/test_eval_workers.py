@@ -214,15 +214,16 @@ def _tiny_memory_checkpoint(path: Path) -> str:
 @pytest.mark.slow
 def test_a_worker_plays_its_games_at_once_as_it_plays_them_alone(tmp_path):
     """Two games of a memory model through the shared server, played at
-    once by one worker (two threads, two connections) and one after the
-    other by one worker: each game's commands, seeds included, and result
-    are the same. The server answers each leaf alone (max batch 1), so a
-    leaf's outputs do not depend on what it is batched with."""
+    once by one worker (two threads, two connections), one after the
+    other by one worker, and at once by two workers on two server
+    processes: each game's commands, seeds included, and result are the
+    same. The server answers each leaf alone (max batch 1), so a leaf's
+    outputs do not depend on what it is batched with."""
     from tools.game_record import read_records
     from tools.run_elo_batch import main
     spec = _tiny_memory_checkpoint(tmp_path / "tiny.pt")
 
-    def play(out: Path, jobs: int, per_worker: int):
+    def play(out: Path, jobs: int, per_worker: int, servers: int = 1):
         main(["x", "--label-a", "A", "--spec-a", spec, "--label-b", "B", "--spec-b", spec,
               "--outdir", str(out), "--games", "2", "--mcts-sims", "0",
               "--raw-temperature-a", "0", "--raw-temperature-b", "0",
@@ -230,20 +231,24 @@ def test_a_worker_plays_its_games_at_once_as_it_plays_them_alone(tmp_path):
               "--memory-a", "8", "--memory-b", "8", "--max-turns", "3", "--device", "cpu",
               "--jobs", str(jobs), "--worker-games", str(per_worker), "--persistent-workers",
               "--shared-inference", "--inference-max-batch", "1", "--max-extra-games", "0",
-              "--time-budget-min", "5", "--min-free-mb", "0"])
+              "--inference-servers", str(servers), "--time-budget-min", "5", "--min-free-mb", "0"])
         games = {}
         for f in sorted(out.glob("game_*.json")):
             r = json.loads(f.read_text(encoding="utf-8"))
             rec = next(read_records(f.with_name(f.stem + ".game.jsonl.gz")))
             games[f.name] = (r["outcome_a"], r["turns"], r["forwards_a"], r["forwards_b"],
                              rec["commands"], rec["final_digest"])
-        server = json.loads((out / ".inference_server_0.json").read_text(encoding="utf-8"))
+        stats = sorted(out.glob(".inference_server_*.json"))
+        assert len(stats) == servers
+        server = json.loads(stats[0].read_text(encoding="utf-8"))
         workers = sorted(out.glob(".worker_stages_*.json"))
         return games, server, workers
 
     together, server_t, workers_t = play(tmp_path / "together", jobs=2, per_worker=2)
     alone, server_a, workers_a = play(tmp_path / "alone", jobs=1, per_worker=1)
     assert len(together) == 2 and together == alone
+    two_servers, _, workers_s = play(tmp_path / "two_servers", jobs=2, per_worker=1, servers=2)
+    assert two_servers == alone and len(workers_s) == 2
     assert all(len(g[4]) > 10 for g in together.values()), "the games played some commands"
     # One worker process in each run; together it held two connections.
     assert len(workers_t) == len(workers_a) == 1
