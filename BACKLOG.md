@@ -90,8 +90,11 @@ $1.47 in all):
   the reference decode, 3,700-3,790 games an hour for main, 8,150-8,210
   with 120 games in flight (six per worker process, play unchanged); the
   inference server's batch cost is nearly flat in its size, so depth is
-  the lever. A million games now cost about $110 to generate and train
-  on, against about $250.
+  the lever. Generation plus one training pass over every position of a
+  million games: about 228 box-hours at round 2's rates (122 + 106), about
+  $110; the record walk and pre-encoding add about 12-18 box-hours, and the
+  own-trajectory pipeline's teacher targets about 330 more (2,854 s for
+  1.1 million positions in round 2), a stage to fold into generation.
   **Generation round 3 measured 2026-10-14** (`feature/generation-speed-3`,
   `training/metrics/generation_speed_r3_20261014/`): the single-thread
   serve loop and the raw-bytes wire, 1,487-1,497 decisions a second and
