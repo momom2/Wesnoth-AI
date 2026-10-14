@@ -16,27 +16,61 @@ relevant-set basis cut the tokens to ~300 and left the host launches
 as the cost.
 
 Per batch, outside the graph: numpy only -- the batch's RawEncoded
-fields concatenated into the pinned embed buffer, the packed rows'
-sources and kinds, the segment offsets and head slots, and the masks,
-into two more pinned buffers. Inside the graph: the three host->device
-copies, the trained embeddings of every buffer row, the gather of the
-real tokens into the packed rows with their kind term, the packed
-trunk over a bf16 copy of the weights, the heads on the capped slots,
+fields concatenated into the pinned embed buffer, the memory states
+into the pinned memory buffer, the packed rows' sources and kinds, the
+segment offsets and head slots, and the masks, into two more pinned
+buffers. Inside the graph: the host->device copies, the trained
+embeddings of every buffer row, the gather of the real tokens into the
+packed rows with their kind term, the packed trunk over a bf16 copy of
+the weights, the heads on the capped slots, the memory write,
 `server_priors.priors_outputs` at the fixed capacity, and the one
 device->host copy of the results. Padding is inert by construction:
 pad segments hold one token each and attend only to themselves (flash
 varlen), rows past the last segment are never read by a head (the
 flash kernel leaves them untouched; the per-segment fallback zeroes
-them), spare embed rows hold stale or zero fields that no real token
-gathers, padded actor and hex slots point at a real row and carry zero
-masks, so the priors' masked softmaxes and the compaction see exactly
-the real batch. `GraphedServe(..., graphs=False)` runs the same
-static-shape body eagerly (the CPU tests, and an A/B on a box).
+them), spare embed and memory rows hold stale or zero values that no
+real token gathers, padded actor, hex and memory slots point at a real
+row and carry zero masks or are cut from the reply, so the priors'
+masked softmaxes and the compaction see exactly the real batch.
+`GraphedServe(..., graphs=False)` runs the same static-shape body
+eagerly (the CPU tests, and an A/B on a box).
+
+The parity-memory recipe (docs/parity_memory_design_20260929.md): a
+segment lists its hexes, units, recruits, sightings, memory slots, the
+global token and end_turn, as `packed_trunk.build_packed_layout` lays
+them out. The sighting rows are embedded from their own buffer rows,
+the global row reads the faction posterior, and the memory rows are the
+states sent with the batch plus their slot embedding; the new states,
+written from the trunk's outputs at those rows, ride back with the
+priors. A model with the material value input or the GBC context is
+refused (the priors protocol carries neither).
+
+Memory. Every bucket's graph is captured into ONE memory pool, so the
+graphs together hold about what the largest capture needs, not the sum
+of every capture's (the 2026-10-13 box run: 58-63 buckets of private
+pools ran a 4090 out of memory at 40 and 60 games in flight). Sharing
+is safe here because no device tensor a capture allocates outlives it
+(each replay copies its inputs in from pinned host buffers and its
+outputs out to one) and the replays run one after another on one
+stream: a graph never reads what another wrote. `preflight` captures
+the largest bucket first, from synthetic leaves, so the pool reaches
+its size before any game is served, and a server knows at start whether
+it fits. A bucket is captured only while `capture_reserve_mb` of device
+memory stays available; one that is not captured, or whose capture
+fails, is served by the caller's eager path, and a failed capture
+leaves the device probed (an error that poisoned it is raised).
+
+The combat oracle's mask biases ride the static masks only with
+`biases=True` (their buffer is [segments, actors, hexes] float32, the
+largest copy of a replay); off, its value since 2026-08-06, a batch
+carrying a bias is served eagerly.
 
 Not graphed: the wire (`tools/inference_seam.output_to_wire`). A batch
 that exceeds a cap (segments, actor slots, hex slots, tokens, a segment
-longer than `max_len`, legal entries) returns None from `infer` and the
-caller serves it on the eager path; the counters say how often.
+longer than `max_len`, sightings past the actor cap, legal entries),
+carries a bias without `biases`, or lands on a bucket that is not
+captured returns None from `infer` and the caller serves it on the
+eager path; the counters say how often.
 """
 from __future__ import annotations
 
@@ -45,17 +79,17 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 
-from wesnoth_ai.encoder import GLOBAL_FEAT_DIM
-from wesnoth_ai.memory import refuse_memory_model
+from wesnoth_ai.encoder import MAX_FACTIONS
+from wesnoth_ai.memory import MemoryBatch
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, TokenKind, UnitActionType
 from wesnoth_ai.packed_trunk import (
-    FlatLayout, PackedIndex, PackedTrunkWeights, build_packed_layout,
-    check_packed_trunk_supported, make_packed_trunk_layers,
+    FlatLayout, PackedIndex, PackedTrunkWeights, _block_counts, _exclusive_cumsum,
+    _segment_sources, check_packed_trunk_supported, make_packed_trunk_layers,
 )
 from wesnoth_ai.server_priors import (
     PackedMasks, PendingPriors, _staged_capacity, mask_layout, priors_outputs, write_masks,
@@ -74,15 +108,20 @@ log = logging.getLogger(__name__)
 # device, so the threads still overlap their staging and their waits.
 _GRAPH_LOCK = threading.RLock()
 
+# The block kinds of a segment, in `packed_trunk.build_packed_layout`'s order.
+_BLOCK_KINDS = np.array([TokenKind.HEX, TokenKind.UNIT, TokenKind.RECRUIT, TokenKind.SIGHTING,
+                         TokenKind.MEMORY, TokenKind.GLOBAL, TokenKind.END_TURN], dtype=np.int64)
+
 
 @dataclass(frozen=True)
 class Caps:
     """The bucket axes. Segments per graph from `b_caps` (the first
     that fits the batch; `b_cap` alone means one value, the server's
     max_batch); actor slots and hex slots bucketed to the first cap
-    that fits; token rows to the first bucket that fits the real
-    tokens plus one per pad segment; `max_len` the longest segment any
-    graph accepts; `capacity` legal entries per batch."""
+    that fits (a leaf's sightings are held under its actor cap too);
+    token rows to the first bucket that fits the real tokens plus one
+    per pad segment; `max_len` the longest segment any graph accepts;
+    `capacity` legal entries per batch."""
     b_cap: int = 16
     a_caps: Tuple[int, ...] = (64, 128)
     h_caps: Tuple[int, ...] = (512, 1024, 2048)
@@ -100,8 +139,42 @@ def pool_caps(max_batch: int) -> Caps:
     """The pool's caps: the picker fills a batch to `max_batch` leaves
     with whole requests, so batches run past it (17.4 leaves on average
     at max_batch 16, up to about twice), and a segment cap of twice
-    max_batch keeps them on the graphed path."""
-    return Caps(b_cap=max_batch, b_caps=(max_batch, 2 * max_batch))
+    max_batch keeps them on the graphed path, with token rows for that
+    many of the largest leaves."""
+    return Caps(b_cap=max_batch, b_caps=(max_batch, 2 * max_batch),
+                t_caps=_token_caps(2 * max_batch))
+
+
+# The token buckets: steps of 1,024 rows up to 6,144, then coarser. A
+# batch replays at its bucket's rows, so a coarse step pads the trunk's
+# dense layers (up to 60% at 5,000 tokens into 8,192); every bucket
+# costs one capture.
+_T_CAPS = (1024, 2048, 3072, 4096, 5120, 6144, 8192, 10240, 12288, 16384, 20480, 24576, 28672,
+           32768, 40960, 49152, 57344)
+# Rows per leaf the largest bucket reserves: a relevant-set leaf runs
+# 250-400 hex, unit and recruit tokens, plus a 64-slot memory.
+_ROWS_PER_LEAF = 512
+# The eval server's segment buckets below its max batch: a batch replays
+# at its bucket's segments, and the heads and the priors run on all of them.
+_EVAL_B_CAPS = (8, 16, 24, 32, 48, 64, 96)
+# Device memory a capture leaves free for the eager path and cuBLAS's
+# workspaces (a capture is not attempted below it).
+CAPTURE_RESERVE_MB = 2048
+
+
+def _token_caps(leaves: int) -> Tuple[int, ...]:
+    """The token buckets up to `leaves` of the largest leaves."""
+    rows = -(-_ROWS_PER_LEAF * leaves // 1024) * 1024
+    return tuple(t for t in _T_CAPS if t < rows) + (rows,)
+
+
+def eval_caps(max_batch: int) -> Caps:
+    """The eval server's caps: its batches run below max_batch (one
+    decision in flight per game), so the segment axis is bucketed
+    coarsely (every bucket costs one capture), and the token rows reach
+    a full batch of the largest leaves."""
+    b_caps = tuple(sorted({b for b in _EVAL_B_CAPS if b < max_batch} | {max_batch}))
+    return Caps(b_cap=max_batch, b_caps=b_caps, t_caps=_token_caps(max_batch))
 
 
 @dataclass(frozen=True)
@@ -120,34 +193,42 @@ class StaticIndex:
     hex: np.ndarray          # [b_cap * h_cap] int64
     glob: np.ndarray         # [b_cap] int64
     actor_kind: np.ndarray   # [b_cap, a_cap] int64
+    memory: np.ndarray       # [b_cap * k_cap] int64
+    counts: np.ndarray       # [B, 7] the real segments' block counts
+    total: int               # the real segments' rows
 
 
 def static_index(sizes: Sequence[Tuple[int, int, int]], b_cap: int, a_cap: int,
-                 h_cap: int, t_cap: int) -> StaticIndex:
+                 h_cap: int, t_cap: int, *, sightings: Optional[Sequence[int]] = None,
+                 memory: Optional[Sequence[int]] = None, k_cap: int = 0) -> StaticIndex:
     """`packed_trunk.build_packed_layout`'s head arrays and offsets
     extended to the caps: rows b < B as the real layout has them
     (padded slots point at the row's end_turn token), then b_cap - B
     pad segments of one token each right after the real tokens, whose
-    slots all point at that token. Requires total + (b_cap - B) <=
-    t_cap; the rows from the last pad token to t_cap belong to no
-    segment."""
-    B = len(sizes)
-    sz = np.asarray(sizes, dtype=np.int64).reshape(B, 3)
-    Us = np.zeros(b_cap, dtype=np.int64)
-    Rs = np.zeros(b_cap, dtype=np.int64)
-    Hs = np.zeros(b_cap, dtype=np.int64)
-    Us[:B], Rs[:B], Hs[:B] = sz[:, 0], sz[:, 1], sz[:, 2]
-    lengths = Us + Rs + Hs + 2
+    slots all point at that token. `sightings` and `memory` are the
+    per-sample sighting and memory-slot counts (each slot count at
+    most `k_cap`). Requires total + (b_cap - B) <= t_cap; the rows from
+    the last pad token to t_cap belong to no segment."""
+    counts = _block_counts(sizes, sightings, memory)
+    B = len(counts)
+    if memory is not None and B and int(counts[:, 4].max()) > k_cap:
+        raise ValueError(f"static_index: a memory of {int(counts[:, 4].max())} slots for k_cap {k_cap}")
+    full = np.zeros((b_cap, counts.shape[1]), dtype=np.int64)
+    full[:B] = counts
+    lengths = full.sum(axis=1)
     lengths[B:] = 1
-    cu = np.zeros(b_cap + 1, dtype=np.int64)
-    np.cumsum(lengths, out=cu[1:])
+    cu = _exclusive_cumsum(lengths)
     if int(cu[-1]) > t_cap:
         raise ValueError(f"static_index: {int(cu[-1])} rows for t_cap {t_cap}")
+    Hs, Us, Rs, Ss = full[:, 0], full[:, 1], full[:, 2], full[:, 3]
+    Ks = full[:, 4]
     seg0, end = cu[:-1, None], (cu[1:] - 1)[:, None]                  # [b_cap, 1]
     a = np.arange(a_cap, dtype=np.int64)[None, :]
     actor = np.where(a < (Us + Rs)[:, None], seg0 + Hs[:, None] + a, end)
     h = np.arange(h_cap, dtype=np.int64)[None, :]
     hexes = np.where(h < Hs[:, None], seg0 + h, end)
+    k = np.arange(k_cap, dtype=np.int64)[None, :]
+    mem = np.where(k < Ks[:, None], seg0 + (Hs + Us + Rs + Ss)[:, None] + k, end)
     glob = np.where(np.arange(b_cap) < B, end[:, 0] - 1, end[:, 0])
     kinds = np.full((b_cap, a_cap), ActorKind.END_TURN, dtype=np.int64)
     kinds[a < (Us + Rs)[:, None]] = ActorKind.RECRUIT
@@ -156,11 +237,31 @@ def static_index(sizes: Sequence[Tuple[int, int, int]], b_cap: int, a_cap: int,
     # wrong index here would be a device-side assert inside a replay,
     # which poisons the whole CUDA context.
     rows = int(cu[-1])
-    for name, arr in (("actor", actor), ("hex", hexes), ("glob", glob)):
+    for name, arr in (("actor", actor), ("hex", hexes), ("glob", glob), ("memory", mem)):
         if arr.size and (int(arr.min()) < 0 or int(arr.max()) >= rows):
             raise ValueError(f"static_index: {name} slot outside the {rows} rows")
     return StaticIndex(cu_seqlens=cu.astype(np.int32), actor=actor.reshape(-1),
-                       hex=hexes.reshape(-1), glob=glob, actor_kind=kinds)
+                       hex=hexes.reshape(-1), glob=glob, actor_kind=kinds,
+                       memory=mem.reshape(-1), counts=counts, total=int(cu[B]))
+
+
+def static_sources(counts: np.ndarray, bases: Sequence[int], k_cap: int,
+                   end_row: int) -> Tuple[np.ndarray, np.ndarray]:
+    """The source row in the token table and the token kind of every
+    real packed row: a segment's blocks in order, each block's rows from
+    `bases` (the table's first hex, unit, recruit and sighting row, its
+    memory rows at sample * k_cap, its global rows, one per sample) and
+    its one shared end_turn row."""
+    B = len(counts)
+    starts = np.empty((B, len(_BLOCK_KINDS)), dtype=np.int64)
+    for j in range(4):
+        starts[:, j] = bases[j] + _exclusive_cumsum(counts[:, j])[:-1]
+    starts[:, 4] = bases[4] + np.arange(B, dtype=np.int64) * k_cap
+    starts[:, 5] = bases[5] + np.arange(B, dtype=np.int64)
+    starts[:, 6] = end_row
+    src = _segment_sources(counts, starts)
+    kind = np.repeat(np.tile(_BLOCK_KINDS, B), counts.reshape(-1))
+    return src, kind
 
 
 def _clear_masks(mv: Dict[str, np.ndarray], dirty: Tuple[int, int, int]) -> None:
@@ -179,16 +280,30 @@ def _clear_masks(mv: Dict[str, np.ndarray], dirty: Tuple[int, int, int]) -> None
 
 
 @dataclass
+class GraphedBatch:
+    """One batch served from a bucket: the compact actions per sample,
+    the head outputs by name ([B, ...] host arrays), the actor kinds
+    [B, A_max] (CPU long), the sizes, and the new memory states
+    [B, k_cap, d] (float32; sample b's first k_b rows) or None."""
+    compact: List
+    extras: Dict[str, np.ndarray]
+    actor_kind: torch.Tensor
+    sizes: List[Tuple[int, int, int]]
+    memory: Optional[np.ndarray] = None
+
+
+@dataclass
 class _State:
     """One bucket's static buffers and, once captured, its graph."""
     bucket: Bucket
-    stream_caps: Tuple[int, int, int]   # hex, unit and recruit rows the embed buffer holds
+    rows: Tuple[int, ...]               # the token table's hex, unit, recruit, sighting, memory, global rows
     embed_layout: FlatLayout            # the RawEncoded fields of the batch, capped
     embed_host: torch.Tensor            # pinned uint8
     index_layout: FlatLayout
     index_host: torch.Tensor            # pinned uint8
     mask_layout: FlatLayout
     mask_host: torch.Tensor             # pinned uint8
+    memory_host: Optional[torch.Tensor] = None   # pinned float32 [b_cap, k_cap, d]
     out_layout: Optional[FlatLayout] = None
     out_host: Optional[torch.Tensor] = None
     graph: Optional[torch.cuda.CUDAGraph] = None
@@ -198,25 +313,38 @@ class _State:
     capture_s: float = 0.0
     stats: Dict[str, int] = field(default_factory=dict)
 
+    @property
+    def bases(self) -> Tuple[int, ...]:
+        """The first row of each block of the token table, then its end_turn row."""
+        return tuple(int(x) for x in _exclusive_cumsum(np.asarray(self.rows, dtype=np.int64)))
+
 
 class GraphedServe:
-    """Serves (RawEncoded, PackedMasks) batches through per-bucket CUDA
-    graphs; see the module docstring. One instance per serve thread
+    """Serves (RawEncoded, PackedMasks) batches, with each leaf's memory
+    state for a model with a memory, through per-bucket CUDA graphs; see
+    the module docstring. One instance per serve thread
     (tools/inference_seam builds them from a factory), or one shared by
     several through its lock."""
 
     def __init__(self, model, encoder, device: torch.device, *, caps: Caps = Caps(),
-                 graphs: bool = True, extras: Sequence[str] = ("value", "value_logits", "cliffness")):
+                 graphs: bool = True, extras: Optional[Sequence[str]] = None,
+                 biases: bool = False, capture_reserve_mb: float = CAPTURE_RESERVE_MB):
         if getattr(model, "has_gbc", False):
             raise ValueError("graphed serve does not carry the GBC unit context")
-        refuse_memory_model(model, "the graphed serve path")
-        if getattr(encoder, "observation_parity", False) or getattr(model, "observation_parity", False):
-            raise ValueError("the graphed serve path embeds obs8's streams only: it has no "
-                             "sighting stream, faction posterior or belief head")
+        if getattr(model, "has_value_material", False):
+            raise ValueError("graphed serve does not carry the material value input")
+        if bool(getattr(encoder, "observation_parity", False)) != bool(getattr(model, "observation_parity", False)):
+            raise ValueError("graphed serve: the encoder and the model disagree on the parity observation")
         check_packed_trunk_supported(model.encoder)
         self.model, self.encoder, self.device, self.caps = model, encoder, device, caps
         self.graphs = bool(graphs) and device.type == "cuda"
+        if extras is None:
+            extras = ["value", "value_logits", "cliffness"]
+            extras += [n for n, on in (("aux_score", model.has_aux_score),
+                                       ("moves_left", model.has_moves_left)) if on]
         self.extras = tuple(extras)
+        self.parity = bool(getattr(encoder, "observation_parity", False))
+        self.k_cap = int(getattr(model, "memory_slots", 0) or 0)
         self.T = int(UnitActionType.COUNT)
         self.W = int(MAX_ATTACKS)
         # The layer loop as a pure function of tensors over a copy of
@@ -227,18 +355,25 @@ class GraphedServe:
         layer = model.encoder.layers[0]
         self._layers = make_packed_trunk_layers(layer.activation, layer.norm1.eps)
         self._weights: Optional[PackedTrunkWeights] = None
+        self._initial: Optional[Tuple[int, np.ndarray]] = None   # (weights version, initial memory)
         self._states: Dict[Bucket, _State] = {}
-        # One private memory pool per graph: sharing one across
-        # graphs is safe only when they replay in capture order, and
-        # buckets replay in whatever order the batches arrive.
+        self.biases = bool(biases)
+        # One memory pool for every bucket's graph (module docstring, "Memory").
+        self._pool = torch.cuda.graph_pool_handle() if self.graphs else None
+        self.capture_reserve_bytes = int(capture_reserve_mb * 2 ** 20)
         self._lock = threading.Lock()
         self.fallbacks: Dict[str, int] = {}
         self.served = 0
         self.capture_s = 0.0
+        self.capture_failures: List[str] = []
+        self.preflight_info: Optional[Dict[str, object]] = None
+        # Set when the largest bucket could not be captured: no batch is
+        # graphed then, and the caller serves them all eagerly.
+        self.disabled: Optional[str] = None
 
     # -- buckets ---------------------------------------------------------
 
-    def _pick(self, B: int, A_max: int, H_max: int, total: int,
+    def _pick(self, B: int, A_max: int, H_max: int, S_max: int, total: int,
               longest: int) -> Tuple[Optional[Bucket], str]:
         """The first bucket the batch fits, or (None, the axis it does
         not fit: the fallback counter's key)."""
@@ -251,6 +386,8 @@ class GraphedServe:
         a_cap = next((a for a in c.a_caps if a >= A_max), None)
         if a_cap is None:
             return None, "actors"
+        if S_max > a_cap:
+            return None, "sightings"
         h_cap = next((h for h in c.h_caps if h >= H_max), None)
         if h_cap is None:
             return None, "hexes"
@@ -259,22 +396,27 @@ class GraphedServe:
             return None, "tokens"
         return Bucket(b_cap, a_cap, h_cap, t_cap), ""
 
+    def _stream_caps(self, bucket: Bucket) -> Tuple[int, ...]:
+        """The embed buffer's rows per stream: hexes fill the token rows;
+        units, recruits and sightings are under a_cap per leaf."""
+        per_leaf = bucket.b_cap * bucket.a_cap
+        caps = (bucket.t_cap, per_leaf, per_leaf)
+        return caps + ((per_leaf,) if self.parity else ())
+
     def _state(self, bucket: Bucket) -> _State:
         st = self._states.get(bucket)
         if st is not None:
             return st
         dev = self.device
         pin = dev.type == "cuda"
-        # The embed buffer: every RawEncoded field of the batch at capped
-        # row counts (hexes fill the token rows; units and recruits are
-        # under a_cap per leaf), plus the per-leaf global fields.
-        caps = (bucket.t_cap, bucket.b_cap * bucket.a_cap, bucket.b_cap * bucket.a_cap)
+        caps = self._stream_caps(bucket)
         fields = [(name, dt, (cap,) + shape)
-                  for (stream, spec), cap in zip(self.encoder._STREAM_FIELDS, caps)
+                  for (stream, spec), cap in zip(self.encoder._stream_fields(), caps)
                   for name, dt, shape in spec]
-        fields += [("global_feats", torch.float32, (bucket.b_cap, GLOBAL_FEAT_DIM)),
-                   ("our_faction_id", torch.int64, (bucket.b_cap,)),
-                   ("their_faction_id", torch.int64, (bucket.b_cap,))]
+        their = (("their_faction_probs", torch.float32, (bucket.b_cap, MAX_FACTIONS)) if self.parity
+                 else ("their_faction_id", torch.int64, (bucket.b_cap,)))
+        fields += [("global_feats", torch.float32, (bucket.b_cap, self.encoder.widths.global_feats)),
+                   ("our_faction_id", torch.int64, (bucket.b_cap,)), their]
         embed_layout = FlatLayout(fields)
         index_layout = FlatLayout([
             ("cu_seqlens", torch.int32, (bucket.b_cap + 1,)),
@@ -283,17 +425,22 @@ class GraphedServe:
             ("actor", torch.int64, (bucket.b_cap * bucket.a_cap,)),
             ("hex", torch.int64, (bucket.b_cap * bucket.h_cap,)),
             ("glob", torch.int64, (bucket.b_cap,)),
+            ("memory", torch.int64, (bucket.b_cap * self.k_cap,)),
         ])
         ml = mask_layout(bucket.b_cap, bucket.a_cap, bucket.h_cap, self.T, self.W,
-                         type_bias=True, attack_bias=True)
+                         type_bias=self.biases, attack_bias=self.biases)
+        sighting_rows = caps[3] if self.parity else 0
         st = _State(
-            bucket=bucket, stream_caps=caps,
+            bucket=bucket,
+            rows=caps[:3] + (sighting_rows, bucket.b_cap * self.k_cap, bucket.b_cap),
             embed_layout=embed_layout,
             embed_host=torch.zeros(embed_layout.nbytes, dtype=torch.uint8, pin_memory=pin),
             index_layout=index_layout,
             index_host=torch.zeros(index_layout.nbytes, dtype=torch.uint8, pin_memory=pin),
             mask_layout=ml,
-            mask_host=torch.zeros(ml.nbytes, dtype=torch.uint8, pin_memory=pin))
+            mask_host=torch.zeros(ml.nbytes, dtype=torch.uint8, pin_memory=pin),
+            memory_host=(torch.zeros(bucket.b_cap, self.k_cap, int(self.model.d_model),
+                                     dtype=torch.float32, pin_memory=pin) if self.k_cap else None))
         self._states[bucket] = st
         return st
 
@@ -313,13 +460,24 @@ class GraphedServe:
             w.refresh(model.encoder, version)
         return w
 
+    def _initial_memory(self) -> np.ndarray:
+        """The learned initial memory on the host, float32 [slots, d], at
+        the model's current weights: what a game-side's first decision reads
+        (`model.initial_memory(k)` is its first k rows)."""
+        version = int(getattr(self.model, "_weights_version", 0))
+        if self._initial is None or self._initial[0] != version:
+            with torch.no_grad():
+                init = self.model.initial_memory(self.k_cap).detach().float().cpu().numpy()
+            self._initial = (version, init)
+        return self._initial[1]
+
     def _body(self, st: _State) -> None:
-        """Everything from the two host->device copies to the one
+        """Everything from the host->device copies to the one
         device->host copy, on the bucket's static buffers. Captured
         once per bucket on CUDA; run as is on CPU."""
         model, dev, c = self.model, self.device, self.caps
         bucket = st.bucket
-        B, A, H = bucket.b_cap, bucket.a_cap, bucket.h_cap
+        B, A, H, K = bucket.b_cap, bucket.a_cap, bucket.h_cap, self.k_cap
         d = int(model.d_model)
         bf16 = dev.type == "cuda"
         autocast = (torch.autocast("cuda", dtype=torch.bfloat16) if bf16
@@ -332,24 +490,32 @@ class GraphedServe:
                                 cu_host=st.index_layout.numpy_views(
                                     st.index_host.numpy())["cu_seqlens"].tolist(),
                                 max_len=c.max_len)
-            # The trained embeddings of every stream row (the eager path
+            # The trained embeddings of every table row (the eager path
             # runs them outside its autocast, so they stay fp32 here),
             # the real tokens gathered into the packed rows with their
             # kind term.
             enc = self.encoder
             with torch.autocast("cuda", enabled=False) if bf16 else contextlib.nullcontext():
                 ev = st.embed_layout.torch_views(st.embed_host.to(dev, non_blocking=True))
-                tokens = torch.cat([
+                their = ev["their_faction_probs"] if self.parity else ev["their_faction_id"]
+                parts = [
                     enc._hex_embedding(ev["hex_xs"], ev["hex_ys"], ev["hex_terrain_ids"],
                                        ev["hex_modifier_flags"], ev["hex_dynamic_flags"]),
                     enc._unit_embedding(ev["unit_type_ids"], ev["unit_side_ids"],
                                         ev["unit_xs"], ev["unit_ys"], ev["unit_feats"]),
                     enc._unit_embedding(ev["recruit_type_ids"], ev["recruit_side_ids"],
                                         ev["recruit_xs"], ev["recruit_ys"], ev["recruit_feats"]),
-                    enc._global_embedding(ev["global_feats"], ev["our_faction_id"],
-                                          ev["their_faction_id"]),
-                    enc.end_turn_token.view(1, -1),
-                ], dim=0)
+                ]
+                if self.parity:
+                    parts.append(enc._sighting_embedding(ev["sight_type_ids"], ev["sight_xs"],
+                                                         ev["sight_ys"], ev["sight_feats"]))
+                memory = None
+                if K:
+                    memory = st.memory_host.to(dev, non_blocking=True)
+                    parts.append(model.slot_memory.tokens(MemoryBatch(memory, [K] * B)).reshape(-1, d))
+                parts += [enc._global_embedding(ev["global_feats"], ev["our_faction_id"], their),
+                          enc.end_turn_token.view(1, -1)]
+                tokens = torch.cat(parts, dim=0)
                 x = tokens.index_select(0, iv["src"]) + model.token_kind_embed(iv["kind"])
             w = self._weights
             h = self._layers(x, index.cu_seqlens, index.max_len, w.layers, w.final_norm)
@@ -361,6 +527,9 @@ class GraphedServe:
             if bf16:
                 padded = padded.float32()
             extras = [getattr(padded, n) for n in self.extras]
+            if K:
+                h_memory = h.index_select(0, iv["memory"]).view(B, K, d)
+                extras.append(model.slot_memory.write(h_memory, MemoryBatch(memory, [K] * B)))
             out_layout, flat_out = priors_outputs(padded, mv, c.capacity, extras)
             if st.out_host is None:
                 st.out_layout = out_layout
@@ -386,81 +555,134 @@ class GraphedServe:
             # the default "global" mode makes those calls fail and the
             # capture with them ("operation failed due to a previous
             # error during capture", the 2026-09-14 pool arm).
-            with torch.cuda.graph(g, capture_error_mode="thread_local"):
+            with torch.cuda.graph(g, pool=self._pool, capture_error_mode="thread_local"):
                 self._body(st)
             torch.cuda.synchronize(self.device)
         st.graph = g
         st.capture_s = time.perf_counter() - t0
         self.capture_s += st.capture_s
 
-    def _run(self, st: _State) -> None:
+    def _available_bytes(self) -> int:
+        """Device memory a capture could take: the driver's free memory and
+        the blocks the caching allocator holds unused (the shared pool's
+        among them)."""
+        free, _total = torch.cuda.mem_get_info(self.device)
+        return int(free + torch.cuda.memory_reserved(self.device)
+                   - torch.cuda.memory_allocated(self.device))
+
+    def _probe_device(self) -> None:
+        """Raise when the device can no longer run work (a sticky fault)."""
+        torch.cuda.synchronize(self.device)
+        (torch.ones(1, device=self.device) + 1).item()
+
+    def _run(self, st: _State) -> Optional[str]:
+        """Run the bucket's body: its graph's replay (captured on first
+        use), or on CPU the body itself; None when it ran. Otherwise why
+        the bucket has no graph, and the caller serves the batch eagerly:
+        "memory" (less than the reserve is available; a later batch tries
+        again), "capture_failed" (now or before; the device was probed)."""
         if not self.graphs:
             self._body(st)
-            return
+            return None
         with _GRAPH_LOCK:
             if st.graph is None:
+                if self._available_bytes() < self.capture_reserve_bytes:
+                    return "memory"
                 try:
                     self._capture(st)
-                except Exception as e:                   # noqa: BLE001 -- eager serves this bucket
-                    log.warning("graphed serve: capture failed for %s (%s: %s); this bucket "
-                                "runs its static body eagerly", st.bucket, type(e).__name__, e)
+                except Exception as e:                   # noqa: BLE001 -- the eager path serves this bucket
                     st.graph = False                     # type: ignore[assignment]
-            if st.graph:
-                st.graph.replay()
-                st.replays += 1
-                return
-        self._body(st)
+                    self.capture_failures.append(f"{st.bucket}: {type(e).__name__}: {e}"[:400])
+                    log.warning("graphed serve: capture failed for %s (%s: %s); the eager path "
+                                "serves this bucket", st.bucket, type(e).__name__, e)
+                    self._probe_device()
+            if not st.graph:
+                return "capture_failed"
+            st.graph.replay()
+            st.replays += 1
+            return None
 
     # -- one batch ---------------------------------------------------------
 
     def _fallback(self, why: str) -> None:
         self.fallbacks[why] = self.fallbacks.get(why, 0) + 1
 
-    def infer(self, raws, packs: Sequence[PackedMasks]):
-        """(compact actions per sample, the extras as host arrays [b_cap, ...],
-        the actor kinds [B, A_max] (CPU long), the sizes) -- or None when
-        the batch does not fit a bucket, so the caller serves it eagerly."""
-        dev, c = self.device, self.caps
-        Hs = [r.hex_xs.shape[0] for r in raws]
-        Us = [r.unit_xs.shape[0] for r in raws]
-        Rs = [r.recruit_type_ids.shape[0] for r in raws]
-        sizes = list(zip(Us, Rs, Hs))
+    def _stage_embed(self, st: _State, raws, counts: np.ndarray) -> None:
+        """The batch's RawEncoded fields into the embed buffer's rows."""
+        ev = st.embed_layout.numpy_views(st.embed_host.numpy())
+        B = len(raws)
+        totals = (counts[:, 0].sum(), counts[:, 1].sum(), counts[:, 2].sum(), counts[:, 3].sum())
+        for (stream, spec), n_rows in zip(self.encoder._stream_fields(), totals):
+            if n_rows:
+                for name, _, _ in spec:
+                    np.concatenate([getattr(r, name) for r in raws], out=ev[name][:int(n_rows)])
+        np.stack([r.global_feats for r in raws], out=ev["global_feats"][:B])
+        ev["our_faction_id"][:B] = [r.our_faction_id for r in raws]
+        if self.parity:
+            np.stack([r.their_faction_probs for r in raws], out=ev["their_faction_probs"][:B])
+        else:
+            ev["their_faction_id"][:B] = [r.their_faction_id for r in raws]
+
+    def _stage_memory(self, st: _State, memories) -> List[int]:
+        """Each leaf's memory state into the memory buffer's first k rows
+        of its segment (the learned initial memory at a game-side's first
+        decision); the slot counts."""
+        buf = st.memory_host.numpy()
+        counts = []
+        initial = None
+        for b, m in enumerate(memories):
+            k = int(m.k)
+            if m.state is None:
+                if initial is None:
+                    initial = self._initial_memory()
+                buf[b, :k] = initial[:k]
+            else:
+                state = m.state.detach().cpu().numpy() if torch.is_tensor(m.state) else m.state
+                if state.shape != (k, buf.shape[2]):
+                    raise ValueError(f"a memory state of shape {state.shape} for {k} slots")
+                buf[b, :k] = state
+            counts.append(k)
+        return counts
+
+    def infer(self, raws, packs: Sequence[PackedMasks],
+              memories: Optional[Sequence] = None) -> Optional[GraphedBatch]:
+        """The batch served from its bucket, or None when it does not
+        fit one, so the caller serves it eagerly. `memories`: one
+        `MemoryState` per leaf for a model with a memory."""
+        if bool(self.k_cap) != (memories is not None):
+            raise ValueError(f"graphed serve: a model of {self.k_cap} memory slots "
+                             f"{'needs' if self.k_cap else 'takes no'} memory states")
+        c = self.caps
+        if self.disabled is not None:
+            self._fallback("disabled")
+            return None
+        if not self.biases and any(p.type_bias is not None or p.attack_bias is not None for p in packs):
+            self._fallback("biases")
+            return None
+        sizes = [(r.unit_xs.shape[0], r.recruit_type_ids.shape[0], r.hex_xs.shape[0]) for r in raws]
+        sightings = [r.sight_xs.shape[0] for r in raws] if self.parity else None
+        slots = [int(m.k) for m in memories] if memories is not None else None
         B = len(sizes)
-        U_max, R_max, H_max = (max(s[i] for s in sizes) for i in (0, 1, 2))
-        A_max = U_max + R_max + 1
-        lengths = [u + r + h + 2 for u, r, h in sizes]
-        total = sum(lengths)
-        bucket, why = self._pick(B, A_max, H_max, total, max(lengths))
+        counts = _block_counts(sizes, sightings, slots)
+        lengths = counts.sum(axis=1)
+        total = int(lengths.sum())
+        A_max = int((counts[:, 1] + counts[:, 2]).max()) + 1
+        H_max = int(counts[:, 0].max())
+        S_max = int(counts[:, 3].max())
+        bucket, why = self._pick(B, A_max, H_max, S_max, total, int(lengths.max()))
         if bucket is None:
             self._fallback(why)
             return None
-        layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
-                                     source="streams")
-        sidx = static_index(sizes, bucket.b_cap, bucket.a_cap, bucket.h_cap, bucket.t_cap)
+        sidx = static_index(sizes, bucket.b_cap, bucket.a_cap, bucket.h_cap, bucket.t_cap,
+                            sightings=sightings, memory=slots, k_cap=self.k_cap)
         with self._lock:
             st = self._state(bucket)
-            # The batch's RawEncoded fields into the embed buffer's rows.
-            ev = st.embed_layout.numpy_views(st.embed_host.numpy())
-            for (stream, spec), n_rows in zip(self.encoder._STREAM_FIELDS,
-                                              (sum(Hs), sum(Us), sum(Rs))):
-                if n_rows:
-                    for name, _, _ in spec:
-                        np.concatenate([getattr(r, name) for r in raws], out=ev[name][:n_rows])
-            np.stack([r.global_feats for r in raws], out=ev["global_feats"][:B])
-            ev["our_faction_id"][:B] = [r.our_faction_id for r in raws]
-            ev["their_faction_id"][:B] = [r.their_faction_id for r in raws]
-            # The packed rows' sources, moved from the batch's stream
-            # offsets to the buffer's capped ones; the pad rows and
-            # every end_turn token read the shared end_turn row.
-            hex_cap, unit_cap, rec_cap = st.stream_caps
-            th, tu, tr = sum(Hs), sum(Us), sum(Rs)
-            kind = layout.kind
-            src = layout.src.copy()
-            src[kind == TokenKind.UNIT] += hex_cap - th
-            src[kind == TokenKind.RECRUIT] += (hex_cap + unit_cap) - (th + tu)
-            src[kind == TokenKind.GLOBAL] += (hex_cap + unit_cap + rec_cap) - (th + tu + tr)
-            end_row = hex_cap + unit_cap + rec_cap + bucket.b_cap
-            src[kind == TokenKind.END_TURN] = end_row
+            self._stage_embed(st, raws, counts)
+            if self.k_cap:
+                self._stage_memory(st, memories)
+            bases = st.bases
+            end_row = bases[-1]
+            src, kind = static_sources(counts, bases[:6], self.k_cap, end_row)
             iv = st.index_layout.numpy_views(st.index_host.numpy())
             iv["src"][:total] = src
             iv["src"][total:] = end_row
@@ -470,6 +692,7 @@ class GraphedServe:
             iv["actor"][:] = sidx.actor
             iv["hex"][:] = sidx.hex
             iv["glob"][:] = sidx.glob
+            iv["memory"][:] = sidx.memory
             mv = st.mask_layout.numpy_views(st.mask_host.numpy())
             _clear_masks(mv, st.dirty)
             st.dirty = (B, A_max, H_max)
@@ -479,9 +702,13 @@ class GraphedServe:
                 return None
             st.actor_kind = torch.from_numpy(sidx.actor_kind)
             self._current_weights()
-            self._run(st)
+            why = self._run(st)
+            if why is not None:
+                self._fallback(why)
+                return None
+            n_extras = len(self.extras) + (1 if self.k_cap else 0)
             pending = PendingPriors(host=st.out_host, layout=st.out_layout, n_samples=B,
-                                    capacity=c.capacity, n_extras=len(self.extras), device=dev)
+                                    capacity=c.capacity, n_extras=n_extras, device=self.device)
             compact, host = pending.finish()
             # Copies: the static output buffer is rewritten by the next batch.
             host = [np.array(a[:B], copy=True) for a in host]
@@ -489,13 +716,104 @@ class GraphedServe:
                                   for k in ("actor", "kind", "target", "weapon", "prior")})
                        for x in compact]
         self.served += 1
-        return compact, host, st.actor_kind[:B, :A_max], [tuple(s) for s in sizes]
+        extras = dict(zip(self.extras, host))
+        return GraphedBatch(compact=compact, extras=extras,
+                            actor_kind=st.actor_kind[:B, :A_max], sizes=[tuple(s) for s in sizes],
+                            memory=host[-1] if self.k_cap else None)
+
+    # -- the largest bucket, first -------------------------------------------
+
+    def _synthetic_leaves(self, sizes: Sequence[Tuple[int, int, int]], sightings: Sequence[int]):
+        """Leaves of the given (units, recruits, hexes) and sighting counts,
+        every array zero: what a capture's memory depends on is the shapes."""
+        from wesnoth_ai.encoder import RawEncoded
+        from wesnoth_ai.memory import MemoryState
+        fields = dict(self.encoder._stream_fields())
+        raws, packs, memories = [], [], []
+        for (U, R, H), S in zip(sizes, sightings):
+            n = {"hex": H, "unit": U, "recruit": R, "sighting": S}
+            arrays = {name: np.zeros((n[stream],) + tuple(shape), dtype=torch.empty(0, dtype=dt).numpy().dtype)
+                      for stream, spec in fields.items() for name, dt, shape in spec}
+            raw = RawEncoded(
+                hex_positions=None, unit_positions=None, unit_ids=None, recruit_types=None,
+                unit_is_ours=np.zeros(U, np.float32), recruit_is_ours=np.zeros(R, np.float32),
+                global_feats=np.zeros(self.encoder.widths.global_feats, np.float32),
+                our_faction_id=0, their_faction_id=0,
+                **{k: v for k, v in arrays.items() if not k.startswith("sight_")})
+            if self.parity:
+                raw.their_faction_probs = np.zeros(MAX_FACTIONS, np.float32)
+                for k, v in arrays.items():
+                    if k.startswith("sight_"):
+                        setattr(raw, k, v)
+            A, HB = U + R + 1, (H + 7) // 8
+            actor_mask = np.zeros(A, np.uint8)
+            actor_mask[-1] = 1
+            packs.append(PackedMasks(
+                actor_mask=actor_mask, type_valid=np.zeros((A, self.T), np.uint8),
+                attack_valid=np.zeros((A, HB), np.uint8), move_valid=np.zeros((A, HB), np.uint8),
+                union_valid=np.zeros((A, HB), np.uint8), n_attacks=np.zeros(A, np.int8),
+                end_turn_bias=0.0, n_units=U, n_recruits=R, n_hexes=H))
+            raws.append(raw)
+            memories.append(MemoryState(self.k_cap, None))
+        return raws, packs, (memories if self.k_cap else None)
+
+    def preflight(self) -> Dict[str, object]:
+        """Capture the largest bucket of the caps (the most segments, actor
+        and hex slots and token rows) from synthetic leaves, before any
+        batch is served, so the shared pool reaches its size at start. When
+        it cannot be captured the instance is disabled (every batch goes to
+        the caller's eager path) and the reason is kept; the device is
+        probed either way."""
+        c = self.caps
+        B, A, H, T = max(c.segment_caps), max(c.a_caps), max(c.h_caps), max(c.t_caps)
+        K, S = self.k_cap, (A if self.parity else 0)
+        # Leaf 0 holds the most units (sightings as many) and as many hexes
+        # as its segment's length allows (past the second hex cap, so the
+        # batch takes the largest); the others share the remaining rows, at
+        # least one hex each, so it lands on the largest token bucket.
+        h0 = min(H, c.max_len - (A - 1) - S - K - 2)
+        first = h0 + (A - 1) + S + K + 2
+        per_other = max(0, (T - first) // max(1, B - 1) - (K + 2 + 1))
+        other_h = int(min(h0, max(1, per_other)))
+        sizes = [(A - 1, 0, h0)] + [(1, 0, other_h)] * (B - 1)
+        sightings = [S] + [0] * (B - 1)
+        info: Dict[str, object] = {"bucket": f"{B}x{A}x{H}x{T}", "tokens": int(
+            sum(u + r + h + K + 2 for u, r, h in sizes) + sum(sightings))}
+        t0 = time.perf_counter()
+        before = torch.cuda.memory_reserved(self.device) if self.graphs else 0
+        raws, packs, memories = self._synthetic_leaves(sizes, sightings)
+        try:
+            served = self.infer(raws, packs, memories)
+        except Exception as e:                           # noqa: BLE001 -- recorded, the caller serves eagerly
+            served = None
+            self.capture_failures.append(f"preflight: {type(e).__name__}: {e}"[:400])
+            if self.graphs:
+                self._probe_device()
+        if served is None or (self.graphs and not any(st.graph for st in self._states.values())):
+            self.disabled = (f"the largest bucket {info['bucket']} could not be captured: "
+                             f"{self.capture_failures[-1] if self.capture_failures else dict(self.fallbacks)}")
+            log.warning("graphed serve: %s; every batch is served eagerly", self.disabled)
+        info.update(ok=self.disabled is None, seconds=round(time.perf_counter() - t0, 2))
+        if self.graphs:
+            info["pool_mb"] = round((torch.cuda.memory_reserved(self.device) - before) / 2 ** 20)
+            info["available_mb"] = round(self._available_bytes() / 2 ** 20)
+        # The synthetic batch is not a served one.
+        self.served = max(0, self.served - (served is not None))
+        self.preflight_info = info
+        return info
 
     def summary(self) -> Dict[str, object]:
-        return {"graphs": self.graphs, "served": self.served, "fallbacks": dict(self.fallbacks),
-                "capture_s": round(self.capture_s, 2),
-                "buckets": {f"{b.b_cap}x{b.a_cap}x{b.h_cap}x{b.t_cap}": st.replays
-                            for b, st in self._states.items()}}
+        out: Dict[str, object] = {"graphs": self.graphs, "served": self.served,
+                                  "fallbacks": dict(self.fallbacks), "disabled": self.disabled,
+                                  "preflight": self.preflight_info,
+                                  "capture_failures": list(self.capture_failures)}
+        if self.graphs:
+            out["max_memory_reserved_mb"] = round(torch.cuda.max_memory_reserved(self.device) / 2 ** 20)
+        out["capture_s"] = round(self.capture_s, 2)
+        out["buckets"] = {f"{b.b_cap}x{b.a_cap}x{b.h_cap}x{b.t_cap}": st.replays
+                          for b, st in self._states.items()}
+        return out
 
 
-__all__ = ["Caps", "Bucket", "StaticIndex", "static_index", "GraphedServe", "pool_caps"]
+__all__ = ["Caps", "Bucket", "StaticIndex", "GraphedBatch", "static_index", "static_sources",
+           "GraphedServe", "pool_caps", "eval_caps"]

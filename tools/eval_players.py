@@ -21,6 +21,7 @@ from typing import Dict, Optional
 
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.game_core import snapshot_view
+from wesnoth_ai.stage_timing import current as current_timer, stage
 from tools.selfplay_game import _update_closest_approach, _would_recruit_bounce
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.game_record import note_search_outcomes
@@ -28,6 +29,24 @@ from tools.wesnoth_sim import WesnothSim
 
 
 log = logging.getLogger("eval_players")
+
+
+def _decision_state(sim: WesnothSim, policy) -> GameState:
+    """The state `policy` decides on: the simulator's own view for a
+    player that only reads it while deciding (`reads_state_only`), else a
+    snapshot (a view of a fork of the core, `game_core.snapshot_view`),
+    which a player that keeps the state needs. Both are views of the same
+    content, encoded through the core."""
+    with stage("snapshot"):
+        if getattr(policy, "reads_state_only", False):
+            return sim.gs
+        return snapshot_view(sim.gs)
+
+
+def _timed_bounce(action: Dict, gs: GameState) -> bool:
+    """`_would_recruit_bounce`, its time recorded as the "bounce" stage."""
+    with stage("bounce"):
+        return _would_recruit_bounce(action, gs)
 
 
 # ---------------------------------------------------------------------
@@ -105,6 +124,7 @@ def _play_one_eval_game(
     our_actions = 0
     unplayed_side_turns = 0
     t0 = time.perf_counter()
+    timer = current_timer()
 
     while not sim.done:
         acting_side = sim.gs.global_info.current_side
@@ -120,19 +140,20 @@ def _play_one_eval_game(
             unplayed_side_turns += 1
             sim.step({"type": "end_turn"})
             continue
-        # Stable snapshot for select_action (see play_one_game in
-        # tools/selfplay_game.py for why this copy is load-bearing): a
-        # view of a fork of the simulator's core, which the encoder
-        # encodes through the core (game_core.snapshot_view).
-        pre_state = snapshot_view(sim.gs)
+        # A stable snapshot for a player that keeps the state (see
+        # play_one_game in tools/selfplay_game.py for why that copy is
+        # load-bearing), the simulator's view for one that only reads it.
+        if timer is not None:
+            timer.begin_decision()
+        pre_state = _decision_state(sim, actor.policy)
         from tools.mcts import fork_guard
-        with fork_guard(sim):
+        with fork_guard(sim), stage("decide"):
             action = actor.select_action(pre_state, game_label, sim)
 
         # A recruit the engine refuses (its hex occupied and no castle
         # hex vacant) is re-decided. Same pattern as play_one_game in
         # tools/selfplay_game.py.
-        while _would_recruit_bounce(action, sim.gs):
+        while _timed_bounce(action, sim.gs):
             tgt = action["target_hex"]
             sim.reject_recruit_hex(tgt.x, tgt.y)
             # Discard the bounced decision AND any cached plan
@@ -142,8 +163,9 @@ def _play_one_eval_game(
             # silently forfeited the recruit; play_one_game in
             # tools/selfplay_game.py has always done this).
             actor.drop_last_pending(game_label)
-            pre_state = snapshot_view(sim.gs)
-            action = actor.select_action(pre_state, game_label, sim)
+            pre_state = _decision_state(sim, actor.policy)
+            with stage("decide"):
+                action = actor.select_action(pre_state, game_label, sim)
 
         atype = action.get("type", "end_turn")
         if acting_side == our_side and atype == "attack":
@@ -152,7 +174,8 @@ def _play_one_eval_game(
             our_actions += 1
 
         commands_before = len(sim.command_history)
-        sim.step(action)
+        with stage("step"):
+            sim.step(action)
         if (sim.last_step_refusal == "mask_disagreement"
                 and getattr(actor.policy, "consults_legality_mask", True)):
             # The simulator refused an action the legality mask offered. A
@@ -162,8 +185,11 @@ def _play_one_eval_game(
             # players pick without the mask and are refused by design.
             raise RuntimeError(f"{game_label}: the simulator refused {action!r}, which the "
                                f"legality mask offered (a mask/simulator disagreement)")
-        note_search_outcomes(sim, actor.policy, game_label, commands_before)
-        _update_closest_approach(sim.gs, closest_approach)
+        with stage("bookkeeping"):
+            note_search_outcomes(sim, actor.policy, game_label, commands_before)
+            _update_closest_approach(sim.gs, closest_approach)
+        if timer is not None:
+            timer.end_decision()
 
     wall = time.perf_counter() - t0
 

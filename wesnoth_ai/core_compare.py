@@ -183,6 +183,11 @@ def encoding_differences(a, b) -> List[str]:
                 out.append("observation")
             elif x is not None:
                 out += observation_differences(x, y)
+        elif f.name == "core_masks":
+            if (x is None) != (y is None) or (x is not None and (
+                    x.keys() != y.keys() or any(x[k].dtype != y[k].dtype or x[k].shape != y[k].shape
+                                                or x[k].tobytes() != y[k].tobytes() for k in x))):
+                out.append("core_masks")
         elif isinstance(x, np.ndarray):
             if not (isinstance(y, np.ndarray) and x.dtype == y.dtype and x.shape == y.shape
                     and x.tobytes() == y.tobytes()):

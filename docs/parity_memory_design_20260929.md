@@ -279,7 +279,7 @@ hidden enemy units whose hex has no token.
   was before the refused decision: the engine records nothing for a
   refused recruit (`menu_handler::do_recruit`, src/menu_events.cpp:350-370,
   1.18.4), so the corpus holds no position there.
-- Search, the self-play pool, the graphed server and the live bridge refuse
+- Search, the self-play pool and the live bridge refuse
   a memory checkpoint until they carry the state (a fork copies both
   sides' memories with the simulator); this retrain's verdict needs only
   raw players.

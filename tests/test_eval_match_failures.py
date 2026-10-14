@@ -6,7 +6,7 @@ admitted once a shared inference server has died.
 The games are played by a stub script in place of elo_eval_game (the
 driver's GAME_SCRIPT), so the driver's own loop runs for real in a
 second or two: one process per game, or persistent workers speaking
-the same `__DONE__ <rc>` protocol."""
+the same protocol (`{"job", "argv"}` in, `__DONE__ <job> <rc>` out)."""
 from __future__ import annotations
 
 import json
@@ -42,7 +42,8 @@ def play(argv):
 if "--worker" in sys.argv[1:]:
     for line in sys.stdin:
         if line.strip():
-            print(f"__DONE__ {play(json.loads(line))}", flush=True)
+            msg = json.loads(line)
+            print(f"__DONE__ {msg['job']} {play(msg['argv'])}", flush=True)
 else:
     sys.exit(play(sys.argv))
 '''

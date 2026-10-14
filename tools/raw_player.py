@@ -27,6 +27,7 @@ import torch
 
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
 from wesnoth_ai.memory import MemoryState
+from wesnoth_ai.stage_timing import stage
 
 
 END_TURN_RULES = ("joint", "actor")
@@ -106,6 +107,10 @@ class RawPolicyPlayer:
     training targets."""
 
     trainable = False
+    # It reads the state only while it decides and keeps nothing of it,
+    # so a game loop hands it the simulator's own view instead of a
+    # snapshot (`eval_players._decision_state`).
+    reads_state_only = True
 
     def __init__(self, base, temperature: float,
                  seed: Optional[int] = None, forbid_end_turn: bool = False,
@@ -191,7 +196,8 @@ class RawPolicyPlayer:
             output = self._forward(base, encoded, game_label, game_state)
             compact = getattr(output, "legal_compact", None)
             if compact is not None and self.compact_selection:
-                chosen = self._select_compact(compact, encoded, decision_step)
+                with stage("select"):
+                    chosen = self._select_compact(compact, encoded, decision_step)
                 if chosen is not None:
                     return chosen
             legal = enumerate_legal_actions_with_priors(

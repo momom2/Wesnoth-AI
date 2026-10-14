@@ -36,7 +36,7 @@ import torch
 import torch.nn.functional as F
 
 from wesnoth_ai.action_sampler import (
-    _NEG_INF, LegalActionPrior, _build_legality_masks, prior_bias_end_turn,
+    _NEG_INF, LegalActionPrior, _build_legality_masks, combat_alphas_at, prior_bias_end_turn,
 )
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout as _Layout
@@ -84,12 +84,24 @@ class CompactActions:
 
 
 def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
-    """Actor side: build the legality masks for `game_state` and pack
-    them. `encoded` may be a light EncodedState (no dense tokens)."""
-    masks = _build_legality_masks(encoded, game_state, decision_step=decision_step)
+    """Actor side: the legality masks for `game_state`, packed.
+    `encoded` may be a light EncodedState (no dense tokens). When its
+    RawEncoded (`encoded._raw`) carries the masks the core built beside
+    the encoding and the combat oracle's priors are off, those are the
+    masks (rust/wesnoth_core/src/core_masks.rs, the same arrays,
+    tests/test_core_masks.py); otherwise the Python builder's."""
     U = encoded.unit_tokens.size(1)
     R = encoded.recruit_tokens.size(1)
     H = encoded.hex_tokens.size(1)
+    core = getattr(getattr(encoded, "_raw", None), "core_masks", None)
+    if core is not None and not any(combat_alphas_at(decision_step)):
+        return PackedMasks(
+            actor_mask=core["mask_actor"], type_valid=core["mask_type_valid"],
+            attack_valid=core["mask_attack_bits"], move_valid=core["mask_move_bits"],
+            union_valid=core["mask_union_bits"], n_attacks=core["mask_n_attacks"],
+            end_turn_bias=float(prior_bias_end_turn(game_state)),
+            n_units=U, n_recruits=R, n_hexes=H)
+    masks = _build_legality_masks(encoded, game_state, decision_step=decision_step)
     ownership = np.concatenate([
         encoded.unit_is_ours.detach().cpu().numpy().reshape(-1),
         encoded.recruit_is_ours.detach().cpu().numpy().reshape(-1),

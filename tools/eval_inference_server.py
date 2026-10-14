@@ -79,6 +79,7 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.paths import TOOLS_DIR  # noqa: E402
+from wesnoth_ai.stage_timing import stage  # noqa: E402
 
 log = logging.getLogger("eval_inference_server")
 
@@ -393,9 +394,12 @@ class EvalInferenceClient:
         from wesnoth_ai.leaf_wire import pack_request
         rid = self._rid
         self._rid += 1
+        with stage("pack"):
+            request = ("infer", rid, pack_request(items))
         try:
-            self._conn.send(("infer", rid, pack_request(items)))
-            reply = self._conn.recv()
+            with stage("round_trip"):
+                self._conn.send(request)
+                reply = self._conn.recv()
         except (OSError, EOFError) as e:
             self.broken = True
             raise RuntimeError(f"lost the inference server at {self.address}: "
@@ -405,7 +409,8 @@ class EvalInferenceClient:
                                f"waiting for {rid}")
         if reply[1] is None:
             raise RuntimeError(f"inference server failed on this batch:\n{reply[2]}")
-        return [output_from_wire(w) for w in reply[1]]
+        with stage("unwire"):
+            return [output_from_wire(w) for w in reply[1]]
 
     def close(self) -> None:
         try:
@@ -678,22 +683,19 @@ def main(argv: List[str]) -> int:
     if args.graphed:
         if not packed:
             log.warning("--graphed needs the packed trunk (cuda + bf16); serving eager")
-        elif model.extended_streams:
-            # wesnoth_ai/graphed_serve.py embeds obs8's streams only.
-            log.warning("--graphed has no sighting or memory stream; a model with the parity "
-                        "observation or a memory serves eager")
         else:
-            from wesnoth_ai.graphed_serve import Caps, GraphedServe
-            # Eval batches run 5-8 leaves at max_batch 20 (docs/box_specs.md
-            # "The eval path does not want more workers or more servers"),
-            # so the segment axis is bucketed rather than padded to the
-            # maximum every time -- coarsely: a 40-game match is short,
-            # and every bucket costs one capture (a 28-worker arm spent
-            # its infer time capturing 72 of them, docs/box_specs.md).
-            b_caps = tuple(b for b in (8, 16) if b < args.max_batch) + (args.max_batch,)
-            graphed = GraphedServe(model, encoder, device,
-                                   caps=Caps(b_cap=args.max_batch, b_caps=b_caps,
-                                             t_caps=(1024, 2048, 4096, 8192, 12288)))
+            from wesnoth_ai.graphed_serve import GraphedServe, eval_caps
+            # Eval batches run below max_batch, so the segment axis is
+            # bucketed rather than padded to the maximum every time --
+            # coarsely, since every bucket costs one capture (a 28-worker
+            # arm spent its infer time capturing 72 of them,
+            # docs/box_specs.md).
+            graphed = GraphedServe(model, encoder, device, caps=eval_caps(args.max_batch))
+            # The largest bucket first, before any game: the graphs' shared
+            # pool reaches its size now, or the server serves eager from the
+            # start (wesnoth_ai/graphed_serve.py, "Memory").
+            with torch.no_grad():
+                log.info("graphed serve preflight: %s", graphed.preflight())
     server = InferenceServer(model, encoder, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
                              packed_embed=packed_embed, graphed=graphed)
@@ -701,7 +703,7 @@ def main(argv: List[str]) -> int:
         "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
         "device": device.type, "infer_bf16": bf16,
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
-        "graphed": graphed is not None,
+        "graphed": graphed is not None and graphed.disabled is None,
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),

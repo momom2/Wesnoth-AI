@@ -454,6 +454,19 @@ def _refuse_a_changed_reference(args, sha_of: dict) -> None:
             raise SystemExit(f"--label {label} names the reference player, but {spec} has SHA-256 "
                              f"{sha_of.get(spec)}, not the adopted {want}")
 
+def _summarize_worker_stages(outdir: Path) -> None:
+    """The workers' decision stages over the outdir's games, per decision,
+    into `.worker_stages.json` and the log (tools/worker_stages.py)."""
+    from tools.worker_stages import format_summary, summarize
+    try:
+        s = summarize(outdir)
+        if s["decisions"]:
+            (outdir / ".worker_stages.json").write_text(json.dumps(s, indent=1), encoding="utf-8")
+            log.info("worker stages: %s", format_summary(s))
+    except (OSError, ValueError) as e:
+        log.warning("worker stages not summarized: %s", e)
+
+
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
@@ -613,6 +626,14 @@ def main(argv: List[str]) -> int:
                          "(tools/eval_workers.py) instead of one "
                          "process per game. Same result files, same "
                          "timeouts; a timed-out worker is replaced.")
+    ap.add_argument("--worker-games", type=int, default=1,
+                    help="With --persistent-workers --shared-inference: games each "
+                         "worker process plays at once, one thread each "
+                         "(tools/eval_workers.py). --jobs stays the number of games "
+                         "in flight; the workers number ceil(jobs / worker-games). "
+                         "Each game plays as it would alone (its own players, "
+                         "simulator and inference connection); more games in flight "
+                         "fill the server's batches.")
     ap.add_argument("--shared-inference", action="store_true",
                     help="With --persistent-workers: one inference server "
                          "process per distinct checkpoint owns the model "
@@ -682,6 +703,12 @@ def main(argv: List[str]) -> int:
                  "the workers' per-side policy cache are keyed by label)")
     if args.shared_inference:
         _check_shared_inference_args(ap, args, sims_a, sims_b)
+    if args.worker_games < 1:
+        ap.error("--worker-games must be at least 1")
+    if args.worker_games > 1 and not (args.persistent_workers and args.shared_inference):
+        # A per-process player's policy is cached per worker and would be
+        # shared by the games of one process.
+        ap.error("--worker-games above 1 needs --persistent-workers --shared-inference")
     if args.device == "cpu" and (args.infer_bf16 or args.infer_compile):
         # Refuse up front: every child would refuse per game.
         ap.error("--infer-bf16/--infer-compile require a cuda device")
@@ -989,11 +1016,14 @@ def main(argv: List[str]) -> int:
     worker_pool = None
     if args.persistent_workers:
         from tools.eval_workers import WorkerPool
+        per_worker = max(1, int(args.worker_games))
+        n_workers = -(-jobs // per_worker)
         worker_pool = WorkerPool(
             [sys.executable, "-u", str(GAME_SCRIPT),
-             "--worker"], jobs, args.outdir)
+             "--worker"], n_workers, args.outdir, slots=per_worker)
         log.info("persistent workers: up to %d elo_eval_game --worker "
-                 "processes, policies cached across games", jobs)
+                 "processes of %d game(s) each, policies cached across games",
+                 n_workers, per_worker)
 
     # Shared inference: one server per distinct checkpoint (both sides
     # of a same-spec match share one). The server reports its
@@ -1355,6 +1385,14 @@ def main(argv: List[str]) -> int:
                             extra, max_extra)
                     continue
                 running.remove(entry)
+                if getattr(proc, "collateral", False):
+                    # Its worker was killed for another game's timeout: this
+                    # game did not fail, it plays again from its slot.
+                    _close_err(errf)
+                    pending.insert(0, (i, side_a, seed, out, gen))
+                    log.warning("game %d (side %d, seed %d) was stopped with its worker "
+                                "(another game's timeout); it plays again", i, side_a, seed)
+                    continue
                 if proc.returncode == 0 and out.exists():
                     _close_err(errf)   # failure branch tails it instead
                     played += 1
@@ -1406,6 +1444,7 @@ def main(argv: List[str]) -> int:
             worker_pool.shutdown()
         if servers:
             _log_server_stats(_shutdown_servers(servers))
+    _summarize_worker_stages(args.outdir)
     total = len(list(args.outdir.glob("game_*.json")))
     # Report as a fraction, never a percentage or an extrapolation.
     log.info("chunk end: %d/%d RESULTS (%d no-result absences, "

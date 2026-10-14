@@ -552,6 +552,11 @@ class RawEncoded:
     sight_ys:            Optional[np.ndarray] = None   # int64 [S]
     sight_feats:         Optional[np.ndarray] = None   # float32 [S, SIGHT_FEAT_DIM]
 
+    # The decision's packed legality masks the core built beside the
+    # encoding (`encode_raw(masks=True)`, game_core.CORE_MASK_KEYS); None
+    # otherwise. `server_priors.pack_masks` reads them.
+    core_masks:          Optional[Dict[str, np.ndarray]] = None
+
 
 @dataclass
 class StagedBatch:
@@ -1547,6 +1552,7 @@ def encode_raw(
     terrain_multi_hot: bool = False,
     observation_parity: bool = False,
     relevant_set_version: int = 1,
+    masks: bool = False,
 ) -> RawEncoded:
     """Build a `RawEncoded` from a GameState using read-only vocab, by
     the Rust core that answers for the state (`game_core.core_for`: a
@@ -1586,7 +1592,8 @@ def encode_raw(
     return core_for(game_state).encode_raw(
         type_to_id=type_to_id, faction_to_id=faction_to_id, relevant_set=relevant_set,
         fog_hides_enemy_villages=fog_hides_enemy_villages, terrain_multi_hot=terrain_multi_hot,
-        observation_parity=observation_parity, relevant_set_version=relevant_set_version)
+        observation_parity=observation_parity, relevant_set_version=relevant_set_version,
+        masks=masks)
 
 
 # ---------------------------------------------------------------------

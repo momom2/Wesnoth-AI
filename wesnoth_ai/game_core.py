@@ -76,8 +76,14 @@ _RECORD_SIDES = (1, 2)
 # attack or a recruit with the numbers the engine drew for it (the live
 # mirror, tools/live_mirror.py), 31 marks every unit of the side resting at
 # each side-turn start, the first included (`skip_first_turn_resting` keeps
-# the earlier rule for records of format 3 and earlier).
-_CORE_PHASE = 31
+# the earlier rule for records of format 3 and earlier), 32 builds the
+# decision's packed legality masks beside the encoding (`encode_raw(masks=True)`)
+# and the view's units (`units_view`).
+_CORE_PHASE = 32
+# The arrays `encode_raw(masks=True)` takes from the core into
+# `RawEncoded.core_masks`.
+CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",
+                  "mask_union_bits", "mask_n_attacks")
 
 # Scenario WML in the core's tuple form, per scenario id (the WML a
 # process reads for a scenario never changes).
@@ -372,6 +378,21 @@ def unit_fields(u: Unit) -> dict:
     }
 
 
+_VIEW_TYPES: Optional[tuple] = None
+
+
+def _view_types() -> tuple:
+    """What `GameCore.units_view` builds a view's units from (rust/
+    wesnoth_core/src/core_view.rs): object.__new__, the classes, the enum
+    members by value and `wml_node`."""
+    global _VIEW_TYPES
+    if _VIEW_TYPES is None:
+        from wesnoth_ai.classes import Alignment, DamageType
+        _VIEW_TYPES = (object.__new__, Unit, Position, Attack, {int(m): m for m in Alignment},
+                       {int(m): m for m in DamageType}, wml_node)
+    return _VIEW_TYPES
+
+
 def unit_from_fields(d: dict) -> Unit:
     """The dataclass back from the core's export (`GameCore.unit_export`),
     its record fields set as the underscore attributes they stand for."""
@@ -555,7 +576,7 @@ class CoreState:
         gi._seen_types = {side: tuple(core.seen_types_export(side)) for side in _RECORD_SIDES}
         gi._sightings_gone = {side: tuple(core.sightings_gone_export(side)) for side in _RECORD_SIDES}
         self._events_into(gi)
-        units = {unit_from_fields(d) for d in core.units_export()}
+        units = set(core.units_view(_view_types()))
         chose_random = self.statics.get("chose_random") or ()
         sides = [SideInfo(player=p, recruits=list(r), current_gold=gold, base_income=b,
                           nb_villages_controlled=v, faction=f,
@@ -769,14 +790,16 @@ class CoreState:
     def encode_raw(self, *, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                    relevant_set: bool = False, fog_hides_enemy_villages: bool = False,
                    terrain_multi_hot: bool = False, observation_parity: bool = False,
-                   relevant_set_version: int = 1):
+                   relevant_set_version: int = 1, masks: bool = False):
         """`encoder.encode_raw` over the core for the side to move: the
         same RawEncoded, byte for byte (tests/test_game_core.py). With
         `observation_parity` the parity observation (encoder.py's layout
         "The parity observation"), which only the core builds, with the
         faction posterior and the sighting stream. `relevant_set_version`
         2 widens the relevant set (the parity recipe's; needs
-        `relevant_set`)."""
+        `relevant_set`). With `masks` the decision's packed legality masks
+        come along in `core_masks` (rust/wesnoth_core/src/core_masks.rs),
+        what `server_priors.pack_masks` packs from the Python builder."""
         from wesnoth_ai import encoder as enc
         core = self.core
         side = int(core.current_side)
@@ -787,6 +810,10 @@ class CoreState:
         them_fac = sides[them][5] if 0 <= them < len(sides) else ""
         own_recruits = list(sides[us][1]) if 0 <= us < len(sides) else []
         r_ids, r_stats = self._recruit_rows(own_recruits, type_to_id)
+        recruit_costs = None
+        if masks:
+            _check_mask_layout()
+            recruit_costs = self._recruit_costs(own_recruits)
         parity_norms = None
         if observation_parity:
             _check_parity_layout()
@@ -800,7 +827,7 @@ class CoreState:
              enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
             enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, bool(terrain_multi_hot),
             observation_parity=bool(observation_parity), parity_norms=parity_norms,
-            relevant_set_version=int(relevant_set_version))
+            relevant_set_version=int(relevant_set_version), recruit_costs=recruit_costs)
         _require_widths(d, bool(observation_parity))
         static = enc._static_hex_arrays(self._view())
         if relevant_set:
@@ -822,6 +849,8 @@ class CoreState:
             their_faction_id=enc._lookup_id(them_fac, faction_to_id, enc.MAX_FACTIONS),
             material=float(d["material"]),
             observation=_observation_from_dict(d["observation"], self.geometry()))
+        if masks:
+            raw.core_masks = {k: d[k] for k in CORE_MASK_KEYS}
         if observation_parity:
             raw.their_faction_probs = self._faction_probs(side, our_fac, them_fac, faction_to_id)
             raw.sight_type_ids = d["sight_type_ids"]
@@ -862,6 +891,16 @@ class CoreState:
             ids, stats = _recruit_rows(own_recruits, type_to_id)
             hit = (list(ids), list(stats))
             self.caches[key] = hit
+        return hit
+
+    def _recruit_costs(self, own_recruits: List[str]) -> List[int]:
+        """The gold of each recruit option (`wesnoth_sim._recruit_cost_for`,
+        the cost the Python mask builder compares with the side's gold)."""
+        key = ("recruit_costs", tuple(own_recruits))
+        hit = self.caches.get(key)
+        if hit is None:
+            from tools.wesnoth_sim import _recruit_cost_for
+            hit = self.caches[key] = [int(_recruit_cost_for(name)) for name in own_recruits]
         return hit
 
     def _view(self) -> GameState:
@@ -1003,6 +1042,23 @@ def _require_width(key: str, array, width: int) -> None:
 
 
 _PARITY_LAYOUT_CHECKED = False
+_MASK_LAYOUT_CHECKED = False
+
+
+def _check_mask_layout() -> None:
+    """Once per process: the core's mask layout (the unit action types,
+    their columns, the weapon slots) is the model's, or RuntimeError."""
+    global _MASK_LAYOUT_CHECKED
+    if _MASK_LAYOUT_CHECKED:
+        return
+    import wesnoth_core
+    from wesnoth_ai.model_output import MAX_ATTACKS, UnitActionType
+    got = tuple(wesnoth_core.mask_layout)
+    want = (UnitActionType.COUNT, UnitActionType.ATTACK, UnitActionType.MOVE, MAX_ATTACKS)
+    if got != want:
+        raise RuntimeError(f"the core's mask layout {got} differs from the model's {want} "
+                           f"(types, ATTACK, MOVE, MAX_ATTACKS)")
+    _MASK_LAYOUT_CHECKED = True
 
 
 def _check_parity_layout() -> None:

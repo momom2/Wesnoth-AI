@@ -56,6 +56,7 @@ import os
 import logging
 import random
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -66,6 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import torch
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH
+from wesnoth_ai.stage_timing import StageTimer, stage, timing
 from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_players import (_PolicyPair, _load_policy,
@@ -155,9 +157,9 @@ class _CountingModel:
 # forward-counting proxy -- side A's counter read 0 on 2026-09-04).
 _WORKER_MODE = False
 _POLICY_CACHE: dict = {}
-# Shared inference: one connection per server address (the hello
-# handshake is paid once; across games in worker mode).
-_CLIENT_CACHE: dict = {}
+# Shared inference: one connection per server address and thread (the
+# hello handshake is paid once; across games in worker mode).
+_CLIENT_CACHE = threading.local()
 # The basis a checkpoint carries (peeked once per spec in worker mode).
 _BASIS_CACHE: dict = {}
 
@@ -254,38 +256,112 @@ def _effective_basis(spec, relevant_set: bool, inference_address) -> str:
     return basis
 
 
-def worker_loop() -> int:
-    """`elo_eval_game.py --worker`: one JSON argv list per stdin line,
-    `__DONE__ <rc>` per game on stdout (see tools/eval_workers.py)."""
-    import json as _json
+# Every line this process writes to stdout goes through `_emit`: a worker
+# playing several games writes from several threads, and the driver reads
+# the `__DONE__` lines whole.
+_STDOUT_LOCK = threading.Lock()
+
+
+def _emit(line: str) -> None:
+    with _STDOUT_LOCK:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+
+
+def _run_job(argv) -> int:
+    """One game of a worker; its return code, never an exception."""
     import traceback as _tb
+    try:
+        return int(main(argv) or 0)
+    except SystemExit as e:
+        # main refuses with SystemExit("<reason>"): keep the reason
+        # visible in the worker's stderr as one-process mode does.
+        if e.code is not None and not isinstance(e.code, int):
+            print(str(e.code), file=sys.stderr, flush=True)
+        return e.code if isinstance(e.code, int) else 1
+    except Exception:                            # noqa: BLE001
+        _tb.print_exc(file=sys.stderr)
+        return 1
+
+
+def worker_loop(games: int = 1) -> int:
+    """`elo_eval_game.py --worker [--worker-games G]`: one
+    `{"job": N, "argv": [...]}` per stdin line, `__DONE__ <N> <rc>` per
+    game on stdout (see tools/eval_workers.py). Up to `games` games run
+    at once, each in its own thread, with its own players, simulator and
+    inference connection (`_shared_client` is per thread); the driver
+    admits at most that many per worker."""
+    import json as _json
+    from concurrent.futures import ThreadPoolExecutor
     global _WORKER_MODE
     _WORKER_MODE = True
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
+    from wesnoth_ai.game_core import game_core_class
+    game_core_class()                      # the databases load once, before any thread
+    pool = ThreadPoolExecutor(max_workers=max(1, int(games)), thread_name_prefix="game")
+
+    def play(job: int, argv) -> None:
+        _emit(f"__DONE__ {job} {_run_job(argv)}")
+
+    def play_in_thread(job: int, argv) -> None:
+        # A game thread answers for every way its game ends: an exception
+        # the executor kept (a Rust panic is a BaseException) would leave
+        # the driver waiting for this job until its timeout.
         try:
-            rc = main(_json.loads(line))
-        except SystemExit as e:
-            # main refuses with SystemExit("<reason>"): keep the reason
-            # visible in the worker's stderr as one-process mode does.
-            if e.code is not None and not isinstance(e.code, int):
-                print(str(e.code), file=sys.stderr, flush=True)
-            rc = e.code if isinstance(e.code, int) else 1
-        except Exception:                            # noqa: BLE001
+            play(job, argv)
+        except BaseException:                          # noqa: BLE001
+            import traceback as _tb
             _tb.print_exc(file=sys.stderr)
-            rc = 1
-        print(f"__DONE__ {int(rc or 0)}", flush=True)
+            _emit(f"__DONE__ {job} 1")
+
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            msg = _json.loads(line)
+            if games <= 1:
+                play(msg["job"], msg["argv"])
+            else:
+                pool.submit(play_in_thread, msg["job"], msg["argv"])
+    finally:
+        pool.shutdown(wait=True)
     return 0
 
 
+_WORKER_STAGES = StageTimer()
+_WORKER_STAGES_LOCK = threading.Lock()
+
+
+def _note_worker_stages(outdir: Path, timer: StageTimer) -> None:
+    """Add a finished game's stage times to this worker's running total
+    and rewrite `.worker_stages_<pid>.json` in the outdir (one file per
+    worker process; tools/worker_stages.py sums them). One-process games
+    write nothing: their result files carry the same numbers."""
+    if not _WORKER_MODE:
+        return
+    with _WORKER_STAGES_LOCK:
+        _WORKER_STAGES.merge(timer)
+        snapshot = dict(_WORKER_STAGES.as_dict(), pid=os.getpid())
+        path = Path(outdir) / f".worker_stages_{os.getpid()}.json"
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(snapshot), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError as e:
+            log.warning("could not write %s: %s", path, e)
+
+
 def _shared_client(address: str):
+    """This thread's connection to the server at `address` (one request
+    in flight per connection: each game thread of a worker has its own)."""
     from tools.eval_inference_server import EvalInferenceClient
-    client = _CLIENT_CACHE.get(address)
+    cache = getattr(_CLIENT_CACHE, "clients", None)
+    if cache is None:
+        cache = _CLIENT_CACHE.clients = {}
+    client = cache.get(address)
     if client is None or client.broken:
         client = EvalInferenceClient(address)
-        _CLIENT_CACHE[address] = client
+        cache[address] = client
     return client
 
 
@@ -362,11 +438,12 @@ class _VocabCheckedRemoteEncoder(RemoteEncoder):
         self._warned_names: set = set()
 
     def encode(self, game_state):
-        for u in game_state.map.units:
-            if u.name not in self._type_to_id and u.name not in self._warned_names:
-                self._warned_names.add(u.name)
-                log.warning("unit type %r is not in the server's vocab; "
-                            "aliased to the overflow bucket", u.name)
+        with stage("vocab_check"):
+            for u in game_state.map.units:
+                if u.name not in self._type_to_id and u.name not in self._warned_names:
+                    self._warned_names.add(u.name)
+                    log.warning("unit type %r is not in the server's vocab; "
+                                "aliased to the overflow bucket", u.name)
         return super().encode(game_state)
 
 
@@ -988,9 +1065,11 @@ def main(argv) -> int:
                                          forced_faction_tag(forced_faction))):
                 if _why is not None:
                     raise SystemExit(_why)
-            print(f"exists, skipping: {out_path.name}")
+            _emit(f"exists, skipping: {out_path.name}")
             return 0
 
+    timer = StageTimer()
+    t_setup = time.perf_counter()
     pt_cfg = _pt_config(args) if (args.plan_a or args.plan_b) else None
     ts_cfg = _ts_config(args)
     pa, cnt_a = _build_player(
@@ -1039,12 +1118,14 @@ def main(argv) -> int:
     # a salted seed reaches [random_seed] unchanged.
     sim._seed_salt = combat_salt(args.seed, args.shared_combat_stream)
     game_label = out_path.stem
+    timer.add("game_setup", time.perf_counter() - t_setup)
     t0 = time.time()
-    r = _play_one_eval_game(
-        sim,
-        _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
-        _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
-        game_label=game_label)
+    with timing(timer):
+        r = _play_one_eval_game(
+            sim,
+            _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
+            _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
+            game_label=game_label)
     margin_a = material_margin(sim.gs, args.side_a,
                                DrawTiebreakConfig(cap=0.3))
     if pt_cfg is None:
@@ -1189,6 +1270,7 @@ def main(argv) -> int:
     _rec_path = out_path.with_name(out_path.stem + ".game.jsonl.gz")
     _rec_tmp = _rec_path.with_name(_rec_path.name + ".tmp")
     _rec_tmp.unlink(missing_ok=True)
+    t_record = time.perf_counter()
     GameRecordLog(_rec_tmp).write(game_record(
         sim, setup, game_label=game_label,
         players={"a": {"label": args.label_a, "spec": str(args.spec_a), "side": args.side_a,
@@ -1197,16 +1279,28 @@ def main(argv) -> int:
                        "procedure": result["procedure_b"], "memory": memory_b}},
         extra={"seed": args.seed}))
     os.replace(_rec_tmp, _rec_path)
+    timer.add("game_record", time.perf_counter() - t_record)
+    # Where this game's decisions spent their time (wesnoth_ai/stage_timing.py):
+    # not an estimand, a reading; the worker's running total goes beside it.
+    result["worker_stages"] = timer.as_dict()
+    _note_worker_stages(args.outdir, timer)
     # Atomic publish (round-24 C11): a kill mid-write must never
     # leave a truncated file occupying the slot.
     _tmp = out_path.with_suffix(".json.tmp")
     _tmp.write_text(json.dumps(result), encoding="utf-8")
     os.replace(_tmp, out_path)
-    print(json.dumps(result))
+    _emit(json.dumps(result))
     return 0
+
+
+def _worker_games(argv) -> int:
+    """`--worker-games G` on a worker's command line, 1 without it."""
+    if "--worker-games" in argv:
+        return int(argv[argv.index("--worker-games") + 1])
+    return 1
 
 
 if __name__ == "__main__":
     if "--worker" in sys.argv[1:]:
-        sys.exit(worker_loop())
+        sys.exit(worker_loop(_worker_games(sys.argv)))
     sys.exit(main(sys.argv))
