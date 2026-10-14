@@ -34,7 +34,7 @@ use crate::db::{terrain_db, unit_db, TerrainDb, UnitDb};
 use crate::terrain;
 use crate::wml::Wml;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AttackRec {
     pub type_id: i64,
     pub strikes: i64,
@@ -46,7 +46,7 @@ pub struct AttackRec {
 /// A defense table: chance to be hit per terrain id, in its dict order.
 pub type DefTable = Vec<(String, i64)>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UnitRec {
     pub id: String,
     pub name: String,

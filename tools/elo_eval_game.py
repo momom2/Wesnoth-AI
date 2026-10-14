@@ -804,6 +804,9 @@ def main(argv) -> int:
     ap.add_argument("--turn-boundary-frame", default=None,
                     choices=(None,)
                     + TS_CHOICES["--turn-boundary-frame"])
+    ap.add_argument("--view-refresh", choices=("incremental", "full"), default="incremental",
+                    help="The simulator's view after each command: rebuilt where the command "
+                         "changed it, or whole (the same view; a timing switch).")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
     if args.label_a == args.label_b:
@@ -1119,6 +1122,7 @@ def main(argv) -> int:
     gs = build_scenario_gamestate(setup)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                      max_turns=args.max_turns)
+    sim.incremental_view = args.view_refresh == "incremental"
     # PER-GAME COMBAT LUCK (2026-09-13): see combat_salt for why an
     # unsalted eval stream is wrong. Safe for replay export --
     # sim_to_replay._seed_from_recorded reads the seed back out of the

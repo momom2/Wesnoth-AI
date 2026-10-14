@@ -658,6 +658,10 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the server replays each priors batch from a "
                          "per-bucket CUDA graph (wesnoth_ai/graphed_serve.py; cuda + bf16 "
                          "+ packed trunk), one launch per batch instead of ~150.")
+    ap.add_argument("--view-refresh", choices=("incremental", "full"), default="incremental",
+                    help="How a game's simulator refreshes its view after each command: rebuilding "
+                         "only what the command changed (wesnoth_core.ViewCache) or the whole view; "
+                         "the same view either way (a timing switch).")
     ap.add_argument("--rust-stage", action=argparse.BooleanOptionalAction, default=True,
                     help="Shared inference: the server's host work per batch in Rust "
                          "(tools/serve_stage.py), the same bytes as the Python path.")
@@ -1153,6 +1157,8 @@ def main(argv: List[str]) -> int:
                 cmd += [f"--memory-{side}", str(memory)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
+        if args.view_refresh != "incremental":
+            cmd += ["--view-refresh", args.view_refresh]
         if servers:
             # The servers' effective precision, stated explicitly so
             # the game records what ran (elo_eval_game checks it

@@ -556,6 +556,7 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<core::GameCore>()?;
     m.add_class::<serve_stage::ServeRequests>()?;
     m.add_class::<serve_stage::MemoryTable>()?;
+    m.add_class::<core_view::ViewCache>()?;
     m.add_function(wrap_pyfunction!(db::load_databases, m)?)?;
     m.add_function(wrap_pyfunction!(db::databases_loaded, m)?)?;
     m.add_function(wrap_pyfunction!(db::fallback_type_counts, m)?)?;
@@ -660,7 +661,10 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // ServeRequests parses the requests in place and writes the embedding
     // stage, the packed trunk's index, the masks with their capacity, the
     // memory states and the replies; MemoryTable keeps the books of the
-    // memory states the server holds between decisions.
+    // memory states the server holds between decisions; ViewCache keeps
+    // the simulator's live view from one refresh to the next (core_view.rs):
+    // a unit's object is rebuilt only when its record changed, the fog
+    // record only when it changed.
     m.add("__phase__", 34)?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;
