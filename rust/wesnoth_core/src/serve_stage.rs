@@ -438,14 +438,37 @@ impl ServeRequests {
     /// union_bits, type_bias, attack_bias; -1 for a field the layout
     /// lacks), whose rows are `a_stride` actor slots of `t` types,
     /// `hb_stride` packed hex bytes and `h_stride` hexes; `zero` (byte
-    /// offset, bytes) is cleared first. Returns the compaction capacity
+    /// offset, bytes) is cleared first, and with `dirty` (rows, actor
+    /// slots, hexes the previous batch wrote, `graphed_serve._clear_masks`)
+    /// those of every field. Returns the compaction capacity
     /// (`_staged_capacity`) at `w` weapon slots.
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (buf, offsets, a_stride, t, hb_stride, h_stride, w, zero, dirty=None))]
     fn fill_masks(&self, py: Python<'_>, mut buf: PyReadwriteArray1<'_, u8>, offsets: [i64; 10],
                   a_stride: usize, t: usize, hb_stride: usize, h_stride: usize, w: i64,
-                  zero: (usize, usize)) -> PyResult<i64> {
+                  zero: (usize, usize), dirty: Option<(usize, usize, usize)>) -> PyResult<i64> {
         let buf = buf.as_slice_mut().or_else(|_| err("fill_masks: a non-contiguous buffer"))?;
         region(buf, zero.0, zero.1, "fill_masks zero")?.fill(0);
+        if let Some((rows, slots, hexes)) = dirty {
+            // Per field the bytes of one actor slot, and of the part cleared.
+            let widths = [4, 1, 1, 1, t, hb_stride, hb_stride, hb_stride, 4 * t, 4 * h_stride];
+            for (f, &off) in offsets.iter().enumerate() {
+                if off < 0 {
+                    continue;
+                }
+                let slot = widths[f];
+                for b in 0..rows {
+                    let row = off as usize + b * a_stride * slot;
+                    if f == 9 {
+                        for a in 0..slots {
+                            region(buf, row + a * slot, 4 * hexes, "fill_masks dirty")?.fill(0);
+                        }
+                    } else {
+                        region(buf, row, slots * slot, "fill_masks dirty")?.fill(0);
+                    }
+                }
+            }
+        }
         let r = &self.roles;
         let need = |i: usize| -> PyResult<usize> {
             if offsets[i] < 0 { err(format!("fill_masks: mask field {i} has no offset")) } else { Ok(offsets[i] as usize) }
@@ -653,6 +676,115 @@ impl ServeRequests {
         Ok(need)
     }
 
+    /// The graphed path's index arrays (wesnoth_ai/graphed_serve.py
+    /// `static_index` and `static_sources`) for a bucket of `b_cap`
+    /// segments, `a_cap` actor and `h_cap` hex slots, `t_cap` token rows
+    /// and `k_cap` memory slots, into `buf` at the byte offsets `offs` of
+    /// its fields (cu_seqlens int32 [b_cap + 1]; src, kind [t_cap]; actor
+    /// [b_cap * a_cap]; hex [b_cap * h_cap]; glob [b_cap]; memory [b_cap *
+    /// k_cap], int64), the actor kinds [b_cap, a_cap] into `actor_kind`.
+    /// `bases`: the token table's first hex, unit, recruit, sighting,
+    /// memory and global row, then its end_turn row. The rows b < B are the
+    /// real layout's (padded slots point at the row's end_turn token), then
+    /// b_cap - B pad segments of one token each; token rows past the
+    /// segments read the end_turn row. Returns the real segments' rows.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (buf, offs, b_cap, a_cap, h_cap, t_cap, k_cap, bases, kinds, actor_kinds, actor_kind,
+                        memory=None))]
+    fn fill_static_index(&self, mut buf: PyReadwriteArray1<'_, u8>, offs: [usize; 7], b_cap: usize, a_cap: usize,
+                         h_cap: usize, t_cap: usize, k_cap: usize, bases: [i64; 7], kinds: [i64; 7],
+                         actor_kinds: [i64; 3], mut actor_kind: PyReadwriteArray1<'_, i64>,
+                         memory: Option<Vec<usize>>) -> PyResult<usize> {
+        let buf = buf.as_slice_mut().or_else(|_| err("fill_static_index: a non-contiguous buffer"))?;
+        let ak = actor_kind.as_slice_mut().or_else(|_| err("fill_static_index: non-contiguous actor kinds"))?;
+        let n = self.leaves.len();
+        if n > b_cap || ak.len() != b_cap * a_cap {
+            return err(format!("fill_static_index: {n} segments for {b_cap}, {} actor kinds for {b_cap}x{a_cap}",
+                               ak.len()));
+        }
+        let ks = self.check_memory(&memory)?;
+        if let Some(k) = ks.iter().find(|&&k| k > k_cap) {
+            return err(format!("static_index: a memory of {k} slots for k_cap {k_cap}"));
+        }
+        // Per segment its block counts (hex, unit, recruit, sighting, memory, global, end_turn);
+        // a pad segment holds one token.
+        let counts: Vec<[usize; 7]> = self.leaves.iter().enumerate().map(|(b, l)| {
+            let (u, r, h) = self.size(l);
+            [h, u, r, self.sightings(l), ks[b], 1, 1]
+        }).collect();
+        let mut cu = Vec::with_capacity(b_cap + 1);
+        cu.push(0i64);
+        for b in 0..b_cap {
+            let len = if b < n { counts[b].iter().sum::<usize>() } else { 1 };
+            cu.push(cu[b] + len as i64);
+        }
+        let rows = cu[b_cap];
+        if rows as usize > t_cap {
+            return err(format!("static_index: {rows} rows for t_cap {t_cap}"));
+        }
+        let total = cu[n] as usize;
+        let zero = [0usize; 7];
+        let at = |b: usize| -> &[usize; 7] { if b < n { &counts[b] } else { &zero } };
+        let end = |b: usize| cu[b + 1] - 1;
+        let mut actor = Vec::with_capacity(b_cap * a_cap);
+        let mut hexes = Vec::with_capacity(b_cap * h_cap);
+        let mut glob = Vec::with_capacity(b_cap);
+        let mut mem = Vec::with_capacity(b_cap * k_cap);
+        for b in 0..b_cap {
+            let c = at(b);
+            let (seg0, h, u, r, s, k) = (cu[b], c[0] as i64, c[1] as i64, c[2] as i64, c[3] as i64, c[4] as i64);
+            actor.extend((0..a_cap as i64).map(|a| if a < u + r { seg0 + h + a } else { end(b) }));
+            hexes.extend((0..h_cap as i64).map(|x| if x < h { seg0 + x } else { end(b) }));
+            mem.extend((0..k_cap as i64).map(|x| if x < k { seg0 + h + u + r + s + x } else { end(b) }));
+            glob.push(if b < n { end(b) - 1 } else { end(b) });
+            for a in 0..a_cap as i64 {
+                ak[b * a_cap + a as usize] =
+                    if a < u { actor_kinds[0] } else if a < u + r { actor_kinds[1] } else { actor_kinds[2] };
+            }
+        }
+        // Every slot addresses a row of its own segment, below the rows; a
+        // wrong index would be a device-side assert inside a replay, which
+        // poisons the whole CUDA context.
+        for (name, arr) in [("actor", &actor), ("hex", &hexes), ("glob", &glob), ("memory", &mem)] {
+            if arr.iter().any(|&x| x < 0 || x >= rows) {
+                return err(format!("static_index: {name} slot outside the {rows} rows"));
+            }
+        }
+        // The sources and kinds of the real rows, then the end_turn row.
+        let mut src = Vec::with_capacity(t_cap);
+        let mut kind = Vec::with_capacity(t_cap);
+        let mut seen = [0i64; 4];
+        for (b, c) in counts.iter().enumerate() {
+            for j in 0..7 {
+                let start = match j {
+                    0..=3 => bases[j] + seen[j],
+                    4 => bases[4] + (b * k_cap) as i64,
+                    5 => bases[5] + b as i64,
+                    _ => bases[6],
+                };
+                src.extend((0..c[j] as i64).map(|i| start + i));
+                kind.extend(std::iter::repeat(kinds[j]).take(c[j]));
+                if j < 4 {
+                    seen[j] += c[j] as i64;
+                }
+            }
+        }
+        src.resize(t_cap, bases[6]);
+        kind.resize(t_cap, kinds[6]);
+        let [o_cu, o_src, o_kind, o_actor, o_hex, o_glob, o_mem] = offs;
+        let cu32 = region(buf, o_cu, 4 * (b_cap + 1), "cu_seqlens")?;
+        for (i, v) in cu.iter().enumerate() {
+            cu32[4 * i..4 * i + 4].copy_from_slice(&(*v as i32).to_le_bytes());
+        }
+        for (o, arr, what) in [(o_src, &src, "src"), (o_kind, &kind, "kind"), (o_actor, &actor, "actor"),
+                               (o_hex, &hexes, "hex"), (o_glob, &glob, "glob"), (o_mem, &mem, "memory")] {
+            let dst = region(buf, o, 8 * arr.len(), what)?;
+            let mut i = 0usize;
+            put_i64s(dst, &mut i, arr.iter().copied());
+        }
+        Ok(total)
+    }
+
     /// The memory states that travel with the leaves into `buf` from byte
     /// `off`: float32 [B, k_max, d], zeros past each leaf's state, as
     /// `InferenceServer._memory_batch` pads them. Returns the leaves whose
@@ -688,7 +820,8 @@ impl ServeRequests {
     /// recruits and served memory version (`versions`, -1 per leaf when
     /// None), the head outputs (`extras`: value, value_logits, cliffness,
     /// aux_score, moves_left, each (byte offset in `out`, item code, tail
-    /// dims) or None), its actor kinds as int8 (`actor_kind` [B, a_max]),
+    /// dims) or None), its actor kinds as int8 (`actor_kind`, rows of
+    /// a_max slots, leaf b's in row b),
     /// its compact legal actions (`compact`: byte offsets in `out` of the
     /// int32 ends [B] and of actor, kind, target, weapon and prior
     /// [capacity]) and its memory state (`memory`: offset of float32 [B,
@@ -706,7 +839,7 @@ impl ServeRequests {
         if extras.len() != 5 {
             return err("replies: five head outputs (value, value_logits, cliffness, aux_score, moves_left)");
         }
-        if kinds.len() != n * a_max {
+        if kinds.len() < n * a_max {
             return err(format!("replies: {} actor kinds for {n} leaves of {a_max} slots", kinds.len()));
         }
         if let Some(v) = &versions {

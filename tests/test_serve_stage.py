@@ -268,3 +268,75 @@ def test_the_client_refuses_a_state_it_did_not_hand_out():
     client.server_memory = False
     with pytest.raises(ValueError, match="keeps none"):
         client._served_keys([(None, None, MemoryState(8, ServedMemory(11, 1, 4)))])
+
+
+def _graphed_server(server, device_memory: bool):
+    """The eager server's model behind the static-shape path, its body run
+    eagerly on the CPU."""
+    from tools.inference_seam import InferenceServer
+    from wesnoth_ai.graphed_serve import Caps, GraphedServe
+    caps = Caps(b_caps=(4, 8, 16, 32), a_caps=(64, 128), h_caps=(512, 1024),
+                t_caps=(4096, 8192, 16384, 32768), max_len=4096)
+    gserve = GraphedServe(server._model, server._encoder, CPU, graphs=False, caps=caps,
+                          device_memory=device_memory)
+    return InferenceServer(server._model, server._encoder, device=CPU, output_device=CPU,
+                           autocast_bf16=False, packed_embed=True, graphed=gserve), gserve
+
+
+def test_the_graphed_path_stages_from_the_rust_core_as_from_numpy(leaves, server):
+    """The static-shape path's embed, index and mask buffers written by the
+    Rust core (`infer_parsed`) are the numpy staging's (`infer`), a larger
+    batch's leftovers cleared, and the replies from them the same bytes;
+    every batch fits a bucket."""
+    from wesnoth_ai.memory import MemoryState
+    rng = np.random.default_rng(2)
+    plain = [(raw, m) for raw, m in leaves if m.type_bias is None and m.attack_bias is None]
+    reqs = [_request(i, [(raw, masks, MemoryState(SLOTS, None if i % 3 == 0 else
+                                                  rng.standard_normal((SLOTS, D)).astype(np.float32)))])
+            for i, (raw, masks) in enumerate(plain[:12])]
+    big, small = reqs[:7], reqs[7:12]                 # both in the bucket of 8 segments
+    bufs, replies = {}, {}
+    for name, serve in (("numpy", _python), ("rust", _rust)):
+        graphed_server, gserve = _graphed_server(server, device_memory=False)
+        replies[name] = serve(graphed_server, big) + serve(graphed_server, small)
+        assert gserve.served == 2 and not gserve.fallbacks and len(gserve._states) == 1
+        st = next(iter(gserve._states.values()))
+        bufs[name] = [st.embed_host.numpy().copy(), st.index_host.numpy().copy(), st.mask_host.numpy().copy()]
+    for part, a, b in zip(("embed", "index", "mask"), bufs["numpy"], bufs["rust"]):
+        assert np.array_equal(a, b), part
+    assert replies["rust"] == replies["numpy"]
+
+
+@pytest.mark.parametrize("rust", [True, False])
+def test_the_graphed_path_serves_the_kept_memory_as_the_wire(leaves, server, rust):
+    """The static-shape path with the memory states on the device answers
+    a line of decisions, re-decided decision included, as the eager path
+    with the states on the wire."""
+    from tools.serve_stage import ServerMemory
+    from wesnoth_ai.byte_wire import decode_replies_with_versions
+    from wesnoth_ai.memory import MemoryState
+    graphed_server, gserve = _graphed_server(server, device_memory=True)
+    serve = _rust if rust else _python
+    memory = ServerMemory(server._model, CPU)
+    held = {0: [None], 1: [None]}
+    rid = 0
+    plain = [i for i, (_, m) in enumerate(leaves) if m.type_bias is None and m.attack_bias is None]
+    for batch in _decisions(leaves):
+        wire_reqs, kept_reqs = [], []
+        for key, version, leaf in batch:
+            raw, masks = leaves[plain[leaf]]
+            wire_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, held[key][version]))]))
+            kept_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, None))], served=[(key, version)]))
+            rid += 1
+        wire = _python(server, wire_reqs)
+        kept = serve(graphed_server, kept_reqs, memory)
+        for (key, version, _), w, k in zip(batch, wire, kept):
+            (wv,), _ = decode_replies_with_versions(bytearray(w), 16)
+            (kv,), versions = decode_replies_with_versions(bytearray(k), 16)
+            assert versions == [version + 1]
+            for name in ("actor", "kind", "target", "weapon"):
+                assert np.array_equal(getattr(wv[9], name), getattr(kv[9], name))
+            np.testing.assert_allclose(kv[9].prior, wv[9].prior, rtol=1e-4, atol=1e-6)
+            np.testing.assert_allclose(kv[3], wv[3], rtol=1e-4, atol=1e-5)
+            held[key][version + 1:] = [np.array(wv[10])]
+    assert gserve.served == len(_decisions(leaves)) and not gserve.fallbacks

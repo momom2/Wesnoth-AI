@@ -282,7 +282,59 @@ def plan_handles(memory: ServerMemory, items, leaf_cids: Sequence[int]) -> Handl
                       writes=torch.as_tensor(writes, device=dev), versions=[v + 1 for v in versions])
 
 
+def _serve_graphed(server, gserve, parsed, counts, stats, memory, plan, t0: float, t1: float
+                   ) -> Optional[List[bytes]]:
+    """The batch from the graphed path (`GraphedServe.infer_parsed`), or
+    None when it does not fit a bucket (the eager path serves it). A
+    failure disables the graphed path for good, as `_serve_priors` does."""
+    dev = server._device
+    states = writes = None
+    if plan is not None:
+        index = torch.as_tensor(np.asarray([plan[0], plan[1], counts], dtype=np.int64)).to(dev)
+        states = memory.gather(index[0], index[2], list(counts))
+        writes = index[1]
+    try:
+        got = gserve.infer_parsed(parsed, counts, device_states=states)
+    except Exception:                                    # noqa: BLE001 -- the eager path serves from here on
+        log.exception("graphed serve failed on a batch of %d; serving eager from now on", len(parsed))
+        server._graphed = server._graphed_factory = None
+        server._graphed_by_thread.clear()
+        return None
+    if got is None:
+        return None
+    if plan is not None:
+        memory.scatter(writes, got.memory)
+        memory.commit()
+    t2 = time.perf_counter()
+    offsets = {name: (off, dt, shape) for name, dt, shape, off, _n in got.layout.fields}
+    extras = []
+    for n in _REPLY_EXTRAS:
+        if n in got.extras:
+            off, dt, shape = offsets[f"extra{got.extras.index(n)}"]
+            extras.append((off, _TORCH_CODE[dt], list(shape[1:])))
+        else:
+            extras.append(None)
+    memory_arg = None
+    if got.wire_memory:
+        off, _dt, shape = offsets[f"extra{len(got.extras)}"]
+        memory_arg = (off, got.k_cap, int(shape[2]))
+    replies = parsed.replies(got.out, [offsets[n][0] for n in ("ends", "actor", "kind", "target", "weapon",
+                                                               "prior")],
+                             got.capacity, extras, got.actor_kind, got.a_cap, memory_arg,
+                             plan[2] if plan is not None else None)
+    if stats is not None:
+        for key, dt in (("t_parse", t1 - t0), ("t_graphed", t2 - t1), ("t_replies", time.perf_counter() - t2)):
+            stats[key] = stats.get(key, 0.0) + dt
+        stats["graphed_batches"] = stats.get("graphed_batches", 0.0) + 1
+    return replies
+
+
 def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: float) -> List[bytes]:
+    gserve = server._graphed_serve()
+    if gserve is not None and (memory is not None) == bool(getattr(gserve, "device_memory", False)):
+        replies = _serve_graphed(server, gserve, parsed, counts, stats, memory, plan, t0, t1)
+        if replies is not None:
+            return replies
     model, encoder, dev = server._model, server._encoder, server._device
     cuda = dev.type == "cuda"
     bf16 = server._use_bf16()

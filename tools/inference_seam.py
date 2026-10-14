@@ -529,13 +529,16 @@ class InferenceServer:
         graphed = None
         memories = self._checked_memories(memories)
         extended = bool(getattr(model, "extended_streams", False))
-        # The graphed path stages each leaf's state from the host; the states
-        # the server keeps are on the device, so their batches run eagerly.
-        gserve = self._graphed_serve() if memory_batch is None else None
+        gserve = self._graphed_serve()
+        if gserve is not None and (memory_batch is not None) != bool(getattr(gserve, "device_memory", False)):
+            # The states the server keeps are on the device; a graphed path
+            # built for host states serves the other batches only.
+            gserve = None
         new_memory = memory_counts = None
+        device_memory = None
         if gserve is not None:
             try:
-                graphed = gserve.infer(raws, packs, memories)
+                graphed = gserve.infer(raws, packs, memories, device_states=memory_batch)
             except Exception:                        # noqa: BLE001 -- the eager path serves from here on
                 log.exception("graphed serve failed on a batch of %d; serving eager from now on",
                               len(raws))
@@ -545,7 +548,9 @@ class InferenceServer:
         if graphed is not None:
             compact, actor_kind, sizes = graphed.compact, graphed.actor_kind, graphed.sizes
             extras = dict(graphed.extras)
-            if graphed.memory is not None:
+            if graphed.memory is not None and memory_batch is not None:
+                device_memory = graphed.memory
+            elif graphed.memory is not None:
                 new_memory = graphed.memory
                 memory_counts = [int(m.k) for m in memories]
             t1 = t2 = t3 = t4 = time.perf_counter()
@@ -583,6 +588,8 @@ class InferenceServer:
                 if padded.memory_padded is not None and memory_batch is None:
                     ride.append(padded.memory_padded.float())
                 pending = start_priors(padded, packs, ride)
+                if memory_batch is not None:
+                    device_memory = padded.memory_padded
                 if timing:
                     ev_end.record()
                 t3 = time.perf_counter()
@@ -598,8 +605,7 @@ class InferenceServer:
         batch = ServedBatch(compact=compact, extras=extras, actor_kind=actor_kind.cpu().numpy(),
                             sizes=[tuple(s) for s in sizes], memory=new_memory,
                             memory_counts=None if memory_counts is None else list(memory_counts),
-                            device_memory=(padded.memory_padded if memory_batch is not None
-                                           else None))
+                            device_memory=device_memory)
         if timing:
             t5 = time.perf_counter()
             for key, dt in (("t_encode", t1 - t0), ("t_forward", t2 - t1), ("t_priors", t3 - t2),

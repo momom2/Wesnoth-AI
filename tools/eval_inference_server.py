@@ -578,11 +578,11 @@ def main(argv: List[str]) -> int:
         log.warning("--rust-stage writes the packed embed's buffers; with --no-packed-embed the "
                     "Python path serves")
         rust_stage = False
+    memory = None
+    if args.server_memory and int(getattr(model, "memory_slots", 0) or 0):
+        from tools.serve_stage import ServerMemory
+        memory = ServerMemory(model, device)
     graphed = None
-    if args.graphed and rust_stage:
-        # The graphed path stages its own buffers from decoded leaves.
-        log.warning("--graphed stages its batches in Python: the Rust stage is off")
-        rust_stage = False
     if args.graphed:
         if not packed:
             log.warning("--graphed needs the packed trunk (cuda + bf16); serving eager")
@@ -593,7 +593,8 @@ def main(argv: List[str]) -> int:
             # coarsely, since every bucket costs one capture (a 28-worker
             # arm spent its infer time capturing 72 of them,
             # docs/box_specs.md).
-            graphed = GraphedServe(model, encoder, device, caps=eval_caps(args.max_batch))
+            graphed = GraphedServe(model, encoder, device, caps=eval_caps(args.max_batch),
+                                   device_memory=memory is not None)
             # The largest bucket first, before any game: the graphs' shared
             # pool reaches its size now, or the server serves eager from the
             # start (wesnoth_ai/graphed_serve.py, "Memory").
@@ -602,10 +603,6 @@ def main(argv: List[str]) -> int:
     server = InferenceServer(model, encoder, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
                              packed_embed=packed_embed, graphed=graphed)
-    memory = None
-    if args.server_memory and int(getattr(model, "memory_slots", 0) or 0):
-        from tools.serve_stage import ServerMemory
-        memory = ServerMemory(model, device)
     hello = server_hello(spec, checkpoint_sha256, encoder, model, device=device.type, bf16=bf16,
                          packed=packed, packed_embed=packed_embed, compiled=compiled,
                          graphed=graphed is not None and graphed.disabled is None,

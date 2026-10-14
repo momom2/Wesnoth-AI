@@ -60,6 +60,18 @@ memory stays available; one that is not captured, or whose capture
 fails, is served by the caller's eager path, and a failed capture
 leaves the device probed (an error that poisoned it is raised).
 
+Memory states kept on the server (`device_memory`, tools/serve_stage.py
+`ServerMemory`): the graph reads each leaf's state from a static device
+buffer the caller fills before the replay and writes the new states into
+another, which the caller scatters into its table after it; neither
+crosses to the host.
+
+Staging in Rust (`infer_parsed`): the batch's requests parsed in place
+(`wesnoth_core.ServeRequests`) write the embed, index and mask buffers
+directly (`fill_concat`, `fill_static_index`, `fill_masks`), the same
+bytes as `infer`'s numpy staging; the caller writes the replies from the
+output buffer.
+
 The combat oracle's mask biases ride the static masks only with
 `biases=True` (their buffer is [segments, actors, hexes] float32, the
 largest copy of a replay); off, its value since 2026-08-06, a batch
@@ -293,6 +305,25 @@ class GraphedBatch:
 
 
 @dataclass
+class ParsedGraphed:
+    """A batch `GraphedServe.infer_parsed` served: the bucket's output
+    buffer (host, rewritten by the next batch) and its layout, the
+    compaction capacity, the actor kinds [b_cap * a_cap] (int64), the head
+    outputs riding the buffer (`extras`, in order; then the memory states
+    [b_cap, k_cap, d] when `wire_memory`), and the new memory states on
+    the device ([B, K_max, d], with `device_memory`)."""
+    out: np.ndarray
+    layout: FlatLayout
+    capacity: int
+    actor_kind: np.ndarray
+    a_cap: int
+    k_cap: int
+    extras: Tuple[str, ...]
+    wire_memory: bool
+    memory: Optional[torch.Tensor] = None
+
+
+@dataclass
 class _State:
     """One bucket's static buffers and, once captured, its graph."""
     bucket: Bucket
@@ -304,6 +335,8 @@ class _State:
     mask_layout: FlatLayout
     mask_host: torch.Tensor             # pinned uint8
     memory_host: Optional[torch.Tensor] = None   # pinned float32 [b_cap, k_cap, d]
+    memory_dev: Optional[torch.Tensor] = None    # device float32 [b_cap, k_cap, d] (device_memory)
+    memory_out: Optional[torch.Tensor] = None    # device float32 [b_cap, k_cap, d] (device_memory)
     out_layout: Optional[FlatLayout] = None
     out_host: Optional[torch.Tensor] = None
     graph: Optional[torch.cuda.CUDAGraph] = None
@@ -328,7 +361,8 @@ class GraphedServe:
 
     def __init__(self, model, encoder, device: torch.device, *, caps: Caps = Caps(),
                  graphs: bool = True, extras: Optional[Sequence[str]] = None,
-                 biases: bool = False, capture_reserve_mb: float = CAPTURE_RESERVE_MB):
+                 biases: bool = False, capture_reserve_mb: float = CAPTURE_RESERVE_MB,
+                 device_memory: bool = False):
         if getattr(model, "has_gbc", False):
             raise ValueError("graphed serve does not carry the GBC unit context")
         if getattr(model, "has_value_material", False):
@@ -345,6 +379,9 @@ class GraphedServe:
         self.extras = tuple(extras)
         self.parity = bool(getattr(encoder, "observation_parity", False))
         self.k_cap = int(getattr(model, "memory_slots", 0) or 0)
+        # The memory states stay on the device (module docstring, "Memory
+        # states kept on the server").
+        self.device_memory = bool(device_memory) and bool(self.k_cap)
         self.T = int(UnitActionType.COUNT)
         self.W = int(MAX_ATTACKS)
         # The layer loop as a pure function of tensors over a copy of
@@ -440,7 +477,12 @@ class GraphedServe:
             mask_layout=ml,
             mask_host=torch.zeros(ml.nbytes, dtype=torch.uint8, pin_memory=pin),
             memory_host=(torch.zeros(bucket.b_cap, self.k_cap, int(self.model.d_model),
-                                     dtype=torch.float32, pin_memory=pin) if self.k_cap else None))
+                                     dtype=torch.float32, pin_memory=pin)
+                         if self.k_cap and not self.device_memory else None),
+            memory_dev=(torch.zeros(bucket.b_cap, self.k_cap, int(self.model.d_model),
+                                    dtype=torch.float32, device=dev) if self.device_memory else None),
+            memory_out=(torch.zeros(bucket.b_cap, self.k_cap, int(self.model.d_model),
+                                    dtype=torch.float32, device=dev) if self.device_memory else None))
         self._states[bucket] = st
         return st
 
@@ -511,7 +553,8 @@ class GraphedServe:
                                                          ev["sight_ys"], ev["sight_feats"]))
                 memory = None
                 if K:
-                    memory = st.memory_host.to(dev, non_blocking=True)
+                    memory = (st.memory_dev if self.device_memory
+                              else st.memory_host.to(dev, non_blocking=True))
                     parts.append(model.slot_memory.tokens(MemoryBatch(memory, [K] * B)).reshape(-1, d))
                 parts += [enc._global_embedding(ev["global_feats"], ev["our_faction_id"], their),
                           enc.end_turn_token.view(1, -1)]
@@ -529,7 +572,11 @@ class GraphedServe:
             extras = [getattr(padded, n) for n in self.extras]
             if K:
                 h_memory = h.index_select(0, iv["memory"]).view(B, K, d)
-                extras.append(model.slot_memory.write(h_memory, MemoryBatch(memory, [K] * B)))
+                written = model.slot_memory.write(h_memory, MemoryBatch(memory, [K] * B))
+                if self.device_memory:
+                    st.memory_out.copy_(written)
+                else:
+                    extras.append(written)
             out_layout, flat_out = priors_outputs(padded, mv, c.capacity, extras)
             if st.out_host is None:
                 st.out_layout = out_layout
@@ -645,13 +692,19 @@ class GraphedServe:
         return counts
 
     def infer(self, raws, packs: Sequence[PackedMasks],
-              memories: Optional[Sequence] = None) -> Optional[GraphedBatch]:
+              memories: Optional[Sequence] = None, device_states: Optional[MemoryBatch] = None,
+              synthetic: bool = False) -> Optional[GraphedBatch]:
         """The batch served from its bucket, or None when it does not
         fit one, so the caller serves it eagerly. `memories`: one
-        `MemoryState` per leaf for a model with a memory."""
+        `MemoryState` per leaf for a model with a memory; with
+        `device_memory` the states themselves are `device_states` (on the
+        device; `synthetic`: none, a capture's batch), and the batch's new
+        states come back on the device (`GraphedBatch.memory`)."""
         if bool(self.k_cap) != (memories is not None):
             raise ValueError(f"graphed serve: a model of {self.k_cap} memory slots "
                              f"{'needs' if self.k_cap else 'takes no'} memory states")
+        if self.device_memory and device_states is None and not synthetic:
+            raise ValueError("graphed serve keeps the memory states on the device: a batch passes them")
         c = self.caps
         if self.disabled is not None:
             self._fallback("disabled")
@@ -678,7 +731,10 @@ class GraphedServe:
         with self._lock:
             st = self._state(bucket)
             self._stage_embed(st, raws, counts)
-            if self.k_cap:
+            if self.device_memory:
+                if device_states is not None:
+                    self._stage_device_memory(st, device_states)
+            elif self.k_cap:
                 self._stage_memory(st, memories)
             bases = st.bases
             end_row = bases[-1]
@@ -706,7 +762,7 @@ class GraphedServe:
             if why is not None:
                 self._fallback(why)
                 return None
-            n_extras = len(self.extras) + (1 if self.k_cap else 0)
+            n_extras = len(self.extras) + (1 if self.k_cap and not self.device_memory else 0)
             pending = PendingPriors(host=st.out_host, layout=st.out_layout, n_samples=B,
                                     capacity=c.capacity, n_extras=n_extras, device=self.device)
             compact, host = pending.finish()
@@ -717,9 +773,120 @@ class GraphedServe:
                        for x in compact]
         self.served += 1
         extras = dict(zip(self.extras, host))
+        if self.device_memory:
+            memory = st.memory_out[:B, :max(slots, default=0)]
+        else:
+            memory = host[-1] if self.k_cap else None
         return GraphedBatch(compact=compact, extras=extras,
                             actor_kind=st.actor_kind[:B, :A_max], sizes=[tuple(s) for s in sizes],
-                            memory=host[-1] if self.k_cap else None)
+                            memory=memory)
+
+    def _stage_device_memory(self, st: _State, states: MemoryBatch) -> None:
+        """The batch's memory states (on the device, [B, K_max, d]) into the
+        bucket's static input; rows and slots past them are never read."""
+        B, K = states.padded.size(0), states.padded.size(1)
+        if K:
+            st.memory_dev[:B, :K].copy_(states.padded)
+
+    def infer_parsed(self, parsed, counts: Optional[Sequence[int]],
+                     device_states: Optional[MemoryBatch] = None) -> Optional["ParsedGraphed"]:
+        """`infer` on a batch of parsed requests (`wesnoth_core.
+        ServeRequests`; `counts`, each leaf's memory slots), the buffers
+        written by the Rust core; None when the batch does not fit a
+        bucket. The caller writes the replies from the output buffer
+        (`ParsedGraphed`) before the next batch."""
+        from tools.serve_stage import (_ACTOR_KINDS, _MASK_NAMES, _TOKEN_KINDS, FIELD, SCALAR)
+        c = self.caps
+        if self.disabled is not None:
+            self._fallback("disabled")
+            return None
+        if self.device_memory and device_states is None:
+            raise ValueError("graphed serve keeps the memory states on the device: a batch passes them")
+        if not self.biases and (parsed.any_present(FIELD["type_bias"])
+                                or parsed.any_present(FIELD["attack_bias"])):
+            self._fallback("biases")
+            return None
+        slots = list(counts) if self.k_cap else None
+        if slots is not None and not self.device_memory:
+            ks = parsed.scalars(SCALAR["memory_k"]).tolist()
+            if ks != slots:
+                raise ValueError(f"memory states of {slots} rows for players of {ks} slots")
+        total, A_max, H_max, _U, _R, S_max, _K, _rows, longest = parsed.index_dims(slots)
+        B = len(parsed)
+        bucket, why = self._pick(B, A_max, H_max, S_max, total, longest)
+        if bucket is None:
+            self._fallback(why)
+            return None
+        sizes = parsed.sizes()
+        with self._lock:
+            st = self._state(bucket)
+            # The embed rows, each field's real rows from its start.
+            totals = {"hex": sum(x[2] for x in sizes), "unit": sum(x[0] for x in sizes),
+                      "recruit": sum(x[1] for x in sizes)}
+            if self.parity:
+                totals["sighting"] = sum(parsed.sighting_counts())
+            plan = []
+            for (stream, spec) in self.encoder._stream_fields():
+                for name, dt, shape in spec:
+                    row = dt.itemsize * int(np.prod(shape, dtype=np.int64))
+                    plan.append((FIELD[name], self._offset(st.embed_layout, name), totals[stream] * row, True))
+            for name in ("global_feats", "our_faction_id",
+                         "their_faction_probs" if self.parity else "their_faction_id"):
+                f = next(f for f in st.embed_layout.fields if f[0] == name)
+                row = f[1].itemsize * int(np.prod(f[2][1:], dtype=np.int64))
+                src = FIELD[name] if name in FIELD else -1 - SCALAR[name]
+                plan.append((src, f[3], B * row, True))
+            parsed.fill_concat(st.embed_host.numpy(), plan)
+            if self.device_memory:
+                self._stage_device_memory(st, device_states)
+            elif self.k_cap:
+                buf = st.memory_host.numpy()
+                initial = parsed.fill_memory_states(buf.reshape(-1).view(np.uint8), 0, self.k_cap,
+                                                    buf.shape[2], self.k_cap)
+                if initial:
+                    init = self._initial_memory()
+                    for b in initial:
+                        buf[b, :slots[b]] = init[:slots[b]]
+            ilay = st.index_layout
+            actor_kind = np.empty(bucket.b_cap * bucket.a_cap, dtype=np.int64)
+            parsed.fill_static_index(
+                st.index_host.numpy(), [self._offset(ilay, n) for n in ("cu_seqlens", "src", "kind", "actor",
+                                                                         "hex", "glob", "memory")],
+                bucket.b_cap, bucket.a_cap, bucket.h_cap, bucket.t_cap, self.k_cap, list(st.bases),
+                list(_TOKEN_KINDS), list(_ACTOR_KINDS), actor_kind, slots)
+            mlay = st.mask_layout
+            capacity = parsed.fill_masks(
+                st.mask_host.numpy(), [self._offset(mlay, n, -1) for n in _MASK_NAMES], bucket.a_cap, self.T,
+                (bucket.h_cap + 7) // 8, bucket.h_cap, self.W, (0, 0), st.dirty)
+            st.dirty = (B, A_max, H_max)
+            if capacity > c.capacity:
+                self._fallback("capacity")
+                return None
+            st.actor_kind = torch.from_numpy(actor_kind.reshape(bucket.b_cap, bucket.a_cap))
+            self._current_weights()
+            why = self._run(st)
+            if why is not None:
+                self._fallback(why)
+                return None
+            if self.device.type == "cuda":
+                torch.cuda.current_stream(self.device).synchronize()
+            self.served += 1
+            memory = None
+            if self.device_memory:
+                memory = st.memory_out[:B, :max(slots, default=0)]
+            return ParsedGraphed(out=st.out_host.numpy(), layout=st.out_layout, capacity=c.capacity,
+                                 actor_kind=actor_kind, a_cap=bucket.a_cap, k_cap=self.k_cap,
+                                 extras=self.extras, wire_memory=bool(self.k_cap) and not self.device_memory,
+                                 memory=memory)
+
+    @staticmethod
+    def _offset(layout: FlatLayout, name: str, absent: Optional[int] = None) -> int:
+        for f in layout.fields:
+            if f[0] == name:
+                return int(f[3])
+        if absent is None:
+            raise KeyError(name)
+        return absent
 
     # -- the largest bucket, first -------------------------------------------
 
@@ -783,7 +950,7 @@ class GraphedServe:
         before = torch.cuda.memory_reserved(self.device) if self.graphs else 0
         raws, packs, memories = self._synthetic_leaves(sizes, sightings)
         try:
-            served = self.infer(raws, packs, memories)
+            served = self.infer(raws, packs, memories, synthetic=True)
         except Exception as e:                           # noqa: BLE001 -- recorded, the caller serves eagerly
             served = None
             self.capture_failures.append(f"preflight: {type(e).__name__}: {e}"[:400])
@@ -815,5 +982,5 @@ class GraphedServe:
         return out
 
 
-__all__ = ["Caps", "Bucket", "StaticIndex", "GraphedBatch", "static_index", "static_sources",
-           "GraphedServe", "pool_caps", "eval_caps"]
+__all__ = ["Caps", "Bucket", "StaticIndex", "GraphedBatch", "ParsedGraphed", "static_index",
+           "static_sources", "GraphedServe", "pool_caps", "eval_caps"]
