@@ -90,9 +90,11 @@ def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
     the encoding and the combat oracle's priors are off, those are the
     masks (rust/wesnoth_core/src/core_masks.rs, the same arrays,
     tests/test_core_masks.py); otherwise the Python builder's."""
-    U = encoded.unit_tokens.size(1)
-    R = encoded.recruit_tokens.size(1)
-    H = encoded.hex_tokens.size(1)
+    # The streams' lengths (the token tensors' widths), read from the
+    # lists: a light encoding builds no placeholder tensor for them.
+    U = len(encoded.unit_positions)
+    R = len(encoded.recruit_types)
+    H = len(encoded.hex_positions)
     core = getattr(getattr(encoded, "_raw", None), "core_masks", None)
     if core is not None and not any(combat_alphas_at(decision_step)):
         return PackedMasks(
@@ -468,7 +470,7 @@ def compact_action(compact: CompactActions, i: int, encoded) -> Dict:
         return {"type": "move", "start_hex": encoded.unit_positions[a],
                 "target_hex": encoded.hex_positions[h]}
     if k == KIND_RECRUIT:
-        U = encoded.unit_tokens.size(1)
+        U = len(encoded.unit_positions)
         return {"type": "recruit", "unit_type": encoded.recruit_types[a - U],
                 "target_hex": encoded.hex_positions[h]}
     return {"type": "end_turn"}

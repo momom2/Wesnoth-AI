@@ -206,6 +206,43 @@ def output_from_wire(w) -> ModelOutput:
     return ModelOutput(**kw)
 
 
+class LightEncoded(EncodedState):
+    """`build_light_encoded`'s EncodedState: the positions, ids, types and
+    flags set at once, the placeholder token tensors, the ownership
+    tensors and the position index built on first read. A worker's
+    decision under server-side priors reads the token widths, the
+    positions and the types (`server_priors.pack_masks`,
+    `compact_action`); the rest only the list path's sampler, which
+    builds them when it reads them. Read-only, as every encoded state."""
+
+    def __getattr__(self, name: str):
+        # Called only for an attribute not set yet: one of the lazy fields.
+        build = _LIGHT_FIELDS.get(name)
+        state = self.__dict__
+        if build is None or "_light_raw" not in state:
+            raise AttributeError(name)
+        value = build(state["_light_raw"], state["_light_device"])
+        state[name] = value
+        return value
+
+
+def _placeholder(n: int, device) -> torch.Tensor:
+    return torch.zeros((1, n, 1), device=device)
+
+
+# The lazy fields of a LightEncoded, each from (raw, device).
+_LIGHT_FIELDS = {
+    "hex_tokens": lambda raw, dev: _placeholder(len(raw.hex_positions), dev),
+    "unit_tokens": lambda raw, dev: _placeholder(len(raw.unit_positions), dev),
+    "recruit_tokens": lambda raw, dev: _placeholder(len(raw.recruit_types), dev),
+    "global_token": lambda raw, dev: _placeholder(1, dev),
+    "end_turn_token": lambda raw, dev: _placeholder(1, dev),
+    "pos_to_hex": lambda raw, dev: {(p.x, p.y): j for j, p in enumerate(raw.hex_positions)},
+    "unit_is_ours": lambda raw, dev: torch.from_numpy(raw.unit_is_ours).to(dev).unsqueeze(0),
+    "recruit_is_ours": lambda raw, dev: torch.from_numpy(raw.recruit_is_ours).to(dev).unsqueeze(0),
+}
+
+
 def build_light_encoded(
     raw: RawEncoded, device: torch.device,
 ) -> EncodedState:
@@ -217,35 +254,15 @@ def build_light_encoded(
     Python position/id/type lists, the `*_is_ours` flags, the
     visible-unit set, the pos->hex map, the hex-basis flag the
     sampler's relevant-set tripwires read) is reconstructed exactly
-    from `raw`."""
-    H = len(raw.hex_positions)
-    U = len(raw.unit_positions)
-    R = len(raw.recruit_types)
-
-    def _ph(n: int) -> torch.Tensor:            # placeholder token tensor
-        return torch.zeros((1, n, 1), device=device)
-
-    pos_to_hex = {(p.x, p.y): j for j, p in enumerate(raw.hex_positions)}
-    unit_is_ours = torch.from_numpy(raw.unit_is_ours).to(device).unsqueeze(0)
-    recruit_is_ours = (torch.from_numpy(raw.recruit_is_ours)
-                       .to(device).unsqueeze(0))
-    return EncodedState(
-        hex_tokens=_ph(H),
-        hex_positions=raw.hex_positions,
-        pos_to_hex=pos_to_hex,
-        unit_tokens=_ph(U),
-        unit_is_ours=unit_is_ours,
-        unit_positions=raw.unit_positions,
-        unit_ids=raw.unit_ids,
-        recruit_tokens=_ph(R),
-        recruit_is_ours=recruit_is_ours,
-        recruit_types=raw.recruit_types,
-        global_token=_ph(1),
-        end_turn_token=_ph(1),
-        recruit_is_ours_np=raw.recruit_is_ours,
-        hex_subset=bool(raw.hex_subset),
-        observation=getattr(raw, "observation", None),
-    )
+    from `raw`, the tensors and the map on first read (`LightEncoded`)."""
+    enc = object.__new__(LightEncoded)
+    enc.__dict__.update(
+        _light_raw=raw, _light_device=device,
+        hex_positions=raw.hex_positions, unit_positions=raw.unit_positions,
+        unit_ids=raw.unit_ids, recruit_types=raw.recruit_types,
+        recruit_is_ours_np=raw.recruit_is_ours, hex_subset=bool(raw.hex_subset),
+        material=None, observation=getattr(raw, "observation", None), sighting_tokens=None)
+    return enc
 
 
 # ---------------------------------------------------------------------
