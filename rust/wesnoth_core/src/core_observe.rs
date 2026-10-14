@@ -212,23 +212,8 @@ impl GameCore {
     /// unit's own hex counts as its side's, which no route re-enters.
     /// None when no unit stands there on the map.
     fn unit_reach<'py>(&self, py: Python<'py>, x: i64, y: i64, budget: i64) -> PyResult<Option<ReachArrays<'py>>> {
-        let Some(i) = self.unit_at(x, y) else { return Ok(None) };
-        let u = &self.units[i];
-        if u.hex < 0 {
-            return Ok(None);
-        }
-        let (view, _) = self.side_view(u.side);
-        let c = if u.has_status("slowed") { u.class_slowed_id } else { u.class_id };
-        let classes = self.classes.read().unwrap();
-        if c < 0 || c as usize >= classes.len() {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!("unit {} has no movement class", u.id)));
-        }
-        let class = &classes[c as usize];
-        let h = self.map.h;
-        let (mut mp, mut cost, mut prev) = (vec![-1i64; h], vec![f64::INFINITY; h], vec![-1i64; h]);
-        dijkstra_reach(&self.map.nbrs, &class.mcost, &class.dsub, &view.zoc, &view.enemy, &view.ally,
-                       u.hex as usize, budget, u.has_ability("skirmisher"), &mut mp, &mut cost, &mut prev);
-        Ok(Some((mp.into_pyarray(py), cost.into_pyarray(py), prev.into_pyarray(py))))
+        let reach = py.allow_threads(|| self.reach_of(x, y, budget))?;
+        Ok(reach.map(|(mp, cost, prev)| (mp.into_pyarray(py), cost.into_pyarray(py), prev.into_pyarray(py))))
     }
 
     /// `ReachContext.for_side(state, side)` as hex flags [H]: occupied by
@@ -237,7 +222,7 @@ impl GameCore {
     #[allow(clippy::type_complexity)]
     fn side_context<'py>(&self, py: Python<'py>, side: i64)
         -> (Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>, Bound<'py, PyArray1<u8>>) {
-        let (view, _) = self.side_view(side);
+        let (view, _) = py.allow_threads(|| self.side_view(side));
         (view.occupied.into_pyarray(py), view.enemy.into_pyarray(py), view.ally.into_pyarray(py),
          view.zoc.into_pyarray(py))
     }
@@ -256,7 +241,7 @@ impl GameCore {
     /// unit_can_attack, landable [N, H] and relevant.
     #[pyo3(signature = (side, reach=false))]
     fn observe<'py>(&self, py: Python<'py>, side: i64, reach: bool) -> PyResult<Bound<'py, PyDict>> {
-        let obs = self.observe_core(side, reach)?;
+        let obs = py.allow_threads(|| self.observe_core(side, reach))?;
         observation_dict(py, self, obs, side)
     }
 
@@ -280,5 +265,30 @@ impl GameCore {
     /// keep the Python observation: `PyArray1<u8>` of length H.
     fn recruit_rejected_export<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u8>> {
         self.recruit_rejected.clone().into_pyarray(py)
+    }
+}
+
+impl GameCore {
+    /// `unit_reach`'s arrays (mp, route cost, predecessor), computed
+    /// without the GIL; None when no unit stands on (x, y) on the map.
+    #[allow(clippy::type_complexity)]
+    fn reach_of(&self, x: i64, y: i64, budget: i64) -> PyResult<Option<(Vec<i64>, Vec<f64>, Vec<i64>)>> {
+        let Some(i) = self.unit_at(x, y) else { return Ok(None) };
+        let u = &self.units[i];
+        if u.hex < 0 {
+            return Ok(None);
+        }
+        let (view, _) = self.side_view(u.side);
+        let c = if u.has_status("slowed") { u.class_slowed_id } else { u.class_id };
+        let classes = self.classes.read().unwrap();
+        if c < 0 || c as usize >= classes.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!("unit {} has no movement class", u.id)));
+        }
+        let class = &classes[c as usize];
+        let h = self.map.h;
+        let (mut mp, mut cost, mut prev) = (vec![-1i64; h], vec![f64::INFINITY; h], vec![-1i64; h]);
+        dijkstra_reach(&self.map.nbrs, &class.mcost, &class.dsub, &view.zoc, &view.enemy, &view.ally,
+                       u.hex as usize, budget, u.has_ability("skirmisher"), &mut mp, &mut cost, &mut prev);
+        Ok(Some((mp, cost, prev)))
     }
 }

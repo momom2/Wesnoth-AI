@@ -649,7 +649,11 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // the encoding when given the recruit costs (core_masks.rs), and the
     // module declares the mask layout's constants (mask_layout);
     // GameCore.units_view builds the Python view's units (core_view.rs).
-    m.add("__phase__", 32)?;
+    // 33: the long calls a worker's decision makes (encode_streams,
+    // apply_move, apply_recruit, apply_init_side, apply_end_turn,
+    // unit_reach, side_context, observe) compute without the GIL, so the
+    // other game threads of a worker run meanwhile.
+    m.add("__phase__", 33)?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;
     Ok(())

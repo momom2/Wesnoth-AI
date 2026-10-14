@@ -258,12 +258,15 @@ impl GameCore {
     /// spent; then what each side sees is recorded (core_sight.rs).
     /// Returns the new unit's id.
     #[pyo3(signature = (unit_type, x, y, seed=""))]
-    fn apply_recruit(&mut self, unit_type: &str, x: i64, y: i64, seed: &str) -> PyResult<String> {
-        if seed.is_empty() {
-            return self.recruit_with(unit_type, x, y, None);
-        }
-        let mut rng = Mt19937::new(seed_int_of(seed), 0);
-        self.recruit_with(unit_type, x, y, Some(&mut rng))
+    fn apply_recruit(&mut self, py: Python<'_>, unit_type: &str, x: i64, y: i64, seed: &str) -> PyResult<String> {
+        // No Python object is touched: the process's other threads run meanwhile.
+        py.allow_threads(|| {
+            if seed.is_empty() {
+                return self.recruit_with(unit_type, x, y, None);
+            }
+            let mut rng = Mt19937::new(seed_int_of(seed), 0);
+            self.recruit_with(unit_type, x, y, Some(&mut rng))
+        })
     }
 
     /// `apply_recruit` with the numbers the engine drew for the command

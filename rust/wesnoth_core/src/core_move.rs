@@ -268,14 +268,17 @@ impl GameCore {
     /// capture follow the Python branch. Then what each side sees is
     /// recorded (core_sight.rs).
     #[pyo3(signature = (xs, ys, from_side=0, enforce_budget=false, next=None))]
-    fn apply_move(&mut self, xs: Vec<i64>, ys: Vec<i64>, from_side: i64, enforce_budget: bool,
+    fn apply_move(&mut self, py: Python<'_>, xs: Vec<i64>, ys: Vec<i64>, from_side: i64, enforce_budget: bool,
                   next: Option<(i64, i64)>) -> PyResult<()> {
-        if xs.is_empty() || xs.len() != ys.len() {
-            return Err(pyo3::exceptions::PyValueError::new_err("empty or uneven path"));
-        }
-        self.move_along(&xs, &ys, from_side, enforce_budget, next)?;
-        self.note_sightings();
-        Ok(())
+        // No Python object is touched: the process's other threads run meanwhile.
+        py.allow_threads(|| {
+            if xs.is_empty() || xs.len() != ys.len() {
+                return Err(pyo3::exceptions::PyValueError::new_err("empty or uneven path"));
+            }
+            self.move_along(&xs, &ys, from_side, enforce_budget, next)?;
+            self.note_sightings();
+            Ok(())
+        })
     }
 }
 
