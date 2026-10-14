@@ -235,3 +235,34 @@ def test_the_served_memory_batch_is_the_slot_memorys_padding(device):
     assert got.padded.device.type == device and torch.equal(got.padded, want.padded)
     with pytest.raises(ValueError, match="memory state"):
         server._memory_batch([MemoryState(8, torch.zeros(9, D))])
+
+
+@needs_core
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_a_served_memory_on_the_device_is_the_cpus():
+    """The eager CUDA server's batch, memory staged in one transfer and the
+    new states riding in the priors' one transfer back: the CPU server's
+    legal actions, and its priors, values and new states up to the
+    kernels' rounding."""
+    import copy
+    from tools.inference_seam import InferenceServer, RemoteEncoder
+    encoder, model = _parity_pair()
+    cuda = torch.device("cuda")
+    renc = RemoteEncoder(encoder.unit_type_to_id, encoder.faction_to_id, relevant_set=True, server_priors=True,
+                         fog_hides_enemy_villages=True, terrain_multi_hot=True, observation_parity=True,
+                         relevant_set_version=2)
+    e = renc.encode(_position())
+    g = torch.Generator().manual_seed(4)
+    items = [(e._raw, e._masks, MemoryState(8, None)), (e._raw, e._masks, MemoryState(8, torch.randn(8, D, generator=g))),
+             (e._raw, e._masks, MemoryState(4, 0.5 * torch.randn(4, D, generator=g)))]
+    cpu_out = InferenceServer(model, encoder, device=torch.device("cpu")).infer_batch(items)
+    gpu_server = InferenceServer(copy.deepcopy(model).to(cuda), copy.deepcopy(encoder).to(cuda), device=cuda,
+                                 autocast_bf16=False, packed_embed=True)
+    gpu_out = gpu_server.infer_batch(items)
+    for a, b in zip(cpu_out, gpu_out):
+        for f in ("actor", "kind", "target", "weapon"):
+            assert np.array_equal(getattr(a.legal_compact, f), getattr(b.legal_compact, f)), f
+        assert np.allclose(a.legal_compact.prior, b.legal_compact.prior, rtol=1e-4, atol=1e-7)
+        assert torch.allclose(a.value, b.value, atol=1e-5)
+        assert b.memory.device.type == "cpu" and b.memory.shape == a.memory.shape
+        assert torch.allclose(a.memory, b.memory, atol=1e-5)

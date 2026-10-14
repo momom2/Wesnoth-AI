@@ -569,17 +569,21 @@ class InferenceServer:
                 t2 = time.perf_counter()
                 names = ["value", "value_logits", "cliffness"]
                 names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
-                pending = start_priors(padded, packs, [getattr(padded, n) for n in names])
+                ride = [getattr(padded, n) for n in names]
+                # The new memory states ride in the priors' one transfer.
+                if padded.memory_padded is not None:
+                    ride.append(padded.memory_padded.float())
+                pending = start_priors(padded, packs, ride)
                 if timing:
                     ev_end.record()
                 t3 = time.perf_counter()
                 compact, host = pending.finish()
                 t4 = time.perf_counter()
+            if padded.memory_padded is not None:
+                new_memory, host = host[-1], host[:-1]
+                memory_counts = padded.memory_counts
             extras = dict(zip(names, host))
             actor_kind, sizes = padded.actor_kind, padded.sizes
-            if padded.memory_padded is not None:
-                new_memory = padded.memory_padded.float().cpu().numpy()
-                memory_counts = padded.memory_counts
         if timing:
             stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + ev_start.elapsed_time(ev_end)
         batch = ServedBatch(compact=compact, extras=extras, actor_kind=actor_kind.cpu().numpy(),
