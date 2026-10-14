@@ -458,6 +458,154 @@ $0.42 an hour; a pass is cut at 70 minutes.
   the host time is PyTorch's per-op dispatch, which T1 and T3 reduce by
   launching fewer kernels.
 
+## Round 4 (branch feature/trainer-speed-4)
+
+The speed options left change the numbers or the method: fp8 products, a
+larger step, training on part of each game-side. The user's ruling: "We need
+data to take an informed decision." This round adds the measurements; nothing
+trains for use. Every new flag defaults off, and the default path is round
+3's.
+
+### The records' rules version
+
+Round 3's first bench stopped because round 2's own sequences on HF were
+encoded under core phase 31 and the corpus under 32, and the own streams
+required the corpus's phase. A phase changes with every change to the core;
+most build every position as before.
+
+`wesnoth_ai/rules_version.py` maps each core phase to its rules version,
+named after the first phase that built positions under it. The records'
+fingerprint (`preencode_sequences.encoding_fingerprint`) carries the rules
+version where it carried the phase; manifests still record the phase. The
+trainer refuses the corpus's and the own records when their phase's rules
+version is not the adapter's, or when their phase is not in the table
+(phases before 31 are not), and loads records of another phase under the
+same rules version: the own sequences no longer compare phases with the
+corpus's. Whoever bumps the phase adds it to the table, mapped to its
+predecessor's version when no position changes and to itself otherwise;
+`test_the_adapter_phase_has_a_rules_version` fails until then.
+
+Phases 31, 32 and 33 share rules version 31, read from their commits:
+
+- 32, 3009a12: `encode_streams` builds the packed masks only when given
+  the recruit costs, which the pre-encoding does not pass, and every array
+  it returned before is computed as before; the rest of the commit is the
+  evaluation loop. f1cdbed, under the same phase: the view's units built in
+  Rust, equal to the Python builder's (tests/test_core_view.py).
+- 33, 669280c (feature/generation-speed-3): the long calls run under
+  `py.allow_threads`; the encoding's computations moved unchanged into
+  `encode_parts`, with the Python dictionary built after.
+
+Tests (tests/test_rules_version.py): the adapter's phase is in the table; a
+version is named after its first phase; the fingerprint follows the version,
+not the phase; records restamped with a sibling phase of the same version
+train their first window to the bit; records of another version, of a phase
+outside the table or without a phase are refused, corpus and own alike. With
+both checks removed, four of them fail.
+
+### fp8 products (`--fp8-trunk`)
+
+torch 2.5.1 runs them. `torch._scaled_mm` (native_functions.yaml:7024)
+allows compute capability 8.9 (the 4090) and 9.x (Blas.cpp:875), takes two
+float32 scalars as per-tensor scales (Blas.cpp:914), wants the first operand
+row-major and the second column-major (Blas.cpp:1069, cublasCommonArgs at
+Blas.cpp:96-119), the inner dimension and both of the second operand's
+divisible by 16 (Blas.cpp:1012-1021), and never two e5m2 operands
+(Blas.cpp:1027). It has no derivative (derivatives.yaml holds no entry), so
+`wesnoth_ai/fp8_linear.py` writes the backward pass; inductor lowers it
+(torch/_inductor/kernel/mm_scaled.py:244) and it has a meta kernel
+(_meta_registrations.py:5593), so the compiled block may hold it (the box's
+tests compile it).
+
+Each of a layer's four linears (in- and out-projection, both feed-forward
+linears) multiplies e4m3 copies of its input and weight in the forward pass,
+and an e5m2 copy of the output's gradient with the saved e4m3 operands in
+the backward pass (the weight gradient's inner dimension, the token count,
+padded with zero rows to 16). Each scale is the power of two that puts the
+tensor's largest magnitude in the format's top binade, computed from the
+tensor at every call: the scaling is exact and only the cast rounds. The
+products accumulate in float32 and come out in bfloat16; the bias is added
+in the epilogue, its gradient summed from the unquantized gradient. Not with
+`--fused-relu`, whose epilogue belongs to the bfloat16 product.
+
+On the CPU the products are emulated (the float8 values multiplied in
+float32), and both paths check the operands as `_scaled_mm` does, so the CPU
+tests exercise the layouts the kernel takes (tests/test_fp8_linear.py: the
+scaling exact and the rounding within half a unit; the linear's output and
+three gradients within 7% RMS of F.linear's, cosines above 0.997, as
+measured; every
+product's operands; the check's refusals; the fp8 trunk near the autocast
+trunk and recomputed to the bit under the checkpoint;
+`test_a_variant_trains_near_the_packed_trunk[fp8-*]` in the trainer). On the
+box: `test_the_fp8_trunk_runs_near_the_autocast_trunk_on_cuda` (eager and
+compiled), `test_the_fp8_product_on_cuda_is_the_cpu_emulation`, and the
+gradient check against the bfloat16 path (cosine per parameter group, the
+loss) in both scripts.
+
+What to expect: torchao's float8 training (v0.7.0 README) reads a speedup
+below 1 for small shapes, where the casts' memory traffic and the framework's
+overhead outweigh the faster product, and 0.80 for M, K, N = 1024, 2048, 1024
+on an H100. Here K is 384 and N 384 to 1536, at about 12,500 tokens a time
+step. The casts are elementwise passes over every linear's input and
+gradient, the class of work that already takes 134 ms of a window's 326,
+while the products' 138 ms can at most halve. Eager fp8 is expected slower
+than the bfloat16 path; the compiled block, which fuses the casts, may break
+even. The bench measures both (`fp8`, `compiled_fp8`).
+
+### The streams sweep (scripts/trainer_speed_box.sh)
+
+After the timing, `SWEEP_FLAGS` (default main's fastest; set it to the
+fastest arm that passed) at each count of `SWEEP_STREAMS` (32, 64, 128),
+half of them own, interleaved in one process as in the timing, outside
+production's arguments (`--not-production`): positions a second, the
+window's peak device memory (every arm's weights and optimizer state
+resident, about 0.3 GB each), and the time steps kept under the activation
+budget, which does not grow with the streams. An arm out of memory is
+recorded and left out. Timing only: the learning rate is the acceptance's.
+`CANDIDATES` picks the candidates (`CANDIDATES='fp8 compiled_fp8'
+SWEEP_STREAMS='32 64 128'` times only this round's arms). Expected with
+every candidate: about 55 minutes, $0.40 at $0.42 an hour; 95 minutes and
+$0.70 when the own sequences must be built.
+
+### Training on part of each game-side (`--train-every K`)
+
+One window in K trains; the others run the forward only, without gradient,
+carrying the memory into the next window, their positions counted in the
+pass. Each game-side trains on the decisions that fall in trained windows,
+about 1/K of them, with the step's 512 positions and its back-propagation
+through 16 decisions unchanged; the memory still reads every decision, as
+it does in play. The rule is fixed by the schedule, so by the seed. A
+forward-only window costs a forward without saved activations: about a
+third of a trained window with kept activations, by the count of a forward
+and a backward of twice its work (an estimate; the arm's wall measures it). Tests
+(tests/test_train_every.py): at rate 0 the forward-only windows read the
+losses and carry the memories of trained ones to the bit; at the recipe's
+rate the weights move on trained windows only, every position counts, and a
+resume keeps the alternation.
+
+### The training acceptance, multi-arm (scripts/trainer_acceptance_box.sh)
+
+Every arm from own1 under round 2's preset and seed, 500,000 positions
+walked, its final probe at 0 and 64 slots; `ARMS` picks them (A required).
+
+| arm | what | flags | expected wall | cost at $0.42/h |
+|---|---|---|---|---|
+| A | today's default, bit-exact | `A_FLAGS` | 36 min | $0.25 |
+| A2 | A again: the run-to-run noise | `A_FLAGS` | 36 min | $0.25 |
+| B | the fastest configuration that passed its gradient check | `B_FLAGS` | 13 min | $0.09 |
+| B8 | B with fp8 products | `B_FLAGS` without `--fused-relu`, `--fp8-trunk` | 15 min (assumes 1,000 a second) | $0.11 |
+| B64 | B at 64 streams, the rate times the square root of 2, the same positions (half the steps) | `--streams 64 --own-streams 32 --lr 3.96e-5` | 12 min | $0.08 |
+| BHALF | B training one window in two, the same positions walked | `--train-every 2` | 11 min | $0.08 |
+
+The fixed part (bring-up and tests 15 minutes, the inputs 10, the barrier 4)
+costs $0.20; all six arms about 2 hours 30 minutes, $1.07. Each wall
+includes the 5.4-minute final probe. The barrier checks B's and B8's
+gradients against A's: B failing ends the run, B8 failing leaves B8 out.
+A failed pass of A ends the run; another arm's is left out and the run goes
+on. The readout pairs every arm against A by game with A2 - A as the noise
+(the round-3 criterion per arm) and reads each arm against B as well, the
+factor it adds.
+
 ## Rejected
 
 - Length-sorted sub-batches on the padded trunk, because P1 supersedes them,
@@ -478,6 +626,5 @@ $0.42 an hour; a pass is cut at 70 minutes.
 - Keeping a record until both its sides ran, because the partner side comes
   about 28,000 game-sides later in the shuffled order.
 - Caching the memory-size draw, changing checkpoint saves: 0.1-0.2%.
-- More streams per step, because it changes the batch size (a recipe change).
 - CUDA graphs, because shapes change every time step and static buckets bring
   the padding back.

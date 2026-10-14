@@ -1,43 +1,48 @@
-"""The training acceptance's readout (docs/trainer_speed_20261013.md, round 3;
-scripts/trainer_acceptance_box.sh): three passes from the same checkpoint
+"""The training acceptance's readout (docs/trainer_speed_20261013.md, rounds 3
+and 4; scripts/trainer_acceptance_box.sh): passes from the same checkpoint
 under the same seed, A (the padded trunk, today's arithmetic), A2 (A again:
-the GPU's run-to-run nondeterminism) and B (a configuration that changes the
-arithmetic), compared on their final holdout probes over the same holdout
-game-sides.
+the GPU's run-to-run nondeterminism) and arms that each change the
+arithmetic or the method (B, the fastest configuration, and B's variations),
+compared on their final holdout probes over the same holdout game-sides.
 
-    python tools/trainer_acceptance_readout.py --a A.probe_sides.jsonl --a2 A2.probe_sides.jsonl \\
-        --b B.probe_sides.jsonl [--out acceptance.json]
+    python tools/trainer_acceptance_readout.py --a A.probe_sides.jsonl [--a2 A2.probe_sides.jsonl] \\
+        --arm B=B.probe_sides.jsonl [--arm NAME=FILE ...] [--out acceptance.json]
 
 Each file is a pass's <out>.probe_sides.jsonl (tools/sequence_train.py); its
 final probe gives, per holdout game-side and per probe run, the decisions,
 the summed policy cross-entropy over them, the positions and the summed
-belief loss. The three must hold the same game-sides with the same counts
+belief loss. Every pass must hold the same game-sides with the same counts
 (the same holdout, the same labels), else the readout refuses.
 
 Per reading (ce_all and belief at each probe run: k0, k64, k64_reset) the
 pooled value of each pass (as the probe's ce_all and belief: summed over
-every decision or position, divided by their count) and the differences
-A2 - A, B - A and B - A2, each with its standard error paired over holdout
-games: the two sides of a game are not independent draws, so a game is the
-unit (cluster) and the variance is the ratio estimator's,
+every decision or position, divided by their count), the noise A2 - A, and
+per arm its difference from A, from A2 and, for an arm other than B, from B
+(the arm's own factor on top of B's), each with its standard error paired
+over holdout games: the two sides of a game are not independent draws, so a
+game is the unit (cluster) and the variance is the ratio estimator's,
 G / (G - 1) * sum_g (e_g - D * n_g)^2 / N^2, where e_g is the game's summed
 difference, n_g its count, N the total and D the difference.
 
-The criterion (round 1's, pre-registered by the lead): for ce_all at k0 and
-k64 and belief at k0 and k64, |B - A| is no larger than |A2 - A| plus two
-standard errors of B - A (`pass`); `not_worse` is the one-sided reading,
-B - A no larger than |A2 - A| plus two standard errors.
+The criterion (round 1's, pre-registered by the lead), per arm: for ce_all
+at k0 and k64 and belief at k0 and k64, |arm - A| is no larger than |A2 - A|
+plus two standard errors of arm - A (`pass`); `not_worse` is the one-sided
+reading, arm - A no larger than |A2 - A| plus two standard errors. Without
+A2 there is no bound: both are None and the differences stand alone.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import re
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 READINGS = (("ce_all", 0, 1), ("belief", 2, 3))     # (name, count index, sum index) in a side's run entry
 JUDGED = ("ce_all_k0", "ce_all_k64", "belief_k0", "belief_k64")
+REFERENCES = ("A", "A2")
+ARM_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 SidesKey = Tuple[str, int]
 
 
@@ -99,51 +104,92 @@ def pooled(games: Dict[str, Tuple[int, float]]) -> float:
     return sum(s for _, s in games.values()) / n if n else float("nan")
 
 
-def readout(a: Path, a2: Path, b: Path) -> Dict:
-    passes = {"A": final_sides(a), "A2": final_sides(a2), "B": final_sides(b)}
-    runs = check_same_holdout(passes)
-    readings = {}
-    for run in runs:
-        for name, count, total in READINGS:
-            g = {p: per_game(sides, run, count, total) for p, sides in passes.items()}
-            rep = paired_difference(g["A2"], g["A"])
-            new = paired_difference(g["B"], g["A"])
-            entry = {"A": pooled(g["A"]), "A2": pooled(g["A2"]), "B": pooled(g["B"]),
-                     "A2_minus_A": rep, "B_minus_A": new, "B_minus_A2": paired_difference(g["B"], g["A2"])}
-            if new["se"] is not None and rep["diff"] is not None:
-                bound = abs(rep["diff"]) + 2.0 * new["se"]
-                entry.update(bound=bound, within=abs(new["diff"]) <= bound, not_worse=new["diff"] <= bound)
-            readings[f"{name}_{run}"] = entry
+def _arm_reading(name: str, g: Dict[str, Dict[str, Tuple[int, float]]], noise: Optional[Dict]) -> Dict:
+    """One arm's reading: its value, its differences and the criterion."""
+    entry = {"value": pooled(g[name]), "minus_A": paired_difference(g[name], g["A"])}
+    if "A2" in g:
+        entry["minus_A2"] = paired_difference(g[name], g["A2"])
+    if name != "B" and "B" in g:
+        entry["minus_B"] = paired_difference(g[name], g["B"])
+    new = entry["minus_A"]
+    if noise is not None and new["se"] is not None and noise["diff"] is not None:
+        bound = abs(noise["diff"]) + 2.0 * new["se"]
+        entry.update(bound=bound, within=abs(new["diff"]) <= bound, not_worse=new["diff"] <= bound)
+    return entry
+
+
+def _verdict(readings: Dict[str, Dict], key: str) -> Optional[bool]:
+    """The criterion over the judged readings; None when one has no bound."""
     judged = [readings[k] for k in JUDGED if k in readings]
-    return {"files": {"A": str(a), "A2": str(a2), "B": str(b)},
+    if not judged or any(key not in r for r in judged):
+        return None
+    return all(r[key] for r in judged)
+
+
+def readout(a: Path, a2: Optional[Path], arms: Dict[str, Path]) -> Dict:
+    """Every arm against A, with A2 - A as the noise (module docstring)."""
+    if not arms or set(arms) & set(REFERENCES):
+        raise SystemExit(f"arms {sorted(arms)}: at least one, none named {' or '.join(REFERENCES)}")
+    files = {"A": a, **({"A2": a2} if a2 is not None else {}), **arms}
+    passes = {name: final_sides(path) for name, path in files.items()}
+    runs = check_same_holdout(passes)
+    readings: Dict[str, Dict] = {}
+    by_arm: Dict[str, Dict[str, Dict]] = {name: {} for name in arms}
+    for run in runs:
+        for reading, count, total in READINGS:
+            key = f"{reading}_{run}"
+            g = {p: per_game(sides, run, count, total) for p, sides in passes.items()}
+            noise = paired_difference(g["A2"], g["A"]) if "A2" in g else None
+            readings[key] = {"A": pooled(g["A"])}
+            if noise is not None:
+                readings[key].update(A2=pooled(g["A2"]), A2_minus_A=noise)
+            for name in arms:
+                by_arm[name][key] = _arm_reading(name, g, noise)
+    return {"files": {k: str(v) for k, v in files.items()},
             "game_sides": len(passes["A"]), "games": len({f for f, _ in passes["A"]}),
-            "pass": bool(judged) and all(r.get("within") for r in judged),
-            "not_worse": bool(judged) and all(r.get("not_worse") for r in judged),
-            "judged": [k for k in JUDGED if k in readings], "readings": readings}
+            "judged": [k for k in JUDGED if k in readings], "readings": readings,
+            "arms": {name: {"pass": _verdict(r, "within"), "not_worse": _verdict(r, "not_worse"), "readings": r}
+                     for name, r in by_arm.items()}}
+
+
+def _fmt(d: Optional[Dict]) -> str:
+    if d is None or d["diff"] is None:
+        return "-"
+    return f"{d['diff']:+.5f}" + ("" if d["se"] is None else f"+-{d['se']:.5f}")
 
 
 def table(result: Dict) -> str:
-    lines = [f"{'reading':<18} {'A':>9} {'A2-A':>18} {'B-A':>18} {'bound':>9}  within"]
+    lines = [f"{'reading':<18} {'A':>9} {'A2-A':>18}"]
     for key, r in result["readings"].items():
-        def fmt(d):
-            if d["diff"] is None:
-                return "-"
-            return f"{d['diff']:+.5f}" + ("" if d["se"] is None else f"+-{d['se']:.5f}")
-        lines.append(f"{key:<18} {r['A']:9.5f} {fmt(r['A2_minus_A']):>18} {fmt(r['B_minus_A']):>18} "
-                     f"{r.get('bound', float('nan')):9.5f}  {r.get('within')}")
-    lines.append(f"pass {result['pass']}  not_worse {result['not_worse']}  "
-                 f"({result['games']} games, {result['game_sides']} game-sides)")
+        lines.append(f"{key:<18} {r['A']:9.5f} {_fmt(r.get('A2_minus_A')):>18}")
+    for name, arm in result["arms"].items():
+        lines += ["", f"{name:<18} {'value':>9} {name + '-A':>18} {name + '-B':>18} {'bound':>9}  within"]
+        for key, r in arm["readings"].items():
+            lines.append(f"{key:<18} {r['value']:9.5f} {_fmt(r['minus_A']):>18} {_fmt(r.get('minus_B')):>18} "
+                         f"{r.get('bound', float('nan')):9.5f}  {r.get('within')}")
+        lines.append(f"{name}: pass {arm['pass']}  not_worse {arm['not_worse']}")
+    lines.append(f"({result['games']} games, {result['game_sides']} game-sides)")
     return "\n".join(lines)
+
+
+def parse_arm(spec: str) -> Tuple[str, Path]:
+    name, sep, path = spec.partition("=")
+    if not sep or not ARM_NAME.match(name) or not path:
+        raise SystemExit(f"--arm {spec!r}: NAME=FILE, the name of letters, digits and _")
+    return name, Path(path)
 
 
 def main(argv: Sequence[str] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--a", type=Path, required=True, help="pass A's .probe_sides.jsonl")
-    ap.add_argument("--a2", type=Path, required=True, help="pass A2's (A repeated)")
-    ap.add_argument("--b", type=Path, required=True, help="pass B's")
+    ap.add_argument("--a2", type=Path, default=None, help="pass A2's (A repeated); without it, no bound")
+    ap.add_argument("--arm", action="append", required=True, help="NAME=FILE: an arm's .probe_sides.jsonl")
     ap.add_argument("--out", type=Path, default=None)
     opts = ap.parse_args(argv)
-    result = readout(opts.a, opts.a2, opts.b)
+    arms = dict(parse_arm(spec) for spec in opts.arm)
+    if len(arms) != len(opts.arm):
+        raise SystemExit("an arm named twice")
+    result = readout(opts.a, opts.a2, arms)
     print(table(result))
     if opts.out:
         opts.out.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")

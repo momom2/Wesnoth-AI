@@ -9,10 +9,11 @@
 #   own1 from HF, its SHA-256 checked (INIT_HF, INIT_SHA256 -> INIT_PT);
 #   the corpus rebuilt at version 5 from RAW_TAR (CORPUS) and pre-encoded with
 #     own1's vocabularies (SEQ);
-#   round 2's own sequences (OWN): OWN_CACHE from HF, else built as round 2
-#     built them (SOURCE_TARS' games, own1's 64-slot sides labelled by own1 at
-#     0 slots) and sent to HF_DIR as own_sequences_r2.tar.gz (CACHE_OWN=0:
-#     not sent);
+#   round 2's own sequences (OWN): OWN_CACHE from HF (the round-3 bench's,
+#     core phase 32; any cache of the same rules version loads,
+#     wesnoth_ai/rules_version.py), else built as round 2 built them
+#     (SOURCE_TARS' games, own1's 64-slot sides labelled by own1 at 0 slots)
+#     and sent to HF_DIR as own_sequences_r2.tar.gz (CACHE_OWN=0: not sent);
 #   the columns of both (tools/columnize_sequences.py, every position checked
 #     against its pickle), their manifests in OUT/columns_NAME.json.
 # Expected on a 4090 box (training/metrics/trainer_speed_2_20261014/walls.txt):
@@ -28,7 +29,7 @@ tier-b/own_confirm_20261011/games_own64_vs_own0.tar.gz \
 tier-b/own_confirm_20261011/games_own64_selfplay.tar.gz \
 tier-b/memory_own_round2_20261011/games_gen_own1_selfplay.tar.gz}"
 CACHE_OWN="${CACHE_OWN:-1}"
-OWN_CACHE="${OWN_CACHE:-tier-b/trainer_speed_20261013b/own_sequences_r2.tar.gz}"
+OWN_CACHE="${OWN_CACHE:-tier-b/trainer_speed_3_20261015b/own_sequences_r2.tar.gz}"
 BUILD_CUT_MIN="${BUILD_CUT_MIN:-60}"
 BUILD_STALL_MIN="${BUILD_STALL_MIN:-15}"
 PREENCODE_CUT_MIN="${PREENCODE_CUT_MIN:-150}"

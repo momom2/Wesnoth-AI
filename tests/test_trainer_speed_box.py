@@ -1,9 +1,11 @@
-"""scripts/trainer_speed_box.sh's round-3 arms, run by bash with the box
-library stubbed (no box, GPU or HF): the gradient check reads every
-candidate against main's fastest flags, a candidate that fails it (or a check
-that does not finish) is left out of the timing, the timing interleaves ref,
-the passing candidates and ref2, and a timing that fails after writing rows
-is summarized from them."""
+"""scripts/trainer_speed_box.sh's arms, run by bash with the box library
+stubbed (no box, GPU or HF): the gradient check reads every candidate
+against main's fastest flags, a candidate that fails it (or a check that
+does not finish) is left out of the timing, the timing interleaves ref, the
+passing candidates and ref2, and a timing that fails after writing rows is
+summarized from them; CANDIDATES picks the candidates; the streams sweep
+times each count of SWEEP_STREAMS with half its streams own, outside
+production's arguments, and is skipped when the list is empty."""
 from __future__ import annotations
 
 import json
@@ -55,7 +57,7 @@ def opt(flag):
 if name == "gradcheck":
     fail = os.environ.get("FAIL_CANDIDATES", "").split()
     flags = [a.split("=", 1)[1] for a in args if a.startswith("--candidate=")]
-    tags = {"--trunk-bf16": "bf16", "--fused-relu": "relu", "--compiled-trunk": "compiled"}
+    tags = {"--trunk-bf16": "bf16", "--fused-relu": "relu", "--compiled-trunk": "compiled", "--fp8-trunk": "fp8"}
     def name_of(f):
         return "_".join(tags[x] for x in f.split() if x in tags)
     cands = [{"candidate": f, "pass": name_of(f) not in fail, "windows": []} for f in flags]
@@ -72,6 +74,16 @@ if name == "timing":
         json.dump(summary, open(opt("--summary"), "w"))
 if name == "timing-summary":
     json.dump({"valid": None, "arms": {"ref": {"positions_per_second": 999.0}}}, open(opt("--out"), "w"))
+if name == "sweep":
+    arms = [a.split("=", 2)[1] for a in args if a.startswith("--arm=")]
+    with open(opt("--out"), "w") as f:
+        f.write(json.dumps({"kind": "config", "arm": arms[0]}) + "\n")
+    if os.environ.get("STUB_sweep") != "late":
+        json.dump({"valid": None, "arms": {a: {"positions_per_second": 1200.0 * (i + 1), "peak_gb_max": 8.0 * (i + 1)}
+                   for i, a in enumerate(arms)}}, open(opt("--summary"), "w"))
+if name == "sweep-summary":
+    json.dump({"valid": None, "arms": {"s32": {"positions_per_second": 1199.0, "peak_gb_max": 8.0}}},
+              open(opt("--out"), "w"))
 '''
 
 
@@ -82,7 +94,7 @@ def _block() -> str:
 
 def _run(tmp_path: Path, **env) -> dict:
     out = tmp_path / "out"
-    out.mkdir()
+    out.mkdir(parents=True)
     fake = tmp_path / "fake.py"
     fake.write_text(FAKE, encoding="utf-8")
     exports = "\n".join(f"export {k}='{v}'" for k, v in env.items())
@@ -92,6 +104,8 @@ OUT="{bash_path(out)}" STAGE=stage_test FAKE="{bash_path(fake)}"
 SEQ=seq CORPUS=corpus OWN=own INIT_PT=own1.pt RUN_SEED=1 LR=2.8e-5 DECAY_FROM=0.5 PASS_POSITIONS=2000000
 PROBE_EVERY=1200000 WARMUP=1 ROUNDS=2 PROFILE_WINDOWS=1 BUDGET_GB=19.18 BYTES_PER_TOKEN=102139
 VALID_SPREAD=0.03 GRADCHECK_CUT_MIN=25 TIMING_CUT_MIN=45 CUDA_TESTS="2 passed"
+CANDIDATES="bf16 relu compiled bf16_relu bf16_compiled fp8 compiled_fp8"
+SWEEP_STREAMS="32 64 128" SWEEP_FLAGS="" SWEEP_WARMUP=1 SWEEP_ROUNDS=2 SWEEP_CUT_MIN=30
 BOX_RC=0 BOX_WHY=ok
 {exports}
 {STUBS}
@@ -107,11 +121,11 @@ BOX_RC=0 BOX_WHY=ok
 
 
 FASTEST = "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched"
-CANDIDATES = ["bf16", "relu", "compiled", "bf16_relu", "bf16_compiled"]
+CANDIDATES = ["bf16", "relu", "compiled", "bf16_relu", "bf16_compiled", "fp8", "compiled_fp8"]
 
 
-def _arms(steps):
-    timing = next(s for s in steps if s.startswith("timing "))
+def _arms(steps, step="timing"):
+    timing = next(s for s in steps if s.startswith(step + " "))
     return [a.split("=", 1) for a in timing.split("--arm=")[1:]]
 
 
@@ -119,10 +133,11 @@ def test_every_candidate_is_checked_against_main_s_fastest_flags_and_timed_betwe
     got = _run(tmp_path)
     assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
     names = [s.split()[0] for s in got["steps"]]
-    assert names == ["gradcheck", "timing"]
+    assert names == ["gradcheck", "timing", "sweep"]
     check = got["steps"][0]
     assert f"--reference={FASTEST}" in check
-    assert check.count("--candidate=") == 5 and f"--candidate={FASTEST} --trunk-bf16 --compiled-trunk" in check
+    assert check.count("--candidate=") == 7 and f"--candidate={FASTEST} --trunk-bf16 --compiled-trunk" in check
+    assert f"--candidate={FASTEST} --compiled-trunk --fp8-trunk" in check
     arms = _arms(got["steps"])
     assert [a[0] for a in arms] == ["ref", *CANDIDATES, "ref2"]
     assert all(a[1].strip().startswith(FASTEST) for a in arms)
@@ -134,7 +149,8 @@ def test_every_candidate_is_checked_against_main_s_fastest_flags_and_timed_betwe
 def test_a_candidate_that_fails_its_check_is_left_out(tmp_path):
     got = _run(tmp_path, FAIL_CANDIDATES="relu bf16_compiled")
     assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
-    assert [a[0] for a in _arms(got["steps"])] == ["ref", "bf16", "compiled", "bf16_relu", "ref2"]
+    assert [a[0] for a in _arms(got["steps"])] == ["ref", "bf16", "compiled", "bf16_relu", "fp8", "compiled_fp8",
+                                                   "ref2"]
     assert "LEFT_OUT relu" in got["failed"] and "LEFT_OUT bf16_compiled" in got["failed"]
     assert json.loads((got["out"] / "gradcheck.json").read_text())["pass"] is False
 
@@ -150,10 +166,45 @@ def test_a_check_that_does_not_finish_leaves_every_candidate_out(tmp_path):
 def test_a_timing_that_fails_after_its_rows_is_summarized_from_them(tmp_path):
     got = _run(tmp_path, STUB_timing="late")
     assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
-    assert [s.split()[0] for s in got["steps"]] == ["gradcheck", "timing", "timing-summary"]
+    assert [s.split()[0] for s in got["steps"]] == ["gradcheck", "timing", "timing-summary", "sweep"]
     assert "TIMING_FAILED rc=1" in got["failed"] and "999.0" in got["finish"]
 
 
 def test_a_timing_that_writes_nothing_ends_the_run(tmp_path):
     got = _run(tmp_path, STUB_timing="crash")
     assert got["rc"] == 1 and got["finish"].startswith("TIMING_FAILED: no speed.json")
+
+
+def test_candidates_picks_the_candidates_and_an_unknown_name_ends_the_run(tmp_path):
+    got = _run(tmp_path / "a", CANDIDATES="fp8 compiled_fp8", SWEEP_STREAMS="")
+    assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
+    assert got["steps"][0].count("--candidate=") == 2
+    assert [a[0] for a in _arms(got["steps"])] == ["ref", "fp8", "compiled_fp8", "ref2"]
+    none = _run(tmp_path / "b", CANDIDATES="", SWEEP_STREAMS="")
+    assert none["rc"] == 0 and [s.split()[0] for s in none["steps"]] == ["timing"], none["stderr"][-2000:]
+    assert [a[0] for a in _arms(none["steps"])] == ["ref", "ref2"]
+    wrong = _run(tmp_path / "c", CANDIDATES="fp16")
+    assert wrong["rc"] == 1 and wrong["finish"].startswith("UNKNOWN_CANDIDATE fp16") and not wrong["steps"]
+
+
+def test_the_sweep_times_each_stream_count_with_half_its_streams_own(tmp_path):
+    got = _run(tmp_path, SWEEP_FLAGS="--packed-trunk --columns --window-batched --compiled-trunk")
+    assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
+    sweep = next(s for s in got["steps"] if s.startswith("sweep "))
+    assert [a[0] for a in _arms(got["steps"], "sweep")] == ["s32", "s64", "s128"]
+    for name, flags in _arms(got["steps"], "sweep"):
+        n = int(name[1:])
+        assert flags.split(" --reference")[0].strip().endswith(f"--compiled-trunk --streams {n} --own-streams {n // 2}")
+    assert "--not-production" in sweep and "--reference s32" in sweep and "--seed 1" in sweep
+    assert '"sweep": {"s32": [1200.0, 8.0], "s64": [2400.0, 16.0], "s128": [3600.0, 24.0]}' in got["finish"]
+    default = _run(tmp_path / "default")
+    assert all(a[1].strip().startswith(FASTEST + " --streams") for a in _arms(default["steps"], "sweep"))
+
+
+def test_a_sweep_that_fails_after_its_rows_is_summarized_and_one_that_wrote_none_is_named(tmp_path):
+    late = _run(tmp_path / "late", STUB_sweep="late")
+    assert late["rc"] == 0 and [s.split()[0] for s in late["steps"]][-2:] == ["sweep", "sweep-summary"]
+    assert "SWEEP_FAILED rc=1" in late["failed"] and '"s32": [1199.0, 8.0]' in late["finish"]
+    crash = _run(tmp_path / "crash", STUB_sweep="crash")
+    assert crash["rc"] == 0 and "SWEEP_FAILED rc=1" in crash["failed"] and "no rows" in crash["failed"]
+    assert '"sweep"' not in crash["finish"]
