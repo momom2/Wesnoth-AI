@@ -62,6 +62,18 @@ def parse_args(argv=None):
                          "trunk outputs; per time step only the packed trunk and the memory's write run "
                          "(tools/sequence_batched.py): other rounding than the stepped forward, so a network it "
                          "trains needs its own acceptance; with --packed-trunk")
+    ap.add_argument("--trunk-bf16", action="store_true",
+                    help="hold the packed trunk's residual stream and LayerNorms in bfloat16 (on the CPU too) instead "
+                         "of float32 (wesnoth_ai/trunk_modes.py): other arithmetic, its own acceptance; with "
+                         "--packed-trunk")
+    ap.add_argument("--fused-relu", action="store_true",
+                    help="run the packed trunk's first feed-forward linear, its bias and the ReLU in one cuBLASLt "
+                         "call (wesnoth_ai/trunk_modes.py): the same arithmetic on the CPU, possibly another GEMM "
+                         "algorithm on CUDA; with --packed-trunk, not with --compiled-trunk")
+    ap.add_argument("--compiled-trunk", nargs="?", const="inductor", default=None, metavar="BACKEND",
+                    help="compile each packed trunk layer's out-projection, norms and feed-forward with "
+                         "torch.compile (BACKEND, default inductor), the token count dynamic "
+                         "(wesnoth_ai/trunk_modes.py): other rounding, its own acceptance; with --packed-trunk")
     ap.add_argument("--columns", action="store_true",
                     help="read the records' columns (tools/columnize_sequences.py writes them beside the pickles): "
                          "the same batches, without unpickling a Python object per position")

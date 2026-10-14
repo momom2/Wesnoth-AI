@@ -18,8 +18,8 @@ log = logging.getLogger("sequence_train")
 # What a resume must share with the pass it continues, and the value a key
 # holds in a checkpoint written before it was recorded.
 RESUME_KEYS = ("seed", "streams", "window", "fingerprint", "arch", "decay_from", "pass_positions",
-               "anneal_rule", "own", "trunk")
-RECORDED_LATER = {"trunk": "padded"}
+               "anneal_rule", "own", "trunk", "trunk_mode")
+RECORDED_LATER = {"trunk": "padded", "trunk_mode": "none"}
 
 
 class TrainerCheckpoints:
@@ -27,8 +27,8 @@ class TrainerCheckpoints:
 
     def resume(self, path: Path) -> None:
         """Continue `path`'s pass. A new pass may start from another trunk's
-        checkpoint (`init_from`); a resume continues on the trunk its pass
-        trained on."""
+        checkpoint (`init_from`); a resume continues on the trunk and the
+        trunk variants its pass trained on."""
         ck = torch.load(path, map_location="cpu", weights_only=True)
         meta = ck.get("training_meta", {})
         for key in RESUME_KEYS:

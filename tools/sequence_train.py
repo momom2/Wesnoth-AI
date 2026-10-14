@@ -25,12 +25,14 @@ before the clip, read off the clip's own computation; the log line carries
 the memory's share of it.
 
 The holdout probe (`tools/sequence_probe.py`) runs every `--probe-every`
-positions and at the end; the first probe at or past `--barrier-positions`
-is the memory's crash barrier: unless the belief loss at 64 slots with the
-memory carried is below the one with it reset at every decision by more
-than two standard errors, paired over holdout games, the run stops (exit
-3), and the checkpoint keeps the verdict, so no resume trains past it. A pass that ends short of every pre-encoded
-position exits 4. A checkpoint every
+positions and at the end, its readings in <out>.probe.jsonl and each
+holdout game-side's sums in <out>.probe_sides.jsonl; the first probe at or
+past `--barrier-positions` is the memory's crash barrier: unless the belief
+loss at 64 slots with the memory carried is below the one with it reset at
+every decision by more than two standard errors, paired over holdout games,
+the run stops (exit 3), and the checkpoint keeps the verdict, so no resume
+trains past it. A pass that ends short of every pre-encoded position exits
+4. A checkpoint every
 `--checkpoint-every` positions holds the schedule, each slot's carried
 memory and the optimizer, so `--resume` continues the pass exactly.
 
@@ -64,8 +66,12 @@ bfloat16 and no dropout: other arithmetic than the padded trunk's, so a
 network it trains needs its own acceptance. `--window-batched` (with the
 packed trunk) embeds a window at once and runs the heads and losses once
 over its time steps (tools/sequence_batched.py): other rounding, its own
-acceptance likewise. Every steps.jsonl row carries the window's timing
-(tools/sequence_timing.py).
+acceptance likewise. `--trunk-bf16`, `--fused-relu` and `--compiled-trunk`
+(with the packed trunk) are the trunk's variants of wesnoth_ai/trunk_modes.py:
+the residual stream in bfloat16, the first feed-forward linear and its ReLU
+in one cuBLASLt call, each layer's elementwise work fused by torch.compile;
+each other arithmetic, each its own acceptance. Every steps.jsonl row
+carries the window's timing (tools/sequence_timing.py).
 
 `--own-sequences DIR` trains the memory player's own game-sides beside the
 corpus's on `--own-streams` of the slots, toward a teacher's distribution
@@ -129,6 +135,7 @@ from wesnoth_ai.own_loss import own_policy_loss  # noqa: E402
 from wesnoth_ai.param_groups import GradientGroups, named_as  # noqa: E402
 from wesnoth_ai.sequence_loss import belief_loss  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide, StreamSchedule, epoch_order, merge_windows  # noqa: E402
+from wesnoth_ai.trunk_modes import TrunkMode  # noqa: E402
 
 log = logging.getLogger("sequence_train")
 
@@ -204,6 +211,9 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         self.autocast = torch.bfloat16 if (device.type == "cuda" and not args.fp32) else None
         self.packed = bool(args.packed_trunk)
         self.trunk = "packed" if self.packed else "padded"
+        self.trunk_mode = TrunkMode(bf16_residual=args.trunk_bf16, fused_relu=args.fused_relu,
+                                    compile_backend=args.compiled_trunk)
+        self.model.set_trunk_mode(self.trunk_mode)
         self.budget_bytes = float(args.activation_budget_gb) * GIB
         self.bytes_per_token = bytes_per_token(self.trunk, self.arch, args.activation_bytes_per_token)
         self.clock = WindowClock(device, self.loader)
@@ -221,7 +231,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                      "arch": dict(self.arch), "decay_from": args.decay_from, "init_from": None,
                      "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule,
                      "own": None if self.own is None else self.own.meta(args.own_policy_weight),
-                     "trunk": self.trunk}
+                     "trunk": self.trunk, "trunk_mode": self.trunk_mode.describe()}
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
                  args.streams, args.window)
@@ -396,10 +406,14 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         t0 = time.time()
         result = probe(self.model, self.encoder, self.holdout, holdout_loader.sides, winners,
                        self.args.probe_ks, self.device, self.type_loss_weights, rates=self.rates,
-                       autocast_dtype=self.autocast)
+                       autocast_dtype=self.autocast, per_side=True)
         result.update(positions=self.state["positions"], steps=self.state["steps"],
                       total_positions=self.pass_total, final=final,
                       seconds=round(time.time() - t0, 1))
+        sides = {"positions": result["positions"], "steps": result["steps"], "final": final,
+                 "sides": result.pop("sides")}
+        with open(self.args.out.with_suffix(".probe_sides.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(sides) + "\n")
         if self.state.get("areas") is not None:
             result["areas"] = {"s1": self.state["areas"]["s1"], "s2": self.state["areas"]["s2"]}
         with open(self.args.out.with_suffix(".probe.jsonl"), "a", encoding="utf-8") as f:
@@ -551,6 +565,12 @@ def build_trainer(args) -> Trainer:
         raise SystemExit("--packed-trunk runs flash varlen attention, which takes bfloat16: not with --fp32")
     if args.window_batched and not args.packed_trunk:
         raise SystemExit("--window-batched runs the packed trunk's layout: with --packed-trunk")
+    variants = [flag for flag, on in (("--trunk-bf16", args.trunk_bf16), ("--fused-relu", args.fused_relu),
+                                      ("--compiled-trunk", args.compiled_trunk is not None)) if on]
+    if variants and not args.packed_trunk:
+        raise SystemExit(f"{' '.join(variants)}: variants of the packed trunk, with --packed-trunk")
+    if args.fused_relu and args.compiled_trunk is not None:
+        raise SystemExit("--fused-relu is an eager call; --compiled-trunk fuses the ReLU itself: not both")
     if args.activation_budget_gb < 0:
         raise SystemExit(f"--activation-budget-gb {args.activation_budget_gb}: a size, 0 or more")
     trainer = Trainer(args, device)

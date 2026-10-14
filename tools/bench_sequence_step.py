@@ -6,7 +6,9 @@ where they were (docs/trainer_speed_20261013.md, "Benchmark").
     python tools/bench_sequence_step.py compare A.jsonl B.jsonl [--allow FIELD ...] [--out ratio.json]
     python tools/bench_sequence_step.py trace [--repo DIR] [--windows 3] [--dropout 0.3] -- TRAIN_ARGS
     python tools/bench_sequence_step.py gradcheck --out check.json [--windows 3] [--reference=FLAGS]
-        [--candidate=FLAGS] -- TRAIN_ARGS
+        [--candidate=FLAGS ...] -- TRAIN_ARGS
+    python tools/bench_sequence_step.py interleave --out rows.jsonl --arm NAME=FLAGS ... -- TRAIN_ARGS
+    python tools/bench_sequence_step.py interleave-summary rows.jsonl [--out speed.json]
 
 TRAIN_ARGS is the training command line, verbatim (the round preset's of
 scripts/memory_own_trajectories_box.sh). The trainer is built from it as
@@ -46,13 +48,18 @@ trace: the SHA-256 of N windows on the CPU, every dropout probability set to
 zeroed, the parameters after each step and the carried memories. Two trees
 whose change only moves bytes print the same digest.
 
-gradcheck: a candidate configuration (`--candidate`, the training flags it
-adds; default the packed trunk) against a reference (`--reference`; default
-none, the padded trunk), every dropout at 0, both from the same weights at a
-learning rate of 0 (AdamW then leaves the weights as they are): per window
-the loss and, per parameter group, the cosine of the two gradients. Passes
-(exit 0, else 8) when every cosine is at least 0.99 and every loss within
-0.5%: a crash barrier before a pass on the candidate, not a verdict.
+gradcheck: candidate configurations (`--candidate`, repeated, the training
+flags each adds; default the packed trunk) against one reference
+(`--reference`; default none, the padded trunk), every dropout at 0, all from
+the same weights at a learning rate of 0 (AdamW then leaves the weights as
+they are): per window and candidate the loss and, per parameter group, the
+cosine of its gradient with the reference's. A candidate passes when every
+cosine is at least 0.99 and every loss within 0.5%; the command exits 0 when
+every candidate passes, else 8, and its JSON gives each candidate's verdict:
+a crash barrier before a pass on the candidate, not a verdict on it.
+
+interleave, interleave-summary: several configurations timed in one
+process, window by window in turn (tools/bench_interleave.py).
 """
 from __future__ import annotations
 
@@ -80,6 +87,10 @@ ALWAYS_ALLOWED = ("kind", "code", "argv", "started")
 NOT_PASSED = 8
 GRADCHECK_COSINE = 0.99
 GRADCHECK_LOSS = 0.005
+DEFAULT_CANDIDATE = "--packed-trunk"
+# Two arms of the same flags agree when their median window-time ratio is
+# within this of 1 (tools/bench_interleave.py).
+INTERLEAVE_SPREAD = 0.03
 FAR = 10 ** 18                          # a position no bench reaches
 # A window's trunk tokens, counted from its records whatever the trunk
 # (tools/sequence_timing.trunk_tokens): equal in two runs of one schedule.
@@ -214,6 +225,7 @@ def config_record(root: Path, args, trainer, train_argv, bench: Dict) -> Dict:
         "trunk": getattr(trainer, "trunk", "padded"), "activation_budget_gb": budget,
         "columns": bool(getattr(args, "columns", False)),
         "window_batched": bool(getattr(args, "window_batched", False)),
+        "trunk_mode": trunk_mode_name(trainer),
         "activation_bytes_per_token": getattr(trainer, "bytes_per_token", None) if budget > 0 else None,
         "sdpa": {"flash": torch.backends.cuda.flash_sdp_enabled(),
                  "mem_efficient": torch.backends.cuda.mem_efficient_sdp_enabled(),
@@ -226,6 +238,13 @@ def config_record(root: Path, args, trainer, train_argv, bench: Dict) -> Dict:
                          "own": own.manifest["fingerprint"] if own is not None else None},
         "alloc_conf": os.environ.get("PYTORCH_CUDA_ALLOC_CONF"), "gc_thresholds": list(gc.get_threshold()),
         "argv": [a for a in train_argv], "bench": bench}
+
+
+def trunk_mode_name(trainer) -> str:
+    """The trainer's trunk variants (wesnoth_ai/trunk_modes.py); "none" for
+    a tree that has none."""
+    mode = getattr(trainer, "trunk_mode", None)
+    return "none" if mode is None else mode.describe()
 
 
 def production_problems(record: Dict) -> List[str]:
@@ -556,42 +575,69 @@ def gradient_cosine(a: torch.Tensor, b: torch.Tensor) -> Optional[float]:
     return round(float(torch.dot(a.double(), b.double()) / (na * nb)), 6)
 
 
+def _rate_zero(t) -> None:
+    """No probe, rate 0 (AdamW then leaves every weight as it is), no dropout."""
+    quiet(t)
+    t._lr_now = lambda: 0.0
+    set_dropout(t, 0.0)
+
+
+def _capture_gradients(t, slot: int, captured: List[Dict[str, torch.Tensor]]) -> None:
+    """Each window's gradients by group into captured[slot], read as the
+    optimizer zeroes them."""
+    zero_grad = t.opt.zero_grad
+
+    def hooked(*a, **kw):
+        captured[slot] = _group_gradients(t)
+        return zero_grad(*a, **kw)
+    t.opt.zero_grad = hooked
+
+
+def compare_window(ra: Dict, rb: Dict, ga: Dict[str, torch.Tensor], gb: Dict[str, torch.Tensor], i: int) -> Dict:
+    """One window's reading of a candidate against the reference."""
+    if set(ga) != set(gb):
+        raise SystemExit(f"the trunks trained other groups: {sorted(set(ga) ^ set(gb))}")
+    cos = {g: gradient_cosine(ga[g], gb[g]) for g in sorted(ga)}
+    rel = abs(rb["loss"] - ra["loss"]) / max(abs(ra["loss"]), 1e-12)
+    good = rel <= GRADCHECK_LOSS and all(c is None or c >= GRADCHECK_COSINE for c in cos.values())
+    return {"i": i, "loss_reference": ra["loss"], "loss_candidate": rb["loss"], "loss_rel": round(rel, 6),
+            "cosine": cos, "pass": good}
+
+
 def gradcheck(opts, train_argv) -> int:
+    """Every candidate against the one reference, window by window, from the
+    same weights at rate 0: the reference's gradients are read once a window
+    and every candidate's compared with them (module docstring)."""
     import shlex
     use_repo(None)
+    candidates = opts.candidate or [DEFAULT_CANDIDATE]
+    _, _, reference = build(list(train_argv) + shlex.split(opts.reference))
+    _rate_zero(reference)
     trainers = []
-    for extra in (shlex.split(opts.reference), shlex.split(opts.candidate)):
-        _, _, t = build(list(train_argv) + list(extra))
-        quiet(t)
-        t._lr_now = lambda: 0.0              # AdamW at rate 0 leaves every weight as it is
-        set_dropout(t, 0.0)
+    for n, flags in enumerate(candidates):
+        _, _, t = build(list(train_argv) + shlex.split(flags))
+        _rate_zero(t)
+        suffix = "_candidate" if len(candidates) == 1 else f"_candidate{n}"
+        t.args.out = t.args.out.with_name(t.args.out.stem + suffix + ".pt")      # its own steps.jsonl
         trainers.append(t)
-    reference, candidate = trainers
-    candidate.args.out = candidate.args.out.with_name(candidate.args.out.stem + "_candidate.pt")   # its own steps.jsonl
-    captured: List[Dict[str, torch.Tensor]] = [{}, {}]
-    for slot, t in enumerate(trainers):
-        zero_grad = t.opt.zero_grad
-
-        def hooked(*a, _t=t, _slot=slot, _z=zero_grad, **kw):
-            captured[_slot] = _group_gradients(_t)
-            return _z(*a, **kw)
-        t.opt.zero_grad = hooked
-    rows, ok = [], True
+    captured: List[Dict[str, torch.Tensor]] = [{} for _ in range(len(trainers) + 1)]
+    for slot, t in enumerate([reference] + trainers):
+        _capture_gradients(t, slot, captured)
+    rows: List[List[Dict]] = [[] for _ in trainers]
     for i in range(opts.windows):
-        ra, rb = reference.train_window(), candidate.train_window()
-        if not ra or not rb:
+        ra = reference.train_window()
+        if not ra:
             raise SystemExit(f"the pass ran out after {i} windows")
-        groups = set(captured[0]) | set(captured[1])
-        if set(captured[0]) != set(captured[1]):
-            raise SystemExit(f"the trunks trained other groups: {sorted(set(captured[0]) ^ set(captured[1]))}")
-        cos = {g: gradient_cosine(captured[0][g], captured[1][g]) for g in sorted(groups)}
-        rel = abs(rb["loss"] - ra["loss"]) / max(abs(ra["loss"]), 1e-12)
-        good = rel <= GRADCHECK_LOSS and all(c is None or c >= GRADCHECK_COSINE for c in cos.values())
-        ok = ok and good
-        rows.append({"i": i, "loss_reference": ra["loss"], "loss_candidate": rb["loss"], "loss_rel": round(rel, 6),
-                     "cosine": cos, "pass": good})
-    result = {"pass": ok, "reference": opts.reference, "candidate": opts.candidate, "min_cosine": GRADCHECK_COSINE,
-              "max_loss_rel": GRADCHECK_LOSS, "windows": rows}
+        for n, t in enumerate(trainers):
+            rb = t.train_window()
+            if not rb:
+                raise SystemExit(f"the pass ran out after {i} windows")
+            rows[n].append(compare_window(ra, rb, captured[0], captured[n + 1], i))
+    results = [{"candidate": flags, "pass": all(w["pass"] for w in windows), "windows": windows}
+               for flags, windows in zip(candidates, rows)]
+    ok = all(r["pass"] for r in results)
+    result = {"pass": ok, "reference": opts.reference, "min_cosine": GRADCHECK_COSINE,
+              "max_loss_rel": GRADCHECK_LOSS, "candidates": results}
     text = json.dumps(result, indent=1)
     print(text)
     Path(opts.out).write_text(text + "\n", encoding="utf-8")
@@ -632,10 +678,26 @@ def parse(argv: Sequence[str]):
     g.add_argument("--out", type=Path, required=True)
     g.add_argument("--windows", type=int, default=3)
     g.add_argument("--reference", default="", help="the reference's training flags (write --reference=FLAGS)")
-    g.add_argument("--candidate", default="--packed-trunk",
-                   help="the candidate's training flags (write --candidate=FLAGS)")
+    g.add_argument("--candidate", action="append", default=None,
+                   help="a candidate's training flags (write --candidate=FLAGS; repeat for several; default "
+                        f"{DEFAULT_CANDIDATE})")
+    i = sub.add_parser("interleave", help="time several configurations window by window in one process")
+    i.add_argument("--out", type=Path, required=True, help="the rows (JSONL, a new file)")
+    i.add_argument("--arm", action="append", required=True, help="NAME=FLAGS: an arm's training flags")
+    i.add_argument("--reference", default=None, help="the arm the others are timed against (default the first)")
+    i.add_argument("--warmup", type=int, default=5)
+    i.add_argument("--rounds", type=int, default=40)
+    i.add_argument("--profile-windows", type=int, default=3)
+    i.add_argument("--spread", type=float, default=INTERLEAVE_SPREAD)
+    i.add_argument("--summary", type=Path, default=None, help="the summary also written here (JSON)")
+    i.add_argument("--not-production", action="store_true", help="run under other than production's arguments")
+    s = sub.add_parser("interleave-summary", help="the summary of an interleaved run's rows")
+    s.add_argument("rows", type=Path)
+    s.add_argument("--reference", default=None)
+    s.add_argument("--spread", type=float, default=INTERLEAVE_SPREAD)
+    s.add_argument("--out", type=Path, default=None)
     opts = ap.parse_args(argv)
-    if opts.command != "compare" and not train:
+    if opts.command not in ("compare", "interleave-summary") and not train:
         ap.error("the training arguments follow `--`")
     return opts, train
 
@@ -648,6 +710,11 @@ def main(argv=None) -> int:
         return compare(opts)
     if opts.command == "trace":
         return trace(opts, train)
+    if opts.command in ("interleave", "interleave-summary"):
+        use_repo(None)
+        from tools import bench_interleave
+        return (bench_interleave.interleave(opts, train) if opts.command == "interleave"
+                else bench_interleave.summary_command(opts))
     return gradcheck(opts, train)
 
 

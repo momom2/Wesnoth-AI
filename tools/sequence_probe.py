@@ -224,11 +224,26 @@ def _nonfinite(xs: Iterable) -> int:
     return sum(1 for x in xs if x is not None and not math.isfinite(x))
 
 
+def side_readings(per_k: Dict[object, Dict[GameSide, Dict[str, list]]]) -> List[Dict]:
+    """Per holdout game-side, per run of the probe ("k0", "k64", "k64_reset"):
+    [decisions, summed policy cross-entropy over them, positions, summed
+    belief loss], the sums from which a readout pairs two networks' probes
+    over the same game-sides (tools/trainer_acceptance_readout.py)."""
+    sides: Dict[GameSide, Dict] = {}
+    for k, runs in per_k.items():
+        for g, r in runs.items():
+            ces = [c for c in r["ce"] if c is not None]
+            row = sides.setdefault(g, {"file": g.file, "side": g.side})
+            row[f"k{k}"] = [len(ces), float(sum(ces)), len(r["belief"]), float(sum(r["belief"]))]
+    return [sides[g] for g in sorted(sides, key=lambda g: (g.file, g.side))]
+
+
 def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide], Sequence],
           winners: Dict[str, int], ks: Sequence[int], device: torch.device,
           type_loss_weights: Dict[str, float], rates: Optional[Tuple[float, float]] = None,
-          autocast_dtype=None) -> Dict:
-    """The probe's readings at each of `ks` (see the module docstring)."""
+          autocast_dtype=None, per_side: bool = False) -> Dict:
+    """The probe's readings at each of `ks` (see the module docstring); with
+    `per_side`, also each game-side's sums under "sides" (`side_readings`)."""
     was_training = model.training
     model.eval()
     encoder.eval()
@@ -279,6 +294,8 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
             base.extend(baseline_belief(load(g), rates))
         results["belief_baseline"] = _mean_se(base)[0]
         results["baseline_rates"] = list(rates)
+    if per_side:
+        results["sides"] = side_readings(per_k)
     return results
 
 
