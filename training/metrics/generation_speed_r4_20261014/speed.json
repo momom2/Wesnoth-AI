@@ -1,0 +1,1591 @@
+{
+ "arms": {
+  "all_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --rust-stage --server-memory --view-refresh incremental",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 179,
+   "games_per_hour": 12067.0,
+   "server": {
+    "servers": 1,
+    "requests": 279014,
+    "batches": 6231,
+    "leaves": 279014,
+    "mean_batch": 44.77836623334938,
+    "infer_s": 139.263,
+    "window_s": 13.546,
+    "recv_s": 10.814,
+    "idle_s": 15.094,
+    "reply_s": 4.921,
+    "gpu_ms": 135412.1,
+    "stage_s": {
+     "t_finish": 68.673,
+     "t_forward": 44.0,
+     "t_memory": 1.436,
+     "t_parse": 1.11,
+     "t_priors": 13.726,
+     "t_replies": 1.361,
+     "t_stage": 8.15
+    },
+    "wall_s": 173.04,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 482,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1612.42,
+   "infer_ms_per_batch": 22.35,
+   "device_ms_per_batch": 21.732,
+   "host_ms_per_batch": {
+    "t_finish": 11.021,
+    "t_forward": 7.061,
+    "t_memory": 0.23,
+    "t_parse": 0.178,
+    "t_priors": 2.203,
+    "t_replies": 0.218,
+    "t_stage": 1.308
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 279014,
+    "decision_wall_ms": 58.7053,
+    "decision_cpu_ms": 2.7087,
+    "own_wall_ms": 6.2764,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0457,
+     "bounce": 0.0052,
+     "decide": 55.9837,
+     "encode_raw": 1.1577,
+     "game_record": 0.0208,
+     "game_setup": 0.2623,
+     "light_encoded": 0.0052,
+     "masks": 0.0139,
+     "pack": 0.0774,
+     "round_trip": 52.4289,
+     "select": 1.2382,
+     "snapshot": 0.0011,
+     "step": 2.6342,
+     "unwire": 0.142,
+     "vocab_check": 0.0109
+    }
+   }
+  },
+  "all_p160x6": {
+   "jobs": 160,
+   "flags": "--worker-games 6 --min-free-mb 300 --rust-stage --server-memory --view-refresh incremental",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 800,
+   "games": 800,
+   "failed_games": 0,
+   "wall_s": 249,
+   "games_per_hour": 11566.3,
+   "server": {
+    "servers": 1,
+    "requests": 381145,
+    "batches": 6910,
+    "leaves": 381145,
+    "mean_batch": 55.15846599131693,
+    "infer_s": 199.55,
+    "window_s": 16.72,
+    "recv_s": 13.136,
+    "idle_s": 19.574,
+    "reply_s": 6.967,
+    "gpu_ms": 194661.9,
+    "stage_s": {
+     "t_finish": 120.789,
+     "t_forward": 47.045,
+     "t_memory": 1.53,
+     "t_parse": 1.41,
+     "t_priors": 15.078,
+     "t_replies": 1.816,
+     "t_stage": 10.877
+    },
+    "wall_s": 243.097,
+    "graphed": [
+     false
+    ],
+    "connections": 161,
+    "releases": 961,
+    "max_batch": 160,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 642,
+      "refused": 0,
+      "released": 1600
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1567.87,
+   "infer_ms_per_batch": 28.878,
+   "device_ms_per_batch": 28.171,
+   "host_ms_per_batch": {
+    "t_finish": 17.48,
+    "t_forward": 6.808,
+    "t_memory": 0.221,
+    "t_parse": 0.204,
+    "t_priors": 2.182,
+    "t_replies": 0.263,
+    "t_stage": 1.574
+   },
+   "failed": false,
+   "worker": {
+    "workers": 27,
+    "decisions": 381145,
+    "decision_wall_ms": 81.9505,
+    "decision_cpu_ms": 2.7608,
+    "own_wall_ms": 5.953,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0472,
+     "bounce": 0.0053,
+     "decide": 79.3267,
+     "encode_raw": 1.1573,
+     "game_record": 0.0218,
+     "game_setup": 0.3197,
+     "light_encoded": 0.0054,
+     "masks": 0.0149,
+     "pack": 0.0792,
+     "round_trip": 75.9975,
+     "select": 1.1588,
+     "snapshot": 0.0012,
+     "step": 2.5332,
+     "unwire": 0.148,
+     "vocab_check": 0.0113
+    }
+   }
+  },
+  "base_1": {
+   "jobs": 20,
+   "flags": "",
+   "repo": "/workspace/base_repo",
+   "rc": 4,
+   "slots": 400,
+   "games": 400,
+   "failed_games": 0,
+   "wall_s": 320,
+   "games_per_hour": 4500.0,
+   "server": {
+    "servers": 1,
+    "requests": 187248,
+    "batches": 20417,
+    "leaves": 187248,
+    "mean_batch": 9.171180878679532,
+    "infer_s": 245.386,
+    "window_s": 33.032,
+    "recv_s": 0.0,
+    "idle_s": 12.504,
+    "reply_s": 22.673,
+    "gpu_ms": 220153.6,
+    "stage_s": {},
+    "wall_s": 313.731,
+    "graphed": [
+     false
+    ],
+    "connections": 20,
+    "releases": 0,
+    "max_batch": 20,
+    "rust_stage": [
+     null
+    ],
+    "server_memory": [
+     null
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 596.84,
+   "infer_ms_per_batch": 12.019,
+   "device_ms_per_batch": 10.783,
+   "host_ms_per_batch": {},
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 187248,
+    "decision_wall_ms": 29.3555,
+    "decision_cpu_ms": 3.654,
+    "own_wall_ms": 3.2534,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0407,
+     "bounce": 0.005,
+     "decide": 27.4808,
+     "encode_raw": 0.5571,
+     "game_record": 0.0126,
+     "game_setup": 0.0625,
+     "light_encoded": 0.2,
+     "masks": 0.0192,
+     "pack": 0.1467,
+     "round_trip": 26.1021,
+     "select": 0.1341,
+     "snapshot": 0.0012,
+     "step": 1.7951,
+     "unwire": 0.061,
+     "vocab_check": 0.0087
+    }
+   }
+  },
+  "base_2": {
+   "jobs": 20,
+   "flags": "",
+   "repo": "/workspace/base_repo",
+   "rc": 0,
+   "slots": 400,
+   "games": 400,
+   "failed_games": 0,
+   "wall_s": 325,
+   "games_per_hour": 4430.8,
+   "server": {
+    "servers": 1,
+    "requests": 187321,
+    "batches": 20560,
+    "leaves": 187321,
+    "mean_batch": 9.110943579766538,
+    "infer_s": 250.028,
+    "window_s": 33.357,
+    "recv_s": 0.0,
+    "idle_s": 12.972,
+    "reply_s": 23.246,
+    "gpu_ms": 224031.0,
+    "stage_s": {},
+    "wall_s": 319.746,
+    "graphed": [
+     false
+    ],
+    "connections": 20,
+    "releases": 0,
+    "max_batch": 20,
+    "rust_stage": [
+     null
+    ],
+    "server_memory": [
+     null
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 585.84,
+   "infer_ms_per_batch": 12.161,
+   "device_ms_per_batch": 10.896,
+   "host_ms_per_batch": {},
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 187321,
+    "decision_wall_ms": 29.7277,
+    "decision_cpu_ms": 3.6411,
+    "own_wall_ms": 3.2374,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0404,
+     "bounce": 0.005,
+     "decide": 27.8672,
+     "encode_raw": 0.5547,
+     "game_record": 0.0126,
+     "game_setup": 0.0621,
+     "light_encoded": 0.2,
+     "masks": 0.0193,
+     "pack": 0.1473,
+     "round_trip": 26.4903,
+     "select": 0.134,
+     "snapshot": 0.0012,
+     "step": 1.781,
+     "unwire": 0.0612,
+     "vocab_check": 0.0085
+    }
+   }
+  },
+  "base_3": {
+   "jobs": 20,
+   "flags": "",
+   "repo": "/workspace/base_repo",
+   "rc": 0,
+   "slots": 400,
+   "games": 400,
+   "failed_games": 0,
+   "wall_s": 355,
+   "games_per_hour": 4056.3,
+   "server": {
+    "servers": 1,
+    "requests": 195010,
+    "batches": 22986,
+    "leaves": 195010,
+    "mean_batch": 8.483859740711738,
+    "infer_s": 272.415,
+    "window_s": 37.203,
+    "recv_s": 0.0,
+    "idle_s": 15.445,
+    "reply_s": 24.329,
+    "gpu_ms": 245335.1,
+    "stage_s": {},
+    "wall_s": 349.545,
+    "graphed": [
+     false
+    ],
+    "connections": 20,
+    "releases": 0,
+    "max_batch": 20,
+    "rust_stage": [
+     null
+    ],
+    "server_memory": [
+     null
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 557.9,
+   "infer_ms_per_batch": 11.851,
+   "device_ms_per_batch": 10.673,
+   "host_ms_per_batch": {},
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 195010,
+    "decision_wall_ms": 29.5292,
+    "decision_cpu_ms": 3.6227,
+    "own_wall_ms": 3.2205,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.04,
+     "bounce": 0.005,
+     "decide": 27.6783,
+     "encode_raw": 0.5511,
+     "game_record": 0.0129,
+     "game_setup": 0.0551,
+     "light_encoded": 0.1985,
+     "masks": 0.0191,
+     "pack": 0.1473,
+     "round_trip": 26.3087,
+     "select": 0.1333,
+     "snapshot": 0.0012,
+     "step": 1.7722,
+     "unwire": 0.061,
+     "vocab_check": 0.0085
+    }
+   }
+  },
+  "best_repeat": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --rust-stage --server-memory --view-refresh incremental",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 181,
+   "games_per_hour": 11933.7,
+   "server": {
+    "servers": 1,
+    "requests": 283932,
+    "batches": 6343,
+    "leaves": 283932,
+    "mean_batch": 44.76304587734511,
+    "infer_s": 142.271,
+    "window_s": 12.776,
+    "recv_s": 10.09,
+    "idle_s": 14.441,
+    "reply_s": 5.023,
+    "gpu_ms": 138283.0,
+    "stage_s": {
+     "t_finish": 69.526,
+     "t_forward": 45.209,
+     "t_memory": 1.461,
+     "t_parse": 1.158,
+     "t_priors": 14.098,
+     "t_replies": 1.405,
+     "t_stage": 8.574
+    },
+    "wall_s": 174.729,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 482,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1624.98,
+   "infer_ms_per_batch": 22.43,
+   "device_ms_per_batch": 21.801,
+   "host_ms_per_batch": {
+    "t_finish": 10.961,
+    "t_forward": 7.127,
+    "t_memory": 0.23,
+    "t_parse": 0.183,
+    "t_priors": 2.223,
+    "t_replies": 0.222,
+    "t_stage": 1.352
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 283932,
+    "decision_wall_ms": 58.8518,
+    "decision_cpu_ms": 2.7597,
+    "own_wall_ms": 6.38,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0471,
+     "bounce": 0.0053,
+     "decide": 56.0888,
+     "encode_raw": 1.188,
+     "game_record": 0.0216,
+     "game_setup": 0.2884,
+     "light_encoded": 0.0053,
+     "masks": 0.0142,
+     "pack": 0.077,
+     "round_trip": 52.4718,
+     "select": 1.2556,
+     "snapshot": 0.0012,
+     "step": 2.675,
+     "unwire": 0.1451,
+     "vocab_check": 0.0114
+    }
+   }
+  },
+  "graphed_best": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --rust-stage --server-memory --view-refresh incremental --graphed-serve",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 205,
+   "games_per_hour": 10536.6,
+   "server": {
+    "servers": 1,
+    "requests": 271231,
+    "batches": 5809,
+    "leaves": 271231,
+    "mean_batch": 46.69151316922017,
+    "infer_s": 166.188,
+    "window_s": 11.906,
+    "recv_s": 9.733,
+    "idle_s": 13.808,
+    "reply_s": 4.662,
+    "gpu_ms": 0.0,
+    "stage_s": {
+     "graphed_batches": 5809.0,
+     "t_graphed": 163.641,
+     "t_parse": 1.115,
+     "t_replies": 1.102
+    },
+    "wall_s": 196.774,
+    "graphed": [
+     true
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 580,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     {
+      "graphs": true,
+      "served": 5809,
+      "fallbacks": {},
+      "disabled": null,
+      "preflight": {
+       "bucket": "120x128x2048x61440",
+       "tokens": 61429,
+       "ok": true,
+       "seconds": 0.82,
+       "pool_mb": 3916,
+       "available_mb": 23209
+      },
+      "capture_failures": [],
+      "max_memory_reserved_mb": 7806,
+      "capture_s": 10.73,
+      "buckets": {
+       "120x128x2048x61440": 1,
+       "8x64x512x1024": 28,
+       "16x64x512x3072": 1,
+       "64x128x512x12288": 2,
+       "48x64x512x8192": 1,
+       "96x128x512x16384": 9,
+       "48x64x512x10240": 3,
+       "64x64x512x12288": 8,
+       "64x128x512x16384": 5,
+       "64x64x512x16384": 8,
+       "96x128x512x20480": 6,
+       "48x64x512x12288": 2,
+       "64x64x512x20480": 9,
+       "96x128x512x24576": 2,
+       "64x128x512x20480": 15,
+       "64x128x1024x20480": 19,
+       "64x64x1024x20480": 2,
+       "64x128x1024x24576": 1723,
+       "64x128x512x24576": 166,
+       "64x64x1024x24576": 106,
+       "64x64x512x24576": 7,
+       "64x64x512x28672": 2,
+       "64x64x1024x28672": 111,
+       "64x64x1024x32768": 27,
+       "64x128x1024x28672": 1702,
+       "96x64x1024x32768": 31,
+       "64x128x512x28672": 44,
+       "96x128x1024x28672": 138,
+       "96x128x1024x32768": 66,
+       "64x128x1024x32768": 2,
+       "48x128x1024x20480": 86,
+       "48x128x512x20480": 52,
+       "48x128x1024x24576": 22,
+       "96x128x512x28672": 2,
+       "64x128x2048x28672": 13,
+       "96x128x1024x24576": 1,
+       "64x128x2048x24576": 6,
+       "48x128x2048x24576": 3,
+       "96x128x1024x40960": 1,
+       "48x128x512x24576": 1,
+       "48x128x512x16384": 13,
+       "48x128x1024x16384": 73,
+       "32x128x1024x16384": 40,
+       "32x128x512x16384": 21,
+       "32x128x1024x12288": 39,
+       "48x64x1024x16384": 7,
+       "24x128x512x12288": 2,
+       "48x64x512x16384": 5,
+       "24x128x1024x12288": 10,
+       "32x64x512x16384": 1,
+       "48x128x1024x12288": 2,
+       "32x128x512x12288": 41,
+       "24x128x1024x10240": 68,
+       "24x128x512x10240": 43,
+       "32x128x512x10240": 1,
+       "24x128x512x8192": 31,
+       "24x128x1024x8192": 15,
+       "16x128x512x8192": 38,
+       "16x128x1024x8192": 45,
+       "16x128x512x6144": 34,
+       "16x128x1024x6144": 22,
+       "16x128x1024x5120": 43,
+       "16x128x512x5120": 23,
+       "8x128x512x4096": 30,
+       "16x128x512x4096": 24,
+       "8x128x1024x4096": 51,
+       "8x128x512x3072": 111,
+       "8x64x1024x3072": 15,
+       "8x64x1024x4096": 3,
+       "8x64x512x2048": 28,
+       "8x128x1024x3072": 30,
+       "8x128x512x2048": 223,
+       "16x64x512x5120": 1,
+       "16x64x512x6144": 1,
+       "16x64x512x4096": 2,
+       "8x64x512x4096": 2,
+       "16x128x1024x4096": 5,
+       "8x64x512x3072": 19,
+       "8x128x512x1024": 212,
+       "8x64x1024x2048": 3
+      }
+     }
+    ]
+   },
+   "decisions_per_s": 1378.39,
+   "infer_ms_per_batch": 28.609,
+   "device_ms_per_batch": 0.0,
+   "host_ms_per_batch": {
+    "graphed_batches": 1000.0,
+    "t_graphed": 28.17,
+    "t_parse": 0.192,
+    "t_replies": 0.19
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 271231,
+    "decision_wall_ms": 73.7785,
+    "decision_cpu_ms": 2.7396,
+    "own_wall_ms": 6.3691,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0459,
+     "bounce": 0.0053,
+     "decide": 71.0205,
+     "encode_raw": 1.1764,
+     "game_record": 0.0211,
+     "game_setup": 0.2934,
+     "light_encoded": 0.0053,
+     "masks": 0.0145,
+     "pack": 0.077,
+     "round_trip": 67.4094,
+     "select": 1.2523,
+     "snapshot": 0.0011,
+     "step": 2.6638,
+     "unwire": 0.1469,
+     "vocab_check": 0.0109
+    }
+   }
+  },
+  "memory_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --no-rust-stage --server-memory --view-refresh full",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 187,
+   "games_per_hour": 11550.8,
+   "server": {
+    "servers": 1,
+    "requests": 283482,
+    "batches": 6401,
+    "leaves": 283482,
+    "mean_batch": 44.28714263396344,
+    "infer_s": 141.845,
+    "window_s": 18.991,
+    "recv_s": 16.008,
+    "idle_s": 14.703,
+    "reply_s": 5.369,
+    "gpu_ms": 113883.1,
+    "stage_s": {
+     "t_decode": 19.881,
+     "t_encode": 15.194,
+     "t_finish": 34.17,
+     "t_forward": 43.112,
+     "t_priors": 22.208,
+     "t_reply": 0.146,
+     "t_wire": 3.825
+    },
+    "wall_s": 181.144,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     false
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 482,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1564.95,
+   "infer_ms_per_batch": 22.16,
+   "device_ms_per_batch": 17.791,
+   "host_ms_per_batch": {
+    "t_decode": 3.106,
+    "t_encode": 2.374,
+    "t_finish": 5.338,
+    "t_forward": 6.735,
+    "t_priors": 3.469,
+    "t_reply": 0.023,
+    "t_wire": 0.598
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 283482,
+    "decision_wall_ms": 60.6434,
+    "decision_cpu_ms": 3.6225,
+    "own_wall_ms": 8.5162,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0406,
+     "bounce": 0.005,
+     "decide": 56.2938,
+     "encode_raw": 1.4586,
+     "game_record": 0.0247,
+     "game_setup": 0.2615,
+     "light_encoded": 0.0051,
+     "masks": 0.0132,
+     "pack": 0.0722,
+     "round_trip": 52.1272,
+     "select": 1.4804,
+     "snapshot": 0.0011,
+     "step": 4.2692,
+     "unwire": 0.135,
+     "vocab_check": 0.0089
+    }
+   }
+  },
+  "memory_p160x6": {
+   "jobs": 160,
+   "flags": "--worker-games 6 --min-free-mb 300 --no-rust-stage --server-memory --view-refresh full",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 800,
+   "games": 800,
+   "failed_games": 0,
+   "wall_s": 238,
+   "games_per_hour": 12100.8,
+   "server": {
+    "servers": 1,
+    "requests": 367820,
+    "batches": 6079,
+    "leaves": 367820,
+    "mean_batch": 60.50666227998026,
+    "infer_s": 185.828,
+    "window_s": 20.707,
+    "recv_s": 18.401,
+    "idle_s": 18.096,
+    "reply_s": 6.505,
+    "gpu_ms": 152584.9,
+    "stage_s": {
+     "t_decode": 23.997,
+     "t_encode": 14.928,
+     "t_finish": 75.379,
+     "t_forward": 40.244,
+     "t_priors": 22.985,
+     "t_reply": 0.144,
+     "t_wire": 4.718
+    },
+    "wall_s": 231.384,
+    "graphed": [
+     false
+    ],
+    "connections": 161,
+    "releases": 961,
+    "max_batch": 160,
+    "rust_stage": [
+     false
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 1092,
+      "refused": 0,
+      "released": 1600
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1589.65,
+   "infer_ms_per_batch": 30.569,
+   "device_ms_per_batch": 25.1,
+   "host_ms_per_batch": {
+    "t_decode": 3.948,
+    "t_encode": 2.456,
+    "t_finish": 12.4,
+    "t_forward": 6.62,
+    "t_priors": 3.781,
+    "t_reply": 0.024,
+    "t_wire": 0.776
+   },
+   "failed": false,
+   "worker": {
+    "workers": 27,
+    "decisions": 367820,
+    "decision_wall_ms": 82.8757,
+    "decision_cpu_ms": 3.7444,
+    "own_wall_ms": 8.3986,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.044,
+     "bounce": 0.0052,
+     "decide": 78.5475,
+     "encode_raw": 1.5026,
+     "game_record": 0.0257,
+     "game_setup": 0.3029,
+     "light_encoded": 0.0056,
+     "masks": 0.0143,
+     "pack": 0.0788,
+     "round_trip": 74.4771,
+     "select": 1.4428,
+     "snapshot": 0.0013,
+     "step": 4.2418,
+     "unwire": 0.1428,
+     "vocab_check": 0.0093
+    }
+   }
+  },
+  "off_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --no-rust-stage --no-server-memory --view-refresh full",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 201,
+   "games_per_hour": 10746.3,
+   "server": {
+    "servers": 1,
+    "requests": 281277,
+    "batches": 6297,
+    "leaves": 281277,
+    "mean_batch": 44.6684135302525,
+    "infer_s": 137.32,
+    "window_s": 27.845,
+    "recv_s": 25.428,
+    "idle_s": 15.406,
+    "reply_s": 13.667,
+    "gpu_ms": 108998.8,
+    "stage_s": {
+     "t_decode": 17.22,
+     "t_encode": 21.912,
+     "t_finish": 24.964,
+     "t_forward": 41.3,
+     "t_priors": 21.593,
+     "t_reply": 0.141,
+     "t_wire": 7.094
+    },
+    "wall_s": 194.546,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 120,
+    "max_batch": 120,
+    "rust_stage": [
+     false
+    ],
+    "server_memory": [
+     false
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1445.81,
+   "infer_ms_per_batch": 21.807,
+   "device_ms_per_batch": 17.31,
+   "host_ms_per_batch": {
+    "t_decode": 2.735,
+    "t_encode": 3.48,
+    "t_finish": 3.964,
+    "t_forward": 6.559,
+    "t_priors": 3.429,
+    "t_reply": 0.022,
+    "t_wire": 1.127
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 281277,
+    "decision_wall_ms": 66.9329,
+    "decision_cpu_ms": 3.8443,
+    "own_wall_ms": 9.256,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0401,
+     "bounce": 0.005,
+     "decide": 62.6331,
+     "encode_raw": 1.4791,
+     "game_record": 0.0266,
+     "game_setup": 0.2818,
+     "light_encoded": 0.0053,
+     "masks": 0.0136,
+     "pack": 0.7171,
+     "round_trip": 57.6769,
+     "select": 1.5113,
+     "snapshot": 0.0012,
+     "step": 4.2199,
+     "unwire": 0.1272,
+     "vocab_check": 0.009
+    }
+   }
+  },
+  "ref_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300",
+   "repo": "/workspace/ref_repo",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 199,
+   "games_per_hour": 10854.3,
+   "server": {
+    "servers": 1,
+    "requests": 277432,
+    "batches": 6287,
+    "leaves": 277432,
+    "mean_batch": 44.127882933036425,
+    "infer_s": 136.187,
+    "window_s": 26.049,
+    "recv_s": 23.735,
+    "idle_s": 16.715,
+    "reply_s": 14.106,
+    "gpu_ms": 107443.7,
+    "stage_s": {
+     "t_decode": 17.435,
+     "t_encode": 22.611,
+     "t_finish": 19.854,
+     "t_forward": 43.731,
+     "t_priors": 21.993,
+     "t_reply": 0.147,
+     "t_wire": 7.043
+    },
+    "wall_s": 193.366,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 0,
+    "max_batch": 120,
+    "rust_stage": [
+     null
+    ],
+    "server_memory": [
+     null
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1434.75,
+   "infer_ms_per_batch": 21.662,
+   "device_ms_per_batch": 17.09,
+   "host_ms_per_batch": {
+    "t_decode": 2.773,
+    "t_encode": 3.596,
+    "t_finish": 3.158,
+    "t_forward": 6.956,
+    "t_priors": 3.498,
+    "t_reply": 0.023,
+    "t_wire": 1.12
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 277432,
+    "decision_wall_ms": 66.3727,
+    "decision_cpu_ms": 4.5256,
+    "own_wall_ms": 12.6313,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0381,
+     "bounce": 0.005,
+     "decide": 61.9459,
+     "encode_raw": 1.423,
+     "game_record": 0.0246,
+     "game_setup": 0.3094,
+     "light_encoded": 2.0468,
+     "masks": 0.0164,
+     "pack": 0.5223,
+     "round_trip": 53.7414,
+     "select": 1.2057,
+     "snapshot": 0.0011,
+     "step": 4.3439,
+     "unwire": 0.1256,
+     "vocab_check": 0.0086
+    }
+   }
+  },
+  "rust_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --rust-stage --no-server-memory --view-refresh full",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 189,
+   "games_per_hour": 11428.6,
+   "server": {
+    "servers": 1,
+    "requests": 286335,
+    "batches": 6878,
+    "leaves": 286335,
+    "mean_batch": 41.63056120965397,
+    "infer_s": 124.599,
+    "window_s": 28.374,
+    "recv_s": 25.238,
+    "idle_s": 15.231,
+    "reply_s": 14.453,
+    "gpu_ms": 116352.5,
+    "stage_s": {
+     "t_finish": 37.373,
+     "t_forward": 49.989,
+     "t_memory": 0.399,
+     "t_parse": 0.905,
+     "t_priors": 15.529,
+     "t_replies": 5.44,
+     "t_stage": 13.89
+    },
+    "wall_s": 182.997,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 120,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     false
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1564.7,
+   "infer_ms_per_batch": 18.116,
+   "device_ms_per_batch": 16.917,
+   "host_ms_per_batch": {
+    "t_finish": 5.434,
+    "t_forward": 7.268,
+    "t_memory": 0.058,
+    "t_parse": 0.132,
+    "t_priors": 2.258,
+    "t_replies": 0.791,
+    "t_stage": 2.019
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 286335,
+    "decision_wall_ms": 59.0473,
+    "decision_cpu_ms": 3.8518,
+    "own_wall_ms": 8.9838,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0408,
+     "bounce": 0.0051,
+     "decide": 54.8101,
+     "encode_raw": 1.4252,
+     "game_record": 0.0229,
+     "game_setup": 0.2818,
+     "light_encoded": 0.0054,
+     "masks": 0.0138,
+     "pack": 0.7108,
+     "round_trip": 50.0635,
+     "select": 1.4207,
+     "snapshot": 0.0012,
+     "step": 4.1551,
+     "unwire": 0.1267,
+     "vocab_check": 0.0091
+    }
+   }
+  },
+  "rust_p160x6": {
+   "jobs": 160,
+   "flags": "--worker-games 6 --min-free-mb 300 --rust-stage --no-server-memory --view-refresh full",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 800,
+   "games": 800,
+   "failed_games": 0,
+   "wall_s": 253,
+   "games_per_hour": 11383.4,
+   "server": {
+    "servers": 1,
+    "requests": 372549,
+    "batches": 6335,
+    "leaves": 372549,
+    "mean_batch": 58.80805051302289,
+    "infer_s": 161.631,
+    "window_s": 40.193,
+    "recv_s": 37.518,
+    "idle_s": 20.482,
+    "reply_s": 23.495,
+    "gpu_ms": 150412.0,
+    "stage_s": {
+     "t_finish": 71.196,
+     "t_forward": 47.392,
+     "t_memory": 0.413,
+     "t_parse": 1.054,
+     "t_priors": 14.861,
+     "t_replies": 7.926,
+     "t_stage": 17.428
+    },
+    "wall_s": 246.263,
+    "graphed": [
+     false
+    ],
+    "connections": 161,
+    "releases": 161,
+    "max_batch": 160,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     false
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1512.81,
+   "infer_ms_per_batch": 25.514,
+   "device_ms_per_batch": 23.743,
+   "host_ms_per_batch": {
+    "t_finish": 11.239,
+    "t_forward": 7.481,
+    "t_memory": 0.065,
+    "t_parse": 0.166,
+    "t_priors": 2.346,
+    "t_replies": 1.251,
+    "t_stage": 2.751
+   },
+   "failed": false,
+   "worker": {
+    "workers": 27,
+    "decisions": 372549,
+    "decision_wall_ms": 84.7113,
+    "decision_cpu_ms": 4.159,
+    "own_wall_ms": 9.1925,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0434,
+     "bounce": 0.0055,
+     "decide": 80.3376,
+     "encode_raw": 1.5501,
+     "game_record": 0.0267,
+     "game_setup": 0.3278,
+     "light_encoded": 0.0058,
+     "masks": 0.0151,
+     "pack": 0.7592,
+     "round_trip": 75.5188,
+     "select": 1.418,
+     "snapshot": 0.0012,
+     "step": 4.2815,
+     "unwire": 0.1387,
+     "vocab_check": 0.0097
+    }
+   }
+  },
+  "view_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --no-rust-stage --no-server-memory --view-refresh incremental",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 194,
+   "games_per_hour": 11134.0,
+   "server": {
+    "servers": 1,
+    "requests": 282317,
+    "batches": 6143,
+    "leaves": 282317,
+    "mean_batch": 45.95751261598568,
+    "infer_s": 135.341,
+    "window_s": 21.827,
+    "recv_s": 19.767,
+    "idle_s": 15.147,
+    "reply_s": 14.62,
+    "gpu_ms": 107312.4,
+    "stage_s": {
+     "t_decode": 17.046,
+     "t_encode": 20.599,
+     "t_finish": 28.344,
+     "t_forward": 38.426,
+     "t_priors": 20.69,
+     "t_reply": 0.133,
+     "t_wire": 7.105
+    },
+    "wall_s": 187.253,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 120,
+    "max_batch": 120,
+    "rust_stage": [
+     false
+    ],
+    "server_memory": [
+     false
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1507.68,
+   "infer_ms_per_batch": 22.032,
+   "device_ms_per_batch": 17.469,
+   "host_ms_per_batch": {
+    "t_decode": 2.775,
+    "t_encode": 3.353,
+    "t_finish": 4.614,
+    "t_forward": 6.255,
+    "t_priors": 3.368,
+    "t_reply": 0.022,
+    "t_wire": 1.157
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 282317,
+    "decision_wall_ms": 63.584,
+    "decision_cpu_ms": 2.8519,
+    "own_wall_ms": 6.5239,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0448,
+     "bounce": 0.0052,
+     "decide": 60.996,
+     "encode_raw": 1.1414,
+     "game_record": 0.0228,
+     "game_setup": 0.3144,
+     "light_encoded": 0.0052,
+     "masks": 0.0144,
+     "pack": 0.5145,
+     "round_trip": 57.0601,
+     "select": 1.1955,
+     "snapshot": 0.0011,
+     "step": 2.5035,
+     "unwire": 0.1322,
+     "vocab_check": 0.011
+    }
+   }
+  },
+  "view_p160x6": {
+   "jobs": 160,
+   "flags": "--worker-games 6 --min-free-mb 300 --no-rust-stage --no-server-memory --view-refresh incremental",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 800,
+   "games": 800,
+   "failed_games": 0,
+   "wall_s": 257,
+   "games_per_hour": 11206.2,
+   "server": {
+    "servers": 1,
+    "requests": 374531,
+    "batches": 6547,
+    "leaves": 374531,
+    "mean_batch": 57.20650679700626,
+    "infer_s": 182.015,
+    "window_s": 28.733,
+    "recv_s": 25.397,
+    "idle_s": 20.521,
+    "reply_s": 19.438,
+    "gpu_ms": 147090.1,
+    "stage_s": {
+     "t_decode": 20.614,
+     "t_encode": 23.338,
+     "t_finish": 57.906,
+     "t_forward": 42.029,
+     "t_priors": 24.813,
+     "t_reply": 0.159,
+     "t_wire": 9.5
+    },
+    "wall_s": 251.093,
+    "graphed": [
+     false
+    ],
+    "connections": 161,
+    "releases": 161,
+    "max_batch": 160,
+    "rust_stage": [
+     false
+    ],
+    "server_memory": [
+     false
+    ],
+    "memory_states": [
+     null
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ]
+   },
+   "decisions_per_s": 1491.6,
+   "infer_ms_per_batch": 27.801,
+   "device_ms_per_batch": 22.467,
+   "host_ms_per_batch": {
+    "t_decode": 3.149,
+    "t_encode": 3.565,
+    "t_finish": 8.845,
+    "t_forward": 6.42,
+    "t_priors": 3.79,
+    "t_reply": 0.024,
+    "t_wire": 1.451
+   },
+   "failed": false,
+   "worker": {
+    "workers": 27,
+    "decisions": 374531,
+    "decision_wall_ms": 84.8483,
+    "decision_cpu_ms": 2.8785,
+    "own_wall_ms": 5.8421,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0466,
+     "bounce": 0.0052,
+     "decide": 82.4719,
+     "encode_raw": 1.117,
+     "game_record": 0.0223,
+     "game_setup": 0.3362,
+     "light_encoded": 0.0055,
+     "masks": 0.0147,
+     "pack": 0.4779,
+     "round_trip": 79.0062,
+     "select": 1.0254,
+     "snapshot": 0.0012,
+     "step": 2.2827,
+     "unwire": 0.1377,
+     "vocab_check": 0.0111
+    }
+   }
+  }
+ },
+ "valid": true,
+ "base_spread": {
+  "base_1": 1.0287,
+  "base_2": 1.0097,
+  "base_3": 0.9616
+ },
+ "best": "all_p120x6",
+ "best_vs_repeat": 1.0078,
+ "failed_arms": [],
+ "against_base": {
+  "all_p120x6": {
+   "decisions_per_s": 2.7791,
+   "games_per_hour": 2.7875
+  },
+  "all_p160x6": {
+   "decisions_per_s": 2.7023,
+   "games_per_hour": 2.6718
+  },
+  "base_1": {
+   "decisions_per_s": 1.0287,
+   "games_per_hour": 1.0395
+  },
+  "base_2": {
+   "decisions_per_s": 1.0097,
+   "games_per_hour": 1.0235
+  },
+  "base_3": {
+   "decisions_per_s": 0.9616,
+   "games_per_hour": 0.937
+  },
+  "best_repeat": {
+   "decisions_per_s": 2.8008,
+   "games_per_hour": 2.7567
+  },
+  "graphed_best": {
+   "decisions_per_s": 2.3757,
+   "games_per_hour": 2.4339
+  },
+  "memory_p120x6": {
+   "decisions_per_s": 2.6973,
+   "games_per_hour": 2.6682
+  },
+  "memory_p160x6": {
+   "decisions_per_s": 2.7399,
+   "games_per_hour": 2.7953
+  },
+  "off_p120x6": {
+   "decisions_per_s": 2.4919,
+   "games_per_hour": 2.4824
+  },
+  "ref_p120x6": {
+   "decisions_per_s": 2.4729,
+   "games_per_hour": 2.5073
+  },
+  "rust_p120x6": {
+   "decisions_per_s": 2.6969,
+   "games_per_hour": 2.64
+  },
+  "rust_p160x6": {
+   "decisions_per_s": 2.6074,
+   "games_per_hour": 2.6295
+  },
+  "view_p120x6": {
+   "decisions_per_s": 2.5986,
+   "games_per_hour": 2.5719
+  },
+  "view_p160x6": {
+   "decisions_per_s": 2.5709,
+   "games_per_hour": 2.5886
+  }
+ },
+ "against_ref": {
+  "all_p120x6": {
+   "decisions_per_s": 1.1238,
+   "games_per_hour": 1.1117,
+   "infer_ms_per_batch": 1.0318
+  },
+  "all_p160x6": {
+   "decisions_per_s": 1.0928,
+   "games_per_hour": 1.0656,
+   "infer_ms_per_batch": 1.3331
+  },
+  "best_repeat": {
+   "decisions_per_s": 1.1326,
+   "games_per_hour": 1.0994,
+   "infer_ms_per_batch": 1.0355
+  },
+  "graphed_best": {
+   "decisions_per_s": 0.9607,
+   "games_per_hour": 0.9707,
+   "infer_ms_per_batch": 1.3207
+  },
+  "memory_p120x6": {
+   "decisions_per_s": 1.0907,
+   "games_per_hour": 1.0642,
+   "infer_ms_per_batch": 1.023
+  },
+  "memory_p160x6": {
+   "decisions_per_s": 1.108,
+   "games_per_hour": 1.1148,
+   "infer_ms_per_batch": 1.4112
+  },
+  "off_p120x6": {
+   "decisions_per_s": 1.0077,
+   "games_per_hour": 0.9901,
+   "infer_ms_per_batch": 1.0067
+  },
+  "ref_p120x6": {
+   "decisions_per_s": 1.0,
+   "games_per_hour": 1.0,
+   "infer_ms_per_batch": 1.0
+  },
+  "rust_p120x6": {
+   "decisions_per_s": 1.0906,
+   "games_per_hour": 1.0529,
+   "infer_ms_per_batch": 0.8363
+  },
+  "rust_p160x6": {
+   "decisions_per_s": 1.0544,
+   "games_per_hour": 1.0487,
+   "infer_ms_per_batch": 1.1778
+  },
+  "view_p120x6": {
+   "decisions_per_s": 1.0508,
+   "games_per_hour": 1.0258,
+   "infer_ms_per_batch": 1.0171
+  },
+  "view_p160x6": {
+   "decisions_per_s": 1.0396,
+   "games_per_hour": 1.0324,
+   "infer_ms_per_batch": 1.2834
+  }
+ }
+}

@@ -1,0 +1,113 @@
+{
+ "pass": true,
+ "checks": {
+  "preflight fit": true,
+  "every batch graphed": true,
+  "legal sets equal": true,
+  "argmax agreement": true,
+  "value": true,
+  "memory": true
+ },
+ "totals": {
+  "leaves": 1553,
+  "same_legal": 1553,
+  "same_argmax": 1553
+ },
+ "worst": {
+  "max_prior_diff": 0.01534337015351106,
+  "max_value_diff": 0.0049971044063568115,
+  "max_memory_diff": 0.030373185873031616
+ },
+ "argmax_agreement": 1.0,
+ "timing": [
+  {
+   "batch": 1,
+   "eager_ms": 7.143,
+   "graphed_ms": 1.912
+  },
+  {
+   "batch": 4,
+   "eager_ms": 7.359,
+   "graphed_ms": 2.029
+  },
+  {
+   "batch": 9,
+   "eager_ms": 7.61,
+   "graphed_ms": 2.925
+  },
+  {
+   "batch": 16,
+   "eager_ms": 8.158,
+   "graphed_ms": 4.57
+  },
+  {
+   "batch": 20,
+   "eager_ms": 8.371,
+   "graphed_ms": 6.214
+  },
+  {
+   "batch": 32,
+   "eager_ms": 8.876,
+   "graphed_ms": 9.528
+  },
+  {
+   "batch": 40,
+   "eager_ms": 12.389,
+   "graphed_ms": 13.27
+  },
+  {
+   "batch": 60,
+   "eager_ms": 17.006,
+   "graphed_ms": 24.96
+  },
+  {
+   "batch": 80,
+   "eager_ms": 23.074,
+   "graphed_ms": 31.254
+  },
+  {
+   "batch": 160,
+   "eager_ms": 50.942,
+   "graphed_ms": 64.667
+  }
+ ],
+ "graphed_serve": {
+  "graphs": true,
+  "served": 549,
+  "fallbacks": {},
+  "disabled": null,
+  "preflight": {
+   "bucket": "160x128x2048x81920",
+   "tokens": 81866,
+   "ok": true,
+   "seconds": 0.91,
+   "pool_mb": 5028,
+   "available_mb": 23233
+  },
+  "capture_failures": [],
+  "max_memory_reserved_mb": 7984,
+  "capture_s": 2.64,
+  "buckets": {
+   "160x128x2048x81920": 1,
+   "8x64x512x1024": 238,
+   "8x64x512x2048": 22,
+   "16x64x512x2048": 31,
+   "16x64x512x4096": 7,
+   "16x64x512x3072": 12,
+   "16x64x512x5120": 36,
+   "16x64x512x6144": 1,
+   "24x64x512x6144": 36,
+   "24x64x512x5120": 2,
+   "32x64x512x10240": 34,
+   "32x64x512x8192": 1,
+   "48x64x512x12288": 34,
+   "64x64x512x20480": 31,
+   "64x64x512x16384": 1,
+   "96x64x512x24576": 32,
+   "160x64x512x49152": 31
+  }
+ },
+ "positions": 160,
+ "memory_slots": 64,
+ "device": "cuda"
+}

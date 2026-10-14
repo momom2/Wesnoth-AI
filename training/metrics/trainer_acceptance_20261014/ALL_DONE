@@ -1,0 +1,1 @@
+2026-10-14T18:53:13Z TRAINER_ACCEPTANCE_DONE {"pass": {"B": true, "B64": false, "BHALF": false}, "not_worse": {"B": true, "B64": false, "BHALF": false}, "positions_per_second": {"A": 279.1, "B": 794.0, "A2": 281.2, "B64": 764.5, "BHALF": 1023.0}}; cuda tests: 2 failed 22 passed ; left out: none

@@ -102,6 +102,16 @@ $1.47 in all):
   3,730-3,810): 2.9x. The server's host stages still take about 11.7 of a
   batch's 18.5 ms (decode 2.3, encode 3.1, priors 3.6, finish 1.7, wire
   1.0, the forward 6.4); the graphed path loses at depth (its encode 20 ms).
+  **Round 4 measured 2026-10-14** (`feature/generation-speed-4`,
+  `training/metrics/generation_speed_r4_20261014/`): the server's host work
+  in Rust, each game's memory kept on the server, the view refreshed in
+  place: 1,612-1,625 decisions a second and 11,934-12,067 games an hour
+  (round 3's code 1,435 on the same box, main 558-597): the GPU is busy 78%
+  of the server's wall, so generation is now device-bound; eager inference
+  runs at about 26 TFLOP/s against the trainer's 124. **The trainer's
+  configuration B is accepted** (docs/trainer_acceptance_prereg_20261014.md
+  "Measured"): packed, kept, columns, batched, compiled; fp8 failed its
+  gradient gate; 64 streams and half the windows are not adopted.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

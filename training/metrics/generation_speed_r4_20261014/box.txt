@@ -1,0 +1,16 @@
+stage tier-b/staging/stage_20261014_gen_speed4c.tar.gz
+instance 55963360, host 3a6996f158e5
+cores(all) 128, usable 31
+model name	: AMD EPYC 7B13 64-Core Processor
+cpu.max 3071999 100000
+pids.max 7680
+               total        used        free      shared  buff/cache   available
+Mem:          257560       35373      138180        8844       84006      211095
+overlay          60G  1.4G   59G   3% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 595.58.03
+torch 2.5.1+cu124 cuda True
+code 0.21.1 epoch 11
+wheel phase 34, source phase 34
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 34 | source 34 | adapter 34 | current
