@@ -145,6 +145,7 @@ for spec in "${DEEP_160[@]}"; do ARMS="$ARMS ${spec%% *}"; done
 ARMS="$ARMS graphed_best base_3 best_repeat"
 # ---- the arm list (end)
 
+# shellcheck disable=SC2317 # called through box_notes, by the library
 notes() {                        # what is done, for the finish reason
     local name done_=()
     for name in $ARMS; do
