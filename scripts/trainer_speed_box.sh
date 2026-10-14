@@ -16,7 +16,7 @@
 #     CUDA tests (tests/test_trainer_speed_cuda.py, tests/test_trunk_modes_cuda.py)
 #     are recorded in cuda_tests.log, with what they print (whether the fused
 #     ReLU's GEMM is the plain linear's to the bit), and named in the finish line;
-#   the trainer's inputs (scripts/box/trainer_inputs.sh: own1, the corpus at
+#   the trainer's inputs (scripts/trainer_inputs.sh: own1, the corpus at
 #     version 5 and its sequences, round 2's own sequences from HF, the columns);
 #   the gradient check (gradcheck.json): every candidate against the reference
 #     flags, FASTEST, from the same weights at rate 0 over 3 windows, a crash
@@ -73,8 +73,6 @@ OUT=$WORKDIR/trainer_speed
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
-# shellcheck source=box/trainer_inputs.sh
-. "${BOX_LIB:-$WORKDIR/box}/trainer_inputs.sh" || { echo "no trainer_inputs.sh beside the box library"; exit 1; }
 
 notes() {                        # what is done, for the finish reason
     local done_=()
@@ -96,6 +94,8 @@ box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed
 # ---- the code and the Rust wheel
 box_stage_code || box_finish "CODE_STAGING_FAILED (staging.log)" 1
 cd "$BOX_REPO" || box_finish "CODE_STAGING_FAILED (no $BOX_REPO)" 1
+# shellcheck source=trainer_inputs.sh
+. "$BOX_REPO/scripts/trainer_inputs.sh" || box_finish "CODE_STAGING_FAILED (no scripts/trainer_inputs.sh)" 1
 box_build_wheel || box_finish "BUILD_FAILED (build.log)" 1
 box_facts > "$OUT/box.txt.tmp" 2>&1
 mv -f "$OUT/box.txt.tmp" "$OUT/box.txt"

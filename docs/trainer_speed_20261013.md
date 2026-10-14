@@ -412,7 +412,7 @@ memory, a compile error) is recorded and leaves the later rounds; the
 others go on.
 
 The script: the CPU tests gate, the CUDA tests are recorded; the inputs
-(scripts/box/trainer_inputs.sh, shared with the acceptance script); the
+(scripts/trainer_inputs.sh, shared with the acceptance script); the
 gradient check of the five candidates (bf16, relu, compiled, bf16_relu,
 bf16_compiled) against main's fastest flags (the packed trunk, round 1's
 budget, the columns, the batched window), each its own crash barrier; the

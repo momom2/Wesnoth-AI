@@ -27,7 +27,7 @@
 # the passes.
 #
 # One code stage, STAGE (tools/stage_code.py --script scripts/trainer_acceptance_box.sh).
-# The trainer's inputs come from scripts/box/trainer_inputs.sh (own1, the
+# The trainer's inputs come from scripts/trainer_inputs.sh (own1, the
 # corpus at version 5 and its sequences, round 2's own sequences from HF's
 # cache, the columns); a box that ran scripts/trainer_speed_box.sh from the
 # same stage has them already.
@@ -68,8 +68,6 @@ OUT=$WORKDIR/trainer_acceptance
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
-# shellcheck source=box/trainer_inputs.sh
-. "${BOX_LIB:-$WORKDIR/box}/trainer_inputs.sh" || { echo "no trainer_inputs.sh beside the box library"; exit 1; }
 PASSES="A B A2"
 
 notes() {                        # what is done, for the finish reason
@@ -98,6 +96,8 @@ done
 # ---- the code and the Rust wheel
 box_stage_code || box_finish "CODE_STAGING_FAILED (staging.log)" 1
 cd "$BOX_REPO" || box_finish "CODE_STAGING_FAILED (no $BOX_REPO)" 1
+# shellcheck source=trainer_inputs.sh
+. "$BOX_REPO/scripts/trainer_inputs.sh" || box_finish "CODE_STAGING_FAILED (no scripts/trainer_inputs.sh)" 1
 box_build_wheel || box_finish "BUILD_FAILED (build.log)" 1
 box_facts > "$OUT/box.txt.tmp" 2>&1
 mv -f "$OUT/box.txt.tmp" "$OUT/box.txt"

@@ -2,8 +2,10 @@
 # trainer_inputs.sh: the sequence trainer's inputs on a box, for the scripts
 # that time or train it from own1 under round 2's preset
 # (scripts/trainer_speed_box.sh, scripts/trainer_acceptance_box.sh). Sourced
-# after boxlib.sh and box_init; `trainer_inputs` brings up, each step once per
-# code stage on the machine (re-entry skips what is done):
+# from the code stage after box_init and box_stage_code (it is not part of the
+# box library, which box_onstart.sh fetches before the stage); `trainer_inputs`
+# brings up, each step once per code stage on the machine (re-entry skips what
+# is done):
 #   own1 from HF, its SHA-256 checked (INIT_HF, INIT_SHA256 -> INIT_PT);
 #   the corpus rebuilt at version 5 from RAW_TAR (CORPUS) and pre-encoded with
 #     own1's vocabularies (SEQ);
