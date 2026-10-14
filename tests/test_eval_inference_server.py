@@ -5,6 +5,7 @@ shared-inference games with per-process games."""
 from __future__ import annotations
 
 import json
+import struct
 import sys
 import threading
 from multiprocessing.connection import Client, Listener
@@ -19,24 +20,40 @@ from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 
 def _service(window_s: float, max_batch: int, poison=None, health=None):
-    """An in-process service over a fake model: each payload is a
-    one-element list, its reply the element doubled; the batch sizes
-    it saw are the coalescer's record. A payload holding `poison`
-    makes the forward raise; `health` is the device probe."""
-    from tools.eval_inference_server import InferenceService
+    """An in-process service over a fake model: each request carries one
+    int64, its reply the value doubled; the batch sizes it saw are the
+    coalescer's record. A request holding `poison` makes the forward
+    raise; `health` is the device probe."""
+    from tools.serve_loop import REQUEST_HEAD_BYTES, InferenceService, ok_message
     seen = []
 
-    def infer(payloads, stats=None):
-        seen.append(sum(len(p) for p in payloads))
-        if poison is not None and any(poison in p for p in payloads):
+    def infer(requests, stats=None):
+        seen.append(sum(r.leaves for r in requests))
+        values = [struct.unpack_from("<q", r.message, REQUEST_HEAD_BYTES)[0] for r in requests]
+        if poison is not None and poison in values:
             raise ValueError(f"poisoned position {poison}")
-        return [[2 * p[0]] for p in payloads]
+        return [ok_message(r.rid, struct.pack("<q", 2 * v)) for r, v in zip(requests, values)]
 
     listener = Listener()
     svc = InferenceService(listener, infer, {"hello": True},
                            window_s=window_s, max_batch=max_batch, health_fn=health)
     svc.start()
     return svc, listener.address, seen
+
+
+def _request(v: int) -> bytes:
+    """A one-leaf request of id `v` carrying `v`."""
+    from tools.serve_loop import KIND_INFER
+    return struct.pack("<qqqq", KIND_INFER, v, 1, v)
+
+
+def _reply(message):
+    """(rid, [value]) for an answer, (rid, None, error text) for a failure."""
+    from tools.serve_loop import REPLY_HEAD_BYTES, STATUS_OK, error_text, reply_head
+    rid, status = reply_head(message)
+    if status == STATUS_OK:
+        return rid, [struct.unpack_from("<q", message, REPLY_HEAD_BYTES)[0]]
+    return rid, None, error_text(message)
 
 
 def _send_together(address: str, values):
@@ -48,8 +65,8 @@ def _send_together(address: str, values):
 
     def go(conn, v):
         barrier.wait()
-        conn.send(("infer", v, [v]))
-        replies[v] = conn.recv()
+        conn.send_bytes(_request(v))
+        replies[v] = _reply(conn.recv_bytes())
 
     threads = [threading.Thread(target=go, args=(c, v)) for c, v in zip(conns, values)]
     for t in threads:
@@ -67,15 +84,15 @@ def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
     at every reply the serve thread sends, one request per batch."""
     from multiprocessing.connection import _ConnectionBase
     counted_at_send = []
-    real_send = _ConnectionBase.send
+    real_send = _ConnectionBase.send_bytes
     box = {}
 
-    def send(self, obj):
+    def send_bytes(self, buf, *a, **k):
         if threading.current_thread().name == "infer-serve":
             counted_at_send.append(box["svc"].stats.requests)
-        return real_send(self, obj)
+        return real_send(self, buf, *a, **k)
 
-    monkeypatch.setattr(_ConnectionBase, "send", send)
+    monkeypatch.setattr(_ConnectionBase, "send_bytes", send_bytes)
     svc, address, _seen = _service(window_s=0.0, max_batch=1)
     box["svc"] = svc
     try:
@@ -87,13 +104,14 @@ def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
 
 
 def test_coalescer_window_and_max_batch():
+    from tools.serve_loop import HELLO_MESSAGE
     svc, address, seen = _service(window_s=0.25, max_batch=3)
     try:
         c = Client(address)
-        c.send(("hello",))
+        c.send_bytes(HELLO_MESSAGE)
         assert c.recv() == {"hello": True}
-        c.send(("infer", 7, [5]))
-        assert c.recv() == (7, [10])
+        c.send_bytes(_request(7))
+        assert _reply(c.recv_bytes()) == (7, [14])
         c.close()
         assert seen == [1]
         # Three at once inside the window: one batch of three.
@@ -108,6 +126,20 @@ def test_coalescer_window_and_max_batch():
         st = svc.stats.as_dict()
         assert st["requests"] == 9 and st["leaves"] == 9
         assert st["batches"] == len(seen) and st["mean_batch"] == pytest.approx(9 / len(seen))
+        assert st["connections"] == 9
+    finally:
+        svc.stop()
+
+
+def test_a_closed_connection_leaves_the_others_served():
+    """A client that goes away (a worker killed mid-game) is dropped; the
+    games on the other connections keep being answered."""
+    svc, address, _seen = _service(window_s=0.0, max_batch=8)
+    try:
+        gone = Client(address)
+        gone.send_bytes(_request(4))
+        gone.close()
+        assert _send_together(address, [5, 6]) == {5: (5, [10]), 6: (6, [12])}
     finally:
         svc.stop()
 

@@ -1,0 +1,1396 @@
+{
+"_comment": "tests/helpers/trajectory_digest.py: per decision [encoding, view, action, state key after the step] of a random legal player game, as the code of 2026-10-14 (main 0.21.1, core phase 32) played it.",
+"decisions": 120,
+"games": {
+"3": [
+[
+"375d193f74307e02",
+"617a3303523736cd",
+"[('target_hex', 'Position(x=11, y=5)'), ('type', \"'recruit'\"), ('unit_type', \"'Wose'\")]",
+"-2906323356662039931"
+],
+[
+"29e94c25735d2ff0",
+"79748b11bebee9f5",
+"[('target_hex', 'Position(x=15, y=3)'), ('type', \"'recruit'\"), ('unit_type', \"'Merman Hunter'\")]",
+"-2098047844490963856"
+],
+[
+"250710ec93633464",
+"948b4c54ca183faa",
+"[('target_hex', 'Position(x=16, y=4)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
+"-7963772087805550586"
+],
+[
+"1c161d597ed44d90",
+"23848c56c309098a",
+"[('target_hex', 'Position(x=13, y=4)'), ('type', \"'recruit'\"), ('unit_type', \"'Wose'\")]",
+"-825224688601634500"
+],
+[
+"a25ceeb349e5163c",
+"1227b21e6fea25c6",
+"[('target_hex', 'Position(x=12, y=5)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Archer'\")]",
+"-622838974420157594"
+],
+[
+"2f74bb07abed25d8",
+"355bfe0802c42443",
+"[('target_hex', 'Position(x=14, y=4)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
+"-7188444056399315116"
+],
+[
+"a5f785573369aa36",
+"ee8a1d7706824cd8",
+"[('type', \"'end_turn'\")]",
+"2085525686970486336"
+],
+[
+"7fa1550c3873e48e",
+"527050d0fb0fc125",
+"[('target_hex', 'Position(x=13, y=23)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Scout'\")]",
+"972202824657489167"
+],
+[
+"7a05efda3cbdb90d",
+"84591fcaac4907f0",
+"[('target_hex', 'Position(x=12, y=24)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Archer'\")]",
+"5978087780070929453"
+],
+[
+"ada786748941594d",
+"f9b89e238b1b347f",
+"[('target_hex', 'Position(x=15, y=22)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Archer'\")]",
+"-4433966435031148718"
+],
+[
+"59cf6bfb02095cd0",
+"bb76fb70783249e7",
+"[('target_hex', 'Position(x=10, y=24)'), ('type', \"'recruit'\"), ('unit_type', \"'Wose'\")]",
+"-1028128215946994448"
+],
+[
+"6b00450da03120ca",
+"05a60bd5dff4238f",
+"[('target_hex', 'Position(x=14, y=23)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
+"3490120581845018170"
+],
+[
+"f28b661349ef4f88",
+"fe7a80b9b79df1ca",
+"[('target_hex', 'Position(x=11, y=24)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
+"-5848861627655872034"
+],
+[
+"7d83815f1c37cf30",
+"66a92f7c07f900a7",
+"[('type', \"'end_turn'\")]",
+"2336004211292515746"
+],
+[
+"cce99bffcfa9ffca",
+"7cd330210d3099b3",
+"[('type', \"'end_turn'\")]",
+"6030749190461225365"
+],
+[
+"bfb43e9f763b6bb2",
+"1729c74032242c00",
+"[('start_hex', 'Position(x=13, y=23)'), ('target_hex', 'Position(x=14, y=16)'), ('type', \"'move'\")]",
+"7995112566356441803"
+],
+[
+"f6dccd6f35c40cf8",
+"16b0215a5a2cedaf",
+"[('start_hex', 'Position(x=15, y=22)'), ('target_hex', 'Position(x=14, y=17)'), ('type', \"'move'\")]",
+"-2229923395069214256"
+],
+[
+"f9e9056f9ac33ad4",
+"adea0df31a5c1abb",
+"[('start_hex', 'Position(x=12, y=24)'), ('target_hex', 'Position(x=12, y=18)'), ('type', \"'move'\")]",
+"-2958156728338393283"
+],
+[
+"20890900f7780f67",
+"945ffd915c4b0c86",
+"[('start_hex', 'Position(x=14, y=23)'), ('target_hex', 'Position(x=14, y=19)'), ('type', \"'move'\")]",
+"2571224636048846709"
+],
+[
+"91bcb3b5f4a22230",
+"a2eb2eec7272db35",
+"[('start_hex', 'Position(x=12, y=18)'), ('target_hex', 'Position(x=11, y=18)'), ('type', \"'move'\")]",
+"-5275326948733491112"
+],
+[
+"7f6b16d8f2c933fc",
+"4c48d2eb1e9f4233",
+"[('start_hex', 'Position(x=14, y=19)'), ('target_hex', 'Position(x=15, y=18)'), ('type', \"'move'\")]",
+"-5780464728442726289"
+],
+[
+"cedce79e8db4f0bf",
+"bc86ea73249e7b4f",
+"[('start_hex', 'Position(x=11, y=24)'), ('target_hex', 'Position(x=13, y=20)'), ('type', \"'move'\")]",
+"-618768902626317581"
+],
+[
+"3eea677c230ad720",
+"73c0dbf53d9bfbb5",
+"[('start_hex', 'Position(x=10, y=24)'), ('target_hex', 'Position(x=12, y=21)'), ('type', \"'move'\")]",
+"207021369037669558"
+],
+[
+"d2f4365932c87544",
+"63e3fca5c9bdacb6",
+"[('type', \"'end_turn'\")]",
+"-2195564319645523466"
+],
+[
+"d221764b5e8854a7",
+"4f5ef1e76d4526cc",
+"[('start_hex', 'Position(x=14, y=4)'), ('target_hex', 'Position(x=14, y=10)'), ('type', \"'move'\")]",
+"4170070807877089334"
+],
+[
+"f194772845375f00",
+"b2fe64971bfacde8",
+"[('start_hex', 'Position(x=12, y=5)'), ('target_hex', 'Position(x=12, y=10)'), ('type', \"'move'\")]",
+"5838421968177167910"
+],
+[
+"5f37e63d7773cbcd",
+"a522a7705dbe1808",
+"[('start_hex', 'Position(x=16, y=4)'), ('target_hex', 'Position(x=14, y=3)'), ('type', \"'move'\")]",
+"2975566985795659815"
+],
+[
+"d77a547fe8283ac4",
+"f1ac2eb164d072a8",
+"[('start_hex', 'Position(x=11, y=5)'), ('target_hex', 'Position(x=12, y=9)'), ('type', \"'move'\")]",
+"912745782256688483"
+],
+[
+"2f5a00cedc907b73",
+"b7ad6aec7b4d2e64",
+"[('start_hex', 'Position(x=13, y=4)'), ('target_hex', 'Position(x=13, y=8)'), ('type', \"'move'\")]",
+"-3392150887762474930"
+],
+[
+"e60786ae8dcf552d",
+"85e35a7a33f56313",
+"[('start_hex', 'Position(x=15, y=3)'), ('target_hex', 'Position(x=14, y=8)'), ('type', \"'move'\")]",
+"-526015920405991579"
+],
+[
+"d688d143e55f7f0e",
+"8cf0c1b6b89b2ae9",
+"[('start_hex', 'Position(x=14, y=3)'), ('target_hex', 'Position(x=11, y=4)'), ('type', \"'move'\")]",
+"8144555034940352819"
+],
+[
+"d9fa81d47b99bd77",
+"a453963538f5759b",
+"[('type', \"'end_turn'\")]",
+"-5326199922892568635"
+],
+[
+"eb962eccfe5a4b87",
+"3c18258b72c41151",
+"[('start_hex', 'Position(x=14, y=16)'), ('target_hex', 'Position(x=16, y=8)'), ('type', \"'move'\")]",
+"-8368526926463711657"
+],
+[
+"7dd04d3ceb9712f1",
+"af7f8da202cbf912",
+"[('attack_index', '0'), ('start_hex', 'Position(x=14, y=17)'), ('target_hex', 'Position(x=12, y=10)'), ('type', \"'attack'\")]",
+"2679716362795465497"
+],
+[
+"e6bddb566d4fd51d",
+"a78a9f882f1b2a56",
+"[('start_hex', 'Position(x=13, y=20)'), ('target_hex', 'Position(x=16, y=24)'), ('type', \"'move'\")]",
+"829609071933331477"
+],
+[
+"9fc5b602a67b3c4c",
+"86c9ba4451b18792",
+"[('start_hex', 'Position(x=11, y=18)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'move'\")]",
+"-1216817627884290826"
+],
+[
+"333d05a76606fe6b",
+"9f1c5a56e40bbaa6",
+"[('start_hex', 'Position(x=15, y=18)'), ('target_hex', 'Position(x=14, y=15)'), ('type', \"'move'\")]",
+"-651218723267939814"
+],
+[
+"fac95b242febfaaa",
+"ff5b56030350cf4d",
+"[('start_hex', 'Position(x=12, y=21)'), ('target_hex', 'Position(x=9, y=23)'), ('type', \"'move'\")]",
+"7371892770713545018"
+],
+[
+"75b5d41598f33438",
+"a837ff55075a08c1",
+"[('type', \"'end_turn'\")]",
+"8515774910003234291"
+],
+[
+"a80952bd83a107dd",
+"583efe0b1bda5b3c",
+"[('start_hex', 'Position(x=14, y=10)'), ('target_hex', 'Position(x=15, y=14)'), ('type', \"'move'\")]",
+"-596405795306612224"
+],
+[
+"2cc7df038e4e167a",
+"d2edb7bb4176046a",
+"[('attack_index', '1'), ('start_hex', 'Position(x=13, y=3)'), ('target_hex', 'Position(x=16, y=8)'), ('type', \"'attack'\")]",
+"-1396373752404807677"
+],
+[
+"2c61b21749b3d5bd",
+"ae3fac1a1b7faed6",
+"[('attack_index', '1'), ('start_hex', 'Position(x=12, y=10)'), ('target_hex', 'Position(x=16, y=8)'), ('type', \"'attack'\")]",
+"2021329081199100053"
+],
+[
+"d8d531fd85792366",
+"af4792be016edb31",
+"[('start_hex', 'Position(x=12, y=9)'), ('target_hex', 'Position(x=9, y=8)'), ('type', \"'move'\")]",
+"-8221577558976811344"
+],
+[
+"0b8c0130d628d647",
+"5a3e6fa1b9c68234",
+"[('attack_index', '0'), ('start_hex', 'Position(x=14, y=8)'), ('target_hex', 'Position(x=16, y=8)'), ('type', \"'attack'\")]",
+"7213745503795436122"
+],
+[
+"db62858d9fb5a7a4",
+"e58ab8eb3a00094d",
+"[('attack_index', '0'), ('start_hex', 'Position(x=13, y=8)'), ('target_hex', 'Position(x=12, y=11)'), ('type', \"'attack'\")]",
+"-8247983206313831748"
+],
+[
+"e601a1a44bc44b19",
+"3dd87e6cc1db9653",
+"[('attack_index', '1'), ('start_hex', 'Position(x=15, y=14)'), ('target_hex', 'Position(x=14, y=15)'), ('type', \"'attack'\")]",
+"-7561009331098284022"
+],
+[
+"5aa5b9126c0c1ef9",
+"df6fe6a5aa33e113",
+"[('start_hex', 'Position(x=11, y=4)'), ('target_hex', 'Position(x=13, y=8)'), ('type', \"'move'\")]",
+"-9012434114644583371"
+],
+[
+"9273a94347e96b7c",
+"a989caef3ac8722f",
+"[('start_hex', 'Position(x=9, y=8)'), ('target_hex', 'Position(x=10, y=9)'), ('type', \"'move'\")]",
+"-3728630222093375702"
+],
+[
+"8ccc425ac8760426",
+"fdf56475f08ad5d3",
+"[('type', \"'end_turn'\")]",
+"4243571881006138874"
+],
+[
+"a661ec850de63e06",
+"aed0cb12a5ed9a3c",
+"[('attack_index', '0'), ('start_hex', 'Position(x=12, y=11)'), ('target_hex', 'Position(x=15, y=14)'), ('type', \"'attack'\")]",
+"5024691512489453156"
+],
+[
+"91241c9f66aec931",
+"36a9ca707544c835",
+"[('start_hex', 'Position(x=12, y=13)'), ('target_hex', 'Position(x=17, y=9)'), ('type', \"'move'\")]",
+"4962634565290188919"
+],
+[
+"4180b4fc9cb6c910",
+"916285315e269983",
+"[('start_hex', 'Position(x=14, y=15)'), ('target_hex', 'Position(x=15, y=11)'), ('type', \"'move'\")]",
+"-3981341712051769448"
+],
+[
+"0a2da1c97fc749d0",
+"074a01cfaf1af415",
+"[('attack_index', '1'), ('start_hex', 'Position(x=17, y=9)'), ('target_hex', 'Position(x=16, y=9)'), ('type', \"'attack'\")]",
+"-7379550755518668313"
+],
+[
+"ddbc8daeb636308e",
+"946966c5ab444b1d",
+"[('start_hex', 'Position(x=9, y=23)'), ('target_hex', 'Position(x=6, y=22)'), ('type', \"'move'\")]",
+"-6706099302157305971"
+],
+[
+"606b9c9058621e80",
+"fed61d3ab7f342fd",
+"[('start_hex', 'Position(x=16, y=24)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'move'\")]",
+"-7714035708467431987"
+],
+[
+"ff85fe5cdac6a242",
+"f67cf14975ad655a",
+"[('type', \"'end_turn'\")]",
+"8810919085318227273"
+],
+[
+"6d23e5e5d29fb21d",
+"c6bc23b42c4232ff",
+"[('start_hex', 'Position(x=15, y=8)'), ('target_hex', 'Position(x=17, y=3)'), ('type', \"'move'\")]",
+"-9060396250783229642"
+],
+[
+"713f96d40a8c2c3d",
+"4b6145f0eb2ec771",
+"[('attack_index', '0'), ('start_hex', 'Position(x=15, y=14)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'attack'\")]",
+"-957342158927166826"
+],
+[
+"82192948efa0aff7",
+"8c95b3e545efcb7c",
+"[('attack_index', '1'), ('start_hex', 'Position(x=13, y=8)'), ('target_hex', 'Position(x=17, y=9)'), ('type', \"'attack'\")]",
+"6853210494257515279"
+],
+[
+"a4009cc6531fba59",
+"bb46d4889658fcb7",
+"[('attack_index', '0'), ('start_hex', 'Position(x=12, y=10)'), ('target_hex', 'Position(x=14, y=14)'), ('type', \"'attack'\")]",
+"-7189928933615801348"
+],
+[
+"5eedcdb5c7858886",
+"c1f2d88679ee7885",
+"[('attack_index', '1'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=17, y=9)'), ('type', \"'attack'\")]",
+"-8184492746288202461"
+],
+[
+"6e4587d2565ffe86",
+"5d4a59657fe39a92",
+"[('attack_index', '1'), ('start_hex', 'Position(x=15, y=7)'), ('target_hex', 'Position(x=15, y=11)'), ('type', \"'attack'\")]",
+"-5018901407325699913"
+],
+[
+"60a196289fa8d508",
+"adac5fc4a54ad3d0",
+"[('start_hex', 'Position(x=10, y=9)'), ('target_hex', 'Position(x=11, y=11)'), ('type', \"'move'\")]",
+"-2125912762540927257"
+],
+[
+"195a5623e043e651",
+"ea7e20616a091df3",
+"[('type', \"'end_turn'\")]",
+"-1622503310820782274"
+],
+[
+"d9154b9e03d960c2",
+"f79ac2f993bbb4c7",
+"[('attack_index', '1'), ('start_hex', 'Position(x=17, y=9)'), ('target_hex', 'Position(x=15, y=10)'), ('type', \"'attack'\")]",
+"-1281822666277855261"
+],
+[
+"01b01c0f0796c322",
+"6f1f9d2e63ffe495",
+"[('attack_index', '0'), ('start_hex', 'Position(x=14, y=14)'), ('target_hex', 'Position(x=16, y=10)'), ('type', \"'attack'\")]",
+"-514594117546945726"
+],
+[
+"73d4c9df89710185",
+"3c62af1a1b5e5ad6",
+"[('start_hex', 'Position(x=15, y=11)'), ('target_hex', 'Position(x=14, y=11)'), ('type', \"'move'\")]",
+"5332408041144720641"
+],
+[
+"cc0288753ab6e2c8",
+"95237483ae20add7",
+"[('attack_index', '0'), ('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=17, y=18)'), ('type', \"'attack'\")]",
+"-350928468920488832"
+],
+[
+"f918d38dbb86243f",
+"ee6286f39887b6d5",
+"[('start_hex', 'Position(x=6, y=22)'), ('target_hex', 'Position(x=10, y=20)'), ('type', \"'move'\")]",
+"5655089011271954529"
+],
+[
+"6d9c10e92897c319",
+"d727040047302cca",
+"[('attack_index', '1'), ('start_hex', 'Position(x=14, y=11)'), ('target_hex', 'Position(x=15, y=10)'), ('type', \"'attack'\")]",
+"-2851963834038194388"
+],
+[
+"0510a462d54a9046",
+"da623bc8578850af",
+"[('type', \"'end_turn'\")]",
+"3340832138060840879"
+],
+[
+"84a2cff70bda309d",
+"e3208dc6772453ac",
+"[('start_hex', 'Position(x=13, y=13)'), ('target_hex', 'Position(x=14, y=17)'), ('type', \"'move'\")]",
+"-8376600869041557969"
+],
+[
+"2e81d4e7c1a17442",
+"279ac1250fe14841",
+"[('attack_index', '1'), ('start_hex', 'Position(x=16, y=10)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'attack'\")]",
+"-6624388601471193707"
+],
+[
+"0c3fcc1c6a264cbf",
+"e732016dfbf45ec6",
+"[('type', \"'end_turn'\")]",
+"-2513565000603998811"
+],
+[
+"1f22de2b53549349",
+"eecf488584fa0d3f",
+"[('target_hex', 'Position(x=13, y=23)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
+"7431270741514716224"
+],
+[
+"dc50fd55f9e43420",
+"7d451d42f21707d1",
+"[('attack_index', '1'), ('start_hex', 'Position(x=14, y=11)'), ('target_hex', 'Position(x=11, y=11)'), ('type', \"'attack'\")]",
+"-7362585476662735074"
+],
+[
+"aea013168b4f9780",
+"d2901ecaa18f7628",
+"[('start_hex', 'Position(x=17, y=10)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'move'\")]",
+"-143357515999435042"
+],
+[
+"f75b265bcc2650c6",
+"5651cfd352bb21c2",
+"[('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=17, y=14)'), ('type', \"'move'\")]",
+"-3195763065322998500"
+],
+[
+"b649d3194b087b22",
+"8acb106d7be7c11a",
+"[('start_hex', 'Position(x=10, y=20)'), ('target_hex', 'Position(x=10, y=16)'), ('type', \"'move'\")]",
+"-7234702449129621662"
+],
+[
+"0bd6157a8f38bb62",
+"3071964a9d2c48d8",
+"[('attack_index', '1'), ('start_hex', 'Position(x=16, y=11)'), ('target_hex', 'Position(x=16, y=10)'), ('type', \"'attack'\")]",
+"-6958388104185080093"
+],
+[
+"5446e22d469a273c",
+"d9dc64415e20550f",
+"[('type', \"'end_turn'\")]",
+"-5959292664338324722"
+],
+[
+"b606b335263f44c6",
+"acd72ce83750e90d",
+"[('start_hex', 'Position(x=14, y=17)'), ('target_hex', 'Position(x=14, y=20)'), ('type', \"'move'\")]",
+"-8763872018482824057"
+],
+[
+"09aec68276bfadf5",
+"40dac2547af781d3",
+"[('type', \"'end_turn'\")]",
+"-802527677183477357"
+],
+[
+"cf2feadd158bc86e",
+"900a737abd30a113",
+"[('type', \"'end_turn'\")]",
+"-6774478593782123627"
+],
+[
+"5107ae69974b6924",
+"1b9cd187db3cddbd",
+"[('attack_index', '1'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
+"-8938602306311940083"
+],
+[
+"36768b7381c03843",
+"cc96a9bebc3a0056",
+"[('start_hex', 'Position(x=14, y=20)'), ('target_hex', 'Position(x=15, y=23)'), ('type', \"'move'\")]",
+"5299425291550985643"
+],
+[
+"cc9449bc25b93fc3",
+"d8de12134044446b",
+"[('attack_index', '0'), ('start_hex', 'Position(x=15, y=10)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
+"2467084399911605863"
+],
+[
+"fd3e05426d252ecc",
+"72d57baa63d1f262",
+"[('attack_index', '1'), ('start_hex', 'Position(x=16, y=10)'), ('target_hex', 'Position(x=17, y=14)'), ('type', \"'attack'\")]",
+"1565683077206684882"
+],
+[
+"ab3088adcf788c9f",
+"591aaa1aa2123ed8",
+"[('attack_index', '0'), ('start_hex', 'Position(x=11, y=11)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
+"3128057438623926641"
+],
+[
+"0f586d4357e6d2b6",
+"e2b2d2ae288a8170",
+"[('start_hex', 'Position(x=17, y=3)'), ('target_hex', 'Position(x=16, y=9)'), ('type', \"'move'\")]",
+"-254275886355021169"
+],
+[
+"75cc0b6c954c2ef5",
+"559cbf310f91d224",
+"[('type', \"'end_turn'\")]",
+"7205247317774135600"
+],
+[
+"c50584cc4b2382e0",
+"ce70178a0b8273cc",
+"[('attack_index', '0'), ('start_hex', 'Position(x=13, y=24)'), ('target_hex', 'Position(x=15, y=23)'), ('type', \"'attack'\")]",
+"-8052519090862185057"
+],
+[
+"7a840ce5b671874c",
+"9d8cb547516519d8",
+"[('start_hex', 'Position(x=12, y=12)'), ('target_hex', 'Position(x=13, y=12)'), ('type', \"'move'\")]",
+"-2254061651342548480"
+],
+[
+"3d670d3716fdb545",
+"ce48c8e3882f8c31",
+"[('start_hex', 'Position(x=10, y=16)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'move'\")]",
+"-2112687202357108497"
+],
+[
+"6461daebf4730511",
+"2a50c27fa003cd56",
+"[('attack_index', '1'), ('start_hex', 'Position(x=17, y=14)'), ('target_hex', 'Position(x=17, y=13)'), ('type', \"'attack'\")]",
+"5849409065431349917"
+],
+[
+"43ed46775c01cd84",
+"6d0ebe396a356079",
+"[('type', \"'end_turn'\")]",
+"-679500340863701765"
+],
+[
+"6613db0cd1cf6012",
+"d9124ba08b1665a0",
+"[('attack_index', '1'), ('start_hex', 'Position(x=13, y=11)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'attack'\")]",
+"-3020764671808936272"
+],
+[
+"2674a8bda84a6a1e",
+"e4f9c382d02b47b0",
+"[('start_hex', 'Position(x=15, y=23)'), ('target_hex', 'Position(x=14, y=23)'), ('type', \"'move'\")]",
+"22406996577544115"
+],
+[
+"e97738024dd08403",
+"92378b4250918dd2",
+"[('start_hex', 'Position(x=17, y=13)'), ('target_hex', 'Position(x=14, y=16)'), ('type', \"'move'\")]",
+"-1932952413311319320"
+],
+[
+"f1966ecd55139137",
+"d5f17c142192599e",
+"[('attack_index', '0'), ('start_hex', 'Position(x=12, y=11)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'attack'\")]",
+"-2170773776752171072"
+],
+[
+"deb0ebe8396139b1",
+"6d48dd9b01aae0b6",
+"[('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=19, y=4)'), ('type', \"'move'\")]",
+"1438205429306770730"
+],
+[
+"477d26a732ff5f4f",
+"bf8c023a105f213b",
+"[('attack_index', '0'), ('start_hex', 'Position(x=14, y=23)'), ('target_hex', 'Position(x=13, y=23)'), ('type', \"'attack'\")]",
+"5216253835219968451"
+],
+[
+"878c203affc231c1",
+"baa530fc5d8e75cd",
+"[('start_hex', 'Position(x=11, y=11)'), ('target_hex', 'Position(x=9, y=13)'), ('type', \"'move'\")]",
+"-6569940042133323874"
+],
+[
+"2d91ede5775aacf3",
+"3f2ebee23eaca74d",
+"[('type', \"'end_turn'\")]",
+"983043392876097303"
+],
+[
+"5d48b128d2ea49ed",
+"ddbfd941df30c671",
+"[('attack_index', '1'), ('start_hex', 'Position(x=13, y=12)'), ('target_hex', 'Position(x=12, y=12)'), ('type', \"'attack'\")]",
+"9212253717558361534"
+],
+[
+"0529c75a131d8720",
+"d514b397909b1640",
+"[('start_hex', 'Position(x=12, y=13)'), ('target_hex', 'Position(x=11, y=13)'), ('type', \"'move'\")]",
+"-9214718987127409355"
+],
+[
+"fa4d027f2b87df07",
+"754a7a2b23ec6fb7",
+"[('start_hex', 'Position(x=17, y=14)'), ('target_hex', 'Position(x=12, y=13)'), ('type', \"'move'\")]",
+"-9052022774664935616"
+],
+[
+"bf5fa2cccfa1a704",
+"c3c4567e06a62d58",
+"[('attack_index', '2'), ('start_hex', 'Position(x=14, y=24)'), ('target_hex', 'Position(x=14, y=23)'), ('type', \"'attack'\")]",
+"659364556285005930"
+],
+[
+"9b0778424b6d5602",
+"37782864e67fccf0",
+"[('start_hex', 'Position(x=13, y=23)'), ('target_hex', 'Position(x=12, y=18)'), ('type', \"'move'\")]",
+"-4913971683085846156"
+],
+[
+"8a051d51c24939ef",
+"c2c2ae4cf39ab756",
+"[('attack_index', '0'), ('start_hex', 'Position(x=12, y=13)'), ('target_hex', 'Position(x=11, y=12)'), ('type', \"'attack'\")]",
+"-2298830644497692097"
+],
+[
+"23aa0c28415d4d7f",
+"7a222226ae6a69c0",
+"[('attack_index', '0'), ('start_hex', 'Position(x=11, y=13)'), ('target_hex', 'Position(x=11, y=12)'), ('type', \"'attack'\")]",
+"-3900036024678802003"
+]
+],
+"11": [
+[
+"6cc9d2a7d430015d",
+"1784bf146de5a890",
+"[('target_hex', 'Position(x=17, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Scout'\")]",
+"-4316279578008176359"
+],
+[
+"cf4d1e9df6595dc6",
+"d6d2052638203f09",
+"[('target_hex', 'Position(x=19, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Merman Hunter'\")]",
+"-8610668458819262897"
+],
+[
+"791c6cb5c3449f04",
+"af8ac6b1a61c2694",
+"[('type', \"'end_turn'\")]",
+"2444103302728113748"
+],
+[
+"16c8252a23bef007",
+"6e746609d8da6352",
+"[('target_hex', 'Position(x=19, y=2)'), ('type', \"'recruit'\"), ('unit_type', \"'Goblin Spearman'\")]",
+"-3395682284413399724"
+],
+[
+"fe4c22ab846cbff8",
+"8b9ace42aadb7f89",
+"[('target_hex', 'Position(x=18, y=3)'), ('type', \"'recruit'\"), ('unit_type', \"'Goblin Spearman'\")]",
+"-904205805100005591"
+],
+[
+"f7d9b886d090dfc0",
+"1225ce2afa39eb16",
+"[('target_hex', 'Position(x=19, y=3)'), ('type', \"'recruit'\"), ('unit_type', \"'Naga Fighter'\")]",
+"-3103165413696022466"
+],
+[
+"782be420f11598ac",
+"59a88c10c7a2eb8b",
+"[('type', \"'end_turn'\")]",
+"4352240924681638428"
+],
+[
+"837d6101c80cbc0d",
+"3fde46486ed37f11",
+"[('start_hex', 'Position(x=17, y=27)'), ('target_hex', 'Position(x=17, y=18)'), ('type', \"'move'\")]",
+"4512098544977495939"
+],
+[
+"3b57acffeed3a7fc",
+"ba65e44e624d586a",
+"[('target_hex', 'Position(x=17, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Shaman'\")]",
+"6748610969258481723"
+],
+[
+"635fc6eb3d3a52bb",
+"7a0b2caed7a2a08a",
+"[('start_hex', 'Position(x=19, y=27)'), ('target_hex', 'Position(x=17, y=24)'), ('type', \"'move'\")]",
+"4075925047805742410"
+],
+[
+"a52b6fbbf578102b",
+"5c5f961143dac867",
+"[('target_hex', 'Position(x=19, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Merman Hunter'\")]",
+"-8310138812850351663"
+],
+[
+"6be8403ad60c6ac1",
+"988e9ac598bdf763",
+"[('type', \"'end_turn'\")]",
+"7658530069630405943"
+],
+[
+"90af737972d99359",
+"03be3e33b9db2c94",
+"[('start_hex', 'Position(x=19, y=3)'), ('target_hex', 'Position(x=16, y=9)'), ('type', \"'move'\")]",
+"1327150390881437588"
+],
+[
+"cf1ec4d2ed49bcc5",
+"4a185bdb246535c9",
+"[('target_hex', 'Position(x=19, y=3)'), ('type', \"'recruit'\"), ('unit_type', \"'Orcish Archer'\")]",
+"8427163620790392875"
+],
+[
+"73a9e1472c3e2c0c",
+"41102be027858890",
+"[('start_hex', 'Position(x=18, y=3)'), ('target_hex', 'Position(x=18, y=8)'), ('type', \"'move'\")]",
+"-4282964646174468588"
+],
+[
+"6e1393549c1fd49e",
+"24711ca31d5c0b2d",
+"[('type', \"'end_turn'\")]",
+"-732972456202678612"
+],
+[
+"54c4b86a61c55d24",
+"7c61e571e940179c",
+"[('start_hex', 'Position(x=17, y=18)'), ('target_hex', 'Position(x=19, y=12)'), ('type', \"'move'\")]",
+"-3265551487306267076"
+],
+[
+"944460cfeb0db777",
+"5fca57f5a2bc5e51",
+"[('start_hex', 'Position(x=17, y=24)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'move'\")]",
+"5836330270538020209"
+],
+[
+"0f140a9c6cc2088c",
+"2d9ff5a57cd36845",
+"[('start_hex', 'Position(x=17, y=27)'), ('target_hex', 'Position(x=17, y=21)'), ('type', \"'move'\")]",
+"-7437252326095007692"
+],
+[
+"36a6d52e4e1533ae",
+"82431ec712b133d8",
+"[('target_hex', 'Position(x=17, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Wose'\")]",
+"7810752714263024863"
+],
+[
+"d49f7b56ecb62317",
+"d014e03b8f488fd0",
+"[('start_hex', 'Position(x=19, y=27)'), ('target_hex', 'Position(x=17, y=24)'), ('type', \"'move'\")]",
+"6399666517900482721"
+],
+[
+"8ec6256f8e2cb41c",
+"59dd07c9a4795b07",
+"[('target_hex', 'Position(x=19, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Scout'\")]",
+"-4303324054782650278"
+],
+[
+"374e5b23eac09005",
+"32e15a976aeb93c5",
+"[('type', \"'end_turn'\")]",
+"7559835532079416364"
+],
+[
+"b67cdbb533a2c34c",
+"d89adbf02b9c7b2c",
+"[('attack_index', '0'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=19, y=12)'), ('type', \"'attack'\")]",
+"-5530627454485869872"
+],
+[
+"18a52ef6f179a480",
+"478715ca8a5200af",
+"[('attack_index', '1'), ('start_hex', 'Position(x=18, y=8)'), ('target_hex', 'Position(x=19, y=12)'), ('type', \"'attack'\")]",
+"1391647824339129373"
+],
+[
+"92b7c72b91129c65",
+"813e13c1f234b612",
+"[('start_hex', 'Position(x=19, y=3)'), ('target_hex', 'Position(x=16, y=5)'), ('type', \"'move'\")]",
+"-2746223242998541422"
+],
+[
+"888876e5996303c3",
+"82eb7976b72bb376",
+"[('target_hex', 'Position(x=19, y=3)'), ('type', \"'recruit'\"), ('unit_type', \"'Troll Whelp'\")]",
+"-717552731032905943"
+],
+[
+"d0317eed9a023385",
+"cd26000ab5798692",
+"[('target_hex', 'Position(x=18, y=3)'), ('type', \"'recruit'\"), ('unit_type', \"'Troll Whelp'\")]",
+"8272852169174096581"
+],
+[
+"2a9a42320884d4bc",
+"6a00a9dcb7a231ef",
+"[('start_hex', 'Position(x=19, y=2)'), ('target_hex', 'Position(x=19, y=5)'), ('type', \"'move'\")]",
+"-5633479117157730724"
+],
+[
+"684c0dc25f2b117b",
+"3acb10443d07acf0",
+"[('target_hex', 'Position(x=19, y=2)'), ('type', \"'recruit'\"), ('unit_type', \"'Goblin Spearman'\")]",
+"-3892498604802680554"
+],
+[
+"a93e6dff9541ac1e",
+"02803828291594da",
+"[('start_hex', 'Position(x=16, y=5)'), ('target_hex', 'Position(x=17, y=6)'), ('type', \"'move'\")]",
+"5066946621385726263"
+],
+[
+"8c7f8a839de1cfc7",
+"407bfb8b1d1fb421",
+"[('start_hex', 'Position(x=19, y=5)'), ('target_hex', 'Position(x=19, y=6)'), ('type', \"'move'\")]",
+"1821362299219460450"
+],
+[
+"0f032a72f96e9185",
+"3a28b4fd1a9784fe",
+"[('type', \"'end_turn'\")]",
+"-2866385904268904505"
+],
+[
+"e16f0a2d59844545",
+"957e2076d2619d5a",
+"[('attack_index', '0'), ('start_hex', 'Position(x=19, y=12)'), ('target_hex', 'Position(x=19, y=3)'), ('type', \"'attack'\")]",
+"-7291799167906255441"
+],
+[
+"20fbcc2267b14cb8",
+"7ee0b0247b256f3d",
+"[('start_hex', 'Position(x=17, y=21)'), ('target_hex', 'Position(x=17, y=16)'), ('type', \"'move'\")]",
+"-6425780018057699901"
+],
+[
+"8e3405bb7c514e80",
+"aa74a90eb69971f7",
+"[('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=16, y=16)'), ('type', \"'move'\")]",
+"-2339816047681781946"
+],
+[
+"3b894310d2a13461",
+"48796c74fd1d7916",
+"[('start_hex', 'Position(x=17, y=16)'), ('target_hex', 'Position(x=17, y=17)'), ('type', \"'move'\")]",
+"5160737194516632136"
+],
+[
+"8ca6cfd3516ed0a4",
+"86d3585c5521aba2",
+"[('start_hex', 'Position(x=19, y=27)'), ('target_hex', 'Position(x=18, y=18)'), ('type', \"'move'\")]",
+"-1785225054168105007"
+],
+[
+"d958c6ac78374d9b",
+"bfe862ea8606c1ec",
+"[('start_hex', 'Position(x=17, y=24)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'move'\")]",
+"-7240841482627575315"
+],
+[
+"4329817f01a9a503",
+"ef742e59af597636",
+"[('start_hex', 'Position(x=17, y=27)'), ('target_hex', 'Position(x=17, y=23)'), ('type', \"'move'\")]",
+"-7089319311639796036"
+],
+[
+"41359c4d845eb6db",
+"9e6d89e5bc2da902",
+"[('type', \"'end_turn'\")]",
+"-3703652428135266123"
+],
+[
+"b56692f606963741",
+"f4460cface6d7c80",
+"[('attack_index', '0'), ('start_hex', 'Position(x=19, y=3)'), ('target_hex', 'Position(x=19, y=4)'), ('type', \"'attack'\")]",
+"1937692556192932057"
+],
+[
+"4df83bc2819c6f2f",
+"bf3c8e40336bb056",
+"[('attack_index', '0'), ('start_hex', 'Position(x=18, y=12)'), ('target_hex', 'Position(x=18, y=18)'), ('type', \"'attack'\")]",
+"-371807809725861630"
+],
+[
+"d0e74f3fbb9107ee",
+"ce1227bb421b56f4",
+"[('start_hex', 'Position(x=18, y=3)'), ('target_hex', 'Position(x=16, y=2)'), ('type', \"'move'\")]",
+"-5723853243580232824"
+],
+[
+"1459d3a36fbeba69",
+"70ec380337e6f600",
+"[('start_hex', 'Position(x=19, y=11)'), ('target_hex', 'Position(x=21, y=15)'), ('type', \"'move'\")]",
+"-7969614851069295311"
+],
+[
+"6bcccb3677111544",
+"d169fde09edd109a",
+"[('start_hex', 'Position(x=19, y=2)'), ('target_hex', 'Position(x=22, y=2)'), ('type', \"'move'\")]",
+"-1766382884679385278"
+],
+[
+"beed23bf2818eecc",
+"a1e38ecac130af48",
+"[('attack_index', '1'), ('start_hex', 'Position(x=19, y=6)'), ('target_hex', 'Position(x=19, y=4)'), ('type', \"'attack'\")]",
+"2537209725058741723"
+],
+[
+"ba41a354d9934879",
+"b01c9591a907f90e",
+"[('target_hex', 'Position(x=19, y=2)'), ('type', \"'recruit'\"), ('unit_type', \"'Goblin Spearman'\")]",
+"3456684026613978665"
+],
+[
+"0423b61bc2ce674d",
+"98f738d783744a33",
+"[('start_hex', 'Position(x=17, y=6)'), ('target_hex', 'Position(x=18, y=11)'), ('type', \"'move'\")]",
+"8816953163301530698"
+],
+[
+"8af80bfc7edd7e6f",
+"036a7f8f2b8f756b",
+"[('start_hex', 'Position(x=16, y=2)'), ('target_hex', 'Position(x=18, y=4)'), ('type', \"'move'\")]",
+"-2889756385513491523"
+],
+[
+"e1e5d0a494aa09bf",
+"ec6be7b5002b4041",
+"[('target_hex', 'Position(x=18, y=3)'), ('type', \"'recruit'\"), ('unit_type', \"'Orcish Assassin'\")]",
+"-3260102393528764855"
+],
+[
+"e8273ef9df0b5609",
+"896c5edb81df4a63",
+"[('attack_index', '1'), ('start_hex', 'Position(x=17, y=2)'), ('target_hex', 'Position(x=19, y=4)'), ('type', \"'attack'\")]",
+"-5513194331487652856"
+],
+[
+"7d15fab479a49f6b",
+"d29c47a1d1d6cd43",
+"[('attack_index', '0'), ('start_hex', 'Position(x=18, y=4)'), ('target_hex', 'Position(x=19, y=4)'), ('type', \"'attack'\")]",
+"1677374521920215777"
+],
+[
+"3cc18ff913a09e3b",
+"e5b5da3367fc94db",
+"[('start_hex', 'Position(x=22, y=2)'), ('target_hex', 'Position(x=21, y=2)'), ('type', \"'move'\")]",
+"-2912683067735486684"
+],
+[
+"f5cbb2dfdd71abc6",
+"f34f41c3dfc09b48",
+"[('type', \"'end_turn'\")]",
+"6506636445172042587"
+],
+[
+"e598ec9ac776cfae",
+"b25afef265e578e7",
+"[('start_hex', 'Position(x=19, y=4)'), ('target_hex', 'Position(x=20, y=4)'), ('type', \"'move'\")]",
+"2165688960391166029"
+],
+[
+"8802d0edfef29d10",
+"dd684eabd91bb5ae",
+"[('attack_index', '1'), ('start_hex', 'Position(x=17, y=17)'), ('target_hex', 'Position(x=21, y=15)'), ('type', \"'attack'\")]",
+"2143943472712550968"
+],
+[
+"69073a38dff7378b",
+"382762acf2ad33a6",
+"[('attack_index', '0'), ('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=19, y=17)'), ('type', \"'attack'\")]",
+"-5330399272492945432"
+],
+[
+"8f36aa6becd7b92f",
+"97b4bd94d6fb2881",
+"[('attack_index', '1'), ('start_hex', 'Position(x=20, y=4)'), ('target_hex', 'Position(x=19, y=3)'), ('type', \"'attack'\")]",
+"-160786840553412985"
+],
+[
+"9f6e48a636c4b957",
+"305123e56ae6f6a3",
+"[('start_hex', 'Position(x=18, y=18)'), ('target_hex', 'Position(x=13, y=10)'), ('type', \"'move'\")]",
+"-6409847826488022203"
+],
+[
+"b040ea07a1939146",
+"ade5aa7b1aeaa139",
+"[('start_hex', 'Position(x=16, y=16)'), ('target_hex', 'Position(x=14, y=12)'), ('type', \"'move'\")]",
+"-4175418913545047732"
+],
+[
+"82bdfba4388ee597",
+"bce45d46189dce2b",
+"[('start_hex', 'Position(x=17, y=23)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'move'\")]",
+"-6813836336703372637"
+],
+[
+"ac4663ece83f0ab7",
+"bbc5281f1619d9b9",
+"[('type', \"'end_turn'\")]",
+"-593479108814968649"
+],
+[
+"d8f35e1a14f9d73b",
+"a0d9b0bf86702b74",
+"[('attack_index', '0'), ('start_hex', 'Position(x=21, y=2)'), ('target_hex', 'Position(x=20, y=4)'), ('type', \"'attack'\")]",
+"-8260294767134622313"
+],
+[
+"0e6866c7f6cb3843",
+"24312111b3be3e94",
+"[('attack_index', '2'), ('start_hex', 'Position(x=18, y=11)'), ('target_hex', 'Position(x=14, y=12)'), ('type', \"'attack'\")]",
+"1320294277887207768"
+],
+[
+"4a11f92ac85e8eae",
+"9034150eada6d5c7",
+"[('attack_index', '0'), ('start_hex', 'Position(x=19, y=17)'), ('target_hex', 'Position(x=19, y=18)'), ('type', \"'attack'\")]",
+"2029017322241823590"
+],
+[
+"b17f91c4bafe658b",
+"05b1bde1dd34613e",
+"[('attack_index', '0'), ('start_hex', 'Position(x=21, y=15)'), ('target_hex', 'Position(x=20, y=15)'), ('type', \"'attack'\")]",
+"4080044645033419708"
+],
+[
+"04d20d72c3e55253",
+"52ad45b81462e61a",
+"[('start_hex', 'Position(x=19, y=5)'), ('target_hex', 'Position(x=19, y=9)'), ('type', \"'move'\")]",
+"-6639560207764848358"
+],
+[
+"7090672c3f308b71",
+"21e7ca611342203c",
+"[('start_hex', 'Position(x=18, y=4)'), ('target_hex', 'Position(x=19, y=8)'), ('type', \"'move'\")]",
+"-6000083212852350076"
+],
+[
+"c8818e37d91b7a8f",
+"8598cb591abc7656",
+"[('start_hex', 'Position(x=18, y=3)'), ('target_hex', 'Position(x=17, y=8)'), ('type', \"'move'\")]",
+"4856368884186035701"
+],
+[
+"b8f18fb1c2af991a",
+"03f68f7083589388",
+"[('start_hex', 'Position(x=19, y=3)'), ('target_hex', 'Position(x=18, y=8)'), ('type', \"'move'\")]",
+"3775508586979340131"
+],
+[
+"469ee93d4d4b2450",
+"ef74f4e016ef09d8",
+"[('type', \"'end_turn'\")]",
+"542658289823043098"
+],
+[
+"b6ddbd216e5be4d2",
+"ea7fd2247cabf93f",
+"[('attack_index', '0'), ('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=19, y=17)'), ('type', \"'attack'\")]",
+"-4405759454303874667"
+],
+[
+"6b22e39cd261da24",
+"4df8b0d728f8c662",
+"[('attack_index', '1'), ('start_hex', 'Position(x=20, y=15)'), ('target_hex', 'Position(x=15, y=11)'), ('type', \"'attack'\")]",
+"-7343178479125606898"
+],
+[
+"2c1235baed113bb8",
+"1e09320f59281c82",
+"[('start_hex', 'Position(x=19, y=18)'), ('target_hex', 'Position(x=17, y=23)'), ('type', \"'move'\")]",
+"-6710560902204131109"
+],
+[
+"db8c18b58e3dbb1f",
+"f8f563de813eeb28",
+"[('attack_index', '0'), ('start_hex', 'Position(x=13, y=10)'), ('target_hex', 'Position(x=17, y=8)'), ('type', \"'attack'\")]",
+"360616921755499388"
+],
+[
+"af3ceeda27f981eb",
+"6df60b1ab55efad3",
+"[('start_hex', 'Position(x=14, y=12)'), ('target_hex', 'Position(x=15, y=9)'), ('type', \"'move'\")]",
+"4461344210438136199"
+],
+[
+"566a497e2ff41acc",
+"fa58aa40d6746e04",
+"[('type', \"'end_turn'\")]",
+"1284726523847188950"
+],
+[
+"972e344a02848f7a",
+"45ebaeb8c2ca43d1",
+"[('attack_index', '1'), ('start_hex', 'Position(x=17, y=8)'), ('target_hex', 'Position(x=15, y=9)'), ('type', \"'attack'\")]",
+"-906802308053388670"
+],
+[
+"b5565519fbfe048e",
+"ef4af04ed577c46d",
+"[('start_hex', 'Position(x=19, y=17)'), ('target_hex', 'Position(x=19, y=23)'), ('type', \"'move'\")]",
+"56513670045246686"
+],
+[
+"9692dbf6d3dfa89a",
+"69e6221996f99fe2",
+"[('start_hex', 'Position(x=19, y=9)'), ('target_hex', 'Position(x=18, y=12)'), ('type', \"'move'\")]",
+"-7964949097966267454"
+],
+[
+"55d394deaebb3d65",
+"b95c100e91133986",
+"[('attack_index', '1'), ('start_hex', 'Position(x=18, y=5)'), ('target_hex', 'Position(x=15, y=9)'), ('type', \"'attack'\")]",
+"598375665233109880"
+],
+[
+"6714a5ebde96e781",
+"cf610e756f69d037",
+"[('attack_index', '0'), ('start_hex', 'Position(x=19, y=8)'), ('target_hex', 'Position(x=16, y=9)'), ('type', \"'attack'\")]",
+"-2639472236317863979"
+],
+[
+"ea48e2a31220c1ee",
+"3cf670fb54743f87",
+"[('start_hex', 'Position(x=18, y=12)'), ('target_hex', 'Position(x=17, y=12)'), ('type', \"'move'\")]",
+"-5129896965542465397"
+],
+[
+"d35c4c2fc0b3bd06",
+"1af925baccb7171f",
+"[('attack_index', '0'), ('start_hex', 'Position(x=15, y=11)'), ('target_hex', 'Position(x=16, y=12)'), ('type', \"'attack'\")]",
+"-5175545267545358468"
+],
+[
+"9aea591fc281296f",
+"63f0426e1670ad07",
+"[('start_hex', 'Position(x=18, y=8)'), ('target_hex', 'Position(x=18, y=12)'), ('type', \"'move'\")]",
+"358171515732715818"
+],
+[
+"c6f7eb322620030c",
+"12fbd60446013987",
+"[('attack_index', '0'), ('start_hex', 'Position(x=17, y=12)'), ('target_hex', 'Position(x=16, y=12)'), ('type', \"'attack'\")]",
+"-2014175898585860388"
+],
+[
+"b525ce1d8e18420f",
+"cce1216e1144109b",
+"[('type', \"'end_turn'\")]",
+"5732166076057737746"
+],
+[
+"b74cf11ab81c4d49",
+"b2727537e6e86909",
+"[('start_hex', 'Position(x=15, y=9)'), ('target_hex', 'Position(x=14, y=9)'), ('type', \"'move'\")]",
+"-2517191976894785468"
+],
+[
+"7f91d2b24d3922c8",
+"8a3cb2b45afeea1a",
+"[('attack_index', '0'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=17, y=9)'), ('type', \"'attack'\")]",
+"7051142103272233414"
+],
+[
+"91002e2aa7197add",
+"19cb6702a5a1e5d1",
+"[('start_hex', 'Position(x=16, y=12)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'move'\")]",
+"-7178333188269092908"
+],
+[
+"74305818b04446a2",
+"657faefc5f439d5e",
+"[('start_hex', 'Position(x=18, y=18)'), ('target_hex', 'Position(x=15, y=15)'), ('type', \"'move'\")]",
+"3586687878796171941"
+],
+[
+"f4061f45a39b4f6f",
+"96721178558b0ddf",
+"[('type', \"'end_turn'\")]",
+"562225467729125747"
+],
+[
+"5674165ff7d067db",
+"bdf5f99bc1095c8c",
+"[('start_hex', 'Position(x=19, y=23)'), ('target_hex', 'Position(x=19, y=26)'), ('type', \"'move'\")]",
+"-2181475789318446674"
+],
+[
+"1ccfe55e6ba797ac",
+"1f70e0391e7b2baf",
+"[('start_hex', 'Position(x=18, y=12)'), ('target_hex', 'Position(x=20, y=15)'), ('type', \"'move'\")]",
+"7279464712812137477"
+],
+[
+"d79ac5ba09e26228",
+"e9a243148ff58427",
+"[('start_hex', 'Position(x=20, y=15)'), ('target_hex', 'Position(x=21, y=15)'), ('type', \"'move'\")]",
+"3898234917671018888"
+],
+[
+"cc9a6a0be333c1b7",
+"36387b462d907943",
+"[('attack_index', '0'), ('start_hex', 'Position(x=15, y=8)'), ('target_hex', 'Position(x=14, y=9)'), ('type', \"'attack'\")]",
+"-2722658085711218144"
+],
+[
+"1839ee611f96c170",
+"282826367fbdb6cb",
+"[('start_hex', 'Position(x=15, y=11)'), ('target_hex', 'Position(x=13, y=14)'), ('type', \"'move'\")]",
+"-6264724914891035438"
+],
+[
+"95227a2235673f01",
+"32409e62e4c08272",
+"[('attack_index', '0'), ('start_hex', 'Position(x=17, y=9)'), ('target_hex', 'Position(x=16, y=11)'), ('type', \"'attack'\")]",
+"-8574313939830951988"
+],
+[
+"9094cd85b1e231b9",
+"5d942aa248cd619a",
+"[('start_hex', 'Position(x=13, y=14)'), ('target_hex', 'Position(x=13, y=15)'), ('type', \"'move'\")]",
+"3852883909538294036"
+],
+[
+"16a14658d309de6b",
+"3e2c806299f3e7de",
+"[('attack_index', '0'), ('start_hex', 'Position(x=19, y=26)'), ('target_hex', 'Position(x=18, y=27)'), ('type', \"'attack'\")]",
+"4236357902995274287"
+],
+[
+"1187557a6b269c1a",
+"25e82d14b05703a4",
+"[('type', \"'end_turn'\")]",
+"-3026879107398705541"
+],
+[
+"e6346a85a3256f68",
+"1dee2dea0f29b94b",
+"[('target_hex', 'Position(x=17, y=27)'), ('type', \"'recruit'\"), ('unit_type', \"'Elvish Fighter'\")]",
+"6876890034436628782"
+],
+[
+"7f8ac030c9b4495a",
+"66c2eef6e3603b74",
+"[('attack_index', '0'), ('start_hex', 'Position(x=16, y=11)'), ('target_hex', 'Position(x=16, y=10)'), ('type', \"'attack'\")]",
+"-2440888721436833509"
+],
+[
+"bf55aae088762fd6",
+"3c830c905e79f7c3",
+"[('attack_index', '1'), ('start_hex', 'Position(x=16, y=9)'), ('target_hex', 'Position(x=15, y=8)'), ('type', \"'attack'\")]",
+"5981926338831948692"
+],
+[
+"ea2f692380b5d1f2",
+"c8c75776865552c6",
+"[('start_hex', 'Position(x=15, y=15)'), ('target_hex', 'Position(x=15, y=13)'), ('type', \"'move'\")]",
+"8567123504572851255"
+],
+[
+"cb81f199dfb24dbc",
+"f49dff0c94335ce9",
+"[('attack_index', '0'), ('start_hex', 'Position(x=18, y=27)'), ('target_hex', 'Position(x=19, y=26)'), ('type', \"'attack'\")]",
+"-3366989157557996893"
+],
+[
+"6080649e4155e4ad",
+"e6988849836b1185",
+"[('start_hex', 'Position(x=17, y=23)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'move'\")]",
+"-964686802751036520"
+],
+[
+"96b782af651e41b1",
+"f8989264ecbe96d4",
+"[('type', \"'end_turn'\")]",
+"-6227821357417011945"
+],
+[
+"fd125dc41f3f9b31",
+"9d8e028d50ead96a",
+"[('start_hex', 'Position(x=21, y=15)'), ('target_hex', 'Position(x=20, y=20)'), ('type', \"'move'\")]",
+"2577931955765104589"
+],
+[
+"28b3aa50aeba51ce",
+"20cd6814dc930d18",
+"[('attack_index', '0'), ('start_hex', 'Position(x=13, y=15)'), ('target_hex', 'Position(x=17, y=19)'), ('type', \"'attack'\")]",
+"7136361428697931244"
+],
+[
+"601871fc651196cb",
+"33e66b58e32a076f",
+"[('start_hex', 'Position(x=17, y=10)'), ('target_hex', 'Position(x=20, y=14)'), ('type', \"'move'\")]",
+"-7907377100013557306"
+],
+[
+"74f858b052da167f",
+"10194a39e186d1cf",
+"[('start_hex', 'Position(x=19, y=2)'), ('target_hex', 'Position(x=22, y=2)'), ('type', \"'move'\")]",
+"1127176622663777655"
+],
+[
+"ceb2e4e611b8d823",
+"2d7b89cd447616c6",
+"[('start_hex', 'Position(x=16, y=10)'), ('target_hex', 'Position(x=17, y=13)'), ('type', \"'move'\")]",
+"4067711950155132216"
+],
+[
+"c2f34f1530c79205",
+"0bbb838b45b927b7",
+"[('start_hex', 'Position(x=17, y=13)'), ('target_hex', 'Position(x=17, y=12)'), ('type', \"'move'\")]",
+"-2857004235653004146"
+],
+[
+"52aed56e7efc55a7",
+"b3671ef3495c554c",
+"[('start_hex', 'Position(x=21, y=3)'), ('target_hex', 'Position(x=18, y=7)'), ('type', \"'move'\")]",
+"-2979770141548138828"
+],
+[
+"f18dfb38988d9545",
+"1a88a44d4ceda1ff",
+"[('type', \"'end_turn'\")]",
+"4187964552652222511"
+],
+[
+"87749fbe09bf293a",
+"b2f900812441f6c5",
+"[('start_hex', 'Position(x=17, y=19)'), ('target_hex', 'Position(x=18, y=17)'), ('type', \"'move'\")]",
+"-6239981679663044725"
+],
+[
+"d84e64f89a72fc5e",
+"b4927fd3ab7c6d06",
+"[('start_hex', 'Position(x=15, y=13)'), ('target_hex', 'Position(x=15, y=10)'), ('type', \"'move'\")]",
+"1086175695305941380"
+],
+[
+"df8c9f39374d260a",
+"99e481d329f79bb3",
+"[('start_hex', 'Position(x=17, y=27)'), ('target_hex', 'Position(x=15, y=26)'), ('type', \"'move'\")]",
+"770765700606257502"
+]
+]
+}
+}

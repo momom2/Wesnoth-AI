@@ -15,26 +15,25 @@ Transport: `multiprocessing.connection` Listener/Client (stdlib). The
 workers are Popen'd processes, not multiprocessing children, so the
 queues of tools/actor_pool.py cannot reach them. Listener/Client is a
 Unix domain socket on Linux and a named pipe on Windows behind one
-API: a request is one pickle and one length-framed write, a reply the
-same back, tens of microseconds each way against ~1.5 ms of forward
-per sample. `multiprocessing.managers` adds a proxy layer (a dispatch
-pickle and a lock per call, one thread per client that cannot batch
-across clients without this same queue underneath); a raw socket is
-the same syscalls with the framing and the Windows path written by
-hand. Requests are the one-buffer form of wesnoth_ai/leaf_wire.py;
-replies the numpy wire dicts of tools/inference_seam.py.
+API: a message is one length-framed write. `multiprocessing.managers`
+adds a proxy layer (a dispatch pickle and a lock per call, one thread
+per client that cannot batch across clients without this same queue
+underneath); a raw socket is the same syscalls with the framing and the
+Windows path written by hand. Requests and replies are raw bytes
+(wesnoth_ai/byte_wire.py), no pickling.
 
-Batching: the serve thread takes the first queued request, collects
-what arrives within `--window-ms` up to `--max-batch` leaves, and
-runs one forward. Every worker has exactly one decision in flight (the
-game loop is sequential: the next state depends on the step's
-outcome), so a batch never exceeds the number of workers; the
-achieved sizes are recorded in the stats file (`batch_hist`,
-`mean_batch`).
+Batching and the connections (tools/serve_loop.py): one serve thread
+reads every connection, takes every ready request and what arrives
+within `--window-ms` up to `--max-batch` leaves, and runs one forward.
+Every worker game has exactly one decision in flight (the game loop is
+sequential: the next state depends on the step's outcome), so a batch
+never exceeds the games in flight; the achieved sizes are recorded in
+the stats file (`batch_hist`, `mean_batch`), with the serve thread's
+seconds by stage.
 
-Protocol on a connection (client -> server -> client):
-  ("hello",)                     -> dict: vocab, relevant_set, precision
-  ("infer", rid, PackedRequest)  -> (rid, [wire, ...]) or (rid, None, error)
+Protocol on a connection (client -> server -> client), int64 words:
+  hello: (1, 0, 0)                        -> pickled dict: vocab, relevant_set, precision
+  infer: (2, rid, leaves) + request bytes -> (rid, 0) + reply bytes, or (rid, 1) + error text
 The server prints `__ADDR__ <address>` then `__INFO__ <json>` on
 stdout once it serves, and exits when its stdin closes (the driver's
 shutdown), writing `--stats-out` first. It exits with status 3 when a
@@ -67,17 +66,17 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
-from collections import Counter
-from dataclasses import dataclass, field
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
+from tools.serve_loop import (HELLO_MESSAGE, KIND_INFER, REPLY_HEAD_BYTES,  # noqa: E402
+                              REQUEST_HEAD_BYTES, STATUS_OK, InferenceService, error_text,
+                              reply_head)
 from wesnoth_ai.paths import TOOLS_DIR  # noqa: E402
 from wesnoth_ai.stage_timing import stage  # noqa: E402
 
@@ -89,274 +88,6 @@ SERVER_SCRIPT = TOOLS_DIR / "eval_inference_server.py"
 ADDR_PREFIX = "__ADDR__ "
 INFO_PREFIX = "__INFO__ "
 DEFAULT_WINDOW_MS = 1.5
-
-
-# ---------------------------------------------------------------------
-# Service: connections, coalescing, replies (torch-free; generic payloads)
-# ---------------------------------------------------------------------
-
-@dataclass
-class _Pending:
-    conn: Any
-    send_lock: threading.Lock
-    rid: int
-    payload: Any            # len(payload) = leaves it carries
-
-
-@dataclass
-class ServeStats:
-    requests: int = 0
-    batches: int = 0
-    leaves: int = 0
-    connections: int = 0
-    failed_batches: int = 0      # batches whose forward raised
-    failed_requests: int = 0     # requests that still failed alone
-    batch_hist: Counter = field(default_factory=Counter)
-    idle_s: float = 0.0      # waiting for a first request
-    window_s: float = 0.0    # collecting the rest of a batch
-    infer_s: float = 0.0
-    reply_s: float = 0.0
-    gpu_ms: float = 0.0
-    started: float = field(default_factory=time.monotonic)
-
-    def as_dict(self) -> Dict:
-        return {
-            "requests": self.requests, "batches": self.batches,
-            "leaves": self.leaves, "connections": self.connections,
-            "failed_batches": self.failed_batches,
-            "failed_requests": self.failed_requests,
-            "mean_batch": (self.leaves / self.batches if self.batches else 0.0),
-            "batch_hist": {str(k): v for k, v in sorted(self.batch_hist.items())},
-            "idle_s": round(self.idle_s, 3), "window_s": round(self.window_s, 3),
-            "infer_s": round(self.infer_s, 3), "reply_s": round(self.reply_s, 3),
-            "gpu_ms": round(self.gpu_ms, 1),
-            "wall_s": round(time.monotonic() - self.started, 3),
-        }
-
-
-class InferenceService:
-    """Accepts connections on `listener`, answers "hello" with `hello`,
-    coalesces "infer" requests and replies through `infer_fn`.
-
-    `infer_fn(payloads) -> replies`: one reply per payload, in order;
-    `stats` is passed as a keyword so the model path can add device
-    time under "gpu_ms". Generic over the payload so the batching is
-    testable without torch.
-
-    `health_fn()` raises when the device can no longer run work; it is
-    called after a batch fails. A sticky device fault fails every later
-    call, so a service that kept answering would fail every game that
-    reaches it while its process looked alive (2026-09-14: 40 of 40
-    games). When the probe fails, the service answers the batch with the
-    fault, stops, and keeps the fault in `fatal`."""
-
-    def __init__(self, listener: Listener, infer_fn: Callable, hello: Dict, *,
-                 window_s: float, max_batch: int,
-                 health_fn: Optional[Callable[[], None]] = None):
-        self._listener = listener
-        self._infer_fn = infer_fn
-        self._hello = hello
-        self._window = max(0.0, float(window_s))
-        self._max_batch = max(1, int(max_batch))
-        self._health_fn = health_fn
-        self._q: "queue.Queue[_Pending]" = queue.Queue()
-        self._stop = threading.Event()
-        self._serve_thread: Optional[threading.Thread] = None
-        self.stats = ServeStats()
-        self.fatal: Optional[str] = None
-
-    def start(self) -> None:
-        self._serve_thread = threading.Thread(target=self._serve, daemon=True,
-                                              name="infer-serve")
-        self._serve_thread.start()
-        threading.Thread(target=self._accept, daemon=True, name="infer-accept").start()
-
-    def stop(self, timeout: float = 10.0) -> None:
-        self._stop.set()
-        try:
-            self._listener.close()
-        except OSError:
-            pass
-        if self._serve_thread is not None:
-            self._serve_thread.join(timeout)
-
-    def serve_until_closed(self, wait_for_eof: Callable[[], object],
-                           poll_s: float = 0.5) -> Optional[str]:
-        """Serve until `wait_for_eof()` returns (the driver closed the
-        server's stdin) or a device fault stops the service; the fault,
-        or None."""
-        closed = threading.Event()
-
-        def _wait() -> None:
-            wait_for_eof()
-            closed.set()
-
-        threading.Thread(target=_wait, daemon=True, name="infer-stdin").start()
-        while not closed.wait(poll_s):
-            if self.fatal is not None:
-                break
-        return self.fatal
-
-    def _accept(self) -> None:
-        while not self._stop.is_set():
-            try:
-                conn = self._listener.accept()
-            except (OSError, EOFError):
-                if self._stop.is_set():
-                    return
-                log.exception("accept failed")
-                return
-            self.stats.connections += 1
-            threading.Thread(target=self._reader, args=(conn,), daemon=True,
-                             name="infer-reader").start()
-
-    def _reader(self, conn) -> None:
-        send_lock = threading.Lock()
-        try:
-            while not self._stop.is_set():
-                try:
-                    msg = conn.recv()
-                except (EOFError, OSError):
-                    return
-                kind = msg[0]
-                if kind == "hello":
-                    with send_lock:
-                        conn.send(self._hello)
-                elif kind == "infer":
-                    self._q.put(_Pending(conn, send_lock, msg[1], msg[2]))
-                else:
-                    with send_lock:
-                        conn.send((None, None, f"unknown message kind {kind!r}"))
-        finally:
-            try:
-                conn.close()
-            except OSError:
-                pass
-
-    def _collect(self) -> List[_Pending]:
-        """The next batch: the first request (blocking, with a short
-        timeout so stop is noticed), then what arrives within the
-        window up to max_batch leaves."""
-        st = self.stats
-        t0 = time.monotonic()
-        try:
-            first = self._q.get(timeout=0.05)
-        except queue.Empty:
-            st.idle_s += time.monotonic() - t0
-            return []
-        t1 = time.monotonic()
-        st.idle_s += t1 - t0
-        batch = [first]
-        n = len(first.payload)
-        deadline = t1 + self._window
-        while n < self._max_batch:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            try:
-                item = self._q.get(timeout=remaining)
-            except queue.Empty:
-                break
-            batch.append(item)
-            n += len(item.payload)
-        st.window_s += time.monotonic() - t1
-        return batch
-
-    def _infer(self, batch: List[_Pending], gpu: Dict[str, float]) -> list:
-        replies = self._infer_fn([p.payload for p in batch], stats=gpu)
-        if len(replies) != len(batch):
-            raise RuntimeError(f"infer_fn returned {len(replies)} replies "
-                               f"for {len(batch)} requests")
-        return list(replies)
-
-    def _answer(self, batch: List[_Pending], gpu: Dict[str, float]) -> Tuple[list, list]:
-        """(replies, errors) for the batch, one of each per request.
-        One forward for the whole batch; when it raises, each request
-        alone, so only the offenders fail: a batch holds one decision
-        from each of up to `jobs` games, and a fault of one position
-        must not cost the other games their play."""
-        try:
-            return self._infer(batch, gpu), [None] * len(batch)
-        except Exception:                          # noqa: BLE001
-            error = traceback.format_exc()
-        self.stats.failed_batches += 1
-        probe = self._probe_failure()
-        if probe is not None:
-            self.fatal = f"{error}\nthen the device failed its health probe:\n{probe}"
-            self.stats.failed_requests += len(batch)
-            log.error("a failed batch left the device unable to serve; stopping:\n%s",
-                      self.fatal)
-            return [None] * len(batch), [self.fatal] * len(batch)
-        if len(batch) == 1:
-            replies, errors = [None], [error]
-        else:
-            log.error("batch of %d requests failed; retrying them one at a time:\n%s",
-                      len(batch), error)
-            replies, errors = [], []
-            for p in batch:
-                try:
-                    replies.extend(self._infer([p], gpu))
-                    errors.append(None)
-                except Exception:                  # noqa: BLE001
-                    replies.append(None)
-                    errors.append(traceback.format_exc())
-        failed = [p.rid for p, e in zip(batch, errors) if e is not None]
-        self.stats.failed_requests += len(failed)
-        if failed:
-            log.error("%d of %d request(s) failed (rids %s):\n%s", len(failed), len(batch),
-                      failed, next(e for e in errors if e is not None))
-        else:
-            log.warning("every request of the failed batch passed alone (a batch-level "
-                        "fault, not a position's)")
-        return replies, errors
-
-    def _probe_failure(self) -> Optional[str]:
-        """The health probe's traceback when the device can no longer
-        serve; None when it can, or when there is no probe."""
-        if self._health_fn is None:
-            return None
-        try:
-            self._health_fn()
-        except Exception:                          # noqa: BLE001
-            return traceback.format_exc()
-        return None
-
-    def _serve(self) -> None:
-        st = self.stats
-        while not self._stop.is_set():
-            batch = self._collect()
-            if not batch:
-                continue
-            t0 = time.monotonic()
-            gpu: Dict[str, float] = {}
-            replies, errors = self._answer(batch, gpu)
-            t1 = time.monotonic()
-            # Counted before answering, so a client holding its reply
-            # reads counters that include it.
-            leaves = sum(len(p.payload) for p in batch)
-            st.requests += len(batch)
-            st.batches += 1
-            st.leaves += leaves
-            st.batch_hist[leaves] += 1
-            st.infer_s += t1 - t0
-            st.gpu_ms += float(gpu.get("gpu_ms", 0.0))
-            for p, reply, error in zip(batch, replies, errors):
-                msg = (p.rid, reply) if error is None else (p.rid, None, error)
-                try:
-                    with p.send_lock:
-                        p.conn.send(msg)
-                except (OSError, EOFError, ValueError):
-                    pass                            # the client went away
-            st.reply_s += time.monotonic() - t1
-            if self.fatal is not None:
-                # Accept nothing more; the process exits once the main
-                # thread sees the fault, which closes every connection.
-                self._stop.set()
-                try:
-                    self._listener.close()
-                except OSError:
-                    pass
-                return
 
 
 # ---------------------------------------------------------------------
@@ -373,7 +104,7 @@ class EvalInferenceClient:
     def __init__(self, address: str):
         self.address = address
         self._conn = Client(address)
-        self._conn.send(("hello",))
+        self._conn.send_bytes(HELLO_MESSAGE)
         self.hello: Dict = self._conn.recv()
         self._rid = 0
         # Set on a transport failure: a cached client must not be
@@ -391,26 +122,29 @@ class EvalInferenceClient:
         if not all(isinstance(it, tuple) for it in items):
             raise TypeError("expected (RawEncoded, PackedMasks) pairs, or triples with a MemoryState")
         from tools.inference_seam import output_from_wire
-        from wesnoth_ai.leaf_wire import pack_request
+        from wesnoth_ai.byte_wire import decode_replies, encode_request
         rid = self._rid
         self._rid += 1
         with stage("pack"):
-            request = ("infer", rid, pack_request(items))
+            request = encode_request(items, prefix=(KIND_INFER, rid, len(items)))
         try:
             with stage("round_trip"):
-                self._conn.send(request)
-                reply = self._conn.recv()
+                self._conn.send_bytes(request)
+                reply = self._conn.recv_bytes()
         except (OSError, EOFError) as e:
             self.broken = True
             raise RuntimeError(f"lost the inference server at {self.address}: "
                                f"{e!r}") from e
-        if reply[0] != rid:
-            raise RuntimeError(f"inference reply for request {reply[0]} while "
+        got, status = reply_head(reply)
+        if got != rid:
+            raise RuntimeError(f"inference reply for request {got} while "
                                f"waiting for {rid}")
-        if reply[1] is None:
-            raise RuntimeError(f"inference server failed on this batch:\n{reply[2]}")
+        if status != STATUS_OK:
+            raise RuntimeError(f"inference server failed on this batch:\n{error_text(reply)}")
         with stage("unwire"):
-            return [output_from_wire(w) for w in reply[1]]
+            # A writable copy: the outputs' tensors are views into it.
+            wires = decode_replies(bytearray(reply), REPLY_HEAD_BYTES)
+            return [output_from_wire(w) for w in wires]
 
     def close(self) -> None:
         try:
@@ -585,29 +319,58 @@ def _device_health_fn(device) -> Optional[Callable[[], None]]:
 
 
 def _model_infer_fn(server) -> Callable:
-    """The service's infer_fn over the real model: unpack the packed
-    requests, one batched forward with server-side priors, wire the
-    outputs back per request."""
-    from tools.inference_seam import output_to_wire
-    from wesnoth_ai.leaf_wire import unpack_request
+    """The service's infer_fn over the real model: decode the requests,
+    one batched forward with server-side priors, one reply message per
+    request written from the batch's host arrays. Records the host
+    seconds of decoding (t_decode) and of writing the replies (t_wire)."""
+    from wesnoth_ai.byte_wire import decode_request, encode_replies
 
-    def infer(payloads, stats=None):
-        flat = []
+    def infer(requests, stats=None):
+        t0 = time.perf_counter()
+        items = []
         counts = []
-        for p in payloads:
-            leaves = unpack_request(p)
-            flat.extend(leaves)
+        for r in requests:
+            leaves = decode_request(r.message, REQUEST_HEAD_BYTES)
+            items.extend(leaves)
             counts.append(len(leaves))
-        outs = server.infer_batch(flat, stats=stats)
-        wires = [output_to_wire(o) for o in outs]
+        t1 = time.perf_counter()
+        batch = server.serve_priors(items, stats=stats)
+        t2 = time.perf_counter()
         replies = []
         i = 0
-        for k in counts:
-            replies.append(wires[i:i + k])
+        for r, k in zip(requests, counts):
+            replies.append(encode_replies([batch.wire(b) for b in range(i, i + k)],
+                                          prefix=(r.rid, STATUS_OK)))
             i += k
+        if stats is not None:
+            stats["t_decode"] = stats.get("t_decode", 0.0) + (t1 - t0)
+            stats["t_wire"] = stats.get("t_wire", 0.0) + (time.perf_counter() - t2)
         return replies
 
     return infer
+
+
+def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, bf16: bool,
+                 packed: bool, packed_embed: bool, compiled: bool, graphed: bool) -> Dict:
+    """What a server tells each connection: the checkpoint it serves, its
+    precision path, the structure a worker's encoder must build and the
+    vocab."""
+    return {
+        "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
+        "device": device, "infer_bf16": bf16,
+        "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
+        "graphed": graphed,
+        "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
+        "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
+        "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),
+        # The parity-memory recipe's structure: what a worker's encoder must
+        # build and how many slots a player's memory may use.
+        "observation_parity": bool(getattr(encoder, "observation_parity", False)),
+        "relevant_set_version": int(getattr(encoder, "relevant_set_version", 1)),
+        "memory_slots": int(getattr(model, "memory_slots", 0) or 0),
+        "type_to_id": dict(encoder.unit_type_to_id),
+        "faction_to_id": dict(encoder.faction_to_id),
+    }
 
 
 def main(argv: List[str]) -> int:
@@ -699,22 +462,9 @@ def main(argv: List[str]) -> int:
     server = InferenceServer(model, encoder, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
                              packed_embed=packed_embed, graphed=graphed)
-    hello = {
-        "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
-        "device": device.type, "infer_bf16": bf16,
-        "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
-        "graphed": graphed is not None and graphed.disabled is None,
-        "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
-        "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
-        "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),
-        # The parity-memory recipe's structure: what a worker's encoder must
-        # build and how many slots a player's memory may use.
-        "observation_parity": bool(getattr(encoder, "observation_parity", False)),
-        "relevant_set_version": int(getattr(encoder, "relevant_set_version", 1)),
-        "memory_slots": int(getattr(model, "memory_slots", 0) or 0),
-        "type_to_id": dict(encoder.unit_type_to_id),
-        "faction_to_id": dict(encoder.faction_to_id),
-    }
+    hello = server_hello(spec, checkpoint_sha256, encoder, model, device=device.type, bf16=bf16,
+                         packed=packed, packed_embed=packed_embed, compiled=compiled,
+                         graphed=graphed is not None and graphed.disabled is None)
     listener = Listener()
     service = InferenceService(listener, _model_infer_fn(server), hello,
                                window_s=args.window_ms / 1000.0, max_batch=args.max_batch,

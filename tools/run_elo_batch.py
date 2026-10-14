@@ -434,11 +434,12 @@ def _log_server_stats(stats: dict) -> None:
             log.error("inference server %s stopped serving on a device fault:\n%s",
                       Path(spec).name, st["fatal"][-2000:])
         log.info("inference server %s: %d requests in %d batches, mean batch "
-                 "%.2f, hist %s; idle %.1fs window %.1fs infer %.1fs reply %.1fs "
-                 "of %.1fs wall (gpu %.1fs)", Path(spec).name, st["requests"],
-                 st["batches"], st["mean_batch"], st["batch_hist"], st["idle_s"],
-                 st["window_s"], st["infer_s"], st["reply_s"], st["wall_s"],
-                 st["gpu_ms"] / 1000.0)
+                 "%.2f, hist %s; idle %.1fs window %.1fs (reads %.1fs) infer %.1fs "
+                 "reply %.1fs of %.1fs wall (gpu %.1fs); host seconds by stage %s",
+                 Path(spec).name, st["requests"], st["batches"], st["mean_batch"],
+                 st["batch_hist"], st["idle_s"], st["window_s"], st.get("recv_s", 0.0),
+                 st["infer_s"], st["reply_s"], st["wall_s"], st["gpu_ms"] / 1000.0,
+                 st.get("stage_s", {}))
 
 
 
