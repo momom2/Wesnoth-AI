@@ -1,0 +1,16 @@
+stage tier-b/staging/stage_20261014_gen_speed3.tar.gz
+instance 55902667, host 2c80bba15a97
+cores(all) 128, usable 31
+model name	: AMD EPYC 7702P 64-Core Processor
+cpu.max 3072000 100000
+pids.max 8192
+               total        used        free      shared  buff/cache   available
+Mem:          515606       23361      275071          69      217173      487817
+overlay          60G  1.4G   59G   3% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 595.71.05
+torch 2.5.1+cu124 cuda True
+code 0.21.1 epoch 11
+wheel phase 33, source phase 33
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 33 | source 33 | adapter 33 | current

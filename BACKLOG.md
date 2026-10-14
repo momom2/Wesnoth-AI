@@ -92,6 +92,13 @@ $1.47 in all):
   inference server's batch cost is nearly flat in its size, so depth is
   the lever. A million games now cost about $110 to generate and train
   on, against about $250.
+  **Generation round 3 measured 2026-10-14** (`feature/generation-speed-3`,
+  `training/metrics/generation_speed_r3_20261014/`): the single-thread
+  serve loop and the raw-bytes wire, 1,487-1,497 decisions a second and
+  11,020-11,134 games an hour at 120 games in flight (main 496-526 and
+  3,730-3,810): 2.9x. The server's host stages still take about 11.7 of a
+  batch's 18.5 ms (decode 2.3, encode 3.1, priors 3.6, finish 1.7, wire
+  1.0, the forward 6.4); the graphed path loses at depth (its encode 20 ms).
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

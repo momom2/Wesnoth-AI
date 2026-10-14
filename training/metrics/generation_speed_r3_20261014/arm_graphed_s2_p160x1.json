@@ -1,0 +1,1 @@
+{"arm": "graphed_s2_p160x1", "repo": "/workspace/Wesnoth-AI", "jobs": 160, "flags": "--worker-games 1 --min-free-mb 300 --graphed-serve --inference-servers 2 --inference-max-batch 80", "slots": 800, "wall_s": 283, "games": 800, "failed_games": 0, "rc": 0, "why": "ok"}
