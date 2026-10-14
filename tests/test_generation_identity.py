@@ -1,8 +1,10 @@
 """Self-play generation plays the same games however fast it runs: the
 worker's decisions as the code of 2026-10-14 made them (the encodings,
 the masks, the view, the step), a game served through the inference
-server process as the same game served in-process, and games played on
-threads of one worker as each game played alone."""
+server process (its host work in Rust) as the same game served
+in-process, a game whose memory the server keeps as the same game with
+the memory on the wire, and games played on threads of one worker as each
+game played alone."""
 from __future__ import annotations
 
 import json
@@ -65,8 +67,9 @@ class _InProcess:
         from tools.inference_seam import InferenceServer
         cpu = torch.device("cpu")
         policy = _load_policy(Path(spec), cpu, label="inproc", infer_bf16=False, infer_compile=False)
+        # The embedded path, as a CPU server serves under its Rust stage.
         self._server = InferenceServer(policy._inference_model, policy._inference_encoder, device=cpu,
-                                       output_device=cpu, autocast_bf16=False, packed_embed=False)
+                                       output_device=cpu, autocast_bf16=False, packed_embed=True)
         self.hello = hello
         self.broken = False
         self.address = "in-process"
@@ -95,7 +98,8 @@ def _commands(out: Path, seed: int):
 
 class _Outputs:
     """Every forward's output the raw players read, per game: the bytes
-    of its legal actions' priors, its value and the memory it wrote."""
+    of its legal actions' priors, its value and the memory it wrote (the
+    server's handle when the server keeps it)."""
 
     def __init__(self, monkeypatch):
         import threading
@@ -106,8 +110,9 @@ class _Outputs:
         def spy(player, base, encoded, game_label, game_state):
             out = forward(player, base, encoded, game_label, game_state)
             c = out.legal_compact
+            memory = out.memory.numpy().tobytes() if torch.is_tensor(out.memory) else out.memory
             row = (c.actor.tobytes(), c.kind.tobytes(), c.target.tobytes(), c.prior.tobytes(),
-                   out.value.numpy().tobytes(), out.memory.numpy().tobytes())
+                   out.value.numpy().tobytes(), memory)
             with lock:
                 self.by_game.setdefault(game_label, []).append(row)
             return out
@@ -119,9 +124,9 @@ class _Outputs:
 @pytest.mark.slow
 def test_a_served_game_plays_as_the_in_process_game(tmp_path, monkeypatch):
     """One game through the inference server process (the byte wire, the
-    serve loop, one leaf per batch) against the same game with the same
-    forward in-process: the same commands, and the same bytes in every
-    reply the players read (priors, value, memory)."""
+    serve loop, the Rust stage, one leaf per batch) against the same game
+    with the same forward in-process: the same commands, and the same
+    bytes in every reply the players read (priors, value, memory)."""
     import tools.elo_eval_game as eg
     from tools.eval_inference_server import EvalInferenceClient, launch_inference_server
     spec = _memory_checkpoint(tmp_path / "memory.pt")
@@ -131,7 +136,7 @@ def test_a_served_game_plays_as_the_in_process_game(tmp_path, monkeypatch):
     # may round differently.
     server = launch_inference_server(spec, tmp_path, "t", device="cpu", infer_bf16=None,
                                      window_ms=1.0, max_batch=4, torch_threads=2,
-                                     startup_timeout_s=300.0)
+                                     startup_timeout_s=300.0, server_memory=False)
     try:
         served = tmp_path / "served"
         assert eg.main(_game_argv(spec, 21, served, server.address)) == 0
@@ -150,6 +155,47 @@ def test_a_served_game_plays_as_the_in_process_game(tmp_path, monkeypatch):
     [(_, rows)] = served_out.by_game.items()
     assert len(rows) == stats["requests"]
     assert inproc_out.by_game == served_out.by_game
+
+
+def _turn_digests(out: Path, seed: int):
+    from tools.game_record import read_records
+    [path] = sorted(out.glob(f"game_A_B_s*_{seed}.game.jsonl.gz"))
+    return next(read_records(path))["turn_digests"]
+
+
+@needs_core
+@pytest.mark.slow
+def test_a_game_with_the_memory_on_the_server_plays_as_with_it_on_the_wire(tmp_path, monkeypatch):
+    """The same game through two server processes, one keeping each
+    game-side's memory between its decisions and one sending it over the
+    wire: the same commands and turn digests, the same bytes in every
+    reply's priors and value. The game's release leaves the server
+    holding no state."""
+    import tools.elo_eval_game as eg
+    from tools.eval_inference_server import launch_inference_server
+    spec = _memory_checkpoint(tmp_path / "memory.pt")
+    games, outputs, stats = {}, {}, {}
+    for mode in ("wire", "server"):
+        outputs[mode] = _Outputs(monkeypatch)
+        server = launch_inference_server(spec, tmp_path, mode, device="cpu", infer_bf16=None,
+                                         window_ms=1.0, max_batch=4, torch_threads=2,
+                                         startup_timeout_s=300.0, server_memory=mode == "server")
+        try:
+            games[mode] = tmp_path / mode
+            assert eg.main(_game_argv(spec, 22, games[mode], server.address)) == 0
+        finally:
+            stats[mode] = server.shutdown()
+    assert _commands(games["wire"], 22) == _commands(games["server"], 22)
+    assert len(_commands(games["wire"], 22)) > 100
+    assert _turn_digests(games["wire"], 22) == _turn_digests(games["server"], 22)
+    [(_, wire)] = outputs["wire"].by_game.items()
+    [(_, kept)] = outputs["server"].by_game.items()
+    assert len(wire) == len(kept) == stats["server"]["requests"]
+    assert [row[:5] for row in wire] == [row[:5] for row in kept]
+    assert all(isinstance(row[5], bytes) for row in wire) and not any(isinstance(row[5], bytes) for row in kept)
+    memory = stats["server"]["memory_states"]
+    assert memory["refused"] == 0 and memory["held"] == 0 and memory["released"] == 2
+    assert stats["server"]["server_memory"] is True and stats["wire"]["server_memory"] is False
 
 
 @needs_core
@@ -202,5 +248,5 @@ def _hello_of(spec: str) -> dict:
     policy = _load_policy(Path(spec), torch.device("cpu"), label="hello", infer_bf16=False,
                           infer_compile=False)
     return server_hello(spec, file_sha256(Path(spec)), policy._inference_encoder, policy._inference_model,
-                        device="cpu", bf16=False, packed=False, packed_embed=False, compiled=False,
-                        graphed=False)
+                        device="cpu", bf16=False, packed=False, packed_embed=True, compiled=False,
+                        graphed=False, rust_stage=True, server_memory=False)

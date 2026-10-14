@@ -2,11 +2,15 @@
 connection, coalesces requests into batches and answers them.
 
 Requests and replies are raw byte messages (`multiprocessing.connection`
-send_bytes/recv_bytes): a request is three int64 words (kind, request
-id, leaves) and its payload, a reply two (request id, status) and its
+send_bytes/recv_bytes): a request is three int64 words (kind, request id,
+leaves) and its payload, a reply two (request id, status) and its
 payload, the model's replies in wesnoth_ai/byte_wire.py's form, an
 error's in UTF-8. The hello is the one pickled message: the client sends
-the hello kind and the service answers with its hello dict.
+the hello kind and the service answers with its hello dict. A release
+(kind 3, no reply) gives up every memory state the server keeps for the
+connection (tools/serve_stage.py `ServerMemory`); a connection that
+closes gives them up too. Each connection has a number of its own,
+never reused (`Request.cid`), which the memory states are kept under.
 
 Why one thread. The service used to run a reader thread per connection
 that unpickled each request and queued it for a serve thread. At 120
@@ -46,13 +50,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger("serve_loop")
 
-KIND_HELLO, KIND_INFER = 1, 2
+KIND_HELLO, KIND_INFER, KIND_RELEASE = 1, 2, 3
 STATUS_OK, STATUS_ERROR = 0, 1
 _REQUEST_HEAD = struct.Struct("<qqq")        # kind, request id, leaves
 _REPLY_HEAD = struct.Struct("<qq")           # request id, status
 REQUEST_HEAD_BYTES = _REQUEST_HEAD.size
 REPLY_HEAD_BYTES = _REPLY_HEAD.size
 HELLO_MESSAGE = _REQUEST_HEAD.pack(KIND_HELLO, 0, 0)
+RELEASE_MESSAGE = _REQUEST_HEAD.pack(KIND_RELEASE, 0, 0)
 
 
 def reply_head(message) -> Tuple[int, int]:
@@ -80,6 +85,7 @@ class Request:
     rid: int
     leaves: int
     message: bytes          # the whole request; its payload from REQUEST_HEAD_BYTES
+    cid: int = 0            # the connection's number
 
 
 @dataclass
@@ -88,6 +94,7 @@ class ServeStats:
     batches: int = 0
     leaves: int = 0
     connections: int = 0
+    releases: int = 0            # connections' memory states given up (a release or a close)
     failed_batches: int = 0      # batches whose forward raised
     failed_requests: int = 0     # requests that still failed alone
     batch_hist: Counter = field(default_factory=Counter)
@@ -112,7 +119,7 @@ class ServeStats:
     def as_dict(self) -> Dict:
         return {
             "requests": self.requests, "batches": self.batches,
-            "leaves": self.leaves, "connections": self.connections,
+            "leaves": self.leaves, "connections": self.connections, "releases": self.releases,
             "failed_batches": self.failed_batches,
             "failed_requests": self.failed_requests,
             "mean_batch": (self.leaves / self.batches if self.batches else 0.0),
@@ -132,9 +139,10 @@ class _Ready:
     nothing per connection per wait; `multiprocessing.connection.wait`
     on Windows, whose pipe handles no selector takes."""
 
-    def __init__(self):
+    def __init__(self, on_close: Optional[Callable[[Any], None]] = None):
         self.conns: List[Any] = []
         self._sel = None if sys.platform == "win32" else selectors.DefaultSelector()
+        self._on_close = on_close
 
     def add(self, conn) -> None:
         self.conns.append(conn)
@@ -144,6 +152,8 @@ class _Ready:
     def remove(self, conn) -> None:
         if conn in self.conns:
             self.conns.remove(conn)
+            if self._on_close is not None:
+                self._on_close(conn)
             if self._sel is not None:
                 try:
                     self._sel.unregister(conn)
@@ -170,6 +180,10 @@ class InferenceService:
     adds device milliseconds ("gpu_ms") and host seconds by stage to.
     Generic over the payload so the batching is testable without torch.
 
+    `release_fn(cid)` gives up the memory states kept for connection
+    `cid`: on its release message, and when it closes. Called on the serve
+    thread, between batches.
+
     `health_fn()` raises when the device can no longer run work; it is
     called after a batch fails. A sticky device fault fails every later
     call, so a service that kept answering would fail every game that
@@ -179,15 +193,19 @@ class InferenceService:
 
     def __init__(self, listener: Listener, infer_fn: Callable, hello: Dict, *,
                  window_s: float, max_batch: int,
-                 health_fn: Optional[Callable[[], None]] = None):
+                 health_fn: Optional[Callable[[], None]] = None,
+                 release_fn: Optional[Callable[[int], None]] = None):
         self._listener = listener
         self._infer_fn = infer_fn
         self._hello = hello
         self._window = max(0.0, float(window_s))
         self._max_batch = max(1, int(max_batch))
         self._health_fn = health_fn
+        self._release_fn = release_fn
         self._incoming: "queue.Queue[Any]" = queue.Queue()
-        self._ready = _Ready()
+        self._cids: Dict[Any, int] = {}
+        self._next_cid = 1
+        self._ready = _Ready(on_close=self._closed)
         # The accept thread wakes the serve thread's wait through this pipe
         # when it hands over a connection.
         self._wake_r, self._wake_w = Pipe(duplex=False)
@@ -271,7 +289,19 @@ class InferenceService:
             except queue.Empty:
                 return
             self.stats.connections += 1
+            self._cids[conn] = self._next_cid
+            self._next_cid += 1
             self._ready.add(conn)
+
+    def _release(self, cid: int) -> None:
+        self.stats.releases += 1
+        if self._release_fn is not None:
+            self._release_fn(cid)
+
+    def _closed(self, conn) -> None:
+        cid = self._cids.pop(conn, None)
+        if cid is not None:
+            self._release(cid)
 
     def _read(self, conns, batch: List[Request], leaves: int) -> int:
         """Read one message from each of `conns` (ready ones) until the
@@ -292,8 +322,10 @@ class InferenceService:
                 continue
             kind, rid, n = _REQUEST_HEAD.unpack_from(message, 0)
             if kind == KIND_INFER:
-                batch.append(Request(conn, rid, n, message))
+                batch.append(Request(conn, rid, n, message, self._cids.get(conn, 0)))
                 leaves += n
+            elif kind == KIND_RELEASE:
+                self._release(self._cids.get(conn, 0))
             elif kind == KIND_HELLO:
                 try:
                     conn.send(self._hello)

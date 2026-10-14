@@ -365,6 +365,14 @@ def _shared_client(address: str):
     return client
 
 
+def _release_served_memories() -> None:
+    """The memory states this thread's game left on its servers go, however
+    the game ended (a server that keeps them, tools/serve_stage.py). A worker
+    that dies or is killed closes its connections, which releases them too."""
+    for client in list((getattr(_CLIENT_CACHE, "clients", None) or {}).values()):
+        client.release_memories()
+
+
 def _remote_player(address: str, raw_temperature: float, raw_seed,
                    relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
                    raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
@@ -1120,12 +1128,16 @@ def main(argv) -> int:
     game_label = out_path.stem
     timer.add("game_setup", time.perf_counter() - t_setup)
     t0 = time.time()
-    with timing(timer):
-        r = _play_one_eval_game(
-            sim,
-            _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
-            _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
-            game_label=game_label)
+    try:
+        with timing(timer):
+            r = _play_one_eval_game(
+                sim,
+                _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
+                _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
+                game_label=game_label)
+    finally:
+        if shared:
+            _release_served_memories()
     margin_a = material_margin(sim.gs, args.side_a,
                                DrawTiebreakConfig(cap=0.3))
     if pt_cfg is None:

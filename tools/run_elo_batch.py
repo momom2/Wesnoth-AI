@@ -658,6 +658,13 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the server replays each priors batch from a "
                          "per-bucket CUDA graph (wesnoth_ai/graphed_serve.py; cuda + bf16 "
                          "+ packed trunk), one launch per batch instead of ~150.")
+    ap.add_argument("--rust-stage", action=argparse.BooleanOptionalAction, default=True,
+                    help="Shared inference: the server's host work per batch in Rust "
+                         "(tools/serve_stage.py), the same bytes as the Python path.")
+    ap.add_argument("--server-memory", action=argparse.BooleanOptionalAction, default=True,
+                    help="Shared inference: the server keeps each game-side's memory state on "
+                         "the device between its decisions (a model with a memory) instead of "
+                         "the state crossing the wire both ways at every decision.")
     ap.add_argument("--inference-servers", type=int, default=1,
                     help="Inference server PROCESSES per distinct checkpoint "
                          "(default 1). The eval path is bound by one server's "
@@ -1052,7 +1059,8 @@ def main(argv: List[str]) -> int:
                         window_ms=args.inference_window_ms, max_batch=max_batch,
                         packed_embed=bool(args.packed_embed),
                         compile_packed=bool(args.compile_packed),
-                        graphed=bool(args.graphed_serve))
+                        graphed=bool(args.graphed_serve), rust_stage=bool(args.rust_stage),
+                        server_memory=bool(args.server_memory))
                     servers[spec].append(handle)
                     log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
                              handle.address, handle.info)

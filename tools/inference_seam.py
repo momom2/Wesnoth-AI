@@ -482,11 +482,16 @@ class InferenceServer:
         batch = self._serve_priors(raws, packs, stats, memories)
         return [batch.output(b) for b in range(len(raws))]
 
-    def serve_priors(self, items, stats: Optional[Dict[str, float]] = None) -> "ServedBatch":
+    def serve_priors(self, items, stats: Optional[Dict[str, float]] = None,
+                     memory_batch: Optional[MemoryBatch] = None) -> "ServedBatch":
         """The priors protocol's batch on (RawEncoded, PackedMasks) pairs,
         or triples with a MemoryState, as host arrays (`ServedBatch`):
         what `infer_batch` returns per leaf, without a ModelOutput per
-        leaf (the eval server writes its replies from these arrays)."""
+        leaf (the eval server writes its replies from these arrays).
+        `memory_batch`: the batch's memory states already on the device
+        (the states the server keeps, tools/serve_stage.py `ServerMemory`);
+        the items' memories are then the server's handles, and the new
+        states stay on the device (`ServedBatch.device_memory`)."""
         if not items:
             raise ValueError("serve_priors: empty batch")
         if not all(isinstance(it, tuple) for it in items):
@@ -494,9 +499,10 @@ class InferenceServer:
         memories = [it[2] if len(it) > 2 else None for it in items]
         with self.gate.shared():
             return self._serve_priors([it[0] for it in items], [it[1] for it in items], stats,
-                                      memories)
+                                      memories, memory_batch=memory_batch)
 
-    def _serve_priors(self, raws, packs, stats=None, memories=None) -> "ServedBatch":
+    def _serve_priors(self, raws, packs, stats=None, memories=None,
+                      memory_batch: Optional[MemoryBatch] = None) -> "ServedBatch":
         """Batched forward + masked softmaxes on the device; the compact
         legal actions, the head outputs and the new memory states come
         back as host arrays (the head outputs in the priors' one
@@ -523,7 +529,9 @@ class InferenceServer:
         graphed = None
         memories = self._checked_memories(memories)
         extended = bool(getattr(model, "extended_streams", False))
-        gserve = self._graphed_serve()
+        # The graphed path stages each leaf's state from the host; the states
+        # the server keeps are on the device, so their batches run eagerly.
+        gserve = self._graphed_serve() if memory_batch is None else None
         new_memory = memory_counts = None
         if gserve is not None:
             try:
@@ -549,7 +557,7 @@ class InferenceServer:
                 ev_end.synchronize()
         else:
             with torch.no_grad():
-                states = self._memory_batch(memories)
+                states = memory_batch if memory_batch is not None else self._memory_batch(memories)
                 if self._packed_embed or extended:
                     streams = self._encoder.encode_from_raw_embedded(raws, device=self._device)
 
@@ -570,8 +578,9 @@ class InferenceServer:
                 names = ["value", "value_logits", "cliffness"]
                 names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
                 ride = [getattr(padded, n) for n in names]
-                # The new memory states ride in the priors' one transfer.
-                if padded.memory_padded is not None:
+                # The new memory states ride in the priors' one transfer,
+                # unless the server keeps them.
+                if padded.memory_padded is not None and memory_batch is None:
                     ride.append(padded.memory_padded.float())
                 pending = start_priors(padded, packs, ride)
                 if timing:
@@ -579,7 +588,7 @@ class InferenceServer:
                 t3 = time.perf_counter()
                 compact, host = pending.finish()
                 t4 = time.perf_counter()
-            if padded.memory_padded is not None:
+            if padded.memory_padded is not None and memory_batch is None:
                 new_memory, host = host[-1], host[:-1]
                 memory_counts = padded.memory_counts
             extras = dict(zip(names, host))
@@ -588,7 +597,9 @@ class InferenceServer:
             stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + ev_start.elapsed_time(ev_end)
         batch = ServedBatch(compact=compact, extras=extras, actor_kind=actor_kind.cpu().numpy(),
                             sizes=[tuple(s) for s in sizes], memory=new_memory,
-                            memory_counts=None if memory_counts is None else list(memory_counts))
+                            memory_counts=None if memory_counts is None else list(memory_counts),
+                            device_memory=(padded.memory_padded if memory_batch is not None
+                                           else None))
         if timing:
             t5 = time.perf_counter()
             for key, dt in (("t_encode", t1 - t0), ("t_forward", t2 - t1), ("t_priors", t3 - t2),
@@ -604,13 +615,15 @@ class ServedBatch:
     value, value_logits, cliffness, and aux_score and moves_left when
     the model has them); the actor kinds [B, A_max] (int64); the new
     memory states [B, K, d] (float32, leaf b's first memory_counts[b]
-    rows) or None for a model without a memory."""
+    rows) or None for a model without a memory, or one whose states the
+    server keeps: those stay on the device (`device_memory`)."""
     compact: List
     extras: Dict[str, np.ndarray]
     actor_kind: np.ndarray
     sizes: List[Tuple[int, int, int]]
     memory: Optional[np.ndarray] = None
     memory_counts: Optional[List[int]] = None
+    device_memory: Optional[torch.Tensor] = None
 
     def wire(self, b: int) -> tuple:
         """Leaf b's priors tuple: what `output_to_wire(self.output(b))`

@@ -79,8 +79,10 @@ _RECORD_SIDES = (1, 2)
 # the earlier rule for records of format 3 and earlier), 32 builds the
 # decision's packed legality masks beside the encoding (`encode_raw(masks=True)`)
 # and the view's units (`units_view`), 33 computes a decision's long calls
-# without the GIL (a worker's other game threads run meanwhile).
-_CORE_PHASE = 33
+# without the GIL (a worker's other game threads run meanwhile), 34 does the
+# inference server's host work per batch (`ServeRequests`, `MemoryTable`;
+# tools/serve_stage.py).
+_CORE_PHASE = 34
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
 CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",

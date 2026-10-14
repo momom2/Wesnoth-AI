@@ -31,9 +31,24 @@ never exceeds the games in flight; the achieved sizes are recorded in
 the stats file (`batch_hist`, `mean_batch`), with the serve thread's
 seconds by stage.
 
+Host work. With --rust-stage (the default) the Rust core parses each
+batch's requests in place and writes the staging buffers and the replies
+(tools/serve_stage.py); --no-rust-stage decodes them into Python objects
+and builds the buffers with numpy (`InferenceServer.serve_priors`). The
+two give the same bytes.
+
+Memory. With --server-memory (the default, for a model with a memory)
+each game-side's memory state stays on the device between its decisions
+(tools/serve_stage.py `ServerMemory`): a request names the state by the
+key its client gave the game-side and the version it read, the reply
+gives the version written, and the states of a connection go at its
+release (the end of each game) or when it closes. --no-server-memory
+sends each state over the wire both ways.
+
 Protocol on a connection (client -> server -> client), int64 words:
   hello: (1, 0, 0)                        -> pickled dict: vocab, relevant_set, precision
   infer: (2, rid, leaves) + request bytes -> (rid, 0) + reply bytes, or (rid, 1) + error text
+  release: (3, 0, 0)                      -> no reply; the connection's memory states go
 The server prints `__ADDR__ <address>` then `__INFO__ <json>` on
 stdout once it serves, and exits when its stdin closes (the driver's
 shutdown), writing `--stats-out` first. It exits with status 3 when a
@@ -74,9 +89,9 @@ _THIS = Path(__file__).resolve()
 sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
-from tools.serve_loop import (HELLO_MESSAGE, KIND_INFER, REPLY_HEAD_BYTES,  # noqa: E402
-                              REQUEST_HEAD_BYTES, STATUS_OK, InferenceService, error_text,
-                              reply_head)
+from tools.serve_loop import (HELLO_MESSAGE, KIND_INFER, RELEASE_MESSAGE,  # noqa: E402
+                              REPLY_HEAD_BYTES, REQUEST_HEAD_BYTES, STATUS_OK, InferenceService,
+                              error_text, reply_head)
 from wesnoth_ai.paths import TOOLS_DIR  # noqa: E402
 from wesnoth_ai.stage_timing import stage  # noqa: E402
 
@@ -99,7 +114,13 @@ class EvalInferenceClient:
     and precision; `infer_batch` takes the (RawEncoded, PackedMasks)
     pairs RemoteEncoder(server_priors=True) produces and returns
     ModelOutputs carrying `legal_compact`. Synchronous: one request in
-    flight per connection."""
+    flight per connection.
+
+    When the server keeps the memory states (`hello["server_memory"]`),
+    a player's state is a `byte_wire.ServedMemory`: a game-side's first
+    decision gets a key never used before on this client, and each reply
+    the version the server wrote. A state this client did not hand out
+    is refused; `release_memories` gives up the states at a game's end."""
 
     def __init__(self, address: str):
         self.address = address
@@ -110,6 +131,12 @@ class EvalInferenceClient:
         # Set on a transport failure: a cached client must not be
         # reused for the next game (elo_eval_game reconnects instead).
         self.broken = False
+        self.server_memory = bool(self.hello.get("server_memory", False))
+        # Which client a served state belongs to: a state handed to another
+        # connection (a reconnect, another server) names keys of its own.
+        self._token = int.from_bytes(os.urandom(7), "little")
+        self._next_key = 0
+        self._holds = False             # states held on the server since the last release
 
     def infer(self, raw):
         raise NotImplementedError(
@@ -122,11 +149,12 @@ class EvalInferenceClient:
         if not all(isinstance(it, tuple) for it in items):
             raise TypeError("expected (RawEncoded, PackedMasks) pairs, or triples with a MemoryState")
         from tools.inference_seam import output_from_wire
-        from wesnoth_ai.byte_wire import decode_replies, encode_request
+        from wesnoth_ai.byte_wire import decode_replies_with_versions, encode_request
         rid = self._rid
         self._rid += 1
         with stage("pack"):
-            request = encode_request(items, prefix=(KIND_INFER, rid, len(items)))
+            served = self._served_keys(items)
+            request = encode_request(items, prefix=(KIND_INFER, rid, len(items)), served=served)
         try:
             with stage("round_trip"):
                 self._conn.send_bytes(request)
@@ -143,8 +171,62 @@ class EvalInferenceClient:
             raise RuntimeError(f"inference server failed on this batch:\n{error_text(reply)}")
         with stage("unwire"):
             # A writable copy: the outputs' tensors are views into it.
-            wires = decode_replies(bytearray(reply), REPLY_HEAD_BYTES)
-            return [output_from_wire(w) for w in wires]
+            wires, versions = decode_replies_with_versions(bytearray(reply), REPLY_HEAD_BYTES)
+            outs = [output_from_wire(w) for w in wires]
+            if served is not None:
+                self._attach_served(outs, served, versions)
+            return outs
+
+    def _served_keys(self, items):
+        """Per leaf (key, version read) when the server keeps the memory
+        states, None when it does not."""
+        from wesnoth_ai.byte_wire import ServedMemory
+        states = [it[2].state for it in items if len(it) > 2 and it[2] is not None]
+        if not self.server_memory:
+            if any(isinstance(st, ServedMemory) for st in states):
+                raise ValueError("a memory state the server kept, sent to a server that keeps none")
+            return None
+        served = []
+        for it in items:
+            memory = it[2] if len(it) > 2 else None
+            state = None if memory is None else memory.state
+            if memory is None:
+                served.append((-1, 0))
+            elif state is None:
+                served.append((self._next_key, 0))
+                self._next_key += 1
+            elif isinstance(state, ServedMemory):
+                if state.client != self._token:
+                    raise ValueError(f"a memory state of another connection ({state}): the server at "
+                                     f"{self.address} keeps this client's states only")
+                served.append((state.key, state.version))
+            else:
+                raise ValueError("the server keeps each game-side's memory state: a state on the wire "
+                                 "is refused (a player carried over from a server that keeps none?)")
+        self._holds = True
+        return served
+
+    def _attach_served(self, outs, served, versions) -> None:
+        """Each output's memory: the state the server wrote, as a handle."""
+        from wesnoth_ai.byte_wire import ServedMemory
+        for out, (key, read), written in zip(outs, served, versions):
+            if key < 0:
+                continue
+            if written != read + 1:
+                raise RuntimeError(f"the server wrote memory version {written} for key {key}, which "
+                                   f"read version {read}")
+            out.memory = ServedMemory(self._token, key, written)
+
+    def release_memories(self) -> None:
+        """Every memory state the server keeps for this connection goes (a
+        game ended, however). No reply; a lost connection holds none."""
+        if not (self.server_memory and self._holds) or self.broken:
+            return
+        try:
+            self._conn.send_bytes(RELEASE_MESSAGE)
+        except (OSError, EOFError, ValueError):
+            self.broken = True
+        self._holds = False
 
     def close(self) -> None:
         try:
@@ -218,7 +300,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             python: Optional[str] = None,
                             packed_embed: bool = True,
                             compile_packed: bool = False,
-                            graphed: bool = False) -> InferenceServerHandle:
+                            graphed: bool = False, rust_stage: bool = True,
+                            server_memory: bool = True) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -236,6 +319,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
         cmd.append("--compile-packed")
     if graphed:
         cmd.append("--graphed")
+    cmd.append("--rust-stage" if rust_stage else "--no-rust-stage")
+    cmd.append("--server-memory" if server_memory else "--no-server-memory")
     log_path = outdir / f".inference_server_{tag}.log"
     errf = open(log_path, "w+b")
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -318,14 +403,25 @@ def _device_health_fn(device) -> Optional[Callable[[], None]]:
     return probe
 
 
-def _model_infer_fn(server) -> Callable:
-    """The service's infer_fn over the real model: decode the requests,
-    one batched forward with server-side priors, one reply message per
-    request written from the batch's host arrays. Records the host
-    seconds of decoding (t_decode) and of writing the replies (t_wire)."""
-    from wesnoth_ai.byte_wire import decode_request, encode_replies
+def _model_infer_fn(server, *, rust_stage: bool = True, memory=None) -> Callable:
+    """The service's infer_fn over the real model: one batched forward
+    with server-side priors, one reply message per request. With
+    `rust_stage` the Rust core does the host work (tools/serve_stage.py
+    `serve_requests`); otherwise the requests are decoded into Python
+    objects and the replies written from the batch's host arrays,
+    recording the host seconds of decoding (t_decode) and of writing the
+    replies (t_wire). `memory`: the `ServerMemory` that keeps the states."""
+    if rust_stage:
+        from tools.serve_stage import serve_requests
+
+        def infer_rust(requests, stats=None):
+            return serve_requests(server, requests, stats, memory=memory, cids=[r.cid for r in requests])
+
+        return infer_rust
+    from wesnoth_ai.byte_wire import ServedMemory, decode_request, encode_replies
 
     def infer(requests, stats=None):
+        from tools.serve_stage import answer_refused, plan_handles
         t0 = time.perf_counter()
         items = []
         counts = []
@@ -333,14 +429,34 @@ def _model_infer_fn(server) -> Callable:
             leaves = decode_request(r.message, REQUEST_HEAD_BYTES)
             items.extend(leaves)
             counts.append(len(leaves))
+        memory_batch = versions = writes = None
+        if memory is None and any(len(it) > 2 and isinstance(it[2].state, ServedMemory) for it in items):
+            raise ValueError("a leaf names a memory state the server keeps, and this server keeps none")
+        if memory is not None and items and len(items[0]) > 2:
+            leaf_cids = [r.cid for r, k in zip(requests, counts) for _ in range(k)]
+            plan = plan_handles(memory, items, leaf_cids)
+            if plan.refused:
+                return answer_refused(requests, counts, plan.why, memory,
+                                      lambda kept: infer(kept, stats))
+            memory_batch, writes, versions = plan.memory_batch, plan.writes, plan.versions
         t1 = time.perf_counter()
-        batch = server.serve_priors(items, stats=stats)
+        try:
+            batch = server.serve_priors(items, stats=stats, memory_batch=memory_batch)
+            if memory_batch is not None:
+                memory.scatter(writes, batch.device_memory)
+        except BaseException:
+            if memory_batch is not None:
+                memory.abort()
+            raise
+        if memory_batch is not None:
+            memory.commit()
         t2 = time.perf_counter()
         replies = []
         i = 0
         for r, k in zip(requests, counts):
             replies.append(encode_replies([batch.wire(b) for b in range(i, i + k)],
-                                          prefix=(r.rid, STATUS_OK)))
+                                          prefix=(r.rid, STATUS_OK),
+                                          versions=None if versions is None else versions[i:i + k]))
             i += k
         if stats is not None:
             stats["t_decode"] = stats.get("t_decode", 0.0) + (t1 - t0)
@@ -351,7 +467,8 @@ def _model_infer_fn(server) -> Callable:
 
 
 def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, bf16: bool,
-                 packed: bool, packed_embed: bool, compiled: bool, graphed: bool) -> Dict:
+                 packed: bool, packed_embed: bool, compiled: bool, graphed: bool,
+                 rust_stage: bool = True, server_memory: bool = False) -> Dict:
     """What a server tells each connection: the checkpoint it serves, its
     precision path, the structure a worker's encoder must build and the
     vocab."""
@@ -360,6 +477,9 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         "device": device, "infer_bf16": bf16,
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
         "graphed": graphed,
+        # The host work in Rust (tools/serve_stage.py), and whether the
+        # server keeps each game-side's memory state between decisions.
+        "rust_stage": bool(rust_stage), "server_memory": bool(server_memory),
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),
@@ -397,6 +517,13 @@ def main(argv: List[str]) -> int:
                     help="Serve priors batches from per-bucket CUDA graphs "
                          "(wesnoth_ai/graphed_serve.py; cuda + bf16 + packed trunk only): "
                          "the per-batch host launch cost collapses to one graph launch.")
+    ap.add_argument("--rust-stage", action=argparse.BooleanOptionalAction, default=True,
+                    help="The batch's host work in Rust (tools/serve_stage.py): the same bytes "
+                         "as the Python path, about 1/10 of its host time.")
+    ap.add_argument("--server-memory", action=argparse.BooleanOptionalAction, default=True,
+                    help="Keep each game-side's memory state on the device between its "
+                         "decisions (a model with a memory only); off, the states cross the "
+                         "wire both ways at every decision.")
     ap.add_argument("--window-ms", type=float, default=DEFAULT_WINDOW_MS)
     ap.add_argument("--max-batch", type=int, default=16, help="leaves per forward")
     ap.add_argument("--torch-threads", type=int, default=4)
@@ -442,7 +569,20 @@ def main(argv: List[str]) -> int:
             log.info("packed compile warmup: %s", model.warmup_packed_compile())
             compiled = True
     packed_embed = bool(args.packed_embed and packed)
+    rust_stage = bool(args.rust_stage)
+    if rust_stage and not cuda:
+        # The Rust stage writes the embedded path's buffers (stage_raws's
+        # layout); on the CPU the Python path serves the same way.
+        packed_embed = True
+    elif rust_stage and not packed_embed:
+        log.warning("--rust-stage writes the packed embed's buffers; with --no-packed-embed the "
+                    "Python path serves")
+        rust_stage = False
     graphed = None
+    if args.graphed and rust_stage:
+        # The graphed path stages its own buffers from decoded leaves.
+        log.warning("--graphed stages its batches in Python: the Rust stage is off")
+        rust_stage = False
     if args.graphed:
         if not packed:
             log.warning("--graphed needs the packed trunk (cuda + bf16); serving eager")
@@ -462,13 +602,19 @@ def main(argv: List[str]) -> int:
     server = InferenceServer(model, encoder, device=device,
                              output_device=torch.device("cpu"), autocast_bf16=bf16,
                              packed_embed=packed_embed, graphed=graphed)
+    memory = None
+    if args.server_memory and int(getattr(model, "memory_slots", 0) or 0):
+        from tools.serve_stage import ServerMemory
+        memory = ServerMemory(model, device)
     hello = server_hello(spec, checkpoint_sha256, encoder, model, device=device.type, bf16=bf16,
                          packed=packed, packed_embed=packed_embed, compiled=compiled,
-                         graphed=graphed is not None and graphed.disabled is None)
+                         graphed=graphed is not None and graphed.disabled is None,
+                         rust_stage=rust_stage, server_memory=memory is not None)
     listener = Listener()
-    service = InferenceService(listener, _model_infer_fn(server), hello,
-                               window_s=args.window_ms / 1000.0, max_batch=args.max_batch,
-                               health_fn=_device_health_fn(device))
+    service = InferenceService(listener, _model_infer_fn(server, rust_stage=rust_stage, memory=memory),
+                               hello, window_s=args.window_ms / 1000.0, max_batch=args.max_batch,
+                               health_fn=_device_health_fn(device),
+                               release_fn=None if memory is None else memory.release_connection)
     service.start()
     info = {k: v for k, v in hello.items() if k not in ("type_to_id", "faction_to_id")}
     info.update(window_ms=args.window_ms, max_batch=args.max_batch)
@@ -482,6 +628,8 @@ def main(argv: List[str]) -> int:
     fatal = service.serve_until_closed(lambda: _read_to_eof(sys.stdin.fileno()))
     service.stop()
     stats = dict(info, **service.stats.as_dict(), fatal=fatal)
+    if memory is not None:
+        stats["memory_states"] = memory.summary()
     if graphed is not None:
         stats["graphed_serve"] = graphed.summary()
         log.info("graphed serve: %s", stats["graphed_serve"])

@@ -20,10 +20,18 @@ priors tuple with their own dtypes.
 
 A message may start with `prefix` int64 words, the caller's own framing
 (the server's request kind and id).
+
+A leaf's memory travels on the wire (its state's array, absent at a
+game-side's first decision), or stays on the server between decisions
+(tools/serve_stage.py `ServerMemory`): then the leaf carries the key its
+client gave the game-side and the version of the state it reads (0: the
+learned initial memory), and the reply the version the server wrote
+(`ServedMemory`).
 """
 from __future__ import annotations
 
 import struct
+from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -45,11 +53,14 @@ _ZERO_DIMS = tuple((0,) * (MAX_NDIM - nd) for nd in range(MAX_NDIM + 1))
 _ALIGN = 8
 _PAD = tuple(bytes(n) for n in range(_ALIGN))
 
-# A request leaf's scalars, in header order.
+# A request leaf's scalars, in header order. memory_key -1: no state on the
+# server (the state, if any, is on the wire).
 REQUEST_SCALARS = ("memory_k", "our_faction_id", "their_faction_id", "hex_subset",
-                   "end_turn_bias", "n_units", "n_recruits", "n_hexes")
-# A reply leaf: its two scalars, then the priors tuple's arrays.
-REPLY_SCALARS = ("num_units", "num_recruits")
+                   "end_turn_bias", "n_units", "n_recruits", "n_hexes", "memory_key",
+                   "memory_version")
+# A reply leaf: its scalars (memory_version -1 when the server keeps no
+# state for it), then the priors tuple's arrays.
+REPLY_SCALARS = ("num_units", "num_recruits", "memory_version")
 REPLY_FIELDS = ("value", "value_logits", "cliffness", "aux_score", "moves_left", "actor_kind",
                 "actor", "kind", "target", "weapon", "prior", "memory")
 
@@ -132,18 +143,35 @@ def decode_bundle(buf, n_scalars: int, n_fields: int, offset: int = 0
 # Requests: (RawEncoded, PackedMasks[, MemoryState]) per leaf
 # ---------------------------------------------------------------------
 
-def encode_request(items: Sequence[Tuple], prefix: Sequence[int] = ()) -> bytes:
+@dataclass(frozen=True)
+class ServedMemory:
+    """A memory state the server holds (tools/serve_stage.py
+    `ServerMemory`): the client that holds it (which alone may send it),
+    the key the client gave the game-side and the version of the state
+    (the decisions it has seen)."""
+    client: int
+    key: int
+    version: int
+
+
+def encode_request(items: Sequence[Tuple], prefix: Sequence[int] = (),
+                   served: Optional[Sequence[Tuple[int, int]]] = None) -> bytes:
     """Actor side: B (RawEncoded, PackedMasks) pairs, or triples with the
     player's MemoryState, as one buffer (the fields `leaf_wire.
-    pack_request` carries, in its dtypes)."""
+    pack_request` carries, in its dtypes). `served`: per leaf (memory key,
+    version read) when the server keeps the leaf's memory, the state then
+    left off the wire; key -1 for a leaf whose state, if any, travels."""
     leaves = []
-    for item in items:
+    for i, item in enumerate(items):
         raw, masks = item[0], item[1]
         memory = item[2] if len(item) > 2 else None
+        key, version = served[i] if served is not None else (-1, 0)
         scalars = (-1 if memory is None else int(memory.k), int(raw.our_faction_id),
                    int(raw.their_faction_id), int(bool(raw.hex_subset)),
                    _float_bits(float(masks.end_turn_bias)), int(masks.n_units),
-                   int(masks.n_recruits), int(masks.n_hexes))
+                   int(masks.n_recruits), int(masks.n_hexes), int(key), int(version))
+        if key >= 0 and memory is not None:
+            memory = MemoryState(memory.k, None)
         leaves.append((scalars, list(_leaf_arrays(raw, masks, memory))))
     return encode_bundle(leaves, prefix)
 
@@ -158,11 +186,12 @@ def decode_request(buf, offset: int = 0) -> List[Tuple]:
     buffer `encode_request` wrote: per leaf (RawEncoded, PackedMasks),
     or with a MemoryState for a leaf with a memory (its state None at a
     game-side's first decision). The RawEncoded carries only the
-    numeric streams."""
+    numeric streams. A leaf whose memory the server keeps carries a
+    `ServedMemory` (client -1: the server's side) as its state."""
     n_raw, n_mask, n_parity = len(RAW_FIELDS), len(MASK_FIELDS), len(PARITY_FIELDS)
     out: List[Tuple] = []
     for scalars, vals in decode_bundle(buf, len(REQUEST_SCALARS), len(ALL_FIELDS), offset):
-        memory_k, our_f, their_f, subset, bias, n_units, n_recruits, n_hexes = scalars
+        memory_k, our_f, their_f, subset, bias, n_units, n_recruits, n_hexes, key, version = scalars
         raw = RawEncoded(
             hex_positions=None, unit_positions=None, unit_ids=None, recruit_types=None,
             our_faction_id=our_f, their_faction_id=their_f, hex_subset=bool(subset),
@@ -173,6 +202,8 @@ def decode_request(buf, offset: int = 0) -> List[Tuple]:
                             **dict(zip(_MASK_NAMES, vals[n_raw:n_raw + n_mask])))
         if memory_k < 0:
             out.append((raw, masks))
+        elif key >= 0:
+            out.append((raw, masks, MemoryState(memory_k, ServedMemory(-1, key, version))))
         else:
             out.append((raw, masks, MemoryState(memory_k, vals[-1])))
     return out
@@ -182,17 +213,20 @@ def decode_request(buf, offset: int = 0) -> List[Tuple]:
 # Replies: the priors tuple of tools.inference_seam.output_to_wire
 # ---------------------------------------------------------------------
 
-def encode_replies(wires: Sequence[tuple], prefix: Sequence[int] = ()) -> bytes:
+def encode_replies(wires: Sequence[tuple], prefix: Sequence[int] = (),
+                   versions: Optional[Sequence[int]] = None) -> bytes:
     """Server side: priors replies, each the tuple
     ("c", U, R, value, value_logits, cliffness, aux_score, moves_left,
     actor_kind (int8), CompactActions, memory), as one buffer; every
-    array keeps its dtype."""
+    array keeps its dtype. `versions`: per leaf the memory version the
+    server wrote (-1: it keeps no state for the leaf)."""
     leaves = []
-    for w in wires:
+    for i, w in enumerate(wires):
         if not (isinstance(w, tuple) and w and w[0] == "c"):
             raise ValueError("the byte wire carries priors replies only")
         _, U, R, value, value_logits, cliffness, aux, ml, kinds, c, memory = w
-        leaves.append(((int(U), int(R)),
+        version = -1 if versions is None else int(versions[i])
+        leaves.append(((int(U), int(R), version),
                        (value, value_logits, cliffness, aux, ml, kinds,
                         c.actor, c.kind, c.target, c.weapon, c.prior, memory)))
     return encode_bundle(leaves, prefix)
@@ -201,10 +235,17 @@ def encode_replies(wires: Sequence[tuple], prefix: Sequence[int] = ()) -> bytes:
 def decode_replies(buf, offset: int = 0) -> List[tuple]:
     """Actor side: the priors tuples `encode_replies` wrote, for
     `output_from_wire`."""
-    out = []
-    for (U, R), f in decode_bundle(buf, len(REPLY_SCALARS), len(REPLY_FIELDS), offset):
+    return decode_replies_with_versions(buf, offset)[0]
+
+
+def decode_replies_with_versions(buf, offset: int = 0) -> Tuple[List[tuple], List[int]]:
+    """`decode_replies`, with each leaf's served memory version (-1 when
+    the server keeps no state for it)."""
+    out, versions = [], []
+    for (U, R, version), f in decode_bundle(buf, len(REPLY_SCALARS), len(REPLY_FIELDS), offset):
         value, value_logits, cliffness, aux, ml, kinds, actor, kind, target, weapon, prior, memory = f
         out.append(("c", U, R, value, value_logits, cliffness, aux, ml, kinds,
                     CompactActions(actor=actor, kind=kind, target=target, weapon=weapon, prior=prior),
                     memory))
-    return out
+        versions.append(version)
+    return out, versions
