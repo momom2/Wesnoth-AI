@@ -617,6 +617,11 @@ class GraphedServe:
         return int(free + torch.cuda.memory_reserved(self.device)
                    - torch.cuda.memory_allocated(self.device))
 
+    def _reserved_bytes(self) -> int:
+        """The caching allocator's reserved bytes on the serve device; 0 off
+        CUDA (a CPU instance asks no CUDA query)."""
+        return int(torch.cuda.memory_reserved(self.device)) if self.device.type == "cuda" else 0
+
     def _probe_device(self) -> None:
         """Raise when the device can no longer run work (a sticky fault)."""
         torch.cuda.synchronize(self.device)
@@ -947,7 +952,7 @@ class GraphedServe:
         info: Dict[str, object] = {"bucket": f"{B}x{A}x{H}x{T}", "tokens": int(
             sum(u + r + h + K + 2 for u, r, h in sizes) + sum(sightings))}
         t0 = time.perf_counter()
-        before = torch.cuda.memory_reserved(self.device) if self.graphs else 0
+        before = self._reserved_bytes() if self.graphs else 0
         raws, packs, memories = self._synthetic_leaves(sizes, sightings)
         try:
             served = self.infer(raws, packs, memories, synthetic=True)
@@ -962,7 +967,7 @@ class GraphedServe:
             log.warning("graphed serve: %s; every batch is served eagerly", self.disabled)
         info.update(ok=self.disabled is None, seconds=round(time.perf_counter() - t0, 2))
         if self.graphs:
-            info["pool_mb"] = round((torch.cuda.memory_reserved(self.device) - before) / 2 ** 20)
+            info["pool_mb"] = round((self._reserved_bytes() - before) / 2 ** 20)
             info["available_mb"] = round(self._available_bytes() / 2 ** 20)
         # The synthetic batch is not a served one.
         self.served = max(0, self.served - (served is not None))
