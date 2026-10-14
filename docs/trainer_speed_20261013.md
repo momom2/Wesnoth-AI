@@ -104,7 +104,7 @@ does it (R2).
 ## The benchmark
 
 The first round's script (`scripts/trainer_speed_box.sh` at e2d2877; the file
-now runs round 2's arms, below) on one 4090: the base code (a code stage of
+now runs round 3's arms, below) on one 4090: the base code (a code stage of
 bd5f33d, `BASE_STAGE`) and this stage, timed with this stage's
 `tools/bench_sequence_step.py run` under round 2's training arguments from
 own1 (its own sequences rebuilt once and cached on HF). Each arm: 20 untimed
@@ -250,9 +250,10 @@ biases), each test broken once by hand to see it fail.
 
 ### The benchmark
 
-`scripts/trainer_speed_box.sh` on one 4090. Every arm runs the first round's
-fastest flags (the packed trunk, `--activation-budget-gb 19.18
---activation-bytes-per-token 102139`, its packed_budget arm's), so every arm
+`scripts/trainer_speed_box.sh` at 696ac87 (the file now runs round 3's arms)
+on one 4090. Every arm runs the first round's fastest flags (the packed
+trunk, `--activation-budget-gb 19.18 --activation-bytes-per-token 102139`,
+its packed_budget arm's), so every arm
 keeps the same time steps. The arms, in order: base_1, this_1, base_2, this_2
 (round 1's code against this branch's: R1 and R3; valid when the two base runs
 agree within 3%), the gradient check of `--window-batched` against the
