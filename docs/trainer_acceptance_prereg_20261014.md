@@ -24,7 +24,7 @@ holdout probe at 0 and 64 memory slots, read per game-side.
 | A | today's default (padded trunk; bit-exact with main) |
 | A2 | A again: the run-to-run noise of GPU nondeterminism |
 | B | the packed trunk, kept activations, columnar records, the batched window, the compiled post-attention block (no bf16 residual: it failed its CUDA test) |
-| B8 | B with fp8 linear layers in place of the fused ReLU |
+| B8 | B with fp8 linear layers (`--fp8-trunk`) |
 | B64 | B at 64 streams (half of them own), the learning rate times the square root of 2, so half the optimizer steps over the same positions |
 | BHALF | B training every second window; the others run forward only, carrying the memory |
 
