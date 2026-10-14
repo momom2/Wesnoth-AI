@@ -76,6 +76,8 @@
 #     targets 56), and three matches of 12 to 14 minutes each (the
 #     confirmation's: 692 to 862 s): 5.2 hours, $2.2-3.3; BOX_MAX_H 8
 #     (1.5 times the estimate) caps it at $3.4-5.0 plus the final round.
+#     The generation match now plays 120 games in flight (GEN_JOBS): about
+#     6 minutes at round 2's measured 8,150 games an hour.
 #   Identical match repeats have differed by 1.8x.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md): the
@@ -155,7 +157,15 @@ PROBE_EVERY="${PROBE_EVERY:-1200000}"            # one probe inside the pass (th
 PACKED_TRUNK="${PACKED_TRUNK:-0}"
 WORKERS="${WORKERS:-}"                           # default: box_workers (cores, memory-bounded), after box_init
 GAMES="${GAMES:-800}"
-JOBS="${JOBS:-20}"
+JOBS="${JOBS:-20}"                               # the evaluation matches' games in flight, on the eager server
+# The generation match's games in flight and its speed flags. None of them
+# changes a game's play (tests/test_generation_identity.py), only how fast
+# the games are played: 120 in flight, six per worker process, the fastest
+# configuration measured (training/metrics/generation_speed_r2_20261013/,
+# 8,150-8,210 games an hour against 3,700-3,790 at 20); the round 3 bench
+# (scripts/generation_speed_box.sh) names the configuration that replaces it.
+GEN_JOBS="${GEN_JOBS:-120}"
+GEN_SPEED_FLAGS="${GEN_SPEED_FLAGS:---worker-games 6}"
 # Bounds in minutes, from the estimates above.
 TESTS_CUT_MIN="${TESTS_CUT_MIN:-40}"
 BUILD_CUT_MIN="${BUILD_CUT_MIN:-60}"             # 1 on round 1's box
@@ -358,6 +368,8 @@ match_args() {                   # match_args SPEC: M_NAME, M_SEED and MATCH_ARG
 # ---- match sides (end)
 
 # ---- the matches' machinery
+MATCH_JOBS=$JOBS                 # the match's games in flight and speed flags (the generation match sets its own)
+MATCH_SPEED=()
 match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...: one attempt, resumed in its directory, then its fit
     local name="$1" games="$2" sb="$3" extra="$4" dir="$OUT/games_$1" t0 f
     shift 4
@@ -369,8 +381,8 @@ match() {                        # match NAME GAMES SEED_BASE MAX_EXTRA ARGS...:
             python tools/run_elo_batch.py "$@" \
             --outdir "$dir" --games "$games" --max-extra-games "$extra" --seed-base "$sb" \
             --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
-            --persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$JOBS" \
-            --time-budget-min 60
+            --persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$MATCH_JOBS" \
+            ${MATCH_SPEED[@]+"${MATCH_SPEED[@]}"} --time-budget-min 60
         echo "$name: $(( $(date +%s) - t0 )) s, $(find "$dir" -maxdepth 1 -name 'game_*.json' 2>/dev/null | wc -l) games," \
              "$(decisive_results "$dir") decisive, rc=$BOX_RC $BOX_WHY" | tee "$OUT/timing_$name.txt" | tee -a "$OUT/match.walls"
         for f in "$dir"/.inference_server_*.json; do
@@ -458,7 +470,11 @@ GEN_DIRS=()
 if [ -n "$GEN_MATCH" ]; then
     match_args "$GEN_MATCH" || box_finish "GEN_MATCH_UNREADABLE ($GEN_MATCH)" 1
     if [ "$NEED_OWN" = 1 ] && ! box_marked_this_stage "$CAND/CANDIDATES_DONE"; then
+        MATCH_JOBS=$GEN_JOBS
+        read -r -a MATCH_SPEED <<< "$GEN_SPEED_FLAGS"
         play "$M_NAME" "$M_SEED" "${MATCH_ARGS[@]}"
+        MATCH_JOBS=$JOBS
+        MATCH_SPEED=()
         if [ "$MATCHES_FAILED" -ne 0 ] || [ "$MATCHES_CUT" -ne 0 ]; then
             box_finish "GEN_MATCH_SHORT: $M_NAME failed or was cut (match.walls) $(notes)" 1
         fi

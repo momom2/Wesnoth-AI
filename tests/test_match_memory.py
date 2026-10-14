@@ -210,3 +210,28 @@ def test_an_eval_game_between_memory_players_records_their_sizes(tmp_path):
         main(["x", "A", str(spec), "B", str(spec), "1", "7", str(out), "--mcts-sims", "0",
               "--raw-temperature-a", "0", "--raw-temperature-b", "0", "--memory-a", "4",
               "--memory-b", "0", "--max-turns", "2", "--device", "cpu"])
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="needs CUDA"))])
+def test_the_served_memory_batch_is_the_slot_memorys_padding(device):
+    """The server stages a batch's memory states in one transfer: the same
+    padded tensor as the model's own padding of each leaf's state (its
+    learned initial memory at a first decision), zeros past each count."""
+    from tools.inference_seam import InferenceServer
+    _encoder, model = _parity_pair()
+    dev = torch.device(device)
+    model = model.to(dev)
+    server = InferenceServer(model, _encoder.to(dev), device=dev)
+    g = torch.Generator().manual_seed(3)
+    memories = [MemoryState(8, None), MemoryState(8, torch.randn(8, D, generator=g)),
+                MemoryState(4, torch.randn(4, D, generator=g).numpy()), MemoryState(2, None),
+                MemoryState(0, None)]
+    got = server._memory_batch(memories)
+    states = [model.initial_memory(m.k).to(dev) if m.state is None else torch.as_tensor(m.state).to(dev)
+              for m in memories]
+    want = model.slot_memory.batch(states, dev)
+    assert got.counts == want.counts == [8, 8, 4, 2, 0]
+    assert got.padded.device.type == device and torch.equal(got.padded, want.padded)
+    with pytest.raises(ValueError, match="memory state"):
+        server._memory_batch([MemoryState(8, torch.zeros(9, D))])
