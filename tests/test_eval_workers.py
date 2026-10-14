@@ -258,6 +258,53 @@ def test_a_worker_plays_its_games_at_once_as_it_plays_them_alone(tmp_path):
     assert stages["decisions"] == sum(g[2] + g[3] for g in together.values())
 
 
+# The speed switches each arm of scripts/generation_speed_box.sh plays.
+SPEED_SWITCHES = {
+    "off": ["--no-rust-stage", "--no-server-memory", "--view-refresh", "full"],
+    "rust": ["--rust-stage", "--no-server-memory", "--view-refresh", "full"],
+    "memory": ["--no-rust-stage", "--server-memory", "--view-refresh", "full"],
+    "view": ["--no-rust-stage", "--no-server-memory", "--view-refresh", "incremental"],
+    "all": ["--rust-stage", "--server-memory", "--view-refresh", "incremental"],
+}
+
+
+@pytest.mark.slow
+def test_every_speed_switch_plays_the_same_games(tmp_path):
+    """Two games of a memory model, two at once in one worker, under each
+    combination of the speed switches the generation bench plays (the
+    server's Rust stage, the memory kept on the server, the view's
+    refresh): the same commands, seeds included, and the same results. The
+    server answers each leaf alone."""
+    from tools.game_record import read_records
+    from tools.run_elo_batch import main
+    spec = _tiny_memory_checkpoint(tmp_path / "tiny.pt")
+    games = {}
+    for name, switches in SPEED_SWITCHES.items():
+        out = tmp_path / name
+        main(["x", "--label-a", "A", "--spec-a", spec, "--label-b", "B", "--spec-b", spec,
+              "--outdir", str(out), "--games", "2", "--mcts-sims", "0",
+              "--raw-temperature-a", "0", "--raw-temperature-b", "0",
+              "--raw-end-turn-offset-a", "-6", "--raw-end-turn-offset-b", "-6",
+              "--memory-a", "8", "--memory-b", "8", "--max-turns", "3", "--device", "cpu",
+              "--jobs", "2", "--worker-games", "2", "--persistent-workers", "--shared-inference",
+              "--inference-max-batch", "1", "--max-extra-games", "0", "--time-budget-min", "5",
+              "--min-free-mb", "0", *switches])
+        played = {}
+        for f in sorted(out.glob("game_*.json")):
+            r = json.loads(f.read_text(encoding="utf-8"))
+            rec = next(read_records(f.with_name(f.stem + ".game.jsonl.gz")))
+            played[f.name] = (r["outcome_a"], r["turns"], r["forwards_a"], r["forwards_b"],
+                              rec["commands"], rec["final_digest"])
+        server = json.loads(next(out.glob(".inference_server_*.json")).read_text(encoding="utf-8"))
+        assert server["rust_stage"] == ("--rust-stage" in switches)
+        assert server["server_memory"] == ("--server-memory" in switches)
+        assert not list(out.glob("failed_*.json")), name
+        games[name] = played
+    assert len(games["all"]) == 2 and all(len(g[4]) > 10 for g in games["all"].values())
+    for name, played in games.items():
+        assert played == games["all"], name
+
+
 def test_a_game_thread_reports_a_game_that_dies_of_a_base_exception(capsys, monkeypatch):
     """A Rust panic reaches Python as a BaseException; in a worker playing
     several games the thread still answers its job (failed), so the driver

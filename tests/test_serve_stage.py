@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pytest
@@ -25,9 +26,12 @@ CPU = torch.device("cpu")
 @pytest.fixture(scope="module")
 def leaves():
     """(RawEncoded, PackedMasks) pairs of random legal games, as own1's
-    recipe encodes them, with a mask bias on some (the combat oracle's)."""
+    recipe encodes them, with a mask bias on some (the combat oracle's).
+    The map of seed 6 starts each leader on its keep, so the first
+    positions offer recruits."""
     from tools.bench_serve_host import harvest_leaves
-    out = harvest_leaves(24, seed=5)
+    out = harvest_leaves(24, seed=6)
+    assert any(m.actor_mask[m.n_units:m.n_units + m.n_recruits].any() for _, m in out), "no legal recruit"
     rng = np.random.default_rng(0)
     for i in (3, 10):
         raw, m = out[i]
@@ -162,6 +166,17 @@ def test_the_memory_books():
     reads, writes, why = books.plan([1], [0], [1], [8])
     assert (reads, writes, why) == ([a1], [a2], [None])
     books.commit()
+    # A write that did not complete over the row holding version 1: that row
+    # holds nothing from then on, and version 2 is still served.
+    reads, writes, why = books.plan([1], [0], [2], [8])
+    assert (reads, writes, why) == ([a2], [a1], [None])
+    books.abort()
+    _, _, why = books.plan([1], [0], [1], [8])
+    assert why[0] is not None and "not held" in why[0]
+    books.abort()
+    reads, _, why = books.plan([1], [0], [2], [8])
+    assert reads == [a2] and why == [None]
+    books.abort()
     for cids, keys, versions, ks in (([1], [0], [5], [8]), ([2], [0], [1], [8]), ([1], [0], [2], [4]),
                                      ([1, 1], [1, 1], [1, 1], [8, 8])):
         _, _, why = books.plan(cids, keys, versions, ks)
@@ -340,3 +355,76 @@ def test_the_graphed_path_serves_the_kept_memory_as_the_wire(leaves, server, rus
             np.testing.assert_allclose(kv[3], wv[3], rtol=1e-4, atol=1e-5)
             held[key][version + 1:] = [np.array(wv[10])]
     assert gserve.served == len(_decisions(leaves)) and not gserve.fallbacks
+
+
+needs_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+
+
+def _cuda_server(server, graphed: Optional[bool] = None):
+    """The tiny model on the GPU as the eval server runs it: bf16, the
+    packed trunk and embed; with `graphed` the static-shape path, its
+    memory states on the device when True, from the host when False."""
+    import copy
+    from tools.inference_seam import InferenceServer
+    from wesnoth_ai.graphed_serve import Caps, GraphedServe
+    dev = torch.device("cuda")
+    model, encoder = copy.deepcopy(server._model).to(dev), copy.deepcopy(server._encoder).to(dev)
+    model.infer_packed_trunk = True
+    gserve = None
+    if graphed is not None:
+        caps = Caps(b_caps=(4, 8, 16, 32), a_caps=(64, 128), h_caps=(512, 1024),
+                    t_caps=(4096, 8192, 16384, 32768), max_len=4096)
+        gserve = GraphedServe(model, encoder, dev, caps=caps, device_memory=graphed)
+    return InferenceServer(model, encoder, device=dev, output_device=CPU, autocast_bf16=True,
+                           packed_embed=True, graphed=gserve), gserve
+
+
+@needs_cuda
+def test_on_cuda_the_rust_stage_answers_as_the_python_path(leaves, server):
+    """On the GPU (bf16, packed trunk and embed): the Rust stage's replies
+    are the Python path's bytes, memory on the wire."""
+    from wesnoth_ai.memory import MemoryState
+    cuda_server, _ = _cuda_server(server)
+    rng = np.random.default_rng(4)
+    reqs = [_request(i, [(raw, m, MemoryState(SLOTS, None if i % 4 == 0 else
+                                               rng.standard_normal((SLOTS, D)).astype(np.float32)))])
+            for i, (raw, m) in enumerate(leaves)]
+    assert _rust(cuda_server, reqs) == _python(cuda_server, reqs)
+
+
+@needs_cuda
+@pytest.mark.parametrize("graphed", [None, True])
+def test_on_cuda_the_kept_memory_plays_as_the_wire(leaves, server, graphed):
+    """On the GPU, a line of decisions with the memory kept on the device
+    (eager, or graphed with its device buffers) answers as the same path
+    with the states on the wire (graphed from the host), byte for byte."""
+    from tools.serve_stage import ServerMemory
+    from wesnoth_ai.byte_wire import decode_replies_with_versions
+    from wesnoth_ai.memory import MemoryState
+    kept_server, kept_g = _cuda_server(server, graphed)
+    wire_server, wire_g = _cuda_server(server, None if graphed is None else False)
+    memory = ServerMemory(kept_server._model, torch.device("cuda"))
+    held = {0: [None], 1: [None]}
+    rid = 0
+    plain = [i for i, (_, m) in enumerate(leaves) if m.type_bias is None and m.attack_bias is None]
+    for batch in _decisions(leaves):
+        wire_reqs, kept_reqs = [], []
+        for key, version, leaf in batch:
+            raw, masks = leaves[plain[leaf]]
+            wire_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, held[key][version]))]))
+            kept_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, None))], served=[(key, version)]))
+            rid += 1
+        wire = _rust(wire_server, wire_reqs)
+        kept = _rust(kept_server, kept_reqs, memory)
+        for (key, version, _), w, k in zip(batch, wire, kept):
+            (wv,), _ = decode_replies_with_versions(bytearray(w), 16)
+            (kv,), versions = decode_replies_with_versions(bytearray(k), 16)
+            assert versions == [version + 1]
+            for i in range(3, 9):
+                assert (wv[i] is None and kv[i] is None) or np.array_equal(wv[i], kv[i])
+            for name in ("actor", "kind", "target", "weapon", "prior"):
+                assert np.array_equal(getattr(wv[9], name), getattr(kv[9], name))
+            held[key][version + 1:] = [np.array(wv[10])]
+    if graphed is not None:
+        assert kept_g.served == len(_decisions(leaves)) and not kept_g.fallbacks
+        assert wire_g.served == len(_decisions(leaves)) and not wire_g.fallbacks
