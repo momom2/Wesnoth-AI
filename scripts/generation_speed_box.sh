@@ -81,7 +81,7 @@
 # with the timing): the records go up after each arm and at the finish.
 # Re-entry skips the arms that are done. Never `set -x`: the HF token and
 # the instance key are in the environment.
-# box-needs: disk_gb=60 ram_gb=96 gpu_ram_gb=24 cores=32 gpu=4090
+# box-needs: disk_gb=60 ram_gb=128 gpu_ram_gb=24 cores=32 gpu=4090
 set -uo pipefail
 WORKDIR=/workspace
 STAGE="${STAGE:-}"
@@ -106,6 +106,10 @@ BOX_OUT=$OUT
 
 BASE_REPO=$WORKDIR/base_repo
 # The deep arms: name, games in flight, games per worker, then extra flags.
+# Their memory floor is 300 MB a game in flight before the first starts
+# (the driver's default, 700, asks 112 GB at 160); a worker process playing
+# one game holds about 400 MB at its peak (run_elo_batch.py), 160 of them
+# about 64 GB of this box's 128.
 DEEP_ARMS=(
     "p120x6 120 6"
     "p120x2 120 2"
@@ -269,7 +273,7 @@ for spec in "${DEEP_ARMS[@]}"; do
         continue
     fi
     # shellcheck disable=SC2086 # extra is a list of flags
-    arm "$name" "$BOX_REPO" "$jobs" --worker-games "$per_worker" ${extra:-} || true
+    arm "$name" "$BOX_REPO" "$jobs" --worker-games "$per_worker" --min-free-mb 300 ${extra:-} || true
 done
 arm base_3 "$BASE_REPO" 20 || echo "the last base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
 # The fastest arm of this stage with no failed game, again.

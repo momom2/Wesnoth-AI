@@ -822,12 +822,16 @@ def main(argv: List[str]) -> int:
         jobs = max(1, args.jobs)
         log.info("explicit --jobs %d (auto would pick: %s)",
                  jobs, how)
-    # Every concurrent game needs its own headroom, so the floor scales.
+    # Every concurrent game needs its own headroom: before a game starts,
+    # the free memory must cover min_free for it and for each game not yet
+    # running. The running games already hold theirs, in the free memory
+    # read; counting them again (min_free times every job) refused, on a
+    # 64 GB box, any match above about 90 games in flight once its
+    # persistent workers held their memory.
     min_free = args.min_free_mb
     if min_free is None:
         min_free = (SHARED_INFERENCE_MIN_FREE_MB if args.shared_inference
                     else DEFAULT_MIN_FREE_MB)
-    floor = min_free * jobs
     _peak_rss: dict = {}   # pid -> max sampled RSS (MB), best effort
     # failed: games that ended without a result file (each leaves a
     # failure record); timed_out: games killed on the per-game timeout
@@ -1301,6 +1305,7 @@ def main(argv: List[str]) -> int:
                     stop = True
                     break
                 fm = free_mb()
+                floor = min_free * (jobs - len(running))
                 if fm is not None and fm < floor and not running:
                     # Only hard-stop when nothing is in flight; otherwise let
                     # the running games finish and free their memory first.

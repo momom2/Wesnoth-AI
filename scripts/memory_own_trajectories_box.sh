@@ -164,8 +164,11 @@ JOBS="${JOBS:-20}"                               # the evaluation matches' games
 # configuration measured (training/metrics/generation_speed_r2_20261013/,
 # 8,150-8,210 games an hour against 3,700-3,790 at 20); the round 3 bench
 # (scripts/generation_speed_box.sh) names the configuration that replaces it.
+# The memory floor: 350 MB a game in flight before the first starts (the
+# driver's default, 700, asks 84 GB of this 64 GB box at 120; twenty worker
+# processes of six games hold about 12 GB).
 GEN_JOBS="${GEN_JOBS:-120}"
-GEN_SPEED_FLAGS="${GEN_SPEED_FLAGS:---worker-games 6}"
+GEN_SPEED_FLAGS="${GEN_SPEED_FLAGS:---worker-games 6 --min-free-mb 350}"
 # Bounds in minutes, from the estimates above.
 TESTS_CUT_MIN="${TESTS_CUT_MIN:-40}"
 BUILD_CUT_MIN="${BUILD_CUT_MIN:-60}"             # 1 on round 1's box
