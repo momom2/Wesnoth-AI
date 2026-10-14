@@ -90,7 +90,7 @@
 # which uploads before it stops the instance. Re-entry skips the arms that
 # are done. Never `set -x`: the HF token and the instance key are in the
 # environment.
-# box-needs: disk_gb=60 ram_gb=128 gpu_ram_gb=24 cores=32 gpu=4090
+# box-needs: disk_gb=60 ram_gb=64 gpu_ram_gb=24 cores=32 gpu=4090
 set -uo pipefail
 WORKDIR=/workspace
 STAGE="${STAGE:-}"
