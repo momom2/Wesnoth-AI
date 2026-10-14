@@ -115,26 +115,37 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         assert len(before) == 2
         assert torch.allclose(before[0][0].value_logits, before[1][0].value_logits, atol=1e-5)
 
-        outcomes, exps = pool.run_iteration(0, 2, base_seed=7)
-        assert len(outcomes) >= 1, "pool produced no completed games"
-        assert len(exps) >= 1, "pool shipped no experiences"
         # Actor 0 asks the learner process, actor 1 the serve process.
-        assert len(pool.last_leaves_per_server) == 2
-        assert all(n > 0 for n in pool.last_leaves_per_server), pool.last_leaves_per_server
-        assert pool.last_served_forwards == sum(pool.last_leaves_per_server)
+        # Any actor takes any game ticket of the shared queue, and one can
+        # play both of an iteration's games before the other reaches the
+        # queue (CI 2026-10-13 read [0, 65]): each iteration's leaves
+        # reach exactly the servers of the actors that played, and
+        # iterations run until each actor has played, so both servers
+        # answer.
+        played, it = set(), 0
+        while played != {0, 1}:
+            assert it < 10, f"actor(s) {sorted({0, 1} - played)} played no game in {it} iterations"
+            outcomes, exps = pool.run_iteration(it, 2, base_seed=7 + it)
+            it += 1
+            assert len(outcomes) >= 1, "pool produced no completed games"
+            assert len(exps) >= 1, "pool shipped no experiences"
+            leaves, games = pool.last_leaves_per_server, pool.last_games_per_actor
+            assert [n > 0 for n in leaves] == [n > 0 for n in games], (leaves, games)
+            assert pool.last_served_forwards == sum(leaves)
+            played |= {aid for aid, n in enumerate(games) if n}
         # The serve process's own compiled packed trunk state rides its
         # stats (no compile configured here: not active on either).
         assert [s["active"] for s in pool.last_packed_compile_per_server] == [False, False]
 
         _perturb(policy)
         with pytest.raises(RuntimeError, match="sync_servers"):
-            pool.run_iteration(1, 2, base_seed=8)
+            pool.run_iteration(it, 2, base_seed=8)
         pool.sync_servers()
         after = pool.probe([gs])
         assert not torch.allclose(before[1][0].value_logits, after[1][0].value_logits)
         assert torch.allclose(after[0][0].value_logits, after[1][0].value_logits, atol=1e-5)
 
-        outcomes, _ = pool.run_iteration(1, 2, base_seed=8)
+        outcomes, _ = pool.run_iteration(it, 2, base_seed=8)
         assert len(outcomes) >= 1
 
         # An error reply the serve process posts WHILE SERVING (what its
@@ -143,26 +154,26 @@ def test_pool_with_a_serve_process_serves_syncs_and_refuses_stale_weights():
         # the timeout.
         pool._server_q.put((_S_ERROR, 1, "injected failure"))
         with pytest.raises(ServeProcessDied, match="injected failure"):
-            pool.run_iteration(2, 2, base_seed=9)
+            pool.run_iteration(it + 1, 2, base_seed=9)
 
         # Continuous generation: a publication lands in the serve
         # process WHILE it serves (its SYNC loads under the gate), the
         # stream refuses nothing, and both servers agree afterwards.
         t_open = time.time()
-        stream = pool.stream(base_seed=11, tag=3)
+        stream = pool.stream(base_seed=11, tag=it + 2)
         stream.start()
         first = stream.collect(2, timeout=600.0)
         assert len(first.games) == 2
-        # Iteration 2 ended with its games in flight: the reports its
-        # actors sent afterwards are not the stream's games, and the
-        # dead-server marker it left crashes none of them.
+        # The aborted iteration ended with its games in flight: the
+        # reports its actors sent afterwards are not the stream's games,
+        # and the dead-server marker it left crashes none of them.
         assert all(g.t_start > t_open and g.outcome is not None for g in first.games), \
             [(g.actor, g.index, round(g.t_start - t_open, 3), g.outcome is None)
              for g in first.games]
         # Each actor plays the stream on its own server, so both servers
         # serve. A window ends after its count of completed games, which
-        # one actor can fill alone while the other is still in iteration
-        # 2's leftover game or starved (the actors run at nice 5; on a
+        # one actor can fill alone while the other is still in the aborted
+        # iteration's leftover game or starved (the actors run at nice 5; on a
         # loaded CI runner the second actor's first game of the stream
         # began up to 6.5 s after the opening, 2026-10-06), so the
         # windows are summed until every actor has completed a game of

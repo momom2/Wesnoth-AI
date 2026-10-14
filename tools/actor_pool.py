@@ -45,7 +45,10 @@ threads in one process share one GIL and spend ~33-36 ms of host work
 per 16-leaf batch against ~29 ms of GPU work, so the host side was the
 ceiling (docs/box_specs.md, "Serve thread host cost"). Actors are
 assigned to a server round-robin at PLAY time (actor `aid` asks server
-`aid % N`; server 0 is the learner process). The copies serve the
+`aid % N`; server 0 is the learner process); the games are not: any
+actor takes any ticket of the shared queue, so a server whose actors
+played no game of an iteration served none of its leaves
+(`last_games_per_actor` says which actors played). The copies serve the
 learner's CURRENT inference weights: after every publication the loop
 calls `sync_servers()`, which ships the state as one torch.save byte
 string on each server's control queue and waits for the acks;
@@ -909,14 +912,16 @@ class ActorPool:
         leaves_per_server: List[int], server_stats: Dict[int, Dict],
         *, t_start: float, elapsed: float, n_games: int, n_exps: int,
         ds0: int, total_decisions: int, finish_times: List[float],
-        distill_dicts: List[Dict],
+        distill_dicts: List[Dict], games_per_actor: List[int],
     ) -> None:
         """Turn one serving window's stats (an iteration's, or the span
         between two learner steps of a stream) into the `last_*`
         readbacks the loops record, and log them. `threads` holds one
         stats dict per serve thread of every server, already reduced
-        to the window (a stream diffs two snapshots)."""
+        to the window (a stream diffs two snapshots). `games_per_actor`:
+        the window's `n_games`, by actor."""
         self.last_leaves_per_server = leaves_per_server
+        self.last_games_per_actor = games_per_actor
         # A serve thread that died inside its loop still ships its
         # stats (tools/serve_worker._serve_loop's finally), so the
         # manager can say so instead of silently serving the rest of
@@ -993,7 +998,8 @@ class ActorPool:
                 f"coalesce={self._coalesce} requests/batch={agg['requests'] / nb:.2f} "
                 f"queue depth={self.last_queue_depth or 0:.2f} skipped={pick['skipped']}")
         log.info(f"iter {iter_idx}: pool served {served} forwards, "
-                 f"{n_games} games, {n_exps} experiences, "
+                 f"{n_games} games ({min(games_per_actor, default=0)}-"
+                 f"{max(games_per_actor, default=0)} per actor), {n_exps} experiences, "
                  f"decision_step {ds0} -> {self._global_decision_step()}")
         # Time-profiling readbacks (minimal loop, 2026-09-03): the
         # numbers above were log-only; the loop's CSV wants them.
@@ -1048,6 +1054,7 @@ class ActorPool:
         outstanding = set(range(self._n))   # actors not yet _R_DONE
         total_decisions = 0                 # summed across actors this iter
         finish_times: List[float] = []      # per-game wall time since t_start
+        games_per_actor = [0] * self._n     # completed games, by actor
         drained = False                     # soft deadline fired?
         self._last_abandoned = 0            # discard telemetry (A6)
         sv = self._start_serving(iter_idx)
@@ -1067,6 +1074,7 @@ class ActorPool:
                 if kind == _R_OUTCOME:
                     outcomes.append(payload)
                     finish_times.append(time.monotonic() - t_start)
+                    games_per_actor[aid] += 1
                 elif kind == _R_EXPS:
                     # Each _R_EXPS payload is ONE GAME's experiences
                     # (actors ship per game) -- exactly the granularity
@@ -1175,7 +1183,7 @@ class ActorPool:
             t_start=t_start, elapsed=time.monotonic() - t_start,
             n_games=len(outcomes), n_exps=len(experiences), ds0=ds0,
             total_decisions=total_decisions, finish_times=finish_times,
-            distill_dicts=distill_dicts)
+            distill_dicts=distill_dicts, games_per_actor=games_per_actor)
         return outcomes, experiences
 
     def shutdown(self, timeout: float = 15.0) -> None:
