@@ -1,8 +1,8 @@
 """The trunk variants in the sequence trainer (docs/trainer_speed_20261013.md,
 round 3; wesnoth_ai/trunk_modes.py): the fused ReLU trains what the packed
-trunk trains to the bit on the CPU; the bf16 residual and the compiled trunk
-train near it, kept or recomputed, stepped or batched; the flags need the
-packed trunk; a pass resumes on its own variants; the gradient check reads
+trunk trains to the bit on the CPU; the bf16 residual, the compiled trunk
+and the fp8 products train near it, kept or recomputed, stepped or batched;
+the flags need the packed trunk; a pass resumes on its own variants; the gradient check reads
 several candidates against one reference."""
 from __future__ import annotations
 
@@ -36,12 +36,13 @@ def _cosine(a: torch.Tensor, b: torch.Tensor) -> float:
 @pytest.mark.parametrize("variant, loss_rel, min_cos", [
     (("--trunk-bf16",), 2e-2, 0.99),
     (("--compiled-trunk", "aot_eager"), 1e-6, 0.999999),
-], ids=["bf16 residual", "compiled"])
+    (("--fp8-trunk",), 3e-2, 0.98),
+], ids=["bf16 residual", "compiled", "fp8"])
 def test_a_variant_trains_near_the_packed_trunk(tmp_path, own_pass_inputs, budget, variant, loss_rel, min_cos):
     """The production path (own game-sides on half the streams, the window
     batched) from the same weights at rate 0, every time step recomputed in
     the backward pass or every one kept: each window's loss and gradients
-    near the float32 packed trunk's; the bf16 residual not equal to it."""
+    near the float32 packed trunk's; the bf16 residual and fp8 not equal to it."""
     base = _rate_zero_pass(own_pass_inputs, tmp_path / "base", budget, "--window-batched")
     other = _rate_zero_pass(own_pass_inputs, tmp_path / "variant", budget, "--window-batched", *variant)
     assert len(base) == len(other) >= 2
@@ -56,16 +57,19 @@ def test_a_variant_trains_near_the_packed_trunk(tmp_path, own_pass_inputs, budge
                 trained += 1
                 exact = exact and torch.equal(x, y)
         assert trained > 10
-    if "--trunk-bf16" in variant:
+    if "--trunk-bf16" in variant or "--fp8-trunk" in variant:
         assert not exact
 
 
-def test_the_variants_need_the_packed_trunk_and_the_fused_relu_is_not_compiled(tmp_path):
+def test_the_variants_need_the_packed_trunk_and_the_fused_relu_is_neither_compiled_nor_fp8(tmp_path):
     from tools import sequence_train
     common = ["--sequences", str(tmp_path), "--dataset", str(tmp_path), "--device", "cpu",
               "--out", str(tmp_path / "x.pt")]
     for extra, match in ((["--trunk-bf16"], "--packed-trunk"), (["--compiled-trunk"], "--packed-trunk"),
-                         (["--packed-trunk", "--fused-relu", "--compiled-trunk"], "not both")):
+                         (["--fp8-trunk"], "--packed-trunk"),
+                         (["--packed-trunk", "--fused-relu", "--compiled-trunk"], "not both"),
+                         (["--packed-trunk", "--fused-relu", "--fp8-trunk"], "not both"),
+                         (["--train-every", "0"], "--train-every 0")):
         with pytest.raises(SystemExit, match=match):
             sequence_train.build_trainer(sequence_train.parse_args(common + extra))
     assert sequence_train.parse_args(common + ["--compiled-trunk"]).compiled_trunk == "inductor"

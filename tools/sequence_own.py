@@ -15,8 +15,9 @@ and its belief loss its true state, as for the corpus. Own games marked
 tools/own_barriers.py).
 
 The own records must be encoded as the corpus's are: the same encoding,
-observation epoch, core phase and vocabularies, or the trainer refuses
-them.
+observation epoch and vocabularies, under the running adapter's rules
+version (wesnoth_ai/rules_version.py; the core phase may differ), or the
+trainer refuses them.
 """
 from __future__ import annotations
 
@@ -27,11 +28,12 @@ import torch
 
 from tools.preencode_sequences import load_manifest
 from wesnoth_ai.own_loss import OwnBatch, stage_own_batch
+from wesnoth_ai.rules_version import check_records_rules
 from wesnoth_ai.sequence_loss import GameFacts
 from wesnoth_ai.sequence_streams import GameSide, Step, StreamSchedule, epoch_order
 
 # What the own records must share with the corpus's to train beside them.
-SHARED_ENCODING_KEYS = ("encoding", "observation_epoch", "core_phase", "unit_type_to_id", "faction_to_id")
+SHARED_ENCODING_KEYS = ("encoding", "observation_epoch", "unit_type_to_id", "faction_to_id")
 
 
 class OwnStreams:
@@ -46,6 +48,7 @@ class OwnStreams:
             if man.get(key) != human_manifest.get(key):
                 raise SystemExit(f"{directory} was encoded with another {key} than the corpus's sequences: "
                                  f"they cannot train side by side")
+        check_records_rules(man, str(directory))
         self.directory = Path(directory)
         self.manifest = man
         self.slots = int(man["slots"])

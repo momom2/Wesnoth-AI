@@ -70,8 +70,18 @@ acceptance likewise. `--trunk-bf16`, `--fused-relu` and `--compiled-trunk`
 (with the packed trunk) are the trunk's variants of wesnoth_ai/trunk_modes.py:
 the residual stream in bfloat16, the first feed-forward linear and its ReLU
 in one cuBLASLt call, each layer's elementwise work fused by torch.compile;
-each other arithmetic, each its own acceptance. Every steps.jsonl row
-carries the window's timing (tools/sequence_timing.py).
+each other arithmetic, each its own acceptance. `--fp8-trunk` (with the
+packed trunk) runs the trunk's linear layers' matrix products on float8
+operands with per-tensor scales, forward and backward
+(wesnoth_ai/fp8_linear.py): other arithmetic, its own acceptance. Every
+steps.jsonl row carries the window's timing (tools/sequence_timing.py).
+
+`--train-every K` trains one window in K (the windows whose index is a
+multiple of K); the others run the forward only, without gradient, carrying
+the memory into the next window and counting toward the pass's positions:
+each game-side trains on the decisions that fall in trained windows, about
+1/K of them, the step's positions and its back-propagation through time
+unchanged. Their steps.jsonl rows are marked `forward_only`.
 
 `--own-sequences DIR` trains the memory player's own game-sides beside the
 corpus's on `--own-streams` of the slots, toward a teacher's distribution
@@ -115,7 +125,7 @@ from tools.columnize_sequences import columns_problem  # noqa: E402
 from tools.lr_law import Areas, probe_points, read_points  # noqa: E402
 from tools.lr_law import decide as law_decide  # noqa: E402
 from tools.preencode_sequences import ENCODING, load_manifest, read_record, record_path  # noqa: E402
-from tools.sequence_args import parse_args  # noqa: E402,F401 (sequence_train.parse_args)
+from tools.sequence_args import check_args, parse_args  # noqa: E402,F401 (sequence_train.parse_args)
 from tools.sequence_batched import WindowForwards  # noqa: E402
 from tools.sequence_checkpoints import TrainerCheckpoints  # noqa: E402
 from tools.sequence_inputs import ColumnInputs, RecordInputs  # noqa: E402
@@ -133,6 +143,7 @@ from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.imitation_loss import imitation_loss_parts  # noqa: E402
 from wesnoth_ai.own_loss import own_policy_loss  # noqa: E402
 from wesnoth_ai.param_groups import GradientGroups, named_as  # noqa: E402
+from wesnoth_ai.rules_version import check_records_rules  # noqa: E402
 from wesnoth_ai.sequence_loss import belief_loss  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide, StreamSchedule, epoch_order, merge_windows  # noqa: E402
 from wesnoth_ai.trunk_modes import TrunkMode  # noqa: E402
@@ -159,6 +170,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         if man["encoding"] != ENCODING or int(man["observation_epoch"]) != int(OBSERVATION_EPOCH):
             raise SystemExit(f"{args.sequences} was encoded as {man['encoding']} at observation epoch "
                              f"{man['observation_epoch']}; this trainer reads {ENCODING} at {OBSERVATION_EPOCH}")
+        check_records_rules(man, str(args.sequences))
         self.manifest = man
         self.games, train, holdout = game_facts(args.dataset, man["games"])
         lengths = {GameSide(f, s): int(man["games"][f].get(f"positions_side{s}", 0))
@@ -212,7 +224,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         self.packed = bool(args.packed_trunk)
         self.trunk = "packed" if self.packed else "padded"
         self.trunk_mode = TrunkMode(bf16_residual=args.trunk_bf16, fused_relu=args.fused_relu,
-                                    compile_backend=args.compiled_trunk)
+                                    compile_backend=args.compiled_trunk, fp8=args.fp8_trunk)
         self.model.set_trunk_mode(self.trunk_mode)
         self.budget_bytes = float(args.activation_budget_gb) * GIB
         self.bytes_per_token = bytes_per_token(self.trunk, self.arch, args.activation_bytes_per_token)
@@ -333,29 +345,35 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         return plan_kept_steps(step_bytes, self.budget_bytes)
 
     def train_window(self) -> Dict[str, float]:
+        """The next window: trained, or forward only under `--train-every`;
+        {} when the pass has no window left."""
         window = self._window()
         if not window:
             return {}
+        trains = self.state["windows"] % self.args.train_every == 0
         self.clock.start()
         self.loader.prefetch(self._upcoming())
         start_memories = {s: m for s, m in self.memories.items() if s in self.signal_slots}
         router = MemoryRouter(self.model, self.device, self.memories)
-        fw = (self._batched_forward if self.args.window_batched else self._stepped_forward)(window, router)
+        with torch.set_grad_enabled(trains):
+            fw = (self._batched_forward if self.args.window_batched else self._stepped_forward)(window, router)
         self.memories = router.memories()
         loss = fw.total / float(self.args.streams * self.args.window)
         lr = self._lr_now()
-        for g in self.opt.param_groups:
-            g["lr"] = lr
-        loss.backward()
-        norm, group_norms = self.clip_groups.clip_on_device(self.args.grad_clip)
+        norm, group_norms = torch.zeros((), device=self.device), None
+        if trains:
+            for g in self.opt.param_groups:
+                g["lr"] = lr
+            loss.backward()
+            norm, group_norms = self.clip_groups.clip_on_device(self.args.grad_clip)
         slots = list(self.memories)
         read = read_window(loss, norm, group_norms, [self.memories[s] for s in slots], fw.logs, fw.own_sums,
                            self.device)
-        if read.finite:
+        if trains and read.finite:
             self.opt.step()
             self._areas_step(lr)
             self.state["nonfinite_run"] = 0
-        else:
+        elif trains:
             # The update is skipped and counted; a slot whose carried memory
             # is not finite starts again from the learned initial memory.
             self.state["nonfinite_steps"] = self.state.get("nonfinite_steps", 0) + 1
@@ -369,13 +387,14 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         self.last_timing = self.clock.finish(fw.tokens_real, fw.tokens_padded, fw.n_kept, fw.kept_tokens,
                                              fw.kept_bytes)
         self.state["positions"] += fw.n_positions
-        self.state["steps"] += 1
+        self.state["steps"] += int(trains)
         self.state["windows"] += 1
-        if self.state["positions"] >= self.state["next_signal"]:
+        if trains and self.state["positions"] >= self.state["next_signal"]:
             self.signal_row(window, start_memories)
             self.state["next_signal"] += self.args.signal_every
         self.loader.keep_only(self._upcoming())
-        self._step_row(lr, read.loss, read.norm, grads, read.finite, sums, self.last_timing)
+        self._step_row(lr, read.loss, read.norm, grads, trains and read.finite, sums, self.last_timing,
+                       forward_only=not trains)
         return {"loss": read.loss, "grad_norm": read.norm,
                 "memory_write_grad_norm": grads.get("memory_write", 0.0), "positions": fw.n_positions,
                 **_squares(grads), **sums}
@@ -543,37 +562,8 @@ def build_trainer(args) -> Trainer:
     from loaded (what `main` runs; tools/bench_sequence_step.py builds the
     same)."""
     torch.manual_seed(args.seed)
-    if args.resume and args.init_from is not None:
-        raise SystemExit("--resume continues --out's own pass; --init-from starts a new one: not both")
-    if args.decay_from is not None and not 0.0 <= args.decay_from < 1.0:
-        raise SystemExit(f"--decay-from {args.decay_from}: a fraction of the pass, from 0 up to 1")
-    if args.pass_positions is not None and args.pass_positions <= 0:
-        raise SystemExit(f"--pass-positions {args.pass_positions}: a pass of at least one position")
-    if args.initial_areas is not None and args.init_from is None:
-        raise SystemExit("--initial-areas gives the areas of the checkpoint --init-from starts from")
-    if args.init_other_records and args.init_from is None:
-        raise SystemExit("--init-other-records qualifies --init-from")
-    if args.own_streams is not None and args.own_sequences is None:
-        raise SystemExit("--own-streams gives the streams of --own-sequences")
-    if args.anneal_rule is not None and (args.law_points is None or not args.law_points.is_file()):
-        raise SystemExit(f"--anneal-rule fits the earlier passes' probes: --law-points {args.law_points} "
-                         f"is not a file")
-    if args.anneal_rule is not None and args.law_key not in {f"k{k}" for k in args.probe_ks}:
-        raise SystemExit(f"--law-key {args.law_key}: the probe reads {', '.join(f'k{k}' for k in args.probe_ks)}")
-    device = torch.device(args.device)
-    if args.packed_trunk and args.fp32 and device.type == "cuda":
-        raise SystemExit("--packed-trunk runs flash varlen attention, which takes bfloat16: not with --fp32")
-    if args.window_batched and not args.packed_trunk:
-        raise SystemExit("--window-batched runs the packed trunk's layout: with --packed-trunk")
-    variants = [flag for flag, on in (("--trunk-bf16", args.trunk_bf16), ("--fused-relu", args.fused_relu),
-                                      ("--compiled-trunk", args.compiled_trunk is not None)) if on]
-    if variants and not args.packed_trunk:
-        raise SystemExit(f"{' '.join(variants)}: variants of the packed trunk, with --packed-trunk")
-    if args.fused_relu and args.compiled_trunk is not None:
-        raise SystemExit("--fused-relu is an eager call; --compiled-trunk fuses the ReLU itself: not both")
-    if args.activation_budget_gb < 0:
-        raise SystemExit(f"--activation-budget-gb {args.activation_budget_gb}: a size, 0 or more")
-    trainer = Trainer(args, device)
+    check_args(args)
+    trainer = Trainer(args, torch.device(args.device))
     if args.resume:
         trainer.resume(args.out)
     elif args.init_from is not None:

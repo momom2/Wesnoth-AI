@@ -30,6 +30,12 @@ the weights are cast to it at each use as the autocast casts them, and
   additions, the ReLU, the residual sums and the norms around the matrix
   products, forward and backward. A compile failure raises (fullgraph):
   a run never falls back to other arithmetic silently.
+- fp8 (`--fp8-trunk`): the four linear layers of every layer (the in- and
+  out-projections, both feed-forward linears) multiply float8 operands with
+  per-tensor scales, forward and backward (wesnoth_ai/fp8_linear.py); the
+  attention, the norms and the residual sums are untouched. Not with the
+  fused ReLU, whose epilogue belongs to a bfloat16 product; inside the
+  compiled block, inductor compiles the quantization around the products.
 """
 from __future__ import annotations
 
@@ -42,6 +48,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from wesnoth_ai.fp8_linear import GEMM_MULTIPLE, fp8_linear, fp8_problem
 from wesnoth_ai.packed_trunk import PackedIndex, _dynamo_cache_entries, packed_attention
 
 log = logging.getLogger(__name__)
@@ -53,16 +60,19 @@ class TrunkMode:
     bf16_residual: bool = False
     fused_relu: bool = False
     compile_backend: Optional[str] = None       # torch.compile's backend; None: eager
+    fp8: bool = False
 
     @property
     def active(self) -> bool:
-        return self.bf16_residual or self.fused_relu or self.compile_backend is not None
+        return self.bf16_residual or self.fused_relu or self.compile_backend is not None or self.fp8
 
     def describe(self) -> str:
         """The variants as one comparable string ("none" for the default)."""
         parts = (["bf16_residual"] if self.bf16_residual else []) + (["fused_relu"] if self.fused_relu else [])
         if self.compile_backend is not None:
             parts.append(f"compiled:{self.compile_backend}")
+        if self.fp8:
+            parts.append("fp8")
         return "+".join(parts) or "none"
 
 
@@ -71,6 +81,8 @@ def check_trunk_mode_supported(encoder: nn.TransformerEncoder, mode: TrunkMode) 
     refuse anything else, and the fused ReLU inside a compiled block."""
     if mode.fused_relu and mode.compile_backend is not None:
         raise ValueError("the fused ReLU is an eager call: the compiled trunk fuses its own")
+    if mode.fp8:
+        _check_fp8_supported(encoder, mode)
     for layer in encoder.layers:
         if layer.norm_first:
             raise NotImplementedError("trunk variants: norm_first layers")
@@ -81,8 +93,29 @@ def check_trunk_mode_supported(encoder: nn.TransformerEncoder, mode: TrunkMode) 
             raise NotImplementedError("trunk variants: one in-projection, no bias_kv or zero attention")
 
 
+def _check_fp8_supported(encoder: nn.TransformerEncoder, mode: TrunkMode) -> None:
+    """fp8 products: not with the fused ReLU, on a device that runs them,
+    every linear's dimensions multiples of GEMM_MULTIPLE (fp8_linear)."""
+    if mode.fused_relu:
+        raise ValueError("the fused ReLU's epilogue belongs to a bfloat16 product; fp8 runs that product: not both")
+    problem = fp8_problem(next(encoder.parameters()).device)
+    if problem is not None:
+        raise ValueError(problem)
+    for layer in encoder.layers:
+        for weight in (layer.self_attn.in_proj_weight, layer.self_attn.out_proj.weight, layer.linear1.weight,
+                       layer.linear2.weight):
+            if any(n % GEMM_MULTIPLE for n in weight.shape):
+                raise ValueError(f"fp8 products need dimensions in multiples of {GEMM_MULTIPLE}, "
+                                 f"not a {tuple(weight.shape)} weight")
+
+
 def _cast(t: Optional[torch.Tensor], dtype: torch.dtype) -> Optional[torch.Tensor]:
     return None if t is None else t.to(dtype)
+
+
+def _linear(x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor], fp8: bool) -> torch.Tensor:
+    """F.linear, with fp8 products when `fp8` (wesnoth_ai/fp8_linear.py)."""
+    return fp8_linear(x, weight, bias) if fp8 else F.linear(x, weight, bias)
 
 
 class _LinearReLU(torch.autograd.Function):
@@ -121,7 +154,7 @@ def layer_block(h: torch.Tensor, ctx: torch.Tensor,
                 f1_w: torch.Tensor, f1_b: Optional[torch.Tensor],
                 f2_w: torch.Tensor, f2_b: Optional[torch.Tensor],
                 n2_w: Optional[torch.Tensor], n2_b: Optional[torch.Tensor],
-                eps: float, fused_relu: bool) -> torch.Tensor:
+                eps: float, fused_relu: bool, fp8: bool = False) -> torch.Tensor:
     """A post-norm layer after its attention (nn.TransformerEncoderLayer at
     torch 2.5.1 torch/nn/modules/transformer.py:902-906, without dropout):
     the out-projection of the attention's output `ctx` (compute dtype),
@@ -129,15 +162,15 @@ def layer_block(h: torch.Tensor, ctx: torch.Tensor,
     in its dtype; the linears run in ctx's dtype on weights cast to it, the
     norms in h's dtype. A float32 h with a bfloat16 ctx is the autocast's
     arithmetic: the sum promotes to float32, the norm runs in float32, its
-    output is cast for the linear."""
+    output is cast for the linear. `fp8`: the linears' products in fp8."""
     cd, rd = ctx.dtype, h.dtype
     E = h.shape[-1]
-    sa = F.linear(ctx, out_w.to(cd), _cast(out_b, cd))
+    sa = _linear(ctx, out_w.to(cd), _cast(out_b, cd), fp8)
     h = F.layer_norm(h + sa, (E,), _cast(n1_w, rd), _cast(n1_b, rd), eps)
     hc = h.to(cd)
     w1, b1 = f1_w.to(cd), _cast(f1_b, cd)
-    r = linear_relu(hc, w1, b1) if fused_relu and b1 is not None else F.relu(F.linear(hc, w1, b1))
-    ff = F.linear(r, f2_w.to(cd), _cast(f2_b, cd))
+    r = linear_relu(hc, w1, b1) if fused_relu and b1 is not None else F.relu(_linear(hc, w1, b1, fp8))
+    ff = _linear(r, f2_w.to(cd), _cast(f2_b, cd), fp8)
     return F.layer_norm(h + ff, (E,), _cast(n2_w, rd), _cast(n2_b, rd), eps)
 
 
@@ -170,13 +203,13 @@ class CompiledBlock:
         self.calls = 0
         self.first_call_seconds: Optional[float] = None
 
-    def __call__(self, h, ctx, *weights, eps: float, fused_relu: bool):
+    def __call__(self, h, ctx, *weights, eps: float, fused_relu: bool, fp8: bool = False):
         if h.shape[0] < 2:                     # dynamo specializes sizes 0 and 1
-            return layer_block(h, ctx, *weights, eps, fused_relu)
+            return layer_block(h, ctx, *weights, eps, fused_relu, fp8)
         torch._dynamo.mark_dynamic(h, 0)
         torch._dynamo.mark_dynamic(ctx, 0)
         t0 = time.perf_counter() if self.first_call_seconds is None else None
-        out = self._compiled(h, ctx, *weights, eps, fused_relu)
+        out = self._compiled(h, ctx, *weights, eps, fused_relu, fp8)
         if t0 is not None:
             self.first_call_seconds = time.perf_counter() - t0
             log.info("trunk block compiled (%s): first call %.1f s, %d dynamo cache entries", self.backend,
@@ -189,12 +222,12 @@ class CompiledBlock:
                 "cache_entries": _dynamo_cache_entries(layer_block)}
 
 
-def _attention(mha: nn.MultiheadAttention, hc: torch.Tensor, index: PackedIndex) -> torch.Tensor:
+def _attention(mha: nn.MultiheadAttention, hc: torch.Tensor, index: PackedIndex, fp8: bool = False) -> torch.Tensor:
     """The in-projection and the packed attention of `hc` (compute dtype),
     as packed_trunk._self_attention with the weights cast to hc's dtype;
-    [total, E]."""
+    [total, E]. `fp8`: the in-projection's product in fp8."""
     total, E = hc.shape
-    qkv = F.linear(hc, mha.in_proj_weight.to(hc.dtype), _cast(mha.in_proj_bias, hc.dtype))
+    qkv = _linear(hc, mha.in_proj_weight.to(hc.dtype), _cast(mha.in_proj_bias, hc.dtype), fp8)
     q, k, v = qkv.view(total, 3, mha.num_heads, E // mha.num_heads).unbind(1)
     return packed_attention(q, k, v, index).reshape(total, E)
 
@@ -227,12 +260,12 @@ def run_trunk(encoder: nn.TransformerEncoder, x: torch.Tensor, index: PackedInde
     with torch.autocast(device, enabled=False):
         h = x.to(residual)
         for layer in encoder.layers:
-            ctx = _attention(layer.self_attn, h.to(compute), index)
+            ctx = _attention(layer.self_attn, h.to(compute), index, mode.fp8)
             weights = _block_weights(layer)
             if block is not None:
-                h = block(h, ctx, *weights, eps=layer.norm1.eps, fused_relu=False)
+                h = block(h, ctx, *weights, eps=layer.norm1.eps, fused_relu=False, fp8=mode.fp8)
             else:
-                h = layer_block(h, ctx, *weights, layer.norm1.eps, mode.fused_relu)
+                h = layer_block(h, ctx, *weights, layer.norm1.eps, mode.fused_relu, mode.fp8)
         if encoder.norm is not None:
             norm = encoder.norm
             h = F.layer_norm(h, (h.shape[-1],), _cast(norm.weight, residual), _cast(norm.bias, residual), norm.eps)

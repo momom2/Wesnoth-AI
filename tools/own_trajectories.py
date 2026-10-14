@@ -58,6 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from tools.preencode_sequences import (ENCODING, encoding_fingerprint, read_record,  # noqa: E402
                                        write_record)
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
+from wesnoth_ai.rules_version import rules_version_of  # noqa: E402
 from wesnoth_ai.sequence_records import OwnCandidate, OwnCandidateGame, OwnCandidateSide  # noqa: E402
 from wesnoth_ai.sequence_streams import unit_draw  # noqa: E402
 
@@ -291,7 +292,7 @@ def main(argv=None) -> int:
         manifest = {
             "teacher": str(args.teacher), "teacher_sha256": teacher_sha, "player_sha256": player_sha,
             "slots": args.slots,
-            "fingerprint": encoding_fingerprint(type_to_id, faction_to_id, 0, phase),
+            "fingerprint": encoding_fingerprint(type_to_id, faction_to_id, 0, rules_version_of(phase)),
             "encoding": ENCODING, "observation_epoch": int(OBSERVATION_EPOCH), "core_phase": phase,
             "unit_type_to_id": type_to_id, "faction_to_id": faction_to_id,
             "match_dirs": [str(d) for d in args.games], "selection": dict(counts),
