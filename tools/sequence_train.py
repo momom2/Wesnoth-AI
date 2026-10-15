@@ -60,7 +60,9 @@ pass (tools/sequence_window.py). `--columns` reads the records' columns
 Python object per position. `--activation-budget-gb G` keeps the
 activations of as many of the window's last time steps as fit in G GiB
 instead of recomputing them (the same arithmetic: the recomputation
-restores the random state its forward drew from). `--packed-trunk` runs the
+restores the random state its forward drew from); `auto` keeps as many as
+the CUDA device's memory leaves, the window's other memory measured in the
+run (tools/sequence_memory_plan.py, `--memory-margin-gb`). `--packed-trunk` runs the
 trunk on the real tokens only, with flash varlen attention on CUDA under
 bfloat16 and no dropout: other arithmetic than the padded trunk's, so a
 network it trains needs its own acceptance. `--window-batched` (with the
@@ -136,8 +138,8 @@ from tools.sequence_setup import (ARCH, PREFETCH_SIDES, ColumnLoader, SequenceLo
                                   build_modules, game_facts, lr_factor, own_stream_count, save_checkpoint)
 from tools.sequence_telemetry import (SIGNAL_STREAMS, SIGNAL_TERMS, TrainerTelemetry,  # noqa: E402
                                       _squares)
-from tools.sequence_timing import (GIB, WindowClock, bytes_per_token, plan_kept_steps,  # noqa: E402
-                                   trunk_tokens)
+from tools.sequence_memory_plan import MemoryPlanner, default_cuda_allocator, device_memory  # noqa: E402
+from tools.sequence_timing import GIB, WindowClock, bytes_per_token  # noqa: E402
 from tools.sequence_window import read_window, window_sums  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.imitation_loss import imitation_loss_parts  # noqa: E402
@@ -226,8 +228,11 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         self.trunk_mode = TrunkMode(bf16_residual=args.trunk_bf16, fused_relu=args.fused_relu,
                                     compile_backend=args.compiled_trunk, fp8=args.fp8_trunk)
         self.model.set_trunk_mode(self.trunk_mode)
-        self.budget_bytes = float(args.activation_budget_gb) * GIB
         self.bytes_per_token = bytes_per_token(self.trunk, self.arch, args.activation_bytes_per_token)
+        auto = args.activation_budget_gb == "auto"
+        self.budget_bytes = 0.0 if auto else float(args.activation_budget_gb) * GIB
+        self.memory_planner = (MemoryPlanner(device_memory(device), args.memory_margin_gb * GIB, self.bytes_per_token)
+                               if auto else None)
         self.clock = WindowClock(device, self.loader)
         self.last_timing: Optional[Dict] = None
         from tools.supervised_train import _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
@@ -243,7 +248,8 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                      "arch": dict(self.arch), "decay_from": args.decay_from, "init_from": None,
                      "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule,
                      "own": None if self.own is None else self.own.meta(args.own_policy_weight),
-                     "trunk": self.trunk, "trunk_mode": self.trunk_mode.describe()}
+                     "trunk": self.trunk, "trunk_mode": self.trunk_mode.describe(),
+                     "activation_budget_gb": args.activation_budget_gb}
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
                  args.streams, args.window)
@@ -331,19 +337,6 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         return self.model.trunk_index(staged.sizes, staged.sighting_counts, [s.k for s in steps],
                                       self.device, packed=self.packed)
 
-    def _kept_steps(self, window) -> int:
-        """How many of the window's last time steps keep their activations
-        under `--activation-budget-gb` (tools/sequence_timing.py), from their
-        records' token counts."""
-        if self.budget_bytes <= 0:
-            return 0
-        step_bytes = []
-        for steps in window:
-            sizes, sightings = self.inputs.sizes(steps)
-            real, padded = trunk_tokens(sizes, sightings, [s.k for s in steps])
-            step_bytes.append((real if self.packed else padded) * self.bytes_per_token)
-        return plan_kept_steps(step_bytes, self.budget_bytes)
-
     def train_window(self) -> Dict[str, float]:
         """The next window: trained, or forward only under `--train-every`;
         {} when the pass has no window left."""
@@ -386,6 +379,9 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         sums = window_sums(read, fw.logs, fw.own_counts, with_own=self.own is not None)
         self.last_timing = self.clock.finish(fw.tokens_real, fw.tokens_padded, fw.n_kept, fw.kept_tokens,
                                              fw.kept_bytes)
+        if self.memory_planner is not None and trains:
+            self.last_timing.update(budget_gb=round(fw.budget_bytes / GIB, 3),
+                                    **self.memory_planner.observe(fw.tokens_real, fw.kept_tokens, fw.kept_bytes))
         self.state["positions"] += fw.n_positions
         self.state["steps"] += int(trains)
         self.state["windows"] += 1
@@ -561,9 +557,12 @@ def build_trainer(args) -> Trainer:
     arguments checked, the seed set, the checkpoint it resumes or starts
     from loaded (what `main` runs; tools/bench_sequence_step.py builds the
     same)."""
-    torch.manual_seed(args.seed)
     check_args(args)
-    trainer = Trainer(args, torch.device(args.device))
+    device = torch.device(args.device)
+    allocator = default_cuda_allocator(device)
+    torch.manual_seed(args.seed)
+    trainer = Trainer(args, device)
+    trainer.meta["cuda_allocator"] = allocator
     if args.resume:
         trainer.resume(args.out)
     elif args.init_from is not None:

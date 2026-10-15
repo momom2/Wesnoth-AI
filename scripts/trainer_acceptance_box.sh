@@ -5,15 +5,16 @@
 # training acceptance", "Round 4"): short passes from own1 under round 2's
 # preset, the same seed, each PASS_POSITIONS positions walked and its final
 # holdout probe at 0 and 64 slots. The arms (ARMS, a list of the names; A is
-# required, every other can be left out):
+# required, every other can be left out; default A, B and A2, B8, B64 and
+# BHALF having been measured and not adopted, docs/trainer_acceptance_prereg_20261014.md):
 #   A      the padded trunk, today's arithmetic (A_FLAGS: the columnar records
 #          and the padded trunk's activation budget, both the default's
 #          arithmetic to the bit, to shorten the pass);
 #   A2     A again: the run-to-run nondeterminism of today's GPU training;
 #   B      the fastest configuration that changes the arithmetic (B_FLAGS:
-#          the packed trunk, the window batched and the trunk variants; set it
-#          from the bench's speed.json, the fastest arm whose gradient check
-#          passed);
+#          by default the accepted one, the packed trunk, the columns, the
+#          window batched, the compiled trunk, its activation budget sized from
+#          the device's memory, `--activation-budget-gb auto`);
 #   B8     B with fp8 products (B8_FLAGS: B_FLAGS without --fused-relu, which
 #          fp8 excludes, plus --fp8-trunk);
 #   B64    B at BIG_STREAMS streams (half of them own), the learning rate LR
@@ -62,7 +63,8 @@
 # measured 1,242 positions a second, the compile); B8 about 15 (fp8's speed at
 # these sizes is the bench's to measure; this assumes 1,000 a second); B64
 # about 12 and BHALF about 11 (forward-only windows cost about a third of a
-# trained one). All six about 2 hours 30 minutes, $1.07 at $0.42 an hour: the
+# trained one). The default three about 1 hour 55 minutes, $0.80; all six
+# about 2 hours 30 minutes, $1.07 at $0.42 an hour: the
 # fixed part $0.20, A and A2 $0.25 each, B $0.09, B8 $0.11, B64 $0.08, BHALF
 # $0.08. A pass is cut at PASS_CUT_MIN (70: about twice A's estimate) or after
 # PASS_STALL_MIN without a log line. BOX_MAX_H 4 caps it at about $1.70 plus
@@ -83,9 +85,9 @@ RUN_SEED="${RUN_SEED:-20261012}"                # round 2's
 LR="${LR:-2.8e-5}"
 PASS_POSITIONS="${PASS_POSITIONS:-500000}"
 DECAY_FROM="${DECAY_FROM:-0.5}"
-ARMS="${ARMS:-A B A2 B8 B64 BHALF}"
+ARMS="${ARMS:-A B A2}"
 A_FLAGS="${A_FLAGS:---columns --activation-budget-gb 15.97 --activation-bytes-per-token 150329}"
-B_FLAGS="${B_FLAGS:---packed-trunk --columns --window-batched --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --compiled-trunk}"
+B_FLAGS="${B_FLAGS:---packed-trunk --columns --window-batched --compiled-trunk --activation-budget-gb auto}"
 B8_FLAGS="${B8_FLAGS:-}"                        # default: B_FLAGS without --fused-relu, plus --fp8-trunk
 BIG_STREAMS="${BIG_STREAMS:-64}"
 SUBSET_EVERY="${SUBSET_EVERY:-2}"
@@ -141,7 +143,7 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
         tests/test_sequence_speed.py tests/test_sequence_columns.py tests/test_sequence_launches.py \
         tests/test_own_loss.py tests/test_packed_trunk.py tests/test_trunk_modes.py tests/test_trunk_variants.py \
         tests/test_trainer_acceptance_readout.py tests/test_fp8_linear.py tests/test_rules_version.py \
-        tests/test_train_every.py -q -p no:cacheprovider -m ""
+        tests/test_train_every.py tests/test_memory_plan.py tests/test_bench_gradcheck.py -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
     : > "$OUT/cuda_tests.log"

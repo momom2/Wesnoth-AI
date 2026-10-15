@@ -9,6 +9,7 @@ where they were (docs/trainer_speed_20261013.md, "Benchmark").
         [--candidate=FLAGS ...] -- TRAIN_ARGS
     python tools/bench_sequence_step.py interleave --out rows.jsonl --arm NAME=FLAGS ... -- TRAIN_ARGS
     python tools/bench_sequence_step.py interleave-summary rows.jsonl [--out speed.json]
+    python tools/bench_sequence_step.py memory --out memory.json --flags=FLAGS ... -- TRAIN_ARGS
 
 TRAIN_ARGS is the training command line, verbatim (the round preset's of
 scripts/memory_own_trajectories_box.sh). The trainer is built from it as
@@ -55,6 +56,9 @@ flags each adds; default the packed trunk) against one reference
 
 interleave, interleave-summary: several configurations timed in one
 process, window by window in turn (tools/bench_interleave.py).
+
+memory: the activation budget calibrated on the pass's largest windows
+(tools/bench_memory.py).
 """
 from __future__ import annotations
 
@@ -204,7 +208,8 @@ def config_record(root: Path, args, trainer, train_argv, bench: Dict) -> Dict:
     """The run's first record, read from the live objects."""
     cuda = trainer.device.type == "cuda"
     own = trainer.own
-    budget = float(getattr(args, "activation_budget_gb", 0.0) or 0.0)
+    budget = getattr(args, "activation_budget_gb", 0.0) or 0.0           # a size, or "auto"
+    keeps = budget == "auto" or float(budget) > 0
     return {
         "kind": "config", "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "code": code_identity(root), "torch": torch.__version__, "cuda": torch.version.cuda,
@@ -217,7 +222,8 @@ def config_record(root: Path, args, trainer, train_argv, bench: Dict) -> Dict:
         "columns": bool(getattr(args, "columns", False)),
         "window_batched": bool(getattr(args, "window_batched", False)),
         "trunk_mode": trunk_mode_name(trainer),
-        "activation_bytes_per_token": getattr(trainer, "bytes_per_token", None) if budget > 0 else None,
+        "activation_bytes_per_token": getattr(trainer, "bytes_per_token", None) if keeps else None,
+        "memory_margin_gb": getattr(args, "memory_margin_gb", None) if budget == "auto" else None,
         "sdpa": {"flash": torch.backends.cuda.flash_sdp_enabled(),
                  "mem_efficient": torch.backends.cuda.mem_efficient_sdp_enabled(),
                  "math": torch.backends.cuda.math_sdp_enabled()},
@@ -581,6 +587,13 @@ def parse(argv: Sequence[str]):
     g.add_argument("--candidate", action="append", default=None,
                    help="a candidate's training flags (write --candidate=FLAGS; repeat for several; default "
                         "--packed-trunk)")
+    m = sub.add_parser("memory", help="calibrate the activation budget on the pass's largest windows")
+    m.add_argument("--out", type=Path, required=True)
+    m.add_argument("--flags", default="", help="the configuration under calibration (write --flags=FLAGS)")
+    m.add_argument("--warmup", type=int, default=5)
+    m.add_argument("--windows", type=int, default=40)
+    m.add_argument("--worst", type=int, default=6)
+    m.add_argument("--scan-positions", type=int, default=None, help="the scan's positions (default: the pass)")
     i = sub.add_parser("interleave", help="time several configurations window by window in one process")
     i.add_argument("--out", type=Path, required=True, help="the rows (JSONL, a new file)")
     i.add_argument("--arm", action="append", required=True, help="NAME=FLAGS: an arm's training flags")
@@ -615,6 +628,9 @@ def main(argv=None) -> int:
         from tools import bench_interleave
         return (bench_interleave.interleave(opts, train) if opts.command == "interleave"
                 else bench_interleave.summary_command(opts))
+    if opts.command == "memory":
+        from tools import bench_memory
+        return bench_memory.calibrate(opts, train)
     from tools import bench_gradcheck
     return bench_gradcheck.gradcheck(opts, train)
 

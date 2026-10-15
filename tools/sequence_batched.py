@@ -28,7 +28,7 @@ from typing import List
 import torch
 from torch.utils.checkpoint import checkpoint
 
-from tools.sequence_timing import trunk_tokens
+from tools.sequence_timing import plan_kept_steps, trunk_tokens
 from wesnoth_ai.imitation_loss import imitation_loss_parts
 from wesnoth_ai.model_output import ActorKind
 from wesnoth_ai.own_loss import own_policy_loss
@@ -53,15 +53,35 @@ class WindowForward:
     n_kept: int = 0
     kept_tokens: int = 0
     kept_bytes: int = 0
+    budget_bytes: float = 0.0              # the kept activations' budget the window was planned under
 
 
 class WindowForwards:
     """The two forwards (a part of `sequence_train.Trainer`)."""
 
-    def _planned_kept(self, window) -> int:
-        """The time steps whose activations the window keeps; none in a
-        forward-only window."""
-        return self._kept_steps(window) if torch.is_grad_enabled() else 0
+    def _planned_kept(self, window):
+        """(the time steps whose activations the window keeps, the budget
+        they were planned under): none in a forward-only window."""
+        return self._kept_steps(window) if torch.is_grad_enabled() else (0, 0.0)
+
+    def _kept_steps(self, window):
+        """(how many of the window's last time steps keep their activations,
+        under `--activation-budget-gb` or the device's memory with `auto`
+        (tools/sequence_memory_plan.py), the budget), from their records'
+        token counts."""
+        if self.memory_planner is None and self.budget_bytes <= 0:
+            return 0, 0.0
+        step_tokens, real_total = [], 0
+        for steps in window:
+            sizes, sightings = self.inputs.sizes(steps)
+            real, padded = trunk_tokens(sizes, sightings, [s.k for s in steps])
+            step_tokens.append(real if self.packed else padded)
+            real_total += real
+        if self.memory_planner is None:
+            budget, per_token = self.budget_bytes, self.bytes_per_token
+        else:
+            budget, per_token = self.memory_planner.budget(real_total), self.memory_planner.kept_per_token
+        return plan_kept_steps([t * per_token for t in step_tokens], budget), budget
 
     def _autocast(self):
         return torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None)
@@ -83,7 +103,8 @@ class WindowForwards:
 
     def _stepped_forward(self, window, router) -> WindowForward:
         """Each time step's forward and losses in turn."""
-        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=self._planned_kept(window))
+        n_kept, budget = self._planned_kept(window)
+        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=n_kept, budget_bytes=budget)
         for t, steps in enumerate(window):
             mems = router.batch(steps)
             x = self.inputs.stage(steps)
@@ -113,7 +134,8 @@ class WindowForwards:
     def _batched_forward(self, window, router) -> WindowForward:
         """The window staged and embedded at once, the trunk and the memory
         step by step, the heads and the losses at once (module docstring)."""
-        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=self._planned_kept(window))
+        n_kept, budget = self._planned_kept(window)
+        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=n_kept, budget_bytes=budget)
         rows = [s for steps in window for s in steps]
         x = self.inputs.stage(rows)
         sizes, sightings = x.staged.sizes, x.staged.sighting_counts

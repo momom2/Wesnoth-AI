@@ -641,6 +641,73 @@ on. The readout pairs every arm against A by game with A2 - A as the noise
 (the round-3 criterion per arm) and reads each arm against B as well, the
 factor it adds.
 
+### The activation budget under the compiled block
+
+Configuration B (the packed trunk, kept activations, the columns, the
+batched window, the compiled trunk) was accepted
+(docs/trainer_acceptance_prereg_20261014.md "Measured"). Its first
+acceptance pass ran out of memory after 394 windows at
+`--activation-budget-gb 19.18 --activation-bytes-per-token 102139`, at about
+1,560 positions a second: 22.78 GiB in use on a 23.52 GiB card, 3.2 GiB of it
+reserved and unallocated. Its steps rows show the estimate was not the fault:
+a kept token measured 92,300 to 98,500 bytes (median 93,150), under the
+102,139 assumed, and the kept activations stayed under the budget. The peak
+less the kept bytes, the rest of the window (its embedding, the heads and
+losses over it and their gradients, the trunk outputs' gradients, the
+weights and the optimizer's state), measured 1.8 to 3.4 GiB, 10,200 to 18,200
+bytes a real trunk token, growing with the window. A fixed budget for the
+kept activations leaves that rest, the allocator's fragmentation and the CUDA
+context to whatever the card has left; 19.18 had been sized for another
+configuration in round 1.
+
+`--activation-budget-gb auto` (tools/sequence_memory_plan.py) sizes each
+trained window's budget from the device: its capacity, less the most memory
+the process held outside PyTorch's allocator so far, less
+`--memory-margin-gb` (1 GiB by default), less the largest rest a real token
+has needed so far times the window's real tokens (32,000 bytes a token before
+any window). The kept steps are planned at the largest kept bytes a token
+has measured (the estimate until then). Both figures only grow. Replayed on
+the 394 measured windows, an envelope started at the 1st, 2nd, 5th or 10th
+window was exceeded by at most 0.35 GiB later, inside the margin.
+
+Why the measurement and not a better per-token constant: the constant was
+already conservative, and what ran the card out is memory a constant per
+kept token does not describe: a rest that has a part per window, grows with
+the window's tokens and depends on the configuration (the compiled block,
+the batched heads, the streams), plus fragmentation. The trainer measures the
+peak and the kept bytes of every window already (`peak_gb`, `kept_gb`), so
+the plan costs nothing and needs no recalibration when the configuration
+changes. Keeping a step or recomputing it computes the same numbers, so the
+plan changes the speed and the memory, never what is trained: the
+acceptance's reading of B holds at any budget.
+
+The trainer defaults PYTORCH_CUDA_ALLOC_CONF to expandable_segments:True on
+CUDA when the environment sets none, before CUDA allocates
+(`default_cuda_allocator`), and records the value and its source in the
+training meta (`cuda_allocator`). Expandable segments grow a segment in place
+instead of reserving new fixed-size ones, so freed memory serves requests of
+other sizes: the 3.2 GiB of fragmentation the failed pass reserved. The
+rerun with expandable segments at an 8 GiB budget ran at 794 positions a
+second.
+
+The calibration (tools/bench_sequence_step.py memory, the first arm of
+scripts/trainer_speed_box.sh) scans every window of the pass for its real
+tokens, runs 5 warm-up and 40 timed windows from the pass's start, then the
+6 largest windows of the pass where the pass meets them (their schedules
+replayed, each continuing slot given a fresh memory of its size), and
+records the peaks allocated and reserved, the planner's figures, the
+headroom, whether every window fit, and the flags a real run should use.
+Alone (TIMING=0 CANDIDATES= SWEEP_STREAMS=), about 35 minutes with
+bring-up and inputs, $0.25 at $0.42 an hour. Tests (tests/test_memory_plan.py):
+the planner's arithmetic and growth, the trainer planning each window from
+the ones before with the device's memory stood in for, the allocator's
+default, the calibration choosing and reaching the pass's largest windows
+and failing on an out-of-memory window while running the others.
+
+The speed bench's default candidates are relu and compiled: bf16 failed its
+CUDA test and fp8 its gradient check (cosines 0.67 to 0.96); their flags and
+names stay. The acceptance's default arms are A, B and A2.
+
 ## Rejected
 
 - Length-sorted sub-batches on the padded trunk, because P1 supersedes them,
