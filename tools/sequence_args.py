@@ -8,6 +8,10 @@ from pathlib import Path
 import torch
 
 from tools.sequence_setup import ARCH, DEFAULTS
+from wesnoth_ai.optimizers import OPTIMIZERS
+from wesnoth_ai.soap import PRECONDITION_EVERY
+
+PROBE_WEIGHTS = ("live", "ema", "both")
 
 
 def budget_value(text: str):
@@ -98,6 +102,21 @@ def parse_args(argv=None):
     ap.add_argument("--columns", action="store_true",
                     help="read the records' columns (tools/columnize_sequences.py writes them beside the pickles): "
                          "the same batches, without unpickling a Python object per position")
+    ap.add_argument("--optimizer", choices=OPTIMIZERS, default="adamw",
+                    help="the optimizer (wesnoth_ai/optimizers.py): adamw (the recipe's, every weight decayed), "
+                         "adamw_hygiene (beta2 0.95, no decay on the 1-D weights, the embeddings and the memory's "
+                         "rows), muon or soap (on the trunk's matrices, adamw_hygiene elsewhere), schedulefree "
+                         "(schedule-free AdamW, no --decay-from); a resume continues on its pass's optimizer")
+    ap.add_argument("--soap-precondition-every", type=int, default=None,
+                    help=f"with --optimizer soap: refresh the preconditioner's eigenbases every this many steps "
+                         f"(default {PRECONDITION_EVERY})")
+    ap.add_argument("--weight-ema", type=float, default=None, metavar="DECAY",
+                    help="keep an exponential moving average of the weights at this decay "
+                         "(wesnoth_ai/weight_ema.py), saved beside the weights in every checkpoint")
+    ap.add_argument("--probe-weights", choices=PROBE_WEIGHTS, default="live",
+                    help="the weights the probe reads: live (the training's), ema (the --weight-ema average, "
+                         "its rows in <out>.ema.probe.jsonl and <out>.ema.probe_sides.jsonl) or both (the live "
+                         "reading decides the memory barrier and the anneal rule)")
     ap.add_argument("--max-positions", type=int, default=None, help="stop after this many (a smoke run)")
     ap.add_argument("--log-seconds", type=float, default=60.0)
     for key in ("streams", "window", "warmup_steps", "value_states_per_game", "seed", "probe_every",
@@ -152,3 +171,24 @@ def check_args(args) -> None:
         raise SystemExit(f"--memory-margin-gb {args.memory_margin_gb}: a size, 0 or more")
     if args.train_every < 1:
         raise SystemExit(f"--train-every {args.train_every}: one window in 1 or more")
+    check_optimizer_args(args)
+
+
+def check_optimizer_args(args) -> None:
+    """SystemExit for an optimizer, an average or a probe the run cannot
+    hold together (wesnoth_ai/optimizers.py says why schedule-free takes no
+    schedule)."""
+    if args.optimizer == "schedulefree":
+        for flag, on in (("--decay-from", args.decay_from is not None), ("--anneal-rule", args.anneal_rule is not None),
+                         ("--weight-ema", args.weight_ema is not None)):
+            if on:
+                raise SystemExit(f"{flag}: schedule-free AdamW averages its own iterates in place of a schedule "
+                                 f"and an average of its weights: not with --optimizer schedulefree")
+    if args.soap_precondition_every is not None and args.optimizer != "soap":
+        raise SystemExit("--soap-precondition-every sets SOAP's refresh: with --optimizer soap")
+    if args.soap_precondition_every is not None and args.soap_precondition_every < 1:
+        raise SystemExit(f"--soap-precondition-every {args.soap_precondition_every}: every 1 step or more")
+    if args.weight_ema is not None and not 0.0 < args.weight_ema < 1.0:
+        raise SystemExit(f"--weight-ema {args.weight_ema}: a decay between 0 and 1")
+    if args.probe_weights != "live" and args.weight_ema is None:
+        raise SystemExit(f"--probe-weights {args.probe_weights} reads the average of --weight-ema")
