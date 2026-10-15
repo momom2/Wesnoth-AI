@@ -605,6 +605,9 @@ def main(argv: List[str]) -> int:
     if args.graphed and (args.bf16_residual or args.fused_relu):
         raise SystemExit("--graphed runs its own layer loop (the float32 stream, the plain ReLU): "
                          "not with --bf16-residual or --fused-relu")
+    if args.graphed and args.compile_packed:
+        raise SystemExit("--graphed replays its own uncompiled layer loop; with --compile-packed "
+                         "only the eager fallback batches would run compiled")
     if args.fused_relu and args.compile_packed:
         raise SystemExit("--fused-relu is an eager call; --compile-packed fuses the ReLU itself")
     bf16_residual = fused_relu = False
