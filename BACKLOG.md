@@ -112,6 +112,25 @@ $1.47 in all):
   configuration B is accepted** (docs/trainer_acceptance_prereg_20261014.md
   "Measured"): packed, kept, columns, batched, compiled; fp8 failed its
   gradient gate; 64 streams and half the windows are not adopted.
+
+**Pending on speed (2026-10-14, user: remember in the backlog):**
+- Merge four branches into main, with the user's approval (merges into main
+  are the user's): `feature/generation-speed-3` and `-4`,
+  `feature/trainer-speed-3` and `-4`. CI is green on each tip, and anything
+  that changes the numbers is behind a flag that defaults off.
+- Generation is device-bound: eager inference runs at about 26 TFLOP/s
+  against the trainer's 124. Next arm: the server's compiled packed trunk
+  for inference. It changes rounding, so it is for self-play generation
+  only; eval matches keep the eager server.
+- Calibrate configuration B's activation budget with the compiled block, to
+  reach its full rate (about 1,550 positions a second) without running out
+  of memory. 19.18 GiB ran out; 8 GiB ran at 794.
+- The record walk in Rust: a label builder in the core and an in-place
+  encode, worth about 40-50% of pre-encoding. Also the own-trajectory
+  step's Rust masks (one flag).
+- A source hash in the Rust wheel, checked by kernel_status: a phase
+  number cannot see an API change made within a phase.
+- Then the self-play training plan, the critical path.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic
