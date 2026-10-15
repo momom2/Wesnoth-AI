@@ -164,7 +164,18 @@ $1.47 in all):
     default, the calibration arm.
 - Left on speed, small: the move-then-attack candidates' view (about 16% of
   candidates), the clamp and fp32 adds in the inference trunk.
-- Then the self-play training plan, the critical path.
+- **The self-play training plan** (the critical path):
+  docs/selfplay_pg_design_20261015.md, revised after an independent review
+  that found the first draft's measurement and pilot could not decide.
+  - The method: policy gradient from game results, a luck correction
+    (AIVAT), a cross-fitted state-only critic, and two behaviours to
+    choose between: sampling every decision, or argmax with sparse
+    sampled deviations.
+  - R0 (about $2-3 after about a week of build) measures the gradient's
+    signal against a sign-flip null and prices a resolved gain.
+  - The records predict a million games or more, beyond today's budget.
+  - Waiting on the luck share in argmax matches (`exp/match-luck`) and on
+    the user's decision.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a
