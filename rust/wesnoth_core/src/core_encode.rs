@@ -19,6 +19,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::core::GameCore;
+use crate::core_label::{CoreLabel, LabelArgs, Recorded};
 use crate::core_masks::{LeafMasks, UNIT_ACTION_TYPES};
 use crate::core_observe::{observation_dict, CoreObservation};
 use crate::core_parity::{
@@ -98,28 +99,55 @@ impl GameCore {
     /// masks come with the encoding (core_masks.rs): mask_actor [A],
     /// mask_type_valid [A, 2], mask_attack_bits, mask_move_bits,
     /// mask_union_bits [A, ceil(HT / 8)] and mask_n_attacks [A].
+    ///
+    /// With `label` (a recorded command, core_label.rs `LabelArgs`) the
+    /// command's label in this basis comes with the encoding as `label`:
+    /// (actor slot, target token or None, the clicked hex named). A
+    /// command that names no unit, recruit option or map hex of the side's
+    /// is encoded no further: the dict holds `label` None alone.
     #[pyo3(signature = (side, relevant_set, type_vocab, recruit_type_ids, recruit_stats,
                         fog_hides_enemy_villages, norms, map_limit, num_alignments, terrain_multi_hot=false,
                         observation_parity=false, parity_norms=None, relevant_set_version=1,
-                        recruit_costs=None))]
+                        recruit_costs=None, label=None))]
     #[allow(clippy::too_many_arguments)]
     fn encode_streams<'py>(&self, py: Python<'py>, side: i64, relevant_set: bool, type_vocab: Vec<i64>,
                            recruit_type_ids: Vec<i64>, recruit_stats: Vec<f64>, fog_hides_enemy_villages: bool,
                            norms: [f64; NUM_NORMS], map_limit: i64, num_alignments: usize,
                            terrain_multi_hot: bool, observation_parity: bool,
                            parity_norms: Option<[f64; NUM_PARITY_NORMS]>, relevant_set_version: i64,
-                           recruit_costs: Option<Vec<i64>>)
+                           recruit_costs: Option<Vec<i64>>, label: Option<LabelArgs>)
         -> PyResult<Bound<'py, PyDict>> {
         // The encoding touches no Python object: other threads of the
         // process run while it is computed (a worker's game threads).
         let args = EncodeArgs {
             side, relevant_set, type_vocab, recruit_type_ids, recruit_stats, fog_hides_enemy_villages, norms,
             map_limit, num_alignments, terrain_multi_hot, observation_parity, parity_norms, relevant_set_version,
-            recruit_costs,
+            recruit_costs, label: label.map(Recorded::from_args).transpose()?,
         };
-        let parts = py.allow_threads(|| self.encode_parts(&args))?;
-        parts.into_dict(py, self, side)
+        let labelled = args.label.is_some();
+        match py.allow_threads(|| self.encode_parts(&args))? {
+            Encoded::Unlabelled => {
+                let d = PyDict::new(py);
+                d.set_item("label", py.None())?;
+                Ok(d)
+            }
+            Encoded::Parts(parts, label) => {
+                let d = (*parts).into_dict(py, self, side)?;
+                if labelled {
+                    d.set_item("label", label.map(CoreLabel::into_tuple))?;
+                }
+                Ok(d)
+            }
+        }
     }
+}
+
+/// What `encode_parts` computed: the encoding, with the command's label
+/// when one was asked, or nothing for a command that names nothing of the
+/// side's.
+enum Encoded {
+    Parts(Box<EncodedParts>, Option<CoreLabel>),
+    Unlabelled,
 }
 
 /// The arguments of `encode_streams`.
@@ -138,6 +166,7 @@ struct EncodeArgs {
     parity_norms: Option<[f64; NUM_PARITY_NORMS]>,
     relevant_set_version: i64,
     recruit_costs: Option<Vec<i64>>,
+    label: Option<Recorded>,
 }
 
 /// The parity observation's rows and its sighting stream.
@@ -237,11 +266,13 @@ impl EncodedParts {
 }
 
 impl GameCore {
-    /// `encode_streams`' arrays, computed without the GIL.
-    fn encode_parts(&self, args: &EncodeArgs) -> PyResult<EncodedParts> {
+    /// `encode_streams`' arrays and the command's label, computed without
+    /// the GIL.
+    fn encode_parts(&self, args: &EncodeArgs) -> PyResult<Encoded> {
         let EncodeArgs { side, relevant_set, ref type_vocab, ref recruit_type_ids, ref recruit_stats,
                          fog_hides_enemy_villages, norms, map_limit, num_alignments, terrain_multi_hot,
-                         observation_parity, parity_norms, relevant_set_version, ref recruit_costs } = *args;
+                         observation_parity, parity_norms, relevant_set_version, ref recruit_costs,
+                         ref label } = *args;
         let them_side = opponent_of(side)?;
         let parity = parity_norms_of(observation_parity, terrain_multi_hot, parity_norms)?;
         let obs = self.observe_relevant(side, relevant_set, relevant_set_version)?;
@@ -262,6 +293,23 @@ impl GameCore {
             tok_of_hex[mh] = t as i64;
         }
         let full_slots: Vec<i64> = slots.iter().map(|&mh| m.full_slot[mh]).collect();
+
+        // The visible units in slot order (visibility.visible_units_in_slot_order).
+        let n = self.units.len();
+        let mut vis: Vec<usize> = (0..n).filter(|&i| obs.view.visible[i] != 0).collect();
+        vis.sort_by(|&a, &b| {
+            let (ua, ub) = (&self.units[a], &self.units[b]);
+            (ua.y, ua.x, &ua.id).cmp(&(ub.y, ub.x, &ub.id))
+        });
+        // The command's label over these slots and tokens; a command that
+        // names nothing of the side's is encoded no further.
+        let core_label = match label {
+            None => None,
+            Some(rec) => match self.label_of(side, rec, &obs.view, &vis, &tok_of_hex)? {
+                None => return Ok(Encoded::Unlabelled),
+                found => found,
+            },
+        };
 
         // Static hex facts in slot order (encoder._build_static_hex_arrays).
         // Under the parity flag every village hex carries its village bit
@@ -316,13 +364,7 @@ impl GameCore {
                 .collect()
         };
 
-        // The visible units in slot order (visibility.visible_units_in_slot_order).
-        let n = self.units.len();
-        let mut vis: Vec<usize> = (0..n).filter(|&i| obs.view.visible[i] != 0).collect();
-        vis.sort_by(|&a, &b| {
-            let (ua, ub) = (&self.units[a], &self.units[b]);
-            (ua.y, ua.x, &ua.id).cmp(&(ub.y, ub.x, &ub.id))
-        });
+        // The visible units' facts in slot order.
         let mut unit_ints: Vec<i64> = Vec::with_capacity(vis.len() * 7);
         let mut unit_stats: Vec<f64> = Vec::with_capacity(vis.len() * 7);
         let mut unit_ids: Vec<String> = Vec::with_capacity(vis.len());
@@ -434,8 +476,9 @@ impl GameCore {
                 })
             }
         };
-        Ok(EncodedParts { masks, full_slots, hex_xs, hex_ys, hex_tids, ht, unit_ids, raw_xs, raw_ys, material, c,
-                          parity, obs, tok_of_hex })
+        let parts = EncodedParts { masks, full_slots, hex_xs, hex_ys, hex_tids, ht, unit_ids, raw_xs, raw_ys, material,
+                                   c, parity, obs, tok_of_hex };
+        Ok(Encoded::Parts(Box::new(parts), core_label))
     }
 }
 

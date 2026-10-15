@@ -118,12 +118,15 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         import wesnoth_core
         have = int(getattr(wesnoth_core, "__phase__", 0))
     except Exception:                        # noqa: BLE001 -- absence is the point
-        have, exports = 0, ()
+        have, exports, built_from = 0, (), None
     else:
         exports = tuple(sorted(n for n in dir(wesnoth_core)
                                if not n.startswith("_")))
+        built_from = getattr(wesnoth_core, "__source_hash__", None)
+    from wesnoth_ai.core_source import source_hash
+    here = source_hash()
     want = _source_phase()
-    if want and have >= want:
+    if want and have >= want and (here is None or built_from == here):
         return
     w = terminalreporter.write_line
     w("")
@@ -139,6 +142,11 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         w("!! wesnoth_core is NOT INSTALLED: the simulator cannot run, and every",
           yellow=True, bold=True)
         w("   test that needs it skipped or failed.")
+    elif have >= want:
+        w(f"!! wesnoth_core wheel is phase {have}, the source's, but was built from another source",
+          yellow=True, bold=True)
+        w(f"   (wheel {(built_from or 'without a source hash')[:12]}, source {here[:12]}).")
+        w("   So this run tested the installed wheel's Rust, not the source's.")
     else:
         w(f"!! wesnoth_core wheel is phase {have}; the source declares {want}.",
           yellow=True, bold=True)

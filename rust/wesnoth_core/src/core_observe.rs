@@ -272,7 +272,7 @@ impl GameCore {
     /// `unit_reach`'s arrays (mp, route cost, predecessor), computed
     /// without the GIL; None when no unit stands on (x, y) on the map.
     #[allow(clippy::type_complexity)]
-    fn reach_of(&self, x: i64, y: i64, budget: i64) -> PyResult<Option<(Vec<i64>, Vec<f64>, Vec<i64>)>> {
+    pub(crate) fn reach_of(&self, x: i64, y: i64, budget: i64) -> PyResult<Option<(Vec<i64>, Vec<f64>, Vec<i64>)>> {
         let Some(i) = self.unit_at(x, y) else { return Ok(None) };
         let u = &self.units[i];
         if u.hex < 0 {

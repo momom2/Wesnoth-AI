@@ -78,11 +78,16 @@ def encoding_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, in
 
 def checked_label(ai, raw, where: str, stats: Counter):
     """`ai` (built in the full-board basis) re-indexed into `raw`'s hex
-    tokens; a label whose slots do not point at what its command names
-    raises (`encode_worker.LabelSlotMismatch`), so the game is left out
-    rather than trained on a wrong label."""
-    from tools.encode_worker import LabelSlotMismatch, label_in_raw_basis, label_slot_mismatch
-    ai = label_in_raw_basis(ai, raw)
+    tokens and checked (`slot_checked`)."""
+    from tools.encode_worker import label_in_raw_basis
+    return slot_checked(label_in_raw_basis(ai, raw), raw, where, stats)
+
+
+def slot_checked(ai, raw, where: str, stats: Counter):
+    """`ai`, a label in `raw`'s basis; a label whose slots do not point at
+    what its command names raises (`encode_worker.LabelSlotMismatch`), so
+    the game is left out rather than trained on a wrong label."""
+    from tools.encode_worker import LabelSlotMismatch, label_slot_mismatch
     why = label_slot_mismatch(raw, ai)
     if why is not None:
         raise LabelSlotMismatch(f"{where}: {why}")
@@ -92,22 +97,81 @@ def checked_label(ai, raw, where: str, stats: Counter):
 
 def encode_position(gs, ai, where: str, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
                     stats: Counter, timeouts_hidden: bool = False) -> SequencePosition:
-    """The decision of the side to move at `gs`, labelled `ai`: its
-    encoding (the observation that carries the true state left out), its
-    label in the encoding's basis and its belief targets. The one encoder
-    of the sequence records: the corpus's positions and the memory
-    player's own (tools/own_trajectories.py) both come from here."""
+    """The decision of the side to move at the view `gs`, labelled `ai`
+    (built in the full-board basis, `replay_dataset._action_indices`): its
+    encoding, its label in the encoding's basis and its belief targets
+    (`sequence_position`). The record walks encode their core in place
+    instead (`encode_decision`); this serves a view at hand."""
     from tools.replay_dataset import TIMEOUT
-    from wesnoth_ai.belief_targets import belief_targets
     from wesnoth_ai.encoder import encode_raw
-    side = int(gs.global_info.current_side)
     raw = encode_raw(gs, type_to_id=type_to_id, faction_to_id=faction_to_id, **ENCODING)
-    if ai.action_type == TIMEOUT:
-        stats["timeout_positions"] += 1
-    else:
+    if ai.action_type != TIMEOUT:
         if timeouts_hidden and ai.action_type == "end_turn":
             stats["end_turn_timeout_undetectable"] += 1
         ai = checked_label(ai, raw, where, stats)
+    return sequence_position(raw, ai, int(gs.global_info.current_side), int(gs.global_info.turn_number), stats)
+
+
+def encode_decision(cs, cmd: Optional[list], where: str, type_to_id: Dict[str, int],
+                    faction_to_id: Dict[str, int], stats: Counter, timeouts_hidden: bool = False,
+                    masks: bool = False) -> Optional[SequencePosition]:
+    """The decision of the side to move on the core `cs` before the recorded
+    command `cmd`, encoded in place (no fork, no view: the caller's walk
+    applies the next command afterwards) and labelled by the core in the
+    encoding's own basis (`replay_dataset.core_label`); `cmd` None is a
+    position whose turn ran out of time, labelled `timeout`. None when the
+    command names no unit, recruit option or hex the side can act on (the
+    record and its reconstruction disagree). The label's slots are checked
+    against the encoded tokens (`slot_checked`). With `masks`, the position
+    carries the legality masks the side decided under, the core's
+    (`_decision_masks`). The one encoder of the sequence records: the
+    corpus's positions and the memory player's own
+    (tools/own_trajectories.py) both come from here."""
+    from tools.replay_dataset import core_label, core_label_args, timeout_label
+    encoding = dict(type_to_id=type_to_id, faction_to_id=faction_to_id, masks=masks, **ENCODING)
+    if cmd is None:
+        raw, ai = cs.encode_raw(**encoding), timeout_label()
+    else:
+        raw, fields = cs.encode_labelled(core_label_args(cmd), **encoding)
+        if raw is None:
+            return None
+        ai = core_label(cmd, fields, stats)
+        if timeouts_hidden and ai.action_type == "end_turn":
+            stats["end_turn_timeout_undetectable"] += 1
+        ai = slot_checked(ai, raw, where, stats)
+    pos = sequence_position(raw, ai, int(cs.core.current_side), int(cs.core.turn_number), stats)
+    if masks:
+        pos.masks = _decision_masks(raw, pos.raw, cs)
+    return pos
+
+
+def _decision_masks(raw, kept_raw, cs):
+    """The packed legality masks of the decision `raw` encodes on `cs`: the
+    core's, built beside the encoding, while the combat oracle's priors are
+    off (their value since 2026-08-06); else the Python builder's, which
+    carries their biases, over the stored encoding `kept_raw` and a view of
+    a fork."""
+    from wesnoth_ai.action_sampler import combat_alphas_at, end_turn_bias_of
+    from wesnoth_ai.server_priors import core_packed_masks
+    if not any(combat_alphas_at(0)):
+        return core_packed_masks(raw, end_turn_bias_of(cs.statics.get("_scenario_category", "")))
+    import torch
+    from tools.inference_seam import build_light_encoded
+    from wesnoth_ai.game_core import view_of
+    from wesnoth_ai.server_priors import pack_masks
+    return pack_masks(build_light_encoded(kept_raw, torch.device("cpu")), view_of(cs.fork()))
+
+
+def sequence_position(raw, ai, side: int, turn: int, stats: Counter) -> SequencePosition:
+    """The stored position of the decision `raw` encodes for `side`, its
+    label `ai` already in the encoding's basis: the encoding without the
+    observation that carries the true state, the label and the belief
+    targets (the hex tokens where an enemy unit the side cannot see
+    stands, and the tokens with no visible unit)."""
+    from tools.replay_dataset import TIMEOUT
+    from wesnoth_ai.belief_targets import belief_targets
+    if ai.action_type == TIMEOUT:
+        stats["timeout_positions"] += 1
     bt = belief_targets(raw, side)
     stats["hidden_units"] += int(bt.hidden_tokens.shape[0]) + bt.n_untokened
     stats["hidden_untokened"] += bt.n_untokened
@@ -115,18 +179,19 @@ def encode_position(gs, ai, where: str, type_to_id: Dict[str, int], faction_to_i
     return SequencePosition(
         # The true enemy faction is left out: the parity encoding reads
         # the posterior (`their_faction_probs`), never the faction.
-        raw=dataclasses.replace(raw, observation=None, their_faction_id=0), label=ai,
-        hidden_tokens=bt.hidden_tokens, no_visible_unit=bt.no_visible_unit,
-        turn=int(gs.global_info.turn_number))
+        raw=dataclasses.replace(raw, observation=None, their_faction_id=0, core_masks=None), label=ai,
+        hidden_tokens=bt.hidden_tokens, no_visible_unit=bt.no_visible_unit, turn=int(turn))
 
 
 def encode_game_sequence(data: dict, file: str, winner: int, type_to_id: Dict[str, int],
                          faction_to_id: Dict[str, int]) -> GameSequence:
-    """One extracted game's decisions, per side, in order. A label whose
-    slots do not point at what its command names raises
-    (`encode_worker.LabelSlotMismatch`), so the game is left out rather
-    than trained on a wrong label."""
-    from tools.replay_dataset import iter_record_pairs
+    """One extracted game's decisions, per side, in order, walked on the
+    record's core without a view (`replay_dataset.iter_record_decisions`,
+    `encode_decision`). A label whose slots do not point at what its
+    command names raises (`encode_worker.LabelSlotMismatch`), so the game is
+    left out rather than trained on a wrong label; a command that names
+    nothing the side can act on is counted (`unpaired`)."""
+    from tools.replay_dataset import iter_record_decisions
     from tools.replay_engine_actions import TurnTimer
     from wesnoth_ai.encoder import unknown_type_counts
     from wesnoth_ai.faction_posterior import posterior_counts
@@ -137,11 +202,14 @@ def encode_game_sequence(data: dict, file: str, winner: int, type_to_id: Dict[st
     timeouts_hidden = timer is not None and not TurnTimer(*timer).timeouts_detectable()
     seq = GameSequence(file=file, winner=int(winner), n_commands=len(data.get("commands", [])),
                        sides={s: [] for s in PLAYER_SIDES})
-    for gs, ai in iter_record_pairs(data, relevant_set=False, stats=stats, timeouts=True):
-        side = int(gs.global_info.current_side)
-        seq.sides[side].append(encode_position(
-            gs, ai, f"{file}, side {side} decision {len(seq.sides[side])}", type_to_id, faction_to_id,
-            stats, timeouts_hidden))
+    for cs, cmd in iter_record_decisions(data, stats=stats, timeouts=True):
+        side = int(cs.core.current_side)
+        pos = encode_decision(cs, cmd, f"{file}, side {side} decision {len(seq.sides[side])}", type_to_id,
+                              faction_to_id, stats, timeouts_hidden)
+        if pos is None:
+            stats["unpaired"] += 1
+        else:
+            seq.sides[side].append(pos)
     after = posterior_counts()
     stats["posteriors"] += after["posteriors"] - before["posteriors"]
     stats["posterior_inconsistent"] += after["inconsistent"] - before["inconsistent"]

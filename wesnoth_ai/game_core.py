@@ -82,8 +82,11 @@ _RECORD_SIDES = (1, 2)
 # without the GIL (a worker's other game threads run meanwhile), 34 does the
 # inference server's host work per batch (`ServeRequests`, `MemoryTable`;
 # tools/serve_stage.py) and keeps the simulator's live view from one refresh
-# to the next (`ViewCache`, `CoreState.view_state`).
-_CORE_PHASE = 34
+# to the next (`ViewCache`, `CoreState.view_state`), 35 builds a recorded
+# command's label in the encoding's basis beside the encoding
+# (`CoreState.encode_labelled`) and carries the hash of the source the wheel
+# was built from (`__source_hash__`, wesnoth_ai/core_source.py).
+_CORE_PHASE = 35
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
 CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",
@@ -120,7 +123,25 @@ def game_core_class():
         if wesnoth_core is not None and getattr(wesnoth_core, "__phase__", 0) >= _CORE_PHASE:
             load_databases(wesnoth_core)
             _GAME_CORE = wesnoth_core.GameCore
+            _warn_if_built_from_other_source()
     return _GAME_CORE
+
+
+def _warn_if_built_from_other_source() -> None:
+    """Warn when the wheel was built from another source than the one in
+    this tree (`core_source.source_hash`): a wheel of the right phase may
+    still lack a change made within that phase. A warning, not a refusal:
+    a box that built its own wheel from its stage's source runs. Silent
+    when no source tree stands beside the package."""
+    from wesnoth_ai.core_source import source_hash, wheel_source_hash
+    want = source_hash()
+    if want is None:
+        return
+    have = wheel_source_hash()
+    if have != want:
+        log.warning(f"wesnoth_core was built from another source than this tree's (wheel "
+                    f"{(have or 'without a source hash')[:12]}, source {want[:12]}): rebuild it "
+                    f"(pip install ./rust/wesnoth_core) to run this tree's Rust")
 
 
 def is_rust_panic(exc: BaseException) -> bool:
@@ -835,6 +856,30 @@ class CoreState:
         `relevant_set`). With `masks` the decision's packed legality masks
         come along in `core_masks` (rust/wesnoth_core/src/core_masks.rs),
         what `server_priors.pack_masks` packs from the Python builder."""
+        raw, _label = self._encode(None, type_to_id=type_to_id, faction_to_id=faction_to_id,
+                                   relevant_set=relevant_set, fog_hides_enemy_villages=fog_hides_enemy_villages,
+                                   terrain_multi_hot=terrain_multi_hot, observation_parity=observation_parity,
+                                   relevant_set_version=relevant_set_version, masks=masks)
+        return raw
+
+    def encode_labelled(self, label_args: tuple, **encoding) -> Tuple[Optional[object], Optional[tuple]]:
+        """`encode_raw` (its keyword arguments in `encoding`) with the label
+        of a recorded command in the encoding's own basis, which the core
+        builds beside it from the same unit order and hex tokens
+        (rust/wesnoth_core/src/core_label.rs): `label_args` is the command
+        as `replay_dataset.core_label_args` gives it, and the label comes
+        back as (actor slot, target token or None, whether a move names its
+        clicked hex), `replay_dataset.core_label` reads it. (None, None)
+        when the command names no unit, recruit option or map hex of the
+        side to move: the core encodes nothing then."""
+        return self._encode(tuple(label_args), **encoding)
+
+    def _encode(self, label_args: Optional[tuple], *, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
+                relevant_set: bool = False, fog_hides_enemy_villages: bool = False,
+                terrain_multi_hot: bool = False, observation_parity: bool = False,
+                relevant_set_version: int = 1, masks: bool = False):
+        """(RawEncoded, the core's label of `label_args` or None): the body
+        of `encode_raw` and `encode_labelled`."""
         from wesnoth_ai import encoder as enc
         core = self.core
         side = int(core.current_side)
@@ -862,7 +907,10 @@ class CoreState:
              enc.INCOME_NORM, enc.VILLAGES_NORM, enc.TURN_NORM),
             enc.MAX_MAP_SIZE - 1, enc.NUM_ALIGNMENTS, bool(terrain_multi_hot),
             observation_parity=bool(observation_parity), parity_norms=parity_norms,
-            relevant_set_version=int(relevant_set_version), recruit_costs=recruit_costs)
+            relevant_set_version=int(relevant_set_version), recruit_costs=recruit_costs, label=label_args)
+        label = d.get("label")
+        if label_args is not None and label is None:
+            return None, None
         _require_widths(d, bool(observation_parity))
         static = enc._static_hex_arrays(self._view())
         if relevant_set:
@@ -892,7 +940,7 @@ class CoreState:
             raw.sight_xs = d["sight_xs"]
             raw.sight_ys = d["sight_ys"]
             raw.sight_feats = d["sight_feats"]
-        return raw
+        return raw, label
 
     def _faction_probs(self, side: int, our_fac: str, them_fac: str, faction_to_id: Dict[str, int]):
         """The posterior over the opponent's faction (faction_posterior)."""

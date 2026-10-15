@@ -70,10 +70,10 @@ class LabelSlotMismatch(ValueError):
 def label_slot_mismatch(raw, ai) -> Optional[str]:
     """Why `ai`'s slots do not point at its command's source hex, target
     hex and recruited type in the encoded tokens `raw`, or None. The
-    label builder (replay_dataset._action_indices) and the encoder
-    (Python or Rust) enumerate slots separately; this is where they
-    meet. Labels without the command's hexes (pickled before they were
-    carried) are not checked."""
+    label builders (replay_dataset._action_indices on a view, the core's
+    beside the encoding, replay_dataset.core_label) and the encoding's
+    positions meet here. Labels without the command's hexes (pickled
+    before they were carried) are not checked."""
     n_units, n_recruits = len(raw.unit_positions), len(raw.recruit_types)
     if ai.action_type == "timeout":
         return None                   # names no action, so points at no slot

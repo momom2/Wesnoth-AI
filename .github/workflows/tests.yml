@@ -75,17 +75,23 @@ jobs:
         # rustup and cargo ship with the runner image.
         run: python -m pip install ./rust/wesnoth_core
 
-      - name: The wheel is the phase the source declares
+      - name: The wheel is the phase the source declares, built from this source
         # Same regex as tests/conftest.py. A mismatch would make the Rust
         # tests skip quietly, which is the laptop's situation, not a gate.
+        # The source hash the wheel carries (rust/wesnoth_core/build.rs)
+        # must be the one wesnoth_ai/core_source.py computes.
         run: |
           python - <<'EOF'
           import pathlib, re, wesnoth_core
+          from wesnoth_ai.core_source import source_hash
           text = pathlib.Path("rust/wesnoth_core/src/lib.rs").read_text()
           want = int(re.search(r"__phase__[^0-9]{0,40}?(\d+)", text).group(1))
           got = int(getattr(wesnoth_core, "__phase__", 0))
           print(f"wheel phase {got}, source phase {want}")
           assert got == want
+          built, here = getattr(wesnoth_core, "__source_hash__", None), source_hash()
+          print(f"wheel source hash {built}, source {here}")
+          assert built is not None and built == here
           EOF
 
       - name: Lint

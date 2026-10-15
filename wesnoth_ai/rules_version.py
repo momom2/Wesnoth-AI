@@ -42,6 +42,10 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # refresh checked against a whole rebuild under WESNOTH_CHECK_VIEWS):
     # nothing that builds a position.
     34: 31,
+    # The label builder in the core and the record's core encoded in place
+    # (feature/record-walk-rust) build the same positions and labels, byte
+    # for byte (tests/test_core_label.py).
+    35: 31,
 }
 
 

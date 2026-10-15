@@ -7,7 +7,10 @@ than the adapter's phase, stops the simulator at its first state. A
 wheel that imports is not necessarily current: measured on this laptop
 2026-09-13, a phase-3 wheel imported while the source declared phase 9.
 This reports the installed phase against the source's and the adapter's,
-asked through the same gate production uses (`game_core_class`).
+asked through the same gate production uses (`game_core_class`), and the
+hash of the source the wheel was built from against the source's own
+(`wesnoth_ai/core_source.py`): two changes have landed within one phase
+before, so the wheel is current only when both match.
 
 Quickstart
 ----------
@@ -69,9 +72,24 @@ def _game_core() -> bool:
     return game_core_class() is not None
 
 
+def wheel_source_hash() -> Optional[str]:
+    """The hash of the source the installed wheel was built from, or None
+    (absent, or built before the wheel carried one)."""
+    from wesnoth_ai.core_source import wheel_source_hash as of_wheel
+    return of_wheel()
+
+
+def source_hash() -> Optional[str]:
+    """The hash of the Rust source in this tree, or None if unreadable."""
+    from wesnoth_ai.core_source import source_hash as of_source
+    return of_source()
+
+
 def _current() -> bool:
     have, want = wheel_phase(), source_phase()
-    return have is not None and want is not None and have >= want
+    built_from = wheel_source_hash()
+    return (have is not None and want is not None and have == want
+            and built_from is not None and built_from == source_hash())
 
 
 # name -> the check. A check that raises counts as failed.
@@ -103,8 +121,12 @@ def banner() -> str:
     parts = [f"wesnoth_core phase {have}", f"source {want}", f"adapter {adapter_phase()}"]
     if not st["GameCore"]:
         parts.append("TOO OLD for the adapter: the simulator cannot run -- REBUILD")
+    elif want is None or have != want:
+        where = ("against an unreadable source" if want is None
+                 else "behind the source" if have < want else "ahead of the source")
+        parts.append(f"{where} -- REBUILD to test the source's Rust")
     elif not st["wheel_current"]:
-        parts.append("behind the source -- REBUILD to test the source's Rust")
+        parts.append("built from another source of this phase -- REBUILD to test the source's Rust")
     else:
         parts.append("current")
     return "kernels | " + " | ".join(parts)
@@ -118,7 +140,8 @@ def main(argv=None) -> int:
     st = kernel_status()
     if args.json:
         print(json.dumps({"checks": st, "wheel_phase": wheel_phase(),
-                          "source_phase": source_phase(), "adapter_phase": adapter_phase()},
+                          "source_phase": source_phase(), "adapter_phase": adapter_phase(),
+                          "wheel_source_hash": wheel_source_hash(), "source_hash": source_hash()},
                          indent=2))
         return 0
     for name, ok in st.items():
