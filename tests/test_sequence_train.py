@@ -379,6 +379,25 @@ def test_a_second_pass_starts_from_the_first(tmp_path, pass_inputs):
 
 
 @pytest.mark.slow
+def test_a_new_pass_may_take_other_streams_and_a_resume_may_not(tmp_path, pass_inputs):
+    """--init-from a checkpoint of other streams starts a new pass on this
+    run's streams, recording the checkpoint's; --resume continues its own
+    pass on its own streams only."""
+    from tools import sequence_train
+    common = _one_position_steps(pass_inputs)
+    first, second = tmp_path / "first.pt", tmp_path / "second.pt"
+    assert sequence_train.main([*common, "--out", str(first), "--max-positions", "2"]) == 0
+    two = list(common)
+    two[two.index("--streams") + 1] = "2"
+    assert sequence_train.main([*two, "--out", str(second), "--init-from", str(first), "--max-positions", "4"]) == 0
+    meta = torch.load(second, map_location="cpu", weights_only=True)["training_meta"]
+    assert meta["streams"] == 2 and meta["init_from"]["streams"] == 1 and meta["init_from"]["path"] == str(first)
+    with pytest.raises(SystemExit, match="streams=2; this run has 1"):
+        sequence_train.main([*common, "--out", str(second), "--resume"])
+    assert sequence_train.main([*two, "--out", str(second), "--resume", "--max-positions", "8"]) == 0
+
+
+@pytest.mark.slow
 def test_a_crash_while_keeping_the_stable_checkpoint_is_repaired_on_resume(tmp_path, pass_inputs, monkeypatch):
     """The stable file is written before the pass records it as kept: a pass
     killed while writing it rewrites it when resumed."""

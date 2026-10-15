@@ -387,8 +387,10 @@ def test_the_gradient_check_passes_the_packed_trunk(tmp_path, pass_inputs):
                   *pass_inputs, *QUIET, "--out", str(tmp_path / "arm.pt"))
     assert done.returncode == 0, done.stderr[-2000:]
     check = json.loads((tmp_path / "check.json").read_text(encoding="utf-8"))
-    assert check["pass"] and len(check["windows"]) == 2
-    cosines = [c for w in check["windows"] for c in w["cosine"].values() if c is not None]
+    (packed,) = check["candidates"]
+    assert check["pass"] and packed["pass"] and packed["candidate"] == "--packed-trunk"
+    assert len(packed["windows"]) == 2
+    cosines = [c for w in packed["windows"] for c in w["cosine"].values() if c is not None]
     assert len(cosines) > 5 and min(cosines) > 0.9999
 
 

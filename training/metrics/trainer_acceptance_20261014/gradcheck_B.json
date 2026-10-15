@@ -1,0 +1,74 @@
+{
+ "pass": true,
+ "reference": "--columns --activation-budget-gb 15.97 --activation-bytes-per-token 150329",
+ "min_cosine": 0.99,
+ "max_loss_rel": 0.005,
+ "candidates": [
+  {
+   "candidate": "--packed-trunk --columns --window-batched --activation-budget-gb 8 --activation-bytes-per-token 102139 --compiled-trunk",
+   "pass": true,
+   "windows": [
+    {
+     "i": 0,
+     "loss_reference": 2.501351833343506,
+     "loss_candidate": 2.5026745796203613,
+     "loss_rel": 0.000529,
+     "cosine": {
+      "actor_head": 0.999949,
+      "belief_head": 0.999997,
+      "encoder": 0.998967,
+      "memory_initial": 0.997164,
+      "memory_slots": 0.996743,
+      "memory_write": 0.995948,
+      "target_proj": 0.999747,
+      "trunk": 0.996188,
+      "type_head": 0.999996,
+      "value_head": 0.999993,
+      "weapon_head": 0.999657
+     },
+     "pass": true
+    },
+    {
+     "i": 1,
+     "loss_reference": 2.8694279193878174,
+     "loss_candidate": 2.8700926303863525,
+     "loss_rel": 0.000232,
+     "cosine": {
+      "actor_head": 0.999925,
+      "belief_head": 0.999084,
+      "encoder": 0.999641,
+      "memory_initial": 0.995094,
+      "memory_slots": 0.998723,
+      "memory_write": 0.998204,
+      "target_proj": 0.999689,
+      "trunk": 0.99757,
+      "type_head": 0.999766,
+      "value_head": 0.999996,
+      "weapon_head": 0.999962
+     },
+     "pass": true
+    },
+    {
+     "i": 2,
+     "loss_reference": 2.2183144092559814,
+     "loss_candidate": 2.2180707454681396,
+     "loss_rel": 0.00011,
+     "cosine": {
+      "actor_head": 0.999956,
+      "belief_head": 0.999986,
+      "encoder": 0.999155,
+      "memory_initial": 0.998316,
+      "memory_slots": 0.999216,
+      "memory_write": 0.999124,
+      "target_proj": 0.999741,
+      "trunk": 0.997459,
+      "type_head": 0.999975,
+      "value_head": 0.999981,
+      "weapon_head": 0.999991
+     },
+     "pass": true
+    }
+   ]
+  }
+ ]
+}
