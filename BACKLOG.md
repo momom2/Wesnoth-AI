@@ -131,6 +131,16 @@ $1.47 in all):
 - A source hash in the Rust wheel, checked by kernel_status: a phase
   number cannot see an API change made within a phase.
 - Then the self-play training plan, the critical path.
+- For the training plan's design (user, 2026-10-15): a curvature-aware
+  optimizer as a candidate measurement. The 2014 saddle-free Newton paper
+  (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a
+  step, and our failures were the training signal, not optimization
+  stalls. Its modern descendants might cut the positions a self-play run
+  needs: Shampoo (AlgoPerf winner), Muon (about half AdamW's compute, by its
+  authors' fits) and, in RL, ACKTR's K-FAC natural gradient (2-3x sample
+  efficiency). The cheap test is an imitation pass at equal positions,
+  AdamW against Muon or Shampoo, on held-out loss (about $1). Choose it with
+  the RL algorithm, since a trust region already uses curvature.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic
