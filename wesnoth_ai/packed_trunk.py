@@ -637,12 +637,15 @@ def make_packed_trunk_layers(activation: Callable, eps: float):
     return packed_trunk_layers
 
 
-def _layer_sources(layer: nn.TransformerEncoderLayer, compute_dtype: torch.dtype):
+def _layer_sources(layer: nn.TransformerEncoderLayer, compute_dtype: torch.dtype,
+                   norm_dtype: torch.dtype = torch.float32):
     """(source parameter or None, dtype of the copy, shape of the copy or
-    None for the source's) per entry of LayerWeights."""
+    None for the source's) per entry of LayerWeights: the linears in the
+    compute dtype, the layer norms in `norm_dtype` (the residual stream's:
+    float32, or the compute dtype for a bf16 residual stream)."""
     mha = layer.self_attn
     heads, E = mha.num_heads, mha.embed_dim
-    c, f = compute_dtype, torch.float32
+    c, f = compute_dtype, norm_dtype
     return [
         (mha.in_proj_weight, c, (3, heads, E // heads, E)),
         (mha.in_proj_bias, c, (3, heads, E // heads)),
@@ -669,21 +672,22 @@ class PackedTrunkWeights:
     dtype: torch.dtype
     device: torch.device
     version: int
+    norm_dtype: torch.dtype = torch.float32
 
     @classmethod
     def build(cls, encoder: nn.TransformerEncoder, dtype: torch.dtype, device: torch.device,
-              version: int) -> "PackedTrunkWeights":
+              version: int, norm_dtype: torch.dtype = torch.float32) -> "PackedTrunkWeights":
         def copy(src, dt, shape):
             if src is None:
                 return None
             t = src.detach().to(device=device, dtype=dt, copy=True)
             return nn.Parameter(t.reshape(shape) if shape else t, requires_grad=False)
-        layers = [tuple(copy(*entry) for entry in _layer_sources(layer, dtype))
+        layers = [tuple(copy(*entry) for entry in _layer_sources(layer, dtype, norm_dtype))
                   for layer in encoder.layers]
         final = None if encoder.norm is None else (
-            copy(encoder.norm.weight, torch.float32, None),
-            copy(encoder.norm.bias, torch.float32, None))
-        return cls(layers, final, dtype, device, version)
+            copy(encoder.norm.weight, norm_dtype, None),
+            copy(encoder.norm.bias, norm_dtype, None))
+        return cls(layers, final, dtype, device, version, norm_dtype)
 
     def refresh(self, encoder: nn.TransformerEncoder, version: int) -> None:
         with torch.no_grad():

@@ -41,8 +41,10 @@ from wesnoth_ai.encoder import MAX_FACTIONS, StagedBatch
 from wesnoth_ai.leaf_wire import ALL_FIELDS, MASK_FIELDS, PARITY_FIELDS
 from wesnoth_ai.memory import MemoryBatch
 from wesnoth_ai.model import ActorKind, TokenKind, UnitActionType
+from wesnoth_ai import profile_regions
 from wesnoth_ai.packed_trunk import (FlatLayout, PackedEmbeddedIndex, PackedIndex, PackedLayout,
                                      batch_counts)
+from wesnoth_ai.profile_regions import region
 from wesnoth_ai.server_priors import mask_layout, priors_outputs
 
 log = logging.getLogger(__name__)
@@ -396,12 +398,17 @@ def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
         mi[0] = plan[0]
         mi[1] = plan[1]
         mi[2] = counts
+    if profile_regions.active():
+        lengths = [u + r + h + (sightings[b] if sightings else 0) + (counts[b] if counts else 0) + 2
+                   for b, (u, r, h) in enumerate(sizes)]
+        profile_regions.note_batch(lengths, A_max, H_max, K_max)
     with torch.no_grad():
-        embed_dev = embed_host if not cuda else embed_host.to(dev, non_blocking=True)
+        with region("h2d"):
+            embed_dev = embed_host if not cuda else embed_host.to(dev, non_blocking=True)
+            aux_dev = aux_host if not cuda else aux_host.to(dev, non_blocking=True)
         staged = StagedBatch(views=layout.torch_views(embed_dev), totals=totals,
                              sizes=[tuple(s) for s in sizes], sighting_counts=sightings,
                              their_field=their_field)
-        aux_dev = aux_host if not cuda else aux_host.to(dev, non_blocking=True)
         v = aux.torch_views(aux_dev)
         prebuilt = _packed_index(v, host_views, parsed, sizes, sightings, counts, A_max, H_max, _U_max,
                                  K_max, _total, mem_rows, longest) if packed else None
@@ -415,25 +422,30 @@ def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
                     padded_mem[b, :counts[b]] = model.initial_memory(counts[b]).to(dev)
             states = MemoryBatch(padded=padded_mem, counts=list(counts))
         elif counts is not None:
-            states = memory.gather(v["memory_index"][0], v["memory_index"][2], list(counts))
+            with region("memory_gather"):
+                states = memory.gather(v["memory_index"][0], v["memory_index"][2], list(counts))
         t2 = time.perf_counter()
-        streams = encoder.embed_staged(staged)
-        if bf16:
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                padded = model.forward_embedded(streams, memory=states, index=prebuilt).float32()
-        else:
-            padded = model.forward_embedded(streams, memory=states, index=prebuilt)
+        with region("embed"):
+            streams = encoder.embed_staged(staged)
+        with region("forward"):
+            if bf16:
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    padded = model.forward_embedded(streams, memory=states, index=prebuilt).float32()
+            else:
+                padded = model.forward_embedded(streams, memory=states, index=prebuilt)
         t3 = time.perf_counter()
         names = [n for n in _REPLY_EXTRAS if getattr(padded, n) is not None]
         ride = [getattr(padded, n) for n in names]
         if wire_memory:
             ride.append(padded.memory_padded.float())
         mask_views = {n: v[n] for n in _MASK_NAMES if n in v}
-        out_layout, flat_out = priors_outputs(padded, mask_views, capacity, ride)
-        out_host = torch.empty(out_layout.nbytes, dtype=torch.uint8, pin_memory=cuda)
-        out_host.copy_(flat_out, non_blocking=True)
+        with region("priors"):
+            out_layout, flat_out = priors_outputs(padded, mask_views, capacity, ride)
+            out_host = torch.empty(out_layout.nbytes, dtype=torch.uint8, pin_memory=cuda)
+            out_host.copy_(flat_out, non_blocking=True)
         if plan is not None:
-            memory.scatter(v["memory_index"][1], padded.memory_padded)
+            with region("memory_scatter"):
+                memory.scatter(v["memory_index"][1], padded.memory_padded)
         if timing:
             ev_end.record()
     t4 = time.perf_counter()

@@ -652,7 +652,8 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the server serves the compiled packed layer "
                          "loop (docs/box_specs.md 2026-09-11: the per-batch launch "
                          "overhead is most of a small batch's cost). bf16 numerics differ "
-                         "slightly from the eager loop; the game records carry the switch "
+                         "slightly from the eager loop, so it is for self-play generation, "
+                         "never a strength match; the game records carry the switch "
                          "and an outdir never mixes them.")
     ap.add_argument("--graphed-serve", action="store_true",
                     help="Shared inference: the server replays each priors batch from a "
@@ -669,6 +670,27 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the server keeps each game-side's memory state on "
                          "the device between its decisions (a model with a memory) instead of "
                          "the state crossing the wire both ways at every decision.")
+    ap.add_argument("--bf16-residual", action="store_true",
+                    help="Shared inference: the servers run the packed trunk's residual stream "
+                         "in bf16 (half the trunk's elementwise traffic). It changes the "
+                         "rounding, so it is for self-play generation, never a strength match; "
+                         "the games record it (infer_bf16_residual) and an outdir never mixes "
+                         "it.")
+    ap.add_argument("--fused-relu", action="store_true",
+                    help="Shared inference: the servers run the packed trunk's first "
+                         "feed-forward linear, its bias and the ReLU in one cuBLASLt call. It may "
+                         "change the rounding, so it is for self-play generation, never a "
+                         "strength match; the games record it (infer_fused_relu) and an outdir "
+                         "never mixes it. Not with --compile-packed.")
+    ap.add_argument("--priors-only", action="store_true",
+                    help="Shared inference: the servers compute and send the policy's priors "
+                         "alone (no value, no belief, no optional head): what a raw player "
+                         "reads. The priors are the same bits either way.")
+    ap.add_argument("--inference-profile-batches", type=int, default=0,
+                    help="Shared inference: each server profiles this many production batches "
+                         "under torch.profiler after --inference-profile-after, the summary in "
+                         "its stats under 'profile' (tools/server_profile.py). Not for timing.")
+    ap.add_argument("--inference-profile-after", type=int, default=200)
     ap.add_argument("--inference-servers", type=int, default=1,
                     help="Inference server PROCESSES per distinct checkpoint "
                          "(default 1). The eval path is bound by one server's "
@@ -969,6 +991,13 @@ def main(argv: List[str]) -> int:
                     f"{bool(prev.get(_fld, False))} but this run "
                     f"uses {_want}: numerics differ, refusing to "
                     f"mix. Use a fresh outdir.")
+        for _fld, _want in (("infer_bf16_residual", args.bf16_residual),
+                            ("infer_fused_relu", args.fused_relu)):
+            _want = bool(_want and args.shared_inference)
+            if bool(prev.get(_fld, False)) != _want:
+                raise SystemExit(
+                    f"{f.name} was played with {_fld}={bool(prev.get(_fld, False))} but this run "
+                    f"uses {_want}: numerics differ, refusing to mix. Use a fresh outdir.")
         # Shared-inference forwards are batched (and packed on cuda):
         # different numerics from the per-process single-sample
         # forward. Absent = per-process. The packed-trunk field is
@@ -1064,7 +1093,10 @@ def main(argv: List[str]) -> int:
                         packed_embed=bool(args.packed_embed),
                         compile_packed=bool(args.compile_packed),
                         graphed=bool(args.graphed_serve), rust_stage=bool(args.rust_stage),
-                        server_memory=bool(args.server_memory))
+                        server_memory=bool(args.server_memory), priors_only=bool(args.priors_only),
+                        bf16_residual=bool(args.bf16_residual), fused_relu=bool(args.fused_relu),
+                        profile_batches=int(args.inference_profile_batches),
+                        profile_after=int(args.inference_profile_after))
                     servers[spec].append(handle)
                     log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
                              handle.address, handle.info)
@@ -1240,6 +1272,8 @@ def main(argv: List[str]) -> int:
                             else _effective_precision(args, "infer_bf16")),
              "infer_compile": (bool(args.compile_packed) if servers
                                else _effective_precision(args, "infer_compile")),
+             "infer_bf16_residual": bool(args.bf16_residual and servers),
+             "infer_fused_relu": bool(args.fused_relu and servers),
              "shared_inference": bool(servers),
              "infer_packed_trunk": shared_packed,
              "combat_stream": ("shared" if args.shared_combat_stream

@@ -372,7 +372,9 @@ class GraphedServe:
         check_packed_trunk_supported(model.encoder)
         self.model, self.encoder, self.device, self.caps = model, encoder, device, caps
         self.graphs = bool(graphs) and device.type == "cuda"
-        if extras is None:
+        if extras is None and getattr(model, "infer_priors_only", False):
+            extras = []                     # a priors-only model computes no head output
+        elif extras is None:
             extras = ["value", "value_logits", "cliffness"]
             extras += [n for n, on in (("aux_score", model.has_aux_score),
                                        ("moves_left", model.has_moves_left)) if on]

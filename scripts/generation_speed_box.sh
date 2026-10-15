@@ -1,87 +1,71 @@
 #!/usr/bin/env bash
 # shellcheck source-path=SCRIPTDIR
-# Self-play generation speed on one box, round 4 (branch
-# feature/generation-speed-4): production-configured matches of the
-# reference against itself, timed on one box with the same games: the base
-# code (main), round 3's code at its fastest configuration (the reference
-# arm), then this branch's changes one at a time and together, at 120 and
-# 160 games in flight with the reference arm's mix of six games per worker
-# process, and the graphed server on top of the fastest.
+# Self-play generation speed on one box, round 5 (branch
+# feature/generation-speed-5): the server's device work. Production-
+# configured matches of the reference against itself, timed on one box with
+# the same games: the base code (main), round 4's fastest configuration on
+# this branch (the reference arm), then this branch's device levers one at a
+# time and together, at 120 and 160 games in flight with six games per
+# worker process, and the server's device work profiled.
 #
-# Three code stages: STAGE, this branch's (tools/stage_code.py --script
-# scripts/generation_speed_box.sh); BASE_STAGE, main as the lead staged it;
-# REF_STAGE, round 3's branch at its tip (feature/generation-speed-3,
-# f71e13b), each staged from a checkout with tools/stage_code.py --out ...
-# --upload tier-b/staging/<name>.tar.gz. The base and reference stages are
-# unpacked beside this one and their match drivers run from there; all use
-# this stage's Rust wheel (phase 34: main's and round 3's adapters take any
-# phase from their own, 32 and 33; phase 34 adds classes and changes no
-# call they make).
+# Two code stages: STAGE, this branch's (tools/stage_code.py --script
+# scripts/generation_speed_box.sh), and BASE_STAGE, main as the lead staged
+# it (tools/stage_code.py --out ... --upload tier-b/staging/<name>.tar.gz),
+# unpacked beside this one, its match driver run from there on this stage's
+# Rust wheel (phase 34; no Rust change this round).
 #
-# What this branch changes (each tested to leave every game's actions as
-# they were: tests/test_generation_identity.py, tests/test_serve_stage.py,
-# tests/test_view_cache.py), with its switch on run_elo_batch:
-#   rust:   the server's host work per batch in Rust (tools/serve_stage.py):
-#           the requests parsed in place, the staging buffers, the packed
-#           index, the masks and the replies written by the core
-#           (--rust-stage / --no-rust-stage);
-#   memory: each game-side's memory state kept on the server's GPU between
-#           its decisions instead of crossing the wire both ways
-#           (--server-memory / --no-server-memory);
-#   view:   the worker's simulator refreshes its view where a command changed
-#           it (--view-refresh incremental / full);
-#   always: a worker's light encoding builds no tensor (no switch; the "off"
-#           arm, every switch off on this branch, measures it against the
-#           reference arm).
-# The graphed server stages from the Rust core too, and with the memory kept
-# on the server its graphs read and write the states on the device.
+# Round 4 on this box type (training/metrics/generation_speed_r4_20261014/):
+# all_p120x6 1,612 decisions a second, the server's device busy 0.78 of its
+# wall, so the GPU is the bound; about 0.48 ms of device time a decision.
+# The levers, each with its switch on run_elo_batch:
+#   priors:  --priors-only, the servers compute the policy's priors alone (no
+#            value head, no belief head): the same priors, the same games;
+#   compile: --compile-packed, the trunk's layer loop compiled by inductor
+#            (its elementwise work fused): a rounding change;
+#   bf16res: --bf16-residual, the trunk's residual stream in bf16 (half its
+#            elementwise traffic, no casts between the layers): a rounding
+#            change.
+# A rounding change plays other games (2026-09-11: the compiled loop made
+# games 25% longer on relset), so every arm records its decisions per game;
+# the games record both switches (infer_compile, infer_bf16_residual), which
+# are for self-play generation only, never a strength match.
 #
-# Every arm is round 2's generation match (training/metrics/
-# memory_own_round2_20261011/: own1 against itself at 64 slots, the
-# reference decode of configs/reference_player.json, bf16, the packed trunk
-# and embed, game records on, --persistent-workers --shared-inference
-# --device cuda) from SEED_BASE with no replacements: GAMES slots, or
-# GAMES_PER_JOB per game in flight when that is more, so a deep arm is not
-# mostly its tail; every arm plays the same first GAMES games (up to bf16
-# near-tie flips: batch composition differs from run to run). The arms, in
-# this order:
+# The arms, in this order (pJxG: J games in flight, G per worker process):
 #   base_1: main, 20 in flight, one game per worker process;
-#   ref_p120x6: round 3's code, 120 in flight, six games per worker;
-#   off_p120x6, rust_p120x6, memory_p120x6, view_p120x6, all_p120x6: this
-#     branch, every switch off, each change alone, all of them;
+#   ref_p120x6: this branch at round 4's fastest configuration (the Rust
+#     stage, the memory kept on the server, the incremental view);
+#   profile_ref: the reference arm with PROFILE_BATCHES of its server's
+#     batches under torch.profiler after PROFILE_AFTER (tools/
+#     server_profile.py: the device time by kernel class and by region, the
+#     heaviest kernels, the trunk's achieved TFLOP/s); not a timing arm;
+#   priors_p120x6, compile_p120x6, bf16res_p120x6, compile_bf16res_p120x6;
 #   base_2;
-#   rust_p160x6, memory_p160x6, view_p160x6, all_p160x6: 160 in flight;
-#   the graphed check (tools/graphed_check.py, graphed_check.json, a crash
-#     barrier): the server's preflight at GRAPHED_MAX_BATCH, then the
-#     graphed server against the eager one on own1 and this GPU; anything
-#     but a pass leaves the graphed arm out;
-#   graphed_best: the fastest of this branch's arms, with --graphed-serve;
-#   base_3: main again, after every other arm;
-#   best_repeat: the fastest arm of this branch (graphed_best included) with
-#     no failed game, again.
+#   ref_p160x6, compile_p160x6, bf16res_p160x6;
+#   profile_best: the fastest timing arm, profiled;
+#   base_3;
+#   best_repeat: the fastest timing arm with no failed game, again.
 # The session is valid when the three base runs lie within VALID_SPREAD of
 # their mean on the server's decisions per second (requests over the
 # server's wall); the base runs before, between and after, and the best arm
-# and its repeat, bracket the drift. Every arm records its failed games (the
-# driver's failed_*.json records); an arm with one is a failed arm in
-# speed.json and in arms_failed.txt, and the run goes on. Per arm the
-# records keep the match's wall and games, each server's stats (requests,
-# batches, mean batch, idle, window, read, infer and reply seconds, the
-# device span, the host seconds by stage, failed batches and requests, the
-# memory states kept and released, the graphed summary) and the workers'
-# decision stages (.worker_stages.json). speed.json is rewritten after
-# every arm (the arms so far: games per hour, the servers' decisions per
-# second and infer ms per batch, host ms per batch by stage, each arm
-# against the base runs' mean and against the reference arm), so a record
-# that does not reach HF at the end loses no arm. Game walls alone cannot
-# resolve small wins on a shared host (identical repeats have differed
-# 1.6-1.8x); the server counters and the stage times are the primary
-# readings.
+# and its repeat, bracket the drift. Each arm fails alone: a match that
+# crashes or loses a game is a failed arm (arms_failed.txt, speed.json) and
+# the next arm runs. Per arm the records keep the match's wall and games,
+# each server's stats (requests, batches, mean batch, idle, window, read,
+# infer and reply seconds, the device span, the host seconds by stage,
+# failed batches and requests, the memory states kept and released, the
+# profile) and the workers' decision stages (.worker_stages.json).
+# speed.json is rewritten after every arm: games per hour, the servers'
+# decisions per second, decisions per game, infer and device ms per batch,
+# host ms per batch by stage, the profile, each arm against the base runs'
+# mean and against the reference arm. Game walls alone cannot resolve small
+# wins on a shared host (identical repeats have differed 1.6-1.8x); the
+# server counters and the stage times are the primary readings.
 #
-# Expected wall on a 4090 with 31-32 usable cores (round 3's walls): bring-up,
-# wheel and tests 15-20 minutes, the graphed check 5, the three base arms 6
-# to 7 minutes each, the twelve deep arms 3 to 5 each (600 or 800 games
-# each), the repeat 4: about 1.8 hours, $0.75-1.10 at $0.42-0.60 an hour.
+# Expected wall on a 4090 with 31-32 usable cores (round 4's walls):
+# bring-up, wheel and tests 20-25 minutes (the CUDA tests compile the loop),
+# the three base arms 6 to 7 minutes each, the twelve other arms 3 to 6 each
+# (600 or 800 games each; a compiled arm's server compiles for about a
+# minute first): about 1.8 hours, $0.75-1.10 at $0.42-0.60 an hour.
 # BOX_MAX_H 3 caps it at $1.30-1.80 plus the final round.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md). No
@@ -95,13 +79,13 @@ set -uo pipefail
 WORKDIR=/workspace
 STAGE="${STAGE:-}"
 BASE_STAGE="${BASE_STAGE:-}"
-REF_STAGE="${REF_STAGE:-}"
-HF_DIR="${HF_DIR:-tier-b/generation_speed_r4}"
+HF_DIR="${HF_DIR:-tier-b/generation_speed_r5}"
 export HF_DIR
 BOX_MAX_H="${BOX_MAX_H:-3}"
 GAMES="${GAMES:-400}"
 GAMES_PER_JOB="${GAMES_PER_JOB:-5}"
-GRAPHED_MAX_BATCH="${GRAPHED_MAX_BATCH:-160}"  # the graphed arm's largest server batch
+PROFILE_BATCHES="${PROFILE_BATCHES:-40}"       # a profiled arm's batches under torch.profiler
+PROFILE_AFTER="${PROFILE_AFTER:-400}"           # the batches each profiled server serves first
 # No committed result carries a seed from 130000 to 130999 but the
 # generation speed runs', which play the same games.
 SEED_BASE="${SEED_BASE:-130000}"
@@ -115,34 +99,33 @@ BOX_OUT=$OUT
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
 
 BASE_REPO=$WORKDIR/base_repo
-REF_REPO=$WORKDIR/ref_repo
 # ---- the arm list (begin): tests/test_generation_speed_box.py reads it
-# This branch's switches: every one off, then each alone, then all (the defaults).
-OFF="--no-rust-stage --no-server-memory --view-refresh full"
-RUST="--rust-stage --no-server-memory --view-refresh full"
-MEMORY="--no-rust-stage --server-memory --view-refresh full"
-VIEW="--no-rust-stage --no-server-memory --view-refresh incremental"
-ALL="--rust-stage --server-memory --view-refresh incremental"
-# The deep arms: name, games in flight, then flags. Their memory floor is
-# 300 MB a game in flight (the driver's default, 700, asks 112 GB at 160).
+# This branch's device levers (the reference arm runs none of them).
+PRIORS="--priors-only"
+COMPILE="--compile-packed"
+BF16RES="--bf16-residual"
+PROFILE="--inference-profile-batches $PROFILE_BATCHES --inference-profile-after $PROFILE_AFTER"
+# The arms of this branch: name, games in flight, then flags. Their memory
+# floor is 300 MB a game in flight (the driver's default, 700, asks 112 GB
+# at 160).
 DEEP_120=(
-    "off_p120x6 120 $OFF"
-    "rust_p120x6 120 $RUST"
-    "memory_p120x6 120 $MEMORY"
-    "view_p120x6 120 $VIEW"
-    "all_p120x6 120 $ALL"
+    "ref_p120x6 120"
+    "profile_ref 120 $PROFILE"
+    "priors_p120x6 120 $PRIORS"
+    "compile_p120x6 120 $COMPILE"
+    "bf16res_p120x6 120 $BF16RES"
+    "compile_bf16res_p120x6 120 $COMPILE $BF16RES"
 )
 DEEP_160=(
-    "rust_p160x6 160 $RUST"
-    "memory_p160x6 160 $MEMORY"
-    "view_p160x6 160 $VIEW"
-    "all_p160x6 160 $ALL"
+    "ref_p160x6 160"
+    "compile_p160x6 160 $COMPILE"
+    "bf16res_p160x6 160 $BF16RES"
 )
-ARMS="base_1 ref_p120x6"
+ARMS="base_1"
 for spec in "${DEEP_120[@]}"; do ARMS="$ARMS ${spec%% *}"; done
 ARMS="$ARMS base_2"
 for spec in "${DEEP_160[@]}"; do ARMS="$ARMS ${spec%% *}"; done
-ARMS="$ARMS graphed_best base_3 best_repeat"
+ARMS="$ARMS profile_best base_3 best_repeat"
 # ---- the arm list (end)
 
 # shellcheck disable=SC2317 # called through box_notes, by the library
@@ -159,12 +142,11 @@ box_notes() { notes; }
 box_init
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
 [ -n "$BASE_STAGE" ] || box_finish "NO_BASE_STAGE: stage main's commit and pass BASE_STAGE" 1
-[ -n "$REF_STAGE" ] || box_finish "NO_REF_STAGE: stage feature/generation-speed-3's tip and pass REF_STAGE" 1
 box_bind_run_stage
-box_restore speed.json graphed_check.json tests.log || box_finish "RESTORE_FAILED (restore.log)" 1
+box_restore speed.json tests.log || box_finish "RESTORE_FAILED (restore.log)" 1
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
-# ---- the code, the base and reference codes and the Rust wheel
+# ---- the code, the base code and the Rust wheel
 box_stage_code || box_finish "CODE_STAGING_FAILED (staging.log)" 1
 cd "$BOX_REPO" || box_finish "CODE_STAGING_FAILED (no $BOX_REPO)" 1
 box_build_wheel || box_finish "BUILD_FAILED (build.log)" 1
@@ -180,7 +162,6 @@ fetch_stage() {                  # fetch_stage NAME STAGE DIR: another code stag
     [ -f "$dir/tools/run_elo_batch.py" ] || box_finish "${name^^}_STAGING_FAILED (no match driver in $stage)" 1
 }
 fetch_stage base "$BASE_STAGE" "$BASE_REPO"
-fetch_stage ref "$REF_STAGE" "$REF_REPO"
 box_facts > "$OUT/box.txt.tmp" 2>&1
 mv -f "$OUT/box.txt.tmp" "$OUT/box.txt"
 timeout 2m python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available() else 1)" \
@@ -191,7 +172,8 @@ box_upload
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests.log"
     box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_generation_identity.py \
-        tests/test_serve_stage.py tests/test_view_cache.py tests/test_graphed_serve.py tests/test_core_masks.py \
+        tests/test_serve_stage.py tests/test_server_profile.py tests/test_packed_compile.py \
+        tests/test_view_cache.py tests/test_graphed_serve.py tests/test_core_masks.py \
         tests/test_core_view.py tests/test_decision_state.py tests/test_eval_workers.py \
         tests/test_eval_inference_server.py tests/test_stage_timing.py tests/test_match_memory.py \
         tests/test_server_priors.py tests/test_game_core.py tests/test_memory_model.py \
@@ -200,10 +182,12 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
     : > "$OUT/cuda_tests.log"
-    box_bounded cuda-tests 15 cuda_tests.log python -m pytest tests/test_server_priors_cuda.py \
+    box_bounded cuda-tests 25 cuda_tests.log python -m pytest tests/test_server_priors_cuda.py \
+        tests/test_packed_compile_cuda.py \
         tests/test_match_memory.py::test_the_served_memory_batch_is_the_slot_memorys_padding \
         "tests/test_serve_stage.py::test_on_cuda_the_rust_stage_answers_as_the_python_path" \
         "tests/test_serve_stage.py::test_on_cuda_the_kept_memory_plays_as_the_wire" \
+        "tests/test_serve_stage.py::test_on_cuda_priors_only_serves_the_same_priors" \
         -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/cuda_tests.log"
     box_mark "$BOX_STATE/TESTED"
@@ -264,7 +248,11 @@ def servers_row(servers):
             "memory_states": [s.get("memory_states") for s in servers],
             "failed_batches": int(total("failed_batches")),
             "failed_requests": int(total("failed_requests")), "fatal": [s.get("fatal") for s in servers if s.get("fatal")],
-            "graphed_serve": [s.get("graphed_serve") for s in servers]}
+            "graphed_serve": [s.get("graphed_serve") for s in servers],
+            "priors_only": [s.get("priors_only") for s in servers],
+            "compile_packed": [s.get("compile_packed") for s in servers],
+            "bf16_residual": [s.get("bf16_residual") for s in servers],
+            "profile": [s.get("profile") for s in servers if s.get("profile")]}
 
 
 arms = {}
@@ -281,6 +269,8 @@ for p in sorted(out.glob("arm_*.json")):
         s = servers_row(servers)
         row["server"] = s
         row["decisions_per_s"] = round(s["requests"] / s["wall_s"], 2) if s["wall_s"] else None
+        # A rounding change plays other games: their length shows here.
+        row["decisions_per_game"] = round(s["requests"] / a["games"], 1) if a["games"] else None
         row["infer_ms_per_batch"] = round(1e3 * s["infer_s"] / s["batches"], 3) if s["batches"] else None
         row["device_ms_per_batch"] = round(s["gpu_ms"] / s["batches"], 3) if s["batches"] else None
         row["host_ms_per_batch"] = {k: round(1e3 * v / s["batches"], 3) for k, v in s["stage_s"].items()} \
@@ -321,9 +311,11 @@ summary = {
     "failed_arms": sorted(n for n, r in arms.items() if r["failed"]),
     "against_base": {n: {k: round(r[k] / base_rate[k], 4) for k in base_rate if r.get(k)}
                      for n, r in arms.items()},
-    "against_ref": {n: {k: ratio(n, "ref_p120x6", k) for k in ("decisions_per_s", "games_per_hour",
-                                                               "infer_ms_per_batch")}
-                    for n in arms if not n.startswith("base")},
+    "against_ref": {n: {k: ratio(n, "ref_p160x6" if r["jobs"] == 160 else "ref_p120x6", k)
+                        for k in ("decisions_per_s", "games_per_hour", "infer_ms_per_batch",
+                                  "device_ms_per_batch", "decisions_per_game")}
+                    for n, r in arms.items() if not n.startswith("base")},
+    "profiles": {n: r["server"]["profile"] for n, r in arms.items() if (r.get("server") or {}).get("profile")},
 }
 tmp = out / "speed.json.tmp"
 tmp.write_text(json.dumps(summary, indent=1), encoding="utf-8")
@@ -377,10 +369,10 @@ arm() {                          # arm NAME REPO JOBS FLAGS...: one match, once;
         return 1
     fi
 }
-fastest() {                      # fastest [INCLUDE_GRAPHED]: "NAME JOBS FLAGS" of this branch's fastest arm with no failure
-    timeout 1m python - "$OUT" "${1:-0}" <<'EOF'
+fastest() {                      # fastest: "NAME JOBS FLAGS" of this branch's fastest timing arm with no failure
+    timeout 1m python - "$OUT" <<'EOF'
 import json, pathlib, sys
-out, graphed = pathlib.Path(sys.argv[1]), sys.argv[2] == "1"
+out = pathlib.Path(sys.argv[1])
 best = None
 for p in sorted(out.glob("arm_*.json")):
     if p.name.count(".") > 1:
@@ -388,7 +380,7 @@ for p in sorted(out.glob("arm_*.json")):
     a = json.loads(p.read_text(encoding="utf-8"))
     name = a["arm"]
     servers = [json.loads(s.read_text(encoding="utf-8")) for s in sorted(out.glob(f"arm_{name}.inference_server_*.json"))]
-    if (name.startswith(("base", "ref")) or name == "best_repeat" or (name == "graphed_best" and not graphed)
+    if (name.startswith(("base", "profile")) or name == "best_repeat"
             or a["failed_games"] or a["rc"] not in (0, 3, 4) or not servers
             or any(s.get("failed_requests") or s.get("fatal") for s in servers)):
         continue
@@ -402,7 +394,6 @@ EOF
 }
 summarize
 arm base_1 "$BASE_REPO" 20 || echo "the first base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
-arm ref_p120x6 "$REF_REPO" 120 --worker-games 6 --min-free-mb 300 || true
 for spec in "${DEEP_120[@]}"; do
     read -r name jobs flags <<< "$spec"
     # shellcheck disable=SC2086 # flags is a list of flags
@@ -414,38 +405,17 @@ for spec in "${DEEP_160[@]}"; do
     # shellcheck disable=SC2086 # flags is a list of flags
     arm "$name" "$BOX_REPO" "$jobs" --worker-games 6 --min-free-mb 300 $flags || true
 done
-
-# ---- the graphed server against the eager one on own1 and this GPU, at the graphed arm's largest batch (a crash barrier)
-if [ ! -f "$OUT/graphed_check.json" ]; then
-    rm -f "$OUT/graphed_check.json.pending"
-    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the graphed check: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-    box_bounded graphed-check 25 graphed_check.log python tools/graphed_check.py --checkpoint "$REF_PT" \
-        --device cuda --max-batch "$GRAPHED_MAX_BATCH" --batch-sizes "1,4,9,16,20,32,40,60,80,$GRAPHED_MAX_BATCH" \
-        --out "$OUT/graphed_check.json.pending"
-    case $BOX_RC in
-        0|8) mv -f "$OUT/graphed_check.json.pending" "$OUT/graphed_check.json" ;;
-        *) printf '{"pass": false, "rc": %d, "why": "%s", "log": "graphed_check.log"}\n' "$BOX_RC" "$BOX_WHY" \
-               > "$OUT/graphed_check.json" ;;
-    esac
-    box_upload
-fi
-GRAPHED_OK=$(timeout 1m python -c "import json, sys; print(int(json.load(open(sys.argv[1]))['pass']))" \
-    "$OUT/graphed_check.json" 2>/dev/null)
-BEST=$(fastest 0)
-if [ "$GRAPHED_OK" != 1 ]; then
-    echo "arm graphed_best left out: the graphed check did not pass (graphed_check.json)" | tee -a "$OUT/arms_failed.txt"
-elif [ -z "$BEST" ]; then
-    echo "arm graphed_best left out: no arm of this branch passed" | tee -a "$OUT/arms_failed.txt"
-else
-    read -r _ BEST_JOBS BEST_FLAGS <<< "$BEST"
-    # shellcheck disable=SC2086 # BEST_FLAGS is a list of flags
-    arm graphed_best "$BOX_REPO" "$BEST_JOBS" $BEST_FLAGS --graphed-serve || true
-fi
-arm base_3 "$BASE_REPO" 20 || echo "the last base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
-# The fastest arm of this branch with no failed game, again.
-BEST=$(fastest 1)
+# The fastest timing arm, profiled, then (after the last base run) again.
+BEST=$(fastest)
 if [ -n "$BEST" ]; then
     read -r BEST_ARM BEST_JOBS BEST_FLAGS <<< "$BEST"
+    # shellcheck disable=SC2086 # BEST_FLAGS is a list of flags
+    arm profile_best "$BOX_REPO" "$BEST_JOBS" $BEST_FLAGS $PROFILE || true
+else
+    echo "arm profile_best left out: no arm of this branch passed" | tee -a "$OUT/arms_failed.txt"
+fi
+arm base_3 "$BASE_REPO" 20 || echo "the last base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
+if [ -n "$BEST" ]; then
     echo "$BEST_ARM" > "$OUT/best.txt"
     # shellcheck disable=SC2086 # BEST_FLAGS is a list of flags
     arm best_repeat "$BOX_REPO" "$BEST_JOBS" $BEST_FLAGS \

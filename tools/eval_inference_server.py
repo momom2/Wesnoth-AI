@@ -301,7 +301,9 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             packed_embed: bool = True,
                             compile_packed: bool = False,
                             graphed: bool = False, rust_stage: bool = True,
-                            server_memory: bool = True) -> InferenceServerHandle:
+                            server_memory: bool = True, priors_only: bool = False,
+                            profile_batches: int = 0, profile_after: int = 0,
+                            bf16_residual: bool = False, fused_relu: bool = False) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -321,6 +323,14 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
         cmd.append("--graphed")
     cmd.append("--rust-stage" if rust_stage else "--no-rust-stage")
     cmd.append("--server-memory" if server_memory else "--no-server-memory")
+    if priors_only:
+        cmd.append("--priors-only")
+    if bf16_residual:
+        cmd.append("--bf16-residual")
+    if fused_relu:
+        cmd.append("--fused-relu")
+    if profile_batches:
+        cmd += ["--profile-batches", str(profile_batches), "--profile-after", str(profile_after)]
     log_path = outdir / f".inference_server_{tag}.log"
     errf = open(log_path, "w+b")
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -468,7 +478,9 @@ def _model_infer_fn(server, *, rust_stage: bool = True, memory=None) -> Callable
 
 def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, bf16: bool,
                  packed: bool, packed_embed: bool, compiled: bool, graphed: bool,
-                 rust_stage: bool = True, server_memory: bool = False) -> Dict:
+                 rust_stage: bool = True, server_memory: bool = False,
+                 priors_only: bool = False, bf16_residual: bool = False,
+                 fused_relu: bool = False) -> Dict:
     """What a server tells each connection: the checkpoint it serves, its
     precision path, the structure a worker's encoder must build and the
     vocab."""
@@ -476,10 +488,17 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
         "device": device, "infer_bf16": bf16,
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
+        # The packed trunk's residual stream in bf16 and its fused ReLU
+        # (model.infer_bf16_residual, infer_fused_relu): numerics paths of
+        # their own, recorded by every game.
+        "bf16_residual": bool(bf16_residual), "fused_relu": bool(fused_relu),
         "graphed": graphed,
         # The host work in Rust (tools/serve_stage.py), and whether the
         # server keeps each game-side's memory state between decisions.
         "rust_stage": bool(rust_stage), "server_memory": bool(server_memory),
+        # The replies carry the policy's priors alone: no value, no head
+        # output beside them (model.infer_priors_only).
+        "priors_only": bool(priors_only),
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),
@@ -524,6 +543,28 @@ def main(argv: List[str]) -> int:
                     help="Keep each game-side's memory state on the device between its "
                          "decisions (a model with a memory only); off, the states cross the "
                          "wire both ways at every decision.")
+    ap.add_argument("--bf16-residual", action="store_true",
+                    help="The packed trunk's residual stream in bf16 (model.infer_bf16_residual): "
+                         "about half the trunk's elementwise traffic, a rounding change, so for "
+                         "self-play generation only; the games record it. With the packed trunk "
+                         "(cuda + bf16) only.")
+    ap.add_argument("--fused-relu", action="store_true",
+                    help="The packed trunk's first feed-forward linear, its bias and the ReLU in one "
+                         "cuBLASLt call (model.infer_fused_relu): the ReLU's pass over the "
+                         "feed-forward rows gone. cuBLASLt may take another algorithm for that "
+                         "epilogue, so for self-play generation only; the games record it. With "
+                         "the packed trunk (cuda + bf16) only, not with --compile-packed (the "
+                         "compiled loop fuses the ReLU itself).")
+    ap.add_argument("--priors-only", action="store_true",
+                    help="Compute and send the policy's priors alone: no value head, no belief "
+                         "head, no optional head (a raw player at self-play generation reads "
+                         "none of them). The priors are the same bits either way.")
+    ap.add_argument("--profile-batches", type=int, default=0,
+                    help="Profile this many production batches under torch.profiler "
+                         "(tools/server_profile.py) and put the summary in the stats under "
+                         "'profile'; the profiled batches run slower.")
+    ap.add_argument("--profile-after", type=int, default=200,
+                    help="The batches served before the profile starts.")
     ap.add_argument("--window-ms", type=float, default=DEFAULT_WINDOW_MS)
     ap.add_argument("--max-batch", type=int, default=16, help="leaves per forward")
     ap.add_argument("--torch-threads", type=int, default=4)
@@ -555,11 +596,28 @@ def main(argv: List[str]) -> int:
                           infer_compile=False)
     model = policy._inference_model
     encoder = policy._inference_encoder
+    model.infer_priors_only = bool(args.priors_only)
     packed = False
     if args.packed_trunk and cuda and bf16 and flash_varlen_applies(device, torch.bfloat16):
         check_packed_trunk_supported(model.encoder)
         model.infer_packed_trunk = True
         packed = True
+    if args.graphed and (args.bf16_residual or args.fused_relu):
+        raise SystemExit("--graphed runs its own layer loop (the float32 stream, the plain ReLU): "
+                         "not with --bf16-residual or --fused-relu")
+    if args.graphed and args.compile_packed:
+        raise SystemExit("--graphed replays its own uncompiled layer loop; with --compile-packed "
+                         "only the eager fallback batches would run compiled")
+    if args.fused_relu and args.compile_packed:
+        raise SystemExit("--fused-relu is an eager call; --compile-packed fuses the ReLU itself")
+    bf16_residual = fused_relu = False
+    if args.bf16_residual or args.fused_relu:
+        if not packed:
+            log.warning("--bf16-residual and --fused-relu need the packed trunk (cuda + bf16); "
+                        "serving the float32 stream and the plain ReLU")
+        else:
+            model.infer_bf16_residual = bf16_residual = bool(args.bf16_residual)
+            model.infer_fused_relu = fused_relu = bool(args.fused_relu)
     compiled = False
     if args.compile_packed:
         if not packed:
@@ -606,9 +664,21 @@ def main(argv: List[str]) -> int:
     hello = server_hello(spec, checkpoint_sha256, encoder, model, device=device.type, bf16=bf16,
                          packed=packed, packed_embed=packed_embed, compiled=compiled,
                          graphed=graphed is not None and graphed.disabled is None,
-                         rust_stage=rust_stage, server_memory=memory is not None)
+                         rust_stage=rust_stage, server_memory=memory is not None,
+                         priors_only=bool(args.priors_only), bf16_residual=bf16_residual,
+                         fused_relu=fused_relu)
     listener = Listener()
-    service = InferenceService(listener, _model_infer_fn(server, rust_stage=rust_stage, memory=memory),
+    infer_fn = _model_infer_fn(server, rust_stage=rust_stage, memory=memory)
+    profiler = None
+    if args.profile_batches > 0:
+        from tools.server_profile import BatchProfiler
+        layer = model.encoder.layers[0]
+        profiler = infer_fn = BatchProfiler(
+            infer_fn, after=args.profile_after, batches=args.profile_batches,
+            workdir=args.stats_out.parent if args.stats_out is not None else Path("."), device=device,
+            dims={"d_model": int(model.d_model), "num_layers": len(model.encoder.layers),
+                  "d_ff": int(layer.linear1.out_features)})
+    service = InferenceService(listener, infer_fn,
                                hello, window_s=args.window_ms / 1000.0, max_batch=args.max_batch,
                                health_fn=_device_health_fn(device),
                                release_fn=None if memory is None else memory.release_connection)
@@ -627,6 +697,8 @@ def main(argv: List[str]) -> int:
     stats = dict(info, **service.stats.as_dict(), fatal=fatal)
     if memory is not None:
         stats["memory_states"] = memory.summary()
+    if profiler is not None:
+        stats["profile"] = profiler.summary()
     if graphed is not None:
         stats["graphed_serve"] = graphed.summary()
         log.info("graphed serve: %s", stats["graphed_serve"])
