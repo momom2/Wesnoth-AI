@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from wesnoth_ai import unpickle  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.paths import IMITATION_DATASET_DIR  # noqa: E402
+from wesnoth_ai.rules_version import rules_version_of  # noqa: E402
 from wesnoth_ai.sequence_records import GameSequence, SequencePosition  # noqa: E402,F401
 
 log = logging.getLogger("preencode_sequences")
@@ -61,15 +62,17 @@ ENCODING = {"relevant_set": True, "fog_hides_enemy_villages": True, "terrain_mul
 
 
 def encoding_fingerprint(type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                         corpus_version: int, core_phase: int) -> str:
+                         corpus_version: int, rules_version: int) -> str:
     """Everything the records depend on: the vocabularies, the encoding's
     switches, the observation epoch, the corpus's version (its labels and
-    cuts) and the Rust core's phase (the rules that built each position)."""
+    cuts) and the rules version of the Rust core that built each position
+    (wesnoth_ai/rules_version.py), which phases that build positions alike
+    share."""
     h = hashlib.sha1()
     h.update(json.dumps(sorted(type_to_id.items())).encode("utf-8"))
     h.update(json.dumps(sorted(faction_to_id.items())).encode("utf-8"))
     h.update(json.dumps(sorted(ENCODING.items())).encode("utf-8"))
-    h.update(b"|obs=%d|corpus=%d|core=%d" % (int(OBSERVATION_EPOCH), int(corpus_version), int(core_phase)))
+    h.update(b"|obs=%d|corpus=%d|rules=%d" % (int(OBSERVATION_EPOCH), int(corpus_version), int(rules_version)))
     return h.hexdigest()
 
 
@@ -232,7 +235,7 @@ def main(argv=None) -> int:
         type_to_id, faction_to_id = fresh_vocab()
     corpus = corpus_version_of(args.dataset)
     phase = int(wesnoth_core.__phase__)
-    fp = encoding_fingerprint(type_to_id, faction_to_id, corpus, phase)
+    fp = encoding_fingerprint(type_to_id, faction_to_id, corpus, rules_version_of(phase))
     args.out.mkdir(parents=True, exist_ok=True)
     existing = load_manifest(args.out) or {}
     if existing and existing.get("fingerprint") != fp:

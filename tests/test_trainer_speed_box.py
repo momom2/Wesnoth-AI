@@ -1,10 +1,12 @@
 """scripts/trainer_speed_box.sh's arms, run by bash with the box library
-stubbed (no box, GPU or HF): the base-against-this arms come first and a
-failure after them costs only what depends on it. A gradient check that
-crashes leaves the window-batched arms out, an arm that fails after writing
-its total keeps its timed windows, every arm runs the first round's fastest
-flags, the preload arm takes the fastest flag arm's flags, and a last arm
-of this stage's defaults brackets the flag arms."""
+stubbed (no box, GPU or HF): the gradient check reads each candidate against
+main's fastest flags in a process of its own, a candidate that fails it (or
+whose check does not finish) is left out of the timing while the others are
+timed, the timing interleaves ref, the passing candidates and ref2, a timing
+that fails after writing rows is summarized from them and one that writes
+none leaves the sweep running; CANDIDATES picks the candidates; the streams
+sweep times each count of SWEEP_STREAMS with half its streams own, outside
+production's arguments, and is skipped when the list is empty."""
 from __future__ import annotations
 
 import json
@@ -22,9 +24,9 @@ BASH = find_bash()
 pytestmark = pytest.mark.skipif(BASH is None, reason="no POSIX bash")
 
 # The library's functions the block calls, and box_bounded answering for
-# the steps: STUB_<step> = crash (exit 1 before any record) or late (exit 1
-# after the run's total row); RATE_<step>: the positions a second an arm's
-# records give (default 204.8).
+# the steps (a candidate's check is the step "gradcheck NAME"): STUB_<step> =
+# crash (exit 1, nothing written) or late (exit 1 after the rows);
+# FAIL_CANDIDATES: the candidates the gradient check fails.
 STUBS = r"""
 box_marked_this_stage() { [ -f "$1" ]; }
 box_mark() { mkdir -p "$(dirname "$1")" && echo "stage=$STAGE" > "$1"; }
@@ -32,39 +34,59 @@ box_upload() { :; }
 box_gpu_ok() { :; }
 box_finish() { printf '%s\n' "$1" > "$OUT/FINISH"; exit "${2:-0}"; }
 notes() { echo notes; }
-out_arg() {                      # the first --out of a command line
-    while [ "$#" -gt 0 ]; do
-        [ "$1" = --out ] && { echo "$2"; return; }
-        shift
-    done
-}
-arm_records() {                  # arm_records FILE RATE: a run's records as tools/bench_sequence_step.py writes them
-    {
-        echo '{"kind": "config"}'
-        for i in 0 1; do
-            echo "{\"kind\": \"window\", \"i\": $i, \"seconds\": 2.5, \"positions\": 512, \"peak_gb\": 12.0, \"kept_steps\": 2, \"kept_tokens\": 40000, \"kept_gb\": 0.5, \"gc_seconds\": 0.01}"
-        done
-        echo "{\"kind\": \"total\", \"windows\": 2, \"positions\": 1024, \"seconds\": 5.0, \"positions_per_second\": $2}"
-    } > "$1"
-}
 box_bounded() {                  # box_bounded NAME CUT_MIN LOG CMD...
-    local name=$1 log=$3 key rate out
+    local name=$1 key
     shift 3
     echo "$name $*" >> "$OUT/steps.txt"
     key=STUB_${name// /_}
-    rate=RATE_${name// /_}
-    out=$(out_arg "$@")
+    key=${key//-/_}
     BOX_RC=0 BOX_WHY=ok
-    case $name in
-        arm\ *) [ "${!key:-}" = crash ] || arm_records "$out" "${!rate:-204.8}" ;;
-        gradcheck) [ "${!key:-}" = crash ] || echo '{"pass": true}' > "$out" ;;
-        compare\ *) echo '{"speedup_total": 1.01, "speedup_median": 1.0, "speedup_ci95": [0.99, 1.02]}' > "$out" ;;
-        summary) "$@" >> "$OUT/$log" 2>&1 || BOX_RC=$? ;;
-    esac
+    if [ "${!key:-}" != crash ]; then
+        python "$FAKE" "$name" "$@" || BOX_RC=$?
+    fi
     case ${!key:-} in crash|late) BOX_RC=1 BOX_WHY=failed ;; esac
     return "$BOX_RC"
 }
 """
+
+# What the stubbed steps write: the gradient check's verdicts, the timing's
+# rows and summary.
+FAKE = r'''
+import json, os, sys
+name, args = sys.argv[1], sys.argv[2:]
+def opt(flag):
+    return args[args.index(flag) + 1]
+if name.startswith("gradcheck "):
+    fail = os.environ.get("FAIL_CANDIDATES", "").split()
+    flags = [a.split("=", 1)[1] for a in args if a.startswith("--candidate=")]
+    tags = {"--trunk-bf16": "bf16", "--fused-relu": "relu", "--compiled-trunk": "compiled", "--fp8-trunk": "fp8"}
+    def name_of(f):
+        return "_".join(tags[x] for x in f.split() if x in tags)
+    cands = [{"candidate": f, "pass": name_of(f) not in fail, "windows": []} for f in flags]
+    json.dump({"pass": all(c["pass"] for c in cands), "candidates": cands}, open(opt("--out"), "w"))
+    sys.exit(0 if all(c["pass"] for c in cands) else 8)
+if name == "timing":
+    arms = [a.split("=", 2)[1] for a in args if a.startswith("--arm=")]
+    with open(opt("--out"), "w") as f:
+        f.write(json.dumps({"kind": "config", "arm": arms[0]}) + "\n")
+    if os.environ.get("STUB_timing") != "late":
+        summary = {"valid": True, "arms": {a: {"positions_per_second": 1000.0 + i,
+                   "against_reference": None if a == "ref" else {"speedup_median": 1.0 + i / 10}}
+                   for i, a in enumerate(arms)}}
+        json.dump(summary, open(opt("--summary"), "w"))
+if name == "timing-summary":
+    json.dump({"valid": None, "arms": {"ref": {"positions_per_second": 999.0}}}, open(opt("--out"), "w"))
+if name == "sweep":
+    arms = [a.split("=", 2)[1] for a in args if a.startswith("--arm=")]
+    with open(opt("--out"), "w") as f:
+        f.write(json.dumps({"kind": "config", "arm": arms[0]}) + "\n")
+    if os.environ.get("STUB_sweep") != "late":
+        json.dump({"valid": None, "arms": {a: {"positions_per_second": 1200.0 * (i + 1), "peak_gb_max": 8.0 * (i + 1)}
+                   for i, a in enumerate(arms)}}, open(opt("--summary"), "w"))
+if name == "sweep-summary":
+    json.dump({"valid": None, "arms": {"s32": {"positions_per_second": 1199.0, "peak_gb_max": 8.0}}},
+              open(opt("--out"), "w"))
+'''
 
 
 def _block() -> str:
@@ -72,25 +94,22 @@ def _block() -> str:
     return text[text.index("# ---- the arms (begin)"):text.index("# ---- the arms (end)")]
 
 
-def _step_name(line: str) -> str:
-    """A bounded step's name: `arm NAME`, `compare A B`, or one word."""
-    words = line.split()
-    return " ".join(words[:{"arm": 2, "compare": 3}.get(words[0], 1)])
-
-
-def _run(tmp_path: Path, **stubs) -> dict:
-    out, repo, base = tmp_path / "out", tmp_path / "repo", tmp_path / "base"
-    for d in (out, repo, base):
-        d.mkdir()
-    env = "\n".join(f"{k}={v}" for k, v in stubs.items())
+def _run(tmp_path: Path, **env) -> dict:
+    out = tmp_path / "out"
+    out.mkdir(parents=True)
+    fake = tmp_path / "fake.py"
+    fake.write_text(FAKE, encoding="utf-8")
+    exports = "\n".join(f"export {k}='{v}'" for k, v in env.items())
     script = f"""set -uo pipefail
 export PATH="{bash_path(Path(sys.executable).parent)}:/usr/bin:$PATH"
-OUT="{bash_path(out)}" BOX_REPO="{bash_path(repo)}" BASE_REPO="{bash_path(base)}" STAGE=stage_test
+OUT="{bash_path(out)}" STAGE=stage_test FAKE="{bash_path(fake)}"
 SEQ=seq CORPUS=corpus OWN=own INIT_PT=own1.pt RUN_SEED=1 LR=2.8e-5 DECAY_FROM=0.5 PASS_POSITIONS=2000000
-PROBE_EVERY=1200000 WARMUP=1 WINDOWS=2 PROFILE_WINDOWS=1 BUDGET_GB=19.18 BYTES_PER_TOKEN=102139
-VALID_SPREAD=0.03 ARM_CUT_MIN=25 CUDA_TESTS="2 passed"
+PROBE_EVERY=1200000 WARMUP=1 ROUNDS=2 PROFILE_WINDOWS=1 BUDGET_GB=19.18 BYTES_PER_TOKEN=102139
+VALID_SPREAD=0.03 GRADCHECK_CUT_MIN=25 TIMING_CUT_MIN=45 CUDA_TESTS="2 passed"
+CANDIDATES="bf16 relu compiled bf16_relu bf16_compiled fp8 compiled_fp8"
+SWEEP_STREAMS="32 64 128" SWEEP_FLAGS="" SWEEP_WARMUP=1 SWEEP_ROUNDS=2 SWEEP_CUT_MIN=30
 BOX_RC=0 BOX_WHY=ok
-{env}
+{exports}
 {STUBS}
 {_block()}
 """
@@ -100,61 +119,108 @@ BOX_RC=0 BOX_WHY=ok
     steps = (out / "steps.txt").read_text().splitlines() if (out / "steps.txt").exists() else []
     return {"rc": done.returncode, "stderr": done.stderr, "out": out,
             "finish": (out / "FINISH").read_text() if (out / "FINISH").exists() else "",
-            "steps": steps,
-            "names": [_step_name(s) for s in steps],
-            "failed": (out / "arms_failed.txt").read_text() if (out / "arms_failed.txt").exists() else ""}
+            "steps": steps, "failed": (out / "arms_failed.txt").read_text() if (out / "arms_failed.txt").exists() else ""}
 
 
-FIRST = ["arm base_1", "arm this_1", "arm base_2", "arm this_2"]
-FLAGS = "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139"
+FASTEST = "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched"
+CANDIDATES = ["bf16", "relu", "compiled", "bf16_relu", "bf16_compiled", "fp8", "compiled_fp8"]
 
 
-def test_a_crashed_gradient_check_leaves_out_only_the_batched_arms(tmp_path):
-    got = _run(tmp_path, STUB_gradcheck="crash")
+def _checks(steps):
+    """Each candidate's check step by its name."""
+    return {s.split()[1]: s for s in steps if s.startswith("gradcheck ")}
+
+
+def _arms(steps, step="timing"):
+    timing = next(s for s in steps if s.startswith(step + " "))
+    return [a.split("=", 1) for a in timing.split("--arm=")[1:]]
+
+
+def test_every_candidate_is_checked_against_main_s_fastest_flags_and_timed_between_two_references(tmp_path):
+    got = _run(tmp_path)
     assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
-    names = got["names"]
-    assert names[:5] == [*FIRST, "gradcheck"]
-    assert not any(n in names for n in ("arm batched", "arm batched_pickles"))
-    assert {"arm columns", "arm preload", "arm this_3"} <= set(names)
-    check = json.loads((got["out"] / "gradcheck.json").read_text())
-    assert check["pass"] is False and check["rc"] == 1
-    assert "GRADCHECK_FAILED gradcheck rc=1" in got["failed"]
-    speed = json.loads((got["out"] / "speed.json").read_text())
-    assert speed["gradcheck"] is False and speed["valid"] and speed["flags_valid"]
-    assert speed["arms"]["columns"]["gc_seconds_mean"] == 0.01
+    names = [s.split()[0] for s in got["steps"]]
+    assert names == ["gradcheck"] * 7 + ["timing", "sweep"]
+    checks = _checks(got["steps"])
+    assert list(checks) == CANDIDATES
+    assert all(f"--reference={FASTEST}" in c and c.count("--candidate=") == 1 for c in checks.values())
+    assert f"--candidate={FASTEST} --trunk-bf16 --compiled-trunk" in checks["bf16_compiled"]
+    assert f"--candidate={FASTEST} --compiled-trunk --fp8-trunk" in checks["compiled_fp8"]
+    assert "gradcheck_arm_fp8.pt" in checks["fp8"]
+    arms = _arms(got["steps"])
+    assert [a[0] for a in arms] == ["ref", *CANDIDATES, "ref2"]
+    assert all(a[1].strip().startswith(FASTEST) for a in arms)
+    assert arms[0][1].strip() == FASTEST and arms[-1][1].split(" --reference")[0].strip() == FASTEST
+    timing = next(s for s in got["steps"] if s.startswith("timing "))
+    assert "--reference ref" in timing and "--summary" in timing
+    assert '"valid": true' in got["finish"] and "2 passed" in got["finish"] and not got["failed"]
 
 
-def test_an_arm_that_fails_after_its_total_keeps_its_windows(tmp_path):
-    """A base arm whose profile failed is timed; a columns arm that crashed
-    is left out, and with no flag arm faster than this_1 there is no
-    preload arm; this_3 brackets the rest."""
-    got = _run(tmp_path, STUB_arm_base_1="late", STUB_arm_columns="crash")
+def test_a_candidate_that_fails_its_check_is_left_out(tmp_path):
+    got = _run(tmp_path, FAIL_CANDIDATES="relu bf16_compiled")
     assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
-    assert (got["out"] / "arm_base_1.done").exists() and not (got["out"] / "arm_columns.done").exists()
-    assert "AFTER_TOTAL_FAILED base_1" in got["failed"] and "ARM_FAILED columns" in got["failed"]
-    names = got["names"]
-    assert "arm batched" in names and "arm preload" not in names
-    assert names.index("arm this_3") > names.index("arm batched")
-    assert "compare this_1 this_3" in names and "compare columns batched" not in names
-    speed = json.loads((got["out"] / "speed.json").read_text())
-    assert "base_1" in speed["arms"] and "this_1_vs_this_3" in speed["comparisons"]
+    assert [a[0] for a in _arms(got["steps"])] == ["ref", "bf16", "compiled", "bf16_relu", "fp8", "compiled_fp8",
+                                                   "ref2"]
+    assert "LEFT_OUT relu" in got["failed"] and "LEFT_OUT bf16_compiled" in got["failed"]
+    assert json.loads((got["out"] / "gradcheck_relu.json").read_text())["pass"] is False
+    assert json.loads((got["out"] / "gradcheck_fp8.json").read_text())["pass"] is True
 
 
-@pytest.mark.parametrize("batched_rate, preload_flags", [("204.8", ["--columns"]),
-                                                          ("300", ["--columns", "--window-batched"])],
-                         ids=["columns fastest", "batched fastest"])
-def test_with_every_step_passing_the_preload_arm_takes_the_fastest_flags(tmp_path, batched_rate, preload_flags):
-    got = _run(tmp_path, RATE_arm_batched=batched_rate)
+def test_a_check_that_does_not_finish_leaves_its_candidate_out_and_the_others_timed(tmp_path):
+    got = _run(tmp_path, STUB_gradcheck_compiled_fp8="crash")
     assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
-    names = got["names"]
-    assert names[:4] == FIRST
-    assert names.index("gradcheck") < names.index("arm batched_pickles") < names.index("arm batched")
-    gradcheck = next(s for s in got["steps"] if s.startswith("gradcheck"))
-    assert "--reference=--packed-trunk" in gradcheck and "--candidate=--packed-trunk --window-batched" in gradcheck
-    arms = [s for s in got["steps"] if s.startswith("arm ")]
-    assert all(FLAGS in s for s in arms), "every arm runs the first round's fastest flags"
-    preload = next(s for s in arms if s.startswith("arm preload"))
-    assert "--preload" in preload and preload.split(FLAGS)[1].split() == preload_flags
-    batched = next(s for s in arms if s.startswith("arm batched "))
-    assert batched.split(FLAGS)[1].split() == ["--columns", "--window-batched"]
-    assert "compare base_1 batched" in names and not got["failed"]
+    assert [a[0] for a in _arms(got["steps"])] == ["ref", *CANDIDATES[:-1], "ref2"]
+    assert "GRADCHECK_FAILED compiled_fp8 rc=1" in got["failed"] and "LEFT_OUT compiled_fp8" in got["failed"]
+    assert json.loads((got["out"] / "gradcheck_compiled_fp8.json").read_text())["candidates"] == []
+
+
+def test_a_timing_that_fails_after_its_rows_is_summarized_from_them(tmp_path):
+    got = _run(tmp_path, STUB_timing="late")
+    assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
+    assert [s.split()[0] for s in got["steps"]][-3:] == ["timing", "timing-summary", "sweep"]
+    assert "TIMING_FAILED rc=1" in got["failed"] and "999.0" in got["finish"]
+
+
+def test_a_timing_that_writes_nothing_is_named_and_the_sweep_still_runs(tmp_path):
+    got = _run(tmp_path / "timing", STUB_timing="crash")
+    assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
+    assert [s.split()[0] for s in got["steps"]][-2:] == ["timing", "sweep"]
+    assert "TIMING_FAILED rc=1 failed: no summary" in got["failed"] and '"timing": null' in got["finish"]
+    assert '"s128": [3600.0, 24.0]' in got["finish"]
+    both = _run(tmp_path / "both", STUB_timing="crash", STUB_sweep="crash")
+    assert both["rc"] == 1 and both["finish"].startswith("TIMING_FAILED: no speed.json, no sweep.json")
+
+
+def test_candidates_picks_the_candidates_and_an_unknown_name_ends_the_run(tmp_path):
+    got = _run(tmp_path / "a", CANDIDATES="fp8 compiled_fp8", SWEEP_STREAMS="")
+    assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
+    assert list(_checks(got["steps"])) == ["fp8", "compiled_fp8"]
+    assert [a[0] for a in _arms(got["steps"])] == ["ref", "fp8", "compiled_fp8", "ref2"]
+    none = _run(tmp_path / "b", CANDIDATES="", SWEEP_STREAMS="")
+    assert none["rc"] == 0 and [s.split()[0] for s in none["steps"]] == ["timing"], none["stderr"][-2000:]
+    assert [a[0] for a in _arms(none["steps"])] == ["ref", "ref2"]
+    wrong = _run(tmp_path / "c", CANDIDATES="fp16")
+    assert wrong["rc"] == 1 and wrong["finish"].startswith("UNKNOWN_CANDIDATE fp16") and not wrong["steps"]
+
+
+def test_the_sweep_times_each_stream_count_with_half_its_streams_own(tmp_path):
+    got = _run(tmp_path, SWEEP_FLAGS="--packed-trunk --columns --window-batched --compiled-trunk")
+    assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
+    sweep = next(s for s in got["steps"] if s.startswith("sweep "))
+    assert [a[0] for a in _arms(got["steps"], "sweep")] == ["s32", "s64", "s128"]
+    for name, flags in _arms(got["steps"], "sweep"):
+        n = int(name[1:])
+        assert flags.split(" --reference")[0].strip().endswith(f"--compiled-trunk --streams {n} --own-streams {n // 2}")
+    assert "--not-production" in sweep and "--reference s32" in sweep and "--seed 1" in sweep
+    assert '"sweep": {"s32": [1200.0, 8.0], "s64": [2400.0, 16.0], "s128": [3600.0, 24.0]}' in got["finish"]
+    default = _run(tmp_path / "default")
+    assert all(a[1].strip().startswith(FASTEST + " --streams") for a in _arms(default["steps"], "sweep"))
+
+
+def test_a_sweep_that_fails_after_its_rows_is_summarized_and_one_that_wrote_none_is_named(tmp_path):
+    late = _run(tmp_path / "late", STUB_sweep="late")
+    assert late["rc"] == 0 and [s.split()[0] for s in late["steps"]][-2:] == ["sweep", "sweep-summary"]
+    assert "SWEEP_FAILED rc=1" in late["failed"] and '"s32": [1199.0, 8.0]' in late["finish"]
+    crash = _run(tmp_path / "crash", STUB_sweep="crash")
+    assert crash["rc"] == 0 and "SWEEP_FAILED rc=1" in crash["failed"] and "no rows" in crash["failed"]
+    assert '"sweep"' not in crash["finish"]

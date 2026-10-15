@@ -61,6 +61,7 @@ from wesnoth_ai.padded_streams import (ExtraStreams, PaddedIndex, check_sighting
                                        extra_streams, material_batch, memory_batch,
                                        pad_encoded_streams, pad_sighting_streams, padded_index,
                                        padded_trunk_index, random_padded_streams, stream_widths)
+from wesnoth_ai.trunk_modes import CompiledBlock, TrunkMode, check_trunk_mode_supported, run_trunk
 
 __all__ = [
     "WesnothModel",
@@ -168,6 +169,11 @@ class WesnothModel(nn.Module):
         self._weights_version = 0        # bumped by load_state_dict; the copy follows it
         self._packed_weights: Optional[PackedTrunkWeights] = None
         self._packed_compile: Optional[CompiledPackedTrunk] = None
+        # The packed trunk's training variants (wesnoth_ai/trunk_modes.py),
+        # set by the sequence trainer through set_trunk_mode; None runs
+        # packed_trunk as before.
+        self.trunk_mode: Optional[TrunkMode] = None
+        self._trunk_block: Optional[CompiledBlock] = None
 
         # Heads.
         self.actor_head     = nn.Linear(d_model, 1)
@@ -739,7 +745,7 @@ class WesnothModel(nn.Module):
         if self.infer_compile_packed:
             x = self._run_compiled_packed_trunk(x, index)
         else:
-            x = packed_trunk(self.encoder, x, index)
+            x = self._packed_layers(x, index)
         actor_ctx = x.index_select(0, index.actor).view(B, A_max, d)
         hex_ctx = x.index_select(0, index.hex).view(B, H_max, d)
         global_ctx = x.index_select(0, index.glob).view(B, 1, d)
@@ -771,12 +777,33 @@ class WesnothModel(nn.Module):
         rows = [self.slot_memory.stream_rows(memory, index.memory_rows)] if memory.K_max else []
         tokens = torch.cat(list(before) + rows + list(after))
         x = tokens.index_select(0, index.index.src) + self.token_kind_embed(index.index.kind)
-        x = packed_trunk(self.encoder, x, index.index)
+        x = self._packed_layers(x, index.index)
         new_memory = None
         if memory.K_max:
             h_memory = x.index_select(0, index.index.memory).view(len(memory.counts), memory.K_max, self.d_model)
             new_memory = self.slot_memory.write(h_memory, memory)
         return x, new_memory
+
+    def set_trunk_mode(self, mode: Optional[TrunkMode]) -> None:
+        """The packed trunk's training variants from here on (None or an
+        inactive mode: packed_trunk as before); a compiled mode builds its
+        CompiledBlock, which compiles at its first call."""
+        if mode is not None and mode.active:
+            check_packed_trunk_supported(self.encoder)
+            check_trunk_mode_supported(self.encoder, mode)
+        self.trunk_mode = mode if mode is not None and mode.active else None
+        self._trunk_block = (CompiledBlock(mode.compile_backend)
+                             if self.trunk_mode is not None and mode.compile_backend is not None else None)
+
+    def trunk_block_stats(self) -> Optional[dict]:
+        return None if self._trunk_block is None else self._trunk_block.stats()
+
+    def _packed_layers(self, x: torch.Tensor, index) -> torch.Tensor:
+        """The packed trunk's layers on x [total, d]: packed_trunk, or its
+        training variant when one is set (set_trunk_mode)."""
+        if self.trunk_mode is None:
+            return packed_trunk(self.encoder, x, index)
+        return run_trunk(self.encoder, x, index, self.trunk_mode, self._trunk_block)
 
     def window_heads(self, x: torch.Tensor, index: WindowHeadIndex) -> "PaddedOutput":
         """The heads over a window's trunk outputs `x` (each time step's

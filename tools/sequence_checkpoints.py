@@ -18,8 +18,8 @@ log = logging.getLogger("sequence_train")
 # What a resume must share with the pass it continues, and the value a key
 # holds in a checkpoint written before it was recorded.
 RESUME_KEYS = ("seed", "streams", "window", "fingerprint", "arch", "decay_from", "pass_positions",
-               "anneal_rule", "own", "trunk")
-RECORDED_LATER = {"trunk": "padded"}
+               "anneal_rule", "own", "trunk", "trunk_mode")
+RECORDED_LATER = {"trunk": "padded", "trunk_mode": "none"}
 
 
 class TrainerCheckpoints:
@@ -27,8 +27,8 @@ class TrainerCheckpoints:
 
     def resume(self, path: Path) -> None:
         """Continue `path`'s pass. A new pass may start from another trunk's
-        checkpoint (`init_from`); a resume continues on the trunk its pass
-        trained on."""
+        checkpoint (`init_from`); a resume continues on the trunk and the
+        trunk variants its pass trained on."""
         ck = torch.load(path, map_location="cpu", weights_only=True)
         meta = ck.get("training_meta", {})
         for key in RESUME_KEYS:
@@ -54,17 +54,20 @@ class TrainerCheckpoints:
 
     def init_from(self, path: Path) -> None:
         """A new pass from `path`'s weights and optimizer state: the same
-        encoding (fingerprint), streams, window and architecture; this run's
-        schedule, carried memories and learning rate. A checkpoint whose
+        encoding (fingerprint), window and architecture; this run's
+        schedule, streams, carried memories and learning rate (the
+        checkpoint's streams are recorded in `init_from`). A checkpoint whose
         memory barrier failed starts nothing."""
         ck = torch.load(path, map_location="cpu", weights_only=True)
         meta = ck.get("training_meta", {})
-        same = ("streams", "window", "arch") if self.args.init_other_records else \
-            ("streams", "window", "fingerprint", "arch")
+        same = ("window", "arch") if self.args.init_other_records else ("window", "fingerprint", "arch")
         for key in same:
             if meta.get(key) != self.meta[key]:
                 raise SystemExit(f"{path} was trained with {key}={meta.get(key)!r}; this run has "
                                  f"{self.meta[key]!r}")
+        if meta.get("streams") != self.meta["streams"]:
+            log.info("a new pass on %d streams from %s, which trained on %s", self.meta["streams"], path,
+                     meta.get("streams"))
         if self.args.init_other_records:
             self._refuse_other_encoding(ck, path)
         state = ck.get("sequence_resume", {}).get("state", {})
@@ -83,7 +86,7 @@ class TrainerCheckpoints:
         self.meta["init_from"] = {"path": str(path), "seed": meta.get("seed"),
                                   "positions": int(state.get("positions", 0)), "steps": int(state.get("steps", 0)),
                                   "init_from": meta.get("init_from"), "areas": self.state["areas"],
-                                  "fingerprint": meta.get("fingerprint")}
+                                  "fingerprint": meta.get("fingerprint"), "streams": meta.get("streams")}
         log.info("a new pass from %s, which trained %d positions in %d steps", path,
                  self.meta["init_from"]["positions"], self.meta["init_from"]["steps"])
 
