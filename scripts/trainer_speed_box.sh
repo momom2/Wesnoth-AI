@@ -19,7 +19,8 @@
 #     ReLU's GEMM is the plain linear's to the bit, the fp8 trunk's errors and
 #     its product against the CPU emulation), and named in the finish line;
 #   the trainer's inputs (scripts/trainer_inputs.sh: own1, the corpus at
-#     version 5 and its sequences, round 2's own sequences from HF, the columns);
+#     version 5 and round 2's own sequences from the input cache, the corpus's
+#     sequences, the columns);
 #   the activation budget's calibration (memory.json; CALIBRATE=0: none):
 #     CALIBRATE_FLAGS (default B, the accepted configuration, at
 #     `--activation-budget-gb auto`) on the pass (tools/bench_sequence_step.py
@@ -59,14 +60,15 @@
 # compiled_fp8 by name (bf16 failed its CUDA test, fp8 its gradient check).
 #
 # Expected wall on a 4090 (the round-4 walls.txt): bring-up and tests 15
-# minutes, the inputs 10 with the own sequences from HF, the calibration 10
+# minutes, the inputs 5 to 8 with the corpus and the own sequences in the
+# input cache, the calibration 10
 # (the scan of the 2,000,000-position pass's windows, about 5, the compile, 45
 # windows at about 0.35 s, 6 of the largest), the gradient check 2 (two
 # processes of two trainers each), the timing 5 (four trainers, 5 + 40 + 3
 # windows each), the sweep 12 (three trainers, 5 + 20 + 1 windows of 0.4, 0.8
-# and 1.6 s or more): about 55 minutes, $0.40 at $0.42 an hour; the
-# calibration alone (TIMING=0 CANDIDATES= SWEEP_STREAMS=) about 35 minutes,
-# $0.25. 40 minutes more if the own sequences must be built again. BOX_MAX_H 2
+# and 1.6 s or more): about 52 minutes, $0.36 at $0.42 an hour; the
+# calibration alone (TIMING=0 CANDIDATES= SWEEP_STREAMS=) about 32 minutes,
+# $0.22. 40 minutes more if the own sequences must be built again. BOX_MAX_H 2
 # caps it at about $0.85 plus the final round.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md). No
@@ -158,7 +160,7 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
         tests/test_preencode_sequences.py tests/test_memory_learner.py tests/test_trunk_modes.py \
         tests/test_trunk_variants.py tests/test_bench_interleave.py tests/test_trainer_acceptance_readout.py \
         tests/test_fp8_linear.py tests/test_rules_version.py tests/test_train_every.py tests/test_memory_plan.py \
-        tests/test_bench_gradcheck.py \
+        tests/test_bench_gradcheck.py tests/test_input_cache.py \
         -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
