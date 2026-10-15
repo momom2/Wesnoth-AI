@@ -336,7 +336,10 @@ def restore(host, key: Dict, into: Path, facts: Optional[Path] = None, record: O
             manifest = None
         if manifest is not None:
             _check_manifest(manifest, key)
-            archive = host.fetch(f"{entry_dir(key)}/{manifest['archive']}", work / "download")
+            try:
+                archive = host.fetch(f"{entry_dir(key)}/{manifest['archive']}", work / "download")
+            except Absent:
+                raise Refused(f"the archive the manifest names, {manifest['archive']}, is not on the host") from None
             fetched = time.time() - t0
             size = archive.stat().st_size
             if size != manifest["archive_bytes"] or file_sha256(archive) != manifest["archive_sha256"]:
@@ -357,7 +360,11 @@ def restore(host, key: Dict, into: Path, facts: Optional[Path] = None, record: O
         if legacy is None:
             _record(record, f"CACHE_ABSENT {tag}")
             return EXIT_ABSENT
-        archive = host.fetch(legacy, work / "download")
+        try:
+            archive = host.fetch(legacy, work / "download")
+        except Absent:
+            _record(record, f"CACHE_ABSENT {tag}, and no legacy tarball at {legacy}")
+            return EXIT_ABSENT
         legacy_bytes = archive.stat().st_size
         extract_archive(archive, work / "files", top=legacy_top, keep=ENTRY_FILES[kind])
         archive.unlink()

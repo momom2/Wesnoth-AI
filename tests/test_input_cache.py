@@ -97,6 +97,9 @@ def test_a_corrupted_archive_is_refused_and_the_directory_stays(tmp_path):
     assert ic.restore(host, key, into, record=record) == ic.EXIT_REFUSED
     assert "CACHE_REFUSED corpus" in _records(record) and "SHA-256" in _records(record)
     assert (into / "CORPUS_DONE").exists()                         # what was there stays
+    archive.unlink()
+    assert ic.restore(host, key, into, record=record) == ic.EXIT_REFUSED
+    assert "is not on the host" in _records(record) and (into / "CORPUS_DONE").exists()
 
 
 def test_an_entry_of_another_key_is_refused(tmp_path):
@@ -214,6 +217,7 @@ def test_a_legacy_tarball_is_adopted_only_when_its_records_hold_the_key(tmp_path
     assert "CACHE_ADOPTED own" in text and "teacher_sha256" in text and "the sources' own game-sides" in text
     # Without columns the adopted records are no entry yet: a store refuses them.
     assert ic.store(host, key, tmp_path / "own_good", record=record) == ic.EXIT_REFUSED
+    assert ic.restore(host, key, tmp_path / "own_none", legacy="legacy/absent.tar.gz") == ic.EXIT_ABSENT
 
 
 def test_an_archive_member_outside_its_directory_is_refused(tmp_path):
