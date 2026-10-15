@@ -1,9 +1,10 @@
 """scripts/generation_speed_box.sh's arms, run by bash with the box library
 stubbed (no box, GPU or HF): every arm runs in its order, an arm whose
 match crashes or loses a game fails alone and the next arm runs, the
-graphed arm takes the fastest passing arm's flags (and is left out when the
-graphed check fails), the repeat runs the fastest passing arm, and
-speed.json holds every arm after each one."""
+profiled and repeat arms take the fastest passing timing arm's flags (a
+profiled arm never counts as one), and speed.json holds every arm after
+each one, with its decisions per game and its ratios to the reference arm
+at its depth."""
 from __future__ import annotations
 
 import json
@@ -22,8 +23,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.skipif(BASH is None, reason="no POSI
 
 # The library's functions the block calls, and box_bounded answering for the
 # steps: STUB_<step> = crash (exit 1, no record) or lose (a failed game);
-# RATE_<step>: the decisions a second its server records (default 1000);
-# STUB_graphed_check = fail.
+# RATE_<step>: the decisions a second its server records (default 1000).
 STUBS = r"""
 box_marked_this_stage() { [ -f "$1" ]; }
 box_mark() { mkdir -p "$(dirname "$1")" && echo "stage=$STAGE" > "$1"; }
@@ -60,9 +60,6 @@ box_bounded() {                  # box_bounded NAME CUT_MIN LOG CMD...
                 [ "${!key:-}" != lose ] || echo '{}' > "$dir/failed_A_B_s1_3.json"
             fi
             [ "${!key:-}" != crash ] || { BOX_RC=1 BOX_WHY=failed; } ;;
-        graphed-check)
-            out=$(arg_of --out "$@")
-            if [ "${!key:-}" = fail ]; then echo '{"pass": false}' > "$out"; else echo '{"pass": true}' > "$out"; fi ;;
         summary) "$@" >> "$OUT/$log" 2>&1 || BOX_RC=$? ;;
     esac
     return "$BOX_RC"
@@ -79,15 +76,15 @@ def _run(tmp_path: Path, **stubs) -> dict:
     out, work = tmp_path / "out", tmp_path / "work"
     out.mkdir()
     work.mkdir()
-    for d in ("repo", "base", "ref"):
+    for d in ("repo", "base"):
         (tmp_path / d).mkdir()
     env = "\n".join(f"{k}={v}" for k, v in stubs.items())
     script = f"""set -uo pipefail
 export PATH="{bash_path(Path(sys.executable).parent)}:/usr/bin:$PATH"
 OUT="{bash_path(out)}" WORKDIR="{bash_path(work)}" BOX_REPO="{bash_path(tmp_path / 'repo')}"
-BASE_REPO="{bash_path(tmp_path / 'base')}" REF_REPO="{bash_path(tmp_path / 'ref')}" STAGE=stage_test
+BASE_REPO="{bash_path(tmp_path / 'base')}" STAGE=stage_test
 GAMES=400 GAMES_PER_JOB=5 SEED_BASE=130000 ARM_CUT_MIN=30 MATCH_BUDGET_MIN=22 VALID_SPREAD=0.05
-GRAPHED_MAX_BATCH=160 REF_PT=own1.pt CUDA_TESTS="2 passed"
+PROFILE_BATCHES=40 PROFILE_AFTER=400 REF_PT=own1.pt CUDA_TESTS="2 passed"
 SIDE_A=(--label-a own1a) SIDE_B=(--label-b own1b --memory-b 64)
 BOX_RC=0 BOX_WHY=ok
 {env}
@@ -108,53 +105,53 @@ box_finish "GENERATION_SPEED_DONE"
             "failed": (out / "arms_failed.txt").read_text() if (out / "arms_failed.txt").exists() else ""}
 
 
-ORDER = ["base_1", "ref_p120x6", "off_p120x6", "rust_p120x6", "memory_p120x6", "view_p120x6", "all_p120x6",
-         "base_2", "rust_p160x6", "memory_p160x6", "view_p160x6", "all_p160x6", "graphed_best", "base_3",
-         "best_repeat"]
+ORDER = ["base_1", "ref_p120x6", "profile_ref", "priors_p120x6", "compile_p120x6", "bf16res_p120x6",
+         "compile_bf16res_p120x6", "base_2", "ref_p160x6", "compile_p160x6", "bf16res_p160x6", "profile_best",
+         "base_3", "best_repeat"]
+PROFILE = "--inference-profile-batches 40 --inference-profile-after 400"
 
 
 def _arm_line(got, name):
     return next(s for s in got["steps"] if s.startswith(f"arm {name} "))
 
 
-def test_every_arm_runs_and_the_graphed_and_repeat_arms_take_the_fastest(tmp_path):
-    got = _run(tmp_path, RATE_arm_all_p160x6=3000, RATE_arm_graphed_best=3500)
+def test_every_arm_runs_and_the_profile_and_repeat_arms_take_the_fastest(tmp_path):
+    got = _run(tmp_path, RATE_arm_compile_p160x6=3000)
     assert got["rc"] == 0 and "GENERATION_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
     assert got["arms"] == ORDER and not got["failed"]
-    graphed = _arm_line(got, "graphed_best")
-    assert "--graphed-serve" in graphed and "--jobs 160" in graphed
-    assert "--rust-stage --server-memory --view-refresh incremental" in graphed
+    assert PROFILE in _arm_line(got, "profile_ref") and "--compile-packed" not in _arm_line(got, "profile_ref")
+    best = _arm_line(got, "profile_best")
+    assert PROFILE in best and "--compile-packed" in best and "--jobs 160" in best
     repeat = _arm_line(got, "best_repeat")
-    assert "--graphed-serve" in repeat and "--jobs 160" in repeat
+    assert "--compile-packed" in repeat and "--jobs 160" in repeat and PROFILE not in repeat
+    assert "--priors-only" in _arm_line(got, "priors_p120x6")
+    both = _arm_line(got, "compile_bf16res_p120x6")
+    assert "--compile-packed" in both and "--bf16-residual" in both
     speed = got["speed"]
-    assert sorted(speed["arms"]) == sorted(ORDER) and speed["valid"]
-    assert speed["best"] == "graphed_best" and speed["against_ref"]["graphed_best"]["decisions_per_s"] == 3.5
-    assert speed["arms"]["ref_p120x6"]["repo"].endswith("/ref") and speed["arms"]["base_2"]["repo"].endswith("/base")
-    ref = _arm_line(got, "ref_p120x6")
-    assert "--worker-games 6" in ref and "--rust-stage" not in ref
+    assert sorted(speed["arms"]) == sorted(ORDER) and speed["valid"] and speed["best"] == "compile_p160x6"
+    assert speed["against_ref"]["compile_p160x6"]["decisions_per_s"] == 3.0
+    assert speed["against_ref"]["priors_p120x6"]["decisions_per_s"] == 1.0
+    assert speed["arms"]["ref_p120x6"]["decisions_per_game"] == 5000.0
+    assert speed["arms"]["base_2"]["repo"].endswith("/base") and speed["arms"]["ref_p120x6"]["repo"].endswith("/repo")
 
 
 def test_failing_arms_fail_alone(tmp_path):
     """A base arm that crashes, the fastest arm crashing, an arm that loses
-    a game: each is a failed arm, every other arm runs, and the graphed and
+    a game: each is a failed arm, every other arm runs, and the profile and
     repeat arms take the fastest arm that passed."""
-    got = _run(tmp_path, STUB_arm_base_1="crash", STUB_arm_all_p160x6="crash", RATE_arm_all_p160x6=9000,
-               STUB_arm_memory_p120x6="lose", RATE_arm_memory_p120x6=8000, RATE_arm_rust_p160x6=2000)
+    got = _run(tmp_path, STUB_arm_base_1="crash", STUB_arm_compile_p120x6="crash", RATE_arm_compile_p120x6=9000,
+               STUB_arm_bf16res_p160x6="lose", RATE_arm_bf16res_p160x6=8000, RATE_arm_priors_p120x6=2000)
     assert got["rc"] == 0 and "GENERATION_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
     assert got["arms"] == ORDER
-    assert "ARM_FAILED all_p160x6" in got["failed"] and "ARM_FAILED memory_p120x6" in got["failed"]
-    assert "ARM_FAILED base_1" in got["failed"]
-    graphed = _arm_line(got, "graphed_best")
-    assert "--jobs 160" in graphed and "--rust-stage --no-server-memory --view-refresh full" in graphed
+    for name in ("compile_p120x6", "bf16res_p160x6", "base_1"):
+        assert f"ARM_FAILED {name}" in got["failed"], name
+    assert "--priors-only" in _arm_line(got, "profile_best") and "--priors-only" in _arm_line(got, "best_repeat")
     speed = got["speed"]
-    assert {"all_p160x6", "memory_p120x6", "base_1"} <= set(speed["failed_arms"])
-    assert speed["arms"]["view_p160x6"]["decisions_per_s"] == 1000.0
+    assert {"compile_p120x6", "bf16res_p160x6", "base_1"} <= set(speed["failed_arms"])
+    assert speed["arms"]["ref_p160x6"]["decisions_per_s"] == 1000.0
 
 
-def test_a_failed_graphed_check_leaves_out_the_graphed_arm(tmp_path):
-    got = _run(tmp_path, STUB_graphed_check="fail", RATE_arm_view_p120x6=2500)
+def test_a_profiled_arm_is_never_the_best(tmp_path):
+    got = _run(tmp_path, RATE_arm_profile_ref=9000, RATE_arm_bf16res_p120x6=2500)
     assert got["rc"] == 0 and "GENERATION_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
-    assert "graphed_best" not in got["arms"] and "arm graphed_best left out" in got["failed"]
-    repeat = _arm_line(got, "best_repeat")
-    assert "--jobs 120" in repeat and "--no-rust-stage --no-server-memory --view-refresh incremental" in repeat
-    assert got["speed"]["best"] == "view_p120x6"
+    assert "--bf16-residual" in _arm_line(got, "best_repeat") and got["speed"]["best"] == "bf16res_p120x6"
