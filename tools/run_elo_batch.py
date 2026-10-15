@@ -145,11 +145,26 @@ def record_failure(outdir: Path, label_a: str, label_b: str, side_a: int, seed: 
     return path
 
 
+def server_keys(args) -> dict:
+    """Each served side's server group, (checkpoint, fp8): one group per
+    distinct pair, so both sides of a same-spec match share one unless one
+    side alone plays fp8 (--fp8-inference-a / -b)."""
+    return {side: (spec, bool(fp8)) for side, spec, fp8 in (
+        ("a", args.spec_a, args.fp8_inference_a), ("b", args.spec_b, args.fp8_inference_b)) if spec != "dummy"}
+
+
+def server_label(key) -> str:
+    """A server group's name: its checkpoint, `#fp8` when it serves the fp8
+    trunk (`servers` keys are (spec, fp8))."""
+    spec, fp8 = key if isinstance(key, tuple) else (key, False)
+    return f"{spec}#fp8" if fp8 else str(spec)
+
+
 def dead_servers(servers: dict) -> List[str]:
-    """One line per inference server process that has exited: its spec,
+    """One line per inference server process that has exited: its group,
     return code and the tail of its log."""
-    return [f"{spec} (rc={h.proc.returncode}): {h.err_tail()[-800:].strip()}"
-            for spec, handles in servers.items() for h in handles if not h.alive()]
+    return [f"{server_label(key)} (rc={h.proc.returncode}): {h.err_tail()[-800:].strip()}"
+            for key, handles in servers.items() for h in handles if not h.alive()]
 
 
 def match_status(outdir: Path, label_a: str, label_b: str, games: int, seed_base: int,
@@ -407,6 +422,8 @@ def _check_shared_inference_args(ap, args, sims_a: int, sims_b: int) -> None:
         if sims > 0 or temp is None:
             ap.error(f"--shared-inference serves the raw player only: side {side} "
                      f"needs sims 0 and --raw-temperature-{side}")
+    if (args.fp8_inference_a or args.fp8_inference_b) and not args.bf16_residual:
+        ap.error("--fp8-inference-a/-b run on the bf16 residual stream: with --bf16-residual")
 
 
 def _shutdown_servers(servers: dict) -> dict:
@@ -414,9 +431,9 @@ def _shutdown_servers(servers: dict) -> dict:
     spec may be served by several processes (--inference-servers), in
     which case its entry is the list of their stats."""
     stats = {}
-    for spec, handles in servers.items():
+    for key, handles in servers.items():
         per = [h.shutdown() for h in handles]
-        stats[spec] = per[0] if len(per) == 1 else per
+        stats[server_label(key)] = per[0] if len(per) == 1 else per
     servers.clear()
     return stats
 
@@ -682,6 +699,14 @@ def main(argv: List[str]) -> int:
                          "change the rounding, so it is for self-play generation, never a "
                          "strength match; the games record it (infer_fused_relu) and an outdir "
                          "never mixes it. Not with --compile-packed.")
+    for side in ("a", "b"):
+        ap.add_argument(f"--fp8-inference-{side}", action="store_true",
+                        help=f"Shared inference: side {side.upper()}'s servers run the packed trunk's "
+                             "linear layers on float8 e4m3 operands (wesnoth_ai/fp8_inference.py), on "
+                             "the bf16 residual stream (with --bf16-residual). A rounding change, for "
+                             "self-play generation and its play check only, never a strength match; the "
+                             f"games record it (infer_fp8_{side}) and an outdir never mixes it. With one "
+                             "side only, the two sides take separate servers.")
     ap.add_argument("--priors-only", action="store_true",
                     help="Shared inference: the servers compute and send the policy's priors "
                          "alone (no value, no belief, no optional head): what a raw player "
@@ -691,6 +716,9 @@ def main(argv: List[str]) -> int:
                          "under torch.profiler after --inference-profile-after, the summary in "
                          "its stats under 'profile' (tools/server_profile.py). Not for timing.")
     ap.add_argument("--inference-profile-after", type=int, default=200)
+    ap.add_argument("--inference-timeline-s", type=float, default=0.0,
+                    help="Shared inference: each server appends its counters every this many seconds "
+                         "to .inference_server_<tag>.timeline.jsonl (0: none).")
     ap.add_argument("--inference-servers", type=int, default=1,
                     help="Inference server PROCESSES per distinct checkpoint "
                          "(default 1). The eval path is bound by one server's "
@@ -737,6 +765,8 @@ def main(argv: List[str]) -> int:
                  "the workers' per-side policy cache are keyed by label)")
     if args.shared_inference:
         _check_shared_inference_args(ap, args, sims_a, sims_b)
+    elif args.fp8_inference_a or args.fp8_inference_b:
+        ap.error("--fp8-inference-a/-b are the inference servers' switches: with --shared-inference")
     if args.worker_games < 1:
         ap.error("--worker-games must be at least 1")
     if args.worker_games > 1 and not (args.persistent_workers and args.shared_inference):
@@ -992,7 +1022,9 @@ def main(argv: List[str]) -> int:
                     f"uses {_want}: numerics differ, refusing to "
                     f"mix. Use a fresh outdir.")
         for _fld, _want in (("infer_bf16_residual", args.bf16_residual),
-                            ("infer_fused_relu", args.fused_relu)):
+                            ("infer_fused_relu", args.fused_relu),
+                            ("infer_fp8_a", args.fp8_inference_a),
+                            ("infer_fp8_b", args.fp8_inference_b)):
             _want = bool(_want and args.shared_inference)
             if bool(prev.get(_fld, False)) != _want:
                 raise SystemExit(
@@ -1076,14 +1108,15 @@ def main(argv: List[str]) -> int:
     # files must agree with it.
     servers: dict = {}
     shared_bf16 = shared_packed = False
+    server_key_of = server_keys(args)
     if args.shared_inference:
         from tools.eval_inference_server import launch_inference_server
         max_batch = args.inference_max_batch or jobs
         try:
             n_per_spec = max(1, int(args.inference_servers))
-            for k, spec in enumerate(dict.fromkeys(
-                    s for s in (args.spec_a, args.spec_b) if s != "dummy")):
-                servers[spec] = []
+            for k, key in enumerate(dict.fromkeys(server_key_of.values())):
+                spec, fp8 = key
+                servers[key] = []
                 for j in range(n_per_spec):
                     handle = launch_inference_server(
                         spec, args.outdir, tag=f"{k}_{j}" if n_per_spec > 1 else str(k),
@@ -1095,9 +1128,10 @@ def main(argv: List[str]) -> int:
                         graphed=bool(args.graphed_serve), rust_stage=bool(args.rust_stage),
                         server_memory=bool(args.server_memory), priors_only=bool(args.priors_only),
                         bf16_residual=bool(args.bf16_residual), fused_relu=bool(args.fused_relu),
+                        fp8=fp8, timeline_s=float(args.inference_timeline_s),
                         profile_batches=int(args.inference_profile_batches),
                         profile_after=int(args.inference_profile_after))
-                    servers[spec].append(handle)
+                    servers[key].append(handle)
                     log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
                              handle.address, handle.info)
             infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]))
@@ -1108,7 +1142,7 @@ def main(argv: List[str]) -> int:
             shared_bf16, shared_packed = infos.pop()
             # The games record the checkpoint their server loaded; the
             # pre-scan and the timeout artifacts use the driver's read.
-            for spec, hs in servers.items():
+            for (spec, _fp8), hs in servers.items():
                 for h in hs:
                     if h.info.get("checkpoint_sha256") != _sha_of[spec]:
                         raise SystemExit(
@@ -1118,11 +1152,12 @@ def main(argv: List[str]) -> int:
                             f"reads. Re-run once it no longer changes.")
             # A served side plays in the server's basis (its
             # checkpoint's flag) unless the CLI flag forces the subset.
+            first_server = {spec: hs[0] for (spec, _fp8), hs in servers.items()}
             want_bases = _want_bases(
-                args, lambda spec: ("relset" if servers[spec][0].info.get("relevant_set")
+                args, lambda spec: ("relset" if first_server[spec].info.get("relevant_set")
                                     else "full"))
             want_terrains = _want_terrains(
-                args, lambda spec: ("set" if servers[spec][0].info.get("terrain_multi_hot")
+                args, lambda spec: ("set" if first_server[spec].info.get("terrain_multi_hot")
                                     else "class"))
             for f in sorted(args.outdir.glob("game_*.json")):
                 try:
@@ -1196,14 +1231,14 @@ def main(argv: List[str]) -> int:
             # the game records what ran (elo_eval_game checks it
             # against the server's hello).
             for side, spec in (("a", args.spec_a), ("b", args.spec_b)):
-                if spec in servers:
+                if spec != "dummy":
                     # Spread the games over the servers WITHOUT lining
                     # the assignment up with the side swap: slots
                     # alternate side_a, so `i % 2` would send every
                     # A-plays-side-1 game to one server and every
                     # A-plays-side-2 game to another, confounding any
                     # difference between the servers with the side.
-                    handles = servers[spec]
+                    handles = servers[server_key_of[side]]
                     cmd += [f"--inference-address-{side}",
                             handles[(i // 2) % len(handles)].address]
             cmd += ["--infer-bf16" if shared_bf16 else "--no-infer-bf16",
@@ -1274,6 +1309,8 @@ def main(argv: List[str]) -> int:
                                else _effective_precision(args, "infer_compile")),
              "infer_bf16_residual": bool(args.bf16_residual and servers),
              "infer_fused_relu": bool(args.fused_relu and servers),
+             "infer_fp8_a": bool(args.fp8_inference_a and servers),
+             "infer_fp8_b": bool(args.fp8_inference_b and servers),
              "shared_inference": bool(servers),
              "infer_packed_trunk": shared_packed,
              "combat_stream": ("shared" if args.shared_combat_stream

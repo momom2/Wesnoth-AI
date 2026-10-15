@@ -132,6 +132,48 @@ class ServeStats:
             "wall_s": round(time.monotonic() - self.started, 3),
         }
 
+    def counters(self) -> Dict:
+        """The running totals alone, read from another thread while the
+        serve thread adds to them (no container is iterated)."""
+        return {"wall_s": round(time.monotonic() - self.started, 3), "requests": self.requests,
+                "batches": self.batches, "leaves": self.leaves, "gpu_ms": round(self.gpu_ms, 1),
+                "idle_s": round(self.idle_s, 3), "infer_s": round(self.infer_s, 3)}
+
+
+class Timeline:
+    """A thread appending `stats.counters()` to `path` every `every_s`
+    seconds, one JSON line each, flushed: the server's rate over any part
+    of its run, read on the run (tools/box_probe.py reads a steady window
+    and stops the match without waiting for its end)."""
+
+    def __init__(self, stats: ServeStats, path, every_s: float):
+        self._stats, self._path, self._every = stats, path, float(every_s)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="serve-timeline", daemon=True)
+
+    def start(self) -> "Timeline":
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5.0)
+        self._write()
+
+    def _write(self) -> None:
+        import json
+        with open(self._path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(self._stats.counters()) + "\n")
+            f.flush()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._every):
+            try:
+                self._write()
+            except OSError as e:                     # the record stops, the serving goes on
+                log.warning("server timeline: %s", e)
+                return
+
 
 class _Ready:
     """The connections the serve thread reads, and a wait for the ones

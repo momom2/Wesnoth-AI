@@ -742,9 +742,11 @@ class CompiledPackedTrunk:
     cannot trigger a recompile."""
 
     def __init__(self, activation: Callable, eps: float, *, backend="inductor",
-                 mode: Optional[str] = None):
+                 mode: Optional[str] = None, loop: Optional[Callable] = None):
+        """`loop`: another layer loop of packed_trunk_layers' signature to
+        compile in its place (the fp8 loop, wesnoth_ai/fp8_inference.py)."""
         self.backend, self.mode = backend, mode
-        self._eager = make_packed_trunk_layers(activation, eps)
+        self._eager = loop if loop is not None else make_packed_trunk_layers(activation, eps)
         self._compiled = torch.compile(self._eager, dynamic=True, fullgraph=True,
                                        backend=backend, mode=mode)
         self._lock = threading.Lock()
