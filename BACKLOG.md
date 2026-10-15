@@ -137,6 +137,33 @@ $1.47 in all):
   step's Rust masks (one flag).
 - A source hash in the Rust wheel, checked by kernel_status: a phase
   number cannot see an API change made within a phase.
+- **Done 2026-10-15, branches awaiting the merge:**
+  - `feature/generation-speed-5` (ae6cdc6). Measured in
+    `training/metrics/generation_speed_r5_20261015/`; bases within 3.5%, on a
+    faster box than round 4's.
+    - Round 4's configuration: 2,285 decisions a second.
+    - Priors-only: 2,376. It is bit-identical, so it is for any self-play
+      generation.
+    - The compiled loop: 2,453.
+    - The bf16 residual stream: 2,314.
+    - Both together: 2,473 (repeat 2,407), about 17,400 games an hour. The
+      compiled loop and the bf16 stream change rounding, so they are for
+      generation only, never eval. Decisions per game stay 442-478 against
+      465.
+    - The profile: 12.5 ms of device time a batch.
+      - The trunk takes 9.5 ms: GEMM 5.1, elementwise 3.1, attention 1.4,
+        casts 1.0, layer norm 0.8.
+      - A clamp kernel and fp32 residual adds take about 2.4 ms between them.
+  - `feature/record-walk-rust` (5845966, phase 35). The core labels the
+    record's commands and encodes in place. Corpus pre-encoding fell from 5.40
+    to 1.42 ms a position and own candidates from 9-10.6 to 2-2.5 ms (laptop),
+    byte-identical. The wheel carries a source hash that kernel_status
+    checks.
+  - `feature/trainer-speed-4` after its merge (ecb8fe8): the measured
+    activation budget (`--activation-budget-gb auto`), expandable segments by
+    default, the calibration arm.
+- Left on speed, small: the move-then-attack candidates' view (about 16% of
+  candidates), the clamp and fp32 adds in the inference trunk.
 - Then the self-play training plan, the critical path.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper

@@ -1,0 +1,1 @@
+{"arm": "ref_p120x6", "repo": "/workspace/Wesnoth-AI", "jobs": 120, "flags": "--worker-games 6 --min-free-mb 300", "slots": 600, "wall_s": 129, "games": 600, "failed_games": 0, "rc": 0, "why": "ok"}

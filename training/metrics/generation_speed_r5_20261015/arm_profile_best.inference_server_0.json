@@ -1,0 +1,344 @@
+{
+ "spec": "/workspace/Wesnoth-AI/training/checkpoints/own1.pt",
+ "checkpoint_sha256": "70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80",
+ "device": "cuda",
+ "infer_bf16": true,
+ "packed_trunk": true,
+ "packed_embed": true,
+ "compile_packed": true,
+ "bf16_residual": true,
+ "graphed": false,
+ "rust_stage": true,
+ "server_memory": true,
+ "priors_only": false,
+ "relevant_set": true,
+ "fog_hides_enemy_villages": true,
+ "terrain_multi_hot": true,
+ "observation_parity": true,
+ "relevant_set_version": 2,
+ "memory_slots": 64,
+ "window_ms": 1.5,
+ "max_batch": 120,
+ "requests": 270229,
+ "batches": 6229,
+ "leaves": 270229,
+ "connections": 120,
+ "releases": 720,
+ "failed_batches": 0,
+ "failed_requests": 0,
+ "mean_batch": 43.38240488039814,
+ "batch_hist": {
+  "1": 464,
+  "2": 110,
+  "3": 53,
+  "4": 86,
+  "5": 81,
+  "6": 71,
+  "7": 44,
+  "8": 43,
+  "9": 37,
+  "10": 38,
+  "11": 34,
+  "12": 36,
+  "13": 29,
+  "14": 35,
+  "15": 27,
+  "16": 25,
+  "17": 28,
+  "18": 28,
+  "19": 25,
+  "20": 25,
+  "21": 20,
+  "22": 32,
+  "23": 16,
+  "24": 15,
+  "25": 12,
+  "26": 10,
+  "27": 10,
+  "28": 19,
+  "29": 21,
+  "30": 27,
+  "31": 28,
+  "32": 17,
+  "33": 34,
+  "34": 21,
+  "35": 22,
+  "36": 22,
+  "37": 13,
+  "38": 17,
+  "39": 17,
+  "40": 20,
+  "41": 26,
+  "42": 35,
+  "43": 66,
+  "44": 36,
+  "45": 49,
+  "46": 54,
+  "47": 61,
+  "48": 92,
+  "49": 136,
+  "50": 221,
+  "51": 189,
+  "52": 221,
+  "53": 269,
+  "54": 321,
+  "55": 297,
+  "56": 387,
+  "57": 441,
+  "58": 397,
+  "59": 281,
+  "60": 321,
+  "61": 192,
+  "62": 135,
+  "63": 94,
+  "64": 53,
+  "65": 45,
+  "66": 32,
+  "67": 16,
+  "68": 22,
+  "69": 9,
+  "70": 3,
+  "71": 5,
+  "72": 3,
+  "73": 2,
+  "74": 2,
+  "76": 1,
+  "77": 2,
+  "78": 1
+ },
+ "idle_s": 16.106,
+ "window_s": 14.623,
+ "recv_s": 11.948,
+ "infer_s": 81.569,
+ "reply_s": 4.667,
+ "gpu_ms": 75863.4,
+ "stage_s": {
+  "t_finish": 7.702,
+  "t_forward": 40.122,
+  "t_memory": 1.494,
+  "t_parse": 1.223,
+  "t_priors": 17.36,
+  "t_replies": 1.379,
+  "t_stage": 9.766
+ },
+ "wall_s": 117.197,
+ "fatal": null,
+ "memory_states": {
+  "held": 0,
+  "rows": 560,
+  "refused": 0,
+  "released": 1200
+ },
+ "profile": {
+  "batches": 40,
+  "wall_s": 0.822,
+  "kernels_per_batch": 333.3,
+  "device_ms_per_batch": 9.31,
+  "ms_per_batch": {
+   "gemm": 4.741,
+   "other": 1.671,
+   "attention": 1.327,
+   "elementwise": 0.563,
+   "index": 0.483,
+   "memcpy": 0.209,
+   "cast_copy": 0.156,
+   "scan_sort": 0.116,
+   "softmax": 0.036,
+   "reduce": 0.009
+  },
+  "share": {
+   "gemm": 0.5093,
+   "other": 0.1795,
+   "attention": 0.1425,
+   "elementwise": 0.0605,
+   "index": 0.0519,
+   "memcpy": 0.0225,
+   "cast_copy": 0.0167,
+   "scan_sort": 0.0124,
+   "softmax": 0.0038,
+   "reduce": 0.0009
+  },
+  "region_ms_per_batch": {
+   "trunk": 5.52,
+   "outside": 1.952,
+   "priors": 0.546,
+   "embed": 0.445,
+   "order": 0.245,
+   "heads": 0.163,
+   "memory_write": 0.161,
+   "h2d": 0.156,
+   "gather": 0.071,
+   "memory_gather": 0.021,
+   "forward": 0.017,
+   "memory_scatter": 0.013
+  },
+  "top_kernels": [
+   {
+    "name": "triton_",
+    "ms_per_batch": 1.671,
+    "per_batch": 24.0,
+    "class": "other"
+   },
+   {
+    "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_f2f_tn",
+    "ms_per_batch": 1.413,
+    "per_batch": 8.1,
+    "class": "gemm"
+   },
+   {
+    "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, 4, false, false, cutlass::bflo",
+    "ms_per_batch": 1.327,
+    "per_batch": 8.0,
+    "class": "attention"
+   },
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_relu_f2f_stages_32x1_tn",
+    "ms_per_batch": 0.943,
+    "per_batch": 7.1,
+    "class": "gemm"
+   },
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_tn",
+    "ms_per_batch": 0.716,
+    "per_batch": 7.8,
+    "class": "gemm"
+   },
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_tn",
+    "ms_per_batch": 0.521,
+    "per_batch": 3.1,
+    "class": "gemm"
+   },
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_128x64_sliced1x2_ldg8_f2f_tn",
+    "ms_per_batch": 0.49,
+    "per_batch": 4.0,
+    "class": "gemm"
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3> >(int,",
+    "ms_per_batch": 0.281,
+    "per_batch": 20.3,
+    "class": "elementwise"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2, 2, -2, true>(at::cuda::detai",
+    "ms_per_batch": 0.238,
+    "per_batch": 16.6,
+    "class": "index"
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s1681",
+    "ms_per_batch": 0.218,
+    "per_batch": 3.6,
+    "class": "gemm"
+   },
+   {
+    "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_relu_f2f_tn",
+    "ms_per_batch": 0.163,
+    "per_batch": 1.2,
+    "class": "gemm"
+   },
+   {
+    "name": "Memcpy HtoD (Pinned -> Device)",
+    "ms_per_batch": 0.156,
+    "per_batch": 2.0,
+    "class": "memcpy"
+   },
+   {
+    "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}:",
+    "ms_per_batch": 0.151,
+    "per_batch": 36.0,
+    "class": "cast_copy"
+   },
+   {
+    "name": "void at_cuda_detail::cub::DeviceScanKernel<at_cuda_detail::cub::DeviceScanPolicy<int, std::plus<int> >::Policy900, int c",
+    "ms_per_batch": 0.107,
+    "per_batch": 1.0,
+    "class": "scan_sort"
+   },
+   {
+    "name": "ampere_sgemm_128x64_tn",
+    "ms_per_batch": 0.1,
+    "per_batch": 2.1,
+    "class": "gemm"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_aligned16_contig<at::native::(anonymous namespace)::OpaqueTy",
+    "ms_per_batch": 0.081,
+    "per_batch": 3.0,
+    "class": "index"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<c10::BFloat16, long, unsigned int, 2, 2, -2, true>(at::cud",
+    "ms_per_batch": 0.079,
+    "per_batch": 4.0,
+    "class": "index"
+   },
+   {
+    "name": "ampere_sgemm_32x128_tn",
+    "ms_per_batch": 0.039,
+    "per_batch": 2.5,
+    "class": "gemm"
+   },
+   {
+    "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<bool, bool, boo",
+    "ms_per_batch": 0.035,
+    "per_batch": 4.0,
+    "class": "elementwise"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_contig<at::native::(anonymous namespace)::OpaqueType<1u>, un",
+    "ms_per_batch": 0.031,
+    "per_batch": 2.0,
+    "class": "index"
+   },
+   {
+    "name": "void (anonymous namespace)::softmax_warp_forward<float, float, float, 10, false, false>(float*, float const*, int, int, ",
+    "ms_per_batch": 0.029,
+    "per_batch": 2.9,
+    "class": "softmax"
+   },
+   {
+    "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native:",
+    "ms_per_batch": 0.028,
+    "per_batch": 6.0,
+    "class": "index"
+   },
+   {
+    "name": "Memcpy DtoD (Device -> Device)",
+    "ms_per_batch": 0.025,
+    "per_batch": 6.0,
+    "class": "memcpy"
+   },
+   {
+    "name": "Memcpy DtoH (Device -> Pinned)",
+    "ms_per_batch": 0.022,
+    "per_batch": 1.0,
+    "class": "memcpy"
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterat",
+    "ms_per_batch": 0.021,
+    "per_batch": 6.0,
+    "class": "elementwise"
+   }
+  ],
+  "idle_fraction": 0.547,
+  "batch_shape_mean": {
+   "leaves": 56.6,
+   "tokens": 23174.0,
+   "tokens_sq": 10246770.2,
+   "a_max": 74.8,
+   "h_max": 593.1,
+   "k_max": 64.0
+  },
+  "arithmetic": {
+   "gemm_gflop_per_batch": 656.09,
+   "attention_gflop_per_batch": 125.91,
+   "gflop_per_leaf": 13.804,
+   "gemm_tflops": 138.4,
+   "attention_tflops": 94.9
+  }
+ }
+}

@@ -1,0 +1,353 @@
+{
+ "spec": "/workspace/Wesnoth-AI/training/checkpoints/own1.pt",
+ "checkpoint_sha256": "70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80",
+ "device": "cuda",
+ "infer_bf16": true,
+ "packed_trunk": true,
+ "packed_embed": true,
+ "compile_packed": false,
+ "bf16_residual": false,
+ "graphed": false,
+ "rust_stage": true,
+ "server_memory": true,
+ "priors_only": false,
+ "relevant_set": true,
+ "fog_hides_enemy_villages": true,
+ "terrain_multi_hot": true,
+ "observation_parity": true,
+ "relevant_set_version": 2,
+ "memory_slots": 64,
+ "window_ms": 1.5,
+ "max_batch": 120,
+ "requests": 281339,
+ "batches": 7241,
+ "leaves": 281339,
+ "connections": 120,
+ "releases": 720,
+ "failed_batches": 0,
+ "failed_requests": 0,
+ "mean_batch": 38.853611379643695,
+ "batch_hist": {
+  "1": 1235,
+  "2": 99,
+  "3": 189,
+  "4": 80,
+  "5": 57,
+  "6": 62,
+  "7": 57,
+  "8": 51,
+  "9": 37,
+  "10": 52,
+  "11": 50,
+  "12": 36,
+  "13": 37,
+  "14": 34,
+  "15": 21,
+  "16": 22,
+  "17": 23,
+  "18": 31,
+  "19": 33,
+  "20": 32,
+  "21": 13,
+  "22": 10,
+  "23": 22,
+  "24": 18,
+  "25": 15,
+  "26": 14,
+  "27": 22,
+  "28": 12,
+  "29": 6,
+  "30": 10,
+  "31": 18,
+  "32": 34,
+  "33": 30,
+  "34": 26,
+  "35": 22,
+  "36": 17,
+  "37": 14,
+  "38": 15,
+  "39": 19,
+  "40": 12,
+  "41": 14,
+  "42": 31,
+  "43": 41,
+  "44": 46,
+  "45": 37,
+  "46": 35,
+  "47": 44,
+  "48": 77,
+  "49": 66,
+  "50": 93,
+  "51": 161,
+  "52": 216,
+  "53": 331,
+  "54": 370,
+  "55": 470,
+  "56": 436,
+  "57": 357,
+  "58": 435,
+  "59": 378,
+  "60": 366,
+  "61": 191,
+  "62": 120,
+  "63": 139,
+  "64": 54,
+  "65": 34,
+  "66": 30,
+  "67": 22,
+  "68": 13,
+  "69": 10,
+  "70": 9,
+  "71": 3,
+  "72": 4,
+  "73": 4,
+  "75": 1,
+  "76": 2,
+  "77": 3,
+  "78": 2,
+  "80": 1,
+  "81": 1,
+  "83": 1,
+  "89": 1,
+  "91": 1,
+  "94": 1,
+  "112": 1,
+  "113": 1,
+  "114": 1
+ },
+ "idle_s": 18.419,
+ "window_s": 15.995,
+ "recv_s": 11.434,
+ "infer_s": 107.362,
+ "reply_s": 4.878,
+ "gpu_ms": 101339.2,
+ "stage_s": {
+  "t_finish": 8.974,
+  "t_forward": 60.393,
+  "t_memory": 1.764,
+  "t_parse": 1.18,
+  "t_priors": 20.186,
+  "t_replies": 1.522,
+  "t_stage": 10.698
+ },
+ "wall_s": 146.874,
+ "fatal": null,
+ "memory_states": {
+  "held": 0,
+  "rows": 482,
+  "refused": 0,
+  "released": 1200
+ },
+ "profile": {
+  "batches": 40,
+  "wall_s": 0.92,
+  "kernels_per_batch": 434.1,
+  "device_ms_per_batch": 12.529,
+  "ms_per_batch": {
+   "gemm": 5.066,
+   "elementwise": 3.087,
+   "attention": 1.436,
+   "cast_copy": 1.015,
+   "layer_norm": 0.763,
+   "index": 0.577,
+   "memcpy": 0.339,
+   "scan_sort": 0.192,
+   "softmax": 0.044,
+   "reduce": 0.009
+  },
+  "share": {
+   "gemm": 0.4044,
+   "elementwise": 0.2464,
+   "attention": 0.1147,
+   "cast_copy": 0.081,
+   "layer_norm": 0.0609,
+   "index": 0.046,
+   "memcpy": 0.0271,
+   "scan_sort": 0.0153,
+   "softmax": 0.0035,
+   "reduce": 0.0007
+  },
+  "region_ms_per_batch": {
+   "trunk": 9.47,
+   "priors": 0.733,
+   "outside": 0.56,
+   "embed": 0.504,
+   "heads": 0.364,
+   "h2d": 0.28,
+   "order": 0.272,
+   "memory_write": 0.168,
+   "gather": 0.116,
+   "forward": 0.027,
+   "memory_gather": 0.021,
+   "memory_scatter": 0.013
+  },
+  "top_kernels": [
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_relu_f2f_stages_32x1_tn",
+    "ms_per_batch": 3.691,
+    "per_batch": 25.0,
+    "class": "gemm"
+   },
+   {
+    "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, 4, false, false, cutlass::bflo",
+    "ms_per_batch": 1.436,
+    "per_batch": 8.0,
+    "class": "attention"
+   },
+   {
+    "name": "void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3>, TrivialOff",
+    "ms_per_batch": 1.22,
+    "per_batch": 16.0,
+    "class": "elementwise"
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorItera",
+    "ms_per_batch": 1.206,
+    "per_batch": 12.0,
+    "class": "elementwise"
+   },
+   {
+    "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}:",
+    "ms_per_batch": 1.011,
+    "per_batch": 121.0,
+    "class": "cast_copy"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float>(int, float, float const*, float const",
+    "ms_per_batch": 0.763,
+    "per_batch": 16.0,
+    "class": "layer_norm"
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s1681",
+    "ms_per_batch": 0.494,
+    "per_batch": 6.0,
+    "class": "gemm"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2, 2, -2, true>(at::cuda::detai",
+    "ms_per_batch": 0.383,
+    "per_batch": 20.5,
+    "class": "index"
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3> >(int,",
+    "ms_per_batch": 0.331,
+    "per_batch": 20.2,
+    "class": "elementwise"
+   },
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_relu_f2f_tn",
+    "ms_per_batch": 0.31,
+    "per_batch": 1.6,
+    "class": "gemm"
+   },
+   {
+    "name": "Memcpy HtoD (Pinned -> Device)",
+    "ms_per_batch": 0.28,
+    "per_batch": 2.0,
+    "class": "memcpy"
+   },
+   {
+    "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_relu_f2f_tn",
+    "ms_per_batch": 0.212,
+    "per_batch": 1.4,
+    "class": "gemm"
+   },
+   {
+    "name": "void at_cuda_detail::cub::DeviceScanKernel<at_cuda_detail::cub::DeviceScanPolicy<int, std::plus<int> >::Policy900, int c",
+    "ms_per_batch": 0.181,
+    "per_batch": 1.0,
+    "class": "scan_sort"
+   },
+   {
+    "name": "ampere_sgemm_128x64_tn",
+    "ms_per_batch": 0.112,
+    "per_batch": 2.4,
+    "class": "gemm"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_aligned16_contig<at::native::(anonymous namespace)::OpaqueTy",
+    "ms_per_batch": 0.097,
+    "per_batch": 3.0,
+    "class": "index"
+   },
+   {
+    "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<bool, bool, boo",
+    "ms_per_batch": 0.046,
+    "per_batch": 4.0,
+    "class": "elementwise"
+   },
+   {
+    "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_contig<at::native::(anonymous namespace)::OpaqueType<1u>, un",
+    "ms_per_batch": 0.042,
+    "per_batch": 2.0,
+    "class": "index"
+   },
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_tn",
+    "ms_per_batch": 0.041,
+    "per_batch": 0.6,
+    "class": "gemm"
+   },
+   {
+    "name": "void (anonymous namespace)::softmax_warp_forward<float, float, float, 10, false, false>(float*, float const*, int, int, ",
+    "ms_per_batch": 0.038,
+    "per_batch": 2.9,
+    "class": "softmax"
+   },
+   {
+    "name": "ampere_sgemm_32x128_tn",
+    "ms_per_batch": 0.035,
+    "per_batch": 2.2,
+    "class": "gemm"
+   },
+   {
+    "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_tn",
+    "ms_per_batch": 0.035,
+    "per_batch": 0.6,
+    "class": "gemm"
+   },
+   {
+    "name": "Memcpy DtoD (Device -> Device)",
+    "ms_per_batch": 0.032,
+    "per_batch": 6.0,
+    "class": "memcpy"
+   },
+   {
+    "name": "void at::native::vectorized_elementwise_kernel<4, at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::",
+    "ms_per_batch": 0.031,
+    "per_batch": 5.0,
+    "class": "elementwise"
+   },
+   {
+    "name": "void cutlass::Kernel2<cutlass_75_tensorop_bf16_s1688gemm_bf16_64x64_tn_align1>(cutlass_75_tensorop_bf16_s1688gemm_bf16_6",
+    "ms_per_batch": 0.031,
+    "per_batch": 1.4,
+    "class": "gemm"
+   },
+   {
+    "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native:",
+    "ms_per_batch": 0.028,
+    "per_batch": 6.0,
+    "class": "index"
+   }
+  ],
+  "idle_fraction": 0.4553,
+  "batch_shape_mean": {
+   "leaves": 57.6,
+   "tokens": 24564.3,
+   "tokens_sq": 11195142.7,
+   "a_max": 98.2,
+   "h_max": 622.1,
+   "k_max": 64.0
+  },
+  "arithmetic": {
+   "gemm_gflop_per_batch": 695.45,
+   "attention_gflop_per_batch": 137.57,
+   "gflop_per_leaf": 14.45,
+   "gemm_tflops": 137.3,
+   "attention_tflops": 95.8
+  }
+ }
+}
