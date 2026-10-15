@@ -84,7 +84,7 @@ def test_dir_estimands_reports_every_travelling_field():
     assert est == {"basis_a": "relset", "basis_b": "relset",
                    "terrain_a": "class", "terrain_b": "class",
                    "mcts_batch": 1, "infer_bf16": True,
-                   "infer_compile": False, "shared_inference": True,
+                   "infer_compile": False, "infer_bf16_residual": False, "shared_inference": True,
                    "infer_packed_trunk": True,
                    "combat_stream": "per_game",
                    "observation_epoch": 3,
