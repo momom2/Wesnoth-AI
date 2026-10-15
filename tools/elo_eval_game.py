@@ -883,8 +883,10 @@ def main(argv) -> int:
         # never mixes compiled and eager games.
         _hello = _shared_client(args.inference_address_a or args.inference_address_b).hello
         inf_compile = bool(_hello.get("compile_packed", False))
-        # The server's bf16 residual stream, a numerics path of its own.
+        # The server's bf16 residual stream and fused ReLU, numerics paths
+        # of their own.
         inf_bf16_residual = bool(_hello.get("bf16_residual", False))
+        inf_fused_relu = bool(_hello.get("fused_relu", False))
         inf_packed = bool(args.infer_packed_trunk)
         logging.getLogger("elo_eval_game").warning(
             "shared inference: bf16=%s packed_trunk=%s compile_packed=%s",
@@ -912,7 +914,7 @@ def main(argv) -> int:
         inf_compile = (_cuda if args.infer_compile is None
                        else args.infer_compile)
         inf_packed = False           # the per-process forward is single-sample
-        inf_bf16_residual = False    # a server's switch
+        inf_bf16_residual = inf_fused_relu = False    # a server's switches
         if (inf_bf16 or inf_compile) and not _cuda:
             raise SystemExit(
                 "--infer-bf16/--infer-compile require a cuda device: on "
@@ -966,12 +968,13 @@ def main(argv) -> int:
                     f"run uses {inf_bf16}: precision changes "
                     f"the logits, refusing to mix. Use a fresh "
                     f"outdir.")
-            if bool(prev.get("infer_bf16_residual", False)) != inf_bf16_residual:
-                raise SystemExit(
-                    f"{out_path.name} was played with infer_bf16_residual="
-                    f"{bool(prev.get('infer_bf16_residual', False))} but this run uses "
-                    f"{inf_bf16_residual}: the residual stream's rounding changes the games, "
-                    f"refusing to mix. Use a fresh outdir.")
+            for _fld, _now in (("infer_bf16_residual", inf_bf16_residual),
+                               ("infer_fused_relu", inf_fused_relu)):
+                if bool(prev.get(_fld, False)) != _now:
+                    raise SystemExit(
+                        f"{out_path.name} was played with {_fld}={bool(prev.get(_fld, False))} "
+                        f"but this run uses {_now}: the trunk's rounding changes the games, "
+                        f"refusing to mix. Use a fresh outdir.")
             if bool(prev.get("infer_compile", False)) != inf_compile:
                 raise SystemExit(
                     f"{out_path.name} was played with infer_compile="
@@ -1233,9 +1236,11 @@ def main(argv) -> int:
         # float ops.
         "infer_bf16": inf_bf16,
         "infer_compile": inf_compile,
-        # The packed trunk's residual stream in bf16 (the server's
-        # --bf16-residual): another rounding, another game.
+        # The packed trunk's residual stream in bf16 and its fused ReLU
+        # (the server's --bf16-residual, --fused-relu): another rounding,
+        # another game.
         "infer_bf16_residual": inf_bf16_residual,
+        "infer_fused_relu": inf_fused_relu,
         # Shared inference (tools/eval_inference_server.py): batched
         # forwards on a server process; the packed varlen trunk is
         # its kernel choice. Both False for the per-process path.

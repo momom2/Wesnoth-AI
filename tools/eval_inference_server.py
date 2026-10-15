@@ -303,7 +303,7 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             graphed: bool = False, rust_stage: bool = True,
                             server_memory: bool = True, priors_only: bool = False,
                             profile_batches: int = 0, profile_after: int = 0,
-                            bf16_residual: bool = False) -> InferenceServerHandle:
+                            bf16_residual: bool = False, fused_relu: bool = False) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -327,6 +327,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
         cmd.append("--priors-only")
     if bf16_residual:
         cmd.append("--bf16-residual")
+    if fused_relu:
+        cmd.append("--fused-relu")
     if profile_batches:
         cmd += ["--profile-batches", str(profile_batches), "--profile-after", str(profile_after)]
     log_path = outdir / f".inference_server_{tag}.log"
@@ -477,7 +479,8 @@ def _model_infer_fn(server, *, rust_stage: bool = True, memory=None) -> Callable
 def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, bf16: bool,
                  packed: bool, packed_embed: bool, compiled: bool, graphed: bool,
                  rust_stage: bool = True, server_memory: bool = False,
-                 priors_only: bool = False, bf16_residual: bool = False) -> Dict:
+                 priors_only: bool = False, bf16_residual: bool = False,
+                 fused_relu: bool = False) -> Dict:
     """What a server tells each connection: the checkpoint it serves, its
     precision path, the structure a worker's encoder must build and the
     vocab."""
@@ -485,9 +488,10 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
         "device": device, "infer_bf16": bf16,
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
-        # The packed trunk's residual stream in bf16 (model.infer_bf16_residual):
-        # a numerics path of its own, recorded by every game.
-        "bf16_residual": bool(bf16_residual),
+        # The packed trunk's residual stream in bf16 and its fused ReLU
+        # (model.infer_bf16_residual, infer_fused_relu): numerics paths of
+        # their own, recorded by every game.
+        "bf16_residual": bool(bf16_residual), "fused_relu": bool(fused_relu),
         "graphed": graphed,
         # The host work in Rust (tools/serve_stage.py), and whether the
         # server keeps each game-side's memory state between decisions.
@@ -544,6 +548,13 @@ def main(argv: List[str]) -> int:
                          "about half the trunk's elementwise traffic, a rounding change, so for "
                          "self-play generation only; the games record it. With the packed trunk "
                          "(cuda + bf16) only.")
+    ap.add_argument("--fused-relu", action="store_true",
+                    help="The packed trunk's first feed-forward linear, its bias and the ReLU in one "
+                         "cuBLASLt call (model.infer_fused_relu): the ReLU's pass over the "
+                         "feed-forward rows gone. cuBLASLt may take another algorithm for that "
+                         "epilogue, so for self-play generation only; the games record it. With "
+                         "the packed trunk (cuda + bf16) only, not with --compile-packed (the "
+                         "compiled loop fuses the ReLU itself).")
     ap.add_argument("--priors-only", action="store_true",
                     help="Compute and send the policy's priors alone: no value head, no belief "
                          "head, no optional head (a raw player at self-play generation reads "
@@ -591,12 +602,19 @@ def main(argv: List[str]) -> int:
         check_packed_trunk_supported(model.encoder)
         model.infer_packed_trunk = True
         packed = True
-    bf16_residual = False
-    if args.bf16_residual:
+    if args.graphed and (args.bf16_residual or args.fused_relu):
+        raise SystemExit("--graphed runs its own layer loop (the float32 stream, the plain ReLU): "
+                         "not with --bf16-residual or --fused-relu")
+    if args.fused_relu and args.compile_packed:
+        raise SystemExit("--fused-relu is an eager call; --compile-packed fuses the ReLU itself")
+    bf16_residual = fused_relu = False
+    if args.bf16_residual or args.fused_relu:
         if not packed:
-            log.warning("--bf16-residual needs the packed trunk (cuda + bf16); serving the float32 stream")
+            log.warning("--bf16-residual and --fused-relu need the packed trunk (cuda + bf16); "
+                        "serving the float32 stream and the plain ReLU")
         else:
-            model.infer_bf16_residual = bf16_residual = True
+            model.infer_bf16_residual = bf16_residual = bool(args.bf16_residual)
+            model.infer_fused_relu = fused_relu = bool(args.fused_relu)
     compiled = False
     if args.compile_packed:
         if not packed:
@@ -644,7 +662,8 @@ def main(argv: List[str]) -> int:
                          packed=packed, packed_embed=packed_embed, compiled=compiled,
                          graphed=graphed is not None and graphed.disabled is None,
                          rust_stage=rust_stage, server_memory=memory is not None,
-                         priors_only=bool(args.priors_only), bf16_residual=bf16_residual)
+                         priors_only=bool(args.priors_only), bf16_residual=bf16_residual,
+                         fused_relu=fused_relu)
     listener = Listener()
     infer_fn = _model_infer_fn(server, rust_stage=rust_stage, memory=memory)
     profiler = None

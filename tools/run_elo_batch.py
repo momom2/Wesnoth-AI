@@ -676,6 +676,12 @@ def main(argv: List[str]) -> int:
                          "rounding, so it is for self-play generation, never a strength match; "
                          "the games record it (infer_bf16_residual) and an outdir never mixes "
                          "it.")
+    ap.add_argument("--fused-relu", action="store_true",
+                    help="Shared inference: the servers run the packed trunk's first "
+                         "feed-forward linear, its bias and the ReLU in one cuBLASLt call. It may "
+                         "change the rounding, so it is for self-play generation, never a "
+                         "strength match; the games record it (infer_fused_relu) and an outdir "
+                         "never mixes it. Not with --compile-packed.")
     ap.add_argument("--priors-only", action="store_true",
                     help="Shared inference: the servers compute and send the policy's priors "
                          "alone (no value, no belief, no optional head): what a raw player "
@@ -985,11 +991,13 @@ def main(argv: List[str]) -> int:
                     f"{bool(prev.get(_fld, False))} but this run "
                     f"uses {_want}: numerics differ, refusing to "
                     f"mix. Use a fresh outdir.")
-        if bool(prev.get("infer_bf16_residual", False)) != bool(args.bf16_residual and args.shared_inference):
-            raise SystemExit(
-                f"{f.name} was played with infer_bf16_residual="
-                f"{bool(prev.get('infer_bf16_residual', False))} but this run uses "
-                f"{bool(args.bf16_residual)}: numerics differ, refusing to mix. Use a fresh outdir.")
+        for _fld, _want in (("infer_bf16_residual", args.bf16_residual),
+                            ("infer_fused_relu", args.fused_relu)):
+            _want = bool(_want and args.shared_inference)
+            if bool(prev.get(_fld, False)) != _want:
+                raise SystemExit(
+                    f"{f.name} was played with {_fld}={bool(prev.get(_fld, False))} but this run "
+                    f"uses {_want}: numerics differ, refusing to mix. Use a fresh outdir.")
         # Shared-inference forwards are batched (and packed on cuda):
         # different numerics from the per-process single-sample
         # forward. Absent = per-process. The packed-trunk field is
@@ -1086,7 +1094,7 @@ def main(argv: List[str]) -> int:
                         compile_packed=bool(args.compile_packed),
                         graphed=bool(args.graphed_serve), rust_stage=bool(args.rust_stage),
                         server_memory=bool(args.server_memory), priors_only=bool(args.priors_only),
-                        bf16_residual=bool(args.bf16_residual),
+                        bf16_residual=bool(args.bf16_residual), fused_relu=bool(args.fused_relu),
                         profile_batches=int(args.inference_profile_batches),
                         profile_after=int(args.inference_profile_after))
                     servers[spec].append(handle)
@@ -1265,6 +1273,7 @@ def main(argv: List[str]) -> int:
              "infer_compile": (bool(args.compile_packed) if servers
                                else _effective_precision(args, "infer_compile")),
              "infer_bf16_residual": bool(args.bf16_residual and servers),
+             "infer_fused_relu": bool(args.fused_relu and servers),
              "shared_inference": bool(servers),
              "infer_packed_trunk": shared_packed,
              "combat_stream": ("shared" if args.shared_combat_stream

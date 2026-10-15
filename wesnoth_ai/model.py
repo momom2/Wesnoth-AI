@@ -38,7 +38,7 @@ obs8's, parameter for parameter.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
@@ -54,7 +54,6 @@ from wesnoth_ai.packed_trunk import (
     CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, WindowHeadIndex,
     batch_counts,
     build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, host_to_device,
-    make_packed_trunk_layers,
     packed_trunk, padded_gather_index,
 )
 from wesnoth_ai.material import MATERIAL_SCALE
@@ -175,19 +174,24 @@ class WesnothModel(nn.Module):
         # they do otherwise, so their outputs are the same bits. Ignored in
         # training mode.
         self.infer_priors_only = False
-        # The packed trunk's residual stream in bf16 under a bf16 autocast
-        # (inference only; the server's --bf16-residual): the layer loop over
-        # a bf16 copy of the weights, layer norms included, without the
-        # autocast's float32 stream and its two casts per layer. A rounding
-        # change: the outputs differ from the float32 stream's in their
-        # last bits, so a game played under it is another game. Ignored in
-        # training mode and without a bf16 autocast.
+        # The trainer's trunk modes at inference (wesnoth_ai/trunk_modes.py),
+        # under a bf16 autocast, over a bf16 copy of the weights
+        # (_weight_copy): the residual stream in bf16, layer norms included,
+        # without the autocast's float32 stream and its two casts per layer
+        # (the server's --bf16-residual); the first feed-forward linear, its
+        # bias and the ReLU in one cuBLASLt call (--fused-relu). Rounding
+        # changes: the bf16 stream's outputs differ from the float32
+        # stream's in their last bits, and the fused ReLU's on CUDA wherever
+        # cuBLASLt takes another algorithm for the RELU_BIAS epilogue, so a
+        # game played under either is another game. Ignored in training
+        # mode and without a bf16 autocast.
         self.infer_bf16_residual = False
-        self._weights_version = 0        # bumped by load_state_dict; the copy follows it
-        self._packed_weights: Optional[PackedTrunkWeights] = None
-        self._bf16_weights: Optional[PackedTrunkWeights] = None
-        self._bf16_layers = None
+        self.infer_fused_relu = False
+        self._weights_version = 0        # bumped by load_state_dict; the copies follow it
+        # The frozen weight copies by (linear dtype, norm dtype).
+        self._weight_copies: Dict[Tuple[torch.dtype, torch.dtype], PackedTrunkWeights] = {}
         self._packed_compile: Optional[CompiledPackedTrunk] = None
+        self._compiled_weights: Optional[PackedTrunkWeights] = None   # the copy the compiled loop last read
         # The packed trunk's training variants (wesnoth_ai/trunk_modes.py),
         # set by the sequence trainer through set_trunk_mode; None runs
         # packed_trunk as before.
@@ -764,12 +768,7 @@ class WesnothModel(nn.Module):
             raise ValueError("the compiled packed trunk (infer_compile_packed) serves inference only: its "
                              "attention op has no backward and its weights are a frozen copy")
         with region("trunk"):
-            if self._bf16_residual_applies(x):
-                x = self._run_bf16_residual_trunk(x, index)
-            elif self.infer_compile_packed:
-                x = self._run_compiled_packed_trunk(x, index)
-            else:
-                x = self._packed_layers(x, index)
+            x = self._inference_layers(x, index)
         with region("gather"):
             actor_ctx = x.index_select(0, index.actor).view(B, A_max, d)
             hex_ctx = x.index_select(0, index.hex).view(B, H_max, d)
@@ -832,6 +831,17 @@ class WesnothModel(nn.Module):
             return packed_trunk(self.encoder, x, index)
         return run_trunk(self.encoder, x, index, self.trunk_mode, self._trunk_block)
 
+    def _inference_layers(self, x: torch.Tensor, index) -> torch.Tensor:
+        """The packed trunk's layers on x [total, d] for _packed_trunk_heads:
+        the inference trunk modes where they apply, the compiled loop with
+        infer_compile_packed, _packed_layers otherwise."""
+        mode = self._inference_trunk_mode(x)
+        if mode is not None:
+            return self._run_inference_trunk_mode(x, index, mode)
+        if self.infer_compile_packed:
+            return self._run_compiled_packed_trunk(x, index)
+        return self._packed_layers(x, index)
+
     def window_heads(self, x: torch.Tensor, index: WindowHeadIndex) -> "PaddedOutput":
         """The heads over a window's trunk outputs `x` (each time step's
         `packed_step_trunk` output, concatenated): every row of every step
@@ -868,7 +878,8 @@ class WesnothModel(nn.Module):
         layer = self.encoder.layers[0]
         self._packed_compile = CompiledPackedTrunk(layer.activation, layer.norm1.eps,
                                                    backend=backend, mode=mode)
-        self._packed_weights = None
+        self._weight_copies.clear()
+        self._compiled_weights = None
         self.infer_compile_packed = True
         return self._packed_compile
 
@@ -910,55 +921,64 @@ class WesnothModel(nn.Module):
         if self._packed_compile is None:
             return {"active": False}
         stats = self._packed_compile.stats()
-        stats["weights_dtype"] = (str(self._packed_weights.dtype).replace("torch.", "")
-                                  if self._packed_weights is not None else None)
+        w = self._compiled_weights
+        stats["weights_dtype"] = str(w.dtype).replace("torch.", "") if w is not None else None
         return stats
 
-    def _bf16_residual_applies(self, x: torch.Tensor) -> bool:
+    def _inference_trunk_mode(self, x: torch.Tensor) -> Optional[TrunkMode]:
+        """infer_bf16_residual and infer_fused_relu as a trainer's trunk mode,
+        or None where they do not apply: both off, training mode, or no
+        bf16 autocast."""
         dev = x.device.type
-        return (self.infer_bf16_residual and not self.training and torch.is_autocast_enabled(dev)
-                and torch.get_autocast_dtype(dev) == torch.bfloat16)
+        if self.training or not (self.infer_bf16_residual or self.infer_fused_relu):
+            return None
+        if not (torch.is_autocast_enabled(dev) and torch.get_autocast_dtype(dev) == torch.bfloat16):
+            return None
+        return TrunkMode(bf16_residual=self.infer_bf16_residual, fused_relu=self.infer_fused_relu)
 
-    def _run_bf16_residual_trunk(self, x: torch.Tensor, index) -> torch.Tensor:
-        """The layer loop with its residual stream in bf16
-        (`infer_bf16_residual`): the compiled loop when it is on, the eager
-        one otherwise, over a bf16 copy of every weight, the autocast off
-        (it would run the layer norms in float32). Returns bf16 rows; the
-        heads read them under the caller's autocast, the memory's write in
-        float32."""
-        w = self._bf16_weights
-        if w is None or w.device != x.device:
-            w = self._bf16_weights = PackedTrunkWeights.build(
-                self.encoder, torch.bfloat16, x.device, self._weights_version, norm_dtype=torch.bfloat16)
-        elif w.version != self._weights_version:
-            w.refresh(self.encoder, self._weights_version)
-        xb = x.to(torch.bfloat16)
+    def _run_inference_trunk_mode(self, x: torch.Tensor, index, mode: TrunkMode) -> torch.Tensor:
+        """`mode` over the bf16 weight copy, its layer norms in the residual
+        stream's dtype: run_trunk eager, or the compiled loop with
+        infer_compile_packed for the bf16 stream (inductor fuses the ReLU
+        itself, so the fused ReLU is not compiled). Returns rows in the
+        residual stream's dtype; the heads read them under the caller's
+        autocast, the memory's write in float32."""
+        stream = torch.bfloat16 if mode.bf16_residual else torch.float32
+        w = self._weight_copy(torch.bfloat16, stream, x.device)
+        if not self.infer_compile_packed:
+            return run_trunk(self.encoder, x, index, mode, weights=w)
+        if mode.fused_relu:
+            raise ValueError("infer_fused_relu is an eager call: the compiled loop fuses the ReLU itself")
         with torch.autocast(x.device.type, enabled=False):
-            if self.infer_compile_packed:
-                if self._packed_compile is None:
-                    self.configure_packed_compile()
-                return self._packed_compile.run(xb, index, w)
-            if self._bf16_layers is None:
-                layer = self.encoder.layers[0]
-                self._bf16_layers = make_packed_trunk_layers(layer.activation, layer.norm1.eps)
-            return self._bf16_layers(xb, index.cu_seqlens, index.max_len, w.layers, w.final_norm)
+            return self._run_compiled(x.to(torch.bfloat16), index, w)
 
     def _run_compiled_packed_trunk(self, x, index):
         """The compiled loop over the native-dtype weight copy: the
         autocast dtype where one is active (bf16 on the server), the
-        input's otherwise (fp32 on CPU). The copy is (re)built for a new
-        dtype or device and refreshed when the weight version moved."""
+        input's otherwise (fp32 on CPU), the layer norms in float32."""
         dev = x.device.type
         dtype = torch.get_autocast_dtype(dev) if torch.is_autocast_enabled(dev) else x.dtype
+        return self._run_compiled(x, index, self._weight_copy(dtype, torch.float32, x.device))
+
+    def _run_compiled(self, x: torch.Tensor, index, w: PackedTrunkWeights) -> torch.Tensor:
         if self._packed_compile is None:
             self.configure_packed_compile()
-        w = self._packed_weights
-        if w is None or w.dtype != dtype or w.device != x.device:
-            w = self._packed_weights = PackedTrunkWeights.build(
-                self.encoder, dtype, x.device, self._weights_version)
+        self._compiled_weights = w
+        return self._packed_compile.run(x, index, w)
+
+    def _weight_copy(self, dtype: torch.dtype, norm_dtype: torch.dtype,
+                     device: torch.device) -> PackedTrunkWeights:
+        """The frozen copy of the trunk's weights, linears in `dtype` and
+        layer norms in `norm_dtype`: built on first use and for a new
+        device, refreshed in place when the weight version moved."""
+        key = (dtype, norm_dtype)
+        w = self._weight_copies.get(key)
+        if w is None or w.device != device:
+            w = self._weight_copies[key] = PackedTrunkWeights.build(
+                self.encoder, dtype, device, self._weights_version, norm_dtype=norm_dtype)
         elif w.version != self._weights_version:
             w.refresh(self.encoder, self._weights_version)
-        return self._packed_compile.run(x, index, w)
+        return w
 
     def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
                unit_ctx, material: Optional[torch.Tensor] = None,

@@ -241,3 +241,45 @@ def test_the_bf16_residual_stream_stays_near_the_float32_stream(compiled):
     assert torch.allclose(reference.memory_padded, slim.memory_padded, atol=0.02)
     model.infer_compile_packed = False
     assert torch.equal(forward(False).actor_logits, reference.actor_logits)
+
+
+@pytest.mark.parametrize("bf16_residual,fused_relu", [(True, False), (False, True), (True, True)],
+                         ids=["bf16 residual", "fused relu", "both"])
+def test_the_inference_trunk_modes_are_the_trainers_to_the_bit(monkeypatch, bf16_residual, fused_relu):
+    """Under a bf16 autocast (here the CPU's), the server's switches
+    (model.infer_bf16_residual, infer_fused_relu) over the bf16 weight copy
+    give the trainer's trunk mode (set_trunk_mode: the live parameters cast
+    at each use) to the bit, the memory's new states included; the fused
+    ReLU is one _addmm_activation call a layer."""
+    from wesnoth_ai.model import WesnothModel
+    from wesnoth_ai.trunk_modes import TrunkMode
+    calls = []
+    real = torch._addmm_activation
+    monkeypatch.setattr(torch, "_addmm_activation", lambda *a, **kw: calls.append(1) or real(*a, **kw))
+    torch.manual_seed(9)
+    model = WesnothModel(d_model=D, num_layers=2, num_heads=2, d_ff=64, observation_parity=True,
+                         memory_slots=8).eval()
+    model.infer_packed_trunk = True
+    sizes = SHAPES[0]
+    extras = model._warmup_extras(len(sizes), CPU)
+    streams = _streams(sizes, seed=32)
+
+    def forward():
+        calls.clear()
+        with torch.no_grad(), torch.autocast("cpu", dtype=torch.bfloat16):
+            out = model.forward_streams(*streams, packed=True, **extras).float32()
+        return out, len(calls)
+    model.set_trunk_mode(TrunkMode(bf16_residual=bf16_residual, fused_relu=fused_relu))
+    trainer, trainer_calls = forward()
+    model.set_trunk_mode(None)
+    model.infer_bf16_residual, model.infer_fused_relu = bf16_residual, fused_relu
+    served, served_calls = forward()
+    assert served_calls == trainer_calls == (2 if fused_relu else 0)
+    for x, y in zip(trainer.samples(), served.samples()):
+        for f in FIELDS:
+            assert torch.equal(getattr(x, f), getattr(y, f)), f
+    assert torch.equal(trainer.memory_padded, served.memory_padded)
+    model.infer_bf16_residual = model.infer_fused_relu = False
+    plain, _ = forward()
+    if bf16_residual:          # the float32 stream is other arithmetic: the equality is not vacuous
+        assert not torch.equal(plain.actor_logits, served.actor_logits)

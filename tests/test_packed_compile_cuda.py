@@ -201,6 +201,27 @@ def test_compiled_bf16_serves_the_parity_memory_model():
     assert model.packed_compile_stats()["recompiles"] == 0
 
 
+def test_the_fused_relu_on_cuda(compiled_model):
+    """The packed trunk's first feed-forward linear, bias and ReLU in one
+    cuBLASLt call (model.infer_fused_relu) against the plain ReLU under
+    autocast: within the compiled loop's parity bound (printed: whether
+    cuBLASLt took the same algorithm for the RELU_BIAS epilogue, i.e. the
+    outputs equal to the bit)."""
+    model = compiled_model
+    streams = _streams(_sizes(8, seed=10, homogeneous=False))
+    reference = _forward(model, streams, packed=True, compiled=False)
+    model.infer_fused_relu = True
+    try:
+        fused = _forward(model, streams, packed=True, compiled=False)
+    finally:
+        model.infer_fused_relu = False
+    errs = _errors(fused, reference)
+    _print_errors("fused relu vs plain relu", errs)
+    print("fused relu bit-equal:", all(e[0] == 0.0 for e in errs.values()))
+    for f in FIELDS:
+        assert errs[f][1] < 0.05, (f, errs[f])
+
+
 @pytest.mark.parametrize("compiled", [False, True])
 def test_the_bf16_residual_stream_on_cuda(compiled_model, compiled):
     """The packed trunk with its residual stream in bf16, eager or compiled,

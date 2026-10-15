@@ -36,20 +36,29 @@ the weights are cast to it at each use as the autocast casts them, and
   attention, the norms and the residual sums are untouched. Not with the
   fused ReLU, whose epilogue belongs to a bfloat16 product; inside the
   compiled block, inductor compiles the quantization around the products.
+
+The inference server runs the bf16 residual and the fused ReLU in eval mode
+too (WesnothModel.infer_bf16_residual, infer_fused_relu): `run_trunk` then
+reads the frozen weight copy the server keeps in the compute dtype
+(packed_trunk.PackedTrunkWeights) in place of the encoder's parameters. The
+copy holds the values each use's cast would produce, so every cast is a
+no-op and the arithmetic is the trainer's to the bit.
 """
 from __future__ import annotations
 
 import logging
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from wesnoth_ai.fp8_linear import GEMM_MULTIPLE, fp8_linear, fp8_problem
-from wesnoth_ai.packed_trunk import PackedIndex, _dynamo_cache_entries, packed_attention
+from wesnoth_ai.packed_trunk import (
+    LayerWeights, PackedIndex, PackedTrunkWeights, _dynamo_cache_entries, packed_attention,
+)
 
 log = logging.getLogger(__name__)
 
@@ -181,6 +190,13 @@ def _block_weights(layer: nn.TransformerEncoderLayer) -> List[Optional[torch.Ten
             layer.linear2.weight, layer.linear2.bias, layer.norm2.weight, layer.norm2.bias]
 
 
+def _layer_weights(layer: nn.TransformerEncoderLayer) -> LayerWeights:
+    """A layer's parameters in packed_trunk.LayerWeights' order: the
+    in-projection's weight and bias, then layer_block's arguments."""
+    mha = layer.self_attn
+    return (mha.in_proj_weight, mha.in_proj_bias, *_block_weights(layer))
+
+
 class CompiledBlock:
     """`torch.compile(layer_block, fullgraph=True)` with the token count
     marked dynamic on every call: one graph for every step's token count
@@ -222,13 +238,18 @@ class CompiledBlock:
                 "cache_entries": _dynamo_cache_entries(layer_block)}
 
 
-def _attention(mha: nn.MultiheadAttention, hc: torch.Tensor, index: PackedIndex, fp8: bool = False) -> torch.Tensor:
+def _attention(in_w: torch.Tensor, in_b: Optional[torch.Tensor], heads: int, hc: torch.Tensor,
+               index: PackedIndex, fp8: bool = False) -> torch.Tensor:
     """The in-projection and the packed attention of `hc` (compute dtype),
     as packed_trunk._self_attention with the weights cast to hc's dtype;
-    [total, E]. `fp8`: the in-projection's product in fp8."""
+    [total, E]. The in-projection's weight [3E, E] and bias [3E] as the
+    layer holds them, or [3, heads, head_dim, E] and [3, heads, head_dim]
+    as the weight copy does. `fp8`: the in-projection's product in fp8."""
     total, E = hc.shape
-    qkv = _linear(hc, mha.in_proj_weight.to(hc.dtype), _cast(mha.in_proj_bias, hc.dtype), fp8)
-    q, k, v = qkv.view(total, 3, mha.num_heads, E // mha.num_heads).unbind(1)
+    w = in_w if in_w.dim() == 2 else in_w.reshape(3 * E, E)
+    b = in_b if in_b is None or in_b.dim() == 1 else in_b.reshape(3 * E)
+    qkv = _linear(hc, w.to(hc.dtype), _cast(b, hc.dtype), fp8)
+    q, k, v = qkv.view(total, 3, heads, E // heads).unbind(1)
     return packed_attention(q, k, v, index).reshape(total, E)
 
 
@@ -246,27 +267,31 @@ def trunk_dtypes(x: torch.Tensor, mode: TrunkMode):
 
 
 def run_trunk(encoder: nn.TransformerEncoder, x: torch.Tensor, index: PackedIndex, mode: TrunkMode,
-              compiled: Optional[CompiledBlock] = None) -> torch.Tensor:
+              compiled: Optional[CompiledBlock] = None,
+              weights: Optional[PackedTrunkWeights] = None) -> torch.Tensor:
     """packed_trunk.packed_trunk under `mode` (module docstring), x the
-    packed tokens [total, d]. The output is the residual stream's dtype
-    under an autocast (the heads cast to the compute dtype anyway), x's
-    dtype otherwise."""
+    packed tokens [total, d]. `weights`: a frozen copy of the encoder's
+    weights read in place of its parameters (the inference server's; no
+    gradient reaches the parameters through it). The output is the
+    residual stream's dtype under an autocast (the heads cast to the
+    compute dtype anyway), x's dtype otherwise."""
     if mode.compile_backend is not None and compiled is None:
         raise ValueError("a compiled trunk mode needs its CompiledBlock")
     device = x.device.type
     under_autocast = torch.is_autocast_enabled(device)
     compute, residual = trunk_dtypes(x, mode)
     block = compiled if mode.compile_backend is not None else None
+    layers: Sequence[LayerWeights] = (weights.layers if weights is not None
+                                      else [_layer_weights(layer) for layer in encoder.layers])
     with torch.autocast(device, enabled=False):
         h = x.to(residual)
-        for layer in encoder.layers:
-            ctx = _attention(layer.self_attn, h.to(compute), index, mode.fp8)
-            weights = _block_weights(layer)
+        for layer, (in_w, in_b, *block_weights) in zip(encoder.layers, layers):
+            ctx = _attention(in_w, in_b, layer.self_attn.num_heads, h.to(compute), index, mode.fp8)
             if block is not None:
-                h = block(h, ctx, *weights, eps=layer.norm1.eps, fused_relu=False, fp8=mode.fp8)
+                h = block(h, ctx, *block_weights, eps=layer.norm1.eps, fused_relu=False, fp8=mode.fp8)
             else:
-                h = layer_block(h, ctx, *weights, layer.norm1.eps, mode.fused_relu, mode.fp8)
+                h = layer_block(h, ctx, *block_weights, layer.norm1.eps, mode.fused_relu, mode.fp8)
         if encoder.norm is not None:
-            norm = encoder.norm
-            h = F.layer_norm(h, (h.shape[-1],), _cast(norm.weight, residual), _cast(norm.bias, residual), norm.eps)
+            norm_w, norm_b = weights.final_norm if weights is not None else (encoder.norm.weight, encoder.norm.bias)
+            h = F.layer_norm(h, (h.shape[-1],), _cast(norm_w, residual), _cast(norm_b, residual), encoder.norm.eps)
     return h if under_autocast else h.to(x.dtype)
