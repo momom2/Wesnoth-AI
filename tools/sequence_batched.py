@@ -58,12 +58,21 @@ class WindowForward:
 class WindowForwards:
     """The two forwards (a part of `sequence_train.Trainer`)."""
 
+    def _planned_kept(self, window) -> int:
+        """The time steps whose activations the window keeps; none in a
+        forward-only window."""
+        return self._kept_steps(window) if torch.is_grad_enabled() else 0
+
     def _autocast(self):
         return torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None)
 
     def _keep(self, fw: WindowForward, t: int, n_steps: int, fn, inputs, tokens: int):
         """`fn(*inputs)` with its activations kept when step `t` is among the
-        window's last `fw.n_kept`, else recomputed in the backward pass."""
+        window's last `fw.n_kept`, else recomputed in the backward pass; run
+        as it is in a forward-only window (`--train-every`), which keeps
+        nothing."""
+        if not torch.is_grad_enabled():
+            return fn(*inputs)
         if t >= n_steps - fw.n_kept:
             before = self.clock.memory_allocated()
             outputs = fn(*inputs)
@@ -74,7 +83,7 @@ class WindowForwards:
 
     def _stepped_forward(self, window, router) -> WindowForward:
         """Each time step's forward and losses in turn."""
-        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=self._kept_steps(window))
+        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=self._planned_kept(window))
         for t, steps in enumerate(window):
             mems = router.batch(steps)
             x = self.inputs.stage(steps)
@@ -104,7 +113,7 @@ class WindowForwards:
     def _batched_forward(self, window, router) -> WindowForward:
         """The window staged and embedded at once, the trunk and the memory
         step by step, the heads and the losses at once (module docstring)."""
-        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=self._kept_steps(window))
+        fw = WindowForward(total=torch.zeros((), device=self.device), n_kept=self._planned_kept(window))
         rows = [s for steps in window for s in steps]
         x = self.inputs.stage(rows)
         sizes, sightings = x.staged.sizes, x.staged.sighting_counts

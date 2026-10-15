@@ -1,0 +1,1 @@
+{"arm": "compile_bf16res_p120x6", "repo": "/workspace/Wesnoth-AI", "jobs": 120, "flags": "--worker-games 6 --min-free-mb 300 --compile-packed --bf16-residual", "slots": 600, "wall_s": 124, "games": 600, "failed_games": 0, "rc": 0, "why": "ok"}

@@ -1,0 +1,114 @@
+{
+ "reference": "s32",
+ "spread": 0.03,
+ "valid": null,
+ "aa": [],
+ "arms": {
+  "s32": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --streams 32 --own-streams 16",
+   "windows": 20,
+   "positions_per_second": 1402.18,
+   "window_seconds_median": 0.3571,
+   "peak_gb_max": 19.779,
+   "kept_steps_mean": 15.65,
+   "preload": {
+    "records": 108,
+    "seconds": 1.4
+   },
+   "warmup": {
+    "seconds": [
+     1.004,
+     0.3638,
+     0.3499,
+     0.34,
+     0.3409
+    ],
+    "trunk_block": null
+   },
+   "profile": {
+    "windows": 1,
+    "wall_seconds": 0.712,
+    "kernels": 12271,
+    "ms_per_window": {
+     "attention": 50.26,
+     "elementwise_norm": 125.13,
+     "gemm": 132.46,
+     "memcpy": 9.95
+    },
+    "share": {
+     "attention": 0.1582,
+     "elementwise_norm": 0.3937,
+     "gemm": 0.4168,
+     "memcpy": 0.0313
+    },
+    "idle_fraction": 0.5535
+   },
+   "after": {
+    "trunk_block": null
+   },
+   "first_window_extra_seconds": 0.65
+  },
+  "s64": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --streams 64 --own-streams 32",
+   "windows": 3,
+   "positions_per_second": 1185.14,
+   "window_seconds_median": 0.8847,
+   "peak_gb_max": 22.443,
+   "kept_steps_mean": 8.0,
+   "against_reference": {
+    "rounds": 3,
+    "window_time_ratio_median": 2.5569,
+    "window_time_ratio_ci95": [
+     2.3242,
+     2.5934
+    ],
+    "speedup_median": 0.3911,
+    "speedup_ci95": [
+     0.3856,
+     0.4303
+    ],
+    "same_positions": false
+   },
+   "preload": {
+    "records": 206,
+    "seconds": 2.7
+   },
+   "warmup": {
+    "seconds": [
+     0.444,
+     0.7874,
+     0.9104,
+     0.9795,
+     0.9589
+    ],
+    "trunk_block": null
+   },
+   "error": {
+    "i": 3,
+    "stage": "window",
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 672.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 651.81 MiB is free. Including non-PyTorch memory, this process has 22.87 GiB memory in use. Of the allocated memory 20.67 GiB is allocated by PyTorch, and 1.74 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/"
+   },
+   "first_window_extra_seconds": -0.44
+  },
+  "s128": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --streams 128 --own-streams 64",
+   "windows": 0,
+   "positions_per_second": null,
+   "window_seconds_median": null,
+   "peak_gb_max": null,
+   "kept_steps_mean": null,
+   "against_reference": null,
+   "preload": {
+    "records": 395,
+    "seconds": 5.2
+   },
+   "error": {
+    "i": null,
+    "stage": "window",
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 792.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 269.81 MiB is free. Including non-PyTorch memory, this process has 23.24 GiB memory in use. Of the allocated memory 22.41 GiB is allocated by PyTorch, and 384.04 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/doc"
+   }
+  }
+ }
+}

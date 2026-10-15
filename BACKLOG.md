@@ -90,8 +90,91 @@ $1.47 in all):
   the reference decode, 3,700-3,790 games an hour for main, 8,150-8,210
   with 120 games in flight (six per worker process, play unchanged); the
   inference server's batch cost is nearly flat in its size, so depth is
-  the lever. A million games now cost about $110 to generate and train
-  on, against about $250.
+  the lever. Generation plus one training pass over every position of a
+  million games: about 228 box-hours at round 2's rates (122 + 106), about
+  $110; the record walk and pre-encoding add about 12-18 box-hours, and the
+  own-trajectory pipeline's teacher targets about 330 more (2,854 s for
+  1.1 million positions in round 2), a stage to fold into generation.
+  **Generation round 3 measured 2026-10-14** (`feature/generation-speed-3`,
+  `training/metrics/generation_speed_r3_20261014/`): the single-thread
+  serve loop and the raw-bytes wire, 1,487-1,497 decisions a second and
+  11,020-11,134 games an hour at 120 games in flight (main 496-526 and
+  3,730-3,810): 2.9x. The server's host stages still take about 11.7 of a
+  batch's 18.5 ms (decode 2.3, encode 3.1, priors 3.6, finish 1.7, wire
+  1.0, the forward 6.4); the graphed path loses at depth (its encode 20 ms).
+  **Round 4 measured 2026-10-14** (`feature/generation-speed-4`,
+  `training/metrics/generation_speed_r4_20261014/`): the server's host work
+  in Rust, each game's memory kept on the server, the view refreshed in
+  place: 1,612-1,625 decisions a second and 11,934-12,067 games an hour
+  (round 3's code 1,435 on the same box, main 558-597): the GPU is busy 78%
+  of the server's wall, so generation is now device-bound; eager inference
+  runs at about 26 TFLOP/s against the trainer's 124. **The trainer's
+  configuration B is accepted** (docs/trainer_acceptance_prereg_20261014.md
+  "Measured"): packed, kept, columns, batched, compiled; fp8 failed its
+  gradient gate; 64 streams and half the windows are not adopted.
+  **B calibrated 2026-10-15** (`feature/trainer-speed-4` ecb8fe8,
+  `training/metrics/trainer_calibration_20261015/`): with the activation
+  budget sized from the device's memory in the run, B trains 1,477 positions
+  a second through the pass's six largest windows, peak 21.3 GB reserved of
+  24, 1.8 GB of headroom. A real run's flags: `--packed-trunk --columns
+  --window-batched --compiled-trunk --activation-budget-gb auto`. The stream
+  sweep: 32 streams 1,402, 64 streams 1,185, 128 out of memory.
+
+**Pending on speed (2026-10-14, user: remember in the backlog):**
+- Merge four branches into main, with the user's approval (merges into main
+  are the user's): `feature/generation-speed-3` and `-4`,
+  `feature/trainer-speed-3` and `-4`. CI is green on each tip, and anything
+  that changes the numbers is behind a flag that defaults off.
+- Generation is device-bound: eager inference runs at about 26 TFLOP/s
+  against the trainer's 124. Next arm: the server's compiled packed trunk
+  for inference. It changes rounding, so it is for self-play generation
+  only; eval matches keep the eager server.
+- Calibrate configuration B's activation budget with the compiled block, to
+  reach its full rate (about 1,550 positions a second) without running out
+  of memory. 19.18 GiB ran out; 8 GiB ran at 794.
+- The record walk in Rust: a label builder in the core and an in-place
+  encode, worth about 40-50% of pre-encoding. Also the own-trajectory
+  step's Rust masks (one flag).
+- A source hash in the Rust wheel, checked by kernel_status: a phase
+  number cannot see an API change made within a phase.
+- **Done 2026-10-15, branches awaiting the merge:**
+  - `feature/generation-speed-5` (ae6cdc6). Measured in
+    `training/metrics/generation_speed_r5_20261015/`; bases within 3.5%, on a
+    faster box than round 4's.
+    - Round 4's configuration: 2,285 decisions a second.
+    - Priors-only: 2,376. It is bit-identical, so it is for any self-play
+      generation.
+    - The compiled loop: 2,453.
+    - The bf16 residual stream: 2,314.
+    - Both together: 2,473 (repeat 2,407), about 17,400 games an hour. The
+      compiled loop and the bf16 stream change rounding, so they are for
+      generation only, never eval. Decisions per game stay 442-478 against
+      465.
+    - The profile: 12.5 ms of device time a batch.
+      - The trunk takes 9.5 ms: GEMM 5.1, elementwise 3.1, attention 1.4,
+        casts 1.0, layer norm 0.8.
+      - A clamp kernel and fp32 residual adds take about 2.4 ms between them.
+  - `feature/record-walk-rust` (5845966, phase 35). The core labels the
+    record's commands and encodes in place. Corpus pre-encoding fell from 5.40
+    to 1.42 ms a position and own candidates from 9-10.6 to 2-2.5 ms (laptop),
+    byte-identical. The wheel carries a source hash that kernel_status
+    checks.
+  - `feature/trainer-speed-4` after its merge (ecb8fe8): the measured
+    activation budget (`--activation-budget-gb auto`), expandable segments by
+    default, the calibration arm.
+- Left on speed, small: the move-then-attack candidates' view (about 16% of
+  candidates), the clamp and fp32 adds in the inference trunk.
+- Then the self-play training plan, the critical path.
+- For the training plan's design (user, 2026-10-15): a curvature-aware
+  optimizer as a candidate measurement. The 2014 saddle-free Newton paper
+  (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a
+  step, and our failures were the training signal, not optimization
+  stalls. Its modern descendants might cut the positions a self-play run
+  needs: Shampoo (AlgoPerf winner), Muon (about half AdamW's compute, by its
+  authors' fits) and, in RL, ACKTR's K-FAC natural gradient (2-3x sample
+  efficiency). The cheap test is an imitation pass at equal positions,
+  AdamW against Muon or Shampoo, on held-out loss (about $1). Choose it with
+  the RL algorithm, since a trust region already uses curvature.
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic

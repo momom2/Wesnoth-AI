@@ -50,9 +50,10 @@ class TrainerTelemetry:
                              sequence_signal_group, SIGNAL_GROUPS, self.opt)
 
     def _step_row(self, lr: float, loss: float, norm: float, grads: Dict[str, float], applied: bool,
-                  sums: Dict, timing: Optional[Dict] = None) -> None:
+                  sums: Dict, timing: Optional[Dict] = None, forward_only: bool = False) -> None:
         """The step's row in <out>.steps.jsonl (module docstring), with the
-        window's timing (tools/sequence_timing.py)."""
+        window's timing (tools/sequence_timing.py); a window that ran the
+        forward only (`--train-every`) is marked so, its gradient none."""
         row = {"step": self.state["steps"], "positions": self.state["positions"], "lr": lr, "loss": loss,
                "policy": sums["policy"] / max(1, sums["policy_n"]),
                "value": sums["value"] / max(1, sums["value_n"]),
@@ -60,6 +61,8 @@ class TrainerTelemetry:
                "grad_norm": norm, "grad": grads, "applied": applied}
         if "own" in sums:
             row["own"] = sums["own"] / max(1, sums["own_n"])
+        if forward_only:
+            row["forward_only"] = True
         row.update(timing or {})
         with open(self.args.out.with_suffix(".steps.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")

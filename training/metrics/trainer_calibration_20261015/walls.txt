@@ -1,0 +1,14 @@
+2026-10-15T09:54:03Z tests rc=0 ok 55 s
+2026-10-15T09:54:46Z cuda-tests rc=1 failed 43 s
+2026-10-15T09:54:56Z init rc=0 ok 6 s
+2026-10-15T09:55:07Z raw rc=0 ok 11 s
+2026-10-15T09:55:40Z corpus rc=0 ok 33 s
+2026-10-15T09:55:40Z corpus-check rc=0 ok 0 s
+2026-10-15T10:00:34Z preencode rc=0 ok 294 s
+2026-10-15T10:03:35Z own-restore rc=0 ok 181 s
+2026-10-15T10:04:44Z columns sequences rc=0 ok 68 s
+2026-10-15T10:04:44Z columns own_sequences_r2 rc=0 ok 0 s
+2026-10-15T10:04:54Z gpu check rc=0 ok 2 s
+2026-10-15T10:05:58Z memory rc=0 ok 64 s
+2026-10-15T10:06:05Z gpu check rc=0 ok 2 s
+2026-10-15T10:06:40Z sweep rc=0 ok 35 s

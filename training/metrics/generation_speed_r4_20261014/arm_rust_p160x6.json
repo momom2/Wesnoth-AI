@@ -1,0 +1,1 @@
+{"arm": "rust_p160x6", "repo": "/workspace/Wesnoth-AI", "jobs": 160, "flags": "--worker-games 6 --min-free-mb 300 --rust-stage --no-server-memory --view-refresh full", "slots": 800, "wall_s": 253, "games": 800, "failed_games": 0, "rc": 0, "why": "ok"}

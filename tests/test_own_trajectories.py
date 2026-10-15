@@ -366,6 +366,7 @@ def corpus(tmp_path_factory):
                                            fresh_vocab, record_path, write_record)
     from tools.replay_extract import extract_replay
     from wesnoth_ai.constants import OBSERVATION_EPOCH
+    from wesnoth_ai.rules_version import rules_version_of
     tmp = tmp_path_factory.mktemp("own_corpus")
     dataset, sequences = tmp / "corpus", tmp / "sequences"
     dataset.mkdir()
@@ -386,7 +387,7 @@ def corpus(tmp_path_factory):
     (dataset / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     phase = int(wesnoth_core.__phase__)
     (sequences / MANIFEST_NAME).write_text(json.dumps({
-        "fingerprint": encoding_fingerprint(*vocab, 5, phase), "encoding": ENCODING,
+        "fingerprint": encoding_fingerprint(*vocab, 5, rules_version_of(phase)), "encoding": ENCODING,
         "observation_epoch": int(OBSERVATION_EPOCH), "core_phase": phase, "unit_type_to_id": vocab[0],
         "faction_to_id": vocab[1], "games": games}), encoding="utf-8")
     return SimpleNamespace(dataset=dataset, sequences=sequences, vocab=vocab, manifest=json.loads(

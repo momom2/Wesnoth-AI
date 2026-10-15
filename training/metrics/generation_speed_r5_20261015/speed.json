@@ -1,0 +1,2518 @@
+{
+ "arms": {
+  "base_1": {
+   "jobs": 20,
+   "flags": "",
+   "repo": "/workspace/base_repo",
+   "rc": 0,
+   "slots": 400,
+   "games": 400,
+   "failed_games": 0,
+   "wall_s": 224,
+   "games_per_hour": 6428.6,
+   "server": {
+    "servers": 1,
+    "requests": 184517,
+    "batches": 17654,
+    "leaves": 184517,
+    "mean_batch": 10.4518522714399,
+    "infer_s": 166.467,
+    "window_s": 31.321,
+    "recv_s": 5.723,
+    "idle_s": 15.001,
+    "reply_s": 4.235,
+    "gpu_ms": 160502.2,
+    "stage_s": {
+     "t_finish": 0.489,
+     "t_forward": 109.166,
+     "t_memory": 2.712,
+     "t_parse": 1.551,
+     "t_priors": 36.836,
+     "t_replies": 1.402,
+     "t_stage": 12.811
+    },
+    "wall_s": 217.375,
+    "graphed": [
+     false
+    ],
+    "connections": 20,
+    "releases": 420,
+    "max_batch": 20,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 128,
+      "refused": 0,
+      "released": 800
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     null
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     null
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 848.84,
+   "decisions_per_game": 461.3,
+   "infer_ms_per_batch": 9.429,
+   "device_ms_per_batch": 9.092,
+   "host_ms_per_batch": {
+    "t_finish": 0.028,
+    "t_forward": 6.184,
+    "t_memory": 0.154,
+    "t_parse": 0.088,
+    "t_priors": 2.087,
+    "t_replies": 0.079,
+    "t_stage": 0.726
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 184517,
+    "decision_wall_ms": 19.4007,
+    "decision_cpu_ms": 2.3204,
+    "own_wall_ms": 2.2335,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0466,
+     "bounce": 0.0044,
+     "decide": 18.3361,
+     "encode_raw": 0.5803,
+     "game_record": 0.0155,
+     "game_setup": 0.0713,
+     "light_encoded": 0.0063,
+     "masks": 0.0172,
+     "pack": 0.0857,
+     "round_trip": 17.1672,
+     "select": 0.1473,
+     "snapshot": 0.0013,
+     "step": 0.9786,
+     "unwire": 0.1562,
+     "vocab_check": 0.0106
+    }
+   }
+  },
+  "base_2": {
+   "jobs": 20,
+   "flags": "",
+   "repo": "/workspace/base_repo",
+   "rc": 0,
+   "slots": 400,
+   "games": 400,
+   "failed_games": 0,
+   "wall_s": 237,
+   "games_per_hour": 6075.9,
+   "server": {
+    "servers": 1,
+    "requests": 189585,
+    "batches": 19236,
+    "leaves": 189585,
+    "mean_batch": 9.855739238927011,
+    "infer_s": 176.709,
+    "window_s": 34.501,
+    "recv_s": 5.739,
+    "idle_s": 15.905,
+    "reply_s": 3.367,
+    "gpu_ms": 170276.6,
+    "stage_s": {
+     "t_finish": 0.478,
+     "t_forward": 115.12,
+     "t_memory": 2.893,
+     "t_parse": 1.627,
+     "t_priors": 39.134,
+     "t_replies": 1.751,
+     "t_stage": 14.225
+    },
+    "wall_s": 230.823,
+    "graphed": [
+     false
+    ],
+    "connections": 20,
+    "releases": 420,
+    "max_batch": 20,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 128,
+      "refused": 0,
+      "released": 800
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     null
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     null
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 821.34,
+   "decisions_per_game": 474.0,
+   "infer_ms_per_batch": 9.186,
+   "device_ms_per_batch": 8.852,
+   "host_ms_per_batch": {
+    "t_finish": 0.025,
+    "t_forward": 5.985,
+    "t_memory": 0.15,
+    "t_parse": 0.085,
+    "t_priors": 2.034,
+    "t_replies": 0.091,
+    "t_stage": 0.739
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 189585,
+    "decision_wall_ms": 19.5113,
+    "decision_cpu_ms": 2.4371,
+    "own_wall_ms": 2.34,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0495,
+     "bounce": 0.0046,
+     "decide": 18.3917,
+     "encode_raw": 0.6122,
+     "game_record": 0.0165,
+     "game_setup": 0.0765,
+     "light_encoded": 0.0066,
+     "masks": 0.0177,
+     "pack": 0.0887,
+     "round_trip": 17.1713,
+     "select": 0.1491,
+     "snapshot": 0.0013,
+     "step": 1.0291,
+     "unwire": 0.1621,
+     "vocab_check": 0.0116
+    }
+   }
+  },
+  "base_3": {
+   "jobs": 20,
+   "flags": "",
+   "repo": "/workspace/base_repo",
+   "rc": 0,
+   "slots": 400,
+   "games": 400,
+   "failed_games": 0,
+   "wall_s": 222,
+   "games_per_hour": 6486.5,
+   "server": {
+    "servers": 1,
+    "requests": 189806,
+    "batches": 18892,
+    "leaves": 189806,
+    "mean_batch": 10.046898157950455,
+    "infer_s": 163.868,
+    "window_s": 33.205,
+    "recv_s": 5.382,
+    "idle_s": 15.592,
+    "reply_s": 3.018,
+    "gpu_ms": 158202.8,
+    "stage_s": {
+     "t_finish": 0.493,
+     "t_forward": 107.086,
+     "t_memory": 2.69,
+     "t_parse": 1.468,
+     "t_priors": 36.873,
+     "t_replies": 1.399,
+     "t_stage": 12.46
+    },
+    "wall_s": 215.994,
+    "graphed": [
+     false
+    ],
+    "connections": 20,
+    "releases": 420,
+    "max_batch": 20,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 136,
+      "refused": 0,
+      "released": 800
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     null
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     null
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 878.76,
+   "decisions_per_game": 474.5,
+   "infer_ms_per_batch": 8.674,
+   "device_ms_per_batch": 8.374,
+   "host_ms_per_batch": {
+    "t_finish": 0.026,
+    "t_forward": 5.668,
+    "t_memory": 0.142,
+    "t_parse": 0.078,
+    "t_priors": 1.952,
+    "t_replies": 0.074,
+    "t_stage": 0.66
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 189806,
+    "decision_wall_ms": 18.1075,
+    "decision_cpu_ms": 2.2758,
+    "own_wall_ms": 2.1814,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0467,
+     "bounce": 0.0042,
+     "decide": 17.0651,
+     "encode_raw": 0.5758,
+     "game_record": 0.0163,
+     "game_setup": 0.0787,
+     "light_encoded": 0.0062,
+     "masks": 0.0168,
+     "pack": 0.0827,
+     "round_trip": 15.9261,
+     "select": 0.1413,
+     "snapshot": 0.0013,
+     "step": 0.9574,
+     "unwire": 0.1476,
+     "vocab_check": 0.0107
+    }
+   }
+  },
+  "best_repeat": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --compile-packed --bf16-residual",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 123,
+   "games_per_hour": 17561.0,
+   "server": {
+    "servers": 1,
+    "requests": 268571,
+    "batches": 5993,
+    "leaves": 268571,
+    "mean_batch": 44.814116469214085,
+    "infer_s": 75.277,
+    "window_s": 13.782,
+    "recv_s": 11.599,
+    "idle_s": 17.344,
+    "reply_s": 4.898,
+    "gpu_ms": 70815.8,
+    "stage_s": {
+     "t_finish": 11.942,
+     "t_forward": 34.788,
+     "t_memory": 1.279,
+     "t_parse": 1.292,
+     "t_priors": 14.068,
+     "t_replies": 1.682,
+     "t_stage": 9.293
+    },
+    "wall_s": 111.575,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 512,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     true
+    ],
+    "bf16_residual": [
+     true
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2407.09,
+   "decisions_per_game": 447.6,
+   "infer_ms_per_batch": 12.561,
+   "device_ms_per_batch": 11.816,
+   "host_ms_per_batch": {
+    "t_finish": 1.993,
+    "t_forward": 5.805,
+    "t_memory": 0.213,
+    "t_parse": 0.216,
+    "t_priors": 2.347,
+    "t_replies": 0.281,
+    "t_stage": 1.551
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 268571,
+    "decision_wall_ms": 34.6695,
+    "decision_cpu_ms": 3.1248,
+    "own_wall_ms": 5.8326,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0533,
+     "bounce": 0.006,
+     "decide": 31.9211,
+     "encode_raw": 1.2526,
+     "game_record": 0.0311,
+     "game_setup": 0.3727,
+     "light_encoded": 0.0064,
+     "masks": 0.0172,
+     "pack": 0.0914,
+     "round_trip": 28.8369,
+     "select": 0.9565,
+     "snapshot": 0.0013,
+     "step": 2.6452,
+     "unwire": 0.1721,
+     "vocab_check": 0.0136
+    }
+   }
+  },
+  "bf16res_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --bf16-residual",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 121,
+   "games_per_hour": 17851.2,
+   "server": {
+    "servers": 1,
+    "requests": 265440,
+    "batches": 6444,
+    "leaves": 265440,
+    "mean_batch": 41.191806331471135,
+    "infer_s": 76.669,
+    "window_s": 14.101,
+    "recv_s": 10.782,
+    "idle_s": 19.125,
+    "reply_s": 4.595,
+    "gpu_ms": 72938.4,
+    "stage_s": {
+     "t_finish": 12.551,
+     "t_forward": 36.692,
+     "t_memory": 1.357,
+     "t_parse": 1.141,
+     "t_priors": 14.512,
+     "t_replies": 1.26,
+     "t_stage": 8.385
+    },
+    "wall_s": 114.72,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 772,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     true
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2313.81,
+   "decisions_per_game": 442.4,
+   "infer_ms_per_batch": 11.898,
+   "device_ms_per_batch": 11.319,
+   "host_ms_per_batch": {
+    "t_finish": 1.948,
+    "t_forward": 5.694,
+    "t_memory": 0.211,
+    "t_parse": 0.177,
+    "t_priors": 2.252,
+    "t_replies": 0.196,
+    "t_stage": 1.301
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 265440,
+    "decision_wall_ms": 33.5141,
+    "decision_cpu_ms": 3.0737,
+    "own_wall_ms": 5.765,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.053,
+     "bounce": 0.0058,
+     "decide": 30.8128,
+     "encode_raw": 1.2515,
+     "game_record": 0.0305,
+     "game_setup": 0.3468,
+     "light_encoded": 0.0066,
+     "masks": 0.0177,
+     "pack": 0.0917,
+     "round_trip": 27.7491,
+     "select": 0.9394,
+     "snapshot": 0.0014,
+     "step": 2.6003,
+     "unwire": 0.1729,
+     "vocab_check": 0.0132
+    }
+   }
+  },
+  "bf16res_p160x6": {
+   "jobs": 160,
+   "flags": "--worker-games 6 --min-free-mb 300 --bf16-residual",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 800,
+   "games": 800,
+   "failed_games": 0,
+   "wall_s": 155,
+   "games_per_hour": 18580.6,
+   "server": {
+    "servers": 1,
+    "requests": 364605,
+    "batches": 6797,
+    "leaves": 364605,
+    "mean_batch": 53.64204796233633,
+    "infer_s": 100.419,
+    "window_s": 18.989,
+    "recv_s": 15.472,
+    "idle_s": 22.793,
+    "reply_s": 6.634,
+    "gpu_ms": 95521.9,
+    "stage_s": {
+     "t_finish": 29.215,
+     "t_forward": 38.369,
+     "t_memory": 1.508,
+     "t_parse": 1.377,
+     "t_priors": 15.231,
+     "t_replies": 2.019,
+     "t_stage": 11.808
+    },
+    "wall_s": 149.113,
+    "graphed": [
+     false
+    ],
+    "connections": 161,
+    "releases": 961,
+    "max_batch": 160,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 1236,
+      "refused": 0,
+      "released": 1600
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     true
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2445.16,
+   "decisions_per_game": 455.8,
+   "infer_ms_per_batch": 14.774,
+   "device_ms_per_batch": 14.054,
+   "host_ms_per_batch": {
+    "t_finish": 4.298,
+    "t_forward": 5.645,
+    "t_memory": 0.222,
+    "t_parse": 0.203,
+    "t_priors": 2.241,
+    "t_replies": 0.297,
+    "t_stage": 1.737
+   },
+   "failed": false,
+   "worker": {
+    "workers": 27,
+    "decisions": 364605,
+    "decision_wall_ms": 44.7618,
+    "decision_cpu_ms": 3.2205,
+    "own_wall_ms": 6.4619,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0547,
+     "bounce": 0.0059,
+     "decide": 41.7945,
+     "encode_raw": 1.3366,
+     "game_record": 0.0291,
+     "game_setup": 0.3585,
+     "light_encoded": 0.0066,
+     "masks": 0.0177,
+     "pack": 0.0952,
+     "round_trip": 38.2999,
+     "select": 1.1729,
+     "snapshot": 0.0014,
+     "step": 2.8643,
+     "unwire": 0.177,
+     "vocab_check": 0.0134
+    }
+   }
+  },
+  "compile_bf16res_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --compile-packed --bf16-residual",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 124,
+   "games_per_hour": 17419.4,
+   "server": {
+    "servers": 1,
+    "requests": 278547,
+    "batches": 5873,
+    "leaves": 278547,
+    "mean_batch": 47.428401157840966,
+    "infer_s": 75.602,
+    "window_s": 13.436,
+    "recv_s": 11.879,
+    "idle_s": 18.432,
+    "reply_s": 4.917,
+    "gpu_ms": 71339.1,
+    "stage_s": {
+     "t_finish": 13.249,
+     "t_forward": 34.478,
+     "t_memory": 1.261,
+     "t_parse": 1.273,
+     "t_priors": 13.614,
+     "t_replies": 1.598,
+     "t_stage": 9.268
+    },
+    "wall_s": 112.646,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 512,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     true
+    ],
+    "bf16_residual": [
+     true
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2472.76,
+   "decisions_per_game": 464.2,
+   "infer_ms_per_batch": 12.873,
+   "device_ms_per_batch": 12.147,
+   "host_ms_per_batch": {
+    "t_finish": 2.256,
+    "t_forward": 5.871,
+    "t_memory": 0.215,
+    "t_parse": 0.217,
+    "t_priors": 2.318,
+    "t_replies": 0.272,
+    "t_stage": 1.578
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 278547,
+    "decision_wall_ms": 34.3992,
+    "decision_cpu_ms": 3.2193,
+    "own_wall_ms": 5.9815,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.055,
+     "bounce": 0.0062,
+     "decide": 31.5801,
+     "encode_raw": 1.2939,
+     "game_record": 0.0301,
+     "game_setup": 0.3408,
+     "light_encoded": 0.0067,
+     "masks": 0.0177,
+     "pack": 0.0956,
+     "round_trip": 28.4177,
+     "select": 0.9753,
+     "snapshot": 0.0014,
+     "step": 2.7137,
+     "unwire": 0.1785,
+     "vocab_check": 0.0142
+    }
+   }
+  },
+  "compile_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --compile-packed",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 127,
+   "games_per_hour": 17007.9,
+   "server": {
+    "servers": 1,
+    "requests": 286719,
+    "batches": 6212,
+    "leaves": 286719,
+    "mean_batch": 46.155666452028335,
+    "infer_s": 83.054,
+    "window_s": 13.257,
+    "recv_s": 11.164,
+    "idle_s": 15.442,
+    "reply_s": 4.91,
+    "gpu_ms": 79151.2,
+    "stage_s": {
+     "t_finish": 20.203,
+     "t_forward": 34.716,
+     "t_memory": 1.24,
+     "t_parse": 1.201,
+     "t_priors": 14.068,
+     "t_replies": 1.364,
+     "t_stage": 9.444
+    },
+    "wall_s": 116.899,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 592,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     true
+    ],
+    "bf16_residual": [
+     false
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2452.71,
+   "decisions_per_game": 477.9,
+   "infer_ms_per_batch": 13.37,
+   "device_ms_per_batch": 12.742,
+   "host_ms_per_batch": {
+    "t_finish": 3.252,
+    "t_forward": 5.589,
+    "t_memory": 0.2,
+    "t_parse": 0.193,
+    "t_priors": 2.265,
+    "t_replies": 0.22,
+    "t_stage": 1.52
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 286719,
+    "decision_wall_ms": 35.9683,
+    "decision_cpu_ms": 3.1849,
+    "own_wall_ms": 6.0577,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0565,
+     "bounce": 0.006,
+     "decide": 33.1449,
+     "encode_raw": 1.277,
+     "game_record": 0.0309,
+     "game_setup": 0.3145,
+     "light_encoded": 0.0067,
+     "masks": 0.0177,
+     "pack": 0.0945,
+     "round_trip": 29.9106,
+     "select": 1.0367,
+     "snapshot": 0.0014,
+     "step": 2.7192,
+     "unwire": 0.1782,
+     "vocab_check": 0.0137
+    }
+   }
+  },
+  "compile_p160x6": {
+   "jobs": 160,
+   "flags": "--worker-games 6 --min-free-mb 300 --compile-packed",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 800,
+   "games": 800,
+   "failed_games": 0,
+   "wall_s": 160,
+   "games_per_hour": 18000.0,
+   "server": {
+    "servers": 1,
+    "requests": 366880,
+    "batches": 6486,
+    "leaves": 366880,
+    "mean_batch": 56.56490903484428,
+    "infer_s": 102.145,
+    "window_s": 16.536,
+    "recv_s": 13.682,
+    "idle_s": 23.164,
+    "reply_s": 6.69,
+    "gpu_ms": 97757.0,
+    "stage_s": {
+     "t_finish": 36.794,
+     "t_forward": 35.846,
+     "t_memory": 1.329,
+     "t_parse": 1.341,
+     "t_priors": 14.552,
+     "t_replies": 1.611,
+     "t_stage": 9.802
+    },
+    "wall_s": 148.794,
+    "graphed": [
+     false
+    ],
+    "connections": 161,
+    "releases": 961,
+    "max_batch": 160,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 1024,
+      "refused": 0,
+      "released": 1600
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     true
+    ],
+    "bf16_residual": [
+     false
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2465.69,
+   "decisions_per_game": 458.6,
+   "infer_ms_per_batch": 15.749,
+   "device_ms_per_batch": 15.072,
+   "host_ms_per_batch": {
+    "t_finish": 5.673,
+    "t_forward": 5.527,
+    "t_memory": 0.205,
+    "t_parse": 0.207,
+    "t_priors": 2.244,
+    "t_replies": 0.248,
+    "t_stage": 1.511
+   },
+   "failed": false,
+   "worker": {
+    "workers": 27,
+    "decisions": 366880,
+    "decision_wall_ms": 45.8065,
+    "decision_cpu_ms": 3.258,
+    "own_wall_ms": 6.5494,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0553,
+     "bounce": 0.0061,
+     "decide": 42.8055,
+     "encode_raw": 1.3543,
+     "game_record": 0.0289,
+     "game_setup": 0.3485,
+     "light_encoded": 0.0067,
+     "masks": 0.0184,
+     "pack": 0.0954,
+     "round_trip": 39.2571,
+     "select": 1.1969,
+     "snapshot": 0.0014,
+     "step": 2.8983,
+     "unwire": 0.1784,
+     "vocab_check": 0.0136
+    }
+   }
+  },
+  "priors_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --priors-only",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 126,
+   "games_per_hour": 17142.9,
+   "server": {
+    "servers": 1,
+    "requests": 286597,
+    "batches": 6100,
+    "leaves": 286597,
+    "mean_batch": 46.98311475409836,
+    "infer_s": 87.434,
+    "window_s": 12.94,
+    "recv_s": 10.967,
+    "idle_s": 15.115,
+    "reply_s": 4.902,
+    "gpu_ms": 83481.5,
+    "stage_s": {
+     "t_finish": 17.179,
+     "t_forward": 41.607,
+     "t_memory": 1.387,
+     "t_parse": 1.209,
+     "t_priors": 14.336,
+     "t_replies": 1.419,
+     "t_stage": 9.516
+    },
+    "wall_s": 120.614,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 916,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     true
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     false
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2376.15,
+   "decisions_per_game": 477.7,
+   "infer_ms_per_batch": 14.333,
+   "device_ms_per_batch": 13.685,
+   "host_ms_per_batch": {
+    "t_finish": 2.816,
+    "t_forward": 6.821,
+    "t_memory": 0.227,
+    "t_parse": 0.198,
+    "t_priors": 2.35,
+    "t_replies": 0.233,
+    "t_stage": 1.56
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 286597,
+    "decision_wall_ms": 37.466,
+    "decision_cpu_ms": 2.9623,
+    "own_wall_ms": 5.8529,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0525,
+     "bounce": 0.0057,
+     "decide": 34.5838,
+     "encode_raw": 1.2687,
+     "game_record": 0.029,
+     "game_setup": 0.3323,
+     "light_encoded": 0.0062,
+     "masks": 0.0175,
+     "pack": 0.0902,
+     "round_trip": 31.6131,
+     "select": 1.1481,
+     "snapshot": 0.0013,
+     "step": 2.7846,
+     "unwire": 0.1432,
+     "vocab_check": 0.0129
+    }
+   }
+  },
+  "profile_best": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --compile-packed --bf16-residual --inference-profile-batches 40 --inference-profile-after 400",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 128,
+   "games_per_hour": 16875.0,
+   "server": {
+    "servers": 1,
+    "requests": 270229,
+    "batches": 6229,
+    "leaves": 270229,
+    "mean_batch": 43.38240488039814,
+    "infer_s": 81.569,
+    "window_s": 14.623,
+    "recv_s": 11.948,
+    "idle_s": 16.106,
+    "reply_s": 4.667,
+    "gpu_ms": 75863.4,
+    "stage_s": {
+     "t_finish": 7.702,
+     "t_forward": 40.122,
+     "t_memory": 1.494,
+     "t_parse": 1.223,
+     "t_priors": 17.36,
+     "t_replies": 1.379,
+     "t_stage": 9.766
+    },
+    "wall_s": 117.197,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 560,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     true
+    ],
+    "bf16_residual": [
+     true
+    ],
+    "profile": [
+     {
+      "batches": 40,
+      "wall_s": 0.822,
+      "kernels_per_batch": 333.3,
+      "device_ms_per_batch": 9.31,
+      "ms_per_batch": {
+       "gemm": 4.741,
+       "other": 1.671,
+       "attention": 1.327,
+       "elementwise": 0.563,
+       "index": 0.483,
+       "memcpy": 0.209,
+       "cast_copy": 0.156,
+       "scan_sort": 0.116,
+       "softmax": 0.036,
+       "reduce": 0.009
+      },
+      "share": {
+       "gemm": 0.5093,
+       "other": 0.1795,
+       "attention": 0.1425,
+       "elementwise": 0.0605,
+       "index": 0.0519,
+       "memcpy": 0.0225,
+       "cast_copy": 0.0167,
+       "scan_sort": 0.0124,
+       "softmax": 0.0038,
+       "reduce": 0.0009
+      },
+      "region_ms_per_batch": {
+       "trunk": 5.52,
+       "outside": 1.952,
+       "priors": 0.546,
+       "embed": 0.445,
+       "order": 0.245,
+       "heads": 0.163,
+       "memory_write": 0.161,
+       "h2d": 0.156,
+       "gather": 0.071,
+       "memory_gather": 0.021,
+       "forward": 0.017,
+       "memory_scatter": 0.013
+      },
+      "top_kernels": [
+       {
+        "name": "triton_",
+        "ms_per_batch": 1.671,
+        "per_batch": 24.0,
+        "class": "other"
+       },
+       {
+        "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_f2f_tn",
+        "ms_per_batch": 1.413,
+        "per_batch": 8.1,
+        "class": "gemm"
+       },
+       {
+        "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, 4, false, false, cutlass::bflo",
+        "ms_per_batch": 1.327,
+        "per_batch": 8.0,
+        "class": "attention"
+       },
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_relu_f2f_stages_32x1_tn",
+        "ms_per_batch": 0.943,
+        "per_batch": 7.1,
+        "class": "gemm"
+       },
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_tn",
+        "ms_per_batch": 0.716,
+        "per_batch": 7.8,
+        "class": "gemm"
+       },
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_tn",
+        "ms_per_batch": 0.521,
+        "per_batch": 3.1,
+        "class": "gemm"
+       },
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_128x64_sliced1x2_ldg8_f2f_tn",
+        "ms_per_batch": 0.49,
+        "per_batch": 4.0,
+        "class": "gemm"
+       },
+       {
+        "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3> >(int,",
+        "ms_per_batch": 0.281,
+        "per_batch": 20.3,
+        "class": "elementwise"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2, 2, -2, true>(at::cuda::detai",
+        "ms_per_batch": 0.238,
+        "per_batch": 16.6,
+        "class": "index"
+       },
+       {
+        "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s1681",
+        "ms_per_batch": 0.218,
+        "per_batch": 3.6,
+        "class": "gemm"
+       },
+       {
+        "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_relu_f2f_tn",
+        "ms_per_batch": 0.163,
+        "per_batch": 1.2,
+        "class": "gemm"
+       },
+       {
+        "name": "Memcpy HtoD (Pinned -> Device)",
+        "ms_per_batch": 0.156,
+        "per_batch": 2.0,
+        "class": "memcpy"
+       },
+       {
+        "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}:",
+        "ms_per_batch": 0.151,
+        "per_batch": 36.0,
+        "class": "cast_copy"
+       },
+       {
+        "name": "void at_cuda_detail::cub::DeviceScanKernel<at_cuda_detail::cub::DeviceScanPolicy<int, std::plus<int> >::Policy900, int c",
+        "ms_per_batch": 0.107,
+        "per_batch": 1.0,
+        "class": "scan_sort"
+       },
+       {
+        "name": "ampere_sgemm_128x64_tn",
+        "ms_per_batch": 0.1,
+        "per_batch": 2.1,
+        "class": "gemm"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_aligned16_contig<at::native::(anonymous namespace)::OpaqueTy",
+        "ms_per_batch": 0.081,
+        "per_batch": 3.0,
+        "class": "index"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<c10::BFloat16, long, unsigned int, 2, 2, -2, true>(at::cud",
+        "ms_per_batch": 0.079,
+        "per_batch": 4.0,
+        "class": "index"
+       },
+       {
+        "name": "ampere_sgemm_32x128_tn",
+        "ms_per_batch": 0.039,
+        "per_batch": 2.5,
+        "class": "gemm"
+       },
+       {
+        "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<bool, bool, boo",
+        "ms_per_batch": 0.035,
+        "per_batch": 4.0,
+        "class": "elementwise"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_contig<at::native::(anonymous namespace)::OpaqueType<1u>, un",
+        "ms_per_batch": 0.031,
+        "per_batch": 2.0,
+        "class": "index"
+       },
+       {
+        "name": "void (anonymous namespace)::softmax_warp_forward<float, float, float, 10, false, false>(float*, float const*, int, int, ",
+        "ms_per_batch": 0.029,
+        "per_batch": 2.9,
+        "class": "softmax"
+       },
+       {
+        "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native:",
+        "ms_per_batch": 0.028,
+        "per_batch": 6.0,
+        "class": "index"
+       },
+       {
+        "name": "Memcpy DtoD (Device -> Device)",
+        "ms_per_batch": 0.025,
+        "per_batch": 6.0,
+        "class": "memcpy"
+       },
+       {
+        "name": "Memcpy DtoH (Device -> Pinned)",
+        "ms_per_batch": 0.022,
+        "per_batch": 1.0,
+        "class": "memcpy"
+       },
+       {
+        "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterat",
+        "ms_per_batch": 0.021,
+        "per_batch": 6.0,
+        "class": "elementwise"
+       }
+      ],
+      "idle_fraction": 0.547,
+      "batch_shape_mean": {
+       "leaves": 56.6,
+       "tokens": 23174.0,
+       "tokens_sq": 10246770.2,
+       "a_max": 74.8,
+       "h_max": 593.1,
+       "k_max": 64.0
+      },
+      "arithmetic": {
+       "gemm_gflop_per_batch": 656.09,
+       "attention_gflop_per_batch": 125.91,
+       "gflop_per_leaf": 13.804,
+       "gemm_tflops": 138.4,
+       "attention_tflops": 94.9
+      }
+     }
+    ]
+   },
+   "decisions_per_s": 2305.77,
+   "decisions_per_game": 450.4,
+   "infer_ms_per_batch": 13.095,
+   "device_ms_per_batch": 12.179,
+   "host_ms_per_batch": {
+    "t_finish": 1.236,
+    "t_forward": 6.441,
+    "t_memory": 0.24,
+    "t_parse": 0.196,
+    "t_priors": 2.787,
+    "t_replies": 0.221,
+    "t_stage": 1.568
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 270229,
+    "decision_wall_ms": 36.074,
+    "decision_cpu_ms": 3.2072,
+    "own_wall_ms": 5.9922,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0551,
+     "bounce": 0.0061,
+     "decide": 33.2527,
+     "encode_raw": 1.288,
+     "game_record": 0.0314,
+     "game_setup": 0.379,
+     "light_encoded": 0.0068,
+     "masks": 0.0174,
+     "pack": 0.0956,
+     "round_trip": 30.0818,
+     "select": 0.9878,
+     "snapshot": 0.0014,
+     "step": 2.7175,
+     "unwire": 0.1801,
+     "vocab_check": 0.0138
+    }
+   }
+  },
+  "profile_ref": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300 --inference-profile-batches 40 --inference-profile-after 400",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 4,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 153,
+   "games_per_hour": 14117.6,
+   "server": {
+    "servers": 1,
+    "requests": 281339,
+    "batches": 7241,
+    "leaves": 281339,
+    "mean_batch": 38.853611379643695,
+    "infer_s": 107.362,
+    "window_s": 15.995,
+    "recv_s": 11.434,
+    "idle_s": 18.419,
+    "reply_s": 4.878,
+    "gpu_ms": 101339.2,
+    "stage_s": {
+     "t_finish": 8.974,
+     "t_forward": 60.393,
+     "t_memory": 1.764,
+     "t_parse": 1.18,
+     "t_priors": 20.186,
+     "t_replies": 1.522,
+     "t_stage": 10.698
+    },
+    "wall_s": 146.874,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 482,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     false
+    ],
+    "profile": [
+     {
+      "batches": 40,
+      "wall_s": 0.92,
+      "kernels_per_batch": 434.1,
+      "device_ms_per_batch": 12.529,
+      "ms_per_batch": {
+       "gemm": 5.066,
+       "elementwise": 3.087,
+       "attention": 1.436,
+       "cast_copy": 1.015,
+       "layer_norm": 0.763,
+       "index": 0.577,
+       "memcpy": 0.339,
+       "scan_sort": 0.192,
+       "softmax": 0.044,
+       "reduce": 0.009
+      },
+      "share": {
+       "gemm": 0.4044,
+       "elementwise": 0.2464,
+       "attention": 0.1147,
+       "cast_copy": 0.081,
+       "layer_norm": 0.0609,
+       "index": 0.046,
+       "memcpy": 0.0271,
+       "scan_sort": 0.0153,
+       "softmax": 0.0035,
+       "reduce": 0.0007
+      },
+      "region_ms_per_batch": {
+       "trunk": 9.47,
+       "priors": 0.733,
+       "outside": 0.56,
+       "embed": 0.504,
+       "heads": 0.364,
+       "h2d": 0.28,
+       "order": 0.272,
+       "memory_write": 0.168,
+       "gather": 0.116,
+       "forward": 0.027,
+       "memory_gather": 0.021,
+       "memory_scatter": 0.013
+      },
+      "top_kernels": [
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_relu_f2f_stages_32x1_tn",
+        "ms_per_batch": 3.691,
+        "per_batch": 25.0,
+        "class": "gemm"
+       },
+       {
+        "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, 4, false, false, cutlass::bflo",
+        "ms_per_batch": 1.436,
+        "per_batch": 8.0,
+        "class": "attention"
+       },
+       {
+        "name": "void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3>, TrivialOff",
+        "ms_per_batch": 1.22,
+        "per_batch": 16.0,
+        "class": "elementwise"
+       },
+       {
+        "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorItera",
+        "ms_per_batch": 1.206,
+        "per_batch": 12.0,
+        "class": "elementwise"
+       },
+       {
+        "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}:",
+        "ms_per_batch": 1.011,
+        "per_batch": 121.0,
+        "class": "cast_copy"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float>(int, float, float const*, float const",
+        "ms_per_batch": 0.763,
+        "per_batch": 16.0,
+        "class": "layer_norm"
+       },
+       {
+        "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s1681",
+        "ms_per_batch": 0.494,
+        "per_batch": 6.0,
+        "class": "gemm"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2, 2, -2, true>(at::cuda::detai",
+        "ms_per_batch": 0.383,
+        "per_batch": 20.5,
+        "class": "index"
+       },
+       {
+        "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3> >(int,",
+        "ms_per_batch": 0.331,
+        "per_batch": 20.2,
+        "class": "elementwise"
+       },
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_relu_f2f_tn",
+        "ms_per_batch": 0.31,
+        "per_batch": 1.6,
+        "class": "gemm"
+       },
+       {
+        "name": "Memcpy HtoD (Pinned -> Device)",
+        "ms_per_batch": 0.28,
+        "per_batch": 2.0,
+        "class": "memcpy"
+       },
+       {
+        "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_relu_f2f_tn",
+        "ms_per_batch": 0.212,
+        "per_batch": 1.4,
+        "class": "gemm"
+       },
+       {
+        "name": "void at_cuda_detail::cub::DeviceScanKernel<at_cuda_detail::cub::DeviceScanPolicy<int, std::plus<int> >::Policy900, int c",
+        "ms_per_batch": 0.181,
+        "per_batch": 1.0,
+        "class": "scan_sort"
+       },
+       {
+        "name": "ampere_sgemm_128x64_tn",
+        "ms_per_batch": 0.112,
+        "per_batch": 2.4,
+        "class": "gemm"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_aligned16_contig<at::native::(anonymous namespace)::OpaqueTy",
+        "ms_per_batch": 0.097,
+        "per_batch": 3.0,
+        "class": "index"
+       },
+       {
+        "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<bool, bool, boo",
+        "ms_per_batch": 0.046,
+        "per_batch": 4.0,
+        "class": "elementwise"
+       },
+       {
+        "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_contig<at::native::(anonymous namespace)::OpaqueType<1u>, un",
+        "ms_per_batch": 0.042,
+        "per_batch": 2.0,
+        "class": "index"
+       },
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_tn",
+        "ms_per_batch": 0.041,
+        "per_batch": 0.6,
+        "class": "gemm"
+       },
+       {
+        "name": "void (anonymous namespace)::softmax_warp_forward<float, float, float, 10, false, false>(float*, float const*, int, int, ",
+        "ms_per_batch": 0.038,
+        "per_batch": 2.9,
+        "class": "softmax"
+       },
+       {
+        "name": "ampere_sgemm_32x128_tn",
+        "ms_per_batch": 0.035,
+        "per_batch": 2.2,
+        "class": "gemm"
+       },
+       {
+        "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_tn",
+        "ms_per_batch": 0.035,
+        "per_batch": 0.6,
+        "class": "gemm"
+       },
+       {
+        "name": "Memcpy DtoD (Device -> Device)",
+        "ms_per_batch": 0.032,
+        "per_batch": 6.0,
+        "class": "memcpy"
+       },
+       {
+        "name": "void at::native::vectorized_elementwise_kernel<4, at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::",
+        "ms_per_batch": 0.031,
+        "per_batch": 5.0,
+        "class": "elementwise"
+       },
+       {
+        "name": "void cutlass::Kernel2<cutlass_75_tensorop_bf16_s1688gemm_bf16_64x64_tn_align1>(cutlass_75_tensorop_bf16_s1688gemm_bf16_6",
+        "ms_per_batch": 0.031,
+        "per_batch": 1.4,
+        "class": "gemm"
+       },
+       {
+        "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native:",
+        "ms_per_batch": 0.028,
+        "per_batch": 6.0,
+        "class": "index"
+       }
+      ],
+      "idle_fraction": 0.4553,
+      "batch_shape_mean": {
+       "leaves": 57.6,
+       "tokens": 24564.3,
+       "tokens_sq": 11195142.7,
+       "a_max": 98.2,
+       "h_max": 622.1,
+       "k_max": 64.0
+      },
+      "arithmetic": {
+       "gemm_gflop_per_batch": 695.45,
+       "attention_gflop_per_batch": 137.57,
+       "gflop_per_leaf": 14.45,
+       "gemm_tflops": 137.3,
+       "attention_tflops": 95.8
+      }
+     }
+    ]
+   },
+   "decisions_per_s": 1915.51,
+   "decisions_per_game": 468.9,
+   "infer_ms_per_batch": 14.827,
+   "device_ms_per_batch": 13.995,
+   "host_ms_per_batch": {
+    "t_finish": 1.239,
+    "t_forward": 8.34,
+    "t_memory": 0.244,
+    "t_parse": 0.163,
+    "t_priors": 2.788,
+    "t_replies": 0.21,
+    "t_stage": 1.477
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 281339,
+    "decision_wall_ms": 40.5894,
+    "decision_cpu_ms": 3.2009,
+    "own_wall_ms": 6.2119,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0561,
+     "bounce": 0.0062,
+     "decide": 37.7027,
+     "encode_raw": 1.3007,
+     "game_record": 0.029,
+     "game_setup": 0.3256,
+     "light_encoded": 0.0066,
+     "masks": 0.0174,
+     "pack": 0.0939,
+     "round_trip": 34.3775,
+     "select": 1.0602,
+     "snapshot": 0.0014,
+     "step": 2.7825,
+     "unwire": 0.1757,
+     "vocab_check": 0.0144
+    }
+   }
+  },
+  "ref_p120x6": {
+   "jobs": 120,
+   "flags": "--worker-games 6 --min-free-mb 300",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 600,
+   "games": 600,
+   "failed_games": 0,
+   "wall_s": 129,
+   "games_per_hour": 16744.2,
+   "server": {
+    "servers": 1,
+    "requests": 278848,
+    "batches": 5792,
+    "leaves": 278848,
+    "mean_batch": 48.14364640883978,
+    "infer_s": 86.908,
+    "window_s": 13.379,
+    "recv_s": 11.793,
+    "idle_s": 16.298,
+    "reply_s": 5.234,
+    "gpu_ms": 82688.0,
+    "stage_s": {
+     "t_finish": 15.403,
+     "t_forward": 43.3,
+     "t_memory": 1.331,
+     "t_parse": 1.223,
+     "t_priors": 14.005,
+     "t_replies": 1.619,
+     "t_stage": 9.22
+    },
+    "wall_s": 122.048,
+    "graphed": [
+     false
+    ],
+    "connections": 120,
+    "releases": 720,
+    "max_batch": 120,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 482,
+      "refused": 0,
+      "released": 1200
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     false
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2284.74,
+   "decisions_per_game": 464.7,
+   "infer_ms_per_batch": 15.005,
+   "device_ms_per_batch": 14.276,
+   "host_ms_per_batch": {
+    "t_finish": 2.659,
+    "t_forward": 7.476,
+    "t_memory": 0.23,
+    "t_parse": 0.211,
+    "t_priors": 2.418,
+    "t_replies": 0.28,
+    "t_stage": 1.592
+   },
+   "failed": false,
+   "worker": {
+    "workers": 20,
+    "decisions": 278848,
+    "decision_wall_ms": 39.2553,
+    "decision_cpu_ms": 3.1237,
+    "own_wall_ms": 6.0783,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0526,
+     "bounce": 0.0061,
+     "decide": 36.4463,
+     "encode_raw": 1.2663,
+     "game_record": 0.0305,
+     "game_setup": 0.3105,
+     "light_encoded": 0.0064,
+     "masks": 0.0193,
+     "pack": 0.0902,
+     "round_trip": 33.177,
+     "select": 1.0493,
+     "snapshot": 0.0014,
+     "step": 2.7094,
+     "unwire": 0.1759,
+     "vocab_check": 0.0136
+    }
+   }
+  },
+  "ref_p160x6": {
+   "jobs": 160,
+   "flags": "--worker-games 6 --min-free-mb 300",
+   "repo": "/workspace/Wesnoth-AI",
+   "rc": 0,
+   "slots": 800,
+   "games": 800,
+   "failed_games": 0,
+   "wall_s": 166,
+   "games_per_hour": 17349.4,
+   "server": {
+    "servers": 1,
+    "requests": 373698,
+    "batches": 5929,
+    "leaves": 373698,
+    "mean_batch": 63.028841288581546,
+    "infer_s": 112.517,
+    "window_s": 17.417,
+    "recv_s": 15.783,
+    "idle_s": 22.578,
+    "reply_s": 7.162,
+    "gpu_ms": 107862.1,
+    "stage_s": {
+     "t_finish": 39.788,
+     "t_forward": 42.869,
+     "t_memory": 1.406,
+     "t_parse": 1.372,
+     "t_priors": 13.666,
+     "t_replies": 1.812,
+     "t_stage": 10.727
+    },
+    "wall_s": 159.956,
+    "graphed": [
+     false
+    ],
+    "connections": 161,
+    "releases": 961,
+    "max_batch": 160,
+    "rust_stage": [
+     true
+    ],
+    "server_memory": [
+     true
+    ],
+    "memory_states": [
+     {
+      "held": 0,
+      "rows": 1236,
+      "refused": 0,
+      "released": 1600
+     }
+    ],
+    "failed_batches": 0,
+    "failed_requests": 0,
+    "fatal": [],
+    "graphed_serve": [
+     null
+    ],
+    "priors_only": [
+     false
+    ],
+    "compile_packed": [
+     false
+    ],
+    "bf16_residual": [
+     false
+    ],
+    "profile": []
+   },
+   "decisions_per_s": 2336.25,
+   "decisions_per_game": 467.1,
+   "infer_ms_per_batch": 18.977,
+   "device_ms_per_batch": 18.192,
+   "host_ms_per_batch": {
+    "t_finish": 6.711,
+    "t_forward": 7.23,
+    "t_memory": 0.237,
+    "t_parse": 0.231,
+    "t_priors": 2.305,
+    "t_replies": 0.306,
+    "t_stage": 1.809
+   },
+   "failed": false,
+   "worker": {
+    "workers": 27,
+    "decisions": 373698,
+    "decision_wall_ms": 51.6255,
+    "decision_cpu_ms": 3.3434,
+    "own_wall_ms": 7.041,
+    "stage_ms_per_decision": {
+     "bookkeeping": 0.0554,
+     "bounce": 0.0064,
+     "decide": 48.4369,
+     "encode_raw": 1.4079,
+     "game_record": 0.0297,
+     "game_setup": 0.409,
+     "light_encoded": 0.0067,
+     "masks": 0.0178,
+     "pack": 0.095,
+     "round_trip": 44.5845,
+     "select": 1.3171,
+     "snapshot": 0.0014,
+     "step": 3.0814,
+     "unwire": 0.1877,
+     "vocab_check": 0.0144
+    }
+   }
+  }
+ },
+ "valid": true,
+ "base_spread": {
+  "base_1": 0.9991,
+  "base_2": 0.9667,
+  "base_3": 1.0343
+ },
+ "best": "compile_bf16res_p120x6",
+ "best_vs_repeat": 0.9734,
+ "failed_arms": [],
+ "against_base": {
+  "base_1": {
+   "decisions_per_s": 0.9991,
+   "games_per_hour": 1.0155
+  },
+  "base_2": {
+   "decisions_per_s": 0.9667,
+   "games_per_hour": 0.9598
+  },
+  "base_3": {
+   "decisions_per_s": 1.0343,
+   "games_per_hour": 1.0247
+  },
+  "best_repeat": {
+   "decisions_per_s": 2.833,
+   "games_per_hour": 2.7741
+  },
+  "bf16res_p120x6": {
+   "decisions_per_s": 2.7233,
+   "games_per_hour": 2.8199
+  },
+  "bf16res_p160x6": {
+   "decisions_per_s": 2.8779,
+   "games_per_hour": 2.9352
+  },
+  "compile_bf16res_p120x6": {
+   "decisions_per_s": 2.9103,
+   "games_per_hour": 2.7517
+  },
+  "compile_p120x6": {
+   "decisions_per_s": 2.8867,
+   "games_per_hour": 2.6867
+  },
+  "compile_p160x6": {
+   "decisions_per_s": 2.902,
+   "games_per_hour": 2.8435
+  },
+  "priors_p120x6": {
+   "decisions_per_s": 2.7966,
+   "games_per_hour": 2.7081
+  },
+  "profile_best": {
+   "decisions_per_s": 2.7138,
+   "games_per_hour": 2.6657
+  },
+  "profile_ref": {
+   "decisions_per_s": 2.2545,
+   "games_per_hour": 2.2302
+  },
+  "ref_p120x6": {
+   "decisions_per_s": 2.689,
+   "games_per_hour": 2.6451
+  },
+  "ref_p160x6": {
+   "decisions_per_s": 2.7497,
+   "games_per_hour": 2.7407
+  }
+ },
+ "against_ref": {
+  "best_repeat": {
+   "decisions_per_s": 1.0536,
+   "games_per_hour": 1.0488,
+   "infer_ms_per_batch": 0.8371,
+   "device_ms_per_batch": 0.8277,
+   "decisions_per_game": 0.9632
+  },
+  "bf16res_p120x6": {
+   "decisions_per_s": 1.0127,
+   "games_per_hour": 1.0661,
+   "infer_ms_per_batch": 0.7929,
+   "device_ms_per_batch": 0.7929,
+   "decisions_per_game": 0.952
+  },
+  "bf16res_p160x6": {
+   "decisions_per_s": 1.0466,
+   "games_per_hour": 1.071,
+   "infer_ms_per_batch": 0.7785,
+   "device_ms_per_batch": 0.7725,
+   "decisions_per_game": 0.9758
+  },
+  "compile_bf16res_p120x6": {
+   "decisions_per_s": 1.0823,
+   "games_per_hour": 1.0403,
+   "infer_ms_per_batch": 0.8579,
+   "device_ms_per_batch": 0.8509,
+   "decisions_per_game": 0.9989
+  },
+  "compile_p120x6": {
+   "decisions_per_s": 1.0735,
+   "games_per_hour": 1.0157,
+   "infer_ms_per_batch": 0.891,
+   "device_ms_per_batch": 0.8925,
+   "decisions_per_game": 1.0284
+  },
+  "compile_p160x6": {
+   "decisions_per_s": 1.0554,
+   "games_per_hour": 1.0375,
+   "infer_ms_per_batch": 0.8299,
+   "device_ms_per_batch": 0.8285,
+   "decisions_per_game": 0.9818
+  },
+  "priors_p120x6": {
+   "decisions_per_s": 1.04,
+   "games_per_hour": 1.0238,
+   "infer_ms_per_batch": 0.9552,
+   "device_ms_per_batch": 0.9586,
+   "decisions_per_game": 1.028
+  },
+  "profile_best": {
+   "decisions_per_s": 1.0092,
+   "games_per_hour": 1.0078,
+   "infer_ms_per_batch": 0.8727,
+   "device_ms_per_batch": 0.8531,
+   "decisions_per_game": 0.9692
+  },
+  "profile_ref": {
+   "decisions_per_s": 0.8384,
+   "games_per_hour": 0.8431,
+   "infer_ms_per_batch": 0.9881,
+   "device_ms_per_batch": 0.9803,
+   "decisions_per_game": 1.009
+  },
+  "ref_p120x6": {
+   "decisions_per_s": 1.0,
+   "games_per_hour": 1.0,
+   "infer_ms_per_batch": 1.0,
+   "device_ms_per_batch": 1.0,
+   "decisions_per_game": 1.0
+  },
+  "ref_p160x6": {
+   "decisions_per_s": 1.0,
+   "games_per_hour": 1.0,
+   "infer_ms_per_batch": 1.0,
+   "device_ms_per_batch": 1.0,
+   "decisions_per_game": 1.0
+  }
+ },
+ "profiles": {
+  "profile_best": [
+   {
+    "batches": 40,
+    "wall_s": 0.822,
+    "kernels_per_batch": 333.3,
+    "device_ms_per_batch": 9.31,
+    "ms_per_batch": {
+     "gemm": 4.741,
+     "other": 1.671,
+     "attention": 1.327,
+     "elementwise": 0.563,
+     "index": 0.483,
+     "memcpy": 0.209,
+     "cast_copy": 0.156,
+     "scan_sort": 0.116,
+     "softmax": 0.036,
+     "reduce": 0.009
+    },
+    "share": {
+     "gemm": 0.5093,
+     "other": 0.1795,
+     "attention": 0.1425,
+     "elementwise": 0.0605,
+     "index": 0.0519,
+     "memcpy": 0.0225,
+     "cast_copy": 0.0167,
+     "scan_sort": 0.0124,
+     "softmax": 0.0038,
+     "reduce": 0.0009
+    },
+    "region_ms_per_batch": {
+     "trunk": 5.52,
+     "outside": 1.952,
+     "priors": 0.546,
+     "embed": 0.445,
+     "order": 0.245,
+     "heads": 0.163,
+     "memory_write": 0.161,
+     "h2d": 0.156,
+     "gather": 0.071,
+     "memory_gather": 0.021,
+     "forward": 0.017,
+     "memory_scatter": 0.013
+    },
+    "top_kernels": [
+     {
+      "name": "triton_",
+      "ms_per_batch": 1.671,
+      "per_batch": 24.0,
+      "class": "other"
+     },
+     {
+      "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_f2f_tn",
+      "ms_per_batch": 1.413,
+      "per_batch": 8.1,
+      "class": "gemm"
+     },
+     {
+      "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, 4, false, false, cutlass::bflo",
+      "ms_per_batch": 1.327,
+      "per_batch": 8.0,
+      "class": "attention"
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_relu_f2f_stages_32x1_tn",
+      "ms_per_batch": 0.943,
+      "per_batch": 7.1,
+      "class": "gemm"
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_tn",
+      "ms_per_batch": 0.716,
+      "per_batch": 7.8,
+      "class": "gemm"
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_tn",
+      "ms_per_batch": 0.521,
+      "per_batch": 3.1,
+      "class": "gemm"
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_128x64_sliced1x2_ldg8_f2f_tn",
+      "ms_per_batch": 0.49,
+      "per_batch": 4.0,
+      "class": "gemm"
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3> >(int,",
+      "ms_per_batch": 0.281,
+      "per_batch": 20.3,
+      "class": "elementwise"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2, 2, -2, true>(at::cuda::detai",
+      "ms_per_batch": 0.238,
+      "per_batch": 16.6,
+      "class": "index"
+     },
+     {
+      "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s1681",
+      "ms_per_batch": 0.218,
+      "per_batch": 3.6,
+      "class": "gemm"
+     },
+     {
+      "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_relu_f2f_tn",
+      "ms_per_batch": 0.163,
+      "per_batch": 1.2,
+      "class": "gemm"
+     },
+     {
+      "name": "Memcpy HtoD (Pinned -> Device)",
+      "ms_per_batch": 0.156,
+      "per_batch": 2.0,
+      "class": "memcpy"
+     },
+     {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}:",
+      "ms_per_batch": 0.151,
+      "per_batch": 36.0,
+      "class": "cast_copy"
+     },
+     {
+      "name": "void at_cuda_detail::cub::DeviceScanKernel<at_cuda_detail::cub::DeviceScanPolicy<int, std::plus<int> >::Policy900, int c",
+      "ms_per_batch": 0.107,
+      "per_batch": 1.0,
+      "class": "scan_sort"
+     },
+     {
+      "name": "ampere_sgemm_128x64_tn",
+      "ms_per_batch": 0.1,
+      "per_batch": 2.1,
+      "class": "gemm"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_aligned16_contig<at::native::(anonymous namespace)::OpaqueTy",
+      "ms_per_batch": 0.081,
+      "per_batch": 3.0,
+      "class": "index"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<c10::BFloat16, long, unsigned int, 2, 2, -2, true>(at::cud",
+      "ms_per_batch": 0.079,
+      "per_batch": 4.0,
+      "class": "index"
+     },
+     {
+      "name": "ampere_sgemm_32x128_tn",
+      "ms_per_batch": 0.039,
+      "per_batch": 2.5,
+      "class": "gemm"
+     },
+     {
+      "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<bool, bool, boo",
+      "ms_per_batch": 0.035,
+      "per_batch": 4.0,
+      "class": "elementwise"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_contig<at::native::(anonymous namespace)::OpaqueType<1u>, un",
+      "ms_per_batch": 0.031,
+      "per_batch": 2.0,
+      "class": "index"
+     },
+     {
+      "name": "void (anonymous namespace)::softmax_warp_forward<float, float, float, 10, false, false>(float*, float const*, int, int, ",
+      "ms_per_batch": 0.029,
+      "per_batch": 2.9,
+      "class": "softmax"
+     },
+     {
+      "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native:",
+      "ms_per_batch": 0.028,
+      "per_batch": 6.0,
+      "class": "index"
+     },
+     {
+      "name": "Memcpy DtoD (Device -> Device)",
+      "ms_per_batch": 0.025,
+      "per_batch": 6.0,
+      "class": "memcpy"
+     },
+     {
+      "name": "Memcpy DtoH (Device -> Pinned)",
+      "ms_per_batch": 0.022,
+      "per_batch": 1.0,
+      "class": "memcpy"
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterat",
+      "ms_per_batch": 0.021,
+      "per_batch": 6.0,
+      "class": "elementwise"
+     }
+    ],
+    "idle_fraction": 0.547,
+    "batch_shape_mean": {
+     "leaves": 56.6,
+     "tokens": 23174.0,
+     "tokens_sq": 10246770.2,
+     "a_max": 74.8,
+     "h_max": 593.1,
+     "k_max": 64.0
+    },
+    "arithmetic": {
+     "gemm_gflop_per_batch": 656.09,
+     "attention_gflop_per_batch": 125.91,
+     "gflop_per_leaf": 13.804,
+     "gemm_tflops": 138.4,
+     "attention_tflops": 94.9
+    }
+   }
+  ],
+  "profile_ref": [
+   {
+    "batches": 40,
+    "wall_s": 0.92,
+    "kernels_per_batch": 434.1,
+    "device_ms_per_batch": 12.529,
+    "ms_per_batch": {
+     "gemm": 5.066,
+     "elementwise": 3.087,
+     "attention": 1.436,
+     "cast_copy": 1.015,
+     "layer_norm": 0.763,
+     "index": 0.577,
+     "memcpy": 0.339,
+     "scan_sort": 0.192,
+     "softmax": 0.044,
+     "reduce": 0.009
+    },
+    "share": {
+     "gemm": 0.4044,
+     "elementwise": 0.2464,
+     "attention": 0.1147,
+     "cast_copy": 0.081,
+     "layer_norm": 0.0609,
+     "index": 0.046,
+     "memcpy": 0.0271,
+     "scan_sort": 0.0153,
+     "softmax": 0.0035,
+     "reduce": 0.0007
+    },
+    "region_ms_per_batch": {
+     "trunk": 9.47,
+     "priors": 0.733,
+     "outside": 0.56,
+     "embed": 0.504,
+     "heads": 0.364,
+     "h2d": 0.28,
+     "order": 0.272,
+     "memory_write": 0.168,
+     "gather": 0.116,
+     "forward": 0.027,
+     "memory_gather": 0.021,
+     "memory_scatter": 0.013
+    },
+    "top_kernels": [
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_relu_f2f_stages_32x1_tn",
+      "ms_per_batch": 3.691,
+      "per_batch": 25.0,
+      "class": "gemm"
+     },
+     {
+      "name": "void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32, 128, 128, 4, false, false, cutlass::bflo",
+      "ms_per_batch": 1.436,
+      "per_batch": 8.0,
+      "class": "attention"
+     },
+     {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3>, TrivialOff",
+      "ms_per_batch": 1.22,
+      "per_batch": 16.0,
+      "class": "elementwise"
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorItera",
+      "ms_per_batch": 1.206,
+      "per_batch": 12.0,
+      "class": "elementwise"
+     },
+     {
+      "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}:",
+      "ms_per_batch": 1.011,
+      "per_batch": 121.0,
+      "class": "cast_copy"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float>(int, float, float const*, float const",
+      "ms_per_batch": 0.763,
+      "per_batch": 16.0,
+      "class": "layer_norm"
+     },
+     {
+      "name": "void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s1681",
+      "ms_per_batch": 0.494,
+      "per_batch": 6.0,
+      "class": "gemm"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned int, 2, 2, -2, true>(at::cuda::detai",
+      "ms_per_batch": 0.383,
+      "per_batch": 20.5,
+      "class": "index"
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, at::detail::Array<char*, 3> >(int,",
+      "ms_per_batch": 0.331,
+      "per_batch": 20.2,
+      "class": "elementwise"
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_relu_f2f_tn",
+      "ms_per_batch": 0.31,
+      "per_batch": 1.6,
+      "class": "gemm"
+     },
+     {
+      "name": "Memcpy HtoD (Pinned -> Device)",
+      "ms_per_batch": 0.28,
+      "per_batch": 2.0,
+      "class": "memcpy"
+     },
+     {
+      "name": "ampere_bf16_s16816gemm_bf16_128x64_ldg8_relu_f2f_tn",
+      "ms_per_batch": 0.212,
+      "per_batch": 1.4,
+      "class": "gemm"
+     },
+     {
+      "name": "void at_cuda_detail::cub::DeviceScanKernel<at_cuda_detail::cub::DeviceScanPolicy<int, std::plus<int> >::Policy900, int c",
+      "ms_per_batch": 0.181,
+      "per_batch": 1.0,
+      "class": "scan_sort"
+     },
+     {
+      "name": "ampere_sgemm_128x64_tn",
+      "ms_per_batch": 0.112,
+      "per_batch": 2.4,
+      "class": "gemm"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_aligned16_contig<at::native::(anonymous namespace)::OpaqueTy",
+      "ms_per_batch": 0.097,
+      "per_batch": 3.0,
+      "class": "index"
+     },
+     {
+      "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<bool, bool, boo",
+      "ms_per_batch": 0.046,
+      "per_batch": 4.0,
+      "class": "elementwise"
+     },
+     {
+      "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_contig<at::native::(anonymous namespace)::OpaqueType<1u>, un",
+      "ms_per_batch": 0.042,
+      "per_batch": 2.0,
+      "class": "index"
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_64x128_sliced1x2_ldg8_f2f_tn",
+      "ms_per_batch": 0.041,
+      "per_batch": 0.6,
+      "class": "gemm"
+     },
+     {
+      "name": "void (anonymous namespace)::softmax_warp_forward<float, float, float, 10, false, false>(float*, float const*, int, int, ",
+      "ms_per_batch": 0.038,
+      "per_batch": 2.9,
+      "class": "softmax"
+     },
+     {
+      "name": "ampere_sgemm_32x128_tn",
+      "ms_per_batch": 0.035,
+      "per_batch": 2.2,
+      "class": "gemm"
+     },
+     {
+      "name": "ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_tn",
+      "ms_per_batch": 0.035,
+      "per_batch": 0.6,
+      "class": "gemm"
+     },
+     {
+      "name": "Memcpy DtoD (Device -> Device)",
+      "ms_per_batch": 0.032,
+      "per_batch": 6.0,
+      "class": "memcpy"
+     },
+     {
+      "name": "void at::native::vectorized_elementwise_kernel<4, at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::",
+      "ms_per_batch": 0.031,
+      "per_batch": 5.0,
+      "class": "elementwise"
+     },
+     {
+      "name": "void cutlass::Kernel2<cutlass_75_tensorop_bf16_s1688gemm_bf16_64x64_tn_align1>(cutlass_75_tensorop_bf16_s1688gemm_bf16_6",
+      "ms_per_batch": 0.031,
+      "per_batch": 1.4,
+      "class": "gemm"
+     },
+     {
+      "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native:",
+      "ms_per_batch": 0.028,
+      "per_batch": 6.0,
+      "class": "index"
+     }
+    ],
+    "idle_fraction": 0.4553,
+    "batch_shape_mean": {
+     "leaves": 57.6,
+     "tokens": 24564.3,
+     "tokens_sq": 11195142.7,
+     "a_max": 98.2,
+     "h_max": 622.1,
+     "k_max": 64.0
+    },
+    "arithmetic": {
+     "gemm_gflop_per_batch": 695.45,
+     "attention_gflop_per_batch": 137.57,
+     "gflop_per_leaf": 14.45,
+     "gemm_tflops": 137.3,
+     "attention_tflops": 95.8
+    }
+   }
+  ]
+ }
+}
