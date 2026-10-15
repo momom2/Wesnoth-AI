@@ -6,7 +6,10 @@ timed, the timing interleaves ref, the passing candidates and ref2, a timing
 that fails after writing rows is summarized from them and one that writes
 none leaves the sweep running; CANDIDATES picks the candidates; the streams
 sweep times each count of SWEEP_STREAMS with half its streams own, outside
-production's arguments, and is skipped when the list is empty."""
+production's arguments, and is skipped when the list is empty; the
+calibration runs B's flags on the pass before the rest and its verdict and
+flags reach the finish line, a failed calibration is named and the rest runs,
+and the calibration can run alone."""
 from __future__ import annotations
 
 import json
@@ -86,6 +89,10 @@ if name == "sweep":
 if name == "sweep-summary":
     json.dump({"valid": None, "arms": {"s32": {"positions_per_second": 1199.0, "peak_gb_max": 8.0}}},
               open(opt("--out"), "w"))
+if name == "memory":
+    flags = next(a.split("=", 1)[1] for a in args if a.startswith("--flags="))
+    json.dump({"fits": True, "timed": {"positions_per_second": 1555.5}, "peak_reserved_gb_max": 21.2,
+               "headroom_gb": 1.6, "largest_window_run": True, "flags": flags}, open(opt("--out"), "w"))
 '''
 
 
@@ -108,6 +115,8 @@ PROBE_EVERY=1200000 WARMUP=1 ROUNDS=2 PROFILE_WINDOWS=1 BUDGET_GB=19.18 BYTES_PE
 VALID_SPREAD=0.03 GRADCHECK_CUT_MIN=25 TIMING_CUT_MIN=45 CUDA_TESTS="2 passed"
 CANDIDATES="bf16 relu compiled bf16_relu bf16_compiled fp8 compiled_fp8"
 SWEEP_STREAMS="32 64 128" SWEEP_FLAGS="" SWEEP_WARMUP=1 SWEEP_ROUNDS=2 SWEEP_CUT_MIN=30
+TIMING=1 CALIBRATE=1 CALIBRATE_FLAGS="--packed-trunk --compiled-trunk --activation-budget-gb auto"
+CALIBRATE_WINDOWS=40 CALIBRATE_WORST=6 CALIBRATE_CUT_MIN=40
 BOX_RC=0 BOX_WHY=ok
 {exports}
 {STUBS}
@@ -140,7 +149,7 @@ def test_every_candidate_is_checked_against_main_s_fastest_flags_and_timed_betwe
     got = _run(tmp_path)
     assert got["rc"] == 0 and "TRAINER_SPEED_DONE" in got["finish"], (got["finish"], got["stderr"][-2000:])
     names = [s.split()[0] for s in got["steps"]]
-    assert names == ["gradcheck"] * 7 + ["timing", "sweep"]
+    assert names == ["memory"] + ["gradcheck"] * 7 + ["timing", "sweep"]
     checks = _checks(got["steps"])
     assert list(checks) == CANDIDATES
     assert all(f"--reference={FASTEST}" in c and c.count("--candidate=") == 1 for c in checks.values())
@@ -187,8 +196,23 @@ def test_a_timing_that_writes_nothing_is_named_and_the_sweep_still_runs(tmp_path
     assert [s.split()[0] for s in got["steps"]][-2:] == ["timing", "sweep"]
     assert "TIMING_FAILED rc=1 failed: no summary" in got["failed"] and '"timing": null' in got["finish"]
     assert '"s128": [3600.0, 24.0]' in got["finish"]
-    both = _run(tmp_path / "both", STUB_timing="crash", STUB_sweep="crash")
-    assert both["rc"] == 1 and both["finish"].startswith("TIMING_FAILED: no speed.json, no sweep.json")
+    nothing = _run(tmp_path / "nothing", STUB_timing="crash", STUB_sweep="crash", STUB_memory="crash")
+    assert nothing["rc"] == 1 and nothing["finish"].startswith("NOTHING_MEASURED")
+
+
+def test_the_calibration_runs_first_and_its_flags_reach_the_finish_line(tmp_path):
+    got = _run(tmp_path / "all")
+    memory = got["steps"][0]
+    assert memory.startswith("memory ") and "--flags=--packed-trunk --compiled-trunk --activation-budget-gb auto" in memory
+    assert "--windows 40" in memory and "--worst 6" in memory and "--pass-positions 2000000" in memory
+    assert '"calibration": {"fits": true, "positions_per_second": 1555.5' in got["finish"]
+    assert '"flags": "--packed-trunk --compiled-trunk --activation-budget-gb auto"' in got["finish"]
+    alone = _run(tmp_path / "alone", TIMING="0", CANDIDATES="", SWEEP_STREAMS="")
+    assert alone["rc"] == 0 and [s.split()[0] for s in alone["steps"]] == ["memory"], alone["stderr"][-2000:]
+    assert "TRAINER_SPEED_DONE" in alone["finish"] and '"timing": null' in alone["finish"]
+    failed = _run(tmp_path / "failed", STUB_memory="crash", CANDIDATES="", SWEEP_STREAMS="")
+    assert failed["rc"] == 0 and "CALIBRATION_FAILED rc=1" in failed["failed"]
+    assert [s.split()[0] for s in failed["steps"]] == ["memory", "timing"] and '"calibration"' not in failed["finish"]
 
 
 def test_candidates_picks_the_candidates_and_an_unknown_name_ends_the_run(tmp_path):
@@ -197,7 +221,7 @@ def test_candidates_picks_the_candidates_and_an_unknown_name_ends_the_run(tmp_pa
     assert list(_checks(got["steps"])) == ["fp8", "compiled_fp8"]
     assert [a[0] for a in _arms(got["steps"])] == ["ref", "fp8", "compiled_fp8", "ref2"]
     none = _run(tmp_path / "b", CANDIDATES="", SWEEP_STREAMS="")
-    assert none["rc"] == 0 and [s.split()[0] for s in none["steps"]] == ["timing"], none["stderr"][-2000:]
+    assert none["rc"] == 0 and [s.split()[0] for s in none["steps"]] == ["memory", "timing"], none["stderr"][-2000:]
     assert [a[0] for a in _arms(none["steps"])] == ["ref", "ref2"]
     wrong = _run(tmp_path / "c", CANDIDATES="fp16")
     assert wrong["rc"] == 1 and wrong["finish"].startswith("UNKNOWN_CANDIDATE fp16") and not wrong["steps"]

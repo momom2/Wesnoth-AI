@@ -10,6 +10,16 @@ import torch
 from tools.sequence_setup import ARCH, DEFAULTS
 
 
+def budget_value(text: str):
+    """--activation-budget-gb: a size in GiB, or `auto`."""
+    if text == "auto":
+        return text
+    try:
+        return float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r}: a size in GiB or auto") from None
+
+
 def parse_args(argv=None):
     """The trainer's command line (tools/sequence_train.py)."""
     ap = argparse.ArgumentParser(description="Train the parity-memory recipe on pre-encoded game "
@@ -51,9 +61,12 @@ def parse_args(argv=None):
                     help="train on the packed trunk: the real tokens only, flash varlen attention on CUDA under "
                          "bfloat16; the packed trunk has no dropout (the padded trunk's layers drop at 1e-4), so "
                          "it trains another network than the padded trunk does")
-    ap.add_argument("--activation-budget-gb", type=float, default=0.0,
+    ap.add_argument("--activation-budget-gb", type=budget_value, default=0.0,
                     help="keep the activations of as many of a window's last time steps as fit in this many GiB "
-                         "instead of recomputing them in the backward pass (0: every step recomputed)")
+                         "instead of recomputing them in the backward pass (0: every step recomputed); auto: as "
+                         "many as the CUDA device leaves, measured in the run (tools/sequence_memory_plan.py)")
+    ap.add_argument("--memory-margin-gb", type=float, default=1.0,
+                    help="with --activation-budget-gb auto: the device memory left free besides the measured peak")
     ap.add_argument("--activation-bytes-per-token", type=float, default=None,
                     help="the activation bytes a trunk token keeps, measured (default: the estimate of "
                          "tools/sequence_timing.py for the trunk and architecture)")
@@ -133,7 +146,9 @@ def check_args(args) -> None:
     if args.fused_relu and args.fp8_trunk:
         raise SystemExit("--fused-relu's epilogue belongs to a bfloat16 product, which --fp8-trunk runs in fp8: "
                          "not both")
-    if args.activation_budget_gb < 0:
-        raise SystemExit(f"--activation-budget-gb {args.activation_budget_gb}: a size, 0 or more")
+    if args.activation_budget_gb != "auto" and args.activation_budget_gb < 0:
+        raise SystemExit(f"--activation-budget-gb {args.activation_budget_gb}: a size, 0 or more, or auto")
+    if args.memory_margin_gb < 0:
+        raise SystemExit(f"--memory-margin-gb {args.memory_margin_gb}: a size, 0 or more")
     if args.train_every < 1:
         raise SystemExit(f"--train-every {args.train_every}: one window in 1 or more")

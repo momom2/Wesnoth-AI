@@ -20,12 +20,20 @@
 #     its product against the CPU emulation), and named in the finish line;
 #   the trainer's inputs (scripts/trainer_inputs.sh: own1, the corpus at
 #     version 5 and its sequences, round 2's own sequences from HF, the columns);
+#   the activation budget's calibration (memory.json; CALIBRATE=0: none):
+#     CALIBRATE_FLAGS (default B, the accepted configuration, at
+#     `--activation-budget-gb auto`) on the pass (tools/bench_sequence_step.py
+#     memory): every window's tokens scanned, 5 warm-up and CALIBRATE_WINDOWS
+#     timed windows from the pass's start (positions a second, peaks), then
+#     CALIBRATE_WORST of the pass's largest windows run where the pass meets
+#     them; memory.json gives the peaks, the planner's figures, whether every
+#     window fit, and the flags a real run should use;
 #   the gradient check (gradcheck_NAME.json): each candidate against the
 #     reference flags, FASTEST, in a process of its own, from the same weights
 #     at rate 0 over 3 windows, a crash barrier per candidate: a candidate that
 #     fails it, or whose check does not finish, is left out of the timing and
 #     the others go on;
-#   the timing (interleave.jsonl, speed.json): every arm a trainer of its own in
+#   the timing (interleave.jsonl, speed.json; TIMING=0: none): every arm a trainer of its own in
 #     one process, the records read first, the arms taking turns window by
 #     window (tools/bench_interleave.py; an arm that fails to build or in a
 #     window is recorded and the others go on): ref (FASTEST), each passing candidate,
@@ -45,18 +53,21 @@
 #   the records to HF, the instance stopped. A timing that leaves no summary is
 #     named in the finish line; the sweep runs all the same.
 #
-# The candidates (CANDIDATES, a list of the names), on FASTEST: bf16
-# (--trunk-bf16), relu (--fused-relu), compiled (--compiled-trunk, inductor),
-# bf16_relu, bf16_compiled, fp8 (--fp8-trunk) and compiled_fp8.
+# The candidates (CANDIDATES, a list of the names; default relu and compiled),
+# on FASTEST: relu (--fused-relu) and compiled (--compiled-trunk, inductor);
+# bf16 (--trunk-bf16), bf16_relu, bf16_compiled, fp8 (--fp8-trunk) and
+# compiled_fp8 by name (bf16 failed its CUDA test, fp8 its gradient check).
 #
-# Expected wall on a 4090 (round 2's walls.txt): bring-up and tests 15
-# minutes, the inputs 10 with the own sequences from HF, the gradient check 7
-# (seven processes of two trainers each, three compiles), the timing 12 (nine trainers built and
-# their records read, 5 + 40 + 3 windows each at about 0.4 s, the compiles,
-# the profiles), the sweep 12 (three trainers, 5 + 20 + 1 windows of 0.4, 0.8
-# and 1.6 s or more): about 55 minutes, $0.40 at $0.42 an hour; 95 minutes and
-# $0.70 if the own sequences must be built again. BOX_MAX_H 2 caps it at about
-# $0.85 plus the final round.
+# Expected wall on a 4090 (the round-4 walls.txt): bring-up and tests 15
+# minutes, the inputs 10 with the own sequences from HF, the calibration 10
+# (the scan of the 2,000,000-position pass's windows, about 5, the compile, 45
+# windows at about 0.35 s, 6 of the largest), the gradient check 2 (two
+# processes of two trainers each), the timing 5 (four trainers, 5 + 40 + 3
+# windows each), the sweep 12 (three trainers, 5 + 20 + 1 windows of 0.4, 0.8
+# and 1.6 s or more): about 55 minutes, $0.40 at $0.42 an hour; the
+# calibration alone (TIMING=0 CANDIDATES= SWEEP_STREAMS=) about 35 minutes,
+# $0.25. 40 minutes more if the own sequences must be built again. BOX_MAX_H 2
+# caps it at about $0.85 plus the final round.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md). No
 # periodic upload rounds while the arms run (they would share the machine
@@ -81,7 +92,13 @@ PROFILE_WINDOWS="${PROFILE_WINDOWS:-3}"
 BUDGET_GB="${BUDGET_GB:-19.18}"                 # the first round's packed_budget arm
 BYTES_PER_TOKEN="${BYTES_PER_TOKEN:-102139}"
 VALID_SPREAD="${VALID_SPREAD:-0.03}"
-CANDIDATES="${CANDIDATES:-bf16 relu compiled bf16_relu bf16_compiled fp8 compiled_fp8}"
+CANDIDATES="${CANDIDATES-relu compiled}"
+TIMING="${TIMING:-1}"
+CALIBRATE="${CALIBRATE:-1}"
+CALIBRATE_FLAGS="${CALIBRATE_FLAGS:---packed-trunk --columns --window-batched --compiled-trunk --activation-budget-gb auto}"
+CALIBRATE_WINDOWS="${CALIBRATE_WINDOWS:-40}"
+CALIBRATE_WORST="${CALIBRATE_WORST:-6}"
+CALIBRATE_CUT_MIN="${CALIBRATE_CUT_MIN:-40}"
 SWEEP_STREAMS="${SWEEP_STREAMS:-32 64 128}"
 SWEEP_FLAGS="${SWEEP_FLAGS:-}"                  # default FASTEST
 SWEEP_WARMUP="${SWEEP_WARMUP:-5}"
@@ -102,6 +119,7 @@ notes() {                        # what is done, for the finish reason
     for name in $CANDIDATES; do
         [ ! -f "$OUT/gradcheck_$name.json" ] || done_+=("gradcheck_$name")
     done
+    [ ! -f "$OUT/memory.json" ] || done_+=(calibration)
     [ ! -f "$OUT/speed.json" ] || done_+=(timing)
     [ ! -f "$OUT/sweep.json" ] || done_+=(sweep)
     echo "done: ${done_[*]:-nothing}"
@@ -114,7 +132,7 @@ box_init
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
 box_bind_run_stage
 # shellcheck disable=SC2046 # one name per candidate
-box_restore speed.json interleave.jsonl sweep.json sweep.jsonl cuda_tests.log tests.log \
+box_restore memory.json speed.json interleave.jsonl sweep.json sweep.jsonl cuda_tests.log tests.log \
     $(for name in $CANDIDATES; do echo "gradcheck_$name.json"; done) || box_finish "RESTORE_FAILED (restore.log)" 1
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
@@ -139,7 +157,8 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
         tests/test_packed_trunk.py tests/test_packed_trunk_cuda.py tests/test_packed_embed.py \
         tests/test_preencode_sequences.py tests/test_memory_learner.py tests/test_trunk_modes.py \
         tests/test_trunk_variants.py tests/test_bench_interleave.py tests/test_trainer_acceptance_readout.py \
-        tests/test_fp8_linear.py tests/test_rules_version.py tests/test_train_every.py \
+        tests/test_fp8_linear.py tests/test_rules_version.py tests/test_train_every.py tests/test_memory_plan.py \
+        tests/test_bench_gradcheck.py \
         -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
@@ -176,6 +195,21 @@ candidate_flags() {              # candidate_flags NAME: the flags NAME adds to 
 for name in "${CANDIDATE_NAMES[@]}"; do
     candidate_flags "$name" > /dev/null
 done
+
+# The calibration: CALIBRATE_FLAGS on the pass's first and largest windows.
+if [ "$CALIBRATE" = 1 ] && [ ! -f "$OUT/memory.json" ]; then
+    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the calibration: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+    rm -f "$OUT/memory.json.pending"
+    box_bounded memory "$CALIBRATE_CUT_MIN" memory.log python tools/bench_sequence_step.py memory \
+        --out "$OUT/memory.json.pending" "--flags=$CALIBRATE_FLAGS" --windows "$CALIBRATE_WINDOWS" \
+        --worst "$CALIBRATE_WORST" -- "${TRAIN_ARGS[@]}" --out "$OUT/memory_arm.pt"
+    if [ "$BOX_RC" -eq 0 ]; then
+        mv -f "$OUT/memory.json.pending" "$OUT/memory.json"
+    else
+        echo "CALIBRATION_FAILED rc=$BOX_RC $BOX_WHY (memory.log)" | tee -a "$OUT/arms_failed.txt"
+    fi
+    box_upload
+fi
 gradcheck_failed() {             # gradcheck_failed NAME: NAME's check did not finish, so NAME does not pass
     echo "GRADCHECK_FAILED $1 rc=$BOX_RC $BOX_WHY (gradcheck_$1.log)" | tee -a "$OUT/arms_failed.txt"
     printf '{"pass": false, "rc": %d, "why": "%s", "log": "gradcheck_%s.log", "candidates": []}\n' "$BOX_RC" \
@@ -206,7 +240,7 @@ for name in "${CANDIDATE_NAMES[@]}"; do
 done
 
 # The timing: ref, every candidate that passed, ref2, interleaved in one process.
-if [ ! -f "$OUT/speed.json" ]; then
+if [ "$TIMING" = 1 ] && [ ! -f "$OUT/speed.json" ]; then
     box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the timing: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
     arms=("--arm=ref=$FASTEST")
     for name in "${CANDIDATE_NAMES[@]}"; do
@@ -256,15 +290,20 @@ if [ "${#SWEEP_COUNTS[@]}" -gt 0 ] && [ ! -f "$OUT/sweep.json" ]; then
     fi
     box_upload
 fi
-SUMMARY=$(timeout 1m python - "$OUT/speed.json" "$OUT/sweep.json" <<'EOF'
+SUMMARY=$(timeout 1m python - "$OUT/speed.json" "$OUT/sweep.json" "$OUT/memory.json" <<'EOF'
 import json, os, sys
 out = {"timing": None}
+if os.path.exists(sys.argv[3]):
+    m = json.load(open(sys.argv[3], encoding="utf-8"))
+    out["calibration"] = {"fits": m["fits"], "positions_per_second": m["timed"]["positions_per_second"],
+                          "peak_reserved_gb": m["peak_reserved_gb_max"], "headroom_gb": m["headroom_gb"],
+                          "largest_window_run": m["largest_window_run"], "flags": m["flags"]}
 if os.path.exists(sys.argv[1]):
     s = json.load(open(sys.argv[1], encoding="utf-8"))
     rates = {a: v["positions_per_second"] for a, v in s["arms"].items()}
     speedups = {a: (v.get("against_reference") or {}).get("speedup_median") for a, v in s["arms"].items()
                 if a != "ref"}
-    out = {"valid": s["valid"], "rates": rates, "speedup_median": speedups}
+    out.update(timing={"valid": s["valid"], "rates": rates, "speedup_median": speedups})
 if os.path.exists(sys.argv[2]):
     w = json.load(open(sys.argv[2], encoding="utf-8"))
     out["sweep"] = {a: [v["positions_per_second"], v["peak_gb_max"]] for a, v in w["arms"].items()}
@@ -272,7 +311,7 @@ print(json.dumps(out))
 EOF
 )
 FAILED_STEPS=$(cut -d' ' -f1-2 "$OUT/arms_failed.txt" 2>/dev/null | tr '\n' ' ')
-[ -f "$OUT/speed.json" ] || [ -f "$OUT/sweep.json" ] \
-    || box_finish "TIMING_FAILED: no speed.json, no sweep.json; left out: ${FAILED_STEPS:-none} $(notes)" 1
-box_finish "TRAINER_SPEED_DONE ${SUMMARY:0:700}; cuda tests: ${CUDA_TESTS:-none}; left out: ${FAILED_STEPS:-none}"
+[ -f "$OUT/speed.json" ] || [ -f "$OUT/sweep.json" ] || [ -f "$OUT/memory.json" ] \
+    || box_finish "NOTHING_MEASURED: no memory.json, speed.json or sweep.json; left out: ${FAILED_STEPS:-none} $(notes)" 1
+box_finish "TRAINER_SPEED_DONE ${SUMMARY:0:1200}; cuda tests: ${CUDA_TESTS:-none}; left out: ${FAILED_STEPS:-none}"
 # ---- the arms (end)
