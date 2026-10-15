@@ -112,6 +112,13 @@ $1.47 in all):
   configuration B is accepted** (docs/trainer_acceptance_prereg_20261014.md
   "Measured"): packed, kept, columns, batched, compiled; fp8 failed its
   gradient gate; 64 streams and half the windows are not adopted.
+  **B calibrated 2026-10-15** (`feature/trainer-speed-4` ecb8fe8,
+  `training/metrics/trainer_calibration_20261015/`): with the activation
+  budget sized from the device's memory in the run, B trains 1,477 positions
+  a second through the pass's six largest windows, peak 21.3 GB reserved of
+  24, 1.8 GB of headroom. A real run's flags: `--packed-trunk --columns
+  --window-batched --compiled-trunk --activation-budget-gb auto`. The stream
+  sweep: 32 streams 1,402, 64 streams 1,185, 128 out of memory.
 
 **Pending on speed (2026-10-14, user: remember in the backlog):**
 - Merge four branches into main, with the user's approval (merges into main
