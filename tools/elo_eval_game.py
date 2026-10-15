@@ -365,6 +365,14 @@ def _shared_client(address: str):
     return client
 
 
+def _release_served_memories() -> None:
+    """The memory states this thread's game left on its servers go, however
+    the game ended (a server that keeps them, tools/serve_stage.py). A worker
+    that dies or is killed closes its connections, which releases them too."""
+    for client in list((getattr(_CLIENT_CACHE, "clients", None) or {}).values()):
+        client.release_memories()
+
+
 def _remote_player(address: str, raw_temperature: float, raw_seed,
                    relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
                    raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
@@ -796,6 +804,9 @@ def main(argv) -> int:
     ap.add_argument("--turn-boundary-frame", default=None,
                     choices=(None,)
                     + TS_CHOICES["--turn-boundary-frame"])
+    ap.add_argument("--view-refresh", choices=("incremental", "full"), default="incremental",
+                    help="The simulator's view after each command: rebuilt where the command "
+                         "changed it, or whole (the same view; a timing switch).")
     ap.add_argument("--log-level", default="WARNING")
     args = ap.parse_args(argv[1:])
     if args.label_a == args.label_b:
@@ -1111,6 +1122,7 @@ def main(argv) -> int:
     gs = build_scenario_gamestate(setup)
     sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                      max_turns=args.max_turns)
+    sim.incremental_view = args.view_refresh == "incremental"
     # PER-GAME COMBAT LUCK (2026-09-13): see combat_salt for why an
     # unsalted eval stream is wrong. Safe for replay export --
     # sim_to_replay._seed_from_recorded reads the seed back out of the
@@ -1120,12 +1132,16 @@ def main(argv) -> int:
     game_label = out_path.stem
     timer.add("game_setup", time.perf_counter() - t_setup)
     t0 = time.time()
-    with timing(timer):
-        r = _play_one_eval_game(
-            sim,
-            _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
-            _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
-            game_label=game_label)
+    try:
+        with timing(timer):
+            r = _play_one_eval_game(
+                sim,
+                _PolicyPair(policy=pa, label=args.label_a, side=args.side_a),
+                _PolicyPair(policy=pb, label=args.label_b, side=3 - args.side_a),
+                game_label=game_label)
+    finally:
+        if shared:
+            _release_served_memories()
     margin_a = material_margin(sim.gs, args.side_a,
                                DrawTiebreakConfig(cap=0.3))
     if pt_cfg is None:

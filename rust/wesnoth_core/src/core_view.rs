@@ -16,7 +16,9 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PySet, PyTuple};
+use std::collections::{HashMap, HashSet};
+
+use pyo3::types::{PyDict, PyFrozenSet, PyList, PySet, PyTuple};
 
 use crate::core::{GameCore, UnitRec};
 
@@ -143,5 +145,89 @@ impl GameCore {
             out.append(unit_object(py, &t, u)?)?;
         }
         Ok(out)
+    }
+}
+
+/// Phase 34: what the simulator's live view (`WesnothSim.gs`) rebuilds
+/// after each command, kept from one refresh to the next: each unit's
+/// Python object with the record it was built from, and the side's
+/// cleared fog as the view holds it. A refresh rebuilds the units whose
+/// record changed and the fog when it changed; the rest are the same
+/// objects (a view's units are read-only, `game_core.bind_view`). Correct
+/// whatever changed the core, since every record is compared whole.
+#[pyclass(module = "wesnoth_core")]
+pub struct ViewCache {
+    units: HashMap<String, (UnitRec, Py<PyAny>)>,
+    fog: Option<(Vec<Vec<u8>>, Py<PyDict>)>,
+    rebuilt: u64,
+    reused: u64,
+}
+
+#[pymethods]
+impl ViewCache {
+    #[new]
+    fn new() -> Self {
+        ViewCache { units: HashMap::new(), fog: None, rebuilt: 0, reused: 0 }
+    }
+
+    /// `core.units_view(types)`, each unit's object reused while its
+    /// record is unchanged.
+    fn units<'py>(&mut self, py: Python<'py>, core: PyRef<'_, GameCore>, types: &Bound<'py, PyTuple>)
+                  -> PyResult<Bound<'py, PyList>> {
+        let t = ViewTypes::from_tuple(types)?;
+        let out = PyList::empty(py);
+        let mut present: HashSet<&str> = HashSet::with_capacity(core.units.len());
+        for u in &core.units {
+            let hit = match self.units.get(&u.id) {
+                Some((rec, obj)) if rec == u => Some(obj.clone_ref(py)),
+                _ => None,
+            };
+            let obj = match hit {
+                Some(obj) => {
+                    self.reused += 1;
+                    obj
+                }
+                None => {
+                    let obj = unit_object(py, &t, u)?.unbind();
+                    self.units.insert(u.id.clone(), (u.clone(), obj.clone_ref(py)));
+                    self.rebuilt += 1;
+                    obj
+                }
+            };
+            out.append(obj)?;
+            present.insert(u.id.as_str());
+        }
+        self.units.retain(|id, _| present.contains(id.as_str()));
+        Ok(out)
+    }
+
+    /// The view's `_fog_cleared`: {side: frozenset of (x, y)} for every
+    /// tracked side, as `CoreState.to_state` builds it from
+    /// `fog_cleared_export`; a new dict of the same frozensets while the
+    /// record is unchanged.
+    fn fog_cleared<'py>(&mut self, py: Python<'py>, core: PyRef<'_, GameCore>) -> PyResult<Bound<'py, PyDict>> {
+        if let Some((rec, d)) = &self.fog {
+            if *rec == core.fog_cleared {
+                return d.bind(py).copy();
+            }
+        }
+        let d = PyDict::new(py);
+        for (k, v) in core.fog_cleared.iter().enumerate() {
+            if v.is_empty() {
+                continue;
+            }
+            let hexes: Vec<Bound<'py, PyTuple>> = (0..core.map.h).filter(|&j| v[j] != 0)
+                .map(|j| PyTuple::new(py, [core.map.hx[j], core.map.hy[j]]))
+                .collect::<PyResult<_>>()?;
+            d.set_item(k as i64 + 1, PyFrozenSet::new(py, &hexes)?)?;
+        }
+        self.fog = Some((core.fog_cleared.clone(), d.clone().unbind()));
+        d.copy()
+    }
+
+    /// (units rebuilt, units reused) over the cache's life.
+    #[getter]
+    fn counts(&self) -> (u64, u64) {
+        (self.rebuilt, self.reused)
     }
 }

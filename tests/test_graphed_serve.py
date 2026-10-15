@@ -327,6 +327,14 @@ def test_a_bucket_without_a_graph_goes_to_the_eager_path(monkeypatch):
     monkeypatch.setattr(dead, "_probe_device", lambda: None)
     monkeypatch.setattr(dead, "_available_bytes", lambda: 10 * dead.capture_reserve_bytes)
     monkeypatch.setattr(dead, "_capture", failing_capture)
+    # On a box CUDA is initialized and its memory queries refuse a CPU
+    # device (CI has no GPU, where the query returns 0): a CPU instance
+    # must ask none.
+    def cuda_only(device=None):
+        if torch.device(device).type != "cuda":
+            raise ValueError(f"Expected a cuda device, but got: {device}")
+        return 0
+    monkeypatch.setattr(torch.cuda, "memory_reserved", cuda_only)
     with torch.no_grad():
         assert not dead.preflight()["ok"]
         assert dead.infer([t[0] for t in triples], [t[1] for t in triples], [t[2] for t in triples]) is None

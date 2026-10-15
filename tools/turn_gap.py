@@ -1278,7 +1278,10 @@ def main(argv) -> int:
         server = launch_inference_server(
             spec.checkpoint, server_dir,
             tag="turn_gap", device=spec.device, infer_bf16=spec.infer_bf16,
-            window_ms=args.inference_window_ms, max_batch=max(1, args.jobs))
+            window_ms=args.inference_window_ms, max_batch=max(1, args.jobs),
+            # A measurement carries memory states from one player to another
+            # (set_memory, memory_of): they travel on the wire.
+            server_memory=False)
         spec = PolicySpec(checkpoint=spec.checkpoint, device=spec.device,
                           infer_bf16=bool(server.info["infer_bf16"]),
                           infer_compile=False, inference_address=server.address,

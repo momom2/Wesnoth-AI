@@ -141,7 +141,6 @@ impl GameCore {
     }
 }
 
-#[pymethods]
 impl GameCore {
     /// `_apply_command(["init_side", side])`: at side 1 the end of the
     /// turn before (its events), the side to move, the recruit rejections
@@ -152,7 +151,7 @@ impl GameCore {
     /// side's revealed hiders hidden again after turn 1, the refresh
     /// events, the side's fog recalculated, and what each side sees
     /// recorded (core_sight.rs).
-    fn apply_init_side(&mut self, side: i64) -> PyResult<()> {
+    fn init_side_now(&mut self, side: i64) -> PyResult<()> {
         if side == 1 && self.global.turn_number >= 1 {
             self.fire_all(&turn_end_names(self.global.turn_number))?;
         }
@@ -296,17 +295,10 @@ impl GameCore {
         Ok(())
     }
 
-    /// The last init_side's engagement telemetry: (kind, side, a, b, c)
-    /// rows, kind 0 a heal (village, ability, rest), 1 a cured poison, 2
-    /// a poison's damage (a).
-    fn heal_events(&self) -> Vec<(i64, i64, i64, i64, i64)> {
-        self.last_heal_events.clone()
-    }
-
     /// `_apply_command(["end_turn"])`: the ending side's units lose
     /// `slowed`, and `resting` when they moved; its end events fire; then
     /// its fog is recalculated and its sighting record starts over.
-    fn apply_end_turn(&mut self) -> PyResult<()> {
+    fn end_turn_now(&mut self) -> PyResult<()> {
         let side = self.global.current_side;
         self.clear_undo_stack();                // play_controller.cpp:576-577
         for u in self.units.iter_mut() {
@@ -323,6 +315,27 @@ impl GameCore {
         self.clear_sightings(side);
         self.note_sightings();
         Ok(())
+    }
+}
+
+#[pymethods]
+impl GameCore {
+    /// `init_side_now`. It touches no Python object: the process's other
+    /// threads run while it plays (a worker's game threads).
+    fn apply_init_side(&mut self, py: Python<'_>, side: i64) -> PyResult<()> {
+        py.allow_threads(|| self.init_side_now(side))
+    }
+
+    /// `end_turn_now`, without the GIL as `apply_init_side`.
+    fn apply_end_turn(&mut self, py: Python<'_>) -> PyResult<()> {
+        py.allow_threads(|| self.end_turn_now())
+    }
+
+    /// The last init_side's engagement telemetry: (kind, side, a, b, c)
+    /// rows, kind 0 a heal (village, ability, rest), 1 a cured poison, 2
+    /// a poison's damage (a).
+    fn heal_events(&self) -> Vec<(i64, i64, i64, i64, i64)> {
+        self.last_heal_events.clone()
     }
 
     /// The lawful bonus of a hex (x, y) for a turn: the test oracle

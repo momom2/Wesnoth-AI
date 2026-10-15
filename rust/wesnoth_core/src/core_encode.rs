@@ -19,13 +19,13 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::core::GameCore;
-use crate::core_masks::UNIT_ACTION_TYPES;
+use crate::core_masks::{LeafMasks, UNIT_ACTION_TYPES};
 use crate::core_observe::{observation_dict, CoreObservation};
 use crate::core_parity::{
     recruit_extra, widen, ParityNorms, GLOBAL_EXTRA, HAS_ATTACKED_COL, HEX_EXTRA, NUM_PARITY_NORMS, SIGHT_FEAT_DIM,
     UNIT_EXTRA,
 };
-use crate::encode::{compose_streams, GLOBAL_FEAT_DIM, NUM_HEX_DYNAMIC_FLAGS, NUM_HEX_MODIFIERS, NUM_NORMS};
+use crate::encode::{compose_streams, Composed, GLOBAL_FEAT_DIM, NUM_HEX_DYNAMIC_FLAGS, NUM_HEX_MODIFIERS, NUM_NORMS};
 
 /// encoder.py position clamp: `0 if v < 0 else (LIMIT if v > LIMIT else v)`.
 fn clamp_pos(v: i64, limit: i64) -> i64 {
@@ -110,6 +110,138 @@ impl GameCore {
                            parity_norms: Option<[f64; NUM_PARITY_NORMS]>, relevant_set_version: i64,
                            recruit_costs: Option<Vec<i64>>)
         -> PyResult<Bound<'py, PyDict>> {
+        // The encoding touches no Python object: other threads of the
+        // process run while it is computed (a worker's game threads).
+        let args = EncodeArgs {
+            side, relevant_set, type_vocab, recruit_type_ids, recruit_stats, fog_hides_enemy_villages, norms,
+            map_limit, num_alignments, terrain_multi_hot, observation_parity, parity_norms, relevant_set_version,
+            recruit_costs,
+        };
+        let parts = py.allow_threads(|| self.encode_parts(&args))?;
+        parts.into_dict(py, self, side)
+    }
+}
+
+/// The arguments of `encode_streams`.
+struct EncodeArgs {
+    side: i64,
+    relevant_set: bool,
+    type_vocab: Vec<i64>,
+    recruit_type_ids: Vec<i64>,
+    recruit_stats: Vec<f64>,
+    fog_hides_enemy_villages: bool,
+    norms: [f64; NUM_NORMS],
+    map_limit: i64,
+    num_alignments: usize,
+    terrain_multi_hot: bool,
+    observation_parity: bool,
+    parity_norms: Option<[f64; NUM_PARITY_NORMS]>,
+    relevant_set_version: i64,
+    recruit_costs: Option<Vec<i64>>,
+}
+
+/// The parity observation's rows and its sighting stream.
+struct ParityParts {
+    hex_dynamic: Vec<f32>,      // [ht, NUM_HEX_DYNAMIC_FLAGS + HEX_EXTRA]
+    unit_feats: Vec<f32>,       // [u, feat_dim + UNIT_EXTRA]
+    recruit_feats: Vec<f32>,    // [r, feat_dim + UNIT_EXTRA]
+    global: Vec<f32>,
+    sight_ids: Vec<i64>,
+    sight_xs: Vec<i64>,
+    sight_ys: Vec<i64>,
+    sight_feats: Vec<f32>,      // [s, SIGHT_FEAT_DIM]
+}
+
+/// Everything `encode_streams` returns, computed and not yet Python.
+struct EncodedParts {
+    masks: Option<LeafMasks>,
+    full_slots: Vec<i64>,
+    hex_xs: Vec<i64>,
+    hex_ys: Vec<i64>,
+    hex_tids: Vec<i64>,
+    ht: usize,
+    unit_ids: Vec<String>,
+    raw_xs: Vec<i64>,
+    raw_ys: Vec<i64>,
+    material: f64,
+    c: Composed,
+    parity: Option<ParityParts>,
+    obs: CoreObservation,
+    tok_of_hex: Vec<i64>,
+}
+
+impl EncodedParts {
+    fn into_dict<'py>(self, py: Python<'py>, core: &GameCore, side: i64) -> PyResult<Bound<'py, PyDict>> {
+        let EncodedParts { masks, full_slots, hex_xs, hex_ys, hex_tids, ht, unit_ids, raw_xs, raw_ys, material, c,
+                           parity, obs, tok_of_hex } = self;
+        let feat_dim = c.feat_dim;
+        let to2 = |rows: usize, cols: usize, data: Vec<f32>| -> Bound<'py, PyArray2<f32>> {
+            Array2::from_shape_vec((rows, cols), data).expect("row-major buffer sized rows*cols").into_pyarray(py)
+        };
+        let d = PyDict::new(py);
+        if let Some(mk) = masks {
+            let a = mk.actor_mask.len();
+            let u8_2d = |cols: usize, data: Vec<u8>| -> Bound<'py, PyArray2<u8>> {
+                Array2::from_shape_vec((a, cols), data).expect("row-major buffer sized A*cols").into_pyarray(py)
+            };
+            d.set_item("mask_actor", mk.actor_mask.into_pyarray(py))?;
+            d.set_item("mask_type_valid", u8_2d(UNIT_ACTION_TYPES, mk.type_valid))?;
+            d.set_item("mask_attack_bits", u8_2d(mk.bytes_per_row, mk.attack_bits))?;
+            d.set_item("mask_move_bits", u8_2d(mk.bytes_per_row, mk.move_bits))?;
+            d.set_item("mask_union_bits", u8_2d(mk.bytes_per_row, mk.union_bits))?;
+            d.set_item("mask_n_attacks", mk.n_attacks.into_pyarray(py))?;
+        }
+        d.set_item("full_slots", full_slots.into_pyarray(py))?;
+        d.set_item("hex_xs", hex_xs.into_pyarray(py))?;
+        d.set_item("hex_ys", hex_ys.into_pyarray(py))?;
+        d.set_item("hex_terrain_ids", hex_tids.into_pyarray(py))?;
+        d.set_item("hex_modifier_flags", to2(ht, NUM_HEX_MODIFIERS, c.modifier_flags))?;
+        d.set_item("unit_ids", unit_ids)?;
+        d.set_item("unit_raw_xs", raw_xs)?;
+        d.set_item("unit_raw_ys", raw_ys)?;
+        d.set_item("unit_is_ours", c.is_ours.into_pyarray(py))?;
+        d.set_item("unit_type_ids", c.type_ids.into_pyarray(py))?;
+        d.set_item("unit_side_ids", c.side_ids.into_pyarray(py))?;
+        d.set_item("unit_xs", c.xs.into_pyarray(py))?;
+        d.set_item("unit_ys", c.ys.into_pyarray(py))?;
+        d.set_item("recruit_is_ours", vec![1f32; c.r].into_pyarray(py))?;
+        d.set_item("recruit_type_ids", c.r_ids.into_pyarray(py))?;
+        d.set_item("recruit_side_ids", vec![0i64; c.r].into_pyarray(py))?;
+        d.set_item("recruit_xs", vec![c.lx; c.r].into_pyarray(py))?;
+        d.set_item("recruit_ys", vec![c.ly; c.r].into_pyarray(py))?;
+        d.set_item("material", material)?;
+        match parity {
+            None => {
+                d.set_item("hex_dynamic_flags", to2(ht, NUM_HEX_DYNAMIC_FLAGS, c.dynamic_flags))?;
+                d.set_item("unit_feats", to2(c.u, feat_dim, c.feats))?;
+                d.set_item("recruit_feats", to2(c.r, feat_dim, c.r_feats))?;
+                d.set_item("global_feats", c.global_feats.into_pyarray(py))?;
+            }
+            Some(p) => {
+                d.set_item("hex_dynamic_flags", to2(ht, NUM_HEX_DYNAMIC_FLAGS + HEX_EXTRA, p.hex_dynamic))?;
+                d.set_item("unit_feats", to2(c.u, feat_dim + UNIT_EXTRA, p.unit_feats))?;
+                d.set_item("recruit_feats", to2(c.r, feat_dim + UNIT_EXTRA, p.recruit_feats))?;
+                d.set_item("global_feats", p.global.into_pyarray(py))?;
+                let s = p.sight_ids.len();
+                d.set_item("sight_type_ids", p.sight_ids.into_pyarray(py))?;
+                d.set_item("sight_xs", p.sight_xs.into_pyarray(py))?;
+                d.set_item("sight_ys", p.sight_ys.into_pyarray(py))?;
+                d.set_item("sight_feats", to2(s, SIGHT_FEAT_DIM, p.sight_feats))?;
+            }
+        }
+        let od = observation_dict(py, core, obs, side)?;
+        od.set_item("tok_of_hex", tok_of_hex.into_pyarray(py))?;
+        d.set_item("observation", od)?;
+        Ok(d)
+    }
+}
+
+impl GameCore {
+    /// `encode_streams`' arrays, computed without the GIL.
+    fn encode_parts(&self, args: &EncodeArgs) -> PyResult<EncodedParts> {
+        let EncodeArgs { side, relevant_set, ref type_vocab, ref recruit_type_ids, ref recruit_stats,
+                         fog_hides_enemy_villages, norms, map_limit, num_alignments, terrain_multi_hot,
+                         observation_parity, parity_norms, relevant_set_version, ref recruit_costs } = *args;
         let them_side = opponent_of(side)?;
         let parity = parity_norms_of(observation_parity, terrain_multi_hot, parity_norms)?;
         let obs = self.observe_relevant(side, relevant_set, relevant_set_version)?;
@@ -262,15 +394,12 @@ impl GameCore {
         } else {
             Vec::new()
         };
-        let recruit_stats: &[f64] = if parity.is_some() { &parity_recruits } else { &recruit_stats };
+        let recruit_stats: &[f64] = if parity.is_some() { &parity_recruits } else { recruit_stats };
         let c = compose_streams(&static_flags, ht, &entries, &rejected, &unit_ints, &unit_stats,
-                                &recruit_type_ids, recruit_stats, lx, ly, globals, norms, map_limit,
+                                recruit_type_ids, recruit_stats, lx, ly, globals, norms, map_limit,
                                 num_alignments)?;
         let feat_dim = c.feat_dim;
-        let to2 = |rows: usize, cols: usize, data: Vec<f32>| -> Bound<'py, PyArray2<f32>> {
-            Array2::from_shape_vec((rows, cols), data).expect("row-major buffer sized rows*cols").into_pyarray(py)
-        };
-        let masks = match &recruit_costs {
+        let masks = match recruit_costs {
             Some(costs) => {
                 if costs.len() != c.r {
                     return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -284,74 +413,29 @@ impl GameCore {
             }
             None => None,
         };
-        let d = PyDict::new(py);
-        if let Some(mk) = masks {
-            let a = mk.actor_mask.len();
-            let u8_2d = |cols: usize, data: Vec<u8>| -> Bound<'py, PyArray2<u8>> {
-                Array2::from_shape_vec((a, cols), data).expect("row-major buffer sized A*cols").into_pyarray(py)
-            };
-            d.set_item("mask_actor", mk.actor_mask.into_pyarray(py))?;
-            d.set_item("mask_type_valid", u8_2d(UNIT_ACTION_TYPES, mk.type_valid))?;
-            d.set_item("mask_attack_bits", u8_2d(mk.bytes_per_row, mk.attack_bits))?;
-            d.set_item("mask_move_bits", u8_2d(mk.bytes_per_row, mk.move_bits))?;
-            d.set_item("mask_union_bits", u8_2d(mk.bytes_per_row, mk.union_bits))?;
-            d.set_item("mask_n_attacks", mk.n_attacks.into_pyarray(py))?;
-        }
-        d.set_item("full_slots", full_slots.into_pyarray(py))?;
-        d.set_item("hex_xs", hex_xs.into_pyarray(py))?;
-        d.set_item("hex_ys", hex_ys.into_pyarray(py))?;
-        d.set_item("hex_terrain_ids", hex_tids.into_pyarray(py))?;
-        d.set_item("hex_modifier_flags", to2(ht, NUM_HEX_MODIFIERS, c.modifier_flags))?;
-        d.set_item("unit_ids", unit_ids)?;
-        d.set_item("unit_raw_xs", raw_xs)?;
-        d.set_item("unit_raw_ys", raw_ys)?;
-        d.set_item("unit_is_ours", c.is_ours.into_pyarray(py))?;
-        d.set_item("unit_type_ids", c.type_ids.into_pyarray(py))?;
-        d.set_item("unit_side_ids", c.side_ids.into_pyarray(py))?;
-        d.set_item("unit_xs", c.xs.into_pyarray(py))?;
-        d.set_item("unit_ys", c.ys.into_pyarray(py))?;
-        d.set_item("recruit_is_ours", vec![1f32; c.r].into_pyarray(py))?;
-        d.set_item("recruit_type_ids", c.r_ids.into_pyarray(py))?;
-        d.set_item("recruit_side_ids", vec![0i64; c.r].into_pyarray(py))?;
-        d.set_item("recruit_xs", vec![c.lx; c.r].into_pyarray(py))?;
-        d.set_item("recruit_ys", vec![c.ly; c.r].into_pyarray(py))?;
-        d.set_item("material", material)?;
-        match &parity {
-            None => {
-                d.set_item("hex_dynamic_flags", to2(ht, NUM_HEX_DYNAMIC_FLAGS, c.dynamic_flags))?;
-                d.set_item("unit_feats", to2(c.u, feat_dim, c.feats))?;
-                d.set_item("recruit_feats", to2(c.r, feat_dim, c.r_feats))?;
-                d.set_item("global_feats", c.global_feats.into_pyarray(py))?;
-            }
+        let parity = match &parity {
+            None => None,
             Some(pn) => {
                 let hex_extra = self.hex_extra(&slots, &obs.view.seen, pn);
-                d.set_item("hex_dynamic_flags", to2(ht, NUM_HEX_DYNAMIC_FLAGS + HEX_EXTRA,
-                    widen(&c.dynamic_flags, NUM_HEX_DYNAMIC_FLAGS, &hex_extra, HEX_EXTRA)))?;
                 let mut unit_extra = vec![0f32; vis.len() * UNIT_EXTRA];
                 for (k, &i) in vis.iter().enumerate() {
                     self.unit_extra(i, pn, &mut unit_extra[k * UNIT_EXTRA..(k + 1) * UNIT_EXTRA]);
                 }
-                d.set_item("unit_feats", to2(c.u, feat_dim + UNIT_EXTRA,
-                    widen(&c.feats, feat_dim, &unit_extra, UNIT_EXTRA)))?;
-                d.set_item("recruit_feats", to2(c.r, feat_dim + UNIT_EXTRA,
-                    self.parity_recruit_feats(side, &c.r_feats, feat_dim, pn)?))?;
-                let mut global = c.global_feats;
+                let mut global = c.global_feats.clone();
                 global.extend(self.global_extra(side, them_side, norms[4], norms[5], pn));
                 debug_assert_eq!(global.len(), GLOBAL_FEAT_DIM + GLOBAL_EXTRA);
-                d.set_item("global_feats", global.into_pyarray(py))?;
                 let (sight_ids, sight_xs, sight_ys, sight_feats) =
-                    self.sighting_stream(side, &obs.view.visible, &type_vocab, map_limit, norms[0]);
-                let s = sight_ids.len();
-                d.set_item("sight_type_ids", sight_ids.into_pyarray(py))?;
-                d.set_item("sight_xs", sight_xs.into_pyarray(py))?;
-                d.set_item("sight_ys", sight_ys.into_pyarray(py))?;
-                d.set_item("sight_feats", to2(s, SIGHT_FEAT_DIM, sight_feats))?;
+                    self.sighting_stream(side, &obs.view.visible, type_vocab, map_limit, norms[0]);
+                Some(ParityParts {
+                    hex_dynamic: widen(&c.dynamic_flags, NUM_HEX_DYNAMIC_FLAGS, &hex_extra, HEX_EXTRA),
+                    unit_feats: widen(&c.feats, feat_dim, &unit_extra, UNIT_EXTRA),
+                    recruit_feats: self.parity_recruit_feats(side, &c.r_feats, feat_dim, pn)?,
+                    global, sight_ids, sight_xs, sight_ys, sight_feats,
+                })
             }
-        }
-        let od = observation_dict(py, self, obs, side)?;
-        od.set_item("tok_of_hex", tok_of_hex.into_pyarray(py))?;
-        d.set_item("observation", od)?;
-        Ok(d)
+        };
+        Ok(EncodedParts { masks, full_slots, hex_xs, hex_ys, hex_tids, ht, unit_ids, raw_xs, raw_ys, material, c,
+                          parity, obs, tok_of_hex })
     }
 }
 

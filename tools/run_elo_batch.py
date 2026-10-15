@@ -434,11 +434,12 @@ def _log_server_stats(stats: dict) -> None:
             log.error("inference server %s stopped serving on a device fault:\n%s",
                       Path(spec).name, st["fatal"][-2000:])
         log.info("inference server %s: %d requests in %d batches, mean batch "
-                 "%.2f, hist %s; idle %.1fs window %.1fs infer %.1fs reply %.1fs "
-                 "of %.1fs wall (gpu %.1fs)", Path(spec).name, st["requests"],
-                 st["batches"], st["mean_batch"], st["batch_hist"], st["idle_s"],
-                 st["window_s"], st["infer_s"], st["reply_s"], st["wall_s"],
-                 st["gpu_ms"] / 1000.0)
+                 "%.2f, hist %s; idle %.1fs window %.1fs (reads %.1fs) infer %.1fs "
+                 "reply %.1fs of %.1fs wall (gpu %.1fs); host seconds by stage %s",
+                 Path(spec).name, st["requests"], st["batches"], st["mean_batch"],
+                 st["batch_hist"], st["idle_s"], st["window_s"], st.get("recv_s", 0.0),
+                 st["infer_s"], st["reply_s"], st["wall_s"], st["gpu_ms"] / 1000.0,
+                 st.get("stage_s", {}))
 
 
 
@@ -657,6 +658,17 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the server replays each priors batch from a "
                          "per-bucket CUDA graph (wesnoth_ai/graphed_serve.py; cuda + bf16 "
                          "+ packed trunk), one launch per batch instead of ~150.")
+    ap.add_argument("--view-refresh", choices=("incremental", "full"), default="incremental",
+                    help="How a game's simulator refreshes its view after each command: rebuilding "
+                         "only what the command changed (wesnoth_core.ViewCache) or the whole view; "
+                         "the same view either way (a timing switch).")
+    ap.add_argument("--rust-stage", action=argparse.BooleanOptionalAction, default=True,
+                    help="Shared inference: the server's host work per batch in Rust "
+                         "(tools/serve_stage.py), the same bytes as the Python path.")
+    ap.add_argument("--server-memory", action=argparse.BooleanOptionalAction, default=True,
+                    help="Shared inference: the server keeps each game-side's memory state on "
+                         "the device between its decisions (a model with a memory) instead of "
+                         "the state crossing the wire both ways at every decision.")
     ap.add_argument("--inference-servers", type=int, default=1,
                     help="Inference server PROCESSES per distinct checkpoint "
                          "(default 1). The eval path is bound by one server's "
@@ -821,12 +833,16 @@ def main(argv: List[str]) -> int:
         jobs = max(1, args.jobs)
         log.info("explicit --jobs %d (auto would pick: %s)",
                  jobs, how)
-    # Every concurrent game needs its own headroom, so the floor scales.
+    # Every concurrent game needs its own headroom: before a game starts,
+    # the free memory must cover min_free for it and for each game not yet
+    # running. The running games already hold theirs, in the free memory
+    # read; counting them again (min_free times every job) refused, on a
+    # 64 GB box, any match above about 90 games in flight once its
+    # persistent workers held their memory.
     min_free = args.min_free_mb
     if min_free is None:
         min_free = (SHARED_INFERENCE_MIN_FREE_MB if args.shared_inference
                     else DEFAULT_MIN_FREE_MB)
-    floor = min_free * jobs
     _peak_rss: dict = {}   # pid -> max sampled RSS (MB), best effort
     # failed: games that ended without a result file (each leaves a
     # failure record); timed_out: games killed on the per-game timeout
@@ -1047,7 +1063,8 @@ def main(argv: List[str]) -> int:
                         window_ms=args.inference_window_ms, max_batch=max_batch,
                         packed_embed=bool(args.packed_embed),
                         compile_packed=bool(args.compile_packed),
-                        graphed=bool(args.graphed_serve))
+                        graphed=bool(args.graphed_serve), rust_stage=bool(args.rust_stage),
+                        server_memory=bool(args.server_memory))
                     servers[spec].append(handle)
                     log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
                              handle.address, handle.info)
@@ -1140,6 +1157,8 @@ def main(argv: List[str]) -> int:
                 cmd += [f"--memory-{side}", str(memory)]
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
+        if args.view_refresh != "incremental":
+            cmd += ["--view-refresh", args.view_refresh]
         if servers:
             # The servers' effective precision, stated explicitly so
             # the game records what ran (elo_eval_game checks it
@@ -1300,6 +1319,7 @@ def main(argv: List[str]) -> int:
                     stop = True
                     break
                 fm = free_mb()
+                floor = min_free * (jobs - len(running))
                 if fm is not None and fm < floor and not running:
                     # Only hard-stop when nothing is in flight; otherwise let
                     # the running games finish and free their memory first.

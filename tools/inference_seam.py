@@ -55,10 +55,12 @@ import threading
 import time
 from typing import Dict, List, Optional, Protocol, Tuple
 
+import numpy as np
 import torch
 
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.encoder import EncodedState, RawEncoded, encode_raw
+from wesnoth_ai.memory import MemoryBatch
 from wesnoth_ai.model import ModelOutput
 from wesnoth_ai.stage_timing import stage
 
@@ -204,6 +206,43 @@ def output_from_wire(w) -> ModelOutput:
     return ModelOutput(**kw)
 
 
+class LightEncoded(EncodedState):
+    """`build_light_encoded`'s EncodedState: the positions, ids, types and
+    flags set at once, the placeholder token tensors, the ownership
+    tensors and the position index built on first read. A worker's
+    decision under server-side priors reads the token widths, the
+    positions and the types (`server_priors.pack_masks`,
+    `compact_action`); the rest only the list path's sampler, which
+    builds them when it reads them. Read-only, as every encoded state."""
+
+    def __getattr__(self, name: str):
+        # Called only for an attribute not set yet: one of the lazy fields.
+        build = _LIGHT_FIELDS.get(name)
+        state = self.__dict__
+        if build is None or "_light_raw" not in state:
+            raise AttributeError(name)
+        value = build(state["_light_raw"], state["_light_device"])
+        state[name] = value
+        return value
+
+
+def _placeholder(n: int, device) -> torch.Tensor:
+    return torch.zeros((1, n, 1), device=device)
+
+
+# The lazy fields of a LightEncoded, each from (raw, device).
+_LIGHT_FIELDS = {
+    "hex_tokens": lambda raw, dev: _placeholder(len(raw.hex_positions), dev),
+    "unit_tokens": lambda raw, dev: _placeholder(len(raw.unit_positions), dev),
+    "recruit_tokens": lambda raw, dev: _placeholder(len(raw.recruit_types), dev),
+    "global_token": lambda raw, dev: _placeholder(1, dev),
+    "end_turn_token": lambda raw, dev: _placeholder(1, dev),
+    "pos_to_hex": lambda raw, dev: {(p.x, p.y): j for j, p in enumerate(raw.hex_positions)},
+    "unit_is_ours": lambda raw, dev: torch.from_numpy(raw.unit_is_ours).to(dev).unsqueeze(0),
+    "recruit_is_ours": lambda raw, dev: torch.from_numpy(raw.recruit_is_ours).to(dev).unsqueeze(0),
+}
+
+
 def build_light_encoded(
     raw: RawEncoded, device: torch.device,
 ) -> EncodedState:
@@ -215,35 +254,15 @@ def build_light_encoded(
     Python position/id/type lists, the `*_is_ours` flags, the
     visible-unit set, the pos->hex map, the hex-basis flag the
     sampler's relevant-set tripwires read) is reconstructed exactly
-    from `raw`."""
-    H = len(raw.hex_positions)
-    U = len(raw.unit_positions)
-    R = len(raw.recruit_types)
-
-    def _ph(n: int) -> torch.Tensor:            # placeholder token tensor
-        return torch.zeros((1, n, 1), device=device)
-
-    pos_to_hex = {(p.x, p.y): j for j, p in enumerate(raw.hex_positions)}
-    unit_is_ours = torch.from_numpy(raw.unit_is_ours).to(device).unsqueeze(0)
-    recruit_is_ours = (torch.from_numpy(raw.recruit_is_ours)
-                       .to(device).unsqueeze(0))
-    return EncodedState(
-        hex_tokens=_ph(H),
-        hex_positions=raw.hex_positions,
-        pos_to_hex=pos_to_hex,
-        unit_tokens=_ph(U),
-        unit_is_ours=unit_is_ours,
-        unit_positions=raw.unit_positions,
-        unit_ids=raw.unit_ids,
-        recruit_tokens=_ph(R),
-        recruit_is_ours=recruit_is_ours,
-        recruit_types=raw.recruit_types,
-        global_token=_ph(1),
-        end_turn_token=_ph(1),
-        recruit_is_ours_np=raw.recruit_is_ours,
-        hex_subset=bool(raw.hex_subset),
-        observation=getattr(raw, "observation", None),
-    )
+    from `raw`, the tensors and the map on first read (`LightEncoded`)."""
+    enc = object.__new__(LightEncoded)
+    enc.__dict__.update(
+        _light_raw=raw, _light_device=device,
+        hex_positions=raw.hex_positions, unit_positions=raw.unit_positions,
+        unit_ids=raw.unit_ids, recruit_types=raw.recruit_types,
+        recruit_is_ours_np=raw.recruit_is_ours, hex_subset=bool(raw.hex_subset),
+        material=None, observation=getattr(raw, "observation", None), sighting_tokens=None)
+    return enc
 
 
 # ---------------------------------------------------------------------
@@ -441,22 +460,71 @@ class InferenceServer:
             raise ValueError(f"a model with a memory ({slots} slots) needs every leaf's memory")
         return list(memories)
 
-    def _memory_states(self, memories) -> Optional[List[torch.Tensor]]:
-        """The eager forward's memory states: each leaf's, or its learned
-        initial memory at a game-side's first decision, on the device."""
+    def _memory_batch(self, memories) -> Optional[MemoryBatch]:
+        """The eager forward's memory states, padded [B, K_max, d] on the
+        device: each leaf's state, or its learned initial memory at a
+        game-side's first decision, zeros past its slot count (as
+        `SlotMemory.batch` pads them). The states cross to the device in
+        one transfer from one pinned buffer, not one blocking copy each."""
         if memories is None:
             return None
-        return [self._model.initial_memory(m.k).to(self._device) if m.state is None
-                else torch.as_tensor(m.state, dtype=torch.float32).to(self._device) for m in memories]
+        d, slots = int(self._model.d_model), int(self._model.memory_slots)
+        states = []
+        for m in memories:
+            s = m.state
+            if s is not None:
+                s = np.asarray(s.detach().cpu() if torch.is_tensor(s) else s, dtype=np.float32)
+                if s.ndim != 2 or s.shape[1] != d or s.shape[0] > slots:
+                    raise ValueError(f"a memory state is [k <= {slots}, {d}], got {tuple(s.shape)}")
+            states.append(s)
+        # A state's slot count is its rows; the initial memory's, the player's k.
+        counts = [int(m.k) if s is None else int(s.shape[0]) for m, s in zip(memories, states)]
+        cuda = self._device.type == "cuda"
+        host = torch.zeros((len(states), max(counts, default=0), d), dtype=torch.float32,
+                           pin_memory=cuda)
+        hv = host.numpy()
+        for b, s in enumerate(states):
+            if s is not None:
+                hv[b, :counts[b]] = s
+        padded = host.to(self._device, non_blocking=True) if cuda else host
+        for b, s in enumerate(states):
+            if s is None and counts[b]:
+                padded[b, :counts[b]] = self._model.initial_memory(counts[b]).to(self._device)
+        return MemoryBatch(padded=padded, counts=counts)
 
     def _infer_with_priors(self, raws, packs, stats=None, memories=None) -> List[ModelOutput]:
-        """Batched forward + masked softmaxes on the device; replies
-        carry the compact legal actions, value and cliffness, with
-        placeholder logits (the actor never reads them). The head
-        outputs ride back in the priors' one device->host transfer.
-        With a memory (`memories`: one `MemoryState` per leaf) each reply
-        carries the leaf's new state; eagerly, the parity observation and
-        the memory run the embedded path (the padded one has no sighting
+        """`_serve_priors` as one ModelOutput per leaf: the compact legal
+        actions, value and cliffness, placeholder logits (the actor never
+        reads them) and, with a memory, the leaf's new state."""
+        batch = self._serve_priors(raws, packs, stats, memories)
+        return [batch.output(b) for b in range(len(raws))]
+
+    def serve_priors(self, items, stats: Optional[Dict[str, float]] = None,
+                     memory_batch: Optional[MemoryBatch] = None) -> "ServedBatch":
+        """The priors protocol's batch on (RawEncoded, PackedMasks) pairs,
+        or triples with a MemoryState, as host arrays (`ServedBatch`):
+        what `infer_batch` returns per leaf, without a ModelOutput per
+        leaf (the eval server writes its replies from these arrays).
+        `memory_batch`: the batch's memory states already on the device
+        (the states the server keeps, tools/serve_stage.py `ServerMemory`);
+        the items' memories are then the server's handles, and the new
+        states stay on the device (`ServedBatch.device_memory`)."""
+        if not items:
+            raise ValueError("serve_priors: empty batch")
+        if not all(isinstance(it, tuple) for it in items):
+            raise ValueError("serve_priors takes (raw, masks[, memory]) items")
+        memories = [it[2] if len(it) > 2 else None for it in items]
+        with self.gate.shared():
+            return self._serve_priors([it[0] for it in items], [it[1] for it in items], stats,
+                                      memories, memory_batch=memory_batch)
+
+    def _serve_priors(self, raws, packs, stats=None, memories=None,
+                      memory_batch: Optional[MemoryBatch] = None) -> "ServedBatch":
+        """Batched forward + masked softmaxes on the device; the compact
+        legal actions, the head outputs and the new memory states come
+        back as host arrays (the head outputs in the priors' one
+        device->host transfer). Eagerly, the parity observation and the
+        memory run the embedded path (the padded one has no sighting
         stream).
 
         On CUDA with `stats`, a pair of stream events brackets encode
@@ -479,10 +547,15 @@ class InferenceServer:
         memories = self._checked_memories(memories)
         extended = bool(getattr(model, "extended_streams", False))
         gserve = self._graphed_serve()
-        new_memory = None
+        if gserve is not None and (memory_batch is not None) != bool(getattr(gserve, "device_memory", False)):
+            # The states the server keeps are on the device; a graphed path
+            # built for host states serves the other batches only.
+            gserve = None
+        new_memory = memory_counts = None
+        device_memory = None
         if gserve is not None:
             try:
-                graphed = gserve.infer(raws, packs, memories)
+                graphed = gserve.infer(raws, packs, memories, device_states=memory_batch)
             except Exception:                        # noqa: BLE001 -- the eager path serves from here on
                 log.exception("graphed serve failed on a batch of %d; serving eager from now on",
                               len(raws))
@@ -491,10 +564,11 @@ class InferenceServer:
                 self._graphed_by_thread.clear()
         if graphed is not None:
             compact, actor_kind, sizes = graphed.compact, graphed.actor_kind, graphed.sizes
-            names = list(graphed.extras)
-            host = [graphed.extras[n] for n in names]
-            if graphed.memory is not None:
-                new_memory = torch.from_numpy(graphed.memory)
+            extras = dict(graphed.extras)
+            if graphed.memory is not None and memory_batch is not None:
+                device_memory = graphed.memory
+            elif graphed.memory is not None:
+                new_memory = graphed.memory
                 memory_counts = [int(m.k) for m in memories]
             t1 = t2 = t3 = t4 = time.perf_counter()
             if timing:
@@ -505,7 +579,7 @@ class InferenceServer:
                 ev_end.synchronize()
         else:
             with torch.no_grad():
-                states = self._memory_states(memories)
+                states = memory_batch if memory_batch is not None else self._memory_batch(memories)
                 if self._packed_embed or extended:
                     streams = self._encoder.encode_from_raw_embedded(raws, device=self._device)
 
@@ -525,40 +599,85 @@ class InferenceServer:
                 t2 = time.perf_counter()
                 names = ["value", "value_logits", "cliffness"]
                 names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
-                pending = start_priors(padded, packs, [getattr(padded, n) for n in names])
+                ride = [getattr(padded, n) for n in names]
+                # The new memory states ride in the priors' one transfer,
+                # unless the server keeps them.
+                if padded.memory_padded is not None and memory_batch is None:
+                    ride.append(padded.memory_padded.float())
+                pending = start_priors(padded, packs, ride)
+                if memory_batch is not None:
+                    device_memory = padded.memory_padded
                 if timing:
                     ev_end.record()
                 t3 = time.perf_counter()
                 compact, host = pending.finish()
                 t4 = time.perf_counter()
-            actor_kind, sizes = padded.actor_kind, padded.sizes
-            if padded.memory_padded is not None:
-                new_memory = padded.memory_padded.float().cpu()
+            if padded.memory_padded is not None and memory_batch is None:
+                new_memory, host = host[-1], host[:-1]
                 memory_counts = padded.memory_counts
+            extras = dict(zip(names, host))
+            actor_kind, sizes = padded.actor_kind, padded.sizes
         if timing:
             stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + ev_start.elapsed_time(ev_end)
-        small = {n: torch.from_numpy(a) for n, a in zip(names, host)}
-        aux = small.get("aux_score")
-        ml = small.get("moves_left")
-        outs = []
-        for b, (U, R, H) in enumerate(sizes):
-            A = U + R + 1
-            flat, empty = placeholder_logits(A)
-            outs.append(ModelOutput(
-                actor_logits=flat, actor_kind=actor_kind[b:b + 1, :A],
-                type_logits=empty, target_logits=empty, weapon_logits=empty,
-                value=small["value"][b:b + 1], value_logits=small["value_logits"][b:b + 1],
-                cliffness=small["cliffness"][b:b + 1], num_units=U, num_recruits=R,
-                aux_score=aux[b:b + 1] if aux is not None else None,
-                moves_left=ml[b:b + 1] if ml is not None else None,
-                legal_compact=compact[b],
-                memory=None if new_memory is None else new_memory[b, :memory_counts[b]]))
+        batch = ServedBatch(compact=compact, extras=extras, actor_kind=actor_kind.cpu().numpy(),
+                            sizes=[tuple(s) for s in sizes], memory=new_memory,
+                            memory_counts=None if memory_counts is None else list(memory_counts),
+                            device_memory=device_memory)
         if timing:
             t5 = time.perf_counter()
             for key, dt in (("t_encode", t1 - t0), ("t_forward", t2 - t1), ("t_priors", t3 - t2),
                             ("t_finish", t4 - t3), ("t_reply", t5 - t4)):
                 stats[key] = stats.get(key, 0.0) + dt
-        return outs
+        return batch
+
+
+@dataclasses.dataclass
+class ServedBatch:
+    """One priors batch on the host: per leaf its compact legal actions
+    and sizes (U, R, H); the head outputs by name ([B, ...] arrays:
+    value, value_logits, cliffness, and aux_score and moves_left when
+    the model has them); the actor kinds [B, A_max] (int64); the new
+    memory states [B, K, d] (float32, leaf b's first memory_counts[b]
+    rows) or None for a model without a memory, or one whose states the
+    server keeps: those stay on the device (`device_memory`)."""
+    compact: List
+    extras: Dict[str, np.ndarray]
+    actor_kind: np.ndarray
+    sizes: List[Tuple[int, int, int]]
+    memory: Optional[np.ndarray] = None
+    memory_counts: Optional[List[int]] = None
+    device_memory: Optional[torch.Tensor] = None
+
+    def wire(self, b: int) -> tuple:
+        """Leaf b's priors tuple: what `output_to_wire(self.output(b))`
+        returns, without the ModelOutput."""
+        U, R, _H = self.sizes[b]
+        x = self.extras
+        aux, ml = x.get("aux_score"), x.get("moves_left")
+        return ("c", int(U), int(R), x["value"][b:b + 1], x["value_logits"][b:b + 1],
+                x["cliffness"][b:b + 1], None if aux is None else aux[b:b + 1],
+                None if ml is None else ml[b:b + 1],
+                self.actor_kind[b:b + 1, :U + R + 1].astype("int8"), self.compact[b],
+                None if self.memory is None else self.memory[b, :self.memory_counts[b]])
+
+    def output(self, b: int) -> ModelOutput:
+        """Leaf b's ModelOutput: placeholder logits, the compact actions."""
+        U, R, _H = self.sizes[b]
+        A = U + R + 1
+        flat, empty = placeholder_logits(A)
+        x = self.extras
+        aux, ml = x.get("aux_score"), x.get("moves_left")
+        return ModelOutput(
+            actor_logits=flat, actor_kind=torch.from_numpy(self.actor_kind[b:b + 1, :A]),
+            type_logits=empty, target_logits=empty, weapon_logits=empty,
+            value=torch.from_numpy(x["value"][b:b + 1]),
+            value_logits=torch.from_numpy(x["value_logits"][b:b + 1]),
+            cliffness=torch.from_numpy(x["cliffness"][b:b + 1]), num_units=U, num_recruits=R,
+            aux_score=None if aux is None else torch.from_numpy(aux[b:b + 1]),
+            moves_left=None if ml is None else torch.from_numpy(ml[b:b + 1]),
+            legal_compact=self.compact[b],
+            memory=(None if self.memory is None
+                    else torch.from_numpy(self.memory[b, :self.memory_counts[b]])))
 
 
 # ---------------------------------------------------------------------

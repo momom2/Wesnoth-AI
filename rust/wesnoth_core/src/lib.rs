@@ -35,6 +35,7 @@ mod db;
 mod effects;
 mod events;
 mod outcomes;
+mod serve_stage;
 mod terrain;
 mod units;
 mod wml;
@@ -553,6 +554,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(combat::resolve_attack, m)?)?;
     m.add_function(wrap_pyfunction!(combat::random_int, m)?)?;
     m.add_class::<core::GameCore>()?;
+    m.add_class::<serve_stage::ServeRequests>()?;
+    m.add_class::<serve_stage::MemoryTable>()?;
+    m.add_class::<core_view::ViewCache>()?;
     m.add_function(wrap_pyfunction!(db::load_databases, m)?)?;
     m.add_function(wrap_pyfunction!(db::databases_loaded, m)?)?;
     m.add_function(wrap_pyfunction!(db::fallback_type_counts, m)?)?;
@@ -649,7 +653,19 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // the encoding when given the recruit costs (core_masks.rs), and the
     // module declares the mask layout's constants (mask_layout);
     // GameCore.units_view builds the Python view's units (core_view.rs).
-    m.add("__phase__", 32)?;
+    // 33: the long calls a worker's decision makes (encode_streams,
+    // apply_move, apply_recruit, apply_init_side, apply_end_turn,
+    // unit_reach, side_context, observe) compute without the GIL, so the
+    // other game threads of a worker run meanwhile.
+    // 34: the inference server's host work per batch (serve_stage.rs):
+    // ServeRequests parses the requests in place and writes the embedding
+    // stage, the packed trunk's index, the masks with their capacity, the
+    // memory states and the replies; MemoryTable keeps the books of the
+    // memory states the server holds between decisions; ViewCache keeps
+    // the simulator's live view from one refresh to the next (core_view.rs):
+    // a unit's object is rebuilt only when its record changed, the fog
+    // record only when it changed.
+    m.add("__phase__", 34)?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;
     Ok(())

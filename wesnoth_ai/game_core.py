@@ -78,8 +78,12 @@ _RECORD_SIDES = (1, 2)
 # each side-turn start, the first included (`skip_first_turn_resting` keeps
 # the earlier rule for records of format 3 and earlier), 32 builds the
 # decision's packed legality masks beside the encoding (`encode_raw(masks=True)`)
-# and the view's units (`units_view`).
-_CORE_PHASE = 32
+# and the view's units (`units_view`), 33 computes a decision's long calls
+# without the GIL (a worker's other game threads run meanwhile), 34 does the
+# inference server's host work per batch (`ServeRequests`, `MemoryTable`;
+# tools/serve_stage.py) and keeps the simulator's live view from one refresh
+# to the next (`ViewCache`, `CoreState.view_state`).
+_CORE_PHASE = 34
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
 CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",
@@ -199,6 +203,23 @@ def view_of(cs: "CoreState") -> GameState:
     view = cs.to_state()
     bind_view(view, cs)
     return view
+
+
+def view_content(gs: GameState) -> tuple:
+    """Everything a view holds, as plain values to compare: each unit's
+    fields and underscore attributes by id, the sides, the global info's
+    attributes by name, the map's sets by identity, the game's end. Two
+    views of one core state are equal under it."""
+    def fields(u):
+        d = dict(vars(u))
+        if "_object_effects" in d:          # WML nodes, compared by content
+            d["_object_effects"] = [wml_tuple(n) for n in d["_object_effects"]]
+        return repr(sorted(d.items(), key=lambda kv: kv[0]))
+    units = sorted((u.id, fields(u)) for u in gs.map.units)
+    gi = sorted(gs.global_info.__dict__.items(), key=lambda kv: kv[0])
+    return (units, repr(gs.sides), repr(gi), id(gs.map.hexes), id(gs.map.mask), id(gs.map.fog),
+            gs.map.size_x, gs.map.size_y, gs.game_over, gs.winner, gs.game_id,
+            tuple(gs.era_factions), gs.random_faction_mode)
 
 
 def snapshot_view(gs: GameState) -> GameState:
@@ -529,6 +550,21 @@ class CoreState:
         """A GameState view with the core's content; statics by reference."""
         self._sync_map()
         core = self.core
+        fog = {side: frozenset(map(tuple, hexes)) for side, hexes in core.fog_cleared_export()}
+        return self._state_of(set(core.units_view(_view_types())), fog)
+
+    def view_state(self, cache) -> GameState:
+        """`to_state`, its units and its cleared fog from `cache` (a
+        `wesnoth_core.ViewCache`, one per live view): a unit's object is
+        the one the last call built while the unit's record is unchanged,
+        so a refresh after a command rebuilds what the command changed.
+        The same content as `to_state` (tests/test_view_cache.py)."""
+        self._sync_map()
+        return self._state_of(set(cache.units(self.core, _view_types())), cache.fog_cleared(self.core))
+
+    def _state_of(self, units: set, fog_cleared: dict) -> GameState:
+        """The view of the core around its units and its cleared fog."""
+        core = self.core
         g = core.globals_export()
         gi = GlobalInfo(current_side=g["current_side"], turn_number=g["turn_number"],
                         time_of_day=g["time_of_day"], village_gold=g["village_gold"],
@@ -566,7 +602,7 @@ class CoreState:
             strikes.append({"chance": flat[k], "hits": bool(flat[k + 1]), "damage": flat[k + 2]})
             strikes.append({"dies": bool(flat[k + 3])})
         gi._last_checkup_strikes = strikes or None
-        gi._fog_cleared = {side: frozenset(map(tuple, hexes)) for side, hexes in core.fog_cleared_export()}
+        gi._fog_cleared = fog_cleared
         delayed, pending, plan_unit_advance, fresh_turn = core.shroud_state_export()
         gi._shroud_delayed = frozenset(delayed)
         gi._pending_vision = tuple(_pending_row(r) for r in pending)
@@ -576,7 +612,6 @@ class CoreState:
         gi._seen_types = {side: tuple(core.seen_types_export(side)) for side in _RECORD_SIDES}
         gi._sightings_gone = {side: tuple(core.sightings_gone_export(side)) for side in _RECORD_SIDES}
         self._events_into(gi)
-        units = set(core.units_view(_view_types()))
         chose_random = self.statics.get("chose_random") or ()
         sides = [SideInfo(player=p, recruits=list(r), current_gold=gold, base_income=b,
                           nb_villages_controlled=v, faction=f,
@@ -1097,5 +1132,6 @@ def _observation_from_dict(d: dict, geometry):
 
 __all__ = ["CoreState", "map_static", "unit_fields", "unit_from_fields", "wml_tuple", "wml_node",
            "game_core_class", "load_databases", "bind_view", "core_of", "core_for", "view_of",
+           "view_content",
            "snapshot_view", "build_unit", "build_recruit_unit",
            "unit_db_fallbacks", "is_rust_panic", "MODELED_GLOBALS", "UNIT_STASH_KEYS", "SIGHT_RECORDS"]

@@ -58,6 +58,7 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -470,12 +471,26 @@ class RecordedCommand:
 # The simulator
 # ---------------------------------------------------------------------
 
+# A global the view leaves absent (`WesnothSim._set_view_attr`).
+_ABSENT = object()
+# Every refresh of the live view checked against a whole rebuild (the test
+# suite sets it, as it does for `game_core.core_of`'s check).
+_CHECK_VIEWS = bool(os.environ.get("WESNOTH_CHECK_VIEWS"))
+
+
 class WesnothSim:
     """One self-play game running fully in-process on the Rust core, the
     state of record replay reconstruction also plays."""
 
     # The view of the core, built on first use (fork() leaves it unset).
     _gs: Optional[GameState] = None
+    # What the view's refresh keeps from one command to the next
+    # (wesnoth_core.ViewCache), built with the view.
+    _view_cache = None
+    # False: every refresh rebuilds the whole view (`CoreState.to_state`),
+    # the simulator before the cache; the same content either way. A
+    # match's --view-refresh full sets it for the timing arms.
+    incremental_view: bool = True
 
     # Hard caps to prevent infinite games. The values are tuned for
     # competitive 2p maps where a typical game ends in 20-40 turns and
@@ -701,6 +716,7 @@ class WesnothSim:
         if self._gs is None:
             from wesnoth_ai.game_core import view_of
             self._gs = view_of(self.core)
+            self._view_cache = None
         return self._gs
 
     @gs.setter
@@ -709,16 +725,26 @@ class WesnothSim:
         (`CoreState.from_state`) and the state becomes its view."""
         from wesnoth_ai.game_core import CoreState, bind_view
         self._gs = value
+        self._view_cache = None
         self.core = CoreState.from_state(value)
         bind_view(value, self.core)
 
     def _refresh_view(self) -> None:
         """After a core command: the view object takes the core's
         content in place, so every holder of `sim.gs`, its map, its
-        sides or its global info reads the current state."""
+        sides or its global info reads the current state. The units whose
+        record the command left alone keep their objects
+        (`CoreState.view_state`); with WESNOTH_CHECK_VIEWS set (the test
+        suite) the result is checked against a whole rebuild."""
         if self._gs is None:
             return
-        fresh = self.core.to_state()
+        if self.incremental_view:
+            if self._view_cache is None:
+                import wesnoth_core
+                self._view_cache = wesnoth_core.ViewCache()
+            fresh = self.core.view_state(self._view_cache)
+        else:
+            fresh = self.core.to_state()
         view = self._gs
         view.map.units.clear()
         view.map.units.update(fresh.map.units)
@@ -730,6 +756,33 @@ class WesnothSim:
         view.game_over, view.winner = fresh.game_over, fresh.winner
         from wesnoth_ai.game_core import bind_view
         bind_view(view, self.core)
+        if _CHECK_VIEWS:
+            self._check_view()
+
+    def _check_view(self) -> None:
+        """The live view holds what a whole rebuild of the core holds."""
+        from wesnoth_ai.game_core import view_content
+        want = view_content(self.core.to_state())
+        got = view_content(self._gs)
+        if got != want:
+            raise AssertionError("the simulator's live view differs from its core's state: "
+                                 + next(f"{a!r:.300} != {b!r:.300}" for a, b in zip(got, want) if a != b))
+
+    def _set_view_attr(self, name: str, value) -> None:
+        """After a core setter that writes one global: the live view's
+        attribute alone, as the whole refresh would write it (value
+        `_ABSENT`: the attribute absent)."""
+        if self._gs is None:
+            return
+        gi = self._gs.global_info
+        if value is _ABSENT:
+            gi.__dict__.pop(name, None)
+        else:
+            setattr(gi, name, value)
+        from wesnoth_ai.game_core import bind_view
+        bind_view(self._gs, self.core)
+        if _CHECK_VIEWS:
+            self._check_view()
 
     @property
     def state(self) -> GameState:
@@ -748,24 +801,27 @@ class WesnothSim:
         no-progress tracker."""
         return self.core.core.progress_fingerprint()
 
+    # The setters below write one global of the core, and the live view
+    # takes it as `CoreState.to_state` writes it (`_set_view_attr`).
+
     def _set_current_side(self, side: int) -> None:
         self.core.core.set_global_int("current_side", int(side))
-        self._refresh_view()
+        self._set_view_attr("current_side", int(side))
 
     def _set_advance_salt(self, salt: str) -> None:
         self.core.core.set_advance_salt(salt)
-        self._refresh_view()
+        self._set_view_attr("_advance_salt", salt if salt else _ABSENT)
 
     def _clear_checkup_strikes(self) -> None:
         """The last attack's strike records, consumed by the recorder."""
         self.core.core.set_last_checkup_strikes([])
-        self._refresh_view()
+        self._set_view_attr("_last_checkup_strikes", None)
 
     def _clear_advance_events(self) -> None:
         """The advancement events of the last attack, consumed by the
         command recorder (one [choose] per event in exports)."""
         self.core.core.clear_last_advance_events()
-        self._refresh_view()
+        self._set_view_attr("_last_advance_events", [])
 
     def _note_counter_outcomes(self, extras: dict) -> None:
         """Put the counter-weapon strike tables computed for the attack
@@ -787,7 +843,7 @@ class WesnothSim:
         legality mask and the encoder read."""
         self.recruit_rejections.append((len(self.command_history), int(x), int(y)))
         self.core.core.add_recruit_rejected(int(x), int(y))
-        self._refresh_view()
+        self._set_view_attr("_recruit_rejected_hexes", set(self.core.core.recruit_rejected_hexes()))
 
     def fork(self) -> "WesnothSim":
         """Cheap clone for MCTS-style branching. Forks the core
@@ -804,6 +860,8 @@ class WesnothSim:
         out = WesnothSim.__new__(WesnothSim)
         out.core = self.core.fork()
         out._gs = None                       # the fork's view is built on first use
+        out._view_cache = None
+        out.incremental_view = self.incremental_view
         out.scenario_id = self.scenario_id
         out.max_turns = self.max_turns
         out.max_actions_per_side = self.max_actions_per_side

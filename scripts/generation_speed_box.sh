@@ -1,20 +1,42 @@
 #!/usr/bin/env bash
 # shellcheck source-path=SCRIPTDIR
-# Self-play generation speed on one box (branch feature/generation-speed),
-# round 2: production-configured matches of the reference against itself,
-# the base code (main) and this stage, timed on the same box, with the
-# same games, and how deep the games in flight can go with and without the
-# graphed server.
+# Self-play generation speed on one box, round 4 (branch
+# feature/generation-speed-4): production-configured matches of the
+# reference against itself, timed on one box with the same games: the base
+# code (main), round 3's code at its fastest configuration (the reference
+# arm), then this branch's changes one at a time and together, at 120 and
+# 160 games in flight with the reference arm's mix of six games per worker
+# process, and the graphed server on top of the fastest.
 #
-# Two code stages: STAGE, this branch's (tools/stage_code.py --script
-# scripts/generation_speed_box.sh), and BASE_STAGE, main at the commit the
-# branch left (staged from a checkout of it with tools/stage_code.py --out
-# ... --upload tier-b/staging/<name>.tar.gz). The base stage is unpacked
-# beside this one and its match driver runs from there; both use this
-# stage's Rust wheel (phase 32: main's adapter takes any phase from 31, and
-# the phase adds an optional argument main never passes).
+# Three code stages: STAGE, this branch's (tools/stage_code.py --script
+# scripts/generation_speed_box.sh); BASE_STAGE, main as the lead staged it;
+# REF_STAGE, round 3's branch at its tip (feature/generation-speed-3,
+# f71e13b), each staged from a checkout with tools/stage_code.py --out ...
+# --upload tier-b/staging/<name>.tar.gz. The base and reference stages are
+# unpacked beside this one and their match drivers run from there; all use
+# this stage's Rust wheel (phase 34: main's and round 3's adapters take any
+# phase from their own, 32 and 33; phase 34 adds classes and changes no
+# call they make).
 #
-# Every arm is the round 2 generation match (training/metrics/
+# What this branch changes (each tested to leave every game's actions as
+# they were: tests/test_generation_identity.py, tests/test_serve_stage.py,
+# tests/test_view_cache.py), with its switch on run_elo_batch:
+#   rust:   the server's host work per batch in Rust (tools/serve_stage.py):
+#           the requests parsed in place, the staging buffers, the packed
+#           index, the masks and the replies written by the core
+#           (--rust-stage / --no-rust-stage);
+#   memory: each game-side's memory state kept on the server's GPU between
+#           its decisions instead of crossing the wire both ways
+#           (--server-memory / --no-server-memory);
+#   view:   the worker's simulator refreshes its view where a command changed
+#           it (--view-refresh incremental / full);
+#   always: a worker's light encoding builds no tensor (no switch; the "off"
+#           arm, every switch off on this branch, measures it against the
+#           reference arm).
+# The graphed server stages from the Rust core too, and with the memory kept
+# on the server its graphs read and write the states on the device.
+#
+# Every arm is round 2's generation match (training/metrics/
 # memory_own_round2_20261011/: own1 against itself at 64 slots, the
 # reference decode of configs/reference_player.json, bf16, the packed trunk
 # and embed, game records on, --persistent-workers --shared-inference
@@ -23,65 +45,65 @@
 # mostly its tail; every arm plays the same first GAMES games (up to bf16
 # near-tie flips: batch composition differs from run to run). The arms, in
 # this order:
-#   base_1, this_1, base_2, this_2: main and this stage's defaults (the
-#     worker's masks and the view's units built by the core, the raw
-#     player's decisions on the simulator's view, the stage timing), 20
-#     games in flight, alternated;
-#   the graphed check (tools/graphed_check.py, graphed_check.json): the
-#     server's preflight at 120 games in flight (the largest bucket of its
-#     caps captured into the graphs' shared pool), then the graphed server
-#     against the eager one on own1 and this GPU up to batches of 120; a
-#     crash barrier: anything but a pass leaves the graphed arms out;
-#   inflight2, inflight3, inflight4, inflight6: 2, 3, 4 and 6 games per
-#     worker process (--worker-games), 40, 60, 80 and 120 in flight;
-#   graphed, graphed_inflight2, graphed_inflight3, graphed_inflight4,
-#     graphed_inflight6: the same depths and 20 in flight on the graphed
-#     server (--graphed-serve);
-#   base_3: main again, after every flag arm;
-#   best_repeat: the fastest arm of this stage (the server's decisions per
-#     second) with no failed game, again.
+#   base_1: main, 20 in flight, one game per worker process;
+#   ref_p120x6: round 3's code, 120 in flight, six games per worker;
+#   off_p120x6, rust_p120x6, memory_p120x6, view_p120x6, all_p120x6: this
+#     branch, every switch off, each change alone, all of them;
+#   base_2;
+#   rust_p160x6, memory_p160x6, view_p160x6, all_p160x6: 160 in flight;
+#   the graphed check (tools/graphed_check.py, graphed_check.json, a crash
+#     barrier): the server's preflight at GRAPHED_MAX_BATCH, then the
+#     graphed server against the eager one on own1 and this GPU; anything
+#     but a pass leaves the graphed arm out;
+#   graphed_best: the fastest of this branch's arms, with --graphed-serve;
+#   base_3: main again, after every other arm;
+#   best_repeat: the fastest arm of this branch (graphed_best included) with
+#     no failed game, again.
 # The session is valid when the three base runs lie within VALID_SPREAD of
 # their mean on the server's decisions per second (requests over the
-# server's wall); the base runs before and after, and the best arm and its
-# repeat, bracket the drift. Every arm records its failed games (the
+# server's wall); the base runs before, between and after, and the best arm
+# and its repeat, bracket the drift. Every arm records its failed games (the
 # driver's failed_*.json records); an arm with one is a failed arm in
 # speed.json and in arms_failed.txt, and the run goes on. Per arm the
-# records keep the match's wall and games, the server's stats (requests,
-# batches, mean batch, infer, window, idle and reply seconds, the device
-# span, failed batches and requests; the graphed summary with its preflight
-# and peak reserved memory) and, for this stage, the workers' decision
-# stages (.worker_stages.json); speed.json reads them: games per hour, the
-# server's decisions per second and infer ms per batch, each arm against
-# the base runs' mean. Game walls alone cannot resolve small wins on a
-# shared host (identical repeats have differed 1.6-1.8x, the base runs of
-# round 1 by 18%); the server's counters and the stage times are the
-# primary readings.
+# records keep the match's wall and games, each server's stats (requests,
+# batches, mean batch, idle, window, read, infer and reply seconds, the
+# device span, the host seconds by stage, failed batches and requests, the
+# memory states kept and released, the graphed summary) and the workers'
+# decision stages (.worker_stages.json). speed.json is rewritten after
+# every arm (the arms so far: games per hour, the servers' decisions per
+# second and infer ms per batch, host ms per batch by stage, each arm
+# against the base runs' mean and against the reference arm), so a record
+# that does not reach HF at the end loses no arm. Game walls alone cannot
+# resolve small wins on a shared host (identical repeats have differed
+# 1.6-1.8x); the server counters and the stage times are the primary
+# readings.
 #
-# Expected wall on a 4090 with 31-32 usable cores (round 1's walls:
-# training/metrics/generation_speed_20261013/walls.txt): bring-up, wheel
-# and tests 15 minutes, the graphed check 5, the three base arms 7 to 8
-# minutes each, this stage's two 6, the eight deep arms 3 to 5 each (the
-# 120-in-flight ones play 600 games), the repeat 4: about 1.6 hours,
-# $0.70-1.00 at $0.42-0.60 an hour. BOX_MAX_H 3 caps it at $1.30-1.80 plus
-# the final round.
+# Expected wall on a 4090 with 31-32 usable cores (round 3's walls): bring-up,
+# wheel and tests 15-20 minutes, the graphed check 5, the three base arms 6
+# to 7 minutes each, the twelve deep arms 3 to 5 each (600 or 800 games
+# each), the repeat 4: about 1.8 hours, $0.75-1.10 at $0.42-0.60 an hour.
+# BOX_MAX_H 3 caps it at $1.30-1.80 plus the final round.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md). No
 # periodic upload rounds while the arms run (they would share the machine
-# with the timing): the records go up after each arm and at the finish.
-# Re-entry skips the arms that are done. Never `set -x`: the HF token and
-# the instance key are in the environment.
+# with the timing): the records go up after each arm and at the finish,
+# which uploads before it stops the instance. Re-entry skips the arms that
+# are done. Never `set -x`: the HF token and the instance key are in the
+# environment.
 # box-needs: disk_gb=60 ram_gb=64 gpu_ram_gb=24 cores=32 gpu=4090
 set -uo pipefail
 WORKDIR=/workspace
 STAGE="${STAGE:-}"
 BASE_STAGE="${BASE_STAGE:-}"
-HF_DIR="${HF_DIR:-tier-b/generation_speed_r2}"
+REF_STAGE="${REF_STAGE:-}"
+HF_DIR="${HF_DIR:-tier-b/generation_speed_r4}"
 export HF_DIR
 BOX_MAX_H="${BOX_MAX_H:-3}"
 GAMES="${GAMES:-400}"
 GAMES_PER_JOB="${GAMES_PER_JOB:-5}"
-DEPTHS="${DEPTHS:-2 3 4 6}"                     # games per worker process of the deep arms, 20 workers each
-# No committed result carries a seed from 130000 to 130999.
+GRAPHED_MAX_BATCH="${GRAPHED_MAX_BATCH:-160}"  # the graphed arm's largest server batch
+# No committed result carries a seed from 130000 to 130999 but the
+# generation speed runs', which play the same games.
 SEED_BASE="${SEED_BASE:-130000}"
 VALID_SPREAD="${VALID_SPREAD:-0.05}"
 TESTS_CUT_MIN="${TESTS_CUT_MIN:-40}"
@@ -93,12 +115,37 @@ BOX_OUT=$OUT
 . "${BOX_LIB:-$WORKDIR/box}/boxlib.sh" || { echo "no box library (docs/box_runbook.md)"; exit 1; }
 
 BASE_REPO=$WORKDIR/base_repo
-ARMS="base_1 this_1 base_2 this_2"
-for d in $DEPTHS; do ARMS="$ARMS inflight$d"; done
-ARMS="$ARMS graphed"
-for d in $DEPTHS; do ARMS="$ARMS graphed_inflight$d"; done
-ARMS="$ARMS base_3 best_repeat"
+REF_REPO=$WORKDIR/ref_repo
+# ---- the arm list (begin): tests/test_generation_speed_box.py reads it
+# This branch's switches: every one off, then each alone, then all (the defaults).
+OFF="--no-rust-stage --no-server-memory --view-refresh full"
+RUST="--rust-stage --no-server-memory --view-refresh full"
+MEMORY="--no-rust-stage --server-memory --view-refresh full"
+VIEW="--no-rust-stage --no-server-memory --view-refresh incremental"
+ALL="--rust-stage --server-memory --view-refresh incremental"
+# The deep arms: name, games in flight, then flags. Their memory floor is
+# 300 MB a game in flight (the driver's default, 700, asks 112 GB at 160).
+DEEP_120=(
+    "off_p120x6 120 $OFF"
+    "rust_p120x6 120 $RUST"
+    "memory_p120x6 120 $MEMORY"
+    "view_p120x6 120 $VIEW"
+    "all_p120x6 120 $ALL"
+)
+DEEP_160=(
+    "rust_p160x6 160 $RUST"
+    "memory_p160x6 160 $MEMORY"
+    "view_p160x6 160 $VIEW"
+    "all_p160x6 160 $ALL"
+)
+ARMS="base_1 ref_p120x6"
+for spec in "${DEEP_120[@]}"; do ARMS="$ARMS ${spec%% *}"; done
+ARMS="$ARMS base_2"
+for spec in "${DEEP_160[@]}"; do ARMS="$ARMS ${spec%% *}"; done
+ARMS="$ARMS graphed_best base_3 best_repeat"
+# ---- the arm list (end)
 
+# shellcheck disable=SC2317 # called through box_notes, by the library
 notes() {                        # what is done, for the finish reason
     local name done_=()
     for name in $ARMS; do
@@ -112,33 +159,40 @@ box_notes() { notes; }
 box_init
 [ -n "$STAGE" ] || box_finish "NO_STAGE: build the code stage (tools/stage_code.py) and pass STAGE" 1
 [ -n "$BASE_STAGE" ] || box_finish "NO_BASE_STAGE: stage main's commit and pass BASE_STAGE" 1
+[ -n "$REF_STAGE" ] || box_finish "NO_REF_STAGE: stage feature/generation-speed-3's tip and pass REF_STAGE" 1
 box_bind_run_stage
 box_restore speed.json graphed_check.json tests.log || box_finish "RESTORE_FAILED (restore.log)" 1
 box_pip huggingface_hub psutil pytest scipy requests || echo "pip install failed (pip.log)"
 
-# ---- the code, the base code and the Rust wheel
+# ---- the code, the base and reference codes and the Rust wheel
 box_stage_code || box_finish "CODE_STAGING_FAILED (staging.log)" 1
 cd "$BOX_REPO" || box_finish "CODE_STAGING_FAILED (no $BOX_REPO)" 1
 box_build_wheel || box_finish "BUILD_FAILED (build.log)" 1
-if [ "$(cat "$BASE_REPO/.staged_from" 2>/dev/null)" != "$BASE_STAGE" ]; then
-    rm -rf "$BASE_REPO.tmp"
-    box_bounded base-stage 15 staging.log python "$BOX_LIB/box_stage.py" fetch "$BASE_STAGE" --into "$BASE_REPO.tmp" \
-        || box_finish "BASE_STAGING_FAILED (staging.log)" 1
-    { printf '%s\n' "$BASE_STAGE" > "$BASE_REPO.tmp/.staged_from" && rm -rf "$BASE_REPO" \
-        && mv "$BASE_REPO.tmp" "$BASE_REPO"; } || box_finish "BASE_STAGING_FAILED (unpacking)" 1
-fi
-[ -f "$BASE_REPO/tools/run_elo_batch.py" ] || box_finish "BASE_STAGING_FAILED (no match driver in $BASE_STAGE)" 1
+fetch_stage() {                  # fetch_stage NAME STAGE DIR: another code stage unpacked into DIR, once
+    local name=$1 stage=$2 dir=$3
+    if [ "$(cat "$dir/.staged_from" 2>/dev/null)" != "$stage" ]; then
+        rm -rf "$dir.tmp"
+        box_bounded "$name-stage" 15 staging.log python "$BOX_LIB/box_stage.py" fetch "$stage" --into "$dir.tmp" \
+            || box_finish "${name^^}_STAGING_FAILED (staging.log)" 1
+        { printf '%s\n' "$stage" > "$dir.tmp/.staged_from" && rm -rf "$dir" \
+            && mv "$dir.tmp" "$dir"; } || box_finish "${name^^}_STAGING_FAILED (unpacking)" 1
+    fi
+    [ -f "$dir/tools/run_elo_batch.py" ] || box_finish "${name^^}_STAGING_FAILED (no match driver in $stage)" 1
+}
+fetch_stage base "$BASE_STAGE" "$BASE_REPO"
+fetch_stage ref "$REF_STAGE" "$REF_REPO"
 box_facts > "$OUT/box.txt.tmp" 2>&1
 mv -f "$OUT/box.txt.tmp" "$OUT/box.txt"
 timeout 2m python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available() else 1)" \
     || box_finish "NO_CUDA (box.txt)" 1
 box_upload
 
-# ---- the tests of what this stage changed, on this wheel; the CUDA tests are recorded
+# ---- the tests of what this branch changed, on this wheel; the CUDA tests are recorded
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     : > "$OUT/tests.log"
-    box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_graphed_serve.py \
-        tests/test_core_masks.py tests/test_core_view.py tests/test_decision_state.py tests/test_eval_workers.py \
+    box_bounded tests "$TESTS_CUT_MIN" tests.log python -m pytest tests/test_generation_identity.py \
+        tests/test_serve_stage.py tests/test_view_cache.py tests/test_graphed_serve.py tests/test_core_masks.py \
+        tests/test_core_view.py tests/test_decision_state.py tests/test_eval_workers.py \
         tests/test_eval_inference_server.py tests/test_stage_timing.py tests/test_match_memory.py \
         tests/test_server_priors.py tests/test_game_core.py tests/test_memory_model.py \
         tests/test_eval_match_failures.py tests/test_raw_player.py tests/test_raw_player_compact.py \
@@ -147,6 +201,9 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
     : > "$OUT/cuda_tests.log"
     box_bounded cuda-tests 15 cuda_tests.log python -m pytest tests/test_server_priors_cuda.py \
+        tests/test_match_memory.py::test_the_served_memory_batch_is_the_slot_memorys_padding \
+        "tests/test_serve_stage.py::test_on_cuda_the_rust_stage_answers_as_the_python_path" \
+        "tests/test_serve_stage.py::test_on_cuda_the_kept_memory_plays_as_the_wire" \
         -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/cuda_tests.log"
     box_mark "$BOX_STATE/TESTED"
@@ -176,118 +233,40 @@ mapfile -t SIDE_B < <(side_flags b own1b)
 [[ " ${SIDE_A[*]} " == *" --spec-a $REF_PT "* && " ${SIDE_B[*]} " == *" --memory-b 64 "* ]] \
     || box_finish "REFERENCE_FLAGS_FAILED (tools/reference_player.py --flags): ${SIDE_A[*]} | ${SIDE_B[*]}" 1
 
-# ---- the graphed server against the eager one on own1 and this GPU, at the deepest depth (a crash barrier)
-MAX_JOBS=20
-for d in $DEPTHS; do (( d * 20 > MAX_JOBS )) && MAX_JOBS=$(( d * 20 )); done
-if [ ! -f "$OUT/graphed_check.json" ]; then
-    rm -f "$OUT/graphed_check.json.pending"
-    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the graphed check: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-    box_bounded graphed-check 25 graphed_check.log python tools/graphed_check.py --checkpoint "$REF_PT" \
-        --device cuda --max-batch "$MAX_JOBS" --batch-sizes "1,4,9,16,20,32,40,60,80,$MAX_JOBS" \
-        --out "$OUT/graphed_check.json.pending"
-    case $BOX_RC in
-        0|8) mv -f "$OUT/graphed_check.json.pending" "$OUT/graphed_check.json" ;;
-        *) printf '{"pass": false, "rc": %d, "why": "%s", "log": "graphed_check.log"}\n' "$BOX_RC" "$BOX_WHY" \
-               > "$OUT/graphed_check.json" ;;
-    esac
-    box_upload
-fi
-GRAPHED_OK=$(timeout 1m python -c "import json, sys; print(int(json.load(open(sys.argv[1]))['pass']))" \
-    "$OUT/graphed_check.json" 2>/dev/null)
-
-# ---- the arms
-arm() {                          # arm NAME REPO JOBS FLAGS...: one match, once; false when it failed or lost a game
-    local name=$1 repo=$2 jobs=$3 dir="$WORKDIR/games_$1" t0 f games failed
-    shift 3
-    ! box_marked_this_stage "$OUT/arm_$name.done" || return 0
-    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before arm $name: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-    rm -rf "$dir"
-    games=$(( GAMES_PER_JOB * jobs > GAMES ? GAMES_PER_JOB * jobs : GAMES ))
-    cd "$repo" || box_finish "NO_REPO $repo" 1
-    echo "$(box_stamp) $name: $repo, jobs $jobs, games $games, $*" >> "$OUT/arm_$name.log"
-    t0=$(box_now)
-    box_bounded "arm $name" "$ARM_CUT_MIN" "arm_$name.log" python tools/run_elo_batch.py \
-        "${SIDE_A[@]}" "${SIDE_B[@]}" --outdir "$dir" --games "$games" --max-extra-games 0 \
-        --seed-base "$SEED_BASE" --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
-        --persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$jobs" \
-        --time-budget-min "$MATCH_BUDGET_MIN" "$@"
-    cd "$BOX_REPO" || box_finish "NO_REPO $BOX_REPO" 1
-    failed=$(find "$dir" -maxdepth 1 -name 'failed_*.json' 2>/dev/null | wc -l)
-    printf '{"arm": "%s", "repo": "%s", "jobs": %d, "flags": "%s", "slots": %d, "wall_s": %d, "games": %d, "failed_games": %d, "rc": %d, "why": "%s"}\n' \
-        "$name" "$repo" "$jobs" "$*" "$games" "$(( $(box_now) - t0 ))" \
-        "$(find "$dir" -maxdepth 1 -name 'game_*.json' 2>/dev/null | wc -l)" "$failed" "$BOX_RC" "$BOX_WHY" \
-        > "$OUT/arm_$name.json"
-    for f in "$dir"/.inference_server_*.json "$dir"/.worker_stages.json; do
-        [ -f "$f" ] && cp -f "$f" "$OUT/arm_${name}.${f##*/.}"
-    done
-    box_mark "$OUT/arm_$name.done"
-    box_upload
-    # run_elo_batch exits 3 or 4 when its games end without enough decisive
-    # results (no replacements here): the timing is whole. A failed game, or
-    # any other exit, fails the arm.
-    case $BOX_RC in
-        0|3|4) ;;
-        *) echo "ARM_FAILED $name rc=$BOX_RC $BOX_WHY (arm_$name.log)" | tee -a "$OUT/arms_failed.txt"
-           return 1 ;;
-    esac
-    if [ "$failed" -gt 0 ]; then
-        echo "ARM_FAILED $name: $failed failed games (arm_$name.log, games_$name/failed_*.json)" \
-            | tee -a "$OUT/arms_failed.txt"
-        return 1
-    fi
-}
-for name in base_1 this_1 base_2 this_2; do
-    repo=$BOX_REPO
-    [ "${name%_*}" = this ] || repo=$BASE_REPO
-    arm "$name" "$repo" 20 || box_finish "ARM_FAILED $name (arm_$name.log) $(notes)" 1
-done
-for d in $DEPTHS; do
-    arm "inflight$d" "$BOX_REPO" $(( 20 * d )) --worker-games "$d" || true
-done
-if [ "$GRAPHED_OK" = 1 ]; then
-    arm graphed "$BOX_REPO" 20 --graphed-serve || true
-    for d in $DEPTHS; do
-        arm "graphed_inflight$d" "$BOX_REPO" $(( 20 * d )) --worker-games "$d" --graphed-serve || true
-    done
-else
-    echo "graphed arms left out: the graphed check did not pass (graphed_check.json)" | tee -a "$OUT/arms_failed.txt"
-fi
-arm base_3 "$BASE_REPO" 20 || echo "the last base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
-# The fastest arm of this stage with no failed game, again.
-BEST=$(timeout 1m python - "$OUT" <<'EOF'
-import json, pathlib, sys
-out = pathlib.Path(sys.argv[1])
-best = None
-for p in sorted(out.glob("arm_*.json")):
-    if p.name.count(".") > 1:
-        continue
-    a = json.loads(p.read_text(encoding="utf-8"))
-    s = out / f"arm_{a['arm']}.inference_server_0.json"
-    if a["arm"].startswith("base") or a["arm"] == "best_repeat" or a["failed_games"] or a["rc"] not in (0, 3, 4) \
-            or not s.exists():
-        continue
-    srv = json.loads(s.read_text(encoding="utf-8"))
-    rate = srv["requests"] / srv["wall_s"] if srv.get("wall_s") else 0.0
-    if best is None or rate > best[0]:
-        best = (rate, a)
-if best is not None:
-    print(best[1]["arm"], best[1]["jobs"], best[1]["flags"])
-EOF
-)
-if [ -n "$BEST" ]; then
-    read -r BEST_ARM BEST_JOBS BEST_FLAGS <<< "$BEST"
-    echo "$BEST_ARM" > "$OUT/best.txt"
-    # shellcheck disable=SC2086 # BEST_FLAGS is a list of flags
-    arm best_repeat "$BOX_REPO" "$BEST_JOBS" $BEST_FLAGS \
-        || echo "the best arm's repeat failed: its drift is not bracketed" >> "$OUT/arms_failed.txt"
-else
-    echo "no arm of this stage to repeat" >> "$OUT/arms_failed.txt"
-fi
-
-# ---- speed.json
-box_bounded summary 5 summary.log python - "$OUT" "$VALID_SPREAD" <<'EOF'
+# ---- the arms (begin): tests/test_generation_speed_box.py runs this block with the library stubbed
+# Each arm fails alone: a match that crashes or loses a game is a failed arm
+# (arms_failed.txt, speed.json) and the next arm runs.
+# ---- speed.json: the arms so far, rewritten after every arm
+summarize() {
+    box_bounded summary 5 summary.log python - "$OUT" "$VALID_SPREAD" <<'EOF'
 import json, pathlib, sys
 out, spread = pathlib.Path(sys.argv[1]), float(sys.argv[2])
+
+
+def servers_row(servers):
+    """The arm's servers as one: counts and seconds summed over the
+    servers, the wall the longest server's."""
+    def total(k):
+        return sum(float(s.get(k) or 0.0) for s in servers)
+    stage = {}
+    for s in servers:
+        for k, v in (s.get("stage_s") or {}).items():
+            stage[k] = round(stage.get(k, 0.0) + v, 3)
+    batches, leaves = int(total("batches")), int(total("leaves"))
+    return {"servers": len(servers), "requests": int(total("requests")), "batches": batches, "leaves": leaves,
+            "mean_batch": leaves / batches if batches else 0.0,
+            **{k: round(total(k), 3) for k in ("infer_s", "window_s", "recv_s", "idle_s", "reply_s", "gpu_ms")},
+            "stage_s": stage, "wall_s": max(float(s.get("wall_s") or 0.0) for s in servers),
+            "graphed": [s.get("graphed") for s in servers], "connections": int(total("connections")),
+            "releases": int(total("releases")), "max_batch": servers[0].get("max_batch"),
+            "rust_stage": [s.get("rust_stage") for s in servers],
+            "server_memory": [s.get("server_memory") for s in servers],
+            "memory_states": [s.get("memory_states") for s in servers],
+            "failed_batches": int(total("failed_batches")),
+            "failed_requests": int(total("failed_requests")), "fatal": [s.get("fatal") for s in servers if s.get("fatal")],
+            "graphed_serve": [s.get("graphed_serve") for s in servers]}
+
+
 arms = {}
 for p in sorted(out.glob("arm_*.json")):
     if p.name.count(".") > 1:
@@ -295,25 +274,25 @@ for p in sorted(out.glob("arm_*.json")):
     a = json.loads(p.read_text(encoding="utf-8"))
     name = a["arm"]
     servers = [json.loads(s.read_text(encoding="utf-8")) for s in sorted(out.glob(f"arm_{name}.inference_server_*.json"))]
-    row = {"jobs": a["jobs"], "flags": a["flags"], "rc": a["rc"], "slots": a.get("slots"), "games": a["games"],
-           "failed_games": a.get("failed_games", 0), "wall_s": a["wall_s"],
+    row = {"jobs": a["jobs"], "flags": a["flags"], "repo": a["repo"], "rc": a["rc"], "slots": a.get("slots"),
+           "games": a["games"], "failed_games": a.get("failed_games", 0), "wall_s": a["wall_s"],
            "games_per_hour": round(3600.0 * a["games"] / a["wall_s"], 1) if a["wall_s"] else None}
     if servers:
-        s = servers[0]
-        row["server"] = {k: s.get(k) for k in ("requests", "batches", "mean_batch", "infer_s", "window_s",
-                                                "idle_s", "reply_s", "gpu_ms", "wall_s", "graphed",
-                                                "connections", "max_batch", "failed_batches", "failed_requests",
-                                                "fatal", "graphed_serve")}
-        row["decisions_per_s"] = round(s["requests"] / s["wall_s"], 2) if s.get("wall_s") else None
-        row["infer_ms_per_batch"] = round(1e3 * s["infer_s"] / s["batches"], 3) if s.get("batches") else None
-        row["device_ms_per_batch"] = round(s["gpu_ms"] / s["batches"], 3) if s.get("batches") else None
-    row["failed"] = bool(row["failed_games"] or a["rc"] not in (0, 3, 4)
-                         or (servers and (servers[0].get("failed_requests") or servers[0].get("fatal"))))
+        s = servers_row(servers)
+        row["server"] = s
+        row["decisions_per_s"] = round(s["requests"] / s["wall_s"], 2) if s["wall_s"] else None
+        row["infer_ms_per_batch"] = round(1e3 * s["infer_s"] / s["batches"], 3) if s["batches"] else None
+        row["device_ms_per_batch"] = round(s["gpu_ms"] / s["batches"], 3) if s["batches"] else None
+        row["host_ms_per_batch"] = {k: round(1e3 * v / s["batches"], 3) for k, v in s["stage_s"].items()} \
+            if s["batches"] else {}
+    memory_refused = sum((m or {}).get("refused", 0) for m in (row.get("server") or {}).get("memory_states", []))
+    row["failed"] = bool(row["failed_games"] or a["rc"] not in (0, 3, 4) or memory_refused
+                         or (servers and (row["server"]["failed_requests"] or row["server"]["fatal"])))
     stages = out / f"arm_{name}.worker_stages.json"
     if stages.exists():
         w = json.loads(stages.read_text(encoding="utf-8"))
-        row["worker"] = {k: w[k] for k in ("decisions", "decision_wall_ms", "decision_cpu_ms", "own_wall_ms",
-                                           "stage_ms_per_decision")}
+        row["worker"] = {k: w[k] for k in ("workers", "decisions", "decision_wall_ms", "decision_cpu_ms",
+                                           "own_wall_ms", "stage_ms_per_decision") if k in w}
     arms[name] = row
 
 
@@ -333,8 +312,8 @@ base_rate = {k: sum(arms[n][k] for n in bases) / len(bases) for k in ("decisions
              if bases and all(arms[n].get(k) for n in bases)}
 summary = {
     "arms": arms,
-    # main against this stage holds when the base runs, before and after
-    # the flag arms, agree on the server's decisions per second.
+    # The arms against each other hold when the base runs, before, between
+    # and after the others, agree on the server's decisions per second.
     "valid": len(bases) >= 2 and all(abs(rate(n) / mean - 1.0) <= spread for n in bases),
     "base_spread": {n: round(rate(n) / mean, 4) for n in bases} if mean else {},
     "best": best,
@@ -342,15 +321,142 @@ summary = {
     "failed_arms": sorted(n for n, r in arms.items() if r["failed"]),
     "against_base": {n: {k: round(r[k] / base_rate[k], 4) for k in base_rate if r.get(k)}
                      for n, r in arms.items()},
-    "against_this_1": {n: {k: ratio(n, "this_1", k) for k in ("decisions_per_s", "games_per_hour",
-                                                                "infer_ms_per_batch")}
-                       for n in arms if not n.startswith("base")},
+    "against_ref": {n: {k: ratio(n, "ref_p120x6", k) for k in ("decisions_per_s", "games_per_hour",
+                                                               "infer_ms_per_batch")}
+                    for n in arms if not n.startswith("base")},
 }
-(out / "speed.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+tmp = out / "speed.json.tmp"
+tmp.write_text(json.dumps(summary, indent=1), encoding="utf-8")
+tmp.replace(out / "speed.json")
 print(json.dumps({"valid": summary["valid"], "base_spread": summary["base_spread"], "best": best,
                   "best_vs_repeat": summary["best_vs_repeat"], "failed_arms": summary["failed_arms"],
                   "decisions_per_s": {n: r.get("decisions_per_s") for n, r in arms.items()}}), flush=True)
 EOF
+}
+
+# ---- the arms
+arm() {                          # arm NAME REPO JOBS FLAGS...: one match, once; false when it failed or lost a game
+    local name=$1 repo=$2 jobs=$3 dir="$WORKDIR/games_$1" t0 f games failed rc why
+    shift 3
+    ! box_marked_this_stage "$OUT/arm_$name.done" || return 0
+    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before arm $name: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+    rm -rf "$dir"
+    games=$(( GAMES_PER_JOB * jobs > GAMES ? GAMES_PER_JOB * jobs : GAMES ))
+    cd "$repo" || box_finish "NO_REPO $repo" 1
+    echo "$(box_stamp) $name: $repo, jobs $jobs, games $games, $*" >> "$OUT/arm_$name.log"
+    t0=$(box_now)
+    box_bounded "arm $name" "$ARM_CUT_MIN" "arm_$name.log" python tools/run_elo_batch.py \
+        "${SIDE_A[@]}" "${SIDE_B[@]}" --outdir "$dir" --games "$games" --max-extra-games 0 \
+        --seed-base "$SEED_BASE" --mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 \
+        --persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$jobs" \
+        --time-budget-min "$MATCH_BUDGET_MIN" "$@"
+    rc=$BOX_RC why=$BOX_WHY              # the summary's own step resets BOX_RC
+    cd "$BOX_REPO" || box_finish "NO_REPO $BOX_REPO" 1
+    failed=$(find "$dir" -maxdepth 1 -name 'failed_*.json' 2>/dev/null | wc -l)
+    printf '{"arm": "%s", "repo": "%s", "jobs": %d, "flags": "%s", "slots": %d, "wall_s": %d, "games": %d, "failed_games": %d, "rc": %d, "why": "%s"}\n' \
+        "$name" "$repo" "$jobs" "$*" "$games" "$(( $(box_now) - t0 ))" \
+        "$(find "$dir" -maxdepth 1 -name 'game_*.json' 2>/dev/null | wc -l)" "$failed" "$rc" "$why" \
+        > "$OUT/arm_$name.json"
+    for f in "$dir"/.inference_server_*.json "$dir"/.worker_stages.json; do
+        [ -f "$f" ] && cp -f "$f" "$OUT/arm_${name}.${f##*/.}"
+    done
+    box_mark "$OUT/arm_$name.done"
+    summarize
+    box_upload
+    # run_elo_batch exits 3 or 4 when its games end without enough decisive
+    # results (no replacements here): the timing is whole. A failed game, or
+    # any other exit, fails the arm.
+    case $rc in
+        0|3|4) ;;
+        *) echo "ARM_FAILED $name rc=$rc $why (arm_$name.log)" | tee -a "$OUT/arms_failed.txt"
+           return 1 ;;
+    esac
+    if [ "$failed" -gt 0 ]; then
+        echo "ARM_FAILED $name: $failed failed games (arm_$name.log, games_$name/failed_*.json)" \
+            | tee -a "$OUT/arms_failed.txt"
+        return 1
+    fi
+}
+fastest() {                      # fastest [INCLUDE_GRAPHED]: "NAME JOBS FLAGS" of this branch's fastest arm with no failure
+    timeout 1m python - "$OUT" "${1:-0}" <<'EOF'
+import json, pathlib, sys
+out, graphed = pathlib.Path(sys.argv[1]), sys.argv[2] == "1"
+best = None
+for p in sorted(out.glob("arm_*.json")):
+    if p.name.count(".") > 1:
+        continue
+    a = json.loads(p.read_text(encoding="utf-8"))
+    name = a["arm"]
+    servers = [json.loads(s.read_text(encoding="utf-8")) for s in sorted(out.glob(f"arm_{name}.inference_server_*.json"))]
+    if (name.startswith(("base", "ref")) or name == "best_repeat" or (name == "graphed_best" and not graphed)
+            or a["failed_games"] or a["rc"] not in (0, 3, 4) or not servers
+            or any(s.get("failed_requests") or s.get("fatal") for s in servers)):
+        continue
+    wall = max(s.get("wall_s") or 0.0 for s in servers)
+    rate = sum(s["requests"] for s in servers) / wall if wall else 0.0
+    if best is None or rate > best[0]:
+        best = (rate, a)
+if best is not None:
+    print(best[1]["arm"], best[1]["jobs"], best[1]["flags"])
+EOF
+}
+summarize
+arm base_1 "$BASE_REPO" 20 || echo "the first base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
+arm ref_p120x6 "$REF_REPO" 120 --worker-games 6 --min-free-mb 300 || true
+for spec in "${DEEP_120[@]}"; do
+    read -r name jobs flags <<< "$spec"
+    # shellcheck disable=SC2086 # flags is a list of flags
+    arm "$name" "$BOX_REPO" "$jobs" --worker-games 6 --min-free-mb 300 $flags || true
+done
+arm base_2 "$BASE_REPO" 20 || echo "the second base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
+for spec in "${DEEP_160[@]}"; do
+    read -r name jobs flags <<< "$spec"
+    # shellcheck disable=SC2086 # flags is a list of flags
+    arm "$name" "$BOX_REPO" "$jobs" --worker-games 6 --min-free-mb 300 $flags || true
+done
+
+# ---- the graphed server against the eager one on own1 and this GPU, at the graphed arm's largest batch (a crash barrier)
+if [ ! -f "$OUT/graphed_check.json" ]; then
+    rm -f "$OUT/graphed_check.json.pending"
+    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the graphed check: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+    box_bounded graphed-check 25 graphed_check.log python tools/graphed_check.py --checkpoint "$REF_PT" \
+        --device cuda --max-batch "$GRAPHED_MAX_BATCH" --batch-sizes "1,4,9,16,20,32,40,60,80,$GRAPHED_MAX_BATCH" \
+        --out "$OUT/graphed_check.json.pending"
+    case $BOX_RC in
+        0|8) mv -f "$OUT/graphed_check.json.pending" "$OUT/graphed_check.json" ;;
+        *) printf '{"pass": false, "rc": %d, "why": "%s", "log": "graphed_check.log"}\n' "$BOX_RC" "$BOX_WHY" \
+               > "$OUT/graphed_check.json" ;;
+    esac
+    box_upload
+fi
+GRAPHED_OK=$(timeout 1m python -c "import json, sys; print(int(json.load(open(sys.argv[1]))['pass']))" \
+    "$OUT/graphed_check.json" 2>/dev/null)
+BEST=$(fastest 0)
+if [ "$GRAPHED_OK" != 1 ]; then
+    echo "arm graphed_best left out: the graphed check did not pass (graphed_check.json)" | tee -a "$OUT/arms_failed.txt"
+elif [ -z "$BEST" ]; then
+    echo "arm graphed_best left out: no arm of this branch passed" | tee -a "$OUT/arms_failed.txt"
+else
+    read -r _ BEST_JOBS BEST_FLAGS <<< "$BEST"
+    # shellcheck disable=SC2086 # BEST_FLAGS is a list of flags
+    arm graphed_best "$BOX_REPO" "$BEST_JOBS" $BEST_FLAGS --graphed-serve || true
+fi
+arm base_3 "$BASE_REPO" 20 || echo "the last base arm failed: the drift is not bracketed" >> "$OUT/arms_failed.txt"
+# The fastest arm of this branch with no failed game, again.
+BEST=$(fastest 1)
+if [ -n "$BEST" ]; then
+    read -r BEST_ARM BEST_JOBS BEST_FLAGS <<< "$BEST"
+    echo "$BEST_ARM" > "$OUT/best.txt"
+    # shellcheck disable=SC2086 # BEST_FLAGS is a list of flags
+    arm best_repeat "$BOX_REPO" "$BEST_JOBS" $BEST_FLAGS \
+        || echo "the best arm's repeat failed: its drift is not bracketed" >> "$OUT/arms_failed.txt"
+else
+    echo "no arm of this branch to repeat" >> "$OUT/arms_failed.txt"
+fi
+
+summarize
+box_upload
 SUMMARY=$(tail -n 1 "$OUT/summary.log" | cut -c1-600)
 FAILED_ARMS=$(awk '$1 == "ARM_FAILED" {print $2}' "$OUT/arms_failed.txt" 2>/dev/null | tr -d ':' | sort -u | tr '\n' ' ')
+# ---- the arms (end)
 box_finish "GENERATION_SPEED_DONE $SUMMARY; cuda tests: ${CUDA_TESTS:-none}; failed: ${FAILED_ARMS:-none}"
