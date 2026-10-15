@@ -54,9 +54,11 @@ from wesnoth_ai.packed_trunk import (
     CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, WindowHeadIndex,
     batch_counts,
     build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, host_to_device,
+    make_packed_trunk_layers,
     packed_trunk, padded_gather_index,
 )
 from wesnoth_ai.material import MATERIAL_SCALE
+from wesnoth_ai.profile_regions import region
 from wesnoth_ai.padded_streams import (ExtraStreams, PaddedIndex, check_sighting_stream,
                                        extra_streams, material_batch, memory_batch,
                                        pad_encoded_streams, pad_sighting_streams, padded_index,
@@ -165,8 +167,25 @@ class WesnothModel(nn.Module):
         # warmup_packed_compile compiles before serving;
         # packed_compile_active says whether compiled code serves.
         self.infer_compile_packed = False
+        # Inference that reads the policy alone (a raw player at self-play
+        # generation, tools/eval_inference_server.py --priors-only): the
+        # heads skip the value, its distribution, the optional heads and the
+        # belief head, whose outputs come back None. The policy heads run as
+        # they do otherwise, so their outputs are the same bits. Ignored in
+        # training mode.
+        self.infer_priors_only = False
+        # The packed trunk's residual stream in bf16 under a bf16 autocast
+        # (inference only; the server's --bf16-residual): the layer loop over
+        # a bf16 copy of the weights, layer norms included, without the
+        # autocast's float32 stream and its two casts per layer. A rounding
+        # change: the outputs differ from the float32 stream's in their
+        # last bits, so a game played under it is another game. Ignored in
+        # training mode and without a bf16 autocast.
+        self.infer_bf16_residual = False
         self._weights_version = 0        # bumped by load_state_dict; the copy follows it
         self._packed_weights: Optional[PackedTrunkWeights] = None
+        self._bf16_weights: Optional[PackedTrunkWeights] = None
+        self._bf16_layers = None
         self._packed_compile: Optional[CompiledPackedTrunk] = None
 
         # Heads.
@@ -701,10 +720,11 @@ class WesnothModel(nn.Module):
         n_before_globals = sum(u + r + h for u, r, h in sizes) + sum(streams.sighting_counts or ())
         if prebuilt is not None:
             _check_packed_index(prebuilt, sizes, streams.sighting_counts, mem)
-        if mem is not None and mem.K_max:
-            rows = None if prebuilt is None else prebuilt.memory_rows
-            tokens = torch.cat([tokens[:n_before_globals], self.slot_memory.stream_rows(mem, rows),
-                                tokens[n_before_globals:]])
+        with region("order"):
+            if mem is not None and mem.K_max:
+                rows = None if prebuilt is None else prebuilt.memory_rows
+                tokens = torch.cat([tokens[:n_before_globals], self.slot_memory.stream_rows(mem, rows),
+                                    tokens[n_before_globals:]])
         if prebuilt is None:
             layout = build_packed_layout(sizes, H_max, U_max, R_max, TokenKind, ActorKind,
                                          source="streams", sightings=streams.sighting_counts,
@@ -713,7 +733,8 @@ class WesnothModel(nn.Module):
             index = layout.to_device(tokens.device)
         else:
             layout, index = prebuilt.layout, prebuilt.index
-        x = tokens.index_select(0, index.src) + self.token_kind_embed(index.kind)
+        with region("order"):
+            x = tokens.index_select(0, index.src) + self.token_kind_embed(index.kind)
         extras = (ExtraStreams(sighting=None, sighting_counts=streams.sighting_counts, memory=mem)
                   if streams.sighting_counts is not None or mem is not None else None)
         return self._packed_trunk_heads(x, index, layout, sizes, H_max, U_max, R_max,
@@ -736,21 +757,27 @@ class WesnothModel(nn.Module):
         if self.infer_compile_packed and self.training:
             raise ValueError("the compiled packed trunk (infer_compile_packed) serves inference only: its "
                              "attention op has no backward and its weights are a frozen copy")
-        if self.infer_compile_packed:
-            x = self._run_compiled_packed_trunk(x, index)
-        else:
-            x = packed_trunk(self.encoder, x, index)
-        actor_ctx = x.index_select(0, index.actor).view(B, A_max, d)
-        hex_ctx = x.index_select(0, index.hex).view(B, H_max, d)
-        global_ctx = x.index_select(0, index.glob).view(B, 1, d)
-        unit_ctx = x.index_select(0, index.unit).view(B, U_max, d) if self.has_gbc else None
+        with region("trunk"):
+            if self._bf16_residual_applies(x):
+                x = self._run_bf16_residual_trunk(x, index)
+            elif self.infer_compile_packed:
+                x = self._run_compiled_packed_trunk(x, index)
+            else:
+                x = packed_trunk(self.encoder, x, index)
+        with region("gather"):
+            actor_ctx = x.index_select(0, index.actor).view(B, A_max, d)
+            hex_ctx = x.index_select(0, index.hex).view(B, H_max, d)
+            global_ctx = x.index_select(0, index.glob).view(B, 1, d)
+            unit_ctx = x.index_select(0, index.unit).view(B, U_max, d) if self.has_gbc else None
         new_memory = None
         if extras is not None and extras.memory is not None:
-            h_memory = x.index_select(0, index.memory).view(B, extras.K_max, d)
-            new_memory = self.slot_memory.write(h_memory, extras.memory)
-        return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
-                           sizes, unit_ctx, material=material, memory_padded=new_memory,
-                           memory_counts=extras.memory_counts if extras is not None else None)
+            with region("memory_write"):
+                h_memory = x.index_select(0, index.memory).view(B, extras.K_max, d)
+                new_memory = self.slot_memory.write(h_memory, extras.memory)
+        with region("heads"):
+            return self._heads(actor_ctx, hex_ctx, global_ctx, torch.from_numpy(layout.actor_kind),
+                               sizes, unit_ctx, material=material, memory_padded=new_memory,
+                               memory_counts=extras.memory_counts if extras is not None else None)
 
     def packed_step_trunk(self, before: Sequence[torch.Tensor], after: Sequence[torch.Tensor],
                           memory: MemoryBatch, index: PackedEmbeddedIndex
@@ -860,6 +887,35 @@ class WesnothModel(nn.Module):
                                   if self._packed_weights is not None else None)
         return stats
 
+    def _bf16_residual_applies(self, x: torch.Tensor) -> bool:
+        dev = x.device.type
+        return (self.infer_bf16_residual and not self.training and torch.is_autocast_enabled(dev)
+                and torch.get_autocast_dtype(dev) == torch.bfloat16)
+
+    def _run_bf16_residual_trunk(self, x: torch.Tensor, index) -> torch.Tensor:
+        """The layer loop with its residual stream in bf16
+        (`infer_bf16_residual`): the compiled loop when it is on, the eager
+        one otherwise, over a bf16 copy of every weight, the autocast off
+        (it would run the layer norms in float32). Returns bf16 rows; the
+        heads read them under the caller's autocast, the memory's write in
+        float32."""
+        w = self._bf16_weights
+        if w is None or w.device != x.device:
+            w = self._bf16_weights = PackedTrunkWeights.build(
+                self.encoder, torch.bfloat16, x.device, self._weights_version, norm_dtype=torch.bfloat16)
+        elif w.version != self._weights_version:
+            w.refresh(self.encoder, self._weights_version)
+        xb = x.to(torch.bfloat16)
+        with torch.autocast(x.device.type, enabled=False):
+            if self.infer_compile_packed:
+                if self._packed_compile is None:
+                    self.configure_packed_compile()
+                return self._packed_compile.run(xb, index, w)
+            if self._bf16_layers is None:
+                layer = self.encoder.layers[0]
+                self._bf16_layers = make_packed_trunk_layers(layer.activation, layer.norm1.eps)
+            return self._bf16_layers(xb, index.cu_seqlens, index.max_len, w.layers, w.final_norm)
+
     def _run_compiled_packed_trunk(self, x, index):
         """The compiled loop over the native-dtype weight copy: the
         autocast dtype where one is active (bf16 on the server), the
@@ -899,20 +955,23 @@ class WesnothModel(nn.Module):
             k = self.target_k_proj(hex_ctx)                              # [B, H_max, d]
             target_logits = torch.bmm(q, k.transpose(1, 2)) / (d ** 0.5)  # [B, A_max, H_max]
 
-        g = global_ctx.squeeze(1)
-        value_logits = self.value_head(self._value_input(g, material))   # [B, K]
-        value_probs = F.softmax(value_logits, dim=-1)
-        atoms = self._value_atoms
-        value = (value_probs * atoms).sum(dim=-1, keepdim=True)          # [B, 1]
-        var_v = ((value_probs * atoms.pow(2)).sum(dim=-1, keepdim=True)
-                 - value.pow(2)).clamp_min(0)
-        cliffness = var_v.sqrt()
-        aux_score = (torch.tanh(self.aux_score_head(g.detach()))
-                     if self.aux_score_head is not None else None)
-        moves_left = (torch.sigmoid(self.moves_left_head(g.detach()))
-                      if self.moves_left_head is not None else None)
-        belief_logits = (self.belief_head(hex_ctx).squeeze(-1)             # [B, H_max]
-                         if self.belief_head is not None else None)
+        if self.infer_priors_only and not self.training:
+            value_logits = value = cliffness = aux_score = moves_left = belief_logits = None
+        else:
+            g = global_ctx.squeeze(1)
+            value_logits = self.value_head(self._value_input(g, material))   # [B, K]
+            value_probs = F.softmax(value_logits, dim=-1)
+            atoms = self._value_atoms
+            value = (value_probs * atoms).sum(dim=-1, keepdim=True)          # [B, 1]
+            var_v = ((value_probs * atoms.pow(2)).sum(dim=-1, keepdim=True)
+                     - value.pow(2)).clamp_min(0)
+            cliffness = var_v.sqrt()
+            aux_score = (torch.tanh(self.aux_score_head(g.detach()))
+                         if self.aux_score_head is not None else None)
+            moves_left = (torch.sigmoid(self.moves_left_head(g.detach()))
+                          if self.moves_left_head is not None else None)
+            belief_logits = (self.belief_head(hex_ctx).squeeze(-1)             # [B, H_max]
+                             if self.belief_head is not None else None)
         return PaddedOutput(
             actor_logits=actor_logits, actor_kind=actor_kind, type_logits=type_logits,
             target_logits=target_logits, weapon_logits=weapon_logits, value=value,

@@ -265,6 +265,11 @@ SPEED_SWITCHES = {
     "memory": ["--no-rust-stage", "--server-memory", "--view-refresh", "full"],
     "view": ["--no-rust-stage", "--no-server-memory", "--view-refresh", "incremental"],
     "all": ["--rust-stage", "--server-memory", "--view-refresh", "incremental"],
+    # The generation bench's round-5 levers that run on the CPU: the priors
+    # alone, and the server's profile (its plumbing; the CPU has no kernels).
+    "priors": ["--rust-stage", "--server-memory", "--view-refresh", "incremental", "--priors-only"],
+    "profiled": ["--rust-stage", "--server-memory", "--view-refresh", "incremental",
+                 "--inference-profile-batches", "2", "--inference-profile-after", "1"],
 }
 
 
@@ -273,8 +278,8 @@ def test_every_speed_switch_plays_the_same_games(tmp_path):
     """Two games of a memory model, two at once in one worker, under each
     combination of the speed switches the generation bench plays (the
     server's Rust stage, the memory kept on the server, the view's
-    refresh): the same commands, seeds included, and the same results. The
-    server answers each leaf alone."""
+    refresh, the priors alone, a profiled server): the same commands, seeds
+    included, and the same results. The server answers each leaf alone."""
     from tools.game_record import read_records
     from tools.run_elo_batch import main
     spec = _tiny_memory_checkpoint(tmp_path / "tiny.pt")
@@ -298,6 +303,9 @@ def test_every_speed_switch_plays_the_same_games(tmp_path):
         server = json.loads(next(out.glob(".inference_server_*.json")).read_text(encoding="utf-8"))
         assert server["rust_stage"] == ("--rust-stage" in switches)
         assert server["server_memory"] == ("--server-memory" in switches)
+        assert server["priors_only"] == ("--priors-only" in switches)
+        if name == "profiled":
+            assert server["profile"]["batches"] == 2 and "error" not in server["profile"], server["profile"]
         assert not list(out.glob("failed_*.json")), name
         games[name] = played
     assert len(games["all"]) == 2 and all(len(g[4]) > 10 for g in games["all"].values())

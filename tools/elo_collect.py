@@ -60,7 +60,7 @@ ESTIMAND_DEFAULTS = {
     "terrain_a": "class", "terrain_b": "class",
     "memory_a": None, "memory_b": None,
     "mcts_batch": 1,
-    "infer_bf16": False, "infer_compile": False,
+    "infer_bf16": False, "infer_compile": False, "infer_bf16_residual": False,
     "shared_inference": False, "infer_packed_trunk": False,
     "combat_stream": "shared",
     # A result file written before the epoch existed is epoch 1.

@@ -195,8 +195,10 @@ def output_from_wire(w) -> ModelOutput:
         return ModelOutput(
             actor_logits=flat, actor_kind=torch.from_numpy(kinds.astype("int64")),
             type_logits=empty, target_logits=empty, weapon_logits=empty,
-            value=torch.from_numpy(value), value_logits=torch.from_numpy(value_logits),
-            cliffness=torch.from_numpy(cliffness), num_units=U, num_recruits=R,
+            value=None if value is None else torch.from_numpy(value),
+            value_logits=None if value_logits is None else torch.from_numpy(value_logits),
+            cliffness=None if cliffness is None else torch.from_numpy(cliffness),
+            num_units=U, num_recruits=R,
             aux_score=None if aux is None else torch.from_numpy(aux),
             moves_left=None if ml is None else torch.from_numpy(ml),
             legal_compact=compact, memory=None if memory is None else torch.from_numpy(memory))
@@ -597,8 +599,10 @@ class InferenceServer:
                 else:
                     padded = forward()
                 t2 = time.perf_counter()
-                names = ["value", "value_logits", "cliffness"]
-                names += [n for n in ("aux_score", "moves_left") if getattr(padded, n) is not None]
+                # The head outputs the forward computed (a priors-only model
+                # computes none of them, `infer_priors_only`).
+                names = [n for n in ("value", "value_logits", "cliffness", "aux_score", "moves_left")
+                         if getattr(padded, n) is not None]
                 ride = [getattr(padded, n) for n in names]
                 # The new memory states ride in the priors' one transfer,
                 # unless the server keeps them.
@@ -653,10 +657,12 @@ class ServedBatch:
         returns, without the ModelOutput."""
         U, R, _H = self.sizes[b]
         x = self.extras
-        aux, ml = x.get("aux_score"), x.get("moves_left")
-        return ("c", int(U), int(R), x["value"][b:b + 1], x["value_logits"][b:b + 1],
-                x["cliffness"][b:b + 1], None if aux is None else aux[b:b + 1],
-                None if ml is None else ml[b:b + 1],
+
+        def row(name):
+            a = x.get(name)
+            return None if a is None else a[b:b + 1]
+        return ("c", int(U), int(R), row("value"), row("value_logits"), row("cliffness"),
+                row("aux_score"), row("moves_left"),
                 self.actor_kind[b:b + 1, :U + R + 1].astype("int8"), self.compact[b],
                 None if self.memory is None else self.memory[b, :self.memory_counts[b]])
 
@@ -666,15 +672,15 @@ class ServedBatch:
         A = U + R + 1
         flat, empty = placeholder_logits(A)
         x = self.extras
-        aux, ml = x.get("aux_score"), x.get("moves_left")
+
+        def row(name):
+            a = x.get(name)
+            return None if a is None else torch.from_numpy(a[b:b + 1])
         return ModelOutput(
             actor_logits=flat, actor_kind=torch.from_numpy(self.actor_kind[b:b + 1, :A]),
             type_logits=empty, target_logits=empty, weapon_logits=empty,
-            value=torch.from_numpy(x["value"][b:b + 1]),
-            value_logits=torch.from_numpy(x["value_logits"][b:b + 1]),
-            cliffness=torch.from_numpy(x["cliffness"][b:b + 1]), num_units=U, num_recruits=R,
-            aux_score=None if aux is None else torch.from_numpy(aux[b:b + 1]),
-            moves_left=None if ml is None else torch.from_numpy(ml[b:b + 1]),
+            value=row("value"), value_logits=row("value_logits"), cliffness=row("cliffness"),
+            num_units=U, num_recruits=R, aux_score=row("aux_score"), moves_left=row("moves_left"),
             legal_compact=self.compact[b],
             memory=(None if self.memory is None
                     else torch.from_numpy(self.memory[b, :self.memory_counts[b]])))

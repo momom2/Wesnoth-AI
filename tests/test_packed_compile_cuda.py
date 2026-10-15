@@ -170,3 +170,52 @@ def test_ms_per_batch_of_16_eager_padded_eager_packed_compiled_packed(compiled_m
     stats = model.packed_compile_stats()
     print(f"  packed_compile_stats: {stats}")
     assert stats["active"] and stats["recompiles"] == 0, stats
+
+
+def test_compiled_bf16_serves_the_parity_memory_model():
+    """own1's shape and recipe (sightings, a memory of 64 slots): the
+    compiled loop over bf16 weights against the eager packed trunk under
+    autocast, the new memory states included, within the parity bound of
+    the test above, no recompile."""
+    from wesnoth_ai.model import WesnothModel
+    torch._dynamo.reset()
+    torch.manual_seed(2)
+    model = WesnothModel(**TIER_B, observation_parity=True, memory_slots=64).to(CUDA).eval()
+    model.infer_packed_trunk = True
+    model.configure_packed_compile()
+    assert model.warmup_packed_compile()["active"]
+    sizes = _sizes(8, seed=6, homogeneous=False)
+    extras = model._warmup_extras(len(sizes), CUDA)
+    streams = _streams(sizes, seed=6)
+    outs = {}
+    for compiled in (False, True):
+        model.infer_compile_packed = compiled
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            outs[compiled] = model.forward_streams(*streams, packed=True, **extras).float32()
+    errs = _errors(outs[True], outs[False])
+    _print_errors("compiled packed bf16 vs eager packed bf16, parity memory model", errs)
+    for f in FIELDS:
+        assert errs[f][1] < 0.05, (f, errs[f])
+    mem_e, mem_c = outs[False].memory_padded, outs[True].memory_padded
+    assert (mem_e - mem_c).abs().max().item() < 0.05 * max(mem_e.abs().max().item(), 1e-6)
+    assert model.packed_compile_stats()["recompiles"] == 0
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_the_bf16_residual_stream_on_cuda(compiled_model, compiled):
+    """The packed trunk with its residual stream in bf16, eager or compiled,
+    against the float32 stream under autocast: within the compiled loop's
+    parity bound. Last in the module: the compiled loop compiles again for
+    the bf16 rows."""
+    model = compiled_model
+    streams = _streams(_sizes(8, seed=9, homogeneous=False))
+    reference = _forward(model, streams, packed=True, compiled=False)
+    model.infer_bf16_residual = True
+    try:
+        slim = _forward(model, streams, packed=True, compiled=compiled)
+    finally:
+        model.infer_bf16_residual = False
+    errs = _errors(slim, reference)
+    _print_errors(f"bf16 residual ({'compiled' if compiled else 'eager'}) vs float32 residual", errs)
+    for f in FIELDS:
+        assert errs[f][1] < 0.05, (f, errs[f])

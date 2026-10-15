@@ -428,3 +428,61 @@ def test_on_cuda_the_kept_memory_plays_as_the_wire(leaves, server, graphed):
     if graphed is not None:
         assert kept_g.served == len(_decisions(leaves)) and not kept_g.fallbacks
         assert wire_g.served == len(_decisions(leaves)) and not wire_g.fallbacks
+
+
+@pytest.mark.parametrize("path", ["rust", "python", "graphed"])
+def test_priors_only_serves_the_same_priors_without_the_head_outputs(leaves, server, path):
+    """A priors-only model (model.infer_priors_only, the server's
+    --priors-only) answers with the same priors, actions, actor kinds and
+    memory states, byte for byte, and no value, value distribution or
+    cliffness; on the eager Rust and Python paths and the static-shape one."""
+    from wesnoth_ai.byte_wire import decode_replies_with_versions
+    from wesnoth_ai.memory import MemoryState
+    rng = np.random.default_rng(6)
+    plain = [(raw, m) for raw, m in leaves if m.type_bias is None and m.attack_bias is None]
+    reqs = [_request(i, [(raw, m, MemoryState(SLOTS, None if i % 3 == 0 else
+                                               rng.standard_normal((SLOTS, D)).astype(np.float32)))])
+            for i, (raw, m) in enumerate(plain[:10])]
+    model = server._model
+    replies = {}
+    for priors_only in (False, True):
+        model.infer_priors_only = priors_only
+        try:
+            if path == "graphed":
+                served, _ = _graphed_server(server, device_memory=False)
+                replies[priors_only] = _rust(served, reqs)
+            else:
+                replies[priors_only] = (_rust if path == "rust" else _python)(server, reqs)
+        finally:
+            model.infer_priors_only = False
+    for full, slim in zip(replies[False], replies[True]):
+        (fv,), _ = decode_replies_with_versions(bytearray(full), 16)
+        (sv,), _ = decode_replies_with_versions(bytearray(slim), 16)
+        assert fv[3] is not None and fv[4] is not None and fv[5] is not None
+        assert sv[3] is None and sv[4] is None and sv[5] is None
+        assert (fv[1], fv[2]) == (sv[1], sv[2]) and np.array_equal(fv[8], sv[8])
+        for name in ("actor", "kind", "target", "weapon", "prior"):
+            assert getattr(fv[9], name).tobytes() == getattr(sv[9], name).tobytes(), name
+        assert fv[10].tobytes() == sv[10].tobytes()
+        assert len(slim) < len(full)
+
+
+@needs_cuda
+def test_on_cuda_priors_only_serves_the_same_priors(leaves, server):
+    """On the GPU (bf16, packed trunk and embed), the priors-only model's
+    replies carry the full model's priors, actions and memory states byte
+    for byte."""
+    from wesnoth_ai.byte_wire import decode_replies_with_versions
+    from wesnoth_ai.memory import MemoryState
+    cuda_server, _ = _cuda_server(server)
+    reqs = [_request(i, [(raw, m, MemoryState(SLOTS, None))]) for i, (raw, m) in enumerate(leaves)]
+    full = _rust(cuda_server, reqs)
+    cuda_server._model.infer_priors_only = True
+    slim = _rust(cuda_server, reqs)
+    for f, s_ in zip(full, slim):
+        (fv,), _ = decode_replies_with_versions(bytearray(f), 16)
+        (sv,), _ = decode_replies_with_versions(bytearray(s_), 16)
+        assert sv[3] is None and fv[3] is not None
+        for name in ("actor", "kind", "target", "weapon", "prior"):
+            assert getattr(fv[9], name).tobytes() == getattr(sv[9], name).tobytes(), name
+        assert fv[10].tobytes() == sv[10].tobytes()
