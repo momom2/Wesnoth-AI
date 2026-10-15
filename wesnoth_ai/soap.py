@@ -24,9 +24,12 @@ eps 1e-8, a refresh every 10 steps.
 
 Cost of an A x B matrix: state A^2 + B^2 for L and R, as much again for
 their bases, and 2 A B for M and V, all float32; per step about
-4 (A^2 B + A B^2) multiply-adds for the two projections and the
+3 (A^2 B + A B^2) multiply-adds for the two projections and the
 statistics, and every `precondition_every` steps two A x A and B x B QR
-decompositions and their power iterations.
+decompositions and their power iterations. On the recipe's trunk (8 layers
+of a 1152 x 384 in-projection, a 384 x 384 out-projection and the 1536 x 384
+and 384 x 1536 feed-forward matrices) that is 137M floats of state, 0.55 GB,
+where AdamW holds 0.12 GB for the whole network, and 147 GFLOP a step.
 """
 from __future__ import annotations
 

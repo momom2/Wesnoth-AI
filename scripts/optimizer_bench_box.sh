@@ -160,7 +160,9 @@ COMMON=(--sequences "$SEQ" --dataset "$CORPUS" --seed "$RUN_SEED" --device cuda
 read -r -a ARM_NAMES <<< "$ARMS"
 read -r -a LRS <<< "$LR_GRID"
 read -r -a SF_LRS <<< "$SF_GRID"
-[ "${#LRS[@]}" -eq 3 ] && [ "${#SF_LRS[@]}" -eq 3 ] || box_finish "BAD_GRID: three rates each (LR_GRID, SF_GRID)" 1
+if [ "${#LRS[@]}" -ne 3 ] || [ "${#SF_LRS[@]}" -ne 3 ]; then
+    box_finish "BAD_GRID: three rates each (LR_GRID, SF_GRID)" 1
+fi
 arm_flags() {                    # arm_flags NAME: the trainer flags of arm NAME
     local optimizer=${1%_*} rate=${1##*_} i
     case $rate in
