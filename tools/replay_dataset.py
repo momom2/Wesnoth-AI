@@ -848,18 +848,80 @@ def move_label_hex(gs: GameState, unit: Unit, cmd: list) -> Tuple[Tuple[int, int
                    such a target (an order longer than a turn): the path's
                    end, where the unit stopped.
     """
-    stop = (cmd[1][-1], cmd[2][-1])
-    order = move_order_of(cmd)
-    if order is None:
-        return stop, "path_end"
-    if order.get("stopped_early") is False:
-        return stop, "turn_end"
-    clicked = (int(order["clicked"][0]), int(order["clicked"][1]))
+    stop, clicked, source = move_label_rule(cmd)
+    if clicked is None:
+        return stop, source
     from tools.pathfind_sim import ReachContext, unit_reach
     reach = unit_reach(unit, gs, ReachContext.for_side(gs, unit.side))
     if clicked in reach.landable:
         return clicked, "clicked"
     return stop, "clicked_unreachable"
+
+
+def move_label_rule(cmd: list) -> Tuple[Tuple[int, int], Optional[Tuple[int, int]], str]:
+    """What `move_label_hex` reads off the command itself: (the path's
+    end, the clicked hex whose landability decides the label or None,
+    the label's source when no reach is asked: "path_end" or
+    "turn_end")."""
+    stop = (cmd[1][-1], cmd[2][-1])
+    order = move_order_of(cmd)
+    if order is None:
+        return stop, None, "path_end"
+    if order.get("stopped_early") is False:
+        return stop, None, "turn_end"
+    return stop, (int(order["clicked"][0]), int(order["clicked"][1])), ""
+
+
+def core_label_args(cmd: list) -> tuple:
+    """A player command (`PAIRED_KINDS`) as the core's label builder reads
+    it (`CoreState.encode_labelled`, rust/wesnoth_core/src/core_label.rs):
+    (kind, x0, y0, x1, y1, clicked, recruit type). A move gives its path's
+    start and end, and the clicked hex when the label rule asks the unit's
+    reach about it (`move_label_rule`); an attack its attacker's and
+    defender's hexes; a recruit its target hex in (x1, y1)."""
+    kind = cmd[0]
+    if kind == "move":
+        (x1, y1), clicked, _source = move_label_rule(cmd)
+        return ("move", int(cmd[1][0]), int(cmd[2][0]), int(x1), int(y1), clicked, None)
+    if kind == "attack":
+        return ("attack", int(cmd[1]), int(cmd[2]), int(cmd[3]), int(cmd[4]), None, None)
+    if kind == "recruit":
+        return ("recruit", 0, 0, int(cmd[2]), int(cmd[3]), None, str(cmd[1]))
+    if kind == "end_turn":
+        return ("end_turn", 0, 0, 0, 0, None, None)
+    raise ValueError(f"{kind!r} is not a command a label names ({sorted(PAIRED_KINDS)})")
+
+
+def core_label(cmd: list, fields: tuple, stats: Optional[Counter] = None) -> "ActionIndices":
+    """The label of the player command `cmd` from the core's `fields`
+    (`CoreState.encode_labelled`: actor slot, target token or None, whether
+    a move names its clicked hex), already in the encoding's basis: what
+    `_action_indices` builds on a view and `encode_worker.label_in_raw_basis`
+    re-indexes (tests/test_core_label.py). `stats` counts each move label's
+    source, as `_action_indices` does."""
+    actor, token, named_clicked = fields
+    kind = cmd[0]
+    if kind == "end_turn":
+        return ActionIndices("end_turn", actor_idx=actor)
+    off_subset = token is None
+    if kind == "move":
+        stop, clicked, source = move_label_rule(cmd)
+        if clicked is not None:
+            source = "clicked" if named_clicked else "clicked_unreachable"
+        tx, ty = clicked if named_clicked else stop
+        if stats is not None:
+            stats[f"move_label_{source}"] += 1
+        from wesnoth_ai.model import UnitActionType
+        return ActionIndices("move", actor_idx=actor, target_idx=token, type_idx=UnitActionType.MOVE,
+                             target_off_subset=off_subset, source_hex=(cmd[1][0], cmd[2][0]),
+                             target_hex=(tx, ty))
+    if kind == "attack":
+        from wesnoth_ai.model import UnitActionType
+        return ActionIndices("attack", actor_idx=actor, target_idx=token, weapon_idx=cmd[5],
+                             type_idx=UnitActionType.ATTACK, target_off_subset=off_subset,
+                             source_hex=(cmd[1], cmd[2]), target_hex=(cmd[3], cmd[4]))
+    return ActionIndices("recruit", actor_idx=actor, target_idx=token, target_off_subset=off_subset,
+                         target_hex=(cmd[2], cmd[3]), recruit_type=cmd[1])
 
 
 def _action_indices(gs: GameState, cmd: list, *,
@@ -1062,6 +1124,28 @@ def iter_record_pairs(data: dict, *, relevant_set: bool = False,
                 yield gs, ai
             elif stats is not None and cmd and cmd[0] in PAIRED_KINDS:
                 stats["unpaired"] += 1
+        cs.apply_command(list(cmd))
+
+
+def iter_record_decisions(data: dict, *, stats: Optional[Counter] = None, timeouts: bool = False
+                          ) -> Iterator[Tuple[object, Optional[list]]]:
+    """The positions `iter_record_pairs` pairs, without a view: (the
+    record's core before the command, the command) for each command a
+    player side made of a `PAIRED_KINDS` kind, and with `timeouts`
+    (the core, None) where a turn ran out of time while its player was
+    deciding. The core is the walk's own, in place: the caller encodes it
+    (`CoreState.encode_labelled`) before the next step and keeps nothing
+    of it. `stats` counts the engine's commands, as `iter_record_pairs`
+    does; the caller counts the commands that yield no label."""
+    cs = record_core(data)
+    engine = engine_issued_of(data)
+    for i, cmd in enumerate(data.get("commands", [])):
+        if i in engine:
+            _count_engine_issued(stats, engine[i])
+            if timeouts and engine[i] == TIMEOUT:
+                yield cs, None
+        elif int(cs.core.current_side) in PLAYER_SIDES and cmd and cmd[0] in PAIRED_KINDS:
+            yield cs, cmd
         cs.apply_command(list(cmd))
 
 

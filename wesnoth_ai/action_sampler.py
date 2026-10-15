@@ -847,12 +847,15 @@ def prior_bias_end_turn(game_state) -> float:
     (negative = against passing, e.g. -1.5). Env-inherited, so the
     pool's actors and the trainer re-forward read the identical value --
     the rollout/training symmetry contract holds by construction."""
+    return end_turn_bias_of(getattr(game_state.global_info, "_scenario_category", ""))
+
+
+def end_turn_bias_of(scenario_category: str) -> float:
+    """`prior_bias_end_turn` for a game of `scenario_category` (the
+    state's `_scenario_category`, which a core keeps in its statics)."""
     import os as _os
     v = _os.environ.get("WESNOTH_PRIOR_BIAS_END_TURN_MINI")
-    if not v:
-        return 0.0
-    if getattr(game_state.global_info, "_scenario_category",
-               "") != "mini":
+    if not v or scenario_category != "mini":
         return 0.0
     try:
         return float(v)

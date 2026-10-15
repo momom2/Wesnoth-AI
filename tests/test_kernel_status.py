@@ -62,3 +62,23 @@ def test_the_source_phase_is_readable():
     so it is worth pinning that the parse works against the real file."""
     want = ks.source_phase()
     assert want is not None and want >= 1, want
+
+
+def test_a_wheel_of_the_sources_phase_built_from_another_source_is_not_current(monkeypatch):
+    """Two changes have landed within one phase number: the phase alone let
+    a stale wheel pass. The wheel is current only when it carries the hash
+    of the source in front of it."""
+    monkeypatch.setattr(ks, "wheel_phase", lambda: 35)
+    monkeypatch.setattr(ks, "source_phase", lambda: 35)
+    monkeypatch.setattr(ks, "source_hash", lambda: "a" * 64)
+    saved = dict(ks._GATES)
+    try:
+        ks._GATES["GameCore"] = lambda: True
+        for wheel, current in (("b" * 64, False), (None, False), ("a" * 64, True)):
+            monkeypatch.setattr(ks, "wheel_source_hash", lambda w=wheel: w)
+            assert ks.kernel_status()["wheel_current"] is current, wheel
+            line = ks.banner()
+            assert ("REBUILD" not in line) == current and line.endswith("current") == current, line
+    finally:
+        ks._GATES.clear()
+        ks._GATES.update(saved)

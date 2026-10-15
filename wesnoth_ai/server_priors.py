@@ -95,14 +95,9 @@ def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
     U = len(encoded.unit_positions)
     R = len(encoded.recruit_types)
     H = len(encoded.hex_positions)
-    core = getattr(getattr(encoded, "_raw", None), "core_masks", None)
-    if core is not None and not any(combat_alphas_at(decision_step)):
-        return PackedMasks(
-            actor_mask=core["mask_actor"], type_valid=core["mask_type_valid"],
-            attack_valid=core["mask_attack_bits"], move_valid=core["mask_move_bits"],
-            union_valid=core["mask_union_bits"], n_attacks=core["mask_n_attacks"],
-            end_turn_bias=float(prior_bias_end_turn(game_state)),
-            n_units=U, n_recruits=R, n_hexes=H)
+    raw = getattr(encoded, "_raw", None)
+    if getattr(raw, "core_masks", None) is not None and not any(combat_alphas_at(decision_step)):
+        return core_packed_masks(raw, prior_bias_end_turn(game_state))
     masks = _build_legality_masks(encoded, game_state, decision_step=decision_step)
     ownership = np.concatenate([
         encoded.unit_is_ours.detach().cpu().numpy().reshape(-1),
@@ -131,6 +126,20 @@ def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
         n_units=U, n_recruits=R, n_hexes=H,
         type_bias=type_bias.astype(np.float32) if np.any(type_bias) else None,
         attack_bias=attack_bias.astype(np.float32) if np.any(attack_bias) else None)
+
+
+def core_packed_masks(raw, end_turn_bias: float) -> PackedMasks:
+    """The masks the core built beside the encoding `raw`
+    (`encode_raw(masks=True)`, rust/wesnoth_core/src/core_masks.rs), as
+    `pack_masks` packs them while the combat oracle's priors are off: the
+    Python builder's arrays (tests/test_core_masks.py)."""
+    core = raw.core_masks
+    return PackedMasks(
+        actor_mask=core["mask_actor"], type_valid=core["mask_type_valid"],
+        attack_valid=core["mask_attack_bits"], move_valid=core["mask_move_bits"],
+        union_valid=core["mask_union_bits"], n_attacks=core["mask_n_attacks"],
+        end_turn_bias=float(end_turn_bias), n_units=len(raw.unit_positions),
+        n_recruits=len(raw.recruit_types), n_hexes=len(raw.hex_positions))
 
 
 # ---------------------------------------------------------------------

@@ -13,11 +13,12 @@ existed, 2026-10-09, had none). Labels are never read. The encoding uses
 the teacher's vocabularies.
 
 A candidate is the position before one of the game-side's recorded commands
-(move, attack, recruit, end_turn), encoded by the pre-encoder's code
-(`preencode_sequences.encode_position`: the parity observation, the
-relevant set, the label in the encoding's basis, the belief targets from the
-true state), with the legality masks the player decided under, packed as
-the match's actor packed them (`server_priors.pack_masks`). A move followed
+(move, attack, recruit, end_turn), encoded by the pre-encoder's code on the
+record's core in place (`preencode_sequences.encode_decision`: the parity
+observation, the relevant set, the label the core builds in the encoding's
+basis, the belief targets from the true state), with the legality masks the
+player decided under, the core's, as the match's actor packed them
+(`server_priors.core_packed_masks`). A move followed
 by an attack from its end on a unit the mover did not stand next to, whose
 approach the simulator would have chosen for that attack
 (`wesnoth_sim.attack_hex`), may be one attack decision: its candidate keeps
@@ -138,15 +139,13 @@ def read_game_record(path: Path) -> dict:
     return records[0]
 
 
-def approach_attack(gs, commands: List[list], k: int, side: int):
+def approach_attack(cs, commands: List[list], k: int, side: int):
     """When command k, a move of `side`, is followed by an attack from the
     move's end on a hex not next to the move's start, and the simulator's
     approach for that attack from the start is the move's end: the label
-    (full-board basis) of the attack decided before the move. Else None."""
+    (full-board basis) of the attack decided before the move, built on a
+    view of a fork of the core `cs` before the move. Else None."""
     from tools.abilities import hex_neighbors
-    from tools.replay_dataset import _action_indices
-    from tools.wesnoth_sim import attack_hex
-    from wesnoth_ai.classes import Position
     cmd = commands[k]
     nxt = commands[k + 1] if k + 1 < len(commands) else None
     if cmd[0] != "move" or nxt is None or nxt[0] != "attack":
@@ -156,6 +155,11 @@ def approach_attack(gs, commands: List[list], k: int, side: int):
     target = (int(nxt[3]), int(nxt[4]))
     if (int(nxt[1]), int(nxt[2])) != end or target in hex_neighbors(*start):
         return None
+    from tools.replay_dataset import _action_indices
+    from tools.wesnoth_sim import attack_hex
+    from wesnoth_ai.classes import Position
+    from wesnoth_ai.game_core import view_of
+    gs = view_of(cs.fork())
     units = {(u.position.x, u.position.y): u for u in gs.map.units}
     attacker = units.get(start)
     if attacker is None or attacker.side != side or target not in units:
@@ -168,16 +172,13 @@ def approach_attack(gs, commands: List[list], k: int, side: int):
 
 def candidates_of(rec: dict, sides: List[OwnSide], type_to_id: Dict[str, int],
                   faction_to_id: Dict[str, int]) -> OwnCandidateGame:
-    """The candidates of a game's own sides (module docstring). Raises
-    `game_record.RecordMismatch` when the record does not rebuild its game,
-    `OwnSideError` or `LabelSlotMismatch` when a command yields no position."""
-    import torch
+    """The candidates of a game's own sides (module docstring), each encoded
+    and labelled on the record's core in place (`encode_decision`), with the
+    core's legality masks. Raises `game_record.RecordMismatch` when the
+    record does not rebuild its game, `OwnSideError` or `LabelSlotMismatch`
+    when a command yields no position."""
     from tools.game_record import _walk_core
-    from tools.inference_seam import build_light_encoded
-    from tools.preencode_sequences import checked_label, encode_position
-    from tools.replay_dataset import _action_indices
-    from wesnoth_ai.game_core import bind_view
-    from wesnoth_ai.server_priors import pack_masks
+    from tools.preencode_sequences import checked_label, encode_decision
     name = sides[0].name
     by_side = {s.side: s for s in sides}
     stats: Counter = Counter()
@@ -185,22 +186,16 @@ def candidates_of(rec: dict, sides: List[OwnSide], type_to_id: Dict[str, int],
     rejected: Counter = Counter()
     refused = Counter(int(k) for k, _x, _y in rec.get("rejections", ()))
     commands = rec["commands"]
-    cpu = torch.device("cpu")
     for k, cs, cmd in _walk_core(rec, verify=True):
         side = int(cs.core.current_side)
         rejected[side] += refused.get(k, 0)
         if side not in by_side or cmd[0] not in PLAYER_COMMANDS:
             continue
-        snapshot = cs.fork()
-        gs = snapshot.to_state()
-        bind_view(gs, snapshot)
         where = f"{name}, side {side}, command {k}"
-        ai = _action_indices(gs, cmd, relevant_set=False, stats=stats)
-        if ai is None:
+        pos = encode_decision(cs, cmd, where, type_to_id, faction_to_id, stats, masks=True)
+        if pos is None:
             raise OwnSideError(f"{where} ({cmd[0]}) names no action of the side")
-        pos = encode_position(gs, ai, where, type_to_id, faction_to_id, stats)
-        pos.masks = pack_masks(build_light_encoded(pos.raw, cpu), gs)
-        attack = approach_attack(gs, commands, k, side)
+        attack = approach_attack(cs, commands, k, side)
         if attack is not None:
             attack = checked_label(attack, pos.raw, where + " (its approach's attack)", stats)
             stats["approach_pairs"] += 1

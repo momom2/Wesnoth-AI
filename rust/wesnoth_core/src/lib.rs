@@ -24,6 +24,7 @@ mod core_attack;
 mod core_observe;
 mod core_fog;
 mod core_encode;
+mod core_label;
 mod core_masks;
 mod core_view;
 mod core_parity;
@@ -665,7 +666,12 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // the simulator's live view from one refresh to the next (core_view.rs):
     // a unit's object is rebuilt only when its record changed, the fog
     // record only when it changed.
-    m.add("__phase__", 34)?;
+    // 35: encode_streams builds a recorded command's label in the
+    // encoding's basis beside the encoding (`label`, core_label.rs); the
+    // module carries the hash of the source it was built from
+    // (`__source_hash__`, build.rs).
+    m.add("__phase__", 35)?;
+    m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;
     Ok(())

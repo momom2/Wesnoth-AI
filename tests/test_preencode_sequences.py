@@ -1,6 +1,6 @@
 """The sequence pre-encoding (tools/preencode_sequences.py) on a replay
 written from scratch: every decision of both player sides, in order, each
-label re-indexed into its encoding's own hex tokens and checked, the
+label in its encoding's own hex tokens and checked, the
 observation that carries the true state left out, and a turn that ran out
 of time kept as a position that names no action."""
 from __future__ import annotations
@@ -68,13 +68,36 @@ def test_every_decision_of_both_sides_in_order(tmp_path, vocab):
 
 @needs_core
 def test_a_label_left_in_the_full_board_basis_is_refused(tmp_path, vocab, monkeypatch):
-    """Without the re-indexing, a move's full-board target index points at
-    another token of the relevant set, and the game is refused."""
-    import tools.encode_worker as ew
+    """A label built in another basis than its encoding's (the full board's,
+    whose move target index points at another token of the relevant set)
+    is refused, and the game with it."""
     from tools.preencode_sequences import encode_game_sequence
-    monkeypatch.setattr(ew, "label_in_raw_basis", lambda ai, raw: ai)
-    with pytest.raises(LabelSlotMismatch):
+    real = gc.CoreState.encode_labelled
+
+    def full_board_label(self, label_args, **encoding):
+        raw, _label = real(self, label_args, **encoding)
+        _raw, label = real(self, label_args, **{**encoding, "relevant_set": False, "relevant_set_version": 1,
+                                                "observation_parity": False})
+        return raw, label
+    monkeypatch.setattr(gc.CoreState, "encode_labelled", full_board_label)
+    with pytest.raises(LabelSlotMismatch, match="move target"):
         encode_game_sequence(_record(tmp_path), "g", 1, *vocab)
+
+
+@needs_core
+def test_a_view_label_left_in_the_full_board_basis_is_refused(tmp_path, vocab, monkeypatch):
+    """On a view (`encode_position`), without the re-indexing a move's
+    full-board target index points at another token of the relevant set,
+    and the position is refused."""
+    from collections import Counter
+    import tools.encode_worker as ew
+    from tools.preencode_sequences import encode_position
+    from tools.replay_dataset import iter_record_pairs
+    monkeypatch.setattr(ew, "label_in_raw_basis", lambda ai, raw: ai)
+    gs, ai = next(iter_record_pairs(_record(tmp_path)))
+    assert ai.action_type == "move"
+    with pytest.raises(LabelSlotMismatch, match="move target"):
+        encode_position(gs, ai, "g", *vocab, Counter())
 
 
 def test_a_label_follows_the_tokens_of_its_encoding():
