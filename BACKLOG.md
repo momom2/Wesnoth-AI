@@ -211,7 +211,7 @@ docs/selfplay_program_20261008.md): policy iteration with a one-step
 look-ahead over the prior's top actions, exact combat outcomes as chance
 nodes, and Muesli's clipped target; each round's tilted player gated
 against `parity3` before it is distilled; its evaluator chosen by
-measurement. Its code is on `exp/value-policy-iteration` (the critics, the
+measurement. Its code is at tag `archive/exp-value-policy-iteration` (the critics, the
 look-ahead player, the gate script). The CPU turn planner's proposal
 (docs/selfplay_algorithm_design_20261007.md) is step 1's kill branch.
 
@@ -279,7 +279,7 @@ within-position correlation; bar 0.7, kill 0.5), with the crash barrier
 passed. By its rule the next proposal is a fine-tuned copy of the trunk
 on the better labels; the reported readings (the HP margin after the
 turn 0.397, a rollout read 7 half-turns ahead 0.532) belong in that
-design. The code stays on `exp/turn-value`.
+design. The code is at tag `archive/exp-turn-value`.
 
 **Done inside the parity-memory retrain (2026-10-02):** the unit
 vocabulary (docs/unit_vocab_retrain_prereg_20260925.md: every reachable
@@ -339,7 +339,7 @@ deleted tools and are records only. Refactor step 4a is parked (tag
   iteration on 128 kept experiences (`tools/az_signal.py`,
   `<workdir>/az_signal.jsonl`; 1.67 s a probe against 1.11 s for the
   train step, a tiny network on the laptop CPU). Still without it: the
-  turn-value fitter's head arm (branch `exp/turn-value`) and the
+  turn-value fitter's head arm (tag `archive/exp-turn-value`) and the
   quarantined policy anchor's rehearsal steps. Open: `az_loop`'s norm
   telemetry draws its subsample from the loop's own generator
   (`tools/az_loop.py:752`), so switching it off would change the

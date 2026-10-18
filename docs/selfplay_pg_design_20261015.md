@@ -149,7 +149,7 @@ About a week of agent work, no box:
 - per-decision behaviour log-probabilities in the game record;
 - behaviour D in the raw player;
 - the luck pass over records;
-- the state-only critic (ported from `exp/value-policy-iteration`) with
+- the state-only critic (ported from tag `archive/exp-value-policy-iteration`) with
   cross-fitting;
 - the split-half gradient tooling on the sequence trainer;
 - the tempered played-policy log-probability with its normalizer over all
