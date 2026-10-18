@@ -10,8 +10,21 @@ Peng, 1990). Each time step's forward is recomputed in the backward pass
 (activation checkpointing), its inputs staged once. The losses are `obs8`'s
 policy and value losses and the belief loss (`wesnoth_ai/sequence_loss.py`),
 summed over the window's positions and divided by streams x window, so a
-short last window steps at the same rate per position. AdamW, a linear
-warm-up, then a constant rate, one pass.
+short last window steps at the same rate per position. A linear warm-up,
+then a constant rate, one pass.
+
+The optimizer (`--optimizer`, wesnoth_ai/optimizers.py): AdamW by default,
+or AdamW's hygiene, Muon, SOAP or schedule-free AdamW; the training meta
+records it and a resume continues on it. The gradient clip, the warm-up and
+the schedule are the trainer's for every one of them (schedule-free takes no
+`--decay-from`: its average replaces the cooldown). Schedule-free trains at
+one point and is read at another, its average: the probe and every checkpoint
+read the average, the training point kept beside the optimizer's state.
+`--weight-ema DECAY` keeps an exponential moving average of the weights
+(wesnoth_ai/weight_ema.py), saved beside the weights in every checkpoint
+(`ema_model_state`, `ema_encoder_state`); `--probe-weights` probes the live
+weights, the average or both. A resume of a finished pass probes it again,
+which reads a finished pass's average: `--resume --probe-weights ema`.
 
 Always-on telemetry (user ruling 2026-09-01): every `--signal-every`
 positions a row in <out>.signal.jsonl splits the last window's gradient on
@@ -143,12 +156,14 @@ from tools.sequence_timing import GIB, WindowClock, bytes_per_token  # noqa: E40
 from tools.sequence_window import read_window, window_sums  # noqa: E402
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.imitation_loss import imitation_loss_parts  # noqa: E402
+from wesnoth_ai.optimizers import OptimizerChoice, build_optimizer, evaluation_point, state_bytes  # noqa: E402
 from wesnoth_ai.own_loss import own_policy_loss  # noqa: E402
 from wesnoth_ai.param_groups import GradientGroups, named_as  # noqa: E402
 from wesnoth_ai.rules_version import check_records_rules  # noqa: E402
 from wesnoth_ai.sequence_loss import belief_loss  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide, StreamSchedule, epoch_order, merge_windows  # noqa: E402
 from wesnoth_ai.trunk_modes import TrunkMode  # noqa: E402
+from wesnoth_ai.weight_ema import WeightEMA  # noqa: E402
 
 log = logging.getLogger("sequence_train")
 
@@ -196,8 +211,12 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                                                  self.arch)
         self.params = [p for p in list(self.encoder.parameters()) + list(self.model.parameters())
                        if p.requires_grad]
-        self.clip_groups = GradientGroups(named_as(self.params, self.model, self.encoder))
-        self.opt = torch.optim.AdamW(self.params, lr=args.lr, weight_decay=args.weight_decay)
+        named = named_as(self.params, self.model, self.encoder)
+        self.clip_groups = GradientGroups(named)
+        self.optimizer_choice = OptimizerChoice(args.optimizer, args.soap_precondition_every)
+        self.opt = build_optimizer(self.optimizer_choice, named, {"model": self.model, "encoder": self.encoder},
+                                   args.lr, args.weight_decay)
+        self.ema = None if args.weight_ema is None else WeightEMA(named, args.weight_ema)
         own_directory, own_files = (None, frozenset()) if self.own is None else (self.own.directory, self.own.files)
         if args.columns:
             for directory, games in [(args.sequences, man["games"])] + (
@@ -249,7 +268,8 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                      "pass_positions": args.pass_positions, "anneal_rule": args.anneal_rule,
                      "own": None if self.own is None else self.own.meta(args.own_policy_weight),
                      "trunk": self.trunk, "trunk_mode": self.trunk_mode.describe(),
-                     "activation_budget_gb": args.activation_budget_gb}
+                     "activation_budget_gb": args.activation_budget_gb,
+                     "optimizer": self.optimizer_choice.describe(), "weight_ema": args.weight_ema}
         log.info("%d training game-sides (%d positions), %d holdout game-sides, %d streams x %d decisions",
                  len(self.schedule.order), self.schedule.total_positions, len(self.holdout),
                  args.streams, args.window)
@@ -364,6 +384,8 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                            self.device)
         if trains and read.finite:
             self.opt.step()
+            if self.ema is not None:
+                self.ema.update()
             self._areas_step(lr)
             self.state["nonfinite_run"] = 0
         elif trains:
@@ -412,10 +434,23 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
 
     # ---- probe, checkpoints, the pass -----------------------------------
     def run_probe(self, final: bool = False) -> Dict:
+        """The probe of the weights `--probe-weights` names; the reading that
+        decides the barrier and the anneal rule: the live weights', else the
+        average's."""
         if self.rates is None:
             order = self.schedule.order[:BASELINE_FIT_SIDES]
             self.rates = fit_last_seen_rates(read_record(record_path(self.args.sequences, g.file)).sides[g.side]
                                              for g in order)
+        readings = {}
+        for weights in ("live", "ema") if self.args.probe_weights == "both" else (self.args.probe_weights,):
+            with self.ema.applied() if weights == "ema" else evaluation_point(self.opt):
+                readings[weights] = self._probe_weights(weights, final)
+        return readings.get("live", readings.get("ema"))
+
+    def _probe_weights(self, weights: str, final: bool) -> Dict:
+        """One probe of the weights the parameters hold, its rows in the
+        files of `weights` (live: <out>.probe.jsonl, ema: <out>.ema.probe.jsonl,
+        and their .probe_sides.jsonl)."""
         holdout_loader = SequenceLoader(self.args.sequences)
         winners = {f: g.winner for f, g in self.games.items()}
         t0 = time.time()
@@ -423,22 +458,36 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                        self.args.probe_ks, self.device, self.type_loss_weights, rates=self.rates,
                        autocast_dtype=self.autocast, per_side=True)
         result.update(positions=self.state["positions"], steps=self.state["steps"],
-                      total_positions=self.pass_total, final=final,
+                      total_positions=self.pass_total, final=final, weights=weights,
+                      optimizer_state_gb=round(state_bytes(self.opt) / GIB, 4),
                       seconds=round(time.time() - t0, 1))
-        sides = {"positions": result["positions"], "steps": result["steps"], "final": final,
+        sides = {"positions": result["positions"], "steps": result["steps"], "final": final, "weights": weights,
                  "sides": result.pop("sides")}
-        with open(self.args.out.with_suffix(".probe_sides.jsonl"), "a", encoding="utf-8") as f:
+        prefix = "" if weights == "live" else ".ema"
+        with open(self.args.out.with_suffix(prefix + ".probe_sides.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(sides) + "\n")
         if self.state.get("areas") is not None:
             result["areas"] = {"s1": self.state["areas"]["s1"], "s2": self.state["areas"]["s2"]}
-        with open(self.args.out.with_suffix(".probe.jsonl"), "a", encoding="utf-8") as f:
+        with open(self.args.out.with_suffix(prefix + ".probe.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(result) + "\n")
         log.info("PROBE %s", json.dumps(result))
         return result
 
     def save(self) -> None:
-        save_checkpoint(self.args.out, self.encoder, self.model, self.opt, self.state, self.schedule,
-                        self.memories, self.meta, self.arch, self._own_schedule())
+        self._save(self.args.out)
+
+    def _save(self, path: Path) -> None:
+        """The checkpoint at `path`: the weights an evaluation reads
+        (schedule-free's average), the optimizer's state, and the average of
+        `--weight-ema` beside the weights."""
+        extra = None
+        if self.ema is not None:
+            states = self.ema.module_states({"model": self.model, "encoder": self.encoder})
+            extra = {"ema_model_state": states["model"], "ema_encoder_state": states["encoder"],
+                     "ema_updates": self.ema.updates}
+        with evaluation_point(self.opt):
+            save_checkpoint(path, self.encoder, self.model, self.opt, self.state, self.schedule,
+                            self.memories, self.meta, self.arch, self._own_schedule(), extra=extra)
 
     def _own_schedule(self) -> Optional[StreamSchedule]:
         return None if self.own is None else self.own.schedule
@@ -454,8 +503,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
             return
         self.state["stable_saved"] = True
         stable = self.args.out.with_name(self.args.out.stem + ".stable.pt")
-        save_checkpoint(stable, self.encoder, self.model, self.opt, self.state, self.schedule,
-                        self.memories, self.meta, self.arch, self._own_schedule())
+        self._save(stable)
         self.save()                              # the flag only once the stable file exists
         log.info("the cooldown starts at %d positions: the checkpoint is kept as %s",
                  self.state["positions"], stable)

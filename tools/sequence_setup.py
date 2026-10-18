@@ -219,9 +219,10 @@ def lr_factor(positions: int, total: int, decay_from: Optional[float]) -> float:
 
 def save_checkpoint(path: Path, encoder, model, opt, state: Dict, schedule: StreamSchedule,
                     memories: Dict[int, torch.Tensor], meta: Dict, arch: Dict[str, int],
-                    own_schedule: Optional[StreamSchedule] = None) -> None:
+                    own_schedule: Optional[StreamSchedule] = None, extra: Optional[Dict] = None) -> None:
     """Atomic: a temporary file, then a rename. Loadable by the policy
-    loader (`eval_players.peek_checkpoint_arch`, `TransformerPolicy`)."""
+    loader (`eval_players.peek_checkpoint_arch`, `TransformerPolicy`).
+    `extra`: entries beside the weights (the trainer's weight average)."""
     payload = {
         "observation_epoch": int(OBSERVATION_EPOCH), "arch": dict(arch),
         "relevant_set_hexes": True, "fog_hides_enemy_villages": True, "terrain_multi_hot": True,
@@ -236,6 +237,7 @@ def save_checkpoint(path: Path, encoder, model, opt, state: Dict, schedule: Stre
     }
     if own_schedule is not None:
         payload["sequence_resume"]["own_schedule"] = own_schedule.state_dict()
+    payload.update(extra or {})
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, tmp)

@@ -187,6 +187,14 @@ $1.47 in all):
   efficiency). The cheap test is an imitation pass at equal positions,
   AdamW against Muon or Shampoo, on held-out loss (about $1). Choose it with
   the RL algorithm, since a trust region already uses curvature.
+  - **The bench is built, not run** (0.28.0, `feature/optimizers`).
+    - The sequence trainer takes `--optimizer adamw|adamw_hygiene|muon|soap|schedulefree`,
+      `--weight-ema` and `--probe-weights`. The default stays the recipe's
+      AdamW, bit-identical.
+    - `scripts/optimizer_bench_box.sh` runs 16 arms over the same 1,000,000
+      positions: about 6 hours, $2.50.
+    - Its reading criterion is not pre-registered. Running it is a training
+      run, so it waits on the optimizer discussion (user ruling 2026-10-15).
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic
