@@ -27,11 +27,14 @@
 # The steps:
 #   the tests of this path, on the wheel built from the stage;
 #   the init and teacher checkpoints from HF, their SHA-256 checked;
-#   the raw replays (RAW_TAR) and the sources; the generation match, when
-#     there is one, its games recorded whole and up as one tarball, a
-#     source too;
-#   the corpus rebuilt at version 5 and pre-encoded with the init's
-#     vocabularies;
+#   the sources; the generation match, when there is one, its games
+#     recorded whole and up as one tarball, a source too;
+#   the inputs through the input cache (scripts/box_inputs.sh): the corpus
+#     at version 5 restored when an entry holds its key, else rebuilt from
+#     the raw replays (RAW_TAR) and sent; its sequences pre-encoded with the
+#     init's vocabularies; the own sequences restored, beside the corpus's
+#     steps, when an entry holds their key (the sources included), else built
+#     below and sent with their columns;
 #   the own trajectories: the player's game-sides at its slots without a
 #     per-turn reset, selected by the results' checkpoint SHA-256, memory and
 #     reset fields (tools/own_trajectories.py), each decision labelled with
@@ -88,8 +91,9 @@
 # fine-tune's checkpoint as soon as its pass is done, each match's games as
 # one tarball. Re-entry, on this machine or a new one (files absent here come
 # back from HF), continues the pass from its checkpoint, skips what is done
-# and resumes a match in its directory; a new machine rebuilds the corpus,
-# its sequences and the own records when a step still needs them. A run
+# and resumes a match in its directory; a new machine restores or rebuilds
+# the corpus, its sequences and the own records when a step still needs
+# them. A run
 # belongs to the code stage that began it (RUN_STAGE): another stage
 # continues it only with RESUME_OTHER_STAGE=1. Every exit past that check,
 # clean or not, uploads the records with ALL_DONE last and stops the
@@ -300,7 +304,7 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
         tests/test_unit_vocab.py tests/test_raw_player.py tests/test_reference_player.py \
         tests/test_eval_workers.py tests/test_eval_inference_server.py tests/test_elo_collect.py \
         tests/test_signal_telemetry.py tests/test_own_rounds.py \
-        tests/test_corpus_v3.py tests/test_no_shroud.py -q -p no:cacheprovider -m ""
+        tests/test_corpus_v3.py tests/test_no_shroud.py tests/test_input_cache.py -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
     box_mark "$BOX_STATE/TESTED"
@@ -449,23 +453,12 @@ NEED_OWN=1
 [ ! -f "$OUT/TRAIN_DONE" ] || NEED_CORPUS=0
 [ ! -f "$OUT/barriers.json" ] || { NEED_CORPUS=0; NEED_OWN=0; }
 
-# ---- the inputs: the raw replays and the recorded matches
-if [ "$NEED_OWN" = 1 ] && ! box_marked_this_stage "$BOX_STATE/INPUTS_DONE_r$ROUND"; then
+# ---- the inputs (scripts/box_inputs.sh): the recorded matches
+# shellcheck source=box_inputs.sh
+. "$BOX_REPO/scripts/box_inputs.sh" || box_finish "CODE_STAGING_FAILED (no scripts/box_inputs.sh)" 1
+if [ "$NEED_OWN" = 1 ]; then
     # shellcheck disable=SC2086 # SOURCE_TARS is a list of HF paths
-    box_bounded inputs 30 staging.log python - "$RAW_TAR" "$OWN_GAMES" $SOURCE_TARS <<'EOF' \
-        || box_finish "INPUTS_FAILED rc=$BOX_RC (staging.log)" 1
-import sys, tarfile
-from huggingface_hub import hf_hub_download
-repo = "momom2/wesnoth-model-checkpoints"
-with tarfile.open(hf_hub_download(repo, sys.argv[1]), "r") as tf:
-    tf.extractall(".")
-    print("raw replays", sum(1 for name in tf.getnames() if name.endswith(".bz2")), flush=True)
-for path in sys.argv[3:]:
-    with tarfile.open(hf_hub_download(repo, path), "r:gz") as tf:
-        tf.extractall(sys.argv[2])
-        print(path, sum(1 for name in tf.getnames() if name.endswith(".game.jsonl.gz")), "game records", flush=True)
-EOF
-    box_mark "$BOX_STATE/INPUTS_DONE_r$ROUND"
+    inputs_games "$OWN_GAMES" $SOURCE_TARS
 fi
 
 # ---- the generation match: the player's new trajectories, a source of this round
@@ -485,53 +478,31 @@ if [ -n "$GEN_MATCH" ]; then
     GEN_DIRS=("$OUT/games_$M_NAME")
 fi
 
-# ---- the corpus at version 5; the crash barrier: every candidate accounted for, under 1% failed
-if [ "$NEED_CORPUS" = 1 ] && ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE"; then
-    rm -rf "$CORPUS" "${CORPUS}_duplicates"
-    from=$(box_size "$OUT/corpus_build.log")
-    box_bounded --stall "$OUT/corpus_build.log" "$BUILD_STALL_MIN" corpus "$BUILD_CUT_MIN" corpus_build.log \
-        python tools/build_imitation_dataset.py --raw-root . --out "$CORPUS" --workers "$WORKERS"
-    tail -c "+$(( from + 1 ))" "$OUT/corpus_build.log" | grep -q "BUILD_DONE" \
-        || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (corpus_build.log)" 1
-    box_bounded corpus-check 10 corpus_build.log \
-        python tools/build_imitation_dataset.py --out "$CORPUS" --check "$OUT/corpus_summary.json" \
-        || box_finish "CORPUS_BARRIER rc=$BOX_RC (corpus_build.log, corpus_summary.json)" 1
-    box_mark "$BOX_STATE/CORPUS_DONE"
+# ---- the own sequences' key, and their restore from the input cache in the background
+if [ "$NEED_OWN" = 1 ]; then
+    inputs_own_begin "$OWN" "$TEACHER_PT" "$PLAYER_SHA256" "$PLAYER_SLOTS" "" "$OWN_GAMES"/games_* \
+        ${GEN_DIRS[@]+"${GEN_DIRS[@]}"}
 fi
 
-# ---- the sequences with the init's vocabularies; the crash barrier: under 0.5% of games skipped,
-# posterior errors under 0.1%
-if [ "$NEED_CORPUS" = 1 ] && ! box_marked_this_stage "$SEQ/SEQUENCES_DONE"; then
-    if ! box_marked_this_stage "$SEQ/STARTED"; then          # records another stage's code built
-        rm -rf "$SEQ"
-        box_mark "$SEQ/STARTED" || box_finish "SEQUENCES_UNWRITABLE ($SEQ)" 1
-    fi
-    from=$(box_size "$OUT/preencode.log")
-    box_bounded --stall "$OUT/preencode.log" "$PREENCODE_STALL_MIN" preencode "$PREENCODE_CUT_MIN" preencode.log \
-        python tools/preencode_sequences.py --dataset "$CORPUS" --out "$SEQ" --workers "$WORKERS" \
-        --vocab-from "$INIT_PT"
-    tail -c "+$(( from + 1 ))" "$OUT/preencode.log" | grep -q "SEQUENCES_DONE" \
-        || box_finish "PREENCODE_${BOX_WHY^^} rc=$BOX_RC (preencode.log)" 1
-    box_bounded preencode-check 10 preencode.log python - "$SEQ" "$OUT/sequence_summary.json" <<'EOF' \
-        || box_finish "PREENCODE_BARRIER rc=$BOX_RC (preencode.log, sequence_summary.json)" 1
-import json, pathlib, sys
-from tools.preencode_sequences import load_manifest
-man = load_manifest(pathlib.Path(sys.argv[1]))
-t = man["totals"]
-summary = {"manifest_games": man["n_manifest_games"], "games": man["n_games"], "errors": len(man["errors"]),
-           "fingerprint": man["fingerprint"], "core_phase": man["core_phase"],
-           "corpus_version": man["corpus_version"], **t}
-pathlib.Path(sys.argv[2]).write_text(json.dumps(summary, indent=1), encoding="utf-8")
-print("sequences", summary, flush=True)
-assert man["n_games"] + len(man["errors"]) == man["n_manifest_games"], "games unaccounted for"
-assert len(man["errors"]) < 0.005 * man["n_manifest_games"], "0.5% or more of the games skipped"
-assert t.get("posterior_errors", 0) < 0.001 * max(1, t.get("posteriors", 0)), "posterior errors at 0.1% or more"
-EOF
-    box_mark "$SEQ/SEQUENCES_DONE"
+# ---- the corpus at version 5 and its sequences with the init's vocabularies, through the input
+# cache (scripts/box_inputs.sh): the corpus restored when an entry holds its key, else rebuilt from
+# RAW_TAR's replays and sent, and its crash barrier (every candidate accounted for, under 1% failed);
+# the sequences pre-encoded, and theirs (under 0.5% of games skipped, posterior errors under 0.1%)
+if [ "$NEED_CORPUS" = 1 ]; then
+    inputs_corpus "$CORPUS" "$RAW_TAR"
+    inputs_sequences "$SEQ" "$CORPUS" "$INIT_PT"
+fi
+
+# ---- the own sequences restored, when an entry held their key: the candidates and the targets are
+# not built again, and the targets' barriers below read the restored records
+OWN_RESTORED=0
+if [ "$NEED_OWN" = 1 ]; then
+    inputs_own_end
+    [ "$INPUTS_OUTCOME" != restored ] || OWN_RESTORED=1
 fi
 
 # ---- the own candidates; the crash barrier: every own game accounted for, under 2% of them dropped
-if [ "$NEED_OWN" = 1 ] && ! box_marked_this_stage "$CAND/CANDIDATES_DONE"; then
+if [ "$NEED_OWN" = 1 ] && [ "$OWN_RESTORED" = 0 ] && ! box_marked_this_stage "$CAND/CANDIDATES_DONE"; then
     if ! box_marked_this_stage "$CAND/STARTED"; then
         rm -rf "$CAND"
         box_mark "$CAND/STARTED" || box_finish "CANDIDATES_UNWRITABLE ($CAND)" 1
@@ -563,16 +534,18 @@ fi
 # ---- the teacher's targets; the crash barriers: under 5% of the own game-sides dropped, the
 # training game-sides hold their half of the pass, and the replay reproduces 95% of the late decisions
 if [ "$NEED_OWN" = 1 ] && ! box_marked_this_stage "$OWN/OWN_DONE"; then
-    if ! box_marked_this_stage "$OWN/STARTED"; then
-        rm -rf "$OWN"
-        box_mark "$OWN/STARTED" || box_finish "OWN_UNWRITABLE ($OWN)" 1
+    if [ "$OWN_RESTORED" = 0 ]; then
+        if ! box_marked_this_stage "$OWN/STARTED"; then
+            rm -rf "$OWN"
+            box_mark "$OWN/STARTED" || box_finish "OWN_UNWRITABLE ($OWN)" 1
+        fi
+        box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the targets: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
+        from=$(box_size "$OUT/targets.log")
+        box_bounded --stall "$OUT/targets.log" "$TARGETS_STALL_MIN" targets "$TARGETS_CUT_MIN" targets.log \
+            python tools/own_targets.py --candidates "$CAND" --teacher "$TEACHER_PT" --out "$OWN" --device cuda
+        tail -c "+$(( from + 1 ))" "$OUT/targets.log" | grep -q "OWN_TARGETS_DONE" \
+            || box_finish "TARGETS_${BOX_WHY^^} rc=$BOX_RC (targets.log)" 1
     fi
-    box_gpu_ok || box_finish "GPU_UNRESPONSIVE before the targets: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-    from=$(box_size "$OUT/targets.log")
-    box_bounded --stall "$OUT/targets.log" "$TARGETS_STALL_MIN" targets "$TARGETS_CUT_MIN" targets.log \
-        python tools/own_targets.py --candidates "$CAND" --teacher "$TEACHER_PT" --out "$OWN" --device cuda
-    tail -c "+$(( from + 1 ))" "$OUT/targets.log" | grep -q "OWN_TARGETS_DONE" \
-        || box_finish "TARGETS_${BOX_WHY^^} rc=$BOX_RC (targets.log)" 1
     box_bounded targets-check 10 targets.log python - "$OWN" "$OUT/own_sequence_summary.json" "$PASS_POSITIONS" <<'EOF' \
         || box_finish "TARGETS_BARRIER rc=$BOX_RC (targets.log, own_sequence_summary.json)" 1
 import json, pathlib, sys
@@ -609,6 +582,10 @@ EOF
         box_finish "OWN_MANIFEST_COPY_FAILED" 1
     fi
     box_mark "$OWN/OWN_DONE"
+    if [ "$OWN_RESTORED" = 0 ]; then         # sent to the input cache with their columns, for the next box
+        inputs_columns "$OWN"
+        inputs_send own "$OWN"
+    fi
     box_upload_async
 fi
 

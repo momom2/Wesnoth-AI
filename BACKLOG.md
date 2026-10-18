@@ -154,6 +154,17 @@ $1.47 in all):
     default, the calibration arm.
 - Left on speed, small: the move-then-attack candidates' view (about 16% of
   candidates), the clamp and fp32 adds in the inference trunk.
+- **Box inputs are cached on the model host** (0.27.0, `feature/box-input-cache`).
+  - `scripts/box_inputs.sh` restores the corpus, the own sequences and,
+    with `CACHE_SEQUENCES=1`, the corpus's sequences from
+    `tier-b/input_cache/`. Each restore is checked against its key. On a miss
+    the input is built and stored.
+  - It is on by default in the trainer, memory-own, anneal and parity-memory
+    box scripts; `INPUT_CACHE=0` builds everything.
+  - Not yet used on a box.
+  - A key rests on version numbers (the corpus and rules versions,
+    `KIND_VERSION`), not on a hash of the builder's code. A builder change
+    that bumps none of them would restore a stale input.
 - **The self-play training plan** (the critical path):
   docs/selfplay_pg_design_20261015.md, revised after an independent review
   that found the first draft's measurement and pilot could not decide.
