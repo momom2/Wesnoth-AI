@@ -47,15 +47,17 @@
 #
 # One code stage, STAGE (tools/stage_code.py --script scripts/optimizer_bench_box.sh).
 # The trainer's inputs come from scripts/trainer_inputs.sh (own1 for the
-# vocabularies, the corpus at version 5 and its sequences, the columns; the
-# own sequences it also brings up are not read here).
+# vocabularies, the corpus at version 5 from the input cache and its
+# sequences, the columns; the own sequences it also brings up are not read
+# here).
 #
 # Expected wall on a 4090, from configuration B's measured 1,477 positions a
 # second: a pass's 1,000,448 positions 11.3 minutes, the compile about 1.5,
 # its two probes about 6.2 (185 s each at 0 and 64 slots, the acceptance's),
 # the start 1: about 20 minutes an arm, SOAP's about 22 (its projections and
 # its refresh every 10 steps, estimated at 13% of a step: no measurement
-# yet). Bring-up and tests 15 minutes, the inputs 10, the 16 arms 5 hours 25
+# yet). Bring-up and tests 15 minutes, the inputs 5 to 8 (the corpus and the
+# own sequences from the input cache), the 16 arms 5 hours 25
 # minutes, the two averages' probes 8 minutes: about 6 hours, $2.50 at $0.42
 # an hour; each arm $0.14. A pass is cut at PASS_CUT_MIN (45: about twice
 # its estimate) or after PASS_STALL_MIN without a log line. BOX_MAX_H 8 caps
@@ -139,7 +141,8 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
         tests/test_optimizer_passes.py tests/test_optimizer_bench_box.py tests/test_sequence_train.py \
         tests/test_sequence_speed.py tests/test_sequence_columns.py tests/test_sequence_launches.py \
         tests/test_packed_trunk.py tests/test_trunk_modes.py tests/test_trunk_variants.py tests/test_rules_version.py \
-        tests/test_train_every.py tests/test_memory_plan.py -q -p no:cacheprovider -m ""
+        tests/test_train_every.py tests/test_memory_plan.py tests/test_input_cache.py \
+        -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
     : > "$OUT/cuda_tests.log"
