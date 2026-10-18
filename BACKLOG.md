@@ -120,24 +120,14 @@ $1.47 in all):
   --window-batched --compiled-trunk --activation-budget-gb auto`. The stream
   sweep: 32 streams 1,402, 64 streams 1,185, 128 out of memory.
 
-**Pending on speed (2026-10-14, user: remember in the backlog):**
-- Merge four branches into main, with the user's approval (merges into main
-  are the user's): `feature/generation-speed-3` and `-4`,
-  `feature/trainer-speed-3` and `-4`. CI is green on each tip, and anything
-  that changes the numbers is behind a flag that defaults off.
-- Generation is device-bound: eager inference runs at about 26 TFLOP/s
-  against the trainer's 124. Next arm: the server's compiled packed trunk
-  for inference. It changes rounding, so it is for self-play generation
-  only; eval matches keep the eager server.
-- Calibrate configuration B's activation budget with the compiled block, to
-  reach its full rate (about 1,550 positions a second) without running out
-  of memory. 19.18 GiB ran out; 8 GiB ran at 794.
-- The record walk in Rust: a label builder in the core and an in-place
-  encode, worth about 40-50% of pre-encoding. Also the own-trajectory
-  step's Rust masks (one flag).
-- A source hash in the Rust wheel, checked by kernel_status: a phase
-  number cannot see an API change made within a phase.
-- **Done 2026-10-15, branches awaiting the merge:**
+**Speed (the list of 2026-10-14, all landed by 0.26.0):**
+- Generation rounds 3 and 4 merged as 0.22.0, trainer rounds 3 and 4 as
+  0.23.0.
+- The rest of the list landed with the three branches below, merged
+  2026-10-15 as 0.24.0 to 0.26.0: the compiled inference trunk (generation
+  only, never eval), configuration B's measured activation budget, the record
+  walk in Rust and the wheel's source hash.
+- **The three branches:**
   - `feature/generation-speed-5` (ae6cdc6). Measured in
     `training/metrics/generation_speed_r5_20261015/`; bases within 3.5%, on a
     faster box than round 4's.

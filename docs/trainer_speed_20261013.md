@@ -421,6 +421,27 @@ interleaved timing of ref, the candidates that passed, and ref2: 5 warm-up
 windows, 40 rounds, 3 profiled windows per arm. Expected about 40 minutes,
 $0.30 at $0.42 an hour.
 
+Measured 2026-10-14 on one 4090 (records
+`training/metrics/trainer_speed_3_20261015/`, stage
+`stage_20261014_trainer_speed5`). Every arm ran out of memory after 18 or 19
+of its 40 rounds under round 1's fixed 19.18 GiB budget, so the comparison
+holds 18 rounds. The A/A pair agrees (ref2 against ref 1.001, 95% interval
+0.992-1.004), and all five candidates passed the gradient check. Speedups over
+ref (838 positions a second), each the median of the per-round ratios:
+
+| arm | speedup | 95% interval |
+|---|---|---|
+| bf16 | 1.061 | 1.059-1.065 |
+| relu | 1.017 | 1.005-1.022 |
+| compiled | 1.060 | 1.048-1.065 |
+| bf16 + relu | 1.085 | 1.079-1.088 |
+| bf16 + compiled | 1.107 | 1.105-1.111 |
+
+Two CUDA tests failed on that box, both
+`test_trunk_modes_cuda.py::test_a_variant_runs_near_the_autocast_trunk_on_cuda`
+on the bf16 residual (`cuda_tests.log`). Round 4's measured budget removes the
+out-of-memory stop ("The activation budget under the compiled block").
+
 ### The training acceptance (scripts/trainer_acceptance_box.sh)
 
 Three passes from own1 under round 2's preset, the same seed, each

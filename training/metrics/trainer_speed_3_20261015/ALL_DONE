@@ -1,0 +1,1 @@
+2026-10-14T11:46:54Z TRAINER_SPEED_DONE {"valid": true, "rates": {"ref": 838.45, "bf16": 883.85, "relu": 832.81, "compiled": 885.0, "bf16_relu": 890.86, "bf16_compiled": 891.16, "ref2": 814.41}, "speedup_median": {"bf16": 1.061, "relu": 1.0168, "compiled": 1.0603, "bf16_relu": 1.0851, "bf16_compiled": 1.1072, "ref2": 1.0009}}; cuda tests: 2 failed 19 passed ; left out: none
