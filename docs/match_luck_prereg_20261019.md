@@ -110,8 +110,9 @@ fight, an advancement and a plague kill (tests/test_match_luck.py).
 23 matches recorded whole, 2026-10-08 to 2026-10-12, every one played at
 argmax on both sides: raw temperature 0 with one end_turn offset or
 another, or the look-ahead player, which requires raw temperature 0. Every
-game is on the 21-map Ladder pool with fog, both factions drawn uniformly. The tarballs are on HF, pinned by
-SHA-256 in the box script (read from HF 2026-10-19, 123 MB):
+game is on the 21-map Ladder pool with fog, both factions drawn uniformly.
+The tarballs are on HF, pinned by SHA-256 in the box script (read from HF
+2026-10-19, 123 MB):
 
 | HF folder (tier-b/) | matches | decisive games |
 |---|---|---|

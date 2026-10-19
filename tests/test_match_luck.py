@@ -49,8 +49,8 @@ def _duel(defender_hp: int, attacker_one_xp_short: bool = False,
     except RuntimeError as e:                        # no current wheel: the suite's banner says so
         pytest.skip(str(e))
     core = cs.core
-    att = next(u for u in core.units_export() if u["side"] == 1)
-    dfd = next(u for u in core.units_export() if u["side"] == 2)
+    att = next(u for u in core.units_export() if (u["x"], u["y"]) == (0, 0))
+    dfd = next(u for u in core.units_export() if (u["x"], u["y"]) == (1, 0))
     core.update_unit(dfd["id"], {"current_hp": defender_hp})
     if attacker_one_xp_short:
         core.update_unit(att["id"], {"current_exp": att["max_exp"] - 1})
