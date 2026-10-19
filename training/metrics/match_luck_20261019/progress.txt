@@ -1,0 +1,5 @@
+Mon Oct 19 12:08:39 UTC 2026
+rows=19466 errors=0 readout=yes
+2026-10-19 12:08:14,129 INFO match_luck: own1_eo25_vs_own1: 800 games, 800 with records, 800 to walk
+2026-10-19 12:08:21,695 INFO match_luck: own1_eo25_vs_own1: walked
+2026-10-19 12:08:22,959 INFO match_luck: 800 rows written to /workspace/matchluck/rows.jsonl

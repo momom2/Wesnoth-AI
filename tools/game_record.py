@@ -28,6 +28,7 @@ rebuild the game.
     GameRecordLog(path).write(rec)                        # one gzip member
     for rec in read_records(path): ...
     for k, gs, cmd in walk(rec): ...                      # a view of the state before each command
+    for k, cs, cmd in walk_core(rec): ...                 # the live core before each command
     gs = rebuild(rec)                                     # a view of the final state
 
 A log is a sequence of gzip members, one record each, so a log grows as
@@ -452,6 +453,15 @@ def walk(rec: Dict[str, Any], *, verify: bool = True) -> Iterator[Tuple[int, Any
         gs = snapshot.to_state()
         bind_view(gs, snapshot)
         yield k, gs, cmd
+
+
+def walk_core(rec: Dict[str, Any], *, verify: bool = True) -> Iterator[Tuple[int, Any, list]]:
+    """`walk` on the live core, without a snapshot per command: (index,
+    the `game_core.CoreState` before the command, command). The core
+    takes the command when the generator resumes, so the caller reads or
+    forks it before then and never changes it. With `verify`, see
+    `walk`."""
+    yield from _walk_core(rec, verify)
 
 
 def rebuild(rec: Dict[str, Any], *, verify: bool = True):

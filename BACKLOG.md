@@ -175,8 +175,16 @@ $1.47 in all):
   - R0 (about $2-3 after about a week of build) measures the gradient's
     signal against a sign-flip null and prices a resolved gain.
   - The records predict a million games or more, beyond today's budget.
-  - Waiting on the luck share in argmax matches (`exp/match-luck`) and on
-    the user's decision.
+  - **The luck share measured 2026-10-19** (0.29.0,
+    docs/match_luck_prereg_20261019.md "Measured", about $0.03): over 23
+    argmax matches (18,800 decisive games), the design's correction leaves
+    0.940 (0.928 to 0.957) of a match result's variance, against a
+    predicted 0.85. As written, the reading is Negligible.
+    - All seven luck columns together leave 0.848, which would read Small.
+      The pre-registration does not say which of the two decides once the
+      control-variate clause fires.
+    - The luck pass's place in R0 waits on the design discussion with the
+      user, as does the rest of the plan.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

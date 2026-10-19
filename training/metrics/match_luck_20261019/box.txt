@@ -1,0 +1,17 @@
+stage tier-b/staging/stage_20261019_luck.tar.gz
+instance 56723363, host 4c50db42ac7e
+cores(all) 64, usable 31
+model name	: AMD EPYC 7D12 32-Core Processor
+cpu.max n/a
+pids.max n/a
+               total        used        free      shared  buff/cache   available
+Mem:          257589      126008      109594          14       21985      129267
+overlay          20G  1.1G   19G   6% /
+NVIDIA GeForce RTX 3070, 8192 MiB, 595.71.05
+torch 2.5.1+cu124 cuda True
+code 0.28.3 epoch 11
+wheel phase 35, source phase 35
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 35 | source 35 | adapter 35 | current
+jobs 31
