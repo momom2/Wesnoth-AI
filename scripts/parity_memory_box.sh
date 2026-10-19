@@ -4,7 +4,8 @@
 # and predictions in docs/parity_memory_prereg_20260929.md), on one box:
 #   the tests of the core, the encoding, the pre-encoding, the sequence
 #     trainer and memory serving, on the wheel built from the stage;
-#   the corpus rebuilt at version 5 from the raw replays (RAW_TAR);
+#   the corpus at version 5, from the input cache or rebuilt from the raw
+#     replays (RAW_TAR) and sent to it (scripts/box_inputs.sh);
 #   the fresh vocabulary: 190 unit types, none on the overflow row;
 #   every decision of both sides pre-encoded, game by game
 #     (tools/preencode_sequences.py);
@@ -33,13 +34,14 @@
 # $HF_DIR every 30 minutes and at the end, each match's games as one
 # tarball. Re-entry, on this machine or a new one (files absent here come
 # back from HF), skips finished steps and continues the pass where its
-# checkpoint stood; a new machine rebuilds the corpus and the sequences,
-# which are deterministic. A run belongs to the code stage that began it
-# (RUN_STAGE, boxlib `box_bind_run_stage`): another stage continues it,
-# its finished steps kept, only with RESUME_OTHER_STAGE=1, and a stage that
-# changes the data or the pass takes a new HF_DIR. Every exit past that
-# check, clean or not, uploads the records with ALL_DONE last and stops the
-# instance; an entry refused there stops it and sends nothing.
+# checkpoint stood; a new machine restores or rebuilds the corpus and
+# rebuilds the sequences, which are deterministic. A run belongs to the
+# code stage that began it (RUN_STAGE, boxlib `box_bind_run_stage`):
+# another stage continues it, its finished steps kept, only with
+# RESUME_OTHER_STAGE=1, and a stage that changes the data or the pass takes
+# a new HF_DIR. Every exit past that check, clean or not, uploads the
+# records with ALL_DONE last and stops the instance; an entry refused there
+# stops it and sends nothing.
 # Never `set -x`: the HF token and the instance key are in the environment.
 # box-needs: disk_gb=120 ram_gb=64 gpu_ram_gb=24 cores=32 gpu=4090
 set -uo pipefail
@@ -151,39 +153,15 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
     box_mark "$BOX_STATE/TESTED"
 fi
 
-# ---- the reference and the raw replays
+# ---- the reference, then the corpus at version 5 through the input cache (scripts/box_inputs.sh):
+# restored when an entry holds its key, else rebuilt from RAW_TAR's replays and sent, and its crash
+# barrier. Once the pass is done it serves only obs8's holdout cross-entropy.
 box_bounded reference 15 staging.log python tools/reference_player.py --ensure \
     || box_finish "REFERENCE_MISSING rc=$BOX_RC (staging.log)" 1
-if ! box_marked_this_stage "$BOX_STATE/INPUTS_DONE"; then
-    box_bounded inputs 20 staging.log python - "$RAW_TAR" <<'EOF' \
-        || box_finish "INPUTS_FAILED rc=$BOX_RC (staging.log)" 1
-import sys, tarfile
-from huggingface_hub import hf_hub_download
-path = hf_hub_download("momom2/wesnoth-model-checkpoints", sys.argv[1])
-with tarfile.open(path, "r") as tf:
-    tf.extractall(".")
-    n = sum(1 for name in tf.getnames() if name.endswith(".bz2"))
-print("raw replays", n, flush=True)
-EOF
-    box_mark "$BOX_STATE/INPUTS_DONE"
-fi
-
-# ---- the corpus at version 5; the crash barrier: every candidate accounted for, under 1% failed.
-# Once the pass is done it serves only obs8's holdout cross-entropy. The
-# raw replays and the corpus live in the staged repository, which a new
-# stage replaces, so both markers name their stage.
-if ! box_marked_this_stage "$BOX_STATE/CORPUS_DONE" \
-        && { [ ! -f "$OUT/DONE" ] || [ ! -f "$OUT/obs8_holdout_ce.json" ]; }; then
-    rm -rf "$CORPUS" "${CORPUS}_duplicates"
-    from=$(box_size "$OUT/corpus_build.log")
-    box_bounded --stall "$OUT/corpus_build.log" "$BUILD_STALL_MIN" corpus "$BUILD_CUT_MIN" corpus_build.log \
-        python tools/build_imitation_dataset.py --raw-root . --out "$CORPUS" --workers "$WORKERS"
-    tail -c "+$(( from + 1 ))" "$OUT/corpus_build.log" | grep -q "BUILD_DONE" \
-        || box_finish "CORPUS_${BOX_WHY^^} rc=$BOX_RC (corpus_build.log)" 1
-    box_bounded corpus-check 10 corpus_build.log \
-        python tools/build_imitation_dataset.py --out "$CORPUS" --check "$OUT/corpus_summary.json" \
-        || box_finish "CORPUS_BARRIER rc=$BOX_RC (corpus_build.log, corpus_summary.json)" 1
-    box_mark "$BOX_STATE/CORPUS_DONE"
+# shellcheck source=box_inputs.sh
+. "$BOX_REPO/scripts/box_inputs.sh" || box_finish "CODE_STAGING_FAILED (no scripts/box_inputs.sh)" 1
+if [ ! -f "$OUT/DONE" ] || [ ! -f "$OUT/obs8_holdout_ce.json" ]; then
+    inputs_corpus "$CORPUS" "$RAW_TAR"
 fi
 
 # ---- the fresh vocabulary: 190 unit types, the 47 variations on their base type's rows
@@ -196,38 +174,13 @@ assert names_on_overflow_row(types) == []
 print("fresh vocab:", len(types), "names,", len(set(types.values())), "rows,", len(factions), "factions", flush=True)
 EOF
 
-# ---- the sequences; the crash barrier: under 0.5% of games skipped, posterior errors under 0.1%
-if ! box_marked_this_stage "$SEQ/SEQUENCES_DONE" && [ ! -f "$OUT/DONE" ]; then
-    if ! box_marked_this_stage "$SEQ/STARTED"; then          # records another stage's code built
-        rm -rf "$SEQ"
-        box_mark "$SEQ/STARTED" || box_finish "SEQUENCES_UNWRITABLE ($SEQ)" 1
-    fi
-    from=$(box_size "$OUT/preencode.log")
-    box_bounded --stall "$OUT/preencode.log" "$PREENCODE_STALL_MIN" preencode "$PREENCODE_CUT_MIN" preencode.log \
-        python tools/preencode_sequences.py --dataset "$CORPUS" --out "$SEQ" --workers "$WORKERS"
-    tail -n 3 "$OUT/preencode.log"
-    tail -c "+$(( from + 1 ))" "$OUT/preencode.log" | grep -q "SEQUENCES_DONE" \
-        || box_finish "PREENCODE_${BOX_WHY^^} rc=$BOX_RC (preencode.log)" 1
-    box_bounded preencode-check 10 preencode.log python - "$SEQ" "$OUT/sequence_summary.json" <<'EOF' \
-        || box_finish "PREENCODE_BARRIER rc=$BOX_RC (preencode.log, sequence_summary.json)" 1
-import json, pathlib, sys
-from tools.preencode_sequences import load_manifest
-man = load_manifest(pathlib.Path(sys.argv[1]))
-t = man["totals"]
-summary = {"manifest_games": man["n_manifest_games"], "games": man["n_games"], "errors": len(man["errors"]),
-           "fingerprint": man["fingerprint"], "core_phase": man["core_phase"],
-           "corpus_version": man["corpus_version"], **t}
-pathlib.Path(sys.argv[2]).write_text(json.dumps(summary, indent=1), encoding="utf-8")
-print("sequences", summary, flush=True)
-assert man["n_games"] + len(man["errors"]) == man["n_manifest_games"], "games unaccounted for"
-assert len(man["errors"]) < 0.005 * man["n_manifest_games"], "0.5% or more of the games skipped"
-assert t.get("posterior_errors", 0) < 0.001 * max(1, t.get("posteriors", 0)), "posterior errors at 0.1% or more"
-EOF
+# ---- the sequences and their crash barrier (scripts/box_inputs.sh)
+if [ ! -f "$OUT/DONE" ]; then
+    inputs_sequences "$SEQ" "$CORPUS" fresh
     if ! { cp -f "$SEQ/sequence_manifest.json" "$OUT/sequence_manifest.json.tmp" \
             && mv -f "$OUT/sequence_manifest.json.tmp" "$OUT/sequence_manifest.json"; }; then
         box_finish "SEQUENCE_MANIFEST_COPY_FAILED" 1
     fi
-    box_mark "$SEQ/SEQUENCES_DONE"
 fi
 
 # ---- the pass; exit 3 is the memory's crash barrier failing (the checkpoint keeps it, so a

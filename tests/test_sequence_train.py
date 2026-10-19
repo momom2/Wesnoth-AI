@@ -409,10 +409,10 @@ def test_a_crash_while_keeping_the_stable_checkpoint_is_repaired_on_resume(tmp_p
              "--checkpoint-every", "1"]
     real = sequence_train.save_checkpoint
 
-    def killed_on_the_stable_file(path, *rest):
+    def killed_on_the_stable_file(path, *rest, **options):
         if str(path).endswith(".stable.pt"):
             raise OSError("the disk went away")
-        return real(path, *rest)
+        return real(path, *rest, **options)
 
     monkeypatch.setattr(sequence_train, "save_checkpoint", killed_on_the_stable_file)
     with pytest.raises(OSError):

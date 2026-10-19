@@ -128,6 +128,42 @@ What `rent_box.py create` sets going, for a script on the library:
 A script that does not source the library gets the older onstart: the
 script is fetched from `tier-b/staging/` and run.
 
+### The input cache
+
+The training scripts bring up their inputs through `scripts/box_inputs.sh`
+(`scripts/trainer_inputs.sh` for the trainer benches). Each input is an
+entry under `tier-b/input_cache/<kind>/<key>/` on the model host, keyed by
+what makes it valid (`tools/input_cache_kinds.py`): a box restores the
+entry its key names, else builds the input and sends it in the background,
+so the next box restores it.
+
+| kind | what it holds | its key | size |
+|---|---|---|---|
+| `corpus` | the built corpus | the raw tarball's SHA-256 (it holds the dispositions ledger), the corpus version, the rules version, the selection knobs of `configs/imitation.json` | about 60 MB |
+| `own` | the own sequences, records and columns | the own encoding's fingerprint, the teacher's and player's SHA-256, the memory size, the targets' top and offset, the own holdout share, every source game's SHA-256 | 6.0 GB for round 2's 1.1 million positions |
+| `sequences` | the corpus's sequences, records and columns | the corpus's key, the encoding's fingerprint (vocabularies, switches, observation epoch, corpus version, rules version) | about 18 GB; off unless `CACHE_SEQUENCES=1` |
+
+Both sequence kinds hold the pickled records beside the columns: the trainer
+trains from the columns, but its probe and the agreement barrier read the
+pickles. The corpus's sequences stay out by default: at the 33-43 MB/s the
+boxes fetched the own sequences at, restoring 18 GB takes as long as
+building them (270-460 s). `INPUT_CACHE=0` builds every input and touches
+no entry.
+
+A restore checks the archive's SHA-256 and size, its files against the
+entry's manifest, and the files against the key (a corpus of the key's
+version, records of the key's fingerprint, teacher and sources, columns for
+every record) before the directory takes their place; a mismatch is refused
+(`CACHE_REFUSED` in `cache.txt`), the input is built again and its entry
+replaced. Nothing deletes from the host: a send prints the entries of its
+kind it supersedes (`CACHE_SUPERSEDED`), and
+
+    python tools/input_cache.py list
+
+names every entry, for the lead to delete what nothing uses. `cache.txt`
+in the run's records holds every outcome and each sequence directory's
+size.
+
 ## Renting
 
 - `rent_box.py search` leaves out VM hosts (they never deliver the ssh

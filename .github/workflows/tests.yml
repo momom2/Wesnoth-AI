@@ -65,11 +65,13 @@ jobs:
         # the code imports (requirements.txt names torch-directml, which
         # is Windows-only). requests is the box stop helper's transport and
         # raises the SDK errors the rent_box leak tests replay. ruff is
-        # pinned to the version the laptop runs.
+        # pinned to the version the laptop runs; schedulefree to the version
+        # the trainer's schedule-free AdamW was written against.
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install numpy scipy psutil pyyaml huggingface_hub requests pytest ruff==0.15.17
+          python -m pip install numpy scipy psutil pyyaml huggingface_hub requests pytest ruff==0.15.17 \
+              schedulefree==1.4.1
 
       - name: Build the Rust wheel from this commit
         # rustup and cargo ship with the runner image.

@@ -1,0 +1,338 @@
+{
+ "pass": true,
+ "reference": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched",
+ "min_cosine": 0.99,
+ "max_loss_rel": 0.005,
+ "candidates": [
+  {
+   "candidate": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --trunk-bf16",
+   "pass": true,
+   "windows": [
+    {
+     "i": 0,
+     "loss_reference": 2.5025882720947266,
+     "loss_candidate": 2.502352237701416,
+     "loss_rel": 9.4e-05,
+     "cosine": {
+      "actor_head": 0.99986,
+      "belief_head": 0.999995,
+      "encoder": 0.997682,
+      "memory_initial": 0.995426,
+      "memory_slots": 0.994905,
+      "memory_write": 0.993877,
+      "target_proj": 0.999653,
+      "trunk": 0.994571,
+      "type_head": 0.999983,
+      "value_head": 0.999958,
+      "weapon_head": 0.999867
+     },
+     "pass": true
+    },
+    {
+     "i": 1,
+     "loss_reference": 2.869920253753662,
+     "loss_candidate": 2.8690507411956787,
+     "loss_rel": 0.000303,
+     "cosine": {
+      "actor_head": 0.999811,
+      "belief_head": 0.999214,
+      "encoder": 0.998853,
+      "memory_initial": 0.990161,
+      "memory_slots": 0.995572,
+      "memory_write": 0.993701,
+      "target_proj": 0.999135,
+      "trunk": 0.995184,
+      "type_head": 0.998678,
+      "value_head": 0.999944,
+      "weapon_head": 0.999954
+     },
+     "pass": true
+    },
+    {
+     "i": 2,
+     "loss_reference": 2.218046188354492,
+     "loss_candidate": 2.217527389526367,
+     "loss_rel": 0.000234,
+     "cosine": {
+      "actor_head": 0.999678,
+      "belief_head": 0.999977,
+      "encoder": 0.998473,
+      "memory_initial": 0.998684,
+      "memory_slots": 0.999044,
+      "memory_write": 0.998444,
+      "target_proj": 0.999022,
+      "trunk": 0.995252,
+      "type_head": 0.999952,
+      "value_head": 0.999786,
+      "weapon_head": 0.99979
+     },
+     "pass": true
+    }
+   ]
+  },
+  {
+   "candidate": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --fused-relu",
+   "pass": true,
+   "windows": [
+    {
+     "i": 0,
+     "loss_reference": 2.5025882720947266,
+     "loss_candidate": 2.5025882720947266,
+     "loss_rel": 0.0,
+     "cosine": {
+      "actor_head": 1.0,
+      "belief_head": 1.0,
+      "encoder": 0.999999,
+      "memory_initial": 0.999998,
+      "memory_slots": 0.999999,
+      "memory_write": 0.999999,
+      "target_proj": 1.0,
+      "trunk": 0.999998,
+      "type_head": 1.0,
+      "value_head": 1.0,
+      "weapon_head": 1.0
+     },
+     "pass": true
+    },
+    {
+     "i": 1,
+     "loss_reference": 2.869920253753662,
+     "loss_candidate": 2.869920253753662,
+     "loss_rel": 0.0,
+     "cosine": {
+      "actor_head": 1.0,
+      "belief_head": 1.0,
+      "encoder": 0.999998,
+      "memory_initial": 1.0,
+      "memory_slots": 0.999999,
+      "memory_write": 0.999999,
+      "target_proj": 1.0,
+      "trunk": 0.999995,
+      "type_head": 1.0,
+      "value_head": 1.0,
+      "weapon_head": 1.0
+     },
+     "pass": true
+    },
+    {
+     "i": 2,
+     "loss_reference": 2.218046188354492,
+     "loss_candidate": 2.218046188354492,
+     "loss_rel": 0.0,
+     "cosine": {
+      "actor_head": 1.0,
+      "belief_head": 1.0,
+      "encoder": 0.999995,
+      "memory_initial": 0.999999,
+      "memory_slots": 0.999998,
+      "memory_write": 0.999998,
+      "target_proj": 1.0,
+      "trunk": 0.999992,
+      "type_head": 1.0,
+      "value_head": 1.0,
+      "weapon_head": 1.0
+     },
+     "pass": true
+    }
+   ]
+  },
+  {
+   "candidate": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --compiled-trunk",
+   "pass": true,
+   "windows": [
+    {
+     "i": 0,
+     "loss_reference": 2.5025882720947266,
+     "loss_candidate": 2.5026745796203613,
+     "loss_rel": 3.4e-05,
+     "cosine": {
+      "actor_head": 0.999939,
+      "belief_head": 0.999998,
+      "encoder": 0.999221,
+      "memory_initial": 0.996639,
+      "memory_slots": 0.996527,
+      "memory_write": 0.996347,
+      "target_proj": 0.999785,
+      "trunk": 0.997298,
+      "type_head": 0.999997,
+      "value_head": 0.999992,
+      "weapon_head": 0.999377
+     },
+     "pass": true
+    },
+    {
+     "i": 1,
+     "loss_reference": 2.869920253753662,
+     "loss_candidate": 2.8700926303863525,
+     "loss_rel": 6e-05,
+     "cosine": {
+      "actor_head": 0.999962,
+      "belief_head": 0.997847,
+      "encoder": 0.999521,
+      "memory_initial": 0.994375,
+      "memory_slots": 0.99912,
+      "memory_write": 0.998447,
+      "target_proj": 0.999676,
+      "trunk": 0.997822,
+      "type_head": 0.999871,
+      "value_head": 0.999993,
+      "weapon_head": 0.999962
+     },
+     "pass": true
+    },
+    {
+     "i": 2,
+     "loss_reference": 2.218046188354492,
+     "loss_candidate": 2.2180707454681396,
+     "loss_rel": 1.1e-05,
+     "cosine": {
+      "actor_head": 0.999964,
+      "belief_head": 0.999986,
+      "encoder": 0.99915,
+      "memory_initial": 0.999319,
+      "memory_slots": 0.999513,
+      "memory_write": 0.999182,
+      "target_proj": 0.999777,
+      "trunk": 0.998012,
+      "type_head": 0.999982,
+      "value_head": 0.999984,
+      "weapon_head": 0.999992
+     },
+     "pass": true
+    }
+   ]
+  },
+  {
+   "candidate": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --trunk-bf16 --fused-relu",
+   "pass": true,
+   "windows": [
+    {
+     "i": 0,
+     "loss_reference": 2.5025882720947266,
+     "loss_candidate": 2.502352237701416,
+     "loss_rel": 9.4e-05,
+     "cosine": {
+      "actor_head": 0.99986,
+      "belief_head": 0.999995,
+      "encoder": 0.997682,
+      "memory_initial": 0.99543,
+      "memory_slots": 0.994904,
+      "memory_write": 0.993887,
+      "target_proj": 0.999653,
+      "trunk": 0.994569,
+      "type_head": 0.999983,
+      "value_head": 0.999958,
+      "weapon_head": 0.999867
+     },
+     "pass": true
+    },
+    {
+     "i": 1,
+     "loss_reference": 2.869920253753662,
+     "loss_candidate": 2.8690507411956787,
+     "loss_rel": 0.000303,
+     "cosine": {
+      "actor_head": 0.999811,
+      "belief_head": 0.999214,
+      "encoder": 0.99885,
+      "memory_initial": 0.990161,
+      "memory_slots": 0.995453,
+      "memory_write": 0.993633,
+      "target_proj": 0.999135,
+      "trunk": 0.995166,
+      "type_head": 0.998679,
+      "value_head": 0.999944,
+      "weapon_head": 0.999954
+     },
+     "pass": true
+    },
+    {
+     "i": 2,
+     "loss_reference": 2.218046188354492,
+     "loss_candidate": 2.217527389526367,
+     "loss_rel": 0.000234,
+     "cosine": {
+      "actor_head": 0.999678,
+      "belief_head": 0.999977,
+      "encoder": 0.998453,
+      "memory_initial": 0.998684,
+      "memory_slots": 0.999039,
+      "memory_write": 0.99845,
+      "target_proj": 0.999022,
+      "trunk": 0.995245,
+      "type_head": 0.999952,
+      "value_head": 0.999786,
+      "weapon_head": 0.99979
+     },
+     "pass": true
+    }
+   ]
+  },
+  {
+   "candidate": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --trunk-bf16 --compiled-trunk",
+   "pass": true,
+   "windows": [
+    {
+     "i": 0,
+     "loss_reference": 2.5025882720947266,
+     "loss_candidate": 2.5019936561584473,
+     "loss_rel": 0.000238,
+     "cosine": {
+      "actor_head": 0.999804,
+      "belief_head": 0.999994,
+      "encoder": 0.999082,
+      "memory_initial": 0.997463,
+      "memory_slots": 0.997398,
+      "memory_write": 0.996397,
+      "target_proj": 0.9997,
+      "trunk": 0.996105,
+      "type_head": 0.999987,
+      "value_head": 0.999975,
+      "weapon_head": 0.999872
+     },
+     "pass": true
+    },
+    {
+     "i": 1,
+     "loss_reference": 2.869920253753662,
+     "loss_candidate": 2.871265172958374,
+     "loss_rel": 0.000469,
+     "cosine": {
+      "actor_head": 0.999841,
+      "belief_head": 0.999933,
+      "encoder": 0.998887,
+      "memory_initial": 0.992726,
+      "memory_slots": 0.997487,
+      "memory_write": 0.995235,
+      "target_proj": 0.999171,
+      "trunk": 0.995696,
+      "type_head": 0.998729,
+      "value_head": 0.999964,
+      "weapon_head": 0.999948
+     },
+     "pass": true
+    },
+    {
+     "i": 2,
+     "loss_reference": 2.218046188354492,
+     "loss_candidate": 2.218811511993408,
+     "loss_rel": 0.000345,
+     "cosine": {
+      "actor_head": 0.999809,
+      "belief_head": 0.999991,
+      "encoder": 0.998921,
+      "memory_initial": 0.998746,
+      "memory_slots": 0.999376,
+      "memory_write": 0.999114,
+      "target_proj": 0.999261,
+      "trunk": 0.996484,
+      "type_head": 0.999957,
+      "value_head": 0.999866,
+      "weapon_head": 0.999924
+     },
+     "pass": true
+    }
+   ]
+  }
+ ]
+}

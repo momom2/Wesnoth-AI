@@ -1,5 +1,11 @@
 """Where a sequence trainer's pass starts (tools/sequence_train.py): its own
-checkpoint (`--resume`) or another pass's (`--init-from`)."""
+checkpoint (`--resume`) or another pass's (`--init-from`).
+
+A resume continues on its pass's optimizer and weight average, their states
+restored exactly. A new pass takes the optimizer state of a checkpoint its
+own optimizer wrote, and starts the state of another optimizer afresh from
+the checkpoint's weights (which, for schedule-free AdamW, are its average);
+its weight average starts from the weights it starts from."""
 from __future__ import annotations
 
 import json
@@ -18,8 +24,8 @@ log = logging.getLogger("sequence_train")
 # What a resume must share with the pass it continues, and the value a key
 # holds in a checkpoint written before it was recorded.
 RESUME_KEYS = ("seed", "streams", "window", "fingerprint", "arch", "decay_from", "pass_positions",
-               "anneal_rule", "own", "trunk", "trunk_mode")
-RECORDED_LATER = {"trunk": "padded", "trunk_mode": "none"}
+               "anneal_rule", "own", "trunk", "trunk_mode", "optimizer", "weight_ema")
+RECORDED_LATER = {"trunk": "padded", "trunk_mode": "none", "optimizer": {"name": "adamw"}, "weight_ema": None}
 
 
 class TrainerCheckpoints:
@@ -40,6 +46,9 @@ class TrainerCheckpoints:
         self.model.load_state_dict(ck["model_state"])
         self.encoder.load_state_dict(ck["encoder_state"])
         self.opt.load_state_dict(ck["optimizer_state"])
+        if self.ema is not None:
+            self.ema.load_module_states({"model": ck["ema_model_state"], "encoder": ck["ema_encoder_state"]},
+                                        ck["ema_updates"])
         self.signal = self._signal_probe()
         saved = ck["sequence_resume"]
         self.state.update(saved["state"])
@@ -75,7 +84,13 @@ class TrainerCheckpoints:
             raise SystemExit(f"{path} failed its memory barrier: no pass starts from it")
         self.model.load_state_dict(ck["model_state"])
         self.encoder.load_state_dict(ck["encoder_state"])
-        self.opt.load_state_dict(ck["optimizer_state"])
+        theirs = meta.get("optimizer", RECORDED_LATER["optimizer"])
+        if theirs == self.meta["optimizer"]:
+            self.opt.load_state_dict(ck["optimizer_state"])
+        else:
+            log.info("%s's optimizer state is %s's: %s starts afresh", path, theirs, self.meta["optimizer"])
+        if self.ema is not None:
+            self.ema.reset()
         self.signal = self._signal_probe()
         areas = state.get("areas")
         if areas is not None and self.args.initial_areas is not None:
@@ -86,7 +101,8 @@ class TrainerCheckpoints:
         self.meta["init_from"] = {"path": str(path), "seed": meta.get("seed"),
                                   "positions": int(state.get("positions", 0)), "steps": int(state.get("steps", 0)),
                                   "init_from": meta.get("init_from"), "areas": self.state["areas"],
-                                  "fingerprint": meta.get("fingerprint"), "streams": meta.get("streams")}
+                                  "fingerprint": meta.get("fingerprint"), "streams": meta.get("streams"),
+                                  "optimizer": theirs, "optimizer_state_loaded": theirs == self.meta["optimizer"]}
         log.info("a new pass from %s, which trained %d positions in %d steps", path,
                  self.meta["init_from"]["positions"], self.meta["init_from"]["steps"])
 
