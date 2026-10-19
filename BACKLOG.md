@@ -120,24 +120,14 @@ $1.47 in all):
   --window-batched --compiled-trunk --activation-budget-gb auto`. The stream
   sweep: 32 streams 1,402, 64 streams 1,185, 128 out of memory.
 
-**Pending on speed (2026-10-14, user: remember in the backlog):**
-- Merge four branches into main, with the user's approval (merges into main
-  are the user's): `feature/generation-speed-3` and `-4`,
-  `feature/trainer-speed-3` and `-4`. CI is green on each tip, and anything
-  that changes the numbers is behind a flag that defaults off.
-- Generation is device-bound: eager inference runs at about 26 TFLOP/s
-  against the trainer's 124. Next arm: the server's compiled packed trunk
-  for inference. It changes rounding, so it is for self-play generation
-  only; eval matches keep the eager server.
-- Calibrate configuration B's activation budget with the compiled block, to
-  reach its full rate (about 1,550 positions a second) without running out
-  of memory. 19.18 GiB ran out; 8 GiB ran at 794.
-- The record walk in Rust: a label builder in the core and an in-place
-  encode, worth about 40-50% of pre-encoding. Also the own-trajectory
-  step's Rust masks (one flag).
-- A source hash in the Rust wheel, checked by kernel_status: a phase
-  number cannot see an API change made within a phase.
-- **Done 2026-10-15, branches awaiting the merge:**
+**Speed (the list of 2026-10-14, all landed by 0.26.0):**
+- Generation rounds 3 and 4 merged as 0.22.0, trainer rounds 3 and 4 as
+  0.23.0.
+- The rest of the list landed with the three branches below, merged
+  2026-10-15 as 0.24.0 to 0.26.0: the compiled inference trunk (generation
+  only, never eval), configuration B's measured activation budget, the record
+  walk in Rust and the wheel's source hash.
+- **The three branches:**
   - `feature/generation-speed-5` (ae6cdc6). Measured in
     `training/metrics/generation_speed_r5_20261015/`; bases within 3.5%, on a
     faster box than round 4's.
@@ -164,7 +154,29 @@ $1.47 in all):
     default, the calibration arm.
 - Left on speed, small: the move-then-attack candidates' view (about 16% of
   candidates), the clamp and fp32 adds in the inference trunk.
-- Then the self-play training plan, the critical path.
+- **Box inputs are cached on the model host** (0.27.0, `feature/box-input-cache`).
+  - `scripts/box_inputs.sh` restores the corpus, the own sequences and,
+    with `CACHE_SEQUENCES=1`, the corpus's sequences from
+    `tier-b/input_cache/`. Each restore is checked against its key. On a miss
+    the input is built and stored.
+  - It is on by default in the trainer, memory-own, anneal and parity-memory
+    box scripts; `INPUT_CACHE=0` builds everything.
+  - Not yet used on a box.
+  - A key rests on version numbers (the corpus and rules versions,
+    `KIND_VERSION`), not on a hash of the builder's code. A builder change
+    that bumps none of them would restore a stale input.
+- **The self-play training plan** (the critical path):
+  docs/selfplay_pg_design_20261015.md, revised after an independent review
+  that found the first draft's measurement and pilot could not decide.
+  - The method: policy gradient from game results, a luck correction
+    (AIVAT), a cross-fitted state-only critic, and two behaviours to
+    choose between: sampling every decision, or argmax with sparse
+    sampled deviations.
+  - R0 (about $2-3 after about a week of build) measures the gradient's
+    signal against a sign-flip null and prices a resolved gain.
+  - The records predict a million games or more, beyond today's budget.
+  - Waiting on the luck share in argmax matches (`exp/match-luck`) and on
+    the user's decision.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a
@@ -175,6 +187,14 @@ $1.47 in all):
   efficiency). The cheap test is an imitation pass at equal positions,
   AdamW against Muon or Shampoo, on held-out loss (about $1). Choose it with
   the RL algorithm, since a trust region already uses curvature.
+  - **The bench is built, not run** (0.28.0, `feature/optimizers`).
+    - The sequence trainer takes `--optimizer adamw|adamw_hygiene|muon|soap|schedulefree`,
+      `--weight-ema` and `--probe-weights`. The default stays the recipe's
+      AdamW, bit-identical.
+    - `scripts/optimizer_bench_box.sh` runs 16 arms over the same 1,000,000
+      positions: about 6 hours, $2.50.
+    - Its reading criterion is not pre-registered. Running it is a training
+      run, so it waits on the optimizer discussion (user ruling 2026-10-15).
 - **Step 1 read Kill** (docs/selfplay_program_20261008.md "Step 1,
   measured"): critics on the true state select better than material by
   about 2 standard errors but do not clear the correlation test; the critic
@@ -191,7 +211,7 @@ docs/selfplay_program_20261008.md): policy iteration with a one-step
 look-ahead over the prior's top actions, exact combat outcomes as chance
 nodes, and Muesli's clipped target; each round's tilted player gated
 against `parity3` before it is distilled; its evaluator chosen by
-measurement. Its code is on `exp/value-policy-iteration` (the critics, the
+measurement. Its code is at tag `archive/exp-value-policy-iteration` (the critics, the
 look-ahead player, the gate script). The CPU turn planner's proposal
 (docs/selfplay_algorithm_design_20261007.md) is step 1's kill branch.
 
@@ -259,7 +279,7 @@ within-position correlation; bar 0.7, kill 0.5), with the crash barrier
 passed. By its rule the next proposal is a fine-tuned copy of the trunk
 on the better labels; the reported readings (the HP margin after the
 turn 0.397, a rollout read 7 half-turns ahead 0.532) belong in that
-design. The code stays on `exp/turn-value`.
+design. The code is at tag `archive/exp-turn-value`.
 
 **Done inside the parity-memory retrain (2026-10-02):** the unit
 vocabulary (docs/unit_vocab_retrain_prereg_20260925.md: every reachable
@@ -319,7 +339,7 @@ deleted tools and are records only. Refactor step 4a is parked (tag
   iteration on 128 kept experiences (`tools/az_signal.py`,
   `<workdir>/az_signal.jsonl`; 1.67 s a probe against 1.11 s for the
   train step, a tiny network on the laptop CPU). Still without it: the
-  turn-value fitter's head arm (branch `exp/turn-value`) and the
+  turn-value fitter's head arm (tag `archive/exp-turn-value`) and the
   quarantined policy anchor's rehearsal steps. Open: `az_loop`'s norm
   telemetry draws its subsample from the loop's own generator
   (`tools/az_loop.py:752`), so switching it off would change the

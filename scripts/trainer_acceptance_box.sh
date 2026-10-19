@@ -52,20 +52,21 @@
 #
 # One code stage, STAGE (tools/stage_code.py --script scripts/trainer_acceptance_box.sh).
 # The trainer's inputs come from scripts/trainer_inputs.sh (own1, the
-# corpus at version 5 and its sequences, round 2's own sequences from HF's
-# cache, the columns); a box that ran scripts/trainer_speed_box.sh from the
-# same stage has them already.
+# corpus at version 5 and round 2's own sequences from the input cache, the
+# corpus's sequences, the columns); a box that ran
+# scripts/trainer_speed_box.sh from the same stage has them already.
 #
 # Expected wall on a 4090, each pass's training plus its final probe of about
-# 5.4 minutes (round 2's): bring-up and tests 15 minutes, the inputs 10, the
-# barrier 4; A and A2 about 36 minutes each (500,000 positions at about 280 a
-# second, round 1's padded arm with its budget); B about 13 (main's fastest
+# 5.4 minutes (round 2's): bring-up and tests 15 minutes, the inputs 5 to 8
+# (the corpus and the own sequences from the input cache), the barrier 4; A
+# and A2 about 36 minutes each (500,000 positions at about 280 a second,
+# round 1's padded arm with its budget); B about 13 (main's fastest
 # measured 1,242 positions a second, the compile); B8 about 15 (fp8's speed at
 # these sizes is the bench's to measure; this assumes 1,000 a second); B64
 # about 12 and BHALF about 11 (forward-only windows cost about a third of a
-# trained one). The default three about 1 hour 55 minutes, $0.80; all six
-# about 2 hours 30 minutes, $1.07 at $0.42 an hour: the
-# fixed part $0.20, A and A2 $0.25 each, B $0.09, B8 $0.11, B64 $0.08, BHALF
+# trained one). The default three about 1 hour 52 minutes, $0.78; all six
+# about 2 hours 27 minutes, $1.05 at $0.42 an hour: the
+# fixed part $0.18, A and A2 $0.25 each, B $0.09, B8 $0.11, B64 $0.08, BHALF
 # $0.08. A pass is cut at PASS_CUT_MIN (70: about twice A's estimate) or after
 # PASS_STALL_MIN without a log line. BOX_MAX_H 4 caps it at about $1.70 plus
 # the final round.
@@ -143,7 +144,8 @@ if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
         tests/test_sequence_speed.py tests/test_sequence_columns.py tests/test_sequence_launches.py \
         tests/test_own_loss.py tests/test_packed_trunk.py tests/test_trunk_modes.py tests/test_trunk_variants.py \
         tests/test_trainer_acceptance_readout.py tests/test_fp8_linear.py tests/test_rules_version.py \
-        tests/test_train_every.py tests/test_memory_plan.py tests/test_bench_gradcheck.py -q -p no:cacheprovider -m ""
+        tests/test_train_every.py tests/test_memory_plan.py tests/test_bench_gradcheck.py \
+        tests/test_input_cache.py -q -p no:cacheprovider -m ""
     tail -n 3 "$OUT/tests.log"
     [ "$BOX_RC" -eq 0 ] || box_finish "TESTS_FAILED rc=$BOX_RC (tests.log)" 1
     : > "$OUT/cuda_tests.log"

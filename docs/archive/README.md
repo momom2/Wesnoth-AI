@@ -58,3 +58,28 @@ and `docs/plan_20260904.md`.
 | leg5_value_inversion_20260825.md, leg5_resume_verdict_20260826.md | tier-b leg 5 | proxies green, 9-31 vs seed; TCS at play time costs ~200 Elo |
 | teacher_arms_20260829.md, teacher_arms_findings_20260829.md | arms T/M/G/V | K-collapse under MCTS teaching; value drift on imagined states; the signal-profiler rounds |
 | arm_vg_leg_20260901.md, arm_vg2_leg_20260902.md, arm_vg3_leg_20260902.md | arms VG1-3 | value grounding: three collapses, consistency term took the update |
+
+## Archived branches (git tags)
+
+A branch whose code does not land is deleted once its tip is tagged
+`archive/<branch>` (slashes as hyphens) and the tag is pushed. Records that
+name such a branch or one of its commits resolve through these tags;
+`git tag -l 'archive/*'` lists every one.
+
+| tag | what it holds | its record on `main` |
+|---|---|---|
+| archive/exp-xod-dominance | XOD, parked by user ruling 2026-09-24 | the tip commit's message; docs/selfplay_redesign_20260904.md |
+| archive/exp-turn-value | the turn-ranking value function: generator, features, arms | docs/turn_value_prereg_20260925.md |
+| archive/refactor-step4a-sim | step 4a of the refactor, dropped when the Rust core took over the rules | docs/refactor_plan_20260925.md |
+| archive/exp-memory-in-play | `parity2`'s memory in play: match tempo, a counterfactual reader | BACKLOG.md, "The memory's cost in play" |
+| archive/exp-cpu-turn-planner | the CPU turn planner's design (its files are on `main`) | docs/selfplay_algorithm_design_20261007.md |
+| archive/feature-critic-step1 | step 1's critics: data, training, the turn benchmark | docs/selfplay_program_20261008.md, "Step 1, measured" |
+| archive/feature-lookahead-player | the one-step look-ahead player | docs/lookahead_material_gate_prereg_20261009.md |
+| archive/feature-lookahead-gate-box | the look-ahead's gate script | docs/lookahead_material_gate_prereg_20261009.md |
+| archive/exp-value-policy-iteration | the two above and the critics, with main merged in | docs/selfplay_program_20261008.md |
+| archive/exp-memory-in-play-parity3 | the per-side-turn memory reset, the counterfactual reader, turn tempo | docs/memory_in_play_parity3_prereg_20261009.md |
+| archive/exp-exposure-evaluator | the material evaluator with gold and exposure, the core's threats | docs/exposure_evaluator_prereg_20261012.md |
+| archive/exp-rollout-regrade | the turn benchmark re-graded by rollouts from the mover's view | docs/rollout_regrade_prereg_20261012.md |
+| archive/exp-belief-worlds | the re-grade in belief worlds | docs/belief_worlds_prereg_20261012.md |
+| archive/feature-decode-knobs | the attack, recruit and time-of-day decode knobs, the knob search | docs/decode_knobs_prereg_20261012.md |
+| archive/land-shutdown-drains-results | a second landing of fix/shutdown-drains-results; the other is on `main` | none needed |

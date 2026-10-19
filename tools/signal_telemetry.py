@@ -249,9 +249,11 @@ class GradientProbe:
         parameter's group rate: the step the optimizer takes for that
         gradient, momentum and weight decay aside
         (signal_profiler/update_tree.py, "exp_avg zeroed, exp_avg_sq
-        kept"). A parameter with a gradient but no optimizer state yet
-        (it has never been stepped) is left out of the update space and
-        counted per group, so a partial group total is visible.
+        kept"). A parameter with a gradient but no Adam state (it has
+        never been stepped, or another optimizer holds it: Muon, SOAP,
+        schedule-free AdamW, wesnoth_ai/optimizers.py) is left out of the
+        update space and counted per group, so a partial group total is
+        visible.
 
     The gradients come from `torch.autograd.grad`, which leaves every
     parameter's `.grad` and the optimizer untouched; the caller runs the
@@ -333,7 +335,7 @@ class GradientProbe:
     def _update_scale(self, param: torch.nn.Parameter) -> Optional[torch.Tensor]:
         """lr / (sqrt(v_hat) + eps) per coordinate, None without state."""
         state = self._optimizer.state.get(param) if self._optimizer is not None else None
-        if not state or "exp_avg_sq" not in state:
+        if not state or "exp_avg_sq" not in state or "step" not in state:
             return None
         hyper = self._hyper[id(param)]
         beta2, eps = hyper["betas"][1], hyper["eps"]

@@ -1,0 +1,316 @@
+{
+ "reference": "ref",
+ "spread": 0.03,
+ "valid": true,
+ "aa": [
+  {
+   "a": "ref",
+   "b": "ref2",
+   "rounds": 18,
+   "window_time_ratio_median": 0.9991,
+   "window_time_ratio_ci95": [
+    0.9957,
+    1.0081
+   ],
+   "speedup_median": 1.0009,
+   "speedup_ci95": [
+    0.992,
+    1.0043
+   ],
+   "same_positions": true,
+   "agree": true
+  }
+ ],
+ "arms": {
+  "ref": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched",
+   "windows": 18,
+   "positions_per_second": 838.45,
+   "window_seconds_median": 0.6025,
+   "peak_gb_max": 20.692,
+   "kept_steps_mean": 15.722,
+   "preload": {
+    "records": 172,
+    "seconds": 3.0
+   },
+   "warmup": {
+    "seconds": [
+     1.1935,
+     0.5341,
+     0.598,
+     0.6009,
+     0.5904
+    ],
+    "trunk_block": null
+   },
+   "error": {
+    "i": 18,
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 672.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 565.75 MiB is free. Including non-PyTorch memory, this process has 22.96 GiB memory in use. Of the allocated memory 19.66 GiB is allocated by PyTorch, and 2.83 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/"
+   },
+   "first_window_extra_seconds": 0.59
+  },
+  "bf16": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --trunk-bf16",
+   "windows": 18,
+   "positions_per_second": 883.85,
+   "window_seconds_median": 0.5658,
+   "peak_gb_max": 17.407,
+   "kept_steps_mean": 15.722,
+   "against_reference": {
+    "rounds": 18,
+    "window_time_ratio_median": 0.9425,
+    "window_time_ratio_ci95": [
+     0.9394,
+     0.9445
+    ],
+    "speedup_median": 1.061,
+    "speedup_ci95": [
+     1.0588,
+     1.0645
+    ],
+    "same_positions": true
+   },
+   "preload": {
+    "records": 172,
+    "seconds": 2.9
+   },
+   "warmup": {
+    "seconds": [
+     0.4498,
+     0.4939,
+     0.5639,
+     0.5479,
+     0.5348
+    ],
+    "trunk_block": null
+   },
+   "error": {
+    "i": 18,
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 40.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 1.75 MiB is free. Including non-PyTorch memory, this process has 23.51 GiB memory in use. Of the allocated memory 21.38 GiB is allocated by PyTorch, and 1.67 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/sta"
+   },
+   "first_window_extra_seconds": -0.12
+  },
+  "relu": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --fused-relu",
+   "windows": 18,
+   "positions_per_second": 832.81,
+   "window_seconds_median": 0.5999,
+   "peak_gb_max": 20.696,
+   "kept_steps_mean": 15.722,
+   "against_reference": {
+    "rounds": 18,
+    "window_time_ratio_median": 0.9835,
+    "window_time_ratio_ci95": [
+     0.979,
+     0.9948
+    ],
+    "speedup_median": 1.0168,
+    "speedup_ci95": [
+     1.0053,
+     1.0215
+    ],
+    "same_positions": true
+   },
+   "preload": {
+    "records": 172,
+    "seconds": 2.8
+   },
+   "warmup": {
+    "seconds": [
+     0.3758,
+     0.5176,
+     0.5724,
+     0.5655,
+     0.5685
+    ],
+    "trunk_block": null
+   },
+   "error": {
+    "i": 18,
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 9.75 MiB is free. Including non-PyTorch memory, this process has 23.50 GiB memory in use. Of the allocated memory 21.36 GiB is allocated by PyTorch, and 1.67 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/sta"
+   },
+   "first_window_extra_seconds": -0.22
+  },
+  "compiled": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --compiled-trunk",
+   "windows": 18,
+   "positions_per_second": 885.0,
+   "window_seconds_median": 0.5682,
+   "peak_gb_max": 20.67,
+   "kept_steps_mean": 15.722,
+   "against_reference": {
+    "rounds": 18,
+    "window_time_ratio_median": 0.9431,
+    "window_time_ratio_ci95": [
+     0.939,
+     0.9541
+    ],
+    "speedup_median": 1.0603,
+    "speedup_ci95": [
+     1.0481,
+     1.065
+    ],
+    "same_positions": true
+   },
+   "preload": {
+    "records": 172,
+    "seconds": 2.9
+   },
+   "warmup": {
+    "seconds": [
+     3.8609,
+     0.5018,
+     0.5482,
+     0.5387,
+     0.5437
+    ],
+    "trunk_block": {
+     "backend": "inductor",
+     "calls": 640,
+     "first_call_seconds": 3.4754171140375547,
+     "cache_entries": 1
+    }
+   },
+   "error": {
+    "i": 18,
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 11.75 MiB is free. Including non-PyTorch memory, this process has 23.50 GiB memory in use. Of the allocated memory 21.35 GiB is allocated by PyTorch, and 1.68 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/st"
+   },
+   "first_window_extra_seconds": 3.29
+  },
+  "bf16_relu": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --trunk-bf16 --fused-relu",
+   "windows": 19,
+   "positions_per_second": 890.86,
+   "window_seconds_median": 0.559,
+   "peak_gb_max": 17.685,
+   "kept_steps_mean": 15.684,
+   "against_reference": {
+    "rounds": 18,
+    "window_time_ratio_median": 0.9216,
+    "window_time_ratio_ci95": [
+     0.9188,
+     0.9266
+    ],
+    "speedup_median": 1.0851,
+    "speedup_ci95": [
+     1.0793,
+     1.0883
+    ],
+    "same_positions": true
+   },
+   "preload": {
+    "records": 172,
+    "seconds": 3.0
+   },
+   "warmup": {
+    "seconds": [
+     0.3821,
+     0.4894,
+     0.5354,
+     0.5358,
+     0.5233
+    ],
+    "trunk_block": null
+   },
+   "error": {
+    "i": 19,
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 32.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 9.75 MiB is free. Including non-PyTorch memory, this process has 23.50 GiB memory in use. Of the allocated memory 21.42 GiB is allocated by PyTorch, and 1.61 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/sta"
+   },
+   "first_window_extra_seconds": -0.18
+  },
+  "bf16_compiled": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched --trunk-bf16 --compiled-trunk",
+   "windows": 19,
+   "positions_per_second": 891.16,
+   "window_seconds_median": 0.546,
+   "peak_gb_max": 17.689,
+   "kept_steps_mean": 15.684,
+   "against_reference": {
+    "rounds": 18,
+    "window_time_ratio_median": 0.9032,
+    "window_time_ratio_ci95": [
+     0.8998,
+     0.9052
+    ],
+    "speedup_median": 1.1072,
+    "speedup_ci95": [
+     1.1048,
+     1.1114
+    ],
+    "same_positions": true
+   },
+   "preload": {
+    "records": 172,
+    "seconds": 3.1
+   },
+   "warmup": {
+    "seconds": [
+     1.1567,
+     0.4625,
+     0.5173,
+     0.5212,
+     0.5232
+    ],
+    "trunk_block": {
+     "backend": "inductor",
+     "calls": 640,
+     "first_call_seconds": 0.7758868770324625,
+     "cache_entries": 2
+    }
+   },
+   "error": {
+    "i": 19,
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 42.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 9.75 MiB is free. Including non-PyTorch memory, this process has 23.50 GiB memory in use. Of the allocated memory 21.49 GiB is allocated by PyTorch, and 1.55 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/sta"
+   },
+   "first_window_extra_seconds": 0.61
+  },
+  "ref2": {
+   "flags": "--packed-trunk --activation-budget-gb 19.18 --activation-bytes-per-token 102139 --columns --window-batched",
+   "windows": 19,
+   "positions_per_second": 814.41,
+   "window_seconds_median": 0.6044,
+   "peak_gb_max": 21.019,
+   "kept_steps_mean": 15.684,
+   "against_reference": {
+    "rounds": 18,
+    "window_time_ratio_median": 0.9991,
+    "window_time_ratio_ci95": [
+     0.9957,
+     1.0081
+    ],
+    "speedup_median": 1.0009,
+    "speedup_ci95": [
+     0.992,
+     1.0043
+    ],
+    "same_positions": true
+   },
+   "preload": {
+    "records": 172,
+    "seconds": 2.8
+   },
+   "warmup": {
+    "seconds": [
+     0.3919,
+     0.5291,
+     0.5804,
+     0.5777,
+     0.5813
+    ],
+    "trunk_block": null
+   },
+   "error": {
+    "i": 19,
+    "error": "OutOfMemoryError",
+    "message": "CUDA out of memory. Tried to allocate 42.00 MiB. GPU 0 has a total capacity of 23.52 GiB of which 15.75 MiB is free. Including non-PyTorch memory, this process has 23.49 GiB memory in use. Of the allocated memory 21.29 GiB is allocated by PyTorch, and 1.74 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/st"
+   },
+   "first_window_extra_seconds": -0.21
+  }
+ }
+}

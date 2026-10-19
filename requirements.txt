@@ -21,6 +21,9 @@ psutil
 huggingface_hub
 # Only for a reward config written as .yaml; the committed configs are JSON.
 pyyaml
+# Schedule-free AdamW, the sequence trainer's --optimizer schedulefree
+# (wesnoth_ai/optimizers.py; Apache 2.0).
+schedulefree==1.4.1
 
 # Development: the test runner, and the linter at the version CI runs.
 pytest

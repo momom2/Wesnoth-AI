@@ -1,0 +1,16 @@
+stage tier-b/staging/stage_20261014_trainer_speed5.tar.gz
+instance 55909317, host d2b2e47dcc93
+cores(all) 64, usable 62
+model name	: AMD EPYC 7713 64-Core Processor
+cpu.max 6143999 100000
+pids.max 15616
+               total        used        free      shared  buff/cache   available
+Mem:           96539        2212        4268           1       90058       93692
+overlay         150G  1.2G  149G   1% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 595.84
+torch 2.5.1+cu124 cuda True
+code 0.21.1 epoch 11
+wheel phase 32, source phase 32
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 32 | source 32 | adapter 32 | current
