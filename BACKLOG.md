@@ -154,6 +154,17 @@ $1.47 in all):
     default, the calibration arm.
 - Left on speed, small: the move-then-attack candidates' view (about 16% of
   candidates), the clamp and fp32 adds in the inference trunk.
+- **fp8 inference failed its gate** (0.30.0, `feature/generation-speed-6`,
+  docs/fp8_inference_prereg_20261019.md "Measured", about $0.1).
+  - fp8 runs on the 4090: `_scaled_mm` and the compiled fp8 loop both work.
+  - Its logits lie further from the bf16 stream's than the bounds set
+    before the run: 0.331 of the actor head's scale on `own1`'s weights,
+    against a bound of 0.25. So no speed arm or play check ran, and fp8
+    stays off.
+  - Not tested: per-token activation scales.
+  - The branch also brings the server's counter timeline, the compiled
+    loop's state in the server's stats, and `tools/box_probe.py` with
+    `rent_box.py rank`. No box script runs the probe yet.
 - **Box inputs are cached on the model host** (0.27.0, `feature/box-input-cache`).
   - `scripts/box_inputs.sh` restores the corpus, the own sequences and,
     with `CACHE_SEQUENCES=1`, the corpus's sequences from

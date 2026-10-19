@@ -887,6 +887,11 @@ def main(argv) -> int:
         # of their own.
         inf_bf16_residual = bool(_hello.get("bf16_residual", False))
         inf_fused_relu = bool(_hello.get("fused_relu", False))
+        # The trunk's fp8 products, per side: the two sides of a play check
+        # are served by two servers, one of them fp8 (run_elo_batch
+        # --fp8-inference-a / -b).
+        inf_fp8 = {side: bool(_shared_client(address).hello.get("fp8", False)) if address else False
+                   for side, address in (("a", args.inference_address_a), ("b", args.inference_address_b))}
         inf_packed = bool(args.infer_packed_trunk)
         logging.getLogger("elo_eval_game").warning(
             "shared inference: bf16=%s packed_trunk=%s compile_packed=%s",
@@ -915,6 +920,7 @@ def main(argv) -> int:
                        else args.infer_compile)
         inf_packed = False           # the per-process forward is single-sample
         inf_bf16_residual = inf_fused_relu = False    # a server's switches
+        inf_fp8 = {"a": False, "b": False}
         if (inf_bf16 or inf_compile) and not _cuda:
             raise SystemExit(
                 "--infer-bf16/--infer-compile require a cuda device: on "
@@ -969,7 +975,8 @@ def main(argv) -> int:
                     f"the logits, refusing to mix. Use a fresh "
                     f"outdir.")
             for _fld, _now in (("infer_bf16_residual", inf_bf16_residual),
-                               ("infer_fused_relu", inf_fused_relu)):
+                               ("infer_fused_relu", inf_fused_relu),
+                               ("infer_fp8_a", inf_fp8["a"]), ("infer_fp8_b", inf_fp8["b"])):
                 if bool(prev.get(_fld, False)) != _now:
                     raise SystemExit(
                         f"{out_path.name} was played with {_fld}={bool(prev.get(_fld, False))} "
@@ -1241,6 +1248,10 @@ def main(argv) -> int:
         # another game.
         "infer_bf16_residual": inf_bf16_residual,
         "infer_fused_relu": inf_fused_relu,
+        # Each side's trunk products on e4m3 operands (the server's
+        # --fp8-inference): another rounding, another player.
+        "infer_fp8_a": inf_fp8["a"],
+        "infer_fp8_b": inf_fp8["b"],
         # Shared inference (tools/eval_inference_server.py): batched
         # forwards on a server process; the packed varlen trunk is
         # its kernel choice. Both False for the per-process path.

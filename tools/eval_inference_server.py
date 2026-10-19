@@ -303,11 +303,13 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             graphed: bool = False, rust_stage: bool = True,
                             server_memory: bool = True, priors_only: bool = False,
                             profile_batches: int = 0, profile_after: int = 0,
-                            bf16_residual: bool = False, fused_relu: bool = False) -> InferenceServerHandle:
+                            bf16_residual: bool = False, fused_relu: bool = False,
+                            fp8: bool = False, timeline_s: float = 0.0) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
-    never see them)."""
+    never see them), and with `timeline_s` its counters every that many
+    seconds to `.inference_server_<tag>.timeline.jsonl`."""
     outdir = Path(outdir)
     stats_path = outdir / f".inference_server_{tag}.json"
     cmd = [python or sys.executable, "-u", str(SERVER_SCRIPT), "--spec", str(spec),
@@ -329,6 +331,11 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
         cmd.append("--bf16-residual")
     if fused_relu:
         cmd.append("--fused-relu")
+    if fp8:
+        cmd.append("--fp8-inference")
+    if timeline_s > 0:
+        cmd += ["--timeline-out", str(outdir / f".inference_server_{tag}.timeline.jsonl"),
+                "--timeline-s", str(timeline_s)]
     if profile_batches:
         cmd += ["--profile-batches", str(profile_batches), "--profile-after", str(profile_after)]
     log_path = outdir / f".inference_server_{tag}.log"
@@ -480,7 +487,7 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
                  packed: bool, packed_embed: bool, compiled: bool, graphed: bool,
                  rust_stage: bool = True, server_memory: bool = False,
                  priors_only: bool = False, bf16_residual: bool = False,
-                 fused_relu: bool = False) -> Dict:
+                 fused_relu: bool = False, fp8: bool = False) -> Dict:
     """What a server tells each connection: the checkpoint it serves, its
     precision path, the structure a worker's encoder must build and the
     vocab."""
@@ -492,6 +499,9 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         # (model.infer_bf16_residual, infer_fused_relu): numerics paths of
         # their own, recorded by every game.
         "bf16_residual": bool(bf16_residual), "fused_relu": bool(fused_relu),
+        # The trunk's linear layers on e4m3 operands (model.infer_fp8), a
+        # numerics path of its own.
+        "fp8": bool(fp8),
         "graphed": graphed,
         # The host work in Rust (tools/serve_stage.py), and whether the
         # server keeps each game-side's memory state between decisions.
@@ -510,6 +520,31 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         "type_to_id": dict(encoder.unit_type_to_id),
         "faction_to_id": dict(encoder.faction_to_id),
     }
+
+
+def trunk_device(model):
+    """The device the trunk's weights live on, with its index (`cuda:0`,
+    as a batch's tensors name it, not `cuda`)."""
+    return model.encoder.layers[0].linear1.weight.device
+
+
+def trunk_stats(model, *, compiled: bool, fp8: bool) -> Dict:
+    """What the packed trunk ran, for the server's stats: the compiled
+    loop's state at the end of serving (active, its recompiles, the reason
+    it fell back to the eager loop) and the fp8 copy's input scales and
+    bounds. A compiled server whose loop fell back served eager batches
+    under a compiled label; this is where its records show it. Read at the
+    exit, so a failure to read them is recorded, never raised: the stats
+    must still be written."""
+    out: Dict = {}
+    try:
+        if compiled:
+            out["packed_compile_stats"] = model.packed_compile_stats()
+        if fp8:
+            out["fp8_scales"] = model.fp8_weights(trunk_device(model)).summary()
+    except Exception as e:                          # noqa: BLE001 -- the stats file comes first
+        out["trunk_stats_error"] = f"{type(e).__name__}: {e}"[:300]
+    return out
 
 
 def main(argv: List[str]) -> int:
@@ -555,6 +590,11 @@ def main(argv: List[str]) -> int:
                          "epilogue, so for self-play generation only; the games record it. With "
                          "the packed trunk (cuda + bf16) only, not with --compile-packed (the "
                          "compiled loop fuses the ReLU itself).")
+    ap.add_argument("--fp8-inference", action="store_true",
+                    help="The packed trunk's linear layers on float8 e4m3 operands with per-tensor scales "
+                         "(model.infer_fp8, wesnoth_ai/fp8_inference.py), on the bf16 residual stream: "
+                         "a rounding change, for self-play generation only; the games record it. With "
+                         "--bf16-residual and the packed trunk on a GPU of compute capability 8.9 or more.")
     ap.add_argument("--priors-only", action="store_true",
                     help="Compute and send the policy's priors alone: no value head, no belief "
                          "head, no optional head (a raw player at self-play generation reads "
@@ -565,6 +605,10 @@ def main(argv: List[str]) -> int:
                          "'profile'; the profiled batches run slower.")
     ap.add_argument("--profile-after", type=int, default=200,
                     help="The batches served before the profile starts.")
+    ap.add_argument("--timeline-out", type=Path, default=None,
+                    help="Append the serving counters (requests, batches, leaves, device ms) here every "
+                         "--timeline-s seconds, one JSON line each, from the start of serving.")
+    ap.add_argument("--timeline-s", type=float, default=5.0)
     ap.add_argument("--window-ms", type=float, default=DEFAULT_WINDOW_MS)
     ap.add_argument("--max-batch", type=int, default=16, help="leaves per forward")
     ap.add_argument("--torch-threads", type=int, default=4)
@@ -610,7 +654,10 @@ def main(argv: List[str]) -> int:
                          "only the eager fallback batches would run compiled")
     if args.fused_relu and args.compile_packed:
         raise SystemExit("--fused-relu is an eager call; --compile-packed fuses the ReLU itself")
-    bf16_residual = fused_relu = False
+    if args.fp8_inference and (not args.bf16_residual or args.fused_relu or args.graphed):
+        raise SystemExit("--fp8-inference runs on the bf16 residual stream: with --bf16-residual, "
+                         "not with --fused-relu or --graphed")
+    bf16_residual = fused_relu = fp8 = False
     if args.bf16_residual or args.fused_relu:
         if not packed:
             log.warning("--bf16-residual and --fused-relu need the packed trunk (cuda + bf16); "
@@ -618,6 +665,16 @@ def main(argv: List[str]) -> int:
         else:
             model.infer_bf16_residual = bf16_residual = bool(args.bf16_residual)
             model.infer_fused_relu = fused_relu = bool(args.fused_relu)
+    if args.fp8_inference:
+        if not packed:
+            raise SystemExit("--fp8-inference needs the packed trunk (cuda + bf16)")
+        from wesnoth_ai.fp8_inference import check_fp8_inference_supported
+        try:
+            check_fp8_inference_supported(model.encoder, device)
+        except ValueError as e:
+            raise SystemExit(f"--fp8-inference: {e}") from None
+        model.infer_fp8 = fp8 = True
+        log.info("fp8 inference: %s", model.fp8_weights(trunk_device(model)).summary())
     compiled = False
     if args.compile_packed:
         if not packed:
@@ -666,7 +723,7 @@ def main(argv: List[str]) -> int:
                          graphed=graphed is not None and graphed.disabled is None,
                          rust_stage=rust_stage, server_memory=memory is not None,
                          priors_only=bool(args.priors_only), bf16_residual=bf16_residual,
-                         fused_relu=fused_relu)
+                         fused_relu=fused_relu, fp8=fp8)
     listener = Listener()
     infer_fn = _model_infer_fn(server, rust_stage=rust_stage, memory=memory)
     profiler = None
@@ -683,6 +740,10 @@ def main(argv: List[str]) -> int:
                                health_fn=_device_health_fn(device),
                                release_fn=None if memory is None else memory.release_connection)
     service.start()
+    timeline = None
+    if args.timeline_out is not None:
+        from tools.serve_loop import Timeline
+        timeline = Timeline(service.stats, args.timeline_out, args.timeline_s).start()
     info = {k: v for k, v in hello.items() if k not in ("type_to_id", "faction_to_id")}
     info.update(window_ms=args.window_ms, max_batch=args.max_batch)
     print(f"{ADDR_PREFIX}{listener.address}", flush=True)
@@ -694,7 +755,11 @@ def main(argv: List[str]) -> int:
     # process exits and the driver, seeing it dead, admits no more games.
     fatal = service.serve_until_closed(lambda: _read_to_eof(sys.stdin.fileno()))
     service.stop()
-    stats = dict(info, **service.stats.as_dict(), fatal=fatal)
+    if timeline is not None:
+        timeline.stop()
+    stats = dict(info, **service.stats.as_dict(), fatal=fatal, **trunk_stats(model, compiled=compiled, fp8=fp8))
+    if timeline is not None:
+        stats["timeline_failed"] = timeline.failed
     if memory is not None:
         stats["memory_states"] = memory.summary()
     if profiler is not None:

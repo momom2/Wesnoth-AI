@@ -63,6 +63,7 @@ from wesnoth_ai.padded_streams import (ExtraStreams, PaddedIndex, check_sighting
                                        pad_encoded_streams, pad_sighting_streams, padded_index,
                                        padded_trunk_index, random_padded_streams, stream_widths)
 from wesnoth_ai.trunk_modes import CompiledBlock, TrunkMode, check_trunk_mode_supported, run_trunk
+from wesnoth_ai.fp8_inference import Fp8TrunkWeights, check_fp8_inference_supported, make_fp8_trunk_layers
 
 __all__ = [
     "WesnothModel",
@@ -187,6 +188,13 @@ class WesnothModel(nn.Module):
         # mode and without a bf16 autocast.
         self.infer_bf16_residual = False
         self.infer_fused_relu = False
+        # The packed trunk's linear layers on e4m3 operands over the bf16
+        # residual stream (wesnoth_ai/fp8_inference.py; the server's
+        # --fp8-inference): another rounding, for generation only. Under a
+        # bf16 autocast in eval mode only; compiled with infer_compile_packed.
+        self.infer_fp8 = False
+        self._fp8_weights: Optional[Fp8TrunkWeights] = None
+        self._fp8_compile: Optional[CompiledPackedTrunk] = None
         self._weights_version = 0        # bumped by load_state_dict; the copies follow it
         # The frozen weight copies by (linear dtype, norm dtype).
         self._weight_copies: Dict[Tuple[torch.dtype, torch.dtype], PackedTrunkWeights] = {}
@@ -833,8 +841,10 @@ class WesnothModel(nn.Module):
 
     def _inference_layers(self, x: torch.Tensor, index) -> torch.Tensor:
         """The packed trunk's layers on x [total, d] for _packed_trunk_heads:
-        the inference trunk modes where they apply, the compiled loop with
-        infer_compile_packed, _packed_layers otherwise."""
+        the fp8 loop or the inference trunk modes where they apply, the
+        compiled loop with infer_compile_packed, _packed_layers otherwise."""
+        if self.infer_fp8 and self._bf16_inference(x):
+            return self._run_fp8_trunk(x, index)
         mode = self._inference_trunk_mode(x)
         if mode is not None:
             return self._run_inference_trunk_mode(x, index, mode)
@@ -880,6 +890,7 @@ class WesnothModel(nn.Module):
                                                    backend=backend, mode=mode)
         self._weight_copies.clear()
         self._compiled_weights = None
+        self._fp8_compile = None             # rebuilt from these options at its first call
         self.infer_compile_packed = True
         return self._packed_compile
 
@@ -918,6 +929,11 @@ class WesnothModel(nn.Module):
         return self._packed_compile is not None and self._packed_compile.active
 
     def packed_compile_stats(self) -> dict:
+        """The compiled loop's stats: the fp8 loop's under infer_fp8."""
+        if self.infer_fp8:
+            if self._fp8_compile is None:
+                return {"active": False, "fp8": True}
+            return {**self._fp8_compile.stats(), "fp8": True, "weights_dtype": "float8_e4m3fn"}
         if self._packed_compile is None:
             return {"active": False}
         stats = self._packed_compile.stats()
@@ -925,16 +941,52 @@ class WesnothModel(nn.Module):
         stats["weights_dtype"] = str(w.dtype).replace("torch.", "") if w is not None else None
         return stats
 
+    def _bf16_inference(self, x: torch.Tensor) -> bool:
+        """Eval mode under a bf16 autocast on x's device: where the
+        inference trunk switches apply."""
+        dev = x.device.type
+        return (not self.training and torch.is_autocast_enabled(dev)
+                and torch.get_autocast_dtype(dev) == torch.bfloat16)
+
     def _inference_trunk_mode(self, x: torch.Tensor) -> Optional[TrunkMode]:
         """infer_bf16_residual and infer_fused_relu as a trainer's trunk mode,
         or None where they do not apply: both off, training mode, or no
         bf16 autocast."""
-        dev = x.device.type
-        if self.training or not (self.infer_bf16_residual or self.infer_fused_relu):
-            return None
-        if not (torch.is_autocast_enabled(dev) and torch.get_autocast_dtype(dev) == torch.bfloat16):
+        if not (self.infer_bf16_residual or self.infer_fused_relu) or not self._bf16_inference(x):
             return None
         return TrunkMode(bf16_residual=self.infer_bf16_residual, fused_relu=self.infer_fused_relu)
+
+    def fp8_weights(self, device: torch.device) -> Fp8TrunkWeights:
+        """The fp8 loop's weight copy (wesnoth_ai/fp8_inference.py): built on
+        first use and for a new device, refreshed in place when the weight
+        version moved."""
+        w = self._fp8_weights
+        if w is None or w.device != device:
+            check_fp8_inference_supported(self.encoder, device)
+            w = self._fp8_weights = Fp8TrunkWeights.build(self.encoder, device, self._weights_version)
+        elif w.version != self._weights_version:
+            w.refresh(self.encoder, self._weights_version)
+        return w
+
+    def _run_fp8_trunk(self, x: torch.Tensor, index) -> torch.Tensor:
+        """The fp8 layer loop on the bf16 stream, eager, or compiled with
+        infer_compile_packed (its own CompiledPackedTrunk, of the bf16
+        loop's backend and mode). Returns bf16 rows; the heads read them
+        under the caller's autocast."""
+        w = self.fp8_weights(x.device)
+        with torch.autocast(x.device.type, enabled=False):
+            x = x.to(torch.bfloat16)
+            if not self.infer_compile_packed:
+                eps = self.encoder.layers[0].norm1.eps
+                return make_fp8_trunk_layers(eps)(x, index.cu_seqlens, index.max_len, w.layers, w.final_norm)
+            if self._fp8_compile is None:
+                if self._packed_compile is None:
+                    self.configure_packed_compile()
+                layer = self.encoder.layers[0]
+                self._fp8_compile = CompiledPackedTrunk(
+                    layer.activation, layer.norm1.eps, backend=self._packed_compile.backend,
+                    mode=self._packed_compile.mode, loop=make_fp8_trunk_layers(layer.norm1.eps))
+            return self._fp8_compile.run(x, index, w)
 
     def _run_inference_trunk_mode(self, x: torch.Tensor, index, mode: TrunkMode) -> torch.Tensor:
         """`mode` over the bf16 weight copy, its layer norms in the residual

@@ -120,7 +120,7 @@ def rent(monkeypatch, sdk, on_hf=ON_HF):
     return rent_box.main(["create", "99", "--onstart", SCRIPT, "--hours", "4"])
 
 
-COMMANDS = [["search"], ["status"], ["status", "7"], ["logs", "7"], ["start", "7"],
+COMMANDS = [["search"], ["rank"], ["status"], ["status", "7"], ["logs", "7"], ["start", "7"],
             ["stop", "7"], ["destroy", "7"], ["create", "99", "--onstart", SCRIPT, "--hours", "2"]]
 
 
@@ -233,6 +233,37 @@ def test_printed_answers_carry_no_secret(monkeypatch, capsys):
     assert "555" in out and "container up" in out
     assert "k" * 40 not in out + err
     assert KEY not in out + err
+
+
+def _offer(oid, gpu, price, cpu="AMD EPYC 7V13 64-Core Processor", **more):
+    return {"id": oid, "gpu_name": gpu, "cpu_name": cpu, "dph_total": price, "cpu_cores_effective": 32.0,
+            "end_date": time.time() + 100 * 3600, **more}
+
+
+def test_rank_orders_the_markets_offers_by_what_the_probes_predict(tmp_path, monkeypatch, capsys):
+    """Probes of a 4090 at 2,400 decisions a second and a 3090 at 1,000: at
+    $0.50 and $0.20 an hour the 3090 gives more a dollar. A VM host and an
+    offer leaving the market are left out as `search` leaves them; a GPU no
+    probe measured is counted, not ranked."""
+    import json
+    from tools.box_probe import PROBE_VERSION
+    for name, gpu, rate in (("a", "NVIDIA GeForce RTX 4090", 2400.0), ("b", "NVIDIA GeForce RTX 3090", 1000.0)):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "probe.json").write_text(json.dumps(
+            {"probe_version": PROBE_VERSION, "facts": {"gpu_key": gpu.lower().replace("nvidia geforce ", ""),
+                                                       "cpu_key": "amd epyc 7v13"},
+             "generation": {"decisions_per_s": rate}}), encoding="utf-8")
+    offers = [_offer(1, "RTX 4090", 0.50), _offer(2, "RTX 3090", 0.20), _offer(3, "RTX 5090", 0.30),
+              _offer(4, "RTX 3090", 0.10, vms_enabled=True), _offer(5, "RTX 3090", 0.10, end_date=time.time() + 3600)]
+    sdk = AnsweringSdk(search_offers=offers)
+    use(monkeypatch, sdk)
+    assert rent_box.main(["rank", "--gpu", "RTX 3090", "--probes", str(tmp_path)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert [line.split()[0] for line in out[:-1]] == ["2", "1"]
+    assert "18,000,000 a dollar" in out[0] and "17,280,000 a dollar" in out[1]
+    assert out[-1].startswith("2 of 3 offers ranked by 2 probes") and "1 have no probe of their GPU" in out[-1]
+    (query,) = sdk.called("search_offers")
+    assert "gpu_name=RTX_3090" in query["query"]
 
 
 # ---- the box library ---------------------------------------------------------

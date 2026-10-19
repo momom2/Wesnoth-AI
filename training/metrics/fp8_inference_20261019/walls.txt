@@ -1,0 +1,4 @@
+2026-10-19T12:07:28Z reference rc=0 ok 140 s
+2026-10-19T12:10:33Z tests rc=0 ok 185 s
+2026-10-19T12:10:58Z cuda-tests rc=0 ok 25 s
+2026-10-19T12:11:24Z fp8-cuda-tests rc=1 failed 26 s
