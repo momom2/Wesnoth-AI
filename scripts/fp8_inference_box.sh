@@ -116,7 +116,7 @@ notes() {                        # what is done, for the finish reason
     for name in $ARMS; do
         ! box_marked_this_stage "$OUT/arm_$name.done" || done_+=("$name")
     done
-    [ ! -f "$OUT/play.json" ] || play=read
+    [ ! -f "$OUT/play.json" ] || play="read"
     echo "done: ${done_[*]:-nothing}; play: $play"
 }
 # shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
