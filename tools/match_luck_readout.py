@@ -3,10 +3,10 @@ variance the luck correction removes, and what it does to a match's Elo.
 
 For each control variate (`CONTROL_VARIATES`: one or more of the rows'
 luck columns S, tools/match_luck.py: hp; material; material_terminal, the
-board's material counted when no leader dies beside the terminal column;
-material_and_terminal, the fighters' material beside the terminal column;
-the saturating values; joint, every column), the corrected result is
-G = z - beta . S, with beta the
+board's material when the fight does not end the game, beside the terminal
+column; material_and_terminal, the fighters' material beside the terminal
+column; the saturating values; joint, every column), the corrected result
+is G = z - beta . S, with beta the
 least-squares fit of z on S under two-fold cross-fitting: the games are
 split in two halves at random (seeded), and each half is corrected with
 the beta fitted on the other, so no game's own result enters the beta
@@ -26,10 +26,12 @@ capped game is no result):
                      mean) / 2, for z (the PURE fit of a two-player match)
                      and for G, the standard errors by the delta method.
 
-Each match is read with its own fit, and all matches together with one
-pooled fit, split by game length and by map. The mean of every luck
-column over all games, capped ones included, is the check that the luck
-terms have mean zero.
+Each match is read with its own fit, and the matches played at argmax on
+both sides (every row's raw temperatures 0) together with one pooled fit,
+split by match, by game length and by map; a match with another decode is
+read alone and named in `not_pooled`. The mean of every luck column over
+all games, capped ones included, is the check that the luck terms have
+mean zero.
 """
 from __future__ import annotations
 
@@ -230,20 +232,23 @@ def splits(rows: Sequence[dict], gs: Dict[str, np.ndarray], key) -> Dict[str, di
 def readout(rows: Sequence[dict], *, seed: int = 0, n_boot: int = 2000) -> dict:
     """The whole readout (module docstring) of match_luck rows."""
     rows = sorted(rows, key=lambda r: (r["match"], r["game"]))
-    walked = [r for r in rows if "error" not in r]
     errors = [r for r in rows if "error" in r]
     matches = {}
     for name in sorted({r["match"] for r in rows}):
-        mine = [r for r in walked if r["match"] == name]
+        mine = [r for r in rows if r["match"] == name and "error" not in r]
         entry = match_facts(mine, [e for e in errors if e["match"] == name])
         if mine:
             entry["luck_means"] = column_means(mine)
             entry["corrected"], _ = readout_of(mine, seed=seed, n_boot=n_boot)
         matches[name] = entry
+    pooled_names = {name for name, m in matches.items() if m["walked"] and m["argmax"]}
+    walked = [r for r in rows if "error" not in r and r["match"] in pooled_names]
+    errors = [e for e in errors if e["match"] in pooled_names]
     pooled, gs = readout_of(walked, seed=seed, n_boot=n_boot)
     out = {"reference_games": REFERENCE_GAMES, "seed": seed, "bootstrap": n_boot,
            "control_variates": {k: list(v) for k, v in CONTROL_VARIATES.items()},
-           "matches": matches, "pooled": pooled}
+           "matches": matches, "pooled_matches": sorted(pooled_names),
+           "not_pooled": sorted(set(matches) - pooled_names), "pooled": pooled}
     if walked:
         out["pooled_facts"] = match_facts(walked, errors)
         out["pooled_luck_means"] = column_means(walked)
@@ -302,7 +307,9 @@ def report_text(result: dict) -> str:
                                      for c, v in means.items()))
     if result.get("pooled"):
         f = result["pooled_facts"]
-        lines.append(f"== pooled: {f['walked']} games walked, {f['decisive']} decisive, {f['errors']} errors")
+        lines.append(f"== pooled: {len(result['pooled_matches'])} matches, {f['walked']} games walked, "
+                     f"{f['decisive']} decisive, {f['errors']} errors; not pooled (not at argmax): "
+                     f"{', '.join(result['not_pooled']) or 'none'}")
         lines.extend(_cv_lines(result["pooled"]))
         mt = result["pooled"].get("material_terminal")
         if mt:

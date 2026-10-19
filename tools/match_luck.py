@@ -39,12 +39,12 @@ expansion is merged back. The columns (`COLUMNS`):
               fight changes;
     material_nonterminal, terminal
               the material with a terminal outcome scored at its result:
-              a player's leader killed ends the game (the simulator's
-              `_check_game_over`; one leader per side), so terminal is +1
-              when side B's leader dies, -1 when side A's does, and the
-              board's whole material counts only when neither dies. The
-              readout fits both columns, so the scale of a won game in
-              gold is fitted, not chosen;
+              a side left without a leader has lost (the simulator's
+              `_check_game_over`), so terminal is +1 when side B's last
+              leader dies, -1 when side A's does, and the board's whole
+              material counts only when neither dies. The readout fits
+              both columns, so the scale of a won game in gold is fitted,
+              not chosen;
     value_50, value_100, value_200
               a saturating value: tanh(the board's material / scale) with
               the scale in gold, a terminal outcome scored +1 or -1.
@@ -59,20 +59,26 @@ counted. A realized outcome outside the enumerated support is counted as
 `outside_support` and keeps its L.
 
 Rows (one JSON line per game, written as each game finishes; a rerun
-skips the games already written):
+skips the games already written and walks again a last row cut short):
 
+    python tools/match_luck.py fetch --data DIR --manifest data.txt NAME=HF_PATH=SHA256 ...
     python tools/match_luck.py walk --match NAME=PATH [--match ...] --out rows.jsonl
         [--jobs N] [--limit N] [--no-verify]
-    python tools/match_luck.py readout rows.jsonl [--save-json PATH]
+    python tools/match_luck.py readout rows.jsonl [--matches NAME ...] [--save-json PATH]
 
-PATH is a match's games directory or its tarball (games_<name>.tar.gz as
-the box scripts upload it): run_elo_batch's result files `game_*.json`
-beside their records `game_*.game.jsonl.gz` (tools/game_record.py).
+fetch downloads each match's tarball from the model host, checks it
+against its pinned SHA-256 and lists the ones that land in the manifest
+(name, local path, bytes, HF path; tab-separated), the others logged and
+left out. PATH is a match's games directory or its tarball
+(games_<name>.tar.gz as the box scripts upload it): run_elo_batch's result
+files `game_*.json` beside their records `game_*.game.jsonl.gz`
+(tools/game_record.py).
 """
 from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import logging
 import math
@@ -83,12 +89,14 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 log = logging.getLogger("match_luck")
+
+MODEL_HOST = "momom2/wesnoth-model-checkpoints"
 
 # The value columns' scales, in gold: tanh(material / scale) reads a margin
 # of one scale as three quarters of a won game.
@@ -114,7 +122,7 @@ class Fighter:
     id: str
     side: int
     sign: int          # +1: side A's, -1: side B's, 0: another side's
-    leader: bool
+    ends_game: bool    # its side's last leader: its death ends the game
     name: str
     hp: int
     max_hp: int
@@ -128,11 +136,17 @@ def side_sign(side: int, side_a: int) -> int:
     return -1 if side == opponent_of(side_a) else 0
 
 
-def fighter_of(unit: Mapping, side_a: int) -> Fighter:
-    """A core unit dict (`GameCore.unit_export`) as a Fighter."""
+def leader_counts(units: Sequence[Mapping]) -> Counter:
+    """{side: its leaders on the board} over core unit dicts."""
+    return Counter(int(u["side"]) for u in units if u["is_leader"])
+
+
+def fighter_of(unit: Mapping, side_a: int, leaders: Mapping[int, int]) -> Fighter:
+    """A core unit dict (`GameCore.unit_export`) as a Fighter; `leaders`
+    counts each side's leaders on the board (`leader_counts`)."""
     side = int(unit["side"])
     return Fighter(id=str(unit["id"]), side=side, sign=side_sign(side, side_a),
-                   leader=bool(unit["is_leader"]), name=str(unit["name"]),
+                   ends_game=bool(unit["is_leader"]) and leaders.get(side, 0) == 1, name=str(unit["name"]),
                    hp=int(unit["current_hp"]), max_hp=int(unit["max_hp"]), cost=float(unit["cost"]))
 
 
@@ -172,7 +186,7 @@ def column_values(fighters: Sequence[Fighter], states: Sequence[FightState],
     terminal = 0
     for f, (kind, h) in zip(fighters, states):
         if kind == DEAD:
-            if f.leader and f.sign:
+            if f.ends_game and f.sign:
                 terminal = -f.sign
             continue
         hp += f.sign * (f.max_hp if kind == ADVANCED else h)
@@ -246,8 +260,11 @@ def attack_luck(cs, cmd: list, side_a: int) -> AttackLuck:
     if res is None:
         return AttackLuck(None, "not_enumerable")
     probs, att_id, dfd_id = res
-    fighters = (fighter_of(core.unit_export(att_id), side_a), fighter_of(core.unit_export(dfd_id), side_a))
-    rest = rest_material(core.units_export(), side_a, {att_id, dfd_id})
+    units = core.units_export()
+    leaders = leader_counts(units)
+    fighters = (fighter_of(core.unit_export(att_id), side_a, leaders),
+                fighter_of(core.unit_export(dfd_id), side_a, leaders))
+    rest = rest_material(units, side_a, {att_id, dfd_id})
     dist = coarse_distribution(probs, fighters)
     after = cs.fork()
     after.apply_command(list(cmd))
@@ -395,6 +412,20 @@ def match_items(match: str, path: Path) -> List[GameItem]:
     return [GameItem(match, g, results[g], records.get(g)) for g in sorted(results)]
 
 
+def trim_partial_row(out: Path) -> None:
+    """Drop a last row cut short (a walk ended mid-write, or a copy of the
+    file taken while a row was written), so that the rows read and the
+    rows appended stay whole lines; its game is walked again."""
+    if not out.exists():
+        return
+    data = out.read_bytes()
+    keep = data.rfind(b"\n") + 1
+    if keep < len(data):
+        log.warning("%s: dropping a last row cut short (%d bytes)", out, len(data) - keep)
+        with open(out, "r+b") as fh:
+            fh.truncate(keep)
+
+
 def done_keys(out: Path) -> Set[Tuple[str, str]]:
     if not out.exists():
         return set()
@@ -419,6 +450,7 @@ def walk_matches(sources: Sequence[Tuple[str, Path]], out: Path, *, jobs: int = 
                  limit: Optional[int] = None, verify: bool = True) -> int:
     """Append a row per game of each match to `out`, the games already
     there skipped; returns the number of rows written."""
+    trim_partial_row(out)
     done = done_keys(out)
     written = 0
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -446,6 +478,65 @@ def walk_matches(sources: Sequence[Tuple[str, Path]], out: Path, *, jobs: int = 
     return written
 
 
+# ---------------------------------------------------------------------
+# Fetching matches
+# ---------------------------------------------------------------------
+@dataclass(frozen=True)
+class MatchSpec:
+    name: str
+    path: str          # the tarball on the model host
+    sha256: str        # its pinned content
+
+
+def parse_spec(text: str) -> MatchSpec:
+    """NAME=HF_PATH=SHA256 as a MatchSpec."""
+    parts = text.split("=")
+    if (len(parts) != 3 or not parts[0] or not parts[1].endswith(".tar.gz") or len(parts[2]) != 64
+            or any(c not in "0123456789abcdef" for c in parts[2])):
+        raise argparse.ArgumentTypeError(f"a match is NAME=HF_PATH.tar.gz=SHA256, not {text!r}")
+    return MatchSpec(*parts)
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def hf_download(path: str, data: Path) -> Path:
+    from huggingface_hub import hf_hub_download
+    return Path(hf_hub_download(MODEL_HOST, path, cache_dir=str(data)))
+
+
+def fetch_matches(specs: Sequence[MatchSpec], data: Path, manifest: Path, *,
+                  download: Callable[[str, Path], Path] = hf_download) -> int:
+    """Each match's tarball into `data`, checked against its pinned
+    SHA-256; a manifest line (name, local path, bytes, HF path) is appended
+    as each one lands. A match that cannot be fetched, or whose content is
+    not the pinned one, is logged and left out. Returns the number
+    fetched."""
+    data.mkdir(parents=True, exist_ok=True)
+    fetched = 0
+    for spec in specs:
+        try:
+            local = download(spec.path, data)
+            digest = sha256_of(local)
+        except Exception as e:                        # noqa: BLE001 -- this match is left out, the others go on
+            log.error("%s: %s not fetched: %s: %s", spec.name, spec.path, type(e).__name__, e)
+            continue
+        if digest != spec.sha256:
+            log.error("%s: %s is not the pinned content (sha256 %s, pinned %s): left out",
+                      spec.name, spec.path, digest, spec.sha256)
+            continue
+        with open(manifest, "a", encoding="utf-8") as fh:
+            fh.write(f"{spec.name}\t{local}\t{local.stat().st_size}\t{spec.path}\n")
+        fetched += 1
+        log.info("%s: %s fetched, %d bytes", spec.name, spec.path, local.stat().st_size)
+    return fetched
+
+
 def _source(text: str) -> Tuple[str, Path]:
     name, sep, path = text.partition("=")
     if not sep or not name or not path:
@@ -456,6 +547,10 @@ def _source(text: str) -> Tuple[str, Path]:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
+    f = sub.add_parser("fetch", help="the matches' tarballs from the model host, checked against their pins")
+    f.add_argument("specs", type=parse_spec, nargs="+", metavar="NAME=HF_PATH=SHA256")
+    f.add_argument("--data", type=Path, required=True)
+    f.add_argument("--manifest", type=Path, required=True)
     w = sub.add_parser("walk", help="the luck terms of every recorded game, one row per game")
     w.add_argument("--match", type=_source, action="append", required=True, metavar="NAME=PATH")
     w.add_argument("--out", type=Path, required=True)
@@ -465,17 +560,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                    help="skip the records' fingerprint checks (game_record.walk)")
     r = sub.add_parser("readout", help="the variance the luck correction removes")
     r.add_argument("rows", type=Path)
+    r.add_argument("--matches", nargs="+", default=None, metavar="NAME",
+                   help="read only these matches' rows (default: every match in the rows)")
     r.add_argument("--save-json", type=Path, default=None)
     r.add_argument("--seed", type=int, default=0, help="the cross-fitting split and the bootstrap")
     r.add_argument("--bootstrap", type=int, default=2000)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if args.command == "fetch":
+        names = [s.name for s in args.specs]
+        if len(set(names)) != len(names):
+            ap.error(f"a match name is given twice: {sorted(n for n in set(names) if names.count(n) > 1)}")
+        n = fetch_matches(args.specs, args.data, args.manifest)
+        log.info("%d of %d matches fetched", n, len(args.specs))
+        return 0 if n == len(args.specs) else 1
     if args.command == "walk":
         n = walk_matches(args.match, args.out, jobs=args.jobs, limit=args.limit, verify=not args.no_verify)
         log.info("%d rows written to %s", n, args.out)
         return 0
     from tools.match_luck_readout import load_rows, readout, report_text
-    result = readout(load_rows(args.rows), seed=args.seed, n_boot=args.bootstrap)
+    rows = load_rows(args.rows)
+    if args.matches is not None:
+        rows = [row for row in rows if row["match"] in set(args.matches)]
+    result = readout(rows, seed=args.seed, n_boot=args.bootstrap)
     print(report_text(result))
     if args.save_json is not None:
         args.save_json.write_text(json.dumps(result, indent=1), encoding="utf-8")

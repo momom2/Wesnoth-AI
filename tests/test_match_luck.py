@@ -1,11 +1,14 @@
 """The luck terms of tools/match_luck.py and the readout of
 tools/match_luck_readout.py: an attack's luck has mean zero over the
-fight's outcomes and over the simulator's own dice, a recorded game's
-attacks land in their enumerated supports, the cross-fitted correction
-never fits on the game it corrects, and the readout recovers a known luck
-share."""
+fight's outcomes and over the simulator's own dice, a leader's death is a
+lost game only when it was its side's last, a recorded game's attacks land
+in their enumerated supports, a walk resumes past a row cut short, the
+fetch keeps only the pinned tarballs, the cross-fitted correction never
+fits on the game it corrects, and the readout recovers a known luck share
+and pools only the matches played at argmax."""
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import sys
@@ -28,16 +31,18 @@ CORRIDOR = "Xv, Xv, Xv, Xv, Xv\nXv, Gg, Gg, Gg, Xv\nXv, Xv, Xv, Xv, Xv"
 
 
 def _duel(defender_hp: int, attacker_one_xp_short: bool = False,
-          attacker: str = "Spearman", defender: str = "Dwarvish Fighter"):
+          attacker: str = "Spearman", defender: str = "Dwarvish Fighter", extra_units=()):
     """(the duel's CoreState, the attack command with seed "0"): two
     leaders side by side, side 1's attacking side 2's, the defender at
-    `defender_hp`, so the fight can end the game."""
+    `defender_hp`, so the fight can end the game; `extra_units` stand on
+    the corridor's third hex."""
     from tools.replay_dataset import _build_initial_gamestate
     from wesnoth_ai.game_core import CoreState
     data = {"game_id": "luck", "map_data": CORRIDOR,
             "starting_units": [
                 {"uid": 1, "type": attacker, "side": 1, "x": 0, "y": 0, "is_leader": True},
-                {"uid": 2, "type": defender, "side": 2, "x": 1, "y": 0, "is_leader": True}],
+                {"uid": 2, "type": defender, "side": 2, "x": 1, "y": 0, "is_leader": True},
+                *extra_units],
             "starting_sides": [{"side": k, "gold": 0, "recruit": []} for k in (1, 2)]}
     try:
         cs = CoreState.from_state(_build_initial_gamestate(data))
@@ -56,8 +61,9 @@ def _duel(defender_hp: int, attacker_one_xp_short: bool = False,
 def _fight(cs, cmd, side_a=1):
     core = cs.core
     probs, att_id, dfd_id = core.attack_outcomes(*cmd[1:6], True)
-    fighters = (match_luck.fighter_of(core.unit_export(att_id), side_a),
-                match_luck.fighter_of(core.unit_export(dfd_id), side_a))
+    leaders = match_luck.leader_counts(core.units_export())
+    fighters = (match_luck.fighter_of(core.unit_export(att_id), side_a, leaders),
+                match_luck.fighter_of(core.unit_export(dfd_id), side_a, leaders))
     rest = match_luck.rest_material(core.units_export(), side_a, {att_id, dfd_id})
     return match_luck.coarse_distribution(probs, fighters), fighters, rest
 
@@ -74,6 +80,20 @@ def test_the_luck_of_a_fight_has_mean_zero_over_its_outcomes(side_a):
         assert abs(mean) < 1e-12, (column, mean)
     killed = next(s for s in dist if s[1][0] == match_luck.DEAD)
     assert match_luck.column_values(fighters, killed, rest)["terminal"] == (1.0 if side_a == 1 else -1.0)
+
+
+def test_a_leader_killed_ends_the_game_only_when_it_was_its_sides_last():
+    """A side keeps playing while it has a leader (the simulator's
+    _check_game_over): a second leader beside the defender makes its
+    death a loss of material, not a lost game."""
+    second = {"uid": 3, "type": "Dwarvish Fighter", "side": 2, "x": 2, "y": 0, "is_leader": True}
+    cs, cmd = _duel(defender_hp=12, extra_units=[second])
+    dist, fighters, rest = _fight(cs, cmd)
+    killed = next(s for s in dist if s[1][0] == match_luck.DEAD)
+    values = match_luck.column_values(fighters, killed, rest)
+    assert values["terminal"] == 0.0
+    assert values["material_nonterminal"] == pytest.approx(rest + values["material"])
+    assert rest < 0, "the second leader is side B's material"
 
 
 @pytest.mark.parametrize("case", ["plain", "one_xp_short", "plague"])
@@ -188,7 +208,8 @@ def _synthetic_rows(n, b, sigma, seed):
         S["material"] = luck
         rows.append({"match": f"m{k % 2}", "game": f"g{k:05d}", "z": z, "decisive": True, "turns": 10 + k % 30,
                      "scenario_id": f"map{k % 3}", "S": S, "SS": {c: S[c] ** 2 for c in COLUMNS},
-                     "counts": {"attacks": 1, "enumerated": 1}})
+                     "counts": {"attacks": 1, "enumerated": 1},
+                     "raw_temperature_a": 0.0, "raw_temperature_b": 0.0})
     return rows
 
 
@@ -208,3 +229,54 @@ def test_the_readout_recovers_a_known_luck_share():
     assert result["pooled"]["hp"]["ratio"] > 0.98, "a column of noise removes nothing"
     for m in result["matches"].values():
         assert abs(m["corrected"]["material"]["ratio"] - truth) < 0.05
+
+
+def test_the_pooled_fit_reads_only_matches_played_at_argmax():
+    rows = _synthetic_rows(600, 1.0, 1.0, seed=2)
+    for r in rows:
+        if r["match"] == "m1":
+            r["raw_temperature_a"] = 0.5
+    result = readout_mod.readout(rows, seed=0, n_boot=50)
+    assert result["pooled_matches"] == ["m0"] and result["not_pooled"] == ["m1"]
+    assert result["pooled_facts"]["walked"] == 300
+    assert set(result["pooled_by_match"]) == {"m0"}
+    assert result["matches"]["m1"]["corrected"], "a match left out of the pool is still read alone"
+
+
+def test_a_last_row_cut_short_is_dropped_and_its_game_walked_again(tmp_path):
+    """A walk cut mid-write (or a copy of rows.jsonl taken while a row was
+    written) leaves a partial last line: the next walk drops it, keeps
+    every whole row and appends after a newline."""
+    out = tmp_path / "rows.jsonl"
+    whole = (json.dumps({"match": "m", "game": "game_1"}) + "\n").encode()
+    out.write_bytes(whole + b'{"match": "m", "game": "ga')
+    games = tmp_path / "games"
+    games.mkdir()
+    assert match_luck.walk_matches([("m", games)], out) == 0
+    assert out.read_bytes() == whole
+    assert match_luck.done_keys(out) == {("m", "game_1")}
+
+
+def test_fetch_lists_the_pinned_tarballs_and_leaves_out_the_others(tmp_path):
+    host = tmp_path / "host"
+    host.mkdir()
+    (host / "games_good.tar.gz").write_bytes(b"the games played")
+    (host / "games_changed.tar.gz").write_bytes(b"other games")
+    pin = match_luck.sha256_of(host / "games_good.tar.gz")
+    specs = [match_luck.parse_spec(f"{name}=tier-b/run/games_{name}.tar.gz={pin}")
+             for name in ("good", "changed", "absent")]
+
+    def download(path, data):
+        local = host / path.rsplit("/", 1)[-1]
+        if not local.exists():
+            raise FileNotFoundError(path)
+        return local
+
+    manifest = tmp_path / "data.txt"
+    assert match_luck.fetch_matches(specs, tmp_path / "data", manifest, download=download) == 1
+    [line] = manifest.read_text(encoding="utf-8").splitlines()
+    assert line.split("\t") == ["good", str(host / "games_good.tar.gz"), "16", "tier-b/run/games_good.tar.gz"]
+    for bad in ("good=tier-b/run/games_good.tar.gz", f"good=tier-b/run/games_good.json={pin}",
+                f"good=tier-b/run/games_good.tar.gz={pin[:-1]}X"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            match_luck.parse_spec(bad)
