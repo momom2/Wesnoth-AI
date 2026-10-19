@@ -130,7 +130,7 @@ def test_every_match_is_fetched_against_its_pin_walked_alone_and_read(tmp_path):
     out = tmp_path / "out"
     got = _run(tmp_path, out, MATCHES=MATCHES)
     assert got["rc"] == 0 and got["finish"].startswith("MATCH_LUCK_DONE"), (got["finish"], got["stderr"][-2000:])
-    assert "walked 3 of 3; left out: none" in got["finish"]
+    assert got["finish"].rstrip("\n").endswith("walked 3 of 3; left out: none"), got["finish"]
     assert got["names"] == ["fetch", "walk m_a", "walk m_b", "walk m_c", "readout"]
     fetch = got["steps"][0]
     assert f"--data /data --manifest {bash_path(out)}/data.txt {MATCHES}" in fetch
@@ -145,14 +145,14 @@ def test_a_match_that_fails_is_left_out_and_a_re_entry_keeps_its_failed_walk_out
     out = tmp_path / "out"
     got = _run(tmp_path, out, MATCHES=MATCHES, STUB_CRASH="m_b", STUB_UNFETCHED="m_c")
     assert got["rc"] == 0 and got["finish"].startswith("MATCH_LUCK_DONE"), (got["finish"], got["stderr"][-2000:])
-    assert "walked 1 of 3; left out: m_b m_c" in got["finish"]
+    assert got["finish"].rstrip("\n").endswith("walked 1 of 3; left out: m_b m_c"), got["finish"]
     assert got["names"] == ["fetch", "walk m_a", "walk m_b", "readout"], "an unfetched match is not walked"
     assert "LEFT_OUT m_b: its walk failed, rc=3" in got["failed"] and "LEFT_OUT m_c: not fetched" in got["failed"]
     assert json.loads((out / "readout.json").read_text())["pooled_matches"] == ["m_a"]
     again = _run(tmp_path, out, MATCHES=MATCHES)
     assert again["rc"] == 0, (again["finish"], again["stderr"][-2000:])
     assert again["names"] == ["fetch", "walk m_c", "readout"], "only what is not done runs, a failed walk stays out"
-    assert "walked 2 of 3; left out: m_b" in again["finish"]
+    assert again["finish"].rstrip("\n").endswith("walked 2 of 3; left out: m_b"), again["finish"]
     assert "--matches m_a m_c --save-json" in again["steps"][-1]
     rows = [json.loads(line) for line in (out / "rows.jsonl").read_text().splitlines()]
     assert len(rows) == 80 and {r["match"] for r in rows} == {"m_a", "m_c"}

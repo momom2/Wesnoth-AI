@@ -205,5 +205,6 @@ box_bounded readout "$READOUT_CUT_MIN" readout.txt python tools/match_luck.py re
 [ "$BOX_RC" -eq 0 ] || box_finish "READOUT_FAILED rc=$BOX_RC $(notes) (readout.txt)" 1
 box_on_round
 LEFT=$(sed -n 's/^LEFT_OUT \([^:]*\):.*/\1/p' "$OUT/matches_failed.txt" | sort -u | tr '\n' ' ')
+LEFT=${LEFT% }
 box_finish "MATCH_LUCK_DONE $(notes) walked ${#WALKED[@]} of ${#MATCH_NAMES[@]}; left out: ${LEFT:-none}"
 # ---- the matches (end)
