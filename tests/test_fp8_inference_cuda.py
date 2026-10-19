@@ -2,11 +2,12 @@
 the products run torch._scaled_mm on the layouts it takes, eager and
 compiled by inductor with no recompile over three batch shapes; the served
 outputs stay near the bf16 stream's, the compiled loop near the eager one,
-and no static scale clips; the device milliseconds of a production-shaped
-batch, fp8 against the bf16 stream, both compiled (printed with -s).
-Skipped without a GPU of compute capability 8.9 or more (CI, the laptop);
-run by scripts/generation_speed_box.sh. Random weights at the reference's
-shape."""
+and no static scale clips, on random weights at the reference's shape and
+on the reference's own weights when its checkpoint is on the machine; the
+device milliseconds of a production-shaped batch, fp8 against the bf16
+stream, both compiled (printed with -s). Skipped without a GPU of compute
+capability 8.9 or more (CI, the laptop); run by scripts/fp8_inference_box.sh
+as the gate of its fp8 arms."""
 from __future__ import annotations
 
 import random
@@ -115,6 +116,45 @@ def test_the_compiled_fp8_loop_runs_near_the_eager_one_with_one_graph(model, mon
         errors = _relative(compiled[i], eager)
         print("compiled fp8 against eager fp8, max abs / scale:", errors)
         assert max(errors.values()) < 0.05, errors
+    assert seen and max(seen) <= fi.E4M3_MAX, max(seen)
+
+
+def _reference_checkpoint():
+    from tools import reference_player
+    path = reference_player.local_path()
+    return path if path.exists() else None
+
+
+@pytest.mark.skipif(_reference_checkpoint() is None, reason="the reference checkpoint is not on this machine "
+                                                           "(tools/reference_player.py --ensure)")
+def test_the_reference_checkpoint_runs_fp8_near_the_bf16_stream_without_clipping(monkeypatch):
+    """The reference's own weights (the box fetches them before its tests):
+    no statically scaled input over 448 before its cast, and eager fp8
+    within 0.25 of the eager bf16 stream's largest output on
+    production-shaped batches, a crash barrier (a scale off by a factor of
+    two moves an output by its own size; rounding moves it by hundredths);
+    the errors and the scales printed (with -s) for the records. The play
+    check, not this bound, says whether the rounding plays."""
+    from tools.eval_players import _load_policy
+    torch._dynamo.reset()
+    model = _load_policy(_reference_checkpoint(), CUDA, label="reference", infer_bf16=True)._inference_model
+    model.eval()
+    model.infer_packed_trunk = True
+    print("\nreference fp8 scales:", model.fp8_weights(CUDA).summary())
+    seen = []
+    real = fi.static_cast
+
+    def spy(t, scale):
+        seen.append(float(t.float().abs().max()) * float(scale))
+        return real(t, scale)
+    monkeypatch.setattr(fi, "static_cast", spy)
+    for seed in (21, 22):
+        sizes = _sizes(32, seed=seed)
+        errors = _relative(_forward(model, sizes, seed, infer_fp8=True),
+                           _forward(model, sizes, seed, infer_bf16_residual=True))
+        print("reference eager fp8 against the eager bf16 stream, max abs / scale:", errors)
+        assert max(errors.values()) < 0.25, errors
+    print("largest statically scaled input over 448:", max(seen) / fi.E4M3_MAX)
     assert seen and max(seen) <= fi.E4M3_MAX, max(seen)
 
 

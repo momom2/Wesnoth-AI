@@ -522,6 +522,31 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
     }
 
 
+def trunk_device(model):
+    """The device the trunk's weights live on, with its index (`cuda:0`,
+    as a batch's tensors name it, not `cuda`)."""
+    return model.encoder.layers[0].linear1.weight.device
+
+
+def trunk_stats(model, *, compiled: bool, fp8: bool) -> Dict:
+    """What the packed trunk ran, for the server's stats: the compiled
+    loop's state at the end of serving (active, its recompiles, the reason
+    it fell back to the eager loop) and the fp8 copy's input scales and
+    bounds. A compiled server whose loop fell back served eager batches
+    under a compiled label; this is where its records show it. Read at the
+    exit, so a failure to read them is recorded, never raised: the stats
+    must still be written."""
+    out: Dict = {}
+    try:
+        if compiled:
+            out["packed_compile_stats"] = model.packed_compile_stats()
+        if fp8:
+            out["fp8_scales"] = model.fp8_weights(trunk_device(model)).summary()
+    except Exception as e:                          # noqa: BLE001 -- the stats file comes first
+        out["trunk_stats_error"] = f"{type(e).__name__}: {e}"[:300]
+    return out
+
+
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--spec", required=True, help="checkpoint .pt path")
@@ -649,7 +674,7 @@ def main(argv: List[str]) -> int:
         except ValueError as e:
             raise SystemExit(f"--fp8-inference: {e}") from None
         model.infer_fp8 = fp8 = True
-        log.info("fp8 inference: %s", model.fp8_weights(device).summary())
+        log.info("fp8 inference: %s", model.fp8_weights(trunk_device(model)).summary())
     compiled = False
     if args.compile_packed:
         if not packed:
@@ -732,7 +757,9 @@ def main(argv: List[str]) -> int:
     service.stop()
     if timeline is not None:
         timeline.stop()
-    stats = dict(info, **service.stats.as_dict(), fatal=fatal)
+    stats = dict(info, **service.stats.as_dict(), fatal=fatal, **trunk_stats(model, compiled=compiled, fp8=fp8))
+    if timeline is not None:
+        stats["timeline_failed"] = timeline.failed
     if memory is not None:
         stats["memory_states"] = memory.summary()
     if profiler is not None:

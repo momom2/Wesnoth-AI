@@ -230,6 +230,12 @@ def _quantized(w: torch.Tensor) -> Tuple[torch.Tensor, float]:
     return w8, float(inverse)
 
 
+def _float32(value: float) -> torch.Tensor:
+    """A scale as `_scaled_mm` takes it: a float32 scalar, whatever the
+    default dtype (torch 2.5.1 Blas.cpp refuses any other)."""
+    return torch.tensor(value, dtype=torch.float32)
+
+
 def _bf16(t: torch.Tensor) -> torch.Tensor:
     """t's values as bfloat16 holds them, in float32 (what the bounds read)."""
     return t.to(torch.bfloat16).float()
@@ -259,9 +265,9 @@ def build_values(encoder: nn.TransformerEncoder):
             if bias_shape is not None:
                 b = b.reshape(bias_shape)
             if bound is None:
-                return (w8, torch.tensor(inverse), b, None, None)
+                return (w8, _float32(inverse), b, None, None)
             s = scale_for(bound)
-            return (w8, torch.tensor(inverse), b, torch.tensor(s), torch.tensor(1.0 / s))
+            return (w8, _float32(inverse), b, _float32(s), _float32(1.0 / s))
         layers.append((product("in", lb.in_proj, (3, heads, E // heads)), product("out", lb.out_proj),
                        t["norm1_w"].to(torch.bfloat16), t["norm1_b"].to(torch.bfloat16),
                        product("linear1", lb.linear1), product("linear2", lb.linear2),

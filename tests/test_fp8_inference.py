@@ -5,10 +5,12 @@ loop is the eager loop to the bit and compiles once; every static input
 scale keeps its input at or under 448, and each bound is attained by an
 input built to reach it; a static cast saturates where a bound would fail;
 the copy follows published weights; the first layer's inputs take their
-batch's scale and the others the weights'; the loop refuses what it cannot
+batch's scale and the others the weights'; the server's stats name the
+compiled loop's state and the scales; the loop refuses what it cannot
 run."""
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -188,6 +190,33 @@ def test_the_first_layer_takes_its_batch_scale_and_the_others_the_weights():
     exponents = w.summary()["input_scale_exponents"]
     assert exponents[0][:2] == [None, None] and all(isinstance(e, int) for e in exponents[0][2:])
     assert all(isinstance(e, int) for layer in exponents[1:] for e in layer)
+
+
+def test_the_servers_stats_name_the_compiled_loop_and_the_fp8_scales():
+    """tools/eval_inference_server.trunk_stats, read at the server's exit:
+    the compiled fp8 loop's state, a fallback to the eager loop with its
+    reason, the input scales (the first layer's two from its batch), all
+    JSON; a failure to read them is recorded, never raised, since the
+    server's stats file is written after them."""
+    from tools.eval_inference_server import trunk_stats
+    model = _model()
+    model.configure_packed_compile(backend="aot_eager")
+    _forward(model, SHAPES[0], 41, infer_fp8=True, infer_compile_packed=True)
+    model.infer_fp8 = True
+    stats = json.loads(json.dumps(trunk_stats(model, compiled=True, fp8=True)))
+    compiled = stats["packed_compile_stats"]
+    assert compiled["active"] and compiled["fp8"] and compiled["fallback_reason"] is None, compiled
+    assert stats["fp8_scales"]["input_scale_exponents"][0][:2] == [None, None]
+    model._fp8_compile._fall_back("a guard failed")
+    fell = trunk_stats(model, compiled=True, fp8=True)["packed_compile_stats"]
+    assert not fell["active"] and fell["fallback_reason"] == "a guard failed"
+    model.infer_fp8 = False
+    assert trunk_stats(model, compiled=False, fp8=False) == {}
+
+    class Broken:
+        def packed_compile_stats(self):
+            raise RuntimeError("no dynamo")
+    assert trunk_stats(Broken(), compiled=True, fp8=False) == {"trunk_stats_error": "RuntimeError: no dynamo"}
 
 
 def test_the_fp8_loop_refuses_what_it_cannot_run():
