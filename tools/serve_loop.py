@@ -142,14 +142,17 @@ class ServeStats:
 
 class Timeline:
     """A thread appending `stats.counters()` to `path` every `every_s`
-    seconds, one JSON line each, flushed: the server's rate over any part
-    of its run, read on the run (tools/box_probe.py reads a steady window
-    and stops the match without waiting for its end)."""
+    seconds, one JSON line each, flushed, and a last line at `stop`: the
+    server's rate over any part of its run, read on the run
+    (tools/box_probe.py and scripts/fp8_inference_box.sh read a steady
+    window). A write that fails ends the timeline, never the serving or
+    the server's exit, whose stats are the run's primary record."""
 
     def __init__(self, stats: ServeStats, path, every_s: float):
         self._stats, self._path, self._every = stats, path, float(every_s)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="serve-timeline", daemon=True)
+        self.failed: Optional[str] = None
 
     def start(self) -> "Timeline":
         self._thread.start()
@@ -158,20 +161,24 @@ class Timeline:
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=5.0)
-        self._write()
+        if self.failed is None:
+            self._write()
 
-    def _write(self) -> None:
+    def _write(self) -> bool:
         import json
-        with open(self._path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(self._stats.counters()) + "\n")
-            f.flush()
+        try:
+            with open(self._path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(self._stats.counters()) + "\n")
+                f.flush()
+        except OSError as e:
+            self.failed = f"{type(e).__name__}: {e}"
+            log.warning("server timeline stopped: %s", self.failed)
+            return False
+        return True
 
     def _run(self) -> None:
         while not self._stop.wait(self._every):
-            try:
-                self._write()
-            except OSError as e:                     # the record stops, the serving goes on
-                log.warning("server timeline: %s", e)
+            if not self._write():
                 return
 
 

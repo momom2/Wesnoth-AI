@@ -3,7 +3,8 @@ boxes by throughput per dollar.
 
     python tools/box_probe.py run --out probe.json --reference CKPT [--windows DIR] [--passes 2]
     python tools/box_probe.py cut-windows --sequences SEQ --dataset CORPUS --own-sequences OWN --out DIR
-    python tools/box_probe.py rank --probes DIR OFFERS.json     (scripts/rent_box.py rank searches the offers)
+    python tools/box_probe.py rank --probes DIR OFFERS.json
+    python scripts/rent_box.py rank [--by generation|training]  (the market's offers, searched and ranked)
 
 run: the box's facts (CPU model and usable cores, memory, GPU, its PCIe
 link, clocks and power limit, the torch build, the code and the wheel), then
@@ -487,7 +488,7 @@ def expected(probes: List[Dict], gpu: str, cpu: str, key: str) -> Optional[Dict]
 def rank_offers(offers: List[Dict], probes: List[Dict], key: str = "generation") -> List[Dict]:
     """The offers with an expected figure, best figure a dollar first; each
     row the offer's id, price, GPU and CPU, the expected figure and its
-    units an hour per dollar."""
+    units per dollar spent (the figure an hour over the price an hour)."""
     rows = []
     for o in offers:
         gpu, cpu = gpu_key(o.get("gpu_name") or ""), cpu_key(o.get("cpu_name") or "")
@@ -498,8 +499,8 @@ def rank_offers(offers: List[Dict], probes: List[Dict], key: str = "generation")
         rows.append({"id": o.get("id"), "dph": round(dph, 3), "gpu": gpu, "cpu": cpu,
                      "cores": o.get("cpu_cores_effective"), "expected": round(exp["value"], 1),
                      "probes": exp["probes"], "match": exp["match"],
-                     "per_dollar_hour": round(exp["value"] * 3600.0 / dph)})
-    return sorted(rows, key=lambda r: -r["per_dollar_hour"])
+                     "per_dollar": round(exp["value"] * 3600.0 / dph)})
+    return sorted(rows, key=lambda r: -r["per_dollar"])
 
 
 def rank(opts) -> int:

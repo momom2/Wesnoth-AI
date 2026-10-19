@@ -3,6 +3,7 @@
 CLI binary is blocked on the laptop).
 
     python scripts/rent_box.py search [--gpu "RTX 4090"] [--max-dph 0.8] [--min-cpu 16] [--min-hours 4]
+    python scripts/rent_box.py rank [search's options] [--by generation|training] [--probes DIR]
     python scripts/rent_box.py create OFFER_ID --onstart HF_STAGING_SCRIPT [--hours N] [--stage PATH] [--disk 40] [--env K=V ...]
     python scripts/rent_box.py status [INSTANCE_ID]
     python scripts/rent_box.py logs INSTANCE_ID [--tail N] [--daemon-logs]
@@ -21,7 +22,10 @@ box_onstart.sh fetches the rest of the library, then the script; for any
 other script it fetches the script from HF `tier-b/staging/`. Offers are
 filtered client-side: no VM hosts (they refuse ssh), a remaining rental
 window of at least --min-hours. Prices are for --disk GB of storage, the
-disk `create` rents.
+disk `create` rents. `rank` orders the same offers by the throughput a
+dollar that the box probes recorded under training/metrics/box_probes/
+predict for their GPU and CPU (tools/box_probe.py); an offer whose GPU no
+probe measured is counted, not ranked.
 
 Before renting, `create` checks the following, and refuses with the reasons
 when any check fails:
@@ -68,6 +72,9 @@ try:
 except ImportError:              # run as a script: scripts/ is on the path, the root is not
     from box.box_stage import LIBRARY_FILES, library_dir
 
+ROOT = Path(__file__).resolve().parent.parent
+# The box probes' records (tools/box_probe.py run), which `rank` reads.
+PROBES = ROOT / "training" / "metrics" / "box_probes"
 IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
 HF_REPO = "momom2/wesnoth-model-checkpoints"
 STAGING = "tier-b/staging/"
@@ -217,8 +224,16 @@ def _staging(token: str) -> HfStaging:
     return HfStaging(token)
 
 
-def search(args) -> int:
-    v = _vast()
+def hours_left(offer: dict, now: float) -> float:
+    """The offer's remaining rental window in hours (open-ended: 1e9)."""
+    end = offer.get("end_date") or 0
+    return (end - now) / 3600 if end else 1e9
+
+
+def market_offers(v, args) -> list[dict] | None:
+    """The rentable offers of `--gpu` under `--max-dph`, cheapest first: no
+    VM host, a rental window of at least `--min-hours`. None, with Vast's
+    answer printed, when the answer is not a list of offers."""
     q = (f"gpu_name={args.gpu.replace(' ', '_')} num_gpus=1 cpu_cores_effective>={args.min_cpu} "
          f"dph_total<={args.max_dph} reliability>0.95 disk_space>={args.disk} "
          f"rentable=true rented=false verified=true inet_down>200 inet_up>50")
@@ -226,24 +241,44 @@ def search(args) -> int:
                       storage=args.disk)
     if not isinstance(offers, list):
         print(redacted(offers))
+        return None
+    now = time.time()
+    return [o for o in offers if isinstance(o, dict) and not o.get("vms_enabled")
+            and hours_left(o, now) >= args.min_hours]
+
+
+def search(args) -> int:
+    offers = market_offers(_vast(), args)
+    if offers is None:
         return 1
     now = time.time()
-    rows = []
-    for o in offers:
-        if o.get("vms_enabled"):
-            continue
-        end = o.get("end_date") or 0
-        hours = (end - now) / 3600 if end else 1e9
-        if hours < args.min_hours:
-            continue
-        rows.append(o)
+    for o in offers[:args.limit]:
         print(f"{o['id']:>10}  {o.get('gpu_name'):12s}  ${o.get('dph_total', 0):.3f}/h  "
               f"{o.get('cpu_cores_effective', 0):5.1f} cores  {(o.get('cpu_ram') or 0) / 1024:5.0f} GB RAM  "
               f"{(o.get('cpu_name') or '')[:28]:28s}  "
               f"{o.get('geolocation', ''):18s}  up {o.get('inet_up', 0):6.0f} Mb/s  "
-              f"disk {o.get('disk_space', 0):5.0f}  {hours:6.1f} h left")
-        if len(rows) >= args.limit:
-            break
+              f"disk {o.get('disk_space', 0):5.0f}  {hours_left(o, now):6.1f} h left")
+    return 0
+
+
+def rank(args) -> int:
+    """`search`'s offers ranked by the throughput a dollar that the recorded
+    box probes predict for their GPU and CPU (tools/box_probe.py)."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tools.box_probe import load_probes, rank_offers
+    offers = market_offers(_vast(), args)
+    if offers is None:
+        return 1
+    probes = load_probes(Path(args.probes))
+    rows = rank_offers(offers, probes, args.by)
+    unit = {"generation": "decisions", "training": "positions"}[args.by]
+    for r in rows[:args.limit]:
+        print(f"{r['id']:>10}  {r['gpu']:12s}  ${r['dph']:.3f}/h  {r['cores'] or 0:5.1f} cores  "
+              f"{r['cpu'][:28]:28s}  {r['expected']:8.1f} {unit} a second ({r['probes']} probes, "
+              f"{r['match']})  {r['per_dollar']:>10,} a dollar")
+    print(f"{len(rows)} of {len(offers)} offers ranked by {len(probes)} probes under {args.probes}; "
+          f"{len(offers) - len(rows)} have no probe of their GPU")
     return 0
 
 
@@ -594,17 +629,28 @@ def status(args) -> int:
     return 0
 
 
+def _offer_options(p: argparse.ArgumentParser) -> None:
+    """The market query's options, shared by search and rank."""
+    p.add_argument("--gpu", default="RTX 4090")
+    p.add_argument("--max-dph", type=float, default=0.8)
+    p.add_argument("--min-cpu", type=int, default=16)
+    p.add_argument("--min-hours", type=float, default=4.0)
+    p.add_argument("--disk", type=int, default=40)
+    p.add_argument("--limit", type=int, default=12)
+
+
 def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Rent, inspect, stop and destroy Vast boxes.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("search", help="rentable offers, cheapest first")
-    s.add_argument("--gpu", default="RTX 4090")
-    s.add_argument("--max-dph", type=float, default=0.8)
-    s.add_argument("--min-cpu", type=int, default=16)
-    s.add_argument("--min-hours", type=float, default=4.0)
-    s.add_argument("--disk", type=int, default=40)
-    s.add_argument("--limit", type=int, default=12)
+    _offer_options(s)
     s.set_defaults(fn=search)
+    rk = sub.add_parser("rank", help="search's offers, best expected throughput a dollar first")
+    _offer_options(rk)
+    rk.add_argument("--probes", default=str(PROBES),
+                    help="the recorded box probes (tools/box_probe.py run's records), searched recursively")
+    rk.add_argument("--by", choices=("generation", "training"), default="generation")
+    rk.set_defaults(fn=rank)
     c = sub.add_parser("create", help="rent an offer once the preflight passes")
     c.add_argument("offer_id", type=int)
     c.add_argument("--onstart", required=True, help="script name under tier-b/staging/")
