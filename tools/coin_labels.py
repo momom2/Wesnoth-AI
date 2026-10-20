@@ -71,7 +71,7 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -232,24 +232,30 @@ class Table:
         return self.z != 0
 
 
-def load_jsonl(paths: Sequence[Path]) -> List[dict]:
-    rows = []
+def iter_jsonl(paths: Sequence[Path]) -> Iterator[dict]:
+    """The rows of JSON-lines files, one at a time."""
     for path in paths:
         with open(path, encoding="utf-8") as fh:
-            rows += [json.loads(line) for line in fh if line.strip()]
-    return rows
+            for line in fh:
+                if line.strip():
+                    yield json.loads(line)
 
 
-def build_table(coin_rows: Sequence[dict], luck_rows: Sequence[dict]) -> Table:
+def load_jsonl(paths: Sequence[Path]) -> List[dict]:
+    return list(iter_jsonl(paths))
+
+
+def build_table(coin_rows: Iterable[dict], luck_rows: Sequence[dict]) -> Table:
     """The coin rows joined with the walk's rows on (match, game). A game
     the walk has not read, or read with an error, is left out and counted;
     a result that differs between the two rows refuses the join."""
     luck = {(r["match"], r["game"]): r for r in luck_rows}
-    counts = {"coin_rows": len(coin_rows), "unwalked": 0, "walk_errors": 0}
+    counts = {"coin_rows": 0, "unwalked": 0, "walk_errors": 0}
     keys, z, S, side_a, att_d, att_p = [], [], [], [], [], []
     cols = {k: [] for k in ("g", "side", "s", "index", "gap", "p", "d", "k0", "k1", "refused")}
     i_log = {"matched": 0, "mismatched": 0, "unresolved": 0}
     for row in coin_rows:
+        counts["coin_rows"] += 1
         key = (row["match"], row["game"])
         lr = luck.get(key)
         if lr is None:
@@ -588,7 +594,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         n = extract_matches(args.match, args.out)
         log.info("%d rows written to %s", n, args.out)
         return 0
-    table = build_table(load_jsonl(args.coins), load_jsonl(args.rows))
+    table = build_table(iter_jsonl(args.coins), load_jsonl(args.rows))
     result = readout(table, load_beta(args.beta), args.band, load_jsonl(args.plant) if args.plant else ())
     print(report_text(result))
     if args.save_json is not None:

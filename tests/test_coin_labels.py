@@ -21,81 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools import coin_labels, coin_plant  # noqa: E402
 from tools.coin_labels import build_table, decision_labels, extract_game, readout  # noqa: E402
 from tools.match_luck import COLUMNS  # noqa: E402
-
-P = 0.25
-W = 0.35
-# Ordered pair types (argmax kind, runner-up kind) with the runner-up's
-# effect for the mover, c + b G, in result units.
-EFFECTS = {("move", "move"): (0.08, 0.0), ("move", "attack"): (-0.03, 0.04), ("end_turn", "move"): (0.0, 0.06)}
-TYPES = list(EFFECTS)
-# A runner-up attack's coin landing 1 brings one more band decision of the
-# same mover, of this type (the policy re-decides after the roll).
-EXTRA = ("end_turn", "move")
-DICE_SLOPE = 0.0042
-
-
-def _effect(pair, gap) -> float:
-    c, b = EFFECTS[pair]
-    return c + b * gap
-
-
-# The extra decision's expected effect, its gap uniform on [0, W).
-EXTRA_MEAN = EFFECTS[EXTRA][0] + EFFECTS[EXTRA][1] * W / 2
-
-
-def _entry(side, i, gap, d, pair) -> dict:
-    return {"side": side, "i": i, "cmd": None, "gap": gap, "p": P, "d": d,
-            "a0": {"kind": pair[0]}, "a1": {"kind": pair[1]}}
-
-
-def synthetic_game(rng, k: int, leak: float = 0.0):
-    """(result, record, luck row, truths) of one synthetic game. The movers
-    alternate every four decisions; each band decision's coin plays the
-    runner-up with probability P, adding s * (c + b G) to side A's mean
-    result; a runner-up attack played brings an extra band decision. The
-    dice: two large fights and 8 + 2 x (coins landed 1) small ones, each of
-    mean zero whatever the coins, read by the seven luck columns. z is +1
-    with probability (1 + mean) / 2. `leak` adds the coins' signed count to
-    the hp column: a variate read after the coin."""
-    side_a = 1 if k % 2 == 0 else 2
-    entries, truths, mean, ones = [], [], 0.03 * (1 if side_a == 1 else -1), 0
-    n_base, i_side = 16, {1: 0, 2: 0}
-    kinds = rng.integers(len(TYPES), size=n_base)
-    pending = [(1 + (j // 4) % 2, TYPES[int(kinds[j])]) for j in range(n_base)]
-    gaps, coins = rng.uniform(0, W, 2 * n_base).tolist(), (rng.random(2 * n_base) < P).tolist()
-    leaked = 0.0
-    while pending:
-        side, pair = pending.pop(0)
-        gap, d = gaps[len(entries)], int(coins[len(entries)])
-        s = 1 if side == side_a else -1
-        truth = _effect(pair, gap) + (P * EXTRA_MEAN if pair[1] == "attack" else 0.0)
-        entries.append(_entry(side, i_side[side], gap, d, pair))
-        truths.append(truth)
-        i_side[side] += 1
-        mean += s * _effect(pair, gap) * d
-        ones += d
-        leaked += s * d
-        if d and pair[1] == "attack":
-            pending.insert(0, (side, EXTRA))
-    big = 50.0 * rng.uniform(-1, 1, 2)
-    small = rng.uniform(-1, 1, 8 + 2 * ones)
-    hp = big.sum() + 3.0 * small.sum()
-    mean += DICE_SLOPE * big.sum() + 0.004 * small.sum()
-    z = 1 if rng.random() < (1 + np.clip(mean, -1, 1)) / 2 else -1
-    if rng.random() < 0.01:
-        z = 0                                            # a capped game
-    noise = rng.normal(0, 1, len(COLUMNS))
-    S = {"hp": hp + leak * leaked, "material": 0.5 * big.sum() + small.sum() + noise[1],
-         "material_nonterminal": noise[2] * 20, "terminal": 0.01 * big.sum(),
-         "value_50": 0.004 * big.sum() + 0.1 * noise[4], "value_100": 0.002 * big.sum(), "value_200": noise[6]}
-    game = f"game_s{side_a}_{k}"
-    outcome = {1: "win", -1: "loss", 0: "timeout"}[z]
-    result = {"outcome_a": outcome, "seed": k, "side_a": side_a, "ended_by": "leader_killed" if z else "max_turns"}
-    record = {"game_label": game, "winner": 0 if z == 0 else (side_a if z == 1 else 3 - side_a),
-              "players": {"a": {"side": side_a}, "b": {"side": 3 - side_a}}, "commands": [],
-              "coins": {"bands": {"a": {"band": W, "p": P}, "b": {"band": W, "p": P}}, "decisions": entries}}
-    luck = {"match": "m", "game": game, "z": z, "decisive": z != 0, "S": S}
-    return result, record, luck, truths
+from helpers.coin_games import P, W, attack_game, entry, synthetic_game  # noqa: E402
 
 
 def synthetic(n: int, seed: int = 0, leak: float = 0.0):
@@ -195,7 +121,7 @@ def test_the_result_is_side_a_s_and_the_mover_s_sign_follows_side_a():
     """A game with side A on side 2: a win for side A is z = +1 and a
     decision by side 2 has s = +1, one by side 1 s = -1."""
     rec = {"winner": 2, "players": {"a": {"side": 2}}, "commands": [],
-           "coins": {"decisions": [_entry(2, 0, 0.1, 1, ("move", "move")), _entry(1, 0, 0.2, 0, ("move", "attack"))]}}
+           "coins": {"decisions": [entry(2, 0, 0.1, 1, ("move", "move")), entry(1, 0, 0.2, 0, ("move", "attack"))]}}
     row = extract_game("m", "g", {"outcome_a": "win", "side_a": 2}, rec)
     table = build_table([row], [{"match": "m", "game": "g", "z": 1, "S": dict.fromkeys(COLUMNS, 0.0)}])
     assert table.z.tolist() == [1.0] and table.s.tolist() == [1.0, -1.0]
@@ -278,23 +204,10 @@ def test_the_dice_window_is_the_design_s():
 
 
 def _attack_games(n, effect, seed=2):
-    """Games whose attack coin puts the hook on A (d 1) or B (d 0), the
-    hooked player's mean result lowered by `effect`."""
     rng = np.random.default_rng(seed)
-    coin_rows, luck = [], []
-    for k in range(n):
-        side_a = 1 + k % 2
-        d = int(rng.random() < 0.5)
-        mean = (-effect if d else effect) + 0.03 * (1 if side_a == 1 else -1)
-        hp = 50.0 * rng.uniform(-1, 1)
-        z = 1 if rng.random() < (1 + mean + DICE_SLOPE * hp) / 2 else -1
-        game = f"g{k}"
-        rec = {"winner": side_a if z == 1 else 3 - side_a, "players": {"a": {"side": side_a}}, "commands": [],
-               "coins": {"bands": {}, "decisions": [], "attack": {"offset": 1.0, "p": 0.5, "d": d,
-                                                                  "seat": "a" if d else "b"}}}
-        coin_rows.append(extract_game("m", game, {"outcome_a": "win" if z == 1 else "loss", "side_a": side_a}, rec))
-        luck.append({"match": "m", "game": game, "z": z, "S": {**dict.fromkeys(COLUMNS, 0.0), "hp": hp}})
-    return build_table(coin_rows, luck)
+    games = [attack_game(rng, k, effect) for k in range(n)]
+    return build_table([extract_game("m", rec["game_label"], res, rec) for res, rec, _l in games],
+                       [lr for _res, _rec, lr in games])
 
 
 def test_the_attack_coin_reads_twice_the_hooked_player_s_effect():
