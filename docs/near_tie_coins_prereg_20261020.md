@@ -153,3 +153,19 @@ slot i replaced by seed + k × 1,000,000. On 2026-10-20 no script, document
 or `training/metrics` record names a seed base above 250000 (the
 decode-knob confirmation, 250000 to 250799), and the lead's separate `own2`
 match plays 300000 to 312799.
+
+## Amendment before any result (2026-10-20, written at launch)
+
+The run plays batch 1 at N_B = 60,000 games (`--env N_B=60000`), with
+BOX_MAX_H 4.5 (`--env BOX_MAX_H=4.5`), on instance 56955777 (RTX 4090, EPYC
+7702, $0.577 an hour), from stage `tier-b/staging/stage_20261020_coins.tar.gz`
+built from 2eab835. The reason is the window's box budget: the user allowed
+$5 in all, and the own2-base match (`docs/own2_base_prereg_20261020.md`) runs
+alongside. Stage A and the smoke are unchanged. Batch 1's readings at 60,000
+games, by the formulas above [D]:
+- coin plant per mover side: SE √(3/60,000) = 0.0071;
+- pooled mean label: SE 0.00054 × √(100,000/60,000) = 0.00070;
+- dice control window: [+0.00267, +0.00565] (`tools/coin_plant.dice_window(60000)`).
+If the box's hour cap ends batch 1 early, the readings are those of the
+matches completed, each match of 10,000 games read whole, and the count is
+reported.
