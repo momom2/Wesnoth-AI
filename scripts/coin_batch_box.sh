@@ -37,7 +37,7 @@
 # above 300,000, so batch 1 stays below 900000.
 #
 # Expected wall on a 4090 with 31-32 usable cores: bring-up, wheel and tests
-# 20-25 minutes (the fp8 run's, training/metrics fp8 box script); stage A
+# 20-25 minutes (scripts/fp8_inference_box.sh's estimate); stage A
 # 6,400 games at the pool's steady 21,966 games an hour (ref_p120x6,
 # docs/training_design_20261019/analysis/round7_provenance_price_tail.out)
 # 17.5 minutes, its walk about 1.5 (the 2026-10-19 walk read 800 games in
@@ -125,7 +125,9 @@ plan_chunks() {
     done
 }
 for v in N_A N_B SMOKE_GAMES CHUNK_GAMES A_SEED_BASE B_SEED_BASE JOBS; do
-    [[ ${!v} =~ ^[0-9]+$ ]] && (( ${!v} > 0 )) || box_finish "BAD_PLAN: $v=${!v} is not a positive integer" 1
+    if ! [[ ${!v} =~ ^[1-9][0-9]*$ ]]; then
+        box_finish "BAD_PLAN: $v=${!v} is not a positive integer" 1
+    fi
 done
 (( N_B <= 300000 )) || box_finish "BAD_PLAN: N_B=$N_B: batch 1's seeds would pass 900000" 1
 plan_chunks

@@ -211,6 +211,14 @@ def test_a_smoke_that_fails_a_check_stops_the_batch_and_says_which(tmp_path):
     assert got["names"][-1] == "readout readout_smoke" and "match b01" not in got["names"]
 
 
+@pytest.mark.parametrize("env, why", [({"N_B": 400000}, "N_B=400000"), ({"CHUNK_GAMES": "1e4"}, "CHUNK_GAMES=1e4"),
+                                      ({"N_A": 0}, "N_A=0")])
+def test_a_plan_it_cannot_play_is_refused_before_any_step(tmp_path, env, why):
+    got = _run(tmp_path, **env)
+    assert got["rc"] == 1 and got["finish"].startswith("BAD_PLAN") and why in got["finish"], got["finish"]
+    assert not got["names"]
+
+
 def test_a_crashed_smoke_stops_the_batch(tmp_path):
     got = _run(tmp_path, VARIANT_b00="crash", **B_ONLY)
     assert got["rc"] == 1 and "SMOKE_FAILED: the match failed" in got["finish"], got["finish"]
