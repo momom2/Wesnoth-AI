@@ -1,0 +1,7 @@
+Tue Oct 20 22:40:19 UTC 2026
+games: 6402, fit: yes
+own2_vs_own1: 3533 s, 6402 games, 6400 decisive, rc=0 ok
+deadman.log restore.log upload.log stages.txt RUN_STAGE pip.log staging.log build.log box.txt tests.log walls.txt gpu.log own2_vs_own1.log progress.txt timing_own2_vs_own1.txt match.walls own2_vs_own1.server_0.json own2_vs_own1.server_1.json own2_vs_own1.fit.json progress.txt.tmp 
+
+games: 6402 (2 no-result, excluded from PURE) | anchor: own1 = 0 | procedure: raw:t0+eo-1.5/raw:t0+eo-1.5 | hex basis: relset/relset | terrain view: set/set | combat stream: per_game
+written: /workspace/own2base/own2_vs_own1.fit.json

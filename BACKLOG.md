@@ -210,6 +210,11 @@ $1.47 in all):
     adopts.
   - The main unknown is the near-tie spread: nothing on disk measures it.
   - Rulings it asks of the user: (a) to (g) in `current_design.md` section 7.
+  - **`own2` measured as the base** (0.30.2, docs/own2_base_prereg_20261020.md
+    "Measured", about $0.66): +22.7 +- 4.4 Elo over `own1` in 6,400 decisive
+    games, lower bound +14.0, so the design's base is `own2`. As a PURE claim
+    against the reference `own1`: +22.7 +- 4.4. Adopting `own2` as the
+    reference (configs/reference_player.json) is the user's call.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

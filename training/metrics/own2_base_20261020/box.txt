@@ -1,0 +1,16 @@
+stage tier-b/staging/stage_20261020_own2base.tar.gz
+instance 56955126, host fc7b11195f38
+cores(all) 256, usable 31
+model name	: AMD EPYC 7702 64-Core Processor
+cpu.max 3071999 100000
+pids.max 7680
+               total        used        free      shared  buff/cache   available
+Mem:          515738       75881      203980        1348      235876      433475
+overlay          40G  1.3G   39G   4% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.159.03
+torch 2.5.1+cu124 cuda True
+code 0.30.1 epoch 11
+wheel phase 35, source phase 35
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 35 | source 35 | adapter 35 | current

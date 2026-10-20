@@ -1,0 +1,2 @@
+own2_vs_own1: 3533 s, 6402 games, 6400 decisive, rc=0 ok
+MATCH_READ own2_vs_own1: own2 +22.7 +- 4.4 Elo over own1, lower bound +14.0: base own2; record window [-9.6, +42.6]: inside
