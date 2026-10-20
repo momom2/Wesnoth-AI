@@ -53,7 +53,7 @@ for i in range(games):
         if variant == "biased":
             for e in rec["coins"]["decisions"]:
                 e["d"] = int(rng.random() < 0.45)
-    (outdir / f"{game}.json").write_text(json.dumps({**res, "label_a": "own1a", "label_b": "own1b"}))
+    (outdir / f"{game}.json").write_text(json.dumps({**res, "seed": seed, "label_a": "own1a", "label_b": "own1b"}))
     (outdir / f"{game}.game.jsonl.gz").write_bytes(gzip.compress((json.dumps(rec) + "\n").encode()))
     luck.append(json.dumps(lr))
 (outdir / ".luck.jsonl").write_text("\n".join(luck) + "\n")
@@ -192,6 +192,9 @@ def test_both_stages_run_each_match_read_as_it_lands_and_a_re_entry_plays_nothin
     assert got["a"]["attack"]["games"] == 1500 and got["a"]["verdict"] == "PASS", got["a"]["checks"]
     assert got["smoke"]["verdict"] == "PASS" and got["smoke"]["games"]["read"] == 1000
     assert got["b"]["verdict"] == "PASS" and got["b"]["games"]["read"] == 2200 and set(got["b"]["plant"]) == {"a", "b"}
+    slots = {m: a["slots"] for m, a in got["b"]["matches"].items()}
+    assert slots["b01"]["planned"] == 600 and slots["b01"]["seed_base"] == 601000
+    assert not any(s["cut"] for s in slots.values()) and got["a"]["matches"]["a"]["slots"]["with_result"] == 1500
     restore = next(s for s in got["steps"] if s.startswith("restore"))
     assert "coins_b02.jsonl" in restore and "match_b02.done" in restore and "readout_a.json" in restore
     again = _run(tmp_path)

@@ -19,16 +19,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tools import coin_labels, coin_plant  # noqa: E402
-from tools.coin_labels import build_table, decision_labels, extract_game, readout  # noqa: E402
+from tools.coin_labels import build_table, decision_labels, readout  # noqa: E402
+from tools.coin_rows import extract_game  # noqa: E402
 from tools.match_luck import COLUMNS  # noqa: E402
-from helpers.coin_games import P, W, attack_game, entry, synthetic_game  # noqa: E402
+from helpers.coin_games import P, W, attack_game, coin_rows_of, entry, synthetic_game  # noqa: E402
 
 
 def synthetic(n: int, seed: int = 0, leak: float = 0.0):
     rng = np.random.default_rng(seed)
     games = [synthetic_game(rng, k, leak) for k in range(n)]
-    coins = [extract_game("m", rec["game_label"], res, rec) for res, rec, _, _ in games]
-    table = build_table(coins, [g[2] for g in games])
+    table = build_table(coin_rows_of(games), [g[2] for g in games])
     truths = np.concatenate([g[3] for g in games])
     return games, table, truths
 
@@ -123,14 +123,15 @@ def test_the_result_is_side_a_s_and_the_mover_s_sign_follows_side_a():
     rec = {"winner": 2, "players": {"a": {"side": 2}}, "commands": [],
            "coins": {"decisions": [entry(2, 0, 0.1, 1, ("move", "move")), entry(1, 0, 0.2, 0, ("move", "attack"))]}}
     row = extract_game("m", "g", {"outcome_a": "win", "side_a": 2}, rec)
-    table = build_table([row], [{"match": "m", "game": "g", "z": 1, "S": dict.fromkeys(COLUMNS, 0.0)}])
+    manifest = {"match": "m", "manifest": {"results": 1}}
+    table = build_table([row, manifest], [{"match": "m", "game": "g", "z": 1, "S": dict.fromkeys(COLUMNS, 0.0)}])
     assert table.z.tolist() == [1.0] and table.s.tolist() == [1.0, -1.0]
     T = decision_labels(table, np.zeros(len(COLUMNS)))
     assert T.tolist() == pytest.approx([1 / P, -(-P) / (P * (1 - P))])
     with pytest.raises(ValueError, match="contradicts"):
         extract_game("m", "g", {"outcome_a": "loss", "side_a": 2}, rec)
     with pytest.raises(ValueError, match="join"):
-        build_table([row], [{"match": "m", "game": "g", "z": -1, "S": dict.fromkeys(COLUMNS, 0.0)}])
+        build_table([row, manifest], [{"match": "m", "game": "g", "z": -1, "S": dict.fromkeys(COLUMNS, 0.0)}])
 
 
 def _plant(games, table, beta):
@@ -149,8 +150,7 @@ def test_the_coin_plant_reads_one_per_mover_side(data):
 def test_a_wrong_mover_sign_reads_minus_one(data, monkeypatch):
     games, table, _truths = data
     monkeypatch.setattr(coin_labels, "mover_sign", lambda side, side_a: -np.where(side == side_a, 1, -1))
-    rows = [extract_game("m", rec["game_label"], res, rec) for res, rec, _l, _t in games]
-    flipped = build_table(rows, [g[2] for g in games])
+    flipped = build_table(coin_rows_of(games), [g[2] for g in games])
     r = _plant(games, flipped, _fitted_beta(flipped))
     for side in ("a", "b"):
         p = r["plant"][side]
@@ -160,8 +160,7 @@ def test_a_wrong_mover_sign_reads_minus_one(data, monkeypatch):
 def test_a_coin_read_one_decision_off_reads_zero(data, monkeypatch):
     games, table, _truths = data
     monkeypatch.setattr(coin_labels, "coin_outcomes", lambda band: np.roll(np.asarray(band["d"], float), 1))
-    rows = [extract_game("m", rec["game_label"], res, rec) for res, rec, _l, _t in games]
-    shifted = build_table(rows, [g[2] for g in games])
+    shifted = build_table(coin_rows_of(games), [g[2] for g in games])
     r = _plant(games, shifted, _fitted_beta(shifted))
     for side in ("a", "b"):
         p = r["plant"][side]
@@ -177,13 +176,13 @@ def test_the_dice_control_fails_a_flipped_result_the_plant_cannot_see(data):
     good = _plant(games, table, beta)
     assert good["checks"]["dice_control"]["pass"], good["checks"]["dice_control"]
     flip = {"win": "loss", "loss": "win"}
-    rows, luck = [], []
+    flipped, luck = [], []
     for res, rec, lr, _t in games:
         res = {**res, "outcome_a": flip.get(res["outcome_a"], res["outcome_a"])}
         rec = {**rec, "winner": 0 if rec["winner"] == 0 else 3 - rec["winner"]}
-        rows.append(extract_game("m", rec["game_label"], res, rec))
+        flipped.append((res, rec))
         luck.append({**lr, "z": -lr["z"]})
-    bad_table = build_table(rows, luck)
+    bad_table = build_table(coin_rows_of(flipped), luck)
     plant_rows = [coin_plant.planted_row("m", rec["game_label"], {**rec, "winner": 0 if rec["winner"] == 0 else 3 - rec["winner"]},
                                          1.0, "move>move", "test") for _res, rec, _l, _t in games]
     bad = readout(bad_table, beta, W, plant_rows)
@@ -206,8 +205,7 @@ def test_the_dice_window_is_the_design_s():
 def _attack_games(n, effect, seed=2):
     rng = np.random.default_rng(seed)
     games = [attack_game(rng, k, effect) for k in range(n)]
-    return build_table([extract_game("m", rec["game_label"], res, rec) for res, rec, _l in games],
-                       [lr for _res, _rec, lr in games])
+    return build_table(coin_rows_of(games), [lr for _res, _rec, lr in games])
 
 
 def test_the_attack_coin_reads_twice_the_hooked_player_s_effect():
@@ -244,12 +242,14 @@ def test_the_command_line_extracts_plants_and_reads_a_games_directory(tmp_path, 
     for _ in range(2):
         assert coin_labels.main(["extract", "--match", f"m={tmp_path / 'games'}", "--out", str(coins)]) == 0
         assert coin_plant.main(["plant", "--match", f"m={tmp_path / 'games'}", "--out", str(plant)]) == 0
-    assert len(coins.read_text().splitlines()) == len(plant.read_text().splitlines()) == 300
+    coin_lines = [json.loads(line) for line in coins.read_text().splitlines()]
+    assert len([r for r in coin_lines if "game" in r]) == len(plant.read_text().splitlines()) == 300
+    assert [r["manifest"] for r in coin_lines if "manifest" in r] == [{"results": 300}] * 2
     assert {json.loads(line)["pair"] for line in plant.read_text().splitlines()} == {"end_turn>move"}
     out = tmp_path / "readout.json"
     assert coin_labels.main(["readout", "--coins", str(coins), "--rows", str(rows), "--beta", str(beta),
                              "--band", str(W), "--plant", str(plant), "--save-json", str(out)]) == 0
     r = json.loads(out.read_text())
-    assert r["games"]["read"] == 300 and set(r["plant"]) == {"a", "b"}
+    assert r["games"]["read"] == 300 and set(r["plant"]) == {"a", "b"} and r["checks"]["matches_whole"]["pass"]
     assert "verdict:" in capsys.readouterr().out
     assert math.isfinite(r["labels"]["pooled"]["mean"])

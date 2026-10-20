@@ -266,7 +266,7 @@ read_out() {                     # read_out NAME PLANT MATCH...: the readout of 
     echo "== $(box_stamp) $out: $*" >> "$OUT/$out.log"
     box_bounded "readout $out" "$READOUT_CUT_MIN" "$out.log" python tools/coin_labels.py readout \
         --coins "${coins[@]}" --rows "${rows[@]}" --beta "$BETA" --band "$COIN_BAND" \
-        ${plants[@]+"${plants[@]}"} --save-json "$OUT/$out.json"
+        ${plants[@]+"${plants[@]}"} --plan "$OUT/matches.txt" --save-json "$OUT/$out.json"
 }
 match_failed() {                 # match_failed NAME WHY: NAME is left out, and says why
     echo "MATCH_FAILED $1: $2" | tee -a "$OUT/matches_failed.txt"

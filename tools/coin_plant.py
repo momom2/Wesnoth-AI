@@ -112,26 +112,32 @@ def most_frequent_pair(sources: Sequence[Tuple[str, Path]]) -> str:
     return counts.most_common(1)[0][0]
 
 
+def plant_rows(sources: Sequence[Tuple[str, Path]], *, delta: float, pair: str, salt: str,
+               skip: frozenset = frozenset()) -> List[dict]:
+    """A planted row per recorded game, those in `skip` left out; a record
+    that cannot be read is logged and left out (its game keeps z, x = 0)."""
+    out = []
+    for match, game, data in _records(sources):
+        if (match, game) in skip:
+            continue
+        try:
+            out.append(planted_row(match, game, parse_record(data, game), delta, pair, salt))
+        except Exception as e:                            # noqa: BLE001 -- the game is left out, named
+            log.warning("%s %s: %s: %s", match, game, type(e).__name__, e)
+    return out
+
+
 def plant_matches(sources: Sequence[Tuple[str, Path]], out: Path, *, delta: float, pair: str,
                   salt: str) -> int:
     """Append a planted row per game to `out`, the games already there
     skipped; returns the number written."""
     trim_partial_row(out)
-    done = done_keys(out)
-    written = 0
+    rows = plant_rows(sources, delta=delta, pair=pair, salt=salt, skip=frozenset(done_keys(out)))
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "a", encoding="utf-8") as fh:
-        for match, game, data in _records(sources):
-            if (match, game) in done:
-                continue
-            try:
-                row = planted_row(match, game, parse_record(data, game), delta, pair, salt)
-            except Exception as e:                        # noqa: BLE001 -- the game is left out, named
-                log.warning("%s %s: %s: %s", match, game, type(e).__name__, e)
-                continue
+        for row in rows:
             fh.write(json.dumps(row, separators=(",", ":")) + "\n")
-            written += 1
-    return written
+    return len(rows)
 
 
 # ---------------------------------------------------------------------

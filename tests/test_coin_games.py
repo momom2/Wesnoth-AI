@@ -73,7 +73,7 @@ def test_with_coins_every_band_decision_is_recorded_and_played_as_its_coin_said(
     order, each with G below the band, P, D, a0 and a1; the command at
     each one's index is a1 where D is 1 and a0 where it is 0; the game
     differs from the one without coins."""
-    from tools.coin_labels import extract_game
+    from tools.coin_rows import extract_game
     _off, plain = _play(spec, tmp_path / "off")
     result, record = _play(spec, tmp_path / "on", "--coin-band-a", "50", "--coin-band-b", "50",
                            "--coin-p-a", "0.5", "--coin-p-b", "0.5")

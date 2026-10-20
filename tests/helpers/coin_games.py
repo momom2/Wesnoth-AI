@@ -49,8 +49,19 @@ def _forms(match: str, game: str, seed: int, side_a: int, z: int, coins: dict, S
     result = {"outcome_a": outcome, "seed": seed, "side_a": side_a, "ended_by": "leader_killed" if z else "max_turns"}
     record = {"game_label": game, "winner": 0 if z == 0 else (side_a if z == 1 else 3 - side_a),
               "players": {"a": {"side": side_a}, "b": {"side": 3 - side_a}}, "commands": [], "coins": coins}
-    luck = {"match": match, "game": game, "z": z, "decisive": z != 0, "S": S}
+    luck = {"match": match, "game": game, "z": z, "decisive": z != 0, "S": S,
+            "counts": {"attacks": 10, "enumerated": 10, "outside_support": 0, "not_enumerable": 0,
+                       "counter_weapon_differs": 0, "no_units": 0}}
     return result, record, luck
+
+
+def coin_rows_of(games, match: str = "m") -> list:
+    """The coin rows tools/coin_rows.py extracts from these games (results
+    and records as `synthetic_game` and `attack_game` return them), its
+    manifest last."""
+    from tools.coin_rows import extract_game
+    rows = [extract_game(match, g[1]["game_label"], g[0], g[1]) for g in games]
+    return rows + [{"match": match, "manifest": {"results": len(games)}}]
 
 
 def synthetic_game(rng, k: int, leak: float = 0.0, match: str = "m", game: Optional[str] = None,

@@ -42,34 +42,44 @@ Hence E[omega_i beta . S | H_i] = 0 for any fixed beta. (3) z is side A's
 result and s_i turns it into the mover's: E[T_i | H_i] = s_i (E[z | H_i,
 D_i = 1] - E[z | H_i, D_i = 0]) = Q(H_i, a1) - Q(H_i, a0). Dropping capped
 games keeps it exactly when capping does not depend on the coins (the
-I-coin check reads the coins within capped games). tests/test_coin_labels.py
-checks the claim on a synthetic game whose decision effects are known,
-for several beta, and that a variate read after the coin breaks it.
+I-coin check reads the coins within capped games). Step (2) needs every
+L_k of mean zero given F_k: a fight whose realised outcome lies outside
+its enumerated support breaks it, so the readout requires the walk's
+`outside_support` count to be 0. tests/test_coin_labels.py checks the claim
+on synthetic games whose decision effects are known, for several beta,
+with earlier luck setting band membership and effect size, and that a
+variate read after the coin breaks it.
 
     python tools/coin_labels.py extract --match NAME=DIR [--match ...] --out coins.jsonl
     python tools/coin_labels.py readout --coins coins.jsonl [...] --rows rows.jsonl [...]
         --beta configs/luck_beta_20261019.json --band 0.35 [--plant plant.jsonl ...]
-        [--save-json readout.json]
+        [--plan matches.txt] [--save-json readout.json]
+    python tools/coin_labels.py readout --from-records DIR [--matches NAME ...]
+        --beta configs/luck_beta_20261019.json --band 0.35 [--save-json readout.json]
 
-extract writes one row per game of a games directory or tarball (the
-result files and their records, as run_elo_batch leaves them): its result,
-its attack coin, its band decisions as columns, and the I-log count (every
-band decision's logged choice against the command the record holds at its
-index). A rerun skips the games already written. readout joins the rows
-with the walk's rows (tools/match_luck.py walk) and prints the labels'
-means with standard errors clustered by game (pooled, by mover side, by
-0.05-nat margin bin, by ordered pair type), the attack coin's label and the
-hooked player's Elo, and the checks: I-coin, I-log, the band decisions per
-side-game, the dice control and the coin plant (tools/coin_plant.py).
+extract writes the coin rows of a games directory or tarball
+(tools/coin_rows.py). readout joins them with the walk's rows
+(tools/match_luck.py walk) and prints the labels' means with standard
+errors clustered by game (pooled, by mover side, by 0.05-nat margin bin, by
+ordered pair type), the attack coin's label and the hooked player's Elo,
+and the checks: every match read whole (a match whose result files, coin
+rows and walk rows do not all join is left out of the labels and fails the
+verdict), the walk's fight counts, I-coin, I-log, the band decisions per
+side-game, the dice control and the coin plant (tools/coin_plant.py). With
+a plan (a box script's matches.txt) it counts each match's slots without a
+result. --from-records reads a pulled records directory as the box left
+it: games_NAME.tar.gz (or games_NAME/), rows_NAME.jsonl and matches.txt;
+it extracts the coin rows and plants the result afresh from the records.
 """
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import logging
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
@@ -78,7 +88,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.coin_decode import KIND_CODES  # noqa: E402
-from tools.match_luck import COLUMNS, done_keys, match_items, parse_record, result_z, trim_partial_row  # noqa: E402
+from tools.coin_rows import STATUSES, extract_matches, extract_rows, parse_plan, record_sources, slot_report  # noqa: E402
+from tools.match_luck import COLUMNS  # noqa: E402
 
 log = logging.getLogger("coin_labels")
 
@@ -91,105 +102,32 @@ CHECK_SE = 3.0
 # attack coin's mean label.
 ATTACK_ELO_WINDOW = (-111.0, -41.0)
 ATTACK_LABEL_WINDOW = (-0.640, -0.236)
+# The walk's per-game fight counts (match_luck.game_luck) the readout sums.
+FIGHT_COUNTS = ("attacks", "enumerated", "outside_support", "not_enumerable", "counter_weapon_differs", "no_units")
 
 
 def pair_name(k0: int, k1: int) -> str:
     return f"{KIND_NAMES[int(k0)]}>{KIND_NAMES[int(k1)]}"
 
 
-# ---------------------------------------------------------------------
-# Extraction: one row per game
-# ---------------------------------------------------------------------
-def _hex(xs, ys, at: int) -> list:
-    return [int(xs[at]), int(ys[at])]
+def bin_edges(band: float) -> np.ndarray:
+    """The 0.05-nat margin bins' edges over [0, band), each the float of its
+    decimal: k x 0.05 rounded, so the edge 0.15 is the float the literal
+    0.15 reads as (3 x 0.05 is 0.15000000000000002, and 0.15 / 0.05 truncates
+    to 2)."""
+    n = max(1, math.ceil(round(band / BIN_WIDTH, 9)))
+    return np.array([round(k * BIN_WIDTH, 10) for k in range(n + 1)])
 
 
-def _attack_matches(cmd: list, want: dict) -> bool:
-    return [int(cmd[3]), int(cmd[4])] == want["to"] and int(cmd[5]) == int(want["weapon"])
+def margin_bins(gap: np.ndarray, band: float) -> np.ndarray:
+    """Each gap's bin: i where edges[i] <= gap < edges[i + 1], the last bin
+    holding anything above."""
+    edges = bin_edges(band)
+    return np.clip(np.searchsorted(edges, np.asarray(gap, dtype=float), side="right") - 1, 0, len(edges) - 2)
 
 
-def played_status(entry: dict, commands: Sequence[list]) -> str:
-    """Whether the record's command at the entry's index is the choice its
-    coin made (a1 when D is 1, a0 otherwise): "matched", "mismatched", or
-    "unresolved" when nothing was played (a refused recruit, an attack whose
-    approach was cut short) or the index is unknown."""
-    k = entry.get("cmd")
-    if entry.get("refused") or k is None or not 0 <= int(k) < len(commands):
-        return "unresolved"
-    want = entry["a1"] if int(entry["d"]) else entry["a0"]
-    cmd = commands[int(k)]
-    kind = want["kind"]
-    if kind == "end_turn":
-        ok = cmd[0] == "end_turn"
-    elif kind == "recruit":
-        # The engine may place it on another castle hex (a hidden unit holds
-        # the ordered one): the unit type names the choice.
-        ok = cmd[0] == "recruit" and cmd[1] == want["unit"]
-    elif kind == "move":
-        ok = (cmd[0] == "move" and _hex(cmd[1], cmd[2], 0) == want["from"]
-              and _hex(cmd[1], cmd[2], -1) == want["to"])
-    elif cmd[0] == "attack":
-        ok = [int(cmd[1]), int(cmd[2])] == want["from"] and _attack_matches(cmd, want)
-    elif cmd[0] == "move" and _hex(cmd[1], cmd[2], 0) == want["from"]:
-        # The simulator's approach move, then the attack.
-        nxt = commands[int(k) + 1] if int(k) + 1 < len(commands) else None
-        if nxt is None or nxt[0] != "attack":
-            return "unresolved"
-        ok = _attack_matches(nxt, want)
-    else:
-        ok = False
-    return "matched" if ok else "mismatched"
-
-
-def extract_game(match: str, game: str, result: dict, rec: dict) -> dict:
-    """One game's row: its result, its attack coin, its band decisions as
-    columns and the I-log count."""
-    side_a = int(rec.get("players", {}).get("a", {}).get("side", result.get("side_a")))
-    z = result_z(result.get("outcome_a"))
-    if z and (int(rec["winner"]) == side_a) != (z == 1):
-        raise ValueError(f"{game}: the record's winner {rec['winner']} contradicts outcome_a {result.get('outcome_a')}")
-    coins = rec.get("coins") or {}
-    entries = coins.get("decisions", [])
-    status = {"matched": 0, "mismatched": 0, "unresolved": 0}
-    for e in entries:
-        status[played_status(e, rec["commands"])] += 1
-    band = {"side": [int(e["side"]) for e in entries], "i": [int(e["i"]) for e in entries],
-            "gap": [float(e["gap"]) for e in entries], "p": [float(e["p"]) for e in entries],
-            "d": [int(e["d"]) for e in entries],
-            "k0": [KIND_CODES[e["a0"]["kind"]] for e in entries],
-            "k1": [KIND_CODES[e["a1"]["kind"]] for e in entries],
-            "refused": [int(bool(e.get("refused"))) for e in entries]}
-    attack = coins.get("attack")
-    return {"match": match, "game": game, "seed": result.get("seed"), "side_a": side_a, "z": z,
-            "decisive": z != 0, "ended_by": result.get("ended_by"),
-            "attack": None if attack is None else {"d": int(attack["d"]), "p": float(attack["p"])},
-            "bands": coins.get("bands", {}), "band": band, "i_log": status}
-
-
-def extract_matches(sources: Sequence[Tuple[str, Path]], out: Path) -> int:
-    """Append a row per game of each match to `out`, the games already
-    there skipped; returns the number of rows written. A game without a
-    record, or whose record cannot be read, is logged and left out."""
-    trim_partial_row(out)
-    done = done_keys(out)
-    written = 0
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "a", encoding="utf-8") as fh:
-        for match, path in sources:
-            for item in match_items(match, path):
-                if (match, item.game) in done:
-                    continue
-                if item.record is None:
-                    log.warning("%s %s: no record", match, item.game)
-                    continue
-                try:
-                    row = extract_game(match, item.game, item.result, parse_record(item.record, item.game))
-                except Exception as e:                    # noqa: BLE001 -- the game is left out, named
-                    log.warning("%s %s: %s: %s", match, item.game, type(e).__name__, e)
-                    continue
-                fh.write(json.dumps(row, separators=(",", ":")) + "\n")
-                written += 1
-    return written
+def bin_name(edges: np.ndarray, b: int) -> str:
+    return f"[{edges[b]:.2f},{edges[b + 1]:.2f})"
 
 
 # ---------------------------------------------------------------------
@@ -207,7 +145,8 @@ def coin_outcomes(band: dict) -> np.ndarray:
 
 @dataclass
 class Table:
-    """The games read (decisive or not) and their band decisions, flat."""
+    """The games read (decisive or not) and their band decisions, flat, of
+    the matches read whole; `matches` accounts for every match seen."""
     keys: List[Tuple[str, str]]
     z: np.ndarray              # (G,) side A's result, 0 for a capped game
     S: np.ndarray              # (G, 7) the luck sums, side A's view
@@ -225,7 +164,9 @@ class Table:
     k0: np.ndarray
     k1: np.ndarray
     refused: np.ndarray
-    counts: Dict[str, int]
+    matches: Dict[str, dict] = field(default_factory=dict)
+    excluded: List[str] = field(default_factory=list)
+    fights: Dict[str, int] = field(default_factory=dict)
 
     @property
     def decisive(self) -> np.ndarray:
@@ -245,57 +186,116 @@ def load_jsonl(paths: Sequence[Path]) -> List[dict]:
     return list(iter_jsonl(paths))
 
 
-def build_table(coin_rows: Iterable[dict], luck_rows: Sequence[dict]) -> Table:
-    """The coin rows joined with the walk's rows on (match, game). A game
-    the walk has not read, or read with an error, is left out and counted;
-    a result that differs between the two rows refuses the join."""
+def _account() -> dict:
+    return {"results": None, "game_rows": 0, "extract_errors": 0, "unwalked": 0, "walk_errors": 0,
+            "walk_rows_unjoined": 0, "fights_unread": 0, "fights": dict.fromkeys(FIGHT_COUNTS, 0),
+            "i_log": dict.fromkeys(STATUSES, 0), "seeds": []}
+
+
+def _game_columns(row: dict, lr: dict) -> dict:
+    band = row["band"]
+    n = len(band["d"])
+    side = np.asarray(band["side"], dtype=np.int8)
+    attack = row.get("attack")
+    return {"key": (row["match"], row["game"]), "z": int(row["z"]), "S": [float(lr["S"][c]) for c in COLUMNS],
+            "side_a": int(row["side_a"]),
+            "attack_d": np.nan if attack is None else float(attack["d"]),
+            "attack_p": np.nan if attack is None else float(attack["p"]),
+            "side": side, "s": mover_sign(side, np.full(n, int(row["side_a"]))).astype(np.int8),
+            "index": np.asarray(band["i"], dtype=np.int32), "gap": np.asarray(band["gap"], dtype=float),
+            "p": np.asarray(band["p"], dtype=float), "d": coin_outcomes(band),
+            "k0": np.asarray(band["k0"], dtype=np.int8), "k1": np.asarray(band["k1"], dtype=np.int8),
+            "refused": np.asarray(band.get("refused", [0] * n), dtype=np.int8)}
+
+
+def _drops(a: dict) -> List[str]:
+    """Why a match is not read whole: what its result files, coin rows and
+    walk rows fail to join."""
+    why = []
+    if a["results"] is None:
+        why.append("no manifest (the extraction did not finish)")
+    elif a["results"] != a["game_rows"]:
+        why.append(f"{a['results']} result files, {a['game_rows']} coin rows")
+    for k in ("extract_errors", "unwalked", "walk_errors", "walk_rows_unjoined"):
+        if a[k]:
+            why.append(f"{a[k]} {k.replace('_', ' ')}")
+    return why
+
+
+def build_table(coin_rows: Iterable[dict], luck_rows: Sequence[dict],
+                plan: Optional[Dict[str, Tuple[int, int]]] = None) -> Table:
+    """The coin rows joined with the walk's rows on (match, game), one
+    match at a time: a match whose result files, coin rows and walk rows do
+    not all join (`_drops`) is accounted for and left out whole. A result
+    that differs between the two rows refuses the join."""
     luck = {(r["match"], r["game"]): r for r in luck_rows}
-    counts = {"coin_rows": 0, "unwalked": 0, "walk_errors": 0}
-    keys, z, S, side_a, att_d, att_p = [], [], [], [], [], []
-    cols = {k: [] for k in ("g", "side", "s", "index", "gap", "p", "d", "k0", "k1", "refused")}
-    i_log = {"matched": 0, "mismatched": 0, "unresolved": 0}
+    joined, accounts, games = set(), {}, {}
     for row in coin_rows:
-        counts["coin_rows"] += 1
-        key = (row["match"], row["game"])
+        m = row["match"]
+        a = accounts.setdefault(m, _account())
+        if "manifest" in row:
+            a["results"] = int(row["manifest"]["results"])
+            continue
+        a["game_rows"] += 1
+        a["seeds"].append((row.get("seed"), bool(row.get("decisive"))))
+        if "error" in row:
+            a["extract_errors"] += 1
+            continue
+        key = (m, row["game"])
         lr = luck.get(key)
         if lr is None:
-            counts["unwalked"] += 1
+            a["unwalked"] += 1
             continue
+        joined.add(key)
         if "error" in lr:
-            counts["walk_errors"] += 1
+            a["walk_errors"] += 1
             continue
         if int(lr["z"]) != int(row["z"]):
             raise ValueError(f"{key}: the walk reads z {lr['z']}, the coin row {row['z']}: a join or result error")
-        gi = len(keys)
-        keys.append(key)
-        z.append(int(row["z"]))
-        S.append([float(lr["S"][c]) for c in COLUMNS])
-        side_a.append(int(row["side_a"]))
-        attack = row.get("attack")
-        att_d.append(np.nan if attack is None else float(attack["d"]))
-        att_p.append(np.nan if attack is None else float(attack["p"]))
+        fights = lr.get("counts")
+        if fights is None:
+            a["fights_unread"] += 1
+        else:
+            for k in FIGHT_COUNTS:
+                a["fights"][k] += int(fights.get(k, 0))
         for k, v in row.get("i_log", {}).items():
-            i_log[k] = i_log.get(k, 0) + int(v)
-        band = row["band"]
-        n = len(band["d"])
-        cols["g"].append(np.full(n, gi))
-        cols["side"].append(np.asarray(band["side"], dtype=int))
-        cols["s"].append(mover_sign(np.asarray(band["side"], dtype=int), np.full(n, int(row["side_a"]))))
-        cols["index"].append(np.asarray(band["i"], dtype=int))
-        cols["gap"].append(np.asarray(band["gap"], dtype=float))
-        cols["p"].append(np.asarray(band["p"], dtype=float))
-        cols["d"].append(coin_outcomes(band))
-        cols["k0"].append(np.asarray(band["k0"], dtype=int))
-        cols["k1"].append(np.asarray(band["k1"], dtype=int))
-        cols["refused"].append(np.asarray(band.get("refused", [0] * n), dtype=int))
-    flat = {k: (np.concatenate(v) if v else np.zeros(0)) for k, v in cols.items()}
-    return Table(keys=keys, z=np.asarray(z, dtype=float), S=np.asarray(S, dtype=float).reshape(len(keys), len(COLUMNS)),
-                 side_a=np.asarray(side_a, dtype=int), attack_d=np.asarray(att_d, dtype=float),
-                 attack_p=np.asarray(att_p, dtype=float), i_log=i_log,
-                 g=flat["g"].astype(int), side=flat["side"].astype(int), s=flat["s"].astype(float),
-                 index=flat["index"].astype(int), gap=flat["gap"], p=flat["p"], d=flat["d"],
-                 k0=flat["k0"].astype(int), k1=flat["k1"].astype(int), refused=flat["refused"].astype(int),
-                 counts=counts)
+            a["i_log"][k] = a["i_log"].get(k, 0) + int(v)
+        games.setdefault(m, []).append(_game_columns(row, lr))
+    for key in luck:
+        if key[0] in accounts and key not in joined:
+            accounts[key[0]]["walk_rows_unjoined"] += 1
+    reports, read, excluded = {}, [], []
+    for m in sorted(accounts):
+        a = accounts.pop(m)
+        seeds = a.pop("seeds")
+        a["drops"] = _drops(a)
+        if plan and m in plan:
+            a["slots"] = slot_report(seeds, plan[m])
+        reports[m] = a
+        (excluded if a["drops"] else read).append(m)
+    return _assemble([g for m in read for g in games.get(m, [])], reports, excluded)
+
+
+def _assemble(games: List[dict], reports: Dict[str, dict], excluded: List[str]) -> Table:
+    read = [m for m in reports if m not in excluded]
+    i_log = {k: sum(reports[m]["i_log"].get(k, 0) for m in read) for k in STATUSES}
+    fights = {k: sum(reports[m]["fights"][k] for m in read) for k in FIGHT_COUNTS}
+    fights["rows_without_counts"] = sum(reports[m]["fights_unread"] for m in read)
+
+    def flat(name, dtype):
+        parts = [g[name] for g in games]
+        return np.concatenate(parts).astype(dtype) if parts else np.zeros(0, dtype=dtype)
+    g_index = np.concatenate([np.full(len(g["d"]), gi, dtype=np.int32) for gi, g in enumerate(games)]) \
+        if games else np.zeros(0, dtype=np.int32)
+    return Table(keys=[g["key"] for g in games], z=np.array([g["z"] for g in games], dtype=float),
+                 S=np.array([g["S"] for g in games], dtype=float).reshape(len(games), len(COLUMNS)),
+                 side_a=np.array([g["side_a"] for g in games], dtype=int),
+                 attack_d=np.array([g["attack_d"] for g in games], dtype=float),
+                 attack_p=np.array([g["attack_p"] for g in games], dtype=float), i_log=i_log,
+                 g=g_index, side=flat("side", np.int8), s=flat("s", float), index=flat("index", np.int32),
+                 gap=flat("gap", float), p=flat("p", float), d=flat("d", float), k0=flat("k0", np.int8),
+                 k1=flat("k1", np.int8), refused=flat("refused", np.int8),
+                 matches=reports, excluded=excluded, fights=fights)
 
 
 def load_beta(path: Path) -> np.ndarray:
@@ -404,12 +404,12 @@ def label_readouts(table: Table, T: np.ndarray, keep: np.ndarray, band: float) -
     """The mean label pooled, by mover side, by margin bin and by ordered
     pair type, over the decisions `keep` selects."""
     g, T = table.g[keep], T[keep]
-    bins = np.minimum((table.gap[keep] / BIN_WIDTH).astype(int), max(0, int(math.ceil(band / BIN_WIDTH)) - 1))
-    pair = table.k0[keep] * 4 + table.k1[keep]
+    edges = bin_edges(band)
+    pair = table.k0[keep].astype(int) * 4 + table.k1[keep].astype(int)
     mover = np.where(table.s[keep] > 0, "a", "b")
     return {"pooled": clustered_mean(T, g),
             "by_mover": {m: clustered_mean(T[mover == m], g[mover == m]) for m in ("a", "b")},
-            "by_bin": _by(T, g, bins, lambda b: f"[{b * BIN_WIDTH:.2f},{(b + 1) * BIN_WIDTH:.2f})"),
+            "by_bin": _by(T, g, margin_bins(table.gap[keep], band), lambda b: bin_name(edges, b)),
             "by_pair": _by(T, g, pair, lambda c: pair_name(c // 4, c % 4))}
 
 
@@ -419,8 +419,9 @@ def coin_checks(table: Table, keep: np.ndarray, band: float) -> dict:
     games, and the slopes of D - P on G and on the decision index."""
     d, p, g = table.d, table.p, table.g
     capped = ~table.decisive[g]
-    bins = np.minimum((table.gap / BIN_WIDTH).astype(int), max(0, int(math.ceil(band / BIN_WIDTH)) - 1))
-    per_bin = {f"[{b * BIN_WIDTH:.2f},{(b + 1) * BIN_WIDTH:.2f})": coin_frequency(d[keep & (bins == b)], p[keep & (bins == b)])
+    edges = bin_edges(band)
+    bins = margin_bins(table.gap, band)
+    per_bin = {bin_name(edges, b): coin_frequency(d[keep & (bins == b)], p[keep & (bins == b)])
                for b in np.unique(bins[keep])}
     chi2 = sum(v["chi2"] for v in per_bin.values())
     out = {"overall": coin_frequency(d[keep], p[keep]),
@@ -476,20 +477,31 @@ def _line(stat: Optional[dict], key: str = "slope", target: float = 0.0) -> dict
     return {"value": stat[key], "se": stat["se"], "target": target, "z": zstat, "pass": bool(abs(zstat) <= CHECK_SE)}
 
 
+def _match_checks(table: Table) -> dict:
+    """Every match read whole; the walk's fights all inside their supports
+    (the label's proof needs every luck term of mean zero) and counted."""
+    f = table.fights
+    return {"matches_whole": {"excluded": {m: table.matches[m]["drops"] for m in table.excluded},
+                              "pass": not table.excluded},
+            "luck_support": {"outside_support": f["outside_support"], "rows_without_counts": f["rows_without_counts"],
+                             "pass": f["outside_support"] == 0 and f["rows_without_counts"] == 0}}
+
+
 def readout(table: Table, beta: np.ndarray, band: float, plant_rows: Sequence[dict] = ()) -> dict:
     """Every readout and check of the coin games in `table`."""
     from tools import coin_plant
     keep = table.decisive[table.g]
     T = decision_labels(table, beta)
     out: dict = {"games": {"read": len(table.keys), "decisive": int(table.decisive.sum()),
-                           "capped": int((~table.decisive).sum()), **table.counts},
+                           "capped": int((~table.decisive).sum())},
+                 "matches": table.matches, "fights": table.fights,
                  "beta": {"columns": list(COLUMNS), "values": [float(b) for b in beta]},
                  "band": {"w": band, "decisions": int(keep.sum()), "refused": int(table.refused[keep].sum()),
                           "per_side_game": side_game_counts(table)},
-                 "checks": {}}
+                 "checks": _match_checks(table)}
     checks = out["checks"]
-    dice = coin_plant.dice_control(table.z[table.decisive], table.S[table.decisive][:, list(COLUMNS).index("hp")])
-    checks["dice_control"] = dice
+    checks["dice_control"] = coin_plant.dice_control(table.z[table.decisive],
+                                                     table.S[table.decisive][:, list(COLUMNS).index("hp")])
     attack = attack_readout(table, beta)
     if attack is not None:
         out["attack"] = attack
@@ -528,10 +540,28 @@ def _fmt(stat: Optional[dict], key: str = "mean") -> str:
     return f"{stat[key]:+.4f} +- {se:.4f}" if se is not None else f"{stat[key]:+.4f}"
 
 
+def _match_line(name: str, a: dict) -> str:
+    line = f"  {name}: {a['game_rows']} coin rows of {a['results']} result files"
+    s = a.get("slots")
+    if s:
+        line += f"; {s['with_result']} of {s['planned']} slots have a result ({s['decisive']} decisive)"
+        if s["cut"]:
+            line += (f", a prefix of its slots: 0-{s['complete_prefix'] - 1} complete, {s['missing']} missing "
+                     f"(first {s['first_missing']})")
+    il = a["i_log"]
+    line += f"; I-log {il['matched']} matched, {il['relocated']} relocated, {il['mismatched']} mismatched"
+    if a["drops"]:
+        line += "; LEFT OUT: " + "; ".join(a["drops"])
+    return line
+
+
 def report_text(r: dict) -> str:
-    g = r["games"]
-    lines = [f"games {g['read']} read, {g['decisive']} decisive, {g['capped']} capped (dropped), "
-             f"{g.get('unwalked', 0)} not walked, {g.get('walk_errors', 0)} walk errors"]
+    g, f = r["games"], r["fights"]
+    lines = [f"games {g['read']} read, {g['decisive']} decisive, {g['capped']} capped (dropped); matches:"]
+    lines += [_match_line(name, a) for name, a in r["matches"].items()]
+    lines.append(f"fights: {f['attacks']} attacks, {f['outside_support']} outside their support, "
+                 f"{f['not_enumerable']} not enumerable, {f['counter_weapon_differs']} counter weapon differs, "
+                 f"{f['no_units']} without units, {f['rows_without_counts']} walk rows without counts")
     dc = r["checks"]["dice_control"]
     lines.append(f"dice control: z on side A's hp luck {_fmt(dc, 'slope')}, window "
                  f"[{dc['window'][0]:+.5f}, {dc['window'][1]:+.5f}]: {'pass' if dc['pass'] else 'FAIL'}")
@@ -559,13 +589,34 @@ def report_text(r: dict) -> str:
                      f"(p {c['bins_p_value']:.3f}); slope on G {_fmt(c['gap_slope'], 'slope')}, on the index "
                      f"{_fmt(c['index_slope'], 'slope')}; capped ones {c['capped']['ones']} of {c['capped']['n']}")
         il = r["checks"]["i_log"]
-        lines.append(f"I-log: {il['matched']} matched, {il['mismatched']} mismatched, {il['unresolved']} unresolved")
+        lines.append(f"I-log: {il['matched']} matched, {il['relocated']} relocated recruits, {il['mismatched']} "
+                     f"mismatched, {il['unresolved']} unresolved")
     if "plant" in r:
         p = r["plant"]
         lines.append(f"coin plant (slope of T' - T on the planted x, predicted 1): mover A {_fmt(p['a'], 'slope')}, "
                      f"mover B {_fmt(p['b'], 'slope')}")
     lines.append(f"verdict: {r['verdict']}")
     return "\n".join(lines)
+
+
+def records_inputs(directory: Path, names: Optional[Sequence[str]], *, delta: float = 1.0, salt: str = "coin_plant"):
+    """(coin rows, walk rows, plan, plant rows) of a pulled records
+    directory: the coin rows extracted and the plant computed afresh from
+    each match's records (a match without band decisions is not planted)."""
+    from tools import coin_plant
+    sources = record_sources(directory, names)
+    plant_rows: List[dict] = []
+    for m, path in sources:
+        try:
+            pair = coin_plant.most_frequent_pair([(m, path)])
+        except ValueError:
+            continue
+        plant_rows += coin_plant.plant_rows([(m, path)], delta=delta, pair=pair, salt=salt)
+    rows = [directory / f"rows_{m}.jsonl" for m, _ in sources]
+    plan_file = directory / "matches.txt"
+    coin_rows = itertools.chain.from_iterable(extract_rows(m, path) for m, path in sources)
+    return (coin_rows, load_jsonl([p for p in rows if p.exists()]),
+            parse_plan(plan_file) if plan_file.exists() else None, plant_rows)
 
 
 def _source(text: str) -> Tuple[str, Path]:
@@ -578,15 +629,19 @@ def _source(text: str) -> Tuple[str, Path]:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
-    e = sub.add_parser("extract", help="one row per game: its result, coins and I-log count")
+    e = sub.add_parser("extract", help="the coin rows of each match (tools/coin_rows.py)")
     e.add_argument("--match", type=_source, action="append", required=True, metavar="NAME=PATH")
     e.add_argument("--out", type=Path, required=True)
     r = sub.add_parser("readout", help="the labels, their means and the checks")
-    r.add_argument("--coins", type=Path, nargs="+", required=True)
-    r.add_argument("--rows", type=Path, nargs="+", required=True, help="tools/match_luck.py walk rows")
+    r.add_argument("--coins", type=Path, nargs="+", default=None)
+    r.add_argument("--rows", type=Path, nargs="+", default=None, help="tools/match_luck.py walk rows")
+    r.add_argument("--plant", type=Path, nargs="*", default=(), help="tools/coin_plant.py rows")
+    r.add_argument("--plan", type=Path, default=None, help="a box script's matches.txt")
+    r.add_argument("--from-records", type=Path, default=None, metavar="DIR",
+                   help="a pulled records directory, in place of --coins, --rows, --plant and --plan")
+    r.add_argument("--matches", nargs="+", default=None, metavar="NAME", help="with --from-records: these matches")
     r.add_argument("--beta", type=Path, required=True)
     r.add_argument("--band", type=float, required=True, help="the band width w the games were coined at")
-    r.add_argument("--plant", type=Path, nargs="*", default=(), help="tools/coin_plant.py rows")
     r.add_argument("--save-json", type=Path, default=None)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -594,8 +649,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         n = extract_matches(args.match, args.out)
         log.info("%d rows written to %s", n, args.out)
         return 0
-    table = build_table(iter_jsonl(args.coins), load_jsonl(args.rows))
-    result = readout(table, load_beta(args.beta), args.band, load_jsonl(args.plant) if args.plant else ())
+    if args.from_records is not None:
+        if args.coins or args.rows or args.plant or args.plan:
+            ap.error("--from-records reads the coins, rows, plant and plan itself")
+        coin_rows, luck, plan, plant_rows = records_inputs(args.from_records, args.matches)
+    else:
+        if not args.coins or not args.rows or args.matches:
+            ap.error("readout needs --coins and --rows (or --from-records DIR); --matches goes with --from-records")
+        coin_rows, luck = iter_jsonl(args.coins), load_jsonl(args.rows)
+        plan = parse_plan(args.plan) if args.plan else None
+        plant_rows = load_jsonl(args.plant) if args.plant else ()
+    table = build_table(coin_rows, luck, plan)
+    result = readout(table, load_beta(args.beta), args.band, plant_rows)
     print(report_text(result))
     if args.save_json is not None:
         tmp = args.save_json.with_name(args.save_json.name + ".tmp")

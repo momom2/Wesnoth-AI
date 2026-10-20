@@ -169,3 +169,31 @@ games, by the formulas above [D]:
 If the box's hour cap ends batch 1 early, the readings are those of the
 matches completed, each match of 10,000 games read whole, and the count is
 reported.
+
+## Readout hardening (after launch, before any result, 2026-10-21)
+
+An adversarial review of the readout found nothing that changes the games
+and seven readout gaps, all recomputed offline from the uploaded records
+(`python tools/coin_labels.py readout --from-records DIR`, which extracts
+the coin rows and plants the result afresh from each `games_NAME.tar.gz`
+beside its `rows_NAME.jsonl` and `matches.txt`). The readings above are
+unchanged; the readout now:
+1. counts, per match, its result files against its coin rows (each match's
+   rows end with a manifest), the games the walk did not read or read with
+   an error, the extraction failures and the walk rows that join no game;
+   a match with any of them is left out of the labels whole and fails the
+   verdict (`matches_whole`);
+2. sums the walk's fight counts and requires `outside_support` = 0 (the
+   label's proof needs every luck term of mean zero given its fight's
+   position); `not_enumerable`, `counter_weapon_differs` and `no_units`
+   are reported;
+3. reads a recruit's hex in I-log, accepting another hex only where the
+   record's rejection of the ordered hex at that command shows the engine
+   relocated it (counted as relocated);
+4. checks that an approach's attack starts from the hex its move ended on;
+5. counts each match's slots against its plan in `matches.txt` and says
+   when a match is a prefix of its slots (cut);
+6. is tested on the reviewer's construction, earlier luck setting band
+   membership and effect size, 120,000 synthetic games through the
+   production extraction, table and labels;
+7. puts a gap on a bin edge in the bin it opens (0.15 in [0.15, 0.20)).
