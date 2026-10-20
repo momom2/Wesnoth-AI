@@ -1,0 +1,6 @@
+2026-10-20T21:41:10Z tests rc=0 ok 135 s
+2026-10-20T21:41:15Z reference rc=0 ok 5 s
+2026-10-20T21:41:20Z own2 rc=0 ok 5 s
+2026-10-20T21:41:23Z gpu check rc=0 ok 2 s
+2026-10-20T22:40:16Z match own2_vs_own1 rc=0 ok 3533 s
+2026-10-20T22:40:19Z fit own2_vs_own1 rc=0 ok 3 s

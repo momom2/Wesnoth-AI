@@ -155,3 +155,20 @@ price (`BOX_MAX_H` plus 1.5, the longer of its two bounds): $2.14-2.35.
         --stage tier-b/staging/stage_20261020_own2base.tar.gz --hours 2.3 --disk 40
     # once ALL_DONE is on HF
     python tools/pull_box_records.py tier-b/own2_base_20261020 training/metrics/own2_base_20261020
+
+## Measured (2026-10-20)
+
+Box 56955126 (RTX 4090, EPYC 7702, 31 usable cores, $0.571 an hour), stage
+`tier-b/staging/stage_20261020_own2base.tar.gz` (commit c16a46e), entry
+21:36 UTC, match done 22:40 UTC, about $0.66; records in
+`training/metrics/own2_base_20261020/` (the games' tarball stays on HF).
+6,402 games, 6,400 decisive, 2 capped, no failure. The match took 3,533 s,
+against 7,650 s estimated from R1's wall: this host played 2.2 times R1's
+rate, so the cost came in under the estimate.
+
+**Reading: `own2` +22.7 +- 4.4 Elo over `own1`** (PURE, decisive games,
+`own2_vs_own1.fit.json`; the MATERIAL-SIGN diagnostic reads +22.6). The
+lower 2-SE bound is +14.0, above 0, so the base π_0 is `own2`. The reading
+lies inside the record's window (-9.6 to +42.6), in agreement with R1's
++16.5 +- 12.3. As a strength claim against the reference `own1`:
++22.7 +- 4.4 Elo.
