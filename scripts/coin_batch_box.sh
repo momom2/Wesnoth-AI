@@ -52,7 +52,9 @@
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md).
 # Records go up every 30 minutes, after each match and at the finish, which
 # uploads before it stops the instance. Re-entry restores the readouts and
-# the rows of the matches done, skips them, and plays the next.
+# the rows of the matches done, skips them, and plays the next; a stage or
+# match that failed stays out (its .failed file: delete it on HF and on the disk to play it
+# again).
 # Never `set -x`: the HF token and the instance key are in the environment.
 # box-needs: disk_gb=60 ram_gb=64 gpu_ram_gb=24 cores=32 gpu=4090
 set -uo pipefail
@@ -92,6 +94,12 @@ CHUNK_SIZES=()
 CHUNK_BASES=()
 RESTORE=()
 
+# ---- the readers (begin)
+verdict() {                      # verdict FILE: a readout's verdict, "not read" without one
+    timeout 1m python -c "import json, sys; print(json.load(open(sys.argv[1]))['verdict'])" "$1" 2>/dev/null \
+        || echo "not read"
+}
+# ---- the readers (end)
 # shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
 notes() {                        # what is done, for a finish reason
@@ -197,10 +205,6 @@ box_monitor_start
 POOL=(--mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0 --persistent-workers --shared-inference
       --no-infer-compile --device cuda --jobs "$JOBS" --worker-games "$WORKER_GAMES" --min-free-mb "$MIN_FREE_MB")
 COINS=(--coin-band-a "$COIN_BAND" --coin-p-a "$COIN_P" --coin-band-b "$COIN_BAND" --coin-p-b "$COIN_P")
-verdict() {                      # verdict FILE: a readout's verdict, "not read" without one
-    timeout 1m python -c "import json, sys; print(json.load(open(sys.argv[1]))['verdict'])" "$1" 2>/dev/null \
-        || echo "not read"
-}
 count_games() {                  # count_games DIR: "<result files> <decisive>"
     timeout 5m python - "$1" <<'EOF'
 import json, pathlib, sys

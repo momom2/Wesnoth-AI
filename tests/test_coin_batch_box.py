@@ -137,6 +137,7 @@ CHUNKS=() CHUNK_SIZES=() CHUNK_BASES=() RESTORE=()
 BOX_RC=0 BOX_WHY=ok
 {chr(10).join(f"{k}={v}" for k, v in settings.items())}
 {STUBS}
+{_region("# ---- the readers (begin)", "# ---- the readers (end)")}
 {_region("# ---- the plan (begin)", "# ---- the plan (end)")}
 echo "restore ${{RESTORE[*]}}" >> "$OUT/steps.txt"
 {_region("# ---- the stages (begin)", "# ---- the stages (end)")}
