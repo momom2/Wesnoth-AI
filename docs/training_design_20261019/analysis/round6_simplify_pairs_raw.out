@@ -1,0 +1,5 @@
+decisive games 18800; cell pairs with both cells observed 756
+raw result: full-cell tau2 share 0.157; swap covariance share -0.153 +- 0.009
+pairs alone keep 0.847 +- 0.009 of a game's variance (no columns)
+12,800-game match read raw: SE 3.07 Elo as elo_collect computes it (independent games), 2.83 Elo with the pairs' share; pairs + columns 2.57 Elo
+800-game PURE match: SE 12.3 Elo

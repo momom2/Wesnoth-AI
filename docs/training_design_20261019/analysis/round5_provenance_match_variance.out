@@ -1,0 +1,35 @@
+decisive games 18800, matches 23, maps 21, factions 6
+setup    pooled Var(G)/Var(z) = 0.897  (95% bootstrap 0.889-0.905)
+columns  pooled Var(G)/Var(z) = 0.847  (95% bootstrap 0.836-0.858)
+both     pooled Var(G)/Var(z) = 0.747  (95% bootstrap 0.733-0.758)
+
+per match (n, setup, columns, both):
+  a1_eo25                    800  0.869  0.820  0.706
+  a2_reset                   800  0.922  0.874  0.799
+  a3_eo35                    800  0.914  0.839  0.751
+  confirm_kv15_vs_own1       800  0.890  0.824  0.713
+  gen_own1_selfplay          800  0.885  0.832  0.730
+  kv00                       400  0.872  0.841  0.721
+  kv10                      1200  0.874  0.830  0.701
+  kv15                      1200  0.903  0.865  0.771
+  la_exposure_vs_own1        800  0.893  0.826  0.731
+  la_material_vs_parity3     800  0.932  0.873  0.815
+  m1_own64                   800  0.893  0.850  0.758
+  m2_own0                    800  0.924  0.832  0.745
+  own0_vs_p3slots0           800  0.919  0.816  0.738
+  own1_eo25_vs_own1          800  0.900  0.823  0.732
+  own64_selfplay             800  0.879  0.846  0.734
+  own64_vs_own0              800  0.874  0.824  0.704
+  own64_vs_p3                800  0.914  0.860  0.766
+  r1_own2_64_vs_own1_64      800  0.892  0.853  0.738
+  r2_own2_0_vs_own1_0        800  0.861  0.856  0.730
+  r3_own2_64_vs_own2_0       800  0.911  0.811  0.731
+  selfpin                    800  0.900  0.909  0.798
+  slots64_vs_slots0          800  0.935  0.874  0.808
+  slots64_vs_slots16         800  0.881  0.897  0.767
+
+mean preservation (both): sum of t^2 over 23 matches = 17.7 (chi-square 23 df: mean 23, 95th percentile about 34); largest |t| 1.95
+
+setup share of variance, in-sample additive fit (upper side): 0.110
+columns: decisive games for SE 5 Elo 4088; uncorrected 4827
+both: decisive games for SE 5 Elo 3605; uncorrected 4827

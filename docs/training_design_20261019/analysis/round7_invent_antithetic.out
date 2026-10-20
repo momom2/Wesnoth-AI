@@ -1,0 +1,31 @@
+Part A: 1500 random fights, strike-level reflection
+  hp margin                kappa (variance-weighted) 0.791; rho quantiles 50/90/max -0.542 -0.333 -0.098; share rho <= 1e-9: 1.000
+  kill difference          kappa (variance-weighted) 0.670; rho quantiles 50/90/max -0.238 -0.068 -0.002; share rho <= 1e-9: 1.000
+  hp fraction + 0.5 kill   kappa (variance-weighted) 0.735; rho quantiles 50/90/max -0.516 -0.249 -0.035; share rho <= 1e-9: 1.000
+  closed form, one strike, additive price: kappa(c) = (1 - rho)/2, rho = (max(0,2c-1) - c^2)/(c(1-c))
+    c = 0.3: rho -0.429, kappa 0.714
+    c = 0.4: rho -0.667, kappa 0.833
+    c = 0.5: rho -1.000, kappa 1.000
+    c = 0.6: rho -0.667, kappa 0.833
+    c = 0.7: rho -0.429, kappa 0.714
+
+Part B: 6130 recorded fight laws (own1 self-play, counter-weapon subsample); support mean 11.86
+  hp margin                share of the summed variance in the top 10/30/50% of fights: 0.215 0.487 0.691
+  kill difference          share of the summed variance in the top 10/30/50% of fights: 0.387 0.732 0.947
+  hp fraction + 0.5 kill   share of the summed variance in the top 10/30/50% of fights: 0.339 0.644 0.839
+
+Part C: cost multiple m and the kept ratio r a corrector must reach to carry more label information per dollar than the cell + columns (r * m < 0.688)
+  full enumeration: m 3.90, line r < 0.177, so the price must explain more than 0.511 of Var(z) beyond the columns
+  ACS on a share 1.0 of fights: m 1.244, line r < 0.553; needed explained share E beyond the columns at kappa 0.5 / 0.75 / 1.0: 0.270 0.180 0.135
+  ACS on a share 0.5 of fights: m 1.122, line r < 0.613; needed explained share E beyond the columns at kappa 0.5 / 0.75 / 1.0: 0.150 0.100 0.075
+  ACS on a share 0.3 of fights: m 1.073, line r < 0.641; needed explained share E beyond the columns at kappa 0.5 / 0.75 / 1.0: 0.094 0.063 0.047
+  a batch saved per round (current design's DPI line, r <= 0.602 at m = 1): ACS on all fights needs r <= 0.484
+
+Part D: effective capture with selection (kappa 0.735 from Part A, shares from Part B)
+  evaluate 0.3 of fights: m 1.073, effective capture 0.473, pays iff the full-enumeration price explains more than 0.099 of Var(z) beyond the columns; saves a batch per round iff it explains more than 0.269
+  evaluate 0.5 of fights: m 1.122, effective capture 0.617, pays iff the full-enumeration price explains more than 0.121 of Var(z) beyond the columns; saves a batch per round iff it explains more than 0.246
+  evaluate 1.0 of fights: m 1.244, effective capture 0.735, pays iff the full-enumeration price explains more than 0.184 of Var(z) beyond the columns; saves a batch per round iff it explains more than 0.278
+
+Part E: walked decisive games 18800, attacks per game 110.6, turns 21.12
+  ACS: one reflected-child forward per fight on all of them: 2.08 M forwards, $0.099
+  full enumeration on own1 self-play (800 games x 109.7 fights x 11.86 children): $0.050

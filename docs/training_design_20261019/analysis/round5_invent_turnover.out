@@ -1,0 +1,9 @@
+side-games 100; multi-legal decisions 26917; end_turn top under the offset: 4048 (40.5 per side-game)
+turn-over rule continues where the offset ends (lower bound): 0.0101 of those decisions (0.41 per side-game)
+top-seven ratio sum at end-top decisions, quantiles 10/50/90/99: 0.48, 1.49, 2.73, 4.49
+  share with the sum above 1.0: 0.727
+  share with the sum above 2.0: 0.225
+  share with the sum above 3.0: 0.077
+
+attacks among the top eight: mean 0.84 per multi-legal decision; share with >= 1: 0.384; >= 2: 0.252; per side-game with >= 2: 67.8
+attack as the top action: 52.9 per side-game

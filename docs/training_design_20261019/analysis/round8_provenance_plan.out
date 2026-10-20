@@ -1,0 +1,33 @@
+
+steady-state price: $1.912e-05 a game; batch $1.91; match $0.72
+  S0 setup, attack known answer (6,400 games): $0.14
+  S1 round 1 (8 batches): $15.30
+  S2 adoption match: $0.72
+  E reserve (three matches): $2.17
+  S3 round 2 (8 batches, adoption vs pi_1, claim vs own1): $16.74
+  S4 reset (distillation, one two-network match): $3.60
+  S5 round on the reset base (8 batches, adoption vs base, two-network claim): $17.52
+  all stages $56.18; left of $85: $28.82
+  one more reset-and-round cycle $21.11; the remainder buys 1.36 of one
+  three rounds fit iff price x (1 + overhead) <= $3.113e-05 a coin game (overhead room 0.628)
+  a null round 1 (S0, 8 batches, adoption match): $16.16
+
+host 1.41x slower: $2.696e-05 a game; batch $2.70; match $1.02
+  S0 setup, attack known answer (6,400 games): $0.19
+  S1 round 1 (8 batches): $21.57
+  S2 adoption match: $1.02
+  E reserve (three matches): $3.06
+  S3 round 2 (8 batches, adoption vs pi_1, claim vs own1): $23.61
+  S4 reset (distillation, one two-network match): $3.60
+  S5 round on the reset base (8 batches, adoption vs base, two-network claim): $24.08
+  all stages $77.12; left of $85: $7.88
+  one more reset-and-round cycle $27.68; the remainder buys 0.28 of one
+  three rounds fit iff price x (1 + overhead) <= $3.024e-05 a coin game (overhead room 0.122)
+  a null round 1 (S0, 8 batches, adoption match): $22.78
+
+chance that the first same-kind bin certifies a nonnegative mean (all bins must):
+  margin slope b -0.004 per nat: P 0.013
+  margin slope b -0.001 per nat: P 0.020
+  margin slope b +0.000 per nat: P 0.023
+  margin slope b +0.001 per nat: P 0.026
+  margin slope b +0.004 per nat: P 0.039

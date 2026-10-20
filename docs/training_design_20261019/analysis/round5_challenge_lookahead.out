@@ -1,0 +1,33 @@
+== 1-3. The look-ahead matches on record, per changed decision
+
+[la_material_vs_parity3] games 991, decisive with telemetry 800, capped 191 (0.193)
+  decisions per side-game 237.6; flips per side-game 9.89 (share 0.0416)
+  flips from kind per side-game: attack 1.54, move 5.38, recruit 1.09, end_turn 1.87
+  flips to kind per side-game:   attack 2.64, move 1.86, recruit 5.36, end_turn 0.03
+  raw      : mean z -0.0250 +- 0.0354; Var ratio 1.000; advantage per flip -0.00253 +- 0.00351 (95% -0.00930 to +0.00452)
+  corrected: mean z -0.0209 +- 0.0319; Var ratio 0.815; advantage per flip -0.00211 +- 0.00331 (95% -0.00832 to +0.00419)
+  derived bound: under the greedy rule on an exact A^pi the mean advantage per decision is at most (1 - J)/N = 1/238 = 0.0042 (J = 0 in this symmetric pairing)
+
+[la_exposure_vs_own1] games 800, decisive with telemetry 800, capped 0 (0.000)
+  decisions per side-game 235.5; flips per side-game 18.83 (share 0.0800)
+  flips from kind per side-game: attack 1.63, move 16.30, recruit 0.48, end_turn 0.42
+  flips to kind per side-game:   attack 4.51, move 12.51, recruit 0.74, end_turn 1.07
+  raw      : mean z -0.0250 +- 0.0354; Var ratio 1.000; advantage per flip -0.00133 +- 0.00185 (95% -0.00520 to +0.00223)
+  corrected: mean z -0.0148 +- 0.0302; Var ratio 0.731; advantage per flip -0.00079 +- 0.00161 (95% -0.00389 to +0.00243)
+  derived bound: under the greedy rule on an exact A^pi the mean advantage per decision is at most (1 - J)/N = 1/235 = 0.0042 (J = 0 in this symmetric pairing)
+
+== 4. Resolution of a corrected look-ahead match (derived)
+  n =   800 corrected games: SE 0.0306 z (10.6 Elo); 2-SE per-flip a_min  m=5: 0.0122, m=10: 0.0061, m=20: 0.0031, m=40: 0.0015
+  n =  3200 corrected games: SE 0.0153 z (5.3 Elo); 2-SE per-flip a_min  m=5: 0.0061, m=10: 0.0031, m=20: 0.0015, m=40: 0.0008
+  n = 12800 corrected games: SE 0.0076 z (2.7 Elo); 2-SE per-flip a_min  m=5: 0.0031, m=10: 0.0015, m=20: 0.0008, m=40: 0.0004
+
+== 5. Information per game: a match on the flipped decisions against coins (derived)
+  m = 10 flips per side-game, same mean advantage: match / coins = m^2 / (n_c p(1-p)) = 2.9  (n_c = 180, p(1-p) = 0.19)
+  m = 20 flips per side-game, same mean advantage: match / coins = m^2 / (n_c p(1-p)) = 11.7  (n_c = 180, p(1-p) = 0.19)
+  m = 40 flips per side-game, same mean advantage: match / coins = m^2 / (n_c p(1-p)) = 46.8  (n_c = 180, p(1-p) = 0.19)
+
+== 6. The learned critics of 2026-10-09 (holdout value loss, C51 cross-entropy)
+  T25   train positions  42816 (about 1784 games at 24 a game); best 0.4915 at 0.25 epochs; last read 0.6092 at 1.25 epochs
+  T50   train positions  83400 (about 3475 games at 24 a game); best 0.4712 at 0.50 epochs; last read 0.6634 at 1.50 epochs
+  T100  train positions 163968 (about 6832 games at 24 a game); best 0.4595 at 0.50 epochs; last read 0.5693 at 1.50 epochs
+  O100  train positions 163968 (about 6832 games at 24 a game); best 0.4740 at 0.75 epochs; last read 0.5305 at 1.75 epochs

@@ -196,6 +196,20 @@ $1.47 in all):
       control-variate clause fires.
     - The luck pass's place in R0 waits on the design discussion with the
       user, as does the rest of the plan.
+  - **R0 rejected (user, 2026-10-19):** past runs were fire-and-hope, and
+    almost every gain since August came from bug fixes. The user asked for a
+    radical change of approach, learned only, strength first.
+- **The training design group** (2026-10-19/20, 8 rounds of proposers,
+  adversarial critics and a synthesizer, about 18 million tokens):
+  docs/training_design_20261019/, the result in `current_design.md`, every
+  number tagged measured, derived or unknown, the analyses in `analysis/`.
+  - The core: in deterministic argmax self-play, a logged coin plays the
+    runner-up at near-ties; the result, corrected by the simulator's exact
+    luck terms, labels that decision without bias and without a critic; a
+    closed-form head on the frozen network pools the labels; a PURE match
+    adopts.
+  - The main unknown is the near-tie spread: nothing on disk measures it.
+  - Rulings it asks of the user: (a) to (g) in `current_design.md` section 7.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

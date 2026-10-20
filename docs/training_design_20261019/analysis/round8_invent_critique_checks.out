@@ -1,0 +1,16 @@
+1. S4's CES readings at the distillation's scale
+  invent's sizing, 8 batches: 800,000 game-equivalents; plant SE 1.77e-05 per hp; kappa/SE 28.2; a broken path (0) lies 28.2 SE from kappa
+    paired SE of a kept ratio 0.0002
+    r_frozen ridge, d 1160: overfit r*d/N 0.001
+    r_frozen ridge, d 1536: overfit r*d/N 0.001
+  S4 distillation's own positions: 2,227 game-equivalents; plant SE 3.36e-04 per hp; kappa/SE 1.5; a broken path (0) lies 1.5 SE from kappa
+    paired SE of a kept ratio 0.0032
+    r_frozen ridge, d 1160: overfit r*d/N 0.358
+    r_frozen ridge, d 1536: overfit r*d/N 0.475
+  forwarding 100,000 held-out games through N (memory carried): 44.9 M positions; at the teacher pass's measured rate 32.0 h, $14.81 ($13.43 at $0.42)
+2. Mis-join shared by the plant and the label (toy, 40,000 games x 30 strikes, kappa 0.005)
+  mis-joined False: plant coefficient 0.0051 +- 0.0006 (planted 0.005); context slope +0.0392 +- 0.0014 (true 0.04)
+  mis-joined True : plant coefficient 0.0053 +- 0.0004 (planted 0.005); context slope -0.0003 +- 0.0029 (true 0.04)
+3. A post-strike input in the control variate (toy, 2,000,000 games)
+  pre-strike psi (damage a hit would deal, 8): E[CV] +0.00006; coin label mean +0.0003 +- 0.0016 (truth 0)
+  post-strike psi (record's damage field: 8 on a hit, 0 on a miss): E[CV] +0.05583; coin label mean +0.0075 +- 0.0016 (truth 0)

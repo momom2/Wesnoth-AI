@@ -1,0 +1,7 @@
+{
+ "rollouts": 7728,
+ "rollouts_with_a_result": 683,
+ "share_with_a_result": 0.08837991718426501,
+ "cells_with_two_results": 127,
+ "usable_as_playout_noise_to_the_end": false
+}

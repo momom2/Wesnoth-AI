@@ -1,0 +1,7 @@
+own1 self-play games 1600, capped 0; all matches: 666 capped of 19466, their z [0], ended by ['max_actions', 'max_turns']
+walk: 19466 games, mean 0.321 s, median 0.176 s per game (one core)
+  23 cores: generation 4.87 core-s per game; walk adds 0.066 of it
+  32 cores: generation 6.78 core-s per game; walk adds 0.047 of it
+  64 cores: generation 13.55 core-s per game; walk adds 0.024 of it
+own1 self-play: setup alone keeps 0.882, setup + columns 0.732; games saved at equal information 0.170 = $3.36 of a $19.76 round
+break-even: the walk pays while it costs under 0.170 of generation, i.e. on any box with more than 8.9 effective cores

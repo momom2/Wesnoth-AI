@@ -1,0 +1,43 @@
+S0(a) census replay of own1's 2,000 self-play games: $0.043 (the 18,800-game DPI replay: $0.42)
+
+steady-state price: $1.912e-05 a pool game; coin batch $1.91; 32,000-game match $0.61
+  S0: $0.28
+  S1 (8 batches + interim): $15.91
+  S2 adoption: $0.61
+  S3 same-band round 2, conditional (+ interim, direct, claim): $17.13
+  S4 reset: $6.17
+  S5 round on the reset network (+ interim, direct; claim at eval price): $20.26
+  all stages $60.37 + miss reserve $1.22 = $61.59; left $23.41
+  without S3 $44.46; left $40.54, which buys 1.53 more reset-and-round cycles ($26.43 each)
+  the round-6 plan priced S5's claim at the pool price; at the eval median it costs $3.13 more
+  three coin rounds fit iff price x (1 + overhead) <= $2.89e-05 a coin game (fixed $15.70)
+  a null round 1: stopped after batch 3 $6.63; run through $16.80
+
+steady-state price on a host 1.41x slower: $2.696e-05 a pool game; coin batch $2.70; 32,000-game match $0.86
+  S0: $0.37
+  S1 (8 batches + interim): $22.43
+  S2 adoption: $0.86
+  S3 same-band round 2, conditional (+ interim, direct, claim): $24.16
+  S4 reset: $6.19
+  S5 round on the reset network (+ interim, direct; claim at eval price): $27.04
+  all stages $81.05 + miss reserve $1.73 = $82.78; left $2.22
+  without S3 $58.62; left $26.38, which buys 0.79 more reset-and-round cycles ($33.23 each)
+  the round-6 plan priced S5's claim at the pool price; at the eval median it costs $2.88 more
+  three coin rounds fit iff price x (1 + overhead) <= $2.79e-05 a coin game (fixed $18.08)
+  a null round 1: stopped after batch 3 $9.32; run through $23.67
+
+round 6's whole-wall price (check against round6_synthesis_power.out): $2.510e-05 a pool game; coin batch $2.51; 32,000-game match $0.80
+  S0: $0.35
+  S1 (8 batches + interim): $20.88
+  S2 adoption: $0.80
+  S3 same-band round 2, conditional (+ interim, direct, claim): $22.49
+  S4 reset: $6.19
+  S5 round on the reset network (+ interim, direct; claim at eval price): $25.43
+  all stages $76.15 + miss reserve $1.61 = $77.75; left $7.25
+  without S3 $55.26; left $29.74, which buys 0.94 more reset-and-round cycles ($31.62 each)
+  the round-6 plan priced S5's claim at the pool price; at the eval median it costs $2.94 more
+  three coin rounds fit iff price x (1 + overhead) <= $2.81e-05 a coin game (fixed $17.51)
+  a null round 1: stopped after batch 3 $8.69; run through $22.04
+
+wall per coin batch at the steady rate: 4.55 h; per round of 8: 36.4 h (4.55 h check)
+DPI's saving if admitted (round6_synthesis_power.out section 5): one batch a round at r <= 0.602 = $1.91, two at r <= 0.516 = $3.82

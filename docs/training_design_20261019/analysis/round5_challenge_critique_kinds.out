@@ -1,0 +1,10 @@
+[la_material_vs_parity3] games 800
+  attack   flips/side-game  1.54  coef -0.0619 +- 0.0160  corr(flips, decisions) +0.40
+  move     flips/side-game  5.38  coef +0.0252 +- 0.0080  corr(flips, decisions) +0.55
+  recruit  flips/side-game  1.09  coef +0.0667 +- 0.0221  corr(flips, decisions) +0.22
+  end_turn flips/side-game  1.87  coef -0.0591 +- 0.0139  corr(flips, decisions) +0.48
+[la_exposure_vs_own1] games 800
+  attack   flips/side-game  1.63  coef -0.0108 +- 0.0150  corr(flips, decisions) +0.46
+  move     flips/side-game 16.30  coef +0.0011 +- 0.0024  corr(flips, decisions) +0.70
+  recruit  flips/side-game  0.48  coef -0.0148 +- 0.0361  corr(flips, decisions) +0.20
+  end_turn flips/side-game  0.42  coef -0.0670 +- 0.0423  corr(flips, decisions) +0.28

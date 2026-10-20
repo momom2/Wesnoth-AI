@@ -1,0 +1,112 @@
+label sigma^2 at p 0.25: 3.67 (r 0.688); band 76.1 per side-game
+
+1. PURE paired matches in the pool (pairs keep 0.847)
+  12,800 games: SE 2.83 Elo, 2 SE 5.7, 80%-power gain 8.0, $0.32; same SE corrected (0.700) needs 10,579 games, saving $0.06
+  25,600 games: SE 2.00 Elo, 2 SE 4.0, 80%-power gain 5.7, $0.64; same SE corrected (0.700) needs 21,157 games, saving $0.11
+  32,000 games: SE 1.79 Elo, 2 SE 3.6, 80%-power gain 5.1, $0.80; same SE corrected (0.700) needs 26,446 games, saving $0.14
+  51,200 games: SE 1.41 Elo, 2 SE 2.8, 80%-power gain 4.0, $1.29; same SE corrected (0.700) needs 42,314 games, saving $0.22
+
+2. match-only floors, 8 batches, adoption at 32,000 PURE paired games (gain 2.84 SE = 5.1 Elo)
+  d_eff 200 mu +0.0000: floor sd 0.0011
+  d_eff 200 mu -0.0018: floor sd 0.0027
+  d_eff 776 mu +0.0000: floor sd 0.0016
+  d_eff 776 mu -0.0018: floor sd 0.0034
+
+3. interim match after batch 3 (32,000 games, SE 1.79): stop iff the estimate is below 0
+  d_eff 200 mu +0.0000
+    sd 0.0000: student 3   0.0 Elo, student 8   0.0; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0010: student 3   2.6 Elo, student 8   4.0; P(stop) 0.08; power with stop 0.54 (without 0.59)
+    sd 0.0015: student 3   5.5 Elo, student 8   8.3; P(stop) 0.00; power with stop 0.99 (without 1.00)
+    sd 0.0020: student 3   9.4 Elo, student 8  13.3; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0025: student 3  14.0 Elo, student 8  18.8; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0030: student 3  19.0 Elo, student 8  24.5; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0035: student 3  24.3 Elo, student 8  30.2; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0040: student 3  29.8 Elo, student 8  36.0; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0045: student 3  35.5 Elo, student 8  41.7; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0050: student 3  41.2 Elo, student 8  47.4; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    null bound with the stop counted (combined power 0.8): sd 0.0012 (no-stop floor 0.0011)
+  d_eff 200 mu -0.0018
+    sd 0.0000: student 3   0.0 Elo, student 8   0.0; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0010: student 3   0.0 Elo, student 8   0.0; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0015: student 3   0.0 Elo, student 8   0.1; P(stop) 0.50; power with stop 0.01 (without 0.03)
+    sd 0.0020: student 3   0.2 Elo, student 8   1.2; P(stop) 0.46; power with stop 0.05 (without 0.09)
+    sd 0.0025: student 3   1.4 Elo, student 8   3.9; P(stop) 0.22; power with stop 0.44 (without 0.56)
+    sd 0.0030: student 3   4.0 Elo, student 8   7.7; P(stop) 0.01; power with stop 0.98 (without 0.99)
+    sd 0.0035: student 3   7.6 Elo, student 8  12.2; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0040: student 3  11.9 Elo, student 8  17.1; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0045: student 3  16.6 Elo, student 8  22.1; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0050: student 3  21.7 Elo, student 8  27.3; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    null bound with the stop counted (combined power 0.8): sd 0.0027 (no-stop floor 0.0027)
+  d_eff 776 mu +0.0000
+    sd 0.0000: student 3   0.0 Elo, student 8   0.0; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0010: student 3   1.3 Elo, student 8   2.1; P(stop) 0.23; power with stop 0.16 (without 0.21)
+    sd 0.0015: student 3   3.0 Elo, student 8   4.7; P(stop) 0.05; power with stop 0.70 (without 0.73)
+    sd 0.0020: student 3   5.2 Elo, student 8   8.1; P(stop) 0.00; power with stop 0.99 (without 0.99)
+    sd 0.0025: student 3   8.0 Elo, student 8  12.1; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0030: student 3  11.2 Elo, student 8  16.7; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0035: student 3  15.0 Elo, student 8  21.7; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0040: student 3  19.1 Elo, student 8  26.9; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0045: student 3  23.5 Elo, student 8  32.4; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0050: student 3  28.2 Elo, student 8  37.9; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    null bound with the stop counted (combined power 0.8): sd 0.0016 (no-stop floor 0.0016)
+  d_eff 776 mu -0.0018
+    sd 0.0000: student 3   0.0 Elo, student 8   0.0; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0010: student 3   0.0 Elo, student 8   0.0; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0015: student 3   0.0 Elo, student 8   0.0; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0020: student 3   0.0 Elo, student 8   0.1; P(stop) 0.50; power with stop 0.01 (without 0.02)
+    sd 0.0025: student 3   0.1 Elo, student 8   0.8; P(stop) 0.49; power with stop 0.03 (without 0.06)
+    sd 0.0030: student 3   0.5 Elo, student 8   2.7; P(stop) 0.38; power with stop 0.19 (without 0.30)
+    sd 0.0035: student 3   1.8 Elo, student 8   5.7; P(stop) 0.15; power with stop 0.75 (without 0.88)
+    sd 0.0040: student 3   4.0 Elo, student 8   9.5; P(stop) 0.01; power with stop 0.99 (without 1.00)
+    sd 0.0045: student 3   7.0 Elo, student 8  14.0; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    sd 0.0050: student 3  10.6 Elo, student 8  18.8; P(stop) 0.00; power with stop 1.00 (without 1.00)
+    null bound with the stop counted (combined power 0.8): sd 0.0036 (no-stop floor 0.0034)
+
+3b. where to place the interim match: after batch b, stop iff student b's estimate is below 0
+  b 2: null bound with the stop counted d200 mu+0.0000 0.0012; d200 mu-0.0018 0.0028; d776 mu+0.0000 0.0016; d776 mu-0.0018 0.0038; expected coin spend at a null $13.35 (no interim $20.08)
+  b 3: null bound with the stop counted d200 mu+0.0000 0.0012; d200 mu-0.0018 0.0027; d776 mu+0.0000 0.0016; d776 mu-0.0018 0.0036; expected coin spend at a null $14.61 (no interim $20.08)
+  b 4: null bound with the stop counted d200 mu+0.0000 0.0012; d200 mu-0.0018 0.0027; d776 mu+0.0000 0.0016; d776 mu-0.0018 0.0035; expected coin spend at a null $15.86 (no interim $20.08)
+  b 5: null bound with the stop counted d200 mu+0.0000 0.0011; d200 mu-0.0018 0.0027; d776 mu+0.0000 0.0016; d776 mu-0.0018 0.0034; expected coin spend at a null $17.12 (no interim $20.08)
+
+4. forecast SE (progressive, students 4-7 on batches 5-8) and the miss line
+  mu +0.0000 sd 0.002: final gain 8.1, forecast 6.8 +- 4.6 Elo; miss line 9.9 Elo
+  mu +0.0000 sd 0.003: final gain 16.7, forecast 14.4 +- 4.6 Elo; miss line 9.9 Elo
+  mu +0.0000 sd 0.005: final gain 37.9, forecast 34.1 +- 4.6 Elo; miss line 9.9 Elo
+  mu -0.0018 sd 0.002: final gain 0.1, forecast 0.0 +- 0.3 Elo; miss line 3.6 Elo
+  mu -0.0018 sd 0.003: final gain 2.7, forecast 1.5 +- 1.9 Elo; miss line 5.3 Elo
+  mu -0.0018 sd 0.005: final gain 18.8, forecast 15.4 +- 3.5 Elo; miss line 7.8 Elo
+
+5. dice-priced corrector: batches holding the floors at kept ratio r (eta scales with r)
+  8 batches suffice iff r <= 0.688; saves $0.00 a round
+  7 batches suffice iff r <= 0.602; saves $2.51 a round
+  6 batches suffice iff r <= 0.516; saves $5.02 a round
+  5 batches suffice iff r <= 0.430; saves $7.53 a round
+  4 batches suffice iff r <= 0.344; saves $10.04 a round
+  ruling (b) 'no' (cell alone, r 0.843): batches x1.225 for the same floors, or floors x1.107 at 8 batches
+    cell alone, d_eff 200 mu +0.0000: floor sd 0.0012
+    cell alone, d_eff 200 mu -0.0018: floor sd 0.0028
+    cell alone, d_eff 776 mu +0.0000: floor sd 0.0016
+    cell alone, d_eff 776 mu -0.0018: floor sd 0.0036
+
+6. budget at measured prices
+  S0 replay of the 18,800 walked decisive games: $0.424
+  S0 mirror null 3,200 games: $0.080
+  S0 attack known answer 6,400 games: $0.161
+  S0 coin smoke 2,000 games: $0.050
+  S0 box setup (median): $0.018
+  S0: $0.73
+  S1 (8 batches + interim): $20.88
+  S2 adoption: $0.80
+  S3 round 2 (+ interim, direct, claim): $22.49
+  S4 reset: $6.19
+  S5 round 3: $22.49
+  total $73.58; miss reserve (E3 and E, one round) $1.61; left of $85 $9.81
+  three rounds fit iff price x (1 + overhead) <= $2.92e-05 a coin game (fixed $14.95); two rounds iff <= $4.53e-05 (fixed $12.54)
+  at the measured $2.51e-5: overhead up to 0.163 fits three rounds; the 1.41x host spread does not
+  a null round 1 stopped at batch 3: $9.07; run through: $22.42
+
+7. reading the interaction term from the coins themselves
+  19.0 switches against 76.1 opponent band states: SE 65 Elo at 800,000 coin games
+  19.0 switches against 76.1 opponent band states: SE 38 Elo at 2,400,000 coin games
+  38.1 switches against 76.1 opponent band states: SE 93 Elo at 800,000 coin games
+  38.1 switches against 76.1 opponent band states: SE 53 Elo at 2,400,000 coin games

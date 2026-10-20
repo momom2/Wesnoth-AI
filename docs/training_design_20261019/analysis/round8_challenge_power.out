@@ -1,0 +1,28 @@
+1. prices
+  two forwards a decision (guided reading), server-bound: x1.845 -> $3.527e-05 a pool game
+  guided side against own1 (two networks, one side doubled): $1.664e-04 a game
+2. training runs
+  plant run 0.5 M positions: 0.64 h, $0.27
+  skill run 4.0 M positions: 5.12 h + rebuild, $2.33
+3. matches
+  M1, N(s_top) against N(s_mid), one network: 37800 games, SE 1.79 Elo, $0.72
+  M2, N(s_top) against own1: 12800 games, SE 3.07 Elo, $1.50
+  M3, N guided against own1: 12800 games, SE 3.07 Elo, $2.13
+  human-scale gap 169 Elo: the higher setting's expected score among humans 0.726
+  skill transfer f = M1 / 169: SE 0.0106; M1 at 2 SE detects f >= 0.021
+4. the first-order guidance prediction, M3 = M2 + gamma * M1 (BT transitivity, logits linear in s)
+  gamma 1: prediction SE 3.55 Elo; miss line (2 SE of M3 minus prediction) 9.39 Elo
+  gamma 2: prediction SE 4.71 Elo; miss line (2 SE of M3 minus prediction) 11.25 Elo
+  false adoption at zero gain, three candidates (M2, M3 at gamma 1 and 2) on lower 2-SE bounds: 0.067
+5. distillation of the adopted setting
+  own-trajectory distillation $2.10 (measured upper bound); claim against own1 $1.50; against its guided parent $2.13
+  a distilled network 2.8 Elo below its parent is accepted with P 0.18
+6. self-play stage: coins on guided disagreements (both sides read two settings)
+  a batch of 100000 games: $3.53 (1.84 near-tie batches)
+  labels needed to resolve the guided band's mean mu_g at 2 SE, at sigma^2 3.67 a label: 4 * 3.67 / mu_g^2;
+  mu_g = (M3 in Elo / 347.4) / n_dis, n_dis the guided disagreements per side-game, both read before S4
+7. budget
+  S1 $2.59; S2 $6.48; S3 $5.73; S4 (8 batches, adoption and claim) $31.21; total $46.02, left of $85 $38.98
+  exits: an empty axis after M1 $3.32; no setting above own1 after S2 $9.08; S4 skipped $14.80
+  the 0-slot diagnostic (best arm at 0 slots against own1 at 0 slots), run only when no arm beats own1 while M1 > 0: $1.50; the route then closes at $10.57 if it reads null
+  on a 1.41x slower host the game-priced items scale: total $62.96

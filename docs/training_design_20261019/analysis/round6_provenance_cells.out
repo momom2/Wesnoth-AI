@@ -1,0 +1,6 @@
+pooled, 18800 decisive games, 1512 cells observed: columns keep 0.847, full-cell share 0.151, within-cell 0.696
+own1 self-play, 1600 games, 1007 cells: columns keep 0.839, full-cell share 0.188, within-cell 0.651 (95% bootstrap 0.581 to 0.721)
+own1 self-play with the pooled cell share: within-cell 0.688
+finite-sample term of a cell baseline fitted on 100000 games: 0.0105 (1,512 cells)
+finite-sample term of a cell baseline fitted on 700000 games: 0.0015 (1,512 cells)
+against the additive baseline's 0.730 / 0.734 in own1 self-play (round5_provenance_match_variance.out)

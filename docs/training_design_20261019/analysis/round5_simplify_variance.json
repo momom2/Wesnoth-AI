@@ -1,0 +1,217 @@
+{
+ "matches": {
+  "a1_eo25": {
+   "games": 804,
+   "decisive": 800,
+   "decisive_share": 0.9950248756218906,
+   "mean_z": -0.115,
+   "var_z": 0.9880100125156447
+  },
+  "a2_reset": {
+   "games": 802,
+   "decisive": 800,
+   "decisive_share": 0.9975062344139651,
+   "mean_z": -0.295,
+   "var_z": 0.9141176470588237
+  },
+  "a3_eo35": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": -0.1175,
+   "var_z": 0.9874280350438048
+  },
+  "confirm_kv15_vs_own1": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": 0.005,
+   "var_z": 1.0012265331664576
+  },
+  "gen_own1_selfplay": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": 0.01,
+   "var_z": 1.0011514392991236
+  },
+  "kv00": {
+   "games": 400,
+   "decisive": 400,
+   "decisive_share": 1.0,
+   "mean_z": -0.065,
+   "var_z": 0.9982706766917294
+  },
+  "kv10": {
+   "games": 1200,
+   "decisive": 1200,
+   "decisive_share": 1.0,
+   "mean_z": 0.02666666666666667,
+   "var_z": 1.0001223241590214
+  },
+  "kv15": {
+   "games": 1200,
+   "decisive": 1200,
+   "decisive_share": 1.0,
+   "mean_z": 0.11333333333333333,
+   "var_z": 0.9879788712816235
+  },
+  "la_exposure_vs_own1": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": -0.025,
+   "var_z": 1.0006257822277846
+  },
+  "la_material_vs_parity3": {
+   "games": 991,
+   "decisive": 800,
+   "decisive_share": 0.8072653884964682,
+   "mean_z": -0.025,
+   "var_z": 1.0006257822277846
+  },
+  "m1_own64": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": -0.0125,
+   "var_z": 1.0010951188986232
+  },
+  "m2_own0": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": 0.1075,
+   "var_z": 0.9896808510638296
+  },
+  "own0_vs_p3slots0": {
+   "games": 803,
+   "decisive": 800,
+   "decisive_share": 0.9962640099626401,
+   "mean_z": 0.065,
+   "var_z": 0.9970212765957448
+  },
+  "own1_eo25_vs_own1": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": -0.035,
+   "var_z": 1.0000250312891115
+  },
+  "own64_selfplay": {
+   "games": 800,
+   "decisive": 800,
+   "decisive_share": 1.0,
+   "mean_z": 0.02,
+   "var_z": 1.0008510638297872
+  },
+  "own64_vs_own0": {
+   "games": 801,
+   "decisive": 800,
+   "decisive_share": 0.9987515605493134,
+   "mean_z": -0.0625,
+   "var_z": 0.9973404255319149
+  },
+  "own64_vs_p3": {
+   "games": 807,
+   "decisive": 800,
+   "decisive_share": 0.9913258983890955,
+   "mean_z": 0.25,
+   "var_z": 0.9386733416770964
+  },
+  "r1_own2_64_vs_own1_64": {
+   "games": 801,
+   "decisive": 800,
+   "decisive_share": 0.9987515605493134,
+   "mean_z": 0.0475,
+   "var_z": 0.9989924906132668
+  },
+  "r2_own2_0_vs_own1_0": {
+   "games": 801,
+   "decisive": 800,
+   "decisive_share": 0.9987515605493134,
+   "mean_z": -0.0175,
+   "var_z": 1.0009449311639549
+  },
+  "r3_own2_64_vs_own2_0": {
+   "games": 805,
+   "decisive": 800,
+   "decisive_share": 0.9937888198757764,
+   "mean_z": 0.0375,
+   "var_z": 0.9998435544430538
+  },
+  "selfpin": {
+   "games": 1020,
+   "decisive": 800,
+   "decisive_share": 0.7843137254901961,
+   "mean_z": 0.0075,
+   "var_z": 1.001195244055069
+  },
+  "slots64_vs_slots0": {
+   "games": 810,
+   "decisive": 800,
+   "decisive_share": 0.9876543209876543,
+   "mean_z": -0.295,
+   "var_z": 0.9141176470588237
+  },
+  "slots64_vs_slots16": {
+   "games": 1021,
+   "decisive": 800,
+   "decisive_share": 0.7835455435847208,
+   "mean_z": 0.0,
+   "var_z": 1.0012515644555695
+  }
+ },
+ "own1_selfplay": {
+  "games": 1600,
+  "decisive": 1600,
+  "mean_z": 0.015,
+  "var_z": 1.0004002501563476,
+  "mean_turns": 20.075625
+ },
+ "setup_baselines_all_matches": {
+  "first_mover_only": {
+   "games": 18800,
+   "cells": 1,
+   "var_y": 0.9858169156481061,
+   "var_resid": 0.9859026010648507,
+   "explained_share": -8.691818468964385e-05
+  },
+  "map": {
+   "games": 18800,
+   "cells": 21,
+   "var_y": 0.9858169156481061,
+   "var_resid": 0.9786364447382406,
+   "explained_share": 0.00728377733825436
+  },
+  "factions": {
+   "games": 18800,
+   "cells": 36,
+   "var_y": 0.9858169156481061,
+   "var_resid": 0.8932180926431136,
+   "explained_share": 0.09393105508248989
+  },
+  "map_x_factions": {
+   "games": 18800,
+   "cells": 756,
+   "var_y": 0.9858169156481061,
+   "var_resid": 0.8838261332769071,
+   "explained_share": 0.10345813786746316
+  },
+  "factions_and_luck_columns": {
+   "games": 18800,
+   "cells": 36,
+   "var_y": 0.9858169156481061,
+   "var_resid": 0.8932180926431136,
+   "explained_share": 0.09393105508248989,
+   "with_luck_columns": {
+    "var_resid": 0.7459736515060336,
+    "explained_share": 0.24329392236528247
+   },
+   "luck_columns_only": {
+    "var_resid": 0.8349764849558768,
+    "explained_share": 0.15301059283717222
+   }
+  }
+ }
+}

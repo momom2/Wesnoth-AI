@@ -1,0 +1,6 @@
+games 800; decisions per game 449.1 (both sides); attacks per game 109.7
+support size on the counter-weapon subsample: fights 6130, mean 11.86, quantiles 10/50/90 6/12/17
+columns + setup keep r_C = 0.732 in own1 self-play
+  support  4.00: child forwards per game    439, cost multiple m 1.98, a learned corrector pays iff it keeps under r_C / m = 0.370
+  support 11.86: child forwards per game   1301, cost multiple m 3.90, a learned corrector pays iff it keeps under r_C / m = 0.188
+  support 12.00: child forwards per game   1316, cost multiple m 3.93, a learned corrector pays iff it keeps under r_C / m = 0.186

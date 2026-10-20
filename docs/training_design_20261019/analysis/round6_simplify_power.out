@@ -1,0 +1,21 @@
+paired PURE match: SE 2.83 Elo, 2 SE 5.7 Elo, 80%-power line 8.0 Elo, $1.90
+  d_eff 200 mu +0.0000: match-only floor sd 0.0015 (gain 8.0 Elo, forecast 6.9 +- 4.7)
+  d_eff 200 mu -0.0018: match-only floor sd 0.0031 (gain 8.0 Elo, forecast 6.4 +- 3.0)
+  d_eff 776 mu +0.0000: match-only floor sd 0.0020 (gain 8.0 Elo, forecast 6.8 +- 4.7)
+  d_eff 776 mu -0.0018: match-only floor sd 0.0039 (gain 8.0 Elo, forecast 5.7 +- 2.9)
+early stop after batch 4 (students 1-3's progressive upper bound under 2 match SEs), d_eff 776:
+  mu +0.0000 sd 0.000: P(stop) 0.17; final gain had it run 0.0 Elo
+  mu +0.0000 sd 0.001: P(stop) 0.12; final gain had it run 2.1 Elo
+  mu +0.0000 sd 0.002: P(stop) 0.04; final gain had it run 7.9 Elo
+  mu +0.0000 sd 0.003: P(stop) 0.00; final gain had it run 16.3 Elo
+  mu -0.0018 sd 0.000: P(stop) 1.00; final gain had it run 0.0 Elo
+  mu -0.0018 sd 0.001: P(stop) 1.00; final gain had it run 0.0 Elo
+  mu -0.0018 sd 0.002: P(stop) 1.00; final gain had it run 0.1 Elo
+  mu -0.0018 sd 0.003: P(stop) 1.00; final gain had it run 2.5 Elo
+  S1 smoke + round 1: $19.81
+  S2 adoption match: $1.90
+  S2 fallback match (only on a miss): $1.90
+  S3 round 2 + direct match + own1 match: $23.57
+  S4 P-distill + recipe + 1-2 matches: $6.51
+  S5 round 3 + direct match + own1 match: $23.57
+  total at most $77.3; left of $85: $7.7; overhead share that still fits: 0.130 of generation

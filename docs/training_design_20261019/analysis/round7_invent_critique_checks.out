@@ -1,0 +1,11 @@
+1. multi-legal readings 26917
+   a = 0.35: stance's upper bound 16.3 per side-game; uncounted candidates (no attack in top 8, eighth within a, more than 8 legal) 0.2 per side-game
+   a = 1.0: stance's upper bound 31.8 per side-game; uncounted candidates (no attack in top 8, eighth within a, more than 8 legal) 13.3 per side-game
+2. additions $0.00: three rounds fit iff price x (1 + overhead) <= $2.919e-05; overhead room at the measured price 0.163
+2. additions $3.59: three rounds fit iff price x (1 + overhead) <= $2.769e-05; overhead room at the measured price 0.103
+3. m 1.073: at r m = 0.602, r = 0.5610; fixed batches 7 save $1.23; resized batches save $2.51
+3. m 1.122: at r m = 0.602, r = 0.5365; fixed batches 7 save $0.37; resized batches save $2.51
+3. m 1.244: at r m = 0.602, r = 0.4839; fixed batches 6 save $1.35; resized batches save $2.51
+4. logit-linear J: J(1) - J(0) = -0.22080 z; J'(1/2) = -0.22170 z; gap -0.31 Elo
+5. |S| 4.8: at $2, F_H SE 4.5 Elo pooled, 6.3 per seat; a 30% scale error (-55 vs -78) against the M_1 line 2 sqrt(SE^2 + 1.79^2) = 9.6 Elo
+5. |S| 31.8: at $2, F_H SE 11.5 Elo pooled, 16.3 per seat; a 30% scale error (-55 vs -78) against the M_1 line 2 sqrt(SE^2 + 1.79^2) = 23.3 Elo

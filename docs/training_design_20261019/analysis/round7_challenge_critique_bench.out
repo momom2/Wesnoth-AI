@@ -1,0 +1,11 @@
+positions 199, with 5 candidates 173, of which attack-free base 70
+2. T1   attack-free alt minus attack-free base: n 146, mean -0.0550 (SE 0.0313), noise-corrected var 0.0333 (SE 0.0148), sd 0.182
+2. cont attack-free alt minus attack-free base: n 68, mean +0.0494 (SE 0.0284), noise-corrected var 0.0096 (SE 0.0070), sd 0.098
+3. split-half, all candidates: positions 199; best alternative +0.0278 (SE 0.0247); best incl. base (may keep default) +0.0417 (SE 0.0214)
+3. split-half, attack-free base and alts: positions 76; best alternative -0.0531 (SE 0.0423); best incl. base (may keep default) -0.0186 (SE 0.0365)
+4. Gaussian check (attack-free): alt-minus-base N(-0.0218, 0.0279), half-sample noise var 0.0457, 3 alternatives: expected split-half gain (b) +0.0655; measured -0.0186
+   same with exact estimates (oracle pick of best of 3 plus base): +0.1294 a side-turn
+5. split-half, 5-candidate positions, all, base or T1: positions 173, gain +0.0239 (SE 0.0221)
+5. split-half, 5-candidate positions, all, base or cont: positions 173, gain +0.0035 (SE 0.0147)
+5. split-half, 5-candidate positions, attack-free, base or T1: positions 59, gain -0.0350 (SE 0.0398)
+5. split-half, 5-candidate positions, attack-free, base or cont: positions 68, gain +0.0063 (SE 0.0274)

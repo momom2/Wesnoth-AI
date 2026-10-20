@@ -1,0 +1,26 @@
+games by stage, kv15: {0: 0, 1: 100, 2: 300, 3: 800, 4: 0} confirm: {0: 0, 1: 0, 2: 0, 3: 0, 4: 800}
+
+[all knob games (the provenance script's data)] vectors 24, games 6400, dispersion 1.32 (SEs inflated by it when > 1)
+  reduced form: z per unit of offset below -1.5 +0.0012 +- 0.0245, above -0.0774 +- 0.0406, attack -0.1283 +- 0.0304
+  predicted Match A (0 vs -1.5) z -0.116 +- 0.061 (-40 +- 21 Elo); Match C (-2.5 vs -1.5) z -0.001 +- 0.024 (measured -0.035 +- 0.035)
+  decision model, observed-z correction: per decision removed +0.00332 +- 0.00193, added +0.00020 +- 0.00116
+  decision model, fitted-z correction: per decision removed +0.00387 +- 0.00171, added +0.00058 +- 0.00107
+
+[all knob games + kv15's fresh confirmation] vectors 25, games 7200, dispersion 1.33 (SEs inflated by it when > 1)
+  reduced form: z per unit of offset below -1.5 +0.0110 +- 0.0229, above -0.0801 +- 0.0408, attack -0.1225 +- 0.0300
+  predicted Match A (0 vs -1.5) z -0.120 +- 0.061 (-42 +- 21 Elo); Match C (-2.5 vs -1.5) z -0.011 +- 0.023 (measured -0.035 +- 0.035)
+  decision model, observed-z correction: per decision removed +0.00341 +- 0.00194, added -0.00031 +- 0.00108
+  decision model, fitted-z correction: per decision removed +0.00391 +- 0.00175, added +0.00006 +- 0.00101
+
+[stage 1 only: 24 x 100 games, no selection] vectors 24, games 2400, dispersion 1.14 (SEs inflated by it when > 1)
+  reduced form: z per unit of offset below -1.5 +0.0569 +- 0.0315, above -0.1059 +- 0.0505, attack -0.1047 +- 0.0331
+  predicted Match A (0 vs -1.5) z -0.159 +- 0.076 (-55 +- 26 Elo); Match C (-2.5 vs -1.5) z -0.057 +- 0.032 (measured -0.035 +- 0.035)
+  decision model, observed-z correction: per decision removed +0.00332 +- 0.00235, added -0.00234 +- 0.00147
+  decision model, fitted-z correction: per decision removed +0.00485 +- 0.00216, added -0.00204 +- 0.00142
+  kv15 stage 1: 100 games, z +0.060
+  kv15 stage 2: 300 games, z +0.160
+  kv15 stage 3: 800 games, z +0.102
+  kv10 stage 1: 100 games, z +0.200
+  kv10 stage 2: 300 games, z +0.007
+  kv10 stage 3: 800 games, z +0.013
+  confirm: 800 games, z +0.005

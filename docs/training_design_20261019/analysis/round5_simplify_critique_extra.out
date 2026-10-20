@@ -1,0 +1,15 @@
+1. disagreements per reading, by top-two gap bin (no intercept, 100 side-games):
+   [0.0, 0.0136): readings    477, rate +0.53151 (95% bootstrap +0.30253 to +0.76834)
+   [0.0136, 0.1): readings   2616, rate +0.12056 (95% bootstrap +0.05869 to +0.18844)
+   [0.1, 0.35): readings   6043, rate +0.01182 (95% bootstrap -0.02315 to +0.04244)
+   [0.35, inf): readings  17781, rate -0.00886 (95% bootstrap -0.01737 to -0.00087)
+   total disagreements 477. A negative rate is a misfit of the additive model (per-decision flags are not in the record), so the record neither confirms nor bounds zero flips at G >= 0.35.
+
+2. early stop: v giving 5.3 Elo at batch 8 = 5.018e-06 (sd 0.0022)
+   true sd 0.0000: combined SE of v_hat 3.59e-06; upper bound at v_hat = v reads 7.5 Elo; P(skip fires) 0.27
+   true sd 0.0015: combined SE of v_hat 3.62e-06; upper bound at v_hat = v reads 9.7 Elo; P(skip fires) 0.11
+   true sd 0.0022: combined SE of v_hat 3.67e-06; upper bound at v_hat = v reads 12.4 Elo; P(skip fires) 0.02
+
+3. per game: Var(z) 0.987, Var(corrected) 0.737, Var(correction) 0.257; at 12800 games SE corrected 2.64, PURE 3.05, root-sum-square 4.03, paired difference 1.56 Elo
+
+4. replay of one 400,000-game half: 21.2 box-hours, $8.9; both halves 42.3 h, $17.8

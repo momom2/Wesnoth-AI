@@ -1,0 +1,16 @@
+candidates 966, positions 199, playouts per candidate 28
+result values present: [-1.0, 0.0, 1.0]
+beta (recorded) [0.00283725 0.0313716  0.00265918 0.02380297]
+luck slope fitted in-sample on the two columns: [0.00285707 0.02961217], within-candidate R2 0.119
+
+raw: one-playout noise 0.608 (0.564-0.654); candidate spread (variance) 0.0286 (0.0208-0.0361), sd 0.169; position level variance 0.305 (0.266-0.351)
+  turns  7-10: positions  56, noise 0.656, spread +0.0350, level 0.247
+  turns 11-15: positions  74, noise 0.558, spread +0.0269, level 0.378
+  turns 16-99: positions  68, noise 0.624, spread +0.0256, level 0.274
+
+luck-corrected: one-playout noise 0.533 (0.493-0.567); candidate spread (variance) 0.0282 (0.0205-0.0374), sd 0.168; position level variance 0.305 (0.262-0.350)
+  turns  7-10: positions  56, noise 0.568, spread +0.0354, level 0.252
+  turns 11-15: positions  74, noise 0.495, spread +0.0250, level 0.377
+  turns 16-99: positions  68, noise 0.547, spread +0.0261, level 0.271
+
+within-position regression of candidate means on the candidate turn's two luck columns: slope [0.00298056 0.04352657], R2 0.033 of the within-position variance of candidate means (which also holds the playout noise / 28)

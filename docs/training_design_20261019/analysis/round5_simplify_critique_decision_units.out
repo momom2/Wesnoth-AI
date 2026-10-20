@@ -1,0 +1,3 @@
+gen_own1_selfplay (own1 both sides): side-games 1600, raw decisions per side-game 224.6, merged (+ end_turn) 184.3, ratio raw/merged 1.218, side-turns 19.4
+slots64_vs_slots0 (parity3 64 slots, side A only): side-games 810, raw decisions per side-game 221.5, merged (+ end_turn) 184.7, ratio raw/merged 1.200, side-turns 23.7
+prior_gaps (parity3 vs parity2, 100 side-games): 27171 readings = 271.7 per side-game, 10 merges

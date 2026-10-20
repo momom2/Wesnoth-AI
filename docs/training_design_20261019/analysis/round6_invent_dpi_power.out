@@ -1,0 +1,44 @@
+inputs: r now 0.732, Var(z) 1.0004, band 76.1 per side-game, d_eff 776, p 0.25, batch $2.47
+match-only floors at r now, 8 batches: mu 0 0.0020, mu -0.0018 0.0038
+r 0.732 (information x1.00):
+  mu +0.0000: floors sd 0.0020 (match-only) 0.0029 (full); batches for today's floor 8 ($19.8)
+  mu -0.0018: floors sd 0.0038 (match-only) 0.0043 (full); batches for today's floor 8 ($19.8)
+  at sd 0.003, mu 0: gain 16.3 Elo, forecast SE 4.7
+  match at the same factor: kept 0.700, SE 2.57 Elo at 12,800 games; SE 2.57 at 12,800 games ($1.90)
+  match-only floors with the match also corrected: mu 0 0.0020, mu -0.0018 0.0038
+r 0.600 (information x1.22):
+  mu +0.0000: floors sd 0.0019 (match-only) 0.0027 (full); batches for today's floor 7 ($17.3)
+  mu -0.0018: floors sd 0.0037 (match-only) 0.0040 (full); batches for today's floor 7 ($17.3)
+  at sd 0.003, mu 0: gain 17.5 Elo, forecast SE 4.3
+  match at the same factor: kept 0.574, SE 2.33 Elo at 12,800 games; SE 2.57 at 10,492 games ($1.56)
+  match-only floors with the match also corrected: mu 0 0.0018, mu -0.0018 0.0036
+r 0.500 (information x1.46):
+  mu +0.0000: floors sd 0.0018 (match-only) 0.0024 (full); batches for today's floor 6 ($14.8)
+  mu -0.0018: floors sd 0.0035 (match-only) 0.0038 (full); batches for today's floor 6 ($14.8)
+  at sd 0.003, mu 0: gain 18.6 Elo, forecast SE 3.9
+  match at the same factor: kept 0.478, SE 2.12 Elo at 12,800 games; SE 2.57 at 8,743 games ($1.30)
+  match-only floors with the match also corrected: mu 0 0.0016, mu -0.0018 0.0034
+r 0.400 (information x1.83):
+  mu +0.0000: floors sd 0.0017 (match-only) 0.0022 (full); batches for today's floor 5 ($12.4)
+  mu -0.0018: floors sd 0.0034 (match-only) 0.0035 (full); batches for today's floor 5 ($12.4)
+  at sd 0.003, mu 0: gain 20.0 Elo, forecast SE 3.5
+  match at the same factor: kept 0.383, SE 1.90 Elo at 12,800 games; SE 2.57 at 6,995 games ($1.04)
+  match-only floors with the match also corrected: mu 0 0.0014, mu -0.0018 0.0031
+r 0.300 (information x2.44):
+  mu +0.0000: floors sd 0.0016 (match-only) 0.0019 (full); batches for today's floor 4 ($9.9)
+  mu -0.0018: floors sd 0.0032 (match-only) 0.0032 (full); batches for today's floor 4 ($9.9)
+  at sd 0.003, mu 0: gain 21.7 Elo, forecast SE 3.0
+  match at the same factor: kept 0.287, SE 1.64 Elo at 12,800 games; SE 2.57 at 5,246 games ($0.78)
+  match-only floors with the match also corrected: mu 0 0.0013, mu -0.0018 0.0029
+r 0.200 (information x3.66):
+  mu +0.0000: floors sd 0.0015 (match-only) 0.0015 (full); batches for today's floor 3 ($7.4)
+  mu -0.0018: floors sd 0.0030 (match-only) 0.0028 (full); batches for today's floor 3 ($7.4)
+  at sd 0.003, mu 0: gain 23.9 Elo, forecast SE 2.5
+  match at the same factor: kept 0.191, SE 1.34 Elo at 12,800 games; SE 2.57 at 3,497 games ($0.52)
+  match-only floors with the match also corrected: mu 0 0.0010, mu -0.0018 0.0026
+r 0.100 (information x7.32):
+  mu +0.0000: floors sd 0.0013 (match-only) 0.0011 (full); batches for today's floor 2 ($4.9)
+  mu -0.0018: floors sd 0.0028 (match-only) 0.0025 (full); batches for today's floor 2 ($4.9)
+  at sd 0.003, mu 0: gain 27.0 Elo, forecast SE 1.8
+  match at the same factor: kept 0.096, SE 0.95 Elo at 12,800 games; SE 2.57 at 1,749 games ($0.26)
+  match-only floors with the match also corrected: mu 0 0.0007, mu -0.0018 0.0021

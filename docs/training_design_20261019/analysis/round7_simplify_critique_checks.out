@@ -1,0 +1,18 @@
+1. own1 self-play, 1600 decisive games: side 1's mean z +0.0400 +- 0.0250; E[z]^2 adds 0.0016 to batch 1's E[R^2] (against 0.839)
+
+2. I-V per pair type: SE of mean s*w*(b + beta'S) = sqrt(w2 * E[(b+beta'S)^2] / n_type)
+  batch 1 (b = 0): share 0.02: SE 0.00168, 2 SE 0.0034; share 0.1: SE 0.00075, 2 SE 0.0015; share 0.3: SE 0.00043, 2 SE 0.0009
+  batch >= 2: share 0.02: SE 0.00234, 2 SE 0.0047; share 0.1: SE 0.00105, 2 SE 0.0021; share 0.3: SE 0.00060, 2 SE 0.0012
+  10 types x 8 batches = 80 tests: P(some 2-SE alarm | correct code) 0.976; 5% family-wise needs 3.42 SE
+  10 types x 24 batches = 240 tests: P(some 2-SE alarm | correct code) 1.000; 5% family-wise needs 3.71 SE
+  16 types x 8 batches = 128 tests: P(some 2-SE alarm | correct code) 0.997; 5% family-wise needs 3.55 SE
+  16 types x 24 batches = 384 tests: P(some 2-SE alarm | correct code) 1.000; 5% family-wise needs 3.83 SE
+  spread floors it must resolve: sd 0.0011-0.0036 z per band decision (round7_simplify_power.out section 2)
+
+3. plant on T' - T against a result field oriented to the wrong side
+  record flipped False: plant slope 1.000; real labels of the planted-effect type -0.0628 +- 0.0042 (true -0.08 on the latent scale)
+  record flipped True: plant slope 1.006; real labels of the planted-effect type +0.0657 +- 0.0042 (true -0.08 on the latent scale)
+  repair, S0's 6,400 games read through the label code (P 1/2, w = +-2): SE 0.0250 z; window -0.225 +- 0.105 z = [-0.329, -0.120]; a flipped result reads +0.225
+
+4. residual offset that restores an effective -1.5 at a measured closure c: -1.5 (1 - c)
+  c 0.60: -0.60; c 0.82: -0.27; c 1.00: -0.00

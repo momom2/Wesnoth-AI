@@ -1,0 +1,20 @@
+side-games 100, multi-legal decisions 26917 (269.2 per side-game)
+f_G(0+) from G < 0.02: 1.239 per nat per decision, 334 per nat per side-game
+f_G(0+) from G < 0.05: 1.190 per nat per decision, 320 per nat per side-game
+f_G(0+) from G < 0.1: 1.149 per nat per decision, 309 per nat per side-game
+replay disagreement 0.0179; symmetric perturbation reproducing it: d = 0.0301 nats
+
+T (nats)  f_M(0) per nat per decision  ratio to T->0  deviations per side-game
+0.0       0.595                         1.00           0.0
+0.05      0.561                         0.94           10.6
+0.1       0.513                         0.86           19.7
+0.25      0.412                         0.69           40.7
+0.5       0.307                         0.52           63.1
+1.0       0.198                         0.33           86.6
+2.0       0.114                         0.19           105.9
+
+expected flips per side-game at T -> 0 for a perturbation of size d at every decision:
+  d = 0.003: 0.5
+  d = 0.01: 1.6
+  d = 0.03: 4.8
+  d = 0.1: 16.0

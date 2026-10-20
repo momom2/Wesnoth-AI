@@ -1,0 +1,50 @@
+inputs: r_R own1 0.732, pooled 0.747, Var(z) 1.0004
+band share of decisions {'0.175': 0.19, '0.35': 0.339, '0.7': 0.558}; own1 decisions per side-game 182.7; band decisions per side-game own1 (derived) {'0.175': 34.8, '0.35': 62.0, '0.7': 101.9}, parity3 (measured) {'0.175': 51.24, '0.35': 91.36, '0.7': 150.12}
+adoption match: 12800 corrected games, SE 2.65 Elo, $1.90
+label noise sigma_eps^2 at p = 0.25: 3.91; batch of 100000 games $2.47
+
+band count own1 derived: 62.0 per side-game at w = 0.35
+   2 batches ($ 4.9, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0031; there beta 0.13, gain 9.6 Elo, 31 switches/side-game, forecast SE plug 4.8 DR 8.5 Elo
+   2 batches ($ 4.9, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0049; there beta 0.28, gain 5.3 Elo, 26 switches/side-game, forecast SE plug 3.7 DR 7.9 Elo
+   2 batches ($ 4.9, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0043; there beta 0.07, gain 9.6 Elo, 31 switches/side-game, forecast SE plug 4.8 DR 8.5 Elo
+   2 batches ($ 4.9, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0068; there beta 0.16, gain 5.3 Elo, 28 switches/side-game, forecast SE plug 4.2 DR 8.2 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0022; there beta 0.13, gain 6.8 Elo, 31 switches/side-game, forecast SE plug 3.4 DR 6.0 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0042; there beta 0.36, gain 5.3 Elo, 25 switches/side-game, forecast SE plug 2.4 DR 5.4 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0030; there beta 0.07, gain 6.8 Elo, 31 switches/side-game, forecast SE plug 3.4 DR 6.0 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0057; there beta 0.21, gain 5.3 Elo, 27 switches/side-game, forecast SE plug 2.8 DR 5.7 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0016; there beta 0.14, gain 5.3 Elo, 31 switches/side-game, forecast SE plug 2.4 DR 4.3 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0036; there beta 0.45, gain 5.3 Elo, 23 switches/side-game, forecast SE plug 1.5 DR 3.7 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0022; there beta 0.08, gain 5.3 Elo, 31 switches/side-game, forecast SE plug 2.4 DR 4.3 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0049; there beta 0.28, gain 5.3 Elo, 26 switches/side-game, forecast SE plug 1.9 DR 3.9 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0014; there beta 0.20, gain 5.3 Elo, 31 switches/side-game, forecast SE plug 1.7 DR 3.0 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0031; there beta 0.55, gain 5.3 Elo, 21 switches/side-game, forecast SE plug 0.9 DR 2.5 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0019; there beta 0.11, gain 5.3 Elo, 31 switches/side-game, forecast SE plug 1.7 DR 3.0 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0042; there beta 0.36, gain 5.3 Elo, 25 switches/side-game, forecast SE plug 1.2 DR 2.7 Elo
+
+band count parity3 measured: 91.4 per side-game at w = 0.35
+   2 batches ($ 4.9, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0025; there beta 0.13, gain 11.7 Elo, 46 switches/side-game, forecast SE plug 5.9 DR 10.4 Elo
+   2 batches ($ 4.9, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0043; there beta 0.30, gain 5.3 Elo, 37 switches/side-game, forecast SE plug 4.3 DR 9.4 Elo
+   2 batches ($ 4.9, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0035; there beta 0.07, gain 11.7 Elo, 46 switches/side-game, forecast SE plug 5.9 DR 10.4 Elo
+   2 batches ($ 4.9, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0059; there beta 0.17, gain 5.3 Elo, 41 switches/side-game, forecast SE plug 5.0 DR 9.8 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0018; there beta 0.13, gain 8.3 Elo, 46 switches/side-game, forecast SE plug 4.1 DR 7.3 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0036; there beta 0.38, gain 5.3 Elo, 35 switches/side-game, forecast SE plug 2.7 DR 6.4 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0025; there beta 0.07, gain 8.3 Elo, 46 switches/side-game, forecast SE plug 4.1 DR 7.3 Elo
+   4 batches ($ 9.9, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0050; there beta 0.23, gain 5.3 Elo, 39 switches/side-game, forecast SE plug 3.3 DR 6.8 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0013; there beta 0.13, gain 5.9 Elo, 46 switches/side-game, forecast SE plug 2.9 DR 5.2 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0031; there beta 0.47, gain 5.3 Elo, 32 switches/side-game, forecast SE plug 1.7 DR 4.3 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0018; there beta 0.07, gain 5.9 Elo, 46 switches/side-game, forecast SE plug 2.9 DR 5.2 Elo
+   8 batches ($19.8, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0042; there beta 0.30, gain 5.3 Elo, 37 switches/side-game, forecast SE plug 2.1 DR 4.7 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 200, mu +0.0000: smallest sd 0.0010; there beta 0.17, gain 5.3 Elo, 46 switches/side-game, forecast SE plug 2.1 DR 3.7 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 200, mu -0.0018: smallest sd 0.0027; there beta 0.58, gain 5.3 Elo, 28 switches/side-game, forecast SE plug 1.0 DR 2.9 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 776, mu +0.0000: smallest sd 0.0014; there beta 0.09, gain 5.3 Elo, 46 switches/side-game, forecast SE plug 2.1 DR 3.7 Elo
+  16 batches ($39.5, half train, half forecast), d_eff 776, mu -0.0018: smallest sd 0.0036; there beta 0.38, gain 5.3 Elo, 35 switches/side-game, forecast SE plug 1.4 DR 3.2 Elo
+
+gain at 8 batches ($19.8: 4 train, 4 forecast), own1 band 62.0, d_eff 776, mu 0:
+  sd 0.001: gain    1.1 Elo, beta 0.02 (0.5 SE), forecast SE plug 2.4 Elo
+  sd 0.002: gain    4.3 Elo, beta 0.06 (1.8 SE), forecast SE plug 2.4 Elo
+  sd 0.003: gain    9.2 Elo, beta 0.13 (3.8 SE), forecast SE plug 2.4 Elo
+  sd 0.005: gain   23.2 Elo, beta 0.29 (9.6 SE), forecast SE plug 2.4 Elo
+  sd 0.010: gain   67.7 Elo, beta 0.62 (28.1 SE), forecast SE plug 2.4 Elo
+
+batch 1 (12.4M labels): planted even-hex coefficient SE 0.00079 (contrast variance 0.5 assumed, read blind from the logs); planted unit-variance direction SE 0.00056; mean label (coin cost per deviation) SE 0.00056
+coins against fork pairs, information per game-equivalent: 31.7 against 0.82 (fork pair, playout noise 0.608 at temperature 0.5, round5_provenance_playout_noise.out)

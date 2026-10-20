@@ -1,0 +1,64 @@
+1. generation, generation_speed_r5_20261015/speed.json
+  base_1                   games/h     6429  decisions/s     849  decisions/game 461.3  $ per game 6.53e-05
+  base_2                   games/h     6076  decisions/s     821  decisions/game 474.0  $ per game 6.91e-05
+  base_3                   games/h     6486  decisions/s     879  decisions/game 474.5  $ per game 6.47e-05
+  ref_p120x6               games/h    16744  decisions/s    2285  decisions/game 464.7  $ per game 2.51e-05
+  priors_p120x6            games/h    17143  decisions/s    2376  decisions/game 477.7  $ per game 2.45e-05
+  compile_p120x6           games/h    17008  decisions/s    2453  decisions/game 477.9  $ per game 2.47e-05
+  compile_bf16res_p120x6   games/h    17419  decisions/s    2473  decisions/game 464.2  $ per game 2.41e-05
+  best_repeat              games/h    17561  decisions/s    2407  decisions/game 447.6  $ per game 2.39e-05
+
+2. matches, 800 decisive games each, walls.txt
+  lookahead_exposure_gate_20261012   exposure                  1148 s  $ per decisive game 1.67e-04  (look-ahead)
+  lookahead_material_gate_20261009   material                  1569 s  $ per decisive game 2.29e-04  (look-ahead)
+  memory_in_play_parity3_20261009    a1_eo25                    696 s  $ per decisive game 1.01e-04  (plain)
+  memory_in_play_parity3_20261009    a2_reset                   773 s  $ per decisive game 1.13e-04  (plain)
+  memory_in_play_parity3_20261009    a3_eo35                    740 s  $ per decisive game 1.08e-04  (plain)
+  memory_own_round2_20261011         gen_own1_selfplay          811 s  $ per decisive game 1.18e-04  (plain)
+  memory_own_round2_20261011         r1_own2_64_vs_own1_64      956 s  $ per decisive game 1.39e-04  (plain)
+  memory_own_round2_20261011         r2_own2_0_vs_own1_0        905 s  $ per decisive game 1.32e-04  (plain)
+  memory_own_round2_20261011         r3_own2_64_vs_own2_0      1070 s  $ per decisive game 1.56e-04  (plain)
+  memory_own_trajectories_20261011   m1_own64                   698 s  $ per decisive game 1.02e-04  (plain)
+  memory_own_trajectories_20261011   m2_own0                    654 s  $ per decisive game 9.54e-05  (plain)
+  own_confirm_20261011               own0_vs_p3slots0           691 s  $ per decisive game 1.01e-04  (plain)
+  own_confirm_20261011               own64_vs_p3                796 s  $ per decisive game 1.16e-04  (plain)
+  own_confirm_20261011               own64_vs_own0              852 s  $ per decisive game 1.24e-04  (plain)
+  own_confirm_20261011               own64_selfplay             862 s  $ per decisive game 1.26e-04  (plain)
+  parity3_baselines_20261008         selfpin                   1067 s  $ per decisive game 1.56e-04  (plain)
+  parity3_baselines_20261008         slots64_vs_slots0          750 s  $ per decisive game 1.09e-04  (plain)
+  parity3_baselines_20261008         slots64_vs_slots16        1093 s  $ per decisive game 1.59e-04  (plain)
+  parity3_baselines_20261008         slots64_vs_slots16        1005 s  $ per decisive game 1.47e-04  (plain)
+  rollout_regrade_20261012           own1_eo25_vs_own1          793 s  $ per decisive game 1.16e-04  (plain)
+  plain matches: 18, seconds min/median/max 654/804/1093; $ per decisive game 9.54e-05/1.17e-04/1.59e-04; the design's 17 min = 1.49e-04
+
+3. box setup, entry to the end of the first workload stage
+  belief_worlds_20261012               first workload 'arm' starts    152 s after entry
+  critic_step1_20261009                first workload 'prior' starts    135 s after entry
+  decode_knobs_20261012                first workload 'stage' starts    606 s after entry
+  generation_speed_20261013            first workload 'graphed-check' starts    181 s after entry
+  generation_speed_r2_20261013         first workload 'graphed-check' starts    169 s after entry
+  generation_speed_r3_20261014         first workload 'graphed-check' starts    193 s after entry
+  generation_speed_r4_20261014         first workload 'ref-stage' starts     64 s after entry
+  generation_speed_r5_20261015         first workload 'arm' starts    260 s after entry
+  lookahead_exposure_gate_20261012     first workload 'ensure' starts    177 s after entry
+  lookahead_material_gate_20261009     first workload 'ensure' starts    122 s after entry
+  match_luck_20261019                  first workload 'walk' starts     93 s after entry
+  memory_in_play_parity3_20261009      first workload 'match' starts    114 s after entry
+  memory_own_round2_20261011           first workload 'match' starts   2789 s after entry
+  memory_own_trajectories_20261011     first workload 'corpus' starts    159 s after entry
+  own_confirm_20261011                 first workload 'match' starts    133 s after entry
+  parity3_baselines_20261008           first workload 'match' starts    125 s after entry
+  rollout_regrade_20261012             first workload 'regrade' starts    139 s after entry
+  trainer_acceptance_20261014          first workload 'raw' starts    139 s after entry
+  trainer_calibration_20261015         first workload 'raw' starts    174 s after entry
+  trainer_speed_20261013               first workload 'raw' starts    149 s after entry
+  trainer_speed_2_20261014             first workload 'raw' starts    427 s after entry
+  trainer_speed_3_20261015             first workload 'raw' starts    646 s after entry
+  boxes 22: median 156 s, max 2789 s; $ at the median 0.018 (the boot before 'entry' is not in the records)
+
+4. what a corrected match costs
+   12800 games: eval driver median $1.50 (max $2.04); generation pool, ref path $0.32
+   25600 games: eval driver median $3.00 (max $4.08); generation pool, ref path $0.64
+   51200 games: eval driver median $6.00 (max $8.16); generation pool, ref path $1.28
+  generation pool against eval driver, per game: 4.7x cheaper
+  coin batch of 100,000 games at the ref path: $2.51

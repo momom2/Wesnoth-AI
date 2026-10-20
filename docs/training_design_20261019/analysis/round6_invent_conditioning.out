@@ -1,0 +1,14 @@
+decisive games 18800, matches 23, Var(z) 0.9999
+  material           kept 0.8960 (boot sd 0.0042); explained 0.1040
+  material_terminal  kept 0.9389 (boot sd 0.0076); explained 0.0611
+  value_50           kept 0.8532 (boot sd 0.0054); explained 0.1468
+  value_100          kept 0.8776 (boot sd 0.0052); explained 0.1224
+  value_50+100+200   kept 0.8527 (boot sd 0.0054); explained 0.1473
+  joint7             kept 0.8484 (boot sd 0.0053); explained 0.1516
+  value_50 minus material: -0.0428 +- 0.0043 (paired game bootstrap)
+  joint7 minus material: -0.0475 +- 0.0035 (paired game bootstrap)
+  joint7 minus value_50: -0.0047 +- 0.0013 (paired game bootstrap)
+  value_50 minus material_terminal: -0.0857 +- 0.0076 (paired game bootstrap)
+  own1 self-play only, material: kept 0.9044
+  own1 self-play only, value_50: kept 0.8322
+  own1 self-play only, joint7: kept 0.8318

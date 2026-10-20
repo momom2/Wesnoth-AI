@@ -1,0 +1,20 @@
+arm                      games  wall_s  $/game(wall)  steady games/h  $/game(steady)  start_s  tail_s  steady/wall
+ref_p120x6                 600     129  2.508e-05         21966      1.912e-05       16      20  1.31
+priors_p120x6              600     126  2.450e-05         21966      1.912e-05       15      20  1.28
+compile_p120x6             600     127  2.469e-05         23564      1.782e-05       16      20  1.39
+bf16res_p120x6             600     121  2.353e-05         27574      1.523e-05       11      28  1.54
+compile_bf16res_p120x6     600     124  2.411e-05         24453      1.718e-05       18      20  1.40
+ref_p160x6                 800     166  2.421e-05         21873      1.920e-05       13      24  1.26
+bf16res_p160x6             800     155  2.260e-05         25791      1.628e-05       13      32  1.39
+
+ref_p120x6 worker: decision cycle 39.26 ms (own wall 6.08, round trip 33.18, cpu 3.12); server busy 0.71 of its wall, mean batch 48.1 of max 120
+worker CPU in use: 7.1 cores at 2285 decisions/s (box.txt: 31 usable cores)
+added worker work per decision -> slowdown bound (added / cycle), and per game at 465 decisions:
+  +0.1 ms/decision: <= 0.003 slower; = 0.05 s of worker time per game
+  +0.5 ms/decision: <= 0.013 slower; = 0.23 s of worker time per game
+  +0.7 ms/decision: <= 0.018 slower; = 0.33 s of worker time per game
+  +1.0 ms/decision: <= 0.025 slower; = 0.47 s of worker time per game
+  +2.0 ms/decision: <= 0.051 slower; = 0.93 s of worker time per game
+the luck walk at 0.321 s a game, run in the worker at game end: 0.69 ms per decision, <= 0.018 slower
+
+steady ref price 1.912e-05 a game; the round-6 three-round line $2.92e-5 then allows overhead up to 0.53; with the 1.41x host spread: +0.08

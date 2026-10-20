@@ -1,0 +1,8 @@
+A. all games: 6400 games, dispersion 1.24
+  attack offset > 0: -0.1791 +- 0.0431 z per nat; < 0: -0.0190 +- 0.0699
+  extra attacks per nat of positive offset +2.35; per added attack -0.0763
+  S0(d) prediction at offset +1 (e -1.5, r = t = 0, decision-count channel ignored): -62 +- 15 Elo
+B. stage-1 games only (unselected): 2399 games, dispersion 0.72
+  attack offset > 0: -0.2247 +- 0.0459 z per nat; < 0: +0.1269 +- 0.0790
+  extra attacks per nat of positive offset +2.31; per added attack -0.0971
+  S0(d) prediction at offset +1 (e -1.5, r = t = 0, decision-count channel ignored): -78 +- 16 Elo

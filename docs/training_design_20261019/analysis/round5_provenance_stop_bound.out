@@ -1,0 +1,15 @@
+Elo gain of the stop rule in the [1.5, 2.5) window, by tau (rows) and q (columns), m = -0.0018
+tau      q=0.1     q=0.3     q=1.0     
+0.002    0.0       0.2       1.4       
+0.005    0.7       2.8       8.2       
+0.01     3.8       9.5       21.3      
+0.02     11.6      23.8      47.9      
+0.04     28.3      53.0      101.6     
+corrected match of 3200 decisive games: SE 5.3 Elo; a gain of 2 SE needs sqrt(q)*tau >= 0.0059 (tau >= 0.0188 at q = 0.1)
+corrected match of 3200 decisive games: SE 5.3 Elo; a gain of 2 SE needs sqrt(q)*tau >= 0.0059 (tau >= 0.0108 at q = 0.3)
+corrected match of 3200 decisive games: SE 5.3 Elo; a gain of 2 SE needs sqrt(q)*tau >= 0.0059 (tau >= 0.0059 at q = 1.0)
+corrected match of 12800 decisive games: SE 2.7 Elo; a gain of 2 SE needs sqrt(q)*tau >= 0.0038 (tau >= 0.0121 at q = 0.1)
+corrected match of 12800 decisive games: SE 2.7 Elo; a gain of 2 SE needs sqrt(q)*tau >= 0.0038 (tau >= 0.0070 at q = 0.3)
+corrected match of 12800 decisive games: SE 2.7 Elo; a gain of 2 SE needs sqrt(q)*tau >= 0.0038 (tau >= 0.0038 at q = 1.0)
+at the interval's end m = -0.0061: gain at sqrt(q)*tau = 0.005 is 1.8 Elo
+at the interval's end m = 0.0017: gain at sqrt(q)*tau = 0.005 is 19.9 Elo

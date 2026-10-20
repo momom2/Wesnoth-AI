@@ -1,0 +1,45 @@
+1. steady-window stationarity
+  ref_p120x6: sub-window rates 21,600, 21,600, 22,737 games/h; in flight mean 113.0 (min 100, max 119) of 120
+  priors_p120x6: sub-window rates 21,600, 22,737, 21,600 games/h; in flight mean 112.5 (min 97, max 119) of 120
+  ref_p160x6: sub-window rates 22,154, 20,571, 23,040 games/h; in flight mean 152.8 (min 139, max 159) of 160
+
+2. same-kind means m(G) = b G: batch 1's flag rate and the ceiling
+  b -0.001/nat: bin means -0.00005, -0.00015, -0.00025, -0.00033; band mean -0.00016; P(some bin flagged) 0.13, P(band flagged) 0.05
+    sd 0.0015: sign      g8   +2.6 Elo, g8/g3  3.04, g16/g8  1.64 | posterior g8   +3.0 Elo, g8/g3  2.06, g16/g8  1.53
+    sd 0.002: sign      g8   +6.0 Elo, g8/g3  1.94, g16/g8  1.43 | posterior g8   +6.2 Elo, g8/g3  1.81, g16/g8  1.41
+    sd 0.003: sign      g8  +14.6 Elo, g8/g3  1.60, g16/g8  1.29 | posterior g8  +14.7 Elo, g8/g3  1.58, g16/g8  1.28
+  b -0.002/nat: bin means -0.00010, -0.00030, -0.00050, -0.00065; band mean -0.00032; P(some bin flagged) 0.19, P(band flagged) 0.09
+    sd 0.0015: sign      g8   +0.7 Elo, g8/g3   nan, g16/g8  3.53 | posterior g8   +1.9 Elo, g8/g3  2.40, g16/g8  1.68
+    sd 0.002: sign      g8   +4.1 Elo, g8/g3  3.74, g16/g8  1.65 | posterior g8   +4.7 Elo, g8/g3  2.06, g16/g8  1.50
+    sd 0.003: sign      g8  +12.6 Elo, g8/g3  1.77, g16/g8  1.33 | posterior g8  +12.9 Elo, g8/g3  1.68, g16/g8  1.32
+  b -0.004/nat: bin means -0.00020, -0.00060, -0.00100, -0.00130; band mean -0.00065; P(some bin flagged) 0.37, P(band flagged) 0.25
+    sd 0.0015: sign      g8   -2.7 Elo, g8/g3   nan, g16/g8   nan | posterior g8   +1.0 Elo, g8/g3  2.77, g16/g8  1.85
+    sd 0.002: sign      g8   +0.6 Elo, g8/g3   nan, g16/g8  6.02 | posterior g8   +2.9 Elo, g8/g3  2.37, g16/g8  1.65
+    sd 0.003: sign      g8   +9.0 Elo, g8/g3  2.70, g16/g8  1.48 | posterior g8  +10.0 Elo, g8/g3  1.88, g16/g8  1.39
+  b -0.008/nat: bin means -0.00040, -0.00120, -0.00200, -0.00260; band mean -0.00129; P(some bin flagged) 0.80, P(band flagged) 0.74
+    sd 0.0015: sign      g8   -8.0 Elo, g8/g3   nan, g16/g8   nan | posterior g8   +0.4 Elo, g8/g3  4.68, g16/g8  2.13
+    sd 0.002: sign      g8   -4.9 Elo, g8/g3   nan, g16/g8   nan | posterior g8   +1.5 Elo, g8/g3  2.79, g16/g8  1.79
+    sd 0.003: sign      g8   +3.1 Elo, g8/g3   nan, g16/g8  2.48 | posterior g8   +6.2 Elo, g8/g3  2.14, g16/g8  1.49
+  ceiling: g8/g3 <= 1.633, g16/g8 <= 1.414
+
+3. posterior-mean rule at mean >= 0
+  mu +0.0000 sd 0.0015: g8   4.7 Elo, g8/g3 1.588, g16/g8 1.356
+  mu +0.0000 sd 0.002: g8   8.1 Elo, g8/g3 1.557, g16/g8 1.321
+  mu +0.0000 sd 0.003: g8  16.7 Elo, g8/g3 1.484, g16/g8 1.251
+  mu +0.0002 sd 0.0015: g8   7.8 Elo, g8/g3 1.234, g16/g8 1.199
+  mu +0.0002 sd 0.002: g8  11.0 Elo, g8/g3 1.331, g16/g8 1.230
+  mu +0.0002 sd 0.003: g8  19.5 Elo, g8/g3 1.382, g16/g8 1.214
+  mu +0.0005 sd 0.0015: g8  14.0 Elo, g8/g3 1.049, g16/g8 1.075
+  mu +0.0005 sd 0.002: g8  16.3 Elo, g8/g3 1.145, g16/g8 1.135
+  mu +0.0005 sd 0.003: g8  24.1 Elo, g8/g3 1.265, g16/g8 1.167
+  mu +0.0010 sd 0.0015: g8  26.5 Elo, g8/g3 1.002, g16/g8 1.010
+  mu +0.0010 sd 0.002: g8  27.3 Elo, g8/g3 1.030, g16/g8 1.050
+  mu +0.0010 sd 0.003: g8  33.1 Elo, g8/g3 1.139, g16/g8 1.108
+
+4. D2: same-band round 2 adopted against pi_1 at the ceiling increment (SE 1.79, line 2 SE)
+  round-1 first-order gain  4.0: increment <= 1.66 Elo, P(adopt) <= 0.14
+  round-1 first-order gain  5.1: increment <= 2.11 Elo, P(adopt) <= 0.21
+  round-1 first-order gain  6.0: increment <= 2.49 Elo, P(adopt) <= 0.27
+  round-1 first-order gain  7.0: increment <= 2.90 Elo, P(adopt) <= 0.35
+  round-1 first-order gain  8.0: increment <= 3.31 Elo, P(adopt) <= 0.44
+  round-1 first-order gain  8.6: increment <= 3.56 Elo, P(adopt) <= 0.50

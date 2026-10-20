@@ -1,0 +1,7 @@
+side-games 100; decisions with 8 candidates 26781 (267.8 per side-game)
+pure-noise flips per side-game at c = 1 (sigma = 1, per-candidate noise SD = s):
+  s/sigma 0.250:   42.9 flips per side-game, mean top-two gap of flipped decisions 0.186 nats
+  s/sigma 0.500:   76.4 flips per side-game, mean top-two gap of flipped decisions 0.311 nats
+  s/sigma 0.707:   93.3 flips per side-game, mean top-two gap of flipped decisions 0.368 nats  <- blind sigma (SD of D's noise = sigma)
+  s/sigma 1.000:  105.2 flips per side-game, mean top-two gap of flipped decisions 0.414 nats
+  s/sigma 2.000:  114.9 flips per side-game, mean top-two gap of flipped decisions 0.483 nats

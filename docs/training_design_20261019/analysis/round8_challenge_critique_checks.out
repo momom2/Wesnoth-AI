@@ -1,0 +1,34 @@
+4. derived checks of decision rules
+  S3, SE 3.07: a 2.8-Elo deficit is accepted with P 0.862 under 'not below by 2 SE', P 0.181 under 'estimate >= 0'; under the first rule a 6.1-Elo deficit passes half the time
+  best of three equal arms: E[max] 0.847 SE = 2.60 Elo of selection bias in the claim
+  own1 at offset -2.5 against own1: -12.2 +- 12.3 Elo
+  gamma 1: a candidate at -3 nats under N(s_top) beats a zero-contrast top candidate once its contrast l_top - l_mid exceeds 3.00 nats
+  gamma 2: a candidate at -3 nats under N(s_top) beats a zero-contrast top candidate once its contrast l_top - l_mid exceeds 1.50 nats
+1. outcome leakage in s (human training sides, non-holdout games)
+  sides 31833
+       1 game: share of sides 0.095; E[s|won] - E[s|lost] in-sample  +148.1 Elo, out-of-fold    +0.0 Elo
+    2-4 games: share of sides 0.162; E[s|won] - E[s|lost] in-sample  +137.8 Elo, out-of-fold   +41.0 Elo
+   5-29 games: share of sides 0.311; E[s|won] - E[s|lost] in-sample  +108.2 Elo, out-of-fold   +64.5 Elo
+  >= 30 games: share of sides 0.432; E[s|won] - E[s|lost] in-sample   +85.0 Elo, out-of-fold   +78.8 Elo
+          all: share of sides 1.000; E[s|won] - E[s|lost] in-sample  +116.0 Elo, out-of-fold   +70.2 Elo
+  corr(s, won): in-sample 0.456, out-of-fold 0.290
+  sides with in-sample s within 30 of s_mid +84: 6061; from 1-game players 0.201, from < 30-game players 0.561; won 0.699; their out-of-fold s mean +62.2
+    distinct players 1703; share of these sides from the largest one 0.094, the largest three 0.208
+  sides with in-sample s within 30 of s_top +253: 2884; from 1-game players 0.000, from < 30-game players 0.120; won 0.812; their out-of-fold s mean +252.1
+    distinct players 46; share of these sides from the largest one 0.605, the largest three 0.779
+  1-game players: in-sample s if won +78.2 (sd 21.3), if lost -69.9
+2. tempo at own side-turns 2-4 (actions per side-turn), own1 self-play against human regulars
+  own1 side-games 1600 on 21 scenarios: mean 7.56
+  human regulars  top (>= 147 or below): side-games 568, raw mean 10.06, faction-matched to own1 10.07
+  human regulars rest (>= 147 or below): side-games 1477, raw mean 8.31, faction-matched to own1 8.32
+  per faction: own1 | top | rest
+              Drakes: 7.08 (n 247) | 9.38 (n 91) | 7.78 (n 259)
+    Knalgan Alliance: 6.52 (n 261) | 9.47 (n 90) | 7.95 (n 236)
+           Loyalists: 8.16 (n 280) | 9.99 (n 76) | 8.18 (n 245)
+         Northerners: 8.40 (n 263) | 11.26 (n 104) | 9.26 (n 249)
+              Rebels: 7.38 (n 251) | 9.43 (n 111) | 8.30 (n 263)
+              Undead: 7.72 (n 298) | 10.75 (n 96) | 8.39 (n 225)
+3. within-game tempo gap at own side-turns 2-4, the two sides' factions controlled
+  games 2000 (default factions on both sides); raw gap +0.401 +- 0.051
+  gap at equal factions (intercept) +0.383 +- 0.050
+  faction effects on a side's tempo, relative to Drakes: Knalgan Alliance -0.11, Loyalists +0.28, Northerners +0.80, Rebels +0.19, Undead +0.20

@@ -1,0 +1,20 @@
+side-games 100; multi-legal readings 26917 (269.2 per side-game)
+one label's variance at p = 0.5: 2.753
+
+attack offset +0.35: |S_a| per own1 side-game between 0.2 and 16.3 (shares 0.0007, 0.0724)
+  knob first stage, lower bound on changed decisions: 0.82
+  predicted match (stage-1 (unselected)): -27.3 +- 5.6 Elo
+  predicted match (all games): -21.8 +- 5.2 Elo
+  |S|   0.2: forecast SE 8 Elo needs       780 one-sided coin games, $0.02
+  |S|   0.2: forecast SE 5 Elo needs      1997 one-sided coin games, $0.05
+  |S|  16.3: forecast SE 8 Elo needs     84447 one-sided coin games, $2.12
+  |S|  16.3: forecast SE 5 Elo needs    216185 one-sided coin games, $5.43
+
+attack offset +1.0: |S_a| per own1 side-game between 4.8 and 31.8 (shares 0.0213, 0.1414)
+  knob first stage, lower bound on changed decisions: 2.35
+  predicted match (stage-1 (unselected)): -78.1 +- 15.9 Elo
+  predicted match (all games): -62.2 +- 15.0 Elo
+  |S|   4.8: forecast SE 8 Elo needs     24827 one-sided coin games, $0.62
+  |S|   4.8: forecast SE 5 Elo needs     63558 one-sided coin games, $1.60
+  |S|  31.8: forecast SE 8 Elo needs    164952 one-sided coin games, $4.14
+  |S|  31.8: forecast SE 5 Elo needs    422276 one-sided coin games, $10.60

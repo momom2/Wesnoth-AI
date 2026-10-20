@@ -1,0 +1,7 @@
+side-games 100, decisions 27171, disagreements 477 (0.0176), multi-legal readings 26917
+  share of readings with top-two gap below 0.001: 0.0017
+  share of readings with top-two gap below 0.003: 0.0041
+  share of readings with top-two gap below 0.01 : 0.0128
+  share of readings with top-two gap below 0.03 : 0.0366
+  share of readings with top-two gap below 0.1  : 0.1149
+eps matching the total: 0.0136 nats; per-game corr(near-ties, disagreements) 0.879, corr(decisions, disagreements) 0.842, partial corr given decisions 0.531 (n = 100, null SE about 0.102)

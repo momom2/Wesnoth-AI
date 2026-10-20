@@ -1,0 +1,43 @@
+band 76.1 per side-game; Var(z) 1.0004; r 0.732; sigma^2 at p 0.25 3.91, at p 0.5 2.93; 2 match SEs 5.3 Elo; batch $2.47
+
+1. floors: smallest sd where the final student gains 2 match SEs AND the progressive forecast sits 2.84 SE above 0; then the match-only floor (gain 2.84 match SEs, 7.5 Elo)
+  p 0.25 4 batches ($9.9) d_eff 200 mu +0.0000: floor sd 0.0030; there gain 20.2 Elo, 38 switches, forecast 15.5 +- 5.5 Elo | match-only floor sd 0.0017 (gain 7.5, forecast 5.4 +- 5.5)
+  p 0.25 4 batches ($9.9) d_eff 200 mu -0.0018: floor sd 0.0044; there gain 16.7 Elo, 23 switches, forecast 11.0 +- 3.9 Elo | match-only floor sd 0.0034 (gain 7.5, forecast 3.6 +- 2.9)
+  p 0.25 4 batches ($9.9) d_eff 776 mu +0.0000: floor sd 0.0040; there gain 21.2 Elo, 38 switches, forecast 15.5 +- 5.5 Elo | match-only floor sd 0.0023 (gain 7.5, forecast 5.3 +- 5.5)
+  p 0.25 4 batches ($9.9) d_eff 776 mu -0.0018: floor sd 0.0057; there gain 19.0 Elo, 24 switches, forecast 10.9 +- 3.8 Elo | match-only floor sd 0.0044 (gain 7.5, forecast 2.9 +- 2.7)
+  p 0.25 8 batches ($19.8) d_eff 200 mu +0.0000: floor sd 0.0022; there gain 15.2 Elo, 38 switches, forecast 13.5 +- 4.7 Elo | match-only floor sd 0.0014 (gain 7.5, forecast 6.5 +- 4.7)
+  p 0.25 8 batches ($19.8) d_eff 200 mu -0.0018: floor sd 0.0034; there gain 11.1 Elo, 19 switches, forecast 9.3 +- 3.3 Elo | match-only floor sd 0.0030 (gain 7.5, forecast 6.0 +- 2.9)
+  p 0.25 8 batches ($19.8) d_eff 776 mu +0.0000: floor sd 0.0029; there gain 15.7 Elo, 38 switches, forecast 13.5 +- 4.7 Elo | match-only floor sd 0.0020 (gain 7.5, forecast 6.3 +- 4.7)
+  p 0.25 8 batches ($19.8) d_eff 776 mu -0.0018: floor sd 0.0043; there gain 12.1 Elo, 20 switches, forecast 9.2 +- 3.3 Elo | match-only floor sd 0.0038 (gain 7.5, forecast 5.3 +- 2.9)
+  p 0.50 4 batches ($9.9) d_eff 200 mu +0.0000: floor sd 0.0026; there gain 17.5 Elo, 38 switches, forecast 13.5 +- 4.7 Elo | match-only floor sd 0.0016 (gain 7.5, forecast 5.5 +- 4.7)
+  p 0.50 4 batches ($9.9) d_eff 200 mu -0.0018: floor sd 0.0039; there gain 14.1 Elo, 21 switches, forecast 9.2 +- 3.2 Elo | match-only floor sd 0.0032 (gain 7.5, forecast 3.9 +- 2.6)
+  p 0.50 4 batches ($9.9) d_eff 776 mu +0.0000: floor sd 0.0035; there gain 18.3 Elo, 38 switches, forecast 13.5 +- 4.7 Elo | match-only floor sd 0.0022 (gain 7.5, forecast 5.3 +- 4.7)
+  p 0.50 4 batches ($9.9) d_eff 776 mu -0.0018: floor sd 0.0051; there gain 16.2 Elo, 22 switches, forecast 9.1 +- 3.2 Elo | match-only floor sd 0.0041 (gain 7.5, forecast 3.0 +- 2.4)
+  p 0.50 8 batches ($19.8) d_eff 200 mu +0.0000: floor sd 0.0019; there gain 13.2 Elo, 38 switches, forecast 11.6 +- 4.1 Elo | match-only floor sd 0.0014 (gain 7.5, forecast 6.5 +- 4.1)
+  p 0.50 8 batches ($19.8) d_eff 200 mu -0.0018: floor sd 0.0031; there gain 9.2 Elo, 18 switches, forecast 7.7 +- 2.7 Elo | match-only floor sd 0.0029 (gain 7.5, forecast 6.1 +- 2.6)
+  p 0.50 8 batches ($19.8) d_eff 776 mu +0.0000: floor sd 0.0025; there gain 13.6 Elo, 38 switches, forecast 11.6 +- 4.1 Elo | match-only floor sd 0.0018 (gain 7.5, forecast 6.4 +- 4.1)
+  p 0.50 8 batches ($19.8) d_eff 776 mu -0.0018: floor sd 0.0039; there gain 10.1 Elo, 19 switches, forecast 7.7 +- 2.7 Elo | match-only floor sd 0.0036 (gain 7.5, forecast 5.4 +- 2.5)
+
+2. readouts at 8 batches, p 0.25, d_eff 776
+  mu +0.0000 sd 0.000: final gain   0.0 Elo (38.1 switches); progressive forecast   0.0 +- 4.7; early stop after batch 4: P 0.15 (its reading 0.0 +- 5.5)
+  mu +0.0000 sd 0.001: final gain   2.1 Elo (38.1 switches); progressive forecast   1.7 +- 4.7; early stop after batch 4: P 0.11 (its reading 1.0 +- 5.5)
+  mu +0.0000 sd 0.002: final gain   7.9 Elo (38.1 switches); progressive forecast   6.6 +- 4.7; early stop after batch 4: P 0.04 (its reading 4.0 +- 5.5)
+  mu +0.0000 sd 0.003: final gain  16.3 Elo (38.1 switches); progressive forecast  14.0 +- 4.7; early stop after batch 4: P 0.00 (its reading 8.9 +- 5.5)
+  mu +0.0000 sd 0.005: final gain  37.4 Elo (38.1 switches); progressive forecast  33.5 +- 4.7; early stop after batch 4: P 0.00 (its reading 23.0 +- 5.5)
+  mu +0.0000 sd 0.010: final gain  94.4 Elo (38.1 switches); progressive forecast  90.0 +- 4.7; early stop after batch 4: P 0.00 (its reading 72.5 +- 5.5)
+  mu -0.0018 sd 0.000: final gain   0.0 Elo ( 0.0 switches); progressive forecast   0.0 +- 0.0; early stop after batch 4: P 1.00 (its reading 0.0 +- 0.0)
+  mu -0.0018 sd 0.001: final gain   0.0 Elo ( 0.0 switches); progressive forecast   0.0 +- 0.0; early stop after batch 4: P 1.00 (its reading 0.0 +- 0.0)
+  mu -0.0018 sd 0.002: final gain   0.1 Elo ( 0.6 switches); progressive forecast   0.0 +- 0.2; early stop after batch 4: P 1.00 (its reading 0.0 +- 0.0)
+  mu -0.0018 sd 0.003: final gain   2.5 Elo ( 9.3 switches); progressive forecast   1.4 +- 1.9; early stop after batch 4: P 1.00 (its reading 0.0 +- 0.6)
+  mu -0.0018 sd 0.005: final gain  18.3 Elo (23.3 switches); progressive forecast  14.9 +- 3.6; early stop after batch 4: P 0.01 (its reading 6.1 +- 3.4)
+  mu -0.0018 sd 0.010: final gain  72.5 Elo (32.0 switches); progressive forecast  68.2 +- 4.3; early stop after batch 4: P 0.00 (its reading 51.0 +- 4.9)
+
+3. a critic contrast X as one more ridge column (mu 0, the column alone)
+  kappa * sd(X) giving 2 match SEs of switching gain: 0.00050 per band decision
+    20000 coin games: SE of kappa * sd(X) 0.00113; reads at 2.84 SE a column worth 33.9 Elo of switching gain
+    50000 coin games: SE of kappa * sd(X) 0.00072; reads at 2.84 SE a column worth 21.5 Elo of switching gain
+   200000 coin games: SE of kappa * sd(X) 0.00036; reads at 2.84 SE a column worth 10.7 Elo of switching gain
+   800000 coin games: SE of kappa * sd(X) 0.00018; reads at 2.84 SE a column worth 5.4 Elo of switching gain
+
+4. information per dollar, the adoption match against one forecast batch
+  one 100,000-game batch read model-free at 38 switches: SE 9.5 Elo for $2.47; a 12,800-game corrected match: SE 2.65 Elo for $1.90

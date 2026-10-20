@@ -1,0 +1,33 @@
+stage-1 games: 2400 over 24 vectors; vectors with a > 0: 13, a range -0.97 to +1.40; t range 0.00 to 3.89
+
+A. reduced form (dispersion 0.70):
+   a > 0 per nat          -0.2178 +- 0.0487
+   a < 0 per nat          +0.1195 +- 0.0807
+   e below -1.5 per nat   +0.0229 +- 0.0316
+   e above -1.5 per nat   -0.0295 +- 0.0537
+   r per nat              +0.0280 +- 0.0395
+   t per unit             +0.0300 +- 0.0147
+   S0(b) prediction (a +1, e -1.5, r = t = 0): -0.2178 +- 0.0487 z = -76 +- 17 Elo; label-code 2 Delta -0.436 +- 0.097
+   round 6's decision-count fit on the same games: -0.2247 +- 0.0459 z (-78 +- 16 Elo)
+   window at 6,400 games from the reduced form: -111 to -41 Elo
+   window at 6,400 games from the decision-count fit: -111 to -45 Elo
+
+B. leave-one-vector-out, reduced form
+   kv01 a +1.04 e -2.32 t 2.36: observed -0.300, predicted -0.160 +- 0.110, standardized -1.27
+   kv02 a +1.12 e -0.13 t 1.39: observed -0.200, predicted -0.255 +- 0.123, standardized +0.45
+   kv04 a +0.86 e -1.70 t 1.92: observed -0.160, predicted -0.155 +- 0.111, standardized -0.04
+   kv11 a +1.33 e -1.31 t 3.75: observed -0.080, predicted -0.257 +- 0.127, standardized +1.40
+   kv13 a +1.28 e -0.48 t 1.69: observed -0.220, predicted -0.295 +- 0.113, standardized +0.66
+   kv20 a +1.40 e -0.22 t 0.57: observed -0.380, predicted -0.333 +- 0.129, standardized -0.37
+   kv23 a +0.84 e -1.51 t 0.44: observed -0.240, predicted -0.150 +- 0.110, standardized -0.82
+   all 24: RMS standardized residual 0.83, max |.| 1.74, share beyond 2: 0.000
+
+C. curvature in a > 0
+   (a+)^2 coefficient +0.1938 +- 0.1509 (dispersion 0.64)
+   move at a = 0.35: linear -0.0762 +- 0.0170; quadratic -0.1281 +- 0.0438
+   move at a = 1.0: linear -0.2178 +- 0.0487; quadratic -0.2400 +- 0.0517
+
+D. interaction terms added one at a time
+   a+ x (e + 1.5)   +0.0795 +- 0.0560 z per unit product (dispersion 0.62); at one unit of each knob: +28 +- 19 Elo
+   a+ x t           +0.0222 +- 0.0356 z per unit product (dispersion 0.72); at one unit of each knob: +8 +- 12 Elo
+   a+ x r           +0.0557 +- 0.0925 z per unit product (dispersion 0.72); at one unit of each knob: +19 +- 32 Elo

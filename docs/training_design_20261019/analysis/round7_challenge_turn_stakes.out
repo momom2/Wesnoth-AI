@@ -1,0 +1,21 @@
+1. bench_truth: candidates 966, positions 199, playouts 28; attack-free candidates 332 (slot 0: 77 of 198)
+  [luck-corrected]
+    all candidates                   positions 199 candidates 966 noise 0.530 spread 0.0282 (95% 0.0211 to 0.0369), sd 0.168 (0.145 to 0.192)
+    attack-free                      positions  81 candidates 322 noise 0.645 spread 0.0193 (95% 0.0077 to 0.0328), sd 0.139 (0.088 to 0.181)
+    with attacks                     positions 141 candidates 618 noise 0.478 spread 0.0299 (95% 0.0208 to 0.0394), sd 0.173 (0.144 to 0.198)
+    attack-free, alternatives only   positions  71 candidates 236 noise 0.632 spread 0.0250 (95% 0.0102 to 0.0478), sd 0.158 (0.101 to 0.219)
+    attack-free alternative minus attack-free own turn: pairs 234, mean -0.0294 (95% -0.0761 to +0.0151), noise-corrected variance 0.0317 (95% 0.0121 to 0.0565)
+  [raw]
+    all candidates                   positions 199 candidates 966 noise 0.604 spread 0.0286 (95% 0.0204 to 0.0380), sd 0.169 (0.143 to 0.195)
+    attack-free                      positions  81 candidates 322 noise 0.732 spread 0.0201 (95% 0.0077 to 0.0361), sd 0.142 (0.088 to 0.190)
+    with attacks                     positions 141 candidates 618 noise 0.548 spread 0.0299 (95% 0.0211 to 0.0407), sd 0.173 (0.145 to 0.202)
+    attack-free, alternatives only   positions  71 candidates 236 noise 0.722 spread 0.0260 (95% 0.0092 to 0.0499), sd 0.161 (0.096 to 0.223)
+    attack-free alternative minus attack-free own turn: pairs 234, mean -0.0200 (95% -0.0636 to +0.0353), noise-corrected variance 0.0293 (95% 0.0092 to 0.0582)
+2. data.jsonl.gz attack-free candidate turns 16644: decisions before end_turn mean 7.03, quantiles 10/50/90 [3.0, 6.0, 12.0], share with a recruit 0.707
+3. additive per-decision bound s_dev >= sqrt(spread / m):
+   m = mean decisions 7.03: s_dev >= 0.0524
+   m = 90th percentile 12.00: s_dev >= 0.0401
+4. break-even: a side-turn coin carries more information a game than a near-tie decision coin at the same p iff its stakes exceed 1.98 x the near-tie spread (sqrt(152.2 band coins / 38.8 turn coins a game))
+   near-tie spread sd 0.0016: turn stakes needed 0.0032
+   near-tie spread sd 0.0036: turn stakes needed 0.0071
+   near-tie spread sd 0.01: turn stakes needed 0.0198

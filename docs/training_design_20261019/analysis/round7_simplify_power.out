@@ -1,0 +1,44 @@
+inputs: own1 within-cell (pooled cell share) 0.688, columns only (record-fitted) 0.839, pooled within-cell 0.696; pairs keep 0.847; $2.51e-05 a pool game, $1.17e-04 an eval game
+1. matches as independent games in the existing driver, sized to the paired match's SE
+  paired 32,000 games: SE 1.79 Elo, $0.80
+  independent at equal SE: 37,780 -> 37,800 games, SE 1.79 Elo, $0.95 (+$0.146 a match)
+  independent at 32,000 games: SE 1.94 Elo
+  one-network matches in the plan: 8 (interim and adoption in round 1; interim, adoption, claim in rounds 2 and 3): +$1.16 over the plan, against a mirror null of 3,200 games ($0.08) no longer run
+  attack known answer, 6,400 independent games: SE 4.34 Elo, window +-33.2 Elo around -78 (16 = the prediction's SE)
+
+2. label information by batch (r_ref 0.688), coefficients frozen before each batch against batch 1 cross-fitted by halves
+  round 6 (batch 1 cross-fits halves): r by batch 0.709 0.699 0.693 0.692 0.691 0.690 0.690 0.690; effective batches at 3: 2.95, at 8: 7.93
+  frozen (batch 1: b = 0, beta from the record): r by batch 0.839 0.699 0.693 0.692 0.691 0.690 0.690 0.690; effective batches at 3: 2.80, at 8: 7.78
+  floors (gain 2.84 SE = 5.1 Elo at batch 8) and the interim's null bound (stop iff student 3 reads below 0), match SE 1.79:
+    d_eff 200 mu +0.0000: idealised 8: floor 0.0011, bound 0.0012; round 6: floor 0.0011, bound 0.0012; frozen: floor 0.0011, bound 0.0012
+    d_eff 200 mu -0.0018: idealised 8: floor 0.0027, bound 0.0027; round 6: floor 0.0027, bound 0.0027; frozen: floor 0.0027, bound 0.0028
+    d_eff 776 mu +0.0000: idealised 8: floor 0.0016, bound 0.0016; round 6: floor 0.0016, bound 0.0016; frozen: floor 0.0016, bound 0.0016
+    d_eff 776 mu -0.0018: idealised 8: floor 0.0034, bound 0.0036; round 6: floor 0.0034, bound 0.0036; frozen: floor 0.0034, bound 0.0036
+
+3. budget of the simplified plan
+  S0 (setup, attack known answer 6,400 games): $0.18
+  S1 + S2 (8 batches, interim, adoption): $21.98
+  S3, S5 (8 batches, interim, adoption, claim): $22.93 each
+  S4 (distillation $2.1, one two-network match of 12,800 games at the eval price): $3.60
+  total $71.61; left of $85 $13.39
+  three rounds fit iff price x (1 + overhead) <= $3.07e-05 a coin game; at $2.51e-5 overhead up to 0.222; the 1.41x host spread does not fit
+  a null round 1 stopped at the interim $8.66; run through $22.16; expected at a null (P(stop) 0.50) $15.41; with no interim $21.21
+  round 6 design for comparison: $73.58 plus a $1.61 reserve (round6_synthesis_power.out)
+
+4. deferring DPI: batches a round needs at kept ratio r (ceil(8 r / 0.688)) and a fourth round
+  r <= 0.688: 8 batches; DPI from round 1: three rounds $72.03, a fourth fits at overhead <= -0.124; DPI from round 3 on: a fourth fits at overhead <= -0.124
+  r <= 0.602: 7 batches; DPI from round 1: three rounds $64.50, a fourth fits at overhead <= +0.001; DPI from round 3 on: a fourth fits at overhead <= -0.066
+  r <= 0.516: 6 batches; DPI from round 1: three rounds $56.97, a fourth fits at overhead <= +0.168; DPI from round 3 on: a fourth fits at overhead <= +0.001
+  r <= 0.430: 5 batches; DPI from round 1: three rounds $49.44, a fourth fits at overhead <= +0.402; DPI from round 3 on: a fourth fits at overhead <= +0.078
+  r <= 0.344: 4 batches; DPI from round 1: three rounds $41.91, a fourth fits at overhead <= +0.752; DPI from round 3 on: a fourth fits at overhead <= +0.168
+
+5. the coin plant read as a difference (game noise cancels; delta cancels)
+  closed form for Gaussian W_g: SE per side sqrt(3/n) = 0.0055, pooled sqrt(2/n) = 0.0045 at n = 100,000 games
+  simulation (200 x 2,000 games, 76 band decisions a side, p 0.25): mean side A 1.000, side B 1.000, pooled 1.000; SE at 100,000 games: side 0.0051, pooled 0.0044
+  side B's sign wrong in the label code: side A 1.015, side B -1.005
+  coin read one decision off: side A 0.016, side B -0.001
+
+6. end_turn offset baked into the distillation target: Elo price of the closure c (effective offset -1.5 c), from the knob slopes
+  tempo closure bands read: 1.06 (0.88 to 1.30); 1.00 (0.82 to 1.23)
+  all knob games (z per unit above -1.5 -0.0774 +- 0.0406, below +0.0012 +- 0.0245): c 0.60: -16.1 +- 8.5; c 0.82: -7.3 +- 3.8; c 1.00: -0.0 +- 0.0; c 1.30: +0.2 +- 3.8 Elo
+  stage1 knob games (z per unit above -1.5 -0.1059 +- 0.0505, below +0.0569 +- 0.0315): c 0.60: -22.1 +- 10.5; c 0.82: -9.9 +- 4.7; c 1.00: -0.0 +- 0.0; c 1.30: +8.9 +- 4.9 Elo

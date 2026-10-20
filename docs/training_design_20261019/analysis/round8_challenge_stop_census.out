@@ -1,0 +1,8 @@
+side-games 100; multi-legal decisions 269.2 per side-game; end_turn on top at 40.5
+end-top gap (end minus best act): median 0.986 nats
+  w 0.35: end-top decisions in band 0.140 (5.7 per side-game); all decisions in band 0.339
+  w 0.7 : end-top decisions in band 0.310 (12.6 per side-game); all decisions in band 0.558
+  w 1.0 : end-top decisions in band 0.509 (20.6 per side-game); all decisions in band 0.684
+  w 1.5 : end-top decisions in band 0.784 (31.7 per side-game); all decisions in band 0.814
+  w 2.0 : end-top decisions in band 0.929 (37.6 per side-game); all decisions in band 0.878
+  share at w 0.35, bootstrap over side-games: 95% 0.113 to 0.168

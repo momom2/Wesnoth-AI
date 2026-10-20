@@ -1,0 +1,19 @@
+1. pooled kept ratios (leave-one-match-out), 18,800 games
+   material           0.8960 (boot sd 0.0042)
+   material+terminal  0.8951 (boot sd 0.0043)
+   value_50           0.8532 (boot sd 0.0054)
+   joint7             0.8484 (boot sd 0.0053)
+   material+terminal minus material: -0.0008 +- 0.0004
+   value_50 minus material+terminal: -0.0420 +- 0.0043
+2. own1 self-play only (800 games): kept ratios and paired SEs
+   material           0.9044 (boot sd 0.0205)
+   material+terminal  0.9067 (boot sd 0.0208)
+   value_50           0.8322 (boot sd 0.0210)
+   joint7             0.8318 (boot sd 0.0221)
+   value_50 minus material: paired SE 0.0147 (pooled 18,800: 0.0043)
+   joint7 minus value_50: paired SE 0.0044 (pooled 18,800: 0.0013)
+   joint7 minus material: paired SE 0.0120 (pooled 18,800: 0.0035)
+3. S0(d) forwards at 449.1 decisions per own1 game of 20.13 turns
+   stance: 18,800 x all-game turns    mean turns 27.27: 11.44 M forwards, 1.30 h, $0.55
+   decisive games, their turns        mean turns 21.12: 8.86 M forwards, 1.01 h, $0.42
+   every walked game, all turns       mean turns 27.27: 11.84 M forwards, 1.35 h, $0.57

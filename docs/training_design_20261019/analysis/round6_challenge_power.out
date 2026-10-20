@@ -1,0 +1,38 @@
+1. D1 consequence-model fit, d = 455, residual noise r_setup = 0.897
+   N  10,000: excess variance 0.0408 of Var(z) = 0.254 of what the fixed columns explain; generation $0.25
+   N  30,000: excess variance 0.0136 of Var(z) = 0.085 of what the fixed columns explain; generation $0.74
+   N 100,000: excess variance 0.0041 of Var(z) = 0.025 of what the fixed columns explain; generation $2.47
+   N 300,000: excess variance 0.0014 of Var(z) = 0.008 of what the fixed columns explain; generation $7.41
+
+2. P-dice: delta * s_e * (1[defender dies] - P_law), s_e = +-1 on half the fights
+   N 100,000, delta 0.01: SE 0.00136; recovered coefficient 1 +- 0.273 (2 SE)
+   N 100,000, delta 0.02: SE 0.00136; recovered coefficient 1 +- 0.136 (2 SE)
+
+3. D2 paired arms, 3,200 corrected decisive games each (side A only switches)
+   pairs + columns (ruling b yes): SE per arm 5.14 Elo; real - anti SE 7.27 Elo
+     m =  8.0 attack pairs per side-game: 2-SE line on a_real - a_anti 0.0105, on the alignment (half of it) 0.0052
+     m = 24.3 attack pairs per side-game: 2-SE line on a_real - a_anti 0.0034, on the alignment (half of it) 0.0017
+     cost of both arms $0.95
+   setup only (ruling b no): SE per arm 5.82 Elo; real - anti SE 8.23 Elo
+     m =  8.0 attack pairs per side-game: 2-SE line on a_real - a_anti 0.0118, on the alignment (half of it) 0.0059
+     m = 24.3 attack pairs per side-game: 2-SE line on a_real - a_anti 0.0039, on the alignment (half of it) 0.0019
+     cost of both arms $0.95
+
+4. D3 targeted coins (p = 0.25 only where X prefers the runner-up), model-free forecast
+   r 0.732 (sigma^2 3.90), N 100,000 ($2.47),  8.0 switches per side-game: forecast SE 4.3 Elo
+   r 0.732 (sigma^2 3.90), N 100,000 ($2.47), 24.3 switches per side-game: forecast SE 7.6 Elo
+   r 0.732 (sigma^2 3.90), N 100,000 ($2.47), 29.2 switches per side-game: forecast SE 8.3 Elo
+   r 0.732 (sigma^2 3.90), N 200,000 ($4.94),  8.0 switches per side-game: forecast SE 3.1 Elo
+   r 0.732 (sigma^2 3.90), N 200,000 ($4.94), 24.3 switches per side-game: forecast SE 5.4 Elo
+   r 0.732 (sigma^2 3.90), N 200,000 ($4.94), 29.2 switches per side-game: forecast SE 5.9 Elo
+   r 0.897 (sigma^2 4.78), N 100,000 ($2.47),  8.0 switches per side-game: forecast SE 4.8 Elo
+   r 0.897 (sigma^2 4.78), N 100,000 ($2.47), 24.3 switches per side-game: forecast SE 8.4 Elo
+   r 0.897 (sigma^2 4.78), N 100,000 ($2.47), 29.2 switches per side-game: forecast SE 9.2 Elo
+   r 0.897 (sigma^2 4.78), N 200,000 ($4.94),  8.0 switches per side-game: forecast SE 3.4 Elo
+   r 0.897 (sigma^2 4.78), N 200,000 ($4.94), 24.3 switches per side-game: forecast SE 5.9 Elo
+   r 0.897 (sigma^2 4.78), N 200,000 ($4.94), 29.2 switches per side-game: forecast SE 6.5 Elo
+
+5. round costs ($)
+   D1 2.47  D2 0.95  D3 4.94  D4 adoption 2.03  D5 distill 2.70
+   round 1 13.09; first decision read (D1 + D2) 3.42
+   later round (dice refit inside D3's coin games) 10.62

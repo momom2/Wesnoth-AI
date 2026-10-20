@@ -1,0 +1,80 @@
+Part A. Kept ratio of match-centred z, columns fitted leave-one-match-out
+  plain columns (7)            d    7: pooled 0.8469, own1 self-play 0.8388
+  x factions of A and B        d   77: pooled 0.8508, own1 self-play 0.8446; change +0.0039 +- 0.0011 (self-play +0.0059 +- 0.0030)
+  x map                        d  147: pooled 0.8498, own1 self-play 0.8395; change +0.0029 +- 0.0019 (self-play +0.0006 +- 0.0050)
+  x seat                       d   14: pooled 0.8465, own1 self-play 0.8393; change -0.0005 +- 0.0007 (self-play +0.0005 +- 0.0011)
+  x factions, map, seat        d  224: pooled 0.8608, own1 self-play 0.8434; change +0.0139 +- 0.0049 (self-play +0.0046 +- 0.0056)
+  games 18800, own1 self-play 1600
+Part B. Positive control: slope of match-centred z on each side-A luck column
+  pooled, 18800 games
+    hp                     slope +0.00416 +- 0.00009 (t  +45.9); a 100,000-game batch: SE 0.00004, a flipped result reads t -106
+    material               slope +0.00908 +- 0.00019 (t  +46.9); a 100,000-game batch: SE 0.00008, a flipped result reads t -108
+    material_nonterminal   slope +0.00112 +- 0.00007 (t  +15.3); a 100,000-game batch: SE 0.00003, a flipped result reads t -35
+    terminal               slope +0.13108 +- 0.01278 (t  +10.3); a 100,000-game batch: SE 0.00554, a flipped result reads t -24
+    value_50               slope +0.72758 +- 0.01271 (t  +57.2); a 100,000-game batch: SE 0.00551, a flipped result reads t -132
+    value_100              slope +0.87506 +- 0.01697 (t  +51.6); a 100,000-game batch: SE 0.00736, a flipped result reads t -119
+    value_200              slope +0.67607 +- 0.01868 (t  +36.2); a 100,000-game batch: SE 0.00810, a flipped result reads t -83
+  own1 self-play, 1600 games
+    hp                     slope +0.00438 +- 0.00032 (t  +13.9); a 100,000-game batch: SE 0.00004, a flipped result reads t -110
+    material               slope +0.00943 +- 0.00067 (t  +14.0); a 100,000-game batch: SE 0.00009, a flipped result reads t -111
+    material_nonterminal   slope +0.00127 +- 0.00025 (t   +5.0); a 100,000-game batch: SE 0.00003, a flipped result reads t -40
+    terminal               slope +0.08604 +- 0.04326 (t   +2.0); a 100,000-game batch: SE 0.00547, a flipped result reads t -16
+    value_50               slope +0.75992 +- 0.04419 (t  +17.2); a 100,000-game batch: SE 0.00559, a flipped result reads t -136
+    value_100              slope +0.87924 +- 0.05938 (t  +14.8); a 100,000-game batch: SE 0.00751, a flipped result reads t -117
+    value_200              slope +0.63729 +- 0.06533 (t   +9.8); a 100,000-game batch: SE 0.00826, a flipped result reads t -77
+Part C. Derived
+  coins' own share of Var(z) at mu 0, floor (sd 0.0016): 7.30e-05; dice's share (cell alone keeps 0.843, all of it chance at argmax): 0.843, ratio 11,544
+  coins' own share of Var(z) at mu -0.0018, floor (sd 0.0034): 4.22e-04; dice's share (cell alone keeps 0.843, all of it chance at argmax): 0.843, ratio 1,997
+  round-1 null bound (mu 0) against the label's kept ratio r: sd scales as sqrt(r)
+    r 0.688: floor sd 0.00160, worth 1.00 x the coin games
+    r 0.600: floor sd 0.00149, worth 1.15 x the coin games
+    r 0.500: floor sd 0.00136, worth 1.38 x the coin games
+    r 0.400: floor sd 0.00122, worth 1.72 x the coin games
+    r 0.300: floor sd 0.00106, worth 2.29 x the coin games
+    r 0.200: floor sd 0.00086, worth 3.44 x the coin games
+    r 0.100: floor sd 0.00061, worth 6.88 x the coin games
+  rich price, d    64, fitted on 1 batch(es): overfit adds about 0.0004 to r
+  rich price, d    64, fitted on 3 batch(es): overfit adds about 0.0001 to r
+  rich price, d    64, fitted on 7 batch(es): overfit adds about 0.0001 to r
+  rich price, d   772, fitted on 1 batch(es): overfit adds about 0.0053 to r
+  rich price, d   772, fitted on 3 batch(es): overfit adds about 0.0018 to r
+  rich price, d   772, fitted on 7 batch(es): overfit adds about 0.0008 to r
+  rich price, d  1536, fitted on 1 batch(es): overfit adds about 0.0106 to r
+  rich price, d  1536, fitted on 3 batch(es): overfit adds about 0.0035 to r
+  rich price, d  1536, fitted on 7 batch(es): overfit adds about 0.0015 to r
+  rich price, d  3072, fitted on 1 batch(es): overfit adds about 0.0211 to r
+  rich price, d  3072, fitted on 3 batch(es): overfit adds about 0.0070 to r
+  rich price, d  3072, fitted on 7 batch(es): overfit adds about 0.0030 to r
+Part D. own1 self-play: centring check and the size of a planted per-hp price
+  Var(S_hp) 5598 against mean SS_hp 5486 (ratio 1.020; 1 when every fight's luck is centred under its law); attacks per game 108.8
+  plant kappa 0.0005 per hp on a strike class holding 0.05 of the hp luck: adds 6.9e-05 of Var(z); per-hp SE over 8 batches 5.6e-05 (kappa / SE 9)
+  plant kappa 0.001 per hp on a strike class holding 0.05 of the hp luck: adds 2.7e-04 of Var(z); per-hp SE over 8 batches 5.6e-05 (kappa / SE 18)
+  plant kappa 0.0005 per hp on a strike class holding 0.10 of the hp luck: adds 1.4e-04 of Var(z); per-hp SE over 8 batches 4.0e-05 (kappa / SE 13)
+  plant kappa 0.001 per hp on a strike class holding 0.10 of the hp luck: adds 5.5e-04 of Var(z); per-hp SE over 8 batches 4.0e-05 (kappa / SE 25)
+  plant kappa 0.0005 per hp on a strike class holding 0.20 of the hp luck: adds 2.7e-04 of Var(z); per-hp SE over 8 batches 2.8e-05 (kappa / SE 18)
+  plant kappa 0.001 per hp on a strike class holding 0.20 of the hp luck: adds 1.1e-03 of Var(z); per-hp SE over 8 batches 2.8e-05 (kappa / SE 36)
+Part E. The hp slope match by match (does the positive control's value depend on the players?)
+  selfpin                      +0.00327 +- 0.00044
+  slots64_vs_slots0            +0.00364 +- 0.00044
+  own64_vs_p3                  +0.00368 +- 0.00045
+  a2_reset                     +0.00369 +- 0.00038
+  a3_eo35                      +0.00371 +- 0.00045
+  r2_own2_0_vs_own1_0          +0.00372 +- 0.00044
+  r1_own2_64_vs_own1_64        +0.00381 +- 0.00042
+  m1_own64                     +0.00382 +- 0.00041
+  slots64_vs_slots16           +0.00385 +- 0.00046
+  la_material_vs_parity3       +0.00397 +- 0.00045
+  r3_own2_64_vs_own2_0         +0.00416 +- 0.00040
+  gen_own1_selfplay            +0.00426 +- 0.00045
+  m2_own0                      +0.00427 +- 0.00043
+  kv00                         +0.00435 +- 0.00065
+  own64_vs_own0                +0.00436 +- 0.00046
+  la_exposure_vs_own1          +0.00443 +- 0.00042
+  own64_selfplay               +0.00450 +- 0.00045
+  confirm_kv15_vs_own1         +0.00452 +- 0.00046
+  own0_vs_p3slots0             +0.00452 +- 0.00042
+  own1_eo25_vs_own1            +0.00460 +- 0.00045
+  kv10                         +0.00468 +- 0.00036
+  kv15                         +0.00482 +- 0.00040
+  a1_eo25                      +0.00513 +- 0.00047
+  weighted mean 0.00416; chi2 24.8 on 22 df (no excess spread across the 23 player pairs when chi2 is near its df); range +0.00327 to +0.00513

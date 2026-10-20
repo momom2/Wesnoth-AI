@@ -1,0 +1,4 @@
+fights 6130 (counter-weapon subsample of own1 self-play, 800 games)
+  expected exchange favourable to the attacker (absolute HP): share 0.454; unfavourable 0.512; median -0.000
+  expected exchange favourable to the attacker (HP fraction): share 0.749; unfavourable 0.246; median +0.266
+  expected exchange favourable to the attacker (kill probability): share 0.547; unfavourable 0.099; median +0.160

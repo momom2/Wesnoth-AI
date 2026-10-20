@@ -1,0 +1,26 @@
+1. per-code label variance 12.39 (P_c 0.0625, P0 0.5); a binary near-tie coin at p 0.25: 3.67
+   batches 1 (100,000 games, 3.88 M turn labels a code): per-code mean advantage SE 0.0018 a turn; selector fit noise variance d*s2/n d 768: 0.00245 (sd 0.050), d 64: 0.00020 (sd 0.014)
+   batches 2 (200,000 games, 7.76 M turn labels a code): per-code mean advantage SE 0.0013 a turn; selector fit noise variance d*s2/n d 768: 0.00123 (sd 0.035), d 64: 0.00010 (sd 0.010)
+   batches 4 (400,000 games, 15.52 M turn labels a code): per-code mean advantage SE 0.0009 a turn; selector fit noise variance d*s2/n d 768: 0.00061 (sd 0.025), d 64: 0.00005 (sd 0.007)
+2. forecast SE (model-free, held-out labels summed over the turns the selector changes), batches 2-4:
+   share of turns changed q 0.1: SE 0.0063 z a side-game = 2.2 Elo
+   share of turns changed q 0.3: SE 0.0110 z a side-game = 3.8 Elo
+   share of turns changed q 0.5: SE 0.0142 z a side-game = 4.9 Elo
+3. information break-even against near-tie coins at p 0.25 (same game price):
+   per unit stakes^2 a game: intent contrasts 3.13 per code, near-tie coins 41.46; one intent contrast matches the band iff its stakes exceed 3.64 x the near-tie spread
+   (K codes are read from the same turns, so the K contrasts together carry K times this)
+4. oracle ceilings per side-game in z (formulas; neither stakes value is measured at own1):
+   E[max(0, max of k iid N(0,1))]: k 1 0.399, k 8 1.424
+   intent stakes sd 0.01: 0.276 z (96 Elo);    intent stakes sd 0.03: 0.829 z (288 Elo);    intent stakes sd 0.07: 1.934 z (672 Elo); 
+   near-tie spread sd 0.002: 0.061 z (21 Elo);    near-tie spread sd 0.004: 0.121 z (42 Elo);    near-tie spread sd 0.01: 0.304 z (105 Elo); 
+5. prices:
+   EM on 200,000 human positions, K 8, 3 iterations: E-step 1.15 h, M-step 0.045 h each; $1.51
+   P-EM plant, K 2, same corpus size: $0.42
+   diversity read: 800 own1 games x 449.1 decisions x 9 readings: $0.98
+   coin batch $2.51 before logging overhead; PURE paired match 32,000 games $0.80, SE 1.79 Elo
+   round 1 with 1 batch(es), interim and adoption matches: $7.03
+   round 1 with 2 batch(es), interim and adoption matches: $9.54
+   round 1 with 4 batch(es), interim and adoption matches: $14.56
+6. P-intent plant (booked into z along a random unit u for code c*): slope SE after one batch
+   Var(u.x) 1.0: SE of the per-side slope on u.x 0.0018 (delta for a 4-SE band: 0.0071)
+   Var(u.x) 0.1: SE of the per-side slope on u.x 0.0057 (delta for a 4-SE band: 0.0226)

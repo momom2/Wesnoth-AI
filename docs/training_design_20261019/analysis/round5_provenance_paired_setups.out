@@ -1,0 +1,5 @@
+decisive games 18800; Var(z - match mean) 0.9867
+columns only (leave-one-match-out): 0.847
+full setup cell share of the column-corrected residual: 0.151 +- 0.005 (split-half)
+columns + pairs (upper side of what pairing removes): 0.696
+columns + additive baseline: 0.747 (round5_provenance_match_variance.out)

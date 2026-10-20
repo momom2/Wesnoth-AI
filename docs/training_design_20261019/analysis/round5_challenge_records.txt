@@ -1,0 +1,35 @@
+== A. setup and luck shares of the result's variance
+[all 23 matches, decisive] games 18800, Var(z - match mean) = 0.9867
+  seat x map               cells    42  between-cell share +0.0101  [+0.0049, +0.0145] (cluster bootstrap)
+  factions (A, B)          cells    36  between-cell share +0.0995  [+0.0639, +0.1358] (cluster bootstrap)
+  seat x map x factions    cells  1512  between-cell share +0.1570  [+0.1438, +0.1697] (cluster bootstrap)
+  luck columns (7)       cross-fitted Var(resid)/Var(z) = 0.8475 (sd over 10 splits 0.0007)
+  setup cells (ridge)    cross-fitted Var(resid)/Var(z) = 0.8883 (sd over 10 splits 0.0018)
+  luck + setup           cross-fitted Var(resid)/Var(z) = 0.7367 (sd over 10 splits 0.0015)
+[A/A matches gen_own1_selfplay, own64_selfplay, kv00] games 2000, Var(z - match mean) = 0.9990
+  seat x map               cells    42  between-cell share +0.0136  [+0.0004, +0.0257] (cluster bootstrap)
+  factions (A, B)          cells    36  between-cell share +0.1002  [+0.0594, +0.1371] (cluster bootstrap)
+  seat x map x factions    cells  1119  between-cell share +0.1773  [+0.1196, +0.2378] (cluster bootstrap)
+material luck: slope of z per gold of material 0.00912 +- 0.00019 (sd of S_material per game 35.4 gold)
+own1 at -2.5 against own1 at -1.5: mean z -0.0350 +- 0.0353 over 800 decisive games
+
+== B. decode-knob search
+stage 1: 24 vectors x 100 games; mean win rate 0.4596
+  observed var of win rates 0.00457, binomial noise 0.00248, true between-vector var 0.00209 (sd 0.0457 win-rate points)
+  dispersion statistic (var/noise)*(k-1) = 42.3 on 23 df
+  weighted fit of win rate on knobs (all stages, fresh seeds each; eo centred at -1.5):
+    const        +0.4634 +- 0.0164
+    eo+1.5       -0.0170 +- 0.0091
+    (eo+1.5)^2   -0.0048 +- 0.0085
+    attack       -0.0546 +- 0.0142
+    recruit      +0.0092 +- 0.0153
+    tod_slope    +0.0050 +- 0.0059
+    weighted residual variance 0.281 against binomial 0.245: dispersion 1.15
+
+== C. margin census (parity3, 100 side-games)
+side-games 100, multi-legal decisions 26917 (269 per side-game), end_turn top at 40.5 per side-game
+  decisions with top-two margin < 0.1 nats: 30.9 per side-game
+  iid N(0, 0.05^2) logit noise on the top 8: 9.2 switched decisions per side-game
+  iid N(0, 0.1^2) logit noise on the top 8: 18.0 switched decisions per side-game
+  iid N(0, 0.2^2) logit noise on the top 8: 34.9 switched decisions per side-game
+  iid N(0, 0.4^2) logit noise on the top 8: 65.2 switched decisions per side-game

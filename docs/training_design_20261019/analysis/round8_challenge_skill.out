@@ -1,0 +1,28 @@
+1. coverage and spread
+  games joined 16969; regulars (>= 30 games) 143, of which human 142
+  human regulars' rating: sd 144.6 Elo; 5/25/50/75/95 pct [-178.  -39.   54.  147.  253.]
+  built-in AI: -177 +- 13 over 1399 games
+  games with 0 / 1 / 2 regulars: 6717 / 5076 / 5176
+2. the winners-only corpus, weighted by winner actions
+  winner rating, action-weighted mean 84.1 Elo; quartiles [ 27.  79. 145.]
+  share of winner actions by regulars 0.358; by top-quartile human regulars (>= 147) 0.140
+3. out-of-sample skill signal (BT refit on 80% of games, scored on the other 20%)
+  test games 3405: log loss 0.6051 against ln 2 = 0.6931 (gain 0.0880 nats)
+  exact ties (both players unseen in the fit, rating 0): 266 games, left out below
+  |gap|   0-50   Elo: games   527, higher-rated side won 0.531
+  |gap|  50-100  Elo: games   651, higher-rated side won 0.604
+  |gap| 100-200  Elo: games   953, higher-rated side won 0.675
+  |gap| 200-400  Elo: games   814, higher-rated side won 0.792
+  |gap| 400-2000 Elo: games   194, higher-rated side won 0.928
+4. tempo (actions per own side-turn, from the command streams) and skill, games between two human regulars
+  pool 4331 games, sample 2000
+  higher-rated minus lower-rated: +0.789 +- 0.050 (n 2000)
+    the higher-rated side won: +1.317 +- 0.057 (n 1404); it lost: -0.454 +- 0.081 (n 596)
+    the average of the won and lost cases: +0.431
+  winner minus loser: +1.060 +- 0.048 (n 2000)
+  slope of (higher minus lower) on the rating gap: +0.550 +- 0.045 actions per turn per 100 Elo
+  own side-turns 2-4 only (armies of similar size):
+    actions per side-turn, higher minus lower: +0.436 +- 0.051 (n 2000); won +0.541 +- 0.061 (n 1404); lost +0.189 +- 0.090 (n 596)
+    moves and attacks only, higher minus lower: +0.362 +- 0.050 (n 2000); won +0.435 +- 0.061 (n 1404); lost +0.191 +- 0.089 (n 596)
+    actions per side-turn, winner minus loser: +0.323 +- 0.051 (n 2000)
+    slope on the rating gap: +0.269 +- 0.047 actions per side-turn per 100 Elo

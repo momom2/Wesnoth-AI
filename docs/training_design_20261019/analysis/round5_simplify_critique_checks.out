@@ -1,0 +1,4 @@
+stream var per game 1.256e-03; SE a 3.29e-05 (stated 7.9e-4, ratio 24); SE b 2.32e-05 (stated 5.6e-4, ratio 24)
+SE alpha 2.81e-04; x31 switches in Elo 3.02; combined with 2.4: 3.86
+exploit check combined SE 17.9
+replay box-hours 21.2, dollars 8.9

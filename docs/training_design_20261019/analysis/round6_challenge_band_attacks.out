@@ -1,0 +1,17 @@
+side-games 100; multi-legal readings 26917 (269.2 per side-game)
+all readings: top is an attack 0.197; >= 1 attack in top 8 0.384; >= 2 attacks 0.252
+
+w = 0.35: band share 0.339 (76.2 per own1 side-game)
+  pair involves an attack, lower bound (top is attack): share 0.036, 8.0 per own1 side-game, 0.105 of the band
+  upper bound (>= 1 attack in top 8): share 0.108, 24.3 per own1 side-game, 0.318 of the band
+  >= 2 attacks in top 8: share 0.063, 14.2 per own1 side-game, 0.186 of the band
+
+w = 0.70: band share 0.558 (125.3 per own1 side-game)
+  pair involves an attack, lower bound (top is attack): share 0.059, 13.3 per own1 side-game, 0.106 of the band
+  upper bound (>= 1 attack in top 8): share 0.177, 39.8 per own1 side-game, 0.317 of the band
+  >= 2 attacks in top 8: share 0.104, 23.4 per own1 side-game, 0.187 of the band
+
+w = 1.50: band share 0.814 (182.8 per own1 side-game)
+  pair involves an attack, lower bound (top is attack): share 0.096, 21.5 per own1 side-game, 0.118 of the band
+  upper bound (>= 1 attack in top 8): share 0.261, 58.5 per own1 side-game, 0.320 of the band
+  >= 2 attacks in top 8: share 0.158, 35.5 per own1 side-game, 0.194 of the band

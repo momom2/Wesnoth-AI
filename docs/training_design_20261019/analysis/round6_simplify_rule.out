@@ -1,0 +1,25 @@
+labels per batch 15,220,000; sigma^2 3.91; 300 replications per case; gains in Elo per side-game (mean, 10th percentile); switches per side-game
+
+spectrum isotropic
+  mu +0.0000 sd 0.000: A   0.0 (  0.0) sw 39.8 | B   0.0 (  0.0) sw 38.3 | C   0.0 (  0.0) sw 40.2 | E   0.0 (  0.0) sw 19.9 | beta_hat median -0.94, P(beta_hat<=0) 0.67
+  mu +0.0000 sd 0.001: A   1.2 (  0.0) sw 37.5 | B   0.6 ( -1.3) sw 38.0 | C   1.6 (  0.6) sw 37.9 | E   1.4 (  0.0) sw 18.8 | beta_hat median 0.21, P(beta_hat<=0) 0.43
+  mu +0.0000 sd 0.002: A   7.6 (  6.5) sw 38.7 | B   7.1 (  5.6) sw 39.3 | C   7.7 (  6.7) sw 38.6 | E   6.2 (  5.0) sw 19.3 | beta_hat median 0.84, P(beta_hat<=0) 0.02
+  mu +0.0000 sd 0.003: A  16.1 ( 14.6) sw 37.9 | B  16.1 ( 14.6) sw 38.0 | C  16.2 ( 14.7) sw 38.0 | E  12.9 ( 11.4) sw 19.0 | beta_hat median 0.99, P(beta_hat<=0) 0.00
+  mu +0.0000 sd 0.005: A  37.3 ( 35.1) sw 38.0 | B  37.3 ( 35.1) sw 38.0 | C  37.3 ( 35.1) sw 38.0 | E  29.7 ( 28.0) sw 19.0 | beta_hat median 1.00, P(beta_hat<=0) 0.00
+  mu -0.0018 sd 0.000: A  -0.0 ( -0.0) sw  0.0 | B  -0.9 ( -0.0) sw  1.5 | C   0.0 (  0.0) sw  0.0 | E  -0.0 ( -0.0) sw  0.0 | beta_hat median -1.00, P(beta_hat<=0) 0.68
+  mu -0.0018 sd 0.001: A  -0.0 ( -0.0) sw  0.1 | B  -1.1 ( -2.2) sw  2.0 | C  -0.0 ( -0.0) sw  0.0 | E  -0.0 ( -0.0) sw  0.0 | beta_hat median 0.06, P(beta_hat<=0) 0.48
+  mu -0.0018 sd 0.002: A  -0.1 ( -0.3) sw  1.3 | B  -0.3 ( -0.9) sw  2.2 | C   0.0 ( -0.0) sw  0.7 | E   0.0 ( -0.0) sw  0.7 | beta_hat median 0.86, P(beta_hat<=0) 0.04
+  mu -0.0018 sd 0.003: A   2.3 (  1.5) sw  9.2 | B   2.0 (  0.9) sw  9.1 | C   2.4 (  1.8) sw  9.4 | E   2.0 (  1.2) sw  4.6 | beta_hat median 0.96, P(beta_hat<=0) 0.00
+  mu -0.0018 sd 0.005: A  18.1 ( 16.2) sw 23.2 | B  18.1 ( 16.1) sw 23.1 | C  18.2 ( 16.2) sw 23.3 | E  14.7 ( 13.0) sw 11.6 | beta_hat median 1.00, P(beta_hat<=0) 0.00
+
+spectrum 1/j
+  mu +0.0000 sd 0.000: A   0.0 (  0.0) sw 37.5 | B   0.0 (  0.0) sw 38.7 | C   0.0 (  0.0) sw 37.9 | E   0.0 (  0.0) sw 18.7 | beta_hat median -0.88, P(beta_hat<=0) 0.67
+  mu +0.0000 sd 0.001: A   4.6 (  0.0) sw 35.8 | B   4.0 ( -0.3) sw 37.1 | C   5.2 (  2.6) sw 36.9 | E   3.9 (  0.4) sw 17.9 | beta_hat median 0.73, P(beta_hat<=0) 0.18
+  mu +0.0000 sd 0.002: A  14.2 (  9.4) sw 38.2 | B  14.1 (  9.2) sw 38.0 | C  14.3 (  9.6) sw 38.3 | E  11.4 (  7.6) sw 19.1 | beta_hat median 0.97, P(beta_hat<=0) 0.01
+  mu +0.0000 sd 0.003: A  23.6 ( 17.9) sw 38.1 | B  23.6 ( 17.9) sw 38.1 | C  23.7 ( 17.9) sw 38.1 | E  18.9 ( 14.1) sw 19.1 | beta_hat median 1.00, P(beta_hat<=0) 0.00
+  mu +0.0000 sd 0.005: A  43.9 ( 35.3) sw 38.0 | B  43.9 ( 35.3) sw 38.0 | C  44.0 ( 35.4) sw 38.0 | E  35.0 ( 28.1) sw 19.0 | beta_hat median 1.00, P(beta_hat<=0) 0.00
+  mu -0.0018 sd 0.000: A  -0.0 ( -0.0) sw  0.0 | B  -0.7 ( -0.1) sw  1.1 | C   0.0 (  0.0) sw  0.0 | E  -0.0 ( -0.0) sw  0.0 | beta_hat median -0.61, P(beta_hat<=0) 0.61
+  mu -0.0018 sd 0.001: A  -0.1 ( -0.2) sw  0.7 | B  -0.5 ( -0.9) sw  1.7 | C   0.0 ( -0.0) sw  0.2 | E  -0.0 ( -0.1) sw  0.3 | beta_hat median 0.77, P(beta_hat<=0) 0.19
+  mu -0.0018 sd 0.002: A   1.6 (  0.1) sw  6.7 | B   1.4 (  0.0) sw  6.9 | C   1.7 (  0.2) sw  6.8 | E   1.3 (  0.2) sw  3.3 | beta_hat median 0.97, P(beta_hat<=0) 0.00
+  mu -0.0018 sd 0.003: A   7.1 (  3.0) sw 15.4 | B   7.0 (  2.7) sw 15.0 | C   7.2 (  3.1) sw 15.7 | E   5.9 (  2.4) sw  7.7 | beta_hat median 0.99, P(beta_hat<=0) 0.00
+  mu -0.0018 sd 0.005: A  24.0 ( 16.2) sw 24.9 | B  23.9 ( 16.2) sw 24.8 | C  24.0 ( 16.5) sw 24.9 | E  19.4 ( 13.3) sw 12.4 | beta_hat median 1.00, P(beta_hat<=0) 0.00

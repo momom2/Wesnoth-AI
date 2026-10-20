@@ -1,0 +1,56 @@
+1. matches
+  independent 37800 games: SE 1.79 Elo; paired 32,000: SE 1.79
+  extra cost of independent games at the steady price: $0.111 a match
+  S4 / post-reset claim, 12800 independent two-network games: SE 3.07 Elo, $1.50 at the eval median
+  attack known answer, 6,400 independent games: SE 4.34 Elo; prediction -78.1 +- 15.9; window +-33.1 Elo
+
+2. the attack known answer read through the label code (one logged coin a game: which seat
+   carries the hook, P = 1/2, omega = +-2, mover sign of side A)
+  E[T] = 2 Delta = -0.449 z, prediction SE 0.092; label SE at 6,400 games 0.025
+  window -0.449 +- 0.190 = [-0.640, -0.259]; result oriented to the wrong side reads +0.449; half the games flipped read 0
+  (round7_simplify_critique_checks.out section 3 predicted -0.225: the hooked side's effect once)
+
+3. simulation check of section 2 (symmetric game, side advantage m, hook effect Delta on the hooked side's z)
+  seed 7: mean label -0.4491 (2 Delta -0.4494); SE 0.0010
+  seed 1: mean label -0.4492 (2 Delta -0.4494); SE 0.0010
+  seed 2: mean label -0.4492 (2 Delta -0.4494); SE 0.0010
+  seed 3: mean label -0.4497 (2 Delta -0.4494); SE 0.0010
+
+4. the baked end_turn shift and its residual offset across resets: o_(k+1) = o_k (1 - c)
+  closure c 0.60: residual offsets after resets 1-4: -0.600, -0.240, -0.096, -0.038
+  closure c 0.82: residual offsets after resets 1-4: -0.270, -0.049, -0.009, -0.002
+  closure c 1.00: residual offsets after resets 1-4: -0.000, -0.000, -0.000, -0.000
+  closure c 1.30: residual offsets after resets 1-4: +0.450, -0.135, +0.041, -0.012
+  converges to 0 for c in (0, 2)
+
+5. budget
+
+steady-state price: $1.912e-05 a pool game; batch $1.91; 37800-game match $0.723
+  S0 (setup, census replay, attack known answer 6,400 games): $0.18
+  S1 (8 batches + interim): $16.02
+  S2 adoption: $0.72
+  E reserve (two matches): $1.45
+  S3 round 2 on pi_1 (8 batches, interim, adoption vs pi_1, claim vs own1): $17.46
+  S4 reset (distillation, one two-network match): $3.60
+  S5 round on the reset base (8 batches, interim and adoption vs the base, claim vs own1 two-network): $18.24
+  all stages $57.67; left of $85: $27.33
+  one more reset-and-round cycle costs $21.84; the remainder buys 1.25 of one
+  three coin rounds fit iff price x (1 + overhead) <= $3.051e-05 a coin game; overhead room at this price 0.596
+  two coin rounds (S5 dropped, S4 kept) fit iff price x (1 + overhead) <= $4.760e-05 a coin game
+  a null round 1: stopped at the interim $6.64; run through $16.92; expected at P(stop) 0.50 $11.78
+
+steady-state price on a host 1.41x slower: $2.696e-05 a pool game; batch $2.70; 37800-game match $1.019
+  S0 (setup, census replay, attack known answer 6,400 games): $0.23
+  S1 (8 batches + interim): $22.59
+  S2 adoption: $1.02
+  E reserve (two matches): $2.04
+  S3 round 2 on pi_1 (8 batches, interim, adoption vs pi_1, claim vs own1): $24.62
+  S4 reset (distillation, one two-network match): $3.60
+  S5 round on the reset base (8 batches, interim and adoption vs the base, claim vs own1 two-network): $25.10
+  all stages $79.20; left of $85: $5.80
+  one more reset-and-round cycle costs $28.70; the remainder buys 0.20 of one
+  three coin rounds fit iff price x (1 + overhead) <= $2.937e-05 a coin game; overhead room at this price 0.090
+  two coin rounds (S5 dropped, S4 kept) fit iff price x (1 + overhead) <= $4.627e-05 a coin game
+  a null round 1: stopped at the interim $9.34; run through $23.84; expected at P(stop) 0.50 $16.59
+
+  census replay $0.043; wall per batch 4.55 h, per round 36.4 h

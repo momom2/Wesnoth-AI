@@ -1,0 +1,12 @@
+own1_eo25_vs_own1: decisive 800, z_A -0.0350 +- 0.0353, decisions per side-turn A 9.63 B 8.58, A side-turns per game 18.3, A minus B decisions per game +19.4 +- 2.0
+gen_own1_selfplay: decisive 800, z_A +0.0100 +- 0.0354, decisions per side-turn A 8.50 B 8.33, A side-turns per game 19.4, A minus B decisions per game +3.3 +- 2.0
+a1_eo25 (parity3 -2.5 vs slots0 -1.5): decisive 800, z_A -0.1150 +- 0.0351, decisions per side-turn A 9.49 B 8.52, A side-turns per game 19.5, A minus B decisions per game +19.4 +- 2.5
+a3_eo35 (parity3 -3.5 vs slots0 -1.5): decisive 800, z_A -0.1175 +- 0.0351, decisions per side-turn A 11.57 B 8.84, A side-turns per game 18.5, A minus B decisions per game +50.9 +- 2.9
+slots64_vs_slots0 (parity3 -1.5 vs slots0 -1.5): decisive 800, z_A -0.2950 +- 0.0338, decisions per side-turn A 7.34 B 8.45, A side-turns per game 21.6, A minus B decisions per game -22.9 +- 2.6
+
+mean advantage per extra act (treatment minus control):
+  own1_eo25_vs_own1 | gen_own1_selfplay: dz -0.0450 +- 0.0500, extra acts per side-game +16.1, a = -0.00280 (95% bootstrap -0.01184 to +0.00280)
+  a1_eo25 (parity3 -2.5 vs slots0 -1.5) | slots64_vs_slots0 (parity3 -1.5 vs slots0 -1.5): dz +0.1800 +- 0.0487, extra acts per side-game +42.3, a = +0.00425 (95% bootstrap +0.00211 to +0.00620)
+  a3_eo35 (parity3 -3.5 vs slots0 -1.5) | a1_eo25 (parity3 -2.5 vs slots0 -1.5): dz -0.0025 +- 0.0497, extra acts per side-game +31.5, a = -0.00008 (95% bootstrap -0.00368 to +0.00266)
+
+own1_eo25_vs_own1 alone (symmetric control): z -0.0350 +- 0.0353, extra acts per side-game +19.4 +- 2.0, a = -0.00181 (95% bootstrap -0.00614 to +0.00169)

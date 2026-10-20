@@ -1,0 +1,23 @@
+A. hinge at 0.35 in a+ (stage-1 games, weights n, dispersion 0.67)
+   vectors with 0 < a+ < 0.35: 3; with a+ <= 0.7: 6
+   slope on [0, 0.35]: -0.4547 +- 0.2203 per nat -> move at 0.35 -0.1591 +- 0.0771 z (upper 2-SE -0.0049); slope above 0.35: -0.0996 +- 0.1177
+   per switch at gaps < 0.35 (F 16.5): point -0.0096, upper 2-SE -0.0003
+   for reference, the linear fit's move at 0.35: -0.0762 +- 0.0170
+
+B. threshold chosen on students 4-7, applied to student 8 (expectation, no selection noise), Elo
+   case                        tau 0 | student-8 oracle | pooled 4-7 choice applied to 8 | tau* (8) vs pooled tau
+   gaussian  c +0.0000 sd 0.0016:   5.3 |   5.3 |   5.3 | +0.00000 vs +0.00000
+   gaussian  c -0.0018 sd 0.0034:   5.0 |   5.0 |   5.0 | +0.00000 vs +0.00000
+   gaussian  c -0.0032 sd 0.0043:   5.0 |   5.0 |   5.0 | +0.00000 vs +0.00000
+   laplace   c +0.0000 sd 0.0016:   5.1 |   5.1 |   5.1 | +0.00000 vs +0.00000
+   laplace   c -0.0032 sd 0.0047:   7.3 |   7.7 |   7.6 | +0.00060 vs +0.00048
+   two_0.02  c -0.0016 sd 0.0055:   5.5 |  19.5 |  19.5 | +0.00944 vs +0.00698
+   two_0.05  c -0.0008 sd 0.0047:  12.5 |  25.1 |  24.7 | +0.00424 vs +0.00326
+   two_0.1   c -0.0080 sd 0.0047:   5.1 |  11.1 |  11.0 | -0.00304 vs -0.00328
+   two_0.5   c -0.0076 sd 0.0090:   8.0 |  15.1 |  14.8 | -0.00512 vs -0.00422
+   two_0.8   c -0.0056 sd 0.0124:   6.1 |  12.6 |  12.6 | -0.01202 vs -0.01050
+   two_0.95  c -0.0008 sd 0.0055:   5.7 |  11.4 |  11.2 | -0.00668 vs -0.00518
+
+C. no-variate label toy: plain label mean minus the exact advantage, 8 seeds of 1,000,000 games
+   exact advantages +0.0681 -0.0454 +0.1135 +0.0227 -0.0907 +0.1361 (the toy's forced-arm Monte Carlo read +0.0684 -0.0465 +0.1129 +0.0226 -0.0901 +0.1361)
+   mean difference per decision +0.0010 -0.0003 -0.0007 -0.0010 +0.0011 +0.0012 (SE 0.0008 each); all six pooled: z +0.58

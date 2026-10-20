@@ -1,0 +1,18 @@
+band 62.0 per side-game, eta 6.111e-05
+  mu +0.0000 sd 0.002: sign rule   +4.3 Elo (31.0 switches), calibrated   +4.3 Elo (31.0 switches)
+  mu +0.0000 sd 0.003: sign rule   +9.2 Elo (31.0 switches), calibrated   +9.2 Elo (31.0 switches)
+  mu +0.0000 sd 0.005: sign rule  +23.2 Elo (31.0 switches), calibrated  +23.2 Elo (31.0 switches)
+  mu +0.0000 sd 0.010: sign rule  +67.7 Elo (31.0 switches), calibrated  +67.7 Elo (31.0 switches)
+  mu -0.0018 sd 0.002: sign rule  -11.8 Elo (25.5 switches), calibrated   +0.0 Elo ( 0.0 switches)
+  mu -0.0018 sd 0.003: sign rule   -7.1 Elo (25.7 switches), calibrated   +0.5 Elo ( 2.9 switches)
+  mu -0.0018 sd 0.005: sign rule   +6.3 Elo (26.2 switches), calibrated   +8.7 Elo (15.6 switches)
+  mu -0.0018 sd 0.010: sign rule  +49.8 Elo (27.5 switches), calibrated  +50.1 Elo (25.4 switches)
+band 76.1 per side-game, eta 4.976e-05
+  mu +0.0000 sd 0.002: sign rule   +5.8 Elo (38.1 switches), calibrated   +5.8 Elo (38.1 switches)
+  mu +0.0000 sd 0.003: sign rule  +12.4 Elo (38.1 switches), calibrated  +12.4 Elo (38.1 switches)
+  mu +0.0000 sd 0.005: sign rule  +30.5 Elo (38.1 switches), calibrated  +30.5 Elo (38.1 switches)
+  mu +0.0000 sd 0.010: sign rule  +86.2 Elo (38.1 switches), calibrated  +86.2 Elo (38.1 switches)
+  mu -0.0018 sd 0.002: sign rule  -13.6 Elo (30.7 switches), calibrated   +0.0 Elo ( 0.0 switches)
+  mu -0.0018 sd 0.003: sign rule   -7.3 Elo (31.0 switches), calibrated   +0.8 Elo ( 4.8 switches)
+  mu -0.0018 sd 0.005: sign rule  +10.0 Elo (31.8 switches), calibrated  +12.4 Elo (20.3 switches)
+  mu -0.0018 sd 0.010: sign rule  +64.3 Elo (33.6 switches), calibrated  +64.5 Elo (31.4 switches)

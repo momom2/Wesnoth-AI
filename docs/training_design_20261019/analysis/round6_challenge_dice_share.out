@@ -1,0 +1,26 @@
+1-2. decisive games 18800, matches 23; context features 238
+  pooled, 23 matches: fixed columns keep 0.847 (explain 0.153)
+    contextual columns, ridge   1.0: keep 0.856 (explain 0.144)
+    contextual columns, ridge  10.0: keep 0.853 (explain 0.147)
+    contextual columns, ridge 100.0: keep 0.851 (explain 0.149)
+  own1 self-play (2 matches): fixed columns keep 0.839 (explain 0.161)
+    contextual columns, ridge   1.0: keep 0.844 (explain 0.156)
+    contextual columns, ridge  10.0: keep 0.843 (explain 0.157)
+    contextual columns, ridge 100.0: keep 0.842 (explain 0.158)
+  context's added share (ridge 100.0), game bootstrap 95%: -0.0042 (-0.0076 to -0.0014)
+
+3. variance of z the coins can cause, n = 152.2 band coins a game, p = 0.25
+  sd 0.0020, mu +0.0000: V_coin 1.14e-04 = 0.00011 of Var(z); fixed dice columns explain 0.161, ratio 1,412
+  sd 0.0020, mu -0.0018: V_coin 2.07e-04 = 0.00021 of Var(z); fixed dice columns explain 0.161, ratio 780
+  sd 0.0038, mu +0.0000: V_coin 4.12e-04 = 0.00041 of Var(z); fixed dice columns explain 0.161, ratio 391
+  sd 0.0038, mu -0.0018: V_coin 5.05e-04 = 0.00050 of Var(z); fixed dice columns explain 0.161, ratio 319
+  sd 0.0050, mu +0.0000: V_coin 7.13e-04 = 0.00071 of Var(z); fixed dice columns explain 0.161, ratio 226
+  sd 0.0050, mu -0.0018: V_coin 8.06e-04 = 0.00081 of Var(z); fixed dice columns explain 0.161, ratio 200
+  sd 0.0100, mu +0.0000: V_coin 2.85e-03 = 0.00285 of Var(z); fixed dice columns explain 0.161, ratio 56
+  sd 0.0100, mu -0.0018: V_coin 2.95e-03 = 0.00295 of Var(z); fixed dice columns explain 0.161, ratio 55
+  sd 0.0200, mu +0.0000: V_coin 1.14e-02 = 0.01141 of Var(z); fixed dice columns explain 0.161, ratio 14
+  sd 0.0200, mu -0.0018: V_coin 1.15e-02 = 0.01150 of Var(z); fixed dice columns explain 0.161, ratio 14
+
+4. strike-table subsample (counter weapon a choice): fights 6130
+  P(defender dies): mean 0.344; share of fights with 0.05 < P < 0.95: 0.505; mean Bernoulli variance 0.0878 (a band coin: 0.1875)
+  P(attacker dies): mean 0.056; share of fights with 0.05 < P < 0.95: 0.156; mean Bernoulli variance 0.0263 (a band coin: 0.1875)

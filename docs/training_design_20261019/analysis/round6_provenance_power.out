@@ -1,0 +1,45 @@
+label residual: design 0.732, full cell 0.688; sigma^2 at p 0.25: 3.91 -> 3.67
+
+1. match-only floors, 8 batches (sd of the in-span near-tie spread whose gain reaches 2.84 match SEs)
+  design: 12,800 eval-driver games, r 0.732: SE 2.57 Elo, $1.50, adoptable gain 7.3 Elo; d200 mu+0.0000: 0.0014; d200 mu-0.0018: 0.0030; d776 mu+0.0000: 0.0019; d776 mu-0.0018: 0.0038
+  12,800 generation-pool games, r 0.688: SE 2.57 Elo, $0.32, adoptable gain 7.3 Elo; d200 mu+0.0000: 0.0014; d200 mu-0.0018: 0.0030; d776 mu+0.0000: 0.0019; d776 mu-0.0018: 0.0037
+  25,600 generation-pool games, r 0.688: SE 1.82 Elo, $0.64, adoptable gain 5.2 Elo; d200 mu+0.0000: 0.0012; d200 mu-0.0018: 0.0027; d776 mu+0.0000: 0.0016; d776 mu-0.0018: 0.0034
+  51,200 generation-pool games, r 0.688: SE 1.28 Elo, $1.29, adoptable gain 3.6 Elo; d200 mu+0.0000: 0.0010; d200 mu-0.0018: 0.0025; d776 mu+0.0000: 0.0013; d776 mu-0.0018: 0.0032
+
+2. interim match after batch 4 (student 4 vs own1, generation pool), d_eff 776
+  12,800 games, SE 2.57 Elo, $0.32: stop iff the estimate is below 0
+    mu +0.0000 sd 0.0000: student 4 gains   0.0 Elo (38.1 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu +0.0000 sd 0.0010: student 4 gains   1.5 Elo (38.1 switches), student 8   2.1; P(stop) 0.28; expected batches bought 6.9
+    mu +0.0000 sd 0.0015: student 4 gains   3.4 Elo (38.1 switches), student 8   4.7; P(stop) 0.09; expected batches bought 7.6
+    mu +0.0000 sd 0.0020: student 4 gains   5.9 Elo (38.1 switches), student 8   8.1; P(stop) 0.01; expected batches bought 8.0
+    mu +0.0000 sd 0.0030: student 4 gains  12.7 Elo (38.1 switches), student 8  16.7; P(stop) 0.00; expected batches bought 8.0
+    mu +0.0000 sd 0.0050: student 4 gains  31.1 Elo (38.1 switches), student 8  37.9; P(stop) 0.00; expected batches bought 8.0
+    mu -0.0018 sd 0.0000: student 4 gains   0.0 Elo ( 0.0 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0010: student 4 gains   0.0 Elo ( 0.0 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0015: student 4 gains   0.0 Elo ( 0.0 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0020: student 4 gains   0.0 Elo ( 0.1 switches), student 8   0.1; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0030: student 4 gains   0.9 Elo ( 5.2 switches), student 8   2.7; P(stop) 0.36; expected batches bought 6.6
+    mu -0.0018 sd 0.0050: student 4 gains  13.0 Elo (20.6 switches), student 8  18.8; P(stop) 0.00; expected batches bought 8.0
+  25,600 games, SE 1.82 Elo, $0.64: stop iff the estimate is below 0
+    mu +0.0000 sd 0.0000: student 4 gains   0.0 Elo (38.1 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu +0.0000 sd 0.0010: student 4 gains   1.5 Elo (38.1 switches), student 8   2.1; P(stop) 0.20; expected batches bought 7.2
+    mu +0.0000 sd 0.0015: student 4 gains   3.4 Elo (38.1 switches), student 8   4.7; P(stop) 0.03; expected batches bought 7.9
+    mu +0.0000 sd 0.0020: student 4 gains   5.9 Elo (38.1 switches), student 8   8.1; P(stop) 0.00; expected batches bought 8.0
+    mu +0.0000 sd 0.0030: student 4 gains  12.7 Elo (38.1 switches), student 8  16.7; P(stop) 0.00; expected batches bought 8.0
+    mu +0.0000 sd 0.0050: student 4 gains  31.1 Elo (38.1 switches), student 8  37.9; P(stop) 0.00; expected batches bought 8.0
+    mu -0.0018 sd 0.0000: student 4 gains   0.0 Elo ( 0.0 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0010: student 4 gains   0.0 Elo ( 0.0 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0015: student 4 gains   0.0 Elo ( 0.0 switches), student 8   0.0; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0020: student 4 gains   0.0 Elo ( 0.1 switches), student 8   0.1; P(stop) 0.50; expected batches bought 6.0
+    mu -0.0018 sd 0.0030: student 4 gains   0.9 Elo ( 5.2 switches), student 8   2.7; P(stop) 0.30; expected batches bought 6.8
+    mu -0.0018 sd 0.0050: student 4 gains  13.0 Elo (20.6 switches), student 8  18.8; P(stop) 0.00; expected batches bought 8.0
+  design's stop (progressive forecast of students 1-3, upper bound under 5.3 Elo): P 0.15 at mu 0 sd 0, 0.04 at sd 0.002 (round5_synthesis_power.out)
+
+3. identification from play when the forecast misses (25,600-game matches)
+  match SE 1.82, forecast SE 4.56 Elo
+  g = 4 J(1/2) - J(1): SE sqrt(17) se_m = 7.5
+  A = 2 J(1) - 4 J(1/2): SE sqrt(20) se_m = 8.1
+  C = L - g (labels' offset: opponent coins, non-exchangeable curvature): SE 8.8
+  the design's alpha* = -G1 / (2 G2) with G1 = L: L estimates g + A when p = q/2 (midpoint), so it reads -(g + A) / (2 A); e.g. g 20, A -15 Elo: true 0.67, design 0.17
+
+4. correction term's SE: 1.56 Elo at 12,800 games -> 1.10 at 25,600, 0.78 at 51,200

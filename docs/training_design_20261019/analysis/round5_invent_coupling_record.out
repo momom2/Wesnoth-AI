@@ -1,0 +1,14 @@
+candidates per world: {'T': 966, 'TU': 966, 'O2': 966}
+T-TU margin@2: candidates 966, coupled var 1728, uncoupled var 2426, ratio 0.712 (95% 0.655-0.764)
+T-TU margin@4: candidates 966, coupled var 3995, uncoupled var 4997, ratio 0.799 (95% 0.762-0.837)
+T-TU value@2: candidates 966, coupled var 0.07995, uncoupled var 0.1072, ratio 0.746 (95% 0.704-0.794)
+T-TU value@4: candidates 966, coupled var 0.1805, uncoupled var 0.2015, ratio 0.896 (95% 0.847-0.948)
+T-O2 margin@2: candidates 966, coupled var 1647, uncoupled var 2234, ratio 0.737 (95% 0.677-0.788)
+T-O2 margin@4: candidates 966, coupled var 3987, uncoupled var 4806, ratio 0.830 (95% 0.787-0.870)
+T-O2 value@2: candidates 966, coupled var 0.07958, uncoupled var 0.09583, ratio 0.830 (95% 0.777-0.889)
+T-O2 value@4: candidates 966, coupled var 0.1706, uncoupled var 0.1857, ratio 0.918 (95% 0.858-0.981)
+TU-O2 margin@2: candidates 966, coupled var 1311, uncoupled var 2296, ratio 0.571 (95% 0.471-0.667)
+TU-O2 margin@4: candidates 966, coupled var 3102, uncoupled var 4880, ratio 0.636 (95% 0.565-0.707)
+TU-O2 value@2: candidates 966, coupled var 0.07394, uncoupled var 0.1103, ratio 0.671 (95% 0.609-0.735)
+TU-O2 value@4: candidates 966, coupled var 0.1458, uncoupled var 0.199, ratio 0.732 (95% 0.672-0.800)
+T-TU identical rollouts: 138 of 7728

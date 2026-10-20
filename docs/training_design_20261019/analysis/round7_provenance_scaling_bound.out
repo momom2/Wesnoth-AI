@@ -1,0 +1,50 @@
+eta per batch count: k 3: 6.24e-05 (sd 0.0079), k 8: 2.34e-05 (sd 0.0048), k 16: 1.17e-05 (sd 0.0034)
+bounds: g8/g3 <= sqrt(8/3) = 1.633; g16/g8 <= sqrt(2) = 1.414
+
+1. mean-zero shapes, sign rule (gains in Elo per side-game = 347.4 x 76.1 x g)
+  sd 0.002 gaussian                   g8   8.1 Elo; g8/g3 1.557, g16/g8 1.321 | heteroscedastic g8/g3 1.542, g16/g8 1.309
+  sd 0.002 laplace                    g8   7.6 Elo; g8/g3 1.510, g16/g8 1.282 | heteroscedastic g8/g3 1.494, g16/g8 1.273
+  sd 0.002 student_t3                 g8   6.1 Elo; g8/g3 1.468, g16/g8 1.272 | heteroscedastic g8/g3 1.459, g16/g8 1.266
+  sd 0.002 uniform                    g8   8.3 Elo; g8/g3 1.584, g16/g8 1.349 | heteroscedastic g8/g3 1.572, g16/g8 1.337
+  sd 0.002 skewed (exp - 1)           g8   7.3 Elo; g8/g3 1.488, g16/g8 1.276 | heteroscedastic g8/g3 1.477, g16/g8 1.271
+  sd 0.002 skewed (1 - exp)           g8   7.3 Elo; g8/g3 1.488, g16/g8 1.276 | heteroscedastic g8/g3 1.476, g16/g8 1.270
+  sd 0.002 sparse two-point eps 0.2   g8   7.6 Elo; g8/g3 1.504, g16/g8 1.254 | heteroscedastic g8/g3 1.480, g16/g8 1.237
+  sd 0.002 sparse two-point eps 0.04  g8   5.1 Elo; g8/g3 1.208, g16/g8 1.036 | heteroscedastic g8/g3 1.199, g16/g8 1.046
+  sd 0.003 gaussian                   g8  16.7 Elo; g8/g3 1.484, g16/g8 1.251 | heteroscedastic g8/g3 1.466, g16/g8 1.241
+  sd 0.003 laplace                    g8  15.2 Elo; g8/g3 1.425, g16/g8 1.216 | heteroscedastic g8/g3 1.410, g16/g8 1.209
+  sd 0.003 student_t3                 g8  12.8 Elo; g8/g3 1.399, g16/g8 1.218 | heteroscedastic g8/g3 1.388, g16/g8 1.213
+  sd 0.003 uniform                    g8  17.6 Elo; g8/g3 1.529, g16/g8 1.286 | heteroscedastic g8/g3 1.509, g16/g8 1.271
+  sd 0.003 skewed (exp - 1)           g8  14.6 Elo; g8/g3 1.414, g16/g8 1.227 | heteroscedastic g8/g3 1.405, g16/g8 1.223
+  sd 0.003 skewed (1 - exp)           g8  14.6 Elo; g8/g3 1.414, g16/g8 1.227 | heteroscedastic g8/g3 1.405, g16/g8 1.223
+  sd 0.003 sparse two-point eps 0.2   g8  14.8 Elo; g8/g3 1.381, g16/g8 1.138 | heteroscedastic g8/g3 1.354, g16/g8 1.133
+  sd 0.003 sparse two-point eps 0.04  g8   7.9 Elo; g8/g3 1.058, g16/g8 1.002 | heteroscedastic g8/g3 1.072, g16/g8 1.008
+
+2. negative mean: the bound fails (sign rule, and the Gaussian posterior-mean rule of the power model)
+  mu -0.0005 sd 0.002: sign rule g8   +1.9 Elo, g8/g3    nan, g16/g8  2.42 | posterior-mean rule g8   3.1 Elo, g8/g3   2.99, g16/g8  1.71
+  mu -0.0005 sd 0.003: sign rule g8  +10.4 Elo, g8/g3   2.14, g16/g8  1.41 | posterior-mean rule g8  10.9 Elo, g8/g3   1.87, g16/g8  1.37
+  mu -0.0005 sd 0.004: sign rule g8  +20.6 Elo, g8/g3   1.62, g16/g8  1.25 | posterior-mean rule g8  20.8 Elo, g8/g3   1.58, g16/g8  1.25
+  mu -0.0018 sd 0.002: sign rule g8   -9.8 Elo, g8/g3    nan, g16/g8   nan | posterior-mean rule g8   0.1 Elo, g8/g3 162.41, g16/g8  6.33
+  mu -0.0018 sd 0.003: sign rule g8   -2.1 Elo, g8/g3    nan, g16/g8   nan | posterior-mean rule g8   2.7 Elo, g8/g3   5.03, g16/g8  1.94
+  mu -0.0018 sd 0.004: sign rule g8   +7.4 Elo, g8/g3    nan, g16/g8  1.74 | posterior-mean rule g8   9.5 Elo, g8/g3   2.38, g16/g8  1.44
+
+3. consequences at the design's numbers (mean >= 0 regime; first-order gains)
+  interim: if student 8 gains >= 5.1 Elo (adoptable at 80% power), student 3 gains >= 3.11, so P(stop) <= 0.041
+  round 1 first-order gain  5.0 Elo -> same-band round 2 increment <=  2.1 Elo; pi_2 vs pi_1 adopted with P <= 0.20 at that ceiling
+  round 1 first-order gain  8.0 Elo -> same-band round 2 increment <=  3.3 Elo; pi_2 vs pi_1 adopted with P <= 0.44 at that ceiling
+  round 1 first-order gain 10.0 Elo -> same-band round 2 increment <=  4.1 Elo; pi_2 vs pi_1 adopted with P <= 0.62 at that ceiling
+  round 1 first-order gain 15.0 Elo -> same-band round 2 increment <=  6.2 Elo; pi_2 vs pi_1 adopted with P <= 0.93 at that ceiling
+  round 1 first-order gain 20.0 Elo -> same-band round 2 increment <=  8.3 Elo; pi_2 vs pi_1 adopted with P <= 1.00 at that ceiling
+  round 1 first-order gain 30.0 Elo -> same-band round 2 increment <= 12.4 Elo; pi_2 vs pi_1 adopted with P <= 1.00 at that ceiling
+  Gaussian model's own increment (mu 0, d 776), for comparison:
+    sd 0.0015: g8   4.7, g16   6.4, increment  1.7 Elo (0.36 of g8)
+    sd 0.002: g8   8.1, g16  10.7, increment  2.6 Elo (0.32 of g8)
+    sd 0.003: g8  16.7, g16  20.9, increment  4.2 Elo (0.25 of g8)
+    sd 0.004: g8  26.9, g16  32.1, increment  5.2 Elo (0.19 of g8)
+  the same-band increment reaches the adoption line (2 SE = 3.6 Elo) only if g8 >= 8.6, and 80% power (5.1) only if g8 >= 12.3 Elo
+
+4. batch 1's reading of the mean label (which decides whether section 3 applies), per margin bin
+  bin [0.0,0.1) (width 0.1):  25.6 band decisions per side-game, 5.11 M labels, SE of the mean label 0.00085
+  bin [0.1,0.2) (width 0.1):  22.0 band decisions per side-game, 4.41 M labels, SE of the mean label 0.00091
+  bin [0.2,0.3) (width 0.1):  19.0 band decisions per side-game, 3.80 M labels, SE of the mean label 0.00098
+  bin [0.3,0.4) (width 0.05):   8.8 band decisions per side-game, 1.76 M labels, SE of the mean label 0.00145
+  whole band: SE 0.00049; prediction noise of student 8 sqrt(eta_8) 0.0048

@@ -1,0 +1,23 @@
+E[w^2] at P 0.25: 5.3333 (exact)
+frozen luck coefficient 0.4538; E[R^2] 0.5563 against E[z^2] 1
+
+ k  forced-arm advantage    plain label mean     CV label mean     E[T^2] plain   E[T^2] CV
+ 0  +0.0684 +- 0.0006     +0.0708 +- 0.0023   +0.0697 +- 0.0017   5.3307       2.9689
+ 1  -0.0465 +- 0.0005     -0.0441 +- 0.0023   -0.0451 +- 0.0017   5.3367       2.9740
+ 2  +0.1129 +- 0.0007     +0.1171 +- 0.0023   +0.1161 +- 0.0017   5.3263       2.9731
+ 3  +0.0226 +- 0.0003     +0.0229 +- 0.0023   +0.0238 +- 0.0017   5.3323       2.9695
+ 4  -0.0901 +- 0.0007     -0.0865 +- 0.0023   -0.0898 +- 0.0017   5.3321       2.9782
+ 5  +0.1361 +- 0.0008     +0.1397 +- 0.0023   +0.1355 +- 0.0017   5.3291       2.9825
+
+within-game cross moments E[T_i T_j], i < j (plain is 0 exactly in expectation):
+  largest |mean| / SE over the 15 pairs: plain 1.82, CV 5.32
+  plain: Var(sum of a game's labels) / sum of their variances = 1.0023 (1 = uncorrelated; the clustering design effect)
+  CV: Var(sum of a game's labels) / sum of their variances = 1.0020 (1 = uncorrelated; the clustering design effect)
+  (the toy's seeds were varied in a separate run: label means minus forced-arm truth showed no sign pattern)
+
+consequences at the design's inputs
+  sigma^2: measured transfer 3.67, batch 1 (columns only) 4.48, exact ceiling 5.333
+  ceiling / measured 1.453: effective batches at the ceiling 5.50 of 8 (design 7.78 at 3.67)
+  coins' own share of Var(z) at in-band sd 0.002: 1.1e-04
+  coins' own share of Var(z) at in-band sd 0.003: 2.6e-04
+  coins' own share of Var(z) at in-band sd 0.005: 7.1e-04

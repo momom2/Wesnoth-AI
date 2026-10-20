@@ -1,0 +1,18 @@
+student 8: eta 2.327e-05; adoptable: J8 >= 5.1 Elo; Elo per unit mean gain per band decision 26440
+per shape, over adoptable cases: sign rule at the squared-loss lambda / oracle threshold, worst case (c, sd; J8 sign rule, J8 oracle); best over the lambda family / oracle, worst; E share min, max
+  gaussian   449 cases: sign 1.000 (c -0.0024, sd 0.0065;  29.1 vs  29.1 Elo); lambda family 1.000; better of sign and E 1.000; E 0.505-0.826
+  laplace    454 cases: sign 0.958 (c -0.0032, sd 0.0047;   7.4 vs   7.8 Elo); lambda family 0.999; better of sign and E 0.958; E 0.505-0.988
+  two_0.02   494 cases: sign 0.283 (c -0.0016, sd 0.0055;   5.6 vs  19.7 Elo); lambda family 0.547; better of sign and E 0.638; E 0.500-2.379
+  two_0.05   501 cases: sign 0.498 (c -0.0008, sd 0.0047;  12.6 vs  25.3 Elo); lambda family 0.604; better of sign and E 0.513; E 0.501-1.689
+  two_0.1    491 cases: sign 0.469 (c -0.0080, sd 0.0047;   5.3 vs  11.3 Elo); lambda family 0.687; better of sign and E 0.469; E 0.503-1.433
+  two_0.2    474 cases: sign 0.534 (c -0.0076, sd 0.0055;   5.8 vs  10.8 Elo); lambda family 0.822; better of sign and E 0.534; E 0.500-1.223
+  two_0.35   456 cases: sign 0.589 (c -0.0080, sd 0.0076;   9.7 vs  16.4 Elo); lambda family 0.954; better of sign and E 0.589; E 0.500-1.015
+  two_0.5    435 cases: sign 0.531 (c -0.0076, sd 0.0090;   7.8 vs  14.7 Elo); lambda family 1.000; better of sign and E 0.531; E 0.500-0.833
+  two_0.65   412 cases: sign 0.493 (c -0.0068, sd 0.0105;   7.3 vs  14.8 Elo); lambda family 0.954; better of sign and E 0.493; E 0.500-0.737
+  two_0.8    376 cases: sign 0.480 (c -0.0056, sd 0.0124;   5.9 vs  12.2 Elo); lambda family 0.822; better of sign and E 0.480; E 0.500-0.701
+  two_0.95   304 cases: sign 0.496 (c -0.0008, sd 0.0055;   5.8 vs  11.7 Elo); lambda family 0.604; better of sign and E 0.496; E 0.500-0.643
+
+worst sign-rule ratio over shapes: 0.283 (two_0.02; 5.6 against 19.7 Elo, 14.1 Elo left to an oracle threshold)
+worst ratio of the best lambda (threshold 0, shrinkage chosen for gain) to the oracle: 0.547
+worst ratio of the better of the sign rule and E to the oracle: 0.469
+smallest E share over shapes: 0.500 (shape-free floor 0.5)

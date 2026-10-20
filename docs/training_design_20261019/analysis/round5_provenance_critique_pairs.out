@@ -1,0 +1,5 @@
+decisive games 18800; cell pairs with both cells observed 756
+column-corrected share 0.847; full-cell tau2 share 0.151
+Cov(f(c), f(swap c)) share -0.147 +- 0.009 (exact antisymmetry: -0.151)
+pairs keep 0.700 +- 0.009; the additive baseline keeps 0.747 (round5_provenance_match_variance.out); the stance's lower bound 0.696
+faction pair only: tau2 share 0.095, swap covariance share -0.094 +- 0.019 (36 pairs)

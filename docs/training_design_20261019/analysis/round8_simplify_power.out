@@ -1,0 +1,46 @@
+inputs: steady price $1.912e-05; r 0.688 (cell + columns), batch 1 0.839 (columns alone); match 37,800 games, SE 1.79 Elo
+1. the interim match (student 3 against the incumbent, stop iff its estimate < 0), frozen coefficients: effective batches 2.80 at 3, 7.78 at 8; d 772; match SE 1.79
+  mu +0.0000: 0.8-power sd without the interim 0.0016, with it 0.0016
+    sd 0.0000: student 3   0.0 Elo, student 8   0.0; P(stop) 0.500; adoption power without 0.023, with 0.011 (lost 0.011)
+    sd 0.0008: student 3   0.8 Elo, student 8   1.3; P(stop) 0.328; adoption power without 0.103, with 0.069 (lost 0.034)
+    sd 0.0013: student 3   2.0 Elo, student 8   3.3; P(stop) 0.129; adoption power without 0.440, with 0.384 (lost 0.057)
+    sd 0.0016: student 3   3.1 Elo, student 8   5.1; P(stop) 0.039; adoption power without 0.800, with 0.768 (lost 0.032)
+    sd 0.0019: student 3   4.5 Elo, student 8   7.2; P(stop) 0.006; adoption power without 0.978, with 0.972 (lost 0.006)
+    sd 0.0024: student 3   6.9 Elo, student 8  10.8; P(stop) 0.000; adoption power without 1.000, with 1.000 (lost 0.000)
+  mu -0.0018: 0.8-power sd without the interim 0.0034, with it 0.0036
+    sd 0.0000: student 3   0.0 Elo, student 8   0.0; P(stop) 0.500; adoption power without 0.023, with 0.011 (lost 0.011)
+    sd 0.0017: student 3   0.0 Elo, student 8   0.0; P(stop) 0.500; adoption power without 0.023, with 0.011 (lost 0.011)
+    sd 0.0027: student 3   0.2 Elo, student 8   1.5; P(stop) 0.463; adoption power without 0.120, with 0.064 (lost 0.055)
+    sd 0.0034: student 3   1.4 Elo, student 8   5.1; P(stop) 0.214; adoption power without 0.800, with 0.629 (lost 0.171)
+    sd 0.0041: student 3   4.3 Elo, student 8  10.3; P(stop) 0.008; adoption power without 1.000, with 0.992 (lost 0.008)
+    sd 0.0051: student 3  11.1 Elo, student 8  20.0; P(stop) 0.000; adoption power without 1.000, with 1.000 (lost 0.000)
+  shape-free false stop where the ceiling's premise holds (student 8 at 80% power, gain >= sqrt(2.80/7.78) of it at student 3): P <= 0.044
+
+2. budget, steady price; the current design's S0(a) replay ($0.043) is gone in both columns so the difference is the interim alone
+  measured host, with interim: total $57.63, left $27.37; three rounds fit iff price x (1 + overhead) <= $3.052e-05 (room +0.596); null round 1: stopped $6.60, through $16.88, expected $11.74
+    two rounds (S5 dropped, S4 kept) fit iff price x (1 + overhead) <= $4.763e-05
+  measured host, no interim  : total $56.18, left $28.82; three rounds fit iff price x (1 + overhead) <= $3.113e-05 (room +0.628); null round 1: $16.16
+    two rounds (S5 dropped, S4 kept) fit iff price x (1 + overhead) <= $4.808e-05
+    S0 setup + attack known answer + coin smoke $0.14; S1 round 1 coins $15.30; S2 adoption = claim $0.72; E reserve $2.17; S3 round 2 $16.74; S4 reset $3.60; S5 round 3 $17.52
+  host 1.41x slower, with interim: total $79.16, left $5.84; three rounds fit iff price x (1 + overhead) <= $2.939e-05 (room +0.090); null round 1: stopped $9.30, through $23.80, expected $16.55
+    two rounds (S5 dropped, S4 kept) fit iff price x (1 + overhead) <= $4.630e-05
+  host 1.41x slower, no interim  : total $77.12, left $7.88; three rounds fit iff price x (1 + overhead) <= $3.024e-05 (room +0.122); null round 1: $22.78
+    two rounds (S5 dropped, S4 kept) fit iff price x (1 + overhead) <= $4.694e-05
+
+3. gamma-V deferred: every floor the design states is computed at r 0.688, without V
+  the slack $28.82 buys 15.1 more batches, 5.0 a round over three rounds
+  if V kept a share 1.000 of the residual: mu +0.0000 floor 0.0016, mu -0.0018 floor 0.0034; the same floors from 0.0 more batches a round without V
+  if V kept a share 0.875 of the residual: mu +0.0000 floor 0.0015, mu -0.0018 floor 0.0033; the same floors from 1.1 more batches a round without V
+  if V kept a share 0.750 of the residual: mu +0.0000 floor 0.0015, mu -0.0018 floor 0.0032; the same floors from 2.7 more batches a round without V
+  if V kept a share 0.500 of the residual: mu +0.0000 floor 0.0013, mu -0.0018 floor 0.0030; the same floors from 8.0 more batches a round without V
+  spending the slack on batches instead (mu 0): floor 0.0016 -> 0.0014; V matches that iff it keeps <= 0.614
+
+4. the coin plant read on the smoke's games as well as on batch 1 (same offline code)
+  2,000 games: closed-form SE per side sqrt(3/n) = 0.0387
+  100,000 games: closed-form SE per side sqrt(3/n) = 0.0055
+  simulated at 2,000 games (200 reps): mean 1.000, SE 0.0361
+  at the smoke a wrong side sign (-1.005) sits 56 SE from 1, a coin read one decision off (0.016) 27 SE
+  coins misread on a fraction 0.02 of decisions: slope 0.975; 0.7 SE at the smoke, 4.6 SE on batch 1
+  coins misread on a fraction 0.05 of decisions: slope 0.951; 1.3 SE at the smoke, 8.9 SE on batch 1
+  coins misread on a fraction 0.10 of decisions: slope 0.895; 2.9 SE at the smoke, 19.1 SE on batch 1
+  coins misread on a fraction 0.20 of decisions: slope 0.801; 5.5 SE at the smoke, 36.3 SE on batch 1

@@ -1,0 +1,4 @@
+side-games 100; end-top decisions 4048 (40.5 per side-game); act-top multi-legal decisions 22869
+(1) turn-over continues where the offset ends: certain 0.0101, possible 0.9000 of end-top decisions (0.41 to 36.43 per side-game)
+    upper-bound sum quantiles 10/50/90: 4.48, 138.23, 339.27
+(2) turn-over could end where the offset acts: at most 0.4470 of act-top decisions (102.2 per side-game)

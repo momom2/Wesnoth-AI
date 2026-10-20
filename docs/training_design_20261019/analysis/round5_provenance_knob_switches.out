@@ -1,0 +1,38 @@
+reverse causation, self-play controls (1600 decisive games): A-minus-B decisions per side-game per unit z: attack +10.28 +- 0.47, recruit +4.12 +- 0.21, move +25.61 +- 1.16; all decisions +40.0
+
+vector, decisive games, z, extra decisions per side-game (raw, then without the winning share), knobs e a r t:
+  kv00   400 -0.065   -0.4   +2.2   e -1.50 a +0.00 r +0.00 t 0.00
+  kv01   100 -0.300   +0.2  +12.2   e -2.32 a +1.04 r -0.37 t 2.36
+  kv02   100 -0.200  -23.2  -15.2   e -0.13 a +1.12 r +0.22 t 1.39
+  kv03   400 -0.015  -12.9  -12.3   e -0.63 a -0.54 r +0.67 t 3.38
+  kv04   100 -0.160   +1.1   +7.6   e -1.70 a +0.86 r -0.79 t 1.92
+  kv05   100 -0.060  +20.4  +22.8   e -2.65 a +0.64 r +0.96 t 0.82
+  kv06   100 -0.220   +4.0  +12.8   e -2.78 a +0.58 r -0.87 t 2.86
+  kv07   400 -0.005   +4.6   +4.8   e -1.61 a -0.02 r +0.06 t 3.49
+  kv08   100 -0.060  +11.3  +13.7   e -1.97 a +0.29 r +0.79 t 1.91
+  kv09   400 -0.020   +3.3   +4.1   e -2.02 a -0.24 r -0.62 t 2.70
+  kv10  1200 +0.027  +16.2  +15.1   e -2.27 a -0.44 r +0.61 t 3.09
+  kv11   100 -0.080   -9.8   -6.6   e -1.31 a +1.33 r -0.27 t 3.75
+  kv12   100 -0.100   -9.2   -5.2   e -1.15 a -0.97 r +0.44 t 3.15
+  kv13   100 -0.220  -43.0  -34.2   e -0.48 a +1.28 r -0.71 t 1.69
+  kv14   100 -0.040  +14.7  +16.3   e -2.54 a +0.43 r -0.05 t 0.27
+  kv15  1200 +0.113  +35.6  +31.1   e -3.00 a -0.59 r -0.01 t 2.53
+  kv16   100 -0.060  +30.2  +32.7   e -3.19 a +0.09 r +0.84 t 0.91
+  kv17   400 -0.035  -13.7  -12.3   e -1.02 a -0.18 r -0.21 t 0.15
+  kv18   100 -0.080  -13.7  -10.5   e -0.89 a -0.76 r +0.52 t 1.22
+  kv19   400 -0.070  -28.1  -25.3   e -0.41 a -0.05 r -0.40 t 3.89
+  kv20   100 -0.380  -45.3  -30.1   e -0.22 a +1.40 r -0.93 t 0.57
+  kv21   100 -0.080  +35.8  +39.0   e -3.29 a +0.31 r +0.31 t 1.08
+  kv22   100 -0.120  +42.8  +47.6   e -3.39 a -0.89 r -0.48 t 2.13
+  kv23   100 -0.240  -13.0   -3.4   e -1.51 a +0.84 r +0.17 t 0.44
+
+first stage, extra decisions per side-game on (1, e + 1.5, a, r, t): +0.25 +- 1.86, -19.63 +- 0.95, -1.66 +- 1.76, +3.95 +- 1.85, -0.36 +- 0.72
+result fit, z on (min(extra, 0), max(extra, 0), a, r, t), weights n, binomial SEs:
+  per decision removed   +0.00332 +- 0.00165
+  per decision added     +0.00020 +- 0.00100
+  attack offset          -0.12641 +- 0.02682
+  recruit offset         +0.00179 +- 0.02922
+  tod slope              -0.00779 +- 0.00800
+  residual dispersion 1.36 on 19 df (1 = binomial noise only)
+
+Match A predicted (offset 0 against -1.5, other knobs 0): extra decisions -29.2 per side-game, z -0.097 +- 0.048 (decision-count uncertainty not propagated), Elo -34 +- 17

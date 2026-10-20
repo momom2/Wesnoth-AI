@@ -1,0 +1,4 @@
+full cell (map, side, faction A, faction B)   share +0.157 +- 0.006 (split-half), cells 1512, games per cell 12.4
+map x side                                    share +0.010 +- 0.001 (split-half), cells 42, games per cell 447.6
+faction A x faction B                         share +0.097 +- 0.004 (split-half), cells 36, games per cell 522.2
+side alone                                    share +0.001 +- 0.000 (split-half), cells 2, games per cell 9400.0

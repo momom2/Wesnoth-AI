@@ -1,0 +1,7 @@
+decisions per side-turn (decisive games):
+  before: parity3@64 7.342 +- 0.107; its opponent parity3@0 8.451  (800 games)
+  after:  tuned@64  8.455 +- 0.073; its opponent parity3@0 8.391  (800 games)
+  tuned@0 against parity3@0: 8.664
+  closure, target = parity3@0 as side B of the after match: 1.06 (95% bootstrap 0.88 to 1.30)
+  closure, target = parity3@0 as side B of the before match: 1.00 (95% bootstrap 0.82 to 1.23)
+P-distill's tempo: own1 at -2.5 9.625 +- 0.076, own1 at -1.5 8.580 +- 0.065 (800 games)

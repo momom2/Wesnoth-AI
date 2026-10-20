@@ -1,0 +1,7 @@
+T25: 1784 training games, best holdout CE 0.4915 nats (ln2 - CE = 0.2017), best at 0.25 epochs, ended patience
+T50: 3475 training games, best holdout CE 0.4712 nats (ln2 - CE = 0.2220), best at 0.50 epochs, ended patience
+T100: 6832 training games, best holdout CE 0.4595 nats (ln2 - CE = 0.2337), best at 0.50 epochs, ended patience
+improvement per doubling: 0.0211 then 0.0120; ratio r = 0.57
+extrapolated improvement from 6832 to 50000 games: 0.0127 nats (best CE about 0.4468)
+extrapolated improvement from 6832 to 200000 games: 0.0149 nats (best CE about 0.4446)
+extrapolated improvement to infinitely many games: 0.0159 nats
