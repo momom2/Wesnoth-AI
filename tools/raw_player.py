@@ -15,22 +15,33 @@ rule). It exists for the raw-argmax control: every eval before
 against the SAMPLED raw policy, so "search improves the seed" was
 never separated from "argmax beats sampling".
 
+Before the choice, the end_turn offset shifts end_turn's logit
+(`shift_end_turn_prior`) and the attack offset every attack's
+(`shift_attack_prior`). At argmax, the near-tie coins
+(tools/coin_decode.py) play the runner-up at a logged coin where the
+two best priors nearly tie; `pop_coin_log` hands a game's band
+decisions to the caller, who records them.
+
 Result provenance: `tools/eval_procedure.procedure_of` tags this
 player "raw:t<temperature>"; the legacy sampler stays "raw".
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
+from tools.coin_decode import describe_action, near_tie, near_tie_coin
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
 from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.stage_timing import stage
 
 
 END_TURN_RULES = ("joint", "actor")
+# A band decision as `_choose` returns it: (a0, a1, G, D), indices into the
+# arrays it was given.
+Band = Tuple[int, int, float, int]
 
 
 def shift_end_turn_prior(priors: np.ndarray, is_end: np.ndarray, offset: float) -> np.ndarray:
@@ -53,6 +64,21 @@ def shift_end_turn_prior(priors: np.ndarray, is_end: np.ndarray, offset: float) 
     out[is_end] *= p_new / p_end
     out[~is_end] *= (1.0 - p_new) / (1.0 - p_end)
     return out
+
+
+def shift_attack_prior(priors: np.ndarray, is_attack: np.ndarray, offset: float) -> np.ndarray:
+    """The joint priors after adding `offset` to every attack's logit: each
+    attack's prior times exp(offset), renormalised, a move being the zero of
+    the scale (the attack knob of tag archive/feature-decode-knobs,
+    `knob_logits` and `shift_by_logits`, whose +1 reading is the attack
+    known answer)."""
+    if not offset or not is_attack.any():
+        return priors
+    out = np.asarray(priors, dtype=np.float64) * np.where(is_attack, np.exp(float(offset)), 1.0)
+    total = float(out.sum())
+    if not total > 0.0:
+        return np.array(priors, dtype=np.float64, copy=True)
+    return out / total
 
 
 def actor_rule_index(priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray,
@@ -115,11 +141,21 @@ class RawPolicyPlayer:
     def __init__(self, base, temperature: float,
                  seed: Optional[int] = None, forbid_end_turn: bool = False,
                  compact_selection: bool = True, end_turn_rule: str = "joint",
-                 end_turn_offset: float = 0.0, memory_slots: Optional[int] = None):
+                 end_turn_offset: float = 0.0, memory_slots: Optional[int] = None,
+                 attack_offset: float = 0.0, coin_band: float = 0.0, coin_p: float = 0.25,
+                 coin_seed: Optional[int] = None):
         if temperature < 0.0:
             raise ValueError("temperature must be >= 0 (0 = argmax)")
         if end_turn_rule not in END_TURN_RULES:
             raise ValueError(f"end_turn_rule must be one of {END_TURN_RULES}")
+        if coin_band < 0.0:
+            raise ValueError("coin_band must be >= 0 (0 = no coins)")
+        if coin_band and (temperature != 0.0 or end_turn_rule != "joint"):
+            raise ValueError("the near-tie coins apply at the joint argmax only (temperature 0, rule 'joint')")
+        if coin_band and not 0.0 < coin_p < 1.0:
+            raise ValueError("coin_p must lie strictly between 0 and 1")
+        if coin_band and coin_seed is None:
+            raise ValueError("the near-tie coins are keyed by the game seed: pass coin_seed")
         self._base = base
         self.temperature = float(temperature)
         self._rng = np.random.default_rng(seed)
@@ -127,9 +163,21 @@ class RawPolicyPlayer:
         # argmax or sample over every legal action; "actor" = end_turn
         # only when its actor mass leads every actor marginal
         # (actor_rule_index). `end_turn_offset` shifts end_turn's actor
-        # logit before either (shift_end_turn_prior).
+        # logit before either (shift_end_turn_prior), `attack_offset`
+        # every attack's logit after it (shift_attack_prior).
         self.end_turn_rule = end_turn_rule
         self.end_turn_offset = float(end_turn_offset)
+        self.attack_offset = float(attack_offset)
+        # The near-tie coins (tools/coin_decode.py): the band width in nats
+        # (0: off), the propensity, the game seed that keys them; per game,
+        # each side's decisions so far, the last decision's (side, index),
+        # and the band decisions logged.
+        self.coin_band = float(coin_band)
+        self.coin_p = float(coin_p)
+        self.coin_seed = coin_seed
+        self._decisions: Dict[Tuple[str, int], int] = {}
+        self._last_decision: Dict[str, Tuple[int, int]] = {}
+        self._coin_log: Dict[str, List[dict]] = {}
         # The continue-edit proposer of tools/turn_gap.py: keep acting
         # while any non-end action is legal (end_turn only when nothing
         # else is).
@@ -155,12 +203,14 @@ class RawPolicyPlayer:
         # Per game, the last decision's (side key, memory before it).
         self._undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
 
-    def _select_compact(self, compact, encoded, decision_step: int) -> Optional[Dict]:
+    def _select_compact(self, compact, encoded, decision_step: int,
+                        coin_key: Optional[Tuple[int, int]] = None,
+                        game_label: str = "default", sim=None) -> Optional[Dict]:
         """The choice on the compact arrays, or None when the list path
         applies (an oracle anneal the server cannot carry, which the
         list path reports)."""
         from wesnoth_ai.action_sampler import combat_alphas_at
-        from wesnoth_ai.server_priors import KIND_END_TURN, compact_action
+        from wesnoth_ai.server_priors import KIND_ATTACK, KIND_END_TURN, compact_action
         if any(combat_alphas_at(decision_step)) or any(combat_alphas_at(0)):
             return None
         n = len(compact.prior)
@@ -172,16 +222,61 @@ class RawPolicyPlayer:
             if len(acting):
                 idx = acting
         priors = np.asarray(compact.prior, dtype=np.float64)[idx]
-        is_end = np.asarray(compact.kind)[idx] == KIND_END_TURN
-        return compact_action(compact, int(idx[self._choose(
-            priors, np.asarray(compact.actor)[idx], is_end)]), encoded)
+        kinds = np.asarray(compact.kind)[idx]
+        pick, band = self._choose(priors, np.asarray(compact.actor)[idx], kinds == KIND_END_TURN,
+                                  kinds == KIND_ATTACK, coin_key)
+        if band is not None:
+            self._log_band(game_label, coin_key, band, sim,
+                           compact_action(compact, int(idx[band[0]]), encoded),
+                           compact_action(compact, int(idx[band[1]]), encoded))
+        return compact_action(compact, int(idx[pick]), encoded)
 
-    def _choose(self, priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray) -> int:
-        """The index chosen among `priors` under the player's rule."""
+    def _choose(self, priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray,
+                is_attack: np.ndarray, coin_key: Optional[Tuple[int, int]] = None
+                ) -> Tuple[int, Optional[Band]]:
+        """(the index chosen among `priors` under the player's rule, the
+        band decision when the near-tie coin decided it). `coin_key` is the
+        mover's (side, decision index) when the coins are on."""
         priors = shift_end_turn_prior(priors, is_end, self.end_turn_offset)
+        priors = shift_attack_prior(priors, is_attack, self.attack_offset)
         if self.end_turn_rule == "actor":
-            return actor_rule_index(priors, actors, is_end, self.temperature, self._rng)
-        return pick_index(priors, self.temperature, self._rng)
+            return actor_rule_index(priors, actors, is_end, self.temperature, self._rng), None
+        if coin_key is not None:
+            tie = near_tie(priors)
+            if tie is not None and tie[2] < self.coin_band:
+                a0, a1, gap = tie
+                d = near_tie_coin(self.coin_seed, coin_key[0], coin_key[1], self.coin_p)
+                return (a1 if d else a0), (a0, a1, gap, d)
+        return pick_index(priors, self.temperature, self._rng), None
+
+    def _coin_key(self, game_label: str, game_state) -> Optional[Tuple[int, int]]:
+        """The mover's (side, decision index) in this game when the coins
+        are on: its decisions are counted from 0, a refused recruit decided
+        again counting as one more."""
+        if not self.coin_band:
+            return None
+        side = int(game_state.global_info.current_side)
+        index = self._decisions.get((game_label, side), 0)
+        self._decisions[(game_label, side)] = index + 1
+        self._last_decision[game_label] = (side, index)
+        return side, index
+
+    def _log_band(self, game_label: str, coin_key: Tuple[int, int], band: Band, sim,
+                  action0: Dict, action1: Dict) -> None:
+        """A band decision into the game's coin log: the mover's side and
+        decision index, the command index it played at (the simulator's
+        command count before the step), G, P, D, and a0 and a1."""
+        a0, a1, gap, d = band
+        self._coin_log.setdefault(game_label, []).append({
+            "side": coin_key[0], "i": coin_key[1],
+            "cmd": None if sim is None else len(sim.command_history),
+            "gap": gap, "p": self.coin_p, "d": d,
+            "a0": describe_action(action0), "a1": describe_action(action1)})
+
+    def pop_coin_log(self, game_label: str) -> List[dict]:
+        """The band decisions of game `game_label`, in the order they were
+        made, handed over once."""
+        return self._coin_log.pop(game_label, [])
 
     def select_action(self, game_state, *, game_label: str = "default",
                       sim=None) -> Dict:
@@ -191,13 +286,15 @@ class RawPolicyPlayer:
         with base._lock:
             decision_step = base._decision_step
             base._decision_step += 1
+        coin_key = self._coin_key(game_label, game_state)
         with torch.no_grad():
             encoded = base._inference_encoder.encode(game_state)
             output = self._forward(base, encoded, game_label, game_state)
             compact = getattr(output, "legal_compact", None)
             if compact is not None and self.compact_selection:
                 with stage("select"):
-                    chosen = self._select_compact(compact, encoded, decision_step)
+                    chosen = self._select_compact(compact, encoded, decision_step, coin_key,
+                                                  game_label, sim)
                 if chosen is not None:
                     return chosen
             legal = enumerate_legal_actions_with_priors(
@@ -209,8 +306,12 @@ class RawPolicyPlayer:
             legal = acting or legal
         priors = np.array([la.prior for la in legal], dtype=np.float64)
         actors = np.array([la.actor_idx for la in legal], dtype=np.int64)
-        is_end = np.array([la.action.get("type") == "end_turn" for la in legal])
-        return legal[self._choose(priors, actors, is_end)].action
+        types = [la.action.get("type") for la in legal]
+        pick, band = self._choose(priors, actors, np.array([t == "end_turn" for t in types]),
+                                  np.array([t == "attack" for t in types]), coin_key)
+        if band is not None:
+            self._log_band(game_label, coin_key, band, sim, legal[band[0]].action, legal[band[1]].action)
+        return legal[pick].action
 
     def _forward(self, base, encoded, game_label: str, game_state):
         """The model's output, the side's memory read and written when the
@@ -253,17 +354,26 @@ class RawPolicyPlayer:
             self._memories[key] = state
 
     def drop_pending(self, game_label: str) -> None:
-        """The game is over: its sides' memories go."""
+        """The game is over: its sides' memories and decision counts go
+        (its coin log stays for `pop_coin_log`)."""
         for key in [k for k in self._memories if k[0] == game_label]:
             del self._memories[key]
+        for key in [k for k in self._decisions if k[0] == game_label]:
+            del self._decisions[key]
         self._undo.pop(game_label, None)
+        self._last_decision.pop(game_label, None)
 
     def drop_last_pending(self, game_label: str) -> bool:
         """The last decision was refused (a recruit the engine bounces) and
         is decided again: the side's memory goes back to what it was
         before it. The engine records nothing for a refused recruit
         (`menu_handler::do_recruit`, src/menu_events.cpp:350-370, 1.18.4),
-        so the corpus holds no position there."""
+        so the corpus holds no position there. A band decision refused
+        this way is marked `refused` in the coin log: it played nothing."""
+        log = self._coin_log.get(game_label)
+        last = self._last_decision.get(game_label)
+        if log and last is not None and (log[-1]["side"], log[-1]["i"]) == last:
+            log[-1]["refused"] = True
         undo = self._undo.pop(game_label, None)
         if undo is not None:
             key, before = undo
