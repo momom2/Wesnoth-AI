@@ -9,32 +9,33 @@
 #   checked);
 #   one match, PURE, `own2` at 64 slots on side A against `own1` at 64
 #   slots on side B, both at the reference decode (raw:t0+eo-1.5), the
-#   Ladder maps with both factions drawn uniformly, GAMES (12,800) decisive
+#   Ladder maps with both factions drawn uniformly, GAMES (6,400) decisive
 #   games from seed base MATCH_SEED_BASE (300000), every game recorded
 #   whole; then its fit (tools/elo_collect.py, `own1` anchored at 0) and the
 #   pre-registered reading (reading.json, and the finish reason).
 # A short attempt (a game failed, a server died, the memory guard) is played
 # once more in its directory while the dead-man's switch leaves time for it.
 #
-# Seeds: the match plays seeds S to S+12,799 and replaces a capped game of
+# Seeds: the match plays seeds S to S+6,399 and replaces a capped game of
 # slot i with seed S + i + k * 1,000,000, so its seeds modulo 1,000,000 are
-# S to S+12,799. On 2026-10-20 (origin/main 41e2f05) the highest seed base
+# S to S+6,399. On 2026-10-20 (origin/main 41e2f05) the highest seed base
 # named in a tracked file is 250000 (an 800-game match), and no tracked
 # file names a seed (a `"seed":` field or a game file's name) from 300000
-# to 312799 modulo 1,000,000.
+# to 312799 modulo 1,000,000: this match takes 300000-306399, and a second
+# half of 6,400 games, pooled with it later, would take 306400-312799.
 #
 # Box: an RTX 4090 with at least 24 usable cores for the 20 workers
-# (docs/box_specs.md). Expected wall about 4.4 h: entry to the first game
-# 132 s at the confirmation (2026-10-11); the match 4.25 h, 16 times round
+# (docs/box_specs.md). Expected wall about 2.3 h: entry to the first game
+# 132 s at the confirmation (2026-10-11); the match 2.12 h, 8 times round
 # 2's R1, the same two checkpoints at the same decode (956 s for 800
 # decisive games of 801 on an EPYC 7702 box,
-# training/metrics/memory_own_round2_20261011/match.walls); the fit about a
-# minute (4 s for 800 games); the games' tarball about 80 MB (R1's 5.0 MB
-# for 801 games). Cost at $0.42-0.46 an hour: $1.85-2.02. The match stops
-# starting games at MATCH_BUDGET_MIN (330 minutes, 1.29 times the expected
-# 255), its last games end within MATCH_GRACE_MIN; BOX_MAX_H 6.5, 1.48
-# times the expected box-hours, caps the run at $2.73-2.99 plus the final
-# round.
+# training/metrics/memory_own_round2_20261011/match.walls); the fit about
+# half a minute (4 s for 800 games); the games' tarball about 40 MB (R1's
+# 5.0 MB for 801 games). Cost at $0.42-0.46 an hour: $0.97-1.06. The match
+# stops starting games at MATCH_BUDGET_MIN (165 minutes, 1.29 times the
+# expected 127.5), its last games end within MATCH_GRACE_MIN; BOX_MAX_H 3.6,
+# 1.57 times the expected box-hours (the budget, the grace and the finish's
+# reserve take 3.5 h), caps the run at $1.51-1.66 plus the final round.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md): the
 # onstart of scripts/rent_box.py fetches the library of STAGE, then this
@@ -56,17 +57,17 @@ OUT=$WORKDIR/own2base
 STAGE="${STAGE:-}"
 # ---- the configuration (begin): tests/test_own2_base_box.py reads the defaults from here
 MATCH_SEED_BASE="${MATCH_SEED_BASE:-300000}"
-GAMES="${GAMES:-12800}"
-MAX_EXTRA="${MAX_EXTRA:-1500}"                   # replacement guard; R1 capped 1 of 801 games, the confirmation 7 of 807 at most
+GAMES="${GAMES:-6400}"
+MAX_EXTRA="${MAX_EXTRA:-750}"                    # replacement guard; R1 capped 1 of 801 games, the confirmation 7 of 807 at most
 JOBS="${JOBS:-20}"
 OWN2_HF="${OWN2_HF:-tier-b/memory_own_round2_20261011/own.pt}"
 OWN2_SHA256="${OWN2_SHA256:-aea027b2696a9fbce0ebcdc0a8483c9df7d35957934b81b0c62093a02cdd9129}"
 # Bounds in minutes, from the pre-registration's "Cost".
-MATCH_BUDGET_MIN="${MATCH_BUDGET_MIN:-330}"      # --time-budget-min of an attempt: no game starts past it
+MATCH_BUDGET_MIN="${MATCH_BUDGET_MIN:-165}"      # --time-budget-min of an attempt: no game starts past it
 MATCH_GRACE_MIN="${MATCH_GRACE_MIN:-30}"         # the attempt's cut past its budget: a game's 20-minute timeout, the servers' exit
 FINISH_RESERVE_MIN="${FINISH_RESERVE_MIN:-15}"   # kept on the switch after an attempt's cut: the fit, the reading, the final round's start
 MIN_ATTEMPT_MIN="${MIN_ATTEMPT_MIN:-10}"         # an attempt with less budget than this does not start
-BOX_MAX_H="${BOX_MAX_H:-6.5}"
+BOX_MAX_H="${BOX_MAX_H:-3.6}"
 # ---- the configuration (end)
 TESTS_CUT_MIN="${TESTS_CUT_MIN:-20}"             # the confirmation's ran in 48 s
 export HF_DIR="${HF_DIR:-tier-b/own2_base_20261020}"

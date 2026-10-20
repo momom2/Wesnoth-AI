@@ -74,7 +74,7 @@ if name.startswith("fit "):
     if not games:
         sys.exit(1)
     table = {"own1": {"elo": 0.0, "se": 0.0},
-             "own2": {"elo": float(os.environ.get("STUB_ELO", "16.5")), "se": float(os.environ.get("STUB_SE", "3.07"))}}
+             "own2": {"elo": float(os.environ.get("STUB_ELO", "16.5")), "se": float(os.environ.get("STUB_SE", "4.34"))}}
     pathlib.Path(opt("--save-json")).write_text(json.dumps(
         {"n_games": len(games), "tables": {"PURE (decisive only, primary)": table}}))
 '''
@@ -105,7 +105,7 @@ OUT="{bash_path(out)}" BOX_OUT="{bash_path(out)}" STAGE=stage_test FAKE="{bash_p
 export STUB_COUNTER="{bash_path(tmp_path / 'attempts')}"
 BOX_RC=0 BOX_WHY=ok
 {settings}
-export STUB_MATCH="${{STUB_MATCH:-complete}}" STUB_ELO="${{STUB_ELO:-16.5}}" STUB_SE="${{STUB_SE:-3.07}}"
+export STUB_MATCH="${{STUB_MATCH:-complete}}" STUB_ELO="${{STUB_ELO:-16.5}}" STUB_SE="${{STUB_SE:-4.34}}"
 {_block("# ---- the configuration (begin)", "# ---- the configuration (end)")}
 NAME=own2_vs_own1
 DIR=$OUT/games_$NAME
@@ -138,19 +138,19 @@ def test_own2_plays_the_reference_at_its_decode_and_the_fit_is_read(tmp_path):
     assert got["rc"] == 0 and got["finish"].startswith("OWN2_BASE_DONE"), (got["finish"], got["stderr"][-2000:])
     assert got["names"] == ["match own2_vs_own1", "fit own2_vs_own1"]
     match, fit = got["steps"]
-    assert match.startswith("match own2_vs_own1 cut=360 python tools/run_elo_batch.py "
+    assert match.startswith("match own2_vs_own1 cut=195 python tools/run_elo_batch.py "
                             f"{_side('a', 'own2', '/workspace/own2.pt')} "
                             f"{_side('b', REFERENCE['label'], REFERENCE['checkpoint_local'])} "), match
-    for flags in ("--games 40 --max-extra-games 1500 --seed-base 300000",
+    for flags in ("--games 40 --max-extra-games 750 --seed-base 300000",
                   "--mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0",
                   "--persistent-workers --shared-inference --no-infer-compile --device cuda --jobs 20",
-                  "--time-budget-min 330"):
+                  "--time-budget-min 165"):
         assert f" {flags}" in match, flags
     assert "--anchor own1 --save-json" in fit
     reading = got["reading"]
     assert reading["base"] == "own2" and reading["agrees_with_record"] and reading["n_games"] == 40
-    assert reading["lower"] == pytest.approx(16.5 - 2 * 3.07)
-    assert reading["record_window"] == pytest.approx([16.5 - 25.35, 16.5 + 25.35], abs=0.01)
+    assert reading["lower"] == pytest.approx(16.5 - 2 * 4.34)
+    assert reading["record_window"] == pytest.approx([16.5 - 26.09, 16.5 + 26.09], abs=0.01)
     assert "base own2" in got["finish"] and "MATCH_READ own2_vs_own1" in got["walls"]
 
 
@@ -160,9 +160,9 @@ def test_the_declared_seed_base_and_game_count_reach_the_driver_and_a_failed_mat
     assert got["names"] == ["match own2_vs_own1", "fit own2_vs_own1", "clear own2_vs_own1.fit.json",
                             "match own2_vs_own1", "fit own2_vs_own1"]
     for step in (got["steps"][0], got["steps"][3]):
-        assert " --games 12800 --max-extra-games 1500 --seed-base 300000 " in step
+        assert " --games 6400 --max-extra-games 750 --seed-base 300000 " in step
     assert got["finish"] == ("OWN2_BASE_FAILED after 2 attempts this entry: MATCH_FAILED own2_vs_own1: rc=1, "
-                             "0 of 12800 decisive games (own2_vs_own1.log, games_own2_vs_own1/failed_*.json)")
+                             "0 of 6400 decisive games (own2_vs_own1.log, games_own2_vs_own1/failed_*.json)")
     assert got["walls"].count("rc=1 failed") == 2 and "MATCH_FAILED own2_vs_own1: rc=1" in got["walls"]
 
 
@@ -194,7 +194,7 @@ def test_no_attempt_starts_when_the_switch_leaves_too_little(tmp_path):
     assert got["finish"].endswith("minutes of budget, under 10; a re-entry with time resumes it")
 
 
-@pytest.mark.parametrize("elo, base, inside", [(4.0, "own1", True), (45.0, "own2", False), (-9.5, "own1", False)])
+@pytest.mark.parametrize("elo, base, inside", [(4.0, "own1", True), (45.0, "own2", False), (-10.0, "own1", False)])
 def test_a_re_entry_with_complete_games_only_fits_and_applies_the_rule(tmp_path, elo, base, inside):
     got = _run(tmp_path, games_done=40, GAMES=40, STUB_ELO=elo)
     assert got["rc"] == 0 and got["names"] == ["fit own2_vs_own1"], (got["steps"], got["stderr"][-2000:])
