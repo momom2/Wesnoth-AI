@@ -1,5 +1,5 @@
 """The luck coefficients beta of the coin labels' first batch
-(tools/coin_labels.py; docs/training_design_20261019/current_design.md 3.2):
+(docs/training_design_20261019/current_design.md 3.2):
 the least-squares fit of z on the seven luck sums of tools/match_luck.py's
 walk, an intercept beside them, over the decisive games of its rows.
 
