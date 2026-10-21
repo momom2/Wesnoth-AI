@@ -1,0 +1,17 @@
+stage tier-b/staging/stage_20261021_rule_l.tar.gz
+instance 57053425, host 7660c02e757a
+cores(all) 32, usable 31
+model name	: AMD EPYC 9654 96-Core Processor
+cpu.max 3071999 100000
+pids.max 7680
+               total        used        free      shared  buff/cache   available
+Mem:          110654        2812      100693           5        7147      106676
+overlay          60G  1.1G   59G   2% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.119.02
+torch 2.5.1+cu124 cuda True
+code 0.30.0 epoch 11
+wheel phase 35, source phase 35
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 35 | source 35 | adapter 35 | current
+13f8f00e4a7ce0ce5a598adc628c5a2f9d5a08e8ead903e0e5e5eac70b3f4d44

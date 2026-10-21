@@ -1,0 +1,213 @@
+{
+ "rule": "13f8f00e4a7ce0ce5a598adc628c5a2f9d5a08e8ead903e0e5e5eac70b3f4d44",
+ "matches": {
+  "l00": {
+   "results": 10003,
+   "rows": 10003,
+   "slots": {
+    "planned": 10000,
+    "seed_base": 700000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "l01": {
+   "results": 10007,
+   "rows": 10007,
+   "slots": {
+    "planned": 10000,
+    "seed_base": 710000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "l02": {
+   "results": 10005,
+   "rows": 10005,
+   "slots": {
+    "planned": 10000,
+    "seed_base": 720000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "l03": {
+   "results": 7805,
+   "rows": 7805,
+   "slots": {
+    "planned": 7800,
+    "seed_base": 730000,
+    "with_result": 7800,
+    "decisive": 7800,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 7800,
+    "outside_plan": 0,
+    "cut": false
+   }
+  }
+ },
+ "checks": {
+  "matches_whole": {
+   "left_out": [],
+   "no_record": 0,
+   "rule_not_named": 0,
+   "pass": true
+  },
+  "seat_coin_logged": {
+   "games": 0,
+   "pass": true
+  },
+  "i_cap": {
+   "decisions": 158621,
+   "switches": 49161,
+   "inputs_differ": 0,
+   "f_differs": 0,
+   "switch_differs": 0,
+   "played_not_as_logged": 0,
+   "off_seat": 0,
+   "refused": 0,
+   "max_switches_per_side_game": 2,
+   "pass": true
+  },
+  "fires_every_faction": {
+   "silent": [],
+   "pass": true
+  },
+  "i_side": {
+   "pass": true
+  }
+ },
+ "seal": {
+  "elo": 24.57027720538963,
+  "se": 2.984151970334431
+ },
+ "games": {
+  "read": 37820,
+  "decisive": 37800,
+  "capped": 20
+ },
+ "by_faction": {
+  "Drakes": {
+   "hooked_side_games": 6430,
+   "switches_per_side_game": 1.509331259720062,
+   "decisions_per_side_game": 5.6013996889580095,
+   "decisive": 6425,
+   "elo": {
+    "elo": -61.58001093152012,
+    "se": 4.403091357772404
+   }
+  },
+  "Knalgan Alliance": {
+   "hooked_side_games": 6359,
+   "switches_per_side_game": 1.394873407768517,
+   "decisions_per_side_game": 4.475546469570687,
+   "decisive": 6355,
+   "elo": {
+    "elo": -33.39725631574595,
+    "se": 4.378789377774787
+   }
+  },
+  "Loyalists": {
+   "hooked_side_games": 6296,
+   "switches_per_side_game": 0.9047013977128335,
+   "decisions_per_side_game": 2.1807496823379924,
+   "decisive": 6296,
+   "elo": {
+    "elo": 123.98365890375077,
+    "se": 4.660808246254936
+   }
+  },
+  "Northerners": {
+   "hooked_side_games": 6246,
+   "switches_per_side_game": 1.2673711175152098,
+   "decisions_per_side_game": 4.245116874799872,
+   "decisive": 6243,
+   "elo": {
+    "elo": 74.52745150689528,
+    "se": 4.499128449766984
+   }
+  },
+  "Rebels": {
+   "hooked_side_games": 6223,
+   "switches_per_side_game": 1.2064920456371524,
+   "decisions_per_side_game": 3.50827575124538,
+   "decisive": 6218,
+   "elo": {
+    "elo": 38.26120371542154,
+    "se": 4.433145609594429
+   }
+  },
+  "Undead": {
+   "hooked_side_games": 6266,
+   "switches_per_side_game": 1.5106926268751995,
+   "decisions_per_side_game": 5.117618895627194,
+   "decisive": 6263,
+   "elo": {
+    "elo": -42.08777291780053,
+    "se": 4.4227921553761425
+   }
+  }
+ },
+ "seat_coin": {
+  "n": 37820,
+  "ones": 18851,
+  "expected": 18910.0,
+  "chi2": 0.36816499206768905,
+  "p_value": 0.5440062075841892,
+  "hooked_on_side_1": 0.5011634056054998,
+  "seat_by_side_a": {
+   "table": [
+    [
+     9447,
+     9404
+    ],
+    [
+     9462,
+     9507
+    ]
+   ],
+   "chi2": 0.20473234217294445,
+   "p_value": 0.6552934929446066
+  }
+ },
+ "hooked": {
+  "mean_z": 0.04407407407407407,
+  "mean_z_se": 0.005138514907876093,
+  "logit": {
+   "elo": 15.32282853109341,
+   "se": 1.7887776793170997
+  },
+  "elo_collect": {
+   "elo": 15.322422650177106,
+   "se": 1.788730265684961
+  }
+ },
+ "lines": {
+  "match_se": 1.7868327925610241,
+  "half_width": 6.9564170118308155,
+  "null_line": 3.5736655851220482,
+  "window": [
+   17.613860193558814,
+   31.526694217220445
+  ],
+  "ratio": 0.6236327088622452
+ },
+ "outcome": "below",
+ "verdict": "PASS"
+}

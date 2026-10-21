@@ -1,0 +1,38 @@
+== 2026-10-21T13:10:54Z readout_l: l00
+games 10003 read, 10000 decisive, 3 capped; rule 13f8f00e4a7c, seal +24.6 +- 3.0 Elo
+  l00: 10003 result files, 10003 rows; 10000 of 10000 slots from seed 700000 (10000 decisive)
+hooked seat: mean z +0.0420 +- 0.0100; logit +14.6 +- 3.5 Elo; elo_collect +14.6 +- 3.5; window [+15.4, +33.7], null line 6.95, ratio to the seal 0.59: BELOW
+I-cap: 42138 rule decisions, 13070 switches (max 2 a side-game); inputs differ 0, f differs 0, switches differ 0, played not as logged 0, off the seat 0, refused 0
+by hooked faction (switches, rule decisions per side-game; the hooked seat's Elo): Drakes 1.51, 5.65; -65.7 +- 8.6 (1676); Knalgan Alliance 1.41, 4.55; -45.5 +- 8.5 (1691); Loyalists 0.93, 2.15; +116.4 +- 9.0 (1672); Northerners 1.26, 4.28; +89.6 +- 8.7 (1688); Rebels 1.22, 3.50; +39.4 +- 8.6 (1638); Undead 1.51, 5.14; -42.2 +- 8.7 (1638)
+seat coin: A 5039 of 10003 (chi2 0.56); hooked on side 1 0.503; seat by side A's side chi2 0.35
+verdict: PASS
+== 2026-10-21T13:34:46Z readout_l: l00 l01
+games 20010 read, 20000 decisive, 10 capped; rule 13f8f00e4a7c, seal +24.6 +- 3.0 Elo
+  l00: 10003 result files, 10003 rows; 10000 of 10000 slots from seed 700000 (10000 decisive)
+  l01: 10007 result files, 10007 rows; 10000 of 10000 slots from seed 710000 (10000 decisive)
+hooked seat: mean z +0.0456 +- 0.0071; logit +15.9 +- 2.5 Elo; elo_collect +15.9 +- 2.5; window [+16.8, +32.3], null line 4.91, ratio to the seal 0.65: BELOW
+I-cap: 84352 rule decisions, 25994 switches (max 2 a side-game); inputs differ 0, f differs 0, switches differ 0, played not as logged 0, off the seat 0, refused 0
+by hooked faction (switches, rule decisions per side-game; the hooked seat's Elo): Drakes 1.51, 5.59; -60.2 +- 6.1 (3395); Knalgan Alliance 1.40, 4.54; -32.6 +- 6.1 (3326); Loyalists 0.89, 2.18; +119.6 +- 6.4 (3317); Northerners 1.27, 4.28; +77.5 +- 6.1 (3367); Rebels 1.22, 3.55; +34.1 +- 6.1 (3300); Undead 1.50, 5.12; -37.5 +- 6.1 (3305)
+seat coin: A 9976 of 20010 (chi2 0.17); hooked on side 1 0.502; seat by side A's side chi2 0.26
+verdict: PASS
+== 2026-10-21T13:58:24Z readout_l: l00 l01 l02
+games 30015 read, 30000 decisive, 15 capped; rule 13f8f00e4a7c, seal +24.6 +- 3.0 Elo
+  l00: 10003 result files, 10003 rows; 10000 of 10000 slots from seed 700000 (10000 decisive)
+  l01: 10007 result files, 10007 rows; 10000 of 10000 slots from seed 710000 (10000 decisive)
+  l02: 10005 result files, 10005 rows; 10000 of 10000 slots from seed 720000 (10000 decisive)
+hooked seat: mean z +0.0471 +- 0.0058; logit +16.4 +- 2.0 Elo; elo_collect +16.4 +- 2.0; window [+17.4, +31.8], null line 4.01, ratio to the seal 0.67: BELOW
+I-cap: 126191 rule decisions, 38995 switches (max 2 a side-game); inputs differ 0, f differs 0, switches differ 0, played not as logged 0, off the seat 0, refused 0
+by hooked faction (switches, rule decisions per side-game; the hooked seat's Elo): Drakes 1.51, 5.59; -60.1 +- 5.0 (5068); Knalgan Alliance 1.40, 4.50; -32.8 +- 4.9 (5020); Loyalists 0.90, 2.19; +123.5 +- 5.2 (4997); Northerners 1.27, 4.27; +78.4 +- 5.0 (5031); Rebels 1.20, 3.50; +35.2 +- 5.0 (4920); Undead 1.51, 5.14; -39.7 +- 5.0 (4979)
+seat coin: A 14970 of 30015 (chi2 0.19); hooked on side 1 0.501; seat by side A's side chi2 0.09
+verdict: PASS
+== 2026-10-21T14:17:07Z readout_l: l00 l01 l02 l03
+games 37820 read, 37800 decisive, 20 capped; rule 13f8f00e4a7c, seal +24.6 +- 3.0 Elo
+  l00: 10003 result files, 10003 rows; 10000 of 10000 slots from seed 700000 (10000 decisive)
+  l01: 10007 result files, 10007 rows; 10000 of 10000 slots from seed 710000 (10000 decisive)
+  l02: 10005 result files, 10005 rows; 10000 of 10000 slots from seed 720000 (10000 decisive)
+  l03: 7805 result files, 7805 rows; 7800 of 7800 slots from seed 730000 (7800 decisive)
+hooked seat: mean z +0.0441 +- 0.0051; logit +15.3 +- 1.8 Elo; elo_collect +15.3 +- 1.8; window [+17.6, +31.5], null line 3.57, ratio to the seal 0.62: BELOW
+I-cap: 158621 rule decisions, 49161 switches (max 2 a side-game); inputs differ 0, f differs 0, switches differ 0, played not as logged 0, off the seat 0, refused 0
+by hooked faction (switches, rule decisions per side-game; the hooked seat's Elo): Drakes 1.51, 5.60; -61.6 +- 4.4 (6430); Knalgan Alliance 1.39, 4.48; -33.4 +- 4.4 (6359); Loyalists 0.90, 2.18; +124.0 +- 4.7 (6296); Northerners 1.27, 4.25; +74.5 +- 4.5 (6246); Rebels 1.21, 3.51; +38.3 +- 4.4 (6223); Undead 1.51, 5.12; -42.1 +- 4.4 (6266)
+seat coin: A 18851 of 37820 (chi2 0.37); hooked on side 1 0.501; seat by side A's side chi2 0.20
+verdict: PASS

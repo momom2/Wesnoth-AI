@@ -238,3 +238,36 @@ From a commit with a green CI run:
 
 Records go to `tier-b/recruit_rule_l_20261021`: `readout_l.json` and its
 log, the matches' rows and walls; the games as `games_lNN.tar.gz`.
+
+## Measured (2026-10-21)
+
+Box 57053425 (RTX 4090, EPYC 9654, $0.551 an hour), stage
+`tier-b/staging/stage_20261021_rule_l.tar.gz` (970ffa6), entry 12:44 UTC,
+done 14:17 UTC, about $0.9. Records in
+`training/metrics/recruit_rule_l_20261021/` (the games stay on HF).
+37,820 games, 37,800 decisive, 20 capped, every slot played (four matches,
+1,111 to 1,425 s each).
+
+Checks, all clean: 158,621 rule decisions and 49,161 switches on the hooked
+seat (1.30 per hooked side-game, against R0's 1.34), never more than two a
+side-game; at every one the logged inputs, the rule's value and the switch
+equal the frozen rule's, none played otherwise, none off the seat, none
+refused. The seat coin put the rule on side A in 18,851 of 37,820 games
+(χ² 0.37).
+
+**Reading: `own1` + capped Bd beats `own1` by +15.3 +- 1.8 Elo** (mean z
++0.0441 +- 0.0051; elo_collect and the logit of the mean score agree). The
+lower 2-SE bound is +11.7. The reading is **below the sealed window
+[+17.6, +31.5] and above the null line 3.57**: the transfer ratio to the
+seal (+24.6) is 0.62.
+
+By the rule above, a partial link: the rule's own interactions and its
+turn-1 state shift were measured near zero, so the shortfall is the coined
+continuation (labels read with every other band decision coined at
+P = 1/4; the match plays both sides uncoined). S1 is the next stage,
+proposed to the user with its rulings; S2's capped screen reads the same
+link on `own2`.
+
+The readout's Elo by hooked faction mixes the rule's effect with each
+faction's own strength against a uniformly drawn opponent; it does not read
+the rule by faction.
