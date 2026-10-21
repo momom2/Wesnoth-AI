@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.transformer_policy import TransformerPolicy            # noqa: E402
 from tools.mcts import MCTSConfig, mcts_search               # noqa: E402
 from tools.mcts_policy import MCTSPolicy                     # noqa: E402
-from tools.draw_tiebreak import DrawTiebreakConfig           # noqa: E402
 from sim_test_helpers import fresh_scenario_sim              # noqa: E402
 
 
@@ -33,7 +32,7 @@ def _policy():
 def _cfg(**kw):
     base = dict(n_simulations=16, gumbel_root=True, gumbel_m=4,
                 chance_nodes=True, exact_outcome_enumeration=True,
-                draw_tiebreak=DrawTiebreakConfig(cap=0.3), batch_size=1,
+                batch_size=1,
                 add_root_noise=False)
     base.update(kw)
     return MCTSConfig(**base)

@@ -373,11 +373,10 @@ def _actor_loop(
                                _inference_encoder=renc,
                                _lock=threading.Lock(),
                                _decision_step=int(decision_step0))
-        # Training-label kwargs (draw_value_weight,
-        # train_draw_tiebreak) seal ACTOR-side in finalize_game, so
-        # they must ride into the actor's policy (project round-2
-        # C1: the pool dropped both, silently nullifying the knobs
-        # on the production topology).
+        # Training-label kwargs (draw_value_weight) seal ACTOR-side in
+        # finalize_game, so they must ride into the actor's policy
+        # (project round-2 C1: the pool dropped them, silently
+        # nullifying the knobs on the production topology).
         _tk = dict(train_kwargs or {})
         if pt_cfg is not None:
             from tools.plan_tournament import PlanTournamentPolicy

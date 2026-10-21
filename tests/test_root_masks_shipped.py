@@ -110,7 +110,7 @@ def test_expand_and_populate_keep_the_encoders_pack(stubbed_enumeration):
     pack = _pack()
     encoder = SimpleNamespace(encode=lambda gs: _encoding(pack))
     root = _node()
-    _expand(root, _Model(), encoder, tiebreak=None)
+    _expand(root, _Model(), encoder)
     assert root.masks is pack and root.expanded
 
     leaf = _node()
@@ -118,15 +118,14 @@ def test_expand_and_populate_keep_the_encoders_pack(stubbed_enumeration):
     assert leaf.masks is pack and leaf.expanded
 
     bare = _node()
-    _expand(bare, _Model(), SimpleNamespace(encode=lambda gs: _encoding(None)),
-            tiebreak=None)
+    _expand(bare, _Model(), SimpleNamespace(encode=lambda gs: _encoding(None)))
     assert bare.masks is None and bare.expanded
 
 
 def test_pack_on_another_basis_than_the_encoding_is_refused(stubbed_enumeration):
     encoder = SimpleNamespace(encode=lambda gs: _encoding(_pack(H=6)))
     with pytest.raises(ValueError, match="attached masks"):
-        _expand(_node(), _Model(), encoder, tiebreak=None)
+        _expand(_node(), _Model(), encoder)
 
 
 # ---------------------------------------------------------------------

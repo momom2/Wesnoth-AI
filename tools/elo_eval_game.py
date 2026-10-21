@@ -12,15 +12,11 @@ baseline). Checkpoint players play through MCTS at --mcts-sims
 (training-matched, 32) unless 0 (raw policy). Maps come from the
 LADDER-ONLY default `random_setup` (pinned by test_elo_ladder_maps).
 
-The result file records BOTH the outcome and the final material
-margin from A's perspective, so the collector can fit Elo under the
-PURE (primary -- decisive games only; a capped game is a no-result
-absence, not a draw, user 2026-08-17; material advantage is a
-training crutch and does not factor into evaluation, user
-2026-07-11) and material-sign (diagnostic) conventions from one set
-of games.
-Eval search likewise runs WITHOUT the material shapers
-(draw_tiebreak, aux_value_bonus) regardless of training config.
+The result file records the outcome, so the collector fits Elo on the
+decisive games (a capped game is a no-result absence, not a draw, user
+2026-08-17; material advantage does not factor into evaluation, user
+2026-07-11). Eval search runs WITHOUT the material shaper
+(aux_value_bonus) regardless of training config.
 
 Combat luck is PER GAME (2026-09-13): the sim's synced-RNG stream is
 salted with this game's seed, so two games roll independent dice.
@@ -68,7 +64,6 @@ import torch
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.stage_timing import StageTimer, stage, timing
-from tools.draw_tiebreak import DrawTiebreakConfig, material_margin
 from tools.elo_ladder import _ScriptedAdapter
 from tools.eval_players import (_PolicyPair, _load_policy,
                                 _play_one_eval_game, peek_checkpoint_arch)
@@ -557,8 +552,8 @@ def _build_player(spec: str, label: str, sims: int, device,
         import os
         # EVALUATION CONTRACT (user, 2026-07-11): valuing material
         # advantage is a TRAINING crutch, not part of what policy
-        # performance means -- so the material-based search shapers
-        # (draw_tiebreak, aux_value_bonus) are OFF here regardless of
+        # performance means -- so the material-based search shaper
+        # (aux_value_bonus) is OFF here regardless of
         # what the checkpoint trained with. Eval search sees the real
         # game: win +1, loss -1, draw 0. moves_left_utility (time
         # preference among equal outcomes, no material content) stays
@@ -1237,8 +1232,6 @@ def main(argv) -> int:
     finally:
         if shared:
             _release_served_memories()
-    margin_a = material_margin(sim.gs, args.side_a,
-                               DrawTiebreakConfig(cap=0.3))
     if pt_cfg is None:
         pt_knobs = None
     else:
@@ -1357,7 +1350,6 @@ def main(argv) -> int:
         "forced_end_turns_b": int(sim.forced_end_turns.get(3 - args.side_a, 0)),
         "code_version": _code_version(),
         "outcome_a": r.outcome,          # win/loss/draw/timeout from A
-        "margin_a": float(margin_a),     # final material, A's view
         "turns": sim.gs.global_info.turn_number,
         # Measured forward counts (round-12 C5): the step-1 equal-
         # compute mandate is verified from these, per side. Per-

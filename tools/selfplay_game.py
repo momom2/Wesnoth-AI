@@ -557,9 +557,9 @@ def play_one_game(
         else:
             engagement["villages_frac_avg"] = {1: None, 2: None}
         # End-of-game material = bank + summed unit cost.
-        from tools.draw_tiebreak import _side_material
         engagement["material_end"] = {
-            s: _side_material(sim.gs, s)[1] + _side_material(sim.gs, s)[2]
+            s: (sim.gs.sides[s - 1].current_gold
+                + sum(u.cost for u in sim.gs.map.units if u.side == s))
             for s in (1, 2)}
         if hasattr(policy, "pop_search_diag"):
             engagement["search"] = policy.pop_search_diag(game_label)

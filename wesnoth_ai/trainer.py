@@ -150,11 +150,9 @@ class MCTSExperience:
     game_state:  GameState
     visit_counts: List[Tuple]    # 4-tuple (legacy) or 5-tuple (new)
     z:            float
-    # Optional auxiliary target (KataGo §3.5): the final MATERIAL
-    # margin from this state's side perspective, in (-1, +1). `None`
+    # Optional auxiliary target (KataGo §3.5), in (-1, +1). `None`
     # when aux targets aren't being collected (the trainer then skips
-    # the aux loss). A denser companion to `z`. See
-    # draw_tiebreak.material_margin + MCTSPolicy.finalize_game.
+    # the aux loss).
     aux_target:  Optional[float] = None
     # Fraction of the turn budget that was STILL to be played from
     # this state (turns_remaining / MOVES_LEFT_NORM_TURNS, clipped to
@@ -260,7 +258,7 @@ class TrainerConfig:
     # the experiences carry `aux_target`s; otherwise it's a no-op. A
     # small weight (KataGo uses ~0.15) so the dense margin signal
     # regularizes the shared trunk without overwhelming the policy/value
-    # objectives. See draw_tiebreak.material_margin.
+    # objectives.
     aux_coef:             float = 0.15
     # GBC event-supervision coefficient (2026-08-14): BCE of the
     # dies/flips achievement heads vs hindsight labels — the dense
@@ -415,7 +413,7 @@ class TrainStats:
     fresh_pred_entropy: float = float("nan")
     # Target composition of the iteration's incoming experiences
     # (2026-07-10 draw-spike diagnosis): fraction of z=+1 / z=-1 /
-    # everything else (draws; tiebreak values under legacy labels).
+    # everything else (draws).
     z_win_frac: float = float("nan")
     z_loss_frac: float = float("nan")
     z_draw_frac: float = float("nan")
@@ -1823,8 +1821,8 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
     # feed the value head" (dashboard starvation watch).
     # vws already carries the winnerless weight -- finalize_game is
     # the ONE authority (project round-1 C3: this second gate
-    # multiplied it by draw_value_weight AGAIN, so the knob and the
-    # tiebreak z were both nullified whenever finalize sealed 0).
+    # multiplied it by draw_value_weight AGAIN, so the knob was
+    # nullified whenever finalize sealed 0).
     # The belief head (the parity-memory recipe): every position that
     # carries its targets, at equal weight.
     n_belief = sum(1 for e in experiences

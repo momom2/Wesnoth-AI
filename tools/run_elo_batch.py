@@ -1463,7 +1463,6 @@ def main(argv: List[str]) -> int:
                         # cannot leave a truncated file.
                         _art = dict(_prov, side_a=side_a, seed=seed,
                                     outcome_a="timeout_kill",
-                                    margin_a=None,
                                     timeout_min=(
                                         args.per_game_timeout_min))
                         _tmpf = out.with_suffix(".json.tmp")

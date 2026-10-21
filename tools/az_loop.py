@@ -458,10 +458,10 @@ def main(argv) -> int:
              f"train_bf16={cfg.train_autocast_bf16}")
 
     # Plain PUCT: no Gumbel root, no tree reuse, no playout caps, no
-    # tiebreak labels, no auxiliary utilities.
+    # auxiliary utilities.
     mcts_cfg = MCTSConfig(
         n_simulations=args.sims, gumbel_root=False, tree_reuse=False,
-        playout_cap_randomization=False, draw_tiebreak=None,
+        playout_cap_randomization=False,
         batch_size=16 if dev_str == "cuda" else 1)
     # A model with a memory: the slots self-play uses, each side's memory
     # carried through every search and every game, and the learner on

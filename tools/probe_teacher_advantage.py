@@ -8,7 +8,7 @@ paired rows let the analyzer compare AUCs: if search adds <= +0.02
 AUC over the raw head, there is nothing worth distilling into the
 value head at the campaign's search budget (kill the value channel).
 
-Search runs under the CAMPAIGN config (32 sims, tiebreak cap 0.3)
+Search runs under the CAMPAIGN config (32 sims)
 because the question is what the TRAINING
 teacher would provide -- not the eval contract's pure-strength view.
 
@@ -51,7 +51,6 @@ def main(argv):
     torch.set_num_threads(2)
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.mcts import MCTSConfig, mcts_search
-    from tools.draw_tiebreak import DrawTiebreakConfig
     from tools.replay_dataset import record_core
     from wesnoth_ai.game_core import bind_view
     from tools.value_corpus import _DECISION_KINDS
@@ -72,8 +71,7 @@ def main(argv):
     model, enc = pol._inference_model, pol._inference_encoder
     model.eval()
     atoms = pol._model._value_atoms
-    cfg = MCTSConfig(n_simulations=args.sims,
-                     draw_tiebreak=DrawTiebreakConfig(cap=0.3))
+    cfg = MCTSConfig(n_simulations=args.sims)
 
     index = load_index(args.dataset_dir)
     rng = random.Random(args.seed)

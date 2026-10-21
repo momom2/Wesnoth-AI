@@ -553,8 +553,7 @@ class TransformerPolicy:
         """No-op for REINFORCE. The MCTS-mode policy wrapper
         (`tools.mcts_policy.MCTSPolicy`) overrides this to seal
         per-game `MCTSExperience` lists with the terminal-z derived
-        from `winner` (and, for draws, the material tiebreak score
-        of `final_gs`). Defining it here as a no-op lets the rollout
+        from `winner`. Defining it here as a no-op lets the rollout
         loop call it unconditionally without `hasattr`-checking."""
 
     def train_step(self) -> TrainStats:

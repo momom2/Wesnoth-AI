@@ -49,7 +49,6 @@ from wesnoth_ai.memory import SideMemories
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
-from tools.draw_tiebreak import draw_tiebreak_z, material_margin
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,
     sample_action, extract_gumbel_policy_target,
@@ -158,7 +157,6 @@ class MCTSPolicy:
                  replay_config: Optional[ReplayConfig] = None,
                  holdout_size: int = 0,
                  holdout_per_game_cap: int = 64,
-                 train_draw_tiebreak: bool = False,
                  signal_telemetry: bool = False,
                  gbc_labels: bool = False,
                  draw_value_weight: float = 0.0,
@@ -195,16 +193,6 @@ class MCTSPolicy:
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
-        # Draw-label policy for TRAINING targets (2026-07-10). The
-        # material tiebreak remains a SEARCH preference (mcts.py
-        # _terminal_value) and the aux head still learns material --
-        # but by default draws now train the value head toward the
-        # honest z=0. Labeling draws with material-z made "predict
-        # material" the dominant lesson (~93% of ladder games are
-        # draws) and measurably eroded win/loss discrimination
-        # (human-corpus late-game AUC 0.88 -> 0.60 in ~80 iters;
-        # r_material/r_outcome rose 1.28 -> 2.18).
-        self._train_draw_tiebreak = bool(train_draw_tiebreak)
         # Per-source gradient-norm telemetry (4 extra backward passes
         # per iteration, ~3-5%): OFF by default so it never
         # accumulates silently (user ruling 2026-09-02). dv_consult
@@ -636,13 +624,10 @@ class MCTSPolicy:
                       midgame: bool = False) -> None:
         """Drain `_pending[game_label]` into `_queue` with one
         `MCTSExperience` per recorded state. `winner == 0` means
-        draw/timeout: z is 0, or the material tiebreaker score of
-        the FINAL state when `MCTSConfig.draw_tiebreak` is set --
-        the same function the search applies at turn-cap terminals,
-        so targets and search horizon agree. `final_gs` is the
-        game's actual end state (passed by the rollout loop); if
-        absent we fall back to the last recorded pre-action state,
-        which trails the true final state by one action."""
+        draw/timeout: z is 0. `final_gs` is the game's actual end
+        state (passed by the rollout loop); if absent we fall back to
+        the last recorded pre-action state, which trails the true
+        final state by one action."""
         with self._lock:
             states = self._pending.pop(game_label, [])
             self._reuse.pop(game_label, None)
@@ -655,28 +640,17 @@ class MCTSPolicy:
             self._last_recorded.pop(game_label, None)
             self._forget_memories(game_label)
         trace = self._trace.pop(game_label) if self._trace is not None else None
-        tiebreak = self._mcts_config.draw_tiebreak
-        if winner == 0 and tiebreak is not None and final_gs is None \
-                and states:
-            final_gs = states[-1].gs
-            log.debug(
-                f"finalize_game({game_label!r}): no final_gs passed; "
-                f"tiebreak scored on the last pre-action state")
-        # Auxiliary margin target (KataGo §3.5): the final MATERIAL
-        # margin from each state's side, computed from the game's end
-        # state for EVERY outcome (denser than z). Needs the tiebreak
-        # weights + a final state; falls back to the last recorded
-        # state if the rollout didn't pass `final_gs`. `None` when no
-        # tiebreak config is set (trainer then skips the aux loss).
-        aux_gs = final_gs if final_gs is not None else (
+        # The game's end state; the last recorded state when the rollout
+        # did not pass `final_gs`.
+        end_gs = final_gs if final_gs is not None else (
             states[-1].gs if states else None)
         # Moves-left targets (Lc0-style, 2026-07-04): fraction of the
         # turn budget still to be played from each recorded state,
         # derived from the game's actual end turn. Normalized by a
         # fixed constant (not per-game max_turns) so "0.1 left" means
         # the same wall distance on every map.
-        end_turn_no = (aux_gs.global_info.turn_number
-                       if aux_gs is not None else None)
+        end_turn_no = (end_gs.global_info.turn_number
+                       if end_gs is not None else None)
         exps: List[MCTSExperience] = []
         # Per-game gradient normalization (2026-07-12): each game
         # contributes equal total weight regardless of length.
@@ -706,27 +680,13 @@ class MCTSPolicy:
         n_by_side: Dict[int, int] = {}
         for s in states:
             n_by_side[s.side] = n_by_side.get(s.side, 0) + 1
-        for i, s in enumerate(states):
+        for s in states:
             if winner == 0:
-                if (self._train_draw_tiebreak and tiebreak is not None
-                        and final_gs is not None):
-                    z = draw_tiebreak_z(final_gs, s.side, tiebreak)
-                else:
-                    z = 0.0     # honest draw label (see __init__)
+                z = 0.0
             elif winner == s.side:
                 z = +1.0
             else:
                 z = -1.0
-            # Aux target = NEXT recorded state's margin (2026-07-12,
-            # was: the game's FINAL margin). One-step material
-            # prediction directly credits captures/kills the moment
-            # they happen -- and since the next recorded state may
-            # follow the opponent's reply, it teaches captures that
-            # HOLD. The last state falls back to the true final state.
-            nxt_gs = (states[i + 1].gs if i + 1 < len(states)
-                      else (aux_gs if aux_gs is not None else s.gs))
-            aux = (material_margin(nxt_gs, s.side, tiebreak)
-                   if tiebreak is not None else None)
             ml = None
             if end_turn_no is not None:
                 remaining = max(0, end_turn_no
@@ -736,7 +696,6 @@ class MCTSPolicy:
                 game_state=s.gs,
                 visit_counts=s.visit_counts,
                 z=z,
-                aux_target=aux,
                 moves_left_target=ml,
                 game_weight=1.0 / (2.0 * side_weight_divisor(
                     n_by_side[s.side], midgame)),
@@ -745,10 +704,9 @@ class MCTSPolicy:
                 # states carry no value label (policy targets keep
                 # full weight). --draw-value-weight raises it; this
                 # is the ONE authority (project round-1 C3: the
-                # trainer's second gate multiplied the tiebreak z
-                # and draw_value_weight by this 0.0, silently
-                # nullifying both knobs while the launcher logged
-                # them as in effect).
+                # trainer's second gate multiplied draw_value_weight
+                # by this 0.0, silently nullifying the knob while the
+                # launcher logged it as in effect).
                 value_weight=(self._draw_value_weight
                               if winner == 0 else 1.0),
                 policy_weight=float(getattr(s, "policy_weight", 1.0)),
@@ -768,18 +726,18 @@ class MCTSPolicy:
                 if _gbc_rec is not None:
                     from wesnoth_ai.gbc import (diff_events_obs,
                                                 observe_state)
-                    if (aux_gs is not None
+                    if (end_gs is not None
                             and _gbc_rec["prev"] is not None):
                         # The final state's events (the winning
                         # kill, the last capture) close the trace.
                         _gbc_rec["events"].extend(diff_events_obs(
                             _gbc_rec["n"], _gbc_rec["prev"],
-                            observe_state(aux_gs)))
+                            observe_state(end_gs)))
                     _trace = (_gbc_rec["events"],
                               _gbc_rec["anchor"])
                 rows = labels_for_game_states(
                     [s.gs for s in states], [s.side for s in states],
-                    final_gs=aux_gs, trace=_trace)
+                    final_gs=end_gs, trace=_trace)
                 for exp, r in zip(exps, rows):
                     exp.gbc_labels = r
             except Exception as e:  # noqa: BLE001 -- labels are an

@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.transformer_policy import TransformerPolicy               # noqa: E402
 from tools.mcts import MCTSConfig                              # noqa: E402
 from tools.mcts_policy import MCTSPolicy                       # noqa: E402
-from tools.draw_tiebreak import DrawTiebreakConfig             # noqa: E402
 from sim_test_helpers import fresh_scenario_sim                # noqa: E402
 import pytest
 
@@ -39,7 +38,6 @@ def _pol(ml):
 def _cfg():
     return MCTSConfig(n_simulations=10, gumbel_root=True, gumbel_m=4,
                       chance_nodes=True, exact_outcome_enumeration=True,
-                      draw_tiebreak=DrawTiebreakConfig(cap=0.3),
                       batch_size=1, add_root_noise=False)
 
 
@@ -143,7 +141,7 @@ def test_search_backs_up_moves_left_through_real_search():
     pol = _pol(True)
     sim = fresh_scenario_sim(seed=21, max_turns=8, mini=True)
     cfg = MC(n_simulations=12, gumbel_root=False, add_root_noise=False,
-             draw_tiebreak=DrawTiebreakConfig(cap=0.3), batch_size=1,
+             batch_size=1,
              moves_left_utility=0.2)
     root = mcts_search(sim, pol._inference_model, pol._inference_encoder,
                        cfg, rng=np.random.default_rng(0))

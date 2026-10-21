@@ -95,7 +95,6 @@ from wesnoth_ai.encoder import GameStateEncoder
 from wesnoth_ai.memory import MemoryState, SideMemories
 from wesnoth_ai.model import WesnothModel
 from tools.wesnoth_sim import WesnothSim
-from tools.draw_tiebreak import DrawTiebreakConfig, draw_tiebreak_z
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
 from tools.combat_outcomes import (
@@ -291,15 +290,6 @@ class MCTSConfig:
     # 1; AlphaGo Zero used 3. With a small-to-medium batch_size,
     # 1 is plenty.
     virtual_loss:     float = 1.0
-
-    # Material tiebreaker for drawn terminals (see
-    # tools/draw_tiebreak.py): a turn-cap draw at a search horizon
-    # scores by village/gold/unit-value differential in
-    # (-cap, +cap) instead of a flat 0, so PUCT prefers
-    # material-ahead lines even before the policy can win outright,
-    # and the value head's z targets carry gradient in drawn games.
-    # None disables (legacy z=0 draws).
-    draw_tiebreak: Optional[DrawTiebreakConfig] = None
 
     # First-play urgency (FPU): the Q used in PUCT for an edge that
     # has never been visited. AlphaZero's Q=0 init is fine when
@@ -693,40 +683,25 @@ def tree_depth_stats(root: "MCTSNode") -> Tuple[int, float, int]:
 # Core operations
 # ---------------------------------------------------------------------
 
-# Endings the search invents for an action the sim refused, as opposed
-# to a game that actually ended (see the sentinel children in
-# `_select_one`). They are never scored by the draw tiebreak.
-_SENTINEL_ENDINGS = frozenset({"step_error", "noop_resample"})
-
-
-def _terminal_value(
-    sim:  WesnothSim,
-    side: int,
-    tiebreak: Optional[DrawTiebreakConfig] = None,
-) -> float:
+def _terminal_value(sim: WesnothSim, side: int) -> float:
     """v(terminal_state) from `side`'s perspective. Win: +1.
-    Loss: -1. Ties / turn-cap timeouts: 0, or the material
-    differential in (-cap, +cap) when `tiebreak` is configured
-    (see tools/draw_tiebreak.py).
+    Loss: -1. Ties / turn-cap timeouts: 0.
 
-    The SENTINEL pseudo-terminals are never priced by material here (a
-    step that errored or a no-op resample is not a draw the side
-    reached); what the search backs up for them is the parent's own
-    value, through `_node_terminal_value`."""
+    For the SENTINEL pseudo-terminals (a step that errored or a no-op
+    resample, not a draw the side reached) the search backs up the
+    parent's own value instead, through `_node_terminal_value`."""
     if sim.winner == 0:
-        if tiebreak is not None and getattr(sim, "ended_by", "") not in _SENTINEL_ENDINGS:
-            return draw_tiebreak_z(sim.gs, side, tiebreak)
         return 0.0
     return 1.0 if sim.winner == side else -1.0
 
 
-def _node_terminal_value(node: "MCTSNode", tiebreak: Optional[DrawTiebreakConfig] = None) -> float:
+def _node_terminal_value(node: "MCTSNode") -> float:
     """The value a terminal NODE backs up: a sentinel's is its parent's
     own estimate (stamped at creation), a real ending's is
     `_terminal_value`."""
     if node.is_sentinel:
         return node.value
-    return _terminal_value(node.sim, node.side, tiebreak)
+    return _terminal_value(node.sim, node.side)
 
 
 def _aux_adjusted(v: float, output, aux_value_bonus: float) -> float:
@@ -743,7 +718,6 @@ def _expand(
     node: MCTSNode,
     model: WesnothModel,
     encoder: GameStateEncoder,
-    tiebreak: Optional[DrawTiebreakConfig] = None,
     *,
     aux_value_bonus: float = 0.0,
     value_center: float = 0.0,
@@ -755,7 +729,7 @@ def _expand(
     (saves a model forward)."""
     if node.is_terminal:
         node.expanded = True
-        return _node_terminal_value(node, tiebreak)
+        return _node_terminal_value(node)
     memory = _memory_in(node, node, [])
     with torch.no_grad():
         encoded = encoder.encode(node.sim.gs)
@@ -1224,7 +1198,7 @@ def _run_one_sim(
         exact_outcomes=config.exact_outcome_enumeration,
     )
     if leaf.is_terminal:
-        v = _node_terminal_value(leaf, config.draw_tiebreak)
+        v = _node_terminal_value(leaf)
         _backup(path, v, leaf.side, 0.0, leaf_moves_left=0.0)
         return
     if leaf.expanded:
@@ -1295,7 +1269,7 @@ def _run_sim_batch(
             exact_outcomes=config.exact_outcome_enumeration,
         )
         if leaf.is_terminal:
-            v = _node_terminal_value(leaf, config.draw_tiebreak)
+            v = _node_terminal_value(leaf)
             _backup(path, v, leaf.side, v_loss, leaf_moves_left=0.0)
             completed += 1
         elif leaf.expanded:
@@ -1653,7 +1627,7 @@ def mcts_search(
     # the network's cliffness as a side-effect, which we then use
     # for the adaptive sim budget.
     if not root.expanded:
-        _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
+        _expand(root, model, encoder,
                 aux_value_bonus=config.aux_value_bonus,
                 value_center=config.value_center)
     # Gumbel mode replaces Dirichlet noise at the root: exploration

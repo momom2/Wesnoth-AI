@@ -43,11 +43,10 @@ def test_expand_subtracts_value_center(monkeypatch):
     monkeypatch.setattr(mcts, "enumerate_legal_actions_with_priors",
                         _one_end_turn)
     monkeypatch.setattr(mcts, "_leaf_to_cpu", lambda e, o: (e, o))
-    plain = _expand(_node(), _Model(), _Encoder(), tiebreak=None)
+    plain = _expand(_node(), _Model(), _Encoder())
     assert abs(plain - 0.6) < 1e-6
     node = _node()
-    centered = _expand(node, _Model(), _Encoder(), tiebreak=None,
-                       value_center=0.25)
+    centered = _expand(node, _Model(), _Encoder(), value_center=0.25)
     assert abs(centered - 0.35) < 1e-6
     assert abs(node.value - 0.35) < 1e-6
     assert len(node.edges) == 1 and node.expanded

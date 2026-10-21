@@ -1589,8 +1589,8 @@ def main(argv: List[str]) -> int:
                          "bonuses without code edits. Default: use "
                          "WeightedReward() defaults. REINFORCE-mode "
                          "only; refused under --mcts (shaping is "
-                         "inert there -- the live seams are "
-                         "--draw-tiebreak-cap and the terminal z).")
+                         "inert there -- the live seam is the "
+                         "terminal z).")
     ap.add_argument("--torch-threads", type=int, default=None,
                     help="Cap torch's intra-op CPU thread pool "
                          "(torch.set_num_threads). CPU-ONLY tuning: by "
@@ -2050,11 +2050,11 @@ def main(argv: List[str]) -> int:
                     help="Add the auxiliary margin head (KataGo §3.5): "
                          "the model predicts the final MATERIAL margin "
                          "(tanh, denser than win/loss z), trained with "
-                         "an MSE term (--mcts-aux-coef) against "
-                         "draw_tiebreak.material_margin. Changes the "
-                         "model arch (adds a head) -> fresh init unless "
-                         "warm-starting an aux-on checkpoint. Targets "
-                         "are produced only in MCTS mode.")
+                         "an MSE term (--mcts-aux-coef) against the "
+                         "experiences' aux targets, which no self-play "
+                         "producer fills. Changes the model arch (adds "
+                         "a head) -> fresh init unless warm-starting an "
+                         "aux-on checkpoint.")
     ap.add_argument("--mcts-aux-coef", type=float, default=0.15,
                     help="Weight of the auxiliary margin MSE loss "
                          "(--mcts-aux-score). KataGo uses ~0.15.")
@@ -2133,13 +2133,6 @@ def main(argv: List[str]) -> int:
                     help="Warm up with legacy one-pass training until "
                          "the replay buffer holds this many "
                          "experiences (default 512).")
-    ap.add_argument("--train-draw-tiebreak", action="store_true",
-                    help="LEGACY: label drawn games' TRAINING z with "
-                         "the material tiebreak (search always uses "
-                         "the tiebreak regardless). Default off since "
-                         "2026-07-10: material-z draw labels made "
-                         "'predict material' the dominant value "
-                         "lesson and eroded win/loss discrimination.")
     ap.add_argument("--human-anchor-file", type=Path, default=None,
                     help="Pre-encoded human-corpus anchor cache "
                          "(tools/build_human_anchor.py). Enables "
@@ -2225,16 +2218,6 @@ def main(argv: List[str]) -> int:
                          "outcome INDEPENDENCE scales with games, "
                          "not transitions, so a long game must not "
                          "dominate its slot.")
-    ap.add_argument("--draw-tiebreak-cap", type=float, default=0.3,
-                    help="MCTS draws score by material differential "
-                         "(villages + gold + unit value) in "
-                         "(-cap, +cap) instead of a flat z=0, both "
-                         "at search turn-cap terminals and in the "
-                         "trainer's z target. <=0 disables. See "
-                         "configs/draw_tiebreak.json.")
-    ap.add_argument("--draw-tiebreak-config", type=Path, default=None,
-                    help="JSON overriding the draw-tiebreak weights "
-                         "(takes precedence over --draw-tiebreak-cap).")
     args = ap.parse_args(argv[1:])
     # One run = one provenance tag, shared with every spawned worker
     # via the environment (see validation_exports.run_tag).
@@ -2276,9 +2259,8 @@ def main(argv: List[str]) -> int:
         ap.error(
             "--reward-config has no effect under --mcts (AlphaZero "
             "distills the terminal z; MCTSPolicy.observe is a no-op). "
-            "The live shaping seams in MCTS mode are "
-            "--draw-tiebreak-cap / --draw-tiebreak-config and the "
-            "terminal outcome itself. Did you mean --reinforce?")
+            "The live shaping seam in MCTS mode is the terminal "
+            "outcome itself. Did you mean --reinforce?")
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
     if args.game_record_dir is not None and str(args.game_record_dir) in ("", "."):
@@ -2633,19 +2615,11 @@ def main(argv: List[str]) -> int:
     # interface as the underlying TransformerPolicy, so the rollout
     # loop doesn't branch.
     if args.mcts:
-        from tools.draw_tiebreak import DrawTiebreakConfig
         from tools.mcts import MCTSConfig
         from tools.mcts_policy import MCTSPolicy, ReplayConfig
         from tools.turn_search import (
             config_from_args as turn_config_from_args,
         )
-        if args.draw_tiebreak_config is not None:
-            tiebreak = DrawTiebreakConfig.from_json(
-                args.draw_tiebreak_config)
-        elif args.draw_tiebreak_cap > 0:
-            tiebreak = DrawTiebreakConfig(cap=args.draw_tiebreak_cap)
-        else:
-            tiebreak = None
         # mcts_batch_size: device-aware default (mirrors train_batch_size).
         # The per-leaf model forward is the dominant cost of an --mcts run;
         # leaving B=1 on CUDA issues one un-batched forward per simulation
@@ -2675,7 +2649,6 @@ def main(argv: List[str]) -> int:
                            else args.mcts_fpu_reduction),
             temperature=args.mcts_temperature,
             temperature_decisions=args.mcts_temperature_decisions,
-            draw_tiebreak=tiebreak,
             tree_reuse=not args.mcts_no_tree_reuse,
             gumbel_root=not args.mcts_classic_root,
             gumbel_m=args.mcts_gumbel_m,
@@ -2699,9 +2672,7 @@ def main(argv: List[str]) -> int:
             f"fpu={mcts_cfg.fpu_reduction} root={root_desc} "
             f"tree_reuse={mcts_cfg.tree_reuse} "
             f"playout_cap="
-            f"{'on(p=%.2f,fast=%d)' % (mcts_cfg.playout_cap_prob, mcts_cfg.playout_cap_fast_sims or max(1, mcts_cfg.n_simulations // 4)) if mcts_cfg.playout_cap_randomization else 'off'} "
-            f"draw_tiebreak_cap="
-            f"{tiebreak.cap if tiebreak else 'off'}."
+            f"{'on(p=%.2f,fast=%d)' % (mcts_cfg.playout_cap_prob, mcts_cfg.playout_cap_fast_sims or max(1, mcts_cfg.n_simulations // 4)) if mcts_cfg.playout_cap_randomization else 'off'}."
         )
         replay_cfg = ReplayConfig(
             enabled=args.replay_buffer,
@@ -2751,7 +2722,6 @@ def main(argv: List[str]) -> int:
                 policy, mcts_cfg, replay_config=replay_cfg,
                 holdout_size=args.holdout_size,
                 holdout_per_game_cap=args.holdout_per_game_cap,
-                train_draw_tiebreak=args.train_draw_tiebreak,
                 draw_value_weight=args.draw_value_weight,
                 value_memory_games=(args.value_memory_iters
                                     * args.games_per_iter),
@@ -2787,7 +2757,6 @@ def main(argv: List[str]) -> int:
                 policy, mcts_cfg, replay_config=replay_cfg,
                 holdout_size=args.holdout_size,
                 holdout_per_game_cap=args.holdout_per_game_cap,
-                train_draw_tiebreak=args.train_draw_tiebreak,
                 draw_value_weight=args.draw_value_weight,
                 value_memory_games=(args.value_memory_iters
                                     * args.games_per_iter),
@@ -2815,7 +2784,6 @@ def main(argv: List[str]) -> int:
                 policy, mcts_cfg, replay_config=replay_cfg,
                 holdout_size=args.holdout_size,
                 holdout_per_game_cap=args.holdout_per_game_cap,
-                train_draw_tiebreak=args.train_draw_tiebreak,
                 draw_value_weight=args.draw_value_weight,
                 value_memory_games=(args.value_memory_iters
                                     * args.games_per_iter),
@@ -2825,12 +2793,6 @@ def main(argv: List[str]) -> int:
                 gbc_labels=gbc_flag,
                 rng_seed=args.seed,
                 signal_telemetry=args.signal_telemetry)
-        if args.train_draw_tiebreak:
-            log.info("LEGACY draw labels: training z = material "
-                     "tiebreak on draws")
-        else:
-            log.info("honest draw labels: training z = 0 on draws "
-                     "(tiebreak remains search-only)")
         if args.holdout_size > 0:
             # Works on both the in-process path (finalize_game) and
             # --actor-pool (the pool drain offers each per-game
@@ -3036,11 +2998,7 @@ def main(argv: List[str]) -> int:
             ground_cfg=_ground_config_from_args(args, _pool_turn_cfg),
             pt_cfg=_pt_config_from_args(args),
             gbc_labels=gbc_flag,
-            train_kwargs={
-                "draw_value_weight": float(args.draw_value_weight),
-                "train_draw_tiebreak": bool(
-                    args.train_draw_tiebreak),
-            },
+            train_kwargs={"draw_value_weight": float(args.draw_value_weight)},
             scenario_opts=scenario_opts, max_turns=args.max_turns,
             max_turns_min=args.max_turns_min,
             pvp_defaults=pvp_defaults, device=device,
@@ -3167,8 +3125,8 @@ def main(argv: List[str]) -> int:
                         f"Diagnose before re-launching: check "
                         f"closest_approach / attack%% trends in the "
                         f"CSV, consider --mini-ratio (engagement "
-                        f"curriculum), a higher --draw-tiebreak-cap, "
-                        f"or a longer --max-turns. Exit code 4."
+                        f"curriculum) or a longer --max-turns. Exit "
+                        f"code 4."
                     )
                     if history_csv is not None:
                         history_csv.close()

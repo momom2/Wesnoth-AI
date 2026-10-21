@@ -1,10 +1,8 @@
-"""Auxiliary prediction target (KataGo §3.5): the model predicts the
-final MATERIAL margin as a denser companion to the win/loss z.
+"""Auxiliary prediction head (KataGo §3.5).
 
-Pins: the pure margin target (antisymmetry, range, monotonicity); the
-config-gated aux head (present + bounded when on, absent from the
-default arch when off); finalize_game attaching aux_target; and the
-trainer's aux MSE term firing only when the head + targets are present.
+Pins: the config-gated aux head (present + bounded when on, absent from
+the default arch when off) and the trainer's aux MSE term firing only
+when the head + targets are present.
 """
 from __future__ import annotations
 
@@ -21,49 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.transformer_policy import TransformerPolicy             # noqa: E402
 from tools.mcts import MCTSConfig                             # noqa: E402
 from tools.mcts_policy import MCTSPolicy                      # noqa: E402
-from tools.draw_tiebreak import (                             # noqa: E402
-    DrawTiebreakConfig, material_margin, draw_tiebreak_z,
-)
 from sim_test_helpers import fresh_scenario_sim               # noqa: E402
-
-
-# ---- pure target ----------------------------------------------------
-
-def test_material_margin_antisymmetric_and_bounded():
-    sim = fresh_scenario_sim(seed=21, max_turns=12, mini=True)
-    cfg = DrawTiebreakConfig(cap=0.3)
-    m1 = material_margin(sim.gs, 1, cfg)
-    m2 = material_margin(sim.gs, 2, cfg)
-    assert abs(m1 + m2) < 1e-9, "margin must be zero-sum between sides"
-    assert -1.0 < m1 < 1.0 and -1.0 < m2 < 1.0
-
-
-def test_material_margin_is_uncapped_vs_draw_z():
-    # Force a large, deterministic material lead for side 1 (huge gold
-    # gap) and confirm the margin saturates toward 1.0 while the draw z
-    # stays clamped at the cap -- the whole point of the denser signal.
-    sim = fresh_scenario_sim(seed=21, max_turns=12, mini=True)
-    gs = sim.gs
-    gs.sides[0].current_gold = 1000
-    gs.sides[1].current_gold = 0
-    # weight_gold is explicitly nonzero HERE because this test needs a
-    # deterministic huge material lead and gold is the easiest lever;
-    # the production default is 0 (banked gold scores nothing --
-    # 2026-07-20 hoarding fix, see DrawTiebreakConfig). The cap-vs-
-    # uncapped mechanics under test are driver-agnostic.
-    cfg = DrawTiebreakConfig(cap=0.3, score_scale=1.0,
-                             weight_gold=0.05)
-    m = material_margin(gs, 1, cfg)
-    z = draw_tiebreak_z(gs, 1, cfg)
-    assert m > cfg.cap, f"uncapped margin should exceed the draw cap: {m}"
-    assert abs(z) <= cfg.cap + 1e-9, f"draw z must respect the cap: {z}"
-    assert m > z
-
-
-def test_material_margin_disabled_when_scale_zero():
-    sim = fresh_scenario_sim(seed=21, max_turns=12, mini=True)
-    cfg = DrawTiebreakConfig(score_scale=0.0)
-    assert material_margin(sim.gs, 1, cfg) == 0.0
 
 
 # ---- model head -----------------------------------------------------
@@ -102,7 +58,6 @@ def test_aux_head_none_and_arch_unchanged_when_disabled():
 def _cfg():
     return MCTSConfig(n_simulations=10, gumbel_root=True, gumbel_m=4,
                       chance_nodes=True, exact_outcome_enumeration=True,
-                      draw_tiebreak=DrawTiebreakConfig(cap=0.3),
                       batch_size=1, add_root_noise=False)
 
 
@@ -133,18 +88,13 @@ def test_select_action_rejects_live_sim_gs():
         mp.select_action(sim.gs, game_label="x", sim=sim)
 
 
-def test_finalize_sets_aux_target_when_aux_on():
-    mp = MCTSPolicy(_pol(True), _cfg())
-    _play_and_finalize(mp)
-    assert mp._queue, "expected recorded experiences"
-    assert all(e.aux_target is not None for e in mp._queue)
-    assert all(-1.0 <= e.aux_target <= 1.0 for e in mp._queue)
-
-
 @pytest.mark.slow          # ~21s: see pytest.ini two-tier note
 def test_train_step_aux_loss_fires_only_when_on():
     mp_on = MCTSPolicy(_pol(True), _cfg())
     _play_and_finalize(mp_on, seed=21)
+    assert mp_on._queue, "expected recorded experiences"
+    for e in mp_on._queue:
+        e.aux_target = 0.5
     stats_on = mp_on.train_step()
     assert stats_on.aux_loss > 0.0, "aux loss should be active with head+targets"
     assert stats_on.total_loss == stats_on.total_loss  # finite (not NaN)

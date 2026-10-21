@@ -91,7 +91,6 @@ def _export_and_validate(mini: bool, tmp_path: Path,
 
     if policy_kind == "mcts":
         import torch
-        from tools.draw_tiebreak import DrawTiebreakConfig
         from tools.mcts import MCTSConfig
         from tools.mcts_policy import MCTSPolicy
         from wesnoth_ai.transformer_policy import TransformerPolicy
@@ -99,8 +98,7 @@ def _export_and_validate(mini: bool, tmp_path: Path,
                                  d_model=48, num_layers=2,
                                  num_heads=4, d_ff=96)
         policy = MCTSPolicy(base, MCTSConfig(
-            n_simulations=4,
-            draw_tiebreak=DrawTiebreakConfig(cap=0.3)))
+            n_simulations=4))
     else:
         from wesnoth_ai.dummy_policy import DummyPolicy
 

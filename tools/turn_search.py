@@ -130,10 +130,9 @@ def _value_for(output, gs, side: int) -> float:
 def boundary_value(policy, sim, side: int,
                    memory: Optional[SideMemories] = None) -> float:
     """V(boundary state) from `side`'s perspective, read with the side
-    to move's memory on the line. Terminal states use the exact outcome
-    (eval contract: no material tiebreak)."""
+    to move's memory on the line. Terminal states use the exact outcome."""
     if sim.done:
-        return _terminal_value(sim, side, tiebreak=None)
+        return _terminal_value(sim, side)
     with torch.no_grad():
         encoded = policy._inference_encoder.encode(sim.gs)
         output = _forward(policy, encoded, sim.gs, memory, decide=False)
@@ -164,8 +163,7 @@ def batch_boundary_values(policy, mats: List["Materialized"],
         if m.invalid or m.boundary_sim is None:
             continue
         if m.boundary_sim.done:
-            m.value = _terminal_value(m.boundary_sim, side,
-                                      tiebreak=None)
+            m.value = _terminal_value(m.boundary_sim, side)
             m.boundary_sim = None
         else:
             live.append(m)
@@ -197,7 +195,7 @@ def project_value(policy, sim, side: int,
     same policy (sampled from the enumerated priors, no branching);
     if the cap cuts the turn short, end_turn is forced so half-turns
     stay well-defined and the walk advances. A terminal state grades
-    exactly (eval contract: no material tiebreak). Never mutates
+    exactly. Never mutates
     `sim`; all play happens on a fork, and on a copy of `memory`, each
     side's memory at `sim` on the line."""
     if half_turns <= 0 or sim.done:

@@ -23,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 def _tiny_policy(holdout_size):
     import torch
-    from tools.draw_tiebreak import DrawTiebreakConfig
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
     from wesnoth_ai.transformer_policy import TransformerPolicy
@@ -33,8 +32,7 @@ def _tiny_policy(holdout_size):
                              d_ff=64, device=torch.device("cpu"))
     return MCTSPolicy(
         base,
-        MCTSConfig(n_simulations=2,
-                   draw_tiebreak=DrawTiebreakConfig(cap=0.3)),
+        MCTSConfig(n_simulations=2),
         holdout_size=holdout_size, holdout_per_game_cap=4)
 
 
