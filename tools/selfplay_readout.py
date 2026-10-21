@@ -39,8 +39,8 @@ with standard errors, and a pass/fail where the design states one.
 
 Standard errors treat a game as the unit (its two sides share it).
 
-    python tools/selfplay_readout.py --games DIR --labels labels.jsonl --fits fits.json \\
-        --walk walk.jsonl --out readout.json
+    python tools/selfplay_readout.py --games DIR... --labels labels.jsonl --fits fits.json \\
+        --walk WALK.jsonl... --out readout.json
 """
 from __future__ import annotations
 
@@ -487,15 +487,18 @@ def table(games: Sequence[str], sides: Dict[Tuple[str, int], SideGame], by_side:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--games", type=Path, required=True, help="the run's games directory or tarball")
+    ap.add_argument("--games", type=Path, nargs="+", required=True,
+                    help="the run's games directories or tarballs")
     ap.add_argument("--labels", type=Path, required=True)
     ap.add_argument("--fits", type=Path, required=True, help="tools/pg_labels.py --fits")
-    ap.add_argument("--walk", type=Path, required=True, help="tools/selfplay_rows.py --walk")
+    ap.add_argument("--walk", type=Path, nargs="+", required=True, help="tools/selfplay_rows.py's --walk files")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--seed", type=int, default=0, help="the cdf positions' uniform draws")
     args = ap.parse_args(argv)
-    result = readout(run_records(args.games), read_jsonl(args.labels),
-                     json.loads(args.fits.read_text(encoding="utf-8")), read_jsonl(args.walk), seed=args.seed)
+    records = (rec for games in args.games for rec in run_records(games))
+    walk_rows = [row for path in args.walk for row in read_jsonl(path)]
+    result = readout(records, read_jsonl(args.labels), json.loads(args.fits.read_text(encoding="utf-8")),
+                     walk_rows, seed=args.seed)
     args.out.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({k: result[k].get("pass") for k in ("i_sample", "legal_mass", "i_count")}))
     return 0 if result.get("gates_pass") else 1
