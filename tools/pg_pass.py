@@ -27,16 +27,30 @@ What pass.pt holds beyond the contract's keys:
     head_slopes    per head of pg_loss.HEADS: (1/2N) sum R * score
     head_fisher    4 x 4: (1/2N) sum over decisions of score score^T
                    (the head-temperature floor's slopes and Fisher, §3.4)
-    replay         the trainer's log pi against the logged one: mean and
-                   largest absolute difference, mean signed difference
+    replay         the trainer's log pi of each logged action against the
+                   logged log p: `kl`, the mean of (logged - trainer), an
+                   unbiased estimate of the per-decision KL from the logged
+                   law to the trainer's (the actions were drawn from the
+                   logged law); `half_mean_square`, its second-order
+                   reading; the mean and largest absolute difference; the
+                   `limit` it was held to
     shadow         shadow rows trained
     split_windows  windows per split
     position_counts  the replay's counts (pg_positions)
     seconds        the pass's wall time
     config         the pass's settings
 
-The network runs in eval mode (no dropout: the law the player sampled), on
-the device's bfloat16 autocast unless `--fp32`.
+The labels must name the network's own games: every labelled game-side was
+played by the checkpoint (its match result's hash) at the pass's memory
+slots under the temperature-1 procedure with no offset, or the pass refuses
+to start (`pg_positions.refuse_foreign`). It fails after its sum when the
+replay's KL estimate exceeds `REPLAY_KL_LIMIT`, and the command line then
+writes its result as `<out>.replay_failed.pt` and exits 3.
+
+The network runs in eval mode (no dropout: the law the player sampled), in
+float32 unless `--bf16` (the device's bfloat16 autocast: its rounding,
+about 0.016 nats on a log probability near -5, is a KL of the order of the
+limit, so a bf16 pass is held to a limit of its own, `--replay-kl-limit`).
 
     python tools/pg_pass.py --checkpoint own2.pt --games DIR [DIR ...] --labels labels.jsonl \\
         --out pass.pt --device cuda --workers 30
@@ -60,7 +74,8 @@ from torch.utils.checkpoint import checkpoint
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
-from tools.pg_positions import PositionLoader, RecordIndex, side_lengths  # noqa: E402
+from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex, record_facts,  # noqa: E402
+                                refuse_foreign, side_lengths)
 from tools.pg_schedule import PGMemoryRouter, split_schedules  # noqa: E402
 from tools.sequence_setup import ARCH, build_modules  # noqa: E402
 from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
@@ -95,6 +110,22 @@ def stage_step(positions, staged, model, device):
                          A_max, H_max, *head_shapes(model), device)
 
 
+# The replay identity's limit: a twentieth of the smallest radius the step
+# search reads, eps = 0.0021 nats per decision (current_design.md §1.2, §5:
+# "the mean KL is below eps/20"), on the unbiased per-decision KL estimate.
+REPLAY_KL_LIMIT = 1e-4
+EXIT_REPLAY = 3
+
+
+class ReplayMismatch(RuntimeError):
+    """The trainer's law at the logged decisions is not the logged law."""
+
+    def __init__(self, result: Dict):
+        super().__init__(f"the replay's KL estimate {result['replay']['kl']:.3g} nats per decision exceeds its "
+                         f"limit {result['replay']['limit']:.3g} ({json.dumps(result['replay'])})")
+        self.result = result
+
+
 @dataclass
 class PassConfig:
     streams: int = 32
@@ -103,10 +134,12 @@ class PassConfig:
     slots: int = 64                         # the memory size the player played at
     workers: int = 0                        # replay processes (0: on the calling thread)
     prefetch: int = 64                      # game-sides replayed ahead of the slots
-    fp32: bool = False
+    bf16: bool = False                      # the device's bfloat16 autocast (CUDA only)
     packed: Optional[bool] = None           # None: the trunk the forward picks
     recompute: Optional[bool] = None        # recompute each step in the backward pass (default: on CUDA)
     verify: bool = True                     # check the records' fingerprints while replaying
+    procedure: str = SELF_PLAY_PROCEDURE    # the procedure every labelled game-side was played under
+    replay_kl_limit: float = REPLAY_KL_LIMIT
 
 
 class GradientPass:
@@ -124,13 +157,15 @@ class GradientPass:
             raise ValueError("no training game in the labels")
         self.R = {(g, s): row.R for g, sides in self.games.items() for s, row in sides.items()}
         paths = {g: records[g] for g in self.games}
-        self.lengths = side_lengths(paths, config.workers)
+        facts = record_facts(paths, config.workers)
+        refuse_foreign(facts, self.checkpoint_sha256, config.slots, config.procedure)
+        self.lengths = side_lengths(facts)
         self.loader = PositionLoader(paths, dict(self.encoder.unit_type_to_id), dict(self.encoder.faction_to_id),
                                      workers=config.workers, verify=config.verify)
         splits = {g: sides[1].split for g, sides in self.games.items()}
         self.split_counts = Counter(splits.values())
         self.schedules = split_schedules(splits, self.lengths, config.streams, config.seed, config.slots)
-        self.autocast = torch.bfloat16 if (device.type == "cuda" and not config.fp32) else None
+        self.autocast = torch.bfloat16 if (device.type == "cuda" and config.bf16) else None
         self.recompute = device.type == "cuda" if config.recompute is None else bool(config.recompute)
         self.probes = torch.zeros(len(CLASSES), device=device, requires_grad=True)
         self._reset_sums()
@@ -142,7 +177,8 @@ class GradientPass:
         self.split_windows = [0] * N_SPLITS
         self.head_sums = torch.zeros(len(HEADS), dtype=torch.float64, device=self.device)
         self.head_fisher = torch.zeros(len(HEADS), len(HEADS), dtype=torch.float64, device=self.device)
-        self.replay = torch.zeros(3, dtype=torch.float64, device=self.device)   # sum |d|, max |d|, sum d
+        # The replay's sums of d = logged - trainer log p: |d|, max |d|, d, d^2.
+        self.replay = torch.zeros(4, dtype=torch.float64, device=self.device)
         self.rows = 0
         self.shadow = 0
         self.memories: Dict[int, torch.Tensor] = {}
@@ -181,6 +217,7 @@ class GradientPass:
             self.replay[0] += diff.abs().sum()
             self.replay[1] = torch.maximum(self.replay[1], diff.abs().max())
             self.replay[2] += diff.sum()
+            self.replay[3] += (diff * diff).sum()
             self.rows += len(steps)
             self.shadow += sum(p.shadow for p in positions)
         return total, router.memories()
@@ -207,7 +244,9 @@ class GradientPass:
         self.loader.keep_only(())
 
     def run(self) -> Dict:
-        """The pass; the pass.pt dict (module docstring)."""
+        """The pass; the pass.pt dict (module docstring). Raises
+        `ReplayMismatch`, which carries the dict, when the replay's KL
+        estimate exceeds the limit."""
         t0 = time.time()
         self._reset_sums()
         self.probes.grad = None
@@ -220,7 +259,10 @@ class GradientPass:
         expected = sum(self.lengths.values())
         if self.rows != expected:
             raise RuntimeError(f"the pass trained {self.rows} decisions of the logs' {expected} (I-count)")
-        return self._result(time.time() - t0)
+        result = self._result(time.time() - t0)
+        if not result["replay"]["kl"] <= result["replay"]["limit"]:
+            raise ReplayMismatch(result)
+        return result
 
     def _result(self, seconds: float) -> Dict:
         N = len(self.games)
@@ -238,8 +280,9 @@ class GradientPass:
             "checkpoint_sha256": self.checkpoint_sha256,
             "head_slopes": {h: float(self.head_sums[k]) * scale for k, h in enumerate(HEADS)},
             "head_fisher": (self.head_fisher * scale).cpu().tolist(),
-            "replay": {"mean_abs": float(self.replay[0]) / rows, "max_abs": float(self.replay[1]),
-                       "mean": float(self.replay[2]) / rows},
+            "replay": {"kl": float(self.replay[2]) / rows, "half_mean_square": 0.5 * float(self.replay[3]) / rows,
+                       "mean_abs": float(self.replay[0]) / rows, "max_abs": float(self.replay[1]),
+                       "limit": float(self.config.replay_kl_limit)},
             "shadow": int(self.shadow), "split_windows": list(self.split_windows),
             "position_counts": dict(self.loader.counts), "seconds": float(seconds),
             "config": asdict(self.config),
@@ -264,7 +307,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     defaults = PassConfig()
     for name in ("streams", "window", "seed", "slots", "workers", "prefetch"):
         ap.add_argument("--" + name, type=int, default=getattr(defaults, name))
-    ap.add_argument("--fp32", action="store_true")
+    ap.add_argument("--bf16", action="store_true", help="the device's bfloat16 autocast (module docstring)")
+    ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT)
+    ap.add_argument("--procedure", default=SELF_PLAY_PROCEDURE, help="the labelled game-sides' procedure tag")
     ap.add_argument("--no-verify", action="store_true", help="skip the records' fingerprints")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv)
@@ -274,8 +319,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     index = RecordIndex(args.games)
     records = {r.game: index.path(r.game) for r in labels if not r.heldout}
     config = PassConfig(streams=args.streams, window=args.window, seed=args.seed, slots=args.slots,
-                        workers=args.workers, prefetch=args.prefetch, fp32=args.fp32, verify=not args.no_verify)
-    result = GradientPass(args.checkpoint, records, labels, torch.device(args.device), config).run()
+                        workers=args.workers, prefetch=args.prefetch, bf16=args.bf16, verify=not args.no_verify,
+                        procedure=args.procedure, replay_kl_limit=args.replay_kl_limit)
+    try:
+        result = GradientPass(args.checkpoint, records, labels, torch.device(args.device), config).run()
+    except ReplayMismatch as e:
+        failed = args.out.with_name(args.out.stem + ".replay_failed.pt")
+        save_pass(e.result, failed)
+        log.error("PG_PASS_REPLAY_FAILED %s; the sums are in %s", e, failed)
+        return EXIT_REPLAY
     save_pass(result, args.out)
     log.info("PG_PASS_DONE %d games, %d decisions, %d windows in %.0f s; replay %s; probes %s", result["games"],
              result["decisions"], result["windows"], result["seconds"], json.dumps(result["replay"]),

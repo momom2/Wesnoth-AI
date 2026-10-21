@@ -53,7 +53,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
 from tools.pg_pass import load_network, stage_step  # noqa: E402
-from tools.pg_positions import PositionLoader, RecordIndex, side_lengths  # noqa: E402
+from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex, record_facts,  # noqa: E402
+                                refuse_foreign, side_lengths)
 from tools.pg_schedule import PGMemoryRouter, game_order  # noqa: E402
 from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
 from wesnoth_ai.pg_loss import CLASSES, action_log_probs, class_masses, legal_kl  # noqa: E402
@@ -74,6 +75,7 @@ class EvalConfig:
     packed: Optional[bool] = None
     verify: bool = True
     kl_fraction: float = 0.05
+    procedure: str = SELF_PLAY_PROCEDURE      # the procedure every held-out game-side was played under
 
 
 @dataclass
@@ -100,7 +102,9 @@ class EvalContext:
         if not games:
             raise ValueError("no held-out game in the labels")
         paths = {g: Path(records[g]) for g in games}
-        lengths = side_lengths(paths, config.workers)
+        facts = record_facts(paths, config.workers)
+        refuse_foreign(facts, self.checkpoint_sha256, config.slots, config.procedure)
+        lengths = side_lengths(facts)
         self.loader = PositionLoader(paths, dict(self.encoder.unit_type_to_id), dict(self.encoder.faction_to_id),
                                      workers=config.workers, verify=config.verify)
         self.sides: List[GameSide] = []
@@ -272,6 +276,8 @@ def _config_value(name: str, text: str):
         return str(text).strip().lower() in ("1", "true", "yes", "on")
     if name == "packed":
         return None if text.lower() == "auto" else _config_value("verify", text)
+    if name == "procedure":
+        return str(text)
     return float(text) if name == "kl_fraction" else int(text)
 
 

@@ -257,20 +257,90 @@ class RecordIndex:
         return p
 
 
-def _side_counts(path: str) -> Dict[int, int]:
-    return side_counts(decisions_of(read_record(Path(path))))
+# The procedure tag of a raw player at temperature 1 with no end_turn offset
+# (tools/eval_procedure.py): the law the decision log records is the law
+# the player sampled from.
+SELF_PLAY_PROCEDURE = "raw:t1"
 
 
-def side_lengths(paths: Dict[str, Path], workers: int = 0) -> Dict[GameSide, int]:
-    """Each game-side's logged decisions, refused ones included, the logs
-    read on `workers` processes (0: here)."""
+class ForeignGameError(ValueError):
+    """A labelled game-side was not played by the pass's network as the
+    pass's player."""
+
+
+def result_path(record: Path) -> Path:
+    """The match result beside a game record (`<stem>.json`)."""
+    return record.with_name(record.name[:-len(RECORD_SUFFIX)] + ".json")
+
+
+def _record_facts(path: str) -> Dict[int, dict]:
+    """Per side of one record: its logged decisions, the procedure and
+    memory its player recorded (tools/elo_eval_game.py), and the checkpoint
+    and memory reset its match result names (None without a result)."""
+    record = Path(path)
+    rec = read_record(record)
+    counts = side_counts(decisions_of(rec))
+    players = {int(p.get("side", 0)): p for p in rec.get("players", {}).values()}
+    res = json.loads(result_path(record).read_text(encoding="utf-8")) if result_path(record).is_file() else None
+    facts = {}
+    for side in (1, 2):
+        player = players.get(side, {})
+        x = None if res is None else ("a" if int(res["side_a"]) == side else "b")
+        facts[side] = {"decisions": counts[side], "procedure": player.get("procedure"),
+                       "memory": player.get("memory"),
+                       "checkpoint_sha256": None if x is None else res.get(f"checkpoint_sha256_{x}"),
+                       "memory_reset": None if x is None else bool(res.get(f"memory_reset_{x}"))}
+    return facts
+
+
+def record_facts(paths: Dict[str, Path], workers: int = 0) -> Dict[str, Dict[int, dict]]:
+    """`_record_facts` of every game, read on `workers` processes (0: here)."""
     games = list(paths)
     if workers > 0:
         with ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn")) as pool:
-            counts = list(pool.map(_side_counts, [str(paths[g]) for g in games], chunksize=16))
+            facts = list(pool.map(_record_facts, [str(paths[g]) for g in games], chunksize=16))
     else:
-        counts = [_side_counts(str(paths[g])) for g in games]
-    return {GameSide(g, side): n for g, c in zip(games, counts) for side, n in c.items()}
+        facts = [_record_facts(str(paths[g])) for g in games]
+    return dict(zip(games, facts))
+
+
+def side_lengths(facts: Dict[str, Dict[int, dict]]) -> Dict[GameSide, int]:
+    """Each game-side's logged decisions, refused ones included."""
+    return {GameSide(g, side): f["decisions"] for g, sides in facts.items() for side, f in sides.items()}
+
+
+def foreign_sides(facts: Dict[str, Dict[int, dict]], checkpoint_sha256: str, slots: int,
+                  procedure: str = SELF_PLAY_PROCEDURE) -> Dict[GameSide, str]:
+    """The game-sides whose player was not `checkpoint_sha256` at `slots`
+    memory slots, carried all game, under `procedure`, with the reason
+    (tools/own_trajectories.py selects its own game-sides alike)."""
+    out = {}
+    for game, sides in facts.items():
+        for side, f in sides.items():
+            if f["procedure"] != procedure:
+                why = f"procedure {f['procedure']!r}, not {procedure!r}"
+            elif f["memory"] != slots:
+                why = f"memory {f['memory']!r}, not {slots}"
+            elif f["checkpoint_sha256"] is None:
+                why = "no match result names its checkpoint"
+            elif f["checkpoint_sha256"] != checkpoint_sha256:
+                why = f"checkpoint {f['checkpoint_sha256'][:12]}, not {checkpoint_sha256[:12]}"
+            elif f["memory_reset"]:
+                why = "its memory was reset each turn"
+            else:
+                continue
+            out[GameSide(game, side)] = why
+    return out
+
+
+def refuse_foreign(facts: Dict[str, Dict[int, dict]], checkpoint_sha256: str, slots: int,
+                   procedure: str = SELF_PLAY_PROCEDURE) -> None:
+    """Raise `ForeignGameError` naming the game-sides `foreign_sides` finds."""
+    foreign = foreign_sides(facts, checkpoint_sha256, slots, procedure)
+    if foreign:
+        shown = "; ".join(f"{g.file} side {g.side}: {why}" for g, why in sorted(foreign.items())[:5])
+        raise ForeignGameError(f"{len(foreign)} labelled game-sides were not played by the network at "
+                               f"{slots} slots under {procedure}: {shown}")
 
 
 _W: Dict = {}

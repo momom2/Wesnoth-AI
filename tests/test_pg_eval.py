@@ -31,7 +31,7 @@ def _direction(model, encoder, seed: int = 7):
             for n, p in named_model_parameters(model, encoder)}
 
 
-def _evaluator(tmp_path, checkpoint=None, direction=None):
+def _evaluator(tmp_path, direction=None):
     from helpers.pg_games import played_games, write_labels
     from tools.pg_eval import EvalConfig, EvalContext
     games = played_games()
@@ -39,7 +39,7 @@ def _evaluator(tmp_path, checkpoint=None, direction=None):
                                       heldout=list(games.records), halves=HALVES))
     if direction is None:
         direction = _direction(games.model, games.encoder)
-    context = EvalContext(checkpoint or games.checkpoint, games.records, labels, CPU,
+    context = EvalContext(games.checkpoint, games.records, labels, CPU,
                           EvalConfig(streams=2, window=4, kl_fraction=1.0))
     return games, context.bind(direction)
 
@@ -80,13 +80,18 @@ def test_the_recomputed_log_probabilities_are_the_logged_ones(tmp_path):
 @needs_core
 def test_the_readings_move_along_the_bound_direction(tmp_path):
     """Off theta_k the log probabilities move, the KL from pi_k grows as the
-    square of the step near 0 and is 0 at it; a written candidate, read as
-    the network with no step, gives the step's readings."""
+    square of the step near 0 and is 0 at it; a written candidate loads as
+    theta_k + s d, added by code of its own. (The candidate cannot be read on
+    these games: they are theta_k's, and the evaluator refuses games another
+    network played.)"""
+    from helpers.pg_games import moved_network, played_games
     from tools.pg_pass import load_network
-    games, ev = _evaluator(tmp_path)
+    from wesnoth_ai.param_groups import named_model_parameters
+    direction = _direction(played_games().model, played_games().encoder)
+    games, ev = _evaluator(tmp_path, direction=direction)
     ev.evaluate([0.0, 0.5, 1.0])
     base, half, one = ev.logp(0.0), ev.logp(0.5), ev.logp(1.0)
-    assert np.max(np.abs(one - base)) > 1e-3
+    assert np.max(np.abs(one - base)) > 1e-3 and not np.allclose(half, one, atol=1e-5)
     assert ev.mean_kl(0.0) == 0.0
     k_half, k_one = ev.mean_kl(0.5), ev.mean_kl(1.0)
     assert k_half > 0 and k_one / k_half == pytest.approx(4.0, rel=0.15)
@@ -94,13 +99,57 @@ def test_the_readings_move_along_the_bound_direction(tmp_path):
     path = tmp_path / "candidate.pt"
     sha = ev.write_candidate(1.0, path)
     assert len(sha) == 64
-    encoder, model = load_network(path, CPU)
-    _, again = _evaluator(tmp_path, checkpoint=path, direction={})
-    assert np.allclose(again.base_logp(), one, atol=1e-5)
-    assert not np.allclose(half, one, atol=1e-5)
+    written = dict(named_model_parameters(*reversed(load_network(path, CPU))))
+    want = dict(named_model_parameters(*reversed(moved_network(games.checkpoint, direction, 1.0))))
+    assert set(written) == set(want)
+    assert all(torch.allclose(written[n], want[n], atol=1e-7) for n in want)
     ev.context.close()
-    again.context.close()
-    assert model.memory_slots == 64 and encoder.observation_parity
+
+
+@needs_core
+def test_the_step_and_its_kl_are_the_pass_gradients_and_the_forward_kl(tmp_path):
+    """The pass and the evaluator on the same games (trained in one label
+    file, held out in another), the evaluator bound to d = the pass's total
+    g: the held-out sum (1/2N) sum R log pi moves by s |g|^2 at first order
+    (a central difference at a small s), so the step is theta_k + s d. At a
+    step large enough for the third-order term, `mean_kl(s)` is the mean
+    over decisions of KL(pi_k || pi_s), each computed alone by separate code,
+    and not KL(pi_s || pi_k)."""
+    from helpers.pg_games import moved_network, played_games, side_forwards, write_labels
+    from tools.pg_eval import EvalConfig, EvalContext
+    from tools.pg_pass import GradientPass, PassConfig
+    from tools.pg_positions import positions_of, read_record
+    from wesnoth_ai.pg_loss import legal_kl
+    games = played_games()
+    splits = {g: 0 for g in games.records}
+    train = read_labels(write_labels(tmp_path / "train.jsonl", splits, R))
+    held = read_labels(write_labels(tmp_path / "held.jsonl", splits, R, heldout=list(splits), halves=HALVES))
+    g = GradientPass(games.checkpoint, games.records, train, CPU, PassConfig(streams=2, window=64)).run()["total"]
+    norm2 = sum(float((t * t).sum()) for t in g.values())
+    ev = EvalContext(games.checkpoint, games.records, held, CPU, EvalConfig(streams=2, kl_fraction=1.0)).bind(g)
+    n_games = len(splits)
+
+    def gain(s: float) -> float:
+        lp = ev.logp(s)
+        return sum(gs.R * lp[gs.start:gs.stop].sum() for gs in ev.game_sides()) / (2 * n_games)
+
+    s = 0.01 / norm2 ** 0.5
+    assert (gain(s) - gain(-s)) / (2 * s) == pytest.approx(norm2, rel=1e-2)
+    s = 0.5 / norm2 ** 0.5
+    base, moved = moved_network(games.checkpoint, {}, 0.0), moved_network(games.checkpoint, g, s)
+    forward, reverse = [], []
+    with torch.no_grad():
+        for game, path in games.records.items():
+            pos = positions_of(read_record(path), *games.vocab, game=game)
+            for side in (1, 2):
+                for (p0, batch), (ps, _) in zip(side_forwards(*base, pos.sides[side]),
+                                                side_forwards(*moved, pos.sides[side])):
+                    forward.append(float(legal_kl(p0, ps, batch.views, batch.rows)[0]))
+                    reverse.append(float(legal_kl(ps, p0, batch.views, batch.rows)[0]))
+    want = float(np.mean(forward))
+    assert abs(want - float(np.mean(reverse))) > 0.1 * want
+    assert ev.mean_kl(s) == pytest.approx(want, rel=1e-5)
+    ev.context.close()
 
 
 @needs_core

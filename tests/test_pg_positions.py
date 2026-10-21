@@ -155,7 +155,12 @@ def test_a_relocated_recruit_sees_none_of_its_own_rejection():
     """A recruit the engine relocated leaves its ordered hex rejected at its
     own command: the recruit decided without it (its masks unchanged), and
     the next decision of its turn may no longer recruit there. The parity
-    encoding writes no rejection column: the masks carry it."""
+    encoding writes no rejection column: the masks carry it. A walk of the
+    record (`game_record.walk_core`) applies the rejection before yielding
+    the recruit's command, so its position there is not the player's."""
+    from tools.game_record import walk_core
+    from tools.preencode_sequences import ENCODING
+    from wesnoth_ai.server_priors import core_packed_masks
     games = _games()
     rec, decisions, rows, i, hex_ = _relocation_case(games)
     relocated = copy.deepcopy(rec)
@@ -164,6 +169,10 @@ def test_a_relocated_recruit_sees_none_of_its_own_rejection():
     assert not _differs(rows[i].masks, moved[i].masks)
     assert _differs(rows[i + 1].masks, moved[i + 1].masks)
     assert hex_ not in _recruit_hexes(moved[i + 1])
+    walked = next(core_packed_masks(cs.encode_raw(type_to_id=games.vocab[0], faction_to_id=games.vocab[1],
+                                                  masks=True, **ENCODING))
+                  for k, cs, _ in walk_core(relocated, verify=False) if k == decisions[i].cmd)
+    assert _differs(rows[i].masks, walked)
 
 
 @needs_core
@@ -171,11 +180,11 @@ def test_a_relocated_recruit_sees_none_of_its_own_rejection():
 def test_the_worker_processes_build_the_same_positions():
     """The loader's worker processes (the box's path) build each game as the
     calling thread does, and count the same decisions."""
-    from tools.pg_positions import PositionLoader, side_lengths
+    from tools.pg_positions import PositionLoader, record_facts
     games = _games()
     here = PositionLoader(games.records, *games.vocab)
     pool = PositionLoader(games.records, *games.vocab, workers=1)
-    assert side_lengths(games.records, workers=1) == side_lengths(games.records)
+    assert record_facts(games.records, workers=1) == record_facts(games.records)
     pool.prefetch(games.records)
     for game in games.records:
         a, b = here.game(game), pool.game(game)

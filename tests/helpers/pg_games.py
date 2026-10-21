@@ -32,6 +32,7 @@ import torch
 SLOTS = 64
 TINY_ARCH = {"d_model": 32, "num_layers": 1, "num_heads": 2, "d_ff": 64}
 MAX_TURNS = 3
+PROCEDURE = "raw:t1"                 # the raw player at temperature 1, no end_turn offset
 
 
 def tiny_network(seed: int = 4):
@@ -111,10 +112,11 @@ def logging_player(base, seed: int):
     return LoggingPlayer()
 
 
-def play_logged_game(model, encoder, vocab, out_dir: Path, stem: str, scenario_seed: int,
+def play_logged_game(model, encoder, vocab, out_dir: Path, stem: str, scenario_seed: int, checkpoint_sha256: str,
                      refuse_recruits: Sequence[int] = (), max_turns: int = MAX_TURNS) -> Path:
     """One mini game of the network against itself, its record (with the
-    `decisions` field) written to `out_dir/<stem>.game.jsonl.gz`. The
+    `decisions` field) written to `out_dir/<stem>.game.jsonl.gz` and its
+    match result, naming `checkpoint_sha256` on both seats, beside it. The
     recruit decisions whose running index is in `refuse_recruits` are
     refused by the harness."""
     from sim_test_helpers import scenario_setup
@@ -150,9 +152,13 @@ def play_logged_game(model, encoder, vocab, out_dir: Path, stem: str, scenario_s
         if sim.last_step_rejected:
             raise RuntimeError(f"{stem}: the simulator refused {action!r}")
     path = out_dir / f"{stem}.game.jsonl.gz"
-    players = {x: {"label": "p", "side": s, "memory": SLOTS} for x, s in (("a", 1), ("b", 2))}
+    players = {x: {"label": "p", "side": s, "memory": SLOTS, "procedure": PROCEDURE} for x, s in (("a", 1), ("b", 2))}
     GameRecordLog(path).write(game_record(sim, setup, game_label=stem, players=players,
                                           extra={"decisions": player.log[stem]}))
+    result = {"side_a": 1, "outcome_a": {1: "win", 2: "loss"}.get(sim.winner, "timeout")}
+    for x in ("a", "b"):
+        result.update({f"checkpoint_sha256_{x}": checkpoint_sha256, f"memory_{x}": SLOTS, f"procedure_{x}": PROCEDURE})
+    (out_dir / f"{stem}.json").write_text(json.dumps(result), encoding="utf-8")
     return path
 
 
@@ -197,19 +203,52 @@ def initial_forward(model, encoder, raws, slots: int = SLOTS):
     return model.forward_embedded(encoder.embed_staged(staged), memory=memory)
 
 
+def side_forwards(encoder, model, rows) -> List[tuple]:
+    """Each decision of one game-side's positions (`pg_positions`) forwarded
+    alone, in log order: (its padded output, its staged action batch), the
+    memory carried as the player carried it (a shadow row reads it and
+    writes nothing). Code of its own, beside the pass's and the evaluator's
+    schedules."""
+    from tools.pg_pass import stage_step
+    cpu = torch.device("cpu")
+    memory = model.initial_memory(SLOTS)
+    out = []
+    for p in rows:
+        staged = encoder.stage_raws([p.raw], device=cpu)
+        padded = model.forward_embedded(encoder.embed_staged(staged), memory=[memory])
+        out.append((padded, stage_step([p], staged, model, cpu)))
+        if not p.shadow:
+            memory = padded.memory_padded[0, :SLOTS]
+    return out
+
+
+def moved_network(checkpoint: Path, direction: Dict[str, torch.Tensor], s: float):
+    """(encoder, model) of `checkpoint` with s times `direction` added to
+    the parameters it names ("model.<name>", "encoder.<name>")."""
+    from tools.pg_pass import load_network
+    encoder, model = load_network(checkpoint, torch.device("cpu"))
+    modules = {"model": model, "encoder": encoder}
+    with torch.no_grad():
+        for name, d in direction.items():
+            owner, _, rest = name.partition(".")
+            modules[owner].get_parameter(rest).add_(s * d)
+    return encoder, model
+
+
 @functools.lru_cache(maxsize=None)
 def played_games() -> SimpleNamespace:
     """The suite's games, played once per process into a temporary
     directory: three games of one tiny network, the second with two of its
     recruits refused, and its checkpoint."""
+    from tools.eval_provenance import file_sha256
     root = Path(tempfile.mkdtemp(prefix="pg_games_"))
     atexit.register(shutil.rmtree, root, True)
     vocab, encoder, model = tiny_network()
+    checkpoint = save_network(root / "net.pt", vocab, encoder, model)
     games = root / "games"
     games.mkdir()
     plan = {"g0": (3, ()), "g1": (5, (0, 2)), "g2": (11, ())}
-    records = {stem: play_logged_game(model, encoder, vocab, games, stem, seed, refuse)
+    records = {stem: play_logged_game(model, encoder, vocab, games, stem, seed, file_sha256(checkpoint), refuse)
                for stem, (seed, refuse) in plan.items()}
-    checkpoint = save_network(root / "net.pt", vocab, encoder, model)
     return SimpleNamespace(root=root, games=games, records=records, checkpoint=checkpoint, vocab=vocab,
                            encoder=encoder, model=model)
