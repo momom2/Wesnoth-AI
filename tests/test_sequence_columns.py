@@ -209,7 +209,7 @@ def _hand_masks(g, U, R, H):
         attack_valid=g.integers(0, 256, (A, HB)).astype(np.uint8),
         move_valid=g.integers(0, 256, (A, HB)).astype(np.uint8),
         union_valid=g.integers(0, 256, (A, HB)).astype(np.uint8), n_attacks=g.integers(0, 4, A).astype(np.int8),
-        end_turn_bias=float(g.normal()), n_units=U, n_recruits=R, n_hexes=H)
+        n_units=U, n_recruits=R, n_hexes=H)
 
 
 def _hand_target(g, U, R, H):

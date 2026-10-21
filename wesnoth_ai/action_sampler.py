@@ -190,8 +190,7 @@ def sample_action(
 
     masks = _build_legality_masks(encoded, game_state)
 
-    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid,
-        end_turn_bias=prior_bias_end_turn(game_state))
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_idx = _sample_from_logits(actor_logits.squeeze(0))
 
     kind = int(output.actor_kind[0, actor_idx].item())
@@ -334,8 +333,7 @@ def reforward_logprob_entropy(
 
     masks = _build_legality_masks(encoded, game_state)
 
-    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid,
-        end_turn_bias=prior_bias_end_turn(game_state))
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     log_prob, entropy = _logprob_entropy_1d(actor_logits.squeeze(0), actor_idx)
 
     if target_idx is None:
@@ -463,9 +461,7 @@ def enumerate_legal_actions_with_priors(
     from wesnoth_ai.model import UnitActionType
 
     masks = _build_legality_masks(encoded, game_state)
-    actor_logits = _masked_actor_logits(
-        encoded, output, masks.actor_valid,
-        end_turn_bias=prior_bias_end_turn(game_state))
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_p = F.softmax(actor_logits.squeeze(0), dim=-1)
     p_actor = actor_p.detach().cpu().numpy().astype(np.float64)
     A = p_actor.shape[0]
@@ -594,8 +590,7 @@ def _enumerate_legal_actions_reference(
     from wesnoth_ai.model import UnitActionType
 
     masks = _build_legality_masks(encoded, game_state)
-    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid,
-        end_turn_bias=prior_bias_end_turn(game_state))
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_p = F.softmax(actor_logits.squeeze(0), dim=-1)  # [A]
     A = actor_p.shape[0]
 
@@ -735,35 +730,10 @@ def _enumerate_legal_actions_reference(
 # Helpers (shared by sample + reforward)
 # ---------------------------------------------------------------------
 
-def prior_bias_end_turn(game_state) -> float:
-    """PRIOR HARDCODED BIAS instance (user policy 2026-08-06; see
-    constants.py): logit nudge on the end_turn actor slot for
-    MINI-category games only. Default OFF; activated per-run on
-    explicit user order via WESNOTH_PRIOR_BIAS_END_TURN_MINI=<float>
-    (negative = against passing, e.g. -1.5). Env-inherited, so the
-    pool's actors and the trainer re-forward read the identical value --
-    the rollout/training symmetry contract holds by construction."""
-    return end_turn_bias_of(getattr(game_state.global_info, "_scenario_category", ""))
-
-
-def end_turn_bias_of(scenario_category: str) -> float:
-    """`prior_bias_end_turn` for a game of `scenario_category` (the
-    state's `_scenario_category`, which a core keeps in its statics)."""
-    import os as _os
-    v = _os.environ.get("WESNOTH_PRIOR_BIAS_END_TURN_MINI")
-    if not v or scenario_category != "mini":
-        return 0.0
-    try:
-        return float(v)
-    except ValueError:
-        return 0.0
-
-
 def _masked_actor_logits(
     encoded: EncodedState,
     output: ModelOutput,
     actor_valid: torch.Tensor,
-    end_turn_bias: float = 0.0,
 ) -> torch.Tensor:
     """Mask actor logits by both side-ownership and legality.
 
@@ -778,14 +748,7 @@ def _masked_actor_logits(
         torch.ones(1, 1, device=device),  # end_turn always ours
     ], dim=1)
     mask = ownership * actor_valid
-    logits = output.actor_logits
-    if end_turn_bias:
-        # Prior hardcoded bias on the end_turn slot (always the last
-        # actor). Applied pre-softmax so search priors AND the
-        # distillation targets shift together.
-        logits = logits.clone()
-        logits[0, -1] = logits[0, -1] + end_turn_bias
-    return logits.masked_fill(mask == 0, _NEG_INF)
+    return output.actor_logits.masked_fill(mask == 0, _NEG_INF)
 
 
 def _masked_type_logits(
@@ -934,8 +897,7 @@ def predict_priors(
     device = output.actor_logits.device
 
     # 1) Actor distribution.
-    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid,
-        end_turn_bias=prior_bias_end_turn(game_state))
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_p = _safe_softmax(actor_logits, dim=-1)            # [1, A]
 
     A = actor_logits.size(-1)

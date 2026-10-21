@@ -48,8 +48,8 @@ def test_round_trip_is_exact_and_smaller():
                 assert np.array_equal(a, b), name
         assert (raw2.our_faction_id, raw2.their_faction_id, raw2.hex_subset) == \
             (raw.our_faction_id, raw.their_faction_id, raw.hex_subset)
-        assert (masks2.end_turn_bias, masks2.n_units, masks2.n_recruits, masks2.n_hexes) == \
-            (masks.end_turn_bias, masks.n_units, masks.n_recruits, masks.n_hexes)
+        assert (masks2.n_units, masks2.n_recruits, masks2.n_hexes) == \
+            (masks.n_units, masks.n_recruits, masks.n_hexes)
     # Fewer bytes than the object pickle (the metadata lists are gone);
     # the point is one numpy object per request instead of ~40 per leaf.
     assert len(pickle.dumps(req)) < len(pickle.dumps(items))

@@ -22,7 +22,7 @@ needs_core = pytest.mark.skipif(game_core_class() is None, reason="wesnoth_core 
 # basis, obs8's and the full board.
 BASES = [(True, 2, True), (True, 1, False), (False, 1, False)]
 FIELDS = ("actor_mask", "type_valid", "attack_valid", "move_valid", "union_valid", "n_attacks",
-          "end_turn_bias", "n_units", "n_recruits", "n_hexes")
+          "n_units", "n_recruits", "n_hexes")
 
 
 def _encoders(relevant_set: bool, version: int, parity: bool):

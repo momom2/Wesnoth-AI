@@ -143,7 +143,6 @@ CORPUS_GROUPS = (
 
 OWN_GROUPS = (
     Group("own_rows", None, (
-        ("mask_end_turn_bias", "<f8", lambda p: p.masks.end_turn_bias),
         ("mask_units", "<i8", lambda p: p.masks.n_units),
         ("mask_recruits", "<i8", lambda p: p.masks.n_recruits),
         ("mask_hexes", "<i8", lambda p: p.masks.n_hexes),
@@ -410,8 +409,7 @@ class ColumnarSide:
         att, mov, uni = (x.reshape(-1, width) for x in self._slice("bits", i, "attack_valid", "move_valid",
                                                                       "union_valid"))
         return PackedMasks(actor_mask=mask, type_valid=tv, attack_valid=att, move_valid=mov, union_valid=uni,
-                           n_attacks=n_att, end_turn_bias=float(a["mask_end_turn_bias"][i]),
-                           n_units=int(a["mask_units"][i]), n_recruits=int(a["mask_recruits"][i]),
+                           n_attacks=n_att, n_units=int(a["mask_units"][i]), n_recruits=int(a["mask_recruits"][i]),
                            n_hexes=int(a["mask_hexes"][i]))
 
     def _own_target(self, i: int):
@@ -431,7 +429,7 @@ _RAW_ARRAYS = ("hex_xs", "hex_ys", "hex_terrain_ids", "hex_modifier_flags", "hex
 _RAW_VALUES = ("our_faction_id", "their_faction_id", "material", "hex_subset")
 _LABEL_VALUES = ("action_type", "actor_idx", "target_idx", "weapon_idx", "type_idx", "target_off_subset")
 _MASK_ARRAYS = ("actor_mask", "type_valid", "attack_valid", "move_valid", "union_valid", "n_attacks")
-_MASK_VALUES = ("end_turn_bias", "n_units", "n_recruits", "n_hexes")
+_MASK_VALUES = ("n_units", "n_recruits", "n_hexes")
 _TARGET_ARRAYS = ("actor", "kind", "target", "weapon", "prior")
 
 

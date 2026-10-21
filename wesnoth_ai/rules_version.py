@@ -49,6 +49,9 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # The inference server's mask staging without the hand-set prior
     # biases (fix/remove-hand-priors): nothing that builds a position.
     36: 31,
+    # The inference server's requests without the end_turn bias
+    # (fix/remove-hand-priors): nothing that builds a position.
+    37: 31,
 }
 
 

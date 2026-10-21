@@ -86,7 +86,7 @@ def _pack(U: int = 2, R: int = 3, H: int = 5) -> PackedMasks:
                        attack_valid=np.zeros((A, HB), np.uint8),
                        move_valid=np.zeros((A, HB), np.uint8),
                        union_valid=np.zeros((A, HB), np.uint8),
-                       n_attacks=np.zeros(A, np.int8), end_turn_bias=0.0,
+                       n_attacks=np.zeros(A, np.int8),
                        n_units=U, n_recruits=R, n_hexes=H)
 
 

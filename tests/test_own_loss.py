@@ -24,7 +24,7 @@ def _masks(rng, U: int, R: int, H: int) -> PackedMasks:
     return PackedMasks(actor_mask=(rng.random(A) > 0.3).astype(np.uint8),
                        type_valid=(rng.random((A, T)) > 0.4).astype(np.uint8), attack_valid=bits(),
                        move_valid=bits(), union_valid=bits(), n_attacks=rng.integers(0, W + 1, A).astype(np.int8),
-                       end_turn_bias=float(rng.normal()), n_units=U, n_recruits=R, n_hexes=H)
+                       n_units=U, n_recruits=R, n_hexes=H)
 
 
 def _target(rng, n: int, A: int, H: int) -> OwnTarget:

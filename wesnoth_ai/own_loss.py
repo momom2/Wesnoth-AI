@@ -202,7 +202,7 @@ def legal_log_probs(padded, batch: OwnBatch) -> torch.Tensor:
     a, kind = batch.actor, batch.kind
     n, K = a.shape
     b = torch.arange(n, device=a.device).unsqueeze(1).expand(n, K)
-    actor_logits = padded.actor_logits.float()[rows] + v["actor_bias"]
+    actor_logits = padded.actor_logits.float()[rows]
     log_actor = _log_softmax_masked(actor_logits, v["actor_mask"] != 0)
     lp = log_actor.gather(1, a)
 

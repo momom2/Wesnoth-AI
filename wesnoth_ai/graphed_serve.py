@@ -905,7 +905,7 @@ class GraphedServe:
                 actor_mask=actor_mask, type_valid=np.zeros((A, self.T), np.uint8),
                 attack_valid=np.zeros((A, HB), np.uint8), move_valid=np.zeros((A, HB), np.uint8),
                 union_valid=np.zeros((A, HB), np.uint8), n_attacks=np.zeros(A, np.int8),
-                end_turn_bias=0.0, n_units=U, n_recruits=R, n_hexes=H))
+                n_units=U, n_recruits=R, n_hexes=H))
             raws.append(raw)
             memories.append(MemoryState(self.k_cap, None))
         return raws, packs, (memories if self.k_cap else None)

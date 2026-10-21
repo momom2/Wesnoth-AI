@@ -113,13 +113,6 @@ INCOME_NORM   = 50.0
 VILLAGES_NORM = 30.0    # large 4p maps; 2p ladder caps ~15
 TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 
-# PRIOR HARDCODED BIAS: the end_turn bias on mini-category games
-# (2026-08-06), default OFF; activated per-run via
-# WESNOTH_PRIOR_BIAS_END_TURN_MINI=<float> (negative = against
-# passing); env-inherited so the pool's actors and the trainer
-# re-forward see the identical bias (symmetry contract).
-PRIOR_BIAS_END_TURN_MINI_DEFAULT = 0.0
-
 # Pre-seeded faction vocab. The encoder pre-binds these to specific
 # embedding rows so cross-replay supervised training stays
 # consistent (a state that happens to feed Rebels first wouldn't

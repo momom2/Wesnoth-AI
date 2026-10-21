@@ -141,16 +141,15 @@ def encode_decision(cs, cmd: Optional[list], where: str, type_to_id: Dict[str, i
         ai = slot_checked(ai, raw, where, stats)
     pos = sequence_position(raw, ai, int(cs.core.current_side), int(cs.core.turn_number), stats)
     if masks:
-        pos.masks = _decision_masks(raw, cs)
+        pos.masks = _decision_masks(raw)
     return pos
 
 
-def _decision_masks(raw, cs):
-    """The packed legality masks of the decision `raw` encodes on `cs`: the
-    core's, built beside the encoding."""
-    from wesnoth_ai.action_sampler import end_turn_bias_of
+def _decision_masks(raw):
+    """The packed legality masks of the decision `raw` encodes: the core's,
+    built beside the encoding."""
     from wesnoth_ai.server_priors import core_packed_masks
-    return core_packed_masks(raw, end_turn_bias_of(cs.statics.get("_scenario_category", "")))
+    return core_packed_masks(raw)
 
 
 def sequence_position(raw, ai, side: int, turn: int, stats: Counter) -> SequencePosition:

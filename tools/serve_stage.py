@@ -61,8 +61,8 @@ REQUEST_HEAD_WORDS = 3            # tools/serve_loop.py: kind, request id, leave
 _TOKEN_KINDS = (TokenKind.HEX, TokenKind.UNIT, TokenKind.RECRUIT, TokenKind.SIGHTING,
                 TokenKind.MEMORY, TokenKind.GLOBAL, TokenKind.END_TURN)
 _ACTOR_KINDS = (ActorKind.UNIT, ActorKind.RECRUIT, ActorKind.END_TURN)
-_MASK_NAMES = ("actor_bias", "actor_mask", "slot_kind", "n_attacks", "type_valid", "attack_bits",
-               "move_bits", "union_bits")
+_MASK_NAMES = ("actor_mask", "slot_kind", "n_attacks", "type_valid", "attack_bits", "move_bits",
+               "union_bits")
 # The head outputs a reply carries, in byte_wire.REPLY_FIELDS's order.
 _REPLY_EXTRAS = ("value", "value_logits", "cliffness", "aux_score", "moves_left")
 _TORCH_CODE = {torch.float32: _CODE[np.dtype(np.float32)], torch.float64: _CODE[np.dtype(np.float64)],

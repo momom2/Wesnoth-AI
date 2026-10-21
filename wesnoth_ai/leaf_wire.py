@@ -67,7 +67,6 @@ class LeafHeader:
     our_faction_id: int
     their_faction_id: int
     hex_subset: bool
-    end_turn_bias: float
     n_units: int
     n_recruits: int
     n_hexes: int
@@ -122,7 +121,6 @@ def pack_request(items: Sequence[Tuple]) -> PackedRequest:
             our_faction_id=int(raw.our_faction_id),
             their_faction_id=int(raw.their_faction_id),
             hex_subset=bool(raw.hex_subset),
-            end_turn_bias=float(masks.end_turn_bias),
             n_units=int(masks.n_units), n_recruits=int(masks.n_recruits),
             n_hexes=int(masks.n_hexes)))
     buf = np.empty(total, dtype=np.uint8)
@@ -173,8 +171,7 @@ def unpack_request(req: PackedRequest) -> List[Tuple]:
             hex_positions=None, unit_positions=None, unit_ids=None, recruit_types=None,
             our_faction_id=h.our_faction_id, their_faction_id=h.their_faction_id,
             hex_subset=h.hex_subset, **r, **parity)
-        masks = PackedMasks(end_turn_bias=h.end_turn_bias, n_units=h.n_units,
-                            n_recruits=h.n_recruits, n_hexes=h.n_hexes, **m)
+        masks = PackedMasks(n_units=h.n_units, n_recruits=h.n_recruits, n_hexes=h.n_hexes, **m)
         if h.memory_k < 0:
             out.append((raw, masks))
         else:

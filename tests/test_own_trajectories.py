@@ -77,7 +77,7 @@ def _all_legal(U: int, R: int, H: int, W: int) -> PackedMasks:
     n_attacks = np.zeros(A, dtype=np.int8)
     n_attacks[:U] = W
     return PackedMasks(actor_mask=np.ones(A, dtype=np.uint8), type_valid=type_valid, attack_valid=bits,
-                       move_valid=bits, union_valid=bits, n_attacks=n_attacks, end_turn_bias=0.0,
+                       move_valid=bits, union_valid=bits, n_attacks=n_attacks,
                        n_units=U, n_recruits=R, n_hexes=H)
 
 

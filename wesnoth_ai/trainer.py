@@ -40,7 +40,6 @@ import torch.nn.functional as F
 
 from wesnoth_ai.action_sampler import (
     _NEG_INF,
-    prior_bias_end_turn as _prior_bias_end_turn,
     _build_legality_masks,
     _masked_actor_logits,
     _masked_target_logits,
@@ -929,12 +928,7 @@ def _mcts_factored_policy_loss_reference(
 
     def _oob(kind: str, idx: int, size: int, actor_idx: int) -> bool:
         return _oob_index(kind, idx, size, actor_idx, output.num_units)
-    # Prior-bias symmetry: the trainer re-forward must apply the
-    # SAME end_turn bias the rollout applied, or the CE would fight
-    # a target the live priors never produced.
-    actor_logits = _masked_actor_logits(
-        encoded, output, masks.actor_valid,
-        end_turn_bias=_prior_bias_end_turn(game_state))
+    actor_logits = _masked_actor_logits(encoded, output, masks.actor_valid)
     actor_logp = F.log_softmax(actor_logits.squeeze(0), dim=-1)  # [A]
 
     # Per-actor caches.
@@ -1220,8 +1214,7 @@ def _no_action_masks(U: int, R: int, H: int, T: int) -> PackedMasks:
         actor_mask=np.zeros(A, dtype=np.uint8),
         type_valid=np.zeros((A, T), dtype=np.uint8),
         attack_valid=bits, move_valid=bits, union_valid=bits,
-        n_attacks=np.zeros(A, dtype=np.int8), end_turn_bias=0.0,
-        n_units=U, n_recruits=R, n_hexes=H)
+        n_attacks=np.zeros(A, dtype=np.int8), n_units=U, n_recruits=R, n_hexes=H)
 
 
 def _stage_policy_targets(
@@ -1373,8 +1366,7 @@ def _batched_factored_policy_loss(padded, targets: _PolicyTargets) -> _PolicyLos
     H_max = padded.target_logits.shape[2]
     W = padded.weapon_logits.shape[2]
 
-    al = (padded.actor_logits + mv["actor_bias"]).masked_fill(
-        mv["actor_mask"] == 0, _NEG_INF)
+    al = padded.actor_logits.masked_fill(mv["actor_mask"] == 0, _NEG_INF)
     a_vals = F.log_softmax(al, dim=-1).reshape(-1)[tv["actor_idx"]]
     head_logp = {"actor": (tv["actor_coef"] * a_vals).sum()}
     logp_sum = head_logp["actor"]

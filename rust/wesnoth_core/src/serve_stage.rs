@@ -101,7 +101,6 @@ struct Roles {
     n_attacks: usize,
     memory_state: usize,
     s_memory_k: usize,
-    s_end_turn_bias: usize,
     s_n_units: usize,
     s_n_recruits: usize,
     s_n_hexes: usize,
@@ -129,7 +128,6 @@ impl Roles {
             n_attacks: index_of(fields, "n_attacks")?,
             memory_state: index_of(fields, "memory_state")?,
             s_memory_k: index_of(scalars, "memory_k")?,
-            s_end_turn_bias: index_of(scalars, "end_turn_bias")?,
             s_n_units: index_of(scalars, "n_units")?,
             s_n_recruits: index_of(scalars, "n_recruits")?,
             s_n_hexes: index_of(scalars, "n_hexes")?,
@@ -429,9 +427,9 @@ impl ServeRequests {
     }
 
     /// The masks of `server_priors.write_masks` into the mask layout's
-    /// fields at byte offsets `offsets` (actor_bias, actor_mask,
-    /// slot_kind, n_attacks, type_valid, attack_bits, move_bits,
-    /// union_bits), whose rows are `a_stride` actor slots of `t` types,
+    /// fields at byte offsets `offsets` (actor_mask, slot_kind,
+    /// n_attacks, type_valid, attack_bits, move_bits, union_bits),
+    /// whose rows are `a_stride` actor slots of `t` types,
     /// `hb_stride` packed hex bytes and `h_stride` hexes; `zero` (byte
     /// offset, bytes) is cleared first, and with `dirty` (rows and actor
     /// slots the previous batch wrote, `graphed_serve._clear_masks`)
@@ -439,14 +437,14 @@ impl ServeRequests {
     /// (`_staged_capacity`) at `w` weapon slots.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (buf, offsets, a_stride, t, hb_stride, h_stride, w, zero, dirty=None))]
-    fn fill_masks(&self, py: Python<'_>, mut buf: PyReadwriteArray1<'_, u8>, offsets: [i64; 8],
+    fn fill_masks(&self, py: Python<'_>, mut buf: PyReadwriteArray1<'_, u8>, offsets: [i64; 7],
                   a_stride: usize, t: usize, hb_stride: usize, h_stride: usize, w: i64,
                   zero: (usize, usize), dirty: Option<(usize, usize)>) -> PyResult<i64> {
         let buf = buf.as_slice_mut().or_else(|_| err("fill_masks: a non-contiguous buffer"))?;
         region(buf, zero.0, zero.1, "fill_masks zero")?.fill(0);
         if let Some((rows, slots)) = dirty {
             // Per field the bytes of one actor slot.
-            let widths = [4, 1, 1, 1, t, hb_stride, hb_stride, hb_stride];
+            let widths = [1, 1, 1, t, hb_stride, hb_stride, hb_stride];
             for (f, &off) in offsets.iter().enumerate() {
                 if off < 0 {
                     continue;
@@ -462,8 +460,8 @@ impl ServeRequests {
         let need = |i: usize| -> PyResult<usize> {
             if offsets[i] < 0 { err(format!("fill_masks: mask field {i} has no offset")) } else { Ok(offsets[i] as usize) }
         };
-        let (o_bias, o_mask, o_slot, o_natt, o_tv) = (need(0)?, need(1)?, need(2)?, need(3)?, need(4)?);
-        let (o_atk, o_mv, o_un) = (need(5)?, need(6)?, need(7)?);
+        let (o_mask, o_slot, o_natt, o_tv) = (need(0)?, need(1)?, need(2)?, need(3)?);
+        let (o_atk, o_mv, o_un) = (need(4)?, need(5)?, need(6)?);
         let mut capacity = 0i64;
         for (b, leaf) in self.leaves.iter().enumerate() {
             let (u, rc, h) = self.size(leaf);
@@ -480,8 +478,6 @@ impl ServeRequests {
                                    &tv_ref.dims[..tv_ref.ndim]));
             }
             let row0 = b * a_stride;
-            let bias = f64::from_bits(leaf.scalars[r.s_end_turn_bias] as u64) as f32;
-            region(buf, o_bias + 4 * (row0 + u + rc), 4, "actor_bias")?.copy_from_slice(&bias.to_le_bytes());
             let mask = self.field(py, leaf, r.actor_mask);
             region(buf, o_mask + row0, a_n, "actor_mask")?.copy_from_slice(mask);
             let slots = region(buf, o_slot + row0, a_n, "slot_kind")?;

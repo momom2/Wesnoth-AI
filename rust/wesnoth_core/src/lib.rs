@@ -672,7 +672,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // (`__source_hash__`, build.rs).
     // 36: the inference server's masks carry no hand-set prior biases
     // (ServeRequests.fill_masks).
-    m.add("__phase__", 36)?;
+    // 37: the inference server's requests carry no end_turn bias, and its
+    // masks no actor bias field (ServeRequests.fill_masks).
+    m.add("__phase__", 37)?;
     m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;

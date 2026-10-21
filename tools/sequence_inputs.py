@@ -243,7 +243,6 @@ def write_mask_columns(hv: Dict[str, np.ndarray], own: Sequence[Tuple[ColumnarSi
     hv["actor_mask"][rows_a, cols_a] = _cat(own, "actor_mask", actor_spans)
     hv["slot_kind"][rows_a, cols_a] = np.where(cols_a < U[rows_a], _SLOT_UNIT,
                                                np.where(cols_a < (U + R)[rows_a], _SLOT_RECRUIT, _SLOT_END))
-    hv["actor_bias"][np.arange(n), U + R] = _scalars(own, "mask_end_turn_bias")
     hv["n_attacks"][rows_a, cols_a] = _cat(own, "n_attacks", actor_spans)
     hv["type_valid"][rows_a, cols_a] = _cat(own, "type_valid", actor_spans)
     width = _scalars(own, "mask_bits_width").astype(np.int64)
