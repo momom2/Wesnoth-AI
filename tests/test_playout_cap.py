@@ -68,13 +68,11 @@ def _recorded_count(mp, seed=21):
     decision snapshot and calls finalize_game) and return how many
     training targets the policy recorded. Driving the actual code path
     (not a hand-rolled select/step/finalize loop) is the point: it can't
-    get the snapshot contract subtly wrong. MCTS ignores per-step
-    rewards, so a zero reward_fn suffices."""
-    from tools.selfplay_game import play_one_game, _recruit_cost_lookup
+    get the snapshot contract subtly wrong."""
+    from tools.selfplay_game import play_one_game
     mp._rng = np.random.default_rng(seed)
     sim = fresh_scenario_sim(seed=seed, max_turns=8, mini=True)
-    play_one_game(sim, mp, lambda delta: 0.0, game_label="g",
-                  cost_lookup=_recruit_cost_lookup())
+    play_one_game(sim, mp, game_label="g")
     return len(mp._queue)   # finalize_game drained _pending -> _queue
 
 

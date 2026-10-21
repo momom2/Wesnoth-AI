@@ -2,8 +2,8 @@
 design overview and the manager; tools/actor_protocol.py the messages).
 
 - _IPCInferenceClient: the RemoteModel transport inside an actor.
-- _zero_reward, _set_fd_safe_sharing: also used by the manager, the
-  serve process and the anatomy tools (through tools.actor_pool).
+- _set_fd_safe_sharing: also used by the manager, the serve process
+  and the anatomy tools (through tools.actor_pool).
 - _actor_loop: the spawned actor process body (ActorPool.start runs it
   through tools.mp_teardown.start_child; spawn pickles it by this
   module path).
@@ -123,13 +123,6 @@ class _IPCInferenceClient:
                                        "(see the server's log)")
                 return [output_from_wire(w) for w in wires]
             # Stale reply from an abandoned request id: drop.
-
-
-def _zero_reward(_delta) -> float:
-    """MCTS discards per-step shaping (policy.observe is a no-op; z
-    comes from the winner in finalize_game). play_one_game still calls
-    reward_fn at the terminal, so we return a constant 0.0."""
-    return 0.0
 
 
 def _set_fd_safe_sharing() -> None:
@@ -284,7 +277,7 @@ def _actor_loop(
     # Heavy imports happen here (post-spawn), not at module import time.
     from tools.inference_seam import RemoteEncoder, RemoteModel
     from tools.mcts_policy import MCTSPolicy
-    from tools.selfplay_game import _play_one_game_safe, _recruit_cost_lookup
+    from tools.selfplay_game import _play_one_game_safe
     from wesnoth_ai.rules.scenario_pool import random_setup, roll_mix
     from tools.wesnoth_sim import PvPDefaults
     from tools.game_record import configure as configure_records
@@ -294,7 +287,6 @@ def _actor_loop(
 
     client = _IPCInferenceClient(actor_id, req_qs, resp_q)
     rmodel = RemoteModel(client)
-    cost_lookup = _recruit_cost_lookup()
     pvp = PvPDefaults(**pvp_kwargs) if pvp_kwargs else PvPDefaults()
     cpu = torch.device("cpu")
 
@@ -466,8 +458,7 @@ def _actor_loop(
                     result_q.put((_R_START, actor_id, (g, t_game0, iter_idx)))
                 outcome = _play_one_game_safe(
                     setup=setup, max_turns=mt, pvp_defaults=pvp,
-                    policy=policy, reward_fn=_zero_reward,
-                    cost_lookup=cost_lookup, game_label=gl,
+                    policy=policy, game_label=gl,
                     seed_salt=f"pool:{seed}",     # this game's own combat luck
                     record_extra={"iteration": iter_idx, "game_index": g,
                                   "game_seed": seed, "category": cat,

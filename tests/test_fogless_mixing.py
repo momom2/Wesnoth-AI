@@ -94,20 +94,18 @@ def test_outcome_carries_fog_flag_and_village_metrics():
     from sim_test_helpers import fresh_scenario_sim
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
-    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import play_one_game
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     pol = TransformerPolicy(device=torch.device("cpu"), d_model=32,
                             num_layers=1, num_heads=4, d_ff=64)
     mp = MCTSPolicy(pol, MCTSConfig(n_simulations=4, batch_size=1,
                                     add_root_noise=False))
-    cost = _recruit_cost_lookup()
 
     mp._rng = np.random.default_rng(3)
     sim = fresh_scenario_sim(seed=3, max_turns=4, mini=True)
     fog = getattr(sim.gs.global_info, "_fog", True)
-    out = play_one_game(sim, mp, lambda d: 0.0, game_label="g",
-                        cost_lookup=cost)
+    out = play_one_game(sim, mp, game_label="g")
     assert out.fogless is (not fog)
     assert out.villages_mean_s1 >= 0.0
     assert out.villages_end_s1 >= 0
@@ -115,8 +113,7 @@ def test_outcome_carries_fog_flag_and_village_metrics():
     mp._rng = np.random.default_rng(3)
     sim2 = fresh_scenario_sim(seed=3, max_turns=4, mini=True)
     setattr(sim2.gs.global_info, "_fog", False)
-    out2 = play_one_game(sim2, mp, lambda d: 0.0, game_label="g2",
-                         cost_lookup=cost)
+    out2 = play_one_game(sim2, mp, game_label="g2")
     assert out2.fogless is True
 
 
@@ -189,8 +186,7 @@ def test_the_training_path_overrides_no_scenario_setting(monkeypatch):
                        village_support=1, experience_modifier=70)
     out = selfplay_game._play_one_game_safe(
         setup=random_setup(random.Random(3), mini_maps=True), max_turns=4,
-        pvp_defaults=loud, policy=None, reward_fn=None, cost_lookup=None,
-        game_label="t")
+        pvp_defaults=loud, policy=None, game_label="t")
     assert out is None and seen, "the builder was never reached"
     assert seen["starting_gold"] is None
     assert seen["village_gold"] is None

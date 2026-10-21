@@ -176,114 +176,6 @@ _TERRAIN_BASE = {
 }
 
 
-# Alias terrains: Wesnoth's `aliasof=Gt, Wst` etc. tells the engine
-# "treat this terrain as both grass AND shallow_water for defense /
-# movement, picking whichever is best for the unit on it." We mirror
-# that by mapping each WML terrain code to the LIST of canonical WML
-# defense keys it should be evaluated against. Defense is then the
-# minimum (best) over the list. From wesnoth_src/data/core/terrain.cfg.
-_DEFENSE_KEYS_FOR_CODE: Dict[str, List[str]] = {
-    "Aa":   ["frozen"],
-    "Gg":   ["flat"], "Gs": ["flat"], "Gd": ["flat"],
-    "Hh":   ["hills"], "Ha": ["hills"],
-    "Mm":   ["mountains"], "Ms": ["mountains"], "Md": ["mountains"],
-    "Ww":   ["shallow_water"],
-    "Wwf":  ["shallow_water", "flat"],   # Ford = Wst | Gt
-    "Wwt":  ["shallow_water"],
-    "Wwr":  ["shallow_water"],
-    "Wwg":  ["shallow_water"],
-    "Wo":   ["deep_water"],
-    "Ss":   ["swamp_water"],
-    "Ds":   ["sand"],
-    "Rr":   ["flat"], "Re": ["flat"],
-    "Ql":   ["cave"],
-    "Xu":   ["impassable"], "Xv": ["impassable"], "Xm": ["impassable"],
-    # Cave floor (Uu / Uue) -- aliasof=Ut, defends/moves as cave.
-    # NOT unwalkable: cf. correction note above on the
-    # `_TERRAIN_FOR_CODE` mapping.
-    "Uu":   ["cave"], "Uue": ["cave"],
-    "Ch":   ["castle"],
-    "Cha":  ["castle", "frozen"],        # snowy castle = Ct | At
-    "Chr":  ["castle"],                  # ruined castle = Ct
-    "Chs":  ["castle"],
-    "Chw":  ["castle", "shallow_water"], # sunken castle = Ct | Wst
-    "Cd":   ["castle"], "Kd": ["castle"], "Kh": ["castle"], "Ko": ["castle"],
-    "Hhd":  ["hills"], "Mv": ["mountains"],
-    "Tb":   ["flat"], "Iwr": ["flat"],
-    "Rb":   ["flat"],
-    "Qxua": ["unwalkable"], "Qxu":  ["unwalkable"], "Wog": ["deep_water"],
-    "Qlf":  ["cave"],
-    "_off": ["impassable"],
-}
-
-
-# Overlay codes (the part after `^` in 'Re^Fmf') and their defense
-# keys. An overlay typically REPLACES the base for defense purposes
-# (forest overlay on grass → use forest defense, not grass) but the
-# rule isn't universal: village overlays add the village defense
-# alongside the base, not replace it. We model the conservative
-# interpretation: overlay keys EXTEND the base's defense-key list,
-# and defense_pct is the min (best) over the union.
-_OVERLAY_DEFENSE_KEYS: Dict[str, List[str]] = {
-    # Forest overlays — Fp/Fpa/Ftr/Fma/Fda/Fmf/Fdf/Fet etc. all read
-    # as "forest" for defense.
-    "Fp":  ["forest"], "Fpa": ["forest"], "Ftr": ["forest"],
-    "Fma": ["forest"], "Fda": ["forest"], "Fmf": ["forest"],
-    "Fdf": ["forest"], "Fet": ["forest"], "Ft":  ["forest"],
-    "Fds": ["forest"],
-    # Village overlays — defender uses VILLAGE defense.
-    "Vh":  ["village"], "Vhc": ["village"], "Vhh": ["village"],
-    "Vhs": ["village"], "Vct": ["village"], "Vc":  ["village"],
-    "Vd":  ["village"], "Vda": ["village"], "Vdt": ["village"],
-    "Vm":  ["village"], "Vmd": ["village"], "Vmw": ["village"],
-    "Vo":  ["village"], "Vot": ["village"], "Vov": ["village"],
-    "Vu":  ["village"], "Vud": ["village"], "Vu_a": ["village"],
-    "Vwm": ["village"], "Vwh": ["village"], "Vws": ["village"],
-    "Vd1": ["village"], "Vh1": ["village"], "Vc1": ["village"],
-    "Gvs": ["village"],
-    # Castle overlays.
-    "Xo":  ["castle"],
-    # Misc structural overlays — leave the base alone.
-    "Em":  [], "Edp": [], "Eh":  [], "Es":  [],
-    "Bsb\\": [], "Bsb/": [], "Bs\\": [], "Bs/": [], "Bs|": [],
-    "Tf":  [], "Tu":  [], "Th":  [],
-    "Xm":  ["impassable"], "Xv":  ["impassable"],
-}
-
-
-def _defense_keys_for_code(code: str) -> List[str]:
-    """Return the canonical WML defense-table keys for a Wesnoth
-    terrain code (handles `^` overlays and `aliasof=` aliases).
-
-    Examples:
-      'Wwf'        → ['shallow_water', 'flat']  (Ford = Wst | Gt)
-      'Re^Fmf'     → ['forest']                 (forest overlay on road)
-      'Aa^Vha'     → ['frozen', 'village']      (snow + village)
-      'Hh^Vhh'     → ['hills', 'village']       (hills + village)
-
-    Falls back to ['flat'] for unknown codes."""
-    base = code
-    overlay = ""
-    if "^" in code:
-        base, overlay = code.split("^", 1)
-    base_keys = _DEFENSE_KEYS_FOR_CODE.get(base)
-    if base_keys is None:
-        # Single-letter-prefix fallback for unknown codes.
-        base_keys = ["flat"]
-    keys = list(base_keys)
-    if overlay:
-        ov_keys = _OVERLAY_DEFENSE_KEYS.get(overlay, [])
-        # Forest/village overlays REPLACE the base for the purpose of
-        # defense — a forest on grass is forest, a village on hills is
-        # village. We append their keys so callers can min() over the
-        # union; for a unit with better forest defense than grass
-        # defense, forest wins.
-        for k in ov_keys:
-            if k not in keys:
-                keys.append(k)
-    return keys
-
-
 def _parse_hex_code(code: str) -> Tuple[set, set]:
     """Return (terrain_types, static_modifiers) for one hex code like
     'Hh^Fms' or 'Gg^Vh'."""
@@ -312,10 +204,8 @@ def parse_terrain_codes(map_data: str) -> Dict[Tuple[int, int], str]:
     """Return a dict from playable (x, y) → full WML terrain code
     INCLUDING overlay (e.g., 'Re^Fmf'). The overlay matters for
     defense — `Re^Fmf` is "road overlaid with mixed forest" which a
-    unit treats as forest, not flat. `_defense_keys_for_code` resolves
-    the full code to the list of defense keys (handling Wesnoth's
-    `aliasof=` semantics; the unit's defense_pct is the BEST/min over
-    those keys). Coords are 0-indexed (border-stripped)."""
+    unit treats as forest, not flat (terrain_resolver.def_pct walks the
+    alias graph). Coords are 0-indexed (border-stripped)."""
     out: Dict[Tuple[int, int], str] = {}
     rows, border = split_map_grid(map_data)
     if not rows:
@@ -724,25 +614,6 @@ def _build_initial_gamestate(data: dict) -> GameState:
         # ownership instead of crediting it twice.
         setattr(gs.global_info, "_village_owner", owner_map)
     return gs
-
-
-def _terrain_keys_at(gs: GameState, x: int, y: int) -> List[str]:
-    """Return the WML defense-table keys to evaluate for the hex at
-    (x,y). Honors Wesnoth's `aliasof=` semantics: a Ford (Wwf) returns
-    ['shallow_water', 'flat'] so callers can pick whichever defense is
-    best for the unit standing on it.
-
-    NOTE: callers that need authoritative defense_pct should use
-    `_terrain_def_pct(gs, x, y, def_table)` directly -- it walks the
-    terrain alias graph via terrain_resolver.def_pct, which handles
-    the FULL set of overlay codes (^Fms, ^Fp, etc.). This function
-    survives because some callers want a list-of-string keys for
-    encoder features and trait overrides."""
-    codes_dict = getattr(gs.global_info, "_terrain_codes", {}) or {}
-    code = codes_dict.get((x, y))
-    if not code:
-        return ["flat"]
-    return _defense_keys_for_code(code)
 
 
 def _tod_cycle_index(turn_number: int, start_offset: int = 0) -> int:

@@ -2,18 +2,17 @@
 
 `play_one_game` drives a WesnothSim to its end with one policy playing
 every side: a snapshot of the state per decision, the recruit-bounce
-retry, the per-step shaping reward and the terminal one, and the
-per-game summary (`GameOutcome`). `_play_one_game_safe` builds the game
-from a scenario setup or a mid-game start, plays it and records it;
-`_worker_loop` is the in-process thread that plays an iteration's
-games. The actor pool's actors (tools/actor_worker.py), the legacy
+retry, the game's outcome as each side's reward at its end (+1 win, -1
+loss, 0 draw), and the per-game summary (`GameOutcome`).
+`_play_one_game_safe` builds the game from a scenario setup or a
+mid-game start, plays it and records it; `_worker_loop` is the
+in-process thread that plays an iteration's games. The actor pool's actors (tools/actor_worker.py), the legacy
 trainer (tools/sim_self_play.py) and the probes play their games
 through here.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import random
 from dataclasses import dataclass, field
@@ -22,13 +21,9 @@ from typing import Dict, List, Optional, Tuple
 
 from wesnoth_ai.classes import GameState, Unit
 from wesnoth_ai.game_core import snapshot_view
-from wesnoth_ai.paths import UNIT_STATS_PATH
 from wesnoth_ai.rules.scenario_pool import classify_scenario as _classify_scenario
-from wesnoth_ai.rewards import (
-    OUTCOME_DRAW, OUTCOME_LOSS, OUTCOME_ONGOING, OUTCOME_TIMEOUT, OUTCOME_WIN,
-    StepDelta, compute_delta, hex_distance,
-)
 from wesnoth_ai.transformer_policy import TransformerPolicy
+from tools.abilities import hex_distance
 from tools.wesnoth_sim import WesnothSim
 from tools.game_record import note_search_outcomes, record_game
 
@@ -44,7 +39,7 @@ VALIDATION_EXPORTER = None
 
 
 # ---------------------------------------------------------------------
-# Reward bookkeeping
+# The game's summary
 # ---------------------------------------------------------------------
 
 @dataclass
@@ -56,8 +51,6 @@ class GameOutcome:
     turns:          int
     side1_actions:  int
     side2_actions:  int
-    side1_reward:   float        # cumulative shaping + terminal for side 1
-    side2_reward:   float
     # Action-type tallies across both sides; keys are the strings
     # action_sampler emits ("recruit", "move", "attack", "end_turn").
     # Used by run_iteration() to print an action histogram so the
@@ -137,26 +130,12 @@ class GameOutcome:
     villages_end_s2: int = 0
 
 
-def _outcome_for(winner: int, ended_by: str, side: int) -> str:
-    """Map WesnothSim's (winner, ended_by) into per-side OUTCOME_* keys
-    used by `WeightedReward`."""
-    if ended_by in ("max_turns", "max_actions"):
-        return OUTCOME_TIMEOUT
+def outcome_reward(winner: int, side: int) -> float:
+    """The game's outcome for `side`: +1 win, -1 loss, 0 draw (a game
+    that ends without a winner, at the turn cap or otherwise)."""
     if winner == 0:
-        return OUTCOME_DRAW
-    return OUTCOME_WIN if winner == side else OUTCOME_LOSS
-
-
-# Cost lookup for recruit shaping. Re-uses the same unit_stats.json
-# the sim already loads, so we don't drift between sim and rewards.
-def _recruit_cost_lookup() -> Dict[str, int]:
-    try:
-        with UNIT_STATS_PATH.open(encoding="utf-8") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        log.warning("unit_stats.json not found; recruit cost defaults to 14")
-        return {}
-    return {n: int(u.get("cost", 14)) for n, u in data.get("units", {}).items()}
+        return 0.0
+    return 1.0 if winner == side else -1.0
 
 
 # ---------------------------------------------------------------------
@@ -237,15 +216,12 @@ def _would_recruit_bounce(action: Dict, gs: "GameState") -> bool:
 def play_one_game(
     sim:         WesnothSim,
     policy:      TransformerPolicy,
-    reward_fn,
     *,
     game_label:  str,
-    cost_lookup: Dict[str, int],
 ) -> GameOutcome:
-    """Drive `sim` to completion, calling policy.select_action +
-    policy.observe at each step. Returns the per-game summary."""
-    side1_reward = 0.0
-    side2_reward = 0.0
+    """Drive `sim` to completion, calling policy.select_action at each
+    step and policy.observe with each side's outcome at the end.
+    Returns the per-game summary."""
     # Action-type histogram across both sides. We tally on the
     # pre-bounce-retry action (the one sim.step accepted), so a
     # rejected-recruit-then-different-pick lands as a single entry
@@ -292,11 +268,6 @@ def play_one_game(
     # `_pending` entries leak.
     last_acting_side: Dict[int, bool] = {}
 
-    # Optimization #6: skip per-step shaping when the policy ignores
-    # it (MCTS). Read the flag once. Default True keeps any unknown
-    # policy on the REINFORCE behavior.
-    uses_step_rewards = getattr(policy, "uses_step_rewards", True)
-
     while not sim.done:
         acting_side = sim.gs.global_info.current_side
         # Snapshot the state BEFORE the step (a view of a fork of the
@@ -310,7 +281,7 @@ def play_one_game(
         #      action index then points at a slot now masked out by
         #      the legality mask in the post-step state, log_prob
         #      collapses to -inf, and the policy_loss explodes.
-        #   2) compute_delta needs (pre, post) to diff. sim.step
+        #   2) the recruit count below diffs (pre, post): sim.step
         #      replaces sim.gs.map.units / sides / global_info, so a
         #      saved reference IS pre; the live sim.gs IS post.
         from tools.mcts import fork_guard
@@ -359,12 +330,11 @@ def play_one_game(
             # exposes drop_last_pending (pops the pending MCTSExperience tail
             # AND rolls back the decision counter's increment) -- without it
             # the bounced decision would be trained on with terminal z and
-            # counted twice. Policies without it
-            # (REINFORCE) fall back to observe(reward=0), which lands the
-            # rejected pick in the trajectory with a neutral signal.
+            # counted twice. A policy without it (REINFORCE) keeps the
+            # rejected pick in its trajectory.
             drop = getattr(policy, "drop_last_pending", None)
-            if not (callable(drop) and drop(game_label)):
-                policy.observe(game_label, acting_side, 0.0, done=False)
+            if callable(drop):
+                drop(game_label)
             pre_state, action = _decide()
 
         # Moves onto fog-hidden enemy hexes are NOT pre-bounced here
@@ -377,31 +347,6 @@ def play_one_game(
         # recruit has no partial-execution semantics to fall back
         # on.)
         atype = action.get("type", "end_turn")
-        if atype == "recruit":
-            unit_type = action.get("unit_type", "")
-            recruit_cost = cost_lookup.get(unit_type)
-            if recruit_cost is None:
-                # Unknown unit type (custom era / out-of-date scrape /
-                # typo). Fall back to 14 -- the smallfoot/orcishfoot
-                # baseline -- not 0. Zero would silently zero the
-                # gold-spent shaping for this recruit, biasing the
-                # policy toward repeatedly picking the unknown type
-                # (high reward / no apparent gold cost). Log once so
-                # we notice the missing entry without spamming.
-                if not getattr(_recruit_cost_lookup, "_warned",
-                               set()).__contains__(unit_type):
-                    log.warning(
-                        f"recruit cost: unit type {unit_type!r} not in "
-                        f"unit_stats.json; falling back to 14. "
-                        f"Re-run tools/scrape_unit_stats.py if this "
-                        f"unit is from a freshly-installed era.")
-                    if not hasattr(_recruit_cost_lookup, "_warned"):
-                        _recruit_cost_lookup._warned = set()
-                    _recruit_cost_lookup._warned.add(unit_type)
-                recruit_cost = 14
-        else:
-            recruit_cost = 0
-
         commands_before = len(sim.command_history)
         sim.step(action)
         note_search_outcomes(sim, policy, game_label, commands_before)
@@ -423,94 +368,28 @@ def play_one_game(
                 (sum(1 for v in _vown.values() if v == 1),
                  sum(1 for v in _vown.values() if v == 2)))
 
-        # Recruit diagnostics: did this recruit attempt actually
-        # produce a new unit? `delta.units_recruited` populates
-        # below from compute_delta. For now, count the attempt
-        # (any recruit-typed action that reached sim.step). A
-        # bounced fog/occupied recruit went through the retry
-        # loop above and is NOT in this branch -- so attempts
-        # here are non-bounced; successes get counted when the
-        # delta is computed.
+        # Recruit diagnostics: an attempt is a recruit that reached
+        # sim.step (a bounced one went through the retry loop above);
+        # it succeeded when the side's unit count grew (a recruit adds
+        # exactly one unit, or none).
         if atype == "recruit":
             n_recruit_attempts_per_side[acting_side] = (
                 n_recruit_attempts_per_side.get(acting_side, 0) + 1)
-
-        # Per-step shaping reward only -- no terminal contribution
-        # here. Terminal reward is added per side after the loop so
-        # each side's terminal payoff is attached to its OWN last
-        # transition, even when the game ended on the other side's
-        # killing move.
-        #
-        # `attach_post_state` is opt-in based on whether the reward
-        # function has turn-conditional bonuses configured; doing it
-        # unconditionally would retain a deepcopy-equivalent
-        # reference per Transition.
-        if uses_step_rewards:
-            attach_post = bool(getattr(reward_fn,
-                                       "turn_conditional_bonuses", None))
-            delta = compute_delta(
-                pre_state, sim.gs, atype,
-                recruit_cost=recruit_cost,
-                outcome=OUTCOME_ONGOING,
-                game_label=game_label,
-                attach_post_state=attach_post,
-            )
-            step_r = reward_fn(delta)
-            # Count successful recruits (state delta confirms a unit
-            # appeared). units_recruited is a tuple of names; empty
-            # if the recruit didn't actually land.
-            recruited = (len(delta.units_recruited)
-                         if atype == "recruit" else 0)
-        else:
-            # Optimization #6: MCTS discards per-step shaping (observe
-            # is a no-op; z comes from the winner), so skip the
-            # compute_delta Dijkstra entirely. Recover ONLY the
-            # recruit-success diagnostic via a cheap pre/post
-            # unit-count diff (a recruit adds exactly one unit, or
-            # zero if it bounced) -- benchmarked equal to
-            # delta.units_recruited.
-            step_r = 0.0
-            recruited = 0
-            if atype == "recruit":
-                pre_n = sum(1 for u in pre_state.map.units
-                            if u.side == acting_side)
-                post_n = sum(1 for u in sim.gs.map.units
-                             if u.side == acting_side)
-                recruited = max(0, post_n - pre_n)
-        if atype == "recruit" and recruited:
+            pre_n = sum(1 for u in pre_state.map.units
+                        if u.side == acting_side)
+            post_n = sum(1 for u in sim.gs.map.units
+                         if u.side == acting_side)
             n_recruits_per_side[acting_side] = (
-                n_recruits_per_side.get(acting_side, 0) + recruited)
-        policy.observe(game_label, acting_side, step_r, done=False)
+                n_recruits_per_side.get(acting_side, 0) + max(0, post_n - pre_n))
         last_acting_side[acting_side] = True
-        if acting_side == 1:
-            side1_reward += step_r
-        else:
-            side2_reward += step_r
 
-    # Game over. Emit terminal reward to every side that ACTED so
-    # each trajectory the policy started actually gets a terminal
-    # observe(done=True), and no side the policy never played gets
+    # Game over. Every side that ACTED gets its outcome on its own last
+    # transition (observe(done=True)), even when the game ended on the
+    # other side's killing move; no side the policy never played gets
     # one.
     final_turn = sim.gs.global_info.turn_number
-    for side, acted in list(last_acting_side.items()):
-        if not acted:
-            # Side never acted (e.g. game ended before they got a
-            # chance). Nothing to attach the reward to.
-            continue
-        outcome = _outcome_for(sim.winner, sim.ended_by, side)
-        term_delta = StepDelta(
-            side=side,
-            turn=final_turn,
-            action_type="terminal",
-            outcome=outcome,
-            game_label=game_label,
-        )
-        terminal_r = reward_fn(term_delta)
-        policy.observe(game_label, side, terminal_r, done=True)
-        if side == 1:
-            side1_reward += terminal_r
-        elif side == 2:
-            side2_reward += terminal_r
+    for side in last_acting_side:
+        policy.observe(game_label, side, outcome_reward(sim.winner, side), done=True)
 
     # MCTS-mode hook: REINFORCE policy is a no-op here; the MCTS
     # wrapper (tools.mcts_policy.MCTSPolicy) drains its per-game
@@ -572,8 +451,6 @@ def play_one_game(
         turns=final_turn,
         side1_actions=sim._actions_by_side.get(1, 0),
         side2_actions=sim._actions_by_side.get(2, 0),
-        side1_reward=side1_reward,
-        side2_reward=side2_reward,
         action_counts=action_counts,
         side1_units_end=s1_units_end,
         side2_units_end=s2_units_end,
@@ -613,8 +490,8 @@ def play_one_game(
 # ---------------------------------------------------------------------
 
 def _play_one_game_safe(
-    *, setup, max_turns, pvp_defaults, policy, reward_fn,
-    cost_lookup, game_label, no_progress_turns: int = 0,
+    *, setup, max_turns, pvp_defaults, policy,
+    game_label, no_progress_turns: int = 0,
     seed_salt: str = "", record_extra: Optional[dict] = None,
 ) -> Optional[GameOutcome]:
     """Run one game end-to-end from a `ScenarioSetup` (random
@@ -659,13 +536,8 @@ def _play_one_game_safe(
             return None
         if hasattr(policy, "reset_game"):
             policy.reset_game(game_label)
-        if hasattr(reward_fn, "reset_game_state"):
-            reward_fn.reset_game_state(game_label)
         try:
-            outcome = play_one_game(
-                sim, policy, reward_fn,
-                game_label=game_label, cost_lookup=cost_lookup,
-            )
+            outcome = play_one_game(sim, policy, game_label=game_label)
         except Exception as e:                        # noqa: BLE001
             log.exception(f"midgame game {game_label} crashed: {e}")
             policy.drop_pending(game_label)
@@ -709,13 +581,8 @@ def _play_one_game_safe(
         return None
     if hasattr(policy, "reset_game"):
         policy.reset_game(game_label)
-    if hasattr(reward_fn, "reset_game_state"):
-        reward_fn.reset_game_state(game_label)
     try:
-        outcome = play_one_game(
-            sim, policy, reward_fn,
-            game_label=game_label, cost_lookup=cost_lookup,
-        )
+        outcome = play_one_game(sim, policy, game_label=game_label)
     except Exception as e:
         log.exception(f"game {game_label} crashed: {e}")
         policy.drop_pending(game_label)
@@ -726,7 +593,7 @@ def _play_one_game_safe(
 
 
 def _worker_loop(
-    *, worker_id, policy, reward_fn, cost_lookup,
+    *, worker_id, policy,
     max_turns, pvp_defaults, shared,
     forced_faction=...,
     mini_maps=False,
@@ -775,7 +642,6 @@ def _worker_loop(
             max_turns=_roll_max_turns(game_rng, max_turns,
                                       max_turns_min),
             pvp_defaults=pvp_defaults, policy=policy,
-            reward_fn=reward_fn, cost_lookup=cost_lookup,
             game_label=game_label, no_progress_turns=no_progress_turns,
             seed_salt=f"pool:{game_label}",
         )

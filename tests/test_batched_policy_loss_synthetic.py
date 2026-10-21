@@ -36,7 +36,7 @@ from helpers.policy_loss_parity import (  # noqa: E402
 from tools.az_recipe import configure_az_trainer  # noqa: E402
 from wesnoth_ai import trainer as trainer_module  # noqa: E402
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
-from wesnoth_ai.rewards import hex_distance  # noqa: E402
+from tools.abilities import hex_distance  # noqa: E402
 from wesnoth_ai.trainer import MCTSExperience  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 

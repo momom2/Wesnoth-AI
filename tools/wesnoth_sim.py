@@ -140,78 +140,19 @@ def apply_pvp_defaults(gs: GameState, defaults: PvPDefaults) -> None:
     gs.map.units = rescaled
 
 
-# ---------------------------------------------------------------------
-# Terrain-aware movement-cost lookup
-# ---------------------------------------------------------------------
-# Wesnoth deducts terrain-dependent MP per hex entered. The core prices
-# the sim's moves; the shaping reward's approach distances
-# (wesnoth_ai/rewards.py) read the Python resolver below.
-
-_MOVETYPE_COSTS_CACHE: Dict[str, dict] = {}
-
-# Memoized terrain->MP resolution. `terrain_resolver.mvt_cost` walks the
-# terrain alias graph recursively from scratch on every call (its own
-# lru_cache import was never wired up), and `_move_cost_at_hex` is called
-# per frontier hex inside `_find_attack_hex`'s Dijkstra -- millions of
-# times over a training run. The result is a pure function of
-# (stripped_terrain_code, unit_type, slowed), so cache it. Keyed on
-# unit.name (not movetype) to match `_MOVETYPE_COSTS_CACHE`'s granularity.
-_MVT_RESOLVE_CACHE: Dict[Tuple[str, str, bool], int] = {}
-
-
 _UNIT_STATS_DATA: Optional[dict] = None
 
 
 def _unit_stats_data() -> dict:
-    """Parse `unit_stats.json` ONCE per process and cache it. Both
-    `_movetype_costs` and `_recruit_cost_for` index into this instead of
-    re-reading + re-parsing the ~400KB file on every cold cache key
-    (their per-key caches still avoid re-indexing once warm)."""
+    """Parse `unit_stats.json` ONCE per process and cache it:
+    `_recruit_cost_for` indexes into this instead of re-reading and
+    re-parsing the ~400KB file on every cold cache key."""
     global _UNIT_STATS_DATA
     if _UNIT_STATS_DATA is None:
         import json
         with UNIT_STATS_PATH.open(encoding="utf-8") as f:
             _UNIT_STATS_DATA = json.load(f)
     return _UNIT_STATS_DATA
-
-
-def _movetype_costs(unit_type: str, slowed: bool = False) -> dict:
-    """Look up `{terrain_key: int_cost}` for a unit type. Returns an
-    empty dict if not found (caller falls back to cost=1).
-
-    Prefers the unit-type's per-unit `movement_costs` (which the
-    scraper now emits as a fully merged table layering any
-    `[movement_costs]` overrides on top of the movetype's defaults).
-    Falls back to the raw movement_type table for older
-    `unit_stats.json` files predating that scraper change.
-
-    When `slowed=True`, every cost is doubled, EXCEPT UNREACHABLE
-    sentinels (>=99 stay >=99). Mirrors movetype.hpp:69-72:
-        return slowed && result != UNREACHABLE ? 2 * result : result;
-    """
-    cache_key = (unit_type, slowed)
-    if cache_key in _MOVETYPE_COSTS_CACHE:
-        return _MOVETYPE_COSTS_CACHE[cache_key]
-    try:
-        data = _unit_stats_data()
-        units = data.get("units", {})
-        movetypes = data.get("movement_types", {})
-        u = units.get(unit_type, {})
-        # Per-unit merged costs take precedence; fall back to the
-        # movement_type's table for backward compat.
-        costs = u.get("movement_costs")
-        if not costs:
-            mt = u.get("movement_type")
-            costs = (movetypes.get(mt, {}).get("movement_costs", {})
-                     if mt else {})
-        if slowed:
-            costs = {k: (v if v >= 99 else 2 * v) for k, v in costs.items()}
-        _MOVETYPE_COSTS_CACHE[cache_key] = costs
-        return costs
-    except Exception as e:
-        log.debug(f"sim: movetype lookup failed for {unit_type!r}: {e}")
-        _MOVETYPE_COSTS_CACHE[cache_key] = {}
-        return {}
 
 
 def _describe_action(action: dict) -> str:
@@ -232,51 +173,6 @@ def _describe_action(action: dict) -> str:
         return (f"recruit {action.get('unit_type','?')}@"
                 f"({getattr(d,'x','?')},{getattr(d,'y','?')})")
     return str(t)
-
-
-def _move_cost_at_hex(unit, gs, x: int, y: int) -> int:
-    """Resolve the movement cost for `unit` entering hex (x, y).
-
-    Delegates to `wesnoth_ai.rules.terrain_resolver.mvt_cost`, which scrapes
-    `wesnoth_src/data/core/terrain.cfg` into `terrain_db.json` and
-    walks the alias graph exactly as Wesnoth does (see
-    `wesnoth_src/src/movetype.cpp:276-369` for `calc_value` and
-    `wesnoth_src/src/terrain/terrain.cpp:208-244` + 334-377 for
-    composite construction). Replaces the prior hand-rolled
-    `_OVERLAY_MOVEMENT_OVERRIDE` / `_OVERLAY_MOVEMENT_MAX` tables,
-    which covered ~30 overlays out of 137+ and silently mispriced
-    every uncovered case.
-
-    See `docs/wesnoth_rules.md` ("Movement / mvt_alias resolution")
-    for the rule statement and source quotes.
-    """
-    from wesnoth_ai.rules.terrain_resolver import mvt_cost as _resolve_mvt
-    from wesnoth_ai.rules.terrain_resolver import strip_start_position
-    codes = getattr(gs.global_info, "_terrain_codes", {}) or {}
-    code = codes.get((x, y))
-    # Honor "slowed" status: doubles each terrain cost (except
-    # UNREACHABLE). movetype.hpp:69-72.
-    slowed = "slowed" in (getattr(unit, "statuses", set()) or set())
-    if not code:
-        # No raw terrain code recorded for this hex (synthetic
-        # tests, partial state). Fall through to the defense-keys
-        # path which gives us a semantically-decent flat fallback.
-        from tools.replay_dataset import _terrain_keys_at
-        keys = _terrain_keys_at(gs, x, y) or ["flat"]
-        costs = _movetype_costs(unit.name, slowed=slowed)
-        per_key = [int(costs.get(k, 1) or 1) for k in keys]
-        return min(per_key) if per_key else 99
-    # Drop the starting-position label ("2 Ke" -> "Ke") before
-    # resolving; the label is a placement hint, not part of the
-    # terrain code.
-    c = strip_start_position(code)
-    cache_key = (c, unit.name, slowed)
-    cached = _MVT_RESOLVE_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-    val = _resolve_mvt(c, _movetype_costs(unit.name, slowed=slowed))
-    _MVT_RESOLVE_CACHE[cache_key] = val
-    return val
 
 
 # ---------------------------------------------------------------------
@@ -1069,12 +965,8 @@ class WesnothSim:
 
         The neutral turns run inside the end_turn step of the side
         before them, in search forks too, so a search anticipates
-        tentacle retaliation. NB reward attribution (review 2026-07-14
-        M4): their effects land in side 2's end_turn step, so the
-        REINFORCE path's compute_delta credits side 2 for tentacle
-        damage to side 1; fix the delta split before any REINFORCE run
-        on tentacle maps (production training is MCTS, where per-step
-        shaping is a no-op)."""
+        tentacle retaliation. Their effects land in side 2's end_turn
+        step."""
         neutral = set(getattr(self.gs.global_info, "_neutral_actor_sides", None) or ())
         for side in sorted(s for s in set(PLAYER_SIDES) | neutral if s > side_now):
             if side in PLAYER_SIDES:
@@ -1371,8 +1263,7 @@ class WesnothSim:
         record_trajectory: bool = False,
     ) -> SimResult:
         """Drive the game to completion with two policies. Useful for
-        smoke tests; the trainer's outer loop typically calls .step
-        directly so it can observe / shape rewards per step."""
+        smoke tests; the trainer's outer loop calls .step directly."""
         traj: List[SimStep] = []
         while not self.done:
             side = self.current_side
@@ -1433,7 +1324,7 @@ class WesnothSim:
         """Cheap structural sanity check on the core's units and sides
         (`GameCore.invariant_violation`). Catches common bugs early --
         rather than seeing them later as Wesnoth OOSes or corrupt
-        rewards. Each check has actually triggered during development:
+        training data. Each check has actually triggered during development:
 
           (a) `current_hp` in [0, max_hp]. Drain caps at `max_hp - hp`
               (attack.cpp:1037), healing caps in calculate_healing

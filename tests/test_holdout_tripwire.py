@@ -239,7 +239,7 @@ def test_outcome_carries_map_class():
     so the per-class split is the metric that matters."""
     from sim_test_helpers import fresh_scenario_sim
     from wesnoth_ai.rules.scenario_pool import classify_scenario
-    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import play_one_game
 
     assert classify_scenario("multiplayer_Den_of_Onis") == "ladder"
     assert classify_scenario("multiplayer_elensefar_courtyard") == "ladder"
@@ -248,7 +248,6 @@ def test_outcome_carries_map_class():
     assert classify_scenario("") == ""
 
     class _EndTurn:
-        uses_step_rewards = False
         def select_action(self, gs, *, game_label="d", sim=None):
             return {"type": "end_turn"}
         def observe(self, *a, **kw): pass
@@ -256,8 +255,7 @@ def test_outcome_carries_map_class():
         def finalize_game(self, *a, **kw): pass
 
     sim = fresh_scenario_sim(3, mini=True, max_turns=2)
-    out = play_one_game(sim, _EndTurn(), lambda *a, **kw: 0.0,
-                        game_label="mc", cost_lookup=_recruit_cost_lookup())
+    out = play_one_game(sim, _EndTurn(), game_label="mc")
     assert out.map_class == "mini"
     # Actions-per-side-turn tally: an end_turn-only policy makes
     # exactly ONE action per side-turn.

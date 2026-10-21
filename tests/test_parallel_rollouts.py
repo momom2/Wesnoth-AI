@@ -36,22 +36,15 @@ def small_replay_pool() -> None:
     return None
 
 
-def _build_policy_and_reward():
+def _build_policy():
     """Tiny model: these tests exercise THREADING contracts (queue
     parity, pending leaks, concurrent train_step), not model
     quality. Default-size forwards on CPU made the file take
     minutes; d=64/L=2 plus mini maps keeps it in seconds."""
     import torch
-    from wesnoth_ai.rewards import WeightedReward
     from wesnoth_ai.transformer_policy import TransformerPolicy
-    policy = TransformerPolicy(d_model=64, num_layers=2, num_heads=4,
-                               d_ff=128, device=torch.device("cpu"))
-    return policy, WeightedReward()
-
-
-def _cost_lookup():
-    from tools.selfplay_game import _recruit_cost_lookup
-    return _recruit_cost_lookup()
+    return TransformerPolicy(d_model=64, num_layers=2, num_heads=4,
+                             d_ff=128, device=torch.device("cpu"))
 
 
 # ---------------------------------------------------------------------
@@ -72,10 +65,10 @@ def test_parallel_iteration_queue_parity(small_replay_pool):
     was lost or duplicated under concurrent workers."""
     from tools.sim_self_play import run_iteration
 
-    policy, reward_fn = _build_policy_and_reward()
+    policy = _build_policy()
     rng = random.Random(0)
     outcomes = run_iteration(
-        policy, small_replay_pool, reward_fn, _cost_lookup(),
+        policy, small_replay_pool,
         iter_idx=0, games_per_iter=8, max_turns=3, mini_maps=True,
         rng=rng, workers=4, train_at_end=False,
     )
@@ -95,10 +88,10 @@ def test_parallel_iteration_no_pending_leaks(small_replay_pool):
     crash)."""
     from tools.sim_self_play import run_iteration
 
-    policy, reward_fn = _build_policy_and_reward()
+    policy = _build_policy()
     rng = random.Random(1)
     run_iteration(
-        policy, small_replay_pool, reward_fn, _cost_lookup(),
+        policy, small_replay_pool,
         iter_idx=0, games_per_iter=4, max_turns=3, mini_maps=True,
         rng=rng, workers=2,
     )
@@ -113,10 +106,10 @@ def test_parallel_iteration_with_train_step(small_replay_pool):
     train_step doesn't crash on a multi-worker-fed queue."""
     from tools.sim_self_play import run_iteration
 
-    policy, reward_fn = _build_policy_and_reward()
+    policy = _build_policy()
     rng = random.Random(2)
     outcomes = run_iteration(
-        policy, small_replay_pool, reward_fn, _cost_lookup(),
+        policy, small_replay_pool,
         iter_idx=0, games_per_iter=4, max_turns=3, mini_maps=True,
         rng=rng, workers=2, train_at_end=False,
     )
@@ -142,7 +135,7 @@ def test_concurrent_train_step_during_rollouts(small_replay_pool):
     from tools.sim_self_play import run_iteration
     import torch
 
-    policy, reward_fn = _build_policy_and_reward()
+    policy = _build_policy()
     rng = random.Random(3)
 
     # Pre-warm with a few trajectories so train_step has data.
@@ -151,7 +144,7 @@ def test_concurrent_train_step_during_rollouts(small_replay_pool):
     # train_at_end=False so the queue keeps the pre-warm
     # trajectories for the stress thread to consume.
     run_iteration(
-        policy, small_replay_pool, reward_fn, _cost_lookup(),
+        policy, small_replay_pool,
         iter_idx=-1, games_per_iter=8, max_turns=3, mini_maps=True,
         rng=rng, workers=0, train_at_end=False,    # serial pre-warm
     )
@@ -186,7 +179,7 @@ def test_concurrent_train_step_during_rollouts(small_replay_pool):
 
     # Fire a parallel rollout with workers feeding the queue.
     run_iteration(
-        policy, small_replay_pool, reward_fn, _cost_lookup(),
+        policy, small_replay_pool,
         iter_idx=0, games_per_iter=8, max_turns=3, mini_maps=True,
         rng=rng, workers=4,
     )

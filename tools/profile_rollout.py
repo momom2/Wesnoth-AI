@@ -101,7 +101,7 @@ def profile_rollout(
     """Run `n_games` profiled games and return the timing breakdown."""
     import tools.mcts as mcts_mod
     from wesnoth_ai.rules.scenario_pool import random_setup
-    from tools.selfplay_game import _play_one_game_safe, _recruit_cost_lookup
+    from tools.selfplay_game import _play_one_game_safe
     from tools.wesnoth_sim import PvPDefaults
 
     sync = (device.type == "cuda")
@@ -124,7 +124,6 @@ def profile_rollout(
     # object than the one mcts uses -- patch via type(sim) to be safe).
     rng = random.Random(seed)
     enc, mdl = base._inference_encoder, base._inference_model
-    cost = _recruit_cost_lookup()
     pvp = PvPDefaults()
 
     # Two-category profile mix: mini_ratio is the absolute fraction
@@ -163,7 +162,6 @@ def profile_rollout(
             setup = _mixed_setup()
             _play_one_game_safe(setup=setup, max_turns=warmup_turns,
                                 pvp_defaults=pvp, policy=mcts_policy,
-                                reward_fn=lambda d: 0.0, cost_lookup=cost,
                                 game_label="warmup")
             for c in acc:
                 acc[c] = [0, 0.0]
@@ -174,8 +172,7 @@ def profile_rollout(
             setup = _mixed_setup()
             out = _play_one_game_safe(
                 setup=setup, max_turns=max_turns, pvp_defaults=pvp,
-                policy=mcts_policy, reward_fn=lambda d: 0.0,
-                cost_lookup=cost, game_label=f"prof{g}")
+                policy=mcts_policy, game_label=f"prof{g}")
             if out is not None:
                 n_actions += out.side1_actions + out.side2_actions
         total = time.perf_counter() - t0

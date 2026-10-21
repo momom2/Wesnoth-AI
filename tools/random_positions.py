@@ -19,7 +19,7 @@ def random_legal_action(encoded, rng: random.Random, aim=None, keep=None, act: f
     never by the unit standing on `keep`; end_turn with probability
     1 - `act` or when nothing else is legal."""
     from wesnoth_ai.model import UnitActionType
-    from wesnoth_ai.rewards import hex_distance
+    from tools.abilities import hex_distance
     m = encoded._masks
     U, R, H = m.n_units, m.n_recruits, m.n_hexes
     att = np.unpackbits(m.attack_valid, axis=1)[:, :H]

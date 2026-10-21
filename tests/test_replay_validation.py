@@ -85,7 +85,7 @@ def _export_and_validate(mini: bool, tmp_path: Path,
     minis desynced; never let the verified path diverge from the
     production path again)."""
     from sim_test_helpers import fresh_scenario_sim
-    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import play_one_game
     from tools.sim_to_replay import export_replay_from_scratch
     from tools.validate_replay import validate_replay
 
@@ -103,7 +103,6 @@ def _export_and_validate(mini: bool, tmp_path: Path,
         from wesnoth_ai.dummy_policy import DummyPolicy
 
         class _Stub:
-            uses_step_rewards = False
             def __init__(self): self._d = DummyPolicy()
             def select_action(self, gs, *, game_label="d", sim=None):
                 return self._d.select_action(
@@ -114,8 +113,7 @@ def _export_and_validate(mini: bool, tmp_path: Path,
         policy = _Stub()
 
     sim = fresh_scenario_sim(seed=7, max_turns=max_turns, mini=mini)
-    play_one_game(sim, policy, lambda *a, **kw: 0.0,
-                  game_label="val", cost_lookup=_recruit_cost_lookup())
+    play_one_game(sim, policy, game_label="val")
     out = tmp_path / (f"validate_{policy_kind}_"
                       f"{'mini' if mini else 'ladder'}.bz2")
     export_replay_from_scratch(sim, out)

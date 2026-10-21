@@ -16,23 +16,14 @@ The loop, per iteration:
      factions and leaders), or a mid-game start cut from the replay
      corpus when the category mix rolls one (`--midgame-ratio`).
   2. For each, build a WesnothSim and roll out the model against
-     itself, calling `policy.select_action` for every action and
-     `policy.observe` for the per-step shaping reward.
-  3. On terminal, emit per-side terminal rewards (WIN/LOSS/TIMEOUT)
-     so the trajectory closes cleanly.
+     itself, calling `policy.select_action` for every action.
+  3. At the game's end, `policy.observe` gives each side its outcome
+     (+1 win, -1 loss, 0 draw), which closes its trajectory.
   4. Call `policy.train_step()` to apply one gradient update across
      all queued trajectories (one per side per game).
 
 Steps 2 and 3, one game, are `tools/selfplay_game.py`, which the actor
 pool's actors play through too.
-
-Reward function (`--reinforce` only; `--mcts` distills the terminal
-outcome): the existing `WeightedReward` from rewards.py. It
-diffs pre/post step GameStates -- we deepcopy the GameState before
-each step so the diff is well-defined (the sim mutates in place,
-swapping the units set, the sides list, and global_info attributes).
-deepcopy is ~0.5ms per call; an 80-turn game with ~200 actions/side
-adds ~200ms of overhead, negligible against any backward pass.
 
 Usage:
     python tools/sim_self_play.py
@@ -67,12 +58,11 @@ sys.path.insert(0, str(_THIS.parent.parent))
 sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
-from wesnoth_ai.rewards import WeightedReward, load_reward_config
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.wesnoth_sim import PvPDefaults
 from tools import selfplay_game
 from tools.selfplay_game import (
-    GameOutcome, _play_one_game_safe, _recruit_cost_lookup, _roll_max_turns, _worker_loop,
+    GameOutcome, _play_one_game_safe, _roll_max_turns, _worker_loop,
     k_median_of,
 )
 
@@ -214,8 +204,6 @@ def _gpu_mem_peak_mb(reset: bool = False):
 def run_iteration(
     policy:        TransformerPolicy,
     pool_files:    Optional[List[Path]],   # legacy; ignored post-pivot
-    reward_fn,
-    cost_lookup:   Dict[str, int],
     *,
     iter_idx:      int,
     games_per_iter: int,
@@ -271,14 +259,6 @@ def run_iteration(
     outcomes: List[GameOutcome] = []
     t0 = time.perf_counter()
 
-    # Reset the per-component reward accumulator at the start of the
-    # iter. WeightedReward (if that's the reward_fn) accumulates per
-    # component into _component_acc; we read it out at iter end and
-    # log to trainer_history. No-op for non-WeightedReward callers
-    # (custom reward fns are free to not expose this attribute).
-    if hasattr(reward_fn, "_component_acc"):
-        reward_fn._component_acc = {}
-
     if actor_pool is not None:
         # Actor-pool path (MCTS only): self-play runs in weightless
         # actor PROCESSES feeding this process's central batched-
@@ -317,15 +297,14 @@ def run_iteration(
                 max_turns=_roll_max_turns(rng, max_turns,
                                           max_turns_min),
                 pvp_defaults=pvp_defaults, policy=policy,
-                reward_fn=reward_fn, cost_lookup=cost_lookup,
                 game_label=game_label, seed_salt=f"pool:{game_label}",
                 no_progress_turns=no_progress_turns,
             )
             if outcome is not None:
                 outcomes.append(outcome)
     else:
-        # Parallel path -- N worker threads share the policy +
-        # reward_fn + replay pool. Each worker has its own RNG
+        # Parallel path -- N worker threads share the policy. Each
+        # worker has its own RNG
         # (seeded from the master rng) so games stay deterministic
         # given the master seed even with worker scheduling jitter.
         import threading
@@ -343,7 +322,6 @@ def run_iteration(
                 target=_worker_loop,
                 kwargs=dict(
                     worker_id=w, policy=policy,
-                    reward_fn=reward_fn, cost_lookup=cost_lookup,
                     max_turns=max_turns, pvp_defaults=pvp_defaults,
                     shared=shared,
                     forced_faction=forced_faction,
@@ -380,8 +358,6 @@ def run_iteration(
     s1_wins = sum(1 for o in outcomes if o.winner == 1)
     s2_wins = sum(1 for o in outcomes if o.winner == 2)
     draws   = sum(1 for o in outcomes if o.winner == 0)
-    avg_r1  = (sum(o.side1_reward for o in outcomes) / len(outcomes)) if outcomes else 0.0
-    avg_r2  = (sum(o.side2_reward for o in outcomes) / len(outcomes)) if outcomes else 0.0
     # ended_by demix (user ruling 2026-08-17, A5(iii)/A6 telemetry):
     # a turn-cap game, a stalemate, and a mutual elimination are
     # different events and must never share one aggregate number.
@@ -402,8 +378,7 @@ def run_iteration(
         f"draws/timeouts={draws}; ended_by[leader={ended_leader} "
         f"cap={ended_cap} actions={ended_actions} "
         f"noprog={ended_noprog} other={ended_other}] "
-        f"abandoned_actors={abandoned}; "
-        f"mean_reward s1={avg_r1:+.3f} s2={avg_r2:+.3f}"
+        f"abandoned_actors={abandoned}"
     )
 
     # Behavioral diagnostics: action histogram + mean turns/game +
@@ -867,10 +842,6 @@ def run_iteration(
         n_recruits_s2 = sum(o.n_recruits_s2 for o in outcomes)
         n_recruit_attempts_s1 = sum(o.n_recruit_attempts_s1 for o in outcomes)
         n_recruit_attempts_s2 = sum(o.n_recruit_attempts_s2 for o in outcomes)
-        # Per-component reward sums (read+snapshot, then leave on
-        # reward_fn for any other consumer; the next iter resets).
-        reward_components = dict(
-            getattr(reward_fn, "_component_acc", None) or {})
         # Gold-hoarding watch (user 2026-07-20): time-averaged bank
         # gold per side (sampled at the side's own end_turns) next to
         # the end-of-game snapshot -- a hoard spent late shows in the
@@ -888,11 +859,6 @@ def run_iteration(
             f"recruits s1={n_recruits_s1}(of {n_recruit_attempts_s1}) "
             f"s2={n_recruits_s2}(of {n_recruit_attempts_s2})"
         )
-        if reward_components:
-            comp_str = ", ".join(
-                f"{k}={v:+.3f}" for k, v in sorted(
-                    reward_components.items(), key=lambda kv: -abs(kv[1])))
-            log.info(f"iter {iter_idx}: reward components -- {comp_str}")
         # Distillation-target telemetry (prior-ratchet repair
         # observability): drained per iteration from MCTSPolicy;
         # None-safe for the REINFORCE / actor-pool paths.
@@ -981,8 +947,7 @@ def run_iteration(
             "closest_approach_s1": mean_ca1,
             "closest_approach_s2": mean_ca2,
             "train_stats":         train_stats,
-            # Per-component reward + econ diagnostics.
-            "reward_components":   reward_components,
+            # Econ diagnostics.
             "mean_end_gold_s1":    mean_end_gold_s1,
             "mean_end_gold_s2":    mean_end_gold_s2,
             "n_recruits_s1":       n_recruits_s1,
@@ -1088,19 +1053,6 @@ class _TrainerHistoryCSV:
     # Stable column order. Adding new columns at the end is
     # backwards-compatible (older pandas reads will just see fewer
     # columns); reordering or removing columns is a breaking change.
-    # Stable per-component reward column names. Match the keys
-    # WeightedReward.__call__ writes into its `_component_acc`.
-    # Aggregated across all games in the iter and across both sides.
-    # Empty cells (= 0) mean that component didn't fire this iter.
-    _REWARD_COMPONENT_KEYS = (
-        "gold_killed", "village_delta", "damage_dealt",
-        "unit_recruited_cost", "per_turn_penalty",
-        "leader_move_penalty", "invalid_action",
-        "min_enemy_distance", "approach_mp", "unused_mp",
-        "fog_reveal", "attack_attempt", "unit_type_bonus",
-        "turn_cond_bonus", "terminal",
-    )
-
     # Per-side mean gold / recruits at end of game, for diagnosing
     # recruit-underuse. mean_end_gold_s1 = "side 1 ended its game
     # with X gold left on average" -- if high, the policy is not
@@ -1124,7 +1076,7 @@ class _TrainerHistoryCSV:
         "train_n_trajectories", "train_n_transitions",
         "train_loss", "train_policy_loss", "train_value_loss",
         "train_entropy", "train_mean_return", "train_grad_norm",
-    ] + [f"r_{k}" for k in _REWARD_COMPONENT_KEYS] + list(_ECON_KEYS) + [
+    ] + list(_ECON_KEYS) + [
         # Held-out generalization probe (--holdout-size; MCTS only).
         # Appended LAST so rows appended to a pre-existing CSV stay
         # column-compatible with its older header.
@@ -1333,12 +1285,6 @@ class _TrainerHistoryCSV:
             # written nowhere (workflow finding 2026-08-20).
             row["gbc_loss"] = getattr(ts, "gbc_loss", None)
             row["aux_loss"] = getattr(ts, "aux_loss", None)
-        # Per-component reward sums (from WeightedReward._component_acc).
-        acc = snapshot.get("reward_components") or {}
-        for k in self._REWARD_COMPONENT_KEYS:
-            v = acc.get(k)
-            if v is not None:
-                row[f"r_{k}"] = v
         # Econ diagnostics for recruit-underuse investigation.
         for k in self._ECON_KEYS:
             v = snapshot.get(k)
@@ -1576,21 +1522,6 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--exp-modifier", type=int, default=70,
                     help="PvP defaults: experience required modifier (%%).")
 
-    # Reward customization. Defaults to "off" (existing WeightedReward
-    # defaults) so omitting the flag reproduces prior behavior.
-    # REINFORCE-mode only: shaping rewards are structurally inert
-    # under --mcts (MCTSPolicy.observe is a no-op), so a non-default
-    # config there is refused at startup (see main).
-    ap.add_argument("--reward-config", type=Path, default=None,
-                    help="Path to a JSON or YAML reward-shaping config "
-                         "(see rewards.load_reward_config). Lets you "
-                         "tune weights, add per-unit-type recruit "
-                         "bonuses, and define turn-conditional "
-                         "bonuses without code edits. Default: use "
-                         "WeightedReward() defaults. REINFORCE-mode "
-                         "only; refused under --mcts (shaping is "
-                         "inert there -- the live seam is the "
-                         "terminal z).")
     ap.add_argument("--torch-threads", type=int, default=None,
                     help="Cap torch's intra-op CPU thread pool "
                          "(torch.set_num_threads). CPU-ONLY tuning: by "
@@ -1754,10 +1685,8 @@ def main(argv: List[str]) -> int:
     # MCTS-mode flags. Default ON; --reinforce runs the REINFORCE path.
     # Under --mcts, action selection runs an AlphaZero-style
     # tree search and the trainer minimizes CE against visit-count
-    # distributions instead of policy gradient. Per-step shaping
-    # rewards are silently ignored in MCTS mode (AlphaZero distills
-    # the terminal z onto every visited state); --reward-config is
-    # still parsed so REINFORCE / MCTS configs can share JSON files.
+    # distributions instead of policy gradient (AlphaZero distills
+    # the terminal z onto every visited state).
     ap.add_argument("--mcts", action=argparse.BooleanOptionalAction,
                     default=True,
                     help="MCTS action selection + distillation "
@@ -1768,12 +1697,12 @@ def main(argv: List[str]) -> int:
                          "not a different algorithm. Adds N_sim model "
                          "forwards per move. Use --reinforce (or "
                          "--no-mcts) for the legacy REINFORCE path — "
-                         "the light smoke-test flow and the only "
-                         "consumer of the shaping-reward seam.")
+                         "the light smoke-test flow, a policy gradient "
+                         "on the game's outcome.")
     ap.add_argument("--reinforce", dest="mcts", action="store_false",
                     help="Alias for --no-mcts: legacy REINFORCE "
-                         "training (raw policy sampling, shaping "
-                         "rewards live).")
+                         "training (raw policy sampling, the game's "
+                         "outcome as the reward).")
     ap.add_argument("--plan-tournament",
                     action=argparse.BooleanOptionalAction, default=False,
                     help="Incumbent-anchored turn-plan tournament with "
@@ -2248,19 +2177,6 @@ def main(argv: List[str]) -> int:
                     f"(fixed cap {args.max_turns}).")
     if args.max_turns_min is not None and args.max_turns_min < 0:
         ap.error(f"--max-turns-min {args.max_turns_min} negative")
-    if args.reward_config is not None and args.mcts:
-        # Shaping rewards are STRUCTURALLY INERT under --mcts:
-        # MCTSPolicy.observe is a no-op, so every weight in the config
-        # would be silently ignored -- the trap that hid the
-        # weight_gold=0 non-fix for weeks (diagnosed 2026-07-31).
-        # Refuse rather than warn: the combination has no valid
-        # meaning, and a missed warning on an unattended box run costs
-        # the whole leg (F5 user ruling 2026-08-10).
-        ap.error(
-            "--reward-config has no effect under --mcts (AlphaZero "
-            "distills the terminal z; MCTSPolicy.observe is a no-op). "
-            "The live shaping seam in MCTS mode is the terminal "
-            "outcome itself. Did you mean --reinforce?")
     if args.game_log_dir is not None and str(args.game_log_dir) in ("", "."):
         args.game_log_dir = None
     if args.game_record_dir is not None and str(args.game_record_dir) in ("", "."):
@@ -2332,7 +2248,6 @@ def main(argv: List[str]) -> int:
     # (the --replay-pool flag was removed 2026-08-10, X6: it was
     # parsed and then ignored).
     pool_files = None
-    cost_lookup = _recruit_cost_lookup()
     # Eagerly load factions to surface any setup issue NOW rather
     # than on the first worker thread.
     from wesnoth_ai.rules.scenario_pool import (load_factions, LADDER_SCENARIO_IDS,
@@ -2813,21 +2728,6 @@ def main(argv: List[str]) -> int:
                 pass  # restored (full -> frozen; partial -> resumes)
             setattr(policy, "_holdout_persist_path", holdout_file)
 
-    if args.reward_config is not None:
-        # (mcts+reward_config was refused at arg validation.)
-        try:
-            reward_fn = load_reward_config(args.reward_config)
-        except (KeyError, ValueError, ImportError) as e:
-            log.error(f"failed to load reward config: {e}")
-            return 2
-        log.info(
-            f"reward config: {args.reward_config} "
-            f"({len(reward_fn.unit_type_bonuses)} unit-type bonuses, "
-            f"{len(reward_fn.turn_conditional_bonuses)} "
-            f"turn-conditional bonuses)")
-    else:
-        reward_fn = WeightedReward()
-
     pvp_defaults: Optional[PvPDefaults] = None
     if args.use_map_settings:
         pvp_defaults = PvPDefaults(
@@ -3054,7 +2954,7 @@ def main(argv: List[str]) -> int:
     consecutive_dead = 0
     for it in range(args.iterations):
         outcomes = run_iteration(
-            policy, pool_files, reward_fn, cost_lookup,
+            policy, pool_files,
             iter_idx=it,
             games_per_iter=args.games_per_iter,
             max_turns=args.max_turns,

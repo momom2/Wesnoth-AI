@@ -90,7 +90,7 @@ def test_masked_moves_never_crowfly_unreachable():
     offer, never extend it past raw MP range."""
     from wesnoth_ai.encoder import GameStateEncoder
     from wesnoth_ai.action_sampler import _build_legality_masks
-    from wesnoth_ai.rewards import hex_distance
+    from tools.abilities import hex_distance
     from wesnoth_ai.rules.scenario_pool import random_setup, build_scenario_gamestate
     from tools.wesnoth_sim import WesnothSim
 

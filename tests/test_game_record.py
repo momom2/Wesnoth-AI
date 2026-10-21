@@ -277,7 +277,7 @@ def test_a_search_policy_attaches_the_exact_distribution_of_the_attack_it_played
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
     from tools.replay_dataset import _build_initial_gamestate
-    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import play_one_game
     from tools.wesnoth_sim import WesnothSim
     from wesnoth_ai.transformer_policy import TransformerPolicy
     torch.manual_seed(0)
@@ -289,8 +289,7 @@ def test_a_search_policy_attaches_the_exact_distribution_of_the_attack_it_played
                         rng_seed=5)
     sim = WesnothSim(_build_initial_gamestate(_duel_data()), scenario_id="rec", max_turns=4)
     sim._seed_salt = "search-test"
-    play_one_game(sim, policy, lambda delta: 0.0, game_label="s",
-                  cost_lookup=_recruit_cost_lookup())
+    play_one_game(sim, policy, game_label="s")
     attacks = [rc for rc in sim.command_history if rc.kind == "attack"]
     assert attacks, [rc.kind for rc in sim.command_history]
     for rc in attacks:

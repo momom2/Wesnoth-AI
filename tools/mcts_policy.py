@@ -12,12 +12,8 @@ What MCTS mode changes vs REINFORCE:
   - **Action picking**: an MCTS search produces a visit-count
     distribution over legal actions; we sample (or argmax) from
     that instead of the raw policy logits.
-  - **Per-step shaping reward**: ignored. AlphaZero distills the
-    final game outcome (z = ±1 for win/loss, 0 for draws/timeouts)
-    onto every visited state — no Bellman-style reward shaping.
-    The user's `--reward-config` is silently unused in MCTS mode;
-    the iter log still reports per-step shaping totals so REINFORCE
-    runs and MCTS runs are easy to compare visually.
+  - **Reward**: AlphaZero distills the final game outcome (z = ±1
+    for win/loss, 0 for draws/timeouts) onto every visited state.
   - **Trainer step**: `trainer.step_mcts(experiences)` instead of
     `trainer.step(transitions)`. Cross-entropy against the
     visit-count distribution + value loss against z.
@@ -147,11 +143,6 @@ class MCTSPolicy:
     """Wraps a `TransformerPolicy` to do MCTS+distillation."""
 
     trainable = True
-    # Optimization #6 (2026-06-14): MCTS distills terminal z, not
-    # per-step shaping -- `observe` is a no-op. Signals the rollout
-    # loop to skip the (expensive, Dijkstra-bearing) compute_delta +
-    # reward_fn calls entirely.
-    uses_step_rewards = False
 
     def __init__(self, base, mcts_config: Optional[MCTSConfig] = None,
                  replay_config: Optional[ReplayConfig] = None,
@@ -612,11 +603,9 @@ class MCTSPolicy:
 
     def observe(self, game_label: str, side: int, reward: float,
                 done: bool = False) -> None:
-        """MCTS ignores per-step shaping rewards. We only act on
-        the rollout loop's terminal-observe pulse to know when the
-        game is over for *this side* — but the actual MCTSExperience
-        building happens in `finalize_game`, which needs the winner
-        (not just per-side done flags). Treat this as a no-op."""
+        """A no-op: the MCTSExperience building happens in
+        `finalize_game`, which needs the winner (not just per-side
+        done flags)."""
         # Intentionally empty.
 
     def finalize_game(self, game_label: str, winner: int,

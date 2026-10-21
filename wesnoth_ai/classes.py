@@ -363,11 +363,8 @@ class GlobalInfo:
                 # builds a new dict and rebinds it on its own state, as
                 # it does the `hexes` set, which Map.__deepcopy__ also
                 # aliases. Copying this dict
-                # every step gave it a fresh id() each time, which (a)
-                # wasted a full dict copy and (b) defeated the rewards
-                # MP-distance Dijkstra cache that keys on
-                # id(_terrain_codes) -- prev_state then missed every
-                # step and thrashed the cache. See rewards._MP_DIST_CACHE.
+                # every step gave it a fresh id() each time, which
+                # wasted a full dict copy.
                 setattr(new, k, v)
             elif isinstance(v, dict):
                 setattr(new, k, dict(v))

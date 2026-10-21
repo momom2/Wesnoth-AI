@@ -47,7 +47,8 @@ Defense: `min_value=0, max_value=100`, `high_is_good=false` for the
 "prefer-MIN" variant our combat path uses. Default 0.
 
 Dependencies: stdlib (json, pathlib)
-Dependents: tools.wesnoth_sim (replaces _move_cost_at_hex internals)
+Dependents: tools.replay_dataset, tools.scenario_events, wesnoth_ai.rules.wml_state,
+  tools.hidden_units_oracle; tests/test_rust_terrain.py checks the core against it
 """
 from __future__ import annotations
 

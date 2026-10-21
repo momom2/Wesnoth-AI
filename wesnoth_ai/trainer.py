@@ -327,10 +327,7 @@ class TrainerConfig:
     # has the loss chasing impossible targets and the value estimate
     # saturating at ±1 with infinite gradient pressure.
     #
-    # 1.0 is the natural cap for AlphaZero-style win/loss/draw rewards.
-    # Bump if you genuinely need shaping rewards larger than the
-    # terminal signal -- but in that case the value head should grow
-    # too (drop the tanh + scale it).
+    # 1.0 is the natural cap for win/loss/draw rewards.
     value_clip:           float = 1.0
     # Cap transitions processed per train_step. Originally 512 as a
     # defensive memory guard; re-forward training (trainer.py intro)

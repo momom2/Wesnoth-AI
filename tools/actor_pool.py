@@ -102,7 +102,7 @@ from tools.actor_protocol import (
     _SRV_PAUSE, _SRV_PROBE, _SRV_SERVE, _SRV_STATS, _SRV_STOP, _SRV_SYNC, _TICKET_END,
     ActorFatalError, _done_report,
 )
-from tools.actor_worker import _IPCInferenceClient, _actor_loop, _set_fd_safe_sharing, _zero_reward
+from tools.actor_worker import _IPCInferenceClient, _actor_loop, _set_fd_safe_sharing
 from tools.mp_teardown import close_queue, discarding, end_stragglers, join_all, start_child
 from tools.serve_worker import (
     _BatchPicker, _best_window_rate, _merge_timelines, _picker_stats, _request_lengths,
@@ -113,7 +113,7 @@ __all__ = [
     "ActorPool", "ServeProcessDied",
     # Re-exported from tools.actor_worker and tools.serve_worker: tests
     # and scripts import these from here.
-    "_IPCInferenceClient", "_actor_loop", "_set_fd_safe_sharing", "_zero_reward",
+    "_IPCInferenceClient", "_actor_loop", "_set_fd_safe_sharing",
     "_BatchPicker", "_best_window_rate", "_merge_timelines", "_picker_stats", "_request_lengths",
     "_serve_loop", "_server_loop",
 ]

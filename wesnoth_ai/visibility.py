@@ -6,8 +6,8 @@ the state through the encoder and the sampler, the view is filtered to
 what a real Wesnoth client would render for that side. The Rust core
 that answers for a state (`game_core.core_for`) computes that filter
 (rust/wesnoth_core/src/core_fog.rs, core_observe.rs); this module is
-the Python face of it, so `encoder.py`, `action_sampler.py` and
-`rewards.py` read one contract.
+the Python face of it, so `encoder.py` and `action_sampler.py` read one
+contract.
 
 Vision and fog (docs/wesnoth_rules.md "Vision and fog")
 =======================================================
@@ -29,7 +29,7 @@ Public API
   visible_hexes_for(state, side) -> frozenset of (x, y)
       The hexes the side sees.
   visible_fraction_for(state, side) -> float
-      Their share of the map (the fog-reveal shaping reward).
+      Their share of the map (the engagement telemetry's scouting).
   units_visible_to(state, side) -> List[Unit]
       The god-view unit list filtered:
         * own-side units and scenery: always
@@ -41,7 +41,7 @@ Shroud is not modelled: every hex's terrain is known, as in the
 multiplayer ladder games we train on (fog on, shroud off).
 
 Dependencies: classes (Unit, GameState), game_core (the core).
-Dependents: rewards (visible_fraction_for), encoder (the slot order),
+Dependents: engagement_stats (visible_fraction_for), encoder (the slot order),
   replay_dataset (the label builder's slot order), the simulator.
 """
 from __future__ import annotations
@@ -77,20 +77,11 @@ def visible_hexes_for(state: GameState, side: int) -> AbstractSet[Tuple[int, int
 def visible_fraction_for(state: GameState, side: int) -> float:
     """Fraction of the map currently visible to `side`. Range
     [0, 1]. Returns 0 on an empty map.
-
-    Consumed by the continuous-payment fog-reveal shaping
-    reward (`rewards.WeightedReward.fog_reveal_weight`). The
-    per-step contribution is `(1 - gamma) * weight * fraction`;
-    over a fully-explored, sustained-visibility game the
-    discounted sum approaches `weight` (see WeightedReward
-    docstring).
     """
     hexes = state.map.hexes
     if not hexes:
         return 0.0
-    # Fogless game: everything is effectively revealed, so the
-    # fog-reveal shaping reward saturates rather than paying for
-    # vision coverage that carries no information value.
+    # Fogless game: everything is revealed.
     if not _fog_on(state):
         return 1.0
     return len(visible_hexes_for(state, side)) / len(hexes)

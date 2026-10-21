@@ -78,7 +78,6 @@ sys.path.insert(0, str(_THIS.parent))
 
 from tools.device_select import select_inference_device, describe_device
 from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
-from tools.selfplay_game import _recruit_cost_lookup
 from tools.eval_players import (_PolicyPair, _load_policy,
                                 _play_one_eval_game)
 from tools.wesnoth_sim import WesnothSim
@@ -661,7 +660,6 @@ def main(argv: List[str]) -> int:
 
     device = select_inference_device(args.device)
     log.info(f"device: {describe_device(device)}")
-    _ = _recruit_cost_lookup()  # surface a missing unit_stats.json early
     for p in players:
         p.build(device)
         log.info(f"player {p.label!r} <- {p.spec}")

@@ -63,9 +63,6 @@ class TransformerPolicy:
     the optional training hooks ``observe`` and ``train_step``."""
 
     trainable = True
-    # REINFORCE consumes per-step shaping rewards (compute_delta +
-    # reward_fn); see optimization #6 and MCTSPolicy.uses_step_rewards.
-    uses_step_rewards = True
 
     def __init__(
         self,
@@ -395,10 +392,9 @@ class TransformerPolicy:
              collapses to -inf, and the policy loss explodes (or worse,
              silently produces nonsense gradients).
 
-          2. `compute_delta(prev, post)` requires a stable `prev`. If
+          2. The rollout's recruit count diffs (prev, post): if
              `prev IS post` after `sim.step` mutates in place, every
-             reward delta is zero and the policy receives no shaping
-             signal.
+             recruit reads as failed.
 
         Both `tools/selfplay_game.py:play_one_game` and
         `tools/sim_demo_game.py` deepcopy `sim.gs` before each call.

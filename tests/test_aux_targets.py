@@ -68,13 +68,12 @@ def _play_and_finalize(mp, seed=21):
     # snapshot-deepcopy contract wrong. play_one_game deepcopies the
     # per-decision state and calls finalize_game itself, so the recorded
     # MCTSExperiences land in mp._queue. Seed the search RNG for
-    # reproducibility. (MCTS ignores per-step rewards -> a zero reward_fn.)
+    # reproducibility.
     import numpy as np
-    from tools.selfplay_game import play_one_game, _recruit_cost_lookup
+    from tools.selfplay_game import play_one_game
     mp._rng = np.random.default_rng(seed)
     sim = fresh_scenario_sim(seed=seed, max_turns=8, mini=True)
-    play_one_game(sim, mp, lambda delta: 0.0,
-                  game_label="g0", cost_lookup=_recruit_cost_lookup())
+    play_one_game(sim, mp, game_label="g0")
 
 
 def test_select_action_rejects_live_sim_gs():
