@@ -51,6 +51,7 @@ grows its vocab with an untrained row.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import logging
@@ -103,6 +104,13 @@ from tools.eval_procedure import (  # noqa: E402
 )
 
 
+@functools.lru_cache(maxsize=4)
+def _recruit_rule(path: str):
+    """The frozen recruit rule of a file (tools/recruit_rule.py), its hash checked."""
+    from tools.recruit_rule import RecruitRule
+    return RecruitRule.load(path)
+
+
 def _side_procedure(args, side: str, sims: int) -> str:
     """Side `side`'s procedure tag under the parsed flags."""
     return _procedure_of(
@@ -112,7 +120,8 @@ def _side_procedure(args, side: str, sims: int) -> str:
         raw_end_turn=getattr(args, f"raw_end_turn_{side}"),
         raw_end_turn_offset=getattr(args, f"raw_end_turn_offset_{side}"),
         attack_coin_offset=args.attack_coin_offset,
-        coin_band=getattr(args, f"coin_band_{side}"), coin_p=getattr(args, f"coin_p_{side}"))
+        coin_band=getattr(args, f"coin_band_{side}"), coin_p=getattr(args, f"coin_p_{side}"),
+        recruit_rule=_recruit_rule(args.recruit_rule).short_hash if args.recruit_rule else "")
 
 
 # The knob machinery lives in tools/turn_search_config (torch-free,
@@ -592,10 +601,11 @@ def _build_player(spec: str, label: str, sims: int, device,
     return policy, counter
 
 
-def _raw_coins(args, side: str, seat: Optional[str]) -> dict:
+def _raw_coins(args, side: str, seat: Optional[str], rule_seat: Optional[str] = None) -> dict:
     """Side `side`'s raw-player coin arguments: the attack offset when the
     game's attack coin chose this side (`seat`), its near-tie coins keyed
-    by the game seed."""
+    by the game seed, the recruit rule when the game's seat coin chose this
+    side (`rule_seat`)."""
     out = {}
     if seat == side:
         out["attack_offset"] = float(args.attack_coin_offset)
@@ -603,19 +613,51 @@ def _raw_coins(args, side: str, seat: Optional[str]) -> dict:
     if band:
         out.update(coin_band=float(band), coin_p=float(getattr(args, f"coin_p_{side}")),
                    coin_seed=int(args.seed))
+    if rule_seat == side:
+        out["recruit_rule"] = _recruit_rule(args.recruit_rule)
     return out
 
 
-def _coin_record(args, seat: Optional[str], players, game_label: str) -> Optional[dict]:
+def _rule_record(args, rule_seat: Optional[str], players, game_label: str) -> Optional[dict]:
+    """What the recruit rule did in the game, as its record keeps it (None
+    without the rule): the rule's hash, band and cap, the seat it played,
+    and its decisions in the order played (`RawPolicyPlayer.pop_rule_log`)."""
+    if not args.recruit_rule:
+        return None
+    rule = _recruit_rule(args.recruit_rule)
+    decisions = []
+    for player in players:
+        pop = getattr(player, "pop_rule_log", None)
+        if pop is not None:
+            decisions += pop(game_label)
+    decisions.sort(key=lambda e: (e["cmd"], e["side"], e["i"]))
+    return {"hash": rule.hash, "band": rule.band, "cap": rule.cap, "seat": rule_seat, "decisions": decisions}
+
+
+def _rule_fields(rule_record: Optional[dict]) -> dict:
+    """The result file's recruit-rule fields: the rule's short hash, its
+    seat, its decisions and switches."""
+    if rule_record is None:
+        return {}
+    from tools.recruit_rule import SHORT_HASH
+    return {"recruit_rule": rule_record["hash"][:SHORT_HASH], "recruit_rule_seat": rule_record["seat"],
+            "rule_decisions": len(rule_record["decisions"]),
+            "rule_switches": sum(bool(e["switched"]) for e in rule_record["decisions"])}
+
+
+def _coin_record(args, seat: Optional[str], players, game_label: str,
+                 rule_seat: Optional[str] = None) -> Optional[dict]:
     """The game's coins as its record keeps them (None when no coin is on):
     each side's band and propensity, every band decision of both players in
-    the order played (`RawPolicyPlayer.pop_coin_log`), and the attack coin
-    (its offset, P, D = 1 when it chose player A, and the side it chose)."""
+    the order played (`RawPolicyPlayer.pop_coin_log`), the attack coin (its
+    offset, P, D = 1 when it chose player A, and the side it chose) and the
+    recruit rule's seat coin (the rule's hash, P, D = 1 when it chose player
+    A, the side it chose)."""
     from tools.coin_decode import ATTACK_COIN_P
     bands = {side: {"band": float(getattr(args, f"coin_band_{side}")),
                     "p": float(getattr(args, f"coin_p_{side}"))}
              for side in ("a", "b") if getattr(args, f"coin_band_{side}")}
-    if not bands and not args.attack_coin_offset:
+    if not bands and not args.attack_coin_offset and not args.recruit_rule:
         return None
     decisions = []
     for player in players:
@@ -627,6 +669,10 @@ def _coin_record(args, seat: Optional[str], players, game_label: str) -> Optiona
     if args.attack_coin_offset:
         out["attack"] = {"offset": float(args.attack_coin_offset), "p": ATTACK_COIN_P,
                          "d": int(seat == "a"), "seat": seat}
+    if args.recruit_rule:
+        from tools.recruit_rule import RULE_SEAT_P
+        out["rule"] = {"hash": _recruit_rule(args.recruit_rule).hash, "p": RULE_SEAT_P,
+                       "d": int(rule_seat == "a"), "seat": rule_seat}
     return out
 
 
@@ -923,7 +969,8 @@ def main(argv) -> int:
              args.raw_end_turn_offset_b)):
         _why = (end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset)
                 or coin_refusal(_side, _spec, _sims, _temp, _rule, getattr(args, f"coin_band_{_side}"),
-                                getattr(args, f"coin_p_{_side}"), args.attack_coin_offset))
+                                getattr(args, f"coin_p_{_side}"), args.attack_coin_offset, args.recruit_rule,
+                                bool(args.coin_band_a or args.coin_band_b or args.attack_coin_offset)))
         if _why is not None:
             raise SystemExit(_why)
     for _n, _spec in (("spec_a", args.spec_a),
@@ -1178,6 +1225,12 @@ def main(argv) -> int:
     if args.attack_coin_offset:
         from tools.coin_decode import attack_coin
         seat = "a" if attack_coin(args.seed) else "b"
+    # The side the game's seat coin puts the recruit rule on
+    # (tools/recruit_rule.py): 'a' when it lands 1, 'b' when 0.
+    rule_seat = None
+    if args.recruit_rule:
+        from tools.recruit_rule import rule_seat_coin
+        rule_seat = "a" if rule_seat_coin(args.seed) else "b"
     pa, cnt_a = _build_player(
         args.spec_a, args.label_a, sims_a, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_a),
@@ -1191,7 +1244,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_a,
         raw_end_turn_offset=args.raw_end_turn_offset_a,
-        memory=memory_a, raw_coins=_raw_coins(args, "a", seat))
+        memory=memory_a, raw_coins=_raw_coins(args, "a", seat, rule_seat))
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -1205,7 +1258,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_b,
         raw_end_turn_offset=args.raw_end_turn_offset_b,
-        memory=memory_b, raw_coins=_raw_coins(args, "b", seat))
+        memory=memory_b, raw_coins=_raw_coins(args, "b", seat, rule_seat))
 
     rng = random.Random(args.seed)
     setup = random_setup(rng, forced_faction=forced_faction)
@@ -1376,8 +1429,12 @@ def main(argv) -> int:
     }
     # The coins (tools/coin_decode.py), when any is on: every band decision
     # and the attack coin in the record, their counts in the result.
-    coins = _coin_record(args, seat, (pa, pb), game_label)
+    coins = _coin_record(args, seat, (pa, pb), game_label, rule_seat)
     result.update(_coin_fields(args, seat, coins))
+    # The recruit rule (tools/recruit_rule.py), when on: its decisions in
+    # the record, their counts in the result.
+    rule_rec = _rule_record(args, rule_seat, (pa, pb), game_label)
+    result.update(_rule_fields(rule_rec))
     # The game itself, beside its result (tools/game_record.py), written
     # before the result so a result file always has its game.
     from tools.game_record import GameRecordLog, game_record
@@ -1391,7 +1448,8 @@ def main(argv) -> int:
                        "procedure": result["procedure_a"], "memory": memory_a},
                  "b": {"label": args.label_b, "spec": str(args.spec_b), "side": 3 - args.side_a,
                        "procedure": result["procedure_b"], "memory": memory_b}},
-        extra={"seed": args.seed, **({} if coins is None else {"coins": coins})}))
+        extra={"seed": args.seed, **({} if coins is None else {"coins": coins}),
+               **({} if rule_rec is None else {"recruit_rule": rule_rec})}))
     os.replace(_rec_tmp, _rec_path)
     timer.add("game_record", time.perf_counter() - t_record)
     # Where this game's decisions spent their time (wesnoth_ai/stage_timing.py):
