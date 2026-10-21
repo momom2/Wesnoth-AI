@@ -110,3 +110,9 @@ What this settles and what it does not:
 - **The spread v is still unmeasured**: a zero mean is compatible with any spread. Reading v needs the head's fits (ruling (e)): the design's spread estimator is built from per-batch head weights.
 - Derived numbers held where they could be checked: the pooled SE (0.00070 derived, 0.00070 measured), the census (76.1 against 77.6), the plant SE (0.0071 against 0.0082, about 15% wider).
 - Price on this host: 22,500 to 22,900 games an hour (stage A 6,400 in 1,007 s; batch match b05 10,000 in 1,601 s), at $0.577 an hour, $2.56e-5 a game; the whole box about $2.0 for 66,400 games.
+
+## 8. The user's rulings of 2026-10-21, after match L
+
+- **No component beside the network decides play.** The recruit rule Bd (+15.3 +- 1.8 Elo in match L) is rejected: "I don't see why we'd add that kind of kludge for such a specific behavior instead of expecting the model to learn that from training. The model should learn to recruit like a human iff recruiting like a human works." What the coin labels teach goes into the network's weights by training. A decode-time head, table or rule fitted beside the network is the same kind of add-on, whatever its features. The rule's hook leaves the code; its records stay as the measurement.
+- **Learning from game outcomes is allowed** (ruling (a)). The rejection of R0 concerned fire-and-hope runs, not outcome-driven learning; reading it as a ban was the lead's error.
+- **Fitting on existing data is allowed** (ruling (e)): "Hyperparameter tuning on already existing data is allowed. The reason I forbid further training runs is to avoid wasting costly compute on things that will be discarded down the line." Training the network still waits for the optimizer discussion.
