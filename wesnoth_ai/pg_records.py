@@ -159,7 +159,7 @@ def read_labels(path: Path) -> List[LabelRow]:
 def labelled_games(rows: Iterable[LabelRow], heldout: bool) -> Dict[str, Dict[int, LabelRow]]:
     """The games whose two sides are both labelled, held out or not, by
     name: each side's row. A game labelled on one side only, or whose sides
-    disagree on the split or the hold-out, is refused."""
+    disagree on the split, the hold-out or the half, is refused."""
     games: Dict[str, Dict[int, LabelRow]] = {}
     for r in rows:
         if r.heldout == heldout:
@@ -170,4 +170,7 @@ def labelled_games(rows: Iterable[LabelRow], heldout: bool) -> Dict[str, Dict[in
         if sides[1].split != sides[2].split:
             raise RecordFormatError(f"game {game}'s sides are labelled with splits {sides[1].split} and "
                                     f"{sides[2].split}")
+        if sides[1].half != sides[2].half:
+            raise RecordFormatError(f"game {game}'s sides are in halves {sides[1].half} and {sides[2].half}: "
+                                    f"a game's two seats share its half")
     return games

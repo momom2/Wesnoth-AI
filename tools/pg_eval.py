@@ -20,6 +20,10 @@ either sign, is the mean per-decision KL(pi_k || pi_{theta_k + s d}) over
 the KL subsample, the game-sides drawn with probability `kl_fraction` by a
 hash of their names; both networks carry their own memories along it.
 
+The forwards run in float32, whatever the device: bfloat16 rounds a log
+probability near -5 by about 0.016 nats, more than the per-decision KL the
+step search targets (about 0.001).
+
 `evaluate([s, ...])` reads several steps in one replay of the positions
 (each `logp` call replays them otherwise). `class_mass_by_seat(s)` is the
 teacher-forced sum over each game-side's decisions of the law's mass on
@@ -67,7 +71,6 @@ class EvalConfig:
     slots: int = 64
     workers: int = 0
     prefetch: int = 128
-    fp32: bool = False
     packed: Optional[bool] = None
     verify: bool = True
     kl_fraction: float = 0.05
@@ -108,7 +111,6 @@ class EvalContext:
             start += n
         self.kl_sides = ([gs for gs in self.sides if unit_draw("pg_kl", config.seed, gs.game, gs.side)
                           < config.kl_fraction] or self.sides[:1])
-        self.autocast = torch.bfloat16 if (device.type == "cuda" and not config.fp32) else None
 
     def params(self) -> Dict[str, torch.Tensor]:
         """theta_k by parameter name, on the CPU."""
@@ -171,10 +173,8 @@ class EvalContext:
         shadow = [p.shadow for p in positions]
         outputs = {}
         for s, (encoder, model) in networks.items():
-            with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
-                padded = model.forward_embedded(encoder.embed_staged(staged), memory=routers[s].batch(steps),
-                                                packed=self.config.packed)
-            padded = padded.float32()
+            padded = model.forward_embedded(encoder.embed_staged(staged), memory=routers[s].batch(steps),
+                                            packed=self.config.packed)
             routers[s].wrote(steps, padded.memory_padded, shadow)
             outputs[s] = padded
             out[s].logp[index] = action_log_probs(padded, batch).double().cpu().numpy()
@@ -268,10 +268,10 @@ class NetworkEvaluator:
 
 def _config_value(name: str, text: str):
     """An `EvalConfig` field from its text."""
-    if name in ("fp32", "verify"):
+    if name == "verify":
         return str(text).strip().lower() in ("1", "true", "yes", "on")
     if name == "packed":
-        return None if text.lower() == "auto" else _config_value("fp32", text)
+        return None if text.lower() == "auto" else _config_value("verify", text)
     return float(text) if name == "kl_fraction" else int(text)
 
 

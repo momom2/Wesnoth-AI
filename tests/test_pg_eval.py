@@ -40,7 +40,7 @@ def _evaluator(tmp_path, checkpoint=None, direction=None):
     if direction is None:
         direction = _direction(games.model, games.encoder)
     context = EvalContext(checkpoint or games.checkpoint, games.records, labels, CPU,
-                          EvalConfig(streams=2, window=4, fp32=True, kl_fraction=1.0))
+                          EvalConfig(streams=2, window=4, kl_fraction=1.0))
     return games, context.bind(direction)
 
 
@@ -117,7 +117,7 @@ def test_the_stage_c_factory_binds_evaluators_to_the_pass_network(tmp_path):
     labels = write_labels(tmp_path / "labels.jsonl", {g: 0 for g in games.records}, R,
                           heldout=list(games.records), halves=HALVES)
     factory, params, sha = network_factory(str(games.checkpoint), str(games.games), str(labels), device="cpu",
-                                           streams="2", fp32="1", kl_fraction="1.0")
+                                           streams="2", kl_fraction="1.0")
     assert sha == file_sha256(games.checkpoint)
     named = dict(named_model_parameters(games.model, games.encoder))
     assert set(params) == set(named) and all(torch.equal(params[n], named[n].detach()) for n in named)
@@ -127,3 +127,15 @@ def test_the_stage_c_factory_binds_evaluators_to_the_pass_network(tmp_path):
     with pytest.raises(ValueError):
         factory({name: torch.zeros(3, 1, 7)})
     ev.context.close()
+
+
+def test_a_held_out_game_whose_seats_sit_in_two_halves_is_refused(tmp_path):
+    """Halves are drawn per game: both seats of a held-out game share one."""
+    import dataclasses
+    from helpers.pg_games import write_labels
+    from wesnoth_ai.pg_records import RecordFormatError, labelled_games
+    rows = read_labels(write_labels(tmp_path / "labels.jsonl", {"g0": 0}, R, heldout=["g0"], halves={"g0": "A"}))
+    assert set(labelled_games(rows, heldout=True)) == {"g0"}
+    split = [r if r.side == 1 else dataclasses.replace(r, half="B") for r in rows]
+    with pytest.raises(RecordFormatError):
+        labelled_games(split, heldout=True)
