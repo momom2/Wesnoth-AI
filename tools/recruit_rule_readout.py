@@ -33,8 +33,8 @@ The checks (the design's I-cap, I-key, I-match and I-side):
   - the rule switched at least once on every faction it moved for;
   - the seat coin against 1/2, and its seat against side A's side (2 x 2
     chi-square: the first mover's +9.3 Elo must not ride on the seat).
-Fire rates (switches and rule decisions per hooked side-game) by the hooked
-side's faction are reported.
+Reported by the hooked side's faction: the fire rates (switches and rule
+decisions per hooked side-game) and the hooked seat's Elo.
 
     python tools/recruit_rule_readout.py extract --match l00=DIR --rule RULE.json --out rows_l00.jsonl
     python tools/recruit_rule_readout.py readout --rows rows_l00.jsonl [...] --rule RULE.json \\
@@ -216,15 +216,30 @@ def rule_checks(games: List[dict], cap: int) -> dict:
     return out
 
 
-def fire_rates(games: List[dict]) -> dict:
-    by = defaultdict(lambda: [0, 0, 0])
+def hooked_z(g: dict) -> int:
+    return g["z"] if g["seat"] == "a" else -g["z"]
+
+
+def by_faction(games: List[dict]) -> dict:
+    """Per hooked faction: its hooked side-games, switches and rule decisions
+    per side-game (fire rates), and the hooked seat's Elo over its decisive
+    games (the logit of the mean score)."""
+    from tools.match_luck_readout import elo_from_mean
+    by = defaultdict(list)
     for g in games:
-        b = by[g["hooked_faction"]]
-        b[0] += 1
-        b[1] += sum(e["switched"] for e in g["decisions"])
-        b[2] += len(g["decisions"])
-    return {fac: {"hooked_side_games": n, "switches_per_side_game": s / n, "decisions_per_side_game": d / n}
-            for fac, (n, s, d) in sorted(by.items())}
+        by[g["hooked_faction"]].append(g)
+    out = {}
+    for fac, gs in sorted(by.items()):
+        n = len(gs)
+        zh = np.array([hooked_z(g) for g in gs if g["z"] != 0], dtype=float)
+        reading = {"hooked_side_games": n, "switches_per_side_game": sum(sum(e["switched"] for e in g["decisions"])
+                                                                           for g in gs) / n,
+                   "decisions_per_side_game": sum(len(g["decisions"]) for g in gs) / n, "decisive": int(len(zh))}
+        if len(zh) > 1:
+            x, se = elo_from_mean(float(zh.mean()), float(zh.std(ddof=1) / math.sqrt(len(zh))))
+            reading["elo"] = {"elo": x, "se": se}
+        out[fac] = reading
+    return out
 
 
 def readout(rows: Iterable[dict], rule_file: dict, seal_readout: dict,
@@ -265,7 +280,7 @@ def readout(rows: Iterable[dict], rule_file: dict, seal_readout: dict,
                                and bool(games)}
     checks["seat_coin_logged"] = {"games": issues["seat_coin"], "pass": not issues["seat_coin"]}
     checks["i_cap"] = rule_checks(games, int(rule_file["rule"]["cap"]))
-    rates = out["fire_rates"] = fire_rates(games)
+    rates = out["by_faction"] = by_faction(games)
     checks["fires_every_faction"] = {"silent": [f for f, r in rates.items() if r["switches_per_side_game"] == 0],
                                      "pass": bool(rates) and all(r["switches_per_side_game"] > 0 for r in rates.values())}
     d = np.array([g["seat"] == "a" for g in games], dtype=float)
@@ -278,7 +293,7 @@ def readout(rows: Iterable[dict], rule_file: dict, seal_readout: dict,
                         "seat_by_side_a": seat_side}
     checks["i_side"] = {"pass": bool(coin["chi2"] <= CHECK_SE ** 2 and seat_side["chi2"] <= CHECK_SE ** 2)}
     if len(dec) > 1:
-        zh = np.array([g["z"] if g["seat"] == "a" else -g["z"] for g in dec], dtype=float)
+        zh = np.array([hooked_z(g) for g in dec], dtype=float)
         m, se = float(zh.mean()), float(zh.std(ddof=1) / math.sqrt(len(zh)))
         x, x_se = elo_from_mean(m, se)
         s = ELO_SE_1 / math.sqrt(len(dec))
@@ -316,9 +331,10 @@ def report_text(r: dict) -> str:
                  f"a side-game); inputs differ {c['inputs_differ']}, f differs {c['f_differs']}, switches differ "
                  f"{c['switch_differs']}, played not as logged {c['played_not_as_logged']}, off the seat {c['off_seat']}, "
                  f"refused {c['refused']}")
-    lines.append("fire rate by hooked faction (switches, rule decisions per side-game): " + "; ".join(
-        f"{k} {v['switches_per_side_game']:.3f}, {v['decisions_per_side_game']:.3f} ({v['hooked_side_games']})"
-        for k, v in r["fire_rates"].items()))
+    lines.append("by hooked faction (switches, rule decisions per side-game; the hooked seat's Elo): " + "; ".join(
+        f"{k} {v['switches_per_side_game']:.2f}, {v['decisions_per_side_game']:.2f}"
+        + (f"; {v['elo']['elo']:+.1f} +- {v['elo']['se']:.1f}" if "elo" in v else "") + f" ({v['hooked_side_games']})"
+        for k, v in r["by_faction"].items()))
     sc = r["seat_coin"]
     if sc["n"]:
         lines.append(f"seat coin: A {sc['ones']} of {sc['n']} (chi2 {sc['chi2']:.2f}); hooked on side 1 "

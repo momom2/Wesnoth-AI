@@ -61,7 +61,7 @@ import subprocess
 import sys
 import tarfile
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
@@ -177,6 +177,7 @@ class Rows:
     dev: np.ndarray
     side_games: int
     games_by_match: Dict[str, int]
+    faction_side_games: Dict[str, int] = field(default_factory=dict)   # the side-games each faction moved
 
     def subset_enemy(self, enemy: np.ndarray) -> "Rows":
         return Rows(**{**self.__dict__, "enemy": enemy})
@@ -186,7 +187,7 @@ def load_rows(records: Path, matches: Sequence[str], beta: np.ndarray) -> Rows:
     """The recruit rows of `matches` (games_<m>.tar.gz or games_<m>/ beside
     rows_<m>.jsonl, the luck walk) with their labels."""
     cols: Dict[str, list] = defaultdict(list)
-    games, per_match = [], {}
+    games, per_match, by_faction = [], {}, defaultdict(int)
     for mi, m in enumerate(matches):
         walk = {}
         with open(records / f"rows_{m}.jsonl", encoding="utf-8") as fh:
@@ -215,6 +216,8 @@ def load_rows(records: Path, matches: Sequence[str], beta: np.ndarray) -> Rows:
                 cols["u1"].append(f"{r['fac']}|{r['u1']}")
                 cols["dd"].append(r["n0"] - r["n1"])
             games.append(f"{m}/{game}")
+            for side in (1, 2):
+                by_faction[rec["setup"][f"faction{side}"]] += 1
             n += 1
         per_match[m] = n
     def arr(k, dtype=None):
@@ -222,7 +225,7 @@ def load_rows(records: Path, matches: Sequence[str], beta: np.ndarray) -> Rows:
     return Rows(match=arr("match", int), gid=arr("game", int), side=arr("side", int), cmd=arr("cmd", int),
                 d=arr("d", int), fac=arr("fac"), enemy=arr("enemy"), u0=arr("u0"), u1=arr("u1"),
                 dd=arr("dd", float), st=arr("st", int), T=arr("T", float), K=arr("K", int), dev=arr("dev", int),
-                side_games=2 * len(games), games_by_match=per_match)
+                side_games=2 * len(games), games_by_match=per_match, faction_side_games=dict(by_faction))
 
 
 def synthesis_enemy(rows: Rows) -> np.ndarray:
@@ -384,8 +387,13 @@ def rule_readings(rows: Rows, sw: np.ndarray) -> dict:
     out["capped_by_faction"] = {}
     for fac in sorted(set(rows.fac)):
         m = cap & (rows.fac[r] == fac)
-        out["capped_by_faction"][fac] = {**pm(elo((w1 * t)[m], g[m], sg)),
-                                         "switches_per_side_game": float(m.sum()) / sg}
+        part = elo((w1 * t)[m], g[m], sg)
+        reading = {**pm(part), "switches_per_side_game": float(m.sum()) / sg}
+        n = rows.faction_side_games.get(fac)
+        if n:   # the same sums per side-game of the faction: the faction's own value and fire rate
+            reading.update(side_games=n, own={"elo": part[0] * sg / n, "se": part[1] * sg / n},
+                           switches_per_own_side_game=float(m.sum()) / n)
+        out["capped_by_faction"][fac] = reading
     out["turn1_state_shift"] = state_shift(rows, r[(rank == 0) & t1], sg)
     return out
 
@@ -430,7 +438,7 @@ def fit_rule(rows: Rows) -> dict:
     f = values(des, w)
     r, rank, _pb, _d0 = ranked(rows, f > 0)
     cap = r[rank <= 1]
-    rates = {fac: float(np.sum(rows.fac[cap] == fac)) / rows.side_games for fac in sorted(set(rows.fac))}
+    rates = {fac: float(np.sum(rows.fac[cap] == fac)) / rows.faction_side_games[fac] for fac in sorted(set(rows.fac))}
     return {"design": des, "weights": w, "ridge": lam, "progressive_loss": loss, "readings": readings,
             "all_data_rule": {"switches_per_side_game": float(np.sum(f > 0)) / rows.side_games,
                               "capped_switches_per_side_game": len(cap) / rows.side_games,
@@ -513,9 +521,10 @@ def report_text(r: dict) -> str:
              f"  second-order term, all ranks: {rd['second_order']['elo']:+.1f} +- {rd['second_order']['se']:.1f}",
              f"  side-turn 1: {rd['side_turn_1']['switches_per_side_game']:.2f} switches, F "
              f"{rd['side_turn_1']['F']:+.1f}; capped part {rd['side_turn_1']['capped']:+.1f}",
-             "  capped by mover faction: " + "; ".join(
-                 f"{k} {v['elo']:+.1f} +- {v['se']:.1f} ({v['switches_per_side_game']:.2f})"
-                 for k, v in rd["capped_by_faction"].items())]
+             "  capped by mover faction, its part of the value (its own value per side-game of the faction; "
+             "switches per side-game of the faction): " + "; ".join(
+                 f"{k} {v['elo']:+.1f} +- {v['se']:.1f} ({v['own']['elo']:+.1f} +- {v['own']['se']:.1f}; "
+                 f"{v['switches_per_own_side_game']:.2f})" for k, v in rd["capped_by_faction"].items())]
     s = rd["turn1_state_shift"]
     lines.append(f"  turn-1 state shift (rank-0 turn-1 switches, {s['switches_per_side_game']:.3f} per side-game, mean K "
                  f"{s['mean_K']:.1f}): coin world {s['coin_world']['elo']:+.2f} +- {s['coin_world']['se']:.2f}, at uncoined "
@@ -524,8 +533,8 @@ def report_text(r: dict) -> str:
                  f"{s['ess_share']:.3f})")
     a = r["all_data_rule"]
     lines.append(f"the frozen rule (all matches) in batch 1's states: {a['switches_per_side_game']:.2f} rule decisions "
-                 f"per side-game, {a['capped_switches_per_side_game']:.2f} capped switches; by mover faction "
-                 + "; ".join(f"{k} {v:.3f}" for k, v in a["capped_switches_by_faction"].items()))
+                 f"per side-game, {a['capped_switches_per_side_game']:.2f} capped switches; per side-game of the "
+                 "mover's faction " + "; ".join(f"{k} {v:.2f}" for k, v in a["capped_switches_by_faction"].items()))
     lines.append(f"L's lines at {L['games']:,} decisive games (SE {L['match_se']:.2f}): seal {c['elo']:+.1f} +- "
                  f"{c['se']:.1f}, miss half-width {L['half_width']:.1f}, null line {L['null_line']:.2f}, the seal "
                  f"{L['seal_above_null_se']:.1f} SE above it; a null bounds the transfer ratio below "
@@ -557,7 +566,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     stem = f"recruit_rule_bd_{h[:SHORT_HASH]}"
     c = fit["readings"]["capped"]
     readout = {"hash": h, "rows": int(len(rows.T)), "side_games": rows.side_games, "matches": matches,
-               "games_by_match": rows.games_by_match, "beta": args.beta.as_posix(),
+               "games_by_match": rows.games_by_match, "faction_side_games": rows.faction_side_games,
+               "beta": args.beta.as_posix(),
                "progressive_loss": {f"{k:g}": v for k, v in fit["progressive_loss"].items()}, "ridge": fit["ridge"],
                "readings": fit["readings"], "all_data_rule": fit["all_data_rule"],
                "seal": {"elo": c["elo"], "se": c["se"]}, "l_lines": l_lines(c["elo"], c["se"]),
