@@ -1,42 +1,54 @@
-"""Self-play games with decision logs, for the policy-gradient pass's tests
+"""Self-play games with decision logs, for the policy-gradient tests
 (docs/training_design_20261019/build_contracts.md §1-2).
 
-Branch A's logger is not merged, so this helper writes the contract's
-format itself: a tiny network plays mini games against itself at
-temperature 1, no end_turn offset, 64 memory slots, through the production
-play path (the remote encoder with server-side priors and the inference
-server), and a subclass of the raw player logs every decision, refused ones
-included. A harness may refuse chosen recruit decisions: it rejects the
-ordered hex and the player decides again, as the match loop does for a
-recruit the engine bounces (`eval_players._play_one_eval_game`).
+The games are played the way stage 1 plays them: `elo_eval_game.main` with
+both seats on one tiny network at temperature 1, no end_turn offset, 64
+memory slots, `--log-decisions` (the raw player's own log,
+tools/decision_log.py), behind the shared-inference transport (server-side
+priors), its forward served in this process as the CPU inference server
+serves it. Each game writes its record and its match result as a match
+does. Three things differ from a box match, each by a patch for the game's
+duration only:
+- the transport is in-process (`InProcessTransport`, no server process);
+- the scenario is drawn from the mini maps, so three turns hold contact;
+- a harness may refuse chosen recruit decisions: the match loop's bounce
+  check (`eval_players._timed_bounce`) answers yes for them, so the loop
+  rejects the ordered hex and the player decides again, as for a recruit
+  the engine bounces.
 
-`played_games()` plays the suite's games once per process and returns where
-they are.
+`played_games()` plays the suite's games once per process; `selfplay_games`
+plays any list of match slots.
 """
 from __future__ import annotations
 
 import atexit
 import functools
 import json
-import math
 import shutil
 import tempfile
-import threading
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from unittest import mock
 
-import numpy as np
 import torch
 
 SLOTS = 64
 TINY_ARCH = {"d_model": 32, "num_layers": 1, "num_heads": 2, "d_ff": 64}
 MAX_TURNS = 3
-PROCEDURE = "raw:t1"                 # the raw player at temperature 1, no end_turn offset
+LABELS = ("A", "B")
+# The suite's games: name -> (seed, side A's side, the recruit decisions the
+# harness refuses, by their running index over the game). Seeds 13 and 7 hold
+# attacks in their first twelve decisions and a recruit followed by a
+# decision that may still recruit elsewhere; seed 5's side 1 recruits three
+# times in its first turn.
+SUITE = {"g0": (13, 1, ()), "g1": (5, 1, (0, 2)), "g2": (7, 1, ())}
 
 
 def tiny_network(seed: int = 4):
-    """(vocabularies, encoder, model) of a tiny network in eval mode."""
+    """(vocabularies, encoder, model) of a tiny network of the recipe's
+    structure (tools/sequence_setup.build_modules), in eval mode."""
     from tools.preencode_sequences import fresh_vocab
     from tools.sequence_setup import build_modules
     torch.manual_seed(seed)
@@ -46,120 +58,107 @@ def tiny_network(seed: int = 4):
 
 
 def save_network(path: Path, vocab, encoder, model) -> Path:
-    """The network as a checkpoint the pass and the evaluator load."""
-    torch.save({"arch": dict(TINY_ARCH), "model_state": model.state_dict(), "encoder_state": encoder.state_dict(),
+    """The network as a checkpoint the policy loader plays
+    (eval_players._load_policy) and the pass and the evaluator load: the
+    keys of `sequence_setup.save_checkpoint` without the trainer's state."""
+    from wesnoth_ai.checkpoint_structure import checkpoint_structure
+    from wesnoth_ai.constants import OBSERVATION_EPOCH
+    torch.save({"observation_epoch": int(OBSERVATION_EPOCH), "arch": dict(TINY_ARCH),
+                "relevant_set_hexes": True, "fog_hides_enemy_villages": True, "terrain_multi_hot": True,
+                **checkpoint_structure(model, encoder),
+                "model_state": model.state_dict(), "encoder_state": encoder.state_dict(),
                 "unit_type_to_id": dict(vocab[0]), "faction_to_id": dict(vocab[1])}, path)
     return path
 
 
-def decision_entry(compact, pick: int, value: float) -> dict:
-    """The contract's log entry of choosing `pick` among the compact legal
-    actions, its side, command and refusal left for the caller."""
-    from wesnoth_ai.server_priors import KIND_ATTACK, KIND_END_TURN, KIND_RECRUIT
-    prior = np.asarray(compact.prior, dtype=np.float64)
-    kind = np.asarray(compact.kind)
-    actor = np.asarray(compact.actor)
-    mass = float(prior.sum())
-    law = prior / mass
-    own = actor == actor[pick]
-    attacks = own & (kind == KIND_ATTACK)
-    return {
-        "action": [int(actor[pick]), int(kind[pick]), int(compact.target[pick]), int(compact.weapon[pick])],
-        "n": int(len(prior)), "mass": mass, "logp": float(np.log(law[pick])),
-        "H": float(-(law * np.log(law)).sum()),
-        "p_end": float(law[kind == KIND_END_TURN].sum()), "p_att": float(law[kind == KIND_ATTACK].sum()),
-        "p_rec": float(law[kind == KIND_RECRUIT].sum()),
-        "p_att_actor": float(law[attacks].sum() / law[own].sum()) if attacks.any() else math.nan,
-        "cdf": [float(law[:pick].sum()), float(law[:pick + 1].sum())], "v": float(value)}
+class InProcessTransport:
+    """The shared-inference transport with the forward in this process:
+    the CPU eval server's hello and `InferenceServer.infer_batch` as that
+    server builds it (tests/test_generation_identity.py serves the same way)."""
+
+    def __init__(self, spec: Path):
+        from tools.eval_inference_server import server_hello
+        from tools.eval_players import _load_policy
+        from tools.eval_provenance import file_sha256
+        from tools.inference_seam import InferenceServer
+        cpu = torch.device("cpu")
+        policy = _load_policy(Path(spec), cpu, label="inproc", infer_bf16=False, infer_compile=False)
+        self._server = InferenceServer(policy._inference_model, policy._inference_encoder, device=cpu,
+                                       output_device=cpu, autocast_bf16=False, packed_embed=True)
+        self.hello = server_hello(str(spec), file_sha256(Path(spec)), policy._inference_encoder,
+                                  policy._inference_model, device="cpu", bf16=False, packed=False,
+                                  packed_embed=True, compiled=False, graphed=False, rust_stage=True,
+                                  server_memory=False)
+        self.broken = False
+        self.address = "in-process"
+
+    def infer_batch(self, items):
+        return self._server.infer_batch(items)
+
+    def close(self) -> None:
+        pass
 
 
-def logging_player(base, seed: int):
-    """The raw player at temperature 1 with 64 slots, logging each decision
-    into `player.log[game_label]`."""
-    from tools.raw_player import RawPolicyPlayer
-    from wesnoth_ai.server_priors import KIND_END_TURN, compact_action
+def _refusing_bounce(refuse: Sequence[int]):
+    """The match loop's bounce check, answering yes for the recruit
+    decisions whose running index (over the game, refused ones included)
+    is in `refuse`."""
+    import tools.eval_players as ep
+    original = ep._timed_bounce
+    count = {"recruits": 0}
 
-    class LoggingPlayer(RawPolicyPlayer):
-        def __init__(self):
-            super().__init__(base, 1.0, seed=seed, memory_slots=SLOTS)
-            self.log: Dict[str, List[dict]] = {}
-            self._entry: Optional[dict] = None
-            self._value = math.nan
-
-        def _forward(self, base_, encoded, game_label, game_state):
-            out = super()._forward(base_, encoded, game_label, game_state)
-            self._value = float(out.value.reshape(-1)[0])
-            return out
-
-        def _select_compact(self, compact, encoded):
-            priors = np.asarray(compact.prior, dtype=np.float64)
-            pick = self._choose(priors, np.asarray(compact.actor), np.asarray(compact.kind) == KIND_END_TURN)
-            self._entry = decision_entry(compact, pick, self._value)
-            return compact_action(compact, pick, encoded)
-
-        def select_action(self, game_state, *, game_label="default", sim=None):
-            side, slot = int(game_state.global_info.current_side), len(sim.command_history)
-            action = super().select_action(game_state, game_label=game_label, sim=sim)
-            self.log.setdefault(game_label, []).append(
-                {"side": side, "cmd": slot, "refused": False, **self._entry})
-            return action
-
-        def drop_last_pending(self, game_label):
-            entry = self.log[game_label][-1]
-            entry["refused"], entry["cmd"] = True, -1
-            return super().drop_last_pending(game_label)
-
-    return LoggingPlayer()
+    def bounce(action, gs) -> bool:
+        if action.get("type") == "recruit":
+            count["recruits"] += 1
+            if count["recruits"] - 1 in refuse:
+                return True
+        return original(action, gs)
+    return bounce
 
 
-def play_logged_game(model, encoder, vocab, out_dir: Path, stem: str, scenario_seed: int, checkpoint_sha256: str,
-                     refuse_recruits: Sequence[int] = (), max_turns: int = MAX_TURNS) -> Path:
-    """One mini game of the network against itself, its record (with the
-    `decisions` field) written to `out_dir/<stem>.game.jsonl.gz` and its
-    match result, naming `checkpoint_sha256` on both seats, beside it. The
-    recruit decisions whose running index is in `refuse_recruits` are
-    refused by the harness."""
-    from sim_test_helpers import scenario_setup
-    from tools.game_record import GameRecordLog, game_record
-    from tools.inference_seam import InferenceServer, RemoteEncoder, RemoteModel
-    from tools.preencode_sequences import ENCODING
-    from tools.selfplay_game import _would_recruit_bounce
-    from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate
-    setup = scenario_setup(scenario_seed, mini=True)
-    sim = WesnothSim(build_scenario_gamestate(setup), scenario_id=setup.scenario_id, max_turns=max_turns)
-    sim._seed_salt = stem
-    remote = RemoteEncoder(*vocab, device=torch.device("cpu"), server_priors=True, **ENCODING)
-    base = SimpleNamespace(_inference_model=RemoteModel(InferenceServer(model, encoder, device=torch.device("cpu"))),
-                           _inference_encoder=remote, _lock=threading.Lock(), _decision_step=0)
-    player = logging_player(base, seed=scenario_seed)
-    recruits = 0
+def game_stem(side_a: int, seed: int) -> str:
+    """A match game's file stem (run_elo_batch.result_name)."""
+    return f"game_{LABELS[0]}_{LABELS[1]}_s{side_a}_{seed}"
 
-    def refused(action) -> bool:
-        nonlocal recruits
-        if action.get("type") != "recruit":
-            return False
-        recruits += 1
-        return recruits - 1 in refuse_recruits or _would_recruit_bounce(action, sim.gs)
 
-    while not sim.done:
-        action = player.select_action(sim.gs, game_label=stem, sim=sim)
-        while refused(action):
-            sim.reject_recruit_hex(action["target_hex"].x, action["target_hex"].y)
-            player.drop_last_pending(stem)
-            action = player.select_action(sim.gs, game_label=stem, sim=sim)
-        sim.step(action)
-        if sim.last_step_rejected:
-            raise RuntimeError(f"{stem}: the simulator refused {action!r}")
-    path = out_dir / f"{stem}.game.jsonl.gz"
-    players = {x: {"label": "p", "side": s, "memory": SLOTS, "procedure": PROCEDURE} for x, s in (("a", 1), ("b", 2))}
-    GameRecordLog(path).write(game_record(sim, setup, game_label=stem, players=players,
-                                          extra={"decisions": player.log[stem]}))
-    result = {"side_a": 1, "outcome_a": {1: "win", 2: "loss"}.get(sim.winner, "timeout")}
-    for x in ("a", "b"):
-        result.update({f"checkpoint_sha256_{x}": checkpoint_sha256, f"memory_{x}": SLOTS, f"procedure_{x}": PROCEDURE})
-    (out_dir / f"{stem}.json").write_text(json.dumps(result), encoding="utf-8")
-    return path
+def selfplay_games(checkpoint: Path, out_dir: Path, slots: Sequence[Tuple[int, int]],
+                   refuse: Optional[Mapping[int, Sequence[int]]] = None,
+                   max_turns: int = MAX_TURNS) -> Dict[str, Path]:
+    """Each (side A's side, seed) of `slots` played into `out_dir` as a
+    stage 1 match plays it (module docstring), the recruit decisions of
+    `refuse[seed]` refused; {stem: record path}."""
+    import tools.elo_eval_game as eg
+    from wesnoth_ai.rules.scenario_pool import random_setup
+    refuse = refuse or {}
+    transport = InProcessTransport(checkpoint)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    records = {}
+    for side_a, seed in slots:
+        argv = ["x", LABELS[0], str(checkpoint), LABELS[1], str(checkpoint), str(side_a), str(seed), str(out_dir),
+                "--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "1",
+                "--memory-a", str(SLOTS), "--memory-b", str(SLOTS), "--max-turns", str(max_turns),
+                "--device", "cpu", "--inference-address-a", transport.address,
+                "--inference-address-b", transport.address, "--no-infer-bf16", "--no-infer-compile",
+                "--no-infer-packed-trunk", "--log-decisions"]
+        with ExitStack() as patches:
+            patches.enter_context(mock.patch.object(eg, "_shared_client", lambda address: transport))
+            patches.enter_context(mock.patch.object(eg, "random_setup",
+                                                    functools.partial(random_setup, mini_maps=True)))
+            patches.enter_context(mock.patch("tools.eval_players._timed_bounce",
+                                             _refusing_bounce(tuple(refuse.get(seed, ())))))
+            if eg.main(argv) != 0:
+                raise RuntimeError(f"elo_eval_game failed on slot {(side_a, seed)}")
+        stem = game_stem(side_a, seed)
+        records[stem] = out_dir / f"{stem}.game.jsonl.gz"
+    return records
+
+
+def named(games, table: Mapping) -> Dict:
+    """A table keyed by the suite's names (`SUITE`: "g0", or ("g0", side))
+    keyed by the games' stems instead."""
+    def key(k):
+        return (games.names[k[0]], *k[1:]) if isinstance(k, tuple) else games.names[k]
+    return {key(k): v for k, v in table.items()}
 
 
 def write_labels(path: Path, games: Dict[str, int], R: Dict[tuple, float], heldout: Sequence[str] = (),
@@ -237,18 +236,18 @@ def moved_network(checkpoint: Path, direction: Dict[str, torch.Tensor], s: float
 
 @functools.lru_cache(maxsize=None)
 def played_games() -> SimpleNamespace:
-    """The suite's games, played once per process into a temporary
-    directory: three games of one tiny network, the second with two of its
-    recruits refused, and its checkpoint."""
+    """The suite's games (`SUITE`), played once per process into a
+    temporary directory: three games of one tiny network, the second with
+    two of its recruits refused; `names` maps the suite's names to the
+    games' stems, the names the records and labels go by."""
     from tools.eval_provenance import file_sha256
     root = Path(tempfile.mkdtemp(prefix="pg_games_"))
     atexit.register(shutil.rmtree, root, True)
     vocab, encoder, model = tiny_network()
     checkpoint = save_network(root / "net.pt", vocab, encoder, model)
     games = root / "games"
-    games.mkdir()
-    plan = {"g0": (3, ()), "g1": (5, (0, 2)), "g2": (11, ())}
-    records = {stem: play_logged_game(model, encoder, vocab, games, stem, seed, file_sha256(checkpoint), refuse)
-               for stem, (seed, refuse) in plan.items()}
-    return SimpleNamespace(root=root, games=games, records=records, checkpoint=checkpoint, vocab=vocab,
-                           encoder=encoder, model=model)
+    slots = [(side_a, seed) for seed, side_a, _ in SUITE.values()]
+    records = selfplay_games(checkpoint, games, slots, {seed: refuse for seed, _, refuse in SUITE.values()})
+    names = {name: game_stem(side_a, seed) for name, (seed, side_a, _) in SUITE.items()}
+    return SimpleNamespace(root=root, games=games, records=records, names=names, checkpoint=checkpoint,
+                           sha256=file_sha256(checkpoint), vocab=vocab, encoder=encoder, model=model)

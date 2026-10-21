@@ -19,6 +19,7 @@ from wesnoth_ai.pg_records import decisions_of, read_labels  # noqa: E402
 
 needs_core = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
 CPU = torch.device("cpu")
+# By the suite's names (helpers.pg_games.SUITE); `named` turns them into the stems.
 R = {("g0", 1): 0.7, ("g0", 2): -0.4, ("g1", 1): -0.9, ("g1", 2): 0.3, ("g2", 1): 0.5, ("g2", 2): -1.1}
 HALVES = {"g0": "A", "g1": "B", "g2": "A"}
 
@@ -32,11 +33,11 @@ def _direction(model, encoder, seed: int = 7):
 
 
 def _evaluator(tmp_path, direction=None):
-    from helpers.pg_games import played_games, write_labels
+    from helpers.pg_games import named, played_games, write_labels
     from tools.pg_eval import EvalConfig, EvalContext
     games = played_games()
-    labels = read_labels(write_labels(tmp_path / "labels.jsonl", {g: 0 for g in games.records}, R,
-                                      heldout=list(games.records), halves=HALVES))
+    labels = read_labels(write_labels(tmp_path / "labels.jsonl", {g: 0 for g in games.records}, named(games, R),
+                                      heldout=list(games.records), halves=named(games, HALVES)))
     if direction is None:
         direction = _direction(games.model, games.encoder)
     context = EvalContext(games.checkpoint, games.records, labels, CPU,
@@ -59,10 +60,13 @@ def test_the_recomputed_log_probabilities_are_the_logged_ones(tmp_path):
     each held-out decision, shadow rows included, memory carried along each
     game-side, is the generator's logged value; the game-sides partition the
     decisions and carry their labels."""
+    from helpers.pg_games import named
     games, ev = _evaluator(tmp_path)
     sides = ev.game_sides()
     assert [gs.start for gs in sides[1:]] == [gs.stop for gs in sides[:-1]] and sides[0].start == 0
-    assert {(gs.game, gs.side): (gs.R, gs.half) for gs in sides} == {k: (r, HALVES[k[0]]) for k, r in R.items()}
+    halves = named(games, HALVES)
+    assert {(gs.game, gs.side): (gs.R, gs.half) for gs in sides} == {k: (r, halves[k[0]])
+                                                                      for k, r in named(games, R).items()}
     logged = _logged(games, ev)
     base = ev.base_logp()
     assert len(base) == len(logged) == sides[-1].stop
@@ -115,15 +119,17 @@ def test_the_step_and_its_kl_are_the_pass_gradients_and_the_forward_kl(tmp_path)
     step large enough for the third-order term, `mean_kl(s)` is the mean
     over decisions of KL(pi_k || pi_s), each computed alone by separate code,
     and not KL(pi_s || pi_k)."""
-    from helpers.pg_games import moved_network, played_games, side_forwards, write_labels
+    from helpers.pg_games import moved_network, named, played_games, side_forwards, write_labels
     from tools.pg_eval import EvalConfig, EvalContext
     from tools.pg_pass import GradientPass, PassConfig
     from tools.pg_positions import positions_of, read_record
     from wesnoth_ai.pg_loss import legal_kl
     games = played_games()
     splits = {g: 0 for g in games.records}
-    train = read_labels(write_labels(tmp_path / "train.jsonl", splits, R))
-    held = read_labels(write_labels(tmp_path / "held.jsonl", splits, R, heldout=list(splits), halves=HALVES))
+    labels = named(games, R)
+    train = read_labels(write_labels(tmp_path / "train.jsonl", splits, labels))
+    held = read_labels(write_labels(tmp_path / "held.jsonl", splits, labels, heldout=list(splits),
+                                    halves=named(games, HALVES)))
     g = GradientPass(games.checkpoint, games.records, train, CPU, PassConfig(streams=2, window=64)).run()["total"]
     norm2 = sum(float((t * t).sum()) for t in g.values())
     ev = EvalContext(games.checkpoint, games.records, held, CPU, EvalConfig(streams=2, kl_fraction=1.0)).bind(g)
@@ -157,14 +163,14 @@ def test_the_stage_c_factory_binds_evaluators_to_the_pass_network(tmp_path):
     """`network_factory` gives the driver theta_k under the pass's names and
     the checkpoint's hash, and binds protocol evaluators; a direction of the
     wrong shape is refused."""
-    from helpers.pg_games import played_games, write_labels
+    from helpers.pg_games import named, played_games, write_labels
     from tools.eval_provenance import file_sha256
     from tools.pg_eval import network_factory
     from wesnoth_ai.param_groups import named_model_parameters
     from wesnoth_ai.pg_protocol import Evaluator
     games = played_games()
-    labels = write_labels(tmp_path / "labels.jsonl", {g: 0 for g in games.records}, R,
-                          heldout=list(games.records), halves=HALVES)
+    labels = write_labels(tmp_path / "labels.jsonl", {g: 0 for g in games.records}, named(games, R),
+                          heldout=list(games.records), halves=named(games, HALVES))
     factory, params, sha = network_factory(str(games.checkpoint), str(games.games), str(labels), device="cpu",
                                            streams="2", kl_fraction="1.0")
     assert sha == file_sha256(games.checkpoint)

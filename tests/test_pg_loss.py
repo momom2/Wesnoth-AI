@@ -27,8 +27,8 @@ def _positions():
     """Positions of two played games, attacks among their legal actions."""
     from helpers.pg_games import command_positions, played_games
     games = played_games()
-    return games, command_positions(games.records["g0"], games.vocab) + command_positions(games.records["g2"],
-                                                                                          games.vocab)
+    return games, [p for name in ("g0", "g2") for p in command_positions(games.records[games.names[name]],
+                                                                          games.vocab)]
 
 
 def _compacts(padded, packs):

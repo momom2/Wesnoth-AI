@@ -86,7 +86,7 @@ def test_a_refused_recruit_is_legal_where_it_was_decided_and_rejected_after():
     """The refused recruit's ordered hex is a legal target at its own
     position and is no longer one at the decision that follows it."""
     games = _games()
-    rec = read_record(games.records["g1"])
+    rec = read_record(games.records[games.names["g1"]])
     pos = positions_of(rec, *games.vocab)
     rows = pos.sides[1]
     checked = 0

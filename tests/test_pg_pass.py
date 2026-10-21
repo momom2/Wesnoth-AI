@@ -23,14 +23,15 @@ from wesnoth_ai.server_priors import KIND_ATTACK, KIND_END_TURN, KIND_RECRUIT  #
 
 needs_core = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
 CPU = torch.device("cpu")
+# By the suite's names (helpers.pg_games.SUITE); `named` turns them into the stems.
 SPLITS = {"g0": 0, "g1": 3, "g2": 5}
 R = {("g0", 1): 0.7, ("g0", 2): -0.4, ("g1", 1): -0.9, ("g1", 2): 0.3, ("g2", 1): 0.5, ("g2", 2): -1.1}
 
 
 def _labels(tmp_path, splits=SPLITS):
-    from helpers.pg_games import played_games, write_labels
+    from helpers.pg_games import named, played_games, write_labels
     games = played_games()
-    return games, read_labels(write_labels(tmp_path / "labels.jsonl", splits, R))
+    return games, read_labels(write_labels(tmp_path / "labels.jsonl", named(games, splits), named(games, R)))
 
 
 def _run(tmp_path, splits=SPLITS, records=None, **config):
@@ -64,11 +65,13 @@ def test_the_probe_gradients_are_the_logs_sums_and_fail_on_a_shifted_label(tmp_p
     slot (a seat) in place of the game-side's side gives both sides of a
     game one R, which misses. The trainer's log pi of every logged action
     is the logged one (the replay identity, fp32)."""
+    from helpers.pg_games import named
     from tools.pg_positions import read_record
     games, result = _run(tmp_path, splits={g: 0 for g in SPLITS}, streams=1, window=4)
-    want = _log_sums(games, R)
-    sides = sorted(R)
-    shifted = _log_sums(games, {sides[i]: R[sides[(i + 1) % len(sides)]] for i in range(len(sides))})
+    labels = named(games, R)
+    want = _log_sums(games, labels)
+    sides = sorted(labels)
+    shifted = _log_sums(games, {sides[i]: labels[sides[(i + 1) % len(sides)]] for i in range(len(sides))})
     tol = 2e-5
     for c in want:
         assert result["probes"][c] == pytest.approx(want[c], abs=tol), c
@@ -86,18 +89,19 @@ def _reference_gradient(games):
     alone with its memory's gradient never cut, by code of its own: the
     network's forward per decision, a shadow row reading the memory before
     it and writing nothing. Divided by 2N, as the pass divides."""
-    from helpers.pg_games import side_forwards
+    from helpers.pg_games import named, side_forwards
     from tools.pg_pass import load_network
     from tools.pg_positions import positions_of, read_record
     from wesnoth_ai.param_groups import named_model_parameters
     from wesnoth_ai.pg_loss import action_log_probs
     encoder, model = load_network(games.checkpoint, CPU)
+    labels = named(games, R)
     total = torch.zeros(())
     for game, path in games.records.items():
         pos = positions_of(read_record(path), *games.vocab, game=game)
         for side, rows in pos.sides.items():
             for out, batch in side_forwards(encoder, model, rows):
-                total = total + R[(game, side)] * action_log_probs(out, batch)[0]
+                total = total + labels[(game, side)] * action_log_probs(out, batch)[0]
     named = named_model_parameters(model, encoder)
     grads = torch.autograd.grad(total, [p for _, p in named], allow_unused=True)
     return {n: (torch.zeros_like(p) if g is None else g) / (2 * len(games.records)) for (n, p), g in zip(named, grads)}
@@ -197,13 +201,14 @@ def test_a_game_side_another_player_played_is_refused(tmp_path, where, key, valu
     """A labelled game-side its match played with another checkpoint, under
     another procedure or at another memory size stops the pass and the
     evaluator before they replay anything."""
-    from helpers.pg_games import write_labels
+    from helpers.pg_games import named, write_labels
     from tools.pg_eval import EvalConfig, EvalContext
     from tools.pg_pass import GradientPass, PassConfig
     from tools.pg_positions import ForeignGameError, read_record, result_path
     games, labels = _labels(tmp_path)
     _, records = _copied_games(tmp_path, games)
-    path = records["g1"]
+    foreign = games.names["g1"]
+    path = records[foreign]
     if where == "result":
         res = json.loads(result_path(path).read_text(encoding="utf-8"))
         res[key] = value
@@ -212,11 +217,12 @@ def test_a_game_side_another_player_played_is_refused(tmp_path, where, key, valu
         rec = read_record(path)
         rec["players"]["b"][key] = value
         _rewrite(path, rec)
-    with pytest.raises(ForeignGameError, match="g1 side 2"):
+    with pytest.raises(ForeignGameError, match=f"{foreign} side 2"):
         GradientPass(games.checkpoint, records, labels, CPU, PassConfig())
-    held = read_labels(write_labels(tmp_path / "held.jsonl", SPLITS, R, heldout=list(SPLITS),
-                                    halves={g: "A" for g in SPLITS}))
-    with pytest.raises(ForeignGameError, match="g1 side 2"):
+    splits = named(games, SPLITS)
+    held = read_labels(write_labels(tmp_path / "held.jsonl", splits, named(games, R), heldout=list(splits),
+                                    halves={g: "A" for g in splits}))
+    with pytest.raises(ForeignGameError, match=f"{foreign} side 2"):
         EvalContext(games.checkpoint, records, held, CPU, EvalConfig())
 
 
@@ -226,20 +232,21 @@ def test_a_log_the_trainer_does_not_reproduce_fails_the_pass(tmp_path):
     replay's KL estimate is 0.05 times that game's share of the decisions,
     above the limit, and the command line keeps the sums aside and exits 3
     without writing pass.pt."""
-    from helpers.pg_games import write_labels
+    from helpers.pg_games import named, write_labels
     from tools.pg_pass import EXIT_REPLAY, ReplayMismatch, main
     from tools.pg_positions import read_record
     games, _ = _labels(tmp_path)
     dst, records = _copied_games(tmp_path, games)
-    rec = read_record(records["g2"])
+    shifted = records[games.names["g2"]]
+    rec = read_record(shifted)
     for d in rec["decisions"]:
         d["logp"] += 0.05
-    _rewrite(records["g2"], rec)
+    _rewrite(shifted, rec)
     total = sum(len(decisions_of(read_record(p))) for p in records.values())
     with pytest.raises(ReplayMismatch) as caught:
         _run(tmp_path, records=records, streams=2)
     assert caught.value.result["replay"]["kl"] == pytest.approx(0.05 * len(rec["decisions"]) / total, rel=1e-3)
-    labels = write_labels(tmp_path / "cli.jsonl", SPLITS, R)
+    labels = write_labels(tmp_path / "cli.jsonl", named(games, SPLITS), named(games, R))
     out = tmp_path / "pass.pt"
     code = main(["--checkpoint", str(games.checkpoint), "--games", str(dst), "--labels", str(labels),
                  "--out", str(out), "--device", "cpu", "--streams", "2"])
