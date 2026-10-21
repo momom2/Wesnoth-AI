@@ -85,6 +85,13 @@ def test_split_half_and_heldout_columns():
         assert lab["split"] == i % 8 and lab["heldout"] == (i >= 24)
         assert lab["half"] == (("A" if (i // 2) % 2 == 0 else "B") if i >= 24 else None)
     assert {lab["half"] for lab in labels if lab["heldout"]} == {"A", "B"}
+    # Both seats of a game share its split, its held-out flag and its half:
+    # a game's two labels share one result, so the halves stay independent.
+    by_game = {}
+    for lab in labels:
+        by_game.setdefault(lab["game"], set()).add((lab["split"], lab["heldout"], lab["half"]))
+    assert all(len(v) == 1 for v in by_game.values())
+    assert all(sum(lab["game"] == g for lab in labels) == 2 for g in by_game)
 
 
 def test_no_game_is_labelled_by_a_fit_that_saw_it():
