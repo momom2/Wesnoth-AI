@@ -47,8 +47,7 @@ log = logging.getLogger("sim_demo_game")
 
 
 def load_player(ckpt: Path, device, *, mcts_sims: int, temperature: float,
-                end_turn_offset: float, end_turn_rule: str = "joint",
-                seed: Optional[int] = None, memory: Optional[int] = None):
+                end_turn_offset: float, seed: Optional[int] = None, memory: Optional[int] = None):
     """The player both sides use: the checkpoint loaded as the eval path
     loads it (its arch and every structural flag, so a relevant-set
     checkpoint chooses its hex targets in the relevant-set basis), under
@@ -64,8 +63,7 @@ def load_player(ckpt: Path, device, *, mcts_sims: int, temperature: float,
                           rng_seed=seed)
     from tools.raw_player import RawPolicyPlayer
     slots = int(peek_checkpoint_arch(ckpt, "demo").get("memory_slots", 0) or 0)
-    return RawPolicyPlayer(policy, temperature, seed=seed, end_turn_rule=end_turn_rule,
-                           end_turn_offset=end_turn_offset,
+    return RawPolicyPlayer(policy, temperature, seed=seed, end_turn_offset=end_turn_offset,
                            memory_slots=effective_memory(slots, memory))
 
 

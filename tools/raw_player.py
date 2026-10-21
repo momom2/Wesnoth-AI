@@ -18,22 +18,27 @@ never separated from "argmax beats sampling".
 Before the choice, the end_turn offset shifts end_turn's logit
 (`shift_end_turn_prior`).
 
+With `log_decisions`, each decision is logged (tools/decision_log.py):
+the sampled action, the network's raw law over the legal list (before
+the temperature and the offset) and the value head's reading;
+`pop_decision_log` hands a finished game's entries to the caller, who
+records them. Logging reads the law only: the choices and the random
+draws are the same with it on or off.
+
 Result provenance: `tools/eval_procedure.procedure_of` tags this
 player "raw:t<temperature>"; the legacy sampler stays "raw".
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
+from tools.decision_log import compact_columns, decision_entry, finish_log, value_of
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors
 from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.stage_timing import stage
-
-
-END_TURN_RULES = ("joint", "actor")
 
 
 def shift_end_turn_prior(priors: np.ndarray, is_end: np.ndarray, offset: float) -> np.ndarray:
@@ -56,30 +61,6 @@ def shift_end_turn_prior(priors: np.ndarray, is_end: np.ndarray, offset: float) 
     out[is_end] *= p_new / p_end
     out[~is_end] *= (1.0 - p_new) / (1.0 - p_end)
     return out
-
-
-def actor_rule_index(priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray,
-                     temperature: float, rng: np.random.Generator) -> int:
-    """end_turn decided at the ACTOR level: play it only when its actor
-    mass is at least the largest actor marginal (the sum of the joint
-    priors over one unit's or recruit slot's legal actions); otherwise
-    choose among the non-end actions by `pick_index`. The joint argmax
-    compares end_turn's whole actor mass against four-way products,
-    so it ends the turn whenever the act mass is spread over several
-    units (panel test 1)."""
-    if not is_end.any():
-        return pick_index(priors, temperature, rng)
-    end_idx = int(np.flatnonzero(is_end)[0])
-    acting = np.flatnonzero(~is_end)
-    if len(acting) == 0:
-        return end_idx
-    marginal = {}
-    for i in acting:
-        a = int(actors[i])
-        marginal[a] = marginal.get(a, 0.0) + float(priors[i])
-    if float(priors[is_end].sum()) >= max(marginal.values()):
-        return end_idx
-    return int(acting[pick_index(priors[acting], temperature, rng)])
 
 
 def pick_index(priors: np.ndarray, temperature: float,
@@ -107,7 +88,7 @@ def model_memory_slots(base) -> Optional[int]:
 class RawPolicyPlayer:
     """Same duck type the eval loop drives (`_PolicyPair`):
     select_action / drop_pending / drop_last_pending. Records no
-    training targets."""
+    training targets; logs its decisions when asked (`log_decisions`)."""
 
     trainable = False
     # It reads the state only while it decides and keeps nothing of it,
@@ -117,21 +98,17 @@ class RawPolicyPlayer:
 
     def __init__(self, base, temperature: float,
                  seed: Optional[int] = None, forbid_end_turn: bool = False,
-                 compact_selection: bool = True, end_turn_rule: str = "joint",
-                 end_turn_offset: float = 0.0, memory_slots: Optional[int] = None):
+                 compact_selection: bool = True,
+                 end_turn_offset: float = 0.0, memory_slots: Optional[int] = None,
+                 log_decisions: bool = False):
         if temperature < 0.0:
             raise ValueError("temperature must be >= 0 (0 = argmax)")
-        if end_turn_rule not in END_TURN_RULES:
-            raise ValueError(f"end_turn_rule must be one of {END_TURN_RULES}")
         self._base = base
         self.temperature = float(temperature)
         self._rng = np.random.default_rng(seed)
-        # How end_turn is decided (panel test 1): "joint" = the joint
-        # argmax or sample over every legal action; "actor" = end_turn
-        # only when its actor mass leads every actor marginal
-        # (actor_rule_index). `end_turn_offset` shifts end_turn's actor
-        # logit before either (shift_end_turn_prior).
-        self.end_turn_rule = end_turn_rule
+        # end_turn is one legal action among the others of the joint
+        # argmax or sample; `end_turn_offset` shifts its actor logit
+        # before the choice (shift_end_turn_prior).
         self.end_turn_offset = float(end_turn_offset)
         # The continue-edit proposer of tools/turn_gap.py: keep acting
         # while any non-end action is legal (end_turn only when nothing
@@ -157,28 +134,30 @@ class RawPolicyPlayer:
         self._memories: Dict[Tuple[str, int], object] = {}
         # Per game, the last decision's (side key, memory before it).
         self._undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
+        # Per game, the decision log's entries so far (tools/decision_log.py).
+        self.log_decisions = bool(log_decisions)
+        self._decision_logs: Dict[str, List[dict]] = {}
 
-    def _select_compact(self, compact, encoded) -> Dict:
-        """The choice on the compact arrays."""
+    def _select_compact(self, compact, encoded) -> Tuple[Dict, Optional[int]]:
+        """(the choice on the compact arrays, its index in them; None when
+        nothing is legal)."""
         from wesnoth_ai.server_priors import KIND_END_TURN, compact_action
         n = len(compact.prior)
         if n == 0:
-            return {"type": "end_turn"}
+            return {"type": "end_turn"}, None
         idx = np.arange(n)
         if self.forbid_end_turn:
             acting = idx[compact.kind != KIND_END_TURN]
             if len(acting):
                 idx = acting
         priors = np.asarray(compact.prior, dtype=np.float64)[idx]
-        pick = self._choose(priors, np.asarray(compact.actor)[idx],
-                            np.asarray(compact.kind)[idx] == KIND_END_TURN)
-        return compact_action(compact, int(idx[pick]), encoded)
+        pick = int(idx[self._choose(priors, np.asarray(compact.kind)[idx] == KIND_END_TURN)])
+        return compact_action(compact, pick, encoded), pick
 
-    def _choose(self, priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray) -> int:
-        """The index chosen among `priors` under the player's rule."""
+    def _choose(self, priors: np.ndarray, is_end: np.ndarray) -> int:
+        """The index chosen among `priors` at the player's temperature,
+        after the end_turn offset."""
         priors = shift_end_turn_prior(priors, is_end, self.end_turn_offset)
-        if self.end_turn_rule == "actor":
-            return actor_rule_index(priors, actors, is_end, self.temperature, self._rng)
         return pick_index(priors, self.temperature, self._rng)
 
     def select_action(self, game_state, *, game_label: str = "default",
@@ -194,17 +173,44 @@ class RawPolicyPlayer:
             compact = getattr(output, "legal_compact", None)
             if compact is not None and self.compact_selection:
                 with stage("select"):
-                    return self._select_compact(compact, encoded)
+                    action, pick = self._select_compact(compact, encoded)
+                if pick is not None and self.log_decisions:
+                    self._log(game_label, game_state, sim, output, {
+                        "actor": compact.actor, "kind": compact.kind, "target": compact.target,
+                        "weapon": compact.weapon, "prior": compact.prior}, pick)
+                return action
             legal = enumerate_legal_actions_with_priors(encoded, output, game_state)
         if not legal:
             return {"type": "end_turn"}
+        idx = np.arange(len(legal))
         if self.forbid_end_turn:
-            acting = [la for la in legal if la.action.get("type") != "end_turn"]
-            legal = acting or legal
-        priors = np.array([la.prior for la in legal], dtype=np.float64)
-        actors = np.array([la.actor_idx for la in legal], dtype=np.int64)
-        is_end = np.array([la.action.get("type") == "end_turn" for la in legal])
-        return legal[self._choose(priors, actors, is_end)].action
+            acting = [i for i, la in enumerate(legal) if la.action.get("type") != "end_turn"]
+            idx = np.array(acting) if acting else idx
+        priors = np.array([legal[i].prior for i in idx], dtype=np.float64)
+        is_end = np.array([legal[i].action.get("type") == "end_turn" for i in idx])
+        pick = int(idx[self._choose(priors, is_end)])
+        if self.log_decisions:
+            self._log(game_label, game_state, sim, output, compact_columns(legal), pick)
+        return legal[pick].action
+
+    def _log(self, game_label: str, game_state, sim, output, arrays: Dict, pick: int) -> None:
+        """The decision's entry into the game's log: the legal list as
+        compact arrays (actor, kind, target, weapon, prior), the index
+        chosen in it, and the command count the decision starts at."""
+        if sim is None:
+            raise ValueError("a logged decision needs the simulator: its entry names the command it emits")
+        entry = decision_entry(side=int(game_state.global_info.current_side),
+                               at=len(sim.command_history), actor=arrays["actor"],
+                               kind=arrays["kind"], target=arrays["target"], weapon=arrays["weapon"],
+                               prior=arrays["prior"], pick=pick, value=value_of(output))
+        self._decision_logs.setdefault(game_label, []).append(entry)
+
+    def pop_decision_log(self, game_label: str, n_commands: int) -> List[dict]:
+        """The decisions of game `game_label`, which ended with
+        `n_commands` commands, in the order they were made and with
+        `cmd` and `refused` final (`decision_log.finish_log`), handed
+        over once; `decision_log.merge_logs` joins the players' logs."""
+        return finish_log(self._decision_logs.pop(game_label, []), n_commands)
 
     def _forward(self, base, encoded, game_label: str, game_state):
         """The model's output, the side's memory read and written when the
@@ -247,7 +253,8 @@ class RawPolicyPlayer:
             self._memories[key] = state
 
     def drop_pending(self, game_label: str) -> None:
-        """The game is over: its sides' memories go."""
+        """The game is over: its sides' memories go (its decision log
+        stays for `pop_decision_log`)."""
         for key in [k for k in self._memories if k[0] == game_label]:
             del self._memories[key]
         self._undo.pop(game_label, None)
@@ -257,7 +264,11 @@ class RawPolicyPlayer:
         is decided again: the side's memory goes back to what it was
         before it. The engine records nothing for a refused recruit
         (`menu_handler::do_recruit`, src/menu_events.cpp:350-370, 1.18.4),
-        so the corpus holds no position there."""
+        so the corpus holds no position there. The decision log keeps the
+        refused decision, marked `refused`: it was sampled."""
+        log = self._decision_logs.get(game_label)
+        if log:
+            log[-1]["refused"] = True
         undo = self._undo.pop(game_label, None)
         if undo is not None:
             key, before = undo
