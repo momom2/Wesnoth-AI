@@ -231,6 +231,14 @@ $1.47 in all):
     tests it in uncoined play (`own1` + capped Bd on one seat, 37,800 games,
     about $1). The network recruits far less diversely than humans (1.35
     distinct types on turn 1 against 3.16). Rulings (a), (e), (h), (i) wait.
+  - **Match L measured** (0.30.5, docs/recruit_rule_l_prereg_20261021.md
+    "Measured", about $0.9; code on `exp/recruit-rule-l`, not merged): `own1`
+    + the capped recruit rule Bd (frozen, 13f8f00e) beats `own1` by **+15.3 +-
+    1.8 Elo** over 37,800 decisive games, every check clean. It is the first
+    strength gain learned from the project's own self-play results. Below its
+    sealed window [+17.6, +31.5] (seal +24.6 +- 3.0): transfer ratio 0.62, the
+    shortfall in the coined continuations. Next by the design: S1 (about $26)
+    and T (Bd on `own2`, about $1, iff ruling (h)); both wait on the user.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

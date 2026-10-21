@@ -1,0 +1,4 @@
+Wed Oct 21 14:17:07 UTC 2026
+4 of 4 matches, readout PASS below
+2026-10-21T13:58:15Z l02: games 10000 from seed 720000, rc=0 ok, 1406 s, results and decisive 10005 10000, failed 0
+2026-10-21T14:16:59Z l03: games 7800 from seed 730000, rc=0 ok, 1111 s, results and decisive 7805 7800, failed 0
