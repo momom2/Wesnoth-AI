@@ -193,5 +193,3 @@ def test_the_driver_hands_the_coins_to_each_game():
     assert coin_argv(args) == ["--attack-coin-offset", "1.0", "--coin-band-a", "0.35", "--coin-p-a", "0.25"]
     assert coin_argv(Namespace(attack_coin_offset=0.0, coin_band_a=0.0, coin_p_a=0.25,
                                coin_band_b=0.0, coin_p_b=0.25)) == []
-    assert coin_argv(Namespace(attack_coin_offset=0.0, coin_band_a=0.0, coin_p_a=0.25, coin_band_b=0.0,
-                               coin_p_b=0.25, recruit_rule="/r/rule.json")) == ["--recruit-rule", "/r/rule.json"]

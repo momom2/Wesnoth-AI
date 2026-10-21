@@ -26,7 +26,7 @@ uncoined play.
 `tools/recruit_rule_fit.py` at commit 01049c2, run on batch 1's records
 (the game tarballs and luck-walk rows of matches b00 to b06; their SHA-256
 in the rule file's provenance). Readout:
-`configs/recruit_rule_bd_13f8f00e4a7c_readout.{json,txt}`.
+`training/metrics/recruit_rule_l_20261021/recruit_rule_bd_13f8f00e4a7c_readout.{json,txt}`.
 
 **The rows.** 514,281 band decisions whose two candidates recruit different
 unit types, in 60,000 decisive games (4.29 per side-game). Each row's enemy
@@ -52,7 +52,7 @@ grid [M]:
 | progressive loss | −624.0 | **−743.6** | −700.1 | −588.6 |
 
 **The frozen rule** is fitted on all seven matches at λ = 5,000:
-`configs/recruit_rule_bd_13f8f00e4a7c.json`. Its SHA-256 is
+`training/metrics/recruit_rule_l_20261021/recruit_rule_bd_13f8f00e4a7c.json`. Its SHA-256 is
 `13f8f00e4a7ce0ce5a598adc628c5a2f9d5a08e8ead903e0e5e5eac70b3f4d44`, taken
 over its content: units, matchups, count, ridges, band 0.35, cap 2 and the
 formula's text. The decode refuses a file whose content does not hash to
