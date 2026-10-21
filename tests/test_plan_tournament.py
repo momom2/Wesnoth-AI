@@ -148,7 +148,7 @@ def test_serving_plan_tracks_live_dice_stream(monkeypatch):
     net = _tiny()
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
-    plan, stats = pt.run_tournament(net, sim, side, 0, _cfg(),
+    plan, stats = pt.run_tournament(net, sim, side, _cfg(),
                                     np.random.default_rng(7),
                                     salt_ns="t:live")
     n_targets = sum(1 for t in plan.targets if t)
@@ -191,7 +191,7 @@ def test_exhausted_budget_cannot_certify_and_is_counted():
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
     plan, stats = run_tournament(
-        net, sim, side, 0,
+        net, sim, side,
         _cfg(budget_forwards=5, margin_band=-10.0),
         np.random.default_rng(2), salt_ns="t:2")
     assert plan.beta == 0.0 and not plan.certified
@@ -208,7 +208,7 @@ def test_certification_requires_two_stage_acceptance():
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
     plan, stats = run_tournament(
-        net, sim, side, 0, _cfg(margin_band=10.0),
+        net, sim, side, _cfg(margin_band=10.0),
         np.random.default_rng(3), salt_ns="t:3")
     assert plan.beta == 0.0 and not plan.certified
     if stats["n_challengers"] > 0 and not stats["abstained_budget"]:
@@ -298,7 +298,7 @@ def test_budget_cut_preserves_measured_margins(monkeypatch):
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
     plan, stats = pt.run_tournament(
-        net, sim, side, 0,
+        net, sim, side,
         _cfg(n_challengers=2, depths=(1, 3), budget_forwards=4000),
         np.random.default_rng(22), salt_ns="t:cut")
     if stats["n_challengers"] > 0 and stats["graded"] > 0:
@@ -461,7 +461,7 @@ def test_reserve_bump_callsite_executes(monkeypatch):
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
     _plan, stats = pt.run_tournament(
-        net, sim, side, 0, _cfg(), np.random.default_rng(11),
+        net, sim, side, _cfg(), np.random.default_rng(11),
         salt_ns="t:rb")
     if stats["n_challengers"] > 0:
         assert calls and calls[0][0] >= 1
@@ -484,7 +484,7 @@ def test_reserve_bump_never_starves_selection(monkeypatch):
         sim = fresh_scenario_sim()
         side = sim.gs.global_info.current_side
         _plan, stats = pt.run_tournament(
-            net, sim, side, 0, _cfg(), np.random.default_rng(seed),
+            net, sim, side, _cfg(), np.random.default_rng(seed),
             salt_ns=f"t:clamp{seed}")
         if stats["n_challengers"] > 0:
             assert stats["graded"] > 0, \
@@ -533,7 +533,7 @@ def test_project_counted_marks_cap_censoring():
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
     obs = []
-    v = _project_counted(net, sim, side, 0, 1, 1,
+    v = _project_counted(net, sim, side, 1, 1,
                          np.random.default_rng(0), _Budget(500),
                          salt="t:cens", half_obs=obs)
     assert v is not None
