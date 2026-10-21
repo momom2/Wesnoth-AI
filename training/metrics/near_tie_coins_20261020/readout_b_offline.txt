@@ -1,0 +1,40 @@
+games 60023 read, 60000 decisive, 23 capped (dropped); matches:
+  b00: 2001 coin rows of 2001 result files; 2000 of 2000 slots have a result (2000 decisive); I-log 313873 matched, 0 relocated, 0 mismatched
+  b01: 10002 coin rows of 10002 result files; 10000 of 10000 slots have a result (10000 decisive); I-log 1552993 matched, 1 relocated, 0 mismatched
+  b02: 10004 coin rows of 10004 result files; 10000 of 10000 slots have a result (10000 decisive); I-log 1557682 matched, 1 relocated, 0 mismatched
+  b03: 10006 coin rows of 10006 result files; 10000 of 10000 slots have a result (10000 decisive); I-log 1543329 matched, 1 relocated, 0 mismatched
+  b04: 10004 coin rows of 10004 result files; 10000 of 10000 slots have a result (10000 decisive); I-log 1558025 matched, 0 relocated, 0 mismatched
+  b05: 10003 coin rows of 10003 result files; 10000 of 10000 slots have a result (10000 decisive); I-log 1550548 matched, 0 relocated, 0 mismatched
+  b06: 8003 coin rows of 8003 result files; 8000 of 8000 slots have a result (8000 decisive); I-log 1251949 matched, 0 relocated, 0 mismatched
+fights: 6592963 attacks, 0 outside their support, 0 not enumerable, 0 counter weapon differs, 0 without units, 0 walk rows without counts
+dice control: z on side A's hp luck +0.0044 +- 0.0001, window [+0.00267, +0.00565]: pass
+band w 0.35: 9317548 decisions in decisive games (1 refused), 77.6 per side-game, quartiles [47.0, 67.0, 97.0]
+mean label pooled +0.0003 +- 0.0007; mover A +0.0012 +- 0.0010, mover B -0.0006 +- 0.0010
+by margin bin:
+  [0.00,0.05): -0.0023 +- 0.0017 (1533417 decisions)
+  [0.05,0.10): -0.0001 +- 0.0018 (1465714 decisions)
+  [0.10,0.15): +0.0009 +- 0.0017 (1531558 decisions)
+  [0.15,0.20): -0.0016 +- 0.0018 (1386663 decisions)
+  [0.20,0.25): +0.0005 +- 0.0020 (1124514 decisions)
+  [0.25,0.30): +0.0020 +- 0.0021 (1067984 decisions)
+  [0.30,0.35): +0.0038 +- 0.0019 (1207698 decisions)
+by pair type (argmax kind > runner-up kind):
+  move>move: +0.0003 +- 0.0009 (5627918 decisions)
+  recruit>recruit: +0.0070 +- 0.0024 (765978 decisions)
+  attack>attack: -0.0029 +- 0.0029 (564046 decisions)
+  attack>move: -0.0003 +- 0.0031 (487948 decisions)
+  end_turn>move: -0.0017 +- 0.0032 (454782 decisions)
+  move>attack: -0.0031 +- 0.0032 (452164 decisions)
+  move>end_turn: -0.0018 +- 0.0036 (345864 decisions)
+  recruit>move: +0.0014 +- 0.0042 (253575 decisions)
+  move>recruit: -0.0022 +- 0.0044 (234374 decisions)
+  recruit>end_turn: +0.0109 +- 0.0135 (24130 decisions)
+  recruit>attack: +0.0025 +- 0.0141 (23697 decisions)
+  attack>recruit: -0.0072 +- 0.0141 (23130 decisions)
+  end_turn>recruit: +0.0235 +- 0.0141 (22824 decisions)
+  end_turn>attack: -0.0135 +- 0.0156 (18994 decisions)
+  attack>end_turn: +0.0111 +- 0.0161 (18124 decisions)
+I-coin: ones 2327406 of 9317548 (expected 2329387.0, chi2 2.25); bins chi2 5.18 on 7 df (p 0.639); slope on G +0.0018 +- 0.0014, on the index -0.0000 +- 0.0000; capped ones 2693 of 10856
+I-log: 9328399 matched, 3 relocated recruits, 0 mismatched, 2 unresolved
+coin plant (slope of T' - T on the planted x, predicted 1): mover A +0.9941 +- 0.0082, mover B +0.9947 +- 0.0081
+verdict: PASS

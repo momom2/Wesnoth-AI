@@ -197,3 +197,47 @@ unchanged; the readout now:
    membership and effect size, 120,000 synthetic games through the
    production extraction, table and labels;
 7. puts a gap on a bin edge in the bin it opens (0.15 in [0.15, 0.20)).
+
+## Measured (2026-10-21)
+
+Box 56955777 (RTX 4090, EPYC 7702, $0.577 an hour), stage
+`tier-b/staging/stage_20261020_coins.tar.gz` (2eab835), entry 21:42 UTC,
+done 01:04 UTC, about $2.0 for 66,400 decisive games (22,500 to 22,900
+games an hour). Records in `training/metrics/near_tie_coins_20261020/`; the
+coin, walk-row and plant files and the games stay on HF. Every reading below
+was recomputed offline from the records with the hardened readout of
+459da5e (`readout_a_offline.txt`, `readout_b_offline.txt`) and equals the
+box's.
+
+**Stage A, the attack known answer: PASS.** 6,400 decisive games, 2 capped.
+The hooked player -41.3 +- 4.4 Elo (window [-111, -41]); through the label
+code -0.242 +- 0.023 z (window [-0.640, -0.236]); the hooked seat's mean z
+-0.118, half the label's 2Δ. Both readings pass at the edge of their
+windows: the effect of attack logits +1 on `own1` is about half the -76 +- 17
+the decode-knob records gave. Attack coin 3,182 ones of 6,402; dice control
++0.0044; every fight in its support (691,029 attacks).
+
+**The smoke: PASS** (2,000 games): every gate at 3 SE; plant 0.976 +- 0.041
+and 1.009 +- 0.045.
+
+**Batch 1: PASS.** 60,000 decisive games, 23 capped, 9,317,548 band
+decisions (1 refused recruit), every match whole, every slot played,
+6,592,963 attacks with none outside their support.
+- Plant per mover side 0.994 +- 0.008 and 0.995 +- 0.008 (predicted 1, SE
+  0.0071); dice control +0.00436 (window [+0.00267, +0.00565]); I-coin
+  chi-square 2.25, bins p 0.64, slopes on G and index within 1.3 SE of 0;
+  I-log 9,328,399 matched, 3 relocated recruits, 0 mismatched, 2
+  unresolved.
+- Census: 77.6 +- 0.13 band decisions per side-game (derived 76.1).
+- **Pooled mean label +0.0003 +- 0.0007** (SE as derived, 0.00070); by
+  mover +0.0012 +- 0.0010 and -0.0006 +- 0.0010.
+- By margin bin and by pair type: no cell resolved at a family-wise 5% line;
+  the largest is recruit>recruit, +0.0070 +- 0.0024 (z 2.9, 765,978
+  labels), against a Bonferroni line near z 3.0 over 16 types.
+
+**What it means.** The label path and the match path are right on real
+games: the planted signal is recovered at slope 1, a real decode change is
+read with the right sign and size, and the dice cannot be read backwards.
+Near-tie runner-ups are, on average, neither better nor worse than the
+argmax: the mean advantage lies within +-0.0017 z of 0 at 2 SE. That says
+nothing about the spread v, which needs the head (the design's ruling (e)).

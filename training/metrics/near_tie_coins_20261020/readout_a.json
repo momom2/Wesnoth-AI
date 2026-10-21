@@ -1,0 +1,98 @@
+{
+ "games": {
+  "read": 6402,
+  "decisive": 6400,
+  "capped": 2,
+  "coin_rows": 6402,
+  "unwalked": 0,
+  "walk_errors": 0
+ },
+ "beta": {
+  "columns": [
+   "hp",
+   "material",
+   "material_nonterminal",
+   "terminal",
+   "value_50",
+   "value_100",
+   "value_200"
+  ],
+  "values": [
+   0.0011885942625018315,
+   0.00028509220077075834,
+   -0.00048074045056809554,
+   -0.11838146825305246,
+   0.603040987021951,
+   0.0541244809103413,
+   0.022519783857895107
+  ]
+ },
+ "band": {
+  "w": 0.35,
+  "decisions": 0,
+  "refused": 0,
+  "per_side_game": {
+   "side_games": 12800,
+   "mean": 0.0,
+   "se": 0.0,
+   "quartiles": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "checks": {
+  "dice_control": {
+   "slope": 0.004441290095630131,
+   "se": 0.00016155764717934977,
+   "n": 6400,
+   "window": [
+    0.002606086175058181,
+    0.005719313824941819
+   ],
+   "pass": true
+  },
+  "attack_label": {
+   "pass": true
+  },
+  "attack_elo": {
+   "pass": true
+  },
+  "attack_coin": {
+   "p_value": 0.6348398623282042,
+   "pass": true
+  }
+ },
+ "attack": {
+  "games": 6400,
+  "capped": 2,
+  "label": {
+   "mean": -0.24180108629976463,
+   "se": 0.022640453596617267,
+   "window": [
+    -0.64,
+    -0.236
+   ],
+   "pass": true
+  },
+  "hooked_elo": {
+   "elo": -41.34344489385521,
+   "se": 4.374071010277097,
+   "mean_z": -0.1184375,
+   "window": [
+    -111.0,
+    -41.0
+   ],
+   "pass": true
+  },
+  "coin": {
+   "n": 6402,
+   "ones": 3182,
+   "expected": 3201.0,
+   "chi2": 0.22555451421430803,
+   "p_value": 0.6348398623282042
+  }
+ },
+ "verdict": "PASS"
+}
