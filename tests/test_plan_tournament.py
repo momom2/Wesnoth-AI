@@ -283,14 +283,14 @@ def test_budget_cut_preserves_measured_margins(monkeypatch):
     real = pt._project_counted
     calls = {"n": 0}
 
-    def dying(policy, sim, side, ds, ht, ma, rng, budget, salt,
+    def dying(policy, sim, side, ht, ma, rng, budget, salt,
               reserved=False, half_obs=None):
         if not reserved:
             calls["n"] += 1
             if calls["n"] >= 5:      # die from the 5th selection call
                 budget.used = budget.cap - budget.reserve + 1
                 return None
-        return real(policy, sim, side, ds, ht, ma, rng, budget,
+        return real(policy, sim, side, ht, ma, rng, budget,
                     salt, reserved=reserved, half_obs=half_obs)
 
     monkeypatch.setattr(pt, "_project_counted", dying)
