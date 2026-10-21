@@ -314,12 +314,12 @@ class Reading:
 
 
 def _clustered(games: Tuple[str, ...], per_game: np.ndarray, counts: np.ndarray) -> Reading:
-    sides = counts.sum()
-    mean = per_game.sum() / sides
+    sides = float(counts.sum())
+    mean = float(per_game.sum()) / sides
     n = len(games)
     resid = per_game - counts * mean
     se = math.sqrt(n / (n - 1) * float((resid ** 2).sum())) / sides if n > 1 else math.nan
-    return Reading(float(mean), se, games, per_game, counts)
+    return Reading(mean, se, games, per_game, counts)
 
 
 def clustered_mean(values: np.ndarray, games: Sequence[str]) -> Reading:

@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.muon import newton_schulz  # noqa: E402
 from wesnoth_ai.pg_protocol import Evaluator, GameSide  # noqa: E402
-from wesnoth_ai.pg_step import (KL_RTOL, critical_batch, debiased_quadratic, decide, direction,  # noqa: E402
-                                floor, head_of, kl_search, ladder, muon_matrices)
+from wesnoth_ai.pg_step import (KL_RTOL, clustered_mean, critical_batch, debiased_quadratic, decide,  # noqa: E402
+                                direction, floor, head_of, kl_search, ladder, muon_matrices)
 
 IN_PROJ = "model.encoder.layers.0.self_attn.in_proj_weight"
 LINEAR = "model.encoder.layers.0.linear1.weight"
@@ -133,6 +133,15 @@ def test_kl_search_hits_its_target():
         kl_search(lambda s: 0.0, 0.01)                                       # a zero direction
 
 
+def test_the_se_is_clustered_by_game():
+    """Two seats of a game reading the same value are one observation: the
+    SE is that of the games' means, not of twice as many game-sides."""
+    v = np.random.default_rng(3).normal(size=50)
+    reading = clustered_mean(np.repeat(v, 2), [f"g{i // 2}" for i in range(100)])
+    assert reading.estimate == pytest.approx(v.mean())
+    assert reading.se == pytest.approx(v.std(ddof=1) / math.sqrt(len(v)))
+
+
 def test_critical_batch_recovers_B_on_a_gaussian_noise_model():
     """Split gradients drawn as N(g, Sigma / n_i): over many draws the
     estimated signal and noise match g^T M g and tr(M Sigma), M = PFP, and
@@ -198,11 +207,12 @@ def test_debiased_quadratic_removes_the_noise():
 
 class _LadderEvaluator:
     """One decision per game-side, KL s^2, and (W - 1) R on half h equal to
-    gains[h][rung] plus fixed noise, the rung read off s."""
+    gains[h][rung] plus fixed noise, the rung read off s; `spike` (rung,
+    value) adds value to the first game-side's W - 1 at that rung."""
 
-    def __init__(self, gains, eps, games=400, seed=0):
+    def __init__(self, gains, eps, games=400, seed=0, spike=None):
         rng = np.random.default_rng(seed)
-        self.gains, self.eps = gains, eps
+        self.gains, self.eps, self.spike = gains, eps, spike
         self.sides = [GameSide(f"g{g}", side, 1.0 if side == 1 else -1.0, "A" if g % 2 == 0 else "B",
                                2 * g + side - 1, 2 * g + side) for g in range(games) for side in (1, 2)]
         self.noise = rng.normal(size=2 * games) * 0.01
@@ -221,7 +231,10 @@ class _LadderEvaluator:
     def logp(self, s):
         rung = min(self.gains["A"], key=lambda m: abs(m * self.eps - s * s))
         gain = np.where(self.half == "A", self.gains["A"][rung], self.gains["B"][rung])
-        return np.log1p(self.R * (gain + self.noise))
+        x = self.R * (gain + self.noise)
+        if self.spike is not None and self.spike[0] == rung:
+            x[0] += self.spike[1]
+        return np.log1p(x)
 
 
 def _ladder(gains, eps=0.01):
@@ -235,7 +248,7 @@ def test_the_ladder_adopts_reverts_and_sets_the_next_radius():
     reads below -2 SE (the boundary read both ways); the next radius is the
     adopted rung's, or half the radius after a revert."""
     eps = 0.01
-    middle = _ladder({"A": {0.5: 0.01, 1.0: 0.03, 2.0: 0.02}, "B": {0.5: 0.0, 1.0: 0.02, 2.0: 0.0}})
+    middle = _ladder({"A": {0.5: 0.01, 1.0: 0.03, 2.0: 0.02}, "B": {0.5: 0.04, 1.0: 0.02, 2.0: 0.0}})
     assert middle.adopt and middle.chosen == 1 and middle.next_eps == pytest.approx(eps)
     assert middle.s == pytest.approx(math.sqrt(eps), rel=KL_RTOL)
 
@@ -253,12 +266,19 @@ def test_the_ladder_adopts_reverts_and_sets_the_next_radius():
             assert decision.s == 0.0 and decision.next_eps == pytest.approx(eps / 2)
 
 
-def test_rungs_past_the_importance_weights_range_are_not_selected():
+def test_rungs_importance_weights_cannot_read_are_not_selected():
     """At 1 decision a side-game, eps 0.3 puts the 2 eps rung at K 0.6, past
-    the range; with every rung past it, pi_k stays and the radius halves."""
+    the range; heavy-tailed weights (one game-side's W at 51) fail the
+    effective-sample check; with no readable rung pi_k stays and the radius
+    halves."""
     gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.0}}
     decision = ladder(lambda d: _LadderEvaluator(gains, 0.3), {}, 0.3)
     assert [r.in_range for r in decision.rungs] == [True, True, False]
     assert decision.adopt and decision.chosen == 1
+
+    heavy = ladder(lambda d: _LadderEvaluator(gains, 0.01, spike=(2.0, 50.0)), {}, 0.01)
+    assert heavy.rungs[2].in_range and not heavy.rungs[2].halves["A"].ess_ok
+    assert heavy.rungs[2].halves["A"].exact.estimate > heavy.rungs[1].halves["A"].exact.estimate
+    assert heavy.adopt and heavy.chosen == 1
     kept = decide([dataclasses.replace(r, in_range=False) for r in decision.rungs], 0.3)
     assert not kept.adopt and kept.chosen is None and kept.next_eps == pytest.approx(0.15)

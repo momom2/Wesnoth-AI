@@ -100,8 +100,15 @@ def test_stage_c_reads_every_part_on_the_toy(toy, tmp_path):
     assert [p["games"] for p in readout["gain_curve"]["points"]] == [5_000, 10_000]
     assert 0 < readout["floor"]["floor_debiased"] <= readout["floor"]["floor"]
 
+    # Each split's gradient is on the total's per-game scale: weighted by
+    # their games the splits average to the total, and all eight pool to it.
+    games = pass_["split_games"]
+    mean = {n: sum(k / sum(games) * pooled_gradient(pass_, [i])[n] for i, k in enumerate(games))
+            for n in pass_["names"]}
     whole = pooled_gradient(pass_, range(8))
-    assert all(torch.allclose(whole[n], pass_["total"][n], rtol=1e-5, atol=1e-9) for n in pass_["names"])
+    for n in pass_["names"]:
+        assert torch.allclose(mean[n], pass_["total"][n], rtol=1e-4, atol=1e-8)
+        assert torch.allclose(whole[n], pass_["total"][n], rtol=1e-5, atol=1e-9)
 
 
 def test_another_arm_replaces_the_default_only_beyond_two_paired_se():
