@@ -25,6 +25,19 @@ def end_turn_refusal(side: str, spec: str, sims: int, raw_temperature,
     return None
 
 
+def decision_log_refusal(sides) -> Optional[str]:
+    """Why a game cannot log its decisions, or None. `sides` holds each
+    side's (name, spec, sims, raw temperature). The log is the raw
+    player's (tools/raw_player.py), and the record's `decisions` holds
+    every decision of either side, so both sides must play it: sims 0, a
+    raw temperature and a network."""
+    for side, spec, sims, raw_temperature in sides:
+        if sims > 0 or raw_temperature is None or spec == "dummy":
+            return (f"--log-decisions logs the joint-temperature raw player's decisions, on both "
+                    f"sides: side {side} needs sims 0, --raw-temperature-{side} and a network")
+    return None
+
+
 def procedure_of(sims: int, plan: bool, no_turn_search: bool,
                  raw_temperature=None, gumbel_root: bool = True, *,
                  raw_end_turn_offset: float = 0.0) -> str:

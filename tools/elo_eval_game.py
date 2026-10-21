@@ -92,7 +92,9 @@ def _search_policy_cls(turn_search: bool, plan_tournament: bool = False):
     return MCTSPolicy
 
 
-from tools.eval_procedure import end_turn_refusal, procedure_of as _procedure_of  # noqa: E402
+from tools.eval_procedure import (  # noqa: E402
+    decision_log_refusal, end_turn_refusal, procedure_of as _procedure_of,
+)
 
 
 def _side_procedure(args, side: str, sims: int) -> str:
@@ -378,7 +380,8 @@ def _release_served_memories() -> None:
 
 def _remote_player(address: str, raw_temperature: float, raw_seed,
                    relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
-                   raw_end_turn_offset: float = 0.0, memory: Optional[int] = None):
+                   raw_end_turn_offset: float = 0.0, memory: Optional[int] = None,
+                   log_decisions: bool = False):
     """The raw player over a shared inference server: a RemoteEncoder
     on the server's vocab with server-side priors, a RemoteModel
     behind the forward-counting proxy (its `fwd_secs` is the round
@@ -409,7 +412,8 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
-                           end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+                           end_turn_offset=raw_end_turn_offset, memory_slots=memory,
+                           log_decisions=log_decisions), counter
 
 
 _MEMORY_CACHE: dict = {}
@@ -493,7 +497,8 @@ def _build_player(spec: str, label: str, sims: int, device,
                   inference_address=None,
                   infer_packed_trunk: bool = False,
                   raw_end_turn_offset: float = 0.0,
-                  memory: Optional[int] = None):
+                  memory: Optional[int] = None,
+                  log_decisions: bool = False):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
@@ -506,7 +511,9 @@ def _build_player(spec: str, label: str, sims: int, device,
     through a shared inference server (main() has checked sims == 0,
     a temperature and a checkpoint spec). `memory`: the slots a player of a
     model with a memory uses (`_effective_memory`); the raw player, MCTS
-    and the turn search carry it from one decision to the next."""
+    and the turn search carry it from one decision to the next.
+    `log_decisions`: the raw player logs its decisions
+    (tools/decision_log.py)."""
     if memory is not None and (plan_tournament or (sims == 0 and raw_temperature is None)):
         raise SystemExit(f"{spec} has a memory, which the legacy sampler and the plan tournament "
                          f"do not carry: play it raw with a temperature, with MCTS or with the turn search")
@@ -522,7 +529,7 @@ def _build_player(spec: str, label: str, sims: int, device,
     if inference_address is not None:
         return _remote_player(inference_address, raw_temperature, raw_seed,
                               relevant_set, infer_bf16, infer_packed_trunk,
-                              raw_end_turn_offset, memory)
+                              raw_end_turn_offset, memory, log_decisions)
     if memory is not None and infer_compile:
         raise SystemExit(f"{spec} has a memory, which a player keeps from one call to the next, and a "
                          f"compiled model may overwrite its outputs at its next call: play it with "
@@ -566,7 +573,8 @@ def _build_player(spec: str, label: str, sims: int, device,
     if raw_temperature is not None:
         from tools.raw_player import RawPolicyPlayer
         return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
-                               end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+                               end_turn_offset=raw_end_turn_offset, memory_slots=memory,
+                               log_decisions=log_decisions), counter
     return policy, counter
 
 
@@ -662,6 +670,10 @@ def main(argv) -> int:
                          "tag '+eo<x>').")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
+    ap.add_argument("--log-decisions", action="store_true",
+                    help="Both raw players log their decisions (tools/decision_log.py) and "
+                         "the game record carries the log as `decisions`. Logging changes "
+                         "no choice; the result records decisions_logged.")
     ap.add_argument("--memory-a", type=int, default=None,
                     help="The memory slots player A uses when its model has a memory "
                          "(default: all of the checkpoint's); recorded as memory_a, "
@@ -831,6 +843,11 @@ def main(argv) -> int:
             ("a", args.spec_a, sims_a, args.raw_temperature_a, args.raw_end_turn_offset_a),
             ("b", args.spec_b, sims_b, args.raw_temperature_b, args.raw_end_turn_offset_b)):
         _why = end_turn_refusal(_side, _spec, _sims, _temp, _offset)
+        if _why is not None:
+            raise SystemExit(_why)
+    if args.log_decisions:
+        _why = decision_log_refusal((("a", args.spec_a, sims_a, args.raw_temperature_a),
+                                     ("b", args.spec_b, sims_b, args.raw_temperature_b)))
         if _why is not None:
             raise SystemExit(_why)
     for _n, _spec in (("spec_a", args.spec_a),
@@ -1032,6 +1049,10 @@ def main(argv) -> int:
             _why = memory_refusal(out_path.name, prev, (memory_a, memory_b))
             if _why is not None:
                 raise SystemExit(_why)
+            if bool(prev.get("decisions_logged", False)) != bool(args.log_decisions):
+                raise SystemExit(f"{out_path.name} was played with decisions_logged="
+                                 f"{bool(prev.get('decisions_logged', False))} but this run uses "
+                                 f"{bool(args.log_decisions)}: refusing to mix. Use a fresh outdir.")
             if (got_a, got_b, got_mt) != (want_a, want_b,
                                           args.max_turns):
                 raise SystemExit(
@@ -1091,7 +1112,7 @@ def main(argv) -> int:
         inference_address=args.inference_address_a,
         infer_packed_trunk=inf_packed,
         raw_end_turn_offset=args.raw_end_turn_offset_a,
-        memory=memory_a)
+        memory=memory_a, log_decisions=args.log_decisions)
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -1104,7 +1125,7 @@ def main(argv) -> int:
         inference_address=args.inference_address_b,
         infer_packed_trunk=inf_packed,
         raw_end_turn_offset=args.raw_end_turn_offset_b,
-        memory=memory_b)
+        memory=memory_b, log_decisions=args.log_decisions)
 
     rng = random.Random(args.seed)
     setup = random_setup(rng, forced_faction=forced_faction)
@@ -1193,6 +1214,9 @@ def main(argv) -> int:
         # The horizon decides decisive-vs-absence, the quantity
         # the PURE fit is built on (round-24 C9).
         "max_turns": args.max_turns,
+        # Whether the game record carries the players' decision log
+        # (`decisions`, tools/decision_log.py); it changes no choice.
+        "decisions_logged": bool(args.log_decisions),
         # The second horizon: a side's action cap ends the game as a
         # no-result (outcome "timeout", ended_by "max_actions").
         "max_actions_per_side": int(sim.max_actions_per_side),
@@ -1271,6 +1295,11 @@ def main(argv) -> int:
     # The game itself, beside its result (tools/game_record.py), written
     # before the result so a result file always has its game.
     from tools.game_record import GameRecordLog, game_record
+    decisions = None
+    if args.log_decisions:
+        from tools.decision_log import merge_logs
+        _n = len(sim.command_history)
+        decisions = merge_logs([pa.pop_decision_log(game_label, _n), pb.pop_decision_log(game_label, _n)])
     _rec_path = out_path.with_name(out_path.stem + ".game.jsonl.gz")
     _rec_tmp = _rec_path.with_name(_rec_path.name + ".tmp")
     _rec_tmp.unlink(missing_ok=True)
@@ -1281,7 +1310,7 @@ def main(argv) -> int:
                        "procedure": result["procedure_a"], "memory": memory_a},
                  "b": {"label": args.label_b, "spec": str(args.spec_b), "side": 3 - args.side_a,
                        "procedure": result["procedure_b"], "memory": memory_b}},
-        extra={"seed": args.seed}))
+        extra={"seed": args.seed}, decisions=decisions))
     os.replace(_rec_tmp, _rec_path)
     timer.add("game_record", time.perf_counter() - t_record)
     # Where this game's decisions spent their time (wesnoth_ai/stage_timing.py):

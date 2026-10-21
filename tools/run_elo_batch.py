@@ -669,6 +669,10 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the server replays each priors batch from a "
                          "per-bucket CUDA graph (wesnoth_ai/graphed_serve.py; cuda + bf16 "
                          "+ packed trunk), one launch per batch instead of ~150.")
+    ap.add_argument("--log-decisions", action="store_true",
+                    help="Both raw players log their decisions and each game record carries "
+                         "the log (elo_eval_game --log-decisions); an outdir never mixes "
+                         "logged and unlogged games.")
     ap.add_argument("--view-refresh", choices=("incremental", "full"), default="incremental",
                     help="How a game's simulator refreshes its view after each command: rebuilding "
                          "only what the command changed (wesnoth_core.ViewCache) or the whole view; "
@@ -745,11 +749,16 @@ def main(argv: List[str]) -> int:
     if ((args.raw_temperature_a is not None and sims_a > 0)
             or (args.raw_temperature_b is not None and sims_b > 0)):
         ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
-    from tools.eval_procedure import end_turn_refusal
+    from tools.eval_procedure import decision_log_refusal, end_turn_refusal
     for _side, _spec, _sims, _temp in (("a", args.spec_a, sims_a, args.raw_temperature_a),
                                        ("b", args.spec_b, sims_b, args.raw_temperature_b)):
         _why = end_turn_refusal(_side, _spec, _sims, _temp,
                                 getattr(args, f"raw_end_turn_offset_{_side}"))
+        if _why is not None:
+            ap.error(_why)
+    if args.log_decisions:
+        _why = decision_log_refusal((("a", args.spec_a, sims_a, args.raw_temperature_a),
+                                     ("b", args.spec_b, sims_b, args.raw_temperature_b)))
         if _why is not None:
             ap.error(_why)
     if args.label_a == args.label_b:
@@ -963,6 +972,11 @@ def main(argv: List[str]) -> int:
             raise SystemExit(
                 f"{f.name} was played with a {prev.get('max_actions_per_side')}-action cap per "
                 f"side, this run with {_cap}: the cap is a second horizon -- fresh outdir.")
+        if bool(prev.get("decisions_logged", False)) != args.log_decisions:
+            raise SystemExit(
+                f"{f.name} was played with decisions_logged={bool(prev.get('decisions_logged', False))} "
+                f"but this run uses {args.log_decisions}: an outdir's games either all carry "
+                f"their decision log or none does. Use a fresh outdir.")
         # Absent field = 1: every pre-flag result was B=1.
         if prev.get("mcts_batch", 1) != args.mcts_batch_size:
             raise SystemExit(
@@ -1210,6 +1224,8 @@ def main(argv: List[str]) -> int:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if args.view_refresh != "incremental":
             cmd += ["--view-refresh", args.view_refresh]
+        if args.log_decisions:
+            cmd.append("--log-decisions")
         if servers:
             # The servers' effective precision, stated explicitly so
             # the game records what ran (elo_eval_game checks it
