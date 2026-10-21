@@ -110,7 +110,8 @@ weights before the first step.
 
 `--anneal-rule T` runs the rule of tools/lr_law.py after every probe: the
 law of the holdout loss against the learning-rate history, fitted to this
-pass's probes and the earlier passes' (`--law-points`). While one more epoch
+pass's probes and the earlier passes' (`--law-points`, read with this pass's
+cross-entropy formula, wesnoth_ai.constants.CE_FORMULA). While one more epoch
 at the peak rate would lower the fitted loss by more than T, the pass goes
 on; otherwise it stops with exit 6 (lower the rate now), or with exit 7 when
 its latest probes stopped following the law (stop and look). The checkpoint
@@ -459,7 +460,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                       optimizer_state_gb=round(state_bytes(self.opt) / GIB, 4),
                       seconds=round(time.time() - t0, 1))
         sides = {"positions": result["positions"], "steps": result["steps"], "final": final, "weights": weights,
-                 "sides": result.pop("sides")}
+                 "ce_formula": result["ce_formula"], "sides": result.pop("sides")}
         prefix = "" if weights == "live" else ".ema"
         with open(self.args.out.with_suffix(prefix + ".probe_sides.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(sides) + "\n")

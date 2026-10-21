@@ -65,7 +65,7 @@ from tools.unit_vocab import seed_vocab
 from wesnoth_ai.checkpoint_structure import checkpoint_structure, model_state_of
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.game_core import snapshot_view
-from wesnoth_ai.constants import OBSERVATION_EPOCH
+from wesnoth_ai.constants import CE_FORMULA, OBSERVATION_EPOCH
 from wesnoth_ai.model import WesnothModel
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
 # Import replay_dataset from the same tools/ dir.
@@ -1223,7 +1223,9 @@ def _evaluate(
 ) -> Dict[str, float]:
     """Held-out behavior-cloning metrics: per-head top-1 accuracy +
     mean CE over the first `eval_pairs` pairs of the holdout games
-    (deterministic file order -> comparable across evals). The
+    (deterministic file order -> comparable across evals), with the
+    version of its formula (`ce_formula`,
+    wesnoth_ai.constants.CE_FORMULA). The
     encoder vocab is not intentionally grown here; unseen names hit
     the overflow bucket exactly as they would at rollout time.
 
@@ -1383,7 +1385,8 @@ def _evaluate(
     if was_training:
         model.train()
         encoder.train()
-    out = {"n": n, "ce": (ce_sum / n) if n else float("nan"), "probe_skipped": skipped}
+    out = {"n": n, "ce": (ce_sum / n) if n else float("nan"), "ce_formula": CE_FORMULA,
+           "probe_skipped": skipped}
     if any(skipped.values()):
         log.warning(f"  holdout probe skipped {skipped}")
     # Standard error of the mean CE (user ruling 2026-08-20: values

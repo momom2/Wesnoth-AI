@@ -7,7 +7,9 @@ from pathlib import Path
 
 import torch
 
+from tools.lr_law import read_points
 from tools.sequence_setup import ARCH, DEFAULTS
+from wesnoth_ai.constants import CE_FORMULA
 from wesnoth_ai.optimizers import OPTIMIZERS
 from wesnoth_ai.soap import PRECONDITION_EVERY
 
@@ -149,6 +151,12 @@ def check_args(args) -> None:
     if args.anneal_rule is not None and (args.law_points is None or not args.law_points.is_file()):
         raise SystemExit(f"--anneal-rule fits the earlier passes' probes: --law-points {args.law_points} "
                          f"is not a file")
+    if args.anneal_rule is not None:
+        other = sorted({p.ce_formula for p in read_points(args.law_points)} - {CE_FORMULA})
+        if other:
+            raise SystemExit(f"--law-points {args.law_points} holds points of cross-entropy formula version "
+                             f"{', '.join(map(str, other))} and this pass's probes read version {CE_FORMULA}: "
+                             f"the law is fitted on one formula only")
     if args.anneal_rule is not None and args.law_key not in {f"k{k}" for k in args.probe_ks}:
         raise SystemExit(f"--law-key {args.law_key}: the probe reads {', '.join(f'k{k}' for k in args.probe_ks)}")
     if args.packed_trunk and args.fp32 and torch.device(args.device).type == "cuda":
