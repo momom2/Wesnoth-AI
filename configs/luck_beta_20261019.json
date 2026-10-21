@@ -1,0 +1,53 @@
+{
+ "columns": [
+  "hp",
+  "material",
+  "material_nonterminal",
+  "terminal",
+  "value_50",
+  "value_100",
+  "value_200"
+ ],
+ "beta": [
+  0.0011885942625018315,
+  0.00028509220077075834,
+  -0.00048074045056809554,
+  -0.11838146825305246,
+  0.603040987021951,
+  0.0541244809103413,
+  0.022519783857895107
+ ],
+ "intercept": -0.011822776333980897,
+ "games": 18800,
+ "matches": [
+  "a1_eo25",
+  "a2_reset",
+  "a3_eo35",
+  "confirm_kv15_vs_own1",
+  "gen_own1_selfplay",
+  "kv00",
+  "kv10",
+  "kv15",
+  "la_exposure_vs_own1",
+  "la_material_vs_parity3",
+  "m1_own64",
+  "m2_own0",
+  "own0_vs_p3slots0",
+  "own1_eo25_vs_own1",
+  "own64_selfplay",
+  "own64_vs_own0",
+  "own64_vs_p3",
+  "r1_own2_64_vs_own1_64",
+  "r2_own2_0_vs_own1_0",
+  "r3_own2_64_vs_own2_0",
+  "selfpin",
+  "slots64_vs_slots0",
+  "slots64_vs_slots16"
+ ],
+ "variance_ratio": 0.8470684016490541,
+ "source": {
+  "rows": "training/metrics/match_luck_20261019/rows.jsonl",
+  "sha256": "1a294f3758998f96ad201482915c7a12e45db421c0559e24cf43659c401dbfb9",
+  "fit": "least squares of z on the luck sums, an intercept beside them, decisive games"
+ }
+}

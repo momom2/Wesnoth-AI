@@ -1,0 +1,6 @@
+games 6402 read, 6400 decisive, 2 capped (dropped); matches:
+  a: 6402 coin rows of 6402 result files; 6400 of 6400 slots have a result (6400 decisive); I-log 0 matched, 0 relocated, 0 mismatched
+fights: 691029 attacks, 0 outside their support, 0 not enumerable, 0 counter weapon differs, 0 without units, 0 walk rows without counts
+dice control: z on side A's hp luck +0.0044 +- 0.0002, window [+0.00261, +0.00572]: pass
+attack coin: 6400 decisive games (2 capped); label -0.2418 +- 0.0226 z, window [-0.64, -0.236]; hooked player -41.3 +- 4.4 Elo, window [-111.0, -41.0]; coin ones 3182 of 6402
+verdict: PASS

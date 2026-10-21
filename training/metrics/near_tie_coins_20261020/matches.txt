@@ -1,0 +1,8 @@
+2026-10-20T22:04:59Z a: games 6400 from seed 500000, rc=0 ok, 1007 s, results and decisive 6402 6400, failed 0
+2026-10-20T22:12:07Z b00: games 2000 from seed 600000, rc=0 ok, 382 s, results and decisive 2001 2000, failed 0
+2026-10-20T22:40:22Z b01: games 10000 from seed 602000, rc=0 ok, 1666 s, results and decisive 10002 10000, failed 0
+2026-10-20T23:09:31Z b02: games 10000 from seed 612000, rc=0 ok, 1612 s, results and decisive 10004 10000, failed 0
+2026-10-20T23:38:48Z b03: games 10000 from seed 622000, rc=0 ok, 1618 s, results and decisive 10006 10000, failed 0
+2026-10-21T00:08:14Z b04: games 10000 from seed 632000, rc=0 ok, 1608 s, results and decisive 10004 10000, failed 0
+2026-10-21T00:37:32Z b05: games 10000 from seed 642000, rc=0 ok, 1601 s, results and decisive 10003 10000, failed 0
+2026-10-21T01:01:46Z b06: games 8000 from seed 652000, rc=0 ok, 1296 s, results and decisive 8003 8000, failed 0

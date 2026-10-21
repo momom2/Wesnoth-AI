@@ -215,6 +215,14 @@ $1.47 in all):
     games, lower bound +14.0, so the design's base is `own2`. As a PURE claim
     against the reference `own1`: +22.7 +- 4.4. Adopting `own2` as the
     reference (configs/reference_player.json) is the user's call.
+  - **Near-tie coins measured** (0.30.3, docs/near_tie_coins_prereg_20261020.md
+    "Measured", about $2.0; code on `exp/near-tie-coins`, not merged): the
+    attack known answer, the smoke and batch 1 (60,000 decisive games, 9.3
+    million band decisions) all pass their checks, so the label and match
+    paths are right on real games. The mean near-tie advantage is +0.0003 +-
+    0.0007 (none either way); no pair type resolves at a family-wise line
+    (recruit>recruit +0.0070 +- 0.0024, z 2.9). The spread v needs the head
+    (ruling (e)). Seed section 7 carries these numbers to the design.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

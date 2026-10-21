@@ -1,0 +1,17 @@
+stage tier-b/staging/stage_20261020_coins.tar.gz
+instance 56955777, host 1c8823c3c7c1
+cores(all) 256, usable 31
+model name	: AMD EPYC 7702 64-Core Processor
+cpu.max 3071999 100000
+pids.max 7680
+               total        used        free      shared  buff/cache   available
+Mem:          515738       84050      193799        1248      237889      425406
+overlay          60G  1.2G   59G   2% /
+NVIDIA GeForce RTX 4090, 24564 MiB, 580.159.03
+torch 2.5.1+cu124 cuda True
+code 0.30.0 epoch 11
+wheel phase 35, source phase 35
+GameCore             yes
+wheel_current        yes
+kernels | wesnoth_core phase 35 | source 35 | adapter 35 | current
+walk jobs 31

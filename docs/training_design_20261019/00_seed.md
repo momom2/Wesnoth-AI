@@ -84,3 +84,29 @@ What this requires of every proposal, critique and synthesis from round 5 on:
 - **Measure from what exists first.** Records already on disk (whole game records beside match results, the luck walk's `training/metrics/match_luck_20261019/rows.jsonl`, `training/metrics/critic_step1_20261009/`, the replay corpus) can settle many unknowns now. Agents may run light single-process Python analyses on existing records: read-only, numpy and the standard library only (no torch import, no network forward pass, no simulator, no GPU, no training, no pytest), each under about a minute of CPU. Scripts and outputs go in `analysis/` in this folder, and every number reported from them names the script that produced it.
 - **A kill line states what a result would mean**, derived from what is known; it is not a guess with a deadline. When a stage's outcome cannot be predicted, say so, and design the stage so that every outcome is informative.
 - **Complexity is a cost.** The project's main failure mode has been bugs. Every mechanism must earn its place, and between two designs with the same guarantees the simpler one wins.
+
+## 7. The first box measurements of this design (2026-10-20/21, after round 8)
+
+Run within a $5 window the user allowed; both measurements train nothing. Records on `main` in `training/metrics/near_tie_coins_20261020/` and `training/metrics/own2_base_20261020/` (the large rows, coin, plant and game files stay on HF under `tier-b/` with the same folder names); code on the branch `exp/near-tie-coins` (`tools/coin_decode.py`, `tools/coin_labels.py`, `tools/coin_rows.py`, `tools/coin_plant.py`, `scripts/coin_batch_box.sh`); pre-registrations `docs/near_tie_coins_prereg_20261020.md` and `docs/own2_base_prereg_20261020.md`, each with its "Measured" section.
+
+**S0(b), the base** [M]: `own2` against `own1`, both at 64 slots and the reference decode, 6,400 decisive games: **+22.7 +- 4.4 Elo**, lower bound +14.0, so the base π_0 is `own2`. Agrees with R1's +16.5 +- 12.3. Wall 3,533 s on 20 workers (an RTX 4090 with an EPYC 7702), about $0.66.
+
+**S0(a), the attack known answer** [M]: `own1` against itself, attack logits +1 on the seat a logged coin chose, 6,400 decisive games. The hooked seat: **-41.3 +- 4.4 Elo** (window [-111, -41]); through the label code, **-0.242 +- 0.023 z** for 2Δ (window [-0.640, -0.236]); the match's mean z on the hooked seat -0.118, half the label's 2Δ, as it must be. Both readings pass at the edge of their windows: the effect is about half the -76 +- 17 Elo the decode-knob records predicted. The label orientation and the match path are right. Dice control 0.00444 (in window).
+
+**S0(c), the smoke, and batch 1 of S1** [M]: `own1` self-play at the reference decode with coins on both sides, w 0.35, p 0.25, on the pool (`run_elo_batch`, 120 games in flight). Batch 1 ran at 60,000 decisive games (the design's 100,000 cut to fit the window), 23 capped, 9,317,548 band decisions. Checks, all passed:
+- coin plant per mover side 0.994 +- 0.008 and 0.995 +- 0.008 (target 1; the derived SE was 0.0071);
+- dice control slope 0.00436 +- 0.00005 (window [0.00267, 0.00565]);
+- I-coin: chi-square overall 2.25, bins p 0.64, slope of D - P on G and on the index within 1.3 SE of 0, capped games fine;
+- I-log: 9,328,402 band decisions played as the coin chose, 0 mismatched, 2 unresolved;
+- band census: **77.6 +- 0.13 band decisions per side-game** (derived 76.1 from `parity3`'s margins; quartiles 47, 67, 97).
+
+Labels [M], T = s ω (z - β·S) with β from the luck walk (b = 0, γ = 0):
+- **pooled mean +0.0003 +- 0.0007** (the derived SE was 0.00070); by mover A +0.0012 +- 0.0010, B -0.0006 +- 0.0010;
+- by 0.05-nat margin bin, from [0, 0.05) to [0.30, 0.35): -0.0023 +- 0.0017, -0.0001 +- 0.0018, +0.0009 +- 0.0017, -0.0016 +- 0.0018, +0.0005 +- 0.0020, +0.0020 +- 0.0021, +0.0038 +- 0.0019;
+- by ordered pair type (a0 > a1): move>move +0.0003 +- 0.0009 (5.6 M labels); **recruit>recruit +0.0070 +- 0.0024 (z 2.9, 0.77 M labels)**; attack>attack -0.0029 +- 0.0029; attack>move -0.0003 +- 0.0031; end_turn>move -0.0017 +- 0.0032; move>attack -0.0031 +- 0.0032; move>end_turn -0.0018 +- 0.0036; the nine smaller types all within 1.7 SE of 0.
+
+What this settles and what it does not:
+- The average near-tie decision carries no advantage either way: the runner-up's mean advantage is within +-0.0017 z of 0 at 2 SE, pooled. No typed constant is resolved at a family-wise 5% line over 16 types; recruit>recruit is the one candidate (z 2.9).
+- **The spread v is still unmeasured**: a zero mean is compatible with any spread. Reading v needs the head's fits (ruling (e)): the design's spread estimator is built from per-batch head weights.
+- Derived numbers held where they could be checked: the pooled SE (0.00070 derived, 0.00070 measured), the census (76.1 against 77.6), the plant SE (0.0071 against 0.0082, about 15% wider).
+- Price on this host: 22,500 to 22,900 games an hour (stage A 6,400 in 1,007 s; batch match b05 10,000 in 1,601 s), at $0.577 an hour, $2.56e-5 a game; the whole box about $2.0 for 66,400 games.

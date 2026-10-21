@@ -1,0 +1,623 @@
+{
+ "games": {
+  "read": 60023,
+  "decisive": 60000,
+  "capped": 23
+ },
+ "matches": {
+  "b00": {
+   "results": 2001,
+   "game_rows": 2001,
+   "extract_errors": 0,
+   "unwalked": 0,
+   "walk_errors": 0,
+   "walk_rows_unjoined": 0,
+   "fights_unread": 0,
+   "fights": {
+    "attacks": 220839,
+    "enumerated": 220839,
+    "outside_support": 0,
+    "not_enumerable": 0,
+    "counter_weapon_differs": 0,
+    "no_units": 0
+   },
+   "i_log": {
+    "matched": 313873,
+    "relocated": 0,
+    "mismatched": 0,
+    "unresolved": 0
+   },
+   "drops": [],
+   "slots": {
+    "planned": 2000,
+    "seed_base": 600000,
+    "with_result": 2000,
+    "decisive": 2000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 2000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "b01": {
+   "results": 10002,
+   "game_rows": 10002,
+   "extract_errors": 0,
+   "unwalked": 0,
+   "walk_errors": 0,
+   "walk_rows_unjoined": 0,
+   "fights_unread": 0,
+   "fights": {
+    "attacks": 1100280,
+    "enumerated": 1100280,
+    "outside_support": 0,
+    "not_enumerable": 0,
+    "counter_weapon_differs": 0,
+    "no_units": 0
+   },
+   "i_log": {
+    "matched": 1552993,
+    "relocated": 1,
+    "mismatched": 0,
+    "unresolved": 0
+   },
+   "drops": [],
+   "slots": {
+    "planned": 10000,
+    "seed_base": 602000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "b02": {
+   "results": 10004,
+   "game_rows": 10004,
+   "extract_errors": 0,
+   "unwalked": 0,
+   "walk_errors": 0,
+   "walk_rows_unjoined": 0,
+   "fights_unread": 0,
+   "fights": {
+    "attacks": 1098133,
+    "enumerated": 1098133,
+    "outside_support": 0,
+    "not_enumerable": 0,
+    "counter_weapon_differs": 0,
+    "no_units": 0
+   },
+   "i_log": {
+    "matched": 1557682,
+    "relocated": 1,
+    "mismatched": 0,
+    "unresolved": 0
+   },
+   "drops": [],
+   "slots": {
+    "planned": 10000,
+    "seed_base": 612000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "b03": {
+   "results": 10006,
+   "game_rows": 10006,
+   "extract_errors": 0,
+   "unwalked": 0,
+   "walk_errors": 0,
+   "walk_rows_unjoined": 0,
+   "fights_unread": 0,
+   "fights": {
+    "attacks": 1089698,
+    "enumerated": 1089698,
+    "outside_support": 0,
+    "not_enumerable": 0,
+    "counter_weapon_differs": 0,
+    "no_units": 0
+   },
+   "i_log": {
+    "matched": 1543329,
+    "relocated": 1,
+    "mismatched": 0,
+    "unresolved": 1
+   },
+   "drops": [],
+   "slots": {
+    "planned": 10000,
+    "seed_base": 622000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "b04": {
+   "results": 10004,
+   "game_rows": 10004,
+   "extract_errors": 0,
+   "unwalked": 0,
+   "walk_errors": 0,
+   "walk_rows_unjoined": 0,
+   "fights_unread": 0,
+   "fights": {
+    "attacks": 1102966,
+    "enumerated": 1102966,
+    "outside_support": 0,
+    "not_enumerable": 0,
+    "counter_weapon_differs": 0,
+    "no_units": 0
+   },
+   "i_log": {
+    "matched": 1558025,
+    "relocated": 0,
+    "mismatched": 0,
+    "unresolved": 0
+   },
+   "drops": [],
+   "slots": {
+    "planned": 10000,
+    "seed_base": 632000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "b05": {
+   "results": 10003,
+   "game_rows": 10003,
+   "extract_errors": 0,
+   "unwalked": 0,
+   "walk_errors": 0,
+   "walk_rows_unjoined": 0,
+   "fights_unread": 0,
+   "fights": {
+    "attacks": 1096872,
+    "enumerated": 1096872,
+    "outside_support": 0,
+    "not_enumerable": 0,
+    "counter_weapon_differs": 0,
+    "no_units": 0
+   },
+   "i_log": {
+    "matched": 1550548,
+    "relocated": 0,
+    "mismatched": 0,
+    "unresolved": 0
+   },
+   "drops": [],
+   "slots": {
+    "planned": 10000,
+    "seed_base": 642000,
+    "with_result": 10000,
+    "decisive": 10000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 10000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  },
+  "b06": {
+   "results": 8003,
+   "game_rows": 8003,
+   "extract_errors": 0,
+   "unwalked": 0,
+   "walk_errors": 0,
+   "walk_rows_unjoined": 0,
+   "fights_unread": 0,
+   "fights": {
+    "attacks": 884175,
+    "enumerated": 884175,
+    "outside_support": 0,
+    "not_enumerable": 0,
+    "counter_weapon_differs": 0,
+    "no_units": 0
+   },
+   "i_log": {
+    "matched": 1251949,
+    "relocated": 0,
+    "mismatched": 0,
+    "unresolved": 1
+   },
+   "drops": [],
+   "slots": {
+    "planned": 8000,
+    "seed_base": 652000,
+    "with_result": 8000,
+    "decisive": 8000,
+    "missing": 0,
+    "first_missing": [],
+    "complete_prefix": 8000,
+    "outside_plan": 0,
+    "cut": false
+   }
+  }
+ },
+ "fights": {
+  "attacks": 6592963,
+  "enumerated": 6592963,
+  "outside_support": 0,
+  "not_enumerable": 0,
+  "counter_weapon_differs": 0,
+  "no_units": 0,
+  "rows_without_counts": 0
+ },
+ "beta": {
+  "columns": [
+   "hp",
+   "material",
+   "material_nonterminal",
+   "terminal",
+   "value_50",
+   "value_100",
+   "value_200"
+  ],
+  "values": [
+   0.0011885942625018315,
+   0.00028509220077075834,
+   -0.00048074045056809554,
+   -0.11838146825305246,
+   0.603040987021951,
+   0.0541244809103413,
+   0.022519783857895107
+  ]
+ },
+ "band": {
+  "w": 0.35,
+  "decisions": 9317548,
+  "refused": 1,
+  "per_side_game": {
+   "side_games": 120000,
+   "mean": 77.64623333333333,
+   "se": 0.1313146182522423,
+   "quartiles": [
+    47.0,
+    67.0,
+    97.0
+   ]
+  }
+ },
+ "checks": {
+  "matches_whole": {
+   "excluded": {},
+   "pass": true
+  },
+  "luck_support": {
+   "outside_support": 0,
+   "rows_without_counts": 0,
+   "pass": true
+  },
+  "dice_control": {
+   "slope": 0.004355958874619505,
+   "se": 5.178517290410454e-05,
+   "n": 60000,
+   "window": [
+    0.002673665883533893,
+    0.005651734116466107
+   ],
+   "pass": true
+  },
+  "i_coin_overall": {
+   "chi2": 2.2462911200815205,
+   "pass": true
+  },
+  "i_coin_bins": {
+   "p_value": 0.6391507775264667,
+   "pass": true
+  },
+  "i_coin_gap": {
+   "value": 0.0017765672945304254,
+   "se": 0.0014017603974241823,
+   "target": 0.0,
+   "z": 1.2673829976898856,
+   "pass": true
+  },
+  "i_coin_index": {
+   "value": -1.4493620319133123e-07,
+   "se": 1.0626172883720385e-06,
+   "target": 0.0,
+   "z": -0.1363954876109515,
+   "pass": true
+  },
+  "i_coin_capped": {
+   "chi2": 0.21665438467207074,
+   "pass": true
+  },
+  "i_log": {
+   "matched": 9328399,
+   "relocated": 3,
+   "mismatched": 0,
+   "unresolved": 2,
+   "pass": true
+  },
+  "plant_a": {
+   "value": 0.9940803467479292,
+   "se": 0.008199681787150193,
+   "target": 1.0,
+   "z": -0.7219369489859385,
+   "pass": true
+  },
+  "plant_b": {
+   "value": 0.9947158871065408,
+   "se": 0.008119320657091499,
+   "target": 1.0,
+   "z": -0.650807267827759,
+   "pass": true
+  }
+ },
+ "labels": {
+  "pooled": {
+   "mean": 0.0003052030694814295,
+   "se": 0.0007005859525714438,
+   "n": 9317548,
+   "games": 60000
+  },
+  "by_mover": {
+   "a": {
+    "mean": 0.0012056663408906627,
+    "se": 0.0009945809632238125,
+    "n": 4660460,
+    "games": 60000
+   },
+   "b": {
+    "mean": -0.0005959121892106709,
+    "se": 0.000980298540902172,
+    "n": 4657088,
+    "games": 60000
+   }
+  },
+  "by_bin": {
+   "[0.00,0.05)": {
+    "mean": -0.0022794234393012517,
+    "se": 0.0017214707871349246,
+    "n": 1533417,
+    "games": 59995
+   },
+   "[0.05,0.10)": {
+    "mean": -0.00011600557463491627,
+    "se": 0.0017587740912059946,
+    "n": 1465714,
+    "games": 59998
+   },
+   "[0.10,0.15)": {
+    "mean": 0.0009113563688010364,
+    "se": 0.0017276705331462211,
+    "n": 1531558,
+    "games": 59994
+   },
+   "[0.15,0.20)": {
+    "mean": -0.001627298748645853,
+    "se": 0.001810813761908738,
+    "n": 1386663,
+    "games": 59994
+   },
+   "[0.20,0.25)": {
+    "mean": 0.0005101918004702308,
+    "se": 0.002029907312646936,
+    "n": 1124514,
+    "games": 59980
+   },
+   "[0.25,0.30)": {
+    "mean": 0.0020287769558409463,
+    "se": 0.0020676885412353515,
+    "n": 1067984,
+    "games": 59968
+   },
+   "[0.30,0.35)": {
+    "mean": 0.003833228649023608,
+    "se": 0.0019338602408828418,
+    "n": 1207698,
+    "games": 59987
+   }
+  },
+  "by_pair": {
+   "attack>attack": {
+    "mean": -0.002890920626613679,
+    "se": 0.0028776822721375897,
+    "n": 564046,
+    "games": 58682
+   },
+   "attack>move": {
+    "mean": -0.0003185058923919985,
+    "se": 0.0030562046227007042,
+    "n": 487948,
+    "games": 58412
+   },
+   "attack>recruit": {
+    "mean": -0.007182873480800086,
+    "se": 0.014118265337913773,
+    "n": 23130,
+    "games": 17611
+   },
+   "attack>end_turn": {
+    "mean": 0.011144413997468381,
+    "se": 0.016125860829723122,
+    "n": 18124,
+    "games": 14166
+   },
+   "move>attack": {
+    "mean": -0.003099549998958408,
+    "se": 0.003217314254691303,
+    "n": 452164,
+    "games": 58140
+   },
+   "move>move": {
+    "mean": 0.0002893439203469236,
+    "se": 0.0008949661190681309,
+    "n": 5627918,
+    "games": 60000
+   },
+   "move>recruit": {
+    "mean": -0.002246493803590922,
+    "se": 0.004389717781874816,
+    "n": 234374,
+    "games": 56394
+   },
+   "move>end_turn": {
+    "mean": -0.0018459552218160439,
+    "se": 0.00359130049124665,
+    "n": 345864,
+    "games": 57701
+   },
+   "recruit>attack": {
+    "mean": 0.0024504047371349535,
+    "se": 0.014072741208389711,
+    "n": 23697,
+    "games": 17917
+   },
+   "recruit>move": {
+    "mean": 0.0013726833469536997,
+    "se": 0.004220119876079982,
+    "n": 253575,
+    "games": 57101
+   },
+   "recruit>recruit": {
+    "mean": 0.006991159535028834,
+    "se": 0.0024257384572373038,
+    "n": 765978,
+    "games": 59965
+   },
+   "recruit>end_turn": {
+    "mean": 0.010940935203714704,
+    "se": 0.013531629537728443,
+    "n": 24130,
+    "games": 17980
+   },
+   "end_turn>attack": {
+    "mean": -0.013462207093080627,
+    "se": 0.01557868036401503,
+    "n": 18994,
+    "games": 14665
+   },
+   "end_turn>move": {
+    "mean": -0.0017019428030907193,
+    "se": 0.0031654839297147776,
+    "n": 454782,
+    "games": 58839
+   },
+   "end_turn>recruit": {
+    "mean": 0.023505479956788557,
+    "se": 0.014119457964885878,
+    "n": 22824,
+    "games": 16839
+   }
+  }
+ },
+ "i_coin": {
+  "overall": {
+   "n": 9317548,
+   "ones": 2327406,
+   "expected": 2329387.0,
+   "chi2": 2.2462911200815205,
+   "p_value": 0.13393507537452531
+  },
+  "bins": {
+   "[0.00,0.05)": {
+    "n": 1533417,
+    "ones": 382610,
+    "expected": 383354.25,
+    "chi2": 1.926531617513914,
+    "p_value": 0.16513840338549543
+   },
+   "[0.05,0.10)": {
+    "n": 1465714,
+    "ones": 365768,
+    "expected": 366428.5,
+    "chi2": 1.5874320183428237,
+    "p_value": 0.20769341075127087
+   },
+   "[0.10,0.15)": {
+    "n": 1531558,
+    "ones": 383013,
+    "expected": 382889.5,
+    "chi2": 0.053112799732908146,
+    "p_value": 0.8177326766464955
+   },
+   "[0.15,0.20)": {
+    "n": 1386663,
+    "ones": 346035,
+    "expected": 346665.75,
+    "chi2": 1.5301792865317674,
+    "p_value": 0.21608553902489647
+   },
+   "[0.20,0.25)": {
+    "n": 1124514,
+    "ones": 281062,
+    "expected": 281128.5,
+    "chi2": 0.02097380142295546,
+    "p_value": 0.8848503494416347
+   },
+   "[0.25,0.30)": {
+    "n": 1067984,
+    "ones": 267079,
+    "expected": 266996.0,
+    "chi2": 0.034402512896572736,
+    "p_value": 0.8528532370419911
+   },
+   "[0.30,0.35)": {
+    "n": 1207698,
+    "ones": 301839,
+    "expected": 301924.5,
+    "chi2": 0.03228290516337694,
+    "p_value": 0.8574081590906837
+   }
+  },
+  "bins_chi2": 5.184914941604318,
+  "bins_df": 7,
+  "bins_p_value": 0.6391507775264667,
+  "capped": {
+   "n": 10856,
+   "ones": 2693,
+   "expected": 2714.0,
+   "chi2": 0.21665438467207074,
+   "p_value": 0.6416010193976576
+  },
+  "gap_slope": {
+   "slope": 0.0017765672945304254,
+   "se": 0.0014017603974241823,
+   "n": 9317548,
+   "games": 60000
+  },
+  "index_slope": {
+   "slope": -1.4493620319133123e-07,
+   "se": 1.0626172883720385e-06,
+   "n": 9317548,
+   "games": 60000
+  }
+ },
+ "plant": {
+  "a": {
+   "slope": 0.9940803467479292,
+   "se": 0.008199681787150193,
+   "n": 4660460,
+   "games": 60000,
+   "planted": 2815572
+  },
+  "b": {
+   "slope": 0.9947158871065408,
+   "se": 0.008119320657091499,
+   "n": 4657088,
+   "games": 60000,
+   "planted": 2812346
+  }
+ },
+ "verdict": "PASS"
+}
