@@ -21,7 +21,12 @@ side, everything in that side's frame:
     cell         map x factions x seat: "scenario|seat|own faction|opponent faction"
     S            the seven luck sums (match_luck.COLUMNS), signed for the side
     turns, ended_by
-    error        present when the game's walk failed (S is then absent)
+    error        present when the game's walk failed (S is then absent):
+                 a game without a record (a game run_elo_batch killed on its
+                 per-game timeout leaves a result, `timeout_kill`, and no
+                 record) or one that does not rebuild. tools/pg_labels.py
+                 leaves both of its sides out. The walk fails (exit 1) past
+                 --max-errors such games, each named in the log.
 
 A self-play run keeps its capped games only with run_elo_batch
 --max-extra-games 0; it then exits 4 (EXIT_GUARD_SPENT) when every slot is
@@ -84,16 +89,19 @@ def read_jsonl(path: Path) -> Iterator[Dict]:
                 yield json.loads(line)
 
 
-def convert(walk_path: Path, out: Path, seed_base: int) -> Dict[str, int]:
+def convert(walk_path: Path, out: Path, seed_base: int) -> Dict:
     """Every game of the walk as its two side rows into `out` (rewritten
-    whole, atomically): {games, side_rows, errors, capped}."""
-    counts = {"games": 0, "side_rows": 0, "errors": 0, "capped": 0}
+    whole, atomically): {games, side_rows, errors, capped, unwalked (the
+    games whose walk failed, by name)}."""
+    counts: Dict = {"games": 0, "side_rows": 0, "errors": 0, "capped": 0, "unwalked": []}
     tmp = out.with_name(out.name + ".tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         for walk_row in read_jsonl(walk_path):
             rows = side_rows(walk_row, seed_base)
             counts["games"] += 1
-            counts["errors"] += int("error" in walk_row)
+            if "error" in walk_row:
+                counts["errors"] += 1
+                counts["unwalked"].append(walk_row["game"])
             counts["capped"] += int(rows[0]["capped"])
             for row in rows:
                 fh.write(json.dumps(row, separators=(",", ":")) + "\n")
@@ -114,13 +122,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--seed-base", type=int, required=True, help="run_elo_batch's --seed-base of the run")
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--no-verify", action="store_true", help="skip the records' fingerprint checks")
+    ap.add_argument("--max-errors", type=int, default=0,
+                    help="games whose walk may fail (left out of the labels) before the walk fails")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     n = walk_matches([(MATCH_NAME, args.games)], args.walk, jobs=args.jobs, verify=not args.no_verify)
     log.info("%d games walked into %s", n, args.walk)
     counts = convert(args.walk, args.out, args.seed_base)
-    log.info("%s: %s", args.out, counts)
-    return 0 if counts["errors"] == 0 else 1
+    log.info("%s: %d games, %d side rows, %d capped, %d unwalked (at most %d)", args.out, counts["games"],
+             counts["side_rows"], counts["capped"], counts["errors"], args.max_errors)
+    for game in counts["unwalked"]:
+        log.warning("unwalked, left out of the labels: %s", game)
+    return 0 if counts["errors"] <= args.max_errors else 1
 
 
 if __name__ == "__main__":

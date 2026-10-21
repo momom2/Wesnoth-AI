@@ -123,22 +123,35 @@ def additive_fit(y: np.ndarray, map_keys: Sequence, pair_keys: Sequence,
     return a, f
 
 
-def shrunk_cells(dev: np.ndarray, cells: Sequence[str]) -> Tuple[Dict[str, float], float]:
-    """Each cell's mean of `dev` shrunk by n / (n + k), and k: the
-    within-cell variance over the between-cell variance, the latter the
-    count-weighted mean square of the cell means less the within-cell
-    variance's share of it."""
-    means = group_means(cells, dev)
-    within = float(np.var(dev - np.array([means[c][0] for c in cells])))
+def shrinkage_constant(dev: np.ndarray, cells: Sequence[str], means: Dict) -> float:
+    """k = the within-cell variance over the between-cell variance. The
+    within-cell variance is the residual sum of squares about the cell
+    means over N - C degrees of freedom (N rows, C cells): over N it reads
+    low by C / N, 0.15 at a held-out half's 6.6 rows a side-cell. The
+    between-cell variance is the count-weighted mean square of the cell
+    means less the within-cell variance's share of it, C / N."""
+    N, C = len(dev), len(means)
+    resid = dev - np.array([means[c][0] for c in cells])
+    within = float(resid @ resid) / max(N - C, 1)
     ns = np.array([n for _, n in means.values()], dtype=float)
     ms = np.array([m for m, _ in means.values()])
-    between = max(float(np.average(ms ** 2, weights=ns) - within * len(ns) / ns.sum()), MIN_BETWEEN)
-    k = within / between
-    return {c: m * n / (n + k) for c, (m, n) in means.items()}, k
+    between = max(float(np.average(ms ** 2, weights=ns) - within * C / N), MIN_BETWEEN)
+    return within / between
 
 
-def fit_baseline(rows: Sequence[Dict]) -> BaselineFit:
-    """b and beta fitted on `rows` (side rows with S)."""
+def shrunk_cells(dev: np.ndarray, cells: Sequence[str],
+                 k: Optional[float] = None) -> Tuple[Dict[str, float], float]:
+    """Each cell's mean of `dev` shrunk by n / (n + k), and k
+    (`shrinkage_constant` when not given)."""
+    means = group_means(cells, dev)
+    if k is None:
+        k = shrinkage_constant(dev, cells, means)
+    return {c: m * n / (n + k) for c, (m, n) in means.items()}, float(k)
+
+
+def fit_baseline(rows: Sequence[Dict], k: Optional[float] = None) -> BaselineFit:
+    """b and beta fitted on `rows` (side rows with S); `k`, the cells'
+    shrinkage constant, is estimated from them when not given."""
     if not rows:
         raise ValueError("a baseline needs rows to fit on")
     z = np.array([float(r["z"]) for r in rows])
@@ -151,7 +164,7 @@ def fit_baseline(rows: Sequence[Dict]) -> BaselineFit:
     map_keys, pair_keys = [p[0] for p in parts], [p[1] for p in parts]
     a, f = additive_fit(y, map_keys, pair_keys)
     dev = y - np.array([a[m] for m in map_keys]) - np.array([f[p] for p in pair_keys])
-    shrunk, k = shrunk_cells(dev, cells)
+    shrunk, k = shrunk_cells(dev, cells, k)
     return BaselineFit(intercept=intercept, beta=beta, map_seat=a, pair=f, cell=shrunk, k=k,
                        games=len({r["game"] for r in rows}))
 

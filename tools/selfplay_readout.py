@@ -13,31 +13,37 @@ with standard errors, and a pass/fail where the design states one.
                    action's randomized cdf position uniform (20 bins); and
                    the inverse-temperature score sum_t (log p_t + H_t),
                    mean zero under the logged law, positive when the
-                   player samples colder. Each passes at p >= 0.001.
+                   player samples colder.
     legal_mass     every decision's prior mass is 1 within 1e-3 (gate)
     i_count        every command of a record belongs to a logged decision,
                    each refused decision is logged and decided again, and
-                   each recruit rejection is a logged refusal or a placed
-                   recruit (gate)
+                   the record's recruit rejections at each command are its
+                   logged refused recruits re-decided there plus at most
+                   one placed recruit (gate)
     label_noise    E[z^2], E[(z - b)^2] and E[R^2] per side-game; then,
                    per decision, E[R^2] under luck alone and with the
                    corrections -alpha.v (the value head) and -kappa.U (the
                    opponent's sum of log p + H), alpha and kappa fitted
                    cross-fitted (two folds by game). A correction enters
                    iff it cuts E[R^2] by 2 SE and by at least 5 %.
-    sharpening     the mean over side-games of R . sum_t (log p_t + H_t),
+    sharpening    the mean over side-games of R . sum_t (log p_t + H_t),
                    the first-order value of sampling colder; resolved at
                    3 SE
     dice_control   separate code (the walk's rows, side A's frame) refits
                    the luck slope on the held-out games and must equal the
                    training labels' beta; the training game-sides' z
-                   regressed on their beta_S must read slope 1 within 3 SE
+                   regressed on their beta_S must read slope 1 within the
+                   gates' z
     i_v            each correction's mean against 1[a in X] - p(X), for X
-                   end_turn, attack, recruit: 0 within 3 SE
+                   end_turn, attack, recruit: 0 within the gates' z
     p1_targets     sum over decisions of R (1[a in X] - p(X)) / (2 games),
                    what the gradient pass's probes must equal (design §3.4)
 
-Standard errors treat a game as the unit (its two sides share it).
+The gates' 18 statistical tests (I-sample's five, dice control's slope,
+I-V's twelve) share a family-wise false-alarm rate of 1 %: each passes at
+p >= 0.01 / 18, |z| <= 3.45 (Bonferroni), so a sound run fails a gate at
+most once in a hundred. Standard errors treat a game as the unit (its two
+sides share it).
 
     python tools/selfplay_readout.py --games DIR... --labels labels.jsonl --fits fits.json \\
         --walk WALK.jsonl... --out readout.json
@@ -51,6 +57,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from statistics import NormalDist
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -60,7 +67,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.match_luck import COLUMNS, result_z  # noqa: E402
 from wesnoth_ai.server_priors import KIND_ATTACK, KIND_END_TURN, KIND_MOVE, KIND_RECRUIT  # noqa: E402
 
-ALPHA = 0.001                  # a gate's p-value floor
+FAMILY_ALPHA = 0.01            # the gates' false-alarm rate on a sound run
+GATE_TESTS = 5 + 1 + 12        # I-sample's five tests, dice control's slope, I-V's twelve
+ALPHA = FAMILY_ALPHA / GATE_TESTS                    # each test's p-value floor (Bonferroni)
+GATE_Z = NormalDist().inv_cdf(1.0 - ALPHA / 2.0)    # its two-sided z, 3.45
 P_EDGES = np.array([0.0, 0.01, 0.03, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.9, 0.97, 0.99, 1.0])
 MIN_BIN_VARIANCE = 5.0         # a p-bin enters the chi-square with at least this variance
 PIT_BINS = 20
@@ -239,19 +249,36 @@ def icount_problems(rec: Dict) -> List[str]:
         if not span_ok(e["action"][1], cmds[lo:hi]):
             problems.append(f"decision at command {lo} ({KIND_NAMES[e['action'][1]]}) started "
                             f"{[c[0] for c in cmds[lo:hi]]}")
-    redecided = set()
     for i, e in enumerate(log):
-        if not e["refused"]:
-            continue
-        nxt = next((x for x in log[i + 1:] if not x["refused"]), None)
-        if e["cmd"] != -1 or i + 1 >= len(log) or log[i + 1]["side"] != e["side"]:
+        if e["refused"] and (e["cmd"] != -1 or i + 1 >= len(log) or log[i + 1]["side"] != e["side"]):
             problems.append(f"refused decision {i} is not decided again by its side")
-        elif nxt is not None and e["action"][1] == KIND_RECRUIT:
-            redecided.add(nxt["cmd"])
-    for k, _x, _y in rec.get("rejections", ()):
-        placed = k in set(starts) and k < len(cmds) and cmds[k][0] == "recruit"
-        if k not in redecided and not placed:
-            problems.append(f"the recruit rejection at command {k} has no logged decision")
+    return problems + rejection_problems(log, cmds, rec.get("rejections", ()))
+
+
+def rejection_problems(log: Sequence[Dict], cmds: Sequence[list], rejections) -> List[str]:
+    """The record's recruit rejections against the log's refused recruits.
+    A rejection at command k is a bounce (the hex held a hidden unit and no
+    castle hex was vacant: the harness refused the recruit, and the side
+    decides again at k, where no recruit can land) or a placed recruit (the
+    recruit command at k, set on the nearest vacant castle hex). So at each
+    k the rejections are the refused recruits re-decided at k, plus at most
+    one when a recruit decision starts at k."""
+    refused = Counter()
+    for i, e in enumerate(log):
+        if e["refused"] and e["action"][1] == KIND_RECRUIT:
+            nxt = next((x for x in log[i + 1:] if not x["refused"]), None)
+            refused[len(cmds) if nxt is None else nxt["cmd"]] += 1
+    rejected = Counter(int(k) for k, _x, _y in rejections)
+    placed = Counter(e["cmd"] for e in log if not e["refused"] and e["action"][1] == KIND_RECRUIT
+                     and 0 <= e["cmd"] < len(cmds) and cmds[e["cmd"]][0] == "recruit")
+    problems = []
+    for k in sorted(set(refused) | set(rejected)):
+        if refused[k] > rejected[k]:
+            problems.append(f"{refused[k]} refused recruits re-decided at command {k}, "
+                            f"{rejected[k]} rejections there")
+        elif rejected[k] - refused[k] > placed[k]:
+            problems.append(f"{rejected[k]} recruit rejections at command {k}: {refused[k]} logged "
+                            f"refusals and {placed[k]} placed recruits")
     return problems
 
 
@@ -364,7 +391,7 @@ def i_v(t: Table) -> Dict:
         xg = t.per_game(x)
         for i, (cat, _, _) in enumerate(CATEGORIES):
             m, se = ratio_se(xg[:, i], n_g)
-            ok = not (se > 0) or abs(m) <= RESOLVED_SE * se
+            ok = not (se > 0) or abs(m) <= GATE_Z * se
             passed &= ok
             out[name][cat] = {"mean": m, "se": se, "pass": bool(ok)}
     out["pass"] = bool(passed)
@@ -391,7 +418,7 @@ def dice_control(labels: Sequence[Dict], walk_rows: Sequence[Dict], train_beta: 
         se = float(np.sqrt(np.sum(x ** 2 * (y - slope * x) ** 2)) / (x @ x))
     else:
         slope, se = math.nan, math.nan
-    slope_ok = bool(se > 0 and abs(slope - 1.0) <= RESOLVED_SE * se)
+    slope_ok = bool(se > 0 and abs(slope - 1.0) <= GATE_Z * se)
     return {"beta_labels": [float(b) for b in train_beta], "beta_separate": beta.tolist(),
             "max_difference": diff, "beta_pass": bool(diff <= 1e-6 * scale),
             "slope_z_on_beta_S": slope, "slope_se": se, "slope_pass": slope_ok,
@@ -453,7 +480,9 @@ def readout(records: Iterator[Dict], labels: Sequence[Dict], fits: Dict, walk_ro
                       "cap_rate_above_rule": bool(cap > CAP_RATE_RULE)},
            "i_sample": check.i_sample(), "legal_mass": check.legal_mass(),
            "i_count": {"games_with_problems": len(problems), "pass": not problems,
-                       "examples": dict(list(problems.items())[:20])}}
+                       "examples": dict(list(problems.items())[:20])},
+           "gates": {"family_alpha": FAMILY_ALPHA, "tests": GATE_TESTS, "per_test_alpha": ALPHA,
+                     "z": GATE_Z}}
     games = sorted({g for g, _ in sides if (g, 1) in by_side and (g, 2) in by_side and (g, 2) in sides})
     out["labelled_games"] = len(games)
     if len(games) < 4:
@@ -500,7 +529,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     result = readout(records, read_jsonl(args.labels), json.loads(args.fits.read_text(encoding="utf-8")),
                      walk_rows, seed=args.seed)
     args.out.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8", newline="\n")
-    print(json.dumps({k: result[k].get("pass") for k in ("i_sample", "legal_mass", "i_count")}))
+    print(json.dumps({k: result[k].get("pass") for k in ("i_sample", "legal_mass", "i_count", "dice_control", "i_v")
+                      if k in result}))
+    print(f"the gates' {GATE_TESTS} statistical tests: family-wise false-alarm rate {FAMILY_ALPHA:g}, "
+          f"each at p >= {ALPHA:.2g} (|z| <= {GATE_Z:.2f})")
     return 0 if result.get("gates_pass") else 1
 
 

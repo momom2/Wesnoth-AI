@@ -120,3 +120,46 @@ def _reads(label: dict, i: int) -> bool:
     if i < 240:
         return False
     return not label["heldout"] or label["half"] != half_of(i)
+
+
+def sparse_world_rows(seed: int = 0, games: int = 5000, tau: float = 0.15, sigma: float = 0.8):
+    """A held-out half at production sparsity: 21 maps, 6 factions, 5,000
+    games, about 6.6 rows a side-cell; cell deviations of sd `tau` around an
+    additive map and faction-pair baseline, result noise of sd `sigma`:
+    (the planted b of every side-1 cell, the side rows)."""
+    maps, factions = [f"m{i}" for i in range(21)], [f"f{i}" for i in range(6)]
+    rng = np.random.default_rng(seed)
+    a = {m: rng.normal(0, 0.1) for m in maps}
+    f = {(x, y): rng.normal(0, 0.1) for x in factions for y in factions}
+    f = {(x, y): (f[(x, y)] - f[(y, x)]) / 2 for x, y in f}
+    world = {cell_of(m, 1, x, y): a[m] + f[(x, y)] + rng.normal(0, tau) for m in maps for x in factions
+             for y in factions}
+    rows = []
+    for i in range(games):
+        m, f1, f2 = maps[rng.integers(21)], factions[rng.integers(6)], factions[rng.integers(6)]
+        S = rng.normal(0, 1, len(COLUMNS))
+        z = world[cell_of(m, 1, f1, f2)] + BETA @ S + rng.normal(0, sigma)
+        for side, sign, own, opp in ((1, 1, f1, f2), (2, -1, f2, f1)):
+            rows.append({"game": f"g{i}", "index": i, "side": side, "z": sign * z, "capped": False,
+                         "cell": cell_of(m, side, own, opp), "S": list(sign * S)})
+    return world, rows
+
+
+def test_the_shrinkage_is_near_the_oracle_at_production_sparsity():
+    """At 6.6 rows a side-cell the cell means are mostly noise: the fitted k
+    lands near the planted sigma^2 / tau^2, and b's error against the
+    planted cells is within 6 % of the fit at the true k, which beats both
+    raw cell means (k = 0) and the additive baseline alone (k infinite).
+    A k ten times too large costs 13 % here."""
+    world, rows = sparse_world_rows()
+    true_k = 0.8 ** 2 / 0.15 ** 2
+
+    def error(fit):
+        return float(np.mean([(fit.b(c) - mu) ** 2 for c, mu in world.items()]))
+
+    fit = fit_baseline(rows)
+    oracle = error(fit_baseline(rows, k=true_k))
+    assert true_k / 2.5 <= fit.k <= true_k * 2.5, fit.k
+    assert error(fit) <= 1.06 * oracle, (error(fit), oracle)
+    assert oracle <= 0.3 * error(fit_baseline(rows, k=0.0))
+    assert oracle <= 0.95 * error(fit_baseline(rows, k=1e12))

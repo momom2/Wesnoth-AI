@@ -167,6 +167,43 @@ def test_i_count_accounts_for_a_real_records_commands(tmp_path):
     assert icount_problems({k: v for k, v in rec.items() if k != "decisions"}) == ["no decision log"]
 
 
+def test_i_count_matches_the_records_rejections_to_the_logged_refusals(monkeypatch):
+    """The harness bounces the game's first recruit as the engine bounces one
+    onto a hidden unit with no castle hex vacant: every recruit is refused
+    until the side does something else. The record's rejections then match
+    the logged refused recruits; a refusal dropped from the log, or a
+    rejection the log does not explain, is a problem."""
+    from tools import eval_players
+    from tools.game_record import game_record
+    from tests.test_decision_log import _tiny_policy, play
+    real = eval_players._would_recruit_bounce
+    state = {"on": None}
+
+    def bounce(action, gs):
+        recruit = action.get("type") == "recruit"
+        if state["on"] is None and recruit:
+            state["on"] = True
+        elif state["on"] and not recruit:
+            state["on"] = False
+        return bool(state["on"] and recruit) or real(action, gs)
+
+    monkeypatch.setattr(eval_players, "_would_recruit_bounce", bounce)
+    sim, setup, log = play(_tiny_policy(), 21, log=True)
+    rec = game_record(sim, setup, game_label="g", decisions=log)
+    refused = [i for i, e in enumerate(log) if e["refused"]]
+    assert refused and len(rec["rejections"]) == len(refused)
+    assert icount_problems(rec) == []
+    dropped = copy.deepcopy(rec)
+    del dropped["decisions"][refused[0]]
+    assert any("rejections at command" in p for p in icount_problems(dropped))
+    extra = copy.deepcopy(rec)
+    extra["rejections"].append(list(extra["rejections"][0]))
+    assert icount_problems(extra)
+    unexplained = copy.deepcopy(rec)
+    unexplained["rejections"] = []
+    assert any("refused recruits re-decided" in p for p in icount_problems(unexplained))
+
+
 @pytest.mark.slow
 def test_a_logged_run_goes_through_rows_labels_and_readout(tmp_path):
     """Six short logged games, walked into rows, labelled and read: every

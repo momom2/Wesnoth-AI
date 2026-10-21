@@ -39,21 +39,34 @@ def test_each_side_reads_the_game_in_its_own_frame():
 
 
 def test_a_run_directory_is_walked_into_side_rows(tmp_path):
-    """Two short games whose turn cap ends them: four rows, z = 0, the
-    luck sums opposite between the two sides of a game."""
+    """Three short games whose turn cap ends them, one record lost (as a
+    game killed on its timeout leaves it): the walk fails past
+    --max-errors, and within it the lost game's two rows carry the error,
+    the others z = 0 and opposite luck sums; the labels leave both seats
+    of the lost game out."""
     from tests.helpers.selfplay_games import selfplay_game, tiny_checkpoint
+    from tools.pg_labels import side_labels
     from tools.selfplay_rows import main
     spec = tiny_checkpoint(tmp_path / "net.pt")
     games = tmp_path / "games"
-    selfplay_game(spec, games, 40, 1)
-    selfplay_game(spec, games, 41, 2)
-    assert main(["--games", str(games), "--walk", str(tmp_path / "walk.jsonl"),
-                 "--out", str(tmp_path / "rows.jsonl"), "--seed-base", "40"]) == 0
+    for i in range(3):
+        selfplay_game(spec, games, 40 + i, 1 + i % 2)
+    (games / "game_A_B_s1_40.game.jsonl.gz").unlink()
+    argv = ["--games", str(games), "--walk", str(tmp_path / "walk.jsonl"), "--out", str(tmp_path / "rows.jsonl"),
+            "--seed-base", "40"]
+    assert main(argv) == 1
+    assert main(argv + ["--max-errors", "1"]) == 0
     rows = load_rows(tmp_path / "rows.jsonl")
-    assert sorted((r["index"], r["side"]) for r in rows) == [(0, 1), (0, 2), (1, 1), (1, 2)]
-    assert all(r["capped"] and r["z"] == 0 for r in rows)
+    assert sorted((r["index"], r["side"]) for r in rows) == [(i, s) for i in range(3) for s in (1, 2)]
+    lost = [r for r in rows if r["index"] == 0]
+    assert all(r["error"] == "no record" and "S" not in r for r in lost)
+    walked = [r for r in rows if r["index"] != 0]
+    assert all(r["capped"] and r["z"] == 0 for r in walked)
     by_game = {}
-    for r in rows:
+    for r in walked:
         by_game.setdefault(r["game"], []).append(r)
     for one, two in by_game.values():
         assert one["S"] == pytest.approx([-x for x in two["S"]])
+    labels, info = side_labels(rows, heldout_from=0)
+    assert info["left_out"] == ["game_A_B_s1_40"]
+    assert sorted((lab["game"], lab["side"]) for lab in labels) == sorted((r["game"], r["side"]) for r in walked)

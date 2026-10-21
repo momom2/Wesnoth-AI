@@ -24,9 +24,22 @@
 #   (tools/elo_collect.py, the reference at 0);
 #   the memory report: `own2` at temperature 1 with 64 slots against 0 slots,
 #   MEM_GAMES (3,200) decisive games, and its fit.
-# A self-play match that fails stops the self-play (the split needs every
-# game); D0 and the memory report are played whatever the self-play did. A
-# match cut short by its time budget is resumed once in its directory.
+# The order: the first self-play match, D0, the rest of the self-play, its
+# labels and readouts, the memory report. The rest of the self-play is sized
+# from the first match's measured rate so the run ends before the dead-man's
+# switch (size_plan states the rule): N_SELFPLAY shrinks, keeping the
+# held-out share, when the planned games do not fit, and the self-play ends
+# after its first match when fewer than half of them fit.
+# A match short of its games (a time budget, games that failed, a server
+# that died) is played again once in its directory. A match is then
+# accepted with at most LOST_MAX (10) games missing: self-play slots without
+# a result, or decisive results short for D0 and the memory report. A
+# self-play game without a walkable record (run_elo_batch's per-game timeout
+# leaves a result and no record) counts against the same bound; such games
+# are named in rows.log and left out of the labels, both seats. Past the
+# bound a self-play match fails and stops the self-play (the split needs
+# its games); D0 and the memory report are played whatever the self-play
+# did.
 #
 # Seeds. Self-play 800000 to 829999, D0 830000 to 842799, the memory report
 # 845000 to 848199; a capped D0 or memory game of slot i is replaced by seed
@@ -42,7 +55,10 @@
 # wave 4, their walks 6 (800 games in 9-11 s on 31 workers); the labels and
 # the readouts, one pass over 30,000 records, about 10; D0 about 13,000 games
 # 36 minutes; the memory report about 3,300 games 9; the fits 2. In all
-# about 3.0 hours, $1.7 at $0.577 an hour. BOX_MAX_H 5.5, 1.8 times.
+# about 3.0 hours, $1.7 at $0.577 an hour. At twice the argmax game length
+# the full plan takes about 5.5 hours ($3.2); BOX_MAX_H is 6.5 ($3.75 at
+# most), and a slower rate shrinks the self-play rather than the switch
+# cutting the run.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md): the
 # onstart of scripts/rent_box.py fetches the library of STAGE, then this
@@ -53,7 +69,8 @@
 # the markers, skips what is done (a done match's games come back from HF
 # when its directory is absent), and plays the rest; a self-play match that
 # failed stays failed (its .failed file: delete it on HF and on the disk to
-# play it again).
+# play it again). A marker that a match is done goes up only after its
+# games' tarball has landed, so a new machine finds the games it skips.
 # Never `set -x`: the HF token and the instance key are in the environment.
 # box-needs: disk_gb=80 ram_gb=64 gpu_ram_gb=24 cores=32 gpu=4090
 set -uo pipefail
@@ -73,7 +90,10 @@ JOBS="${JOBS:-120}"
 WORKER_GAMES="${WORKER_GAMES:-6}"
 MIN_FREE_MB="${MIN_FREE_MB:-300}"
 GAMES_PER_H="${GAMES_PER_H:-21966}"            # the pool's steady rate, for the steps' bounds
-BOX_MAX_H="${BOX_MAX_H:-5.5}"
+LOST_MAX="${LOST_MAX:-10}"                     # games a match may miss, 0.2 % of a self-play match
+READ_RESERVE_MIN="${READ_RESERVE_MIN:-30}"     # kept for the labels and readouts when the self-play is sized
+FINISH_RESERVE_MIN="${FINISH_RESERVE_MIN:-15}" # kept for the finish's upload when the self-play is sized
+BOX_MAX_H="${BOX_MAX_H:-6.5}"
 # ---- the configuration (end)
 BOX_WORKER_GB="${BOX_WORKER_GB:-0.5}"           # a walking worker holds about 230 MB (match_luck_box.sh)
 TESTS_CUT_MIN="${TESTS_CUT_MIN:-40}"
@@ -128,7 +148,7 @@ plan_chunks() {
     done
 }
 for v in SP_SEED_BASE N_SELFPLAY CHUNK_GAMES HELDOUT_FROM D0_SEED_BASE D0_GAMES MEM_SEED_BASE MEM_GAMES JOBS \
-         WORKER_GAMES GAMES_PER_H; do
+         WORKER_GAMES GAMES_PER_H LOST_MAX; do
     if ! [[ ${!v} =~ ^[1-9][0-9]*$ ]]; then
         box_finish "BAD_PLAN: $v=${!v} is not a positive integer" 1
     fi
@@ -138,12 +158,12 @@ done
    && MEM_SEED_BASE + MEM_GAMES <= 1000000 )) \
     || box_finish "BAD_PLAN: the seed ranges overlap or pass 1,000,000 (a replacement's offset)" 1
 plan_chunks
-RESTORE=(matches.txt rows.jsonl labels.jsonl fits.json readout.json readout.done labels.log readout.log)
+RESTORE=(matches.txt plan.txt rows.jsonl labels.jsonl fits.json readout.json readout.done labels.log readout.log)
 for name in "${CHUNKS[@]}"; do
-    RESTORE+=("walk_$name.jsonl" "rows_$name.jsonl" "chunk_$name.done" "chunk_$name.failed")
+    RESTORE+=("walk_$name.jsonl" "rows_$name.jsonl" "wall_$name.txt" "chunk_$name.done" "chunk_$name.failed")
 done
 for name in d0 memory; do
-    RESTORE+=("$name.fit.json" "measure_$name.done" "measure_$name.failed")
+    RESTORE+=("$name.fit.json" "wall_$name.txt" "measure_$name.done" "measure_$name.failed")
 done
 # ---- the plan (end)
 
@@ -234,51 +254,67 @@ sides_ok || box_finish "SIDE_FLAGS_FAILED (tools/reference_player.py --flags): $
 POOL=(--persistent-workers --shared-inference --no-infer-compile --device cuda --jobs "$JOBS"
       --worker-games "$WORKER_GAMES" --min-free-mb "$MIN_FREE_MB")
 T1=(--mcts-sims 0 --raw-temperature-a 1 --raw-temperature-b 1)
-count_games() {                  # count_games DIR: "<result files> <decisive>"
+count_games() {                  # count_games DIR: "<result files> <decisive> <failed slots still without a result>"
     timeout 5m python - "$1" <<'EOF' | tr -d '\r'
 import json, pathlib, sys
-files = list(pathlib.Path(sys.argv[1]).glob("game_*.json"))
+d = pathlib.Path(sys.argv[1])
+files = list(d.glob("game_*.json"))
 decisive = 0
 for p in files:
     try:
         decisive += json.loads(p.read_text(encoding="utf-8")).get("outcome_a") in ("win", "loss")
     except Exception:
         pass
-print(len(files), decisive)
+lost = sum(not (d / ("game_" + p.name[len("failed_"):])).exists() for p in d.glob("failed_*.json"))
+print(len(files), decisive, lost)
 EOF
 }
-play() {                         # play NAME GAMES SEED_BASE EXTRA FLAGS...: one attempt; PLAYED: complete, short or failed
-    local name=$1 games=$2 base=$3 extra=$4 dir="$OUT/games_$1" est t0 rc failed f
+play() {                         # play NAME GAMES SEED_BASE EXTRA FLAGS...: one attempt; PLAYED_RC, RESULTS, DECISIVE, LOST
+    local name=$1 games=$2 base=$3 extra=$4 dir="$OUT/games_$1" est t0 f
     shift 4
     box_gpu_ok || box_finish "GPU_UNRESPONSIVE before match $name: rc=$BOX_RC $BOX_WHY (gpu.log)" 1
-    est=$(( (games + extra / 4) * 60 / GAMES_PER_H + 1 ))     # minutes at the steady rate
+    est=$(( (games + extra / 4) * 60 / GAMES_PER_H + 1 ))     # minutes at the planned rate
     t0=$(box_now)
     box_bounded "match $name" "$(( 2 * est + 15 ))" "match_$name.log" python tools/run_elo_batch.py "$@" \
         --outdir "$dir" --games "$games" --max-extra-games "$extra" --seed-base "$base" "${POOL[@]}" \
         --time-budget-min "$(( 3 * est / 2 + 10 ))"
-    rc=$BOX_RC
-    failed=$(find "$dir" -maxdepth 1 -name 'failed_*.json' 2>/dev/null | wc -l)
-    echo "$(box_stamp) $name: games $games from seed $base, rc=$rc $BOX_WHY, $(( $(box_now) - t0 )) s," \
-         "results and decisive $(count_games "$dir"), failed $failed" >> "$OUT/matches.txt"
+    PLAYED_RC=$BOX_RC
+    echo "$(( $(box_now) - t0 ))" >> "$OUT/wall_$name.txt"
+    read -r RESULTS DECISIVE LOST < <(count_games "$dir")
+    [[ "$RESULTS $DECISIVE $LOST" =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]] || { RESULTS=0 DECISIVE=0 LOST=0; }
+    echo "$(box_stamp) $name: games $games from seed $base, rc=$PLAYED_RC $BOX_WHY," \
+         "$(tail -n 1 "$OUT/wall_$name.txt") s, results $RESULTS, decisive $DECISIVE, failed slots lost $LOST" \
+        >> "$OUT/matches.txt"
     for f in "$dir"/.inference_server_*.json "$dir"/.worker_stages.json; do
         [ ! -f "$f" ] || cp -f "$f" "$OUT/$name.${f##*/.}"
     done
-    # run_elo_batch: 0 every slot decisive; 4 every slot played, some
-    # without a result and no replacement left (with --max-extra-games 0,
-    # every capped game kept); 3 or a cut, games left to play. Any other
-    # exit, or a failed game, fails the match.
-    PLAYED=failed
-    if [ "$failed" -eq 0 ]; then
-        case $rc in
-            0|4) PLAYED=complete ;;
-            3|124) PLAYED=short ;;
-        esac
-    fi
 }
-play_through() {                 # play_through NAME GAMES SEED_BASE EXTRA FLAGS...: a match, resumed once when cut short
+play_through() {                 # play_through KIND NAME GAMES SEED_BASE EXTRA FLAGS...: a match, played again once when short
+    # run_elo_batch exits 0 when every slot is decisive, 4 when every slot is
+    # played and some have no result with no replacement left (with
+    # --max-extra-games 0, every capped game kept), 3 (or the step's cut)
+    # with slots left to play, 1 when games failed (a re-run plays them
+    # again) or a server died. A second attempt resumes 1, 3 and a cut. The
+    # match is then accepted when at most LOST_MAX games are missing: self-
+    # play slots without a result, or decisive results short of GAMES for a
+    # measure (whose exit 4, its replacement guard spent, is accepted).
+    local kind=$1 name=$2 games=$3 ok=1
+    shift
     play "$@"
-    [ "$PLAYED" != short ] || play "$@"
-    [ "$PLAYED" = complete ]
+    case $PLAYED_RC in 1|3|124) play "$@" ;; esac
+    if [ "$kind" = selfplay ]; then
+        MISSING=$(( games - RESULTS ))
+    else
+        MISSING=$(( games - DECISIVE ))
+    fi
+    case $PLAYED_RC in
+        0|4) [ "$kind" = measure ] || (( MISSING <= LOST_MAX )) || ok=0 ;;
+        1|3|124) (( MISSING <= LOST_MAX )) || ok=0 ;;
+        *) ok=0 ;;
+    esac
+    [ "$ok" = 1 ] || return 1
+    (( MISSING <= 0 )) || echo "$(box_stamp) $name: accepted with $MISSING of $games missing (at most $LOST_MAX)" \
+        >> "$OUT/matches.txt"
 }
 restore_games() {                # restore_games NAME: a done match's games, back from HF when its directory is absent
     local name=$1
@@ -290,37 +326,85 @@ restore_games() {                # restore_games NAME: a done match's games, bac
     rm -f "$OUT/games_$name.tar.gz"
     box_mark_landed "games_$name.tar.gz" "$OUT/games_$name" || echo "games_$name will go up again (restore.log)"
 }
-rows_of() {                      # rows_of NAME: the luck walk and the side rows of games_NAME
+rows_of() {                      # rows_of NAME MAX_ERRORS: the luck walk and the side rows of games_NAME
     touch "$OUT/walk_$1.jsonl"
     box_bounded --stall "$OUT/walk_$1.jsonl" "$WALK_STALL_MIN" "rows $1" "$WALK_CUT_MIN" rows.log \
         python tools/selfplay_rows.py --games "$OUT/games_$1" --walk "$OUT/walk_$1.jsonl" \
-        --out "$OUT/rows_$1.jsonl" --seed-base "$SP_SEED_BASE" --jobs "$WALK_JOBS"
+        --out "$OUT/rows_$1.jsonl" --seed-base "$SP_SEED_BASE" --jobs "$WALK_JOBS" --max-errors "$2"
 }
-selfplay() {                     # the self-play matches, each walked as it lands; SELFPLAY says how it ended
-    local k name base
-    for k in "${!CHUNKS[@]}"; do
-        name=${CHUNKS[$k]}
-        base=$(( SP_SEED_BASE + CHUNK_OFFSETS[k] ))
-        if box_marked_this_stage "$OUT/chunk_$name.done"; then
-            continue
-        elif [ -f "$OUT/chunk_$name.failed" ]; then
-            SELFPLAY="FAILED: $name failed at an earlier entry, $(cat "$OUT/chunk_$name.failed")"
-            return 1
+selfplay_match() {               # selfplay_match K: self-play match K played, walked and sent up; false when it failed (SELFPLAY says why)
+    local k=$1 name=${CHUNKS[$1]} base
+    base=$(( SP_SEED_BASE + CHUNK_OFFSETS[k] ))
+    box_marked_this_stage "$OUT/chunk_$name.done" && return 0
+    if [ -f "$OUT/chunk_$name.failed" ]; then
+        SELFPLAY="FAILED: $name failed at an earlier entry, $(cat "$OUT/chunk_$name.failed")"
+        return 1
+    fi
+    rm -f "$OUT/walk_$name.jsonl" "$OUT/rows_$name.jsonl"      # a walk of other games never joins these
+    if ! play_through selfplay "$name" "${CHUNK_SIZES[$k]}" "$base" 0 "${SP_A[@]}" "${SP_B[@]}" "${T1[@]}" \
+            --log-decisions; then
+        echo "the match ended rc=$PLAYED_RC with $MISSING of ${CHUNK_SIZES[$k]} games missing, past $LOST_MAX" \
+            "(matches.txt, match_$name.log)" > "$OUT/chunk_$name.failed"
+    elif ! rows_of "$name" "$(( LOST_MAX - MISSING ))"; then
+        echo "its rows failed or left more than $LOST_MAX games out, rc=$BOX_RC $BOX_WHY (rows.log)" \
+            > "$OUT/chunk_$name.failed"
+    fi
+    if [ -f "$OUT/chunk_$name.failed" ]; then
+        SELFPLAY="FAILED: $name, $(cat "$OUT/chunk_$name.failed")"
+        return 1
+    fi
+    box_upload_dir "games_$name" "$OUT/games_$name"
+    box_upload_hold "chunk_$name.done" "games_$name.tar.gz"   # the marker lands after the games it vouches for
+    box_mark "$OUT/chunk_$name.done"
+    box_upload_async
+}
+size_plan() {                    # the self-play past its first match, sized to the switch from that match's rate (plan.txt)
+    # The first match's games an hour, R, give the minutes the rest takes.
+    # From the minutes the switch leaves are kept the memory report at R
+    # (1.1 x MEM_GAMES games and 5 minutes), READ_RESERVE_MIN for the
+    # labels and readouts and FINISH_RESERVE_MIN; the self-play may use 85 %
+    # of the rest at R. When the planned games do not fit, N_SELFPLAY
+    # shrinks to the first match's games plus those that fit and
+    # HELDOUT_FROM keeps the planned held-out share; when fewer than half the
+    # planned games fit, the self-play ends after its first match.
+    local at secs rate left fit want n
+    if [ ! -f "$OUT/plan.txt" ]; then
+        at=$(cat "$BOX_OUT/tmp/deadman.at" 2>/dev/null)
+        secs=$(awk '{s += $1} END {print s + 0}' "$OUT/wall_${CHUNKS[0]}.txt" 2>/dev/null)
+        read -r RESULTS _ < <(count_games "$OUT/games_${CHUNKS[0]}")
+        n=$N_SELFPLAY
+        rate=unknown
+        if [[ $at =~ ^[0-9]+$ && $secs =~ ^[0-9]+$ && $RESULTS =~ ^[0-9]+$ ]] && (( secs > 0 && RESULTS > 0 )); then
+            rate=$(( RESULTS * 3600 / secs ))
+            (( rate > 0 )) || rate=1
+            left=$(( (at - $(box_now)) / 60 - (MEM_GAMES * 66 / rate + 5) - READ_RESERVE_MIN - FINISH_RESERVE_MIN ))
+            fit=$(( left > 0 ? left * rate * 85 / 6000 : 0 ))
+            want=$(( N_SELFPLAY - CHUNK_SIZES[0] ))
+            (( fit >= want )) || n=$(( (CHUNK_SIZES[0] + fit) / 4 * 4 ))
         fi
-        if ! play_through "$name" "${CHUNK_SIZES[$k]}" "$base" 0 "${SP_A[@]}" "${SP_B[@]}" "${T1[@]}" --log-decisions; then
-            echo "the match ended $PLAYED (matches.txt, match_$name.log)" > "$OUT/chunk_$name.failed"
-        elif ! rows_of "$name"; then
-            echo "its rows failed, rc=$BOX_RC $BOX_WHY (rows.log)" > "$OUT/chunk_$name.failed"
+        if (( 2 * n < N_SELFPLAY )); then
+            echo "0 0 $rate" > "$OUT/plan.txt"
+        else
+            echo "$n $(( (n - n * (N_SELFPLAY - HELDOUT_FROM) / N_SELFPLAY) / 4 * 4 )) $rate" > "$OUT/plan.txt"
         fi
-        if [ -f "$OUT/chunk_$name.failed" ]; then
-            SELFPLAY="FAILED: $name, $(cat "$OUT/chunk_$name.failed")"
-            return 1
-        fi
-        box_upload_dir "games_$name" "$OUT/games_$name"
-        box_mark "$OUT/chunk_$name.done"
-        box_upload_async
+        echo "$(box_stamp) plan: $(cat "$OUT/plan.txt") (games, held out from, games an hour); planned" \
+             "$N_SELFPLAY from $HELDOUT_FROM" >> "$OUT/matches.txt"
+    fi
+    read -r n HELDOUT_FROM rate < "$OUT/plan.txt"
+    if ! [[ $n =~ ^[0-9]+$ && $HELDOUT_FROM =~ ^[0-9]+$ ]] || (( n == 0 )); then
+        SELFPLAY="CUT after ${CHUNKS[0]}: at its rate, $rate games an hour, fewer than half the planned games fit (plan.txt)"
+        return 1
+    fi
+    N_SELFPLAY=$n
+    CHUNKS=() CHUNK_SIZES=() CHUNK_OFFSETS=()
+    plan_chunks
+}
+selfplay_rest() {                # the self-play matches past the first
+    local k
+    for (( k = 1; k < ${#CHUNKS[@]}; k++ )); do
+        selfplay_match "$k" || return 1
     done
-    SELFPLAY="DONE: ${#CHUNKS[@]} matches, $N_SELFPLAY games"
+    SELFPLAY="DONE: ${#CHUNKS[@]} matches, $N_SELFPLAY games, held out from $HELDOUT_FROM"
 }
 gates() {                        # gates: the readout's gates, one word each
     timeout 2m python - "$OUT/readout.json" <<'EOF' 2>/dev/null | tr -d '\r' || echo "unreadable"
@@ -345,7 +429,7 @@ read_selfplay() {                # the labels and the readouts of every self-pla
     cat "${rows[@]}" > "$OUT/rows.jsonl.tmp" && mv -f "$OUT/rows.jsonl.tmp" "$OUT/rows.jsonl"
     box_bounded labels "$LABELS_CUT_MIN" labels.log python tools/pg_labels.py "$OUT/rows.jsonl" \
         --heldout-from "$HELDOUT_FROM" --out "$OUT/labels.jsonl" --fits "$OUT/fits.json"
-    # pg_labels exits 1 when a game had no luck walk: it is left out, named in fits.json.
+    # pg_labels exits 1 when a game had no luck walk: both its sides are left out, named in fits.json.
     if [ "$BOX_RC" -gt 1 ] || [ ! -f "$OUT/labels.jsonl" ]; then
         READOUT="FAILED: the labels, rc=$BOX_RC $BOX_WHY (labels.log)"
         return 1
@@ -376,8 +460,9 @@ measure() {                      # measure NAME GAMES SEED_BASE ANCHOR LABEL FLA
             MEASURES+=("$name: FAILED at an earlier entry, $(cat "$OUT/measure_$name.failed");")
             return 1
         fi
-        if ! play_through "$name" "$games" "$base" $(( games / 2 )) "$@"; then
-            echo "the match ended $PLAYED (matches.txt, match_$name.log)" > "$OUT/measure_$name.failed"
+        if ! play_through measure "$name" "$games" "$base" $(( games / 2 )) "$@"; then
+            echo "the match ended rc=$PLAYED_RC with $DECISIVE of $games decisive games (matches.txt," \
+                 "match_$name.log)" > "$OUT/measure_$name.failed"
         elif ! box_bounded "fit $name" "$FIT_CUT_MIN" "fit_$name.log" python tools/elo_collect.py \
                 "$OUT/games_$name" --no-catalog --anchor "$anchor" --save-json "$OUT/$name.fit.json"; then
             echo "its fit failed, rc=$BOX_RC $BOX_WHY (fit_$name.log)" > "$OUT/measure_$name.failed"
@@ -387,15 +472,22 @@ measure() {                      # measure NAME GAMES SEED_BASE ANCHOR LABEL FLA
             MEASURES+=("$name: FAILED, $(cat "$OUT/measure_$name.failed");")
             return 1
         fi
+        box_upload_hold "measure_$name.done" "games_$name.tar.gz"
         box_mark "$OUT/measure_$name.done"
         box_upload_async
     fi
     MEASURES+=("$name: $label $(elo_of "$name" "$label") Elo against $anchor;")
 }
 
-selfplay && read_selfplay
+# The first self-play match, then D0, then the rest of the self-play sized
+# from the first match's rate, its labels and readouts, the memory report.
+FIRST_OK=0
+selfplay_match 0 && FIRST_OK=1
 measure d0 "$D0_GAMES" "$D0_SEED_BASE" "$REF_LABEL" own2t1 "${D0_A[@]}" "${D0_B[@]}" \
     --mcts-sims 0 --raw-temperature-a 1 --raw-temperature-b 0
+if [ "$FIRST_OK" = 1 ] && size_plan && selfplay_rest; then
+    read_selfplay
+fi
 measure memory "$MEM_GAMES" "$MEM_SEED_BASE" own2m0 own2m64 "${MEM_A[@]}" "${MEM_B[@]}" "${T1[@]}"
 REASON="self-play: $SELFPLAY; readout: $READOUT; ${MEASURES[*]}"
 if [[ $SELFPLAY == DONE* && $READOUT != *FAIL* && " ${MEASURES[*]} " != *FAILED* ]]; then
