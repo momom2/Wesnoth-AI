@@ -1,0 +1,72 @@
+matches ['b00', 'b01', 'b02', 'b03', 'b04', 'b05', 'b06']: 60000 games, 9317547 band decisions, 90585 cells; 77.65 per side-game; keys with an unknown leader 0.0000
+
+== move>move:other_unit: 1629 cells, 3709129 labels, 30.91 per side-game
+  [T ] excess dispersion +0.81 SD over 597 cells with >= 200 labels; V 3.900e-05 (1.04e-04) z +0.38, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.05472 (0.02313) z = +19.0 (8.0) Elo per side-game; switches 0.461
+      (b) cell mean > 0, >= 1,000 labels     W +0.05912 (0.02265) z = +20.5 (7.9) Elo per side-game; switches 0.442
+      (c) additive unit values, ridge 2000   W +0.02746 (0.01595) z = +9.5 (5.5) Elo per side-game; switches 0.219
+  [T0] excess dispersion +0.32 SD over 597 cells with >= 200 labels; V 7.476e-05 (1.25e-04) z +0.60, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.06760 (0.02469) z = +23.5 (8.6) Elo per side-game; switches 0.444
+      (b) cell mean > 0, >= 1,000 labels     W +0.06749 (0.02415) z = +23.4 (8.4) Elo per side-game; switches 0.425
+      (c) additive unit values, ridge 2000   W +0.00222 (0.01737) z = +0.8 (6.0) Elo per side-game; switches 0.219
+
+== move>move:same_unit: 128 cells, 1918789 labels, 15.99 per side-game
+  [T ] excess dispersion +0.93 SD over 78 cells with >= 200 labels; V 2.744e-05 (6.26e-05) z +0.44, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.02394 (0.01664) z = +8.3 (5.8) Elo per side-game; switches 0.453
+      (b) cell mean > 0, >= 1,000 labels     W +0.02309 (0.01662) z = +8.0 (5.8) Elo per side-game; switches 0.452
+  [T0] excess dispersion -0.09 SD over 78 cells with >= 200 labels; V -1.556e-05 (6.49e-05) z -0.24, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.00874 (0.01733) z = +3.0 (6.0) Elo per side-game; switches 0.423
+      (b) cell mean > 0, >= 1,000 labels     W +0.01024 (0.01731) z = +3.6 (6.0) Elo per side-game; switches 0.422
+
+== attack pairs (any attack candidate): 87017 cells, 1588103 labels, 13.23 per side-game
+  [T ] excess dispersion -0.03 SD over 1202 cells with >= 200 labels; V 2.828e-04 (1.76e-03) z +0.16, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W -0.02524 (0.01539) z = -8.8 (5.3) Elo per side-game; switches 0.466
+      (b) cell mean > 0, >= 1,000 labels     W -0.02402 (0.00790) z = -8.3 (2.7) Elo per side-game; switches 0.122
+  [T0] excess dispersion +0.50 SD over 1202 cells with >= 200 labels; V 1.512e-04 (2.15e-03) z +0.07, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W -0.02036 (0.01661) z = -7.1 (5.8) Elo per side-game; switches 0.469
+      (b) cell mean > 0, >= 1,000 labels     W -0.00524 (0.00853) z = -1.8 (3.0) Elo per side-game; switches 0.124
+
+== end_turn pairs without attack: 314 cells, 847600 labels, 7.06 per side-game
+  [T ] excess dispersion +0.66 SD over 175 cells with >= 200 labels; V 2.565e-05 (2.42e-04) z +0.11, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.00234 (0.01178) z = +0.8 (4.1) Elo per side-game; switches 0.517
+      (b) cell mean > 0, >= 1,000 labels     W +0.00123 (0.01160) z = +0.4 (4.0) Elo per side-game; switches 0.501
+  [T0] excess dispersion -0.09 SD over 175 cells with >= 200 labels; V 6.536e-05 (2.87e-04) z +0.23, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.01003 (0.01276) z = +3.5 (4.4) Elo per side-game; switches 0.518
+      (b) cell mean > 0, >= 1,000 labels     W +0.00793 (0.01254) z = +2.8 (4.4) Elo per side-game; switches 0.501
+
+== recruit>move, move>recruit: 1192 cells, 487949 labels, 4.07 per side-game
+  [T ] excess dispersion +0.45 SD over 381 cells with >= 200 labels; V 1.102e-03 (6.80e-04) z +1.62, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.00404 (0.00892) z = +1.4 (3.1) Elo per side-game; switches 0.525
+      (b) cell mean > 0, >= 1,000 labels     W -0.00110 (0.00704) z = -0.4 (2.4) Elo per side-game; switches 0.325
+  [T0] excess dispersion +1.03 SD over 381 cells with >= 200 labels; V 8.451e-04 (8.21e-04) z +1.03, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.00800 (0.00942) z = +2.8 (3.3) Elo per side-game; switches 0.493
+      (b) cell mean > 0, >= 1,000 labels     W -0.00037 (0.00741) z = -0.1 (2.6) Elo per side-game; switches 0.305
+
+== all but recruit>recruit: 90280 cells, 8551570 labels, 71.26 per side-game
+  [T ] excess dispersion +0.90 SD over 2433 cells with >= 200 labels; V 1.409e-04 (3.26e-04) z +0.43, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.05979 (0.03560) z = +20.8 (12.4) Elo per side-game; switches 0.469
+      (b) cell mean > 0, >= 1,000 labels     W +0.05832 (0.03218) z = +20.3 (11.2) Elo per side-game; switches 0.384
+  [T0] excess dispersion +0.88 SD over 2433 cells with >= 200 labels; V 1.114e-04 (3.83e-04) z +0.29, cell-mean sd >= 0.0000 at 2 SE
+      (a) cell mean > 0                      W +0.07402 (0.03791) z = +25.7 (13.2) Elo per side-game; switches 0.454
+      (b) cell mean > 0, >= 1,000 labels     W +0.08006 (0.03417) z = +27.8 (11.9) Elo per side-game; switches 0.369
+
+== recruit>recruit (both): 305 cells, 765977 labels, 6.38 per side-game
+  [T ] excess dispersion +10.32 SD over 203 cells with >= 200 labels; V 1.085e-03 (2.77e-04) z +3.92, cell-mean sd >= 0.0231 at 2 SE
+      (a) cell mean > 0                      W +0.07752 (0.01228) z = +26.9 (4.3) Elo per side-game; switches 0.633
+      (b) cell mean > 0, >= 1,000 labels     W +0.07143 (0.01187) z = +24.8 (4.1) Elo per side-game; switches 0.593
+  [T0] excess dispersion +9.05 SD over 203 cells with >= 200 labels; V 1.162e-03 (3.52e-04) z +3.30, cell-mean sd >= 0.0214 at 2 SE
+      (a) cell mean > 0                      W +0.05056 (0.01331) z = +17.6 (4.6) Elo per side-game; switches 0.623
+      (b) cell mean > 0, >= 1,000 labels     W +0.04346 (0.01291) z = +15.1 (4.5) Elo per side-game; switches 0.586
+
+largest |z| cells outside recruit>recruit, >= 2,000 labels (T):
+  (552 such cells; the largest of 552 null z values has expected size about 3.6)
+  end_turn>move|Loyalists|end>leader:Red Mage                               2678 +0.1313 (0.0425) z +3.09
+  move>move:other_unit|Northerners|Orcish Grunt>Orcish Archer               4996 -0.0875 (0.0293) z -2.98
+  end_turn>move|Knalgan Alliance|end>leader:Trapper                         4966 -0.0853 (0.0301) z -2.84
+  move>move:other_unit|Drakes|Saurian Augur>Saurian Augur                   9775 +0.0581 (0.0213) z +2.73
+  move>move:other_unit|Drakes|Drake Glider>leader:Drake Warrior             2662 +0.1092 (0.0406) z +2.69
+  move>attack|Loyalists|Spearman>Spearman@Orcish Grunt                      4965 +0.0858 (0.0326) z +2.63
+  move>move:same_unit|Drakes|Drake Burner>Drake Burner                     40975 -0.0266 (0.0105) z -2.53
+  move>move:other_unit|Northerners|leader:Troll Rocklobber>Orcish Grunt     5395 -0.0719 (0.0289) z -2.49
+  move>move:other_unit|Knalgan Alliance|Dwarvish Fighter>Dwarvish Fighter  160522 +0.0132 (0.0053) z +2.48
+  recruit>move|Rebels|Elvish Fighter>Elvish Scout                           4651 -0.0750 (0.0307) z -2.45

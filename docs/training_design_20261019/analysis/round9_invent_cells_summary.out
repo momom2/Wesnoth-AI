@@ -1,0 +1,96 @@
+games 60000 decisions 9317548 capped dropped 23
+check against readout_b_offline.txt (pooled +0.0003 +- 0.0007; r>r +0.0070 +- 0.0024):
+  pooled                                       +0.0003 +- 0.0007  z  +0.4  n   9317548  games 60000
+  type:m>m                                     +0.0003 +- 0.0009  z  +0.3  n   5627918  games 60000
+  type:r>r                                     +0.0070 +- 0.0024  z  +2.9  n    765978  games 59965
+  type:a>a                                     -0.0029 +- 0.0029  z  -1.0  n    564046  games 58682
+  type:e>m                                     -0.0017 +- 0.0032  z  -0.5  n    454782  games 58839
+  type:m>e                                     -0.0018 +- 0.0036  z  -0.5  n    345864  games 57701
+by actor relation (same unit or recruit type in both options, different, or end_turn involved):
+  actor:same                                   -0.0004 +- 0.0013  z  -0.3  n   2760037  games 60000
+  actor:diff                                   +0.0008 +- 0.0009  z  +0.9  n   5672793  games 60000
+  actor:na                                     -0.0008 +- 0.0023  z  -0.3  n    884718  games 59839
+  type:m>m|actor:same                          -0.0009 +- 0.0015  z  -0.6  n   1918789  games 59999
+  type:m>m|actor:diff                          +0.0009 +- 0.0011  z  +0.8  n   3709129  games 60000
+  type:a>a|actor:same                          -0.0026 +- 0.0035  z  -0.7  n    380196  games 57245
+  type:a>a|actor:diff                          -0.0035 +- 0.0050  z  -0.7  n    183850  games 48691
+  type:a>m|actor:same                          +0.0087 +- 0.0065  z  +1.3  n    110403  games 45223
+  type:a>m|actor:diff                          -0.0030 +- 0.0035  z  -0.9  n    377545  games 57406
+  type:m>a|actor:same                          -0.0098 +- 0.0069  z  -1.4  n     98952  games 43423
+  type:m>a|actor:diff                          -0.0012 +- 0.0036  z  -0.3  n    353212  games 57034
+  type:r>r|actor:same                          +0.0068 +- 0.0042  z  +1.6  n    251697  games 57251
+  type:r>r|actor:diff                          +0.0071 +- 0.0030  z  +2.4  n    514281  games 59338
+recruit>recruit cells:
+  rr|diff_unit                                 +0.0071 +- 0.0030  z  +2.4  n    514281  games 59338
+  rr|diff_unit|a1_new:0                        -0.0049 +- 0.0042  z  -1.2  n    261904  games 52730
+  rr|diff_unit|a1_new:1                        +0.0194 +- 0.0042  z  +4.7  n    252377  games 58194
+  rr|diff_unit|army:a1_fewer                   +0.0235 +- 0.0041  z  +5.8  n    271232  games 56210
+  rr|diff_unit|army:a1_more                    -0.0155 +- 0.0056  z  -2.8  n    145900  games 48894
+  rr|diff_unit|army:equal                      -0.0049 +- 0.0068  z  -0.7  n     97149  games 47167
+  rr|diff_unit|cost:a1_cheaper                 +0.0099 +- 0.0044  z  +2.2  n    228252  games 55105
+  rr|diff_unit|cost:a1_dearer                  +0.0058 +- 0.0042  z  +1.4  n    257676  games 56568
+  rr|diff_unit|cost:equal                      -0.0037 +- 0.0129  z  -0.3  n     28353  games 12484
+  rr|diff_unit|st:1                            +0.0230 +- 0.0065  z  +3.5  n    104145  games 44237
+  rr|diff_unit|st:2                            +0.0024 +- 0.0130  z  +0.2  n     26141  games 17744
+  rr|diff_unit|st:3-4                          +0.0029 +- 0.0087  z  +0.3  n     57727  games 36920
+  rr|diff_unit|st:5-8                          +0.0050 +- 0.0064  z  +0.8  n    104462  games 43341
+  rr|diff_unit|st:9+                           +0.0022 +- 0.0046  z  +0.5  n    221806  games 46449
+  rr|same_unit                                 +0.0068 +- 0.0042  z  +1.6  n    251697  games 57251
+  rr|same_unit|st:1                            +0.0160 +- 0.0065  z  +2.5  n    102750  games 46312
+  rr|same_unit|st:2                            -0.0054 +- 0.0186  z  -0.3  n     12541  games 11079
+  rr|same_unit|st:3-4                          -0.0133 +- 0.0156  z  -0.9  n     17910  games 13831
+  rr|same_unit|st:5-8                          -0.0008 +- 0.0122  z  -0.1  n     29141  games 20913
+  rr|same_unit|st:9+                           +0.0045 +- 0.0073  z  +0.6  n     89355  games 33737
+by own side-turn:
+  st:1                                         +0.0173 +- 0.0041  z  +4.2  n    261551  games 57653
+  st:2                                         -0.0009 +- 0.0037  z  -0.2  n    323553  games 59684
+  st:3-4                                       +0.0005 +- 0.0024  z  +0.2  n    783955  games 60000
+  st:5-8                                       -0.0024 +- 0.0016  z  -1.5  n   1829066  games 59986
+  st:9+                                        +0.0004 +- 0.0009  z  +0.5  n   6119423  games 57879
+r>r by side-turn:
+  type:r>r|st:1                                +0.0195 +- 0.0046  z  +4.2  n    206895  games 54391
+  type:r>r|st:2                                -0.0001 +- 0.0106  z  -0.0  n     38682  games 25829
+  type:r>r|st:3-4                              -0.0009 +- 0.0076  z  -0.1  n     75637  games 43443
+  type:r>r|st:5-8                              +0.0038 +- 0.0057  z  +0.7  n    133603  games 50479
+  type:r>r|st:9+                               +0.0029 +- 0.0039  z  +0.7  n    311161  games 51337
+attack>attack, weapon-only pairs (same attacker and target):
+  aa|weapon_only:1                             -0.0026 +- 0.0046  z  -0.6  n    221848  games 49098
+  aa|weapon_only:0                             -0.0031 +- 0.0037  z  -0.8  n    342198  games 56225
+composition (band decisions by pair and actor relation):
+  m>m|diff         3709129  0.398
+  m>m|same         1918789  0.206
+  r>r|diff          514281  0.055
+  e>m|na            454782  0.049
+  a>a|same          380196  0.041
+  a>m|diff          377545  0.041
+  m>a|diff          353212  0.038
+  m>e|na            345864  0.037
+  r>m|diff          253575  0.027
+  r>r|same          251697  0.027
+  m>r|diff          234374  0.025
+  a>a|diff          183850  0.020
+  a>m|same          110403  0.012
+  m>a|same           98952  0.011
+  r>e|na             24130  0.003
+  r>a|diff           23697  0.003
+  a>r|diff           23130  0.002
+  e>r|na             22824  0.002
+  e>a|na             18994  0.002
+  a>e|na             18124  0.002
+post-coin, descriptive: the option not played is the next command (different actors):
+  m>m coin d=0: 771981/2783357 = 0.277
+  m>m coin d=1: 285919/925772 = 0.309
+  a>m coin d=0: 110067/283498 = 0.388
+  a>m coin d=1: 35713/94047 = 0.380
+  m>a coin d=0: 95576/265008 = 0.361
+  m>a coin d=1: 36118/88204 = 0.409
+  a>a coin d=0: 89923/137405 = 0.654
+  a>a coin d=1: 31357/46445 = 0.675
+family-wise: 1049 cells defined, two-sided 5% Bonferroni line z 4.07
+  251 cells with >= 20000 labels, line z 3.72; cells past it:
+  rr|diff_unit|army:a1_fewer                   +0.0235 +- 0.0041  z  +5.8  n 271232
+  rr|diff_unit|a1_new:1                        +0.0194 +- 0.0042  z  +4.7  n 252377
+  type:r>r|st:1                                +0.0195 +- 0.0046  z  +4.2  n 206895
+  st:1                                         +0.0173 +- 0.0041  z  +4.2  n 261551
+largest |z| among recruit type pairs with >= 20000 labels:
+  0 pairs with >= 20000 labels; Bonferroni 5% line over them: z 1.96

@@ -1,0 +1,14 @@
+progressive loss of B's ridge (A at 5,000), matches in game order; lower is better
+  ridge          500 labels: +38.663
+  ridge        1,000 labels: -302.896
+  ridge        2,000 labels: -501.843
+  ridge        5,000 labels: -579.942
+  ridge       10,000 labels: -541.056
+  ridge       20,000 labels: -467.192
+  ridge       50,000 labels: -376.522
+  ridge  inf (B = A) labels: -273.192
+chosen ridge for B: 5,000 labels
+  A (R)        cross-fitted +21.3 (3.1) Elo per side-game
+  B (matchup)  cross-fitted +28.5 (3.1) Elo per side-game
+  B - A +7.19 Elo, SE from the 20 per-fold differences 1.71
+  switches per side-game, rules fitted on all 60,000 games: A 2.21, B 2.14

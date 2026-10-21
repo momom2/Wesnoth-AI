@@ -1,0 +1,21 @@
+1. S5's ceiling with S1-S4 (and L, T, C, E) at $0.577/h
+  h 0.00: S1-S4 path $58.50, room for S5 $23.84; S5's host <= $0.550/h (uniform-rate ceiling 0.569)
+  h 0.05: S1-S4 path $60.77, room for S5 $21.57; S5's host <= $0.476/h (uniform-rate ceiling 0.547)
+  h 0.10: S1-S4 path $63.03, room for S5 $19.31; S5's host <= $0.409/h (uniform-rate ceiling 0.526)
+
+2. L: P(lower 2-SE bound > 0), J ~ N(rho F, 3.07^2 + rho^2 3.2^2)
+  rho 0.3: F known 0.594; F uncertain 0.590
+  rho 0.5: F known 0.958; F uncertain 0.937
+  rho 0.7: F known 0.999; F uncertain 0.995
+  rho 1.0: F known 1.000; F uncertain 1.000
+  a null (J <= 6.14) bounds rho at 2 SE by 0.57 (at a J of 6.14)
+
+3. rho at S1's step from rho_L, quadratic model rho(n) = 1 - k n
+  19 switches (design's low end): SE of rho(n) 1.67; rho_L 0.9 maps to +0.14, rho_L 0.97 to +0.74
+  q 0.5 x 77.6: SE of rho(n) 3.41; rho_L 0.9 maps to -0.76, rho_L 0.97 to +0.47
+
+4. L and T jointly, if T's sealed prediction is J_T = J_L
+  SE of the mean of two 12,800-game matches 2.17 Elo; SE of J_T - J_L 4.34
+
+5. attack pairs, rule (b) with T: -8.3 +- 2.7 Elo, switching 0.122 of 13.23 a side-game
+  1.61 switches a side-game; implied mean per switched label -0.0149; pooled typed mean of attack pairs -0.0021 over 1588103 labels (explains 0.14 of the reading)

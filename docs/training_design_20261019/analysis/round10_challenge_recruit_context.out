@@ -1,0 +1,30 @@
+156401 cells, 514281 different-unit recruit pairs, 120000 side-games
+columns: A 43 (faction, unit); B 257 (faction, unit, enemy faction); C 203 (faction, unit, turn bin)
+
+ridge 2,000 labels (B and C shrunk toward A at the same ridge)
+  A: +0.06600 (0.00907) z = +22.9 (3.2) Elo per side-game
+  B: +0.09519 (0.00895) z = +33.1 (3.1) Elo per side-game
+  C: +0.06049 (0.00923) z = +21.0 (3.2) Elo per side-game
+  B - A: +10.14 Elo, SE from the 20 per-fold differences 1.92
+  C - A: -1.91 Elo, SE from the 20 per-fold differences 1.40
+
+ridge 5,000 labels (B and C shrunk toward A at the same ridge)
+  A: +0.06131 (0.00904) z = +21.3 (3.1) Elo per side-game
+  B: +0.08201 (0.00893) z = +28.5 (3.1) Elo per side-game
+  C: +0.05767 (0.00919) z = +20.0 (3.2) Elo per side-game
+  B - A: +7.19 Elo, SE from the 20 per-fold differences 1.71
+  C - A: -1.27 Elo, SE from the 20 per-fold differences 1.33
+
+ridge 20,000 labels (B and C shrunk toward A at the same ridge)
+  A: +0.05802 (0.00897) z = +20.2 (3.1) Elo per side-game
+  B: +0.06930 (0.00894) z = +24.1 (3.1) Elo per side-game
+  C: +0.05916 (0.00917) z = +20.6 (3.2) Elo per side-game
+  B - A: +3.92 Elo, SE from the 20 per-fold differences 1.48
+  C - A: +0.40 Elo, SE from the 20 per-fold differences 1.69
+
+by turn bin (turn 1, turn 2, turns 3-4, turns 5-8, turns 9+): pairs per side-game and A's cross-fitted welfare, ridge 5,000
+  turn 1     0.87 pairs per side-game; welfare +12.5 (1.5) Elo
+  turn 2     0.22 pairs per side-game; welfare +2.0 (0.7) Elo
+  turns 3-4  0.48 pairs per side-game; welfare +1.8 (1.0) Elo
+  turns 5-8  0.87 pairs per side-game; welfare +2.7 (1.4) Elo
+  turns 9+   1.85 pairs per side-game; welfare +2.3 (2.0) Elo

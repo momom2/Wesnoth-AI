@@ -1,0 +1,69 @@
+rows 514281 (4.29 per side-game); enemy faction known on 0.940 of rows
+all readings leave one match out (each match's rule fitted on the other six), game-clustered SEs, Elo per side-game
+
+progressive loss (matches in game order; lower is better), by rule and ridge on the unit and matchup blocks
+   R   2,000: -225.8; 5,000: -273.2; 10,000: -273.0; 20,000: -244.0
+   Rd  2,000: -358.6; 5,000: -403.1; 10,000: -399.1; 20,000: -363.6
+   B   2,000: -439.0; 5,000: -557.0; 10,000: -522.7; 20,000: -428.9
+   Bd  2,000: -586.7; 5,000: -699.3; 10,000: -658.4; 20,000: -555.3
+   lowest: Bd at ridge 5,000 (-699.3)
+
+R: 2.16 switches per side-game; F +18.0 +- 3.1 Elo
+   capped at 2 a side-game: 1.31 switches; exact coin-world value +14.9 +- 3.0 (first order +15.1; interaction -0.3 +- 1.7)
+   second-order term, all ranks: -12.3 +- 4.5; F plus it +5.8 +- 5.3
+     rank 1   0.53 switches; first order +3.7; second-order -0.3 +- 1.7
+     rank 2   0.34 switches; first order +1.8; second-order -3.3 +- 2.0
+     ranks 3+ 0.51 switches; first order +1.1; second-order -8.7 +- 3.7
+   side-turn 1: 0.49 switches, F +12.7; capped part +11.5
+
+Rd: 2.32 switches per side-game; F +23.1 +- 3.2 Elo
+   capped at 2 a side-game: 1.37 switches; exact coin-world value +16.0 +- 3.1 (first order +18.3; interaction -2.4 +- 1.8)
+   second-order term, all ranks: -7.8 +- 4.8; F plus it +15.3 +- 5.7
+     rank 1   0.57 switches; first order +5.1; second-order -2.4 +- 1.8
+     rank 2   0.37 switches; first order +2.8; second-order -2.9 +- 2.1
+     ranks 3+ 0.58 switches; first order +2.0; second-order -2.6 +- 3.9
+   side-turn 1: 0.50 switches, F +13.8; capped part +12.1
+
+B: 2.12 switches per side-game; F +26.6 +- 3.1 Elo
+   capped at 2 a side-game: 1.29 switches; exact coin-world value +20.9 +- 2.9 (first order +21.6; interaction -0.6 +- 1.7)
+   second-order term, all ranks: -10.3 +- 4.4; F plus it +16.3 +- 5.3
+     rank 1   0.52 switches; first order +6.8; second-order -0.6 +- 1.7
+     rank 2   0.34 switches; first order +2.7; second-order -4.6 +- 2.0
+     ranks 3+ 0.49 switches; first order +2.3; second-order -5.1 +- 3.6
+   side-turn 1: 0.49 switches, F +14.8; capped part +13.9
+
+Bd: 2.26 switches per side-game; F +28.1 +- 3.2 Elo
+   capped at 2 a side-game: 1.34 switches; exact coin-world value +24.1 +- 3.0 (first order +23.5; interaction +0.6 +- 1.8)
+   second-order term, all ranks: -13.1 +- 4.7; F plus it +15.0 +- 5.5
+     rank 1   0.55 switches; first order +7.9; second-order +0.6 +- 1.8
+     rank 2   0.36 switches; first order +3.1; second-order -4.6 +- 2.1
+     ranks 3+ 0.55 switches; first order +1.6; second-order -9.2 +- 3.9
+   side-turn 1: 0.50 switches, F +15.8; capped part +14.3
+
+C: 2.26 switches per side-game; F +18.4 +- 3.2 Elo
+   capped at 2 a side-game: 1.33 switches; exact coin-world value +12.8 +- 3.0 (first order +14.4; interaction -1.6 +- 1.8)
+   second-order term, all ranks: -3.4 +- 4.8; F plus it +15.0 +- 5.7
+     rank 1   0.55 switches; first order +3.7; second-order -1.6 +- 1.8
+     rank 2   0.36 switches; first order +1.4; second-order -3.4 +- 2.1
+     ranks 3+ 0.57 switches; first order +2.7; second-order +1.6 +- 3.9
+   side-turn 1: 0.45 switches, F +9.4; capped part +7.1
+
+paired first-order differences, same labels (LOMO)
+   Rd - R: +5.1 +- 1.7
+   B - R: +8.6 +- 2.1
+   Bd - R: +10.1 +- 2.3
+   Bd - B: +1.5 +- 1.5
+   Bd - Rd: +5.1 +- 2.0
+
+paired capped (exact, ranks 0-1) differences against capped R
+   cap2 Rd - cap2 R: +1.1 +- 2.0
+   cap2 B - cap2 R: +6.1 +- 2.4
+   cap2 Bd - cap2 R: +9.3 +- 2.6
+
+capped R by mover faction (exact, ranks 0-1), for L's per-faction report
+   Drakes             +2.7 +- 1.3; switches 0.25
+   Knalgan Alliance   +3.1 +- 1.3; switches 0.24
+   Loyalists          +1.9 +- 0.9; switches 0.15
+   Northerners        +4.4 +- 1.2; switches 0.21
+   Rebels             -0.9 +- 1.1; switches 0.20
+   Undead             +3.7 +- 1.4; switches 0.26

@@ -1,0 +1,40 @@
+A. first-mover effect in batch 1 (z of side A times +1 if A is side 1, -1 if side 2)
+   decisive games 60000; side_a = 1 in 30000
+   mean +0.0267 +- 0.0041 z = +9.3 +- 1.4 Elo
+   Sylvester Hadamard column 1 is (-1)^g; run_elo_batch's side sign is (-1)^i (slot_for):
+   with row g = i mod 2^m, block 1's raw-z main effect carries this whole term.
+   held-out games 30000: raw +10.0 Elo; after a cell mean shrunk to the grand mean, fitted on b01-b03: +5.2 +- 1.9 Elo
+   after a map x side mean fitted on b01-b03 (the additive part of the stance's b): +1.4 +- 2.0 Elo
+   luck walk, 23 matches: pooled first-mover effect +10.3 Elo; Q 17.4 on 22 df
+     gen_own1_selfplay              800 games  +19.1 +- 12.3 Elo
+     own64_selfplay                 800 games   +8.7 +- 12.3 Elo
+     r1_own2_64_vs_own1_64          800 games  +23.4 +- 12.3 Elo
+     r3_own2_64_vs_own2_0           800 games   -7.8 +- 12.3 Elo
+
+B. hook counts (round9_challenge_hook_flips.out): hooked seat moves -9.379 +- 1.798, opponent +9.874 +- 1.867;
+   recruits -0.429 / +0.429; attacks +1.046 / -0.193; side-turns -0.102 / +0.016
+   moves, both seats summed: +0.50 +- 2.59 per game: the hooked seat's lost moves reappear on the opponent, the signature of a material shift, not of a reordering inside the hooked seat's turns
+
+C. winner's curse in the claim's prediction (adopt iff read > 2 SE, SE 1.79 Elo)
+   true step   2.0 Elo: adoption 0.189; E[read | adopted] - true = +2.56 Elo
+   true step   2.8 Elo: adoption 0.332; E[read | adopted] - true = +1.96 Elo
+   true step   4.0 Elo: adoption 0.593; E[read | adopted] - true = +1.17 Elo
+   true step   6.0 Elo: adoption 0.912; E[read | adopted] - true = +0.31 Elo
+   true step  10.0 Elo: adoption 1.000; E[read | adopted] - true = +0.00 Elo
+   true step  23.0 Elo: adoption 1.000; E[read | adopted] - true = +0.00 Elo
+   three adopted steps near the 2.8-Elo floor: prediction biased by +5.9 Elo against the claim's 2-SE miss line 12.4
+   simulated: claim outside its miss line in 0.119 of trials (nominal 0.046)
+
+D. confirmation power (adopt iff read - 2 SE > 0, SE 1.79 Elo)
+   true 2.8 Elo: power 0.332
+   true 3.6 Elo: power 0.504
+   true 5.0 Elo: power 0.786
+   true 7.2 Elo: power 0.978
+
+E. coins on both seats dilute a switch block's play effect by (1 - P) - P = 0.50
+   SE on the uncoined effect at 100,000 coined games: 1.84 Elo (stated 0.92)
+   coherence ratio, coined factorial: n V_T / (2 sigma_R^2) x 0.50^2 = 0.717 n
+     recruit rule R  n 2.21: ratio 1.58 (uncoined 6.34)
+     Loyalists       n 0.25: ratio 0.18 (uncoined 0.73)
+     Drakes          n 0.54: ratio 0.39 (uncoined 1.55)
+   split-half prediction (coined) against the uncoined confirmation: expected ratio 2.0

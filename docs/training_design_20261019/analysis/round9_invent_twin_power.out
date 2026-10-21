@@ -1,0 +1,46 @@
+1. E[X^2]/E[R^2] at the optimal kappa, by rho and K
+   rho    K=2    K=4    K=8   K->inf
+   0.00  1.000  1.000  1.000  1.000
+   0.05  0.998  0.993  0.987  0.950
+   0.10  0.990  0.975  0.956  0.900
+   0.20  0.960  0.914  0.873  0.800
+   0.30  0.910  0.831  0.775  0.700
+   0.40  0.840  0.733  0.671  0.600
+   0.50  0.750  0.625  0.562  0.500
+   0.70  0.510  0.388  0.340  0.300
+
+2. pilot resolution: 1000 seeds x 4 twins, binary results, 400 replicates
+   rho   derived r  mean r_hat   SE(r_hat)  P(upper 2-SE bound < 0.95)
+   0.00  1.000      1.001       0.0023     0.00
+   0.10  0.975      0.975       0.0071     0.00
+   0.15  0.948      0.949       0.0101     0.04
+   0.20  0.914      0.916       0.0122     0.80
+   0.25  0.875      0.876       0.0141     1.00
+   0.30  0.831      0.831       0.0157     1.00
+   0.50  0.625      0.625       0.0207     1.00
+
+3. planted shared component a * eta_seed, a = 0.5: the ratio on the planted copy
+   rho   derived r'  mean r'_hat  SE    (r' from rho' = (rho + a^2)/(1 + a^2), unit-variance z)
+   0.00  0.914       0.915       0.0111
+   0.20  0.774       0.776       0.0175
+   a twin joined to the wrong seed reads r' = 1 (the plant is not shared by the join): caught
+
+4. budget at $0.577/h: one network $2.583e-05 a game, two networks $8.846e-05; $82.34 left
+   T0 twin pilot, 2 keyings x 4 twins x 1000 seeds, one match per twin index: $0.35
+   A: L+T (own1+R vs own1, own2+R vs own2), 12,800 games each: $0.72
+   A: claim own2+R vs own1, two networks, if T adopts: $1.13
+   S2: adoption + claim vs own1: $2.11
+   E reserve: $3.08
+   S3 matches: adoption + claim: $2.11
+   S4: distillation + N vs pi_k: $3.89
+   S5 matches: adoption vs pi_k + claim, two networks each: $2.26
+   coin rounds at ratio r (8 batches of 100,000 r games, K matches a batch):
+   r      a round's batches   three rounds + all else   left    extra rounds (batches + S3's matches) that fit
+   1.00   $ 21.07            $ 78.88                  $ +3.46  0.15
+   0.95   $ 20.04            $ 75.78                  $ +6.56  0.30
+   0.90   $ 19.01            $ 72.68                  $ +9.66  0.46
+   0.80   $ 16.94            $ 66.48                  $+15.86  0.83
+   0.70   $ 14.87            $ 60.28                  $+22.06  1.30
+   0.60   $ 12.81            $ 54.08                  $+28.26  1.89
+   0.50   $ 10.74            $ 47.88                  $+34.46  2.68
+   reference, no twins and no pilot: $77.46, left $+4.88

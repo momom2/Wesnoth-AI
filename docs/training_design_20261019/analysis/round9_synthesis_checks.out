@@ -1,0 +1,63 @@
+1. R's ridge by the progressive loss (matches in game order b00..b06; loss of student j-1 on match j,
+   sum over j of sum_cells [-2 S_cj p_c + n_cj p_c^2], labels T; lower is better)
+   ridge        50 labels: progressive loss +370.246 (+445.110 against the largest ridge)
+   ridge       200 labels: progressive loss +120.225 (+195.089 against the largest ridge)
+   ridge       500 labels: progressive loss -50.491 (+24.373 against the largest ridge)
+   ridge      1000 labels: progressive loss -153.721 (-78.857 against the largest ridge)
+   ridge      2000 labels: progressive loss -225.822 (-150.958 against the largest ridge)
+   ridge      5000 labels: progressive loss -273.186 (-198.322 against the largest ridge)
+   ridge     10000 labels: progressive loss -272.985 (-198.121 against the largest ridge)
+   ridge     20000 labels: progressive loss -243.958 (-169.094 against the largest ridge)
+   ridge     50000 labels: progressive loss -176.568 (-101.704 against the largest ridge)
+   ridge    200000 labels: progressive loss -74.864 (+0.000 against the largest ridge)
+   chosen ridge: 5000 labels
+   F at the chosen ridge, cross-fitted over 20 folds: +21.3 +- 3.1 Elo per side-game; switches 2.19 per side-game (0.511 of these decisions)
+   per mover faction (contribution, Elo per side-game of all factions; switches per side-game):
+     Drakes             +2.5 +- 1.4; 0.42
+     Knalgan Alliance   +4.3 +- 1.3; 0.40
+     Loyalists          +2.2 +- 1.0; 0.21
+     Northerners        +5.0 +- 1.3; 0.36
+     Rebels             +0.0 +- 1.2; 0.32
+     Undead             +7.2 +- 1.5; 0.49
+   the rule fitted on all 60,000 games switches 2.21 decisions per side-game in batch 1's states (130 of 262 cells)
+
+2. L: R on one seat (a per-game coin keyed by seed, independent of side), uncoined, raw z
+   12,800 games ($0.33): SE 3.07; miss half-width 8.8; null line 6.14; a null bounds rho by 0.58; P(lower bound > 0) 0.53 at rho 0.3, 0.90 at rho 0.5
+   37,800 games ($0.98): SE 1.79; miss half-width 7.2; null line 3.57; a null bounds rho by 0.34; P(lower bound > 0) 0.92 at rho 0.3, 1.00 at rho 0.5
+   per-faction contribution, stratified on the hooked seat's faction (1/6 of games each): SE 0.73 Elo (raw z) against a Hadamard block's 1.79 raw / 1.49 with variates at the same 37,800 games (round9_challenge_factorial.out section 2)
+
+3. H1: pi_0 + student 1 against pi_0, 37,800 games, read against T (37,800 games)
+   SE of J_H1 - J_T: 2.53 Elo; a fire at -2 SE when the head adds nothing beyond R and costs nothing: P 0.023
+   student 1's cross-fitted forecast on one 100,000-game batch, switched share 0.25: SE 6.8 Elo
+   student 1's cross-fitted forecast on one 100,000-game batch, switched share 0.5: SE 9.8 Elo
+
+4. Replaying batch 1's 60,000 games through own1 to dump features
+   at generation's rate (the same forwards and steps): 2,739 positions a second, 2.7 h, $1.56
+   at own_targets' measured rate, one forward (2x its two-forward rate): 793 positions a second, 9.3 h, $5.39
+   at own_targets' measured rate as built (two forwards): 396 positions a second, 18.7 h, $10.77
+   (443.9 decisions a game, 26.6 M positions)
+   cross-fitted welfare of a head on 60,000 games, switched share 0.5: SE 12.6 Elo (beyond-recruit cell rules read SE 11.2-12.4, round9_provenance_unit_cells.out)
+   spread estimator: SE 1.85e-05 at 60,000 games against 1.39e-06 at 800,000; recruit cells' band-wide variance 8.79e-05 (0.0552 x V_rr), z 4.7 at 60,000
+
+5. Winner's curse in the claim's prediction; the truncated-normal conditional MLE; per-round checks
+   true step  2.8 Elo: adopted 0.331; mean read - true +1.95; conditional MLE - true -3.63 (sd 7.61; the read's sd 0.95)
+   true step  4.0 Elo: adopted 0.593; mean read - true +1.16; conditional MLE - true -2.86 (sd 6.84; the read's sd 1.15)
+   true step  6.0 Elo: adopted 0.913; mean read - true +0.31; conditional MLE - true -1.20 (sd 4.69; the read's sd 1.53)
+   true step 10.0 Elo: adopted 1.000; mean read - true +0.00; conditional MLE - true -0.03 (sd 1.96; the read's sd 1.79)
+   per-round check: D = claim_k - claim_(k-1) (fresh two-network matches) against the adoption
+   reading A (SE 1.79, kept iff A > 2 SE); miss iff |D - A| > 2 sqrt(SE_D^2 + 1.79^2)
+   claim_(k-1) a 12,800-game claim: SE of D 4.34, line 9.4 Elo; false miss by true step 2.8: 0.053, 4.0: 0.044, 6.0: 0.042, 10.0: 0.046, 21.3: 0.046
+   claim_0 = S0(b)'s 22.7 +- 4.35: SE of D 5.32, line 11.2 Elo; false miss by true step 2.8: 0.051, 4.0: 0.043, 6.0: 0.043, 10.0: 0.046, 21.3: 0.046
+   cumulative prediction 22.7 + sum of three adoption readings at true 2.8 Elo each: bias +5.85 Elo, outside its line (12.3) 0.126
+
+6. The path at $0.577 an hour (rates of round9_simplify_labels.out), by the dump's overhead o
+   o 0.00: box A $2.18; C $1.13; round 1 $26.18; round 2 $25.12; S4 $3.90; round 3 $25.27; through round 2 with E reserves $56.57 (left $25.77); whole path $86.87; a null round 1 after box A $27.22
+   o 0.05: box A $2.18; C $1.13; round 1 $27.32; round 2 $26.26; S4 $3.90; round 3 $26.41; through round 2 with E reserves $58.85 (left $23.49); whole path $90.29; a null round 1 after box A $28.37
+   o 0.10: box A $2.18; C $1.13; round 1 $28.47; round 2 $27.40; S4 $3.90; round 3 $27.55; through round 2 with E reserves $61.13 (left $21.21); whole path $93.72; a null round 1 after box A $29.51
+   o 0.20: box A $2.18; C $1.13; round 1 $30.75; round 2 $29.67; S4 $3.90; round 3 $29.83; through round 2 with E reserves $65.70 (left $16.64); whole path $100.56; a null round 1 after box A $31.79
+   with $82.34 left, with C: the whole path fits at o 0 iff a host's all-in cost per coin game is <= 0.934 x the measured ($2.660e-05)
+   with $82.34 left, no C: the whole path fits at o 0 iff a host's all-in cost per coin game is <= 0.950 x the measured ($2.707e-05)
+   with $85.00 left, with C: the whole path fits at o 0 iff a host's all-in cost per coin game is <= 0.973 x the measured ($2.771e-05)
+   with $85.00 left, no C: the whole path fits at o 0 iff a host's all-in cost per coin game is <= 0.989 x the measured ($2.818e-05)
+   two rounds (with box A, C and E reserves) fit iff o <= 0.56 on the measured host
+   the whole path's shortfall at o 0: $4.53; twins' net saving over three rounds (round9_invent_critique_checks.out section 3): $1.69 at r 0.95, $4.79 at r 0.90, $10.99 at r 0.80

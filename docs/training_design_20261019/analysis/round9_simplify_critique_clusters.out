@@ -1,0 +1,11 @@
+matches ['b04']: 10000 decisive games; rule of 136 cells (additive, fitted on b00-b03)
+rule switches 45565 = 2.28 per side-game (the stance: 2.28 on b04-b06)
+switches preceded by another rule switch in the same side-turn: 3125 = 0.069 of switches; of those, the earlier one coined to a1 (D = 1): 492 (0.157)
+switches preceded by a rule switch of the same side in an earlier side-turn: 26554 = 0.583 of switches; of those, with an earlier one coined to a1: 12481 (0.470)
+side-turns with k rule switches (k: share of side-turns with any): 1: 0.938, 2: 0.053, 3: 0.008, 4: 0.001, 5: 0.000
+[same side-turn] label at a switch after an earlier switch with D = 0: n 2633, mean +0.0943 (SE 0.0412)
+[same side-turn] label at a switch after an earlier switch with D = 1: n 492, mean +0.0225 (SE 0.0942)
+[same side-turn] difference (D = 1 minus D = 0): -0.0718 (SE 0.1028), z -0.70
+[earlier side-turn] label at a switch after an earlier switch with D = 0: n 14073, mean +0.0087 (SE 0.0177)
+[earlier side-turn] label at a switch after an earlier switch with D = 1: n 12481, mean +0.0036 (SE 0.0191)
+[earlier side-turn] difference (D = 1 minus D = 0): -0.0051 (SE 0.0260), z -0.20

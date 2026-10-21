@@ -1,0 +1,44 @@
+1. Inputs: sigma_R^2 0.699 (own2: 0.692), V_T 4.01, prices $2.849e-5 / $2.598e-5 / $8.848e-5 a game, distillation 4.8 h, $82.34 left, S0(a) -41.3 +- 4.4 Elo
+2. SE of one block's play effect (one seat on against off), all blocks of the design at once
+     10000 games: 2.90 Elo (luck- and cell-corrected); a dedicated PURE match of the same size, raw z: 3.47 Elo for one block
+     37800 games: 1.49 Elo (luck- and cell-corrected); a dedicated PURE match of the same size, raw z: 1.79 Elo for one block
+    100000 games: 0.92 Elo (luck- and cell-corrected); a dedicated PURE match of the same size, raw z: 1.10 Elo for one block
+
+3. Games for equal SE on a block's play effect: coin welfare / factorial = n V_T / (2 sigma_R^2)
+   n V_T / (2 sigma_R^2) = 2.87 n  (n = decisions the block switches per side-game)
+   additive recruit rule R      n 2.21: ratio 6.34
+   rule (a), Drakes             n 0.54: ratio 1.55
+   rule (a), Knalgan Alliance   n 0.46: ratio 1.31
+   rule (a), Loyalists          n 0.25: ratio 0.73
+   rule (a), Northerners        n 0.47: ratio 1.35
+   rule (a), Rebels             n 0.37: ratio 1.05
+   rule (a), Undead             n 0.49: ratio 1.42
+   (the factorial reads every block of a batch at that SE; coins read every rule at once too, but first order and under the coin policy)
+
+4. Checks of the first factorials
+   attack hook as one block of a 10000-game factorial on own1: SE 2.90; window at 3 SE of the difference [-57.1, -25.5] Elo; a seat swap reads about +41
+   per-faction recruit blocks on own1, 37800 games, block SE 1.49 Elo; first-order prediction and the transfer test |reading - prediction| < 3 SE of the difference:
+     Drakes             predicted +3.6 +- 1.4; SE of the difference 2.05; miss line +-6.1
+     Knalgan Alliance   predicted +3.4 +- 1.6; SE of the difference 2.19; miss line +-6.6
+     Loyalists          predicted +3.0 +- 1.0; SE of the difference 1.80; miss line +-5.4
+     Northerners        predicted +5.5 +- 1.3; SE of the difference 1.98; miss line +-5.9
+     Rebels             predicted -1.7 +- 1.2; SE of the difference 1.92; miss line +-5.7
+     Undead             predicted +9.2 +- 1.7; SE of the difference 2.26; miss line +-6.8
+   sum of the six readings against rule (a)'s +23.1 +- 3.4: SE of the difference 5.00, miss line +-10.0 at 2 SE
+   a reading of 0 for all six (labels do not carry to play) sits 4.6 SE below the prediction
+
+5. Costs (measured host, $0.577/h) and the budget
+   F1a smoke 10,000 games $0.26; F1b own1 factorial 37,800 games $0.98
+   one round: factorial with band coins 100,000 games $2.85 + confirmation 37,800 pool games $0.98 = $3.83 (6.6 h)
+   PURE claim against own1, two networks, 12,800 games $1.13; distillation and its closure match $3.90
+   fixed: F1 + 3 claims + 3 distillations $16.35; rounds that fit in $82.34: 17 ($81.47)
+   without distillation (the optimizer ruling pending): rounds that fit 20
+   current design's round at the same host: $23.98 (round9_simplify_budget.out) = 6.3 factorial rounds
+
+6. Monte Carlo of the mirrored factorial (binary results)
+   K 8, N 37800: mean bias against delta + a_jk/2 (max over blocks) 0.00038; SE simulated 0.00494, formula sqrt(Var(R)/N) 0.00495
+   block 0, 1 with a within-seat interaction 0.01: read +0.0351, +0.0199 against delta +0.0300, +0.0150 and the predicted +a/2 aliasing
+   planted copy (+0.02 on blocks 2 and 5), recovered [0.0, -0.0, 0.02, 0.0, 0.0, 0.02, -0.0, 0.0] (exact identity when N is a multiple of the design's rows)
+   selection on one half, prediction on the other: prediction - true mean +0.00044 (SE 0.00055); confirmation - prediction mean -0.00026
+   confirmation outside its 2-SE miss line: 0.040 of 200 trials (nominal 0.046)
+   all blocks null: a step proposed in 74 of 400, adopted by the confirmation's lower bound in 0 (0.000; the bound is 0.023 per proposed step)

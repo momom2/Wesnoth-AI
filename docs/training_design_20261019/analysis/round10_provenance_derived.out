@@ -1,0 +1,27 @@
+1. the dump overhead o
+   consecutive 10,000-game matches on one box: walls 1601-1666 s, sd 25.9 s (0.016 of the wall)
+   equal-size dumped and undumped runs of 2,000 games: o = (W_d - W_u) / (W_u - a), SE 0.109 (the fixed cost a cancels in W_d - W_u)
+   equal-size dumped and undumped runs of 10,000 games: o = (W_d - W_u) / (W_u - a), SE 0.024 (the fixed cost a cancels in W_d - W_u)
+   current smoke (2,000 dumped against 1,000 undumped, per-game walls): reads -0.154 at o 0.00
+   current smoke (2,000 dumped against 1,000 undumped, per-game walls): reads +0.233 at o 0.56
+
+2. a candidate host's cost per coin game
+   per-game wall at 2,000 games 0.1895 s, at 10,000 games 0.1619 s: a 2,000-game timing overstates the reference's per-game cost by 0.170
+   round 3's line is 0.934 x the measured host; read from 2,000 games, a host at true 0.934 reads 1.093 and is rejected; a host passes only at a true cost <= 0.798 x the measured, so hosts between that and 0.934 are rejected wrongly
+
+3. Branch S at the measured host's $0.577 an hour
+   B1 (plant run and skill run, 6.17 box-hours) $3.56 (carried as $2.59, priced at $0.42/h); with B2 $0.98 and B3 $1.13: $5.67; exits $3.56 and $4.54
+
+4. dump storage
+   d 772: 2.40 GB per 10,000-game match in bf16; 24.0 GB per batch if kept whole
+   d 815: 2.53 GB per 10,000-game match in bf16; 25.3 GB per batch if kept whole
+
+5. what an L null (J <= 2 SE = 3.57 Elo) would require
+   a shortfall of 17.7 Elo from F; R's own interactions read -3.5 +- 4.2: the null needs 3.4 SE more (2.7 SE counting F's own error)
+   the turn-1 part (+12.7 +- 1.5, 0.6 prior deviations; 0.959 of its switches are a side's first or second, where the exact reading is -0.3 +- 1.7) sits 3.9 SE above the null line: losing every later turn's value cannot produce a null; the turn-1 values themselves must fall
+
+6. an adjacent-switch correction for S1's forecast (rejected): its SE
+   19 switches per side-game: correction SE 11.4 Elo on one batch, 5.7 on four (forecast SE 3.41-4.88 on four)
+   38 switches per side-game: correction SE 16.4 Elo on one batch, 8.2 on four (forecast SE 3.41-4.88 on four)
+
+7. L sealed at F plus the first-coin correction: miss half-width 2 x sqrt(3.1^2 + 4.2^2 + 1.79^2) = 11.0 Elo, against 7.2 at F alone

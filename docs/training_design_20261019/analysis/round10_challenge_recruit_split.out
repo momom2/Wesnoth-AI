@@ -1,0 +1,69 @@
+matches ['b00', 'b01', 'b02', 'b03', 'b04', 'b05', 'b06']: 60000 decisive games, 120000 side-games
+1. census
+  recruits per side-game 22.89; band decisions with a recruit on top 8.89 (0.389 of recruits)
+  different-unit recruit pairs 4.29 per side-game (0.187 of recruits); on the same hex 0.983
+  same-unit pairs on two hexes 2.10 per side-game
+
+2. per unit: recruits per side-game, hex-split rate h, additive value v (ridge 5,000, all folds)
+  Drakes
+    Drake Fighter           0.434  h 0.0719  v +0.0328
+    Drake Clasher           0.865  h 0.0675  v +0.0102
+    Saurian Augur           0.233  h 0.0386  v +0.0061
+    Drake Glider            0.687  h 0.1827  v -0.0011
+    Drake Burner            0.528  h 0.0653  v -0.0138
+    Saurian Skirmisher      0.259  h 0.0542  v -0.0342
+  Knalgan Alliance
+    Footpad                 0.201  h 0.1266  v +0.0197
+    Dwarvish Thunderer      0.429  h 0.0733  v +0.0149
+    Dwarvish Ulfserker      0.155  h 0.0421  v +0.0104
+    Gryphon Rider           0.743  h 0.1467  v +0.0087
+    Dwarvish Fighter        1.543  h 0.0774  v +0.0014
+    Poacher                 0.146  h 0.0619  v -0.0104
+    Dwarvish Guardsman      0.018  h 0.0172  v -0.0136
+    Thief                   0.247  h 0.0433  v -0.0311
+  Loyalists
+    Spearman                3.126  h 0.0899  v +0.0233
+    Bowman                  0.003  h 0.0208  v +0.0090
+    Fencer                  0.006  h 0.0264  v +0.0064
+    Mage                    0.234  h 0.0541  v +0.0040
+    Horseman                0.090  h 0.1035  v -0.0025
+    Cavalryman              0.472  h 0.1284  v -0.0032
+    Heavy Infantryman       0.054  h 0.0520  v -0.0111
+    Merman Fighter          0.029  h 0.0230  v -0.0259
+  Northerners
+    Troll Whelp             0.286  h 0.0544  v +0.0373
+    Orcish Grunt            2.908  h 0.0857  v +0.0361
+    Orcish Archer           0.207  h 0.0680  v +0.0179
+    Orcish Assassin         0.236  h 0.0421  v +0.0101
+    Wolf Rider              0.572  h 0.1766  v -0.0310
+    Naga Fighter            0.033  h 0.0576  v -0.0330
+    Goblin Spearman         0.506  h 0.0586  v -0.0375
+  Rebels
+    Elvish Archer           0.303  h 0.0463  v +0.0117
+    Elvish Fighter          2.350  h 0.0820  v +0.0083
+    Wose                    0.335  h 0.0551  v +0.0050
+    Merman Hunter           0.007  h 0.0187  v -0.0003
+    Mage                    0.071  h 0.0741  v -0.0006
+    Elvish Shaman           0.010  h 0.0532  v -0.0090
+    Elvish Scout            0.643  h 0.1934  v -0.0151
+  Undead
+    Skeleton                0.138  h 0.0436  v +0.0335
+    Ghost                   0.406  h 0.1328  v +0.0263
+    Ghoul                   0.095  h 0.0440  v +0.0206
+    Dark Adept              1.783  h 0.0770  v +0.0126
+    Skeleton Archer         0.255  h 0.0791  v -0.0011
+    Walking Corpse          0.600  h 0.0674  v -0.0308
+    Vampire Bat             0.648  h 0.1655  v -0.0611
+
+3. label mean by whether the runner-up unit is the more hex-split (h uses no labels)
+  runner-up more split   n   216075 (1.80 per side-game)  mean label +0.0021 (0.0046)  z +0.46
+  runner-up less split   n   298206 (2.49 per side-game)  mean label +0.0107 (0.0039)  z +2.75
+  (h is computed from recruit and band-pair counts only, never from labels, so the split cannot fit the labels)
+
+4. weighted correlation of v(u) with log h(u), within faction (weights: recruits)
+  pooled within-faction weighted r = -0.201 over 43 units
+  within-faction permutation p (two-sided) 0.208
+
+5. welfare of 'switch iff h(a1) > h(a0)' (no labels used), first order, per side-game
+  +0.00382 (0.00824) z = +1.3 (2.9) Elo per side-game, 1.80 switches per side-game
+  (Elo as in round9_provenance_recruit_cells: z per side-game x 800/ln10)

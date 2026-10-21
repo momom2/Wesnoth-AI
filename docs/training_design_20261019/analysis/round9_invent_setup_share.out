@@ -1,0 +1,14 @@
+games 12000; Var(z - beta.S) 0.8276
+  leader of side A within (side of A, faction): share -0.0008 of Var(z - beta.S)
+  leader of side B within (side of A, faction): share +0.0005 of Var(z - beta.S)
+  both leaders: -0.0002 (method of moments; SE not computed, noise term removed)
+
+real	0m35.051s
+user	0m0.031s
+sys	0m0.000s
+archived tarballs: 53 match records, 95895 seeds, seeds in more than one record: 0
+walked matches: 23 match records, 19466 seeds, seeds in more than one record: 0
+
+real	0m22.186s
+user	0m0.015s
+sys	0m0.031s

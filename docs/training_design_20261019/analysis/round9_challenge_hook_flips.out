@@ -1,0 +1,14 @@
+decisive games read: 6400; hooked A in 3180
+hooked seat's mean z -0.1184 +- 0.0124 = -41.1 +- 4.3 Elo
+
+per side-game counts: unhooked level (seat A when D = 0), hook's effect on the hooked seat, on its opponent
+  attack   level   53.39; hooked seat +1.046 +- 0.787; opponent -0.193 +- 0.792
+  move     level  126.02; hooked seat -9.379 +- 1.798; opponent +9.874 +- 1.867
+  recruit  level   22.89; hooked seat -0.429 +- 0.256; opponent +0.429 +- 0.260
+  turns    level   19.67; hooked seat -0.102 +- 0.232; opponent +0.016 +- 0.232
+  actions per side-turn, seat A: D=0 10.148, D=1 9.759
+
+hooked seat: 9.38 +- 1.80 fewer moves, +1.05 +- 0.79 attacks per side-game
+mean advantage per changed decision (moves lost as the count): -0.0126 +- 0.0028 z
+in-band attack-promoting coin switches: -0.0032 +- 0.0031 z per switch (-4.6 +- 4.4 Elo over 4.12 switches per side-game, round9_challenge_coherence.out section 4)
+per-decision difference, hook (margins up to 1 nat) minus in-band (margins under 0.35): -0.0094 +- 0.0041 (z -2.28)

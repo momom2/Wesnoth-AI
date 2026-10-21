@@ -1,0 +1,12 @@
+claim_(k-1) a 12,800-game claim: SE of D 4.34, line 9.4 Elo
+   true step   2.8: adopted 0.331; false miss below 0.048, above 0.005, two-sided 0.053
+   true step   4.0: adopted 0.593; false miss below 0.034, above 0.009, two-sided 0.043
+   true step   6.0: adopted 0.912; false miss below 0.025, above 0.017, two-sided 0.042
+   true step  10.0: adopted 1.000; false miss below 0.023, above 0.023, two-sided 0.045
+   true step  21.3: adopted 1.000; false miss below 0.023, above 0.023, two-sided 0.046
+claim_0 = S0(b): SE of D 5.32, line 11.2 Elo
+   true step   2.8: adopted 0.332; false miss below 0.043, above 0.007, two-sided 0.050
+   true step   4.0: adopted 0.592; false miss below 0.033, above 0.011, two-sided 0.044
+   true step   6.0: adopted 0.912; false miss below 0.025, above 0.018, two-sided 0.043
+   true step  10.0: adopted 1.000; false miss below 0.023, above 0.023, two-sided 0.045
+   true step  21.3: adopted 1.000; false miss below 0.023, above 0.023, two-sided 0.046

@@ -1,0 +1,20 @@
+faction             own2 sides  human sides  TV whole game  x own2 recruits/side-game  TV turn 1  x own2 turn-1 recruits
+Drakes                   1055          664          0.192                       3.62      0.617                   2.90
+   own2 top: [('Drake Clasher', 0.281), ('Drake Glider', 0.236), ('Drake Fighter', 0.163)]
+   human top: [('Drake Fighter', 0.177), ('Drake Clasher', 0.173), ('Drake Burner', 0.168)]
+Knalgan Alliance         1048          708          0.305                       6.29      0.525                   2.16
+   own2 top: [('Dwarvish Fighter', 0.458), ('Gryphon Rider', 0.217), ('Dwarvish Thunderer', 0.125)]
+   human top: [('Dwarvish Fighter', 0.213), ('Gryphon Rider', 0.157), ('Dwarvish Thunderer', 0.135)]
+Loyalists                1054          891          0.493                      12.37      0.456                   2.28
+   own2 top: [('Spearman', 0.794), ('Cavalryman', 0.119), ('Mage', 0.047)]
+   human top: [('Spearman', 0.302), ('Cavalryman', 0.13), ('Mage', 0.117)]
+Northerners              1087          685          0.383                      11.32      0.435                   2.34
+   own2 top: [('Orcish Grunt', 0.622), ('Wolf Rider', 0.119), ('Goblin Spearman', 0.112)]
+   human top: [('Orcish Grunt', 0.261), ('Troll Whelp', 0.167), ('Orcish Archer', 0.156)]
+Rebels                   1073          821          0.365                       8.63      0.441                   2.09
+   own2 top: [('Elvish Fighter', 0.66), ('Elvish Scout', 0.166), ('Elvish Archer', 0.08)]
+   human top: [('Elvish Fighter', 0.307), ('Elvish Archer', 0.178), ('Elvish Scout', 0.154)]
+Undead                   1085          833          0.330                       8.05      0.518                   2.73
+   own2 top: [('Dark Adept', 0.451), ('Vampire Bat', 0.168), ('Walking Corpse', 0.16)]
+   human top: [('Dark Adept', 0.225), ('Skeleton', 0.155), ('Ghost', 0.148)]
+pooled: 8.40 recruits per side-game would change at the human shares

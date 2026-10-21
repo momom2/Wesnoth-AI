@@ -1,0 +1,29 @@
+1. Residual variance of the result over batch 1's decisive games
+   games 60000, E[z^2] 1.0000
+   E[(z - beta.S)^2] 0.8239 (beta as frozen in the readout)
+   with a cross-fitted cell mean (756 cells: scenario x ordered factions) 0.7199
+
+2. Coin labels' second moment implied by the pooled SE
+   labels 9317548, games 60000, pooled SE 0.000701 -> V_T = SE^2 n = 4.573
+   check: V_T * P(1-P) at P 0.25 = 0.857 against E[R^2] 0.824
+
+3. Games for an SE of 4.4 Elo on a fixed rule's total effect (n switched decisions per side-game)
+   n      coins      one-sided  antithetic  coins/one  coins/anti
+   1          14254       5136        1284       2.78       11.10
+   2          28509       5136        1284       5.55       22.20
+   4.1        58443       5136        1284      11.38       45.51
+   6.4        91228       5136        1284      17.76       71.05
+   10        142544       5136        1284      27.75      111.01
+   20        285088       5136        1284      55.51      222.02
+   40        570176       5136        1284     111.01      444.05
+   derived: coins/one-sided = n V_T / (2 sigma_R^2) = 2.775 n; coins/antithetic = 11.101 n
+
+4. Measured instance: in-band attack promotion
+   move>attack       3.768 per side-game, mean -0.0031 +- 0.0032
+   end_turn>attack   0.158 per side-game, mean -0.0135 +- 0.0156
+   recruit>attack    0.197 per side-game, mean +0.0025 +- 0.0141
+   switch all of them: -4.6 +- 4.4 Elo from 60000 coin games (4.12 switches per side-game)
+   derived games for that SE: coins 58653 (read: 60000), one-sided 5125, antithetic 1281
+   S0(a), attack +1 on one seat, raw z: -41.3 +- 4.4 Elo from 6,400 games (seed section 7)
+   derived one-sided SE at 6,400 games: raw z 4.34 Elo, luck-corrected 3.94 Elo
+   measured games ratio for equal SE (coins / S0(a) one-sided raw): 9.4

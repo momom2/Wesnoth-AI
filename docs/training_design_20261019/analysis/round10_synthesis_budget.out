@@ -1,0 +1,32 @@
+1. L at 37,800 decisive games (SE 1.79), sealed at the capped rule's exact coin-world value
+   capped Bd: +24.1 +- 3.0; miss half-width 7.0; null line 3.57; the seal sits 5.9 SE above it; a null bounds the transfer ratio below 0.30; P(lower bound > 0) 0.98 at ratio 0.3, 1.00 at 0.5
+   capped R: +14.9 +- 3.0; miss half-width 7.0; null line 3.57; the seal sits 3.2 SE above it; a null bounds the transfer ratio below 0.48; P(lower bound > 0) 0.69 at ratio 0.3, 0.98 at 0.5
+   full R (round 9's seal): +21.3 +- 3.1; miss half-width 7.2; null line 3.57; the seal sits 5.0 SE above it; a null bounds the transfer ratio below 0.34; P(lower bound > 0) 0.94 at ratio 0.3, 1.00 at 0.5
+   T against L (both 37,800): difference SE 2.53, line 5.1
+
+2. The step search at S2: three screens of 12,800 one-network games, the best confirmed on fresh seeds
+   screen SE 3.07; two screens' difference SE 4.34; confirmation SE 1.79
+   forecast SE 4.88 (switched share 0.5): a screen's miss line 11.5; the confirmation's 10.4
+   forecast SE 3.41 (switched share 0.25): a screen's miss line 9.2; the confirmation's 7.7
+   true values of the three screens (0, 0, 0): P(adopt) 0.023; P(best picked) 0.333; mean regret 0.00 Elo
+   true values of the three screens (12, 8, 5): P(adopt) 0.992; P(best picked) 0.797; mean regret 0.92 Elo
+   true values of the three screens (2, 6, 5): P(adopt) 0.800; P(best picked) 0.540; mean regret 0.74 Elo
+   true values of the three screens (-10, -2, 3): P(adopt) 0.327; P(best picked) 0.875; mean regret 0.63 Elo
+   true values of the three screens (20, 15, 10): P(adopt) 1.000; P(best picked) 0.871; mean regret 0.67 Elo
+
+3. The path at $0.577 an hour, by the dump overhead o
+   ruling (h) yes: L, T, C, o 0.00: box A $2.26; C $1.13; a round $26.11; through round 2 $55.62 (left $26.72); with reset and round 3 $85.79; with a third refit $81.74; a null round 1 after box A $27.24
+   ruling (h) yes: L, T, C, o 0.10: box A $2.27; C $1.13; a round $28.36; through round 2 $60.13 (left $22.21); with reset and round 3 $92.55; with a third refit $88.50; a null round 1 after box A $29.50
+   ruling (h) yes: L, T, C, o 0.20: box A $2.28; C $1.13; a round $30.62; through round 2 $64.64 (left $17.70); with reset and round 3 $99.31; with a third refit $95.26; a null round 1 after box A $31.76
+   ruling (h) yes: L, T, C, $82.34: two rounds iff o <= 0.59; three with the reset iff o <= -0.051, or at o 0 iff a coin game costs <= 0.950 x the measured ($2.705e-05)
+   ruling (h) yes: L, T, C, $82.34: two rounds iff o <= 0.59; three with the refit iff o <= 0.009, or at o 0 iff a coin game costs <= 1.009 x the measured ($2.874e-05)
+   ruling (h) yes: L, T, C, $85.00: two rounds iff o <= 0.65; three with the reset iff o <= -0.012, or at o 0 iff a coin game costs <= 0.988 x the measured ($2.816e-05)
+   ruling (h) yes: L, T, C, $85.00: two rounds iff o <= 0.65; three with the refit iff o <= 0.048, or at o 0 iff a coin game costs <= 1.048 x the measured ($2.985e-05)
+   ruling (h) no: L only, o 0.00: box A $1.28; C $0.00; a round $26.11; through round 2 $53.51 (left $28.83); with reset and round 3 $83.68; with a third refit $79.62; a null round 1 after box A $26.26
+   ruling (h) no: L only, o 0.10: box A $1.29; C $0.00; a round $28.36; through round 2 $58.02 (left $24.32); with reset and round 3 $90.44; with a third refit $86.38; a null round 1 after box A $28.52
+   ruling (h) no: L only, o 0.20: box A $1.30; C $0.00; a round $30.62; through round 2 $62.53 (left $19.81); with reset and round 3 $97.20; with a third refit $93.14; a null round 1 after box A $30.78
+   ruling (h) no: L only, $82.34: two rounds iff o <= 0.64; three with the reset iff o <= -0.020, or at o 0 iff a coin game costs <= 0.980 x the measured ($2.793e-05)
+   ruling (h) no: L only, $82.34: two rounds iff o <= 0.64; three with the refit iff o <= 0.040, or at o 0 iff a coin game costs <= 1.040 x the measured ($2.962e-05)
+   ruling (h) no: L only, $85.00: two rounds iff o <= 0.70; three with the reset iff o <= 0.020, or at o 0 iff a coin game costs <= 1.019 x the measured ($2.904e-05)
+   ruling (h) no: L only, $85.00: two rounds iff o <= 0.70; three with the refit iff o <= 0.080, or at o 0 iff a coin game costs <= 1.079 x the measured ($3.073e-05)
+   unit costs: screen $0.333; confirmation $0.982; claim $1.133; batch of 100,000 coin games $2.849; setup $0.212; the step search $1.98 against round 9's S2 plus E reserve $1.96

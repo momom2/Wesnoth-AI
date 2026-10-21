@@ -1,0 +1,6 @@
+60000 games, 10 fold-groups of about 6000 games
+fit games  | A read on the rest, Elo per side-game (mean SE) | B read on the rest
+    6000   | A +15.7 (3.3)                          | B +17.7 (3.3)
+   12000   | A +17.6 (3.5)                          | B +20.6 (3.5)
+   30000   | A +18.6 (4.4)                          | B +24.7 (4.4)
+   54000   | A +20.7 (9.9)                          | B +27.2 (9.8)

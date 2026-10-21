@@ -1,0 +1,5 @@
+rows 514281; R fitted on all rows switches 2.21 per side-game
+at R's switches: mean shift of d in R's play -1.393 (sd 2.416); share with a nonzero shift 0.560
+first-order composition correction to R's welfare: -0.00821 z per side-game = -2.85 Elo (slope SE alone: 0.51 Elo)
+  side-turn 1: 0.49 switches per side-game, mean shift -0.474
+  side-turn >= 2: 1.72 switches per side-game, mean shift -1.655

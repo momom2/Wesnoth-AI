@@ -1,0 +1,22 @@
+1. reproduction at ridge 5,000, 20 folds
+  A: +21.30 (3.14) Elo per side-game
+  B: +28.49 (3.10) Elo per side-game
+  B - A +7.19, SE 1.71
+
+2. B - A by turn bin, paired over folds (Elo per side-game)
+  turn 1     B +14.54  A +12.48  B - A +2.06 (0.79)
+  turn 2     B  +3.21  A  +2.01  B - A +1.21 (0.55)
+  turns 3-4  B  +3.19  A  +1.81  B - A +1.38 (0.79)
+  turns 5-8  B  +3.62  A  +2.71  B - A +0.90 (1.07)
+  turns 9+   B  +3.94  A  +2.30  B - A +1.64 (1.27)
+
+3. learning curve, paired per fold-group (rules fitted on 9 groups against 5, 2 and 1 groups excluding g)
+  A: 54,000 games +20.71; 30,000 games +18.60; ratio 0.898; difference +2.11 (paired SE 0.77)
+  A: 54,000 games +20.71; 12,000 games +17.58; ratio 0.849; difference +3.13 (paired SE 1.20)
+  A: 54,000 games +20.71; 6,000 games +15.68; ratio 0.757; difference +5.03 (paired SE 1.24)
+  B: 54,000 games +27.19; 30,000 games +24.71; ratio 0.909; difference +2.47 (paired SE 1.25)
+  B: 54,000 games +27.19; 12,000 games +20.64; ratio 0.759; difference +6.54 (paired SE 1.03)
+  B: 54,000 games +27.19; 6,000 games +17.71; ratio 0.652; difference +9.47 (paired SE 1.19)
+
+4. information per dollar, 1/(SE^2 $)
+  screen 12,800 games 0.3189; B's label estimate, 60,000 coin games, SE 3.1: 0.0609; ratio 5.2x

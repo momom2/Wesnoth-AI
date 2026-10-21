@@ -1,0 +1,45 @@
+1. one-network games an hour, host 56955777 ($0.577/h)
+  a: 6402 games in 1007 s = 22,887 games/h
+  b00: 2001 games in 382 s = 18,858 games/h
+  b01: 10002 games in 1666 s = 21,613 games/h
+  b02: 10004 games in 1612 s = 22,341 games/h
+  b03: 10006 games in 1618 s = 22,263 games/h
+  b04: 10004 games in 1608 s = 22,397 games/h
+  b05: 10003 games in 1601 s = 22,493 games/h
+  b06: 8003 games in 1296 s = 22,231 games/h
+  band-coin matches: start-up 69 s, steady 23,229 games/h; stage A (attack coin only) at the same start-up 24,561 games/h: band-coin logging costs +0.057
+  effective rate of the 10,000-game matches (median, start-up included): 22,341 games/h; costs below use it
+  against the pool's 21,966 games/h without coins (another host): -0.017
+2. two networks, 20 jobs (host 56955126): 6,523 games/h
+3. budget: $85 - $2.66 spent = $82.34
+  at $0.420/h: one network $1.880e-05 a game, two networks $6.438e-05; a batch $1.88, 4.48 h
+    L+T: own1+R vs own1 and own2+R vs own2, 12,800 games each, one box: $0.52
+    claim own2+R vs own1 (two networks), if T adopts: $0.82
+    S1: smoke + 8 batches on the base: $15.12
+    S2: adoption (one network) + claim vs own1 (two networks): $1.53
+    E reserve (S2, S3 one network; S5 two networks): $2.25
+    S3: 8 batches + adoption + claim: $16.65
+    S4: distillation + N vs pi_k (two networks): $2.83
+    S5: 8 batches + adoption vs pi_k + claim (two networks each): $16.77
+    total $56.50, left $+25.84
+    without S5 $39.73, left $+42.61
+    a null round 1 after L and T: $16.35
+  at $0.577/h: one network $2.583e-05 a game, two networks $8.845e-05; a batch $2.58, 4.48 h
+    L+T: own1+R vs own1 and own2+R vs own2, 12,800 games each, one box: $0.72
+    claim own2+R vs own1 (two networks), if T adopts: $1.13
+    S1: smoke + 8 batches on the base: $20.77
+    S2: adoption (one network) + claim vs own1 (two networks): $2.11
+    E reserve (S2, S3 one network; S5 two networks): $3.08
+    S3: 8 batches + adoption + claim: $22.88
+    S4: distillation + N vs pi_k (two networks): $3.89
+    S5: 8 batches + adoption vs pi_k + claim (two networks each): $23.03
+    total $77.61, left $+4.73
+    without S5 $54.58, left $+27.76
+    a null round 1 after L and T: $22.47
+  the whole path fits iff the hourly rate is <= $0.612 (games-per-hour as measured)
+4. derived SEs
+  match SE: 3.07 Elo at 12,800 games, 1.79 at 37,800
+  S1 forecast SE at the measured sigma^2 4.05 and census 77.6: 4.88 Elo (round 8: 4.6); miss line 10.4
+  L: forecast SE 3.2, match 6,400 games (SE 4.34): miss half-width 10.8 Elo; SE of J/F at F 22.9 0.236
+  L: forecast SE 3.2, match 12,800 games (SE 3.07): miss half-width 8.9 Elo; SE of J/F at F 22.9 0.194
+  L: forecast SE 3.2, match 37,800 games (SE 1.79): miss half-width 7.3 Elo; SE of J/F at F 22.9 0.160

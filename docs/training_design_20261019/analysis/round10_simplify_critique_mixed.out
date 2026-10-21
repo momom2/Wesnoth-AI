@@ -1,0 +1,31 @@
+batch 1: 120,000 side-games; R: 262 rr cells, 43 unit values, 4.29 labels per side-game
+
+1. Band pairs with one recruit candidate (the per-candidate unit block is non-zero there)
+   recruit>move       2.11 per side-game
+   move>recruit       1.95 per side-game
+   recruit>end_turn   0.20 per side-game
+   end_turn>recruit   0.19 per side-game
+   recruit>attack     0.20 per side-game
+   attack>recruit     0.19 per side-game
+   total 4.85 per side-game, of which 4.85 with a unit R knows (0 cell-sides with a recruit unit outside R's 43)
+
+2. R's 43 values played through the per-candidate block on those pairs (switch iff w'x > 0), cross-fitted
+   extra switches 2.36 per side-game (R's own: 2.19); first-order welfare +0.2 +- 3.3 Elo per side-game
+     recruit>move       switches 0.46; -1.1 +- 1.5 Elo
+     move>recruit       switches 1.51; -0.5 +- 2.6 Elo
+     recruit>end_turn   switches 0.15; +1.6 +- 0.8 Elo
+     end_turn>recruit   switches 0.04; +0.5 +- 0.4 Elo
+     recruit>attack     switches 0.04; -0.1 +- 0.4 Elo
+     attack>recruit     switches 0.15; -0.2 +- 0.8 Elo
+   R fitted on all folds: per-faction sums of w (minimum-norm level) max |sum| 1.04e-16
+
+3. The processor's fit with x = the per-candidate unit block on rr + mixed pairs, ridge 5,000
+   max |w_proc - w_R| 0.0268; rms 0.0114; rms of w_R 0.0217; correlation 0.871
+   cross-fitted: rr cells +21.2 +- 3.1 Elo (2.19 switches); mixed -1.2 +- 3.3 Elo (2.35 switches); total +20.0 +- 4.5 Elo
+
+4. R's cross-fitted F beyond the measured ridge grid (60,000 games)
+   ridge       50,000: F +19.3 +- 3.1 Elo; switches 2.15
+   ridge      200,000: F +19.1 +- 3.1 Elo; switches 2.15
+   ridge    1,000,000: F +19.1 +- 3.1 Elo; switches 2.15
+   ridge   10,000,000: F +19.3 +- 3.1 Elo; switches 2.15
+   ridge          inf: F +19.3 +- 3.1 Elo; switches 2.15

@@ -1,0 +1,17 @@
+section 7's window: coin box $2.00, own2 box $0.66; left of $85: $82.34
+smoke (2,000 dumped games, 1,000 undumped on the same box for the overhead, setup): $0.29
+final claim, 12,800 two-network games: $1.13 (1.96 h)
+at $0.577 an hour: a round $23.98 at overhead 0 (batches $22.79, adoption $0.98); 3 rounds fit at overhead 0; three rounds fit iff the dump's overhead <= 0.131
+at $0.42 an hour: a round $17.46 at overhead 0 (batches $16.59, adoption $0.71); 4 rounds fit at overhead 0; three rounds fit iff the dump's overhead <= 0.573
+C1, the transfer calibration on own1 (37,800 pool games): $0.98; on the smoke's box, the first box $1.28 (2.21 h)
+with C1: 2 rounds and the claim cost $50.38 at overhead 0 on the measured host (margin $31.96); they fit iff the dump's overhead <= 0.701, or, at overhead 0, iff a host's all-in cost per game is <= 1.634 x the measured host's ($4.657e-05 a coin game)
+with C1: 3 rounds and the claim cost $74.36 at overhead 0 on the measured host (margin $7.98); they fit iff the dump's overhead <= 0.117, or, at overhead 0, iff a host's all-in cost per game is <= 1.107 x the measured host's ($3.155e-05 a coin game)
+a round's batches take 39.5 h of wall at overhead 0
+dump: 24.0 GB per 100,000-game batch, 2.40 GB per 10,000-game match; stored subsample 0.24 GB per batch
+coin play's first-order effect: 19.4 deviations per side-game x mean label: +2.0 +- 4.7 Elo
+information on single-decision advantages per game-equivalent: coins 38.7, fork pair 0.82 (round 5's 0.608), ratio 47
+forecast SE (4 batches, q 0.5): 4.88 Elo; adoption miss line 2 x sqrt(SE_pf^2 + 1.79^2) = 10.4 Elo
+spread estimator after 8 batches: SE 1.39e-06, null bound 2.78e-06 (sd 0.00167); a pilot at a fraction f of the round has SE / f
+final claim after 1 adopted round(s): prediction 22.7 + sum of adoption readings, SE 4.70; with the claim's 3.07, miss line 11.2 Elo
+final claim after 2 adopted round(s): prediction 22.7 + sum of adoption readings, SE 5.03; with the claim's 3.07, miss line 11.8 Elo
+final claim after 3 adopted round(s): prediction 22.7 + sum of adoption readings, SE 5.34; with the claim's 3.07, miss line 12.3 Elo

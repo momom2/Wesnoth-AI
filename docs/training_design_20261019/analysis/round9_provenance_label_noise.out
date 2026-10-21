@@ -1,0 +1,14 @@
+60000 decisive games of batch 1 (own1 coin self-play), E[z^2] = 1.0000, mean z -0.0045
+  in-sample beta on batch 1: [0.00114, -0.00068, 0.00112, 0.47318, 0.53254, 0.83767, -1.15742]
+  frozen beta (luck walk):   [0.00119, 0.00029, -0.00048, -0.11838, 0.60304, 0.05412, 0.02252]
+  R_z (no variate)                         share 1.0000 (+- 0.0000)
+  R_beta (design, batch 1)                 share 0.8239 (+- 0.0026)
+  R_refit (beta cross-fitted)              share 0.8219 (+- 0.0029)
+  R_cell (cell baseline, cross-fitted)     share 0.7011 (+- 0.0032)
+  R_add (additive baseline, cross-fitted)  share 0.7236 (+- 0.0029)
+  within-cell share, method of moments (asymptote of R_cell): 0.6802; cells observed 1512
+  games for the same label SE, relative to R_beta: R_cell 0.851, asymptote 0.826
+  mean games per cell 39.7; first mover's mean z (side A = side 1): +0.0222
+  weighted by band decisions (10000 games of b00 and b06): R_z share 1.0000, unweighted on the same games 1.0000
+  weighted by band decisions (10000 games of b00 and b06): R_beta share 0.8578, unweighted on the same games 0.8286
+  weighted by band decisions (10000 games of b00 and b06): R_cell share 0.7598, unweighted on the same games 0.7105

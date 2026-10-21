@@ -1,0 +1,50 @@
+1. unit prices and SEs
+  screen 12,800 one-network games $0.333, SE 3.07 Elo; confirmation 37,800 $0.982, SE 1.79; claim 12,800 two-network $1.13
+  coin batch 30,000 games $0.855
+  coin batch 60,000 games $1.709
+  coin batch 100,000 games $2.849
+
+2. information per dollar about one fixed step's play value
+  one-network screen, 12,800 games                           1/(SE^2 $) = 0.3189
+  student-1 welfare forecast, 100,000-game batch, SE 6.8     1/(SE^2 $) = 0.0076
+  student-1 welfare forecast, 100,000-game batch, SE 9.8     1/(SE^2 $) = 0.0037
+  ratio screen / forecast: 42x to 87x
+
+3. box A'' (stage 1)
+  own1: B band-only, 37,800 (L's analog)                                       $0.98
+  own1: the S0(a) attack hook through the shift path, 12,800 (known answer)    $0.33
+  own2: three screens (B band-only, shift eta 8, shift eta 40), 12,800 each    $1.00
+  own2: confirmation of the best screen, 37,800 fresh seeds                    $0.98
+  claim: own2 + step against own1, two networks                                $1.13
+  total $4.43 (the current design's box A + C: $2.18 + $1.13 = $3.31)
+
+4. lines of stage 1
+  own1 B band-only: sealed F +28.5 +- 3.1; miss half-width 2 sqrt(F_se^2 + SE^2) = 7.2; null line 2 SE = 3.57, bounding the ratio rho below 0.13 (point) [with F's own SE: 0.16]
+  known answer for the shift path: f = 1[attack], eta 1 on one seat of own1 is S0(a)'s hook, measured -41.3 +- 4.4 by the coin-hook path; window -52.0 to -30.6 (half-width 2 sqrt(4.4^2 + 3.07^2) = 10.7); a seat swap reads about +41, an unapplied shift 0
+  T's analog, own2 band-only screen against own1's band-only reading: SE 3.55, line 7.1
+  (rejected alternative) reversed shift eta 3: J_rev = -0.411 (+- 0.075) x J_fwd; 3-SE line 11.4 Elo: a sign error is caught only if rho >= 0.49
+  beyond-band reading J(eta 40) - J(band-only), two screens: SE 4.34; on confirmations it would be 2.53
+  in-band first-order parts (own1 labels): band-only +28.5 (3.1), eta 8 +24.3 (2.4), eta 40 +28.4 (3.0)
+
+5. the line search's selection, Monte Carlo (3 screens SE 3.07, best confirmed at SE 1.79, adopt iff lower 2-SE bound > 0)
+  true J (0, 0, 0): P(adopt) 0.023; P(best picked) 1.000; mean regret 0.00 Elo; screen winner's bias +2.59
+  true J (20, 20, 20): P(adopt) 1.000; P(best picked) 1.000; mean regret 0.00 Elo; screen winner's bias +2.59
+  true J (20, 25, 15): P(adopt) 1.000; P(best picked) 0.871; mean regret 0.68 Elo; screen winner's bias +0.95
+  true J (20, 15, 25): P(adopt) 1.000; P(best picked) 0.870; mean regret 0.68 Elo; screen winner's bias +0.95
+  true J (20, 24, 30): P(adopt) 1.000; P(best picked) 0.911; mean regret 0.56 Elo; screen winner's bias +0.73
+  true J (5, 5, 5): P(adopt) 0.788; P(best picked) 1.000; mean regret 0.00 Elo; screen winner's bias +2.59
+  true J (3, -5, -15): P(adopt) 0.363; P(best picked) 0.967; mean regret 0.27 Elo; screen winner's bias +0.32
+
+6. iterations after stage 1, and the current design's steps for the same money
+  left after box A'': $77.91
+  one iteration, recruit class, 30,000-game batch, 2 screens: $3.63; fits 21
+  one iteration, three classes, 30,000-game batch, 6 screens: $4.96; fits 15
+  one iteration, head dump over all classes, 100,000 games (o 0), 8 screens: $7.62; fits 10
+  with a reset ($3.90) after every third adoption: recruit-class iterations fit 15
+  the current design: box A + C $3.31, round 1 $26.18, round 2 $25.12 (o 0), per adoption about $25-26
+
+7. the learning curve (round10_challenge_recruit_halves.out): B out of sample by games fitted
+   6,000 games $0.17: +17.7 Elo = 0.65 of the 54,000-game rule
+  12,000 games $0.34: +20.6 Elo = 0.76 of the 54,000-game rule
+  30,000 games $0.85: +24.7 Elo = 0.91 of the 54,000-game rule
+  54,000 games $1.54: +27.2 Elo = 1.00 of the 54,000-game rule

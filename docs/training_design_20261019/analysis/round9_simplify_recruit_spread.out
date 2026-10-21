@@ -1,0 +1,20 @@
+recruit>recruit, different units: 514281 band decisions in 120000 side-games (4.29 per side-game), 262 cells (faction | top unit > runner-up unit)
+mean label +0.0071 +- 0.0030
+1. V_rr (variance of cell means within these decisions) 1.592e-03 +- 3.70e-04 (z 4.30); sd of cell means 0.0399, at least 0.0292 at 2 SE
+2. mover's faction alone (6 cells): 1.031e-04 +- 8.18e-05 (z 1.26)
+3. cross-half inner products: additive fits 1.203e-03; cell means 1.978e-03; additive share 0.61 (no SE: one split; a ratio of noisy inner products)
+4. switch all                                    : +10.5 +- 4.4 Elo per side-game (z +2.39), share of these decisions switched 1.000
+4. switch cells with out-of-fold mean > 0        : +23.1 +- 3.4 Elo per side-game (z +6.77), share of these decisions switched 0.602
+4. switch where the out-of-fold additive fit > 0 : +20.3 +- 3.3 Elo per side-game (z +6.08), share of these decisions switched 0.575
+5. [T ] leave-one-match-out cell rule: +20.9 +- 3.4 Elo per side-game; by held-out match: b00 +31.1, b01 +43.9, b02 -2.0, b03 +12.4, b04 +24.0, b05 +20.4, b06 +25.7
+5. [T0] leave-one-match-out cell rule: +13.6 +- 3.6 Elo per side-game; by held-out match: b00 +9.3, b01 +26.6, b02 -1.9, b03 +6.0, b04 +20.7, b05 +15.1, b06 +16.9
+7. a frozen rule (cells with mean > 0 on b00+b01+b02+b03), read on b04+b05+b06 (28000 games): +21.6 +- 4.8 Elo per side-game; 130 of 262 cells, 2.43 switches per side-game
+   the same, additive form c + h(fac, u1) - h(fac, u0) (43 unit values, c +0.0022): +22.0 +- 4.7 Elo per side-game; 2.28 switches per side-game
+7. a frozen rule (cells with mean > 0 on b04+b05+b06), read on b00+b01+b02+b03 (32000 games): +16.4 +- 4.5 Elo per side-game; 135 of 262 cells, 2.44 switches per side-game
+   the same, additive form c + h(fac, u1) - h(fac, u0) (43 unit values, c +0.0100): +16.7 +- 4.5 Elo per side-game; 2.37 switches per side-game
+6. Drakes            : 0.90 such decisions per side-game (all factions' side-games); cell rule +3.6 +- 1.4 Elo per side-game
+6. Knalgan Alliance  : 0.76 such decisions per side-game (all factions' side-games); cell rule +3.4 +- 1.6 Elo per side-game
+6. Loyalists         : 0.42 such decisions per side-game (all factions' side-games); cell rule +3.0 +- 1.0 Elo per side-game
+6. Northerners       : 0.78 such decisions per side-game (all factions' side-games); cell rule +5.5 +- 1.3 Elo per side-game
+6. Rebels            : 0.61 such decisions per side-game (all factions' side-games); cell rule -1.7 +- 1.2 Elo per side-game
+6. Undead            : 0.82 such decisions per side-game (all factions' side-games); cell rule +9.2 +- 1.7 Elo per side-game

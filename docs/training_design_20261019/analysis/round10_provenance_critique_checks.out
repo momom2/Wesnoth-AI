@@ -1,0 +1,25 @@
+1. first-coin correction, weighted consistently with the stance's PDL identity
+   exact first-coin-only estimate minus F: -2.34 +- 2.80 Elo (the stance's 0.75 x difference reads -3.5 +- 4.2; 0.5 x the same difference is -2.33 +- 2.80)
+
+2. state shift at rank-0 R switches, exact importance weights to uncoined prior play
+   rank 0, turn 1: 0.376 switches per side-game, mean K 1.9 (max 11); coin-world F part +9.63 +- 1.28; at uncoined prior states +8.41 +- 1.79; mean weight 0.960, ESS share 0.490; shift -1.22 +- 1.29 (paired)
+   rank 0, turns 1-2: 0.440 switches per side-game, mean K 2.5 (max 19); coin-world F part +10.55 +- 1.39; at uncoined prior states +11.13 +- 2.51; mean weight 0.969, ESS share 0.291; shift +0.58 +- 2.11 (paired)
+   rank 0, all turns: 0.780 switches per side-game, mean K 24.0 (max 971); coin-world F part +11.41 +- 1.86; at uncoined prior states -16.23 +- 29.44; mean weight 0.733, ESS share 0.008; shift -27.64 +- 29.39 (paired)
+
+3. R's learning curve, paired on the same held-out labels: the 6-match rule minus k-match rules
+   k 1 (about 8,571 training games) to 6 (about 51,400): +1.83 +- 2.30 Elo (conservative SE)
+   k 2 (about 17,142 training games) to 6 (about 51,400): +0.12 +- 1.90 Elo (conservative SE)
+   k 3 (about 25,713 training games) to 6 (about 51,400): -0.83 +- 1.63 Elo (conservative SE)
+   k 4 (about 34,284 training games) to 6 (about 51,400): -1.12 +- 1.39 Elo (conservative SE)
+   k 5 (about 42,855 training games) to 6 (about 51,400): -0.67 +- 1.11 Elo (conservative SE)
+
+4. the turn-1 part against L's null line
+   without L's noise (the stance): 3.89 SE; with it: 3.06 SE
+
+5. second-order term over all ranks (pairs of a side's R decisions), Tang, Valko & Munos 2020 form
+   second-order correction -12.27 +- 4.47 Elo (exact all-order J - F reads +31.0 +- 40.4; ranks 0-1 exact -0.3 +- 1.7)
+   F_LOMO plus the second-order term: +5.75 +- 5.31 Elo (L's null line 3.57)
+   rank 1: -0.27 +- 1.75
+   rank 2: -3.27 +- 2.00
+   ranks 1-2: -3.54 +- 2.65
+   ranks 3+: -8.73 +- 3.66

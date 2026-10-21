@@ -1,0 +1,32 @@
+1. self-inclusion bug, K 4, P 0.25, planted coin effect 0.10, 200,000 seeds
+   rho 0.0 correct      : kappa 0.005  label mean +0.0994 (truth +0.10)  r_hat 1.000 (derived 1.000)
+      coin plant slope: own residual only 0.997; in every twin's z 0.997
+      shared plant: measured r' 0.914; predicted from rho_hat inverted 0.913 (rho_hat 0.00); from pairwise rho_hat 0.914 (rho_hat 0.00)
+   rho 0.0 self included: kappa 1.000  label mean +0.0744 (truth +0.10)  r_hat 0.749 (derived 1.000)
+      coin plant slope: own residual only 0.997; in every twin's z 0.747
+      shared plant: measured r' 0.598; predicted from rho_hat inverted 0.616 (rho_hat 0.39); from pairwise rho_hat 0.914 (rho_hat 0.00)
+   rho 0.2 correct      : kappa 0.429  label mean +0.1030 (truth +0.10)  r_hat 0.914 (derived 0.914)
+      coin plant slope: own residual only 1.001; in every twin's z 1.001
+      shared plant: measured r' 0.774; predicted from rho_hat inverted 0.774 (rho_hat 0.20); from pairwise rho_hat 0.774 (rho_hat 0.20)
+   rho 0.2 self included: kappa 1.000  label mean +0.0777 (truth +0.10)  r_hat 0.600 (derived 0.914)
+      coin plant slope: own residual only 1.001; in every twin's z 0.750
+      shared plant: measured r' 0.480; predicted from rho_hat inverted 0.488 (rho_hat 0.52); from pairwise rho_hat 0.774 (rho_hat 0.20)
+
+2. cross-twin covariance: rho 0.3, mean effect 0.02, one shared-prefix coin per twin, 1000000 seeds x 4 twins
+   r_eff = Var(a seed's sum of K twin labels) / (K Var(a plain label in an independent game)):
+   the twin design's variance for the mean effect relative to K times as many independent games
+   s_d (sd of the realized effect across shared chance)   r_hat   r_eff   cross-twin label corr
+   0.0                                                 0.832   0.832   -0.0002
+   0.1                                                 0.831   0.836   +0.0023
+   0.2                                                 0.833   0.849   +0.0097
+   0.3                                                 0.832   0.882   +0.0197
+   0.5                                                 0.833   0.944   +0.0495
+
+3. arithmetic
+   r at rho 0.030 (cell-baseline noise shared by twins), K 4: 0.9975; K -> inf: 0.970
+   r 0.95: a round saves $0.68 against the plain plan; round 1 net of the pilot $+0.33; three rounds net $+1.69
+   r 0.90: a round saves $1.71 against the plain plan; round 1 net of the pilot $+1.36; three rounds net $+4.79
+   r 0.80: a round saves $3.78 against the plain plan; round 1 net of the pilot $+3.43; three rounds net $+10.99
+   break-even r over 1 round(s): 0.966
+   break-even r over 3 round(s): 0.977
+   stage A: regimen's one arm (12,800 one-network games) $0.40; totals carry L+T and the two-network claim $1.85: difference $1.45

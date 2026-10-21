@@ -1,0 +1,44 @@
+side-games per faction: own1 {'Loyalists': 1070, 'Rebels': 1059, 'Northerners': 1086, 'Drakes': 1057, 'Knalgan Alliance': 1105, 'Undead': 1025}; own2 {'Northerners': 1087, 'Undead': 1085, 'Drakes': 1055, 'Knalgan Alliance': 1048, 'Rebels': 1073, 'Loyalists': 1054}
+faction | unit | head value v (z per recruit) | own1 recruits per side-game | own2 | own2 - own1 (SE, Poisson)
+  Drakes            Drake Clasher        +0.0114 |  5.419 |  5.307 | -0.112 (0.101) 
+  Drakes            Drake Glider         +0.0001 |  4.265 |  4.458 | +0.193 (0.091) toward the head
+  Drakes            Drake Burner         -0.0133 |  3.029 |  2.963 | -0.066 (0.075) 
+  Drakes            Drake Fighter        +0.0354 |  2.656 |  3.082 | +0.427 (0.074) toward the head
+  Drakes            Saurian Skirmisher   -0.0396 |  1.595 |  1.473 | -0.122 (0.054) toward the head
+  Drakes            Saurian Augur        +0.0060 |  1.269 |  1.613 | +0.345 (0.052) toward the head
+  Knalgan Alliance  Dwarvish Fighter     +0.0037 | 10.005 |  9.449 | -0.555 (0.134) away from the head
+  Knalgan Alliance  Gryphon Rider        +0.0121 |  4.517 |  4.487 | -0.030 (0.091) 
+  Knalgan Alliance  Dwarvish Thunderer   +0.0177 |  2.121 |  2.584 | +0.463 (0.066) toward the head
+  Knalgan Alliance  Thief                -0.0371 |  1.523 |  1.400 | -0.123 (0.052) toward the head
+  Knalgan Alliance  Footpad              +0.0223 |  1.131 |  0.973 | -0.158 (0.044) away from the head
+  Knalgan Alliance  Dwarvish Ulfserker   +0.0139 |  0.842 |  0.605 | -0.237 (0.037) away from the head
+  Knalgan Alliance  Poacher              -0.0142 |  0.818 |  1.068 | +0.250 (0.042) away from the head
+  Knalgan Alliance  Dwarvish Guardsman   -0.0184 |  0.062 |  0.068 | +0.006 (0.011) 
+  Loyalists         Spearman             +0.0248 | 19.221 | 19.943 | +0.723 (0.192) toward the head
+  Loyalists         Cavalryman           -0.0028 |  3.205 |  3.000 | -0.205 (0.076) toward the head
+  Loyalists         Mage                 +0.0046 |  1.464 |  1.191 | -0.274 (0.050) away from the head
+  Loyalists         Horseman             -0.0032 |  0.498 |  0.446 | -0.052 (0.030) 
+  Loyalists         Heavy Infantryman    -0.0153 |  0.269 |  0.200 | -0.069 (0.021) toward the head
+  Loyalists         Merman Fighter       -0.0404 |  0.209 |  0.287 | +0.077 (0.022) away from the head
+  Northerners       Orcish Grunt         +0.0408 | 18.582 | 18.395 | -0.187 (0.184) 
+  Northerners       Wolf Rider           -0.0304 |  3.520 |  3.521 | +0.000 (0.081) 
+  Northerners       Goblin Spearman      -0.0494 |  3.288 |  3.318 | +0.030 (0.078) 
+  Northerners       Troll Whelp          +0.0460 |  1.520 |  1.596 | +0.076 (0.054) 
+  Northerners       Orcish Assassin      +0.0155 |  1.229 |  1.408 | +0.178 (0.049) toward the head
+  Northerners       Orcish Archer        +0.0250 |  1.155 |  0.902 | -0.252 (0.044) away from the head
+  Northerners       Naga Fighter         -0.0474 |  0.154 |  0.422 | +0.268 (0.023) away from the head
+  Rebels            Elvish Fighter       +0.0096 | 14.787 | 15.602 | +0.815 (0.169) toward the head
+  Rebels            Elvish Scout         -0.0159 |  3.909 |  3.922 | +0.012 (0.086) 
+  Rebels            Elvish Archer        +0.0139 |  2.055 |  1.894 | -0.161 (0.061) away from the head
+  Rebels            Wose                 +0.0068 |  1.846 |  1.852 | +0.006 (0.059) 
+  Rebels            Mage                 -0.0000 |  0.373 |  0.294 | -0.079 (0.025) toward the head
+  Rebels            Elvish Shaman        -0.0142 |  0.054 |  0.023 | -0.031 (0.009) toward the head
+  Rebels            Merman Hunter        -0.0003 |  0.040 |  0.070 | +0.030 (0.010) away from the head
+  Undead            Dark Adept           +0.0168 | 10.769 | 11.020 | +0.251 (0.144) 
+  Undead            Vampire Bat          -0.0695 |  4.120 |  4.100 | -0.020 (0.088) 
+  Undead            Walking Corpse       -0.0429 |  3.724 |  3.904 | +0.180 (0.085) away from the head
+  Undead            Ghost                +0.0284 |  2.215 |  2.605 | +0.390 (0.068) toward the head
+  Undead            Skeleton Archer      +0.0002 |  1.656 |  1.461 | -0.195 (0.054) away from the head
+  Undead            Skeleton             +0.0400 |  0.658 |  0.778 | +0.120 (0.037) toward the head
+  Undead            Ghoul                +0.0269 |  0.439 |  0.560 | +0.121 (0.031) toward the head
+units whose recruit rate moved by more than 2 SE: 16 toward the head's preference (relative to the faction's mean value), 12 away

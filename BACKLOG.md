@@ -223,6 +223,14 @@ $1.47 in all):
     0.0007 (none either way); no pair type resolves at a family-wise line
     (recruit>recruit +0.0070 +- 0.0024, z 2.9). The spread v needs the head
     (ruling (e)). Seed section 7 carries these numbers to the design.
+  - **Design rounds 9-10 on the measurements** (0.30.4): the base is `own2`;
+    batch 1's labels carry a learnable advantage at recruit near-ties between
+    two units. A rule Bd (unit, unit x enemy faction, the side's earlier
+    recruits), capped at two switches a side-game, is worth +24.1 +- 3.0 Elo
+    in the coin world; uncapped rules interact (-12.3 +- 4.5). Next, match L
+    tests it in uncoined play (`own1` + capped Bd on one seat, 37,800 games,
+    about $1). The network recruits far less diversely than humans (1.35
+    distinct types on turn 1 against 3.16). Rulings (a), (e), (h), (i) wait.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

@@ -1,0 +1,24 @@
+games 4502 (b00 all, b01 every fourth)
+expected band index of the first disagreement: 2.667 (geometric at P 0.25: 2.667)
+expected share of the game's commands before it (replayed by both twins): 0.0226
+twins that never part: 2.69e-08
+  first disagreement at pair:a>a   0.000
+  first disagreement at pair:a>e   0.000
+  first disagreement at pair:a>m   0.000
+  first disagreement at pair:a>r   0.000
+  first disagreement at pair:e>a   0.000
+  first disagreement at pair:e>m   0.009
+  first disagreement at pair:e>r   0.001
+  first disagreement at pair:m>a   0.000
+  first disagreement at pair:m>e   0.007
+  first disagreement at pair:m>m   0.231
+  first disagreement at pair:m>r   0.039
+  first disagreement at pair:r>a   0.000
+  first disagreement at pair:r>e   0.002
+  first disagreement at pair:r>m   0.043
+  first disagreement at pair:r>r   0.667
+  first disagreement at side:1     0.685
+  first disagreement at side:2     0.315
+  first disagreement at st:1       0.785
+  first disagreement at st:2       0.184
+  first disagreement at st:3+      0.032

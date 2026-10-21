@@ -1,0 +1,22 @@
+held-out games b00 + b06: residual share 0.829 (batch 1's columns), 0.703 (frozen beta + shrunk cell fitted on b01-b05)
+
+[batch 1's label (columns, b = 0)] 10000 games, 1564236 band decisions (78.2 per side-game)
+  E[T^2] 4.562 (SE 0.006); 1/(P(1-P)) x out-of-sample residual share = 4.419
+  mean label -0.00025 +- 0.00171
+  per side-game: Var(sum of its labels) 360.3 against the sum of their squares 356.8: ratio 1.010; corr(mover A's sum, mover B's sum) -0.012
+  forecast at switched share 0.25: variance per side-game 88.5; SE on 4 batches of 100,000 games 3.65 Elo
+  forecast at switched share 0.5: variance per side-game 181.9; SE on 4 batches of 100,000 games 5.24 Elo
+  adoption match, 37,800 games: SE 1.79 Elo. Information per game about a rule's value: match 1/Var(z) = 1 against labels 2/(q x per-side-game variance) = 0.0111 at q 0.5, a ratio of 90
+[frozen beta + shrunk cell] 10000 games, 1564236 band decisions (78.2 per side-game)
+  E[T^2] 4.011 (SE 0.007); 1/(P(1-P)) x out-of-sample residual share = 3.747
+  mean label +0.00052 +- 0.00160
+  per side-game: Var(sum of its labels) 313.4 against the sum of their squares 313.7: ratio 0.999; corr(mover A's sum, mover B's sum) -0.003
+  forecast at switched share 0.25: variance per side-game 77.0; SE on 4 batches of 100,000 games 3.41 Elo
+  forecast at switched share 0.5: variance per side-game 158.1; SE on 4 batches of 100,000 games 4.88 Elo
+  adoption match, 37,800 games: SE 1.79 Elo. Information per game about a rule's value: match 1/Var(z) = 1 against labels 2/(q x per-side-game variance) = 0.0128 at q 0.5, a ratio of 78
+
+[margin slope] mean label = -0.0023 + +0.0157 G (SE of slope 0.0070, z +2.23); residual chi2 2.6 on 5 df; the label at G = 0: -0.0023 +- 0.0013
+
+[prices] coin games: 50000 in 8105 s, 22,209 games an hour, $2.598e-05 a game at $0.577 an hour; walk + rows + plant + readout 156 s per 10,000-game match, all-in 20,254 an hour, $2.849e-05 a game; at $0.42 an hour $2.074e-05
+[prices] two-network match own2 vs own1: 6400 decisive in 3533 s, 6,521 an hour, $8.848e-05 a decisive game; 12,800 games $1.13
+[prices] batch of 100,000 coin games all-in $2.85 (4.94 h); adoption match of 37,800 pool games $0.98

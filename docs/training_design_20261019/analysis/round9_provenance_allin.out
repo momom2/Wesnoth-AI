@@ -1,0 +1,18 @@
+1. post-match work on the coin box (b01-b06: walk, coin rows, plant rows, readout, gpu check)
+  matches 9401 s, post 889 s for 58000 games: post adds 0.095 of match wall (15.3 s per 1,000 games)
+  whole box: 3.36 h for 66,400 decisive games = 19,770 games/h all-in, $2.919e-05 a game at $0.577/h (record: about $2.0)
+  two-network box, staged work only: 3683 s for 6,400 decisive games = 6,256 games/h (match alone 6,523)
+
+2. the plan with the post-match work on every coin batch
+  at $0.420/h: L + T (+ C if T adopts) $1.35; S1 $16.54; S2 $1.53; E reserve $2.25; S3 $18.08; S4 $2.83; S5 $18.19
+    total $60.77 of $82.34 (left $+21.57); without S5 $42.58; a round's coin batches $16.54; a null round 1 after L and T $17.78
+  at $0.577/h: L + T (+ C if T adopts) $1.85; S1 $22.73; S2 $2.11; E reserve $3.08; S3 $24.84; S4 $3.89; S5 $24.99
+    total $83.49 of $82.34 (left $-1.15); without S5 $58.50; a round's coin batches $22.73; a null round 1 after L and T $24.42
+
+3. the hourly rate at which the whole path fits, by the feature dump's overhead h (unmeasured)
+  h 0.00: rate <= $0.569/h
+  h 0.05: rate <= $0.547/h
+  h 0.10: rate <= $0.526/h
+  h 0.20: rate <= $0.489/h
+  h 0.30: rate <= $0.457/h
+  without the post-match work (round9_provenance_budget.py's model): $0.612/h

@@ -1,0 +1,10 @@
+1. {5,1,1}/7: a a b a c a a (nginx: a a b a c a a)
+2. no masks, Dirichlet 0.3: max |n - Q| over 200 streams x 500 decisions 1.097 (bound 6)
+2. no masks, Dirichlet 1.0: max |n - Q| over 200 streams x 500 decisions 0.980 (bound 6)
+2. no masks, Dirichlet 3.0: max |n - Q| over 200 streams x 500 decisions 0.858 (bound 6)
+3. masks p 0.2, Dirichlet 0.3: max |n - Q| 1.115
+3. masks p 0.2, Dirichlet 1.0: max |n - Q| 1.060
+3. masks p 0.2, Dirichlet 3.0: max |n - Q| 1.021
+4a. tempered HA at T 0.05: departs from argmax at 324/19115 decisions with top-two ratio r >= 1.5; 1204/17857 decisions with top-two ratio 1.05 <= r < 1.5; 1273/3028 decisions with top-two ratio r < 1.05
+4a. tempered HA at T 0.2: departs from argmax at 1507/19084 decisions with top-two ratio r >= 1.5; 6411/17930 decisions with top-two ratio 1.05 <= r < 1.5; 1738/2986 decisions with top-two ratio r < 1.05
+4b. q near (0.5, 0.3, 0.2), 5 decisions (a turn-1 recruit phase): HA departs from argmax at 0.465 of decisions; argmax takes the modal type at 5 of 5, HA's last stream [0, 1, 0, 2, 1]

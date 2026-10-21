@@ -1,0 +1,4 @@
+15 ordered pair types, 77.6 band decisions per side-game
+typed rule, in-sample value: 0.0699 z per side-game = 24.3 Elo
+same statistic under a null of no typed effect: mean 20.8 Elo, 95th percentile 41.9; P(null >= observed) = 0.32
+largest type by z: recruit>recruit, +0.0070 +- 0.0024 (z 2.88), 6.38 a side-game: always-switch value +15.5 +- 5.4 Elo, selected as the largest of 15

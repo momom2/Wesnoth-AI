@@ -1,0 +1,21 @@
+S0(b) sides read: 12804
+  own2                         n   6402  t1_n 4.873(0.021)  t1_distinct 1.356(0.007)  t1_maxshare 0.897(0.002)  t1_allsame_3plus 0.648(0.006)  t1_repeat 0.913(0.002)  g_n 23.749(0.135)  g_distinct 3.446(0.015)  g_hhi 0.514(0.003)  g_repeat 0.747(0.002)
+  own1                         n   6402  t1_n 4.861(0.020)  t1_distinct 1.340(0.007)  t1_maxshare 0.904(0.002)  t1_allsame_3plus 0.666(0.006)  t1_repeat 0.918(0.002)  g_n 23.387(0.136)  g_distinct 3.418(0.014)  g_hhi 0.513(0.003)  g_repeat 0.750(0.002)
+ Drakes
+  own2                         n   1055  t1_n 4.705(0.052)  t1_distinct 1.190(0.014)  t1_maxshare 0.956(0.003)  t1_allsame_3plus 0.824(0.012)  t1_repeat 0.952(0.004)  g_n 18.897(0.218)  g_distinct 4.196(0.030)  g_hhi 0.367(0.003)  g_repeat 0.647(0.004)
+  own1                         n   1057  t1_n 4.696(0.050)  t1_distinct 1.194(0.014)  t1_maxshare 0.956(0.003)  t1_allsame_3plus 0.820(0.012)  t1_repeat 0.950(0.004)  g_n 18.233(0.207)  g_distinct 4.135(0.032)  g_hhi 0.376(0.004)  g_repeat 0.653(0.004)
+ Knalgan Alliance
+  own2                         n   1048  t1_n 4.115(0.029)  t1_distinct 1.190(0.012)  t1_maxshare 0.929(0.005)  t1_allsame_3plus 0.799(0.013)  t1_repeat 0.941(0.004)  g_n 20.634(0.272)  g_distinct 3.683(0.030)  g_hhi 0.458(0.004)  g_repeat 0.708(0.004)
+  own1                         n   1105  t1_n 4.138(0.031)  t1_distinct 1.183(0.012)  t1_maxshare 0.939(0.004)  t1_allsame_3plus 0.815(0.012)  t1_repeat 0.948(0.003)  g_n 21.018(0.285)  g_distinct 3.608(0.030)  g_hhi 0.468(0.004)  g_repeat 0.720(0.004)
+ Loyalists
+  own2                         n   1054  t1_n 5.009(0.055)  t1_distinct 1.323(0.014)  t1_maxshare 0.910(0.005)  t1_allsame_3plus 0.645(0.015)  t1_repeat 0.925(0.003)  g_n 25.105(0.328)  g_distinct 2.330(0.030)  g_hhi 0.706(0.007)  g_repeat 0.889(0.004)
+  own1                         n   1070  t1_n 4.873(0.054)  t1_distinct 1.253(0.013)  t1_maxshare 0.933(0.004)  t1_allsame_3plus 0.725(0.014)  t1_repeat 0.939(0.003)  g_n 24.908(0.337)  g_distinct 2.414(0.032)  g_hhi 0.683(0.007)  g_repeat 0.879(0.004)
+ Northerners
+  own2                         n   1087  t1_n 5.377(0.052)  t1_distinct 1.703(0.017)  t1_maxshare 0.810(0.005)  t1_allsame_3plus 0.311(0.014)  t1_repeat 0.847(0.004)  g_n 29.562(0.376)  g_distinct 3.497(0.031)  g_hhi 0.568(0.006)  g_repeat 0.771(0.004)
+  own1                         n   1086  t1_n 5.342(0.053)  t1_distinct 1.690(0.017)  t1_maxshare 0.817(0.005)  t1_allsame_3plus 0.318(0.015)  t1_repeat 0.852(0.004)  g_n 29.448(0.388)  g_distinct 3.437(0.030)  g_hhi 0.575(0.006)  g_repeat 0.780(0.004)
+ Rebels
+  own2                         n   1073  t1_n 4.737(0.049)  t1_distinct 1.448(0.018)  t1_maxshare 0.848(0.006)  t1_allsame_3plus 0.561(0.016)  t1_repeat 0.883(0.005)  g_n 23.656(0.298)  g_distinct 2.773(0.023)  g_hhi 0.594(0.006)  g_repeat 0.831(0.004)
+  own1                         n   1059  t1_n 4.717(0.048)  t1_distinct 1.438(0.018)  t1_maxshare 0.854(0.006)  t1_allsame_3plus 0.571(0.016)  t1_repeat 0.889(0.005)  g_n 23.063(0.290)  g_distinct 2.839(0.025)  g_hhi 0.577(0.006)  g_repeat 0.816(0.004)
+ Undead
+  own2                         n   1085  t1_n 5.266(0.053)  t1_distinct 1.272(0.017)  t1_maxshare 0.929(0.005)  t1_allsame_3plus 0.763(0.013)  t1_repeat 0.933(0.004)  g_n 24.429(0.352)  g_distinct 4.185(0.033)  g_hhi 0.390(0.003)  g_repeat 0.637(0.004)
+  own1                         n   1025  t1_n 5.440(0.050)  t1_distinct 1.279(0.017)  t1_maxshare 0.926(0.005)  t1_allsame_3plus 0.753(0.014)  t1_repeat 0.931(0.004)  g_n 23.580(0.349)  g_distinct 4.100(0.031)  g_hhi 0.391(0.004)  g_repeat 0.647(0.004)
