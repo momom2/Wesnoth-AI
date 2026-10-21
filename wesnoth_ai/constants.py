@@ -113,59 +113,6 @@ INCOME_NORM   = 50.0
 VILLAGES_NORM = 30.0    # large 4p maps; 2p ladder caps ~15
 TURN_NORM     = 60.0    # default 2p ladder turn limit ~30, 60 for safety
 
-# Combat-oracle biases. Two channels:
-#
-#   - TARGET_ALPHA: scales the per-target attack-bias added to the
-#     hex-target logits when the policy chose ATTACK. Raises priors
-#     for high expected-damage targets. 0.1 = moderate; 0 = off.
-#   - TYPE_ALPHA: scales the per-actor "raise P(ATTACK | actor)"
-#     bias added to the type_logits[ATTACK] when ANY reachable
-#     enemy gives positive expected net damage. The aggregator is
-#     `max_j(net_score[actor, j])` -- "you have at least one
-#     profitable attack available, consider attacking."
-#
-# Both biases anneal multiplicatively over training: at the start
-# of supervised training they're at full strength, by horizon end
-# they're at 10% strength (configurable floor below). The policy's
-# learned logits dominate after horizon; the oracle is just a
-# warm-start prior. See action_sampler.combat_alphas_at().
-# RETIRED until further notice (user 2026-07-16): with the
-# behavior-cloning pass giving the policy real preferences, the
-# oracle crutch comes off -- "time for the policy to learn to walk
-# on its own legs". Machinery (bias computation + anneal schedule)
-# stays intact; alphas 0.0 make every bias exactly zero at any
-# decision_step. Restore by setting the old values (0.1 / 0.1).
-# PRIOR HARDCODED BIAS (renamed from "combat oracle", user order
-# 2026-08-06): a general facility for hand-placed prior nudges.
-# POLICY: every instance defaults OFF (0.0) and is activated only in
-# specific situations on the user's explicit order (pinned by
-# tests/test_mcts.py::test_prior_hardcoded_bias_defaults_off).
-# Instances:
-#   - attack-target / attack-type bias (the original oracle shape;
-#     retired 2026-08-05, defaults stay 0.0)
-#   - end_turn bias on mini-category games (2026-08-06): activated
-#     per-run via WESNOTH_PRIOR_BIAS_END_TURN_MINI=<float> (negative
-#     = against passing); env-inherited so the pool's actors and the
-#     trainer re-forward see the identical bias (symmetry contract).
-COMBAT_TARGET_ALPHA = 0.0   # prior-bias instance: attack target
-COMBAT_TYPE_ALPHA   = 0.0   # prior-bias instance: attack type
-PRIOR_BIAS_END_TURN_MINI_DEFAULT = 0.0
-# Backwards-compat alias (used by the rare external caller); the
-# canonical names are the two above.
-COMBAT_LOGIT_ALPHA = COMBAT_TARGET_ALPHA
-
-# Anneal horizon (per-Python-decision count) over which the alphas
-# decay from their configured value to ANNEAL_FLOOR_FRACTION × the
-# configured value. 1M decisions ≈ a significant chunk of supervised
-# training (5000 self-play games × 200 decisions/game), so the
-# annealing reaches the floor late in training. Set to 0 to disable
-# annealing (alphas stay at the configured value forever).
-COMBAT_ANNEAL_HORIZON     = 1_000_000
-# Minimum multiplier on the configured alphas at horizon end. 0.1 =
-# the bias persists at 10% strength forever (a small nudge that's
-# still useful late-training when the model has its own preferences).
-COMBAT_ANNEAL_FLOOR_FRACTION = 0.1
-
 # Pre-seeded faction vocab. The encoder pre-binds these to specific
 # embedding rows so cross-replay supervised training stays
 # consistent (a state that happens to feed Rebels first wouldn't

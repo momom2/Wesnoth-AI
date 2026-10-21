@@ -112,8 +112,7 @@ def test_actor_rule_player_matches_the_rule_on_a_real_state():
     with torch.no_grad():
         enc = policy._inference_encoder.encode(gs)
         out = policy._inference_model(enc)
-        legal = enumerate_legal_actions_with_priors(
-            enc, out, gs, decision_step=policy._decision_step)
+        legal = enumerate_legal_actions_with_priors(enc, out, gs)
     priors = np.array([la.prior for la in legal])
     actors = np.array([la.actor_idx for la in legal])
     is_end = np.array([la.action.get("type") == "end_turn" for la in legal])

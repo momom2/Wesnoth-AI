@@ -188,7 +188,7 @@ def prior_aggregate(policy, gs) -> Dict[str, float]:
         e = enc.encode(gs)
         o = mdl(e)
         laps = enumerate_legal_actions_with_priors(
-            e, o, gs, decision_step=policy._decision_step)
+            e, o, gs)
     agg: Dict[str, float] = {}
     for lap in laps:
         c = _class_of(lap.action)

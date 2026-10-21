@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.transformer_policy import TransformerPolicy            # noqa: E402
 from tools.mcts import MCTSConfig, mcts_search               # noqa: E402
 from tools.mcts_policy import MCTSPolicy                     # noqa: E402
-from tools.draw_tiebreak import DrawTiebreakConfig           # noqa: E402
 from sim_test_helpers import fresh_scenario_sim              # noqa: E402
 
 
@@ -33,7 +32,7 @@ def _policy():
 def _cfg(**kw):
     base = dict(n_simulations=16, gumbel_root=True, gumbel_m=4,
                 chance_nodes=True, exact_outcome_enumeration=True,
-                draw_tiebreak=DrawTiebreakConfig(cap=0.3), batch_size=1,
+                batch_size=1,
                 add_root_noise=False)
     base.update(kw)
     return MCTSConfig(**base)
@@ -69,13 +68,11 @@ def _recorded_count(mp, seed=21):
     decision snapshot and calls finalize_game) and return how many
     training targets the policy recorded. Driving the actual code path
     (not a hand-rolled select/step/finalize loop) is the point: it can't
-    get the snapshot contract subtly wrong. MCTS ignores per-step
-    rewards, so a zero reward_fn suffices."""
-    from tools.selfplay_game import play_one_game, _recruit_cost_lookup
+    get the snapshot contract subtly wrong."""
+    from tools.selfplay_game import play_one_game
     mp._rng = np.random.default_rng(seed)
     sim = fresh_scenario_sim(seed=seed, max_turns=8, mini=True)
-    play_one_game(sim, mp, lambda delta: 0.0, game_label="g",
-                  cost_lookup=_recruit_cost_lookup())
+    play_one_game(sim, mp, game_label="g")
     return len(mp._queue)   # finalize_game drained _pending -> _queue
 
 
@@ -107,9 +104,7 @@ def test_drop_last_pending_pops_tail_and_rolls_back_decision_step():
     """The fog-bounce retry loop calls drop_last_pending to undo the
     rejected decision. It must (a) pop exactly the pending target the
     last select_action recorded and (b) roll back the decision_step
-    increment, so the bounced pick is neither trained on nor counted
-    toward the combat-oracle anneal (which would otherwise over-advance
-    and inject a correlated duplicate target)."""
+    increment, so the bounced pick is neither trained on nor counted."""
     import copy
     mp = MCTSPolicy(_policy(), _cfg())
     mp._rng = np.random.default_rng(21)

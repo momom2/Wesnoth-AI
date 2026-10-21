@@ -18,7 +18,7 @@ import torch
 from wesnoth_ai.encoder import GameStateEncoder, encode_raw
 from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
 from wesnoth_ai.model import WesnothModel
-from helpers.imitation import ARCH as _ARCH, TYPE_W as _TYPE_W, labels as _labels, states as _states
+from helpers.imitation import ARCH as _ARCH, labels as _labels, states as _states
 from helpers.imitation import per_sample_reference as _reference
 
 
@@ -54,8 +54,7 @@ def test_batched_imitation_loss_matches_per_sample_reference():
     padded = model.forward_embedded(streams)
     targets = build_imitation_targets(
         ais, zw, streams.sizes, n_types=padded.type_logits.shape[2],
-        n_weapons=padded.weapon_logits.shape[2], n_atoms=padded.value_logits.shape[1],
-        type_loss_weights=_TYPE_W, device=dev)
+        n_weapons=padded.weapon_logits.shape[2], n_atoms=padded.value_logits.shape[1], device=dev)
     parts = imitation_loss_parts(padded, targets)
 
     fired = {"actor": [p.actor_fired for p in ref_parts], "type": [p.type_fired for p in ref_parts],
@@ -132,8 +131,7 @@ def test_flush_batch_splits_on_out_of_memory(monkeypatch):
         opt = torch.optim.SGD(list(m.parameters()) + list(e.parameters()), lr=0.1)
         dq = {k: deque(maxlen=50) for k in ("t", "a", "ty", "tg", "w", "v")}
         splits = st._flush_batch(m, e, raws, ais, zw, opt, list(m.parameters()), len(raws), dev,
-                                 dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"],
-                                 type_loss_weights=_TYPE_W)
+                                 dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"])
         return splits, dq
 
     original = st._batch_loss
@@ -177,7 +175,7 @@ def test_bf16_autocast_matches_fp32_within_tolerance():
     def run(dtype):
         for p in params:
             p.grad = None
-        parts, _ = _batch_loss(model, enc, raws, ais, zw, dev, _TYPE_W, autocast_dtype=dtype)
+        parts, _ = _batch_loss(model, enc, raws, ais, zw, dev, autocast_dtype=dtype)
         parts.total.backward()
         grads = torch.cat([p.grad.flatten() for p in params if p.grad is not None])
         return float(parts.total.detach()), grads.clone()
@@ -250,8 +248,7 @@ def test_out_of_memory_inside_backward_does_not_double_count_the_gradient(monkey
         opt = torch.optim.SGD(list(m.parameters()) + list(e.parameters()), lr=0.1)
         dq = {k: deque(maxlen=50) for k in ("t", "a", "ty", "tg", "w", "v")}
         splits = st._flush_batch(m, e, raws, ais, zw, opt, list(m.parameters()), len(raws), dev,
-                                 dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"],
-                                 type_loss_weights=_TYPE_W)
+                                 dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"])
         return splits, dq
 
     original = st._batch_loss
@@ -308,8 +305,7 @@ def test_out_of_memory_on_a_later_chunk_restarts_from_zeroed_gradients(monkeypat
         opt = torch.optim.SGD(list(m.parameters()) + list(e.parameters()), lr=0.1)
         dq = {k: deque(maxlen=50) for k in ("t", "a", "ty", "tg", "w", "v")}
         halvings = st._flush_batch(m, e, raws, ais, zw, opt, list(m.parameters()), len(raws), dev,
-                                   dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"],
-                                   type_loss_weights=_TYPE_W)
+                                   dq["t"], dq["a"], dq["ty"], dq["tg"], dq["w"], dq["v"])
         return halvings, dq
 
     original = st._batch_loss

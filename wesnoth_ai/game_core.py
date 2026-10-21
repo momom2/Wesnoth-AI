@@ -85,8 +85,10 @@ _RECORD_SIDES = (1, 2)
 # to the next (`ViewCache`, `CoreState.view_state`), 35 builds a recorded
 # command's label in the encoding's basis beside the encoding
 # (`CoreState.encode_labelled`) and carries the hash of the source the wheel
-# was built from (`__source_hash__`, wesnoth_ai/core_source.py).
-_CORE_PHASE = 35
+# was built from (`__source_hash__`, wesnoth_ai/core_source.py), 36 stages
+# the inference server's masks without hand-set prior biases, 37 without the
+# end_turn bias of its requests.
+_CORE_PHASE = 37
 # The arrays `encode_raw(masks=True)` takes from the core into
 # `RawEncoded.core_masks`.
 CORE_MASK_KEYS = ("mask_actor", "mask_type_valid", "mask_attack_bits", "mask_move_bits",

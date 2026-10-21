@@ -21,7 +21,7 @@ surprised"):
     precisely when the realized outcome differs from the planned one.
   * A live recruit bounce invalidates the plan: `play_one_game` calls
     `drop_last_pending` (inherited: pops the pending target + rolls
-    back decision_step), and our override also discards the plan so
+    back the decision counter), and our override also discards the plan so
     the retry re-plans against the updated rejection set -- serving
     the cached command again would loop on the same fogged hex.
   * Targets are recorded ONLY for coordinates that actually execute
@@ -106,13 +106,9 @@ class TurnCommitPolicy(MCTSPolicy):
                 "sim.gs; it must be a deepcopy snapshot (sim.step "
                 "would mutate the recorded training target). See "
                 "play_one_game's `copy.deepcopy(sim.gs)`.")
-        # Per-decision progress counter (combat-oracle anneal +
-        # drop_last_pending rollback contract): advance one per call.
-        # Stored experiences carry the PLAN's enumeration counter so
-        # the distillation loss rebuilds reference logits at the same
-        # alpha the plan's priors used.
+        # Per-decision progress counter (drop_last_pending rollback
+        # contract): advance one per call.
         with self._base._lock:
-            ds_call = self._base._decision_step
             self._base._decision_step += 1
         side = sim.gs.global_info.current_side
         turn_no = int(sim.gs.global_info.turn_number)
@@ -142,9 +138,8 @@ class TurnCommitPolicy(MCTSPolicy):
                 salt_ns = f"tcs:{game_label}:{self._plan_seq}"
             cap_cb = None
             if self._ground_cfg.enabled:
-                cap_cb = self._make_ground_capture(game_label, side,
-                                                   ds_call)
-            plan = plan_turn(self._base, sim, side, ds_call,
+                cap_cb = self._make_ground_capture(game_label, side)
+            plan = plan_turn(self._base, sim, side,
                              self._turn_cfg, self._mcts_config,
                              self._rng, salt_ns, full,
                              incumbent=warm, capture=cap_cb, memory=memory)
@@ -173,8 +168,7 @@ class TurnCommitPolicy(MCTSPolicy):
             if recorded:
                 self._pending.setdefault(game_label, []).append(
                     _PendingMCTSState(
-                        gs=game_state, visit_counts=target, side=side,
-                        decision_step=plan.decision_step))
+                        gs=game_state, visit_counts=target, side=side))
                 if stats:
                     a = self._distill_acc
                     a["n"] = a.get("n", 0) + 1
@@ -220,8 +214,7 @@ class TurnCommitPolicy(MCTSPolicy):
         with self._lock:
             self._plans.pop(game_label, None)
 
-    def _make_ground_capture(self, game_label: str, side: int,
-                             decision_step: int):
+    def _make_ground_capture(self, game_label: str, side: int):
         """Reservoir-free capped sampler: each stage-2 projected
         boundary sim is captured with capture_prob until the
         per-game cap (consist cap, the larger of the two budgets)."""
@@ -241,9 +234,7 @@ class TurnCommitPolicy(MCTSPolicy):
             if self._ground_rng.random() >= self._ground_cfg.capture_prob:
                 return
             with self._lock:
-                lst.append(GroundCapture(
-                    sim=boundary_sim, side=side,
-                    decision_step=decision_step))
+                lst.append(GroundCapture(sim=boundary_sim, side=side))
         return _cb
 
     def _grounding_fingerprint(self) -> Dict:

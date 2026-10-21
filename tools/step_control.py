@@ -142,9 +142,7 @@ def action_priors(base, e, memories: Optional[Dict] = None) -> Tuple[Dict, Dict,
         enc = encoded_of(base._inference_encoder, e)
         out = (base._inference_model(enc) if memories is None
                else base._inference_model(enc, memory=memories[id(e)]))
-        legal = enumerate_legal_actions_with_priors(
-            enc, out, e.game_state,
-            decision_step=int(getattr(e, "decision_step", 0)))
+        legal = enumerate_legal_actions_with_priors(enc, out, e.game_state)
         value = float(out.value.reshape(-1)[0].item())
     pri, cat = {}, {}
     for la in legal:

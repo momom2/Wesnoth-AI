@@ -1,10 +1,11 @@
-"""Hex adjacency, and the leadership ability's bonus.
+"""Hex adjacency and distance, and the leadership ability's bonus.
 
 Wesnoth's hexes are flat-topped and laid out in columns, every odd
 column (0-indexed) half a hex lower than its neighbours, so which hexes
 touch depends on the column's parity. `hex_neighbors` gives the six
-neighbours in the order N, NE, SE, S, SW, NW, and `opposite_hex` the
-hex across a unit from one of them. On that geometry:
+neighbours in the order N, NE, SE, S, SW, NW, `opposite_hex` the hex
+across a unit from one of them, and `hex_distance` the number of steps
+between two hexes. On that geometry:
 
   - Leadership (`leadership_bonus`): an adjacent same-side unit with
     `leadership` and a HIGHER level adds 25% x (its level - the unit's
@@ -17,7 +18,8 @@ The Rust core applies every ability in play
 
 Dependencies: classes
 Dependents:   tools.replay_dataset, wesnoth_sim, neutral_ai,
-              swap_detector; wesnoth_ai.observe, rewards (the geometry)
+              swap_detector, selfplay_game, random_positions;
+              wesnoth_ai.observe (the geometry)
 """
 from __future__ import annotations
 
@@ -75,6 +77,23 @@ def opposite_hex(center: Tuple[int, int],
         return None
     # Opposite is the +3 index in the 6-hex ring.
     return neighbors[(idx + 3) % 6]
+
+
+def hex_distance(a_x: int, a_y: int, b_x: int, b_y: int) -> int:
+    """Wesnoth hex distance (odd-q offset coordinates).
+
+    Matches the formula in Wesnoth's C++ `map_location::distance_between`:
+    horizontal distance plus a half-step vertical component, with a
+    +1 penalty for the zig-zag between even- and odd-x columns.
+    """
+    hd = abs(a_x - b_x)
+    a_even = (a_x & 1) == 0
+    b_even = (b_x & 1) == 0
+    vpenalty = 0
+    if (a_even and not b_even and a_y <= b_y) or \
+       (b_even and not a_even and b_y <= a_y):
+        vpenalty = 1
+    return max(hd, abs(a_y - b_y) + hd // 2 + vpenalty)
 
 
 # ----------------------------------------------------------------------

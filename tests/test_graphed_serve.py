@@ -4,7 +4,6 @@ same shapes padded to its caps; CPU, so the body runs eagerly and the
 graph capture itself is certified on a box."""
 from __future__ import annotations
 
-import dataclasses
 import sys
 from pathlib import Path
 
@@ -282,8 +281,7 @@ def test_a_bucket_without_a_graph_goes_to_the_eager_path(monkeypatch):
     """A capture that fails, or that too little memory is left for, leaves
     the batch to the caller's eager path, which serves what it always
     serves; a failed bucket is not captured again; a failed preflight
-    disables the instance; a batch carrying the oracle's biases goes
-    eager without `biases`."""
+    disables the instance."""
     from helpers.core_positions import core_positions
     from tools.inference_seam import InferenceServer
     from wesnoth_ai.memory import MemoryState
@@ -339,10 +337,3 @@ def test_a_bucket_without_a_graph_goes_to_the_eager_path(monkeypatch):
         assert not dead.preflight()["ok"]
         assert dead.infer([t[0] for t in triples], [t[1] for t in triples], [t[2] for t in triples]) is None
     assert dead.disabled and dead.fallbacks["disabled"] == 1
-    # The oracle's biases ride the static masks only on request.
-    biased = (triples[0][0], dataclasses.replace(triples[0][1], type_bias=np.zeros_like(
-        triples[0][1].type_valid, dtype=np.float32)), triples[0][2])
-    plain = _small_parity_serve(policy)
-    with torch.no_grad():
-        assert plain.infer([biased[0]], [biased[1]], [biased[2]]) is None
-    assert plain.fallbacks == {"biases": 1}

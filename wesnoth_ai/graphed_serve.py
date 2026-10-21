@@ -72,17 +72,11 @@ directly (`fill_concat`, `fill_static_index`, `fill_masks`), the same
 bytes as `infer`'s numpy staging; the caller writes the replies from the
 output buffer.
 
-The combat oracle's mask biases ride the static masks only with
-`biases=True` (their buffer is [segments, actors, hexes] float32, the
-largest copy of a replay); off, its value since 2026-08-06, a batch
-carrying a bias is served eagerly.
-
 Not graphed: the wire (`tools/inference_seam.output_to_wire`). A batch
 that exceeds a cap (segments, actor slots, hex slots, tokens, a segment
-longer than `max_len`, sightings past the actor cap, legal entries),
-carries a bias without `biases`, or lands on a bucket that is not
-captured returns None from `infer` and the caller serves it on the
-eager path; the counters say how often.
+longer than `max_len`, sightings past the actor cap, legal entries) or
+lands on a bucket that is not captured returns None from `infer` and the
+caller serves it on the eager path; the counters say how often.
 """
 from __future__ import annotations
 
@@ -276,19 +270,15 @@ def static_sources(counts: np.ndarray, bases: Sequence[int], k_cap: int,
     return src, kind
 
 
-def _clear_masks(mv: Dict[str, np.ndarray], dirty: Tuple[int, int, int]) -> None:
+def _clear_masks(mv: Dict[str, np.ndarray], dirty: Tuple[int, int]) -> None:
     """Zero what the previous batch wrote into the static mask views
-    (`write_masks` fills rows b < B, slots a < A_max and, for the
-    attack bias, hexes h < H_max), so the buffer is clean at the cost
-    of that batch's size, not the caps'."""
-    B, A, H = dirty
+    (`write_masks` fills rows b < B and slots a < A_max), so the buffer
+    is clean at the cost of that batch's size, not the caps'."""
+    B, A = dirty
     if B == 0:
         return
-    for name, arr in mv.items():
-        if name == "attack_bias":
-            arr[:B, :A, :H] = 0
-        else:
-            arr[:B, :A] = 0
+    for arr in mv.values():
+        arr[:B, :A] = 0
 
 
 @dataclass
@@ -341,7 +331,7 @@ class _State:
     out_host: Optional[torch.Tensor] = None
     graph: Optional[torch.cuda.CUDAGraph] = None
     actor_kind: Optional[torch.Tensor] = None   # CPU, set per call (eager) or at capture
-    dirty: Tuple[int, int, int] = (0, 0, 0)     # (B, A_max, H_max) the mask views last held
+    dirty: Tuple[int, int] = (0, 0)     # (B, A_max) the mask views last held
     replays: int = 0
     capture_s: float = 0.0
     stats: Dict[str, int] = field(default_factory=dict)
@@ -361,7 +351,7 @@ class GraphedServe:
 
     def __init__(self, model, encoder, device: torch.device, *, caps: Caps = Caps(),
                  graphs: bool = True, extras: Optional[Sequence[str]] = None,
-                 biases: bool = False, capture_reserve_mb: float = CAPTURE_RESERVE_MB,
+                 capture_reserve_mb: float = CAPTURE_RESERVE_MB,
                  device_memory: bool = False):
         if getattr(model, "has_gbc", False):
             raise ValueError("graphed serve does not carry the GBC unit context")
@@ -396,7 +386,6 @@ class GraphedServe:
         self._weights: Optional[PackedTrunkWeights] = None
         self._initial: Optional[Tuple[int, np.ndarray]] = None   # (weights version, initial memory)
         self._states: Dict[Bucket, _State] = {}
-        self.biases = bool(biases)
         # One memory pool for every bucket's graph (module docstring, "Memory").
         self._pool = torch.cuda.graph_pool_handle() if self.graphs else None
         self.capture_reserve_bytes = int(capture_reserve_mb * 2 ** 20)
@@ -466,8 +455,7 @@ class GraphedServe:
             ("glob", torch.int64, (bucket.b_cap,)),
             ("memory", torch.int64, (bucket.b_cap * self.k_cap,)),
         ])
-        ml = mask_layout(bucket.b_cap, bucket.a_cap, bucket.h_cap, self.T, self.W,
-                         type_bias=self.biases, attack_bias=self.biases)
+        ml = mask_layout(bucket.b_cap, bucket.a_cap, bucket.h_cap, self.T, self.W)
         sighting_rows = caps[3] if self.parity else 0
         st = _State(
             bucket=bucket,
@@ -716,9 +704,6 @@ class GraphedServe:
         if self.disabled is not None:
             self._fallback("disabled")
             return None
-        if not self.biases and any(p.type_bias is not None or p.attack_bias is not None for p in packs):
-            self._fallback("biases")
-            return None
         sizes = [(r.unit_xs.shape[0], r.recruit_type_ids.shape[0], r.hex_xs.shape[0]) for r in raws]
         sightings = [r.sight_xs.shape[0] for r in raws] if self.parity else None
         slots = [int(m.k) for m in memories] if memories is not None else None
@@ -758,7 +743,7 @@ class GraphedServe:
             iv["memory"][:] = sidx.memory
             mv = st.mask_layout.numpy_views(st.mask_host.numpy())
             _clear_masks(mv, st.dirty)
-            st.dirty = (B, A_max, H_max)
+            st.dirty = (B, A_max)
             write_masks(mv, packs)
             if _staged_capacity(mv, self.W) > c.capacity:
                 self._fallback("capacity")
@@ -809,10 +794,6 @@ class GraphedServe:
             return None
         if self.device_memory and device_states is None:
             raise ValueError("graphed serve keeps the memory states on the device: a batch passes them")
-        if not self.biases and (parsed.any_present(FIELD["type_bias"])
-                                or parsed.any_present(FIELD["attack_bias"])):
-            self._fallback("biases")
-            return None
         slots = list(counts) if self.k_cap else None
         if slots is not None and not self.device_memory:
             ks = parsed.scalars(SCALAR["memory_k"]).tolist()
@@ -863,9 +844,9 @@ class GraphedServe:
                 list(_TOKEN_KINDS), list(_ACTOR_KINDS), actor_kind, slots)
             mlay = st.mask_layout
             capacity = parsed.fill_masks(
-                st.mask_host.numpy(), [self._offset(mlay, n, -1) for n in _MASK_NAMES], bucket.a_cap, self.T,
+                st.mask_host.numpy(), [self._offset(mlay, n) for n in _MASK_NAMES], bucket.a_cap, self.T,
                 (bucket.h_cap + 7) // 8, bucket.h_cap, self.W, (0, 0), st.dirty)
-            st.dirty = (B, A_max, H_max)
+            st.dirty = (B, A_max)
             if capacity > c.capacity:
                 self._fallback("capacity")
                 return None
@@ -887,13 +868,11 @@ class GraphedServe:
                                  memory=memory)
 
     @staticmethod
-    def _offset(layout: FlatLayout, name: str, absent: Optional[int] = None) -> int:
+    def _offset(layout: FlatLayout, name: str) -> int:
         for f in layout.fields:
             if f[0] == name:
                 return int(f[3])
-        if absent is None:
-            raise KeyError(name)
-        return absent
+        raise KeyError(name)
 
     # -- the largest bucket, first -------------------------------------------
 
@@ -926,7 +905,7 @@ class GraphedServe:
                 actor_mask=actor_mask, type_valid=np.zeros((A, self.T), np.uint8),
                 attack_valid=np.zeros((A, HB), np.uint8), move_valid=np.zeros((A, HB), np.uint8),
                 union_valid=np.zeros((A, HB), np.uint8), n_attacks=np.zeros(A, np.int8),
-                end_turn_bias=0.0, n_units=U, n_recruits=R, n_hexes=H))
+                n_units=U, n_recruits=R, n_hexes=H))
             raws.append(raw)
             memories.append(MemoryState(self.k_cap, None))
         return raws, packs, (memories if self.k_cap else None)

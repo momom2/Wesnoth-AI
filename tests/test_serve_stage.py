@@ -26,19 +26,11 @@ CPU = torch.device("cpu")
 @pytest.fixture(scope="module")
 def leaves():
     """(RawEncoded, PackedMasks) pairs of random legal games, as own1's
-    recipe encodes them, with a mask bias on some (the combat oracle's).
-    The map of seed 6 starts each leader on its keep, so the first
-    positions offer recruits."""
+    recipe encodes them. The map of seed 6 starts each leader on its keep,
+    so the first positions offer recruits."""
     from tools.bench_serve_host import harvest_leaves
     out = harvest_leaves(24, seed=6)
     assert any(m.actor_mask[m.n_units:m.n_units + m.n_recruits].any() for _, m in out), "no legal recruit"
-    rng = np.random.default_rng(0)
-    for i in (3, 10):
-        raw, m = out[i]
-        A = m.n_units + m.n_recruits + 1
-        m.type_bias = rng.standard_normal((A, m.type_valid.shape[1])).astype(np.float32)
-    raw, m = out[7]
-    m.attack_bias = rng.standard_normal((m.n_units + m.n_recruits + 1, m.n_hexes)).astype(np.float32)
     return out
 
 
@@ -80,8 +72,8 @@ def _rust(server, requests, memory=None):
 
 def test_the_rust_stage_answers_as_the_python_path(leaves, server):
     """Requests of one and two leaves, each memory on the wire (a state, or
-    none at a game-side's first decision), mask biases on some: the Rust
-    stage's replies are the Python path's bytes."""
+    none at a game-side's first decision): the Rust stage's replies are
+    the Python path's bytes."""
     from wesnoth_ai.memory import MemoryState
     rng = np.random.default_rng(1)
     reqs = []
@@ -129,7 +121,7 @@ def test_the_packed_index_is_build_packed_layouts(leaves, server):
 
 def test_the_masks_and_capacity_are_write_masks(leaves, server):
     """The masks the Rust stage writes, with the compaction capacity, are
-    `server_priors._stage_masks`'s, biases included."""
+    `server_priors._stage_masks`'s."""
     from tools.serve_stage import _MASK_NAMES, parse_requests
     from wesnoth_ai.server_priors import _stage_masks, mask_layout
     reqs = [_request(i, [(raw, masks)]) for i, (raw, masks) in enumerate(leaves)]
@@ -138,7 +130,7 @@ def test_the_masks_and_capacity_are_write_masks(leaves, server):
     A = max(m.n_units + m.n_recruits + 1 for m in packs)
     H = max(m.n_hexes for m in packs)
     layout, host, capacity = _stage_masks(packs, A, H, 2, 4, False)
-    ml = mask_layout(len(packs), A, H, 2, 4, type_bias=True, attack_bias=True)
+    ml = mask_layout(len(packs), A, H, 2, 4)
     assert [f[:3] for f in ml.fields] == [f[:3] for f in layout.fields]
     buf = np.full(ml.nbytes, 0xAB, dtype=np.uint8)
     offsets = {f[0]: f[3] for f in ml.fields}
@@ -305,10 +297,9 @@ def test_the_graphed_path_stages_from_the_rust_core_as_from_numpy(leaves, server
     every batch fits a bucket."""
     from wesnoth_ai.memory import MemoryState
     rng = np.random.default_rng(2)
-    plain = [(raw, m) for raw, m in leaves if m.type_bias is None and m.attack_bias is None]
     reqs = [_request(i, [(raw, masks, MemoryState(SLOTS, None if i % 3 == 0 else
                                                   rng.standard_normal((SLOTS, D)).astype(np.float32)))])
-            for i, (raw, masks) in enumerate(plain[:12])]
+            for i, (raw, masks) in enumerate(leaves[:12])]
     big, small = reqs[:7], reqs[7:12]                 # both in the bucket of 8 segments
     bufs, replies = {}, {}
     for name, serve in (("numpy", _python), ("rust", _rust)):
@@ -335,11 +326,10 @@ def test_the_graphed_path_serves_the_kept_memory_as_the_wire(leaves, server, rus
     memory = ServerMemory(server._model, CPU)
     held = {0: [None], 1: [None]}
     rid = 0
-    plain = [i for i, (_, m) in enumerate(leaves) if m.type_bias is None and m.attack_bias is None]
     for batch in _decisions(leaves):
         wire_reqs, kept_reqs = [], []
         for key, version, leaf in batch:
-            raw, masks = leaves[plain[leaf]]
+            raw, masks = leaves[leaf]
             wire_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, held[key][version]))]))
             kept_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, None))], served=[(key, version)]))
             rid += 1
@@ -406,11 +396,10 @@ def test_on_cuda_the_kept_memory_plays_as_the_wire(leaves, server, graphed):
     memory = ServerMemory(kept_server._model, torch.device("cuda"))
     held = {0: [None], 1: [None]}
     rid = 0
-    plain = [i for i, (_, m) in enumerate(leaves) if m.type_bias is None and m.attack_bias is None]
     for batch in _decisions(leaves):
         wire_reqs, kept_reqs = [], []
         for key, version, leaf in batch:
-            raw, masks = leaves[plain[leaf]]
+            raw, masks = leaves[leaf]
             wire_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, held[key][version]))]))
             kept_reqs.append(_request(rid, [(raw, masks, MemoryState(SLOTS, None))], served=[(key, version)]))
             rid += 1
@@ -439,10 +428,9 @@ def test_priors_only_serves_the_same_priors_without_the_head_outputs(leaves, ser
     from wesnoth_ai.byte_wire import decode_replies_with_versions
     from wesnoth_ai.memory import MemoryState
     rng = np.random.default_rng(6)
-    plain = [(raw, m) for raw, m in leaves if m.type_bias is None and m.attack_bias is None]
     reqs = [_request(i, [(raw, m, MemoryState(SLOTS, None if i % 3 == 0 else
                                                rng.standard_normal((SLOTS, D)).astype(np.float32)))])
-            for i, (raw, m) in enumerate(plain[:10])]
+            for i, (raw, m) in enumerate(leaves[:10])]
     model = server._model
     replies = {}
     for priors_only in (False, True):

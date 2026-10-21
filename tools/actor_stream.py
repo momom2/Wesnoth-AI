@@ -34,7 +34,7 @@ _R_EXPS and _R_GAME (index, decisions, start and end times, its
 drained distill stats, tag) as it ends, so the stream knows which games
 are in flight (`in_flight`, `wait_in_flight`) and which games are its
 own (the tag is the PLAY's); UPDATE between games carries the new
-value center and the global anneal counter; DRAIN ends the stream, the
+value center and the global decision counter; DRAIN ends the stream, the
 actor finishing its game and reporting done.
 
 What the learner sees per step is a batch of G whole games, as under
@@ -266,7 +266,7 @@ class ActorStream:
         """After the learner's step: the serve processes load the
         learner's current inference weights (the in-process server
         already serves them, published under its gate), the actors
-        get the new value center and the global anneal counter, and
+        get the new value center and the global decision counter, and
         the publication is dated for the straddle count as it begins:
         the in-process server serves the snapshot already and the
         serve processes load theirs during the sync, so a game that

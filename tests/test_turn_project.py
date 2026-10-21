@@ -54,8 +54,8 @@ def test_project_depth0_equals_boundary_value():
     policy = _base_policy()
     side = sim.gs.global_info.current_side
     rng = np.random.default_rng(0)
-    v0 = boundary_value(policy, sim, side, 0)
-    vp = project_value(policy, sim, side, 0, half_turns=0,
+    v0 = boundary_value(policy, sim, side)
+    vp = project_value(policy, sim, side, half_turns=0,
                        max_actions=40, rng=rng)
     assert vp == pytest.approx(v0, abs=1e-9)
 
@@ -70,14 +70,14 @@ def test_project_forced_close_parity_and_perspective():
     side = sim.gs.global_info.current_side
     r = sim.fork()
     r.step({"type": "end_turn"})
-    expect_h1 = boundary_value(policy, r, side, 0)
+    expect_h1 = boundary_value(policy, r, side)
     r2 = r.fork()
     r2.step({"type": "end_turn"})
-    expect_h2 = boundary_value(policy, r2, side, 0)
-    got_h1 = project_value(policy, sim, side, 0, half_turns=1,
+    expect_h2 = boundary_value(policy, r2, side)
+    got_h1 = project_value(policy, sim, side, half_turns=1,
                            max_actions=0,
                            rng=np.random.default_rng(0))
-    got_h2 = project_value(policy, sim, side, 0, half_turns=2,
+    got_h2 = project_value(policy, sim, side, half_turns=2,
                            max_actions=0,
                            rng=np.random.default_rng(0))
     assert got_h1 == pytest.approx(expect_h1, abs=1e-9)
@@ -93,7 +93,7 @@ def test_projection_never_mutates_live_sim():
     side = sim.gs.global_info.current_side
     key0 = state_key(sim.gs)
     rng0 = sim._rng_requests
-    project_value(policy, sim, side, 0, half_turns=3, max_actions=4,
+    project_value(policy, sim, side, half_turns=3, max_actions=4,
                   rng=np.random.default_rng(1))
     assert state_key(sim.gs) == key0
     assert sim._rng_requests == rng0
@@ -104,11 +104,11 @@ def test_placement_reval_projects_and_none_does_not():
     policy = _base_policy()
     side = sim.gs.global_info.current_side
     mcts_cfg = MCTSConfig()
-    plan_off = plan_turn(policy, sim, side, 0, _cfg(),
+    plan_off = plan_turn(policy, sim, side, _cfg(),
                          mcts_cfg, np.random.default_rng(0), "t0",
                          full=True)
     assert plan_off.projections == 0
-    plan_on = plan_turn(policy, sim, side, 0,
+    plan_on = plan_turn(policy, sim, side,
                         _cfg(project="reval", project_halfturns=1,
                              project_max_actions=2),
                         mcts_cfg, np.random.default_rng(0), "t1",

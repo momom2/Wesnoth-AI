@@ -56,21 +56,12 @@ _PAD = tuple(bytes(n) for n in range(_ALIGN))
 # A request leaf's scalars, in header order. memory_key -1: no state on the
 # server (the state, if any, is on the wire).
 REQUEST_SCALARS = ("memory_k", "our_faction_id", "their_faction_id", "hex_subset",
-                   "end_turn_bias", "n_units", "n_recruits", "n_hexes", "memory_key",
-                   "memory_version")
+                   "n_units", "n_recruits", "n_hexes", "memory_key", "memory_version")
 # A reply leaf: its scalars (memory_version -1 when the server keeps no
 # state for it), then the priors tuple's arrays.
 REPLY_SCALARS = ("num_units", "num_recruits", "memory_version")
 REPLY_FIELDS = ("value", "value_logits", "cliffness", "aux_score", "moves_left", "actor_kind",
                 "actor", "kind", "target", "weapon", "prior", "memory")
-
-
-def _float_bits(x: float) -> int:
-    return struct.unpack("<q", struct.pack("<d", x))[0]
-
-
-def _bits_float(w: int) -> float:
-    return struct.unpack("<d", struct.pack("<q", w))[0]
 
 
 def encode_bundle(leaves: Sequence[Tuple[Sequence[int], Sequence[Optional[np.ndarray]]]],
@@ -167,8 +158,7 @@ def encode_request(items: Sequence[Tuple], prefix: Sequence[int] = (),
         memory = item[2] if len(item) > 2 else None
         key, version = served[i] if served is not None else (-1, 0)
         scalars = (-1 if memory is None else int(memory.k), int(raw.our_faction_id),
-                   int(raw.their_faction_id), int(bool(raw.hex_subset)),
-                   _float_bits(float(masks.end_turn_bias)), int(masks.n_units),
+                   int(raw.their_faction_id), int(bool(raw.hex_subset)), int(masks.n_units),
                    int(masks.n_recruits), int(masks.n_hexes), int(key), int(version))
         if key >= 0 and memory is not None:
             memory = MemoryState(memory.k, None)
@@ -191,14 +181,13 @@ def decode_request(buf, offset: int = 0) -> List[Tuple]:
     n_raw, n_mask, n_parity = len(RAW_FIELDS), len(MASK_FIELDS), len(PARITY_FIELDS)
     out: List[Tuple] = []
     for scalars, vals in decode_bundle(buf, len(REQUEST_SCALARS), len(ALL_FIELDS), offset):
-        memory_k, our_f, their_f, subset, bias, n_units, n_recruits, n_hexes, key, version = scalars
+        memory_k, our_f, their_f, subset, n_units, n_recruits, n_hexes, key, version = scalars
         raw = RawEncoded(
             hex_positions=None, unit_positions=None, unit_ids=None, recruit_types=None,
             our_faction_id=our_f, their_faction_id=their_f, hex_subset=bool(subset),
             **dict(zip(_RAW_NAMES, vals[:n_raw])),
             **dict(zip(_PARITY_NAMES, vals[n_raw + n_mask:n_raw + n_mask + n_parity])))
-        masks = PackedMasks(end_turn_bias=_bits_float(bias), n_units=n_units,
-                            n_recruits=n_recruits, n_hexes=n_hexes,
+        masks = PackedMasks(n_units=n_units, n_recruits=n_recruits, n_hexes=n_hexes,
                             **dict(zip(_MASK_NAMES, vals[n_raw:n_raw + n_mask])))
         if memory_k < 0:
             out.append((raw, masks))

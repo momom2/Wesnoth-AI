@@ -19,7 +19,7 @@ _CMD_STOP = "stop"
 _CMD_DRAIN = "drain"      # finish the current game, take no new ones
 # (value_center, decision_step): the continuous pool's per-step update,
 # applied between games -- the search's value center and the global
-# anneal counter, which the barrier pool re-sends with every PLAY.
+# decision counter, which the barrier pool re-sends with every PLAY.
 _CMD_UPDATE = "update"
 
 # Game tickets (main -> actors, one shared queue): (iter_idx, game

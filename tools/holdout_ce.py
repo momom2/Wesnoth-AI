@@ -55,7 +55,6 @@ def holdout_ce(checkpoint: Path, dataset: Path, device: torch.device, sequences:
                autocast_dtype=None) -> Dict:
     from tools.eval_players import _load_policy
     from tools.replay_dataset import iter_record_pairs
-    from tools.supervised_train import _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
     from wesnoth_ai.encoder import encode_raw
     from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
     policy = _load_policy(checkpoint, device, label="holdout")
@@ -101,10 +100,9 @@ def holdout_ce(checkpoint: Path, dataset: Path, device: torch.device, sequences:
             targets = build_imitation_targets(
                 [ai for _, ai, _ in chunk], [(None, 0.0, 1.0)] * len(chunk), streams.sizes,
                 n_types=padded.type_logits.shape[2], n_weapons=padded.weapon_logits.shape[2],
-                n_atoms=padded.value_logits.shape[1],
-                type_loss_weights=dict(_DEFAULT_ACTION_TYPE_LOSS_WEIGHT), device=device)
+                n_atoms=padded.value_logits.shape[1], device=device)
             parts = imitation_loss_parts(padded, targets)
-            vals = (parts.actor_weighted + parts.type + parts.target + parts.weapon).cpu().tolist()
+            vals = (parts.actor_raw + parts.type + parts.target + parts.weapon).cpu().tolist()
             for (_, _, side), ce, ok in zip(chunk, vals, targets.ok["actor"]):
                 if not ok:
                     unscored += 1

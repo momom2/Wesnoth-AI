@@ -7,8 +7,7 @@ reassociation noise through step_mcts at batch 1 and at batch 4
 (chunks with different hex counts), with every kind of term present
 (actor, type, attack / move / recruit targets, weapons, end_turn), a
 legacy 4-tuple experience, an empty experience, unequal game and
-policy weights, two combat-oracle anneal steps, and out-of-range
-stored indices. Also the stage-timing hook.
+policy weights, and out-of-range stored indices. Also the stage-timing hook.
 
 Positions: the first bench states of configs/bench_states.json,
 rebuilt from the replay dataset (skipped when it is not on this
@@ -74,7 +73,7 @@ def case():
         exps.append(MCTSExperience(
             game_state=gs, visit_counts=visits, z=rng.choice((-1.0, 1.0)),
             game_weight=1.0 / (1 + i % 3), policy_weight=0.5 if i == 1 else 1.0,
-            game_id=f"g{i // 2}", decision_step=0 if i < 3 else 5000))
+            game_id=f"g{i // 2}"))
     # Legacy 4-tuples (no type: union target rows, no type term).
     exps[2].visit_counts = [v[:4] for v in exps[2].visit_counts]
     # No visits at all (step_control's held-out probes build these).

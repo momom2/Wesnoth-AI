@@ -12,12 +12,8 @@ What MCTS mode changes vs REINFORCE:
   - **Action picking**: an MCTS search produces a visit-count
     distribution over legal actions; we sample (or argmax) from
     that instead of the raw policy logits.
-  - **Per-step shaping reward**: ignored. AlphaZero distills the
-    final game outcome (z = ±1 for win/loss, 0 for draws/timeouts)
-    onto every visited state — no Bellman-style reward shaping.
-    The user's `--reward-config` is silently unused in MCTS mode;
-    the iter log still reports per-step shaping totals so REINFORCE
-    runs and MCTS runs are easy to compare visually.
+  - **Reward**: AlphaZero distills the final game outcome (z = ±1
+    for win/loss, 0 for draws/timeouts) onto every visited state.
   - **Trainer step**: `trainer.step_mcts(experiences)` instead of
     `trainer.step(transitions)`. Cross-entropy against the
     visit-count distribution + value loss against z.
@@ -49,7 +45,6 @@ from wesnoth_ai.memory import SideMemories
 from wesnoth_ai.trainer import MCTSExperience, TrainStats
 if TYPE_CHECKING:
     from wesnoth_ai.server_priors import PackedMasks
-from tools.draw_tiebreak import draw_tiebreak_z, material_margin
 from tools.mcts import (
     MCTSConfig, mcts_search, extract_visit_counts, best_action,
     sample_action, extract_gumbel_policy_target,
@@ -113,16 +108,10 @@ class _PendingMCTSState:
     `gs` reference (NOT a deepcopy — `_run_one_game` already passes
     in a deepcopy as `pre_state`), the MCTS visit counts emitted
     at this state, and the side-to-move so finalize_game can
-    compute z = +1 / -1 / 0 from the perspective of that side.
-
-    `decision_step` is the training-progress counter at the time this
-    state's search ran -- carried through to the MCTSExperience so the
-    distillation loss rebuilds reference logits at the SAME combat-oracle
-    alpha the search used (`combat_alphas_at`)."""
+    compute z = +1 / -1 / 0 from the perspective of that side."""
     gs:            GameState
     visit_counts:  List[Tuple]
     side:          int
-    decision_step: int = 0
     # Policy-loss magnitude carried to MCTSExperience.policy_weight
     # (plan-tournament certify-or-abstain: beta on certified turns,
     # 0.0 on abstained value-only records; 1.0 = legacy full weight).
@@ -154,17 +143,11 @@ class MCTSPolicy:
     """Wraps a `TransformerPolicy` to do MCTS+distillation."""
 
     trainable = True
-    # Optimization #6 (2026-06-14): MCTS distills terminal z, not
-    # per-step shaping -- `observe` is a no-op. Signals the rollout
-    # loop to skip the (expensive, Dijkstra-bearing) compute_delta +
-    # reward_fn calls entirely.
-    uses_step_rewards = False
 
     def __init__(self, base, mcts_config: Optional[MCTSConfig] = None,
                  replay_config: Optional[ReplayConfig] = None,
                  holdout_size: int = 0,
                  holdout_per_game_cap: int = 64,
-                 train_draw_tiebreak: bool = False,
                  signal_telemetry: bool = False,
                  gbc_labels: bool = False,
                  draw_value_weight: float = 0.0,
@@ -201,16 +184,6 @@ class MCTSPolicy:
         self._base = base
         self._mcts_config = mcts_config or MCTSConfig()
         self._replay_config = replay_config or ReplayConfig()
-        # Draw-label policy for TRAINING targets (2026-07-10). The
-        # material tiebreak remains a SEARCH preference (mcts.py
-        # _terminal_value) and the aux head still learns material --
-        # but by default draws now train the value head toward the
-        # honest z=0. Labeling draws with material-z made "predict
-        # material" the dominant lesson (~93% of ladder games are
-        # draws) and measurably eroded win/loss discrimination
-        # (human-corpus late-game AUC 0.88 -> 0.60 in ~80 iters;
-        # r_material/r_outcome rose 1.28 -> 2.18).
-        self._train_draw_tiebreak = bool(train_draw_tiebreak)
         # Per-source gradient-norm telemetry (4 extra backward passes
         # per iteration, ~3-5%): OFF by default so it never
         # accumulates silently (user ruling 2026-09-02). dv_consult
@@ -481,17 +454,10 @@ class MCTSPolicy:
                 "(sim.step would otherwise mutate the recorded training "
                 "target). See play_one_game's `copy.deepcopy(sim.gs)`."
             )
-        # Combat-oracle anneal: capture the policy's current training-
-        # progress counter for THIS decision and advance it. The MCTS
-        # path otherwise never increments decision_step (only
-        # TransformerPolicy.select_action does, on the REINFORCE path),
-        # so without this the oracle bias would never anneal in MCTS
-        # mode. The captured value drives the search's leaf-prior alpha
-        # AND is recorded on the training target so the distillation loss
-        # rebuilds reference logits at the same alpha. Atomic under the
-        # base lock (worker threads may call select_action concurrently).
+        # The policy's decision counter (training progress, kept in the
+        # checkpoint) advances once per decision. Atomic under the base
+        # lock (worker threads may call select_action concurrently).
         with self._base._lock:
-            decision_step = self._base._decision_step
             self._base._decision_step += 1
         reuse_root = None
         if self._mcts_config.tree_reuse:
@@ -529,7 +495,6 @@ class MCTSPolicy:
             self._mcts_config,
             reuse_root=reuse_root,
             n_sims_override=n_override,
-            decision_step=decision_step,
             rng=self._search_rng(),
             memory=memory,
         )
@@ -587,8 +552,7 @@ class MCTSPolicy:
             with self._lock:
                 self._pending.setdefault(game_label, []).append(
                     _PendingMCTSState(gs=game_state, visit_counts=visits,
-                                      side=side, decision_step=decision_step,
-                                      masks=root.masks)
+                                      side=side, masks=root.masks)
                 )
                 if ds:
                     a = self._distill_acc
@@ -628,8 +592,8 @@ class MCTSPolicy:
                         self._reuse[game_label] = stash
         # Record whether this decision left a pending training target, so a
         # fog-bounce retry can undo exactly this decision (full moves append
-        # a pending state; fast playout-cap moves don't). decision_step was
-        # advanced above regardless.
+        # a pending state; fast playout-cap moves don't). The decision
+        # counter was advanced above regardless.
         with self._lock:
             self._last_recorded[game_label] = full_move
         if self._trace is not None:
@@ -639,11 +603,9 @@ class MCTSPolicy:
 
     def observe(self, game_label: str, side: int, reward: float,
                 done: bool = False) -> None:
-        """MCTS ignores per-step shaping rewards. We only act on
-        the rollout loop's terminal-observe pulse to know when the
-        game is over for *this side* — but the actual MCTSExperience
-        building happens in `finalize_game`, which needs the winner
-        (not just per-side done flags). Treat this as a no-op."""
+        """A no-op: the MCTSExperience building happens in
+        `finalize_game`, which needs the winner (not just per-side
+        done flags)."""
         # Intentionally empty.
 
     def finalize_game(self, game_label: str, winner: int,
@@ -651,13 +613,10 @@ class MCTSPolicy:
                       midgame: bool = False) -> None:
         """Drain `_pending[game_label]` into `_queue` with one
         `MCTSExperience` per recorded state. `winner == 0` means
-        draw/timeout: z is 0, or the material tiebreaker score of
-        the FINAL state when `MCTSConfig.draw_tiebreak` is set --
-        the same function the search applies at turn-cap terminals,
-        so targets and search horizon agree. `final_gs` is the
-        game's actual end state (passed by the rollout loop); if
-        absent we fall back to the last recorded pre-action state,
-        which trails the true final state by one action."""
+        draw/timeout: z is 0. `final_gs` is the game's actual end
+        state (passed by the rollout loop); if absent we fall back to
+        the last recorded pre-action state, which trails the true
+        final state by one action."""
         with self._lock:
             states = self._pending.pop(game_label, [])
             self._reuse.pop(game_label, None)
@@ -670,28 +629,17 @@ class MCTSPolicy:
             self._last_recorded.pop(game_label, None)
             self._forget_memories(game_label)
         trace = self._trace.pop(game_label) if self._trace is not None else None
-        tiebreak = self._mcts_config.draw_tiebreak
-        if winner == 0 and tiebreak is not None and final_gs is None \
-                and states:
-            final_gs = states[-1].gs
-            log.debug(
-                f"finalize_game({game_label!r}): no final_gs passed; "
-                f"tiebreak scored on the last pre-action state")
-        # Auxiliary margin target (KataGo §3.5): the final MATERIAL
-        # margin from each state's side, computed from the game's end
-        # state for EVERY outcome (denser than z). Needs the tiebreak
-        # weights + a final state; falls back to the last recorded
-        # state if the rollout didn't pass `final_gs`. `None` when no
-        # tiebreak config is set (trainer then skips the aux loss).
-        aux_gs = final_gs if final_gs is not None else (
+        # The game's end state; the last recorded state when the rollout
+        # did not pass `final_gs`.
+        end_gs = final_gs if final_gs is not None else (
             states[-1].gs if states else None)
         # Moves-left targets (Lc0-style, 2026-07-04): fraction of the
         # turn budget still to be played from each recorded state,
         # derived from the game's actual end turn. Normalized by a
         # fixed constant (not per-game max_turns) so "0.1 left" means
         # the same wall distance on every map.
-        end_turn_no = (aux_gs.global_info.turn_number
-                       if aux_gs is not None else None)
+        end_turn_no = (end_gs.global_info.turn_number
+                       if end_gs is not None else None)
         exps: List[MCTSExperience] = []
         # Per-game gradient normalization (2026-07-12): each game
         # contributes equal total weight regardless of length.
@@ -721,27 +669,13 @@ class MCTSPolicy:
         n_by_side: Dict[int, int] = {}
         for s in states:
             n_by_side[s.side] = n_by_side.get(s.side, 0) + 1
-        for i, s in enumerate(states):
+        for s in states:
             if winner == 0:
-                if (self._train_draw_tiebreak and tiebreak is not None
-                        and final_gs is not None):
-                    z = draw_tiebreak_z(final_gs, s.side, tiebreak)
-                else:
-                    z = 0.0     # honest draw label (see __init__)
+                z = 0.0
             elif winner == s.side:
                 z = +1.0
             else:
                 z = -1.0
-            # Aux target = NEXT recorded state's margin (2026-07-12,
-            # was: the game's FINAL margin). One-step material
-            # prediction directly credits captures/kills the moment
-            # they happen -- and since the next recorded state may
-            # follow the opponent's reply, it teaches captures that
-            # HOLD. The last state falls back to the true final state.
-            nxt_gs = (states[i + 1].gs if i + 1 < len(states)
-                      else (aux_gs if aux_gs is not None else s.gs))
-            aux = (material_margin(nxt_gs, s.side, tiebreak)
-                   if tiebreak is not None else None)
             ml = None
             if end_turn_no is not None:
                 remaining = max(0, end_turn_no
@@ -751,9 +685,7 @@ class MCTSPolicy:
                 game_state=s.gs,
                 visit_counts=s.visit_counts,
                 z=z,
-                aux_target=aux,
                 moves_left_target=ml,
-                decision_step=s.decision_step,
                 game_weight=1.0 / (2.0 * side_weight_divisor(
                     n_by_side[s.side], midgame)),
                 # Truncation ruling (user, 2026-08-17): a winnerless
@@ -761,10 +693,9 @@ class MCTSPolicy:
                 # states carry no value label (policy targets keep
                 # full weight). --draw-value-weight raises it; this
                 # is the ONE authority (project round-1 C3: the
-                # trainer's second gate multiplied the tiebreak z
-                # and draw_value_weight by this 0.0, silently
-                # nullifying both knobs while the launcher logged
-                # them as in effect).
+                # trainer's second gate multiplied draw_value_weight
+                # by this 0.0, silently nullifying the knob while the
+                # launcher logged it as in effect).
                 value_weight=(self._draw_value_weight
                               if winner == 0 else 1.0),
                 policy_weight=float(getattr(s, "policy_weight", 1.0)),
@@ -784,18 +715,18 @@ class MCTSPolicy:
                 if _gbc_rec is not None:
                     from wesnoth_ai.gbc import (diff_events_obs,
                                                 observe_state)
-                    if (aux_gs is not None
+                    if (end_gs is not None
                             and _gbc_rec["prev"] is not None):
                         # The final state's events (the winning
                         # kill, the last capture) close the trace.
                         _gbc_rec["events"].extend(diff_events_obs(
                             _gbc_rec["n"], _gbc_rec["prev"],
-                            observe_state(aux_gs)))
+                            observe_state(end_gs)))
                     _trace = (_gbc_rec["events"],
                               _gbc_rec["anchor"])
                 rows = labels_for_game_states(
                     [s.gs for s in states], [s.side for s in states],
-                    final_gs=aux_gs, trace=_trace)
+                    final_gs=end_gs, trace=_trace)
                 for exp, r in zip(exps, rows):
                     exp.gbc_labels = r
             except Exception as e:  # noqa: BLE001 -- labels are an
@@ -969,14 +900,14 @@ class MCTSPolicy:
     def drop_last_pending(self, game_label: str) -> bool:
         """Undo the most recent select_action for `game_label` after a
         fog-bounce rejection: pop the pending training target it recorded
-        (if it was a full move) and roll back the decision_step increment
-        it made, so the rejected pick is neither trained on nor counted
-        toward the combat-oracle anneal. Also drop the now-stale tree-reuse
+        (if it was a full move) and roll back the decision counter's
+        increment it made, so the rejected pick is neither trained on nor
+        counted. Also drop the now-stale tree-reuse
         stash for the bounced action. Returns True (the rejection was
         handled) so the rollout loop knows not to fall back to observe().
 
         MUST be called BEFORE the re-decision so the rolled-back
-        decision_step is re-consumed by the retry (no double-count).
+        count is re-consumed by the retry (no double-count).
         """
         with self._lock:
             recorded = self._last_recorded.pop(game_label, False)

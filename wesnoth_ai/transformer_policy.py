@@ -63,9 +63,6 @@ class TransformerPolicy:
     the optional training hooks ``observe`` and ``train_step``."""
 
     trainable = True
-    # REINFORCE consumes per-step shaping rewards (compute_delta +
-    # reward_fn); see optimization #6 and MCTSPolicy.uses_step_rewards.
-    uses_step_rewards = True
 
     def __init__(
         self,
@@ -341,11 +338,8 @@ class TransformerPolicy:
         # so production runs (`python -O`) skip the bookkeeping.
         self._last_state_id: Dict[Tuple[str, int], int] = {}
 
-        # Per-Python-decision counter, threaded into the sampler so
-        # combat-oracle alphas anneal over training. Persisted via
-        # save_checkpoint / load_checkpoint so resumed training picks
-        # up the schedule cleanly. See action_sampler.combat_alphas_at
-        # and constants.COMBAT_ANNEAL_HORIZON.
+        # Per-Python-decision counter: training progress, persisted via
+        # save_checkpoint / load_checkpoint.
         self._decision_step: int = 0
 
         # Architecture record (for checkpoint compat checks).
@@ -398,10 +392,9 @@ class TransformerPolicy:
              collapses to -inf, and the policy loss explodes (or worse,
              silently produces nonsense gradients).
 
-          2. `compute_delta(prev, post)` requires a stable `prev`. If
+          2. The rollout's recruit count diffs (prev, post): if
              `prev IS post` after `sim.step` mutates in place, every
-             reward delta is zero and the policy receives no shaping
-             signal.
+             recruit reads as failed.
 
         Both `tools/selfplay_game.py:play_one_game` and
         `tools/sim_demo_game.py` deepcopy `sim.gs` before each call.
@@ -439,21 +432,10 @@ class TransformerPolicy:
                     )
                 self._last_state_id[key_dbg] = id(game_state)
 
-            # Capture the anneal counter used for THIS decision and stamp it
-            # onto the Transition, so the trainer's reforward rebuilds the
-            # combat-oracle bias at the same alpha the sampler applied here
-            # (otherwise the reference distribution the policy gradient is
-            # computed against uses stronger oracle bias than was sampled --
-            # a systematic train/collect mismatch).
-            ds = self._decision_step
             with torch.no_grad():
                 encoded = self._inference_encoder.encode(game_state)
                 output = self._inference_model(encoded)
-                sampled = sample_action(
-                    encoded, output, game_state,
-                    decision_step=ds,
-                )
-            # Increment AFTER sampling so decision N samples at counter N.
+                sampled = sample_action(encoded, output, game_state)
             self._decision_step += 1
 
             side = game_state.global_info.current_side
@@ -464,7 +446,6 @@ class TransformerPolicy:
                 target_idx=sampled.target_idx,
                 weapon_idx=sampled.weapon_idx,
                 type_idx=sampled.type_idx,
-                decision_step=ds,
             ))
             return sampled.action
 
@@ -568,8 +549,7 @@ class TransformerPolicy:
         """No-op for REINFORCE. The MCTS-mode policy wrapper
         (`tools.mcts_policy.MCTSPolicy`) overrides this to seal
         per-game `MCTSExperience` lists with the terminal-z derived
-        from `winner` (and, for draws, the material tiebreak score
-        of `final_gs`). Defining it here as a no-op lets the rollout
+        from `winner`. Defining it here as a no-op lets the rollout
         loop call it unconditionally without `hasattr`-checking."""
 
     def train_step(self) -> TrainStats:
@@ -1073,10 +1053,7 @@ class TransformerPolicy:
                 "checkpoint (shape mismatch would crash AdamW "
                 "on first step); momentum re-accumulates from "
                 "scratch.")
-        # Decision counter -- absent on pre-C.3 checkpoints; default 0
-        # there means the alpha schedule starts fresh on resume from
-        # an old checkpoint, which is fine (the model just gets full
-        # oracle bias for a while as if starting over).
+        # Decision counter -- absent on pre-C.3 checkpoints (default 0).
         self._decision_step = int(ckpt.get("decision_step", 0))
         # Sync the inference snapshot to the freshly-loaded weights.
         # Without this, select_action would keep using whatever

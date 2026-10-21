@@ -192,14 +192,13 @@ def test_mcts_search_through_seam_matches_direct():
     drop-in and mcts.py needs zero changes."""
     import numpy as np
     from tools.mcts import MCTSConfig, mcts_search
-    from tools.draw_tiebreak import DrawTiebreakConfig
 
     pol = _policy()
     enc, mdl, server, renc, rmodel = _seam(pol)
     cfg = MCTSConfig(
         n_simulations=24, gumbel_root=True, gumbel_m=6,
         chance_nodes=True, exact_outcome_enumeration=True,
-        draw_tiebreak=DrawTiebreakConfig(cap=0.3), batch_size=1,
+        batch_size=1,
         add_root_noise=False)
     sim = fresh_scenario_sim(seed=21, max_turns=12, mini=True)
 

@@ -69,7 +69,7 @@ def test_stream_collects_whole_games_and_keeps_the_queue_topped_up():
     assert window.outcomes == ["o"]                  # the failed game sent none
     assert window.experiences == ["e1", "e2"]
     assert window.decisions == 8
-    assert pool.last_decisions == 8, "the anneal counter advanced by the window's decisions"
+    assert pool.last_decisions == 8, "the decision counter advanced by the window's decisions"
     assert pool.last_distill_stats == {"distill_x": 1.0}
     assert window.straddle_mean == 0.0 and window.straddled_share == 0.0
     assert pool.last_iteration_seconds == pytest.approx(window.seconds)

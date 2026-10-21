@@ -19,7 +19,6 @@ import torch
 from wesnoth_ai.transformer_policy import TransformerPolicy
 from tools.mcts import MCTSConfig
 from tools.mcts_policy import MCTSPolicy
-from tools.draw_tiebreak import DrawTiebreakConfig
 from wesnoth_ai.rules.scenario_pool import ScenarioSetup, build_scenario_gamestate
 from tools.wesnoth_sim import WesnothSim
 
@@ -30,7 +29,6 @@ def test_step_mcts_sane_under_relevant_set_flag():
                             relevant_set_hexes=True)
     mp = MCTSPolicy(pol, MCTSConfig(
         n_simulations=8, gumbel_root=True, gumbel_m=4, batch_size=1,
-        draw_tiebreak=DrawTiebreakConfig(cap=0.3),
         add_root_noise=False), holdout_size=0)
     setup = ScenarioSetup(
         scenario_id="2p_mini", faction1="Rebels",

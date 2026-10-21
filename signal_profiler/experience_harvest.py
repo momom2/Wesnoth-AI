@@ -25,12 +25,9 @@ def harvest_experiences(policy, n_games: int, seed: int,
     (fork-guard decisions, bounce retries, finalize_game with GBC
     labels and value weights)."""
     from wesnoth_ai.rules.scenario_pool import build_scenario_gamestate, random_setup
-    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import play_one_game
     from tools.wesnoth_sim import WesnothSim
-    from wesnoth_ai.rewards import WeightedReward
 
-    cost_lookup = _recruit_cost_lookup()
-    reward_fn = WeightedReward()
     outcomes = []
     for g in range(n_games):
         rng = random.Random(seed + g)
@@ -38,9 +35,7 @@ def harvest_experiences(policy, n_games: int, seed: int,
         gs = build_scenario_gamestate(setup)
         sim = WesnothSim(gs, scenario_id=setup.scenario_id,
                          max_turns=max_turns)
-        out = play_one_game(sim, policy, reward_fn,
-                            game_label=f"profile_g{g}",
-                            cost_lookup=cost_lookup)
+        out = play_one_game(sim, policy, game_label=f"profile_g{g}")
         outcomes.append(out)
         log.info("game %d/%d done: winner=%s turns=%s", g + 1,
                  n_games, getattr(out, "winner", "?"),
@@ -61,7 +56,6 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
     gate projection + head-only value memory. Returns a zero-arg
     factory (fresh policy per call — gradient_tree needs isolation
     across term variants)."""
-    from tools.draw_tiebreak import DrawTiebreakConfig
     from tools.eval_players import _load_policy
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy, ReplayConfig
@@ -77,12 +71,7 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
 
     def factory():
         base = _load_policy(checkpoint, device, label="profile")
-        # draw_tiebreak mirrors the production launcher default
-        # (--draw-tiebreak-cap 0.3); without it finalize_game never
-        # attaches aux_target and the aux branch of the tree reads
-        # zero (rounds 1-4 ran without it: aux unprofiled there).
-        mc = MCTSConfig(n_simulations=32,
-                        draw_tiebreak=DrawTiebreakConfig(cap=0.3))
+        mc = MCTSConfig(n_simulations=32)
         kw = dict(
             replay_config=ReplayConfig(enabled=False),
             gbc_labels=True,

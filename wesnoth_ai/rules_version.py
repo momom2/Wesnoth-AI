@@ -46,6 +46,12 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # (feature/record-walk-rust) build the same positions and labels, byte
     # for byte (tests/test_core_label.py).
     35: 31,
+    # The inference server's mask staging without the hand-set prior
+    # biases (fix/remove-hand-priors): nothing that builds a position.
+    36: 31,
+    # The inference server's requests without the end_turn bias
+    # (fix/remove-hand-priors): nothing that builds a position.
+    37: 31,
 }
 
 

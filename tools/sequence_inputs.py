@@ -49,10 +49,10 @@ class _Inputs:
     """What both paths share: the run's facts and settings."""
 
     def __init__(self, loader, encoder, model, own, games, args, value_weight: float,
-                 type_loss_weights: Dict[str, float], device: torch.device):
+                 device: torch.device):
         self.loader, self.encoder, self.own, self.games = loader, encoder, own, games
         self.seed, self.value_states_per_game = args.seed, args.value_states_per_game
-        self.value_weight, self.type_loss_weights, self.device = value_weight, type_loss_weights, device
+        self.value_weight, self.device = value_weight, device
         self.head_shapes = head_shapes(model)
         self.pin = device.type == "cuda"
 
@@ -65,8 +65,7 @@ class _Inputs:
                              pin=self.pin)
         n_types, n_weapons, n_atoms = self.head_shapes
         targets = build_imitation_targets(labels.ais, labels.zw, staged.sizes, n_types=n_types,
-                                          n_weapons=n_weapons, n_atoms=n_atoms,
-                                          type_loss_weights=self.type_loss_weights, device=self.device)
+                                          n_weapons=n_weapons, n_atoms=n_atoms, device=self.device)
         b_target, b_mask = labels.belief_on(self.device)
         return targets, b_target, b_mask
 
@@ -209,10 +208,7 @@ def stage_own_columns(rows: Sequence[int], own: Sequence[Tuple[ColumnarSide, int
     their columns (`own`: each row's game-side and position): the same
     buffer, bytes and views."""
     n = len(rows)
-    flags = {key: any(bool(side.arrays[key][i]) for side, i in own)
-             for key in ("mask_type_bias_on", "mask_attack_bias_on")}
-    masks = mask_layout(n, A_max, H_max, n_types, n_weapons, type_bias=flags["mask_type_bias_on"],
-                        attack_bias=flags["mask_attack_bias_on"])
+    masks = mask_layout(n, A_max, H_max, n_types, n_weapons)
     target_spans = [side.span("target", i) for side, i in own]
     K = max((hi - lo for lo, hi in target_spans), default=1)
     layout = FlatLayout([("rows", torch.int64, (n,))]
@@ -236,7 +232,7 @@ def write_mask_columns(hv: Dict[str, np.ndarray], own: Sequence[Tuple[ColumnarSi
     """`server_priors.write_masks` into ZEROED views, from columns: row b's
     masks at row b, one indexed write per field."""
     n = len(own)
-    U, R, H = (_scalars(own, k).astype(np.int64) for k in ("mask_units", "mask_recruits", "mask_hexes"))
+    U, R = (_scalars(own, k).astype(np.int64) for k in ("mask_units", "mask_recruits"))
     A = U + R + 1
     actor_spans = [side.span("actor", i) for side, i in own]
     if [hi - lo for lo, hi in actor_spans] != A.tolist():
@@ -246,11 +242,8 @@ def write_mask_columns(hv: Dict[str, np.ndarray], own: Sequence[Tuple[ColumnarSi
     hv["actor_mask"][rows_a, cols_a] = _cat(own, "actor_mask", actor_spans)
     hv["slot_kind"][rows_a, cols_a] = np.where(cols_a < U[rows_a], _SLOT_UNIT,
                                                np.where(cols_a < (U + R)[rows_a], _SLOT_RECRUIT, _SLOT_END))
-    hv["actor_bias"][np.arange(n), U + R] = _scalars(own, "mask_end_turn_bias")
     hv["n_attacks"][rows_a, cols_a] = _cat(own, "n_attacks", actor_spans)
     hv["type_valid"][rows_a, cols_a] = _cat(own, "type_valid", actor_spans)
-    if "type_bias" in hv:
-        hv["type_bias"][rows_a, cols_a] = _cat(own, "type_bias", actor_spans)
     width = _scalars(own, "mask_bits_width").astype(np.int64)
     bit_spans = [side.span("bits", i) for side, i in own]
     if [hi - lo for lo, hi in bit_spans] != (A * width).tolist():
@@ -259,11 +252,6 @@ def write_mask_columns(hv: Dict[str, np.ndarray], own: Sequence[Tuple[ColumnarSi
     for column, field in (("attack_valid", "attack_bits"), ("move_valid", "move_bits"),
                           ("union_valid", "union_bits")):
         hv[field][rows_k, a_k, c_k] = _cat(own, column, bit_spans)
-    if "attack_bias" in hv:
-        on = _scalars(own, "mask_attack_bias_on").astype(bool)
-        rows_k, a_k, c_k = _blocks(np.where(on, A, 0), H)
-        hv["attack_bias"][rows_k, a_k, c_k] = _cat(own, "attack_bias", [side.span("attack_bias", i)
-                                                                         for side, i in own])
 
 
 def _blocks(rows_per: np.ndarray, width: np.ndarray):

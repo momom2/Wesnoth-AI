@@ -54,15 +54,15 @@ FIELD = {name: i for i, name in enumerate(FIELD_NAMES)}
 SCALAR = {name: i for i, name in enumerate(REQUEST_SCALARS)}
 _CODE = {dt: i for i, dt in enumerate(DTYPES)}
 FIELD_CODES = tuple(_CODE[dt] for _, dt in ALL_FIELDS)
-# A leaf may leave out the mask biases, the parity streams and its memory state.
-FIELD_OPTIONAL = tuple(name in ("type_bias", "attack_bias", "memory_state")
-                       or name in {n for n, _ in PARITY_FIELDS} for name in FIELD_NAMES)
+# A leaf may leave out the parity streams and its memory state.
+FIELD_OPTIONAL = tuple(name == "memory_state" or name in {n for n, _ in PARITY_FIELDS}
+                       for name in FIELD_NAMES)
 REQUEST_HEAD_WORDS = 3            # tools/serve_loop.py: kind, request id, leaves
 _TOKEN_KINDS = (TokenKind.HEX, TokenKind.UNIT, TokenKind.RECRUIT, TokenKind.SIGHTING,
                 TokenKind.MEMORY, TokenKind.GLOBAL, TokenKind.END_TURN)
 _ACTOR_KINDS = (ActorKind.UNIT, ActorKind.RECRUIT, ActorKind.END_TURN)
-_MASK_NAMES = ("actor_bias", "actor_mask", "slot_kind", "n_attacks", "type_valid", "attack_bits",
-               "move_bits", "union_bits", "type_bias", "attack_bias")
+_MASK_NAMES = ("actor_mask", "slot_kind", "n_attacks", "type_valid", "attack_bits", "move_bits",
+               "union_bits")
 # The head outputs a reply carries, in byte_wire.REPLY_FIELDS's order.
 _REPLY_EXTRAS = ("value", "value_logits", "cliffness", "aux_score", "moves_left")
 _TORCH_CODE = {torch.float32: _CODE[np.dtype(np.float32)], torch.float64: _CODE[np.dtype(np.float64)],
@@ -366,8 +366,7 @@ def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
     _total, A_max, H_max, _U_max, _R_max, _S_max, K_max, mem_rows, longest = parsed.index_dims(counts)
     T, W = int(UnitActionType.COUNT), int(model.max_attacks)
     packed = _packed_trunk_applies(model, dev, bf16)
-    ml = mask_layout(B, A_max, H_max, T, W, type_bias=parsed.any_present(FIELD["type_bias"]),
-                     attack_bias=parsed.any_present(FIELD["attack_bias"]))
+    ml = mask_layout(B, A_max, H_max, T, W)
     aux_fields = [(name, dt, shape) for name, dt, shape, _o, _n in ml.fields]
     n_index = 0
     if packed:
@@ -381,7 +380,7 @@ def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
     aux_np = aux_host.numpy()
     offsets = {name: off for name, _dt, _shape, off, _n in aux.fields}
     HB = (H_max + 7) // 8
-    capacity = parsed.fill_masks(aux_np, [offsets.get(n, -1) for n in _MASK_NAMES], A_max, T, HB, H_max, W,
+    capacity = parsed.fill_masks(aux_np, [offsets[n] for n in _MASK_NAMES], A_max, T, HB, H_max, W,
                                  (0, aux.nbytes))
     if packed:
         parsed.fill_packed_index(aux_np, offsets["index"], _TOKEN_KINDS, _ACTOR_KINDS, counts)
@@ -438,7 +437,7 @@ def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
         ride = [getattr(padded, n) for n in names]
         if wire_memory:
             ride.append(padded.memory_padded.float())
-        mask_views = {n: v[n] for n in _MASK_NAMES if n in v}
+        mask_views = {n: v[n] for n in _MASK_NAMES}
         with region("priors"):
             out_layout, flat_out = priors_outputs(padded, mask_views, capacity, ride)
             out_host = torch.empty(out_layout.nbytes, dtype=torch.uint8, pin_memory=cuda)

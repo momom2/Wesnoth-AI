@@ -349,7 +349,7 @@ def test_consumers_without_the_memory_state_refuse_a_memory_model():
     with pytest.raises(ValueError, match="memory \\(4 slots\\)"):
         mcts_search(None, model, encoder)
     with pytest.raises(ValueError, match="memory \\(4 slots\\)"):
-        plan_turn(policy, None, 1, 0, None, None, None, "", False)
+        plan_turn(policy, None, 1, None, None, None, "", False)
     with pytest.raises(ValueError, match="memory of 4 slots"):
         ActorPool(SimpleNamespace(_inference_model=model), 1, None)
 

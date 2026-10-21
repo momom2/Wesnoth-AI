@@ -262,7 +262,7 @@ def pool_experiences(policy, *, actors: int, games: int, sims: int, max_turns: i
         base.infer_autocast_bf16 = True
         base.infer_packed_trunk = True
     mcts_cfg = MCTSConfig(n_simulations=sims, gumbel_root=False, tree_reuse=False,
-                          playout_cap_randomization=False, draw_tiebreak=None,
+                          playout_cap_randomization=False,
                           batch_size=16 if cuda else 1)
     mpolicy = MCTSPolicy(policy, mcts_cfg, replay_config=ReplayConfig(enabled=False),
                          holdout_size=0, gbc_labels=False)

@@ -159,7 +159,7 @@ class ModelOutput:
     # final MATERIAL margin from the acting side's perspective, tanh-
     # bounded to (-1, +1). `None` when the model was built without the
     # aux head (default). A denser training signal than win/loss z;
-    # see trainer aux_coef + draw_tiebreak.material_margin.
+    # see trainer aux_coef.
     aux_score:     Optional[torch.Tensor] = None  # [1, 1] or None
     # Optional moves-left head (Lc0-style, 2026-07-04): predicted
     # FRACTION of the turn budget still to be played from this state,

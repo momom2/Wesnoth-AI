@@ -28,8 +28,8 @@ from wesnoth_ai.encoder import RawEncoded
 from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.server_priors import PackedMasks
 
-# (field, dtype) in buffer order. Optional mask biases are None when
-# absent, which the header records as a None shape.
+# (field, dtype) in buffer order. An optional field is None when absent,
+# which the header records as a None shape.
 RAW_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (
     ("hex_xs", np.dtype(np.int64)), ("hex_ys", np.dtype(np.int64)),
     ("hex_terrain_ids", np.dtype(np.int64)),
@@ -47,7 +47,6 @@ MASK_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (
     ("actor_mask", np.dtype(np.uint8)), ("type_valid", np.dtype(np.uint8)),
     ("attack_valid", np.dtype(np.uint8)), ("move_valid", np.dtype(np.uint8)),
     ("union_valid", np.dtype(np.uint8)), ("n_attacks", np.dtype(np.int8)),
-    ("type_bias", np.dtype(np.float32)), ("attack_bias", np.dtype(np.float32)),
 )
 # The parity observation's streams, absent (a None shape) on obs8's leaves.
 PARITY_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (
@@ -68,7 +67,6 @@ class LeafHeader:
     our_faction_id: int
     their_faction_id: int
     hex_subset: bool
-    end_turn_bias: float
     n_units: int
     n_recruits: int
     n_hexes: int
@@ -123,7 +121,6 @@ def pack_request(items: Sequence[Tuple]) -> PackedRequest:
             our_faction_id=int(raw.our_faction_id),
             their_faction_id=int(raw.their_faction_id),
             hex_subset=bool(raw.hex_subset),
-            end_turn_bias=float(masks.end_turn_bias),
             n_units=int(masks.n_units), n_recruits=int(masks.n_recruits),
             n_hexes=int(masks.n_hexes)))
     buf = np.empty(total, dtype=np.uint8)
@@ -174,8 +171,7 @@ def unpack_request(req: PackedRequest) -> List[Tuple]:
             hex_positions=None, unit_positions=None, unit_ids=None, recruit_types=None,
             our_faction_id=h.our_faction_id, their_faction_id=h.their_faction_id,
             hex_subset=h.hex_subset, **r, **parity)
-        masks = PackedMasks(end_turn_bias=h.end_turn_bias, n_units=h.n_units,
-                            n_recruits=h.n_recruits, n_hexes=h.n_hexes, **m)
+        masks = PackedMasks(n_units=h.n_units, n_recruits=h.n_recruits, n_hexes=h.n_hexes, **m)
         if h.memory_k < 0:
             out.append((raw, masks))
         else:

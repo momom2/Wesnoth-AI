@@ -6,8 +6,8 @@ wesnoth_ai/rules/scenario_pool (as tests/test_encode_raw_cache.py builds them),
 advanced by a scripted charger until attacks are legal. Covers every
 term kind (actor, type, attack / move / recruit targets, weapons,
 end_turn), a legacy 4-tuple experience, an empty (value-only)
-experience, unequal game and policy weights, two combat-oracle anneal
-steps and out-of-range stored indices, through step_mcts at batch 1
+experience, unequal game and policy weights and out-of-range stored
+indices, through step_mcts at batch 1
 and batch 4. The value-only experience must not pay the host mask
 build. tests/test_batched_policy_loss.py runs the same pins on real
 mid-game positions when the replay dataset is present.
@@ -36,7 +36,7 @@ from helpers.policy_loss_parity import (  # noqa: E402
 from tools.az_recipe import configure_az_trainer  # noqa: E402
 from wesnoth_ai import trainer as trainer_module  # noqa: E402
 from wesnoth_ai.action_sampler import enumerate_legal_actions_with_priors  # noqa: E402
-from wesnoth_ai.rewards import hex_distance  # noqa: E402
+from tools.abilities import hex_distance  # noqa: E402
 from wesnoth_ai.trainer import MCTSExperience  # noqa: E402
 from wesnoth_ai.transformer_policy import TransformerPolicy  # noqa: E402
 
@@ -125,7 +125,7 @@ def case():
         exps.append(MCTSExperience(
             game_state=gs, visit_counts=visits, z=rng.choice((-1.0, 1.0)),
             game_weight=1.0 / (1 + i % 3), policy_weight=0.5 if i == 1 else 1.0,
-            game_id=f"g{i // 2}", decision_step=0 if i < 3 else 5000))
+            game_id=f"g{i // 2}"))
     # Legacy 4-tuples (no type: union target rows, no type term).
     exps[2].visit_counts = [v[:4] for v in exps[2].visit_counts]
     # A value-only experience (no visits); its own state object so the
@@ -179,9 +179,9 @@ def test_value_only_experience_skips_the_host_mask_build(case, monkeypatch):
     built = []
     real = trainer_module._host_packed_masks
 
-    def counting(raw, game_state, decision_step):
+    def counting(raw, game_state):
         built.append(game_state)
-        return real(raw, game_state, decision_step)
+        return real(raw, game_state)
     monkeypatch.setattr(trainer_module, "_host_packed_masks", counting)
     ref = reference_policy_step(policy, exps)
     cand = batched_policy_step(policy, exps, 4)

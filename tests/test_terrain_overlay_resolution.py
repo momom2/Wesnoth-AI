@@ -11,9 +11,8 @@ real Wesnoth for swamp and mountain villages on Fallenstar Lake
 -,_bas,Ft) and resolve worst-of.
 
 Regression target: an earlier session claimed "tentacles cannot
-move onto villages, even water ones" -- wrong. The resolver (and
-the shaping reward's distances, through wesnoth_sim._move_cost_at_hex)
-prices water/swamp villages at the water/swamp cost for float
+move onto villages, even water ones" -- wrong. The resolver prices
+water/swamp villages at the water/swamp cost for float
 movetypes; only dry-base villages stay impassable.
 """
 
@@ -91,7 +90,6 @@ def test_terrain_event_preserves_overlay_in_codes():
     1743-1751), so the composite is impassable for every movetype.
     """
     from sim_test_helpers import fresh_scenario_sim
-    from tools.wesnoth_sim import _move_cost_at_hex
 
     sim = fresh_scenario_sim(0, scenario_id="multiplayer_Aethermaw")
     # Production event path, both sides' full morph schedule: the turn
@@ -108,18 +106,15 @@ def test_terrain_event_preserves_overlay_in_codes():
     assert codes[(27, 21)] == "Chw^Xo"
 
     # ...and price impassable for a real unit from the scenario, in the
-    # core's movement class (what its moves pay) and in the Python
-    # resolver (what the shaping reward reads).
+    # core's movement class (what its moves pay).
     u = next(x for x in gs.map.units if x.side == 1)
     core = sim.core
     mcost = core.core.class_arrays(core.core.unit_export(u.id)["class_id"])[0]
     at = core.geometry().pos_index
     for pos in ((21, 18), (27, 21)):
         assert mcost[at[pos]] >= 99, pos
-        assert _move_cost_at_hex(u, gs, *pos) >= 99, pos
 
     # Control -- the plain-code morphs stay walkable water-castles
     # (don't over-block): WML (13,13) -> python (12,12).
     assert codes[(12, 12)] == "Chw"
     assert mcost[at[(12, 12)]] < 99
-    assert _move_cost_at_hex(u, gs, 12, 12) < 99

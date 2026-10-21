@@ -201,8 +201,6 @@ def test_staged_capacity_equals_the_per_leaf_count():
         p.move_valid = np.packbits(rng.random((A, H)) < 0.3, axis=1)
         p.union_valid = np.packbits(rng.random((A, H)) < 0.3, axis=1)
         p.n_attacks = rng.integers(0, 6, A).astype(np.int8)     # some above W
-        p.type_bias = None
-        p.attack_bias = rng.random((A, H)).astype(np.float32) if k % 2 else None
         packs.append(p)
     A_max = max(p.n_units + p.n_recruits + 1 for p in packs)
     H_max = max(p.n_hexes for p in packs)

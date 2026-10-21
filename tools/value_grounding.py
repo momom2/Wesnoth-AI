@@ -100,7 +100,6 @@ def config_from_args(args, turn_cfg) -> Optional[GroundingConfig]:
 class GroundCapture:
     sim: object            # stage-1 pre-flip WesnothSim (mover frame; referenced)
     side: int              # the planning side (values are side-persp)
-    decision_step: int
     projected: Optional[float] = None   # filled at finalize (depth-H grade)
 
 
@@ -114,19 +113,19 @@ def _handed_over(sim, side: int):
     return r
 
 
-def projected_value(policy, sim, side: int, decision_step: int,
+def projected_value(policy, sim, side: int,
                     cfg: GroundingConfig,
                     rng: np.random.Generator) -> float:
     """The gate's stage-2 grade of the captured state: hand over,
     then the production depth-H projection, side perspective."""
     from tools.turn_search import project_value
     r = _handed_over(sim, side)
-    return project_value(policy, r, side, decision_step,
+    return project_value(policy, r, side,
                          cfg.project_halfturns, cfg.project_max_actions,
                          rng)
 
 
-def rollout_outcome(policy, sim, side: int, decision_step: int,
+def rollout_outcome(policy, sim, side: int,
                     cfg: GroundingConfig,
                     rng: np.random.Generator) -> Optional[float]:
     """Terminal outcome from `side`'s perspective: hand the turn
@@ -142,7 +141,7 @@ def rollout_outcome(policy, sim, side: int, decision_step: int,
         k = 0
         while (not r.done and r.gs.global_info.current_side == mover
                and k < cfg.rollout_max_actions):
-            _, _out, legal = forward_state(policy, r.gs, decision_step)
+            _, _out, legal = forward_state(policy, r.gs)
             if not legal:
                 break
             try:
@@ -201,8 +200,7 @@ def build_grounding_experiences(
         outs = []
         for _ in range(max(1, cfg.rollouts_per_state)):
             try:
-                o = rollout_outcome(policy, c.sim, c.side,
-                                    c.decision_step, cfg, rng)
+                o = rollout_outcome(policy, c.sim, c.side, cfg, rng)
             except Exception as e:  # noqa: BLE001 -- a broken rollout
                 # censors this label, never kills the game seal.
                 log.warning(f"grounding rollout failed: {e!r}")
@@ -230,7 +228,6 @@ def build_grounding_experiences(
         roll_z[i] = (z_roll, var_mean)
         exps.append(MCTSExperience(
             game_state=c.sim.gs, visit_counts=[], z=z_roll,
-            decision_step=c.decision_step,
             value_weight=cfg.ground_value_weight,
             policy_weight=0.0, label_kind="roll"))
 
@@ -238,8 +235,7 @@ def build_grounding_experiences(
         c = captures[i]
         if c.projected is None:
             try:
-                c.projected = projected_value(policy, c.sim, c.side,
-                                              c.decision_step, cfg, rng)
+                c.projected = projected_value(policy, c.sim, c.side, cfg, rng)
             except Exception as e:  # noqa: BLE001 -- skip the label
                 log.warning(f"grounding projection failed: {e!r}")
                 continue
@@ -247,7 +243,6 @@ def build_grounding_experiences(
         pair = roll_z.get(i)
         exps.append(MCTSExperience(
             game_state=c.sim.gs, visit_counts=[], z=z,
-            decision_step=c.decision_step,
             value_weight=cfg.consist_value_weight,
             policy_weight=0.0, label_kind="consist",
             z_pair=(pair[0] if pair else None),

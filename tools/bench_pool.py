@@ -121,8 +121,7 @@ def run_pool(policy, *, actors: int, games: int, sims: int, leaf_batch: int,
                          f"would play nothing and the record would misstate the "
                          f"actor count")
     mcts_cfg = MCTSConfig(n_simulations=sims, gumbel_root=False, tree_reuse=False,
-                          playout_cap_randomization=False, draw_tiebreak=None,
-                          batch_size=leaf_batch)
+                          playout_cap_randomization=False, batch_size=leaf_batch)
     mpolicy = MCTSPolicy(policy, mcts_cfg, replay_config=ReplayConfig(enabled=False),
                          holdout_size=0, gbc_labels=False)
     pool = ActorPool(mpolicy, actors, mcts_cfg, turn_cfg=None, pt_cfg=None,

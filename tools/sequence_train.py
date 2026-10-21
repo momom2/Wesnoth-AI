@@ -254,13 +254,10 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
                                if auto else None)
         self.clock = WindowClock(device, self.loader)
         self.last_timing: Optional[Dict] = None
-        from tools.supervised_train import _DEFAULT_ACTION_TYPE_LOSS_WEIGHT
-        self.type_loss_weights = dict(_DEFAULT_ACTION_TYPE_LOSS_WEIGHT)
         self.value_weight = float(json.loads(Path(args.imitation_config).read_text(encoding="utf-8"))
                                   .get("value_from_outcome_weight", 1.0))
         self.inputs = (ColumnInputs if args.columns else RecordInputs)(
-            self.loader, self.encoder, self.model, self.own, self.games, args, self.value_weight,
-            self.type_loss_weights, device)
+            self.loader, self.encoder, self.model, self.own, self.games, args, self.value_weight, device)
         self.meta = {"seed": args.seed, "streams": args.streams, "window": args.window, "lr": args.lr,
                      "warmup_steps": args.warmup_steps, "sequences": str(args.sequences),
                      "fingerprint": man["fingerprint"], "value_weight": self.value_weight,
@@ -455,7 +452,7 @@ class Trainer(TrainerCheckpoints, TrainerTelemetry, WindowForwards):
         winners = {f: g.winner for f, g in self.games.items()}
         t0 = time.time()
         result = probe(self.model, self.encoder, self.holdout, holdout_loader.sides, winners,
-                       self.args.probe_ks, self.device, self.type_loss_weights, rates=self.rates,
+                       self.args.probe_ks, self.device, rates=self.rates,
                        autocast_dtype=self.autocast, per_side=True)
         result.update(positions=self.state["positions"], steps=self.state["steps"],
                       total_positions=self.pass_total, final=final, weights=weights,

@@ -35,10 +35,10 @@ def _seal(policy, label, winner):
         policy._pending[label] = [
             _PendingMCTSState(gs=sim.gs,
                               visit_counts=[(0, None, None, 1.0, None)],
-                              side=1, decision_step=0),
+                              side=1),
             _PendingMCTSState(gs=sim.gs,
                               visit_counts=[(0, None, None, 1.0, None)],
-                              side=2, decision_step=0),
+                              side=2),
         ]
     policy.finalize_game(label, winner, final_gs=sim.gs)
     with policy._lock:

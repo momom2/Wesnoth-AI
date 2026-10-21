@@ -36,7 +36,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-KIND_VERSION = {"corpus": 1, "sequences": 1, "own": 1}
+KIND_VERSION = {"corpus": 1, "sequences": 1, "own": 2}
 KINDS = tuple(KIND_VERSION)
 # What an entry of each kind holds, by file name (fnmatch patterns); the
 # box's step markers and anything else in the directory stay out.

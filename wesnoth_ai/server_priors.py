@@ -29,14 +29,14 @@ Kinds in the compact arrays: 0 attack, 1 move, 2 recruit, 3 end_turn.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from wesnoth_ai.action_sampler import (
-    _NEG_INF, LegalActionPrior, _build_legality_masks, combat_alphas_at, prior_bias_end_turn,
+    _NEG_INF, LegalActionPrior, _build_legality_masks,
 )
 from wesnoth_ai.model import MAX_ATTACKS, ActorKind, UnitActionType
 from wesnoth_ai.packed_trunk import FlatLayout as _Layout
@@ -65,12 +65,9 @@ class PackedMasks:
     move_valid:   np.ndarray            # packed bits [A, ceil(H/8)]
     union_valid:  np.ndarray            # packed bits [A, ceil(H/8)] (recruit rows)
     n_attacks:    np.ndarray            # int8 [A]: weapon slots of unit actors
-    end_turn_bias: float
     n_units:      int
     n_recruits:   int
     n_hexes:      int
-    type_bias:    Optional[np.ndarray] = None   # float32 [A, T] when any nonzero
-    attack_bias:  Optional[np.ndarray] = None   # float32 [A, H] when any nonzero
 
 
 @dataclass(slots=True)
@@ -83,22 +80,22 @@ class CompactActions:
     prior:  np.ndarray    # float64 [n]
 
 
-def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
+def pack_masks(encoded, game_state) -> PackedMasks:
     """Actor side: the legality masks for `game_state`, packed.
     `encoded` may be a light EncodedState (no dense tokens). When its
     RawEncoded (`encoded._raw`) carries the masks the core built beside
-    the encoding and the combat oracle's priors are off, those are the
-    masks (rust/wesnoth_core/src/core_masks.rs, the same arrays,
-    tests/test_core_masks.py); otherwise the Python builder's."""
+    the encoding, those are the masks (rust/wesnoth_core/src/core_masks.rs,
+    the same arrays, tests/test_core_masks.py); otherwise the Python
+    builder's."""
     # The streams' lengths (the token tensors' widths), read from the
     # lists: a light encoding builds no placeholder tensor for them.
     U = len(encoded.unit_positions)
     R = len(encoded.recruit_types)
     H = len(encoded.hex_positions)
     raw = getattr(encoded, "_raw", None)
-    if getattr(raw, "core_masks", None) is not None and not any(combat_alphas_at(decision_step)):
-        return core_packed_masks(raw, prior_bias_end_turn(game_state))
-    masks = _build_legality_masks(encoded, game_state, decision_step=decision_step)
+    if getattr(raw, "core_masks", None) is not None:
+        return core_packed_masks(raw)
+    masks = _build_legality_masks(encoded, game_state)
     ownership = np.concatenate([
         encoded.unit_is_ours.detach().cpu().numpy().reshape(-1),
         encoded.recruit_is_ours.detach().cpu().numpy().reshape(-1),
@@ -113,33 +110,27 @@ def pack_masks(encoded, game_state, decision_step: int = 0) -> PackedMasks:
     def _bits(t):
         return np.packbits(t.detach().cpu().numpy().astype(bool), axis=1)
 
-    type_bias = masks.type_bias[0].detach().cpu().numpy()
-    attack_bias = masks.attack_bias.detach().cpu().numpy()
     return PackedMasks(
         actor_mask=((ownership != 0.0) & (actor_valid != 0.0)).astype(np.uint8),
         type_valid=masks.type_valid[0].detach().cpu().numpy().astype(np.uint8),
         attack_valid=_bits(masks.target_valid_attack),
         move_valid=_bits(masks.target_valid_move),
         union_valid=_bits(masks.target_valid),
-        n_attacks=n_att,
-        end_turn_bias=float(prior_bias_end_turn(game_state)),
-        n_units=U, n_recruits=R, n_hexes=H,
-        type_bias=type_bias.astype(np.float32) if np.any(type_bias) else None,
-        attack_bias=attack_bias.astype(np.float32) if np.any(attack_bias) else None)
+        n_attacks=n_att, n_units=U, n_recruits=R, n_hexes=H)
 
 
-def core_packed_masks(raw, end_turn_bias: float) -> PackedMasks:
+def core_packed_masks(raw) -> PackedMasks:
     """The masks the core built beside the encoding `raw`
     (`encode_raw(masks=True)`, rust/wesnoth_core/src/core_masks.rs), as
-    `pack_masks` packs them while the combat oracle's priors are off: the
-    Python builder's arrays (tests/test_core_masks.py)."""
+    `pack_masks` packs them: the Python builder's arrays
+    (tests/test_core_masks.py)."""
     core = raw.core_masks
     return PackedMasks(
         actor_mask=core["mask_actor"], type_valid=core["mask_type_valid"],
         attack_valid=core["mask_attack_bits"], move_valid=core["mask_move_bits"],
         union_valid=core["mask_union_bits"], n_attacks=core["mask_n_attacks"],
-        end_turn_bias=float(end_turn_bias), n_units=len(raw.unit_positions),
-        n_recruits=len(raw.recruit_types), n_hexes=len(raw.hex_positions))
+        n_units=len(raw.unit_positions), n_recruits=len(raw.recruit_types),
+        n_hexes=len(raw.hex_positions))
 
 
 # ---------------------------------------------------------------------
@@ -190,14 +181,10 @@ def _staged_capacity(hv: Dict[str, np.ndarray], W: int) -> int:
     return n
 
 
-def mask_layout(B: int, A_max: int, H_max: int, T: int, W: int, *,
-                type_bias: bool, attack_bias: bool) -> _Layout:
-    """The flat host layout of a batch's masks. The two bias fields are
-    laid out on request: the eager path asks for one when any pack
-    carries it, the static-shape path (graphed_serve) always."""
+def mask_layout(B: int, A_max: int, H_max: int, T: int, W: int) -> _Layout:
+    """The flat host layout of a batch's masks."""
     HB = (H_max + 7) // 8
-    fields = [
-        ("actor_bias", torch.float32, (B, A_max)),
+    return _Layout([
         ("actor_mask", torch.uint8, (B, A_max)),
         ("slot_kind", torch.uint8, (B, A_max)),
         ("n_attacks", torch.int8, (B, A_max)),
@@ -205,36 +192,24 @@ def mask_layout(B: int, A_max: int, H_max: int, T: int, W: int, *,
         ("attack_bits", torch.uint8, (B, A_max, HB)),
         ("move_bits", torch.uint8, (B, A_max, HB)),
         ("union_bits", torch.uint8, (B, A_max, HB)),
-    ]
-    if type_bias:
-        fields.append(("type_bias", torch.float32, (B, A_max, T)))
-    if attack_bias:
-        fields.append(("attack_bias", torch.float32, (B, A_max, H_max)))
-    return _Layout(fields)
+    ])
 
 
 def write_masks(hv: Dict[str, np.ndarray], packs: Sequence[PackedMasks]) -> None:
-    """Pack b's arrays into row b of the ZEROED views of a mask layout;
-    a bias goes in where the layout has the field and the pack the
-    array (a layout field no pack fills stays zero, which adds nothing)."""
+    """Pack b's arrays into row b of the ZEROED views of a mask layout."""
     for b, p in enumerate(packs):
-        U, R, H = p.n_units, p.n_recruits, p.n_hexes
+        U, R = p.n_units, p.n_recruits
         A = U + R + 1
         hb = p.attack_valid.shape[1]
         hv["actor_mask"][b, :A] = p.actor_mask
         hv["slot_kind"][b, :U] = _SLOT_UNIT
         hv["slot_kind"][b, U:U + R] = _SLOT_RECRUIT
         hv["slot_kind"][b, U + R] = _SLOT_END
-        hv["actor_bias"][b, U + R] = p.end_turn_bias
         hv["n_attacks"][b, :A] = p.n_attacks
         hv["type_valid"][b, :A] = p.type_valid
         hv["attack_bits"][b, :A, :hb] = p.attack_valid
         hv["move_bits"][b, :A, :hb] = p.move_valid
         hv["union_bits"][b, :A, :hb] = p.union_valid
-        if p.type_bias is not None and "type_bias" in hv:
-            hv["type_bias"][b, :A] = p.type_bias
-        if p.attack_bias is not None and "attack_bias" in hv:
-            hv["attack_bias"][b, :A, :H] = p.attack_bias
 
 
 def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: int,
@@ -242,9 +217,7 @@ def _stage_masks(packs: List[PackedMasks], A_max: int, H_max: int, T: int, W: in
     """Host side: every per-batch mask array written into one flat
     (pinned) host buffer, plus the compaction capacity counted once
     over the staged views."""
-    layout = mask_layout(len(packs), A_max, H_max, T, W,
-                         type_bias=any(p.type_bias is not None for p in packs),
-                         attack_bias=any(p.attack_bias is not None for p in packs))
+    layout = mask_layout(len(packs), A_max, H_max, T, W)
     host = torch.empty(layout.nbytes, dtype=torch.uint8, pin_memory=pin)
     host.zero_()
     hv = layout.numpy_views(host.numpy())
@@ -349,19 +322,15 @@ def priors_outputs(padded, v: Dict[str, torch.Tensor], capacity: int,
     with torch.no_grad():
         actor_ok = v["actor_mask"] != 0
         slot = v["slot_kind"]
-        al = (padded.actor_logits + v["actor_bias"]).masked_fill(~actor_ok, _NEG_INF)
+        al = padded.actor_logits.masked_fill(~actor_ok, _NEG_INF)
         p_actor = F.softmax(al, dim=-1)                                       # [B, A]
         live = actor_ok & (p_actor > 0)
-        tl = padded.type_logits
-        if "type_bias" in v:
-            tl = tl + v["type_bias"]
-        p_type = F.softmax(tl.masked_fill(v["type_valid"] == 0, _NEG_INF), dim=-1)  # [B, A, T]
+        p_type = F.softmax(padded.type_logits.masked_fill(v["type_valid"] == 0, _NEG_INF), dim=-1)  # [B, A, T]
         n_att = v["n_attacks"]
         w_ok = torch.arange(W, device=device).view(1, 1, W) < n_att.unsqueeze(-1)
         p_wpn = F.softmax(padded.weapon_logits.masked_fill(~w_ok, _NEG_INF), dim=-1)
         tg = padded.target_logits
-        tga = tg + v["attack_bias"] if "attack_bias" in v else tg
-        p_atk = F.softmax(tga.masked_fill(~_unpack_bits(v["attack_bits"], H_max), _NEG_INF), dim=-1)
+        p_atk = F.softmax(tg.masked_fill(~_unpack_bits(v["attack_bits"], H_max), _NEG_INF), dim=-1)
         p_mv = F.softmax(tg.masked_fill(~_unpack_bits(v["move_bits"], H_max), _NEG_INF), dim=-1)
         p_rec = F.softmax(tg.masked_fill(~_unpack_bits(v["union_bits"], H_max), _NEG_INF), dim=-1)
         # Legal entries by FACTOR masks (a float32 product may underflow

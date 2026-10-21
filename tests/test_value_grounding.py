@@ -33,8 +33,7 @@ def _capture(side=1, winner=1, projected=0.5, current_side=None):
     gs = _gs()
     if current_side is not None:
         gs.global_info.current_side = current_side
-    return GroundCapture(sim=_StubSim(gs, winner), side=side,
-                         decision_step=7, projected=projected)
+    return GroundCapture(sim=_StubSim(gs, winner), side=side, projected=projected)
 
 
 def test_grounding_experiences_weights_perspective_and_budgets():
@@ -80,8 +79,7 @@ def test_grounding_censored_rollout_produces_no_experience():
                           rollout_max_halfturns=2,
                           rollout_max_actions=1)
     gs = _gs()
-    caps = [GroundCapture(sim=_NeverEnds(gs), side=1,
-                          decision_step=0, projected=0.0)]
+    caps = [GroundCapture(sim=_NeverEnds(gs), side=1, projected=0.0)]
 
     class _P:
         pass

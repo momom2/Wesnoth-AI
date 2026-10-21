@@ -92,6 +92,6 @@ def test_preflip_labels_hand_the_turn_over_first():
     sim = _Sim()
     cfg = GroundingConfig(enabled=True, rollout_max_halfturns=3,
                           rollout_max_actions=2)
-    z = rollout_outcome(None, sim, 1, 0, cfg, np.random.default_rng(0))
+    z = rollout_outcome(None, sim, 1, cfg, np.random.default_rng(0))
     assert sim.steps[0] == "end_turn"
     assert z == -1.0        # side 1 handed over, side 2 won

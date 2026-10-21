@@ -393,10 +393,9 @@ if [ -f "$CAMPAIGN" ]; then
     echo "[onstart] RESUME from $CAMPAIGN (no --reset-decision-step)"
 else
     CKPT_IN="$SEED_CKPT"
-    # Handoff default: NO decision-step reset. The combat-oracle
-    # alphas are pinned 0.0 (the anneal a reset used to restart), and
-    # keeping the imitation checkpoint's step (2,809,659) keeps the
-    # telemetry/lineage numbering monotonic across the handoff. Pass
+    # Handoff default: NO decision-step reset. Keeping the imitation
+    # checkpoint's step (2,809,659) keeps the telemetry/lineage
+    # numbering monotonic across the handoff. Pass
     # -e RESET_DECISION_STEP=1 for a genuinely fresh campaign.
     if [ "${RESET_DECISION_STEP:-0}" = "1" ]; then
         RESET="--reset-decision-step"

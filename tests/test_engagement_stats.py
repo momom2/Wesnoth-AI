@@ -162,7 +162,7 @@ def test_outcome_engagement_end_to_end():
     from sim_test_helpers import fresh_scenario_sim
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
-    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import play_one_game
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     pol = TransformerPolicy(device=torch.device("cpu"), d_model=32,
@@ -171,8 +171,7 @@ def test_outcome_engagement_end_to_end():
                                     add_root_noise=False))
     mp._rng = np.random.default_rng(3)
     sim = fresh_scenario_sim(seed=3, max_turns=4, mini=True)
-    out = play_one_game(sim, mp, lambda d: 0.0, game_label="g",
-                        cost_lookup=_recruit_cost_lookup())
+    out = play_one_game(sim, mp, game_label="g")
     e = out.engagement
     assert e is not None
     assert e["map_total_villages"] > 0

@@ -77,7 +77,7 @@ def _all_legal(U: int, R: int, H: int, W: int) -> PackedMasks:
     n_attacks = np.zeros(A, dtype=np.int8)
     n_attacks[:U] = W
     return PackedMasks(actor_mask=np.ones(A, dtype=np.uint8), type_valid=type_valid, attack_valid=bits,
-                       move_valid=bits, union_valid=bits, n_attacks=n_attacks, end_turn_bias=0.0,
+                       move_valid=bits, union_valid=bits, n_attacks=n_attacks,
                        n_units=U, n_recruits=R, n_hexes=H)
 
 
@@ -93,7 +93,7 @@ def _one_hot(actor: int, kind: int, target: int, weapon: int):
     (ActionIndices("recruit", actor_idx=2, target_idx=2), (2, KIND_RECRUIT, 2, -1)),
     (ActionIndices("end_turn", actor_idx=3), (3, KIND_END_TURN, -1, -1)),
 ], ids=["attack", "move", "recruit", "end_turn"])
-def test_a_one_hot_target_gives_the_hard_labels_loss(label, key, monkeypatch):
+def test_a_one_hot_target_gives_the_hard_labels_loss(label, key):
     """Where every choice is legal, the soft-target loss of a one-hot target
     is the recipe's hard-label policy loss without label smoothing."""
     from wesnoth_ai import imitation_loss
@@ -106,10 +106,8 @@ def test_a_one_hot_target_gives_the_hard_labels_loss(label, key, monkeypatch):
     batch = own_loss.stage_own_batch([0], [_all_legal(U, R, H, W)], [_one_hot(*key)], A, H, T, W,
                                      torch.device("cpu"))
     soft = own_loss.own_policy_loss(padded, batch)
-    monkeypatch.setattr(imitation_loss, "LABEL_SMOOTHING", 0.0)
     targets = imitation_loss.build_imitation_targets([label], [(None, 0.0, 1.0)], [(U, R, H)], n_types=T,
-                                                     n_weapons=W, n_atoms=5, type_loss_weights={},
-                                                     device=torch.device("cpu"))
+                                                     n_weapons=W, n_atoms=5, device=torch.device("cpu"))
     parts = imitation_loss.imitation_loss_parts(padded, targets, eps=0.0)
     hard = parts.actor_raw + parts.type + parts.target + parts.weapon
     assert soft.item() == pytest.approx(hard.item(), rel=1e-6)

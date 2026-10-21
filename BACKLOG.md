@@ -260,6 +260,20 @@ $1.47 in all):
     decisive games (docs/own2_base_prereg_20261020.md). Tests of past runs
     pin `own1`; the own2-base box script refuses to run under the new
     reference. The move of the reference to sampling is a later change.
+  - **Hand-set pieces left the code** (0.31.7, `fix/remove-hand-priors`, user
+    approval 2026-10-21): the prior hardcoded bias facility (the combat
+    oracle, Rust core phase 36), the mini-map end_turn nudge (phase 37), the
+    material score for drawn games (a capped draw scores 0), the shaped
+    reward (REINFORCE learns from the outcome alone), imitation's
+    action-type loss weights (every cross-entropy unweighted), and the
+    near-tie coin code (the luck fit `tools/fit_luck_beta.py` stays). Play at
+    the reference decode unchanged. Left: the aux margin head and
+    `aux_value_bonus`, which no target producer feeds now.
+  - **Design round 11** (0.31.6): the material for the optimizer discussion,
+    `docs/training_design_20261019/optimizer_discussion.md`: policy gradient
+    on `own2`'s games at temperature 1, one KL-sized step per round checked
+    offline on held-out games; stage 1 ($1.65) and stage C ($2.73-5.71) wait
+    on the user.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

@@ -4,10 +4,11 @@
 
 A reinforcement-learning AI for *Battle for Wesnoth*, trained by self-play,
 aiming to be (a) competitively strong against players and (b) readable
-enough that humans can study its strategies. Customization is a first-class
-goal: we need to easily incentivize unorthodox strategies, fine-tune on
-human game logs, force specific openers, etc. — so code that gates behavior
-behind config is preferred to code that gates behavior behind weights.
+enough that humans can study its strategies. Strength comes first (user
+ruling 2026-10-19): readability and steering (incentivizing unorthodox
+strategies, forcing openers) come later, once a superhuman player exists.
+Behaviour is learned: nothing hand-set beside the network decides play or
+shapes its training signal (user ruling 2026-10-21; Principle 3).
 
 - **Language:** Python 3.11+
 - **ML:** PyTorch
@@ -275,10 +276,8 @@ stays at the root. So a bare name like `classes.py` below means
   self-play entry point, which carries the quarantined mechanisms
   (quarantine/INVENTORY.md). Its CLI trains by search distillation by
   default (`--mcts`, with turn search); `--reinforce` selects REINFORCE
-  with a value baseline, the only consumer of the shaping reward
-  (`wesnoth_ai/rewards.py`, `configs/reward_selfplay.json`: gold,
-  damage and village deltas, per-turn penalty, unit-type and
-  turn-conditional bonuses). The actor pool plays with a zero reward.
+  with a value baseline on the game's outcome (+1, -1, 0 for a capped
+  draw).
 - `wesnoth_ai/rules/scenario_pool.py` / `wesnoth_ai/rules/scenarios.py` — scenario
   randomization: the Ladder Era 21-map whitelist (fogged or fogless),
   the mini maps, the factions and leaders. `random_setup` puts
@@ -372,7 +371,7 @@ stays at the root. So a bare name like `classes.py` below means
   type_logits, target_logits, weapon_logits, value, value_logits,
   cliffness, ...)`.
 - `wesnoth_ai/action_sampler.py` — legal-action enumeration with
-  priors; combat-oracle attack-bias on target logits.
+  priors.
 - `wesnoth_ai/transformer_policy.py` — Policy adapter (`select_action`,
   `observe`, `train_step`, `save_checkpoint`, `finalize_game`).
 - `wesnoth_ai/trainer.py` — REINFORCE + value baseline (`step`) and
@@ -401,11 +400,16 @@ The learning signal comes from self-play. Bootstrapping methods
 but the end state is self-play. Do not design architectures that
 preclude it.
 
-### 3. Config-driven, customizable
-Rewards, openers, strategic biases, training curriculum — all must live
-in data/config, not buried in network weights or scattered constants.
-When you add a new behavior, ask: "could a modder flip this without
-touching model code?"
+### 3. Behaviour is learned
+The network decides play and learns it from training (user rulings
+2026-10-19 and 2026-10-21). No decode-time rule, table or fitted head
+beside the network, no hand-placed prior bias, no shaped reward or
+material score: the training signal is the game's outcome. "The model
+should learn to recruit like a human iff recruiting like a human works."
+The player being trained samples from its policy (user ruling
+2026-10-21); the reference keeps its pinned decode as the yardstick.
+Settings that remain (training
+curriculum, data selection) live in config, not in scattered constants.
 
 ### 4. The simulator must be perfectly faithful to Wesnoth
 The simulator's combat math is verified against Wesnoth's own

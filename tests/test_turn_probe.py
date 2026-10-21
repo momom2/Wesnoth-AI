@@ -51,7 +51,7 @@ def mini_sim():
 def test_record_spine_invariants(tiny_policy, mini_sim):
     rng = np.random.default_rng(0)
     side = mini_sim.gs.global_info.current_side
-    steps, boundary = record_spine(tiny_policy, mini_sim, side, 0, rng,
+    steps, boundary = record_spine(tiny_policy, mini_sim, side, rng,
                                    max_spine=12)
     assert steps, "spine must record at least one coordinate"
     for st in steps:
@@ -74,14 +74,14 @@ def test_record_spine_invariants(tiny_policy, mini_sim):
 def test_materialize_identity_and_bounce(tiny_policy, mini_sim):
     rng = np.random.default_rng(1)
     side = mini_sim.gs.global_info.current_side
-    steps, _ = record_spine(tiny_policy, mini_sim, side, 0, rng,
+    steps, _ = record_spine(tiny_policy, mini_sim, side, rng,
                             max_spine=8)
     incumbent = [s.action for s in steps]
 
     # Identity replay: every incumbent command lands (turn-1 mini map:
     # no contact, so bounces would indicate a replay defect).
     m = materialize(tiny_policy, mini_sim, side, incumbent,
-                    "test:salt", 0)
+                    "test:salt")
     assert not m.invalid
     assert m.survival == 1.0
     assert math.isfinite(m.value)
@@ -95,7 +95,7 @@ def test_materialize_identity_and_bounce(tiny_policy, mini_sim):
     if non_et:  # a policy could legitimately open with end_turn
         doubled = [non_et[0], non_et[0]] + incumbent[1:]
         m2 = materialize(tiny_policy, mini_sim, side, doubled,
-                         "test:salt2", 0)
+                         "test:salt2")
         assert m2.invalid or m2.accepted < m2.attempted
         if not m2.invalid:
             assert math.isfinite(m2.value)

@@ -38,7 +38,7 @@ def encoding_digest(enc) -> str:
         if a is not None:
             _array_digest(h, a)
     m = enc._masks
-    h.update(repr((float(m.end_turn_bias), m.n_units, m.n_recruits, m.n_hexes)).encode())
+    h.update(repr((m.n_units, m.n_recruits, m.n_hexes)).encode())
     h.update(repr((enc._raw.our_faction_id, enc._raw.their_faction_id, list(enc._raw.unit_ids))).encode())
     return h.hexdigest()[:16]
 

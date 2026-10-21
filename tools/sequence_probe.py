@@ -157,7 +157,7 @@ class _Running:
 
 
 def run_sides(model, encoder, sides: Iterable[GameSide], load: Callable[[GameSide], Sequence], k: int,
-              device: torch.device, type_loss_weights: Dict[str, float], autocast_dtype=None,
+              device: torch.device, autocast_dtype=None,
               reset: bool = False, batch: int = PROBE_BATCH) -> Dict[GameSide, Dict[str, list]]:
     """Game-sides run whole and in order at `k` slots, `batch` of them side
     by side, a finished one's row taken by the next: per game-side, per
@@ -192,9 +192,9 @@ def run_sides(model, encoder, sides: Iterable[GameSide], load: Callable[[GameSid
         targets = build_imitation_targets(
             ais, zw, staged.sizes, n_types=padded.type_logits.shape[2],
             n_weapons=padded.weapon_logits.shape[2], n_atoms=padded.value_logits.shape[1],
-            type_loss_weights=type_loss_weights, device=device)
+            device=device)
         parts = imitation_loss_parts(padded, targets)
-        ce = (parts.actor_weighted + parts.type + parts.target + parts.weapon).float().cpu().tolist()
+        ce = (parts.actor_raw + parts.type + parts.target + parts.weapon).float().cpu().tolist()
         H_max = padded.belief_logits.shape[1]
         target = torch.zeros(len(positions), H_max)
         mask = torch.zeros(len(positions), H_max)
@@ -240,7 +240,7 @@ def side_readings(per_k: Dict[object, Dict[GameSide, Dict[str, list]]]) -> List[
 
 def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide], Sequence],
           winners: Dict[str, int], ks: Sequence[int], device: torch.device,
-          type_loss_weights: Dict[str, float], rates: Optional[Tuple[float, float]] = None,
+          rates: Optional[Tuple[float, float]] = None,
           autocast_dtype=None, per_side: bool = False) -> Dict:
     """The probe's readings at each of `ks` (see the module docstring); with
     `per_side`, also each game-side's sums under "sides" (`side_readings`)."""
@@ -255,7 +255,7 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
         with torch.no_grad():
             for key, k, reset in runs:
                 t0 = time.time()
-                per_k[key] = run_sides(model, encoder, holdout, load, k, device, type_loss_weights,
+                per_k[key] = run_sides(model, encoder, holdout, load, k, device,
                                        autocast_dtype, reset=reset)
                 log.info("probe at %s slots: %d game-sides in %.0f s", key, len(holdout), time.time() - t0)
     finally:

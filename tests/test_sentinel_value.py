@@ -5,13 +5,9 @@ raised (`step_error`) and a step the sim refused or that changed
 nothing (`noop_resample`, e.g. a recruit onto a fog-occupied hex).
 Both are marked terminal so the descent stops, and the value that
 backs up is the PARENT's own estimate: the state did not change, so
-the action is neither a draw nor a win. `_terminal_value` itself never
-prices a sentinel by material (it used to, with `draw_tiebreak`
-configured, which made a refused action look like a favourable draw to
-a side that was ahead) and never by 0 either at the node level (0 is
-above a losing side's material margin, which would have steered the
-search into refused actions when behind). A real draw at the turn cap
-still gets the tiebreak.
+the action is neither a draw nor a win. Never 0 at the node level
+either (0 is above a losing side's own estimate, which would have
+steered the search into refused actions when behind).
 """
 from __future__ import annotations
 
@@ -23,63 +19,38 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sim_test_helpers import commit_view, fresh_scenario_sim  # noqa: E402
-from tools.draw_tiebreak import DrawTiebreakConfig  # noqa: E402
+from sim_test_helpers import fresh_scenario_sim  # noqa: E402
 from tools.mcts import MCTSNode, _node_terminal_value, _terminal_value  # noqa: E402
 
 
 def _drawn_sim(ended_by: str):
-    """A sim whose game ended without a winner, tagged `ended_by`, with
-    a material edge for side 1 so the tiebreak is non-zero."""
+    """A sim whose game ended without a winner, tagged `ended_by`."""
     sim = fresh_scenario_sim(0, max_turns=6)
-    # Hurt side 2 so the material differential is non-zero (a scenario
-    # starts with leaders only, and two healthy leaders are symmetric).
-    hurt = next(u for u in sorted(sim.gs.map.units, key=lambda u: u.id) if u.side == 2)
-    hurt.current_hp = max(1, hurt.max_hp // 4)
-    commit_view(sim)
     sim.done, sim.winner, sim.ended_by = True, 0, ended_by
     return sim
 
 
-def test_a_real_draw_still_gets_the_material_tiebreak():
-    sim = _drawn_sim("max_turns")
-    cfg = DrawTiebreakConfig(cap=0.25)
-    v1 = _terminal_value(sim, 1, cfg)
-    v2 = _terminal_value(sim, 2, cfg)
-    assert v1 != 0.0, "a genuine cap draw must carry the tiebreak"
-    assert v1 == pytest.approx(-v2), "the tiebreak must be antisymmetric in the side"
-    assert -0.25 <= v1 <= 0.25
-
-
-@pytest.mark.parametrize("ending", ["step_error", "noop_resample"])
-def test_a_refused_action_is_neutral_even_with_a_tiebreak(ending):
-    sim = _drawn_sim(ending)
-    cfg = DrawTiebreakConfig(cap=0.25)
-    assert _terminal_value(sim, 1, cfg) == 0.0
-    assert _terminal_value(sim, 2, cfg) == 0.0
-
-
 def test_a_sentinel_node_backs_up_its_parent_value():
     """What the search actually reads: the sentinel child carries the
-    parent's own estimate, whatever the tiebreak would say."""
+    parent's own estimate; a real ending its outcome."""
     node = MCTSNode(_drawn_sim("step_error"))
     node.value = 0.37
     node.is_sentinel = True
-    assert _node_terminal_value(node, DrawTiebreakConfig(cap=0.25)) == 0.37
-    assert _node_terminal_value(node, None) == 0.37
+    assert _node_terminal_value(node) == 0.37
     real = MCTSNode(_drawn_sim("max_turns"))
     real.value = 0.37
-    assert _node_terminal_value(real, DrawTiebreakConfig(cap=0.25)) == \
-        _terminal_value(real.sim, real.side, DrawTiebreakConfig(cap=0.25))
+    assert _node_terminal_value(real) == _terminal_value(real.sim, real.side) == 0.0
 
 
-def test_without_a_tiebreak_every_draw_is_zero():
-    for ending in ("max_turns", "step_error", "noop_resample"):
-        assert _terminal_value(_drawn_sim(ending), 1, None) == 0.0
+@pytest.mark.parametrize("ending", ["max_turns", "step_error", "noop_resample"])
+def test_every_draw_is_zero(ending):
+    sim = _drawn_sim(ending)
+    assert _terminal_value(sim, 1) == 0.0
+    assert _terminal_value(sim, 2) == 0.0
 
 
 def test_a_win_is_unaffected_by_the_ending_tag():
     sim = _drawn_sim("step_error")
     sim.winner = 1
-    assert _terminal_value(sim, 1, DrawTiebreakConfig(cap=0.25)) == 1.0
-    assert _terminal_value(sim, 2, DrawTiebreakConfig(cap=0.25)) == -1.0
+    assert _terminal_value(sim, 1) == 1.0
+    assert _terminal_value(sim, 2) == -1.0

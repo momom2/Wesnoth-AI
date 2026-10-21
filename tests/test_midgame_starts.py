@@ -51,7 +51,7 @@ def test_midgame_continuation_through_production_path():
     from tools.mcts import MCTSConfig
     from tools.mcts_policy import MCTSPolicy
     from tools.midgame_starts import sample_midgame_start
-    from tools.selfplay_game import _recruit_cost_lookup, play_one_game
+    from tools.selfplay_game import play_one_game
     from wesnoth_ai.transformer_policy import TransformerPolicy
     from tools.wesnoth_sim import WesnothSim
 
@@ -82,8 +82,7 @@ def test_midgame_continuation_through_production_path():
     mp = MCTSPolicy(pol, MCTSConfig(n_simulations=4, batch_size=1,
                                     add_root_noise=False))
     mp._rng = np.random.default_rng(11)
-    out = play_one_game(sim, mp, lambda d: 0.0, game_label="mg",
-                        cost_lookup=_recruit_cost_lookup())
+    out = play_one_game(sim, mp, game_label="mg")
     assert out.midgame is True
     assert out.engagement is not None
     assert out.engagement["attacks_invalid_wesnoth"] == {1: 0, 2: 0}

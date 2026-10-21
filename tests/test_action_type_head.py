@@ -275,56 +275,6 @@ def test_reforward_includes_type_term_for_unit_actor():
 
 
 # ---------------------------------------------------------------------
-# Combat oracle annealing + type bias
-# ---------------------------------------------------------------------
-
-def test_combat_alphas_at_decay_schedule():
-    """combat_alphas_at(step) decays linearly from configured value
-    at step=0 to FLOOR × configured at HORIZON, flat afterward."""
-    from wesnoth_ai.action_sampler import combat_alphas_at
-    from wesnoth_ai.constants import (
-        COMBAT_TARGET_ALPHA, COMBAT_TYPE_ALPHA,
-        COMBAT_ANNEAL_HORIZON, COMBAT_ANNEAL_FLOOR_FRACTION as floor,
-    )
-
-    # At step 0: full strength.
-    a_target0, a_type0 = combat_alphas_at(0)
-    assert a_target0 == pytest.approx(COMBAT_TARGET_ALPHA)
-    assert a_type0   == pytest.approx(COMBAT_TYPE_ALPHA)
-
-    # At horizon: floor * configured.
-    a_targetH, a_typeH = combat_alphas_at(COMBAT_ANNEAL_HORIZON)
-    assert a_targetH == pytest.approx(COMBAT_TARGET_ALPHA * floor)
-    assert a_typeH   == pytest.approx(COMBAT_TYPE_ALPHA   * floor)
-
-    # Beyond horizon: stays at floor.
-    a_target_far, a_type_far = combat_alphas_at(2 * COMBAT_ANNEAL_HORIZON)
-    assert a_target_far == pytest.approx(COMBAT_TARGET_ALPHA * floor)
-    assert a_type_far   == pytest.approx(COMBAT_TYPE_ALPHA   * floor)
-
-    # Halfway: linear interp.
-    half = COMBAT_ANNEAL_HORIZON // 2
-    a_target_h, _ = combat_alphas_at(half)
-    expected = COMBAT_TARGET_ALPHA * (1.0 - 0.5 * (1.0 - floor))
-    assert a_target_h == pytest.approx(expected, rel=1e-4)
-
-
-def test_legality_mask_type_bias_only_on_attack():
-    """type_bias[ATTACK] is non-zero when there's a positive-net-damage
-    attack target; type_bias[MOVE] is always zero. With weak units
-    facing each other, the net might be negative; we don't strictly
-    test sign, just shape."""
-    gs = _gs_with_unit_and_enemy()
-    encoder = GameStateEncoder()
-    encoder.register_names(gs)
-    encoded = encoder.encode(gs)
-    masks = _build_legality_masks(encoded, gs, decision_step=0)
-    # MOVE column is always zero.
-    assert (masks.type_bias[0, :, UnitActionType.MOVE].abs().sum().item()
-            == pytest.approx(0.0))
-
-
-# ---------------------------------------------------------------------
 # MCTS expansion: type_idx in priors + visit counts
 # ---------------------------------------------------------------------
 
