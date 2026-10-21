@@ -49,10 +49,10 @@ class _Inputs:
     """What both paths share: the run's facts and settings."""
 
     def __init__(self, loader, encoder, model, own, games, args, value_weight: float,
-                 type_loss_weights: Dict[str, float], device: torch.device):
+                 device: torch.device):
         self.loader, self.encoder, self.own, self.games = loader, encoder, own, games
         self.seed, self.value_states_per_game = args.seed, args.value_states_per_game
-        self.value_weight, self.type_loss_weights, self.device = value_weight, type_loss_weights, device
+        self.value_weight, self.device = value_weight, device
         self.head_shapes = head_shapes(model)
         self.pin = device.type == "cuda"
 
@@ -65,8 +65,7 @@ class _Inputs:
                              pin=self.pin)
         n_types, n_weapons, n_atoms = self.head_shapes
         targets = build_imitation_targets(labels.ais, labels.zw, staged.sizes, n_types=n_types,
-                                          n_weapons=n_weapons, n_atoms=n_atoms,
-                                          type_loss_weights=self.type_loss_weights, device=self.device)
+                                          n_weapons=n_weapons, n_atoms=n_atoms, device=self.device)
         b_target, b_mask = labels.belief_on(self.device)
         return targets, b_target, b_mask
 

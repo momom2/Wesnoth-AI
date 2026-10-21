@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from helpers.imitation import ARCH, TYPE_W, labels, per_sample_reference, states
+from helpers.imitation import ARCH, labels, per_sample_reference, states
 from tools import supervised_train as st
 from tools import signal_telemetry as sig
 from tools.signal_telemetry import (
@@ -54,7 +54,7 @@ def _weighted(zw):
 
 
 def _signal(path, model, enc, **kw) -> ImitationSignal:
-    return ImitationSignal(path, lambda r, a, z: st._batch_loss(model, enc, r, a, z, DEV, TYPE_W),
+    return ImitationSignal(path, lambda r, a, z: st._batch_loss(model, enc, r, a, z, DEV),
                            model, enc, **kw)
 
 
@@ -129,7 +129,7 @@ def test_each_term_is_the_gradient_the_trainer_steps_on(tmp_path, game_states):
     zw = _weighted(zw)
     opt = torch.optim.AdamW(_params(model, enc), lr=1e-3, weight_decay=1e-4)
     st._flush_batch(model, enc, raws[:4], ais[:4], zw[:4], opt, _params(model, enc), 4, DEV,
-                    *[deque(maxlen=50) for _ in range(6)], type_loss_weights=TYPE_W)
+                    *[deque(maxlen=50) for _ in range(6)])
 
     signal = _signal(tmp_path / "s.jsonl", model, enc, optimizer=opt, every=1,
                      probe_pairs=len(raws))
@@ -151,7 +151,7 @@ def test_each_term_is_the_gradient_the_trainer_steps_on(tmp_path, game_states):
 
     squares = dict.fromkeys(SIGNAL_GROUPS, 0.0)
     trainer = torch.optim.SGD(_params(model, enc), lr=0.0)
-    st._accumulate_batch(model, enc, raws, ais, zw, len(raws), DEV, TYPE_W, [], trainer)
+    st._accumulate_batch(model, enc, raws, ais, zw, len(raws), DEV, [], trainer)
     for name, p in named_model_parameters(model, enc):
         if p.grad is not None:
             squares[signal_group(name)] += float(p.grad.double().pow(2).sum())
@@ -192,7 +192,7 @@ def test_the_probe_leaves_training_bit_identical(tmp_path, game_states):
         for k, (r, a, z) in enumerate(batches):
             st._flush_batch(m, e, r, a, z, opt, _params(m, e), len(r), DEV,
                             *[deque(maxlen=50) for _ in range(6)],
-                            type_loss_weights=TYPE_W, step_norms=signal.step_norms)
+                            step_norms=signal.step_norms)
             if probe:
                 signal.record((r, a, z), epoch=0, step=k + 1, pairs=4 * (k + 1))
             if draw:

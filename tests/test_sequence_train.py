@@ -84,7 +84,7 @@ def test_a_steps_labels_train_the_policy_on_the_winners_decisions_only():
 
 def test_a_turn_that_ran_out_trains_the_value_and_no_policy():
     targets = build_imitation_targets([timeout_label()], [(1, 1.0, 1.0)], [(2, 1, 4)], n_types=2,
-                                      n_weapons=3, n_atoms=51, type_loss_weights={}, device=torch.device("cpu"))
+                                      n_weapons=3, n_atoms=51, device=torch.device("cpu"))
     assert targets.ok["actor"][0] and targets.ok["value"][0]
     assert targets.policy_w[0] == 0.0
 
@@ -271,7 +271,7 @@ def test_the_probe_reads_each_game_side_alike_whatever_its_batch(tmp_path, pass_
     from tools.sequence_probe import run_sides
     trainer = _trainer(pass_inputs, tmp_path)
     sides = [GameSide(f, s) for f in sorted(trainer.games) for s in (1, 2)]
-    kw = dict(device=torch.device("cpu"), type_loss_weights=trainer.type_loss_weights)
+    kw = dict(device=torch.device("cpu"))
     trainer.model.eval()
     trainer.encoder.eval()
     with torch.no_grad():

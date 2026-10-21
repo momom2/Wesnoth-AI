@@ -284,7 +284,7 @@ def test_hand_built_positions_stage_the_same_bytes_from_columns(tmp_path):
     facts = {f: GameFacts(winner=seq.winner, n_commands=seq.n_commands, policy_weight=0.0 if f in own_files else 1.5)
              for f, seq in games.items()}
     args = types.SimpleNamespace(seed=7, value_states_per_game=16)
-    common = (encoder, model, own, facts, args, 1.0, {"attack": 1.3, "move": 0.9, "recruit": 1.0}, torch.device("cpu"))
+    common = (encoder, model, own, facts, args, 1.0, torch.device("cpu"))
     records = RecordInputs(types.SimpleNamespace(sides=lambda g: games[g.file].sides[g.side]), *common)
     cols = ColumnInputs(types.SimpleNamespace(side=lambda g: columns[(g.file, g.side)]), *common)
     rng = np.random.default_rng(5)
