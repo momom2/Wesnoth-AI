@@ -24,6 +24,8 @@ BASH = find_bash()
 SCRIPT = ROOT / "scripts" / "memory_own_trajectories_box.sh"
 needs_bash = pytest.mark.skipif(BASH is None, reason="no POSIX bash")
 PARITY3 = "efba0a78518fe3c1273b408f7471f457353598482cb66e977f55a8db47f8d5ec"
+OWN1 = "70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80"
+OWN1_HF = "tier-b/memory_own_trajectories_20261011/own.pt"
 PRESET_VARS = ("HF_DIR", "INIT_HF", "INIT_SHA256", "TEACHER_HF", "TEACHER_SHA256", "PLAYER_SHA256",
                "PLAYER_SLOTS", "SOURCE_TARS", "GEN_MATCH", "EVAL_MATCHES", "RUN_SEED", "BOX_MAX_H")
 
@@ -60,7 +62,6 @@ def _specs(text: str):
 
 @needs_bash
 def test_the_round_presets_are_the_pre_registered_runs():
-    reference = json.loads((ROOT / "configs" / "reference_player.json").read_text(encoding="utf-8"))
     one, two = preset(1), preset(2)
     assert one["INIT_SHA256"] == one["TEACHER_SHA256"] == one["PLAYER_SHA256"] == PARITY3
     assert one["INIT_HF"] == "tier-b/imitation_anneal_20261003/lower.pt" and one["GEN_MATCH"] == ""
@@ -69,9 +70,9 @@ def test_the_round_presets_are_the_pre_registered_runs():
         ["m1_own64", "107000", "tuned", "64", "own64", "init", "0", "parity3_slots0"],
         ["m2_own0", "108000", "tuned", "0", "own0", "init", "0", "parity3_slots0"]]
     assert (one["RUN_SEED"], one["BOX_MAX_H"], one["PLAYER_SLOTS"]) == ("20261011", "7", "64")
-    # Round 2: own1, the reference, at 64 slots throughout.
-    assert two["INIT_SHA256"] == two["TEACHER_SHA256"] == two["PLAYER_SHA256"] == reference["checkpoint_sha256"]
-    assert two["INIT_HF"] == reference["checkpoint_hf"] and two["PLAYER_SLOTS"] == "64"
+    # Round 2: own1, the reference when it ran, at 64 slots throughout.
+    assert two["INIT_SHA256"] == two["TEACHER_SHA256"] == two["PLAYER_SHA256"] == OWN1
+    assert two["INIT_HF"] == OWN1_HF and two["PLAYER_SLOTS"] == "64"
     assert two["SOURCE_TARS"].split() == [f"tier-b/own_confirm_20261011/games_{m}.tar.gz"
                                          for m in ("own64_vs_p3", "own64_vs_own0", "own64_selfplay")]
     assert _specs(two["GEN_MATCH"]) == [["gen_own1_selfplay", "113000", "init", "64", "own1a", "init", "64", "own1b"]]
