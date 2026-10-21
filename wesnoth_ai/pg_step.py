@@ -14,8 +14,10 @@ accumulators and the mean squared window gradient of each split. From it:
   by game, and `ess_share` checks its importance weights;
 - `ladder` reads three candidates at KL eps/2, eps and 2 eps, selects on half
   A, confirms on half B and returns the round's decision;
-- `critical_batch`, `gain_curve` and `floor` read the round size and the
-  attainable gain.
+- `fisher_quadratic` and `span_fisher` read the Fisher along given
+  directions from the KL.
+Stage C's own readings (the critical batch, the gain curve, the floor and its
+gate) are in tools/pg_stage_c.py.
 
 Parameters are named as in pass.pt, and a direction maps every name of the
 pass to a float32 tensor of that parameter's shape.
@@ -63,10 +65,14 @@ def _names(pass_: Mapping) -> List[str]:
 
 def second_moment(pass_: Mapping) -> Direction:
     """The pass's mean squared window gradient: the splits' means weighted by
-    their game counts. The contract records windows per pass, not per split;
-    the weighting is exact when a split's windows are in proportion to its
-    games, as they are on average under the game-index split."""
-    weights = np.asarray(pass_["split_games"], dtype=np.float64)
+    their window counts (`split_windows`, which tools/pg_pass.py writes beside
+    the contract's keys), else by their game counts, exact when a split's
+    windows are in proportion to its games.
+
+    Its scale is free: tools/pg_pass.py squares each window's gradient before
+    the 1/2N that `total` carries, and reduced AdamW's g / sqrt(v), with no
+    epsilon, then changes by a constant factor the KL search removes."""
+    weights = np.asarray(pass_.get("split_windows") or pass_["split_games"], dtype=np.float64)
     weights = weights / weights.sum()
     return {name: sum(float(w) * sq[name].float() for w, sq in zip(weights, pass_["sq"]))
             for name in _names(pass_)}
@@ -187,7 +193,7 @@ def probe_span(g: Direction, params: Mapping[str, torch.Tensor],
     if not heads:
         raise ValueError("no head of HEAD_MAPS among the parameters")
     slopes = span_slopes(g, heads)
-    coefficients = slopes if span_fisher is None else _solve(span_fisher, slopes)
+    coefficients = slopes if span_fisher is None else solve(span_fisher, slopes)
     return combine(coefficients, heads)
 
 
@@ -332,11 +338,26 @@ def clustered_mean(values: np.ndarray, games: Sequence[str]) -> Reading:
     return _clustered(tuple(keys), per_game, counts)
 
 
+def _check_paired(a: Reading, b: Reading) -> None:
+    if a.games != b.games or not np.array_equal(a.counts, b.counts):
+        raise ValueError("a paired reading needs two readings of the same game-sides")
+
+
 def paired_difference(a: Reading, b: Reading) -> Reading:
     """a - b on the same game-sides, its SE clustered by game (the pairing)."""
-    if a.games != b.games or not np.array_equal(a.counts, b.counts):
-        raise ValueError("a paired difference needs two readings of the same game-sides")
+    _check_paired(a, b)
     return _clustered(a.games, a.per_game - b.per_game, a.counts)
+
+
+def paired_ratio(a: Reading, b: Reading) -> Tuple[float, float]:
+    """a / b on the same game-sides and its SE by the delta method: a/b - r
+    is about (a - r b)/b, so the SE is that of the paired mean of a - r b,
+    clustered by game, over |b|."""
+    _check_paired(a, b)
+    if b.estimate == 0:
+        return math.nan, math.nan
+    ratio = a.estimate / b.estimate
+    return ratio, _clustered(a.games, a.per_game - ratio * b.per_game, a.counts).se / abs(b.estimate)
 
 
 def _side_sums(values: np.ndarray, sides: Sequence[GameSide]) -> np.ndarray:
@@ -402,6 +423,13 @@ class HalfReading:
 
 
 def sides_by_half(sides: Sequence[GameSide], halves: Sequence[str]) -> Dict[str, List[GameSide]]:
+    """The game-sides of each half. Halves are drawn per game, both seats of
+    a game in one half: the readings are clustered by game, and a game split
+    across the halves would join selection and confirmation."""
+    half_of: Dict[str, Optional[str]] = {}
+    for gs in sides:
+        if half_of.setdefault(gs.game, gs.half) != gs.half:
+            raise ValueError(f"game {gs.game!r} has its seats in two halves")
     out = {half: [gs for gs in sides if gs.half == half] for half in halves}
     for half, members in out.items():
         if len({gs.game for gs in members}) < 2:
@@ -467,14 +495,20 @@ def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B
     those ΔĴ can read (in range, importance weights not heavy-tailed) is read
     on the confirmation half. It is adopted unless that reads below
     -REVERT_SE SE; then pi_k stays and the radius halves. The next round
-    starts from the adopted rung's radius. With no readable rung pi_k stays
-    and the radius halves."""
+    starts from the adopted rung's radius. pi_k also stays and the radius
+    halves when no rung is readable, or when the chosen rung's weights fail
+    the check on the confirmation half (design §5: such a rung is read by a
+    cross-play match, not by importance weights)."""
     select, confirm = halves
     readable = [i for i, rung in enumerate(rungs) if rung.readable(select)]
     if not readable:
         return Decision(False, 0.0, eps, eps / 2.0, None, "no rung readable by importance weights",
                         list(rungs))
     best = max(readable, key=lambda i: rungs[i].halves[select].exact.estimate)
+    if not rungs[best].halves[confirm].ess_ok:
+        return Decision(False, 0.0, eps, eps / 2.0, best,
+                        f"half {confirm}'s importance weights fail the check: the rung needs a cross-play match",
+                        list(rungs))
     check = rungs[best].halves[confirm].exact
     if check.estimate < -REVERT_SE * check.se:
         return Decision(False, 0.0, eps, eps / 2.0, best,
@@ -488,7 +522,11 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
            halves: Tuple[str, str] = ("A", "B"), s0: float = 1.0) -> Decision:
     """Three candidates theta_k + s d at mean per-decision KL eps/2, eps and
     2 eps, each read by Ĝ and ΔĴ on both halves; the decision is `decide`'s.
-    Every reading is returned. `s0` starts the first rung's KL search."""
+    Every reading is returned. `s0` starts the first rung's KL search.
+
+    A rung past SIDE_KL_RANGE (1/2 nat per side-game) is never selected, so
+    this ladder caps every round at K = 1/2, where design §1.2 reads such a
+    rung by a cross-play match against pi_k instead."""
     evaluator = evaluator_factory(d)
     by_half = sides_by_half(evaluator.game_sides(), halves)
     per_side = decisions_per_side(evaluator.game_sides())
@@ -506,7 +544,7 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     return decide(rungs, eps, halves)
 
 
-# ---------------------------------------------------------------- round size and floor
+# ---------------------------------------------------------------- the Fisher along directions
 
 def fisher_quadratic(evaluator: Evaluator, s: float) -> float:
     """d^T F d per decision, F the mean per-decision Fisher of the KL
@@ -515,83 +553,12 @@ def fisher_quadratic(evaluator: Evaluator, s: float) -> float:
     return (evaluator.mean_kl(s) + evaluator.mean_kl(-s)) / (s * s)
 
 
-@dataclass(frozen=True)
-class CriticalBatch:
-    B: float            # games
-    signal: float       # g^T PFP g
-    noise: float        # tr(PFP Sigma), Sigma the per-game gradient covariance
-
-    def summary(self) -> Dict[str, float]:
-        return {"B": self.B, "signal": self.signal, "noise": self.noise}
-
-
-def critical_batch(split_q: Sequence[float], total_q: float, split_games: Sequence[int]) -> CriticalBatch:
-    """B = tr(PFP Sigma) / (g^T PFP g), the critical batch of a KL-normalized
-    step (design §2), from the Fisher quadratic forms q = d^T F d of the
-    eight single-split directions d_i = P g_i and of their sum's.
-
-    g_i, the mean gradient of split i's n_i games, has mean g and covariance
-    Sigma / n_i, so E[q_i] = g^T M g + tr(M Sigma) / n_i with M = PFP, and the
-    total of N = sum n_i games has E[q] = g^T M g + tr(M Sigma) / N. Averaging
-    the splits' equations and subtracting the total's:
-        tr(M Sigma) = (mean q_i - q) / (mean(1/n_i) - 1/N),
-        g^T M g     = q - tr(M Sigma) / N.
-    With eight equal splits mean(1/n_i) - 1/N = 7/N. A noise reading below 0
-    counts as 0 in B, and B is infinite when the signal reads at or below 0."""
-    n = np.asarray(split_games, dtype=np.float64)
-    q = np.asarray(split_q, dtype=np.float64)
-    total = n.sum()
-    noise = (q.mean() - total_q) / ((1.0 / n).mean() - 1.0 / total)
-    signal = total_q - noise / total
-    B = max(noise, 0.0) / signal if signal > 0 else math.inf
-    return CriticalBatch(float(B), float(signal), float(noise))
-
-
-def gain_curve(N: float, B: float) -> float:
-    """The share of the noise-free first-order gain a step from N games
-    reaches at a fixed KL: sqrt(N / (N + B)). The step s = sqrt(2K / q) with
-    E[q] = g^T M g (1 + B/N), and its gain s g^T P g, so the gain scales as
-    1/sqrt(1 + B/N)."""
-    return math.sqrt(N / (N + B))
-
-
-def gain_ratio(N: float, N_ref: float, B: float) -> float:
-    """The model's Ĝ(N)/Ĝ(N_ref), gain_curve(N, B)/gain_curve(N_ref, B)
-    (design §5, the gain-curve check); sqrt(N/N_ref) when B is infinite."""
-    if math.isinf(B):
-        return math.sqrt(N / N_ref)
-    return math.sqrt(N * (N_ref + B) / (N_ref * (N + B)))
-
-
-def _solve(matrix: np.ndarray, vector: np.ndarray) -> np.ndarray:
+def solve(matrix: np.ndarray, vector: np.ndarray) -> np.ndarray:
+    """matrix^-1 vector, by least squares when the matrix is singular."""
     try:
         return np.linalg.solve(matrix, vector)
     except np.linalg.LinAlgError:
         return np.linalg.lstsq(matrix, vector, rcond=None)[0]
-
-
-def floor(s: np.ndarray, F_s: np.ndarray, K: float) -> float:
-    """sqrt(2K s^T F_s^-1 s): the first-order gain of the best step at KL K
-    within the span of the directions whose slopes are s and Fisher F_s
-    (design §3.4). By Cauchy-Schwarz in the Fisher metric the best step over
-    every parameter gains at least as much. F_s and K share one
-    normalisation (both per decision, or both per side-game)."""
-    s = np.asarray(s, dtype=np.float64)
-    return math.sqrt(2.0 * K * max(float(s @ _solve(np.asarray(F_s, dtype=np.float64), s)), 0.0))
-
-
-def debiased_quadratic(total_slopes: np.ndarray, split_slopes: Sequence[np.ndarray],
-                       split_games: Sequence[int], F_s: np.ndarray) -> float:
-    """s^T F_s^-1 s less its noise, tr(F_s^-1 C) / N. The slopes of split i,
-    a mean over n_i games, have covariance C / n_i, and the splits estimate C
-    without bias: sum_i n_i (s_i - s)(s_i - s)^T / (k - 1), since
-    E[n_i (s_i - s)(s_i - s)^T] = C (1 - n_i / N)."""
-    s = np.asarray(total_slopes, dtype=np.float64)
-    n = np.asarray(split_games, dtype=np.float64)
-    deviations = np.asarray(split_slopes, dtype=np.float64) - s
-    C = np.einsum("i,ij,ik->jk", n, deviations, deviations) / (len(n) - 1)
-    F_s = np.asarray(F_s, dtype=np.float64)
-    return float(s @ _solve(F_s, s) - np.trace(_solve(F_s, C)) / n.sum())
 
 
 def span_fisher(evaluator_factory: EvaluatorFactory, directions: Sequence[Direction], s: float) -> np.ndarray:

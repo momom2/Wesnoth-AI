@@ -140,6 +140,61 @@ class ToyGame:
         change = np.exp(lp_new) - np.exp(lp_base)
         return 0.5 * float(sum((change * q[t]).sum() for t in range(4)))
 
+    def gradient_moments(self, params: Mapping[str, torch.Tensor]):
+        """The mean g and covariance Sigma of one game's gradient
+        x = 1/2 sum_s R_s sum_{t in s} grad log pi(a_t | h_t), the pass's
+        per-game term, flattened as `flatten` orders the parameters, by
+        enumeration of every path and result."""
+        lp = log_policy(params)
+        mean, second = np.zeros(DIM), np.zeros((DIM, DIM))
+        for a1, b1, c, a2, b2 in itertools.product(range(3), range(3), range(2), range(3), range(3)):
+            states, actions = state_ids(a1, b1, c, a2), (a1, b1, a2, b2)
+            seats = [np.zeros(DIM), np.zeros(DIM)]
+            for t in range(4):
+                seats[SIDE_OF_DECISION[t] - 1] += score_vector(params, states[t], actions[t])
+            path = np.exp(sum(lp[states[t], actions[t]] for t in range(4))) * (CHANCE_P if c else 1 - CHANCE_P)
+            win = self.win[a1, b1, c, a2, b2]
+            for z, chance in ((1.0, win), (-1.0, 1.0 - win)):
+                x = 0.5 * (z - BASELINE - LUCK_COEFFICIENT * (c - CHANCE_P)) * (seats[0] - seats[1])
+                mean += path * chance * x
+                second += path * chance * np.outer(x, x)
+        return mean, second - np.outer(mean, mean)
+
+
+DIM = STATES * ACTIONS + 1
+
+
+def flatten(d: Mapping[str, torch.Tensor]) -> np.ndarray:
+    """A direction as one vector: the table row by row, then the head."""
+    return np.concatenate([d[TABLE].double().numpy().ravel(), d[HEAD].double().numpy().ravel()])
+
+
+def _logit_jacobian(params: Mapping[str, torch.Tensor], h: int) -> np.ndarray:
+    """d logits(h) / d theta, [ACTIONS, DIM]."""
+    J = np.zeros((ACTIONS, DIM))
+    J[:, h * ACTIONS:(h + 1) * ACTIONS] = params[HEAD].double().item() * np.eye(ACTIONS)
+    J[:, -1] = params[TABLE].double().numpy()[h]
+    return J
+
+
+def score_vector(params: Mapping[str, torch.Tensor], h: int, a: int) -> np.ndarray:
+    """grad log pi(a | h), flattened."""
+    score = -np.exp(log_policy(params)[h])
+    score[a] += 1.0
+    return score @ _logit_jacobian(params, h)
+
+
+def fisher_matrix(params: Mapping[str, torch.Tensor], log: ToyLog) -> np.ndarray:
+    """The mean per-decision Fisher over the decisions of `log`, flattened:
+    the evaluator's KL is d^T F d s^2 / 2 to second order."""
+    probs = np.exp(log_policy(params))
+    freq = np.bincount(log.states.ravel(), minlength=STATES) / log.states.size
+    F = np.zeros((DIM, DIM))
+    for h in np.flatnonzero(freq):
+        J = _logit_jacobian(params, h)
+        F += freq[h] * J.T @ (np.diag(probs[h]) - np.outer(probs[h], probs[h])) @ J
+    return F
+
 
 def _decision_order(games: int) -> np.ndarray:
     """Decision indices in log order: game by game, side 1's two decisions,
@@ -183,7 +238,8 @@ class ToyEvaluator:
 def toy_pass(params: Mapping[str, torch.Tensor], log: ToyLog, splits: int = 8) -> Dict:
     """pass.pt (contract §3) of the games of `log` at `params`: total and
     splits are sums of R grad log pi over 2 x games, a window is one
-    game-side, and sq[i] the mean squared window gradient of split i."""
+    game-side, and sq[i] the mean squared window gradient of split i, taken
+    before the 1/2N as tools/pg_pass.py takes it."""
     games = len(log.z)
     R = log.labels()
     lp = log_policy(params)

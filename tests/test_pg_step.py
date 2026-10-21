@@ -1,7 +1,7 @@
 """The step math of the policy-gradient round (wesnoth_ai/pg_step.py) on
-hand-built inputs: each arm's direction, the KL search, the critical batch on
-a Gaussian noise model of known B, the floor against a brute-force bound, and
-the ladder's adoption rule."""
+hand-built inputs: each arm's direction, the KL search, the clustered SE, the
+Fisher of a few directions, the per-side-game KL, and the ladder's adoption
+rule."""
 from __future__ import annotations
 
 import dataclasses
@@ -17,8 +17,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from wesnoth_ai.muon import newton_schulz  # noqa: E402
 from wesnoth_ai.pg_protocol import Evaluator, GameSide  # noqa: E402
-from wesnoth_ai.pg_step import (KL_RTOL, clustered_mean, critical_batch, debiased_quadratic, decide,  # noqa: E402
-                                direction, floor, head_of, kl_search, ladder, muon_matrices)
+from wesnoth_ai.pg_step import (KL_RTOL, clustered_mean, decide, direction, head_of, kl_search,  # noqa: E402
+                                ladder, muon_matrices, paired_ratio, read_candidate, second_moment,
+                                sides_by_half, span_fisher)
 
 IN_PROJ = "model.encoder.layers.0.self_attn.in_proj_weight"
 LINEAR = "model.encoder.layers.0.linear1.weight"
@@ -142,88 +143,28 @@ def test_the_se_is_clustered_by_game():
     assert reading.se == pytest.approx(v.std(ddof=1) / math.sqrt(len(v)))
 
 
-def test_critical_batch_recovers_B_on_a_gaussian_noise_model():
-    """Split gradients drawn as N(g, Sigma / n_i): over many draws the
-    estimated signal and noise match g^T M g and tr(M Sigma), M = PFP, and
-    their ratio the true B."""
-    rng = np.random.default_rng(0)
-    dim, n = 12, np.array([2400, 2600, 2500, 2500, 2450, 2550, 2500, 2500])
-    P, F = np.diag(rng.uniform(0.5, 2.0, dim)), np.diag(rng.uniform(0.2, 1.5, dim))
-    g = rng.normal(size=dim) * 0.02
-    A = rng.normal(size=(dim, dim))
-    Sigma = A @ A.T / dim
-    M = P @ F @ P
-    true_signal, true_noise = g @ M @ g, np.trace(M @ Sigma)
-    root = np.linalg.cholesky(Sigma)
-    signals, noises = [], []
-    for _ in range(3000):
-        splits = g + (rng.normal(size=(len(n), dim)) @ root.T) / np.sqrt(n)[:, None]
-        total = (n[:, None] * splits).sum(axis=0) / n.sum()
-        q = [x @ M @ x for x in splits]
-        result = critical_batch(q, total @ M @ total, n)
-        signals.append(result.signal)
-        noises.append(result.noise)
-    for got, want in ((signals, true_signal), (noises, true_noise)):
-        assert abs(np.mean(got) - want) < 3 * np.std(got) / math.sqrt(len(got))
-    assert abs(np.mean(noises) / np.mean(signals) / (true_noise / true_signal) - 1) < 0.05
-
-
-def test_floor_is_the_best_step_in_the_span_and_bounds_the_full_one():
-    rng = np.random.default_rng(1)
-    A = rng.normal(size=(5, 5))
-    F = A @ A.T + 0.5 * np.eye(5)
-    g = rng.normal(size=5)
-    U = rng.normal(size=(5, 2))
-    K = 0.3
-    s, F_s = U.T @ g, U.T @ F @ U
-    bound = floor(s, F_s, K)
-    angles = np.linspace(0, 2 * np.pi, 200_001)
-    circle = np.stack([np.cos(angles), np.sin(angles)])
-    c = np.linalg.solve(np.linalg.cholesky(F_s).T, circle) * math.sqrt(2 * K)    # 1/2 c^T F_s c = K
-    in_span = (s @ c).max()
-    assert in_span <= bound * (1 + 1e-9) and in_span > bound * (1 - 1e-6)
-    sphere = rng.normal(size=(5, 200_000))
-    sphere /= np.linalg.norm(sphere, axis=0)
-    full = (g @ (np.linalg.solve(np.linalg.cholesky(F).T, sphere) * math.sqrt(2 * K))).max()
-    assert full >= bound
-
-
-def test_debiased_quadratic_removes_the_noise():
-    rng = np.random.default_rng(2)
-    n = np.array([500] * 8)
-    true_s, F_s = np.array([0.02, -0.01]), np.array([[1.0, 0.2], [0.2, 0.5]])
-    C = np.array([[0.4, 0.1], [0.1, 0.3]])
-    root = np.linalg.cholesky(C)
-    truth = true_s @ np.linalg.solve(F_s, true_s)
-    raw, debiased = [], []
-    for _ in range(4000):
-        splits = true_s + (rng.normal(size=(8, 2)) @ root.T) / np.sqrt(n)[:, None]
-        total = splits.mean(axis=0)
-        raw.append(total @ np.linalg.solve(F_s, total))
-        debiased.append(debiased_quadratic(total, splits, n, F_s))
-    assert abs(np.mean(debiased) - truth) < 3 * np.std(debiased) / math.sqrt(len(debiased))
-    assert np.mean(raw) - truth > 10 * np.std(raw) / math.sqrt(len(raw))
-
-
 class _LadderEvaluator:
-    """One decision per game-side, KL s^2, and (W - 1) R on half h equal to
-    gains[h][rung] plus fixed noise, the rung read off s; `spike` (rung,
-    value) adds value to the first game-side's W - 1 at that rung."""
+    """`decisions` decisions per game-side, KL s^2 per decision, and (W - 1) R
+    on half h equal to gains[h][rung] plus fixed noise, the rung read off s
+    and each game-side's whole log weight on its first decision; `spike`
+    (rung, half, value) adds value to W - 1 of that half's first game-side."""
 
-    def __init__(self, gains, eps, games=400, seed=0, spike=None):
+    def __init__(self, gains, eps, games=400, seed=0, spike=None, decisions=1):
         rng = np.random.default_rng(seed)
-        self.gains, self.eps, self.spike = gains, eps, spike
+        self.gains, self.eps, self.spike, self.decisions = gains, eps, spike, decisions
         self.sides = [GameSide(f"g{g}", side, 1.0 if side == 1 else -1.0, "A" if g % 2 == 0 else "B",
-                               2 * g + side - 1, 2 * g + side) for g in range(games) for side in (1, 2)]
+                               (2 * g + side - 1) * decisions, (2 * g + side) * decisions)
+                      for g in range(games) for side in (1, 2)]
         self.noise = rng.normal(size=2 * games) * 0.01
         self.R = np.array([gs.R for gs in self.sides])
         self.half = np.array([gs.half for gs in self.sides])
+        self.first = np.array([gs.start for gs in self.sides])
 
     def game_sides(self):
         return self.sides
 
     def base_logp(self):
-        return np.zeros(len(self.sides))
+        return np.zeros(len(self.sides) * self.decisions)
 
     def mean_kl(self, s):
         return s * s
@@ -233,8 +174,10 @@ class _LadderEvaluator:
         gain = np.where(self.half == "A", self.gains["A"][rung], self.gains["B"][rung])
         x = self.R * (gain + self.noise)
         if self.spike is not None and self.spike[0] == rung:
-            x[0] += self.spike[1]
-        return np.log1p(x)
+            x[np.flatnonzero(self.half == self.spike[1])[0]] += self.spike[2]
+        out = np.zeros(len(self.sides) * self.decisions)
+        out[self.first] = np.log1p(x)
+        return out
 
 
 def _ladder(gains, eps=0.01):
@@ -276,9 +219,114 @@ def test_rungs_importance_weights_cannot_read_are_not_selected():
     assert [r.in_range for r in decision.rungs] == [True, True, False]
     assert decision.adopt and decision.chosen == 1
 
-    heavy = ladder(lambda d: _LadderEvaluator(gains, 0.01, spike=(2.0, 50.0)), {}, 0.01)
+    heavy = ladder(lambda d: _LadderEvaluator(gains, 0.01, spike=(2.0, "A", 50.0)), {}, 0.01)
     assert heavy.rungs[2].in_range and not heavy.rungs[2].halves["A"].ess_ok
     assert heavy.rungs[2].halves["A"].exact.estimate > heavy.rungs[1].halves["A"].exact.estimate
     assert heavy.adopt and heavy.chosen == 1
     kept = decide([dataclasses.replace(r, in_range=False) for r in decision.rungs], 0.3)
     assert not kept.adopt and kept.chosen is None and kept.next_eps == pytest.approx(0.15)
+
+
+def test_half_b_weights_must_pass_before_its_reading_counts():
+    """The rung chosen on half A whose weights fail the check on half B is
+    not adopted on half B's reading: pi_k stays and the radius halves."""
+    gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.01}}
+    decision = ladder(lambda d: _LadderEvaluator(gains, 0.01, spike=(2.0, "B", 50.0)), {}, 0.01)
+    assert decision.chosen == 2 and decision.rungs[2].halves["A"].ess_ok
+    assert not decision.rungs[2].halves["B"].ess_ok
+    assert not decision.adopt and decision.s == 0.0 and decision.next_eps == pytest.approx(0.005)
+
+
+class _FixedWeights:
+    """Each game-side's log weight on its first decision, whatever s."""
+
+    def __init__(self, log_weights, decisions):
+        self.decisions = decisions
+        self.out = np.zeros(len(log_weights) * decisions)
+        self.out[::decisions] = log_weights
+
+    def logp(self, s):
+        return self.out
+
+    def base_logp(self):
+        return np.zeros_like(self.out)
+
+
+def test_the_kl_is_read_per_side_game():
+    """With 50 decisions a side-game: eps 0.006 a decision puts the 2 eps
+    rung at K 0.6 a side-game, past the range; and weights of
+    effective-sample share 1/3.25 pass the check at K 0.3 a side-game (floor
+    0.27), which read per decision (K 0.006, floor 0.49) they would fail."""
+    gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.0}}
+    decision = ladder(lambda d: _LadderEvaluator(gains, 0.006, decisions=50), {}, 0.006)
+    assert [r.in_range for r in decision.rungs] == [True, True, False]
+    assert decision.adopt and decision.chosen == 1
+
+    weights = np.array([0.25] * 160 + [4.0] * 40)                  # mean 1, mean square 3.25
+    sides = [GameSide(f"g{i // 2}", 1 + i % 2, 1.0, "A", 50 * i, 50 * (i + 1)) for i in range(200)]
+    reading = read_candidate(_FixedWeights(np.log(weights), 50), 1.0, 0.3 / 50, {"A": sides})["A"]
+    assert reading.side_kl == pytest.approx(0.3)
+    assert reading.ess_share == pytest.approx(1 / 3.25)
+    assert reading.ess_ok
+
+
+def test_halves_are_drawn_per_game():
+    sides = [GameSide("g0", 1, 1.0, "A", 0, 1), GameSide("g0", 2, -1.0, "B", 1, 2),
+             GameSide("g1", 1, 1.0, "A", 2, 3), GameSide("g1", 2, -1.0, "A", 3, 4)]
+    with pytest.raises(ValueError, match="two halves"):
+        sides_by_half(sides, ("A", "B"))
+
+
+class _CubicKL:
+    """KL(s) = s^2 d^T F d / 2 + s^3 sum(d^3): a Fisher F, and a cubic term
+    the symmetric reading cancels."""
+
+    def __init__(self, F, d):
+        self.F, self.d = F, d
+
+    def mean_kl(self, s):
+        return 0.5 * s * s * float(self.d @ self.F @ self.d) + s ** 3 * float((self.d ** 3).sum())
+
+
+def test_span_fisher_reads_every_entry():
+    rng = np.random.default_rng(4)
+    A = rng.normal(size=(5, 5))
+    F = A @ A.T + np.eye(5)
+    U = rng.normal(size=(3, 5))
+    directions = [{"p": torch.from_numpy(u)} for u in U]
+    got = span_fisher(lambda d: _CubicKL(F, d["p"].numpy()), directions, 0.05)
+    assert np.allclose(got, U @ F @ U.T, rtol=1e-9, atol=1e-12)
+
+
+def test_the_pass_s_scale_and_windows():
+    """tools/pg_pass.py squares each window's gradient before the 1/2N that
+    total carries: a second moment c^2 times larger only divides reduced
+    AdamW, Muon and heads-only by c. Its window counts, when present, weight
+    the splits' second moments."""
+    p = _pass()
+    c = 2.0 * 20_000
+    scaled = {**p, "sq": [{n: t * c * c for n, t in s.items()} for s in p["sq"]]}
+    for arm in ("reduced_adamw", "muon", "heads_only"):
+        plain, wide = direction(p, arm), direction(scaled, arm)
+        for name in SHAPES:
+            assert torch.allclose(wide[name] * c, plain[name], rtol=1e-4, atol=1e-7), (arm, name)
+    v = second_moment({**p, "split_windows": [1, 3]})
+    for name in SHAPES:
+        assert torch.allclose(v[name], 0.25 * p["sq"][0][name] + 0.75 * p["sq"][1][name])
+
+
+def test_the_paired_ratio_se_matches_its_spread():
+    """Two readings sharing most of their per-game noise: the paired ratio's
+    SE matches the ratio's spread over many draws (an unpaired SE would be
+    about twice it)."""
+    rng = np.random.default_rng(5)
+    games = [f"g{i // 2}" for i in range(400)]
+    ratios, ses = [], []
+    for _ in range(2000):
+        common = rng.normal(size=400)
+        a = clustered_mean(1.0 + common + 0.1 * rng.normal(size=400), games)
+        b = clustered_mean(2.0 + common + 0.1 * rng.normal(size=400), games)
+        ratio, se = paired_ratio(a, b)
+        ratios.append(ratio)
+        ses.append(se)
+    assert 0.85 < math.sqrt(np.mean(np.square(ses))) / np.std(ratios) < 1.15
