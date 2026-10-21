@@ -178,18 +178,18 @@ def spec(tmp_path_factory) -> str:
 
 @needs_core
 def test_the_rule_plays_its_seat_at_most_its_cap_and_the_readout_rereads_each_decision(spec, tmp_path):
-    """Band 50 nats and cap 1 (so the cap binds in short games): the seat
-    coin of each seed names the rule's player in the result and the record,
-    both tags carry the rule's hash, and the readout finds every decision on
-    the hooked side, its inputs and f equal to R0's, the switches its values
-    and cap give, each played as logged."""
+    """Band 50 nats and cap 1: the seat coin of each seed names the rule's
+    player in the result and the record, both tags carry the rule's hash,
+    and the readout finds every decision on the hooked side, its inputs and
+    f equal to R0's, the switches its values and cap give, each played as
+    logged. (Which decisions arise depends on the platform's numerics, so
+    the counts are bounded, not fixed.)"""
     from tools.elo_eval_game import main
     from tools.recruit_rule_readout import extract_rows, readout
     from wesnoth_ai.rules.scenario_pool import load_factions
     recruits = {k: list(v.recruit) for k, v in load_factions().items()}
     data = spread_rule(recruits, band=50.0, cap=1)
     path = write_rule(tmp_path / "rule", data)
-    from tools.game_record import read_records
     games = tmp_path / "games"
     assert {"a" if rule_seat_coin(s) else "b" for s in (7, 8)} == {"a", "b"}
     for seed in (7, 8):
@@ -203,10 +203,32 @@ def test_the_rule_plays_its_seat_at_most_its_cap_and_the_readout_rereads_each_de
     r = readout(extract_rows("m", games, data), data, {"seal": {"elo": 20.0, "se": 3.0}})
     c = r["checks"]
     assert c["matches_whole"]["pass"] and c["seat_coin_logged"]["pass"] and c["i_cap"]["pass"], c
-    assert c["i_cap"]["switches"] == c["i_cap"]["max_switches_per_side_game"] * 2 == 2
-    logged = [e for p in sorted(games.glob("*.game.jsonl.gz")) for rec in read_records(p)
-              for e in rec["recruit_rule"]["decisions"]]
-    assert any(e["f"] > 0 and not e["switched"] for e in logged)          # the cap bound
+    assert c["i_cap"]["switches"] >= 1 and c["i_cap"]["max_switches_per_side_game"] == 1
+
+
+def test_the_rule_switches_at_most_its_cap_each_side_game_and_logs_every_decision():
+    """The player's rule step on stub states: a1 where f > 0 until the
+    side's cap, a0 after it and wherever f <= 0, each side's cap its own;
+    two recruits of one type are not a rule decision."""
+    from tools.raw_player import RawPolicyPlayer
+    rule = RecruitRule.from_data(rule_file({"L|A": 0.1, "N|A": 0.1}, {}, 0.0, cap=2))
+    player = RawPolicyPlayer(SimpleNamespace(), 0.0, recruit_rule=rule)
+    sides = [SimpleNamespace(faction="L"), SimpleNamespace(faction="N")]
+    sim = SimpleNamespace(command_history=[SimpleNamespace(cmd=["init_side", 1])])
+
+    def act(unit, y):
+        return {"type": "recruit", "unit_type": unit, "target_hex": SimpleNamespace(x=1, y=y)}
+
+    def choose(side, i, u0, u1):
+        state = SimpleNamespace(global_info=SimpleNamespace(current_side=side), sides=sides)
+        return player._rule_choice("g", (side, i), (0, 1, 0.1, 0), state, sim, act(u0, 1), act(u1, 2))["unit_type"]
+    played = [choose(1, 0, "B", "A"), choose(1, 1, "A", "B"), choose(1, 2, "B", "A"), choose(1, 3, "B", "B"),
+              choose(1, 4, "B", "A"), choose(2, 0, "B", "A")]
+    assert played == ["A", "A", "A", "B", "B", "A"]
+    log = player.pop_rule_log("g")
+    assert [(e["side"], e["i"], e["switched"], e["switches_before"]) for e in log] == \
+           [(1, 0, True, 0), (1, 1, False, 1), (1, 2, True, 1), (1, 4, False, 2), (2, 0, True, 0)]
+    assert [round(e["f"], 9) for e in log] == [0.1, -0.1, 0.1, 0.1, 0.1] and log[0]["enemy"] == "N"
 
 
 def test_the_readout_reads_the_hooked_seat_and_fails_a_rule_past_its_cap_or_played_otherwise(tmp_path):

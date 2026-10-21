@@ -141,9 +141,10 @@ REF_PT=$BOX_REPO/$(timeout 1m python -c "import json; print(json.load(open('conf
     || box_finish "REFERENCE_CONFIG_UNREADABLE (configs/reference_player.json)" 1
 [ -f "$REF_PT" ] || box_finish "REFERENCE_MISSING ($REF_PT)" 1
 RULE=$BOX_REPO/$RULE
-timeout 1m python -c "import sys; from tools.recruit_rule import RecruitRule; print(RecruitRule.load(sys.argv[1]).hash)" \
-    "$RULE" >> "$OUT/box.txt" 2>&1 && [ -f "${RULE%.json}_readout.json" ] \
-    || box_finish "RULE_REFUSED ($RULE: its content against its hash, its seal beside it; box.txt)" 1
+if ! timeout 1m python -c "import sys; from tools.recruit_rule import RecruitRule; print(RecruitRule.load(sys.argv[1]).hash)" \
+        "$RULE" >> "$OUT/box.txt" 2>&1 || [ ! -f "${RULE%.json}_readout.json" ]; then
+    box_finish "RULE_REFUSED ($RULE: its content against its hash, its seal beside it; box.txt)" 1
+fi
 
 # ---- the CPU tests of the rule path and of the generation path, on this wheel: the gate
 if ! box_marked_this_stage "$BOX_STATE/TESTED"; then
