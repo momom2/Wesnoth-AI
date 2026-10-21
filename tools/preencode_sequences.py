@@ -141,25 +141,16 @@ def encode_decision(cs, cmd: Optional[list], where: str, type_to_id: Dict[str, i
         ai = slot_checked(ai, raw, where, stats)
     pos = sequence_position(raw, ai, int(cs.core.current_side), int(cs.core.turn_number), stats)
     if masks:
-        pos.masks = _decision_masks(raw, pos.raw, cs)
+        pos.masks = _decision_masks(raw, cs)
     return pos
 
 
-def _decision_masks(raw, kept_raw, cs):
+def _decision_masks(raw, cs):
     """The packed legality masks of the decision `raw` encodes on `cs`: the
-    core's, built beside the encoding, while the combat oracle's priors are
-    off (their value since 2026-08-06); else the Python builder's, which
-    carries their biases, over the stored encoding `kept_raw` and a view of
-    a fork."""
-    from wesnoth_ai.action_sampler import combat_alphas_at, end_turn_bias_of
+    core's, built beside the encoding."""
+    from wesnoth_ai.action_sampler import end_turn_bias_of
     from wesnoth_ai.server_priors import core_packed_masks
-    if not any(combat_alphas_at(0)):
-        return core_packed_masks(raw, end_turn_bias_of(cs.statics.get("_scenario_category", "")))
-    import torch
-    from tools.inference_seam import build_light_encoded
-    from wesnoth_ai.game_core import view_of
-    from wesnoth_ai.server_priors import pack_masks
-    return pack_masks(build_light_encoded(kept_raw, torch.device("cpu")), view_of(cs.fork()))
+    return core_packed_masks(raw, end_turn_bias_of(cs.statics.get("_scenario_category", "")))
 
 
 def sequence_position(raw, ai, side: int, turn: int, stats: Counter) -> SequencePosition:

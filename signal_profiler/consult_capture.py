@@ -46,12 +46,12 @@ def capture_consultations(cap: int = 400, seed: int = 0):
     res = ConsultReservoir(cap, seed)
     orig_batch = turn_search.batch_boundary_values
 
-    def batch_hook(policy, mats, side, decision_step, *a, **kw):
+    def batch_hook(policy, mats, side, *a, **kw):
         for m in mats:
             if not m.invalid and m.boundary_sim is not None \
                     and not m.boundary_sim.done:
                 res.offer(m.boundary_sim.gs)
-        return orig_batch(policy, mats, side, decision_step, *a, **kw)
+        return orig_batch(policy, mats, side, *a, **kw)
 
     turn_search.batch_boundary_values = batch_hook
     try:

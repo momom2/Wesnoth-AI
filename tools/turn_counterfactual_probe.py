@@ -165,9 +165,8 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
     """Spine -> hill-climb rounds (two-stage acceptance) -> final KL.
     With `placebo=True`, the variant->value assignment is shuffled
     before the argmax each round (revalidation uses real values)."""
-    ds = policy._decision_step
     mf = cfg.boundary_frame == "mover"
-    spine, _ = record_spine(policy, sim0, side, ds, rng,
+    spine, _ = record_spine(policy, sim0, side, rng,
                             max_spine=cfg.max_spine)
     if not spine:
         return {"state_id": state_id, "empty": True}
@@ -179,7 +178,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
 
     for rnd in range(cfg.rounds):
         salt = f"probe:{state_id}:r{rnd}"
-        inc = materialize(policy, sim0, side, incumbent, salt, ds,
+        inc = materialize(policy, sim0, side, incumbent, salt,
                           mover_frame=mf, want_vis=True)
         if inc.invalid:
             log.warning(f"{state_id}: incumbent materialization invalid")
@@ -194,7 +193,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
                 cand_cmds = (incumbent[:j]
                              + [st.legal[alt_i].action]
                              + incumbent[j + 1:])
-                m = materialize(policy, sim0, side, cand_cmds, salt, ds,
+                m = materialize(policy, sim0, side, cand_cmds, salt,
                                 mover_frame=mf, want_vis=True)
                 if m.invalid or math.isnan(m.value):
                     continue
@@ -229,20 +228,20 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
             for v in range(cfg.reval_salts):
                 s2 = f"{salt}:v{v}"
                 inc2 = materialize(policy, sim0, side, incumbent, s2,
-                                   ds, mover_frame=mf,
+                                   mover_frame=mf,
                                    keep_boundary_sim=cfg.project_reval, want_vis=True)
                 var2 = materialize(policy, sim0, side, best_cmds, s2,
-                                   ds, mover_frame=mf,
+                                   mover_frame=mf,
                                    keep_boundary_sim=cfg.project_reval, want_vis=True)
                 if inc2.invalid or var2.invalid:
                     continue
                 if cfg.project_reval:
                     reval_l.append(
                         project_value(policy, var2.boundary_sim, side,
-                                      ds, cfg.project_halfturns,
+                                      cfg.project_halfturns,
                                       cfg.project_max_actions, rng)
                         - project_value(policy, inc2.boundary_sim,
-                                        side, ds,
+                                        side,
                                         cfg.project_halfturns,
                                         cfg.project_max_actions, rng))
                 else:
@@ -264,7 +263,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
         # winner -- the commands that actually landed at the selection
         # salt, drops excluded (docs/archive/tcs_spec.md par.5.1).
         incumbent = list(best_m.executed)
-        steps, _ = record_spine(policy, sim0, side, ds, rng,
+        steps, _ = record_spine(policy, sim0, side, rng,
                                 max_spine=cfg.max_spine,
                                 actions=incumbent)
         if not steps:
@@ -276,7 +275,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
     kl_own: List[float] = []
     kl_matched: List[float] = []
     salt = f"probe:{state_id}:kl"
-    inc = materialize(policy, sim0, side, incumbent, salt, ds,
+    inc = materialize(policy, sim0, side, incumbent, salt,
                       mover_frame=mf, want_vis=True)
     if not inc.invalid:
         for j, st in enumerate(steps):
@@ -292,7 +291,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
             for alt_i in picks:
                 cand = (incumbent[:j] + [st.legal[alt_i].action]
                         + incumbent[j + 1:])
-                m = materialize(policy, sim0, side, cand, salt, ds,
+                m = materialize(policy, sim0, side, cand, salt,
                                 mover_frame=mf, want_vis=True)
                 if m.invalid or math.isnan(m.value):
                     continue
@@ -315,8 +314,7 @@ def probe_state(policy: TransformerPolicy, sim0: WesnothSim, side: int,
         for st in coords:
             try:
                 root = mcts_search(st.pre_fork, policy._inference_model,
-                                   policy._inference_encoder, bcfg,
-                                   decision_step=st.decision_step)
+                                   policy._inference_encoder, bcfg)
                 extract_gumbel_policy_target(root, bcfg)
                 stats = getattr(root, "_distill_stats", None) or {}
                 if "kl_prior" in stats:

@@ -12,8 +12,8 @@ with p the distribution the raw player decodes from (`server_priors`, before
 any end_turn offset): the chain rule over the factored heads, each head's
 softmax masked to the legal choices, log p(a) = log p(actor) + log p(type |
 actor) + log p(target | actor, type) + log p(weapon | actor), the factors an
-action does not have left out. The masks and their biases are the ones the
-player decided under (`server_priors.PackedMasks`, staged as the server
+action does not have left out. The masks are the ones the player decided
+under (`server_priors.PackedMasks`, staged as the server
 stages them), so exp(log p) is the prior `server_priors.priors_outputs`
 computes for the same action (tests/test_own_trajectories.py). For a
 one-hot target the loss is the hard label's cross-entropy without label
@@ -151,9 +151,7 @@ def stage_own_batch(rows: Sequence[int], packs: Sequence, targets: Sequence[OwnT
     the buffer's start, as when they had a buffer of their own; the rows
     and targets from the next `_TARGETS_ALIGNMENT` boundary."""
     n = len(rows)
-    masks = mask_layout(n, A_max, H_max, n_types, n_weapons,
-                        type_bias=any(p.type_bias is not None for p in packs),
-                        attack_bias=any(p.attack_bias is not None for p in packs))
+    masks = mask_layout(n, A_max, H_max, n_types, n_weapons)
     K = max((len(t.prior) for t in targets), default=1)
     own = FlatLayout([("rows", torch.int64, (n,))]
                      + [(name, torch.int64, (n, K)) for name in ("actor", "kind", "target", "weapon")]
@@ -209,8 +207,6 @@ def legal_log_probs(padded, batch: OwnBatch) -> torch.Tensor:
     lp = log_actor.gather(1, a)
 
     type_logits = padded.type_logits.float()[rows]
-    if "type_bias" in v:
-        type_logits = type_logits + v["type_bias"]
     log_type = _log_softmax_masked(type_logits[b, a], v["type_valid"][b, a] != 0)       # [n, K, T]
     unit_kind = kind <= KIND_MOVE
     lp = lp + torch.where(unit_kind, log_type.gather(2, kind.clamp(max=KIND_MOVE).unsqueeze(2)).squeeze(2),
@@ -223,9 +219,6 @@ def legal_log_probs(padded, batch: OwnBatch) -> torch.Tensor:
     union = _unpack_bits(v["union_bits"], H)[b, a]
     is_attack = (kind == KIND_ATTACK).unsqueeze(2)
     valid = torch.where(is_attack, attack, torch.where((kind == KIND_MOVE).unsqueeze(2), move, union))
-    if "attack_bias" in v:
-        target_rows = target_rows + torch.where(is_attack, v["attack_bias"][b, a],
-                                                torch.zeros_like(target_rows))
     log_target = _log_softmax_masked(target_rows, valid)
     has_target = kind != KIND_END_TURN
     lp = lp + torch.where(has_target, log_target.gather(2, batch.target.unsqueeze(2)).squeeze(2),

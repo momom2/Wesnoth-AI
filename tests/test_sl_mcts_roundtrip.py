@@ -12,8 +12,8 @@ That round-trip silently broke three ways before this test:
   2. The SL trainer constructed WesnothModel() without the optional
      aux_score / moves_left heads, so strict=False resume DROPPED
      the campaign's trained aux head as "unexpected keys".
-  3. decision_step (combat-oracle anneal position) wasn't carried,
-     so the next MCTS resume restarted the anneal at full strength.
+  3. decision_step (the training-progress counter) wasn't carried,
+     so the next MCTS resume restarted it at 0.
 
 This test drives the REAL production path end to end: save a
 policy checkpoint, run the SL trainer resumed from it for a few

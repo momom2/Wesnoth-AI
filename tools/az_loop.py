@@ -785,7 +785,7 @@ def main(argv) -> int:
                 row["value_level_ref"] = center
             if stream is not None:
                 # The servers take the step's weights now, the actors
-                # the new center and anneal counter; the publication
+                # the new center and decision counter; the publication
                 # is dated for the straddle count of the games in
                 # flight.
                 row["server_weights_version"] = stream.publish(

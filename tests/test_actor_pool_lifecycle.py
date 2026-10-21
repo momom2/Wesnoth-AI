@@ -199,7 +199,7 @@ def test_done_for_an_abandoned_iteration_does_not_retire_the_actor():
     # The deadline is long enough for both reports to be drained first,
     # then breaks the loop on whoever is left outstanding.
     pool = _pool(procs, results, iteration_timeout=0.3, drain_grace=0.0)
-    pool._policy._decision_step = 0          # the anneal counter actors advance
+    pool._policy._decision_step = 0          # the decision counter actors advance
 
     pool.run_iteration(1, games_per_iter=2, base_seed=1)
 

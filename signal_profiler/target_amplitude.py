@@ -2,8 +2,7 @@
 
 How much learning signal do the distillation targets CARRY, before
 any gradient mechanics? For each harvested experience: rebuild the
-prior over legal actions (production predict_priors path at the
-experience's own decision_step / combat alphas), normalize the
+prior over legal actions (production predict_priors path), normalize the
 stored visit_counts into the target distribution, and measure their
 divergence. Near-zero KL = homeopathic targets: the teacher spoke,
 the link whispered.

@@ -297,8 +297,8 @@ def test_wc_scorpion_variation_overrides_win():
 
 def test_every_recruitable_unit_has_real_stats():
     """`_stats_for` falls back to a generic 33 HP level-1 for a type it
-    does not know, which silently corrupts combat, the value head's
-    material reading and the combat oracle. Nothing may hit that path
+    does not know, which silently corrupts combat and the value head's
+    material reading. Nothing may hit that path
     in the games we actually play.
 
     This is a DATA test: it fails when the pinned 1.18.4 scrape and the

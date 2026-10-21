@@ -382,7 +382,7 @@ class ActorPool:
         # own after a step, step_control's trial publishes) waits for
         # the batches in flight and excludes the next ones
         # (inference_seam.ServeGate): a stream publishes while serving.
-        self._anneal_base()._serve_gate = self._server.gate
+        self._base_policy()._serve_gate = self._server.gate
         self._started = True
         if self._server_procs:
             self._await_servers_ready()
@@ -438,24 +438,24 @@ class ActorPool:
 
     def _fog_hides_enemy_villages(self) -> bool:
         return bool(getattr(
-            getattr(self._anneal_base(), "_inference_encoder", None),
+            getattr(self._base_policy(), "_inference_encoder", None),
             "fog_hides_enemy_villages", False))
 
     def _terrain_multi_hot(self) -> bool:
         return bool(getattr(
-            getattr(self._anneal_base(), "_inference_encoder", None),
+            getattr(self._base_policy(), "_inference_encoder", None),
             "terrain_multi_hot", False))
 
     def _parity_observation(self) -> Tuple[bool, int]:
         """(observation_parity, relevant_set_version) of the learner's
         encoder: the observation the actors must encode for it."""
-        enc = getattr(self._anneal_base(), "_inference_encoder", None)
+        enc = getattr(self._base_policy(), "_inference_encoder", None)
         return (bool(getattr(enc, "observation_parity", False)),
                 int(getattr(enc, "relevant_set_version", 1)))
 
     def _relevant_set(self) -> bool:
         return bool(getattr(
-            getattr(self._anneal_base(), "_inference_encoder", None),
+            getattr(self._base_policy(), "_inference_encoder", None),
             "relevant_set_hexes", False))
 
     def _server_of(self, actor_id: int) -> int:
@@ -697,19 +697,19 @@ class ActorPool:
             outs.append([output_from_wire(w) for w in replies[sid]])
         return outs
 
-    def _anneal_base(self):
-        """The object holding the combat-oracle anneal counter. In
-        actor-pool mode `self._policy` is the MCTSPolicy wrapper, which
+    def _base_policy(self):
+        """The object holding the decision counter (training progress).
+        In actor-pool mode `self._policy` is the MCTSPolicy wrapper, which
         reads `self._base._decision_step` — the counter lives on the
         underlying TransformerPolicy (`_base`). Fall back to the policy
         itself for non-wrapped shapes."""
         return getattr(self._policy, "_base", self._policy)
 
     def _global_decision_step(self) -> int:
-        return int(getattr(self._anneal_base(), "_decision_step", 0))
+        return int(getattr(self._base_policy(), "_decision_step", 0))
 
     def _advance_decision_step(self, n: int) -> None:
-        base = self._anneal_base()
+        base = self._base_policy()
         if n and hasattr(base, "_decision_step"):
             # Only run_iteration advances this in the main process (the
             # actors mutate their own private copies), so no lock needed.
@@ -940,9 +940,8 @@ class ActorPool:
             ss = server_stats.get(sid)
             self.last_packed_compile_per_server.append(
                 None if ss is None else dict(ss.get("packed_compile") or {"active": False}))
-        # Advance the global anneal counter by the decisions generated
-        # (sum across actors), so the combat-oracle bias keeps annealing
-        # across the campaign instead of freezing at ds0.
+        # Advance the global decision counter by the decisions generated
+        # (sum across actors).
         self._advance_decision_step(total_decisions)
         # Mean of per-actor (or, on a stream, per-game) means; None-
         # valued et_* fields are skipped. Consumed by sim_self_play's
@@ -1097,7 +1096,7 @@ class ActorPool:
                 elif kind == _R_DONE:
                     n_dec, dstats, done_iter = _done_report(payload)
                     # The decisions count wherever they were made: the
-                    # anneal counter tracks generated decisions, and the
+                    # decision counter tracks generated decisions, and the
                     # games behind them are kept too (they arrived on
                     # this iteration's result queue).
                     total_decisions += int(n_dec or 0)

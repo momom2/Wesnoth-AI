@@ -88,7 +88,7 @@ def bench(gs, repeat: int, device: str) -> dict:
         out["leaf_to_cpu_ms"], _ = _timed(lambda: _leaf_to_cpu(encoded, output), repeat)
         enc_cpu, out_cpu = _leaf_to_cpu(encoded, output)
         out["enumerate_ms"], priors = _timed(
-            lambda: enumerate_legal_actions_with_priors(enc_cpu, out_cpu, gs, decision_step=0),
+            lambda: enumerate_legal_actions_with_priors(enc_cpu, out_cpu, gs),
             max(3, repeat // 2))
         out["n_legal_actions"] = len(priors)
         out["sort_ms"], _ = _timed(lambda: sorted(priors, key=lambda p: -p.prior), repeat)
@@ -123,7 +123,7 @@ def profile_enumeration(gs, n: int = 5) -> str:
         pr = cProfile.Profile()
         pr.enable()
         for _ in range(n):
-            enumerate_legal_actions_with_priors(enc_cpu, out_cpu, gs, decision_step=0)
+            enumerate_legal_actions_with_priors(enc_cpu, out_cpu, gs)
         pr.disable()
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("tottime").print_stats(25)

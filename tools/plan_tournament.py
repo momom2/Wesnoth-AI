@@ -150,7 +150,6 @@ class TournamentConfig:
 class _TPlan:
     side:          int
     turn_no:       int
-    decision_step: int
     commands:      List[Dict]
     pre_keys:      List[str]
     targets:       List[List[Tuple]]   # one-hot tuples ([] = no target)
@@ -441,7 +440,7 @@ def _grading_boundary(sim, side: int):
     return f
 
 
-def _project_counted(policy, sim, side: int, decision_step: int,
+def _project_counted(policy, sim, side: int,
                      half_turns: int, max_actions: int,
                      rng: np.random.Generator, budget: _Budget,
                      salt: str, reserved: bool = False,
@@ -451,7 +450,7 @@ def _project_counted(policy, sim, side: int, decision_step: int,
     salted fork. `half_obs` collects per-half-turn action counts for
     the cost-model EMA (round-3 C0)."""
     if sim.done:
-        return boundary_value(policy, sim, side, decision_step)
+        return boundary_value(policy, sim, side)
     r = _salted(sim, salt)
     for _ in range(half_turns):
         if r.done:
@@ -462,8 +461,7 @@ def _project_counted(policy, sim, side: int, decision_step: int,
                and k < max_actions):
             if not budget.charge(reserved=reserved):
                 return None
-            _, output, legal = forward_state(policy, r.gs,
-                                             decision_step)
+            _, output, legal = forward_state(policy, r.gs)
             if not legal:
                 break
             try:
@@ -485,7 +483,7 @@ def _project_counted(policy, sim, side: int, decision_step: int,
                 break
     if not budget.charge(reserved=reserved):
         return None
-    return boundary_value(policy, r, side, decision_step)
+    return boundary_value(policy, r, side)
 
 
 def _perturb_action(step: SpineStep,
@@ -522,7 +520,7 @@ def accept_rule(deltas, band: float) -> Tuple[bool, float, float]:
     return mean > thr, mean, thr
 
 
-def certify(policy, sim, side: int, decision_step: int,
+def certify(policy, sim, side: int,
             cand_cmds: List[Dict], inc_cmds: List[Dict],
             cfg: TournamentConfig, rng: np.random.Generator,
             budget: _Budget, salt_ns: str,
@@ -553,14 +551,14 @@ def certify(policy, sim, side: int, decision_step: int,
             # couplable under the counter-keyed scheme.
             steps, bsim = record_spine(
                 policy, _salted(sim, f"{s}:spine"), side,
-                decision_step, rng, max_spine=cfg.max_spine,
+                rng, max_spine=cfg.max_spine,
                 actions=list(cmds))
             if not budget.charge(len(steps), reserved=True):
                 pair = None
                 break
             v = _project_counted(
                 policy, _grading_boundary(bsim, side), side,
-                decision_step, cfg.cert_depth,
+                cfg.cert_depth,
                 ma, rng, budget,
                 salt=f"{s}:p{tag}", reserved=True,
                 half_obs=half_obs)
@@ -579,7 +577,7 @@ def certify(policy, sim, side: int, decision_step: int,
     return beta_from_margin(mean, cfg), mean, len(deltas)
 
 
-def run_tournament(policy, sim, side: int, decision_step: int,
+def run_tournament(policy, sim, side: int,
                    cfg: TournamentConfig, rng: np.random.Generator,
                    salt_ns: str, budget_used: int = 0,
                    half_est: Optional[float] = None,
@@ -604,13 +602,12 @@ def run_tournament(policy, sim, side: int, decision_step: int,
         round-3 C5). Certified targets LATCH off at the first
         divergence (round-3 C1/C7/C9)."""
         steps, _b = record_spine(
-            policy, sim, side, decision_step, rng,
+            policy, sim, side, rng,
             max_spine=cfg.max_spine,
             actions=(list(cmds) if cmds is not None else None))
         budget.charge(len(steps), reserved=True)
         if not steps:
             return _TPlan(side=side, turn_no=turn_no,
-                          decision_step=decision_step,
                           commands=[{"type": "end_turn"}],
                           pre_keys=[""], targets=[[]],
                           beta=0.0, certified=False)
@@ -622,7 +619,6 @@ def run_tournament(policy, sim, side: int, decision_step: int,
                 on_plan = False          # latched: never re-arms
             targets.append(one_hot_target(st) if on_plan else [])
         return _TPlan(side=side, turn_no=turn_no,
-                      decision_step=decision_step,
                       commands=[s.action for s in steps],
                       pre_keys=[state_key(s.pre_fork.gs)
                                 for s in steps],
@@ -632,7 +628,7 @@ def run_tournament(policy, sim, side: int, decision_step: int,
 
     # Incumbent SELECTION spine (salted grading material).
     inc_steps, inc_boundary = record_spine(
-        policy, _salted(sim, f"{salt_ns}:inc"), side, decision_step,
+        policy, _salted(sim, f"{salt_ns}:inc"), side,
         rng, max_spine=cfg.max_spine)
     budget.charge(len(inc_steps))
     if not inc_steps:
@@ -699,7 +695,7 @@ def run_tournament(policy, sim, side: int, decision_step: int,
                 continue
             budget.charge(1)
             suffix, ch_boundary = record_spine(
-                policy, f, side, decision_step, rng,
+                policy, f, side, rng,
                 max_spine=cfg.max_spine)
             budget.charge(len(suffix))
             cmds = (inc_cmds[:i] + [alt]
@@ -707,7 +703,7 @@ def run_tournament(policy, sim, side: int, decision_step: int,
         else:
             ch_steps, ch_boundary = record_spine(
                 policy, _salted(sim, f"{salt_ns}:ch{c}"), side,
-                decision_step, rng, max_spine=cfg.max_spine)
+                rng, max_spine=cfg.max_spine)
             budget.charge(len(ch_steps))
             cmds = [s.action for s in ch_steps]
         if cmds and cmds != inc_cmds:
@@ -750,7 +746,7 @@ def run_tournament(policy, sim, side: int, decision_step: int,
         inc_vals = []
         for rd in range(cfg.redraws):
             v = _project_counted(
-                policy, inc_grade, side, decision_step, d,
+                policy, inc_grade, side, d,
                 sel_ph, rng, budget,
                 salt=f"{salt_ns}:ir{di}.{rd}",
                 half_obs=stats["half_obs"])
@@ -764,7 +760,7 @@ def run_tournament(policy, sim, side: int, decision_step: int,
             ms = []
             for rd in range(cfg.redraws):
                 v = _project_counted(
-                    policy, cand["grade"], side, decision_step, d,
+                    policy, cand["grade"], side, d,
                     sel_ph, rng, budget,
                     salt=f"{salt_ns}:g{di}.{ci}.{rd}",
                     half_obs=stats["half_obs"])
@@ -814,7 +810,7 @@ def run_tournament(policy, sim, side: int, decision_step: int,
                                  else ("f1" if n_atk == 1 else "f2p"))
         stats["cert_attempts"] = 1
         beta, mean_margin, n_reps = certify(
-            policy, sim, side, decision_step, best["cmds"], inc_cmds,
+            policy, sim, side, best["cmds"], inc_cmds,
             cfg, rng, budget, salt_ns, half_obs=stats["half_obs"],
             max_redraws=cert_reps,
             max_actions=cert_ph(cfg, None if cold else per_half))
@@ -905,7 +901,6 @@ class PlanTournamentPolicy(MCTSPolicy):
                 "PlanTournamentPolicy.select_action was passed the "
                 "LIVE sim.gs; pass a deepcopy snapshot.")
         with self._base._lock:
-            ds_call = self._base._decision_step
             self._base._decision_step += 1
         side = sim.gs.global_info.current_side
         turn_no = int(sim.gs.global_info.turn_number)
@@ -925,7 +920,7 @@ class PlanTournamentPolicy(MCTSPolicy):
             # Divergence: replan ONLY on the legality trigger; the
             # probe forward is charged + counted (round-2 C3).
             self._turn_charge(game_label, side, turn_no, 1)
-            _, _out, legal = forward_state(self._base, sim.gs, ds_call)
+            _, _out, legal = forward_state(self._base, sim.gs)
             if _match_action(legal, plan.commands[plan.cursor]) is None:
                 replan = True
 
@@ -940,7 +935,7 @@ class PlanTournamentPolicy(MCTSPolicy):
 
         if fresh:
             plan, st = run_tournament(
-                self._base, sim, side, ds_call, self._t_cfg,
+                self._base, sim, side, self._t_cfg,
                 self._t_rng, salt_ns=f"pt:{game_label}:{seq}",
                 budget_used=spent, half_est=half_est)
             self._turn_charge(game_label, side, turn_no,
@@ -951,13 +946,13 @@ class PlanTournamentPolicy(MCTSPolicy):
             # Mid-turn recovery / at-cap serve: fresh live policy
             # completion, value-only, tournament-free (round-2 C9).
             steps, _b = record_spine(
-                self._base, sim, side, ds_call, self._t_rng,
+                self._base, sim, side, self._t_rng,
                 max_spine=self._t_cfg.max_spine)
             self._turn_charge(game_label, side, turn_no, len(steps))
             self._t_bump("replans", 1)
             if steps:
                 plan = _TPlan(
-                    side=side, turn_no=turn_no, decision_step=ds_call,
+                    side=side, turn_no=turn_no,
                     commands=[s.action for s in steps],
                     pre_keys=[state_key(s.pre_fork.gs) for s in steps],
                     targets=[[] for _ in steps], beta=0.0,
@@ -965,7 +960,7 @@ class PlanTournamentPolicy(MCTSPolicy):
                 on_branch = True
             else:
                 plan = _TPlan(
-                    side=side, turn_no=turn_no, decision_step=ds_call,
+                    side=side, turn_no=turn_no,
                     commands=[{"type": "end_turn"}], pre_keys=[""],
                     targets=[[]], beta=0.0, certified=False)
                 on_branch = False
@@ -979,7 +974,6 @@ class PlanTournamentPolicy(MCTSPolicy):
             self._pending.setdefault(game_label, []).append(
                 _PendingMCTSState(
                     gs=game_state, visit_counts=target, side=side,
-                    decision_step=plan.decision_step,
                     policy_weight=plan.beta if target else 0.0))
             self._last_recorded[game_label] = True
         return cmd

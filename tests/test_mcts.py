@@ -1121,11 +1121,7 @@ def test_prior_hardcoded_bias_defaults_off():
     "prior hardcoded bias" instances ALL default OFF and activate
     only on explicit user order (per-run env). Changing a default
     here requires deliberately breaking this test."""
-    from wesnoth_ai.constants import (COMBAT_TARGET_ALPHA,
-                                      COMBAT_TYPE_ALPHA,
-                                      PRIOR_BIAS_END_TURN_MINI_DEFAULT)
-    assert COMBAT_TARGET_ALPHA == 0.0
-    assert COMBAT_TYPE_ALPHA == 0.0
+    from wesnoth_ai.constants import PRIOR_BIAS_END_TURN_MINI_DEFAULT
     assert PRIOR_BIAS_END_TURN_MINI_DEFAULT == 0.0
     import os
     from wesnoth_ai.action_sampler import prior_bias_end_turn

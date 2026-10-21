@@ -109,9 +109,8 @@ def _stats_for(unit_type: str) -> dict:
     name).
 
     The fallback is a 33 HP level-1 with 50% defense everywhere and one
-    5x2 blade attack, so it is WRONG for anything real: combat math,
-    the value head's material reading and the combat oracle all read
-    these numbers. It used to be silent, which is how a stats mismatch
+    5x2 blade attack, so it is WRONG for anything real: combat math
+    and the value head's material reading both read these numbers. It used to be silent, which is how a stats mismatch
     would hide (see the 2026-09-11 out-of-memory batches: a quiet
     fallback path costs data nobody counts). It now warns once per
     type, and `unknown_unit_types()` reports the set.

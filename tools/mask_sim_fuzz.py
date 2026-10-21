@@ -117,7 +117,7 @@ def main(argv) -> int:
             guard += 1
             snap = copy.deepcopy(sim.gs)
             try:
-                _, _, legal = forward_state(policy, snap, 0)
+                _, _, legal = forward_state(policy, snap)
             except Exception as e:                      # noqa: BLE001
                 print(f"game {g}: enumerate failed: {e!r}")
                 break

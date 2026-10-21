@@ -203,16 +203,11 @@ class RawPolicyPlayer:
         # Per game, the last decision's (side key, memory before it).
         self._undo: Dict[str, Tuple[Tuple[str, int], object]] = {}
 
-    def _select_compact(self, compact, encoded, decision_step: int,
+    def _select_compact(self, compact, encoded,
                         coin_key: Optional[Tuple[int, int]] = None,
-                        game_label: str = "default", sim=None) -> Optional[Dict]:
-        """The choice on the compact arrays, or None when the list path
-        applies (an oracle anneal the server cannot carry, which the
-        list path reports)."""
-        from wesnoth_ai.action_sampler import combat_alphas_at
+                        game_label: str = "default", sim=None) -> Dict:
+        """The choice on the compact arrays."""
         from wesnoth_ai.server_priors import KIND_ATTACK, KIND_END_TURN, compact_action
-        if any(combat_alphas_at(decision_step)) or any(combat_alphas_at(0)):
-            return None
         n = len(compact.prior)
         if n == 0:
             return {"type": "end_turn"}
@@ -284,7 +279,6 @@ class RawPolicyPlayer:
         # The inference model is read per call: elo_eval_game swaps a
         # forward-counting proxy onto the base before play.
         with base._lock:
-            decision_step = base._decision_step
             base._decision_step += 1
         coin_key = self._coin_key(game_label, game_state)
         with torch.no_grad():
@@ -293,12 +287,8 @@ class RawPolicyPlayer:
             compact = getattr(output, "legal_compact", None)
             if compact is not None and self.compact_selection:
                 with stage("select"):
-                    chosen = self._select_compact(compact, encoded, decision_step, coin_key,
-                                                  game_label, sim)
-                if chosen is not None:
-                    return chosen
-            legal = enumerate_legal_actions_with_priors(
-                encoded, output, game_state, decision_step=decision_step)
+                    return self._select_compact(compact, encoded, coin_key, game_label, sim)
+            legal = enumerate_legal_actions_with_priors(encoded, output, game_state)
         if not legal:
             return {"type": "end_turn"}
         if self.forbid_end_turn:

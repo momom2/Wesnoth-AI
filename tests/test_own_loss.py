@@ -5,7 +5,6 @@ and target lengths, with and without the biases."""
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 
 from wesnoth_ai import own_loss
@@ -17,7 +16,7 @@ CPU = torch.device("cpu")
 T, W = 2, 4
 
 
-def _masks(rng, U: int, R: int, H: int, biased: bool) -> PackedMasks:
+def _masks(rng, U: int, R: int, H: int) -> PackedMasks:
     A = U + R + 1
 
     def bits():
@@ -25,9 +24,7 @@ def _masks(rng, U: int, R: int, H: int, biased: bool) -> PackedMasks:
     return PackedMasks(actor_mask=(rng.random(A) > 0.3).astype(np.uint8),
                        type_valid=(rng.random((A, T)) > 0.4).astype(np.uint8), attack_valid=bits(),
                        move_valid=bits(), union_valid=bits(), n_attacks=rng.integers(0, W + 1, A).astype(np.int8),
-                       end_turn_bias=float(rng.normal()), n_units=U, n_recruits=R, n_hexes=H,
-                       type_bias=rng.normal(size=(A, T)).astype(np.float32) if biased else None,
-                       attack_bias=rng.normal(size=(A, H)).astype(np.float32) if biased else None)
+                       end_turn_bias=float(rng.normal()), n_units=U, n_recruits=R, n_hexes=H)
 
 
 def _target(rng, n: int, A: int, H: int) -> OwnTarget:
@@ -39,11 +36,10 @@ def _target(rng, n: int, A: int, H: int) -> OwnTarget:
                      prior=rng.random(n) + 0.01, end_prior=0.2)
 
 
-@pytest.mark.parametrize("biased", [False, True], ids=["no bias", "biases"])
-def test_the_staged_own_batch_holds_each_field_as_defined(biased):
+def test_the_staged_own_batch_holds_each_field_as_defined():
     rng = np.random.default_rng(11)
     shapes = [(3, 1, 9), (1, 0, 4), (2, 2, 13)]
-    packs = [_masks(rng, U, R, H, biased and b != 1) for b, (U, R, H) in enumerate(shapes)]
+    packs = [_masks(rng, U, R, H) for U, R, H in shapes]
     targets = [_target(rng, n, U + R + 1, H) for n, (U, R, H) in zip((5, 1, 3), shapes)]
     A_max = max(U for U, _, _ in shapes) + max(R for _, R, _ in shapes) + 1
     H_max = max(H for _, _, H in shapes)
@@ -67,7 +63,7 @@ def test_the_staged_own_batch_holds_each_field_as_defined(biased):
     assert batch.prob.dtype == torch.float32 and np.array_equal(batch.prob.numpy(), prob)
     assert set(targets[0].kind.tolist()) == {KIND_ATTACK, KIND_MOVE, KIND_RECRUIT, KIND_END_TURN}
 
-    layout = mask_layout(3, A_max, H_max, T, W, type_bias=biased, attack_bias=biased)
+    layout = mask_layout(3, A_max, H_max, T, W)
     reference = np.zeros(layout.nbytes, np.uint8)
     views = layout.numpy_views(reference)
     write_masks(views, packs)

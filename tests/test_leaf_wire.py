@@ -34,7 +34,6 @@ def _leaves(n=3):
 def test_round_trip_is_exact_and_smaller():
     from wesnoth_ai.leaf_wire import MASK_FIELDS, RAW_FIELDS, pack_request, unpack_request
     items = _leaves()
-    items[1][1].type_bias = np.full_like(items[1][1].type_valid, 0.25, dtype=np.float32)
     req = pack_request(items)
     assert len(req) == len(items)
     back = unpack_request(pickle.loads(pickle.dumps(req)))
@@ -51,7 +50,6 @@ def test_round_trip_is_exact_and_smaller():
             (raw.our_faction_id, raw.their_faction_id, raw.hex_subset)
         assert (masks2.end_turn_bias, masks2.n_units, masks2.n_recruits, masks2.n_hexes) == \
             (masks.end_turn_bias, masks.n_units, masks.n_recruits, masks.n_hexes)
-    assert back[1][1].type_bias is not None and back[0][1].type_bias is None
     # Fewer bytes than the object pickle (the metadata lists are gone);
     # the point is one numpy object per request instead of ~40 per leaf.
     assert len(pickle.dumps(req)) < len(pickle.dumps(items))

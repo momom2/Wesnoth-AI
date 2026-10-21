@@ -173,8 +173,8 @@ def _save_checkpoint(
     tmp = path.with_suffix(path.suffix + ".tmp")
     payload = dict(carry or {})
     # `carry` holds fields the MCTS/self-play path owns and the SL
-    # pass must transport UNCHANGED (decision_step for the
-    # combat-oracle anneal, aux_score / moves_left head flags) --
+    # pass must transport UNCHANGED (the decision_step progress
+    # counter, aux_score / moves_left head flags) --
     # the SL<->MCTS round-trip contract (2026-07-16). Explicit keys
     # below always win.
     payload.update({
@@ -1714,8 +1714,8 @@ def train(
     # otherwise strict=False loading silently DROPS the campaign's
     # trained aux head as "unexpected keys"; (b) validating the arch
     # instead of loading a 256-wide checkpoint into a 128 model; and
-    # (c) carrying decision_step (combat-oracle anneal) through
-    # unchanged so the next MCTS resume doesn't restart the anneal.
+    # (c) carrying the decision_step progress counter through
+    # unchanged.
     ckpt = None
     aux_flag = moves_flag = False
     carry: Dict = {}

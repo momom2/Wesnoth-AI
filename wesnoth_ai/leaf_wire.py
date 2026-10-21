@@ -28,8 +28,8 @@ from wesnoth_ai.encoder import RawEncoded
 from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.server_priors import PackedMasks
 
-# (field, dtype) in buffer order. Optional mask biases are None when
-# absent, which the header records as a None shape.
+# (field, dtype) in buffer order. An optional field is None when absent,
+# which the header records as a None shape.
 RAW_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (
     ("hex_xs", np.dtype(np.int64)), ("hex_ys", np.dtype(np.int64)),
     ("hex_terrain_ids", np.dtype(np.int64)),
@@ -47,7 +47,6 @@ MASK_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (
     ("actor_mask", np.dtype(np.uint8)), ("type_valid", np.dtype(np.uint8)),
     ("attack_valid", np.dtype(np.uint8)), ("move_valid", np.dtype(np.uint8)),
     ("union_valid", np.dtype(np.uint8)), ("n_attacks", np.dtype(np.int8)),
-    ("type_bias", np.dtype(np.float32)), ("attack_bias", np.dtype(np.float32)),
 )
 # The parity observation's streams, absent (a None shape) on obs8's leaves.
 PARITY_FIELDS: Tuple[Tuple[str, np.dtype], ...] = (

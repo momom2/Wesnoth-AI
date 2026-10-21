@@ -1410,13 +1410,9 @@ def main(argv: List[str]) -> int:
                     help="After loading --checkpoint-in, reset the "
                          "training-progress counter (decision_step) to 0. "
                          "Use when warm-starting a checkpoint as WEIGHTS "
-                         "ONLY for a fresh training campaign: the combat-"
-                         "oracle anneal (combat_alphas_at) then runs from "
-                         "full strength over ~COMBAT_ANNEAL_HORIZON "
-                         "decisions instead of inheriting a counter that "
-                         "may already be past the anneal floor. Do NOT use "
-                         "when resuming an in-progress run -- it would "
-                         "restart the anneal mid-training.")
+                         "ONLY for a fresh training campaign, whose "
+                         "telemetry then numbers its decisions from 0. Do "
+                         "NOT use when resuming an in-progress run.")
     ap.add_argument("--iterations", type=int, default=10,
                     help="Hard ceiling on train_step iterations. When "
                          "`--time-budget` is set, this is mostly a "
@@ -2614,12 +2610,11 @@ def main(argv: List[str]) -> int:
         log.warning("no input checkpoint -- training from random init")
 
     # Weights-only warm-start: forget the loaded training-progress
-    # counter so the combat-oracle anneal restarts from full strength.
+    # counter.
     if args.reset_decision_step:
         prev = policy._decision_step
         policy._decision_step = 0
-        log.info(f"--reset-decision-step: decision_step {prev} -> 0 "
-                 f"(combat-oracle anneal restarts at full strength)")
+        log.info(f"--reset-decision-step: decision_step {prev} -> 0")
 
     # Vocab stays dynamically growable (config-driven customization: a
     # new id appends a fresh learnable embedding row; existing ids never

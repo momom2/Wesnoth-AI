@@ -2,8 +2,7 @@
 //! server reads them (`server_priors.PackedMasks`), computed beside the
 //! encoding from the same observation: what
 //! `action_sampler._build_legality_masks` builds and
-//! `server_priors.pack_masks` packs, for a decision whose combat-oracle
-//! priors are off (both alphas zero, their value since 2026-08-06).
+//! `server_priors.pack_masks` packs.
 //! Equality with the Python builder on played positions is the
 //! certificate (tests/test_core_masks.py); the Python builder stays the
 //! oracle and serves the unpacked masks.

@@ -52,7 +52,7 @@ def _busy_turn(policy, sim, side, start: SideMemories, n: int = 4):
     from tools.turn_search import forward_state
     r, track, actions = sim.fork(), start.copy(), []
     for _ in range(n):
-        _, _, legal = forward_state(policy, r.gs, 0, track)
+        _, _, legal = forward_state(policy, r.gs, track)
         act = max((a for a in legal if a.action["type"] != "end_turn"),
                   key=lambda a: (a.action["type"] == "recruit", a.prior)).action
         r.step(act)
@@ -81,7 +81,7 @@ def test_a_materialized_turn_is_graded_with_the_memory_its_line_holds():
     start = _start_memories(model)
     commands = _busy_turn(policy, sim, side, start)
 
-    mover = materialize(policy, sim, side, commands, "salt", 0, mover_frame=True, memory=start)
+    mover = materialize(policy, sim, side, commands, "salt", mover_frame=True, memory=start)
     assert mover.executed == commands
     r = _salted_fork(sim, "salt")
     held = start.read(side).state
@@ -91,8 +91,8 @@ def test_a_materialized_turn_is_graded_with_the_memory_its_line_holds():
     want = _value_for(_decide(model, encoder, r.gs, held), r.gs, side)
     assert mover.value == pytest.approx(want, abs=1e-6)
 
-    opponent = materialize(policy, sim, side, commands, "salt", 0, skip_value=True, memory=start)
-    batch_boundary_values(policy, [opponent], side, 0)
+    opponent = materialize(policy, sim, side, commands, "salt", skip_value=True, memory=start)
+    batch_boundary_values(policy, [opponent], side)
     r.step(mover.executed[-1])
     other = r.gs.global_info.current_side
     assert other != side
@@ -109,7 +109,7 @@ def test_the_spine_reads_the_memory_of_its_own_walk():
     side = sim.gs.global_info.current_side
     start = _start_memories(model)
     commands = _busy_turn(policy, sim, side, start)
-    steps, _ = record_spine(policy, sim, side, 0, np.random.default_rng(0), max_spine=8,
+    steps, _ = record_spine(policy, sim, side, np.random.default_rng(0), max_spine=8,
                             actions=commands, memory=start)
     assert [s.action for s in steps] == commands
     held = start.read(side).state
@@ -147,7 +147,7 @@ def test_a_projection_carries_each_sides_memory_through_its_turns():
     other = boundary.gs.global_info.current_side
     start = _start_memories(model)
     spy = _Spy(model)
-    project_value(SimpleNamespace(_inference_model=spy, _inference_encoder=encoder), boundary, side, 0,
+    project_value(SimpleNamespace(_inference_model=spy, _inference_encoder=encoder), boundary, side,
                   half_turns=1, max_actions=4, rng=np.random.default_rng(0), memory=start)
     decisions, final = spy.calls[:-1], spy.calls[-1]
     assert decisions

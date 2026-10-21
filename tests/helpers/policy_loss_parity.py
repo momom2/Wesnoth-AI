@@ -57,8 +57,7 @@ def reference_policy_step(policy, exps):
     nlp = 0.0
     for e, en, out in zip(exps, encoded, outputs):
         loss, tv, mean_nlp = _mcts_factored_policy_loss_reference(
-            en, out, e.game_state, e.visit_counts, vectorized=False,
-            decision_step=e.decision_step)
+            en, out, e.game_state, e.visit_counts, vectorized=False)
         total = total + loss * e.game_weight * e.policy_weight / total_gw
         visits += tv
         nlp += mean_nlp * tv

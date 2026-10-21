@@ -99,8 +99,6 @@ struct Roles {
     move_valid: usize,
     union_valid: usize,
     n_attacks: usize,
-    type_bias: usize,
-    attack_bias: usize,
     memory_state: usize,
     s_memory_k: usize,
     s_end_turn_bias: usize,
@@ -129,8 +127,6 @@ impl Roles {
             move_valid: index_of(fields, "move_valid")?,
             union_valid: index_of(fields, "union_valid")?,
             n_attacks: index_of(fields, "n_attacks")?,
-            type_bias: index_of(fields, "type_bias")?,
-            attack_bias: index_of(fields, "attack_bias")?,
             memory_state: index_of(fields, "memory_state")?,
             s_memory_k: index_of(scalars, "memory_k")?,
             s_end_turn_bias: index_of(scalars, "end_turn_bias")?,
@@ -435,23 +431,22 @@ impl ServeRequests {
     /// The masks of `server_priors.write_masks` into the mask layout's
     /// fields at byte offsets `offsets` (actor_bias, actor_mask,
     /// slot_kind, n_attacks, type_valid, attack_bits, move_bits,
-    /// union_bits, type_bias, attack_bias; -1 for a field the layout
-    /// lacks), whose rows are `a_stride` actor slots of `t` types,
+    /// union_bits), whose rows are `a_stride` actor slots of `t` types,
     /// `hb_stride` packed hex bytes and `h_stride` hexes; `zero` (byte
-    /// offset, bytes) is cleared first, and with `dirty` (rows, actor
-    /// slots, hexes the previous batch wrote, `graphed_serve._clear_masks`)
+    /// offset, bytes) is cleared first, and with `dirty` (rows and actor
+    /// slots the previous batch wrote, `graphed_serve._clear_masks`)
     /// those of every field. Returns the compaction capacity
     /// (`_staged_capacity`) at `w` weapon slots.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (buf, offsets, a_stride, t, hb_stride, h_stride, w, zero, dirty=None))]
-    fn fill_masks(&self, py: Python<'_>, mut buf: PyReadwriteArray1<'_, u8>, offsets: [i64; 10],
+    fn fill_masks(&self, py: Python<'_>, mut buf: PyReadwriteArray1<'_, u8>, offsets: [i64; 8],
                   a_stride: usize, t: usize, hb_stride: usize, h_stride: usize, w: i64,
-                  zero: (usize, usize), dirty: Option<(usize, usize, usize)>) -> PyResult<i64> {
+                  zero: (usize, usize), dirty: Option<(usize, usize)>) -> PyResult<i64> {
         let buf = buf.as_slice_mut().or_else(|_| err("fill_masks: a non-contiguous buffer"))?;
         region(buf, zero.0, zero.1, "fill_masks zero")?.fill(0);
-        if let Some((rows, slots, hexes)) = dirty {
-            // Per field the bytes of one actor slot, and of the part cleared.
-            let widths = [4, 1, 1, 1, t, hb_stride, hb_stride, hb_stride, 4 * t, 4 * h_stride];
+        if let Some((rows, slots)) = dirty {
+            // Per field the bytes of one actor slot.
+            let widths = [4, 1, 1, 1, t, hb_stride, hb_stride, hb_stride];
             for (f, &off) in offsets.iter().enumerate() {
                 if off < 0 {
                     continue;
@@ -459,13 +454,7 @@ impl ServeRequests {
                 let slot = widths[f];
                 for b in 0..rows {
                     let row = off as usize + b * a_stride * slot;
-                    if f == 9 {
-                        for a in 0..slots {
-                            region(buf, row + a * slot, 4 * hexes, "fill_masks dirty")?.fill(0);
-                        }
-                    } else {
-                        region(buf, row, slots * slot, "fill_masks dirty")?.fill(0);
-                    }
+                    region(buf, row, slots * slot, "fill_masks dirty")?.fill(0);
                 }
             }
         }
@@ -520,23 +509,6 @@ impl ServeRequests {
                         .copy_from_slice(&bits[a * hb..(a + 1) * hb]);
                 }
                 rows[k] = bits;
-            }
-            if leaf.fields[r.type_bias].present() && offsets[8] >= 0 {
-                let tb = self.field(py, leaf, r.type_bias);
-                if tb.len() != 4 * a_n * t {
-                    return err(format!("fill_masks: leaf {b}'s type bias holds {} bytes", tb.len()));
-                }
-                region(buf, offsets[8] as usize + 4 * row0 * t, tb.len(), "type_bias")?.copy_from_slice(tb);
-            }
-            if leaf.fields[r.attack_bias].present() && offsets[9] >= 0 {
-                let ab = self.field(py, leaf, r.attack_bias);
-                if ab.len() != 4 * a_n * h {
-                    return err(format!("fill_masks: leaf {b}'s attack bias holds {} bytes", ab.len()));
-                }
-                for a in 0..a_n {
-                    region(buf, offsets[9] as usize + 4 * (row0 + a) * h_stride, 4 * h, "attack_bias")?
-                        .copy_from_slice(&ab[4 * a * h..4 * (a + 1) * h]);
-                }
             }
             // `_staged_capacity` over this leaf's rows.
             let hb = |k: usize| leaf.fields[[r.attack_valid, r.move_valid, r.union_valid][k]].dims[1];

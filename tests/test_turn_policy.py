@@ -206,14 +206,14 @@ def test_batch_boundary_values_matches_serial():
     # Three variants of the side's opening turn, materialized without
     # values (skip_value), boundary sims kept.
     mats = [
-        materialize(base, sim, side, [], f"s{i}", 0, skip_value=True)
+        materialize(base, sim, side, [], f"s{i}", skip_value=True)
         for i in range(3)
     ]
     assert all(math.isnan(m.value) for m in mats)
     # Serial reference values BEFORE the batch consumes the forks.
-    ref = [boundary_value(base, m.boundary_sim, side, 0)
+    ref = [boundary_value(base, m.boundary_sim, side)
            for m in mats]
-    batch_boundary_values(base, mats, side, 0)
+    batch_boundary_values(base, mats, side)
     for m, r in zip(mats, ref):
         assert m.value == pytest.approx(r, abs=1e-6)
         assert m.boundary_sim is None
@@ -234,11 +234,11 @@ def test_boundary_frame_mover_keeps_pre_flip_state():
     sim = fresh_scenario_sim()
     side = sim.gs.global_info.current_side
 
-    m_opp = materialize(base, sim, side, [], "fr0", 0, skip_value=True)
+    m_opp = materialize(base, sim, side, [], "fr0", skip_value=True)
     assert m_opp.boundary_sim.gs.global_info.current_side != side
     assert m_opp.executed and m_opp.executed[-1]["type"] == "end_turn"
 
-    m_mov = materialize(base, sim, side, [], "fr0", 0, skip_value=True,
+    m_mov = materialize(base, sim, side, [], "fr0", skip_value=True,
                         mover_frame=True)
     assert not m_mov.boundary_sim.done
     assert m_mov.boundary_sim.gs.global_info.current_side == side
@@ -246,7 +246,7 @@ def test_boundary_frame_mover_keeps_pre_flip_state():
     # the same executed command list either way).
     assert m_mov.executed == m_opp.executed
 
-    m_proj = materialize(base, sim, side, [], "fr0", 0,
+    m_proj = materialize(base, sim, side, [], "fr0",
                          keep_boundary_sim=True, mover_frame=True)
     assert m_proj.boundary_sim.gs.global_info.current_side != side
 
@@ -288,7 +288,7 @@ def test_mover_frame_survives_sim_forced_end_turn():
     if cmds is None:
         import pytest
         pytest.skip("no unit with two reachable hexes at start")
-    m = materialize(None, sim, side, cmds, "t:mf", 0,
+    m = materialize(None, sim, side, cmds, "t:mf",
                     skip_value=True, mover_frame=True)
     assert not m.invalid
     assert m.boundary_sim is not None
@@ -312,16 +312,16 @@ def test_prefix_resume_is_bit_identical():
     # Incumbent: first move then end_turn; snapshots collected.
     inc_cmds = [cmds[0]]
     snaps = []
-    materialize(None, sim, side, inc_cmds, "t:seam", 0,
+    materialize(None, sim, side, inc_cmds, "t:seam",
                 skip_value=True, snapshots=snaps)
     snap_at = {s[1]: s for s in snaps}
     assert 0 in snap_at
     # Candidate shares prefix commands[:0] (empty) -- use index 0 to
     # exercise the seam end to end on the full list.
     cand = [cmds[1], cmds[0]]
-    fresh = materialize(None, sim, side, cand, "t:seam", 0,
+    fresh = materialize(None, sim, side, cand, "t:seam",
                         skip_value=True)
-    via = materialize(None, sim, side, cand, "t:seam", 0,
+    via = materialize(None, sim, side, cand, "t:seam",
                       skip_value=True, resume=snap_at[0])
     assert via.executed == fresh.executed
     assert via.accepted == fresh.accepted

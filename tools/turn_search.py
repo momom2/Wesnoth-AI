@@ -108,7 +108,7 @@ def _forward(policy, encoded, gs, memory: Optional[SideMemories], decide: bool):
     return output
 
 
-def forward_state(policy, gs, decision_step: int, memory: Optional[SideMemories] = None):
+def forward_state(policy, gs, memory: Optional[SideMemories] = None):
     """(encoded, output, legal) for one state, inference-only: a
     decision on a line of play, whose memory (`memory`, both sides'
     along the line, for a model with one) it reads and writes.
@@ -117,8 +117,7 @@ def forward_state(policy, gs, decision_step: int, memory: Optional[SideMemories]
     with torch.no_grad():
         encoded = policy._inference_encoder.encode(gs)
         output = _forward(policy, encoded, gs, memory, decide=True)
-        legal = enumerate_legal_actions_with_priors(
-            encoded, output, gs, decision_step=decision_step)
+        legal = enumerate_legal_actions_with_priors(encoded, output, gs)
     return encoded, output, legal
 
 
@@ -128,7 +127,7 @@ def _value_for(output, gs, side: int) -> float:
     return v if gs.global_info.current_side == side else -v
 
 
-def boundary_value(policy, sim, side: int, decision_step: int,
+def boundary_value(policy, sim, side: int,
                    memory: Optional[SideMemories] = None) -> float:
     """V(boundary state) from `side`'s perspective, read with the side
     to move's memory on the line. Terminal states use the exact outcome
@@ -149,7 +148,7 @@ BOUNDARY_BATCH_CHUNK = 16
 
 
 def batch_boundary_values(policy, mats: List["Materialized"],
-                          side: int, decision_step: int,
+                          side: int,
                           chunk: int = BOUNDARY_BATCH_CHUNK) -> None:
     """Fill `m.value` IN PLACE for skip_value materializations, in
     batched forwards. Terminal boundaries use the exact outcome
@@ -185,7 +184,7 @@ def batch_boundary_values(policy, mats: List["Materialized"],
             m.boundary_sim = None
 
 
-def project_value(policy, sim, side: int, decision_step: int,
+def project_value(policy, sim, side: int,
                   half_turns: int, max_actions: int,
                   rng: np.random.Generator,
                   memory: Optional[SideMemories] = None) -> float:
@@ -202,7 +201,7 @@ def project_value(policy, sim, side: int, decision_step: int,
     `sim`; all play happens on a fork, and on a copy of `memory`, each
     side's memory at `sim` on the line."""
     if half_turns <= 0 or sim.done:
-        return boundary_value(policy, sim, side, decision_step, memory)
+        return boundary_value(policy, sim, side, memory)
     track = None if memory is None else memory.copy()
     r = sim.fork()
     for _ in range(half_turns):
@@ -212,8 +211,7 @@ def project_value(policy, sim, side: int, decision_step: int,
         k = 0
         while (not r.done and r.gs.global_info.current_side == mover
                and k < max_actions):
-            _, output, legal = forward_state(policy, r.gs,
-                                             decision_step, track)
+            _, output, legal = forward_state(policy, r.gs, track)
             if not legal:
                 break
             try:
@@ -226,7 +224,7 @@ def project_value(policy, sim, side: int, decision_step: int,
                 r.step({"type": "end_turn"})
             except Exception:  # noqa: BLE001
                 break
-    return boundary_value(policy, r, side, decision_step, track)
+    return boundary_value(policy, r, side, track)
 
 
 # ---------------------------------------------------------------------
@@ -240,10 +238,9 @@ class SpineStep:
     action:        Dict
     action_idx:    int                   # index into `legal`
     legal:         List[LegalActionPrior]
-    decision_step: int
 
 
-def record_spine(policy, sim0, side: int, decision_step: int,
+def record_spine(policy, sim0, side: int,
                  rng: np.random.Generator, max_spine: int = 40,
                  actions: Optional[List[Dict]] = None,
                  memory: Optional[SideMemories] = None,
@@ -271,7 +268,7 @@ def record_spine(policy, sim0, side: int, decision_step: int,
            and sim.gs.global_info.current_side == side
            and k < max_spine):
         pre_fork = sim.fork()
-        _, output, legal = forward_state(policy, sim.gs, decision_step, track)
+        _, output, legal = forward_state(policy, sim.gs, track)
         if not legal:
             log.warning("spine: empty legal list; ending turn walk")
             break
@@ -286,7 +283,7 @@ def record_spine(policy, sim0, side: int, decision_step: int,
         act = legal[idx].action
         steps.append(SpineStep(pre_fork=pre_fork, pre_value=v0,
                                action=act, action_idx=idx,
-                               legal=legal, decision_step=decision_step))
+                               legal=legal))
         try:
             sim.step(act)
         except Exception as e:  # noqa: BLE001 -- search must not die
@@ -341,7 +338,7 @@ class Materialized:
 
 
 def materialize(policy, start, side: int, commands: List[Dict],
-                salt: str, decision_step: int,
+                salt: str,
                 keep_boundary_sim: bool = False,
                 skip_value: bool = False,
                 mover_frame: bool = False,
@@ -499,7 +496,7 @@ def materialize(policy, start, side: int, commands: List[Dict],
                     _u.current_moves = 0
                     _u.has_attacked = True
     value = float("nan") if (invalid or skip_value) else boundary_value(
-        policy, eval_sim, side, decision_step, eval_memory)
+        policy, eval_sim, side, eval_memory)
     if skip_value and not invalid:
         keep_boundary_sim = True
     vis = frozenset(
@@ -712,7 +709,6 @@ class TurnPlan:
     par.3). `targets[i]` is the coordinate's 5-tuple policy target
     (None on cheap turns). `stats[i]` carries distill telemetry."""
     side:          int
-    decision_step: int                     # enumeration ds (anneal)
     turn_no:       int = 0                 # game turn the plan is for
     full:          bool = False            # targets recorded?
     commands:      List[Dict] = field(default_factory=list)
@@ -745,7 +741,7 @@ class TurnPlan:
 TRACE = None
 
 
-def plan_turn(policy, sim, side: int, decision_step: int,
+def plan_turn(policy, sim, side: int,
               cfg: TurnSearchConfig, mcts_config: MCTSConfig,
               rng: np.random.Generator, salt_ns: str,
               full: bool, incumbent: Optional[List[Dict]] = None,
@@ -773,9 +769,9 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     if slots and memory is None:
         raise ValueError(f"turn search over a model with a memory ({slots} slots) needs each "
                          f"side's memory at the turn's start (memory=SideMemories)")
-    steps, _ = record_spine(policy, sim, side, decision_step, rng,
+    steps, _ = record_spine(policy, sim, side, rng,
                             max_spine=cfg.max_spine, actions=incumbent, memory=memory)
-    plan = TurnPlan(side=side, decision_step=decision_step,
+    plan = TurnPlan(side=side,
                     turn_no=int(sim.gs.global_info.turn_number),
                     full=full)
     if not steps:
@@ -804,7 +800,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
         nonlocal n_proj
         n_proj += 1
         return project_value(policy, m.boundary_sim, side,
-                             decision_step, cfg.project_halfturns,
+                             cfg.project_halfturns,
                              cfg.project_max_actions, rng, m.memory)
 
     for rnd in range(n_rounds):
@@ -819,7 +815,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
         # issued at all (the review's redundant-forward patch).
         _snaps: List[Tuple] = []
         inc = materialize(policy, sim, side, commands, salt,
-                          decision_step, keep_boundary_sim=proj_all,
+                          keep_boundary_sim=proj_all,
                           skip_value=True, mover_frame=mf, mover_mp0=mp0,
                           snapshots=_snaps, memory=memory)
         if inc.invalid:
@@ -841,7 +837,6 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                              + [st.legal[alt_i].action]
                              + commands[j + 1:])
                 m = materialize(policy, sim, side, cand_cmds, salt,
-                                decision_step,
                                 keep_boundary_sim=proj_all,
                                 skip_value=True, mover_frame=mf, mover_mp0=mp0,
                                 resume=_snap_at.get(j), memory=memory)
@@ -857,7 +852,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                     if m.boundary_sim is not None:
                         capture(m.boundary_sim)
             batch_boundary_values(policy, [inc] + [m for _, _, m in raw],
-                                  side, decision_step)
+                                  side)
             inc_val = inc.value
             cands = [(j, a, m, m.value) for j, a, m in raw
                      if not math.isnan(m.value)]
@@ -884,12 +879,10 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             for v in range(cfg.reval_salts):
                 s2 = f"{salt}:v{v}"
                 inc2 = materialize(policy, sim, side, commands, s2,
-                                   decision_step,
                                    keep_boundary_sim=use_proj,
                                    skip_value=True, mover_frame=mf, mover_mp0=mp0,
                                    memory=memory)
                 var2 = materialize(policy, sim, side, best_cmds, s2,
-                                   decision_step,
                                    keep_boundary_sim=use_proj,
                                    skip_value=True, mover_frame=mf, mover_mp0=mp0,
                                    memory=memory)
@@ -902,8 +895,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                     reval_l.append(_projected(var2) - _projected(inc2))
             elif pairs:
                 flat = [m for pr in pairs for m in pr]
-                batch_boundary_values(policy, flat, side,
-                                      decision_step)
+                batch_boundary_values(policy, flat, side)
                 reval_l = [var2.value - inc2.value
                            for inc2, var2 in pairs
                            if not (math.isnan(inc2.value)
@@ -940,7 +932,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
         # Grade-what-you-commit: the new incumbent is the MATERIALIZED
         # winner (commands that landed at the selection salt).
         commands = list(best_m.executed)
-        steps, _ = record_spine(policy, sim, side, decision_step, rng,
+        steps, _ = record_spine(policy, sim, side, rng,
                                 max_spine=cfg.max_spine,
                                 actions=commands, memory=memory)
         if not steps:
@@ -957,7 +949,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
     kl_salt = f"{salt_ns}:t"
     _snaps2: list = []
     inc = materialize(policy, sim, side, commands, kl_salt,
-                      decision_step, keep_boundary_sim=proj_all,
+                      keep_boundary_sim=proj_all,
                       skip_value=True, mover_frame=mf, mover_mp0=mp0,
                       snapshots=_snaps2, memory=memory) if full else None
     # Prefix-resume seam, same precondition as the round loop
@@ -983,7 +975,6 @@ def plan_turn(policy, sim, side: int, decision_step: int,
                 cand = (commands[:j] + [st.legal[alt_i].action]
                         + commands[j + 1:])
                 m = materialize(policy, sim, side, cand, kl_salt,
-                                decision_step,
                                 keep_boundary_sim=proj_all,
                                 skip_value=True, mover_frame=mf, mover_mp0=mp0,
                                 resume=_snap_at2.get(j), memory=memory)
@@ -994,7 +985,7 @@ def plan_turn(policy, sim, side: int, decision_step: int,
             batch_boundary_values(
                 policy, [inc] + [m for c in per_coord
                                  for _, m in c],
-                side, decision_step)
+                side)
     # Under "all" placement the distill targets rank actions by the
     # PROJECTED objective -- the training signal itself learns the
     # tempo-aware ordering. (v_root stays the blind pre-state value:

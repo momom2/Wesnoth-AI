@@ -324,8 +324,7 @@ def replay_dump(path: Path, model, encoder, device: torch.device, bf16: bool) ->
         print("  raw fields", {k: (tuple(v.shape), str(v.dtype), int(v.min()) if v.size else None,
                                   int(v.max()) if v.size else None)
                                for k, v in vars(r).items() if isinstance(v, np.ndarray) and v.dtype.kind in "iu"})
-        print("  masks", m.n_units, m.n_recruits, m.n_hexes, m.attack_valid.shape,
-              None if m.attack_bias is None else m.attack_bias.shape)
+        print("  masks", m.n_units, m.n_recruits, m.n_hexes, m.attack_valid.shape)
     eager = InferenceServer(model, encoder, device=device, output_device=torch.device("cpu"),
                             autocast_bf16=bf16, packed_embed=True)
     ref = eager.infer_batch(pairs)

@@ -113,16 +113,10 @@ class _PendingMCTSState:
     `gs` reference (NOT a deepcopy — `_run_one_game` already passes
     in a deepcopy as `pre_state`), the MCTS visit counts emitted
     at this state, and the side-to-move so finalize_game can
-    compute z = +1 / -1 / 0 from the perspective of that side.
-
-    `decision_step` is the training-progress counter at the time this
-    state's search ran -- carried through to the MCTSExperience so the
-    distillation loss rebuilds reference logits at the SAME combat-oracle
-    alpha the search used (`combat_alphas_at`)."""
+    compute z = +1 / -1 / 0 from the perspective of that side."""
     gs:            GameState
     visit_counts:  List[Tuple]
     side:          int
-    decision_step: int = 0
     # Policy-loss magnitude carried to MCTSExperience.policy_weight
     # (plan-tournament certify-or-abstain: beta on certified turns,
     # 0.0 on abstained value-only records; 1.0 = legacy full weight).
@@ -481,17 +475,10 @@ class MCTSPolicy:
                 "(sim.step would otherwise mutate the recorded training "
                 "target). See play_one_game's `copy.deepcopy(sim.gs)`."
             )
-        # Combat-oracle anneal: capture the policy's current training-
-        # progress counter for THIS decision and advance it. The MCTS
-        # path otherwise never increments decision_step (only
-        # TransformerPolicy.select_action does, on the REINFORCE path),
-        # so without this the oracle bias would never anneal in MCTS
-        # mode. The captured value drives the search's leaf-prior alpha
-        # AND is recorded on the training target so the distillation loss
-        # rebuilds reference logits at the same alpha. Atomic under the
-        # base lock (worker threads may call select_action concurrently).
+        # The policy's decision counter (training progress, kept in the
+        # checkpoint) advances once per decision. Atomic under the base
+        # lock (worker threads may call select_action concurrently).
         with self._base._lock:
-            decision_step = self._base._decision_step
             self._base._decision_step += 1
         reuse_root = None
         if self._mcts_config.tree_reuse:
@@ -529,7 +516,6 @@ class MCTSPolicy:
             self._mcts_config,
             reuse_root=reuse_root,
             n_sims_override=n_override,
-            decision_step=decision_step,
             rng=self._search_rng(),
             memory=memory,
         )
@@ -587,8 +573,7 @@ class MCTSPolicy:
             with self._lock:
                 self._pending.setdefault(game_label, []).append(
                     _PendingMCTSState(gs=game_state, visit_counts=visits,
-                                      side=side, decision_step=decision_step,
-                                      masks=root.masks)
+                                      side=side, masks=root.masks)
                 )
                 if ds:
                     a = self._distill_acc
@@ -628,8 +613,8 @@ class MCTSPolicy:
                         self._reuse[game_label] = stash
         # Record whether this decision left a pending training target, so a
         # fog-bounce retry can undo exactly this decision (full moves append
-        # a pending state; fast playout-cap moves don't). decision_step was
-        # advanced above regardless.
+        # a pending state; fast playout-cap moves don't). The decision
+        # counter was advanced above regardless.
         with self._lock:
             self._last_recorded[game_label] = full_move
         if self._trace is not None:
@@ -753,7 +738,6 @@ class MCTSPolicy:
                 z=z,
                 aux_target=aux,
                 moves_left_target=ml,
-                decision_step=s.decision_step,
                 game_weight=1.0 / (2.0 * side_weight_divisor(
                     n_by_side[s.side], midgame)),
                 # Truncation ruling (user, 2026-08-17): a winnerless
@@ -969,14 +953,14 @@ class MCTSPolicy:
     def drop_last_pending(self, game_label: str) -> bool:
         """Undo the most recent select_action for `game_label` after a
         fog-bounce rejection: pop the pending training target it recorded
-        (if it was a full move) and roll back the decision_step increment
-        it made, so the rejected pick is neither trained on nor counted
-        toward the combat-oracle anneal. Also drop the now-stale tree-reuse
+        (if it was a full move) and roll back the decision counter's
+        increment it made, so the rejected pick is neither trained on nor
+        counted. Also drop the now-stale tree-reuse
         stash for the bounced action. Returns True (the rejection was
         handled) so the rollout loop knows not to fall back to observe().
 
         MUST be called BEFORE the re-decision so the rolled-back
-        decision_step is re-consumed by the retry (no double-count).
+        count is re-consumed by the retry (no double-count).
         """
         with self._lock:
             recorded = self._last_recorded.pop(game_label, False)

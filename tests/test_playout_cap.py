@@ -107,9 +107,7 @@ def test_drop_last_pending_pops_tail_and_rolls_back_decision_step():
     """The fog-bounce retry loop calls drop_last_pending to undo the
     rejected decision. It must (a) pop exactly the pending target the
     last select_action recorded and (b) roll back the decision_step
-    increment, so the bounced pick is neither trained on nor counted
-    toward the combat-oracle anneal (which would otherwise over-advance
-    and inject a correlated duplicate target)."""
+    increment, so the bounced pick is neither trained on nor counted."""
     import copy
     mp = MCTSPolicy(_policy(), _cfg())
     mp._rng = np.random.default_rng(21)

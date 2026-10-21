@@ -361,14 +361,14 @@ def _actor_loop(
                              observation_parity=_parity,
                              relevant_set_version=_rsv)
         # MCTSPolicy.select_action reads `_base._lock` / `_base._decision_step`
-        # (the combat-oracle anneal, added 2026-06-29). The in-process base is
+        # (the decision counter). The in-process base is
         # a TransformerPolicy that supplies both; the actor's lightweight base
         # MUST supply them too, or select_action AttributeErrors on the first
         # decision of every game — an error _play_one_game_safe swallows, so
         # the pool would silently produce ZERO experiences. Seed the counter
         # from the main process's GLOBAL decision_step (broadcast in the PLAY
-        # command) so the anneal alpha reflects true training progress rather
-        # than restarting at 0 in each actor each iteration.
+        # command) so it reads training progress rather than restarting at 0
+        # in each actor each iteration.
         base = SimpleNamespace(_inference_model=rmodel,
                                _inference_encoder=renc,
                                _lock=threading.Lock(),
@@ -507,7 +507,7 @@ def _actor_loop(
                          and not isinstance(_exc, Exception))
             # Report how many decisions this actor made this iteration
             # (base._decision_step advanced past decision_step0), so the
-            # main process can advance the global anneal counter by the
+            # main process can advance the global decision counter by the
             # total across all actors.
             local_decisions = (int(getattr(base, "_decision_step",
                                            decision_step0))

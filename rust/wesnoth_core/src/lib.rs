@@ -670,7 +670,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // encoding's basis beside the encoding (`label`, core_label.rs); the
     // module carries the hash of the source it was built from
     // (`__source_hash__`, build.rs).
-    m.add("__phase__", 35)?;
+    // 36: the inference server's masks carry no hand-set prior biases
+    // (ServeRequests.fill_masks).
+    m.add("__phase__", 36)?;
     m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;

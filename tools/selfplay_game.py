@@ -357,9 +357,9 @@ def play_one_game(
                 f"re-deciding with hex blacklisted")
             # Undo the rejected select_action's recorded target. MCTSPolicy
             # exposes drop_last_pending (pops the pending MCTSExperience tail
-            # AND rolls back the decision_step increment) -- without it the
-            # bounced decision would be trained on with terminal z and
-            # over-advance the combat-oracle anneal. Policies without it
+            # AND rolls back the decision counter's increment) -- without it
+            # the bounced decision would be trained on with terminal z and
+            # counted twice. Policies without it
             # (REINFORCE) fall back to observe(reward=0), which lands the
             # rejected pick in the trajectory with a neutral signal.
             drop = getattr(policy, "drop_last_pending", None)

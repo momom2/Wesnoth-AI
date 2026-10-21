@@ -113,14 +113,6 @@ class Transition:
     target_idx: Optional[int] = None
     weapon_idx: Optional[int] = None
     type_idx:   Optional[int] = None
-    # Combat-oracle anneal counter at SAMPLE time. The re-forward in
-    # Trainer.step must rebuild the legality masks (which carry the
-    # annealed combat-oracle bias) at the SAME alpha the sampler used,
-    # or the reference logP/entropy the policy gradient is computed
-    # against won't match the on-policy sampling distribution. Defaults
-    # to 0 so pre-existing pickled trajectories still load (they get
-    # full-strength bias, matching the old behavior).
-    decision_step: int = 0
     # Filled in by game_manager after the next state arrives:
     reward:     float = 0.0
     done:       bool  = False
@@ -195,13 +187,6 @@ class MCTSExperience:
     # step_mcts in every loss term. Old pickles lack the attr; all
     # consumers getattr() with default 1.0.
     game_weight: float = 1.0
-    # Training-progress counter at the time this state's MCTS search ran.
-    # Threaded into the distillation loss so the reference legality
-    # masks rebuild the combat-oracle bias at the SAME annealed alpha the
-    # search used (`combat_alphas_at`) -- search priors and loss must
-    # agree. Default 0 = full-strength oracle (also the legacy-pickle
-    # fallback, matching the pre-anneal behavior of old serialized data).
-    decision_step: int = 0
     # GBC event-supervision labels (2026-08-14, docs/archive/gbc_spec.md):
     # fog-censored hindsight rows ("u", id, pred, y1, y2) / ("v", x,
     # y, pred, y1, y2) built in finalize_game. None on legacy pickles
@@ -709,7 +694,6 @@ class Trainer:
                         target_idx=t.target_idx,
                         weapon_idx=t.weapon_idx,
                         type_idx=t.type_idx,
-                        decision_step=getattr(t, "decision_step", 0),
                     )
                     chunk_log_probs.append(lp)
                     chunk_values.append(output.value.squeeze())
@@ -883,7 +867,7 @@ def _unpack_visit(t) -> Tuple:
 
 
 def _oob_index(kind: str, idx: int, size: int, actor_idx: int,
-               num_units: int, decision_step: int) -> bool:
+               num_units: int) -> bool:
     """Stored-index bounds guard (2026-08-12). A visit-count tuple's
     indices were resolved against the SEARCH-time encoding; the loss
     re-encodes and re-masks, and a divergence puts an out-of-range
@@ -902,7 +886,6 @@ def _oob_index(kind: str, idx: int, size: int, actor_idx: int,
             f"visit-count {kind} index out of range: idx={idx} "
             f"size={size} actor_idx={actor_idx} "
             f"num_units={num_units} "
-            f"decision_step={decision_step} "
             f"(occurrence #{_OOB_INDEX_EVENTS}; term skipped -- "
             f"search-time vs train-time index basis diverged; "
             f"root-cause before trusting this leg)")
@@ -916,7 +899,6 @@ def _mcts_factored_policy_loss_reference(
     visit_counts: List[Tuple],
     *,
     vectorized: bool = True,
-    decision_step: int = 0,
 ) -> Tuple[torch.Tensor, float, float]:
     """One state's cross-entropy of the model's factored policy
     against MCTS visit counts, computed per state in Python: the
@@ -943,12 +925,10 @@ def _mcts_factored_policy_loss_reference(
 
     _unpack = _unpack_visit
 
-    masks = _build_legality_masks(encoded, game_state,
-                                  decision_step=decision_step)
+    masks = _build_legality_masks(encoded, game_state)
 
     def _oob(kind: str, idx: int, size: int, actor_idx: int) -> bool:
-        return _oob_index(kind, idx, size, actor_idx, output.num_units,
-                          decision_step)
+        return _oob_index(kind, idx, size, actor_idx, output.num_units)
     # Prior-bias symmetry: the trainer re-forward must apply the
     # SAME end_turn bias the rollout applied, or the CE would fight
     # a target the live priors never produced.
@@ -1001,10 +981,7 @@ def _mcts_factored_policy_loss_reference(
             if is_unit and type_idx is not None:
                 tylp = type_logp_cache.get(actor_idx)
                 if tylp is None:
-                    tyl = _masked_type_logits(
-                        output, masks.type_valid, actor_idx,
-                        type_bias=masks.type_bias,
-                    )
+                    tyl = _masked_type_logits(output, masks.type_valid, actor_idx)
                     if tyl.numel() == 0:
                         type_logp_cache[actor_idx] = None  # type: ignore
                     else:
@@ -1022,28 +999,21 @@ def _mcts_factored_policy_loss_reference(
                     tlp = target_attack_logp_cache.get(actor_idx)
                     if tlp is None:
                         tl = _masked_target_logits_from_row(
-                            output, masks.target_valid_attack[actor_idx],
-                            actor_idx, attack_bias=masks.attack_bias[actor_idx],
-                        )
+                            output, masks.target_valid_attack[actor_idx], actor_idx)
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_attack_logp_cache[actor_idx] = tlp
                 elif is_unit and type_idx == UnitActionType.MOVE:
                     tlp = target_move_logp_cache.get(actor_idx)
                     if tlp is None:
                         tl = _masked_target_logits_from_row(
-                            output, masks.target_valid_move[actor_idx],
-                            actor_idx, attack_bias=None,
-                        )
+                            output, masks.target_valid_move[actor_idx], actor_idx)
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_move_logp_cache[actor_idx] = tlp
                 else:
                     # Legacy / recruit / end_turn -- union mask.
                     tlp = target_union_logp_cache.get(actor_idx)
                     if tlp is None:
-                        tl = _masked_target_logits(
-                            output, masks.target_valid, actor_idx,
-                            attack_bias=masks.attack_bias,
-                        )
+                        tl = _masked_target_logits(output, masks.target_valid, actor_idx)
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_union_logp_cache[actor_idx] = tlp
                 if tlp is None:
@@ -1101,10 +1071,7 @@ def _mcts_factored_policy_loss_reference(
             if is_unit and type_idx is not None:
                 tylp = type_logp_cache.get(actor_idx)
                 if tylp is None:
-                    tyl = _masked_type_logits(
-                        output, masks.type_valid, actor_idx,
-                        type_bias=masks.type_bias,
-                    )
+                    tyl = _masked_type_logits(output, masks.type_valid, actor_idx)
                     if tyl.numel() == 0:
                         type_logp_cache[actor_idx] = None  # type: ignore
                     else:
@@ -1122,9 +1089,7 @@ def _mcts_factored_policy_loss_reference(
                     tlp = target_attack_logp_cache.get(actor_idx)
                     if tlp is None:
                         tl = _masked_target_logits_from_row(
-                            output, masks.target_valid_attack[actor_idx],
-                            actor_idx, attack_bias=masks.attack_bias[actor_idx],
-                        )
+                            output, masks.target_valid_attack[actor_idx], actor_idx)
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_attack_logp_cache[actor_idx] = tlp
                 elif is_unit and type_idx == UnitActionType.MOVE:
@@ -1132,19 +1097,14 @@ def _mcts_factored_policy_loss_reference(
                     tlp = target_move_logp_cache.get(actor_idx)
                     if tlp is None:
                         tl = _masked_target_logits_from_row(
-                            output, masks.target_valid_move[actor_idx],
-                            actor_idx, attack_bias=None,
-                        )
+                            output, masks.target_valid_move[actor_idx], actor_idx)
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_move_logp_cache[actor_idx] = tlp
                 else:
                     kind = "u"
                     tlp = target_union_logp_cache.get(actor_idx)
                     if tlp is None:
-                        tl = _masked_target_logits(
-                            output, masks.target_valid, actor_idx,
-                            attack_bias=masks.attack_bias,
-                        )
+                        tl = _masked_target_logits(output, masks.target_valid, actor_idx)
                         tlp = F.log_softmax(tl, dim=-1) if tl.numel() else None
                         target_union_logp_cache[actor_idx] = tlp
                 if tlp is None:
@@ -1239,15 +1199,14 @@ class _PolicyTargets:
     visits: float               # sum of total visits over the chunk
 
 
-def _host_packed_masks(raw: RawEncoded, game_state: GameState,
-                       decision_step: int) -> PackedMasks:
+def _host_packed_masks(raw: RawEncoded, game_state: GameState) -> PackedMasks:
     """The masks of an experience that did not bring them, built on the
     host from its RawEncoded exactly as the actor builds them (a pure
     function of the observable state)."""
     # wesnoth_ai does not import tools/ at module load.
     from tools.inference_seam import build_light_encoded
     light = build_light_encoded(raw, _CPU)
-    return pack_masks(light, game_state, decision_step=decision_step)
+    return pack_masks(light, game_state)
 
 
 def _no_action_masks(U: int, R: int, H: int, T: int) -> PackedMasks:
@@ -1299,7 +1258,6 @@ def _stage_policy_targets(
     for b, (e, raw) in enumerate(zip(chunk, raws)):
         U, R, H = sizes[b]
         A = U + R + 1
-        ds = int(getattr(e, "decision_step", 0))
         vc = e.visit_counts
         total = float(sum(_unpack_visit(t)[3] for t in vc))
         p = getattr(e, "masks", None)
@@ -1307,7 +1265,7 @@ def _stage_policy_targets(
             # A value-only experience (no visits) gets no host mask
             # build: the build is the largest host item of the step and
             # no term would index the result.
-            p = (_host_packed_masks(raw, e.game_state, ds) if total > 0.0
+            p = (_host_packed_masks(raw, e.game_state) if total > 0.0
                  else _no_action_masks(U, R, H, T))
         elif (p.n_units, p.n_recruits, p.n_hexes) != (U, R, H):
             # Masks packed on another action-space basis than the
@@ -1327,13 +1285,13 @@ def _stage_policy_targets(
             a, h, w, count, ty = _unpack_visit(tup)
             if count <= 0:
                 continue
-            if _oob_index("actor", a, A, a, U, ds):
+            if _oob_index("actor", a, A, a, U):
                 continue
             a_idx.append(b * A_max + a)
             a_coef.append(count * c)
             a_cnt.append(count)
             is_unit = a < U
-            if is_unit and ty is not None and not _oob_index("type", ty, T, a, U, ds):
+            if is_unit and ty is not None and not _oob_index("type", ty, T, a, U):
                 t_idx.append((b * A_max + a) * T + ty)
                 t_coef.append(count * c)
             if h is not None:
@@ -1345,7 +1303,7 @@ def _stage_policy_targets(
                     kind = _KIND_UNION
                 if H == 0:
                     continue
-                if _oob_index("target", h, H, a, U, ds):
+                if _oob_index("target", h, H, a, U):
                     continue    # like the reference, the weapon term goes with it
                 r = rows.get((b, a, kind))
                 if r is None:
@@ -1355,7 +1313,7 @@ def _stage_policy_targets(
             if w is not None:
                 if w >= n_att[a]:
                     continue    # stale visit-count slot (or a non-unit actor): skipped silently
-                if _oob_index("weapon", w, W, a, U, ds):
+                if _oob_index("weapon", w, W, a, U):
                     continue
                 w_idx.append((b * A_max + a) * W + w)
                 w_coef.append(count * c)
@@ -1425,10 +1383,8 @@ def _batched_factored_policy_loss(padded, targets: _PolicyTargets) -> _PolicyLos
     if tv["type_idx"].numel():
         ok = mv["type_valid"] != 0
         ok = ok | ~ok.any(dim=-1, keepdim=True)
-        tl = padded.type_logits
-        if "type_bias" in mv:
-            tl = tl + mv["type_bias"]
-        t_vals = F.log_softmax(tl.masked_fill(~ok, _NEG_INF), dim=-1).reshape(-1)[tv["type_idx"]]
+        t_vals = F.log_softmax(padded.type_logits.masked_fill(~ok, _NEG_INF),
+                               dim=-1).reshape(-1)[tv["type_idx"]]
         head_logp["type"] = (tv["type_coef"] * t_vals).sum()
         logp_sum = logp_sum + head_logp["type"]
 
@@ -1437,9 +1393,6 @@ def _batched_factored_policy_loss(padded, targets: _PolicyTargets) -> _PolicyLos
         bits = torch.stack([mv["attack_bits"], mv["move_bits"], mv["union_bits"]])[rk, rb, ra]
         valid = _unpack_bits(bits, H_max)                                  # [n_rows, H_max]
         rows = padded.target_logits[rb, ra]
-        if "attack_bias" in mv:
-            # Attack and union rows carry the oracle bias, move rows do not.
-            rows = rows + mv["attack_bias"][rb, ra] * (rk != _KIND_MOVE).to(rows.dtype).unsqueeze(1)
         in_state = (torch.arange(H_max, device=dev).unsqueeze(0)
                     < tv["hcount"][rb].unsqueeze(1))
         ok = torch.where(valid.any(dim=-1, keepdim=True), valid, in_state)

@@ -201,7 +201,7 @@ def test_a_pass_on_columns_trains_what_a_pass_on_pickles_trains(columnar, tmp_pa
 
 # ---- hand-built game-sides: every field's cases ------------------------------------------
 
-def _hand_masks(g, U, R, H, biased):
+def _hand_masks(g, U, R, H):
     from wesnoth_ai.server_priors import PackedMasks
     A, HB = U + R + 1, (H + 7) // 8
     return PackedMasks(
@@ -209,9 +209,7 @@ def _hand_masks(g, U, R, H, biased):
         attack_valid=g.integers(0, 256, (A, HB)).astype(np.uint8),
         move_valid=g.integers(0, 256, (A, HB)).astype(np.uint8),
         union_valid=g.integers(0, 256, (A, HB)).astype(np.uint8), n_attacks=g.integers(0, 4, A).astype(np.int8),
-        end_turn_bias=float(g.normal()), n_units=U, n_recruits=R, n_hexes=H,
-        type_bias=g.normal(size=(A, 2)).astype(np.float32) if biased else None,
-        attack_bias=g.normal(size=(A, H)).astype(np.float32) if biased else None)
+        end_turn_bias=float(g.normal()), n_units=U, n_recruits=R, n_hexes=H)
 
 
 def _hand_target(g, U, R, H):
@@ -247,7 +245,7 @@ def _hand_side(seed, n, own):
         hidden = np.sort(g.choice(H, size=int(g.integers(0, min(H, 4) + 1)), replace=False)).astype(np.int64)
         out.append(SequencePosition(raw=raw, label=_hand_label(g, U, R, H), hidden_tokens=hidden,
                                     no_visible_unit=g.random(H) > 0.4, turn=int(g.integers(1, 30)),
-                                    masks=_hand_masks(g, U, R, H, biased=bool(i % 3 == 1)) if own else None,
+                                    masks=_hand_masks(g, U, R, H) if own else None,
                                     own_target=_hand_target(g, U, R, H) if own else None))
     return out
 
@@ -255,7 +253,7 @@ def _hand_side(seed, n, own):
 def test_hand_built_positions_stage_the_same_bytes_from_columns(tmp_path):
     """Game-sides built by hand with every case the records hold: hidden
     enemy tokens, sightings, timeouts and labels without a target, weapon or
-    type, own masks with and without their biases, targets of 1 to 16
+    type, own masks, targets of 1 to 16
     actions. Written as columns and read back, every position equals the
     original; staged from columns and from the positions, batches of rows
     drawn across game-sides and offsets are the same bytes."""
@@ -290,7 +288,7 @@ def test_hand_built_positions_stage_the_same_bytes_from_columns(tmp_path):
     records = RecordInputs(types.SimpleNamespace(sides=lambda g: games[g.file].sides[g.side]), *common)
     cols = ColumnInputs(types.SimpleNamespace(side=lambda g: columns[(g.file, g.side)]), *common)
     rng = np.random.default_rng(5)
-    seen = {"own": 0, "biased": 0, "hidden": 0}
+    seen = {"own": 0, "hidden": 0}
     for trial in range(12):
         keys = list(columns)
         picks = [keys[int(j)] for j in rng.choice(len(keys), size=int(rng.integers(1, 7)))]
@@ -300,6 +298,5 @@ def test_hand_built_positions_stage_the_same_bytes_from_columns(tmp_path):
         assert _inputs_bytes(a) == _inputs_bytes(b), trial
         assert records.sizes(steps) == cols.sizes(steps)
         seen["own"] += a.own is not None
-        seen["biased"] += a.own is not None and "attack_bias" in a.own.views
         seen["hidden"] += bool(a.belief_target.sum() > 0)
     assert all(v > 0 for v in seen.values()), seen

@@ -141,11 +141,6 @@ CORPUS_GROUPS = (
 )
 
 
-def _type_bias(p) -> np.ndarray:
-    m = p.masks
-    return np.zeros(m.type_valid.shape, np.float32) if m.type_bias is None else m.type_bias
-
-
 OWN_GROUPS = (
     Group("own_rows", None, (
         ("mask_end_turn_bias", "<f8", lambda p: p.masks.end_turn_bias),
@@ -153,24 +148,17 @@ OWN_GROUPS = (
         ("mask_recruits", "<i8", lambda p: p.masks.n_recruits),
         ("mask_hexes", "<i8", lambda p: p.masks.n_hexes),
         ("mask_bits_width", "<i8", lambda p: p.masks.attack_valid.shape[1]),
-        ("mask_type_bias_on", "|b1", lambda p: p.masks.type_bias is not None),
-        ("mask_attack_bias_on", "|b1", lambda p: p.masks.attack_bias is not None),
         ("target_end_prior", "<f8", lambda p: p.own_target.end_prior),
     )),
     Group("actor", lambda p: p.masks.actor_mask.shape[0], (
         ("actor_mask", "|u1", lambda p: p.masks.actor_mask),
         ("n_attacks", "|i1", lambda p: p.masks.n_attacks),
         ("type_valid", "|u1", lambda p: p.masks.type_valid),
-        ("type_bias", "<f4", _type_bias),
     )),
     Group("bits", lambda p: p.masks.attack_valid.size, (
         ("attack_valid", "|u1", lambda p: p.masks.attack_valid.reshape(-1)),
         ("move_valid", "|u1", lambda p: p.masks.move_valid.reshape(-1)),
         ("union_valid", "|u1", lambda p: p.masks.union_valid.reshape(-1)),
-    )),
-    Group("attack_bias", lambda p: 0 if p.masks.attack_bias is None else p.masks.attack_bias.size, (
-        ("attack_bias", "<f4", lambda p: (np.zeros(0, np.float32) if p.masks.attack_bias is None
-                                          else p.masks.attack_bias.reshape(-1))),
     )),
     Group("target", lambda p: p.own_target.prior.shape[0], (
         ("target_actor", "<i4", lambda p: p.own_target.actor),
@@ -417,18 +405,14 @@ class ColumnarSide:
     def _own(self, i: int):
         from wesnoth_ai.server_priors import PackedMasks
         a = self.arrays
-        mask, n_att, tv, tb = self._slice("actor", i, "actor_mask", "n_attacks", "type_valid", "type_bias")
+        mask, n_att, tv = self._slice("actor", i, "actor_mask", "n_attacks", "type_valid")
         width = int(a["mask_bits_width"][i])
         att, mov, uni = (x.reshape(-1, width) for x in self._slice("bits", i, "attack_valid", "move_valid",
                                                                       "union_valid"))
-        (ab,) = self._slice("attack_bias", i, "attack_bias")
         return PackedMasks(actor_mask=mask, type_valid=tv, attack_valid=att, move_valid=mov, union_valid=uni,
                            n_attacks=n_att, end_turn_bias=float(a["mask_end_turn_bias"][i]),
                            n_units=int(a["mask_units"][i]), n_recruits=int(a["mask_recruits"][i]),
-                           n_hexes=int(a["mask_hexes"][i]),
-                           type_bias=tb if a["mask_type_bias_on"][i] else None,
-                           attack_bias=(ab.reshape(mask.shape[0], int(a["mask_hexes"][i]))
-                                        if a["mask_attack_bias_on"][i] else None))
+                           n_hexes=int(a["mask_hexes"][i]))
 
     def _own_target(self, i: int):
         from wesnoth_ai.sequence_records import OwnTarget
@@ -446,8 +430,7 @@ _RAW_ARRAYS = ("hex_xs", "hex_ys", "hex_terrain_ids", "hex_modifier_flags", "hex
                "their_faction_probs", "sight_type_ids", "sight_xs", "sight_ys", "sight_feats")
 _RAW_VALUES = ("our_faction_id", "their_faction_id", "material", "hex_subset")
 _LABEL_VALUES = ("action_type", "actor_idx", "target_idx", "weapon_idx", "type_idx", "target_off_subset")
-_MASK_ARRAYS = ("actor_mask", "type_valid", "attack_valid", "move_valid", "union_valid", "n_attacks", "type_bias",
-                "attack_bias")
+_MASK_ARRAYS = ("actor_mask", "type_valid", "attack_valid", "move_valid", "union_valid", "n_attacks")
 _MASK_VALUES = ("end_turn_bias", "n_units", "n_recruits", "n_hexes")
 _TARGET_ARRAYS = ("actor", "kind", "target", "weapon", "prior")
 

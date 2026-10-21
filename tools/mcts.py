@@ -745,18 +745,11 @@ def _expand(
     encoder: GameStateEncoder,
     tiebreak: Optional[DrawTiebreakConfig] = None,
     *,
-    decision_step: int = 0,
     aux_value_bonus: float = 0.0,
     value_center: float = 0.0,
 ) -> float:
     """Forward the model on `node.sim.gs`, build edges from the
     legal-action priors, return v(s) from node.side's perspective.
-
-    `decision_step` drives the combat-oracle anneal in the priors (see
-    `combat_alphas_at`); it MUST be the same value the trainer's
-    distillation loss later uses for this state, or the search priors
-    and the loss reference logits would disagree. Default 0 =
-    full-strength oracle.
 
     No-op + returns terminal value if the node is already terminal
     (saves a model forward)."""
@@ -773,8 +766,7 @@ def _expand(
         # Sampler-on-CPU split: one bulk D2H here instead of dozens of
         # per-actor syncs inside the enumeration (no-op on CPU).
         encoded, output = _leaf_to_cpu(encoded, output)
-        priors = enumerate_legal_actions_with_priors(
-            encoded, output, node.sim.gs, decision_step=decision_step)
+        priors = enumerate_legal_actions_with_priors(encoded, output, node.sim.gs)
         v = _aux_adjusted(float(output.value.squeeze().item()),
                           output, aux_value_bonus) - value_center
         node.cliffness = float(output.cliffness.squeeze().item())
@@ -1169,7 +1161,6 @@ def _populate_leaf(
     encoded,
     output,
     *,
-    decision_step: int = 0,
     value:     Optional[float] = None,
     cliffness: Optional[float] = None,
     aux_value_bonus: float = 0.0,
@@ -1179,8 +1170,7 @@ def _populate_leaf(
     return v from leaf.side's perspective. Mirrors the post-forward
     half of `_expand`. Also records the network's cliffness on the
     leaf node so the backup phase can downweight unreliable
-    bootstraps. `decision_step` drives the combat-oracle anneal (must
-    match the loss's value for this state; see `_expand`).
+    bootstraps.
 
     `value`/`cliffness`: pre-read scalars from a batched D2H transfer
     (B2, see `_run_sim_batch`); when None, read them from `output`
@@ -1191,8 +1181,7 @@ def _populate_leaf(
                       if cliffness is None else float(cliffness))
     if output.moves_left is not None:
         leaf.moves_left = float(output.moves_left.squeeze().item())
-    priors = enumerate_legal_actions_with_priors(
-        encoded, output, leaf.sim.gs, decision_step=decision_step)
+    priors = enumerate_legal_actions_with_priors(encoded, output, leaf.sim.gs)
     if not priors:
         leaf.is_terminal = True
         leaf.expanded = True
@@ -1218,13 +1207,11 @@ def _run_one_sim(
     tt_stats:       Dict[str, int],
     forced_first_edge: Optional[MCTSEdge] = None,
     sample_rng:        Optional[np.random.Generator] = None,
-    decision_step:     int = 0,
 ) -> None:
     """One serial simulation: select (optionally pinned through a
     given root edge), evaluate/expand the leaf, back up. Used by the
     Gumbel root procedure; the classic loop keeps its own batched
-    variant. `decision_step` drives the combat-oracle anneal in leaf
-    priors (see `_expand`)."""
+    variant."""
     leaf, path = _select_one(
         root, config.c_puct, 0.0,
         transpositions=transpositions, stats=tt_stats,
@@ -1256,8 +1243,7 @@ def _run_one_sim(
         leaf.memory_out = output.memory
     v = _populate_leaf(leaf, encoded, output,
                        aux_value_bonus=config.aux_value_bonus,
-                       value_center=config.value_center,
-                       decision_step=decision_step)
+                       value_center=config.value_center)
     _backup(
         path, v, leaf.side, 0.0,
         leaf_moves_left=(0.0 if leaf.is_terminal else leaf.moves_left),
@@ -1273,7 +1259,6 @@ def _run_sim_batch(
     tt_stats:       Dict[str, int],
     rng:            Optional[np.random.Generator],
     v_loss:         float,
-    decision_step:  int,
     *,
     forced_edges:   Optional[List[MCTSEdge]] = None,
     n:              int = 0,
@@ -1359,7 +1344,7 @@ def _run_sim_batch(
         for i, (leaf, encoded, output) in enumerate(
                 zip(unique_list, encoded_list, outputs)):
             leaf_values[id(leaf)] = _populate_leaf(
-                leaf, encoded, output, decision_step=decision_step,
+                leaf, encoded, output,
                 value=None if vals is None else vals[i],
                 aux_value_bonus=config.aux_value_bonus,
                 value_center=config.value_center,
@@ -1451,14 +1436,12 @@ def _gumbel_root_search(
     rng:            np.random.Generator,
     n_sims:         int,
     deadline:       Optional[float] = None,
-    decision_step:  int = 0,
 ) -> int:
     """Gumbel-Top-k candidates + sequential halving at the root.
     Sets `root.gumbel_action` to argmax(g + logits + sigma(q̂)) over
     the final survivors -- in expectation a policy improvement over
     the raw prior (Danihelka et al. 2022, thm. on one-step
-    improvement). `decision_step` drives the combat-oracle anneal in
-    leaf priors (see `_expand`)."""
+    improvement)."""
     import time as _time
     edges = root.edges
     if not edges:
@@ -1558,7 +1541,7 @@ def _gumbel_root_search(
                 j += len(chunk)
                 sims_done += _run_sim_batch(
                     root, model, encoder, config, transpositions, tt_stats,
-                    rng, V_LOSS, decision_step, forced_edges=chunk)
+                    rng, V_LOSS, forced_edges=chunk)
         else:
             for fe in forced:
                 if deadline is not None and _time.perf_counter() > deadline:
@@ -1569,8 +1552,7 @@ def _gumbel_root_search(
                 _run_one_sim(root, model, encoder, config,
                              transpositions, tt_stats,
                              forced_first_edge=fe,
-                             sample_rng=rng,
-                             decision_step=decision_step)
+                             sample_rng=rng)
                 sims_done += 1
 
         max_v = max(e.n_visits for e in edges)
@@ -1592,18 +1574,10 @@ def mcts_search(
     rng:        Optional[np.random.Generator] = None,
     reuse_root: Optional[MCTSNode] = None,
     n_sims_override: Optional[int] = None,
-    decision_step:   int = 0,
     memory:          Optional[SideMemories] = None,
 ) -> MCTSNode:
     """Run MCTS from `sim`'s state. Returns the root node with
     populated visit counts on outgoing edges.
-
-    `decision_step`: training-progress counter threaded into leaf-prior
-    expansion to drive the combat-oracle anneal (`combat_alphas_at`).
-    The policy passes its current step here AND records it on the stored
-    MCTSExperience so the distillation loss rebuilds reference logits at
-    the SAME alpha -- search priors and loss must agree. Default 0 =
-    full-strength oracle.
 
     `n_sims_override`: when set, run exactly this many simulations,
     bypassing both `config.n_simulations` and the adaptive budget.
@@ -1681,8 +1655,7 @@ def mcts_search(
     if not root.expanded:
         _expand(root, model, encoder, tiebreak=config.draw_tiebreak,
                 aux_value_bonus=config.aux_value_bonus,
-                value_center=config.value_center,
-                decision_step=decision_step)
+                value_center=config.value_center)
     # Gumbel mode replaces Dirichlet noise at the root: exploration
     # comes from sampling the candidate set without replacement.
     use_gumbel = bool(config.gumbel_root and root.edges
@@ -1711,7 +1684,7 @@ def mcts_search(
     if use_gumbel:
         _gumbel_done = _gumbel_root_search(
             root, model, encoder, config, transpositions, tt_stats,
-            rng, n_sims, deadline, decision_step=decision_step)
+            rng, n_sims, deadline)
         # Spill any UNSPENT budget into the classic PUCT loop below.
         # Sequential halving can under-consume: a single-candidate
         # root runs 0 sims (nothing to halve), and the per-phase
@@ -1737,7 +1710,7 @@ def mcts_search(
         n_this_batch = min(B, n_sims - sims_done)
         sims_done += _run_sim_batch(
             root, model, encoder, config, transpositions, tt_stats,
-            rng, V_LOSS, decision_step, n=n_this_batch)
+            rng, V_LOSS, n=n_this_batch)
 
     # Surface TT stats on the returned root so callers (test code,
     # logging in sim_self_play) can decide whether the table is

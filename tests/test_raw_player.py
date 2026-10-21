@@ -42,8 +42,7 @@ def test_argmax_player_picks_max_joint_prior():
     with torch.no_grad():
         enc = policy._inference_encoder.encode(gs)
         out = policy._inference_model(enc)
-        legal = enumerate_legal_actions_with_priors(
-            enc, out, gs, decision_step=policy._decision_step)
+        legal = enumerate_legal_actions_with_priors(enc, out, gs)
     assert len(legal) > 1
     expected = max(legal, key=lambda la: la.prior).action
     player = RawPolicyPlayer(policy, 0.0)

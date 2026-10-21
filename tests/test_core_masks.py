@@ -22,7 +22,7 @@ needs_core = pytest.mark.skipif(game_core_class() is None, reason="wesnoth_core 
 # basis, obs8's and the full board.
 BASES = [(True, 2, True), (True, 1, False), (False, 1, False)]
 FIELDS = ("actor_mask", "type_valid", "attack_valid", "move_valid", "union_valid", "n_attacks",
-          "end_turn_bias", "n_units", "n_recruits", "n_hexes", "type_bias", "attack_bias")
+          "end_turn_bias", "n_units", "n_recruits", "n_hexes")
 
 
 def _encoders(relevant_set: bool, version: int, parity: bool):
@@ -73,26 +73,3 @@ def test_the_core_packs_the_masks_the_python_builder_packs(relevant_set, version
         obs = got._raw.observation
         seen["statue"] += int((obs.inert[obs.tok_of_hex >= 0] != 0).any())
     assert all(seen.values()), seen
-
-
-@needs_core
-def test_the_oracle_priors_take_the_python_builder(monkeypatch):
-    """With the combat oracle's alphas on, the masks carry its biases,
-    which only the Python builder computes: the core's arrays are not read."""
-    import wesnoth_ai.action_sampler as sampler
-    import wesnoth_ai.server_priors as priors
-    from helpers.core_positions import core_positions
-    core_enc, _ = _encoders(True, 2, True)
-    calls = []
-    real = sampler._build_legality_masks
-
-    def counted(*a, **k):
-        calls.append(1)
-        return real(*a, **k)
-    monkeypatch.setattr(priors, "_build_legality_masks", counted)
-    gs = core_positions()[3]
-    core_enc.encode(gs)
-    assert not calls
-    monkeypatch.setattr(priors, "combat_alphas_at", lambda step: (0.5, 0.5))
-    core_enc.encode(gs)
-    assert calls

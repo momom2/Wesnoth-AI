@@ -68,11 +68,11 @@ def test_the_pinned_staging_equals_the_blocking_copies(tmp_path, pass_inputs):
     assert n_steps > 0
     rng = np.random.default_rng(5)
     shapes = [(3, 1, 9), (1, 0, 4), (2, 2, 13)]
-    packs = [_masks(rng, U, R, H, b == 2) for b, (U, R, H) in enumerate(shapes)]
+    packs = [_masks(rng, U, R, H) for U, R, H in shapes]
     targets = [_target(rng, n, U + R + 1, H) for n, (U, R, H) in zip((5, 1, 3), shapes)]
     on_device = stage_own_batch([0, 2, 3], packs, targets, 6, 13, T, W, CUDA)
     on_host = stage_own_batch([0, 2, 3], packs, targets, 6, 13, T, W, torch.device("cpu"))
-    layout = mask_layout(3, 6, 13, T, W, type_bias=True, attack_bias=True)
+    layout = mask_layout(3, 6, 13, T, W)
     reference = np.zeros(layout.nbytes, np.uint8)
     write_masks(layout.numpy_views(reference), packs)
     torch.cuda.synchronize()
