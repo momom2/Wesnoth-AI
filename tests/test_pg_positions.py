@@ -164,3 +164,25 @@ def test_a_relocated_recruit_sees_none_of_its_own_rejection():
     assert not _differs(rows[i].masks, moved[i].masks)
     assert _differs(rows[i + 1].masks, moved[i + 1].masks)
     assert hex_ not in _recruit_hexes(moved[i + 1])
+
+
+@needs_core
+@pytest.mark.slow
+def test_the_worker_processes_build_the_same_positions():
+    """The loader's worker processes (the box's path) build each game as the
+    calling thread does, and count the same decisions."""
+    from tools.pg_positions import PositionLoader, side_lengths
+    games = _games()
+    here = PositionLoader(games.records, *games.vocab)
+    pool = PositionLoader(games.records, *games.vocab, workers=1)
+    assert side_lengths(games.records, workers=1) == side_lengths(games.records)
+    pool.prefetch(games.records)
+    for game in games.records:
+        a, b = here.game(game), pool.game(game)
+        assert a.counts == b.counts
+        for side in (1, 2):
+            assert [(p.action, p.shadow, p.logp) for p in a.sides[side]] == \
+                   [(p.action, p.shadow, p.logp) for p in b.sides[side]]
+            assert not any(_differs(p.raw, q.raw) or _differs(p.masks, q.masks)
+                           for p, q in zip(a.sides[side], b.sides[side]))
+    pool.close()
