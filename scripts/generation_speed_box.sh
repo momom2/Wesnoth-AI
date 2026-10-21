@@ -212,8 +212,8 @@ side_flags() {                   # side_flags SIDE LABEL: the reference's flags 
     done
     printf '%s\n' "${flags[@]}"
 }
-mapfile -t SIDE_A < <(side_flags a own1a)
-mapfile -t SIDE_B < <(side_flags b own1b)
+mapfile -t SIDE_A < <(side_flags a refa)
+mapfile -t SIDE_B < <(side_flags b refb)
 [[ " ${SIDE_A[*]} " == *" --spec-a $REF_PT "* && " ${SIDE_B[*]} " == *" --memory-b 64 "* ]] \
     || box_finish "REFERENCE_FLAGS_FAILED (tools/reference_player.py --flags): ${SIDE_A[*]} | ${SIDE_B[*]}" 1
 

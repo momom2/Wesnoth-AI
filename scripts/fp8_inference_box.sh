@@ -21,8 +21,8 @@
 #   loop that fell back to eager, an fp8 arm whose server did not play fp8
 #   (tools/fp8_inference_readout.py speed, speed.json rewritten after every
 #   arm, arms_failed.txt) leaves the next arm to run;
-#   the play check: the reference with fp8 (side A, own1fp8) against the
-#   reference without it (side B, own1), both on ref's configuration at the
+#   the play check: the reference with fp8 (side A, reffp8) against the
+#   reference without it (side B, ref), both on ref's configuration at the
 #   reference decode, PLAY_GAMES decisive games from PLAY_SEED_BASE, every
 #   game recorded whole and its games sent up as one tarball; fitted
 #   (tools/elo_collect.py) and read (tools/fp8_inference_readout.py play:
@@ -106,8 +106,8 @@ ARMS=""
 for spec in "${ARM_SPECS[@]}"; do ARMS="$ARMS ${spec%% *}"; done
 # The play check: side A's server plays fp8, side B's does not.
 PLAY_FLAGS="$REF --fp8-inference-a"
-PLAY_LABEL_A=own1fp8
-PLAY_LABEL_B=own1
+PLAY_LABEL_A=reffp8
+PLAY_LABEL_B=ref
 # ---- the arm list (end)
 
 # shellcheck disable=SC2317 # called through box_notes, by the library
@@ -207,8 +207,8 @@ side_flags() {                   # side_flags SIDE LABEL: the reference's flags 
     done
     printf '%s\n' "${flags[@]}"
 }
-mapfile -t SIDE_A < <(side_flags a own1a)
-mapfile -t SIDE_B < <(side_flags b own1b)
+mapfile -t SIDE_A < <(side_flags a refa)
+mapfile -t SIDE_B < <(side_flags b refb)
 mapfile -t PLAY_A < <(side_flags a "$PLAY_LABEL_A")
 mapfile -t PLAY_B < <(side_flags b "$PLAY_LABEL_B")
 [[ " ${SIDE_A[*]} " == *" --spec-a $REF_PT "* && " ${SIDE_B[*]} " == *" --memory-b 64 "* \

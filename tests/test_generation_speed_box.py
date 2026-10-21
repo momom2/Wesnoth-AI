@@ -85,7 +85,7 @@ OUT="{bash_path(out)}" WORKDIR="{bash_path(work)}" BOX_REPO="{bash_path(tmp_path
 BASE_REPO="{bash_path(tmp_path / 'base')}" STAGE=stage_test
 GAMES=400 GAMES_PER_JOB=5 SEED_BASE=130000 ARM_CUT_MIN=30 MATCH_BUDGET_MIN=22 VALID_SPREAD=0.05
 PROFILE_BATCHES=40 PROFILE_AFTER=400 REF_PT=own1.pt CUDA_TESTS="2 passed"
-SIDE_A=(--label-a own1a) SIDE_B=(--label-b own1b --memory-b 64)
+SIDE_A=(--label-a refa) SIDE_B=(--label-b refb --memory-b 64)
 BOX_RC=0 BOX_WHY=ok
 {env}
 {STUBS}
