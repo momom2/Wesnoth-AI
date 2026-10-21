@@ -674,7 +674,9 @@ fn wesnoth_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // (ServeRequests.fill_masks).
     // 37: the inference server's requests carry no end_turn bias, and its
     // masks no actor bias field (ServeRequests.fill_masks).
-    m.add("__phase__", 37)?;
+    // 38: the inference server's replies carry four head outputs (value,
+    // value_logits, cliffness, moves_left; ServeRequests.replies).
+    m.add("__phase__", 38)?;
     m.add("__source_hash__", env!("WESNOTH_CORE_SOURCE_HASH"))?;
     m.add("mask_layout", (core_masks::UNIT_ACTION_TYPES, core_masks::TYPE_ATTACK, core_masks::TYPE_MOVE,
                           core_masks::MAX_ATTACKS))?;

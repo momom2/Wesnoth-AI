@@ -133,16 +133,15 @@ def test_the_terms_add_up_to_the_loss_the_step_optimizes():
     three chunks: the terms' summed gradient is the gradient step_mcts
     accumulates before its clip, their summed value is the loss it
     reports, and each term has a gradient of its own."""
-    policy = _policy(seed=11, aux_score=True, moves_left=True)
+    policy = _policy(seed=11, moves_left=True)
     trainer = policy._trainer
     config = trainer.config
     config.train_batch_size = 3
-    config.value_coef, config.aux_coef, config.moves_left_coef = 0.7, 0.3, 0.2
+    config.value_coef, config.moves_left_coef = 0.7, 0.2
     config.trust_lambda, config.consist_sigma2, config.consist_bias = 0.5, 0.4, 0.1
     rng = random.Random(3)
     experiences = _experiences(policy, 7, seed=12)
     for i, e in enumerate(experiences):
-        e.aux_target = rng.uniform(-0.9, 0.9)
         e.moves_left_target = rng.uniform(0.0, 1.0)
         if i % 3 == 0:
             e.label_kind, e.z = "consist", rng.uniform(-0.8, 0.8)

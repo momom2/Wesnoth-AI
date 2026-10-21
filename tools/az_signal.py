@@ -77,7 +77,7 @@ AZ_SIGNAL_COLUMNS = (
 )
 
 # The trainer settings the start row records.
-_LOSS_SETTINGS = ("value_loss_form", "value_coef", "aux_coef", "moves_left_coef", "gbc_coef",
+_LOSS_SETTINGS = ("value_loss_form", "value_coef", "moves_left_coef", "gbc_coef",
                   "trust_lambda", "value_label_smoothing", "grad_clip", "learning_rate",
                   "train_batch_size", "train_autocast_bf16")
 

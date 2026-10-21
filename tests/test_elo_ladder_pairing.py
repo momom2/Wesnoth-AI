@@ -166,40 +166,17 @@ def test_load_policy_builds_checkpoint_structural_flags(tmp_path):
     from tools.eval_players import _load_policy
 
     src = TransformerPolicy(d_model=32, num_layers=1, num_heads=2,
-                            d_ff=32, aux_score=True, moves_left=True)
+                            d_ff=32, moves_left=True)
     ckpt = tmp_path / "heads_ckpt.pt"
     src.save_checkpoint(ckpt)
 
     loaded = _load_policy(ckpt, None, label="test")
     assert loaded._moves_left is True
-    assert loaded._aux_score is True
     src_sd = src._model.state_dict()
     got_sd = loaded._model.state_dict()
     assert set(src_sd) == set(got_sd)
     for k in src_sd:
         assert torch.equal(src_sd[k], got_sd[k]), f"weight differs: {k}"
-
-
-def test_mcts_spec_honors_eval_contract(tmp_path):
-    """An `mcts:` player's search must keep the eval-contract crutches
-    (aux_value_bonus) OFF regardless of how the
-    checkpoint trained. Covers both builders: elo_ladder.Player.build
-    and elo_eval_game._build_player."""
-    from wesnoth_ai.transformer_policy import TransformerPolicy
-    src = TransformerPolicy(d_model=32, num_layers=1, num_heads=2,
-                            d_ff=32)
-    ckpt = tmp_path / "plain_ckpt.pt"
-    src.save_checkpoint(ckpt)
-
-    p = Player(label="m", spec=f"mcts:1:{ckpt}")
-    p.build(None)
-    cfg = p.policy._mcts_config
-    assert cfg.aux_value_bonus == 0.0
-
-    from tools.elo_eval_game import _build_player
-    mp, _cnt = _build_player(str(ckpt), "m2", sims=1, device=None)
-    cfg2 = mp._mcts_config
-    assert cfg2.aux_value_bonus == 0.0
 
 
 @pytest.mark.slow

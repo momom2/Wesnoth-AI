@@ -128,7 +128,7 @@ def output_to_wire(out: ModelOutput):
     2026-07-03 fd-leak incident under 'file_descriptor').
 
     A priors reply (legal_compact set) carries only what the actor
-    reads -- the value head, the two optional heads, the actor kinds
+    reads -- the value head, the moves-left head, the actor kinds
     and the compact actions -- as one tuple; its placeholder logits
     are rebuilt by `output_from_wire` (the serve thread used to
     convert a dozen fields per leaf, 2.1 ms of its host time per
@@ -137,7 +137,7 @@ def output_to_wire(out: ModelOutput):
     if compact is not None:
         return ("c", int(out.num_units), int(out.num_recruits),
                 _host_np(out.value), _host_np(out.value_logits), _host_np(out.cliffness),
-                _host_np(out.aux_score), _host_np(out.moves_left),
+                _host_np(out.moves_left),
                 _host_np(out.actor_kind).astype("int8"), compact, _host_np(out.memory))
     w = {}
     for f in dataclasses.fields(out):
@@ -190,7 +190,7 @@ def output_from_wire(w) -> ModelOutput:
     """Inverse of output_to_wire (actor side). torch.from_numpy is
     zero-copy; MCTS only reads these tensors."""
     if isinstance(w, tuple) and w and w[0] == "c":
-        _, U, R, value, value_logits, cliffness, aux, ml, kinds, compact, memory = w
+        _, U, R, value, value_logits, cliffness, ml, kinds, compact, memory = w
         flat, empty = placeholder_logits(U + R + 1)
         return ModelOutput(
             actor_logits=flat, actor_kind=torch.from_numpy(kinds.astype("int64")),
@@ -199,7 +199,6 @@ def output_from_wire(w) -> ModelOutput:
             value_logits=None if value_logits is None else torch.from_numpy(value_logits),
             cliffness=None if cliffness is None else torch.from_numpy(cliffness),
             num_units=U, num_recruits=R,
-            aux_score=None if aux is None else torch.from_numpy(aux),
             moves_left=None if ml is None else torch.from_numpy(ml),
             legal_compact=compact, memory=None if memory is None else torch.from_numpy(memory))
     kw = {}
@@ -601,7 +600,7 @@ class InferenceServer:
                 t2 = time.perf_counter()
                 # The head outputs the forward computed (a priors-only model
                 # computes none of them, `infer_priors_only`).
-                names = [n for n in ("value", "value_logits", "cliffness", "aux_score", "moves_left")
+                names = [n for n in ("value", "value_logits", "cliffness", "moves_left")
                          if getattr(padded, n) is not None]
                 ride = [getattr(padded, n) for n in names]
                 # The new memory states ride in the priors' one transfer,
@@ -639,8 +638,8 @@ class InferenceServer:
 class ServedBatch:
     """One priors batch on the host: per leaf its compact legal actions
     and sizes (U, R, H); the head outputs by name ([B, ...] arrays:
-    value, value_logits, cliffness, and aux_score and moves_left when
-    the model has them); the actor kinds [B, A_max] (int64); the new
+    value, value_logits, cliffness, and moves_left when the model has
+    it); the actor kinds [B, A_max] (int64); the new
     memory states [B, K, d] (float32, leaf b's first memory_counts[b]
     rows) or None for a model without a memory, or one whose states the
     server keeps: those stay on the device (`device_memory`)."""
@@ -662,7 +661,7 @@ class ServedBatch:
             a = x.get(name)
             return None if a is None else a[b:b + 1]
         return ("c", int(U), int(R), row("value"), row("value_logits"), row("cliffness"),
-                row("aux_score"), row("moves_left"),
+                row("moves_left"),
                 self.actor_kind[b:b + 1, :U + R + 1].astype("int8"), self.compact[b],
                 None if self.memory is None else self.memory[b, :self.memory_counts[b]])
 
@@ -680,7 +679,7 @@ class ServedBatch:
             actor_logits=flat, actor_kind=torch.from_numpy(self.actor_kind[b:b + 1, :A]),
             type_logits=empty, target_logits=empty, weapon_logits=empty,
             value=row("value"), value_logits=row("value_logits"), cliffness=row("cliffness"),
-            num_units=U, num_recruits=R, aux_score=row("aux_score"), moves_left=row("moves_left"),
+            num_units=U, num_recruits=R, moves_left=row("moves_left"),
             legal_compact=self.compact[b],
             memory=(None if self.memory is None
                     else torch.from_numpy(self.memory[b, :self.memory_counts[b]])))
@@ -708,7 +707,7 @@ def inference_blueprint(model, encoder) -> InferenceBlueprint:
             d_model=int(model.d_model), num_layers=len(model.encoder.layers),
             num_heads=int(layer.self_attn.num_heads),
             d_ff=int(layer.linear1.out_features), dropout=float(layer.dropout.p),
-            max_attacks=int(model.max_attacks), aux_score=bool(model.has_aux_score),
+            max_attacks=int(model.max_attacks),
             moves_left=bool(model.has_moves_left), gbc=bool(model.has_gbc),
             value_material=bool(model.has_value_material),
             observation_parity=bool(model.observation_parity),

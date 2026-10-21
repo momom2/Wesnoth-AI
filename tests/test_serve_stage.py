@@ -226,12 +226,12 @@ def test_the_served_memory_plays_as_the_wire_memory(leaves, server, rust):
             (wv,), wvers = decode_replies_with_versions(bytearray(w), 16)
             (sv,), svers = decode_replies_with_versions(bytearray(s), 16)
             assert reply_head(s)[1] == STATUS_OK and svers == [version + 1] and wvers == [-1]
-            assert sv[10] is None and wv[10] is not None
-            for a, b in zip(wv[3:9], sv[3:9]):
+            assert sv[9] is None and wv[9] is not None
+            for a, b in zip(wv[3:8], sv[3:8]):
                 assert (a is None and b is None) or np.array_equal(a, b)
             for name in ("actor", "kind", "target", "weapon", "prior"):
-                assert np.array_equal(getattr(wv[9], name), getattr(sv[9], name))
-            held[key][version + 1:] = [np.array(wv[10])]
+                assert np.array_equal(getattr(wv[8], name), getattr(sv[8], name))
+            held[key][version + 1:] = [np.array(wv[9])]
     # Key 0 holds versions 4 and 3: version 2 is gone, and refused alone.
     raw, masks = leaves[9]
     reqs = [_request(rid, [(raw, masks, MemoryState(SLOTS, None))], served=[(0, 2)]),
@@ -340,10 +340,10 @@ def test_the_graphed_path_serves_the_kept_memory_as_the_wire(leaves, server, rus
             (kv,), versions = decode_replies_with_versions(bytearray(k), 16)
             assert versions == [version + 1]
             for name in ("actor", "kind", "target", "weapon"):
-                assert np.array_equal(getattr(wv[9], name), getattr(kv[9], name))
-            np.testing.assert_allclose(kv[9].prior, wv[9].prior, rtol=1e-4, atol=1e-6)
+                assert np.array_equal(getattr(wv[8], name), getattr(kv[8], name))
+            np.testing.assert_allclose(kv[8].prior, wv[8].prior, rtol=1e-4, atol=1e-6)
             np.testing.assert_allclose(kv[3], wv[3], rtol=1e-4, atol=1e-5)
-            held[key][version + 1:] = [np.array(wv[10])]
+            held[key][version + 1:] = [np.array(wv[9])]
     assert gserve.served == len(_decisions(leaves)) and not gserve.fallbacks
 
 
@@ -409,11 +409,11 @@ def test_on_cuda_the_kept_memory_plays_as_the_wire(leaves, server, graphed):
             (wv,), _ = decode_replies_with_versions(bytearray(w), 16)
             (kv,), versions = decode_replies_with_versions(bytearray(k), 16)
             assert versions == [version + 1]
-            for i in range(3, 9):
+            for i in range(3, 8):
                 assert (wv[i] is None and kv[i] is None) or np.array_equal(wv[i], kv[i])
             for name in ("actor", "kind", "target", "weapon", "prior"):
-                assert np.array_equal(getattr(wv[9], name), getattr(kv[9], name))
-            held[key][version + 1:] = [np.array(wv[10])]
+                assert np.array_equal(getattr(wv[8], name), getattr(kv[8], name))
+            held[key][version + 1:] = [np.array(wv[9])]
     if graphed is not None:
         assert kept_g.served == len(_decisions(leaves)) and not kept_g.fallbacks
         assert wire_g.served == len(_decisions(leaves)) and not wire_g.fallbacks
@@ -448,10 +448,10 @@ def test_priors_only_serves_the_same_priors_without_the_head_outputs(leaves, ser
         (sv,), _ = decode_replies_with_versions(bytearray(slim), 16)
         assert fv[3] is not None and fv[4] is not None and fv[5] is not None
         assert sv[3] is None and sv[4] is None and sv[5] is None
-        assert (fv[1], fv[2]) == (sv[1], sv[2]) and np.array_equal(fv[8], sv[8])
+        assert (fv[1], fv[2]) == (sv[1], sv[2]) and np.array_equal(fv[7], sv[7])
         for name in ("actor", "kind", "target", "weapon", "prior"):
-            assert getattr(fv[9], name).tobytes() == getattr(sv[9], name).tobytes(), name
-        assert fv[10].tobytes() == sv[10].tobytes()
+            assert getattr(fv[8], name).tobytes() == getattr(sv[8], name).tobytes(), name
+        assert fv[9].tobytes() == sv[9].tobytes()
         assert len(slim) < len(full)
 
 
@@ -472,5 +472,5 @@ def test_on_cuda_priors_only_serves_the_same_priors(leaves, server):
         (sv,), _ = decode_replies_with_versions(bytearray(s_), 16)
         assert sv[3] is None and fv[3] is not None
         for name in ("actor", "kind", "target", "weapon", "prior"):
-            assert getattr(fv[9], name).tobytes() == getattr(sv[9], name).tobytes(), name
-        assert fv[10].tobytes() == sv[10].tobytes()
+            assert getattr(fv[8], name).tobytes() == getattr(sv[8], name).tobytes(), name
+        assert fv[9].tobytes() == sv[9].tobytes()

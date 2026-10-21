@@ -11,7 +11,7 @@ Consumes the index written by tools/build_value_corpus.py
     convention as MCTSPolicy.finalize_game),
   - visit_counts=[]: trainer.step_mcts treats zero total visits as
     "no policy target" (early-return, loss 0) and still trains the
-    value / aux / moves-left heads -- so these samples are directly
+    value / moves-left heads -- so these samples are directly
     batchable through the EXISTING training step, alone or mixed
     with self-play experiences,
   - moves_left_target: from the game's actual end turn (same
@@ -94,7 +94,7 @@ def game_experiences(gz_path: Path, winner: int, *,
         remaining = max(0, end_turn - turn)
         out.append(MCTSExperience(
             game_state=st,
-            visit_counts=[],          # value/aux/ml-only sample
+            visit_counts=[],          # value/ml-only sample
             z=(+1.0 if side == winner else -1.0),
             moves_left_target=min(1.0, remaining / norm),
         ))
@@ -219,7 +219,6 @@ def main(argv: List[str]) -> int:
         policy = TransformerPolicy(
             d_model=a["d_model"], num_layers=a["num_layers"],
             num_heads=a["num_heads"], d_ff=a["d_ff"],
-            aux_score=bool(raw.get("aux_score")),
             moves_left=bool(raw.get("moves_left")))
         policy.load_checkpoint(args.eval_ckpt)
         probe = (all_exps if len(all_exps) <= 512

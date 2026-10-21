@@ -33,7 +33,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 
 from wesnoth_ai.action_sampler import sample_action
-from wesnoth_ai.checkpoint_structure import (checkpoint_structure, refuse_other_structure,
+from wesnoth_ai.checkpoint_structure import (checkpoint_structure, model_state_of, refuse_other_structure,
                                              saved_structure)
 from wesnoth_ai.constants import OBSERVATION_EPOCH
 from wesnoth_ai.classes import GameState
@@ -84,7 +84,6 @@ class TransformerPolicy:
         d_ff: int = 2048,
         device=None,
         trainer_config: Optional[TrainerConfig] = None,
-        aux_score: bool = False,
         moves_left: bool = False,
         gbc: bool = False,
         relevant_set_hexes: bool = False,
@@ -127,7 +126,6 @@ class TransformerPolicy:
             is_dml = "privateuseone" in str(self._device)
             trainer_config = TrainerConfig(train_batch_size=2 if is_dml else 1)
 
-        self._aux_score = bool(aux_score)
         self._moves_left = bool(moves_left)
         self._value_material = bool(value_material)
         self._gbc = bool(gbc)
@@ -166,7 +164,6 @@ class TransformerPolicy:
             num_layers=num_layers,
             num_heads=num_heads,
             d_ff=d_ff,
-            aux_score=self._aux_score,
             moves_left=self._moves_left,
             gbc=self._gbc,
             value_material=self._value_material,
@@ -212,7 +209,6 @@ class TransformerPolicy:
             num_layers=num_layers,
             num_heads=num_heads,
             d_ff=d_ff,
-            aux_score=self._aux_score,
             moves_left=self._moves_left,
             value_material=self._value_material,
             # The inference copy carries the gbc heads too: the
@@ -716,9 +712,8 @@ class TransformerPolicy:
             {
                 "arch":            self._arch,
                 # Kept OUT of `arch` (which is strict-compared on load,
-                # and old checkpoints lack the key); the aux head
+                # and old checkpoints lack the key); the moves-left head
                 # partial-loads via the EXPECTED_MISSING whitelist.
-                "aux_score":       self._aux_score,
                 "moves_left":      self._moves_left,
                 "value_material":  self._value_material,
                 "gbc":             self._gbc,
@@ -876,7 +871,10 @@ class TransformerPolicy:
         # checkpoint resume errors with "size mismatch for
         # value_head.2.weight" and the partial-load contract is
         # meaningless. ENCODER state is unaffected.
-        model_state = dict(ckpt["model_state"])
+        # The auxiliary margin head's weights, which older checkpoints
+        # carry, are left out by name (checkpoint_structure); any other
+        # key the model lacks is unexpected.
+        model_state = model_state_of(ckpt)
         pre_c51 = False
         if not strict:
             vh_w = model_state.get("value_head.2.weight", None)
@@ -945,13 +943,9 @@ class TransformerPolicy:
                     # value_head and we partial-load):
                     "value_head.2.weight", "value_head.2.bias",
                     "_value_atoms",
-                    # Optional auxiliary margin head (KataGo §3.5,
-                    # 2026-06-17). Present only when aux_score=True;
-                    # an aux-on model resumed from an aux-off
-                    # checkpoint partial-loads with this head fresh.
-                    "aux_score_head.weight", "aux_score_head.bias",
-                    # Moves-left head (Lc0-style, 2026-07-04); same
-                    # partial-load story as the aux head.
+                    # Moves-left head (Lc0-style, 2026-07-04): a
+                    # moves-left model resumed from a checkpoint without
+                    # it partial-loads with this head fresh.
                     "moves_left_head.weight", "moves_left_head.bias",
                     # Material input of the value head (2026-09-08):
                     # zero-initialized, so a model warm-started from a

@@ -36,7 +36,6 @@ defended by experiment, the experiment goes in BACKLOG.md.
 - [Gumbel target: `gumbel_rescale_floor`](#gumbel-target)
 - [Value head / cliffness](#value-head--cliffness)
 - [Encoder normalizations](#encoder-normalizations)
-- [Material-margin village normalization](#material-margin-village-normalization-2026-07-12)
 - [Gumbel q-transform: `c_visit`, `c_scale`](#gumbel-q-transform-c_visit--50-c_scale--01-rescale-to-01)
 - [Value trust region: `trust_delta`](#value-trust-region-trust_delta--008-2-c51-atoms-2026-09-02)
 - [Consistency-term precision: `sigma2`](#consistency-term-precision-sigma2--point--128--se-2026-09-03)
@@ -145,41 +144,6 @@ Listed here only for completeness; if you wonder where these
 come from, check the `constants.py` block — they're era-mod
 overridable in one place.
 
-
-## Material-margin village normalization (2026-07-12)
-
-`DrawTiebreakConfig.weight_village = 2.0` (recalibrated 2026-07-21;
-the original derivation below used 10.0 — configs/draw_tiebreak.json
-is authoritative), applied as
-`w * (Δvillages / MAP_TOTAL_VILLAGES)` inside the shared material
-score (`tools/draw_tiebreak.py`), with `score_scale = 5.0` unchanged.
-
-Derivation: village counts vary ~10-30 per ladder map, so the old
-1.0/village term meant "one village" was worth 3x more signal on a
-small map than a big one, and a full sweep saturated differently
-everywhere. Normalizing to the map fraction makes the semantics
-map-invariant; the 10x multiplier calibrates magnitudes:
-
-  - half the map's villages ->  10 * 0.5 / 5 = 1.0 -> tanh = 0.76
-    (a dominant position reads as near-saturated margin);
-  - one village on a 20-village map -> 10 * 0.05 / 5 = 0.1
-    (same order as the old per-village 0.20, now map-invariant);
-  - with `aux_value_bonus = 0.3` (the shipped default is **0.0**,
-    `tools/mcts.py`; this is the worked example, not the setting),
-    one village moves a search leaf by
-    ~0.03 -- ~10 villages differential reaches outcome order (user
-    calibration target, 2026-07-12).
-
-Gold / unit-value weights are NOT normalized: gold scales are
-already map-independent (start ~100, village income fixed).
-
-**NEITHER IS STILL 0.05** (`configs/draw_tiebreak.json`, the
-authoritative source named earlier in this section). Shipped:
-`weight_gold = 0.0`, zeroed 2026-07-20 because gold-at-par taught
-hoarding (2.8x the stop-loss prior); `weight_unit_value = 0.016667`,
-re-calibrated the next day. The derivation above is kept as the
-reasoning, not as the setting: do not "restore the documented
-value".
 
 ## Gumbel q-transform: `c_visit = 50`, `c_scale = 0.1`, rescale to [0,1]
 

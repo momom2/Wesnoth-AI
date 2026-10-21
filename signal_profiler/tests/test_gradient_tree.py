@@ -27,8 +27,7 @@ def _factory():
         torch.manual_seed(7)
         base = TransformerPolicy(device=torch.device("cpu"),
                                  d_model=32, num_layers=1,
-                                 num_heads=4, d_ff=64, gbc=True,
-                                 aux_score=True)
+                                 num_heads=4, d_ff=64, gbc=True)
         return MCTSPolicy(base, MCTSConfig(n_simulations=2),
                           ReplayConfig(enabled=False),
                           gbc_labels=True,
@@ -44,7 +43,6 @@ def _batch(gs, n=6):
             game_state=gs,
             visit_counts=[(0, None, None, 3.0, None)],
             z=1.0 if i % 2 == 0 else -1.0,
-            aux_target=0.2,
             gbc_labels=None,
             game_id=f"g{i % 2}",
         ))

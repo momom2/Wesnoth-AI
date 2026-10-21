@@ -62,7 +62,7 @@ from tools.signal_telemetry import (
     IMITATION_PROBE_PAIRS, IMITATION_SIGNAL_EVERY, ImitationSignal, check_signal_cadence,
 )
 from tools.unit_vocab import seed_vocab
-from wesnoth_ai.checkpoint_structure import checkpoint_structure
+from wesnoth_ai.checkpoint_structure import checkpoint_structure, model_state_of
 from wesnoth_ai.encoder import GameStateEncoder, RawEncoded
 from wesnoth_ai.game_core import snapshot_view
 from wesnoth_ai.constants import OBSERVATION_EPOCH
@@ -174,7 +174,7 @@ def _save_checkpoint(
     payload = dict(carry or {})
     # `carry` holds fields the MCTS/self-play path owns and the SL
     # pass must transport UNCHANGED (the decision_step progress
-    # counter, aux_score / moves_left head flags) --
+    # counter, the moves_left head flag) --
     # the SL<->MCTS round-trip contract (2026-07-16). Explicit keys
     # below always win.
     payload.update({
@@ -1620,14 +1620,14 @@ def train(
 
     # Peek the resume checkpoint FIRST: the SL<->MCTS round-trip
     # contract (2026-07-16) requires (a) constructing the OPTIONAL
-    # heads (aux_score / moves_left) the checkpoint carries --
-    # otherwise strict=False loading silently DROPS the campaign's
-    # trained aux head as "unexpected keys"; (b) validating the arch
+    # head (moves_left) the checkpoint carries -- otherwise
+    # strict=False loading silently DROPS the campaign's trained head
+    # as "unexpected keys"; (b) validating the arch
     # instead of loading a 256-wide checkpoint into a 128 model; and
     # (c) carrying the decision_step progress counter through
     # unchanged.
     ckpt = None
-    aux_flag = moves_flag = False
+    moves_flag = False
     carry: Dict = {}
     ckpt_src = resume if resume is not None else init_from
     if ckpt_src is not None and not ckpt_src.exists():
@@ -1661,8 +1661,6 @@ def train(
                                    "for --eval-only)")
             log.warning(f"  {msg}: warm start across hex bases")
         ms = ckpt.get("model_state", {})
-        aux_flag = bool(ckpt.get("aux_score")) or any(
-            k.startswith("aux_score_head.") for k in ms)
         moves_flag = bool(ckpt.get("moves_left")) or any(
             k.startswith("moves_left_head.") for k in ms)
         # The material input of the value head: on when asked for
@@ -1687,10 +1685,9 @@ def train(
             if eval_only:
                 raise RuntimeError(msg + " (pass the checkpoint's view for --eval-only)")
             log.warning(f"  {msg}: warm start across terrain views")
-        for k in ("decision_step", "aux_score", "moves_left"):
+        for k in ("decision_step", "moves_left"):
             if k in ckpt:
                 carry[k] = ckpt[k]
-        carry.setdefault("aux_score", aux_flag)
         carry.setdefault("moves_left", moves_flag)
         if "decision_step" in carry:
             log.info(f"  carrying decision_step="
@@ -1710,7 +1707,6 @@ def train(
     log.info(f"Hex terrain: {'the full set from the engine aliases (multi-hot)' if terrain_multi_hot else 'one class per hex'}")
     model   = WesnothModel(d_model=d_model, num_layers=num_layers,
                            num_heads=num_heads, d_ff=d_ff,
-                           aux_score=aux_flag,
                            moves_left=moves_flag,
                            value_material=bool(value_material)).to(device)
     carry["value_material"] = bool(value_material)
@@ -1789,8 +1785,10 @@ def train(
                     n_drop += 1
             log.info(f"  --reinit-value-head: dropped {n_drop} value "
                      f"head tensor(s) from the resume state")
+        # The auxiliary margin head's weights, which older checkpoints
+        # carry, are left out by name (checkpoint_structure).
         m_missing, m_unexpected = model.load_state_dict(
-            ckpt["model_state"], strict=False)
+            model_state_of(ckpt), strict=False)
         if m_missing:
             log.warning(f"  model: {len(m_missing)} missing key(s) "
                         f"(will train from random init): {m_missing}")

@@ -14,7 +14,7 @@ experience batch, then re-run the production `trainer.step_mcts`
 once per ISOLATED loss term with the optimizer stubbed to no-op and
 read the accumulated post-clip gradients. Isolation uses the
 pipeline's own per-experience channels (policy_weight /
-value_weight / aux_target / gbc_labels / moves_left_target), so no
+value_weight / gbc_labels / moves_left_target), so no
 new loss code runs — the tests-drive-real-code rule.
 
 Fresh-Adam parameter deltas are deliberately NOT the metric: on a
@@ -28,12 +28,11 @@ information this tool exists to expose.
     ├─ policy_distill      ── per parameter group
     ├─ value_inbatch       ── per parameter group
     ├─ gbc                 ── per parameter group
-    ├─ aux_margin          ── per parameter group
     ├─ value_memory        (head-only step, own path)
     └─ [anchor_policy]     (when --anchor-file given)
 
 Parameter groups: encoder / trunk / actor_head / type_head /
-target_proj / weapon_head / value_head / gbc_heads / aux+ml heads.
+target_proj / weapon_head / value_head / gbc_heads / moves_left_head.
 
 Node fields:
   norm      — L2 of that term's (clipped) gradient over the group;

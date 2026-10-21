@@ -20,7 +20,6 @@ def configure_az_trainer(trainer, *, lr: float = 1e-4, value_coef: float = 1.0) 
     cfg.learning_rate = float(lr)
     for g in trainer.optimizer.param_groups:
         g["lr"] = float(lr)
-    cfg.aux_coef = 0.0
     cfg.gbc_coef = 0.0
     cfg.moves_left_coef = 0.0
     cfg.value_label_smoothing = 0.0

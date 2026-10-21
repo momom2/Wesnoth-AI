@@ -155,12 +155,6 @@ class ModelOutput:
     cliffness:     torch.Tensor  # [1, 1]            std(Z(s))
     num_units:     int
     num_recruits:  int
-    # Optional auxiliary prediction head (KataGo §3.5): the predicted
-    # final MATERIAL margin from the acting side's perspective, tanh-
-    # bounded to (-1, +1). `None` when the model was built without the
-    # aux head (default). A denser training signal than win/loss z;
-    # see trainer aux_coef.
-    aux_score:     Optional[torch.Tensor] = None  # [1, 1] or None
     # Optional moves-left head (Lc0-style, 2026-07-04): predicted
     # FRACTION of the turn budget still to be played from this state,
     # sigmoid-bounded to (0, 1) (fraction of MOVES_LEFT_NORM_TURNS).
@@ -231,7 +225,6 @@ class PaddedOutput:
     value: torch.Tensor                 # [B, 1]
     value_logits: torch.Tensor          # [B, K]
     cliffness: torch.Tensor             # [B, 1]
-    aux_score: Optional[torch.Tensor]
     moves_left: Optional[torch.Tensor]
     sizes: List[Tuple[int, int, int]]   # (U_b, R_b, H_b)
     unit_ctx: Optional[torch.Tensor] = None
@@ -246,7 +239,7 @@ class PaddedOutput:
     memory_counts: Optional[List[int]] = None
 
     _TENSOR_FIELDS = ("actor_logits", "type_logits", "target_logits", "weapon_logits",
-                      "value", "value_logits", "cliffness", "aux_score", "moves_left",
+                      "value", "value_logits", "cliffness", "moves_left",
                       "unit_ctx", "hex_ctx", "global_ctx", "belief_logits", "memory_padded")
     _PLAIN_FIELDS = ("actor_kind", "sizes", "memory_counts")
 
@@ -287,7 +280,6 @@ class PaddedOutput:
             value_logits=self.value_logits[b:b + 1] if self.value_logits is not None else None,
             cliffness=self.cliffness[b:b + 1] if self.cliffness is not None else None,
             num_units=U_b, num_recruits=R_b,
-            aux_score=self.aux_score[b:b + 1] if self.aux_score is not None else None,
             moves_left=self.moves_left[b:b + 1] if self.moves_left is not None else None,
             unit_ctx=self.unit_ctx[b:b + 1, :U_b] if self.unit_ctx is not None else None,
             hex_ctx=self.hex_ctx[b:b + 1, :H_b] if self.hex_ctx is not None else None,

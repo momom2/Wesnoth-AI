@@ -532,6 +532,7 @@ collapse probe (2026-08-31), signal-profiler rounds 1-6
 - Default: off at the CLI; `--mcts-aux-score` emitted unconditionally by the launcher on every tier-b leg (and the tier-a campaign); heads checkpoint-sticky.
 - Evidence: profiler round 5 (first measurement): aux norm 0.32-0.74, 4-6% of the update direction, modest dv — "a real trunk regularizer, not a dominant channel"; leg-5 review ruled out aux-material axis capture as the rotation cause; moves-left ~0.03% of the gradient. Detached by ruling (telemetry-only; validated 100% of the aux gradient now in its own head). Never isolated for strength. D2 (technique review) found the imitation lineage carried never-measured head tensors.
 - Category: TRICK-UNTESTED. Coupling: draw tiebreak weights define the margin; value_corpus aux targets use END-of-game margin (do not mix).
+- Removed 2026-10-21: the auxiliary margin head, its loss, its search bonus (6.9) and their flags, once no producer filled its target; the moves-left head and utility stand.
 
 ### 6.11 Search-side draw tiebreak (`--draw-tiebreak-cap` 0.3, `--draw-tiebreak-config`)
 - Where: `tools/draw_tiebreak.py::DrawTiebreakConfig`, `configs/draw_tiebreak.json` (village fraction 2.0, unit value 0.0167, gold 0.0, score_scale 5); `mcts._terminal_value` at turn-cap leaves.

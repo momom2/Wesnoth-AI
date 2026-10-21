@@ -25,7 +25,7 @@ class _Model:
     def __call__(self, encoded):
         return SimpleNamespace(value=torch.tensor([[0.6]]),
                                cliffness=torch.tensor([[0.1]]),
-                               moves_left=None, aux_score=None)
+                               moves_left=None)
 
 
 class _Encoder:

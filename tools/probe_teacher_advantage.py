@@ -64,7 +64,6 @@ def main(argv):
         device=torch.device("cpu"), d_model=a["d_model"],
         num_layers=a["num_layers"], num_heads=a["num_heads"],
         d_ff=a["d_ff"],
-        aux_score=bool(raw.get("aux_score")),
         moves_left=bool(raw.get("moves_left")),
         relevant_set_hexes=bool(raw.get("relevant_set_hexes")))
     pol.load_checkpoint(args.checkpoint)

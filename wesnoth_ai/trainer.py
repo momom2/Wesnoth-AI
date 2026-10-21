@@ -77,7 +77,7 @@ _OOB_INDEX_EVENTS = 0
 # Stages of one step_mcts call, in execution order; the keys of the
 # `timings` dict step_mcts fills (seconds, added to whatever the dict
 # already holds). "value_loss" covers every value-side term (value,
-# consistency, trust, aux, moves-left, GBC).
+# consistency, trust, moves-left, GBC, belief).
 STEP_MCTS_STAGES = ("encode_raw", "encode", "forward", "policy_loss",
                     "value_loss", "backward", "clip", "optimizer")
 
@@ -85,10 +85,10 @@ STEP_MCTS_STAGES = ("encode_raw", "encode", "forward", "policy_loss",
 # hands them out: the factored policy cross-entropy split by head, then
 # the value-side terms at their coefficients in the order the step sums
 # them (the value loss, arm VG2's consistency and trust-region terms,
-# the aux margin, moves-left, GBC and the parity-memory recipe's belief
-# head). A term the batch does not exercise is a zero.
+# moves-left, GBC and the parity-memory recipe's belief head). A term
+# the batch does not exercise is a zero.
 MCTS_POLICY_TERMS = ("actor", "type", "target", "weapon")
-MCTS_VALUE_TERMS = ("value", "consistency", "trust", "aux", "moves_left", "gbc", "belief")
+MCTS_VALUE_TERMS = ("value", "consistency", "trust", "moves_left", "gbc", "belief")
 MCTS_LOSS_TERMS = MCTS_POLICY_TERMS + MCTS_VALUE_TERMS
 
 _CPU = torch.device("cpu")
@@ -150,10 +150,6 @@ class MCTSExperience:
     game_state:  GameState
     visit_counts: List[Tuple]    # 4-tuple (legacy) or 5-tuple (new)
     z:            float
-    # Optional auxiliary target (KataGo §3.5), in (-1, +1). `None`
-    # when aux targets aren't being collected (the trainer then skips
-    # the aux loss).
-    aux_target:  Optional[float] = None
     # Fraction of the turn budget that was STILL to be played from
     # this state (turns_remaining / MOVES_LEFT_NORM_TURNS, clipped to
     # [0, 1]). Lc0-style moves-left target (2026-07-04): a dense
@@ -253,13 +249,6 @@ class TrainerConfig:
     weight_decay:         float = 1e-4
     gamma:                float = 0.99
     value_coef:           float = 0.5
-    # Auxiliary-target loss weight (KataGo §3.5). Only has an effect
-    # when the model was built with the aux head (`aux_score=True`) AND
-    # the experiences carry `aux_target`s; otherwise it's a no-op. A
-    # small weight (KataGo uses ~0.15) so the dense margin signal
-    # regularizes the shared trunk without overwhelming the policy/value
-    # objectives.
-    aux_coef:             float = 0.15
     # GBC event-supervision coefficient (2026-08-14): BCE of the
     # dies/flips achievement heads vs hindsight labels — the dense
     # value-adjacent signal (KataGo-ownership pattern; approved as
@@ -279,8 +268,8 @@ class TrainerConfig:
     value_label_smoothing: float = 0.0
     # Per-state weight of DRAWN games (|z| < 1) in the MCTS value
     # loss. 1.0 = legacy (draws train the head toward their z).
-    # 0.0 = decisive-only value learning: draws still feed the aux
-    # and moves-left heads, but stop flattening the value head
+    # 0.0 = decisive-only value learning: draws still feed the
+    # moves-left head, but stop flattening the value head
     # (2026-07-10: ~71% of incoming states are draws; even with
     # honest z=0 labels their gradient mass erodes win/loss
     # discrimination -- human-corpus late AUC 0.88 -> 0.64 in 51
@@ -376,7 +365,6 @@ class TrainStats:
     mean_return:    float = 0.0
     n_transitions:  int   = 0
     n_trajectories: int   = 0
-    aux_loss:       float = 0.0   # auxiliary margin loss (KataGo §3.5); 0 when off
     gbc_loss:       float = 0.0   # GBC event-supervision BCE; 0 when off
     belief_loss:    float = 0.0   # the belief head's BCE; 0 without one
     # Per parameter group (wesnoth_ai/param_groups.py), the L2 norm of the
@@ -1560,7 +1548,7 @@ def _summed_stats(self, losses: Sequence["_ChunkFloats"], batch: "_MCTSBatch", N
     """The tail of a step_mcts call (wesnoth_ai/memory_step.py's too):
     the clip and the optimizer update unless `no_grad`, and the stats
     summed over the chunks."""
-    sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0, "belief": 0.0}
+    sums = {"consist": 0.0, "trust": 0.0, "ml": 0.0, "gbc": 0.0, "belief": 0.0}
     sum_policy_loss = sum_value_loss = sum_total_visits = 0.0
     sum_actor_nlp_weighted = 0.0  # for "entropy"-style logging
     for loss in losses:
@@ -1603,7 +1591,6 @@ def _summed_stats(self, losses: Sequence["_ChunkFloats"], batch: "_MCTSBatch", N
             sum_policy_loss
             + self.config.value_coef * sum_value_loss
             + sums["consist"] + sums["trust"]
-            + self.config.aux_coef   * sums["aux"]
             + self.config.moves_left_coef * sums["ml"]
             + self.config.gbc_coef   * sums["gbc"]
             + self.config.belief_coef * sums["belief"]
@@ -1613,7 +1600,6 @@ def _summed_stats(self, losses: Sequence["_ChunkFloats"], batch: "_MCTSBatch", N
         mean_return    = float(batch.zs.mean().item()),
         n_transitions  = int(N),
         n_trajectories = int(N),  # one experience = one root state
-        aux_loss       = float(sums["aux"]),
         consist_loss   = float(sums["consist"]),
         trust_loss     = float(sums["trust"]),
         gbc_loss       = float(sums["gbc"]),
@@ -1697,8 +1683,6 @@ class _MCTSBatch:
     total_value_w: float
     n_value_signal: int               # states whose weight feeds the value loss
     policy_coef: List[float]          # each experience's weight on the policy loss
-    aux_on: bool
-    aux_t_full: Optional[torch.Tensor]
     ml_on: bool
     ml_t_full: Optional[torch.Tensor]
     gbc_on: bool
@@ -1766,31 +1750,13 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
         [float(getattr(e, "policy_weight", 1.0)) for e in experiences],
         device=dev, dtype=torch.float32)
 
-    # Auxiliary margin target (KataGo §3.5). Active only when the model
-    # has the aux head, the weight is positive, AND every experience
-    # carries a margin target -- otherwise the head/term is skipped
-    # entirely (mixed or aux-off data trains exactly as before).
+    # Moves-left head (Lc0-style, 2026-07-04): active only when the
+    # model has the head, the weight is positive, AND every weighted
+    # experience carries a target -- else the term vanishes entirely.
     # Positions at game weight 0 (a memory player's "carry" decisions)
     # train no weighted term and carry no target.
     weighted = [e for e in experiences
                 if float(getattr(e, "game_weight", 1.0)) > 0]
-    aux_on = (
-        config.aux_coef > 0
-        and getattr(model, "has_aux_score", False)
-        and bool(weighted)
-        and all(getattr(e, "aux_target", None) is not None
-                for e in weighted)
-    )
-    aux_t_full = (
-        torch.tensor([0.0 if e.aux_target is None else e.aux_target
-                      for e in experiences],
-                     device=dev, dtype=torch.float32)
-        if aux_on else None
-    )
-
-    # Moves-left head (Lc0-style, 2026-07-04): same gating story as
-    # the aux head -- head present + weight positive + every
-    # experience carries a target, else the term vanishes entirely.
     ml_on = (
         config.moves_left_coef > 0
         and getattr(model, "has_moves_left", False)
@@ -1807,7 +1773,7 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
 
     # GBC event supervision (2026-08-14, docs/archive/gbc_spec.md): per-
     # experience gate (labels may be absent on legacy/mixed data —
-    # unlike aux, absence skips the EXPERIENCE, not the whole term).
+    # unlike moves-left, absence skips the EXPERIENCE, not the whole term).
     gbc_on = (
         config.gbc_coef > 0
         and getattr(model, "has_gbc", False)
@@ -1836,7 +1802,6 @@ def _mcts_batch(trainer: "Trainer", experiences: Sequence[MCTSExperience],
         # Each experience's weight on the policy loss (see
         # MCTSExperience.game_weight / policy_weight).
         policy_coef=(gws * pws / total_gw).tolist(),
-        aux_on=aux_on, aux_t_full=aux_t_full,
         ml_on=ml_on, ml_t_full=ml_t_full, gbc_on=gbc_on,
         belief_on=belief_on, n_belief=max(n_belief, 1))
 
@@ -1980,7 +1945,7 @@ def _trainer_value_side_losses(
     batch: _MCTSBatch,
 ) -> Tuple[_LossTerms, torch.Tensor, Dict[str, float]]:
     """Every value-side term of one chunk of step_mcts (value,
-    consistency, trust region, aux margin, moves-left, GBC), each at
+    consistency, trust region, moves-left, GBC), each at
     its coefficient and summed in that order. Returns (the terms and
     their sum, the plain value loss, the per-term floats for the step's
     running sums)."""
@@ -1989,7 +1954,7 @@ def _trainer_value_side_losses(
     val_t = padded.value.squeeze(-1)                 # [L]
     vl_t  = padded.value_logits                      # [L, K]
     z_t   = batch.zs[start:start + L]
-    sums = {"consist": 0.0, "trust": 0.0, "aux": 0.0, "ml": 0.0, "gbc": 0.0}
+    sums = {"consist": 0.0, "trust": 0.0, "ml": 0.0, "gbc": 0.0}
     # The value loss against the terminal outcome z (clipped to the
     # head's range in _mcts_batch): the categorical CE on the projected
     # target, consistent with the REINFORCE path, or under
@@ -2039,20 +2004,9 @@ def _trainer_value_side_losses(
         trust_loss = self.config.trust_lambda * tr
         terms.add("trust", trust_loss)
         sums["trust"] = float(trust_loss.item())
-    # Auxiliary margin loss (KataGo §3.5): MSE of the predicted vs
-    # final material margin, summed over the chunk and normalized by
-    # N (matching the value-loss normalization), weighted by
-    # aux_coef. Regularizes the shared trunk with a denser signal.
-    if batch.aux_on:
-        aux_pred_t = padded.aux_score.squeeze(-1)
-        aux_tgt_t  = batch.aux_t_full[start:start + L]
-        aux_loss = ((aux_pred_t - aux_tgt_t) ** 2
-                    * gw_chunk).sum() / batch.total_gw
-        terms.add("aux", self.config.aux_coef * aux_loss)
-        sums["aux"] = float(aux_loss.item())
     # Moves-left loss (Lc0-style): MSE of the predicted vs actual
-    # remaining-turn fraction; same normalization/weighting shape
-    # as the aux term.
+    # remaining-turn fraction, summed over the chunk at game weight and
+    # normalized by the total game weight, weighted by moves_left_coef.
     if batch.ml_on:
         ml_pred_t = padded.moves_left.squeeze(-1)
         ml_tgt_t  = batch.ml_t_full[start:start + L]
@@ -2092,7 +2046,7 @@ def _trainer_value_side_losses(
                 log.warning(
                     "gbc_on but no GBC loss computed for this chunk "
                     "(ctx tap None? entities unresolvable?) -- the "
-                    "aux signal is NOT training; investigate")
+                    "GBC signal is NOT training; investigate")
     if batch.belief_on:
         belief = _belief_sum(padded, chunk, batch.device)
         if belief is not None:

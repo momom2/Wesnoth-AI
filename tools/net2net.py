@@ -22,9 +22,9 @@ Attention `in_proj_weight`/`in_proj_bias` are [3E, .] stacked as
 (Q; K; V); a d_model change is applied to each of the three blocks
 SEPARATELY so widening doesn't shear Q's rows into K. All other params
 (embeddings, out_proj, FFN, LayerNorm, heads, value atoms, the optional
-aux head) use a single leading-block copy. Params with no source match
-(e.g. extra transformer layers when growing DEPTH, or the aux head when
-the source lacked it) keep their fresh init.
+moves-left head) use a single leading-block copy. Params with no source
+match (e.g. extra transformer layers when growing DEPTH, or the
+moves-left head when the source lacked it) keep their fresh init.
 
 CLI:
     python tools/net2net.py --in narrow.pt --out wide.pt \\
@@ -127,7 +127,7 @@ def grow_checkpoint(
     src_path: Path, out_path: Path, *,
     d_model: Optional[int] = None, num_layers: Optional[int] = None,
     num_heads: Optional[int] = None, d_ff: Optional[int] = None,
-    aux_score: Optional[bool] = None, device=None,
+    device=None,
     moves_left: Optional[bool] = None,
     relevant_set_hexes: Optional[bool] = None,
 ) -> Dict:
@@ -143,12 +143,12 @@ def grow_checkpoint(
     transfer walks the DESTINATION's params — a source tensor with no
     destination slot vanishes). Pass a flag explicitly only to override
     the source; `None` means "keep what the source had"."""
+    from wesnoth_ai.checkpoint_structure import model_state_of
     from wesnoth_ai.transformer_policy import TransformerPolicy
 
     dev = device or torch.device("cpu")
     raw = torch.load(src_path, map_location="cpu", weights_only=True)
     src_arch = raw.get("arch", {}) or {}
-    src_aux = bool(raw.get("aux_score", False))
 
     arch = {
         "d_model":    d_model    if d_model    is not None else src_arch.get("d_model", 512),
@@ -160,7 +160,6 @@ def grow_checkpoint(
         raise SystemExit(
             f"--num-heads ({arch['num_heads']}) must divide "
             f"--d-model ({arch['d_model']}).")
-    aux = src_aux if aux_score is None else bool(aux_score)
 
     def _keep(override, key):
         return bool(raw.get(key, False)) if override is None else bool(override)
@@ -170,8 +169,10 @@ def grow_checkpoint(
         "relevant_set_hexes": _keep(relevant_set_hexes, "relevant_set_hexes"),
     }
 
-    pol = TransformerPolicy(device=dev, aux_score=aux, **flags, **arch)
-    model_rep = transfer_state_dict(raw["model_state"], pol._model)
+    pol = TransformerPolicy(device=dev, **flags, **arch)
+    # The auxiliary margin head's weights, which older checkpoints carry,
+    # are left out by name (checkpoint_structure).
+    model_rep = transfer_state_dict(model_state_of(raw), pol._model)
     from wesnoth_ai.encoder import pad_legacy_encoder_state
     # Legacy shim BEFORE transfer (project round-1 C14): a
     # pre-2026-07-11 checkpoint otherwise leaves the new
@@ -187,7 +188,7 @@ def grow_checkpoint(
             f"destination slot: {sorted(dropped)[:8]}"
             f"{' ...' if len(dropped) > 8 else ''}. The destination policy "
             f"lacks a module the source trained (check the optional-head "
-            f"flags: aux_score={aux}, {flags}). Refusing to write a "
+            f"flags: {flags}). Refusing to write a "
             f"silently mutilated checkpoint.")
 
     # Carry the vocab so transferred embedding ROWS stay aligned with
@@ -205,14 +206,14 @@ def grow_checkpoint(
     pol.save_checkpoint(out_path)
     report = {
         "src_arch": src_arch, "dst_arch": arch,
-        "aux_score": aux, "flags": flags,
+        "flags": flags,
         "decision_step": pol._decision_step,
         "model": {k: len(v) for k, v in model_rep.items()},
         "encoder": {k: len(v) for k, v in enc_rep.items()},
     }
     log.info(
         f"grew {Path(src_path).name} {src_arch} -> {arch} "
-        f"(aux_score={aux}, {flags}); model copied/grown/fresh/skipped="
+        f"({flags}); model copied/grown/fresh/skipped="
         f"{report['model']}; encoder={report['encoder']}")
     return report
 
@@ -227,13 +228,6 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--num-layers", type=int, default=None)
     ap.add_argument("--num-heads", type=int, default=None)
     ap.add_argument("--d-ff", type=int, default=None)
-    aux = ap.add_mutually_exclusive_group()
-    aux.add_argument("--aux-score", dest="aux_score", action="store_true",
-                     default=None, help="Force the aux head ON in the "
-                     "grown net (default: keep the source's setting).")
-    aux.add_argument("--no-aux-score", dest="aux_score",
-                     action="store_false",
-                     help="Force the aux head OFF in the grown net.")
     # Optional heads default to the SOURCE's setting (None); these only
     # exist to deliberately add or drop a head during a grow.
     for _f, _h in (("moves-left", "moves-left head"),
@@ -257,7 +251,7 @@ def main(argv: List[str]) -> int:
     grow_checkpoint(
         args.src, args.out, d_model=args.d_model,
         num_layers=args.num_layers, num_heads=args.num_heads,
-        d_ff=args.d_ff, aux_score=args.aux_score,
+        d_ff=args.d_ff,
         moves_left=args.moves_left,
         relevant_set_hexes=args.relevant_set_hexes)
     return 0

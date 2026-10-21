@@ -267,8 +267,14 @@ $1.47 in all):
     reward (REINFORCE learns from the outcome alone), imitation's
     action-type loss weights (every cross-entropy unweighted), and the
     near-tie coin code (the luck fit `tools/fit_luck_beta.py` stays). Play at
-    the reference decode unchanged. Left: the aux margin head and
-    `aux_value_bonus`, which no target producer feeds now.
+    the reference decode unchanged.
+  - **The aux margin head left the code** (0.31.8,
+    `fix/remove-aux-margin-head`): the head, its `aux_score` output, the
+    trainer's aux term, search's `aux_value_bonus` and their flags; the serve
+    reply loses its aux slot (Rust core phase 38). Checkpoints that carry the
+    head load with exactly its two keys dropped
+    (`checkpoint_structure.RETIRED_MODEL_KEYS`); own2's outputs are
+    bit-identical.
   - **Design round 11** (0.31.6): the material for the optimizer discussion,
     `docs/training_design_20261019/optimizer_discussion.md`: policy gradient
     on `own2`'s games at temperature 1, one KL-sized step per round checked

@@ -23,7 +23,7 @@ PARAM_GROUPS = (
     ("target_proj",    lambda n: n.startswith("model.target_")),
     ("weapon_head",    lambda n: n.startswith("model.weapon_head")),
     ("gbc_heads",      lambda n: n.startswith("model.gbc_heads")),
-    ("aux_ml",         lambda n: n.startswith(("model.aux_score_head", "model.moves_left"))),
+    ("moves_left_head", lambda n: n.startswith("model.moves_left_head")),
     ("belief_head",    lambda n: n.startswith("model.belief_head")),
     # The learned memory (wesnoth_ai/memory.py): its initial state, the
     # embedding of each slot it reads, and its gated write.
@@ -34,7 +34,7 @@ PARAM_GROUPS = (
 MEMORY_GROUPS = ("memory_initial", "memory_slots", "memory_write")
 # The order the logs list the groups in.
 GROUP_ORDER = ("encoder", "trunk", "actor_head", "type_head", "target_proj", "weapon_head", "value_head",
-               "belief_head", "gbc_heads", "aux_ml") + MEMORY_GROUPS
+               "belief_head", "gbc_heads", "moves_left_head") + MEMORY_GROUPS
 
 
 def group_of(name: str) -> str:

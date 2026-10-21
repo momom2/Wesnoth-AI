@@ -92,10 +92,7 @@ def main(argv) -> int:
     real_states = [e.game_state for e in
                    rng.sample(batch, min(args.real_probe, len(batch)))]
     n_gbc = sum(1 for e in batch if getattr(e, "gbc_labels", None))
-    n_aux = sum(1 for e in batch
-                if getattr(e, "aux_target", None) is not None)
-    print(f"label coverage: gbc={n_gbc}/{len(batch)} "
-          f"aux={n_aux}/{len(batch)}")
+    print(f"label coverage: gbc={n_gbc}/{len(batch)}")
     print(f"consult states captured: {len(consult_states)} "
           f"(of {res.seen} seen); real probe: {len(real_states)}")
 

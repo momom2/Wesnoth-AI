@@ -901,8 +901,6 @@ _TRAIN_BODY="
       ${MAX_TURNS:+--max-turns $MAX_TURNS} \
       --max-turns-min ${MAX_TURNS_MIN:-60} \
       ${RELEVANT_SET_HEXES:+--relevant-set-hexes} \
-      --mcts-aux-score \
-      ${AUX_VALUE_BONUS:+--mcts-aux-value-bonus $AUX_VALUE_BONUS} \
       --validate-export-every ${VALIDATE_EXPORT_EVERY:-1} \
       --value-label-smoothing 0.02 \
       --holdout-size 512 --holdout-per-game-cap 64 \

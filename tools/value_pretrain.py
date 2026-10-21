@@ -161,7 +161,6 @@ def main(argv: List[str]) -> int:
         device=dev,
         d_model=a["d_model"], num_layers=a["num_layers"],
         num_heads=a["num_heads"], d_ff=a["d_ff"],
-        aux_score=bool(raw.get("aux_score")),
         moves_left=bool(raw.get("moves_left")))
     policy.load_checkpoint(args.checkpoint_in)
     trainer = policy._trainer

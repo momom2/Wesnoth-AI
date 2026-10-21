@@ -293,9 +293,8 @@ class Player:
             base = _load_policy(ckpt, device, label=self.label)
             from tools.mcts import MCTSConfig
             from tools.mcts_policy import MCTSPolicy
-            # Eval contract: MCTSConfig defaults keep the training
-            # crutches OFF (aux_value_bonus=0.0)
-            # -- pure search over the checkpoint's own heads.
+            # Eval contract: MCTSConfig defaults -- pure search over
+            # the checkpoint's own heads.
             self.policy = MCTSPolicy(
                 base, mcts_config=MCTSConfig(
                     n_simulations=int(sims_s)))

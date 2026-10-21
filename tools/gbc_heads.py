@@ -8,7 +8,7 @@ unchanged / checkpoint bit-identical: pick two" resolved as the
 latter two; the trunk is frozen at rung 1 anyway, so a detached tap
 is mathematically identical to an attached head). If GBC graduates
 to rung 4 (trunk unfrozen, gradient into the trunk), the heads move
-into the model behind a flag with the aux_score peek-and-OR pattern.
+into the model behind a flag with the moves_left peek-and-OR pattern.
 
 Vocabulary after rung 0a (2026-08-14, 500 games): {dies, flips} --
 `levels` measured 0.5-1.9% positives, below the pre-registered 5%
