@@ -60,6 +60,7 @@ sys.path.insert(0, str(_THIS.parent))
 
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 from wesnoth_ai.paths import REPO_ROOT, TOOLS_DIR  # noqa: E402
+from tools.eval_procedure import add_coin_args, coin_argv  # noqa: E402
 from tools.eval_provenance import (  # noqa: E402
     BASES, TERRAIN_VIEWS, _pt_config, basis_refusal, checkpoint_refusal, effective_memory,
     faction_refusal, forced_faction_tag, memory_refusal, spec_sha256, terrain_refusal,
@@ -558,6 +559,7 @@ def main(argv: List[str]) -> int:
                     help="Player B (see --memory-a).")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
+    add_coin_args(ap)
     ap.add_argument("--mcts-batch-size", type=int, default=1,
                     help="Leaf-evaluation batch for search, both "
                          "players. 1 = sequential (canonical, CPU "
@@ -752,14 +754,27 @@ def main(argv: List[str]) -> int:
     if ((args.raw_temperature_a is not None and sims_a > 0)
             or (args.raw_temperature_b is not None and sims_b > 0)):
         ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
-    from tools.eval_procedure import end_turn_refusal
+    from tools.eval_procedure import coin_refusal, end_turn_refusal, recruit_rule_tag
     for _side, _spec, _sims, _temp in (("a", args.spec_a, sims_a, args.raw_temperature_a),
                                        ("b", args.spec_b, sims_b, args.raw_temperature_b)):
-        _why = end_turn_refusal(_side, _spec, _sims, _temp,
-                                getattr(args, f"raw_end_turn_{_side}"),
-                                getattr(args, f"raw_end_turn_offset_{_side}"))
+        _why = (end_turn_refusal(_side, _spec, _sims, _temp,
+                                 getattr(args, f"raw_end_turn_{_side}"),
+                                 getattr(args, f"raw_end_turn_offset_{_side}"))
+                or coin_refusal(_side, _spec, _sims, _temp, getattr(args, f"raw_end_turn_{_side}"),
+                                getattr(args, f"coin_band_{_side}"), getattr(args, f"coin_p_{_side}"),
+                                args.attack_coin_offset, args.recruit_rule,
+                                bool(args.coin_band_a or args.coin_band_b or args.attack_coin_offset)))
         if _why is not None:
             ap.error(_why)
+    # The recruit rule by absolute path (each game's process may start
+    # elsewhere), its content checked against its hash once here.
+    rule_tag = ""
+    if args.recruit_rule:
+        args.recruit_rule = str(Path(args.recruit_rule).resolve())
+        try:
+            rule_tag = recruit_rule_tag(args.recruit_rule)
+        except (OSError, ValueError, KeyError) as e:
+            ap.error(f"--recruit-rule {args.recruit_rule}: {e}")
     if args.label_a == args.label_b:
         ap.error("--label-a and --label-b must differ (result files and "
                  "the workers' per-side policy cache are keyed by label)")
@@ -924,16 +939,15 @@ def main(argv: List[str]) -> int:
     # per-game procedure guard never fires for them -- a stale-
     # estimand outdir would be silently reused. Refuse here.
     from tools.eval_procedure import procedure_of
-    want = (procedure_of(sims_a, args.plan_a,
-                          args.no_turn_search or args.no_turn_search_a,
-                          args.raw_temperature_a, args.gumbel_root_a,
-                          raw_end_turn=args.raw_end_turn_a,
-                          raw_end_turn_offset=args.raw_end_turn_offset_a),
-            procedure_of(sims_b, args.plan_b,
-                          args.no_turn_search or args.no_turn_search_b,
-                          args.raw_temperature_b, args.gumbel_root_b,
-                          raw_end_turn=args.raw_end_turn_b,
-                          raw_end_turn_offset=args.raw_end_turn_offset_b))
+    want = tuple(procedure_of(sims, getattr(args, f"plan_{side}"),
+                              args.no_turn_search or getattr(args, f"no_turn_search_{side}"),
+                              getattr(args, f"raw_temperature_{side}"), getattr(args, f"gumbel_root_{side}"),
+                              raw_end_turn=getattr(args, f"raw_end_turn_{side}"),
+                              raw_end_turn_offset=getattr(args, f"raw_end_turn_offset_{side}"),
+                              attack_coin_offset=args.attack_coin_offset,
+                              coin_band=getattr(args, f"coin_band_{side}"),
+                              coin_p=getattr(args, f"coin_p_{side}"), recruit_rule=rule_tag)
+                 for side, sims in (("a", sims_a), ("b", sims_b)))
     # Hex-basis pre-scan (see BASES): per-process bases are read from
     # the checkpoints here; under shared inference the servers report
     # theirs once launched (below), and the scan repeats there.
@@ -1222,6 +1236,7 @@ def main(argv: List[str]) -> int:
             memory = getattr(args, f"memory_{side}")
             if memory is not None:
                 cmd += [f"--memory-{side}", str(memory)]
+        cmd += coin_argv(args)
         if args.mcts_batch_size != 1:
             cmd += ["--mcts-batch-size", str(args.mcts_batch_size)]
         if args.view_refresh != "incremental":

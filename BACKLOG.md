@@ -239,6 +239,12 @@ $1.47 in all):
     sealed window [+17.6, +31.5] (seal +24.6 +- 3.0): transfer ratio 0.62, the
     shortfall in the coined continuations. Next by the design: S1 (about $26)
     and T (Bd on `own2`, about $1, iff ruling (h)); both wait on the user.
+  - **The coin and recruit-rule code merged** (0.31.0, user approval
+    2026-10-21): near-tie coins in the raw player (`--coin-band-a/-b`,
+    `--coin-p-a/-b`), the attack-offset coin, the label, plant and readout
+    tools (`tools/coin_*.py`), the recruit rule and its seat hook
+    (`tools/recruit_rule*.py`), and both box scripts; every flag off by
+    default, play unchanged when off.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

@@ -51,6 +51,7 @@ grows its vocab with an untrained row.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import logging
@@ -98,7 +99,29 @@ def _search_policy_cls(turn_search: bool, plan_tournament: bool = False):
     return MCTSPolicy
 
 
-from tools.eval_procedure import end_turn_refusal, procedure_of as _procedure_of  # noqa: E402
+from tools.eval_procedure import (  # noqa: E402
+    add_coin_args, coin_refusal, end_turn_refusal, procedure_of as _procedure_of,
+)
+
+
+@functools.lru_cache(maxsize=4)
+def _recruit_rule(path: str):
+    """The frozen recruit rule of a file (tools/recruit_rule.py), its hash checked."""
+    from tools.recruit_rule import RecruitRule
+    return RecruitRule.load(path)
+
+
+def _side_procedure(args, side: str, sims: int) -> str:
+    """Side `side`'s procedure tag under the parsed flags."""
+    return _procedure_of(
+        sims, getattr(args, f"plan_{side}"),
+        args.no_turn_search or getattr(args, f"no_turn_search_{side}"),
+        getattr(args, f"raw_temperature_{side}"), getattr(args, f"gumbel_root_{side}"),
+        raw_end_turn=getattr(args, f"raw_end_turn_{side}"),
+        raw_end_turn_offset=getattr(args, f"raw_end_turn_offset_{side}"),
+        attack_coin_offset=args.attack_coin_offset,
+        coin_band=getattr(args, f"coin_band_{side}"), coin_p=getattr(args, f"coin_p_{side}"),
+        recruit_rule=_recruit_rule(args.recruit_rule).short_hash if args.recruit_rule else "")
 
 
 # The knob machinery lives in tools/turn_search_config (torch-free,
@@ -376,11 +399,11 @@ def _release_served_memories() -> None:
 def _remote_player(address: str, raw_temperature: float, raw_seed,
                    relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
                    raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
-                   memory: Optional[int] = None):
+                   memory: Optional[int] = None, raw_coins: Optional[dict] = None):
     """The raw player over a shared inference server: a RemoteEncoder
     on the server's vocab with server-side priors, a RemoteModel
     behind the forward-counting proxy (its `fwd_secs` is the round
-    trip: queue wait, batch, transport)."""
+    trip: queue wait, batch, transport). `raw_coins`: see `_build_player`."""
     import threading
     from types import SimpleNamespace
     from tools.inference_seam import RemoteModel
@@ -408,7 +431,8 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
                            end_turn_rule=raw_end_turn,
-                           end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+                           end_turn_offset=raw_end_turn_offset, memory_slots=memory,
+                           **(raw_coins or {})), counter
 
 
 _MEMORY_CACHE: dict = {}
@@ -493,10 +517,13 @@ def _build_player(spec: str, label: str, sims: int, device,
                   infer_packed_trunk: bool = False,
                   raw_end_turn: str = "joint",
                   raw_end_turn_offset: float = 0.0,
-                  memory: Optional[int] = None):
+                  memory: Optional[int] = None,
+                  raw_coins: Optional[dict] = None):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
     player (tools/raw_player.py; 0 = argmax). None = the legacy
     factored sampler, the pre-2026-09-04 'raw' procedure.
+    `raw_coins`: the raw player's attack offset and near-tie coins
+    (RawPolicyPlayer's attack_offset, coin_band, coin_p, coin_seed).
     `raw_seed`: this side's seed for the game. It seeds the raw
     player's sampler, or a searched player's generators (`rng_seed`),
     so a game repeats from its slot either way.
@@ -522,7 +549,7 @@ def _build_player(spec: str, label: str, sims: int, device,
     if inference_address is not None:
         return _remote_player(inference_address, raw_temperature, raw_seed,
                               relevant_set, infer_bf16, infer_packed_trunk,
-                              raw_end_turn, raw_end_turn_offset, memory)
+                              raw_end_turn, raw_end_turn_offset, memory, raw_coins)
     if memory is not None and infer_compile:
         raise SystemExit(f"{spec} has a memory, which a player keeps from one call to the next, and a "
                          f"compiled model may overwrite its outputs at its next call: play it with "
@@ -569,8 +596,104 @@ def _build_player(spec: str, label: str, sims: int, device,
         from tools.raw_player import RawPolicyPlayer
         return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
                                end_turn_rule=raw_end_turn,
-                               end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
+                               end_turn_offset=raw_end_turn_offset, memory_slots=memory,
+                               **(raw_coins or {})), counter
     return policy, counter
+
+
+def _raw_coins(args, side: str, seat: Optional[str], rule_seat: Optional[str] = None) -> dict:
+    """Side `side`'s raw-player coin arguments: the attack offset when the
+    game's attack coin chose this side (`seat`), its near-tie coins keyed
+    by the game seed, the recruit rule when the game's seat coin chose this
+    side (`rule_seat`)."""
+    out = {}
+    if seat == side:
+        out["attack_offset"] = float(args.attack_coin_offset)
+    band = getattr(args, f"coin_band_{side}")
+    if band:
+        out.update(coin_band=float(band), coin_p=float(getattr(args, f"coin_p_{side}")),
+                   coin_seed=int(args.seed))
+    if rule_seat == side:
+        out["recruit_rule"] = _recruit_rule(args.recruit_rule)
+    return out
+
+
+def _rule_record(args, rule_seat: Optional[str], players, game_label: str) -> Optional[dict]:
+    """What the recruit rule did in the game, as its record keeps it (None
+    without the rule): the rule's hash, band and cap, the seat it played,
+    and its decisions in the order played (`RawPolicyPlayer.pop_rule_log`)."""
+    if not args.recruit_rule:
+        return None
+    rule = _recruit_rule(args.recruit_rule)
+    decisions = []
+    for player in players:
+        pop = getattr(player, "pop_rule_log", None)
+        if pop is not None:
+            decisions += pop(game_label)
+    decisions.sort(key=lambda e: (e["cmd"], e["side"], e["i"]))
+    return {"hash": rule.hash, "band": rule.band, "cap": rule.cap, "seat": rule_seat, "decisions": decisions}
+
+
+def _rule_fields(rule_record: Optional[dict]) -> dict:
+    """The result file's recruit-rule fields: the rule's short hash, its
+    seat, its decisions and switches."""
+    if rule_record is None:
+        return {}
+    from tools.recruit_rule import SHORT_HASH
+    return {"recruit_rule": rule_record["hash"][:SHORT_HASH], "recruit_rule_seat": rule_record["seat"],
+            "rule_decisions": len(rule_record["decisions"]),
+            "rule_switches": sum(bool(e["switched"]) for e in rule_record["decisions"])}
+
+
+def _coin_record(args, seat: Optional[str], players, game_label: str,
+                 rule_seat: Optional[str] = None) -> Optional[dict]:
+    """The game's coins as its record keeps them (None when no coin is on):
+    each side's band and propensity, every band decision of both players in
+    the order played (`RawPolicyPlayer.pop_coin_log`), the attack coin (its
+    offset, P, D = 1 when it chose player A, and the side it chose) and the
+    recruit rule's seat coin (the rule's hash, P, D = 1 when it chose player
+    A, the side it chose)."""
+    from tools.coin_decode import ATTACK_COIN_P
+    bands = {side: {"band": float(getattr(args, f"coin_band_{side}")),
+                    "p": float(getattr(args, f"coin_p_{side}"))}
+             for side in ("a", "b") if getattr(args, f"coin_band_{side}")}
+    if not bands and not args.attack_coin_offset and not args.recruit_rule:
+        return None
+    decisions = []
+    for player in players:
+        pop = getattr(player, "pop_coin_log", None)
+        if pop is not None:
+            decisions += pop(game_label)
+    decisions.sort(key=lambda e: (-1 if e["cmd"] is None else e["cmd"], e["side"], e["i"]))
+    out = {"bands": bands, "decisions": decisions}
+    if args.attack_coin_offset:
+        out["attack"] = {"offset": float(args.attack_coin_offset), "p": ATTACK_COIN_P,
+                         "d": int(seat == "a"), "seat": seat}
+    if args.recruit_rule:
+        from tools.recruit_rule import RULE_SEAT_P
+        out["rule"] = {"hash": _recruit_rule(args.recruit_rule).hash, "p": RULE_SEAT_P,
+                       "d": int(rule_seat == "a"), "seat": rule_seat}
+    return out
+
+
+def _coin_fields(args, seat: Optional[str], coins: Optional[dict]) -> dict:
+    """The result file's coin fields (none when no coin is on): each coined
+    side's band, propensity, band decisions and coins landed 1; the attack
+    coin's offset and the side it chose."""
+    if coins is None:
+        return {}
+    out = {}
+    side_a = int(args.side_a)
+    for side, wesnoth_side in (("a", side_a), ("b", 3 - side_a)):
+        if side in coins["bands"]:
+            mine = [e for e in coins["decisions"] if e["side"] == wesnoth_side]
+            out.update({f"coin_band_{side}": coins["bands"][side]["band"],
+                        f"coin_p_{side}": coins["bands"][side]["p"],
+                        f"band_decisions_{side}": len(mine),
+                        f"coin_ones_{side}": sum(int(e["d"]) for e in mine)})
+    if "attack" in coins:
+        out.update(attack_coin_offset=coins["attack"]["offset"], attack_coin_seat=seat)
+    return out
 
 
 def _check_shared_inference_args(args, sims_a: int, sims_b: int) -> bool:
@@ -673,6 +796,7 @@ def main(argv) -> int:
                          "tag '+eo<x>').")
     ap.add_argument("--raw-end-turn-offset-b", type=float, default=0.0,
                     help="Player B (see --raw-end-turn-offset-a).")
+    add_coin_args(ap)
     ap.add_argument("--memory-a", type=int, default=None,
                     help="The memory slots player A uses when its model has a memory "
                          "(default: all of the checkpoint's); recorded as memory_a, "
@@ -843,7 +967,10 @@ def main(argv) -> int:
              args.raw_end_turn_offset_a),
             ("b", args.spec_b, sims_b, args.raw_temperature_b, args.raw_end_turn_b,
              args.raw_end_turn_offset_b)):
-        _why = end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset)
+        _why = (end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset)
+                or coin_refusal(_side, _spec, _sims, _temp, _rule, getattr(args, f"coin_band_{_side}"),
+                                getattr(args, f"coin_p_{_side}"), args.attack_coin_offset, args.recruit_rule,
+                                bool(args.coin_band_a or args.coin_band_b or args.attack_coin_offset)))
         if _why is not None:
             raise SystemExit(_why)
     for _n, _spec in (("spec_a", args.spec_a),
@@ -943,18 +1070,8 @@ def main(argv) -> int:
         except Exception:  # noqa: BLE001 -- unreadable = replay it
             prev = None
         if prev is not None:
-            want_a = _procedure_of(
-                sims_a, args.plan_a,
-                args.no_turn_search or args.no_turn_search_a,
-                args.raw_temperature_a, args.gumbel_root_a,
-                raw_end_turn=args.raw_end_turn_a,
-                raw_end_turn_offset=args.raw_end_turn_offset_a)
-            want_b = _procedure_of(
-                sims_b, args.plan_b,
-                args.no_turn_search or args.no_turn_search_b,
-                args.raw_temperature_b, args.gumbel_root_b,
-                raw_end_turn=args.raw_end_turn_b,
-                raw_end_turn_offset=args.raw_end_turn_offset_b)
+            want_a = _side_procedure(args, "a", sims_a)
+            want_b = _side_procedure(args, "b", sims_b)
             got_a = prev.get("procedure_a")
             got_b = prev.get("procedure_b")
             got_mt = prev.get("max_turns")
@@ -1102,6 +1219,18 @@ def main(argv) -> int:
     t_setup = time.perf_counter()
     pt_cfg = _pt_config(args) if (args.plan_a or args.plan_b) else None
     ts_cfg = _ts_config(args)
+    # The side the game's attack coin puts the attack offset on
+    # (tools/coin_decode.py): 'a' when it lands 1, 'b' when 0.
+    seat = None
+    if args.attack_coin_offset:
+        from tools.coin_decode import attack_coin
+        seat = "a" if attack_coin(args.seed) else "b"
+    # The side the game's seat coin puts the recruit rule on
+    # (tools/recruit_rule.py): 'a' when it lands 1, 'b' when 0.
+    rule_seat = None
+    if args.recruit_rule:
+        from tools.recruit_rule import rule_seat_coin
+        rule_seat = "a" if rule_seat_coin(args.seed) else "b"
     pa, cnt_a = _build_player(
         args.spec_a, args.label_a, sims_a, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_a),
@@ -1115,7 +1244,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_a,
         raw_end_turn_offset=args.raw_end_turn_offset_a,
-        memory=memory_a)
+        memory=memory_a, raw_coins=_raw_coins(args, "a", seat, rule_seat))
     pb, cnt_b = _build_player(
         args.spec_b, args.label_b, sims_b, device,
         turn_search=not (args.no_turn_search or args.no_turn_search_b),
@@ -1129,7 +1258,7 @@ def main(argv) -> int:
         infer_packed_trunk=inf_packed,
         raw_end_turn=args.raw_end_turn_b,
         raw_end_turn_offset=args.raw_end_turn_offset_b,
-        memory=memory_b)
+        memory=memory_b, raw_coins=_raw_coins(args, "b", seat, rule_seat))
 
     rng = random.Random(args.seed)
     setup = random_setup(rng, forced_faction=forced_faction)
@@ -1184,18 +1313,8 @@ def main(argv) -> int:
         "turn_config": ts_knobs,
         # Procedure provenance (review C19): result files from
         # different estimands must never be silently mergeable.
-        "procedure_a": _procedure_of(
-            sims_a, args.plan_a,
-            args.no_turn_search or args.no_turn_search_a,
-            args.raw_temperature_a, args.gumbel_root_a,
-            raw_end_turn=args.raw_end_turn_a,
-            raw_end_turn_offset=args.raw_end_turn_offset_a),
-        "procedure_b": _procedure_of(
-            sims_b, args.plan_b,
-            args.no_turn_search or args.no_turn_search_b,
-            args.raw_temperature_b, args.gumbel_root_b,
-            raw_end_turn=args.raw_end_turn_b,
-            raw_end_turn_offset=args.raw_end_turn_offset_b),
+        "procedure_a": _side_procedure(args, "a", sims_a),
+        "procedure_b": _side_procedure(args, "b", sims_b),
         # The CLI probe flags as given; TCS and plan-tournament arms
         # never read them (2026-09-04 review).
         "relevant_set_a": bool(args.relevant_set_a),
@@ -1308,6 +1427,14 @@ def main(argv) -> int:
         "ended_by": sim.ended_by,
         "secs": round(time.time() - t0, 1),
     }
+    # The coins (tools/coin_decode.py), when any is on: every band decision
+    # and the attack coin in the record, their counts in the result.
+    coins = _coin_record(args, seat, (pa, pb), game_label, rule_seat)
+    result.update(_coin_fields(args, seat, coins))
+    # The recruit rule (tools/recruit_rule.py), when on: its decisions in
+    # the record, their counts in the result.
+    rule_rec = _rule_record(args, rule_seat, (pa, pb), game_label)
+    result.update(_rule_fields(rule_rec))
     # The game itself, beside its result (tools/game_record.py), written
     # before the result so a result file always has its game.
     from tools.game_record import GameRecordLog, game_record
@@ -1321,7 +1448,8 @@ def main(argv) -> int:
                        "procedure": result["procedure_a"], "memory": memory_a},
                  "b": {"label": args.label_b, "spec": str(args.spec_b), "side": 3 - args.side_a,
                        "procedure": result["procedure_b"], "memory": memory_b}},
-        extra={"seed": args.seed}))
+        extra={"seed": args.seed, **({} if coins is None else {"coins": coins}),
+               **({} if rule_rec is None else {"recruit_rule": rule_rec})}))
     os.replace(_rec_tmp, _rec_path)
     timer.add("game_record", time.perf_counter() - t_record)
     # Where this game's decisions spent their time (wesnoth_ai/stage_timing.py):
