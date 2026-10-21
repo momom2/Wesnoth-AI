@@ -754,7 +754,7 @@ def main(argv: List[str]) -> int:
     if ((args.raw_temperature_a is not None and sims_a > 0)
             or (args.raw_temperature_b is not None and sims_b > 0)):
         ap.error("--raw-temperature-a/-b apply to a side at sims 0 only")
-    from tools.eval_procedure import coin_refusal, end_turn_refusal, recruit_rule_tag
+    from tools.eval_procedure import coin_refusal, end_turn_refusal
     for _side, _spec, _sims, _temp in (("a", args.spec_a, sims_a, args.raw_temperature_a),
                                        ("b", args.spec_b, sims_b, args.raw_temperature_b)):
         _why = (end_turn_refusal(_side, _spec, _sims, _temp,
@@ -762,19 +762,9 @@ def main(argv: List[str]) -> int:
                                  getattr(args, f"raw_end_turn_offset_{_side}"))
                 or coin_refusal(_side, _spec, _sims, _temp, getattr(args, f"raw_end_turn_{_side}"),
                                 getattr(args, f"coin_band_{_side}"), getattr(args, f"coin_p_{_side}"),
-                                args.attack_coin_offset, args.recruit_rule,
-                                bool(args.coin_band_a or args.coin_band_b or args.attack_coin_offset)))
+                                args.attack_coin_offset))
         if _why is not None:
             ap.error(_why)
-    # The recruit rule by absolute path (each game's process may start
-    # elsewhere), its content checked against its hash once here.
-    rule_tag = ""
-    if args.recruit_rule:
-        args.recruit_rule = str(Path(args.recruit_rule).resolve())
-        try:
-            rule_tag = recruit_rule_tag(args.recruit_rule)
-        except (OSError, ValueError, KeyError) as e:
-            ap.error(f"--recruit-rule {args.recruit_rule}: {e}")
     if args.label_a == args.label_b:
         ap.error("--label-a and --label-b must differ (result files and "
                  "the workers' per-side policy cache are keyed by label)")
@@ -946,7 +936,7 @@ def main(argv: List[str]) -> int:
                               raw_end_turn_offset=getattr(args, f"raw_end_turn_offset_{side}"),
                               attack_coin_offset=args.attack_coin_offset,
                               coin_band=getattr(args, f"coin_band_{side}"),
-                              coin_p=getattr(args, f"coin_p_{side}"), recruit_rule=rule_tag)
+                              coin_p=getattr(args, f"coin_p_{side}"))
                  for side, sims in (("a", sims_a), ("b", sims_b)))
     # Hex-basis pre-scan (see BASES): per-process bases are read from
     # the checkpoints here; under shared inference the servers report

@@ -245,6 +245,16 @@ $1.47 in all):
     tools (`tools/coin_*.py`), the recruit rule and its seat hook
     (`tools/recruit_rule*.py`), and both box scripts; every flag off by
     default, play unchanged when off.
+  - **User rulings 2026-10-21** (seed section 8): the recruit rule is
+    rejected, since nothing beside the network decides play ("The model
+    should learn to recruit like a human iff recruiting like a human
+    works"); learning from outcomes and fits on existing data are allowed;
+    the player samples at temperature 1 instead of argmax; the coins are an
+    ad hoc form of sampling, not a training mechanism. S1 and T are off.
+  - **The recruit rule left the code** (0.31.3, `fix/remove-recruit-rule`):
+    its seat hook, flags, `+rr` tag, fit and readout tools, box script and
+    tests. Its frozen fit and readout moved to
+    `training/metrics/recruit_rule_l_20261021/` as match L's record.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a
