@@ -102,7 +102,6 @@ class WesnothModel(nn.Module):
         # keeps every forward on the GPU.
         dropout:     float = 1e-4,
         max_attacks: int = MAX_ATTACKS,
-        aux_score:   bool = False,
         moves_left:  bool = False,
         gbc:         bool = False,
         value_material: bool = False,
@@ -115,7 +114,6 @@ class WesnothModel(nn.Module):
         super().__init__()
         self.d_model     = d_model
         self.max_attacks = max_attacks
-        self.has_aux_score = bool(aux_score)
         self.has_moves_left = bool(moves_left)
         self.has_gbc = bool(gbc)
         self.has_value_material = bool(value_material)
@@ -249,12 +247,6 @@ class WesnothModel(nn.Module):
             "_value_atoms",
             torch.linspace(VALUE_V_MIN, VALUE_V_MAX, VALUE_N_ATOMS),
         )
-        # Optional auxiliary head (KataGo §3.5): predicts the final
-        # material margin from the global token, tanh-bounded to
-        # (-1, +1). Built only when `aux_score` is on, so the default
-        # arch (and existing checkpoints) are byte-unchanged.
-        self.aux_score_head = (
-            nn.Linear(d_model, 1) if self.has_aux_score else None)
         # Optional moves-left head (Lc0-style): predicts the fraction
         # of the turn budget remaining from the global token, sigmoid-
         # bounded to (0, 1). Built only when `moves_left` is on, so
@@ -417,16 +409,9 @@ class WesnothModel(nn.Module):
                  - value.pow(2)).clamp_min(0)
         cliffness = var_v.sqrt()                                  # [B, 1]
 
-        # Aux + moves-left heads read a DETACHED global token (user
-        # ruling 2026-09-01: telemetry-only — the heads train, the
-        # trunk receives no gradient from them). Before the detach
-        # the aux MSE contributed ~5-6% of the total update
-        # direction through the trunk (signal-profiler round 5).
-        aux_score = None
-        if self.aux_score_head is not None:
-            aux_score = torch.tanh(
-                self.aux_score_head(
-                    global_ctx.squeeze(1).detach()))              # [B, 1]
+        # The moves-left head reads a DETACHED global token (user
+        # ruling 2026-09-01: telemetry-only — the head trains, the
+        # trunk receives no gradient from it).
         moves_left = None
         if self.moves_left_head is not None:
             moves_left = torch.sigmoid(
@@ -447,7 +432,6 @@ class WesnothModel(nn.Module):
             cliffness=cliffness,
             num_units=U,
             num_recruits=R,
-            aux_score=aux_score,
             moves_left=moves_left,
             # GBC tap: references only, populated only when the gbc
             # heads exist (trainer loss path; eval models stay None).
@@ -1055,7 +1039,7 @@ class WesnothModel(nn.Module):
             target_logits = torch.bmm(q, k.transpose(1, 2)) / (d ** 0.5)  # [B, A_max, H_max]
 
         if self.infer_priors_only and not self.training:
-            value_logits = value = cliffness = aux_score = moves_left = belief_logits = None
+            value_logits = value = cliffness = moves_left = belief_logits = None
         else:
             g = global_ctx.squeeze(1)
             value_logits = self.value_head(self._value_input(g, material))   # [B, K]
@@ -1065,8 +1049,6 @@ class WesnothModel(nn.Module):
             var_v = ((value_probs * atoms.pow(2)).sum(dim=-1, keepdim=True)
                      - value.pow(2)).clamp_min(0)
             cliffness = var_v.sqrt()
-            aux_score = (torch.tanh(self.aux_score_head(g.detach()))
-                         if self.aux_score_head is not None else None)
             moves_left = (torch.sigmoid(self.moves_left_head(g.detach()))
                           if self.moves_left_head is not None else None)
             belief_logits = (self.belief_head(hex_ctx).squeeze(-1)             # [B, H_max]
@@ -1074,8 +1056,8 @@ class WesnothModel(nn.Module):
         return PaddedOutput(
             actor_logits=actor_logits, actor_kind=actor_kind, type_logits=type_logits,
             target_logits=target_logits, weapon_logits=weapon_logits, value=value,
-            value_logits=value_logits, cliffness=cliffness, aux_score=aux_score,
-            moves_left=moves_left, sizes=[tuple(s) for s in sizes],
+            value_logits=value_logits, cliffness=cliffness, moves_left=moves_left,
+            sizes=[tuple(s) for s in sizes],
             unit_ctx=unit_ctx,
             hex_ctx=hex_ctx if self.has_gbc else None,
             global_ctx=global_ctx if self.has_gbc else None,

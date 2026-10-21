@@ -366,8 +366,8 @@ class GraphedServe:
             extras = []                     # a priors-only model computes no head output
         elif extras is None:
             extras = ["value", "value_logits", "cliffness"]
-            extras += [n for n, on in (("aux_score", model.has_aux_score),
-                                       ("moves_left", model.has_moves_left)) if on]
+            if model.has_moves_left:
+                extras.append("moves_left")
         self.extras = tuple(extras)
         self.parity = bool(getattr(encoder, "observation_parity", False))
         self.k_cap = int(getattr(model, "memory_slots", 0) or 0)

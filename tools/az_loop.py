@@ -7,7 +7,7 @@
 Imports only the simulator/actor pool, encoder, model, the core
 trainer step, MCTS, and the measurement instruments. Nothing from
 the quarantined pile (docs/../quarantine/README.md): no TCS, replay
-buffer, anchors, GBC/aux heads, memory, grounding, trust region.
+buffer, anchors, GBC heads, memory, grounding, trust region.
 
 Three data streams, every iteration, to az_history.csv:
   performance : decisive rate, actions/side-turn median (K), action

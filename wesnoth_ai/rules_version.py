@@ -52,6 +52,9 @@ RULES_VERSION_OF_PHASE: Dict[int, int] = {
     # The inference server's requests without the end_turn bias
     # (fix/remove-hand-priors): nothing that builds a position.
     37: 31,
+    # The inference server's replies without the auxiliary margin head's
+    # output (fix/remove-aux-margin-head): nothing that builds a position.
+    38: 31,
 }
 
 

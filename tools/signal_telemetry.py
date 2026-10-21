@@ -44,7 +44,7 @@ log = logging.getLogger("signal_telemetry")
 SIG_SUBSAMPLE = 128
 SIG_CONSULT_CAP = 64
 
-_KILL = {"policy_weight": 0.0, "aux_target": None,
+_KILL = {"policy_weight": 0.0,
          "moves_left_target": None, "gbc_labels": None, "no_visible_unit": None}
 
 
@@ -83,7 +83,7 @@ def _surgeries():
 
     return {
         "sig_policy_norm": lambda e: {
-            "value_weight": 0.0, "aux_target": None,
+            "value_weight": 0.0,
             "moves_left_target": None, "gbc_labels": None, "no_visible_unit": None},
         "sig_value_game_norm": value_where(lambda e: kind(e) == "game"),
         "sig_value_ground_norm": value_where(lambda e: kind(e) == "roll"),

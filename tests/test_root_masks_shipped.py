@@ -68,7 +68,7 @@ class _Model:
     def __call__(self, encoded):
         return SimpleNamespace(value=torch.tensor([[0.2]]),
                                cliffness=torch.tensor([[0.1]]),
-                               moves_left=None, aux_score=None)
+                               moves_left=None)
 
 
 def _encoding(masks, U: int = 2, R: int = 3, H: int = 5):

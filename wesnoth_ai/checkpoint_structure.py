@@ -11,6 +11,10 @@ Three top-level keys, beside `relevant_set_hexes` and the other flags:
   Data flow, like the fog gate.
 
 A checkpoint without them is obs8's lineage: False, 0 and 1.
+
+Older checkpoints also carry the weights of the auxiliary margin head
+(`aux_score_head`), which the network does not have: `model_state_of`
+hands out a checkpoint's model weights without exactly those keys.
 """
 from __future__ import annotations
 
@@ -21,6 +25,15 @@ STRUCTURE_DEFAULTS: Dict[str, object] = {
     "memory_slots": 0,
     "relevant_set_version": 1,
 }
+
+# The auxiliary margin head's weights, present in the checkpoints that were
+# saved with the head: no module of the network loads them.
+RETIRED_MODEL_KEYS = ("aux_score_head.weight", "aux_score_head.bias")
+
+
+def model_state_of(ckpt: Dict) -> Dict[str, object]:
+    """The checkpoint's model weights, the RETIRED_MODEL_KEYS left out."""
+    return {k: v for k, v in ckpt["model_state"].items() if k not in RETIRED_MODEL_KEYS}
 
 
 def checkpoint_structure(model, encoder) -> Dict[str, object]:

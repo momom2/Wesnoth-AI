@@ -787,8 +787,8 @@ impl ServeRequests {
     /// bytes: the request's id and status 0, then per leaf its units,
     /// recruits and served memory version (`versions`, -1 per leaf when
     /// None), the head outputs (`extras`: value, value_logits, cliffness,
-    /// aux_score, moves_left, each (byte offset in `out`, item code, tail
-    /// dims) or None), its actor kinds as int8 (`actor_kind`, rows of
+    /// moves_left, each (byte offset in `out`, item code, tail dims) or
+    /// None), its actor kinds as int8 (`actor_kind`, rows of
     /// a_max slots, leaf b's in row b),
     /// its compact legal actions (`compact`: byte offsets in `out` of the
     /// int32 ends [B] and of actor, kind, target, weapon and prior
@@ -804,8 +804,8 @@ impl ServeRequests {
         let out = out.as_slice().or_else(|_| err("replies: a non-contiguous output buffer"))?;
         let kinds = actor_kind.as_slice().or_else(|_| err("replies: non-contiguous actor kinds"))?;
         let n = self.leaves.len();
-        if extras.len() != 5 {
-            return err("replies: five head outputs (value, value_logits, cliffness, aux_score, moves_left)");
+        if extras.len() != 4 {
+            return err("replies: four head outputs (value, value_logits, cliffness, moves_left)");
         }
         if kinds.len() < n * a_max {
             return err(format!("replies: {} actor kinds for {n} leaves of {a_max} slots", kinds.len()));

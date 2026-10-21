@@ -229,16 +229,6 @@ class MCTSConfig:
     # data the term is inert. Tuning knob, start ~0.2 (term bounded
     # by the weight since |Q|<=1, M<=1).
     moves_left_utility: float = 0.0
-    # Aux-head value bonus (2026-07-11): leaf value used by search
-    # becomes clamp(v + aux_value_bonus * aux_pred, -1, 1), with
-    # aux_pred = tanh-bounded predicted material margin in (-1, 1).
-    # At 0.3 the bonus spans (-0.3, +0.3): material/village gains
-    # become visible WITHIN the search horizon instead of only at
-    # in-search terminals (never reached mid-game). Root cause it
-    # fixes: the anatomy diagnostic showed ~zero village captures in
-    # 100-turn games -- nothing in-horizon rewarded expansion.
-    # 0.0 = off (legacy).
-    aux_value_bonus:  float = 0.0
     # Subtracted from every network value the search reads (mover
     # frame). The head's level b enters the act-vs-end_turn choice
     # as 2b (acting children keep the side, the end_turn child flips
@@ -704,22 +694,11 @@ def _node_terminal_value(node: "MCTSNode") -> float:
     return _terminal_value(node.sim, node.side)
 
 
-def _aux_adjusted(v: float, output, aux_value_bonus: float) -> float:
-    """clamp(v + bonus * aux_pred). No-op when the knob is 0 or the
-    model has no aux head."""
-    if not aux_value_bonus or output.aux_score is None:
-        return v
-    aux = float(output.aux_score.reshape(()).item())
-    adj = v + aux_value_bonus * aux
-    return max(-1.0, min(1.0, adj))
-
-
 def _expand(
     node: MCTSNode,
     model: WesnothModel,
     encoder: GameStateEncoder,
     *,
-    aux_value_bonus: float = 0.0,
     value_center: float = 0.0,
 ) -> float:
     """Forward the model on `node.sim.gs`, build edges from the
@@ -741,8 +720,7 @@ def _expand(
         # per-actor syncs inside the enumeration (no-op on CPU).
         encoded, output = _leaf_to_cpu(encoded, output)
         priors = enumerate_legal_actions_with_priors(encoded, output, node.sim.gs)
-        v = _aux_adjusted(float(output.value.squeeze().item()),
-                          output, aux_value_bonus) - value_center
+        v = float(output.value.squeeze().item()) - value_center
         node.cliffness = float(output.cliffness.squeeze().item())
         if output.moves_left is not None:
             node.moves_left = float(output.moves_left.squeeze().item())
@@ -1137,7 +1115,6 @@ def _populate_leaf(
     *,
     value:     Optional[float] = None,
     cliffness: Optional[float] = None,
-    aux_value_bonus: float = 0.0,
     value_center: float = 0.0,
 ) -> float:
     """Build the leaf's edges from the model's enumerated priors and
@@ -1163,12 +1140,9 @@ def _populate_leaf(
     priors.sort(key=lambda p: -p.prior)
     leaf.edges = [MCTSEdge(p) for p in priors]
     leaf.expanded = True
-    # `value`, when provided (B2 batched read), is the RAW network
-    # value -- the aux adjustment is applied here either way so both
-    # paths agree.
     raw_v = (float(output.value.squeeze().item())
              if value is None else float(value))
-    leaf.value = _aux_adjusted(raw_v, output, aux_value_bonus) - value_center
+    leaf.value = raw_v - value_center
     return leaf.value
 
 
@@ -1216,7 +1190,6 @@ def _run_one_sim(
     if memory is not None:
         leaf.memory_out = output.memory
     v = _populate_leaf(leaf, encoded, output,
-                       aux_value_bonus=config.aux_value_bonus,
                        value_center=config.value_center)
     _backup(
         path, v, leaf.side, 0.0,
@@ -1320,7 +1293,6 @@ def _run_sim_batch(
             leaf_values[id(leaf)] = _populate_leaf(
                 leaf, encoded, output,
                 value=None if vals is None else vals[i],
-                aux_value_bonus=config.aux_value_bonus,
                 value_center=config.value_center,
                 cliffness=None if cliffs is None else cliffs[i])
         for leaf, path in pending:
@@ -1628,7 +1600,6 @@ def mcts_search(
     # for the adaptive sim budget.
     if not root.expanded:
         _expand(root, model, encoder,
-                aux_value_bonus=config.aux_value_bonus,
                 value_center=config.value_center)
     # Gumbel mode replaces Dirichlet noise at the root: exploration
     # comes from sampling the candidate set without replacement.

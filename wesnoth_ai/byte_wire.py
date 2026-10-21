@@ -60,7 +60,7 @@ REQUEST_SCALARS = ("memory_k", "our_faction_id", "their_faction_id", "hex_subset
 # A reply leaf: its scalars (memory_version -1 when the server keeps no
 # state for it), then the priors tuple's arrays.
 REPLY_SCALARS = ("num_units", "num_recruits", "memory_version")
-REPLY_FIELDS = ("value", "value_logits", "cliffness", "aux_score", "moves_left", "actor_kind",
+REPLY_FIELDS = ("value", "value_logits", "cliffness", "moves_left", "actor_kind",
                 "actor", "kind", "target", "weapon", "prior", "memory")
 
 
@@ -205,7 +205,7 @@ def decode_request(buf, offset: int = 0) -> List[Tuple]:
 def encode_replies(wires: Sequence[tuple], prefix: Sequence[int] = (),
                    versions: Optional[Sequence[int]] = None) -> bytes:
     """Server side: priors replies, each the tuple
-    ("c", U, R, value, value_logits, cliffness, aux_score, moves_left,
+    ("c", U, R, value, value_logits, cliffness, moves_left,
     actor_kind (int8), CompactActions, memory), as one buffer; every
     array keeps its dtype. `versions`: per leaf the memory version the
     server wrote (-1: it keeps no state for the leaf)."""
@@ -213,10 +213,10 @@ def encode_replies(wires: Sequence[tuple], prefix: Sequence[int] = (),
     for i, w in enumerate(wires):
         if not (isinstance(w, tuple) and w and w[0] == "c"):
             raise ValueError("the byte wire carries priors replies only")
-        _, U, R, value, value_logits, cliffness, aux, ml, kinds, c, memory = w
+        _, U, R, value, value_logits, cliffness, ml, kinds, c, memory = w
         version = -1 if versions is None else int(versions[i])
         leaves.append(((int(U), int(R), version),
-                       (value, value_logits, cliffness, aux, ml, kinds,
+                       (value, value_logits, cliffness, ml, kinds,
                         c.actor, c.kind, c.target, c.weapon, c.prior, memory)))
     return encode_bundle(leaves, prefix)
 
@@ -232,8 +232,8 @@ def decode_replies_with_versions(buf, offset: int = 0) -> Tuple[List[tuple], Lis
     the server keeps no state for it)."""
     out, versions = [], []
     for (U, R, version), f in decode_bundle(buf, len(REPLY_SCALARS), len(REPLY_FIELDS), offset):
-        value, value_logits, cliffness, aux, ml, kinds, actor, kind, target, weapon, prior, memory = f
-        out.append(("c", U, R, value, value_logits, cliffness, aux, ml, kinds,
+        value, value_logits, cliffness, ml, kinds, actor, kind, target, weapon, prior, memory = f
+        out.append(("c", U, R, value, value_logits, cliffness, ml, kinds,
                     CompactActions(actor=actor, kind=kind, target=target, weapon=weapon, prior=prior),
                     memory))
         versions.append(version)

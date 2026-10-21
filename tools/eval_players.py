@@ -239,7 +239,7 @@ def _play_one_eval_game(
 # that owns weights, so a policy built without it silently drops
 # those tensors on load (they arrive as "unexpected keys") and then
 # evaluates a different model than the one that trained.
-CHECKPOINT_STRUCT_FLAGS = ("aux_score", "moves_left",
+CHECKPOINT_STRUCT_FLAGS = ("moves_left",
                            "relevant_set_hexes", "gbc", "value_material",
                            "fog_hides_enemy_villages", "terrain_multi_hot",
                            "observation_parity")
@@ -296,7 +296,7 @@ def _load_policy(
     a lowest-bar reference. Mirrors the arch-peek pattern in
     sim_self_play.main.
 
-    Structural flags (aux_score / moves_left / relevant_set_hexes)
+    Structural flags (moves_left / relevant_set_hexes / ...)
     are peeked from the checkpoint too, so the policy is BUILT with
     the paths the checkpoint carries and every weight loads --
     without this, an eval would silently measure a structurally

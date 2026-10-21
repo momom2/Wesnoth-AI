@@ -742,24 +742,22 @@ def run_iteration(
                         f"grad_norm={_vm.get('grad_norm', 0):.3f}")
         train_dt = time.perf_counter() - train_t0
         # getattr-guarded: non-trainable/stub policies (dummy)
-        # may return a minimal stats object without the aux field.
-        _aux = getattr(train_stats, "aux_loss", 0.0)
-        aux_str = f" aux={_aux:.4f}" if _aux else ""
+        # may return a minimal stats object without these fields.
         _ml = getattr(train_stats, "moves_left_loss", 0.0)
-        aux_str += f" moves_left={_ml:.4f}" if _ml else ""
+        extra_str = f" moves_left={_ml:.4f}" if _ml else ""
         _gbc = getattr(train_stats, "gbc_loss", 0.0)
-        aux_str += f" gbc={_gbc:.4f}" if _gbc else ""
+        extra_str += f" gbc={_gbc:.4f}" if _gbc else ""
         _zw = getattr(train_stats, "z_win_frac", float("nan"))
         if _zw == _zw:
-            aux_str += (f" z_comp={_zw:.2f}/"
-                        f"{getattr(train_stats, 'z_loss_frac', 0):.2f}/"
-                        f"{getattr(train_stats, 'z_draw_frac', 0):.2f}")
+            extra_str += (f" z_comp={_zw:.2f}/"
+                          f"{getattr(train_stats, 'z_loss_frac', 0):.2f}/"
+                          f"{getattr(train_stats, 'z_draw_frac', 0):.2f}")
         # Weighted variant = the gradient's actual composition
         # (per-game normalization); the census above is length-
         # inflated by long games (misread 2026-07-22).
         _zww = getattr(train_stats, "z_win_frac_w", float("nan"))
         if _zww == _zww:
-            aux_str += (
+            extra_str += (
                 f" z_comp_w={_zww:.2f}/"
                 f"{getattr(train_stats, 'z_loss_frac_w', 0):.2f}/"
                 f"{getattr(train_stats, 'z_draw_frac_w', 0):.2f}")
@@ -771,30 +769,30 @@ def run_iteration(
             # CE is the stall TRIPWIRE, not the success gauge (it
             # drifts off-distribution as play evolves).
             _fstd = getattr(train_stats, "fresh_ce_std", float("nan"))
-            aux_str += (f" fresh_value_ce={_fce:.4f}"
-                        + (f"+-{_fstd:.4f}" if _fstd == _fstd else ""))
+            extra_str += (f" fresh_value_ce={_fce:.4f}"
+                          + (f"+-{_fstd:.4f}" if _fstd == _fstd else ""))
             _fent = getattr(train_stats, "fresh_pred_entropy",
                             float("nan"))
             _ffloor = getattr(train_stats, "fresh_ce_floor",
                               float("nan"))
             if _fent == _fent:
-                aux_str += f" fresh_pred_entropy={_fent:.4f}"
+                extra_str += f" fresh_pred_entropy={_fent:.4f}"
             if _ffloor == _ffloor:
-                aux_str += f" fresh_ce_floor={_ffloor:.4f}"
+                extra_str += f" fresh_ce_floor={_ffloor:.4f}"
         # Boundary-consistency telemetry (T1-F, 2026-07-29): mean
         # V(pre)+V(post) at sampled side switches. ~0 = calibrated;
         # +0.4..+0.6 = the fogged-play WYSIATI bias (both sides read
         # optimistic at a turn handoff). NaN until >=4 pairs exist.
         _bsum = getattr(train_stats, "boundary_sum", float("nan"))
         if _bsum == _bsum:
-            aux_str += (f" boundary_sum={_bsum:+.3f}"
-                        f"/n={getattr(train_stats, 'boundary_pairs_n', 0)}"
-                        f"/pool={getattr(train_stats, 'boundary_pool_n', 0)}")
+            extra_str += (f" boundary_sum={_bsum:+.3f}"
+                          f"/n={getattr(train_stats, 'boundary_pairs_n', 0)}"
+                          f"/pool={getattr(train_stats, 'boundary_pool_n', 0)}")
         log.info(
             f"iter {iter_idx}: train_step in {train_dt:.1f}s "
             f"trajectories={train_stats.n_trajectories} transitions={train_stats.n_transitions} "
             f"loss={train_stats.total_loss:.4f} policy={train_stats.policy_loss:.4f} "
-            f"value={train_stats.value_loss:.4f}{aux_str} entropy={train_stats.entropy:.4f} "
+            f"value={train_stats.value_loss:.4f}{extra_str} entropy={train_stats.entropy:.4f} "
             f"mean_return={train_stats.mean_return:+.3f} grad_norm={train_stats.grad_norm:.3f}"
         )
 
@@ -1183,11 +1181,11 @@ class _TrainerHistoryCSV:
         # gate_flip/delta measure what the gate's re-grade changes
         # (the Q7 quantity when projection reval is on);
         # gate_shorten_per_plan is the passivity direction of
-        # accepted swaps. gbc/aux: auxiliary losses, same gap.
+        # accepted swaps. gbc: the GBC loss, same gap.
         "tcs_plans", "tcs_accepts_per_plan", "tcs_replans_per_plan",
         "tcs_projections_per_plan", "tcs_blind_coord_frac",
         "tcs_gate_flip_frac", "tcs_gate_delta_reval",
-        "tcs_gate_shorten_per_plan", "gbc_loss", "aux_loss",
+        "tcs_gate_shorten_per_plan", "gbc_loss",
         # Plan-tournament telemetry (proposition 1, 2026-08-26). The
         # beta columns calibrate the starvation tripwire before it
         # is armed (user ruling: log first, arm after).
@@ -1281,10 +1279,9 @@ class _TrainerHistoryCSV:
             row["train_entropy"]        = ts.entropy
             row["train_mean_return"]    = ts.mean_return
             row["train_grad_norm"]      = ts.grad_norm
-            # Auxiliary-objective losses: computed all of leg 4,
-            # written nowhere (workflow finding 2026-08-20).
+            # The GBC loss: computed all of leg 4, written nowhere
+            # (workflow finding 2026-08-20).
             row["gbc_loss"] = getattr(ts, "gbc_loss", None)
-            row["aux_loss"] = getattr(ts, "aux_loss", None)
         # Econ diagnostics for recruit-underuse investigation.
         for k in self._ECON_KEYS:
             v = snapshot.get(k)
@@ -1839,8 +1836,8 @@ def main(argv: List[str]) -> int:
                          "events predict outcomes at AUC 0.79 while "
                          "the head's turn movement is noise). DEFAULT "
                          "ON (user ruling 2026-08-14). Adds heads to "
-                         "the model (checkpoint-sticky, aux "
-                         "precedent) + a label pass per finalized "
+                         "the model (checkpoint-sticky, as the "
+                         "moves-left head) + a label pass per finalized "
                          "game.")
     ap.add_argument("--gbc-coef", type=float, default=0.1,
                     help="Weight of the GBC event-supervision BCE in "
@@ -1975,18 +1972,6 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--mcts-playout-cap-fast-sims", type=int, default=0,
                     help="Sim budget for fast (unrecorded) moves under "
                          "--mcts-playout-cap. 0 = max(1, --mcts-sims//4).")
-    ap.add_argument("--mcts-aux-score", action="store_true",
-                    help="Add the auxiliary margin head (KataGo §3.5): "
-                         "the model predicts the final MATERIAL margin "
-                         "(tanh, denser than win/loss z), trained with "
-                         "an MSE term (--mcts-aux-coef) against the "
-                         "experiences' aux targets, which no self-play "
-                         "producer fills. Changes the model arch (adds "
-                         "a head) -> fresh init unless warm-starting an "
-                         "aux-on checkpoint.")
-    ap.add_argument("--mcts-aux-coef", type=float, default=0.15,
-                    help="Weight of the auxiliary margin MSE loss "
-                         "(--mcts-aux-score). KataGo uses ~0.15.")
     ap.add_argument("--relevant-set-hexes",
                     action=argparse.BooleanOptionalAction,
                     default=None,
@@ -2006,24 +1991,12 @@ def main(argv: List[str]) -> int:
                          "game's actual remaining turns. A dense TEMPO "
                          "signal the sparse z can't provide (2026-07-04 "
                          "action-spam diagnosis). Adds a head -> "
-                         "partial-load on aux-off checkpoints. The "
+                         "partial-load on checkpoints without it. The "
                          "search-side utility consumer is separate and "
                          "default-off pending calibration.")
     ap.add_argument("--mcts-moves-left-coef", type=float, default=0.1,
                     help="Weight of the moves-left MSE loss "
                          "(--mcts-moves-left).")
-    ap.add_argument("--mcts-aux-value-bonus", type=float, default=0.0,
-                    help="Add aux_value_bonus * aux_pred (tanh-bounded "
-                         "material margin) to every leaf value the "
-                         "search uses, clamped to [-1, 1]. 0.3 spans "
-                         "(-0.3, +0.3): material/village gains become "
-                         "visible within the search horizon "
-                         "(2026-07-11; anatomy showed zero village "
-                         "captures without it). NOTE: in gumbel-root "
-                         "mode (default) the aux-shaped Q also shapes "
-                         "the distilled POLICY TARGET -- intended: "
-                         "the policy learns to value material at up "
-                         "to 0.3 of a win. 0 = off.")
     ap.add_argument("--mcts-moves-left-utility", type=float, default=0.0,
                     help="Lc0-style search utility: winning lines are "
                          "nudged toward FEWER expected remaining moves "
@@ -2087,7 +2060,7 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--human-anchor-policy-batch", type=int, default=128)
     ap.add_argument("--draw-value-weight", type=float, default=0.0,
                     help="Weight of drawn games' states in the MCTS "
-                         "value loss (aux/moves-left heads always get "
+                         "value loss (the moves-left head always gets "
                          "them). 0 = decisive-only value learning "
                          "(2026-07-10: the 71%%-draw gradient mass "
                          "flattened the value head even with honest "
@@ -2272,7 +2245,6 @@ def main(argv: List[str]) -> int:
     # init. The cluster job's chain logic relies on this -- losing
     # the warm-start every iteration would burn cluster time.
     arch_kwargs: Dict[str, int] = {}
-    ckpt_aux_score = False
     ckpt_moves_left = False
     ckpt_gbc = False
     ckpt_relevant_set = None
@@ -2313,13 +2285,11 @@ def main(argv: List[str]) -> int:
             for k in ("d_model", "num_layers", "num_heads", "d_ff"):
                 if k in saved_arch:
                     arch_kwargs[k] = int(saved_arch[k])
-            ckpt_aux_score = bool(raw.get("aux_score", False))
             ckpt_moves_left = bool(raw.get("moves_left", False))
             ckpt_gbc = bool(raw.get("gbc", False))
             ckpt_relevant_set = raw.get("relevant_set_hexes", None)
             if arch_kwargs:
                 log.info(f"warm-start arch from checkpoint: {arch_kwargs}"
-                         f"{' +aux_score' if ckpt_aux_score else ''}"
                          f"{' +moves_left' if ckpt_moves_left else ''}")
         else:
             log.warning(
@@ -2354,13 +2324,11 @@ def main(argv: List[str]) -> int:
                 f"--num-heads ({arch_kwargs['num_heads']}) must divide "
                 f"--d-model ({arch_kwargs['d_model']}).")
 
-    # Auxiliary margin head (plan §3.5): on if requested OR if warm-
-    # starting an aux-on checkpoint (so the head isn't dropped on
-    # resume). It's a model-arch change, so it must be set at
-    # construction.
-    aux_score_flag = bool(args.mcts_aux_score) or ckpt_aux_score
+    # Moves-left head: on if requested OR if warm-starting a checkpoint
+    # that has it (so the head isn't dropped on resume). It's a model-
+    # arch change, so it must be set at construction.
     moves_left_flag = bool(args.mcts_moves_left) or ckpt_moves_left
-    # GBC heads: same peek-and-OR as aux (a gbc-on checkpoint keeps
+    # GBC heads: same peek-and-OR (a gbc-on checkpoint keeps
     # its trained heads on resume even under --no-gbc).
     gbc_flag = bool(getattr(args, "gbc", False)) or ckpt_gbc
     # Write the RESOLVED flag back (project round-5: the ActorPool
@@ -2420,7 +2388,7 @@ def main(argv: List[str]) -> int:
     import torch as _torch
     _torch.manual_seed(args.seed)
     random.seed(args.seed)
-    policy = TransformerPolicy(device=device, aux_score=aux_score_flag,
+    policy = TransformerPolicy(device=device,
                                moves_left=moves_left_flag,
                                gbc=gbc_flag,
                                relevant_set_hexes=relevant_set_flag,
@@ -2433,10 +2401,6 @@ def main(argv: List[str]) -> int:
     if relevant_set_flag:
         log.info("relevant-hex encoding ON (action-space index basis "
                  "differs from full-board runs; see docs/archive/autonomous_run.md)")
-    if aux_score_flag:
-        policy._trainer.config.aux_coef = float(args.mcts_aux_coef)
-        log.info(f"auxiliary margin head ON (aux_coef="
-                 f"{args.mcts_aux_coef}; KataGo §3.5)")
     if moves_left_flag:
         policy._trainer.config.moves_left_coef = float(
             args.mcts_moves_left_coef)
@@ -2557,7 +2521,6 @@ def main(argv: List[str]) -> int:
         mcts_cfg = MCTSConfig(
             n_simulations=args.mcts_sims,
             moves_left_utility=args.mcts_moves_left_utility,
-            aux_value_bonus=args.mcts_aux_value_bonus,
             c_puct=args.mcts_c_puct,
             batch_size=_mbs,
             fpu_reduction=(None if args.mcts_fpu_reduction < 0
@@ -2604,12 +2567,6 @@ def main(argv: List[str]) -> int:
                 f"warmup>={replay_cfg.min_size} (multi-epoch training; "
                 f"value head gets {replay_cfg.updates_per_iter}x the "
                 f"gradient steps per iter vs legacy one-pass)")
-        if (args.mcts_aux_value_bonus
-                and not getattr(policy._model, "has_aux_score", False)):
-            log.warning(
-                "--mcts-aux-value-bonus is set but the model has NO "
-                "aux head (--mcts-aux-score): the bonus is a silent "
-                "no-op (reviewer finding m3, 2026-07-11).")
         from tools.plan_tournament import (
             config_from_args as pt_config_from_args,
         )

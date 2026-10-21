@@ -15,8 +15,7 @@ LADDER-ONLY default `random_setup` (pinned by test_elo_ladder_maps).
 The result file records the outcome, so the collector fits Elo on the
 decisive games (a capped game is a no-result absence, not a draw, user
 2026-08-17; material advantage does not factor into evaluation, user
-2026-07-11). Eval search runs WITHOUT the material shaper
-(aux_value_bonus) regardless of training config.
+2026-07-11).
 
 Combat luck is PER GAME (2026-09-13): the sim's synced-RNG stream is
 salted with this game's seed, so two games roll independent dice.
@@ -544,10 +543,8 @@ def _build_player(spec: str, label: str, sims: int, device,
         import os
         # EVALUATION CONTRACT (user, 2026-07-11): valuing material
         # advantage is a TRAINING crutch, not part of what policy
-        # performance means -- so the material-based search shaper
-        # (aux_value_bonus) is OFF here regardless of
-        # what the checkpoint trained with. Eval search sees the real
-        # game: win +1, loss -1, draw 0. moves_left_utility (time
+        # performance means. Eval search sees the real game: win +1,
+        # loss -1, draw 0. moves_left_utility (time
         # preference among equal outcomes, no material content) stays
         # env-configurable.
         cls = _search_policy_cls(turn_search, plan_tournament)

@@ -78,8 +78,8 @@ def make_policy(checkpoint: Path, device, *, turn_search: bool = True,
             value_memory_games=value_memory_iters * games_per_iter,
         )
         # v1.2: the trainer defaults ARE the production
-        # coefficients (gbc 0.1, aux 0.15 -- the v1.1 overrides
-        # were setting one to its default and the other WRONG);
+        # coefficients (gbc 0.1; v1.1 overrode them by hand, one
+        # of them wrongly);
         # the real zero-gbc cause was peek_checkpoint_arch dropping
         # the gbc heads, fixed in eval_sim. Profiling runs
         # UNCLIPPED: separately-clipped vectors cannot be compared

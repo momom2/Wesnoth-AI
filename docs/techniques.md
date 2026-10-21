@@ -320,15 +320,6 @@ Active only under `--mcts-classic-root`.
   visit counts are never scaled, only `w_value`.
   `_backup`, `tools/mcts.py:1146-1198`;
   `_BOOTSTRAP_PRIOR_VAR`, `tools/mcts.py:1116`.
-- **Aux-head value bonus** **[OFF]** (`aux_value_bonus = 0.0`,
-  `tools/mcts.py:215`; `--mcts-aux-value-bonus`). Leaf value becomes
-  `clamp(v + bonus·aux_pred, −1, 1)`. *Why it exists:* the anatomy
-  diagnostic showed ~zero village captures in 100-turn games —
-  nothing in-horizon rewarded expansion, because in-search terminals
-  are never reached mid-game. `_aux_adjusted`, `tools/mcts.py:696`.
-  ⚠ Under the default Gumbel root this also shapes the distilled
-  policy target (intended, documented in the flag help). The CLI
-  warns if set without the aux head (`tools/sim_self_play.py:3458`).
 - **Moves-left utility in PUCT** **[OFF]**
   (`moves_left_utility = 0.0`, `tools/mcts.py:205`). Subtracts
   `w·Q·M` from a visited edge's score, so winning lines prefer
@@ -422,7 +413,7 @@ Active only under `--mcts-classic-root`.
 - **`draw_value_weight = 1.0`** **[ON = legacy]**
   (`wesnoth_ai/trainer.py:175`; `--draw-value-weight`).
   Setting it to `0` gives decisive-only value learning: draws still
-  feed the aux and moves-left heads but stop flattening the value
+  feed the moves-left head but stop flattening the value
   head. *Why the knob exists:* ~71% of incoming states were draws;
   even with honest z=0 labels their gradient mass eroded win/loss
   discrimination WITH a 512-state rehearsal anchor in place.
@@ -439,20 +430,8 @@ Active only under `--mcts-classic-root`.
   0.58 in 46 iters) and a confidently-wrong spike makes held-out CE
   explode. `_categorical_value_loss`, `wesnoth_ai/trainer.py:639-655`.
 
-### 2.4 Auxiliary prediction heads (architecture-changing, both OFF)
+### 2.4 Auxiliary prediction head (architecture-changing, OFF)
 
-- **Auxiliary material-margin head (KataGo §3.5)** **[OFF]**
-  (`aux_score = False`, `wesnoth_ai/model.py:227`;
-  `--mcts-aux-score`). Tanh-bounded predicted final material margin
-  from the global token; loss weight `aux_coef = 0.15`
-  (KataGo uses ~0.15). *Why:* a denser signal than win/loss z that
-  regularizes the shared trunk. Head at `wesnoth_ai/model.py:303-304`;
-  loss `wesnoth_ai/trainer.py:1176-1182`.
-  **Target refinement (2026-07-12):** the aux target is the NEXT
-  recorded state's margin, not the game's final margin — one-step
-  material prediction credits captures/kills the moment they happen,
-  and since the next recorded state may follow the opponent's reply
-  it teaches captures that HOLD. `tools/mcts_policy.py:581-590`.
 - **Moves-left head (Lc0-style)** **[OFF]**
   (`moves_left = False`, `wesnoth_ai/model.py:228`;
   `--mcts-moves-left`). Sigmoid-bounded fraction of the turn budget
@@ -463,8 +442,8 @@ Active only under `--mcts-classic-root`.
   (2026-07-04 action-spam diagnosis).
   `wesnoth_ai/model.py:309-310`; target
   `tools/mcts_policy.py:591-595`; loss `wesnoth_ai/trainer.py:1186-1192`.
-  Both heads **stick to a checkpoint**: warm-starting an aux-on
-  checkpoint re-enables the head even without the flag, otherwise
+  The head **sticks to a checkpoint**: warm-starting a checkpoint
+  that has it re-enables the head even without the flag, otherwise
   `strict=False` loading would silently DROP the trained head as
   "unexpected keys" (`tools/sim_self_play.py:3250-3251`;
   `tools/supervised_train.py:1024-1059`).

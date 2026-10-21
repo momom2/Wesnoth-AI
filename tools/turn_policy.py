@@ -5,7 +5,7 @@ of a per-micro-action Gumbel root search, each side-turn is planned
 once by turn-commitment search (`tools/turn_search.plan_turn`) and
 executed one command per `select_action` call. Everything downstream
 -- the `_PendingMCTSState` schema, terminal-z sealing, per-side game
-weights, aux/moves-left targets, holdout diversion, boundary-pair
+weights, moves-left targets, holdout diversion, boundary-pair
 harvest, the replay buffer, `train_step`, checkpoint I/O -- is
 INHERITED UNCHANGED, so TCS data trains through the exact same
 pipeline as MCTS data.

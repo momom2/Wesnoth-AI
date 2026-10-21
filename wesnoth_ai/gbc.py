@@ -11,8 +11,8 @@ terminal z cannot — the KataGo-ownership-head pattern, grounded in
 this project's own measurements.
 
 This module is the layering-clean core (no tools/ imports): the
-heads (built into WesnothModel behind the `gbc` flag, aux_score
-precedent) and the hindsight label machinery (shared with the
+heads (built into WesnothModel behind the `gbc` flag, as the
+moves-left head is) and the hindsight label machinery (shared with the
 offline scanner `tools/gbc_labels.py`).
 
 Contracts (docs/archive/gbc_spec.md par.2, review amendment A1):

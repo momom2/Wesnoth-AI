@@ -25,10 +25,10 @@ from tools.net2net import (                                  # noqa: E402
 from sim_test_helpers import fresh_scenario_sim              # noqa: E402
 
 
-def _pol(d_model=48, num_layers=2, num_heads=4, d_ff=96, aux=False):
+def _pol(d_model=48, num_layers=2, num_heads=4, d_ff=96):
     return TransformerPolicy(device=torch.device("cpu"), d_model=d_model,
                              num_layers=num_layers, num_heads=num_heads,
-                             d_ff=d_ff, aux_score=aux)
+                             d_ff=d_ff)
 
 
 def _aligned_clone(src_pol, dst_pol):
@@ -148,7 +148,7 @@ def test_grow_carries_optional_head_flags(tmp_path):
     """
     src_pol = TransformerPolicy(device=torch.device("cpu"), d_model=48,
                                 num_layers=2, num_heads=4, d_ff=96,
-                                aux_score=True, moves_left=True)
+                                moves_left=True)
     sim = fresh_scenario_sim(seed=21, max_turns=12, mini=True)
     src_pol._encoder.encode(sim.gs)
     src_p = tmp_path / "narrow.pt"

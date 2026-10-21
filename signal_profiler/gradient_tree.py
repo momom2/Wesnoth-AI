@@ -40,18 +40,13 @@ class _NoStepOptimizer:
 # read-only in the loss).
 _KILL_POLICY = {"policy_weight": 0.0}
 _KILL_VALUE = {"value_weight": 0.0}
-_KILL_AUX = {"aux_target": None}
 _KILL_ML = {"moves_left_target": None}
 _KILL_GBC = {"gbc_labels": None}
 
 TERM_SURGERY: Dict[str, Dict] = {
-    "policy_distill": {**_KILL_VALUE, **_KILL_AUX, **_KILL_ML,
-                       **_KILL_GBC},
-    "value_inbatch": {**_KILL_POLICY, **_KILL_AUX, **_KILL_ML,
-                      **_KILL_GBC},
-    "gbc": {**_KILL_POLICY, **_KILL_VALUE, **_KILL_AUX, **_KILL_ML},
-    "aux_margin": {**_KILL_POLICY, **_KILL_VALUE, **_KILL_ML,
-                   **_KILL_GBC},
+    "policy_distill": {**_KILL_VALUE, **_KILL_ML, **_KILL_GBC},
+    "value_inbatch": {**_KILL_POLICY, **_KILL_ML, **_KILL_GBC},
+    "gbc": {**_KILL_POLICY, **_KILL_VALUE, **_KILL_ML},
 }
 
 
@@ -63,7 +58,7 @@ def _is_ground(e) -> bool:
 def _kill_value_where(pred):
     """Per-experience surgery: zero value_weight where pred(e)."""
     def fn(e):
-        kw = {**_KILL_POLICY, **_KILL_AUX, **_KILL_ML, **_KILL_GBC}
+        kw = {**_KILL_POLICY, **_KILL_ML, **_KILL_GBC}
         if pred(e):
             kw = {**kw, **_KILL_VALUE}
         return kw
@@ -90,7 +85,6 @@ TERM_SURGERY_VG: Dict[str, object] = {
     "value_consist": _kill_value_where(
         lambda e: _kind(e) != "consist"),
     "gbc": TERM_SURGERY["gbc"],
-    "aux_margin": TERM_SURGERY["aux_margin"],
 }
 
 

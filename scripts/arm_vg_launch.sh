@@ -245,7 +245,6 @@ while [ $tries -lt 10 ]; do
         --mini-ratio 0 --midgame-ratio 0.2 --fogless-ratio 0.2 \
         --ladder-ratio 0.6 \
         --max-turns-min 60 \
-        --mcts-aux-score \
         --validate-export-every 1 \
         --value-label-smoothing 0.02 \
         --holdout-size 512 --holdout-per-game-cap 64 \

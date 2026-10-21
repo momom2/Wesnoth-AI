@@ -64,7 +64,7 @@ _ACTOR_KINDS = (ActorKind.UNIT, ActorKind.RECRUIT, ActorKind.END_TURN)
 _MASK_NAMES = ("actor_mask", "slot_kind", "n_attacks", "type_valid", "attack_bits", "move_bits",
                "union_bits")
 # The head outputs a reply carries, in byte_wire.REPLY_FIELDS's order.
-_REPLY_EXTRAS = ("value", "value_logits", "cliffness", "aux_score", "moves_left")
+_REPLY_EXTRAS = ("value", "value_logits", "cliffness", "moves_left")
 _TORCH_CODE = {torch.float32: _CODE[np.dtype(np.float32)], torch.float64: _CODE[np.dtype(np.float64)],
                torch.int32: _CODE[np.dtype(np.int32)], torch.int64: _CODE[np.dtype(np.int64)],
                torch.int8: _CODE[np.dtype(np.int8)], torch.uint8: _CODE[np.dtype(np.uint8)]}

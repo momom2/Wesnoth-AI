@@ -162,7 +162,6 @@ def compare(src_pol, dst_pol, states: List) -> Dict:
     dst_pol._inference_encoder.freeze_vocab()
 
     v_abs: List[float] = []
-    aux_abs: List[float] = []
     c51_kl: List[float] = []
     actor_kl: List[float] = []
 
@@ -173,10 +172,6 @@ def compare(src_pol, dst_pol, states: List) -> Dict:
             v_abs.append(float((o_s.value - o_d.value).abs().mean()))
             c51_kl.append(_kl(o_s.value_logits, o_d.value_logits))
             actor_kl.append(_kl(o_s.actor_logits, o_d.actor_logits))
-            a_s = getattr(o_s, "aux_score", None)
-            a_d = getattr(o_d, "aux_score", None)
-            if a_s is not None and a_d is not None:
-                aux_abs.append(float((a_s - a_d).abs().mean()))
 
     n = len(v_abs)
     out = {
@@ -187,9 +182,6 @@ def compare(src_pol, dst_pol, states: List) -> Dict:
         "c51_kl_nats": sum(c51_kl) / n if n else float("nan"),
         "actor_kl_nats": sum(actor_kl) / n if n else float("nan"),
     }
-    if aux_abs:
-        out["aux_mae"] = sum(aux_abs) / len(aux_abs)
-        out["aux_max"] = max(aux_abs)
     out["verdict"] = (
         "DROP-IN" if out["value_mae"] <= 2 * MAE_ACCEPTED_PRECEDENT else
         "NEEDS-FINETUNE" if out["value_mae"] < MAE_REJECTED_PRECEDENT else
@@ -262,16 +254,14 @@ def main(argv: List[str]) -> int:
 
     raw = torch.load(args.source, map_location="cpu", weights_only=True)
     src_arch = raw.get("arch", {}) or {}
-    aux = bool(raw.get("aux_score", False))
     # Optional heads must be reproduced or the "source" being measured is
     # a stripped model -- load_checkpoint only WARNS about unexpected keys.
     flags = {k: bool(raw.get(k, False))
              for k in ("moves_left", "relevant_set_hexes")}
-    log.info("source %s: arch=%s aux_score=%s %s decision_step=%s",
-             args.source.name, src_arch, aux, flags, raw.get("decision_step"))
+    log.info("source %s: arch=%s %s decision_step=%s",
+             args.source.name, src_arch, flags, raw.get("decision_step"))
 
-    src_pol = TransformerPolicy(device=torch.device("cpu"),
-                                aux_score=aux, **flags, **src_arch)
+    src_pol = TransformerPolicy(device=torch.device("cpu"), **flags, **src_arch)
     src_pol.load_checkpoint(args.source)
 
     states = collect_states(
@@ -291,9 +281,7 @@ def main(argv: List[str]) -> int:
         dflags = {k: bool(draw.get(k, False))
                   for k in ("moves_left", "relevant_set_hexes")}
         dst_pol = TransformerPolicy(
-            device=torch.device("cpu"),
-            aux_score=bool(draw.get("aux_score", False)),
-            **dflags, **darch)
+            device=torch.device("cpu"), **dflags, **darch)
         dst_pol.load_checkpoint(args.dest)
         row = {"arch": darch,
                "params_m": round(sum(
@@ -321,8 +309,7 @@ def main(argv: List[str]) -> int:
             d_head_dst = arch["d_model"] // arch["num_heads"]
             grown = Path(td) / f"grown_{spec.replace(',', '_')}.pt"
             grow_checkpoint(args.source, grown, **arch)   # carries the flags
-            dst_pol = TransformerPolicy(device=torch.device("cpu"),
-                                        aux_score=aux, **flags, **arch)
+            dst_pol = TransformerPolicy(device=torch.device("cpu"), **flags, **arch)
             dst_pol.load_checkpoint(grown)
             n_params = sum(p.numel() for p in dst_pol._model.parameters())
             row = {
