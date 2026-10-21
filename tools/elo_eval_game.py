@@ -101,7 +101,6 @@ def _side_procedure(args, side: str, sims: int) -> str:
         sims, getattr(args, f"plan_{side}"),
         args.no_turn_search or getattr(args, f"no_turn_search_{side}"),
         getattr(args, f"raw_temperature_{side}"), getattr(args, f"gumbel_root_{side}"),
-        raw_end_turn=getattr(args, f"raw_end_turn_{side}"),
         raw_end_turn_offset=getattr(args, f"raw_end_turn_offset_{side}"))
 
 
@@ -379,8 +378,7 @@ def _release_served_memories() -> None:
 
 def _remote_player(address: str, raw_temperature: float, raw_seed,
                    relevant_set: bool, infer_bf16: bool, infer_packed_trunk: bool,
-                   raw_end_turn: str = "joint", raw_end_turn_offset: float = 0.0,
-                   memory: Optional[int] = None):
+                   raw_end_turn_offset: float = 0.0, memory: Optional[int] = None):
     """The raw player over a shared inference server: a RemoteEncoder
     on the server's vocab with server-side priors, a RemoteModel
     behind the forward-counting proxy (its `fwd_secs` is the round
@@ -411,7 +409,6 @@ def _remote_player(address: str, raw_temperature: float, raw_seed,
     base = SimpleNamespace(_inference_model=counter, _inference_encoder=encoder,
                            _lock=threading.Lock(), _decision_step=0)
     return RawPolicyPlayer(base, raw_temperature, seed=raw_seed,
-                           end_turn_rule=raw_end_turn,
                            end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
 
 
@@ -495,7 +492,6 @@ def _build_player(spec: str, label: str, sims: int, device,
                   relevant_set: bool = False,
                   inference_address=None,
                   infer_packed_trunk: bool = False,
-                  raw_end_turn: str = "joint",
                   raw_end_turn_offset: float = 0.0,
                   memory: Optional[int] = None):
     """`raw_temperature`: sims == 0 only -- the joint-temperature raw
@@ -526,7 +522,7 @@ def _build_player(spec: str, label: str, sims: int, device,
     if inference_address is not None:
         return _remote_player(inference_address, raw_temperature, raw_seed,
                               relevant_set, infer_bf16, infer_packed_trunk,
-                              raw_end_turn, raw_end_turn_offset, memory)
+                              raw_end_turn_offset, memory)
     if memory is not None and infer_compile:
         raise SystemExit(f"{spec} has a memory, which a player keeps from one call to the next, and a "
                          f"compiled model may overwrite its outputs at its next call: play it with "
@@ -570,7 +566,6 @@ def _build_player(spec: str, label: str, sims: int, device,
     if raw_temperature is not None:
         from tools.raw_player import RawPolicyPlayer
         return RawPolicyPlayer(policy, raw_temperature, seed=raw_seed,
-                               end_turn_rule=raw_end_turn,
                                end_turn_offset=raw_end_turn_offset, memory_slots=memory), counter
     return policy, counter
 
@@ -661,14 +656,6 @@ def main(argv) -> int:
                          "mix within an outdir.")
     ap.add_argument("--raw-temperature-b", type=float, default=None,
                     help="Player B (see --raw-temperature-a).")
-    ap.add_argument("--raw-end-turn-a", choices=("joint", "actor"), default="joint",
-                    help="How the raw player A decides end_turn: 'joint' = the "
-                         "joint argmax/sample over every legal action; 'actor' = "
-                         "end_turn only when its actor mass leads every actor "
-                         "marginal, else the joint choice among non-end actions "
-                         "(tools/raw_player.py; procedure tag '+endm').")
-    ap.add_argument("--raw-end-turn-b", choices=("joint", "actor"), default="joint",
-                    help="Player B (see --raw-end-turn-a).")
     ap.add_argument("--raw-end-turn-offset-a", type=float, default=0.0,
                     help="Offset added to the raw player A's end_turn actor logit "
                          "before its choice (negative = against passing; procedure "
@@ -840,12 +827,10 @@ def main(argv) -> int:
             "--raw-temperature-a/-b apply to the raw player only (that "
             "side's sims must be 0); a silently ignored temperature "
             "would mislabel the measured object.")
-    for _side, _spec, _sims, _temp, _rule, _offset in (
-            ("a", args.spec_a, sims_a, args.raw_temperature_a, args.raw_end_turn_a,
-             args.raw_end_turn_offset_a),
-            ("b", args.spec_b, sims_b, args.raw_temperature_b, args.raw_end_turn_b,
-             args.raw_end_turn_offset_b)):
-        _why = end_turn_refusal(_side, _spec, _sims, _temp, _rule, _offset)
+    for _side, _spec, _sims, _temp, _offset in (
+            ("a", args.spec_a, sims_a, args.raw_temperature_a, args.raw_end_turn_offset_a),
+            ("b", args.spec_b, sims_b, args.raw_temperature_b, args.raw_end_turn_offset_b)):
+        _why = end_turn_refusal(_side, _spec, _sims, _temp, _offset)
         if _why is not None:
             raise SystemExit(_why)
     for _n, _spec in (("spec_a", args.spec_a),
@@ -1105,7 +1090,6 @@ def main(argv) -> int:
         relevant_set=basis_a == "relset",
         inference_address=args.inference_address_a,
         infer_packed_trunk=inf_packed,
-        raw_end_turn=args.raw_end_turn_a,
         raw_end_turn_offset=args.raw_end_turn_offset_a,
         memory=memory_a)
     pb, cnt_b = _build_player(
@@ -1119,7 +1103,6 @@ def main(argv) -> int:
         relevant_set=basis_b == "relset",
         inference_address=args.inference_address_b,
         infer_packed_trunk=inf_packed,
-        raw_end_turn=args.raw_end_turn_b,
         raw_end_turn_offset=args.raw_end_turn_offset_b,
         memory=memory_b)
 
@@ -1205,8 +1188,6 @@ def main(argv) -> int:
                           and (args.no_turn_search or args.no_turn_search_b) else None),
         "raw_temperature_a": args.raw_temperature_a,
         "raw_temperature_b": args.raw_temperature_b,
-        "raw_end_turn_a": args.raw_end_turn_a,
-        "raw_end_turn_b": args.raw_end_turn_b,
         "raw_end_turn_offset_a": args.raw_end_turn_offset_a,
         "raw_end_turn_offset_b": args.raw_end_turn_offset_b,
         # The horizon decides decisive-vs-absence, the quantity

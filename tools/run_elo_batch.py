@@ -541,13 +541,6 @@ def main(argv: List[str]) -> int:
                          "0 = argmax). Default None = legacy sampler.")
     ap.add_argument("--raw-temperature-b", type=float, default=None,
                     help="Player B (see --raw-temperature-a).")
-    ap.add_argument("--raw-end-turn-a", choices=("joint", "actor"), default="joint",
-                    help="Player A's end_turn decode (elo_eval_game "
-                         "--raw-end-turn-a): 'actor' = end_turn only when its "
-                         "actor mass leads every actor marginal. Procedure "
-                         "tag '+endm'.")
-    ap.add_argument("--raw-end-turn-b", choices=("joint", "actor"), default="joint",
-                    help="Player B (see --raw-end-turn-a).")
     ap.add_argument("--raw-end-turn-offset-a", type=float, default=0.0,
                     help="Offset on player A's end_turn actor logit (procedure "
                          "tag '+eo<x>').")
@@ -756,7 +749,6 @@ def main(argv: List[str]) -> int:
     for _side, _spec, _sims, _temp in (("a", args.spec_a, sims_a, args.raw_temperature_a),
                                        ("b", args.spec_b, sims_b, args.raw_temperature_b)):
         _why = end_turn_refusal(_side, _spec, _sims, _temp,
-                                getattr(args, f"raw_end_turn_{_side}"),
                                 getattr(args, f"raw_end_turn_offset_{_side}"))
         if _why is not None:
             ap.error(_why)
@@ -927,7 +919,6 @@ def main(argv: List[str]) -> int:
     want = tuple(procedure_of(sims, getattr(args, f"plan_{side}"),
                               args.no_turn_search or getattr(args, f"no_turn_search_{side}"),
                               getattr(args, f"raw_temperature_{side}"), getattr(args, f"gumbel_root_{side}"),
-                              raw_end_turn=getattr(args, f"raw_end_turn_{side}"),
                               raw_end_turn_offset=getattr(args, f"raw_end_turn_offset_{side}"))
                  for side, sims in (("a", sims_a), ("b", sims_b)))
     # Hex-basis pre-scan (see BASES): per-process bases are read from
@@ -1209,10 +1200,7 @@ def main(argv: List[str]) -> int:
         if args.raw_temperature_b is not None:
             cmd += ["--raw-temperature-b", str(args.raw_temperature_b)]
         for side in ("a", "b"):
-            rule = getattr(args, f"raw_end_turn_{side}")
             offset = getattr(args, f"raw_end_turn_offset_{side}")
-            if rule != "joint":
-                cmd += [f"--raw-end-turn-{side}", rule]
             if offset:
                 cmd += [f"--raw-end-turn-offset-{side}", str(offset)]
             memory = getattr(args, f"memory_{side}")

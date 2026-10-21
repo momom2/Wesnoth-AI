@@ -82,8 +82,6 @@ def batch_flags(side: str, ref: dict | None = None) -> list[str]:
     flags = [f"--label-{side}", ref["label"], f"--spec-{side}", ref["checkpoint_local"]]
     if ref.get("memory_slots"):
         flags += [f"--memory-{side}", str(int(ref["memory_slots"]))]
-    if d.get("raw_end_turn", "joint") != "joint":
-        flags += [f"--raw-end-turn-{side}", str(d["raw_end_turn"])]
     if d.get("raw_end_turn_offset"):
         flags += [f"--raw-end-turn-offset-{side}", str(d["raw_end_turn_offset"])]
     return flags

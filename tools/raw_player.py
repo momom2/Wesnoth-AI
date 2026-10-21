@@ -33,9 +33,6 @@ from wesnoth_ai.memory import MemoryState
 from wesnoth_ai.stage_timing import stage
 
 
-END_TURN_RULES = ("joint", "actor")
-
-
 def shift_end_turn_prior(priors: np.ndarray, is_end: np.ndarray, offset: float) -> np.ndarray:
     """The joint priors after adding `offset` to the end_turn ACTOR
     logit, exactly: end_turn's prior is its actor mass p, and the other
@@ -56,30 +53,6 @@ def shift_end_turn_prior(priors: np.ndarray, is_end: np.ndarray, offset: float) 
     out[is_end] *= p_new / p_end
     out[~is_end] *= (1.0 - p_new) / (1.0 - p_end)
     return out
-
-
-def actor_rule_index(priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray,
-                     temperature: float, rng: np.random.Generator) -> int:
-    """end_turn decided at the ACTOR level: play it only when its actor
-    mass is at least the largest actor marginal (the sum of the joint
-    priors over one unit's or recruit slot's legal actions); otherwise
-    choose among the non-end actions by `pick_index`. The joint argmax
-    compares end_turn's whole actor mass against four-way products,
-    so it ends the turn whenever the act mass is spread over several
-    units (panel test 1)."""
-    if not is_end.any():
-        return pick_index(priors, temperature, rng)
-    end_idx = int(np.flatnonzero(is_end)[0])
-    acting = np.flatnonzero(~is_end)
-    if len(acting) == 0:
-        return end_idx
-    marginal = {}
-    for i in acting:
-        a = int(actors[i])
-        marginal[a] = marginal.get(a, 0.0) + float(priors[i])
-    if float(priors[is_end].sum()) >= max(marginal.values()):
-        return end_idx
-    return int(acting[pick_index(priors[acting], temperature, rng)])
 
 
 def pick_index(priors: np.ndarray, temperature: float,
@@ -117,21 +90,16 @@ class RawPolicyPlayer:
 
     def __init__(self, base, temperature: float,
                  seed: Optional[int] = None, forbid_end_turn: bool = False,
-                 compact_selection: bool = True, end_turn_rule: str = "joint",
+                 compact_selection: bool = True,
                  end_turn_offset: float = 0.0, memory_slots: Optional[int] = None):
         if temperature < 0.0:
             raise ValueError("temperature must be >= 0 (0 = argmax)")
-        if end_turn_rule not in END_TURN_RULES:
-            raise ValueError(f"end_turn_rule must be one of {END_TURN_RULES}")
         self._base = base
         self.temperature = float(temperature)
         self._rng = np.random.default_rng(seed)
-        # How end_turn is decided (panel test 1): "joint" = the joint
-        # argmax or sample over every legal action; "actor" = end_turn
-        # only when its actor mass leads every actor marginal
-        # (actor_rule_index). `end_turn_offset` shifts end_turn's actor
-        # logit before either (shift_end_turn_prior).
-        self.end_turn_rule = end_turn_rule
+        # end_turn is one legal action among the others of the joint
+        # argmax or sample; `end_turn_offset` shifts its actor logit
+        # before the choice (shift_end_turn_prior).
         self.end_turn_offset = float(end_turn_offset)
         # The continue-edit proposer of tools/turn_gap.py: keep acting
         # while any non-end action is legal (end_turn only when nothing
@@ -170,15 +138,13 @@ class RawPolicyPlayer:
             if len(acting):
                 idx = acting
         priors = np.asarray(compact.prior, dtype=np.float64)[idx]
-        pick = self._choose(priors, np.asarray(compact.actor)[idx],
-                            np.asarray(compact.kind)[idx] == KIND_END_TURN)
+        pick = self._choose(priors, np.asarray(compact.kind)[idx] == KIND_END_TURN)
         return compact_action(compact, int(idx[pick]), encoded)
 
-    def _choose(self, priors: np.ndarray, actors: np.ndarray, is_end: np.ndarray) -> int:
-        """The index chosen among `priors` under the player's rule."""
+    def _choose(self, priors: np.ndarray, is_end: np.ndarray) -> int:
+        """The index chosen among `priors` at the player's temperature,
+        after the end_turn offset."""
         priors = shift_end_turn_prior(priors, is_end, self.end_turn_offset)
-        if self.end_turn_rule == "actor":
-            return actor_rule_index(priors, actors, is_end, self.temperature, self._rng)
         return pick_index(priors, self.temperature, self._rng)
 
     def select_action(self, game_state, *, game_label: str = "default",
@@ -202,9 +168,8 @@ class RawPolicyPlayer:
             acting = [la for la in legal if la.action.get("type") != "end_turn"]
             legal = acting or legal
         priors = np.array([la.prior for la in legal], dtype=np.float64)
-        actors = np.array([la.actor_idx for la in legal], dtype=np.int64)
         is_end = np.array([la.action.get("type") == "end_turn" for la in legal])
-        return legal[self._choose(priors, actors, is_end)].action
+        return legal[self._choose(priors, is_end)].action
 
     def _forward(self, base, encoded, game_label: str, game_state):
         """The model's output, the side's memory read and written when the
