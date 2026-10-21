@@ -2,7 +2,6 @@
 written by elo_eval_game and run_elo_batch under --log-decisions."""
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -12,35 +11,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from tools.decision_log import ENTRY_KEYS  # noqa: E402
+from tests.helpers.selfplay_games import selfplay_game, tiny_checkpoint  # noqa: E402
 
 
 def _checkpoint(tmp_path: Path) -> str:
-    import torch
-    from wesnoth_ai.transformer_policy import TransformerPolicy
-    torch.manual_seed(1)
-    path = tmp_path / "net.pt"
-    TransformerPolicy(device=torch.device("cpu"), d_model=32, num_layers=1, num_heads=2,
-                      d_ff=64).save_checkpoint(path)
-    return str(path)
-
-
-def _game(spec: str, out: Path, *extra: str):
-    """One temperature-1 self-play game of `spec` on both seats; (result,
-    record)."""
-    from tools.elo_eval_game import main
-    from tools.game_record import read_records
-    assert main(["x", "A", spec, "B", spec, "1", "7", str(out), "--mcts-sims", "0",
-                 "--raw-temperature-a", "1", "--raw-temperature-b", "1", "--max-turns", "2",
-                 "--device", "cpu", *extra]) == 0
-    result = json.loads((out / "game_A_B_s1_7.json").read_text(encoding="utf-8"))
-    (record,) = list(read_records(out / "game_A_B_s1_7.game.jsonl.gz"))
-    return result, record
+    return tiny_checkpoint(tmp_path / "net.pt")
 
 
 def test_the_record_carries_the_log_only_when_asked_and_the_game_is_the_same(tmp_path):
     spec = _checkpoint(tmp_path)
-    r0, rec0 = _game(spec, tmp_path / "off")
-    r1, rec1 = _game(spec, tmp_path / "on", "--log-decisions")
+    r0, rec0 = selfplay_game(spec, tmp_path / "off", 7)
+    r1, rec1 = selfplay_game(spec, tmp_path / "on", 7, 1, "--log-decisions")
     assert "decisions" not in rec0 and r0["decisions_logged"] is False
     assert r1["decisions_logged"] is True
     assert rec1["commands"] == rec0["commands"] and rec1["final_digest"] == rec0["final_digest"]
