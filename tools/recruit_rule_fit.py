@@ -470,6 +470,21 @@ def reproduction(rows: Rows) -> dict:
     return {**got, "progressive": {f"{k:g}": v for k, v in loss.items()}, "pass": bool(ok)}
 
 
+def input_digests(records: Path, matches: Sequence[str]) -> Dict[str, str]:
+    """The SHA-256 of each input file R0 read (the games and the luck walk of each match)."""
+    import hashlib
+    out = {}
+    for m in matches:
+        for p in (records / f"games_{m}.tar.gz", records / f"rows_{m}.jsonl"):
+            if p.is_file():
+                h = hashlib.sha256()
+                with open(p, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(chunk)
+                out[p.name] = h.hexdigest()
+    return out
+
+
 def code_commit() -> dict:
     root = Path(__file__).resolve().parent.parent
     def git(*a):
@@ -552,7 +567,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(text)
     args.out.mkdir(parents=True, exist_ok=True)
     data = {"rule": rule, "hash": h, "provenance": {
-        **code_commit(), "tool": "tools/recruit_rule_fit.py", "records": args.records.as_posix(), "matches": matches,
+        **code_commit(), "tool": "tools/recruit_rule_fit.py", "records": args.records.resolve().as_posix(),
+        "inputs_sha256": input_digests(args.records, matches), "matches": matches,
         "beta": args.beta.as_posix(), "rows": readout["rows"], "decisive_games": rows.side_games // 2,
         "readout": f"{stem}_readout.json"}}
     (args.out / f"{stem}.json").write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
