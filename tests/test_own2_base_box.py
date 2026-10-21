@@ -1,14 +1,17 @@
 """scripts/own2_base_box.sh's sides and match, run by bash with the box
-library stubbed (no box, GPU or HF) and the real reference flags: `own2` on
-side A and the reference `own1` on side B reach the match driver at 64
-slots under the reference decode, with the declared seed base and game
-count; a short attempt is played once more, its fit cleared first; a match
-that fails or is cut records why; an attempt's budget is what the dead-man's
-switch leaves; a re-entry with the games complete only fits and reads them,
-and the reading applies the pre-registered rule."""
+library stubbed (no box, GPU or HF) and the real reference tool reading
+the reference the match was run against, `own1`: `own2` on side A and
+`own1` on side B reach the match driver at 64 slots under the reference
+decode, with the declared seed base and game count; a short attempt is
+played once more, its fit cleared first; a match that fails or is cut
+records why; an attempt's budget is what the dead-man's switch leaves; a
+re-entry with the games complete only fits and reads them, and the reading
+applies the pre-registered rule. Under any other reference the script
+plays nothing."""
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -21,6 +24,16 @@ from helpers.posix_bash import bash_path, find_bash
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "own2_base_box.sh"
 REFERENCE = json.loads((ROOT / "configs" / "reference_player.json").read_text(encoding="utf-8"))
+# The reference the match was pre-registered and run against (2026-10-20):
+# `own1`, as configs/reference_player.json named it from 2026-10-11 to
+# 2026-10-21.
+OWN1_REFERENCE = {
+    "label": "own1", "checkpoint_local": "training/checkpoints/own1.pt",
+    "checkpoint_hf": "tier-b/memory_own_trajectories_20261011/own.pt",
+    "checkpoint_sha256": "70925e770d43496e3ea8f9523656f201b71ada228a0362b0eb0a600c8c107f80",
+    "hf_repo": "momom2/wesnoth-model-checkpoints", "memory_slots": 64,
+    "decode": {"mcts_sims": 0, "raw_temperature": 0.0, "raw_end_turn": "joint", "raw_end_turn_offset": -1.5},
+    "procedure_tag": "raw:t0+eo-1.5", "adopted": "2026-10-11"}
 BASH = find_bash()
 pytestmark = pytest.mark.skipif(BASH is None, reason="no POSIX bash")
 
@@ -85,7 +98,22 @@ def _block(begin: str, end: str) -> str:
     return text[text.index(begin):text.index(end)]
 
 
-def _run(tmp_path: Path, games_done: int = 0, deadline_min: float | None = None, **env) -> dict:
+def _checkout(tmp_path: Path, reference: dict) -> Path:
+    """A checkout whose configs/reference_player.json is `reference`: the
+    config, and the real tools/reference_player.py with the package module
+    it imports, which is all of the repository the blocks run here read."""
+    root = tmp_path / "checkout"
+    for rel in ("tools/reference_player.py", "wesnoth_ai/__init__.py", "wesnoth_ai/paths.py"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / rel, root / rel)
+    (root / "configs").mkdir()
+    (root / "configs" / "reference_player.json").write_text(json.dumps(reference), encoding="utf-8")
+    return root
+
+
+def _run(tmp_path: Path, games_done: int = 0, deadline_min: float | None = None,
+         reference: dict = OWN1_REFERENCE, **env) -> dict:
+    checkout = _checkout(tmp_path, reference)
     out = tmp_path / "out"
     (out / "tmp").mkdir(parents=True)
     fake = tmp_path / "fake.py"
@@ -100,7 +128,7 @@ def _run(tmp_path: Path, games_done: int = 0, deadline_min: float | None = None,
     settings = "\n".join(f"{k}='{v}'" for k, v in env.items())
     script = f"""set -uo pipefail
 export PATH="{bash_path(Path(sys.executable).parent)}:/usr/bin:$PATH"
-cd "{bash_path(ROOT)}" || exit 9
+cd "{bash_path(checkout)}" || exit 9
 OUT="{bash_path(out)}" BOX_OUT="{bash_path(out)}" STAGE=stage_test FAKE="{bash_path(fake)}"
 export STUB_COUNTER="{bash_path(tmp_path / 'attempts')}"
 BOX_RC=0 BOX_WHY=ok
@@ -129,8 +157,8 @@ OWN2_PT=/workspace/own2.pt
 
 
 def _side(side: str, label: str, spec: str) -> str:
-    return (f"--label-{side} {label} --spec-{side} {spec} --memory-{side} {REFERENCE['memory_slots']} "
-            f"--raw-end-turn-offset-{side} {REFERENCE['decode']['raw_end_turn_offset']}")
+    return (f"--label-{side} {label} --spec-{side} {spec} --memory-{side} {OWN1_REFERENCE['memory_slots']} "
+            f"--raw-end-turn-offset-{side} {OWN1_REFERENCE['decode']['raw_end_turn_offset']}")
 
 
 def test_own2_plays_the_reference_at_its_decode_and_the_fit_is_read(tmp_path):
@@ -140,7 +168,7 @@ def test_own2_plays_the_reference_at_its_decode_and_the_fit_is_read(tmp_path):
     match, fit = got["steps"]
     assert match.startswith("match own2_vs_own1 cut=195 python tools/run_elo_batch.py "
                             f"{_side('a', 'own2', '/workspace/own2.pt')} "
-                            f"{_side('b', REFERENCE['label'], REFERENCE['checkpoint_local'])} "), match
+                            f"{_side('b', 'own1', 'training/checkpoints/own1.pt')} "), match
     for flags in ("--games 40 --max-extra-games 750 --seed-base 300000",
                   "--mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0",
                   "--persistent-workers --shared-inference --no-infer-compile --device cuda --jobs 20",
@@ -201,3 +229,14 @@ def test_a_re_entry_with_complete_games_only_fits_and_applies_the_rule(tmp_path,
     reading = got["reading"]
     assert reading["base"] == base and reading["agrees_with_record"] is inside
     assert f"base {base}" in got["finish"] and ("OUTSIDE" in got["finish"]) is not inside
+
+
+def test_under_the_live_reference_the_record_plays_nothing(tmp_path):
+    """The reference moved on from `own1` (configs/reference_player.json):
+    the script refuses before any match, so a re-run cannot play `own2`
+    against another checkpoint under this match's name."""
+    assert REFERENCE["label"] != "own1"
+    got = _run(tmp_path, reference=REFERENCE, GAMES=40)
+    assert got["rc"] == 1 and not got["steps"], (got["steps"], got["stderr"][-2000:])
+    assert got["finish"] == (f"REFERENCE_CHANGED: configs/reference_player.json names {REFERENCE['label']}; "
+                             "this match measures own2 against own1")
