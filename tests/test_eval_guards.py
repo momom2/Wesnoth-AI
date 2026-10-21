@@ -328,21 +328,6 @@ def test_leaf_batch_mismatch_refused(tmp_path):
               "--no-turn-search", "--device", "cpu", "--infer-bf16"])
 
 
-def test_collect_skips_stateless_absences_in_material(tmp_path):
-    """Round-32 C5: a timeout_kill artifact carries margin_a null;
-    the MATERIAL diagnostic must skip it, not count a phantom
-    draw at margin 0.0."""
-    from tools.elo_collect import build_pairs
-    games = ([{"label_a": "A", "label_b": "B", "outcome_a": "win",
-               "margin_a": 0.5}] * 2
-             + [{"label_a": "A", "label_b": "B",
-                 "outcome_a": "timeout_kill", "margin_a": None}] * 3)
-    labels, pure, mat, nores = build_pairs(games, eps=0.02)
-    rec = mat[(0, 1)]
-    assert (rec.wins_i + rec.wins_j + rec.draws) == 2
-    assert nores[(0, 1)] == 3
-
-
 def test_a_checkpoint_whose_arch_does_not_load_is_refused(tmp_path):
     """A checkpoint whose arch record lacks a dimension builds the model
     at the default for it, and loading then meets an arch mismatch. The

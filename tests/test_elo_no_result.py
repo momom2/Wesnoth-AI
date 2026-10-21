@@ -19,23 +19,18 @@ from tools.run_elo_batch import (                        # noqa: E402
 )
 
 
-def _g(outcome, a="new", b="old", margin=0.0):
-    return {"label_a": a, "label_b": b, "outcome_a": outcome,
-            "margin_a": margin}
+def _g(outcome, a="new", b="old"):
+    return {"label_a": a, "label_b": b, "outcome_a": outcome}
 
 
 def test_build_pairs_excludes_no_result_from_pure():
     games = ([_g("win")] * 6 + [_g("loss")] * 2
-             + [_g("draw", margin=0.4)] * 5      # capped, A ahead
-             + [_g("timeout", margin=-0.4)])     # capped, B ahead
-    labels, pure, mat, nores = build_pairs(games, eps=0.02)
+             + [_g("draw")] * 5 + [_g("timeout")])     # capped
+    labels, pure, nores = build_pairs(games)
     (rec,) = pure.values()
     # PURE: only the 8 decisive games; zero draws ever.
     assert (rec.wins_i, rec.draws, rec.wins_j) == (6, 0, 2)
     assert nores[(0, 1)] == 6
-    # MATERIAL-SIGN diagnostic still adjudicates the absences.
-    (mrec,) = mat.values()
-    assert (mrec.wins_i, mrec.draws, mrec.wins_j) == (11, 0, 3)
 
 
 def test_catalog_edge_records_absences_and_fit_ignores_them(tmp_path):
