@@ -1,0 +1,44 @@
+[per game]
+  positions a game 460.8; train 0.312 s (5.001e-05 $); encode 0.0658 s (1.055e-05 $, serial); generation 2.598e-05 $
+  all-in a trained game 8.654e-05 $ (generation share 0.30); without the serial encode 7.599e-05 $
+  at $0.42/h 6.299e-05 $
+  wall a game in the serial loop 0.533 s
+
+[batch] B* = sqrt(B_noise * c_step / c_game) minimises the cost of reaching a loss under
+  McCandlish et al.'s (S/S_min - 1)(E/E_min - 1) = 1 with B_crit = B_noise; c in seconds of the serial loop
+  c_step 69 s: Bn   1,000: B*    360 (overhead 0.26); Bn   3,000: B*    623 (overhead 0.17); Bn  11,593: B*  1,225 (overhead 0.10); Bn  30,000: B*  1,971 (overhead 0.06); Bn 100,000: B*  3,599 (overhead 0.03)
+  c_step 159 s: Bn   1,000: B*    546 (overhead 0.35); Bn   3,000: B*    946 (overhead 0.24); Bn  11,593: B*  1,860 (overhead 0.14); Bn  30,000: B*  2,992 (overhead 0.09); Bn 100,000: B*  5,463 (overhead 0.05)
+  c_step 249 s: Bn   1,000: B*    684 (overhead 0.41); Bn   3,000: B*  1,184 (overhead 0.28); Bn  11,593: B*  2,328 (overhead 0.17); Bn  30,000: B*  3,744 (overhead 0.11); Bn 100,000: B*  6,836 (overhead 0.06)
+  relative cost at B = r B* (Bn 11,593, c_step 159 s): r 0.25: 1.27; r 0.5: 1.06; r 1: 1.00; r 2: 1.06; r 4: 1.27; r 10: 1.97
+
+[budget]
+  $81.44 buys 941,103 trained games at $0.577/h, 1,292,896 at $0.42/h
+  S0: 40,000 games 1.04; gradient pass 2.00; gap match 6,400 two-network 0.57; offset match 6,400 one-network 0.17; total 3.77
+  S1: three 12,800-game two-network matches 3.40
+  S2: 10 steps of 2,000 games 1.99
+  S3: 100,000 games, 50 step overheads, two claims 12.19
+  left after S3 60.09: 694,406 trained games before claims
+  claim match 12,800 decisive games: 1.13 $, SE 3.07 Elo
+
+[trust-region bounds] TRPO's J(pi') >= L(pi') - C max KL, C = 4 eps gamma / (1 - gamma)^2
+  horizon 230: C 4.25e+05; the bound certifies anything only if max KL < 4.7e-06 nats a decision
+  horizon 461: C 1.7e+06; the bound certifies anything only if max KL < 1.2e-06 nats a decision
+  moving one binary choice from 0.50 to 0.51: KL 2.00e-04 nats
+
+[value baseline] residual of z after the seed's value head, 4 x Brier against Var(z) = 1, by bucket
+  turns 1-5: states 3679, factor 0.992
+  turns 6-10: states 2869, factor 0.804
+  turns 11-15: states 1482, factor 0.699
+  turns 16-20: states 645, factor 0.609
+  turns 21-30: states 343, factor 0.717
+  turns 31+: states 149, factor 0.373
+  state-weighted factor 0.838: 1.19x effective games
+
+[end_turn check]
+  slope SE <= 0.0158 z per logit; forecast of the -1.5 offset SE <= 8.3 Elo; 6,400-game match SE 4.34 Elo; difference SE <= 9.3 Elo
+
+[misc]
+  Elo per unit of mean result near 0: 347.4; 1 Elo = 0.00288 z
+  winners-only imitation (reward 1[win], baseline 0) against +-1: E[(y-b)^2] at p 0.5: 0.50 against 0.25, twice the variance
+  post: small batch 0.933B tokens in 2,372 steps; fresh 50M x 350 = 17.5B tokens: 18.8x the data for 6.8x fewer steps
+  luck walk 0.0094 s of wall a game on 31 cores (107 games a second)

@@ -1,0 +1,17 @@
+games: 60000; factions 6, scenarios 21; columns ['hp', 'material', 'material_nonterminal', 'terminal', 'value_50', 'value_100', 'value_200']
+  fit b01-b03, read b00+b04-b06: base 0.6985; fa 0.6984 (lambda 10000, gain +0.0001 +- 0.0001); fb 0.6984 (lambda 10000, gain +0.0001 +- 0.0001); map 0.6980 (lambda 10000, gain +0.0005 +- 0.0001); all 0.6978 (lambda 10000, gain +0.0006 +- 0.0002)
+  fit b00+b04-b06, read b01-b03: base 0.6991; fa 0.6990 (lambda 10000, gain +0.0001 +- 0.0001); fb 0.6990 (lambda 10000, gain +0.0001 +- 0.0001); map 0.6986 (lambda 10000, gain +0.0006 +- 0.0001); all 0.6983 (lambda 10000, gain +0.0008 +- 0.0002)
+pooled over the two folds (games-weighted residual share; gain = base share - extension share):
+  base  0.6988
+  fa    0.6987   gain +0.0001 +- 0.0001
+  fb    0.6987   gain +0.0001 +- 0.0001
+  map   0.6983   gain +0.0005 +- 0.0001
+  all   0.6981   gain +0.0007 +- 0.0002
+
+per faction of A, OLS of z on [1, S] (raw units), the terminal and value_50 coefficients:
+  Drakes             n   9991  terminal +1.1015 +- 0.3831  value_50 +0.5941 +- 0.1205
+  Knalgan Alliance   n  10000  terminal +0.4528 +- 0.2873  value_50 +0.4830 +- 0.0969
+  Loyalists          n  10079  terminal +0.3326 +- 0.4000  value_50 +0.5428 +- 0.1093
+  Northerners        n   9811  terminal +0.4002 +- 0.3264  value_50 +0.5375 +- 0.1052
+  Rebels             n  10014  terminal +0.3390 +- 0.3539  value_50 +0.5859 +- 0.1124
+  Undead             n  10105  terminal +0.5862 +- 0.3134  value_50 +0.4015 +- 0.1061

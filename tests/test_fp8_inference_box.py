@@ -80,7 +80,7 @@ box_bounded() {                  # box_bounded NAME CUT_MIN LOG CMD...
 import json, pathlib, sys
 out, games, wins, b = pathlib.Path(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4] == "true"
 for i in range(games):
-    (out / f"game_own1fp8_own1_s1_{i}.json").write_text(json.dumps(
+    (out / f"game_reffp8_ref_s1_{i}.json").write_text(json.dumps(
         {"outcome_a": "win" if i < wins else "loss", "infer_fp8_a": True, "infer_fp8_b": b,
          "forwards_a": 200, "forwards_b": 210}))
 for tag, fp8 in (("0", True), ("1", b)):
@@ -90,7 +90,7 @@ EOF
                 BOX_RC=1 BOX_WHY=failed
             fi ;;
         "fit play")
-            printf '{"tables": {"PURE (decisive only, primary)": {"own1fp8": {"elo": 0.0, "se": 0.0}, "own1": {"elo": %s, "se": 6.1}}}}\n' \
+            printf '{"tables": {"PURE (decisive only, primary)": {"reffp8": {"elo": 0.0, "se": 0.0}, "ref": {"elo": %s, "se": 6.1}}}}\n' \
                 "${PLAY_ELO_B:-0.0}" > "$(arg_of --save-json "$@")" ;;
         summary|"read play") "$@" >> "$OUT/$log" 2>&1 || BOX_RC=$? ;;
     esac
@@ -116,8 +116,8 @@ OUT="{bash_path(out)}" WORKDIR="{bash_path(work)}" BOX_STATE="{bash_path(state)}
 JOBS=120 GAMES=400 GAMES_PER_JOB=5 SEED_BASE=130000 PLAY_SEED_BASE=140000 PLAY_GAMES=40 PLAY_EXTRA=1500
 TIMELINE_S=5 PROFILE_BATCHES=40 PROFILE_AFTER=400 VALID_SPREAD=0.05 ARM_CUT_MIN=30 MATCH_BUDGET_MIN=22
 PLAY_BUDGET_MIN=45 PLAY_CUT_MIN=70 REF_PT=own1.pt
-SIDE_A=(--label-a own1a) SIDE_B=(--label-b own1b --memory-b 64)
-PLAY_A=(--label-a own1fp8) PLAY_B=(--label-b own1 --memory-b 64)
+SIDE_A=(--label-a refa) SIDE_B=(--label-b refb --memory-b 64)
+PLAY_A=(--label-a reffp8) PLAY_B=(--label-b ref --memory-b 64)
 BOX_RC=0 BOX_WHY=ok
 {env}
 {STUBS}

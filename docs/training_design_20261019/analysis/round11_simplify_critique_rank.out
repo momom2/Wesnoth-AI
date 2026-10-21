@@ -1,0 +1,11 @@
+R43: n 60000; tr Sigma 7.6755e+01; tr Sigma^2 3.1144e+02; r_eff 18.92
+  |G|^2 6.6209e-03; B_simple 11,593
+  SD(U) under G = 0 4.1596e-04; signal term 1.5966e-03; combined 1.6499e-03 (jackknife SE printed by the noise script 1.6015e-03)
+  z by formula 4.01 (jackknife 4.13); (n / B) sqrt(r_eff / 2) = 15.92
+  top eigenvalue shares of Sigma: 0.093, 0.090, 0.089, 0.083, 0.067
+  z against a sign-flip (G = 0) null: 15.92; against the full SE: 4.01
+
+Derived: z of S0's gate at n = 40,000 under G = 0's SD, z = (n / B) sqrt(r_eff / 2)
+  B_simple    10,000: r_eff      1: z   2.83; r_eff    100: z  28.28; r_eff 10,000: z 282.84
+  B_simple   100,000: r_eff      1: z   0.28; r_eff    100: z   2.83; r_eff 10,000: z  28.28
+  B_simple 1,000,000: r_eff      1: z   0.03; r_eff    100: z   0.28; r_eff 10,000: z   2.83

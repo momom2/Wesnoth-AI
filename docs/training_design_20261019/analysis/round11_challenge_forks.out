@@ -1,0 +1,32 @@
+candidates 966, positions 199, playouts 28
+
+== baseline from obs8's value_reference
+raw: one playout 0.928 = within 0.608 + var(V) 0.320; value head misses 0.192 of var(V) (explains 0.40 of it)
+  label noise: no baseline 0.928; value-head baseline 0.800; exact V 0.608
+  K  2: post-fork 1.216 (gain over value head 0.66x); decision just before the fork 0.496 (gain 1.61x)
+  K  4: post-fork 0.811 (gain over value head 0.99x); decision just before the fork 0.344 (gain 2.33x)
+  K  8: post-fork 0.695 (gain over value head 1.15x); decision just before the fork 0.268 (gain 2.98x)
+  K 16: post-fork 0.648 (gain over value head 1.23x); decision just before the fork 0.230 (gain 3.48x)
+luck-corrected: one playout 0.854 = within 0.534 + var(V) 0.320; value head misses 0.192 of var(V) (explains 0.40 of it)
+  label noise: no baseline 0.854; value-head baseline 0.725; exact V 0.534
+  K  2: post-fork 1.067 (gain over value head 0.68x); decision just before the fork 0.459 (gain 1.58x)
+  K  4: post-fork 0.712 (gain over value head 1.02x); decision just before the fork 0.325 (gain 2.23x)
+  K  8: post-fork 0.610 (gain over value head 1.19x); decision just before the fork 0.259 (gain 2.81x)
+  K 16: post-fork 0.569 (gain over value head 1.27x); decision just before the fork 0.225 (gain 3.22x)
+
+== baseline from obs8's value_post
+raw: one playout 0.928 = within 0.608 + var(V) 0.320; value head misses 0.252 of var(V) (explains 0.21 of it)
+  label noise: no baseline 0.928; value-head baseline 0.860; exact V 0.608
+  K  2: post-fork 1.216 (gain over value head 0.71x); decision just before the fork 0.556 (gain 1.55x)
+  K  4: post-fork 0.811 (gain over value head 1.06x); decision just before the fork 0.404 (gain 2.13x)
+  K  8: post-fork 0.695 (gain over value head 1.24x); decision just before the fork 0.328 (gain 2.62x)
+  K 16: post-fork 0.648 (gain over value head 1.33x); decision just before the fork 0.290 (gain 2.97x)
+luck-corrected: one playout 0.854 = within 0.534 + var(V) 0.320; value head misses 0.252 of var(V) (explains 0.21 of it)
+  label noise: no baseline 0.854; value-head baseline 0.785; exact V 0.534
+  K  2: post-fork 1.067 (gain over value head 0.74x); decision just before the fork 0.519 (gain 1.51x)
+  K  4: post-fork 0.712 (gain over value head 1.10x); decision just before the fork 0.385 (gain 2.04x)
+  K  8: post-fork 0.610 (gain over value head 1.29x); decision just before the fork 0.319 (gain 2.47x)
+  K 16: post-fork 0.569 (gain over value head 1.38x); decision just before the fork 0.285 (gain 2.75x)
+bootstrap (luck-corrected, value_reference): K 8 post-fork gain 95% 1.13 to 1.25
+bootstrap (luck-corrected, value_reference): K 8 pre-fork gain 95% 2.58 to 3.08
+bootstrap (luck-corrected, value_reference): value head share of var(V) 95% 0.29 to 0.51

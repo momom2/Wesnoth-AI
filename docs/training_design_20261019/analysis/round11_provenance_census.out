@@ -1,0 +1,8 @@
+1. own2 v own1 at raw:t0+eo-1.5: games 6402, not ended by a leader kill 2
+   decisions per game mean 475.7 (SE 3.2), quartiles [304.0, 421.0, 576.0]
+   decisions per side-game mean 237.9; side-turns per side-game mean 20.16; decisions per side-turn 11.80
+   turns per game mean 20.91, quartiles [14.0, 19.0, 24.0]
+   decisions by kind: move 0.579, attack 0.237, recruit 0.099, end_turn 0.085
+2. own1 coin self-play, side-games 20000: band decisions per side-game 78.2
+   lower bound on argmax departures per side-game at temperature 1 (band only): mean 36.0 (SE 0.15), quartiles [21.9, 31.3, 44.6]
+   as a share of the side-game's decisions (census of section 1): 0.151

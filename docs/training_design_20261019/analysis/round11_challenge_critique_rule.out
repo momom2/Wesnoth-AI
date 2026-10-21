@@ -1,0 +1,39 @@
+[the gate: P(rule moves) = Phi(zG - 2), at every radius]
+  zG 1: 0.159
+  zG 2: 0.500
+  zG 3: 0.841
+  zG 5: 0.999
+
+[12 rounds, stationary a and C: mean share of the best gain; share of rounds the rule moved]
+  F1    5 Elo, zG 1: k0 0.0625: share 0.437 (moved 0.16); k0 0.0100: share 0.206 (moved 0.16)
+  F1    5 Elo, zG 2: k0 0.0625: share 0.487 (moved 0.50); k0 0.0100: share 0.275 (moved 0.50)
+  F1    5 Elo, zG 3: k0 0.0625: share 0.494 (moved 0.84); k0 0.0100: share 0.316 (moved 0.84)
+  F1    5 Elo, zG 5: k0 0.0625: share 0.488 (moved 1.00); k0 0.0100: share 0.328 (moved 1.00)
+  F1   10 Elo, zG 1: k0 0.0625: share 0.426 (moved 0.16); k0 0.0100: share 0.205 (moved 0.16)
+  F1   10 Elo, zG 2: k0 0.0625: share 0.531 (moved 0.50); k0 0.0100: share 0.297 (moved 0.50)
+  F1   10 Elo, zG 3: k0 0.0625: share 0.582 (moved 0.84); k0 0.0100: share 0.366 (moved 0.84)
+  F1   10 Elo, zG 5: k0 0.0625: share 0.598 (moved 1.00); k0 0.0100: share 0.394 (moved 1.00)
+  F1   20 Elo, zG 1: k0 0.0625: share 0.404 (moved 0.16); k0 0.0100: share 0.197 (moved 0.16)
+  F1   20 Elo, zG 2: k0 0.0625: share 0.593 (moved 0.50); k0 0.0100: share 0.327 (moved 0.50)
+  F1   20 Elo, zG 3: k0 0.0625: share 0.708 (moved 0.84); k0 0.0100: share 0.463 (moved 0.84)
+  F1   20 Elo, zG 5: k0 0.0625: share 0.735 (moved 1.00); k0 0.0100: share 0.503 (moved 1.00)
+  F1   40 Elo, zG 1: k0 0.0625: share 0.386 (moved 0.16); k0 0.0100: share 0.187 (moved 0.16)
+  F1   40 Elo, zG 2: k0 0.0625: share 0.654 (moved 0.50); k0 0.0100: share 0.377 (moved 0.50)
+  F1   40 Elo, zG 3: k0 0.0625: share 0.807 (moved 0.84); k0 0.0100: share 0.586 (moved 0.84)
+  F1   40 Elo, zG 5: k0 0.0625: share 0.830 (moved 1.00); k0 0.0100: share 0.647 (moved 1.00)
+
+[from the optimum k = 1: share of rounds sent to k >= 4; mean share of the best next round]
+  F1    5, zG 2: to k>=4 0.113; next-round share +0.820
+  F1    5, zG 3: to k>=4 0.277; next-round share +0.620
+  F1    5, zG 5: to k>=4 0.361; next-round share +0.521
+  F1   10, zG 2: to k>=4 0.044; next-round share +0.898
+  F1   10, zG 3: to k>=4 0.179; next-round share +0.728
+  F1   10, zG 5: to k>=4 0.255; next-round share +0.637
+  F1   20, zG 2: to k>=4 0.006; next-round share +0.955
+  F1   20, zG 3: to k>=4 0.089; next-round share +0.838
+  F1   20, zG 5: to k>=4 0.136; next-round share +0.775
+  F1   40, zG 2: to k>=4 0.000; next-round share +0.973
+  F1   40, zG 3: to k>=4 0.040; next-round share +0.900
+  F1   40, zG 5: to k>=4 0.073; next-round share +0.859
+
+[null update, F1 = 0, 12 rounds]: no 'two reverts in a row' stop in 0.994 of chains; revert rate 0.0227 a round

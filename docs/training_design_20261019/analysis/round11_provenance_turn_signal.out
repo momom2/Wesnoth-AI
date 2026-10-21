@@ -1,0 +1,9 @@
+candidates 966, positions 199, playouts 28; attack-free candidates 332 (base turns 77, temperature-1 turns 187)
+[raw]
+  A. I_turn (attack-free temperature-1 turns, 64 positions): 0.0212 (95% 0.0059 to 0.0406)
+  B. temperature-1 turn minus base turn (both attack-free, 66 positions): -0.0559 (95% -0.1059 to -0.0006)
+  C. level 0.2950, between-candidate spread 0.0286, within-candidate noise 0.6040; share explained by the turn-start position 0.318 (95% 0.269 to 0.365)
+[luck-corrected]
+  A. I_turn (attack-free temperature-1 turns, 64 positions): 0.0204 (95% 0.0064 to 0.0394)
+  B. temperature-1 turn minus base turn (both attack-free, 66 positions): -0.0679 (95% -0.1264 to -0.0159)
+  C. level 0.2953, between-candidate spread 0.0282, within-candidate noise 0.5300; share explained by the turn-start position 0.346 (95% 0.298 to 0.395)

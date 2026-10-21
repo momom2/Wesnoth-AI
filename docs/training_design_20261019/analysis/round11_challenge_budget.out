@@ -1,0 +1,66 @@
+[prices]
+  a trained position $1.085e-07; a game's decisions trained $5.162e-05 (1.99x its generation $2.598e-05)
+  encoding a game's positions $1.089e-05 (serial, upper side); a held-out game's forward <= $5.162e-05
+  Elo per unit z near 50%: 347.4; 800 decisive games at sd(z) 1: SE 12.3 Elo
+  cross-play game: measured $8.848e-05 in the shallow match configuration; $5.196e-05 if a pool forward's cost is flat in its batch (two half batches)
+
+[a round: n_train self-play games trained, n_held held out (generated only), n_cert cross-play games (newest seat trained)]
+   20000/ 10000/ 10000 cross-play measured shallow: generation $ 1.66, training+encode+forecast $ 2.24 ( 2.2 h), total $ 3.91; certification share 0.160
+   20000/ 10000/ 10000 cross-play flat-batch pool : generation $ 1.30, training+encode+forecast $ 2.24 ( 2.2 h), total $ 3.54; certification share 0.073
+   40000/ 10000/ 10000 cross-play measured shallow: generation $ 2.18, training+encode+forecast $ 3.49 ( 4.0 h), total $ 5.68; certification share 0.110
+   40000/ 10000/ 10000 cross-play flat-batch pool : generation $ 1.82, training+encode+forecast $ 3.49 ( 4.0 h), total $ 5.31; certification share 0.049
+   80000/ 20000/ 10000 cross-play measured shallow: generation $ 3.48, training+encode+forecast $ 6.62 ( 7.6 h), total $10.10; certification share 0.062
+   80000/ 20000/ 10000 cross-play flat-batch pool : generation $ 3.12, training+encode+forecast $ 6.62 ( 7.6 h), total $ 9.74; certification share 0.027
+
+[standard errors, sd(y) 1 as the bound; luck correction lowers it]
+  certification over   5000 cross-play games: 4.91 Elo
+  certification over  10000 cross-play games: 3.47 Elo
+  certification over  20000 cross-play games: 2.46 Elo
+  certification over  50000 cross-play games: 1.55 Elo
+  forecast at per-decision KL 0.002: 5000 held out  3.39, 10000 held out  2.40, 20000 held out  1.69, 50000 held out  1.07 Elo
+  forecast at per-decision KL 0.005: 5000 held out  5.36, 10000 held out  3.79, 20000 held out  2.68, 50000 held out  1.69 Elo
+  forecast at per-decision KL 0.010: 5000 held out  7.58, 10000 held out  5.36, 20000 held out  3.79, 50000 held out  2.40 Elo
+  forecast at per-decision KL 0.020: 5000 held out 10.72, 10000 held out  7.58, 20000 held out  5.36, 50000 held out  3.39 Elo
+  forecast at per-decision KL 0.050: 5000 held out 16.95, 10000 held out 11.98, 20000 held out  8.47, 50000 held out  5.36 Elo
+  a 3200-game match read at win rate 0.5: SE 6.1 Elo
+  a 6400-game match read at win rate 0.5: SE 4.3 Elo
+  a 3200-game match read at win rate 0.75: SE 7.1 Elo
+  a 6400-game match read at win rate 0.75: SE 5.0 Elo
+  a 3200-game match read at win rate 0.9: SE 10.2 Elo
+  a 6400-game match read at win rate 0.9: SE 7.2 Elo
+
+[step size: first-order gain a*sqrt(eps), second-order loss C*eps (a quadratic in the step); eps* = (a / 2C)^2; at eps = k eps* the gain is (2 sqrt(k) - k) of the best, and the ratio actual / first-order is rho = 1 - sqrt(k) / 2]
+  k  0.0625: gain +0.438 of the best; rho +0.875; rule's next radius x16.000
+  k  0.2500: gain +0.750 of the best; rho +0.750; rule's next radius x4.000
+  k  0.5000: gain +0.914 of the best; rho +0.646; rule's next radius x2.000
+  k  1.0000: gain +1.000 of the best; rho +0.500; rule's next radius x1.000
+  k  2.0000: gain +0.828 of the best; rho +0.293; rule's next radius x0.500
+  k  4.0000: gain +0.000 of the best; rho +0.000; rule's next radius x0.250
+  k  9.0000: gain -3.000 of the best; rho -0.500; rule's next radius x0.111
+  k 16.0000: gain -8.000 of the best; rho -1.000; rule's next radius x0.062
+  rule: next eps = eps / (2 (1 - rho))^2, capped at x4 and /4 a round; rho = 1/2 at the best step
+
+[the rule under noise: true k 1/4 (rho 0.75) or 4 (rho 0); forecast G with SE sG, reading R = rho G with SE sR; share of rounds the capped rule moves the radius the wrong way]
+  G    5 Elo, sG 5.2, sR 3.5: wrong way at k 1/4 0.114, at k 4 0.005
+  G    5 Elo, sG 3.7, sR 2.5: wrong way at k 1/4 0.170, at k 4 0.009
+  G   10 Elo, sG 5.2, sR 3.5: wrong way at k 1/4 0.219, at k 4 0.013
+  G   10 Elo, sG 3.7, sR 2.5: wrong way at k 1/4 0.202, at k 4 0.015
+  G   20 Elo, sG 5.2, sR 3.5: wrong way at k 1/4 0.126, at k 4 0.007
+  G   20 Elo, sG 3.7, sR 2.5: wrong way at k 1/4 0.054, at k 4 0.001
+  G   40 Elo, sG 5.2, sR 3.5: wrong way at k 1/4 0.012, at k 4 0.000
+  G   40 Elo, sG 3.7, sR 2.5: wrong way at k 1/4 0.001, at k 4 0.000
+
+[matched-KL optimizer bench on recorded temperature-1 games: each arm trains the same games to the same KL; held-out first-order gain read paired across arms]
+  5000 games, 6 arms: 2.7 h, $1.55 (+ generation $0.13, + a 10,000-game held-out set $0.26)
+  10000 games, 6 arms: 5.4 h, $3.10 (+ generation $0.26, + a 10,000-game held-out set $0.26)
+
+[stages; generation priced as argmax pool games, every cost scales with the temperature-1 game length]
+  stage 1: 20,000 own2 T=1 self-play games $0.52 + 6,400-game claim own2@T1 v own1 <= $0.57: $1.09
+  stage 2: a planted round (10,000 games trained, 5,000 held out, 5,000 cross-play) $1.51; the revert check re-scores the same cross-play games with the plant's sign flipped, at no cost
+  stage 3: 6 arms on 5000 games, each read on 5000 held-out games: $3.21
+  stages 1-3: $5.80
+  accept a step unless R < -2 SE: false revert at a true zero step 0.0228
+
+[budget from $82]
+  round 40000/10000/10000 (measured shallow): $5.68; three rounds and a 6,400-game claim $17.60; rounds within $70 after stages 1-3: 11
+  round 40000/10000/10000 (flat-batch pool): $5.31; three rounds and a 6,400-game claim $16.50; rounds within $70 after stages 1-3: 12

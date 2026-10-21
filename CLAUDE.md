@@ -72,20 +72,22 @@ rules; its phase 1 is closed.
 
 ### The reference player
 
-`own1` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted by the
-lead 2026-10-11 under the user's delegation): HF
-`tier-b/memory_own_trajectories_20261011/own.pt`, local
-`training/checkpoints/own1.pt`, pinned in `configs/reference_player.json`.
-It is `parity3` fine-tuned on its own recorded games toward its memoryless
-reading, mixed with the human corpus
-(docs/memory_own_trajectories_prereg_20261011.md); `parity3` itself was
-imitation-trained (`tools/sequence_train.py` under the anneal rule,
-docs/imitation_anneal_prereg_20261003.md). Its lineage, each step an
-800-decisive-game match under the observation of its day (Elo does not
-chain across observation epochs):
+`own2` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted
+2026-10-21 on the user's approval): HF
+`tier-b/memory_own_round2_20261011/own.pt`, local
+`training/checkpoints/own2.pt`, pinned in `configs/reference_player.json`.
+It is `own1` fine-tuned a second time on its own recorded games toward its
+memoryless reading, mixed with the human corpus
+(docs/memory_own_round2_prereg_20261011.md); `own1` is `parity3` trained
+the same way once (docs/memory_own_trajectories_prereg_20261011.md), and
+`parity3` itself was imitation-trained (`tools/sequence_train.py` under
+the anneal rule, docs/imitation_anneal_prereg_20261003.md). Its lineage,
+each step a match of 800 decisive games (6,400 for `own2`) under the
+observation of its day (Elo does not chain across observation epochs):
 
 | reference | adopted | over its predecessor |
 |---|---|---|
+| `own2` | 2026-10-21 | +22.7 +- 4.4 over `own1` (docs/own2_base_prereg_20261020.md): round 2 of training on its own games, after which the memory no longer costs strength |
 | `own1` | 2026-10-11 | +88.6 +- 12.7 over `parity3`: trained on its own games, the memory's cost in play cut from 105 to about 22 Elo |
 | `parity3` | 2026-10-04 | +82 +- 13 over `parity2` |
 | `parity2` | 2026-10-02 | +191 +- 14 over `obs8`: the network observes what a player sees, and a 64-slot memory carries it from decision to decision |
@@ -115,7 +117,9 @@ over `parity3`'s (+37.4 in round 1). Round 2 (2026-10-12,
 docs/memory_own_round2_prereg_20261011.md): within `own2` the memory no
 longer costs strength (+13.0 +- 12.3 for 64 slots against 0); its
 memoryless reading did not improve again (saturated), and `own2` against
-`own1` reads +16.5 +- 12.3.
+`own1` reads +16.5 +- 12.3 over 800 games and +22.7 +- 4.4 over 6,400
+(2026-10-20, docs/own2_base_prereg_20261020.md); it is the reference
+since 2026-10-21.
 Budget (user, 2026-10-09): about $100 on Vast for the foreseeable future;
 the lead decides runs, a costly one only when confident it pays.
 
@@ -197,8 +201,8 @@ default AI with the simulator mirroring the engine's log
 ### Standing rulings
 
 Standing rules (full list in the plan): the reference player is
-`own1` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted
-2026-10-11; one checkpoint, its memory and one decode, all in
+`own2` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted
+2026-10-21; one checkpoint, its memory and one decode, all in
 `configs/reference_player.json`, which
 `tools/reference_player.py --flags b` turns into run_elo_batch flags);
 every strength claim is a PURE match against it with the standard

@@ -97,15 +97,49 @@ history-encoding name would lie within hours.
                      pass; HF tier-b/terrain_multi_hot_20260919/
                      arm_epoch0.pt, local training/checkpoints/
                      terrain.pt; decoded at raw:t0+eo-1.5.
-    obs8             THE REFERENCE PLAYER (user ruling 2026-09-25):
-                     terrain's recipe from scratch on the observation
-                     of OBSERVATION_EPOCH 8 (the time of day, the
-                     engine's vision, statues, the re-hide), one pass
-                     of 2,826,147 pairs; HF tier-b/
-                     observation_retrain_20260924/arm_epoch0.pt, local
-                     training/checkpoints/obs8.pt; +73 +- 13 Elo over
-                     terrain, both at raw:t0+eo-1.5, 800 decisive
-                     games (docs/observation_retrain_prereg_20260924.md).
+    obs8             the reference player 2026-09-25 to 2026-10-02
+                     (user ruling 2026-09-25): terrain's recipe from
+                     scratch on the observation of OBSERVATION_EPOCH 8
+                     (the time of day, the engine's vision, statues,
+                     the re-hide), one pass of 2,826,147 pairs; HF
+                     tier-b/observation_retrain_20260924/
+                     arm_epoch0.pt, local training/checkpoints/
+                     obs8.pt; +73 +- 13 Elo over terrain, both at
+                     raw:t0+eo-1.5, 800 decisive games
+                     (docs/observation_retrain_prereg_20260924.md).
+    parity2          the reference player 2026-10-02 to 2026-10-04:
+                     the parity-memory retrain from scratch on the
+                     observation of OBSERVATION_EPOCH 11 with a
+                     64-slot memory, two passes; HF tier-b/
+                     parity_memory_pass2_20261002/arm.pt, local
+                     training/checkpoints/parity2.pt; +191 +- 14 Elo
+                     over obs8, both at raw:t0+eo-1.5, 800 decisive
+                     games (docs/parity_memory_prereg_20260929.md).
+    parity3          the reference player 2026-10-04 to 2026-10-11:
+                     parity2's recipe continued under the anneal rule;
+                     HF tier-b/imitation_anneal_20261003/lower.pt,
+                     local training/checkpoints/parity3.pt; +82 +- 13
+                     Elo over parity2, both at raw:t0+eo-1.5 and 64
+                     slots, 800 decisive games
+                     (docs/imitation_anneal_prereg_20261003.md).
+    own1             the reference player 2026-10-11 to 2026-10-21:
+                     parity3 fine-tuned on its own recorded games
+                     toward its memoryless reading, mixed with the
+                     human corpus (round 1); HF tier-b/
+                     memory_own_trajectories_20261011/own.pt, local
+                     training/checkpoints/own1.pt; +88.6 +- 12.7 Elo
+                     over parity3, both at raw:t0+eo-1.5 and 64 slots,
+                     800 decisive games
+                     (docs/own_confirm_prereg_20261011.md).
+    own2             THE REFERENCE PLAYER (user approval 2026-10-21):
+                     own1 fine-tuned the same way on its own recorded
+                     games (round 2,
+                     docs/memory_own_round2_prereg_20261011.md); HF
+                     tier-b/memory_own_round2_20261011/own.pt, local
+                     training/checkpoints/own2.pt; +22.7 +- 4.4 Elo
+                     over own1, both at raw:t0+eo-1.5 and 64 slots,
+                     6,400 decisive games
+                     (docs/own2_base_prereg_20261020.md).
 
 Old labels (`ref_2p29M`, `old_2p40M`, `new_2p52M`, `tcs3`) are
 catalog aliases of the above.

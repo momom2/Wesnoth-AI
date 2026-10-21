@@ -255,6 +255,11 @@ $1.47 in all):
     its seat hook, flags, `+rr` tag, fit and readout tools, box script and
     tests. Its frozen fit and readout moved to
     `training/metrics/recruit_rule_l_20261021/` as match L's record.
+  - **`own2` is the reference** (0.31.4, user approval 2026-10-21): at
+    `raw:t0+eo-1.5` with 64 slots, +22.7 +- 4.4 Elo over `own1` in 6,400
+    decisive games (docs/own2_base_prereg_20261020.md). Tests of past runs
+    pin `own1`; the own2-base box script refuses to run under the new
+    reference. The move of the reference to sampling is a later change.
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a
