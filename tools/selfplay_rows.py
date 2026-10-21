@@ -8,8 +8,10 @@ each game, from side A's view, written as each game is walked and resumed
 past the games already there) is turned into two rows per game, one per
 side, everything in that side's frame:
 
-    game, index  the result file's stem; the game's slot index, its seed
-                 less the run's seed base
+    game, index  the stem of the game's result and record files
+                 (`<game>.json`, `<game>.game.jsonl.gz`), unique across a
+                 run's matches since their seeds are; the game's slot index,
+                 its seed less the run's seed base
     side         the side (1 or 2): its seat
     label        the player label on that side
     z            +1 the side won, -1 it lost, 0 no result: a game that

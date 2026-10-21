@@ -186,6 +186,10 @@ def test_a_logged_run_goes_through_rows_labels_and_readout(tmp_path):
     selfplay_readout.main(["--games", str(games), "--labels", str(tmp_path / "labels.jsonl"),
                            "--fits", str(tmp_path / "fits.json"), "--walk", str(tmp_path / "walk.jsonl"),
                            "--out", str(tmp_path / "readout.json")])
+    # A label names its game by the record file's stem, as the gradient pass
+    # finds the record (<game>.game.jsonl.gz).
+    labels = [json.loads(line) for line in (tmp_path / "labels.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(labels) == 12 and all((games / f"{lab['game']}.game.jsonl.gz").exists() for lab in labels)
     out = json.loads((tmp_path / "readout.json").read_text(encoding="utf-8"))
     assert out["census"]["games"] == 6 and out["labelled_games"] == 6
     assert out["i_count"]["pass"] and out["legal_mass"]["pass"]
