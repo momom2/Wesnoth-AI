@@ -30,6 +30,11 @@ latest probes of the pass all sit above what a fit without them predicts by
 more than GUARD_SIGMAS times that fit's error, the law no longer describes
 the run: stop and look.
 
+Every point carries the version of the cross-entropy formula its loss was
+read with (`ce_formula`, wesnoth_ai.constants.CE_FORMULA; a point or probe
+row without it is version 1). The law is fitted on points of one version
+only: readings of two versions differ in level.
+
     python tools/lr_law.py replay LINEAGE.json --out POINTS.jsonl [--areas-at PASS:STEPS]
     python tools/lr_law.py decide --points POINTS.jsonl --s1 S1 --peak 2.8e-4 \\
         --epoch-steps 7882 --threshold 0.03
@@ -96,6 +101,23 @@ class Point:
     s2: float
     loss: float
     source: str = ""
+    ce_formula: int = 1          # the version of the cross-entropy formula `loss` was read with
+
+
+def row_formula(row: Dict) -> int:
+    """The cross-entropy formula a probe row's readings follow."""
+    return int(row.get("ce_formula", 1))
+
+
+def check_one_formula(points: Sequence[Point]) -> None:
+    """Refuses points read with different cross-entropy formulas, naming
+    each version and the sources of its points."""
+    versions = sorted({p.ce_formula for p in points})
+    if len(versions) < 2:
+        return
+    named = "; ".join(f"version {v} ({', '.join(sorted({p.source or 'unnamed' for p in points if p.ce_formula == v}))})"
+                      for v in versions)
+    raise ValueError(f"the points mix cross-entropy formulas, {named}: the law is fitted on one formula only")
 
 
 @dataclass(frozen=True)
@@ -118,8 +140,10 @@ class LawFit:
 
 
 def fit(points: Sequence[Point]) -> LawFit:
-    """The least-squares fit of the law, the best of a few starts."""
+    """The least-squares fit of the law, the best of a few starts, on
+    points of one cross-entropy formula."""
     from scipy.optimize import least_squares
+    check_one_formula(points)
     s1 = np.array([p.s1 for p in points], dtype=np.float64)
     s2 = np.array([p.s2 for p in points], dtype=np.float64)
     y = np.array([p.loss for p in points], dtype=np.float64)
@@ -164,6 +188,7 @@ def decide(earlier: Sequence[Point], this_pass: Sequence[Point], s1_now: float, 
     `earlier`: the probes of the passes before this one; `this_pass`: this
     pass's probes so far, in order."""
     points = list(earlier) + list(this_pass)
+    check_one_formula(points)
     if len(points) < MIN_POINTS:
         return Decision("hold", f"{len(points)} probes, the law is fitted on {MIN_POINTS} or more")
     law = fit(points)
@@ -234,7 +259,8 @@ def replay(lineage: Sequence[Dict], key: str) -> Dict[str, object]:
         areas_by_pass[p["name"]] = trail
         for row in read_probes(Path(p["probes"])):
             at = trail[int(row["steps"]) - 1]
-            points.append(Point(at.s1, at.s2, float(row[key]["ce_all"]), source=p["name"]))
+            points.append(Point(at.s1, at.s2, float(row[key]["ce_all"]), source=p["name"],
+                                ce_formula=row_formula(row)))
     return {"points": points, "areas": areas_by_pass}
 
 
@@ -256,7 +282,7 @@ def probe_points(path: Path, key: str, source: str = "") -> List[Point]:
         if "areas" not in row:
             raise ValueError(f"{path}: a probe at {row['positions']} positions carries no areas")
         out.append(Point(float(row["areas"]["s1"]), float(row["areas"]["s2"]), float(row[key]["ce_all"]),
-                         source=source))
+                         source=source, ce_formula=row_formula(row)))
     return out
 
 

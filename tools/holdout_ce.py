@@ -1,8 +1,9 @@
 """The holdout policy cross-entropy of a checkpoint without a memory, over
 every decision of the holdout games, as the sequence probe computes it for
-the parity-memory arm (tools/sequence_probe.py): the action-type weighted
-actor term plus the type, target and weapon terms, label smoothing
-included, per decision of both sides, and over the winners' decisions.
+the parity-memory arm (tools/sequence_probe.py): the actor, type, target
+and weapon terms, unweighted, label smoothing included, per decision of
+both sides, and over the winners' decisions, with the formula's version
+(`ce_formula`, wesnoth_ai.constants.CE_FORMULA).
 
 The pre-registration's barrier compares the arm at 0 slots with `obs8` on
 the same holdout decisions (docs/parity_memory_prereg_20260929.md "Bars");
@@ -55,6 +56,7 @@ def holdout_ce(checkpoint: Path, dataset: Path, device: torch.device, sequences:
                autocast_dtype=None) -> Dict:
     from tools.eval_players import _load_policy
     from tools.replay_dataset import iter_record_pairs
+    from wesnoth_ai.constants import CE_FORMULA
     from wesnoth_ai.encoder import encode_raw
     from wesnoth_ai.imitation_loss import build_imitation_targets, imitation_loss_parts
     policy = _load_policy(checkpoint, device, label="holdout")
@@ -113,7 +115,7 @@ def holdout_ce(checkpoint: Path, dataset: Path, device: torch.device, sequences:
         per_game[r["file"]] = ces
     everything = [c for ces in per_game.values() for c in ces]
     game_means = [sum(c) / len(c) for c in per_game.values() if c]
-    return {"checkpoint": str(checkpoint), "n_games": len(per_game), "skipped_games": skipped,
+    return {"checkpoint": str(checkpoint), "ce_formula": CE_FORMULA, "n_games": len(per_game), "skipped_games": skipped,
             "n_decisions": len(everything), "unscored_decisions": unscored,
             "n_nonfinite": sum(1 for c in everything if not math.isfinite(c)),
             "ce_all": _mean_se(everything)[0], "ce_all_se": _mean_se(game_means)[1],

@@ -1,24 +1,16 @@
-"""Fit Elo from a directory of elo_eval_game.py result files, under
-TWO conventions from the same games:
-
-  PURE (primary): only decisive games carry rating information.
-    Material advantage must not factor into evaluation (user decision
-    2026-07-11, reversing the 2026-07-04 material-primary lock), and
-    -- user revision 2026-08-17 -- **a capped game is NOT a draw**:
-    there are no draws in real Wesnoth, so a game that hit the turn
-    cap (or any other non-decisive stop) is a TRUNCATED OBSERVATION,
-    recorded as an absence ("no result") and EXCLUDED from the fit.
-    The confidence interval widens accordingly; if a fixed CI is
-    required, run_elo_batch schedules replacement games (bounded by
-    its --max-extra-games guard).
-  MATERIAL-SIGN (diagnostic only): a no-result game whose final
-    material margin from A exceeds +/-EPS counts as a win for the
-    side ahead. More separating while ladder games are cap-heavy,
-    useful for watching progress -- but never the headline number.
+"""Fit Elo from a directory of elo_eval_game.py result files, PURE:
+only decisive games carry rating information. Material advantage does
+not factor into evaluation (user decision 2026-07-11), and a capped
+game is not a draw (user revision 2026-08-17): there are no draws in
+real Wesnoth, so a game that hit the turn cap (or any other
+non-decisive stop) is a truncated observation, recorded as an absence
+("no result") and excluded from the fit. The confidence interval widens
+accordingly; if a fixed CI is required, run_elo_batch schedules
+replacement games (bounded by its --max-extra-games guard).
 
 Usage:
     python tools/elo_collect.py GAMES_DIR [--anchor dummy]
-        [--save-json PATH] [--eps 0.02]
+        [--save-json PATH]
 """
 
 from __future__ import annotations
@@ -122,54 +114,65 @@ def load_games(games_dir: Path) -> List[dict]:
 
 
 def build_pairs(
-    games: List[dict], eps: float,
+    games: List[dict],
 ) -> Tuple[List[str], Dict[Tuple[int, int], PairRecord],
-           Dict[Tuple[int, int], PairRecord],
            Dict[Tuple[int, int], int]]:
+    """The sorted labels, each pair's decisive record and each pair's
+    count of no-result games (absences, excluded from the fit)."""
     labels = sorted({g["label_a"] for g in games}
                     | {g["label_b"] for g in games})
     idx = {lab: i for i, lab in enumerate(labels)}
     pure: Dict[Tuple[int, int], PairRecord] = {}
-    mat:  Dict[Tuple[int, int], PairRecord] = {}
     nores: Dict[Tuple[int, int], int] = {}
     for g in games:
         a, b = idx[g["label_a"]], idx[g["label_b"]]
         i, j = min(a, b), max(a, b)
-        a_is_i = (a == i)
-        for d in (pure, mat):
-            d.setdefault((i, j), PairRecord())
+        rec = pure.setdefault((i, j), PairRecord())
         nores.setdefault((i, j), 0)
         out = g["outcome_a"]
-        if out == "win":
-            win_i = a_is_i
-        elif out == "loss":
-            win_i = not a_is_i
-        else:
-            # NO RESULT (user ruling 2026-08-17): a capped/stalled
-            # game is a truncated observation, not a draw. It is
-            # excluded from the PURE fit and recorded as an absence.
+        if out not in ("win", "loss"):
             nores[(i, j)] += 1
-            if g.get("margin_a") is None:
-                # timeout_kill artifacts (round-32 C5) carry no
-                # final state: absences under BOTH conventions.
-                continue
-            m = float(g.get("margin_a", 0.0))
-            if abs(m) <= eps:
-                mat[(i, j)].draws += 1
-            else:
-                ahead_is_a = m > 0
-                win_i = ahead_is_a == a_is_i
-                if win_i:
-                    mat[(i, j)].wins_i += 1
-                else:
-                    mat[(i, j)].wins_j += 1
             continue
-        for d in (pure, mat):
-            if win_i:
-                d[(i, j)].wins_i += 1
-            else:
-                d[(i, j)].wins_j += 1
-    return labels, pure, mat, nores
+        if (out == "win") == (a == i):
+            rec.wins_i += 1
+        else:
+            rec.wins_j += 1
+    return labels, pure, nores
+
+
+def fit_decisive(labels: List[str], pairs: Dict[Tuple[int, int], PairRecord],
+                 anchor_idx: int) -> Tuple[List, List]:
+    """Elo and its standard error per label, None for a label without a
+    decisive game (round-28 C1: a zero-mass label got a gauge-arbitrary
+    elo printed with se 0, and an all-capped match rendered as an exact
+    0.0 +- 0 tie)."""
+    n = len(labels)
+    mass = [0.0] * n
+    for (i, j), rec in pairs.items():
+        m = rec.wins_i + rec.wins_j + rec.draws
+        mass[i] += m
+        mass[j] += m
+    rated_idx = [k for k in range(n) if mass[k] > 0]
+    elo_full: List = [None] * n
+    se_full: List = [None] * n
+    if not rated_idx:
+        return elo_full, se_full
+    remap = {k: r for r, k in enumerate(rated_idx)}
+    rpairs = {(remap[i], remap[j]): rec
+              for (i, j), rec in pairs.items()
+              if i in remap and j in remap
+              and (rec.wins_i + rec.wins_j + rec.draws) > 0}
+    if anchor_idx not in remap:
+        print(f"NOTE: anchor {labels[anchor_idx]} has no decisive games; "
+              f"gauged on {labels[rated_idx[0]]} = 0")
+    elo_r, se_r = fit_elo(
+        len(rated_idx), rpairs, remap.get(anchor_idx, 0),
+        anchor_elo=0.0, prior_games=1.0, draw_weight=0.5,
+        prior_scope="played")
+    for k, r in remap.items():
+        elo_full[k] = float(elo_r[r])
+        se_full[k] = float(se_r[r])
+    return elo_full, se_full
 
 
 def _print_table(title: str, labels, elo, se, pairs,
@@ -194,9 +197,6 @@ def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("games_dir", type=Path)
     ap.add_argument("--anchor", default="dummy")
-    ap.add_argument("--eps", type=float, default=0.02,
-                    help="material dead zone: |margin| <= eps stays "
-                         "a draw under the MATERIAL convention.")
     ap.add_argument("--save-json", type=Path, default=None)
     ap.add_argument("--no-catalog", action="store_true",
                     help="Skip the automatic elo-catalog update "
@@ -240,12 +240,10 @@ def main(argv) -> int:
     if not games:
         print("no game files found")
         return 2
-    labels, pure, mat, nores = build_pairs(games, args.eps)
+    labels, pure, nores = build_pairs(games)
     anchor_idx = (labels.index(args.anchor)
                   if args.anchor in labels else 0)
-    n = len(labels)
     n_nores = sum(nores.values())
-    results = {}
     # Estimand guard BEFORE any table is printed (round-12 C6: a
     # mixed fit was fully rendered above its own refusal), None
     # normalized to 'legacy' so the set sorts (round-12 C0), and
@@ -293,43 +291,11 @@ def main(argv) -> int:
     # stop at the dir boundary (see ESTIMAND_DEFAULTS).
     _estimands = dir_estimands(games)
 
-    for title, pairs, nr in (
-            ("PURE (decisive only, primary)", pure, nores),
-            ("MATERIAL-SIGN (diagnostic)", mat, None)):
-        # Only labels with decisive mass UNDER THIS CONVENTION are
-        # fitted (round-28 C1, mirroring refit): a zero-mass label
-        # got a gauge-arbitrary elo printed with se 0 -- and an
-        # all-capped match rendered as an exact 0.0 +- 0 tie.
-        mass = [0.0] * n
-        for (i, j), rec in pairs.items():
-            m = rec.wins_i + rec.wins_j + rec.draws
-            mass[i] += m
-            mass[j] += m
-        rated_idx = [k for k in range(n) if mass[k] > 0]
-        elo_full = [None] * n
-        se_full = [None] * n
-        if rated_idx:
-            remap = {k: r for r, k in enumerate(rated_idx)}
-            rpairs = {(remap[i], remap[j]): rec
-                      for (i, j), rec in pairs.items()
-                      if i in remap and j in remap
-                      and (rec.wins_i + rec.wins_j + rec.draws) > 0}
-            if anchor_idx not in remap:
-                print(f"NOTE: anchor {labels[anchor_idx]} has no "
-                      f"decisive games under {title}; gauged on "
-                      f"{labels[rated_idx[0]]} = 0")
-            elo_r, se_r = fit_elo(
-                len(rated_idx), rpairs, remap.get(anchor_idx, 0),
-                anchor_elo=0.0, prior_games=1.0, draw_weight=0.5,
-                prior_scope="played")
-            for k, r in remap.items():
-                elo_full[k] = float(elo_r[r])
-                se_full[k] = float(se_r[r])
-        _print_table(title, labels, elo_full, se_full, pairs,
-                     nores=nr)
-        results[title] = {lab: {"elo": e, "se": s}
-                          for lab, e, s in zip(labels, elo_full,
-                                               se_full)}
+    title = "PURE (decisive only, primary)"
+    elo_full, se_full = fit_decisive(labels, pure, anchor_idx)
+    _print_table(title, labels, elo_full, se_full, pure, nores=nores)
+    results = {title: {lab: {"elo": e, "se": s}
+                       for lab, e, s in zip(labels, elo_full, se_full)}}
     print(f"\ngames: {len(games)} ({n_nores} no-result, excluded from "
           f"PURE) | anchor: {labels[anchor_idx]} = 0"
           f" | procedure: {_proc_tag[0]}/{_proc_tag[1]}"

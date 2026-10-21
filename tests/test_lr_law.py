@@ -2,7 +2,9 @@
 law, and the rule that holds the rate, lowers it, or stops to look."""
 from __future__ import annotations
 
+import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -131,3 +133,30 @@ def test_the_replay_lowers_on_the_positions_trained_before_each_step():
     rates = lr_law.pass_rates(10, 45, PEAK, 0, 0.5, positions_per_step=5)
     assert rates[4] == PEAK and rates[5] < PEAK
     assert lr_law.pass_rates(10, 45, PEAK, 0, 0.5)[5] == PEAK
+
+
+def test_the_law_fits_points_of_one_cross_entropy_formula_and_refuses_a_mix(tmp_path):
+    """A points file written before the formula was recorded reads version
+    1; a probe row's points read the version the row carries, and keep it
+    through a points file. The rule refuses the two versions together,
+    naming both, and fits either alone."""
+    points, a = _law_points((2.0, 1.5, 0.25, 1.2), noise=0.002)
+    legacy = tmp_path / "legacy.jsonl"
+    legacy.write_text("".join(json.dumps({"s1": p.s1, "s2": p.s2, "loss": p.loss, "source": "old"}) + "\n"
+                              for p in points[:-3]), encoding="utf-8")
+    probes = tmp_path / "pass.probe.jsonl"
+    probes.write_text("".join(json.dumps({"positions": i, "ce_formula": 2, "areas": {"s1": p.s1, "s2": p.s2},
+                                          "k64": {"ce_all": p.loss}}) + "\n"
+                              for i, p in enumerate(points[-3:])), encoding="utf-8")
+    earlier, this_pass = lr_law.read_points(legacy), lr_law.probe_points(probes, "k64", source="new")
+    with pytest.raises(ValueError, match=r"version 1 \(old\); version 2 \(new\)"):
+        lr_law.decide(earlier, this_pass, a.s1, PEAK, 8000, threshold=0.0)
+    with pytest.raises(ValueError, match=r"version 1 .*version 2"):
+        lr_law.fit(earlier + this_pass)
+    kept = tmp_path / "kept.jsonl"
+    lr_law.write_points(kept, [replace(p, ce_formula=2) for p in earlier] + this_pass)
+    pure = lr_law.read_points(kept)
+    assert {p.ce_formula for p in pure} == {2}
+    decided = lr_law.decide(pure[:-3], pure[-3:], a.s1, PEAK, 8000, threshold=0.0)
+    assert decided.law is not None and decided.law.n == len(points)
+    assert lr_law.fit(earlier).n == len(points) - 3

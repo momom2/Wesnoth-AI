@@ -275,6 +275,16 @@ $1.47 in all):
     head load with exactly its two keys dropped
     (`checkpoint_structure.RETIRED_MODEL_KEYS`); own2's outputs are
     bit-identical.
+  - **Review of the cleanup, and its follow-ups** (0.31.10,
+    `fix/cleanup-review-followups`): play, masks, the Rust wire and draws
+    verified unchanged. The imitation type head's weighted label smoothing
+    was live in `own2`'s recipe (a pro-attack tilt: on a move label the
+    attack target was 7.8% instead of 2.5%), so the next imitation retrain
+    differs from that recipe in this factor. Cross-entropy readings now
+    carry `ce_formula` (2 since 0.31.7, absent = 1) and `lr_law` refuses to
+    fit a mix; `scripts/imitation_anneal_box.sh` is refused until its law
+    seed is re-read under formula 2. The MATERIAL-SIGN diagnostic left
+    `elo_collect`.
   - **Design round 11** (0.31.6): the material for the optimizer discussion,
     `docs/training_design_20261019/optimizer_discussion.md`: policy gradient
     on `own2`'s games at temperature 1, one KL-sized step per round checked

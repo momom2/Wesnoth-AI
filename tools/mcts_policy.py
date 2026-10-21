@@ -902,9 +902,9 @@ class MCTSPolicy:
         fog-bounce rejection: pop the pending training target it recorded
         (if it was a full move) and roll back the decision counter's
         increment it made, so the rejected pick is neither trained on nor
-        counted. Also drop the now-stale tree-reuse
-        stash for the bounced action. Returns True (the rejection was
-        handled) so the rollout loop knows not to fall back to observe().
+        counted. Also drop the now-stale tree-reuse stash for the bounced
+        action and restore the side's memory to what it was before the
+        refused decision. Returns True: the rejected decision is undone.
 
         MUST be called BEFORE the re-decision so the rolled-back
         count is re-consumed by the retry (no double-count).

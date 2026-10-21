@@ -3,10 +3,11 @@
 sizes, and report
 
   - ce_all: the policy cross-entropy per decision, both sides, as
-    `supervised_train._evaluate` computes it for `obs8` (the action-type
-    weighted actor term plus the type, target and weapon terms, label
-    smoothing included), so the two read the same decisions the same way;
-    ce_winners: the same over the winners' decisions;
+    `supervised_train._evaluate` computes it (the actor, type, target and
+    weapon terms, unweighted, label smoothing included), so the two read
+    the same decisions the same way; ce_winners: the same over the
+    winners' decisions. The result's `ce_formula` is the formula's version
+    (wesnoth_ai.constants.CE_FORMULA);
   - value_auc: per game, the probability that a winner-to-move position's
     expected value exceeds a loser-to-move one's, averaged over games;
     value_auc_by_turn: the same-turn AUC by turn bucket, as
@@ -47,6 +48,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 import numpy as np
 import torch
 
+from wesnoth_ai.constants import CE_FORMULA
 from wesnoth_ai.encoder import PARITY_HEX_SEEN_AT
 from wesnoth_ai.imitation_loss import TIMEOUT_LABEL, build_imitation_targets, imitation_loss_parts
 from wesnoth_ai.sequence_loss import belief_loss
@@ -247,7 +249,7 @@ def probe(model, encoder, holdout: Sequence[GameSide], load: Callable[[GameSide]
     was_training = model.training
     model.eval()
     encoder.eval()
-    results: Dict = {"n_game_sides": len(holdout)}
+    results: Dict = {"n_game_sides": len(holdout), "ce_formula": CE_FORMULA}
     per_k: Dict[object, Dict[GameSide, Dict[str, list]]] = {}
     top = max(ks) if ks else 0
     runs = [(k, k, False) for k in ks] + ([(f"{top}_reset", top, True)] if top > 0 else [])

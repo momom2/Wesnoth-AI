@@ -217,3 +217,21 @@ ERA_FACTIONS = {
 #      each hex's time of day; and a side that delays its shroud updates
 #      sees the fog it has committed (wesnoth_ai/delayed_shroud.py).
 OBSERVATION_EPOCH = 11
+
+
+# ----------------------------------------------------------------------
+# Holdout cross-entropy formula
+# ----------------------------------------------------------------------
+# The policy cross-entropy every holdout reading reports
+# (tools/sequence_probe.py, tools/holdout_ce.py, supervised_train._evaluate)
+# is written with the version of its formula, under "ce_formula". Readings
+# of two versions differ in level and are never compared or fitted together
+# (tools/lr_law.py refuses a mix). A reading without the field is version 1.
+#
+#   1  (up to 2026-10-21) the actor term multiplied by the action type's
+#      weight (move 0.189, attack 0.628, recruit 1.748, end_turn 1.435),
+#      the type term's label smoothing weighted by those of attack and move,
+#      plus the target and weapon terms.
+#   2  (2026-10-21) the actor, type, target and weapon terms, each
+#      unweighted, with uniform label smoothing.
+CE_FORMULA = 2

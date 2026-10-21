@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from helpers.sequence_pass import synthetic_dataset as _dataset  # noqa: E402
 from tools.replay_dataset import ActionIndices, timeout_label  # noqa: E402
+from wesnoth_ai.constants import CE_FORMULA  # noqa: E402
 from wesnoth_ai.imitation_loss import build_imitation_targets  # noqa: E402
 from wesnoth_ai.sequence_loss import (GameFacts, SequenceLabelError, belief_loss,  # noqa: E402
                                       step_labels)
@@ -516,6 +517,14 @@ def test_a_pass_of_fewer_positions_lowers_its_rate_over_them_and_ends_there(tmp_
                              "--pass-positions", "8"])
 
 
+def _write_law_points(path: Path) -> None:
+    """Six earlier probes of a law whose rate was lowered, read with the
+    current cross-entropy formula."""
+    from tools import lr_law
+    lr_law.write_points(path, [lr_law.Point(s1, s2, 2.0 + 1.5 * s1 ** -0.25 - 1.2 * s2, ce_formula=CE_FORMULA)
+                               for s1, s2 in ((0.5, 0), (1, 0), (1.5, 0), (2, 0), (2.5, 0.05), (3, 0.15))])
+
+
 @pytest.mark.slow
 def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_again(tmp_path, pass_inputs, monkeypatch):
     """The rule runs after every probe on the earlier passes' points and
@@ -528,8 +537,7 @@ def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_agai
     first = tmp_path / "first.pt"
     assert sequence_train.main([*common, "--out", str(first)]) == 0
     points = tmp_path / "law_points.jsonl"
-    lr_law.write_points(points, [lr_law.Point(s1, s2, 2.0 + 1.5 * s1 ** -0.25 - 1.2 * s2)
-                                 for s1, s2 in ((0.5, 0), (1, 0), (1.5, 0), (2, 0), (2.5, 0.05), (3, 0.15))])
+    _write_law_points(points)
     rule = [*common, "--init-from", str(first), "--warmup-steps", "0", "--probe-every", "4",
             "--law-points", str(points), "--law-key", "k8"]
     lowered = tmp_path / "lowered.pt"
@@ -562,6 +570,11 @@ def test_the_anneal_rule_stops_the_pass_where_it_decides_and_a_resume_stops_agai
         == ["hold"]
     with pytest.raises(SystemExit, match="law-key"):
         sequence_train.main([*rule, "--out", str(tmp_path / "x.pt"), "--anneal-rule", "0.03", "--law-key", "k64"])
+    legacy = [{k: v for k, v in json.loads(line).items() if k != "ce_formula"}
+              for line in points.read_text(encoding="utf-8").splitlines()]
+    points.write_text("".join(json.dumps(row) + "\n" for row in legacy), encoding="utf-8")
+    with pytest.raises(SystemExit, match=f"version 1 and this pass's probes read version {CE_FORMULA}"):
+        sequence_train.main([*rule, "--out", str(tmp_path / "y.pt"), "--anneal-rule", "0.03"])
 
 
 
@@ -576,8 +589,7 @@ def test_a_pass_killed_while_deciding_decides_at_the_same_probe_on_resume(tmp_pa
     first = tmp_path / "first.pt"
     assert sequence_train.main([*common, "--out", str(first)]) == 0
     points = tmp_path / "law_points.jsonl"
-    lr_law.write_points(points, [lr_law.Point(s1, s2, 2.0 + 1.5 * s1 ** -0.25 - 1.2 * s2)
-                                 for s1, s2 in ((0.5, 0), (1, 0), (1.5, 0), (2, 0), (2.5, 0.05), (3, 0.15))])
+    _write_law_points(points)
     rule = ["--warmup-steps", "0", "--probe-every", "4", "--checkpoint-every", "1", "--law-points", str(points),
             "--law-key", "k8", "--anneal-rule", "1e9"]
     out = tmp_path / "cut.pt"
