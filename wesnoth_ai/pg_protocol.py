@@ -9,16 +9,22 @@ game of the tests (tests/helpers/toy_game.py) and on the network
 (tools/pg_eval.py, `NetworkEvaluator`).
 
 - The evaluator is bound to one direction d at construction; `logp(s)` is
-  log pi at theta_k + s * d for every held-out decision, in log order;
-  `base_logp()` is `logp(0.0)` as the trainer recomputes it (not the logged
-  value).
+  log pi at theta_k + s * d for every held-out decision; `base_logp()` is
+  `logp(0.0)` as the trainer recomputes it (not the logged value).
+- The logp arrays are ordered by game-side: each game-side's decisions, in
+  play order, are one contiguous range [start, stop). This is not the log's
+  play order, where the two sides' decisions interleave.
+- R is the game-side's label (contract §2: the result in the side's frame
+  less the baseline and the luck term).
+- Halves are drawn per game: both seats of a game carry the same `half`
+  (`pg_step.sides_by_half` refuses a game split across halves).
 - `mean_kl(s)` is the mean per-decision KL(pi_k || pi_{theta_k + s * d})
   over the evaluator's KL subsample.
 - s may be negative: the step math reads the Fisher quadratic form of a
   direction from the KL at +s and -s.
-- Each game-side's decisions are [start, stop) in the logp arrays, and R is
-  that game-side's label (contract §2: the result in the side's frame less
-  the baseline and the luck term).
+- The forwards behind `logp` and `mean_kl` run in float32. bf16 rounds a
+  log probability near -5 by about 0.016 nats, more than the KL of about
+  0.001 nats per decision the step searches for.
 """
 from __future__ import annotations
 
