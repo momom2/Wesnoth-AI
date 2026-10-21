@@ -66,7 +66,7 @@ def coin_argv(args) -> list:
     """The coin flags that hand the parsed `args`' coins to a child, the
     ones at their defaults left out."""
     out = []
-    if args.recruit_rule:
+    if getattr(args, "recruit_rule", None):
         out += ["--recruit-rule", str(args.recruit_rule)]
     if args.attack_coin_offset:
         out += ["--attack-coin-offset", str(float(args.attack_coin_offset))]
