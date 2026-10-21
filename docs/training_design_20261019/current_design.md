@@ -1,227 +1,266 @@
-# Current design (after round 10)
+# Current design (after round 11)
 
-Supersedes the round-9 design. The core is unchanged: near-tie coins with logged propensities, labels exactly unbiased through the simulator's chance laws, a closed-form linear head on the frozen network, adoption only by match, a fresh claim against `own1` after each adoption. What changed:
-- **Fitted rules interact with themselves.** Every fitted recruit rule on record loses 8–13 Elo of second-order value over its own later switches in a side-game, so its first-order sum is not a prediction of play. Capped at each side's first two switches a game, the interaction is measured near zero and the rule's coin-world value is exact.
-- **L plays a capped rule.** Its sealed prediction is complete in the coin world, so a miss isolates the shift from coined to uncoined play.
-- **The recruit structure is matchup- and composition-dependent.** The design's progressive loss picks a rule Bd keyed on unit, unit × enemy faction and the side's earlier recruits of each type. Capped, it is worth +24.1 ± 3.0 Elo in the coin world, against +14.9 ± 3.0 for capped R.
-- **S2 searches the step in play.** Three screens of different switch-set sizes are played, and the best is confirmed on fresh seeds. This replaces S2 then E, and it measures how the second-order loss grows with the step.
-- **Simpler.**
-  - H1 and the typed block are gone.
-  - T and C run only if ruling (h) allows a rule in the player.
-- **Fixed.**
-  - A token-block identity check covers the 772 columns no other check saw.
-  - The unit block is a pair feature on recruit pairs.
-  - o is read from equal-size runs.
-  - The host test runs 10,000 games.
-  - The claim stop is one-sided.
+Supersedes the round-10 design. The user's rulings of 2026-10-21 (seed §8) withdrew its core: the near-tie coins are not a training mechanism, nothing beside the network decides play, and the player samples at temperature 1. What carries over is the outcome label with the dice's luck subtracted, the census of decisions, the prices, the claim machinery and the planted-signal discipline. The new core is on-policy policy gradient on the player's own sampled games, applied as one certified step per round.
 
-Reasons: `round10_synthesis.md`. Tags: **[M]** measured (record or script named), **[D]** derived (inputs named), **[U]** unknown (measured before anything relies on it, or nothing relies on it), **[C]** a choice whose consequences are derived. Scripts are in `analysis/`; *checks* is `round10_synthesis_checks.out` and *budget* is `round10_synthesis_budget.out`, with § for their sections.
+Tags: **[M]** measured (record or script named), **[D]** derived (inputs named), **[U]** unknown (measured before anything relies on it, or nothing relies on it), **[C]** a choice whose consequences are derived. Scripts are in `analysis/`; *plan* is `round11_synthesis_plan.py` and its `.out`, § for its sections. Prices are at $0.577 an hour and at the argmax game length. The temperature-1 game length is [U] and scales every price; stage 1 reads it.
 
-## 1. The idea
+## 1. The update
 
-At argmax both players are deterministic, so with the setup fixed, all of a result's variance is chance. At a decision where the network's top two choices nearly tie, a logged coin plays the runner-up. Play then continues under the network, which re-decides after every roll. The coin is independent of the past, so the result identifies that decision's effect without a critic. A linear head on the frozen token outputs pools the labels across positions and proposes which near-ties to switch. With P(1 − P) constant, the head's ridge fit is one episodic natural-actor-critic step for a logistic coin policy ([Peters & Schaal 2008](https://doi.org/10.1016/j.neucom.2007.11.026)).
+Each round k:
 
-Labels choose the direction, and play chooses the step. A head's first-order gain is exact from labels at any switch set, but its gain in play includes the switches' interactions and the shift from coined to uncoined play, which labels cannot price. So the design plays a few step sizes and adopts only what a fresh match certifies. The record shows why. On the one structure found, recruit choices between different units, the rule's later switches in a side-game lose value, and only a rule capped at two switches has a complete forecast.
+1. **Generate.** π_k plays itself at temperature 1: no end_turn offset, 64 memory slots, both seats, the 21-map pool with fog and uniform factions. It plays N games to train on and |H| held-out games. π_0 is `own2`.
+2. **Label.** Every decision of side s in game g carries R_{g,s} = σ_s(z_g − b(cell) − βᵀS_{g,s}).
+   - σ_s orients the result to the side.
+   - b is the shrunk map × factions × seat mean.
+   - S holds the luck walk's seven exact attack-luck sums (`tools/match_luck.py`).
+   - b and β are fitted on games the round does not train on and then frozen: round 1 uses stage 1's held-out set, later rounds the previous round's.
+   - A game that reaches the turn cap scores z = 0.
+   - Two per-decision corrections enter only if stage 1 measures them paying (§4): the frozen value head's reading, −α·v̂_t, and the opponent's surprisal, −κ·U_g, where U_g sums log p + H over the opponent's decisions.
+3. **Gradient.** One pass of the sequence trainer over the N games accumulates ĝ = (1/2N) Σ_g Σ_s R_{g,s} Σ_{t∈s} ∇log π_θ(a_t|h_t) at θ_k.
+   - log π is the masked joint log-probability the player sampled from (`legal_log_probs`, `wesnoth_ai/own_loss.py`). The signed weight is applied outside `own_policy_loss`, whose `prob > 0` filter would turn negative weights into winners-only imitation.
+   - The gradient flows through the recipe's 16-decision memory windows.
+   - No value, belief or imitation loss.
+   - The pass also keeps eight split accumulators (by game index), each window's squared gradient, and the probe gradients (§3.4).
+4. **Direction.** d = Pĝ, with P the metric stage C picks. The default is the reduced AdamW: ĝ divided by the root of the pass's mean squared window gradient, with no momentum, weight decay or clipping.
+5. **Step.** Three candidates θ_k + s·d sit at mean per-decision KL ε/2, ε and 2ε from π_k, set on held-out positions with forwards only. Two estimators read each candidate on H, from the same forwards:
+   - **Ĝ, the first-order gain:** the mean over game-sides of Σ_t (r_t − 1)R, where r_t = π′(a_t|h_t)/π_k(a_t|h_t).
+   - **ΔĴ, the exact gain** of one seat switched to the candidate against π_k: the mean of (W − 1)R, with W = Π_{t∈s} r_t.
 
-## 2. Measurements first
+   The candidate with the highest ΔĴ on half A of H is read on half B. The round adopts it unless half B reads below −2 SE. In that case π_k stays and ε halves. The next round starts from the adopted radius.
+6. **Claim.** Every third round, π_k at temperature 1 plays the reference (§3.2).
 
-**Settled by existing records**
+**Why one step per round.**
+- **Same move.** Where a round's gradient is mostly noise, as the one measured noise scale suggests (§4), a minibatch pass with stable Adam statistics moves the weights by the same summed, normalized gradient to first order.
+- **The bench is the update.** The round's change depends on its games alone, so stage C compares optimizers on the update itself, from one gradient.
+- **Nothing to tune.** There is no learning rate, warm-up, schedule, momentum or bias correction: KL sets the length and held-out games certify it.
+- **Each game is used once.** Reusing data (PPO's epochs) refits one batch's noise and repays training, 0.67 of a game's all-in cost [D: 5.162e-5/(2.598e-5 + 5.162e-5), *plan* §1].
+
+### 1.1 Bias and noise
+
+- **Unbiased.** E[ĝ] = ∇J(π_θ against π_k) at θ_k under three conditions:
+  - actions are drawn from the logged law (I-sample and the replay identity check this, §5);
+  - b, β, α and κ are fixed before the games they label;
+  - each correction has zero mean given the history before its event.
+
+  The dice's law does not depend on the policy, so the luck terms keep zero mean under fog, memory and any reweighting ([Burch et al. 2018](https://arxiv.org/abs/1612.06915)).
+- **Departures, each checked.**
+  - The memory's gradient is truncated at 16 decisions [M, `tools/sequence_setup.py`].
+  - The generator's and trainer's arithmetic differ (the replay identity).
+  - Refused recruits are sampled actions and must enter the sum (I-count).
+- **Noise.** The label is nearly independent of each decision's score, so a game's gradient noise is about E[R²]·F_game, the policy's Fisher summed over the game [D, `round11_challenge.md` §2]. The actions are sampled from the model, so this is the true Fisher, and the empirical-Fisher objection ([Kunstner et al. 2019](https://arxiv.org/abs/1905.12558)) does not apply.
+  - E[R²] at argmax is 0.699 [M, `round9_simplify_residual.out`]; at temperature 1 it is [U → stage 1].
+  - z is a sum of zero-mean increments: setup, dice, and both sides' decisions. One side's total choice signal per side-game is therefore at most E[R²]/2 [D, `round11_provenance.md` §1.2].
+- **The two readings.**
+  - Ĝ is unbiased for the first-order gain under any baseline, since E[r − 1 | h] = 0.
+  - ΔĴ reads the whole gain, including how the step changes the positions reached, at variance about E[R²](e^{2K} − 1)/2 per game, where K is the per-side-game KL. At K ≤ ½ its SE is at most 0.93 of a same-size match's [D, `round11_provenance_derived.out` §5].
+
+### 1.2 The radius
+
+The record shows why the step must be read on the true objective. Recruit rule R gained +18.0 Elo at first order and lost 12.3 ± 4.5 to its own second-order term [M, round 10].
+
+In the quadratic step model, a round at k times the best radius keeps 2√k − k of the best gain [D, `round11_challenge_budget.out`].
+
+| Rule, 12 stationary rounds from k₀ = 1/16 | Mean share of the best gain |
+|---|---|
+| Fixed step | 0.438 [D] |
+| Ratio rule (`round11_challenge.md`), z_G 1–5 | 0.43–0.60 at F₁ 10 Elo; 0.39–0.83 over F₁ 5–40 Elo [D, `round11_challenge_critique_rule.out`] |
+| This ladder, z* 0.5–3, reading correlation 0–0.9 | 0.62–0.90; rounds at k ≥ 4 at most 0.02 [D, *plan* §6] |
+
+z* is the z of the best step's half-A reading. At the best step the first-order gain is twice the true gain, so z_G ≈ 2z* [D]. The ladder does better because ΔĴ's noise shrinks with the step, while a match's does not.
+- **Range.** ΔĴ is used up to K = ½ per side-game, ε = 0.0021 per decision at 237.9 decisions [D, *plan* §3]. A 2ε candidate past that is read by a 10,000-game cross-play match against π_k ($0.88 [D]).
+- **ε₀** comes from stage C's ladder.
+
+## 2. The optimizer
+
+Under this update the optimizer's only job is the metric P: KL sets the step and held-out games certify it.
+
+| Candidate | Evidence | Status |
+|---|---|---|
+| Reduced AdamW (default) | It trained `own2`. In the noise-dominated regime its second moment estimates the noise's diagonal, a square-root diagonal natural gradient [D]. [Zhang et al. 2024](https://arxiv.org/abs/2402.16788): SGD falls behind Adam on transformers when Hessian blocks are heterogeneous (supervised) | Stage C arm |
+| SGD | [Zhang et al. 2019](https://arxiv.org/abs/1907.04164), the noisy quadratic model: preconditioners raise the critical batch (abstract; that optimizers differ little far below it is from the body, not re-read) | Stage C arm |
+| Muon (built, update RMS matched to AdamW's) | [Ruan et al. 2026](https://arxiv.org/abs/2607.16169): v1, single seed, 0.290 → 0.546 success; v4, a full-budget RMS-matched control "removes the late-success gain". [Fan et al. 2026](https://arxiv.org/abs/2605.19282): collapse in RLVR, attributed to low SNR and per-head specialization. [Liu et al. 2025](https://arxiv.org/abs/2502.16982): fine-tuning an AdamW-pretrained model with Muon shows no significant advantage, by the authors' reading (Table 6: 3 of 4 benchmarks ahead; Table 7: 0 of 4) | Stage C arm, as one orthogonalized step on the summed gradient |
+| Heads-only, probe span | Fewer noisy dimensions at the cost of the signal's share | Stage C arms |
+| SOAP | No RL evidence found | Built for this update iff reduced AdamW beats SGD by 2 paired SE |
+| Damped natural gradient (conjugate gradient) | ACKTR: 2–3× sample efficiency ([Wu et al. 2017](https://arxiv.org/abs/1708.05144), abstract). Fisher-vector products through the memory are new code | Iff SOAP beats reduced AdamW by 2 paired SE |
+| Schedule-free ([Defazio et al. 2024](https://arxiv.org/abs/2405.15682)) | No schedule exists here. Its gradients are taken at one point and play at an average, so on-policy generation must pick one (`round11_simplify.md` §2.1) | Rejected |
+
+**The criterion** (stage C) runs on one gradient from 20,000 games. Each arm's direction is scaled to the same KL and read by ΔĴ on the same held-out games (half A), paired by game. An arm replaces the default only beyond 2 paired SE [C].
+
+This judges each arm as one step on a summed gradient. That is how this update applies it, but it is not how Muon runs as a minibatch optimizer: orthogonalizing each noisy step is nonlinear.
+
+**The built bench** (16 imitation passes from scratch, `scripts/optimizer_bench_box.sh`, $2.50) reads high-signal supervised training: speed, memory and stability. It does not read this update. It waits for a future imitation pass.
+
+**The round size.** N* = √(c_f·B/c_g), the cost-optimal batch of [McCandlish et al. 2018](https://arxiv.org/abs/1812.06162) with a fixed per-round cost:
+- c_f is the held-out set, its forwards and the claim share, $1.23–2.42;
+- c_g is a generated and trained game, $7.76e-5;
+- N* is 12,600–17,700 games at B = 10⁴ and 39,800–55,800 at B = 10⁵ [D, *plan* §5].
+
+For a KL-normalized step, B = tr(PFPΣ)/(gᵀPFPg), not B_simple in the P metric (`round11_provenance_critique.md` §2.1). Stage C reads it from the KL of the eight single-accumulator directions against their sum. E[dᵀFd] is gᵀPFPg + tr(PFPΣ)/n for one accumulator and the same with n × 8 for the sum: two equations, two unknowns. The forwards run on a 5% subsample.
+
+**The [LessWrong post](https://www.lesswrong.com/posts/9gqjdRyJxSM6kS7zi/i-trained-gpt-2-with-full-batch-gradient-descent-so-you-don)** has one run per setting, a learning rate tuned for minibatches and a Muon-family optimizer (ANVIL), by its author's caveats. Three of its findings bear on this update.
+- **A reused set generalizes worse.** Validation was 3.521 after full-batch training against 3.248 for minibatches on the same 800M tokens. Hence each game is used once.
+- **Exact-gradient steps at a fixed rate ride the edge of stability.** The consecutive-gradient cosine was −0.945, the loss rose on a third of steps, and the top Hessian eigenvalue went 48, 82, 113. Here the step is set by KL and certified, and the cosine between consecutive rounds' directions is logged. Without momentum it reads oscillation directly.
+- **Fresh data at 50M tokens a step matched minibatches** (3.230 against 3.248) with 18.8× the tokens in 6.8× fewer steps [D, `round11_simplify_budget.out`]. Large batches buy steps, not data. The cost here is games, so N sits near N*.
+
+## 3. Prior, yardstick, opponent, memory, probes
+
+### 3.1 The human prior
+
+The human prior is the starting point only. Each round moves at most 2ε of KL and is certified, and nothing anchors it [C].
+- An anchor toward `own2` would tax the sharpening that sampling needs.
+- The anchor evidence is from human-facing play ([Jacob et al. 2022](https://arxiv.org/abs/2112.07544); [Bakhtin et al. 2023](https://arxiv.org/abs/2210.05492)).
+- The human holdout cross-entropy is reported each round as a crash barrier, never as a target.
+
+The risk is cycling: mirror descent without an anchor need not converge in a two-player zero-sum game. Magnetic mirror descent converges to a regularized equilibrium ([Sokota et al. 2023](https://arxiv.org/abs/2206.05825)). The claims are the alarm, and a lower-tail miss stops the chain for the user's choice between a magnet toward `own2` and a pool of past iterates.
+
+### 3.2 The yardstick
+
+The reference is `own2` at `raw:t0+eo-1.5` with 64 slots [M, `configs/reference_player.json`, adopted 2026-10-21]. The seed's `own1` is superseded.
+
+Claims put π_k at temperature 1 against it, 12,800 decisive games ($1.13 [D]). The SE is 3.1 Elo at a 0.5 win rate and 5.4 at 0.09 [D, *plan* §3]. D₀, `own2` at temperature 1 against the reference, is the debt the user expects self-play to repay. It contains the offset's worth as well as the sampling loss.
+
+### 3.3 Opponent and memory
+
+- **Opponent.** The current self on both seats. A pool game costs 3.41× and trains one seat [D].
+- **Memory.** Trained by the same gradient on the histories it creates: the remedy the record validated (own-trajectory training cut the memory's cost from 105 Elo to none within `own2` [M, CLAUDE.md]). On-policy, past actions are the agent's own interventions ([Ortega et al. 2021](https://arxiv.org/abs/2110.10819)). Stage 1 reads 64 against 0 slots at temperature 1 as a report.
+- **Auxiliary losses.** None. Under a KL-limited step an auxiliary gradient spends the step on policy changes not aimed at the result, and the record's value gradient owned 94–99% of the trunk's updates [M, seed §3]. One step cannot price an auxiliary loss's benefit to representation, so no bench arm is built for it.
+
+### 3.4 Probes
+
+**P1 (an identity).** Scalars on the end_turn, attack and recruit logits enter the trainer's forward. Their gradients must equal the logs' Σ R(1[c] − p(c)) to bf16 tolerance. This catches alignment, sign and label errors.
+
+**The sharpening slope** comes from stage 1's logs alone: the mean over side-games of R·Σ_t (log p_t + H_t). log p + H is the score of the player's own joint inverse temperature, so this is the first-order value of sampling colder against a temperature-1 opponent: the user's hypothesis at first order. If it is resolved at 3 SE, the antisymmetric match `own2` at T = 1/(1 + e) against `own2` at T = 1/(1 − e) checks it in play. By symmetry f(e, −e) = 2e·∂f + O(e³) (`round11_simplify_critique.md` §2.3), so the forecast is exact to second order. It is a measurement match only.
+
+**The head-temperature floor.** Scaling a head's final linear map (`actor_head`, `type_head`, `target_q_proj`, the weapon head's last layer; `wesnoth_ai/model.py` lines 210–223) scales its logits: a direction in the network's own weights. From the slopes s and the Fisher F_s along these four directions:
+- gᵀF⁻¹g ≥ sᵀF_s⁻¹s by Cauchy–Schwarz;
+- so √(2K·sᵀF_s⁻¹s) is a measured lower bound on the first-order gain of the best step at KL K [D].
+
+The bound's noise lives in four dimensions, so it resolves where the full gradient may not. The probe span is also a stage C arm.
+
+## 4. Measurements first
+
+**Settled by records**
 
 | Quantity | Value | Tag, source | Decision it feeds |
 |---|---|---|---|
-| Base | `own2` over `own1` +22.7 ± 4.4 Elo, 6,400 decisive games | [M] `own2_base_20261020/reading.json` | π_0 is `own2` (or `own2` + capped Bd, T) |
-| Label path | Coin plant 0.994 and 0.995 ± 0.008; dice slope 0.00436; I-coin, I-log over 9.3 M decisions | [M] `near_tie_coins_20261020/readout_b_offline.txt` | Certified on `own1`; the gates rerun on `own2`'s smoke |
-| Mean near-tie advantage | +0.0003 ± 0.0007; coin play costs +2.0 ± 4.7 Elo | [M] seed §7; [D] `round9_simplify_budget.out` | Exploration is free |
-| Spread outside recruits | Nine partitions, none above 1.2 SE; unit-keyed cells +0.90 SD | [M] `round9_provenance_cells.out`, `round9_provenance_unit_cells.out` | Nothing is built on them; the typed block goes (type V z +0.39) |
-| Recruit rules, leave one match out | R (43 unit values) F +18.0 ± 3.1; B − R (matchup keys) +8.6 ± 2.1; Rd − R (count d) +5.1 ± 1.7; Bd − R +10.1 ± 2.3. Progressive loss at ridge 5,000: R −273.2, Rd −403.1, B −557.0, Bd −699.3 (lowest) | [M] *checks*; B and d first found in `round10_challenge_recruit_context_ridge.out`, `round10_invent_recruit_rules.out` | Bd is L's rule and the recruit block under (h) |
-| Fold-scheme spread | R's 20-fold F +21.3 (SHA-256 folds) or +19.9 (crc32 folds); leave-one-match-out +18.0 | [M] `round9_synthesis_checks.out` §1; `round10_invent_recruit_rules.out` §2; *checks* | Seals use leave-one-match-out, the condition of a fresh match |
-| Own interactions | Second-order term over all ranks (TayPO-2 form): R −12.3 ± 4.5, Rd −7.8 ± 4.8, B −10.3 ± 4.4, Bd −13.1 ± 4.7; the parameter-free count rule −3.4 ± 4.8. The expansion is not convergent at rank 2 (second order −3.3, exact +4.3) | [M] *checks*; `round10_provenance_critique_checks.out` §5 | No full rule's F is sealed; S2 searches the step |
-| Capped at two switches a side-game | Exact coin-world value: R +14.9 ± 3.0 (interaction −0.3 ± 1.7); Bd +24.1 ± 3.0 (interaction +0.6 ± 1.8; side-turn 1 +14.3); capped Bd − capped R +9.3 ± 2.6 | [M] *checks* | L's seal |
-| State shift at turn 1 | R's rank-0 turn-1 switches, reweighted exactly to uncoined prior play: −1.2 ± 1.3 | [M] `round10_provenance_critique_checks.out` §2 | An L shortfall is read as the continuation |
-| The collapse | Turn-1 distinct types: `own1` 1.345, `own2` 1.356, humans 3.164. Whole-game HHI 0.514, 0.514, 0.274. Count slope inside unit identity +0.00267 ± 0.00048 (z 5.6) | [M] `round10_invent_composition.out`, `round10_invent_composition_own2.out`, `round10_invent_recruit_rules.out` §7 | d enters Bd; `own2` collapses as `own1` does, which T's seal J_T = J_L rests on |
-| Not a decode artifact | Split-only rule +1.3 ± 2.9; r(v, log split rate) −0.20, p 0.21 | [M] `round10_challenge_recruit_split.out` | No marginal recruit decode |
-| Learning curves | R flat past 17,000 games (paired +0.12 ± 1.90 to 51,000); B still rising (30,000 → 54,000 +2.47 ± 1.25) | [M] `round10_provenance_critique_checks.out` §3; `round10_challenge_critique_checks.out` §3 | S1's size stays; per-block curves are read in-run |
-| R as a unit block | A per-candidate one-hot adds 2.36 switches per side-game on mixed pairs worth +0.2 ± 3.3; one ridge holds R at every λ (+19.1 to +22.9) | [M] `round10_simplify_critique_mixed.out` §2, §4 | The recruit block is a pair feature on recruit pairs; one ridge |
-| Threshold | On R the best τ beats τ = 0 by +0.8 ± 1.6 | [M] `round10_simplify_checks.out` §2 | τ̃ kept as a guard |
-| Label noise | E[T²] 4.01; residual 0.699 ± 0.003 (0.692 on `own2`); within-game ratio 0.999 | [M] `round9_simplify_labels.out`, `round9_simplify_residual.out` | Frozen b and β; every SE |
-| Forecast | SE 4.88 Elo at switched share 0.5, 3.41 at 0.25 | [D] `round9_simplify_budget.out` | The screens' lines |
-| Walls | A fixed 69 ± 30 s a match; 155.0 ± 3.3 ms a game; GPU busy 0.77 of the wall | [M] `round10_provenance_r_link.out` §4 | o read from equal-size runs (SE 0.024 at 10,000 games [D, `round10_provenance_derived.out` §1]); the host test runs 10,000 games, since 2,000 overstate cost by 17% (§2) |
-| Prices, $0.577/h host | Coin game all-in $2.849e-5; pool game $2.598e-5; two-network game $8.848e-5 | [M] `round9_simplify_labels.out` | Every cost |
-| Claims | Per-round checks, false miss 0.042–0.053; the lower tail alone 0.023–0.048 | [D] `round9_synthesis_checks.out` §5; `round10_simplify_critique_claimstop.out` | One-sided stop |
-| Transferred windows | S0(a) read −41.3 ± 4.4 against −76 ± 17 from decode-knob records | [M] seed §7 | Windows from other networks are reports |
-| First-mover effect | +9.3 ± 1.4 Elo | [M] `round9_challenge_critique_checks.out` A | I-side |
+| Base and reference | `own2` +22.7 ± 4.4 Elo over `own1`, 6,400 decisive games; reference since 2026-10-21 | [M] `own2_base_20261020/reading.json`; `configs/reference_player.json` | π₀; the yardstick |
+| Census at argmax | 475.7 ± 3.2 decisions a game, 237.9 a side-game, 20.16 side-turns; move 0.579, attack 0.237, recruit 0.099, end_turn 0.085 | [M] `round11_provenance_census.out` | Prices; K per decision |
+| Caps at argmax | 2 of 6,402 (`own2`–`own1`); 0 of 1,600 self-play | [M] census; `round11_simplify_rows.out` | z = 0 for caps; the rate re-read at temperature 1 |
+| Prices | $2.598e-5 a pool game, $8.848e-5 a two-network game; trainer 1,477 positions a second | [M] `round9_simplify_labels.out`; `trainer_calibration_20261015` | Every cost [D, *plan* §1–2] |
+| Label noise at argmax | E[R²] 0.699 (0.692 on `own2`) | [M] `round9_simplify_residual.out` | SEs until stage 1 |
+| Luck coefficients by setup | +0.0007 ± 0.0002 of variance | [M] `round11_invent_luck_strata.out` | No chance head |
+| Forks | Turn-start R² 0.346 (0.298–0.395) bounds a fork at ≤ 1.53× on post-fork decisions; at K = 8, 1.19× (1.13–1.25) over a value-head baseline | [M] `round11_provenance_turn_signal.out`, [D] `round11_provenance_derived.out` §3; [M, transferred from `obs8`] `round11_challenge_forks.out` | Forks rejected |
+| Value head as baseline | Explains 0.40 (0.29–0.51) of var(V); label 0.854 → 0.725 (`obs8`, human positions) | [M, transferred] `round11_challenge_forks.out` | Admitted only on stage 1's reading |
+| One outcome-gradient noise scale | 43-column recruit rule on coin labels: B_simple 11,593 (7,813–22,457) games, r_eff 18.9 | [M] `round11_simplify_noise.out`, `round11_simplify_critique_rank.out` | A report; another parametrization |
+| Departures from argmax at temperature 1 | ≥ 36.0 a side-game (0.151 of decisions) | [D] `round11_provenance_census.out` §2 | The signal exists beyond the band |
+| Sampling-cost indicators | September seed: argmax +412 ± 97 over sampling (40 games); `obs8`: a temperature-1 turn −0.068 z (does not add over a game) | [M] `docs/raw_argmax_control_20260904.md`; `round11_provenance_turn_signal.out` B | Nothing; D₀ is measured |
+| Second-order loss on record | R: +18.0 first order, −12.3 ± 4.5 second | [M] round 10 | Steps are read on the true objective |
+| TRPO's bound | Certifies only below 4.7e-6 nats a decision at a 230-decision horizon | [D] `round11_simplify_budget.out` | Measurement replaces the bound |
 
 **Still to measure**
 
-| Quantity | Cheapest way | Cost [D, *budget* §3] | Decision it feeds |
+| Quantity | Cheapest way | Cost [D, *plan*] | Decision it feeds |
 |---|---|---|---|
-| The coin-to-uncoined link at the capped step | L | $0.98 | Whether any round is bought |
-| Capped Bd on `own2` | T, iff (h) | $0.98 | π_0 |
-| π_0 against `own1` | C, iff T changes π_0 | $1.13 | The claim chain |
-| `own2`'s gates, census, E[T²], processor time, the server's dump timer; R² of Bd's values and of d on the dumped recruit x | The smoke, 3,000 dumped coin games | $0.09 | Gates; whether the token span carries the recruit structure (report) |
-| Staging minutes (15 of the 22 are [C]) | Box A's log | $0 | Every setup; the third slot's margin |
-| The dump overhead o | Batch 1's match 1 undumped and match 2 dumped, 10,000 each | inside S1 | Rounds that fit |
-| v per type, τ̃, each screen's forecast | S1 | inside S1 | The round's gain |
-| The second-order loss against the step, and the link on the new base | S2's step search | $1.98 | Adoption; round 2's grid |
-| A host's cost per coin game | One 10,000-game coin match on the candidate | ≤ $0.29 + setup | The third slot with the reset |
-| Whether the $5 window counted | Ask the user | $0 | The third slot |
-| ĉ, ρ̂ of the reset | S4, held out | $3.90 | The next base |
-| Branch S: s used, transfer, M2 | B1–B3 | $4.70 at $0.42/h, $5.67 at $0.577/h | Base choice |
-| Herded argmax in play | H, iff ruling (i) | $0.98 | The recruit decode |
-| Compounding, exploitability, human level | Each claim; none; none | — | Nothing rests on them |
+| Game length, decisions, cap rate and price at temperature 1 | Stage 1 | inside $1.65 | Every price; cap scoring if above 0.009 [D: one claim SE / 347.4] |
+| E[R²] under luck alone, + v̂, + U, cross-fitted | Stage 1 logs | $0 | A correction enters iff it cuts E[R²] by 2 SE and by ≥ 5% [C: 5% of about $70 of rounds is $3.5] |
+| D₀ | Stage 1, 12,800 decisive one-network games | $0.33 | The debt; the claims' origin |
+| Memory at temperature 1 | Stage 1, 64 against 0 slots, 3,200 games | $0.28 | Report; read beside a claim miss |
+| Sharpening slope | Stage 1 logs | $0 | The hypothesis at first order; whether the link match runs |
+| I-sample, legal mass, I-count | Stage 1 logs | $0 | Gates |
+| Replay identity; forward-only speed | C0 | inside C | Gate; C's arm list |
+| B in the step's metric; the gain curve Ĝ(N) at 5,000, 10,000, 20,000 | C | inside C | N; whether rounds resolve |
+| Best metric; ε₀; head-temperature floor | C | inside C | The optimizer; round 1's radius; the floor |
+| Planted recovery | C offline, P played | $0.65 | Gate before rounds |
+| The link at temperature 1 | Antisymmetric match, iff the slope ≥ 3 SE | $0.33 | Whether first-order labels price play |
+| Second-order loss against the radius; transfer to the reference | Each round's ladder; claims | inside rounds | The radius; continue or stop |
+| Whether the $5 window counted | Ask the user | $0 | The budget line |
+| Exploitability; human level | None | — | Nothing rests on them |
 
-## 3. The algorithm
+## 5. Checks and plants
 
-### 3.1 Base and generation
-
-- **π_0.** `own2` at `raw:t0+eo-1.5` with 64 memory slots; or `own2` + capped Bd if T adopts it under ruling (h).
-- **Coins.** At a decision whose top two joint log-priors after the offset differ by G < 0.35 [C], a coin keyed by seed, side and decision index deviates from π_k's choice with probability ¼ [C, built]. P(a1) is logged per decision: ¼ where π_k plays a0, ¾ where it plays a1. The first match on a π_k that switches gates this code through I-coin, I-log and the coin plant.
-- **Logs.** Per band decision: P, D, pair type, mover, G, both candidates with their unit identities, the enemy faction, and the side's earlier recruits of each candidate type. Per game: z and the seven luck sums S_g.
-- **Dump.** The inference server writes x = φ(a1) − φ(a0) per band decision in bf16. An offline processor makes one sequential pass per match, at 2.40 GB a match [D, `round10_provenance_derived.out` §4]. It computes the Gram matrix G_j, the vector b_j, sandwich sums Σ T²xxᵀ, the plant sums and the per-block progressive losses, then deletes the match's x. It keeps x for a fixed 1,000-game subsample.
-
-### 3.2 The label
-
-    T_i = s_i ω_i R_g,   ω_i = (D_i − P_i)/(P_i(1 − P_i)),   R_g = z − b(cell) − βᵀS_g
-
-- **Baselines.** b and β are fitted once on `own1`'s 60,000 coin games and frozen.
-- **Claim.** E[T_i | H_i] = Q̃(H_i, a1) − Q̃(H_i, a0) under the coin policy, for any coefficients fixed before the game. Under fog it is the information-state advantage.
-- **Caps.** Capped games are dropped (23 of 60,023 [M]).
-
-### 3.3 The head and the switch rule
-
-- **Features.** φ = [actor token output, q(actor) ⊙ k(target hex), four factored log-probabilities], d 772. If ruling (h) allows, recruit pairs of different units add Bd's 301 pair columns: e(u1) − e(u0) over 43 units, the same over unit × enemy faction, and d = n1 − n0, the side's earlier recruits of a1's type less a0's. These columns are zero on every other pair.
-- **Fit.** ŵ = (Σ_j G_j + λI)⁻¹ Σ_j b_j, one ridge for all columns, with λ̂ minimising the progressive loss. Earlier rounds' statistics are pooled iff the progressive loss says so.
-- **Switch rule.** τ̃ maximises the unbiased welfare curve W(τ) = Σ_{f_i > τ} T_i of student j − 1 on batch j ([Kitagawa & Tetenov 2018](https://doi.org/10.3982/ECTA13288)) over the latest four pairs if it beats τ = 0 by 2 SE, else 0. The head reorders only the network's top two at a band decision, so every switch it makes is labelled.
-
-### 3.4 The step search, adoption, claims
-
-- **Screens.** Each screen plays π_k + the head on one seat, picked by a per-game seat coin (I-side), against π_k: 12,800 decisive games, SE 3.07 [D]. Three step sizes, each with a forecast sealed from batches 5–8 (students 4–7):
-  - **full:** every change with f past τ̃; first-order forecast.
-  - **quarter:** the top quarter of those changes by predicted gain within each pair type; first-order forecast.
-  - **capped:** each side's first two changes a game; its exact coin-world value (rank 1 weighted 3 or ⅓ by the rank-0 coin), the one forecast with no second-order unknown.
-- **Confirmation and adoption.** The highest screen is replayed on fresh seeds, 37,800 games (SE 1.79). Adoption needs its lower 2-SE bound above 0. False adoption is 0.023 under an all-null truth, whatever the screens selected. At illustrative truths of (2, 6, 5) Elo, adoption is 0.80 and mean regret 0.74 [D, *budget* §2].
-- **Lines.**
-  - A screen's miss line is 11.5 at forecast SE 4.88 and 9.2 at 3.41.
-  - The confirmation's line is 10.4 [D].
-- **Claims.** After an adoption, π_k plays `own1` in a two-network match of 12,800 games. D_k = claim_k − claim_{k−1} is checked against the confirmation's reading at 9.4 Elo, or 11.2 against S0(b) [D].
-  - A lower-tail miss means the round's gain does not reach `own1`. It stops the chain until the user decides.
-  - An upper-tail miss is reported.
-
-### 3.5 Invariants and plants
-
-| Invariant | Check |
-|---|---|
-| I-coin, I-log | Coins match P (χ², capped games too) and are independent of dice and pre-coin quantities; every logged decision played as the coin chose |
-| I2, I3 | An enumerable duel through the production generator gives E[T] = Q(a1) − Q(a0) exactly; a post-coin variate fails it; a swap flips x and T |
-| I-φ | The dump's log-probability block reproduces the logged gap, by separate code |
-| I-φ2 (new) | The actor head, a linear layer (`wesnoth_ai/model.py` lines 210 and 1047), applied to the dumped actor-token difference, reproduces the actor log-probability difference, since the softmax normaliser cancels within a decision. On same-actor pairs, the q⊙k block summed and divided by √d reproduces the target log-probability difference (lines 1053–1055). Run at bf16 tolerance on the smoke, every batch and every screen's seat. A wrong token index or a swap confined to the token block fails it |
-| I-proc | The statistics recompute from the stored subsample |
-| I-V | Per pair type, the mean of sω(b + βᵀS) is 0 at the family-wise 5% line |
-| I-cap, I-key | On a capped rule's seat, every rule decision logs f, its rank and the switch. At most two fires a side-game, each played a1, all recomputed by separate code. The fire count is above 0 on every faction. The enemy-faction key equals the setup's |
-| I-match | On a head's seat, f, the screen's mask and the switch are logged at every band decision, with x on a 1,000-game subsample; every switch played as the mask says; f recomputes |
-| I-side | The seat coin's (seat, side) χ² |
-
-| Plant or known answer | Prediction | Failure reading |
+| Check | Prediction | Failure reading |
 |---|---|---|
-| R0's differential test: the processor fed batch 1's records (b ≡ 0, readout_b's β, per-fold sums, x = the recruit pair block) | R's 43 values and F to float tolerance | Any difference |
-| Recruit-block plant, offline: z′ = z + Σ_j s_j(D_j − P_j)uᵀx_j, u = ±δ on a third of Bd's keys, parsed by `tools/coin_plant.py` | Slope 1 along u (3 SE) | Wrong mover sign −1; a mis-joined key about 0 |
-| Merged feature plant, batches 1–2, at 10 SE | τ̃ leaves 0; planted welfare within 2 SE of τ*'s; fit change as the processor predicts | τ̃ = 0 |
-| Coin plant, every match | Slope 1 per mover side (SE 0.0387 smoke, 0.0064 batch [D]) | Side sign −1.005 |
-| Dice control, separate code | Smoke [+0.00245, +0.00587], batch [+0.00267, +0.00565] | Flipped result −0.00416 |
-| L, on real signal | Capped Bd within its seal ± 7.0 | §4 |
-| Distillation (S4) | ĉ above 0 by 2 SE | ĉ near 0 |
+| I-sample (stage 1) | Binned χ² of 1[a ∈ c] against logged p(c) for end_turn, attack, recruit; the sampled action's rank uniform under its logged law | A decode that differs from the logged law (a kept offset, a stale temperature) |
+| Legal mass | The server's Σ prior over the legal list is 1 at every decision | If not, the loss needs log L_t: a masked factor outside the enumeration |
+| I-count | Logged decisions = trained decisions, refused recruits included | A dropped score term |
+| Replay identity (C0) | The trainer's π_k reproduces logged log p_t; the mean KL is below ε/20 [C: a tenth of the smallest rung] | Memory carry, masks or rejection replay differ |
+| P1 | Probe gradients = logs' Σ R(1[c] − p(c)) | Alignment, sign or label |
+| Dice control, I-V | Separate code reproduces the fitted luck slope on z; each correction's mean against 1[a ∈ X] − p(X) is 0 within 3 SE | Join or orientation; a correction read after its event |
+| CI toy game | The production estimator on an enumerable two-decision game equals the exact J difference within 3 SE; a seat swap flips R; the KL search hits its target | Estimator code |
+| **Planted round** | z′ = z + δΣ_t σ_t(1[a_t ∈ X] − p_t(X)) in side A's frame, X = attack, written into a copy of the result table and read by the production join, b and β. δ is set from C's noise for 10 SE [C]. The expected gradient is exactly δΣ_t∇p(X\|h_t). **C (offline):** the teacher-forced change of Σ_t p(X) on H, per seat, within 3 SE of its first-order forecast from the step and the exact planted gradient, by separate code. **P (played):** the planted step against π₀, 5,000 games; X per side-game rises on each seat; the played p(X) matches the trainer's θ′ on the same positions | One seat reversed: σ_s. Neither moves: the join or the hand-off. Wrong size: direction or step |
+| Importance weights (C, rounds) | The effective-sample share of W on H is at least half of e^{−2K} [C] | Heavy-tailed ratios (a rare action raised): that rung is read by a cross-play match |
+| Gain-curve model | Ĝ(N)/Ĝ(20,000) = √[(N/(N + B))/(20,000/(20,000 + B))], B from the KL readings | Noise not shaped as the model assumes; N is then taken from the curve itself |
 
-## 4. Regimen
+The memory's credit path is the recipe's back-propagation, validated by the own-trajectory rounds' measured gains. No memory-specific plant is built (§9).
 
-Costs are at $0.577 an hour with o = 0 [D, *budget* §3].
+## 6. Regimen
 
-| Stage | Cost | Readout and prediction | Decision per outcome |
+| Stage | Cost [D, *plan* §2] | Readout | Decision per outcome |
 |---|---|---|---|
-| **R0**, offline | $0 | Bd refitted on batch 1 with each game's enemy faction read from its record (the 6% of rows this synthesis lacked), λ by progressive loss, hashed. Its capped exact value sealed, now +24.1 ± 3.0 Elo with 94% coverage, with its per-faction split and its turn-1 state shift. The differential test and the plants. CI: I2, I3, I-match, I-cap, I-side, I-φ, I-φ2 on a CPU forward | Red: fix before any box |
-| **Box A: L** | $0.98 | `own1` + capped Bd on one seat against `own1`, uncoined, 37,800 games. Sealed at the R0 value ± 7.0 (now 24.1 ± 7.0); null line 3.57, which sits 5.9 SE below the seal [D, *budget* §1]. Reported: fire rate by faction, I-cap | **Inside:** first-order labels price uncoined play at a step whose interaction is measured near zero; S1 is proposed. **Below, lower bound > 0:** a partial link. Own interactions are measured near zero and the turn-1 state shift at −1.2 ± 1.3, so the shortfall is the coined continuation. S1 is proposed; S2's capped screen reads the same link on `own2`. **Null** (ratio below 0.30): if I-cap and the label path are clean, coined continuations do not price uncoined ones. No round is bought. The user chooses: one coined side per game (2.0× games per label) or p 0.1 (2.08×) [D], which shrink the coin world's distance from play, or Branch S, the reset, Branch L. **Above:** reported |
-| **Box A: T**, iff (h) | $0.98 | `own2` + capped Bd against `own2`. Sealed J_T = J_L, difference SE 2.53, line 5.1. The basis: `own2`'s collapse equals `own1`'s | **Lower bound > 0:** π_0 = `own2` + capped Bd. **\|J_T − J_L\| > 5.1:** the rule depends on the base; reported. **Lower bound ≤ 0, L positive:** π_0 = `own2` |
-| **C**, iff π_0 changed | $1.13 | π_0 against `own1`; D against T's reading, line 11.2 | **Inside:** the chain starts at π_0. **Lower tail:** stop and report. **Upper tail:** reported. The rule was fitted on `own1`'s self-play, so a gain specific to `own1` shows here |
-| **Smoke** (box A) | $0.09 | 3,000 dumped `own2` coin games: I-coin, I-log, coin plant, dice control, I-φ, I-φ2, I-proc. Reports: census, E[T²], dump timer, processor time, R² of Bd's values and of d on the recruit x (deterministic targets) | A gate fails: debug. The R² is a report, no threshold |
-| **S1**, batches 1–8 | $22.79 (1 + o) | Match 1 undumped and match 2 dumped give o, with SE 0.024. Every match: plants, dice control, I-V. Batch 8: λ̂, τ̃, v̂ per type, per-block learning curves, three sealed forecasts. v is not predicted | **o above 0.59** (0.64 without T): one round fits, and the user is told before match 3. A check fails: the batch is quarantined |
-| **S2**, step search + claim | $1.98 + $1.13 | Three screens against their forecasts; the best confirmed; the claim check | **Adopt** iff the confirmation's lower bound > 0, then claim. **The capped screen inside its complete forecast, the larger ones below theirs:** the loss is second order and grows with the step, so round 2's grid moves down. **The capped screen below its forecast:** the link fails on this base, read beside L. **All screens null, forecasts not above 0:** S3-null |
-| **Round 2** | $26.11 (o = 0) | As S1–S2 on π_1; pooling by progressive loss | As S2 |
-| **Third slot** | reset path $30.17; third refit $26.11 | The user's choice after round 2. The reset needs the optimizer discussion and a host test. The refit re-prices the same band | As S2 |
-| **S3-null** | when chosen | v̂ per type, per-type welfare curves, the forecasts' upper bounds | The user chooses: band 0.7, Branch S's base, the reset, or stop |
+| **0, CI** | $0 | The signed-weight loss; accumulation; the direction transforms; the KL search; Ĝ and ΔĴ on the toy game; P1 on a CPU forward | Red: fix before any box |
+| **1, no training** | $1.65 | 30,000 `own2` temperature-1 self-play games: 20,000 to train on, 10,000 held out. Logs: log p_t, H_t, p(end_turn), p(attack), p(recruit), legal mass, v̂_t, refused recruits; z, cell, caps, S. D₀ (12,800); memory 64 against 0 (3,200). Offline: the census, E[R²] by correction, I-sample, the sharpening slope | Gates red: fix. Corrections by the rule of §4. Cap rate above 0.009: the user rules on cap scoring |
+| **C, nothing played or kept** | $2.73–5.71 | C0. The gradient pass. Arms at N 20,000, each at K ¼ on half A: SGD, reduced AdamW, Muon, heads-only, probe span. The winner on the ladder K ∈ {⅛, ¼, ½}. Reduced AdamW at 5,000 and 10,000. B; the floor; the planted offline readout | **Round 1's candidate** (best arm and radius on half A, read on half B): lower 2-SE bound above 0: P, then rounds, with the measured gain per dollar. **Unresolved, but the curve gives z ≥ 2 at a round size costing ≤ $18** [C: a quarter of the $73.42 left for rounds at the forward bound]: rounds at that size. **Neither:** no rounds; the user chooses the $1,000 case, sized from the curve, or a stop. **Optimizer:** by §2's criterion. If C0's forwards run at the bound, heads-only and the 5,000-game point are dropped ($5.04) |
+| **P** | $0.65; link match +$0.33 iff the slope ≥ 3 SE | The planted step played; the antisymmetric temperature match against its sealed forecast | Planted miss: debug. Link outside its forecast ± 2 combined SE: first-order labels do not price play at temperature 1; stop and diagnose before rounds |
+| **Rounds** | $2.78–3.97 at N 20,000, \|H\| 10,000 | §1. Each round logs Ĝ and ΔĴ at three radii, the adopted reading on half B, entropy, cap rate, the human cross-entropy, the cosine with the last direction | **Revert:** half B below −2 SE (0.023 at a zero gain [D]). **Pause:** after every third round, if the last three confirmed readings' sum is not above 0 by 2 SE. A null pauses at 0.977; a gain of 3.8 Elo a round passes at 0.8 at K ¼ [D, *plan* §4]. The user sees the measured Elo per dollar |
+| **Claims**, every third round | $1.13 | claim_k − claim_0 against the sum of confirmed readings since round 0; SE 8.6–11.1 Elo at rounds 3–12 at a 0.09 win rate [D, *plan* §4] | **Lower tail at 2 SE:** gains do not transfer; stop; the user picks a magnet or a pool. **Upper tail:** reported |
 
-**Budget** [D, *budget* §3], from $82.34 left if the $5 window counted:
-- **With T and C:** through round 2 costs $55.62, leaving $26.72; two rounds fit iff o ≤ 0.59. The third slot fits as a refit iff o ≤ 0.009. With the reset it fits iff a host's all-in cost per coin game is ≤ $2.705e-5 (0.950× the measured).
-- **Without (h):** through round 2 costs $53.51. A third refit fits iff o ≤ 0.040; the reset iff the cost per coin game is ≤ $2.793e-5.
-- **If the window did not count:** a refit fits iff o ≤ 0.048 (with T) or 0.080 (without).
-- **A null round 1** after box A costs $26.26–$27.24.
-- These lines omit the hook's overhead and the processor's time, which the smoke and S1 measure before the third slot is chosen.
-- A round's batches take 39.5 h.
+**Budget** [D, *plan* §2d]:
+- $81.44 is left if the $5 window counted, $84.10 if not.
+- Stages 1, C and P cost $5.03–8.01.
+- That leaves 18–27 rounds at N 20,000.
+- A round takes 4.8–6.9 box-hours at N 20,000 [D, *plan* §2e].
+- The ceiling for rounds is the user's.
+- The $1,000 case is argued only from adopted rounds' measured gain per dollar.
 
-**Branch S** (rulings (f), (g); it trains weights, so it waits for the optimizer discussion) is unchanged: B1 $2.59–$3.56 by host, B2 $0.98, B3 $1.13. **Branch L,** if ruling (a) is no, is unchanged. **The $1,000 case** is argued only after two adopted rounds pass their checks. It is sized from measured v̂, the step search's second-order curve and ρ̂. Nothing measured links `own1` to human ratings, and nothing rests on it.
+## 7. What is new, and the nearest work
 
-## 5. What is new, and the nearest work
+Searched 2026-10-21; finding nothing does not prove absence. The update itself is REINFORCE with exact baselines. Its nearest relative is AlphaGo's RL policy: outcomes ±1 from a supervised start, a pool of past iterates, about 80% wins over its start ([Silver et al. 2016](https://www.nature.com/articles/nature16961); from secondary sources, unverified).
 
-Searched 2026-10-21; finding nothing does not prove absence.
-1. **Near-tie coins at an argmax decode,** made exact by the chance laws, pooled by a closed-form natural-gradient head and certified by match, as in round 9. The nearest designs randomise only near a cutoff ([Owen & Varian 2020](https://arxiv.org/abs/1808.07563); [Cattaneo, Frandsen & Titiunik 2015](https://www.doi.org/10.1515/JCI-2013-0010)). Here about 155 coins share one result.
-2. **A probe built so its forecast is complete.** Capping a rule at two decisions a side-game makes its performance-difference terms exact from behaviour data, with importance weights over at most one earlier coin. The full expansion is TayPO's ([Tang, Valko & Munos 2020](https://arxiv.org/abs/2003.06259); its second-order form was read by the provenance critique). The same records show the uncapped second-order term large and the expansion unreliable, which is why the probe is capped. One search found no estimator for policies that deviate at most k times. The nearest is state-based importance sampling, which drops ratios where an action cannot affect the return (abstract-level: [deepai listing](https://deepai.org/publication/low-variance-off-policy-evaluation-with-state-based-importance-sampling)).
-3. **A step search on the true objective.** The screens run along a label-fitted direction, each with an exact first-order forecast, one complete, and a fresh confirmation.
-   - CPI+ line-searches the step on a 2^i α grid but does not state its criterion ([Scherrer 2014](https://arxiv.org/abs/1405.2878), read).
-   - HCPI selects a candidate on one data split and tests it on another ([Thomas, Theocharous & Ghavamzadeh 2015](https://proceedings.mlr.press/v37/thomas15.html); the split is from its erratum, unverified in the body).
-   - CLOP and SPSA tune engines by match outcomes along fitted or random directions.
+1. **A step certified offline on the true objective.** Three radii are read by trajectory importance weights with the chance-law luck terms inside, selected on one half of the held-out games and confirmed on the other. Neighbours: TRPO's in-sample line search on its surrogate ([Schulman et al. 2015](https://arxiv.org/abs/1502.05477)), which tracks true gains poorly ([Ilyas et al. 2020](https://arxiv.org/abs/1811.02553)); HCPI's held-out tests ([Thomas et al. 2015](https://proceedings.mlr.press/v37/thomas15.html)); POIS's Rényi-bounded importance objective ([Metelli et al. 2018](https://arxiv.org/abs/1809.06098)). The assembly was not found.
+2. **The optimizer chosen by paired held-out gain at matched KL, from one gradient.** The nearest is Ruan et al.'s RMS-matched control, which compares inside training runs.
+3. **The critical batch of a KL-normalized step,** read from the KLs of split-accumulator directions. McCandlish et al. read B_simple from pairs of batch sizes.
+4. **A measured floor on attainable gain before training,** from realizable temperature directions by Cauchy–Schwarz in the Fisher metric. The temperature score itself is standard (`round11_challenge_critique.md` §2.1).
+5. **AIVAT's chance terms as a training control variate.** Neighbours: input-dependent baselines ([Mao et al. 2019](https://arxiv.org/abs/1807.02264)) and hindsight baselines ([Mesnard et al. 2021](https://arxiv.org/abs/2011.09464)).
 
-   The assembly was not found.
-4. **Findings about the network,** not method claims:
-   - its argmax recruits one type where humans field three;
-   - its near-tie recruit errors depend on the matchup and on the side's composition, and are not a decode artifact;
-   - every fitted rule over them loses value to its own later switches.
+## 8. Weakest points
 
-## 6. Weakest points
+1. **The signal per game.** Nothing on record bounds B from above. If C finds no resolvable round at an affordable size, $5.03–8.01 is spent and the honest result is a stop.
+2. **Distance.** Repaying D₀ may need the policy to move far. At most 2ε of KL per round is certified offline, so progress per round is bounded by √(2K·gᵀF⁻¹g), which is unknown. Past K = ½ the ladder needs cross-play matches.
+3. **Transfer.** Gains against the predecessor need not reach the reference. The claims see a cumulative shortfall of about 17 Elo at 2 SE by round 3 [D, *plan* §4].
+4. **Prices at temperature 1** are unmeasured until stage 1.
 
-1. **Outside recruits, nothing is certified.** A null round 1 costs $26.26–$27.24.
-2. **The second-order loss at the head's scale is unknown.** On recruits a full fitted rule loses 8–13 Elo at about 2.2 switches a side-game. The head may switch 19–38 times, about 0.25–0.5 of 77.6 band decisions [D]. If every uncapped screen loses and the capped one carries little, round 1 adopts a small step.
-3. **Money.** The third slot fits only at o near 0, or on a cheaper host.
-4. **Rulings (a), (e), (h)** decide whether the coin route plays at all and whether recruit structure enters a player before the reset.
-5. **The band moves only through the reset,** which waits for the optimizer discussion.
+## 9. Decision record
 
-## 7. Rulings for the user
+**Rejected this round:**
+- **Several AdamW steps per round with a fixed rate per segment** (simplify). Fresh moments make each segment's first steps lr·sign(g), and one line-search step does not calibrate many (`round11_simplify_critique.md` §2.1).
+- **The ratio rule for the radius** (challenge). It freezes at low z and overshoots under its ×4 cap (`round11_challenge_critique_rule.out`). The ladder keeps 0.62–0.90 of the best gain [D, *plan* §6].
+- **Adoption only on a confirmed gain** (provenance). It is underpowered: a 3-Elo step is adopted 9% of the time (`round11_provenance_critique.md` §2.3). Here a step is reverted only on confirmed harm, and claims check the sum.
+- **A stage-C prediction from B_simple in the P metric.** That formula is wrong for a KL-normalized step; it is replaced by the KL-based B.
+- **"Preconditioning boosts noise, so Muon and Adam lose"** (provenance). The noisy quadratic model's abstract says preconditioning raises the critical batch, not that it hurts below it; the transformer evidence cuts the other way. The arms decide.
+- **Training on the cross-play games' new seat** (challenge). It saves about $0.07 a round [D: 5,000 side-games of generation] for a second data path.
+- **The exact-law action walk** (invent). Its costly columns need expectations over every legal action, which the generator does not compute. Only its free columns (v̂, U) are tested.
+- **The chance head** (invent). Setup-varying coefficients are worth +0.0007 of variance.
+- **The parity memory plant** (challenge). Parity is a known failure case for gradient learning ([Shalev-Shwartz et al. 2017](https://arxiv.org/abs/1703.07950)), across a 16-decision window. A plant on a bit shown once and hidden later is open.
+- **Caps scored −1 for both sides** (simplify). It is not zero-sum.
+- **Dropping capped games.** It conditions on an outcome.
+- **The belief loss at the recipe's weight** (challenge, invent). It has the shape of the 94–99% failure.
+- **The bandit-converted imitation arm** (invent). At B = 10⁵ its chord carries a signal-to-noise of about 0.15 (`round11_invent_critique_checks.out` §5).
+- **The 16-arm imitation bench for this decision.**
+- **Schedule-free, PPO epochs, a KL anchor from the start, a pool from the start, forks, bootstrapped critics.**
 
-- **(a), unchanged:** one natural policy-gradient step for a near-tie coin policy, adopted only by match.
-- **(b), unchanged:** luck columns and the frozen cell baseline in labels only.
-- **(c):** per-round claims; a lower-tail miss stops the chain.
-- **(d), (f), (g), unchanged.**
-- **(e):** do a closed-form head on frozen features, and the capped rule played in L and T, fall under the 2026-10-15 ruling? L and T play them as measurements.
-- **(h), revised:** may the player carry Bd's 301 columns on recruit pairs (unit identity, unit × enemy faction, the side's earlier recruits of each type)? Both forms are covered: the capped rule in π_0 and head columns. If not, T and C do not run, and the recruit structure reaches the player through the token span or the reset.
-- **(i), new (invent):** may the player decode recruits by herding its own probabilities? If yes, H runs in box A with the critique's repairs. If no, herding is not used.
-- **Budget:** did the $5 window come out of the $85? And after round 2, the reset or a third refit?
+**Withdrawn by the user's rulings:**
+- the near-tie coins as training;
+- the recruit rule Bd and every decode-time head;
+- argmax play;
+- rounds 8–10's screens and seals.
 
-## 8. Decision record
+Their records stay as measurements: S0(a), the coin plant and match L's +15.3 ± 1.8 Elo.
 
-**Rejected or deferred this round:**
-- **Sealing a full rule's F** (round 9's L). Second-order terms of −12.3 ± 4.5 (R) and −13.1 ± 4.7 (Bd), with a non-convergent expansion, make it no prediction of play. A miss could not separate own interactions from the link.
-- **Sealing at the 20-fold F.** It is a forking path between fold schemes (+21.3, +19.9, +18.0). A fresh match is the leave-one-match-out condition.
-- **"Own interactions cannot produce a null"** (provenance). On its own rows the second-order term reads −12.3 ± 4.5, and the first-coin coefficient is 0.5, not 0.75 (−2.3 ± 2.8).
-- **H1** (simplify). Students never play in generation, so its only action moves into S2's screens.
-- **E as a separate stage.** It is absorbed as a screen, for $0.02 more than S2 plus its reserve.
-- **The class-wide shift past the band, and η screens** (challenge). Past-band flips and third-candidate flips are unlabelled, so they have no forecast. The screens vary the switch set within the top two.
-- **The attack hook as the shift path's known answer.** A within-class shift of a constant changes no decision (challenge critique §2.1).
-- **30,000-game recruit iterations with a two-null stop.** The iteration size was measured on `own1`'s first step only. They are deferred until round 1's per-block learning curves show when the recruit block saturates.
-- **Herded argmax in the regimen.** Deferred to ruling (i). Inside the band it is not the count rule, since it depends on the unmeasured ΔQ. As specified, its T → 0 limit is not the reference decode, and W under overrides is unspecified. The repairs if run: q from best-hex joint priors, W following the played type, per-faction readings, the bottom row conditional on (h). Kept from it: the collapse, the count column d, composition statistics reported on every head seat.
-- **κ_comp as a gate.** Its target of 1 is not a derivation.
-- **The 2,000/1,000 smoke for o.** It reads −0.154 at o = 0. Likewise the 2,000-game host test, which reads 17% high.
-- **A futility stop.** It has no trigger without H1, and its power cost cannot be derived.
-- **Removing T and C unconditionally** (simplify). They stay under (h): T is the cheapest bankable gain on record.
-- **Moving the reset and Branch S out of the plan** (simplify). They stay, gated on the optimizer discussion; the third slot is the user's choice.
-- **The per-candidate unit block.** It adds 2.36 switches worth +0.2 ± 3.3.
-- **The adjacent-switch forecast correction.** Its SE is 5.7–8.2 at four batches.
-- **The "~$7" critic column.** It has no derivation and is off the menu until priced.
-
-**Kept from simplify:** frozen b and β, the dump and offline processor, the merged plant, R0's differential test, one ridge, no typed block, the one-sided claim stop, the R² report, I-φ2 (from its critique).
-
-**Record corrections:**
-- The "78×" information ratio holds for the whole band; on one rule's switch set it is 4.8–5.2×. The "42–87×" is 5.2× for B.
-- Farias et al.'s abstract says "a large penalty in variance", not "exponentially larger".
-- 0.56 is an odds ratio.
-- B1's cost depends on its host.
-- "Logits + ηf" is Gumbel MuZero's improved-policy form.
-- HA's bound is proven without masks only.
-
-**Standing:** everything rounds 8 and 9 rejected (factorial core, twins deferred, the batch-1 replay, the conditional MLE, scaling forecasts by L's ratio, an R² threshold, the offset block); single-decision comparisons only; logged propensities; fresh-seed adoption; PURE claims; nothing distilled before a match certifies it.
+**Kept from earlier rounds:**
+- the label's luck correction, with frozen, cross-fitted b and β;
+- dice control and I-V;
+- single-decision comparisons only;
+- one-sided claim stops;
+- fresh-seed confirmation, now the half-B reading;
+- PURE claims;
+- nothing distilled before a match certifies it.

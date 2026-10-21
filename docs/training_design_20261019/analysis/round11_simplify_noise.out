@@ -1,0 +1,18 @@
+games 60000; with a recruit-pair row 59338; rows 514281
+mean T over rows +0.00707; mean T^2 4.498
+
+== R43: 43 columns
+  |G|^2 unbiased 6.6209e-03 +- 1.6015e-03 (z 4.13)
+  tr(Sigma) per game 7.6755e+01 +- 5.1065e-01
+  B_simple 11,593 games (|G|^2 +- 2 SE: 7,813 to 22,457)
+  split halves of  1,000 games: mean gA.gB 6.800e-03, sd 1.912e-02, z_fpc 0.35
+  split halves of  2,500 games: mean gA.gB 7.225e-03, sd 8.243e-03, z_fpc 0.84
+  split halves of  5,000 games: mean gA.gB 6.928e-03, sd 4.887e-03, z_fpc 1.29
+
+== d: 1 columns
+  |G|^2 unbiased 5.3808e-01 +- 2.7892e-01 (z 1.93)
+  tr(Sigma) per game 2.2334e+03 +- 9.8368e+01
+  B_simple 4,151 games (|G|^2 +- 2 SE: 2,038 to inf)
+  split halves of  1,000 games: mean gA.gB 4.700e-01, sd 2.259e+00, z_fpc 0.20
+  split halves of  2,500 games: mean gA.gB 7.082e-01, sd 1.165e+00, z_fpc 0.58
+  split halves of  5,000 games: mean gA.gB 5.373e-01, sd 7.609e-01, z_fpc 0.64

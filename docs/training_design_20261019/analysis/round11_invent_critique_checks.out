@@ -1,0 +1,24 @@
+1. chi2(new||old) / 2 KL(old||new), one binary decision p -> q:
+      0.5 -> 0.45 : KL 0.00503, chi2 0.01000, ratio 0.99
+      0.1 -> 0.12 : KL 0.00199, chi2 0.00444, ratio 1.11
+     0.01 -> 0.03 : KL 0.00922, chi2 0.04040, ratio 2.19
+    0.001 -> 0.01 : KL 0.00674, chi2 0.08108, ratio 6.02
+
+2. forecast SE and miss line, kappa 0.001, G_h 10,000:
+   summed over both seats (as written): SE 2.77, miss line 2 sqrt(SE^2 + 4.34^2) = 10.30
+   halved (one seat's expected gain): SE 1.38, miss line 2 sqrt(SE^2 + 4.34^2) = 9.12
+   chi2 = 2 x 2 KL: SE 3.91, miss line 11.69
+   chi2 = 6 x 2 KL: SE 6.77, miss line 16.09
+
+3. one pass over 10,000 held-out games at the trainer's rate:
+   4,533,000 positions / 1476.9 = 3,069 s = $0.49 (forward-backward; an upper bound)
+
+4. ridge degrees of freedom: 70 x 4 = 280 columns:
+   n 10,000: 70/n 0.0070, 280/n 0.0280
+   n 20,000: 70/n 0.0035, 280/n 0.0140
+
+5. bench arm, 1,000,448 positions, against one critical batch G* (games) x D positions:
+   G*     2,207:     1,000,433 positions; arm / G* = 1.0000; chord SNR ~ sqrt = 1.000
+   G*    10,000:     4,533,000 positions; arm / G* = 0.2207; chord SNR ~ sqrt = 0.470
+   G*   100,000:    45,330,000 positions; arm / G* = 0.0221; chord SNR ~ sqrt = 0.149
+   G* 1,000,000:   453,300,000 positions; arm / G* = 0.0022; chord SNR ~ sqrt = 0.047

@@ -1,0 +1,50 @@
+1. prices at $0.577/h
+   training every decision of a game: 0.322 s, $5.162e-05; generation $2.598e-05; ratio 1.99; a game generated and trained $7.760e-05
+   gradient batch of 2,500 games: $0.19
+   gradient batch of 10,000 games: $0.78
+   gradient batch of 40,000 games: $3.10
+   certification forward of one candidate over 2,500 held-out games: at most $0.129 (a forward priced as a trained position; forward-only speed is unmeasured)
+   held-out set of 2,500 games generated: $0.065; claim match of 12,800 two-network games $1.13
+2. stage costs (generation priced as pool games; the T=1 game length is unmeasured, so each scales with it)
+   B1 own2 T1 v own2 reference decode, 3,200 decisive: $0.08; B2 own2 T1 64 v 0 slots, 3,200: $0.28; B3 20,000 own2 T1 self-play: $0.52; B total $0.89
+   C gradient pass over B3's 20,000 games: 1.79 h, $1.03; eleven certified candidates on 2,500 held-out games at most $1.42
+   B1's SE at p 0.9: 10.2 Elo
+   B1's SE at p 0.75: 7.1 Elo
+   Sept seed argmax v sampling: p 0.925, E[z] 0.850, 436 Elo (PURE fit +412 +- 97)
+3. forks (K continuations of one turn-start state, all trained, each weighted 1/K):
+   noise factor per trained post-fork decision (1 - R2) K / (K - 1), against 1 for a single path
+   R2 0.346: K 2: 1.308, K 4: 0.872, K 8: 0.747, K 16: 0.698; limit 0.654
+   R2 0.298: K 2: 1.404, K 4: 0.936, K 8: 0.802, K 16: 0.749; limit 0.702
+   R2 0.395: K 2: 1.210, K 4: 0.807, K 8: 0.691, K 16: 0.645; limit 0.605
+4. signal indicators (obs8, human positions at game turn 7 or later, temperature-0.5 continuations)
+   I_turn 0.0204 (0.0064 to 0.0394) per side-turn; times 20.16 side-turns: 0.41 (0.13 to 0.79) per side-game, against the identity's ceiling of 1/2 per side-game (both sides' choice variance plus chance plus the setup's share sum to Var(z) = 1)
+   T1 turn minus argmax turn -0.0679 (-0.1264 to -0.0159) per side-turn; times 20.16: -1.37, beyond the bound |E[z]| <= 1, so per-turn costs do not add over a game
+   per-decision share of a side-game's signal at the indicator: 0.0017
+5. held-out importance-sampling certification of a step of per-side-game KL K (sigma^2 = residual share)
+   SE(dJ) = sigma sqrt((exp(2K) - 1) / (2 |H|)) per game pair of sides; a match of |H| games: sigma / sqrt(|H|)
+   sigma2 0.699 K 0.0625 |H|  2,500: SE 0.0043 z = 1.5 Elo; match 5.8 Elo; ratio 0.26; ESS share exp(-2K) 0.88
+   sigma2 0.699 K 0.0625 |H| 10,000: SE 0.0022 z = 0.7 Elo; match 2.9 Elo; ratio 0.26; ESS share exp(-2K) 0.88
+   sigma2 0.699 K 0.2500 |H|  2,500: SE 0.0095 z = 3.3 Elo; match 5.8 Elo; ratio 0.57; ESS share exp(-2K) 0.61
+   sigma2 0.699 K 0.2500 |H| 10,000: SE 0.0048 z = 1.7 Elo; match 2.9 Elo; ratio 0.57; ESS share exp(-2K) 0.61
+   sigma2 0.699 K 0.5000 |H|  2,500: SE 0.0155 z = 5.4 Elo; match 5.8 Elo; ratio 0.93; ESS share exp(-2K) 0.37
+   sigma2 0.699 K 0.5000 |H| 10,000: SE 0.0077 z = 2.7 Elo; match 2.9 Elo; ratio 0.93; ESS share exp(-2K) 0.37
+   sigma2 0.699 K 1.0000 |H|  2,500: SE 0.0299 z = 10.4 Elo; match 5.8 Elo; ratio 1.79; ESS share exp(-2K) 0.14
+   sigma2 0.699 K 1.0000 |H| 10,000: SE 0.0149 z = 5.2 Elo; match 2.9 Elo; ratio 1.79; ESS share exp(-2K) 0.14
+   sigma2 1.000 K 0.0625 |H|  2,500: SE 0.0052 z = 1.8 Elo; match 6.9 Elo; ratio 0.26; ESS share exp(-2K) 0.88
+   sigma2 1.000 K 0.0625 |H| 10,000: SE 0.0026 z = 0.9 Elo; match 3.5 Elo; ratio 0.26; ESS share exp(-2K) 0.88
+   sigma2 1.000 K 0.2500 |H|  2,500: SE 0.0114 z = 4.0 Elo; match 6.9 Elo; ratio 0.57; ESS share exp(-2K) 0.61
+   sigma2 1.000 K 0.2500 |H| 10,000: SE 0.0057 z = 2.0 Elo; match 3.5 Elo; ratio 0.57; ESS share exp(-2K) 0.61
+   sigma2 1.000 K 0.5000 |H|  2,500: SE 0.0185 z = 6.4 Elo; match 6.9 Elo; ratio 0.93; ESS share exp(-2K) 0.37
+   sigma2 1.000 K 0.5000 |H| 10,000: SE 0.0093 z = 3.2 Elo; match 3.5 Elo; ratio 0.93; ESS share exp(-2K) 0.37
+   sigma2 1.000 K 1.0000 |H|  2,500: SE 0.0357 z = 12.4 Elo; match 6.9 Elo; ratio 1.79; ESS share exp(-2K) 0.14
+   sigma2 1.000 K 1.0000 |H| 10,000: SE 0.0179 z = 6.2 Elo; match 3.5 Elo; ratio 1.79; ESS share exp(-2K) 0.14
+   Elo per unit of E[z] at E[z] = 0: 347.4
+6. illustrations (no decision rests on them): first-order gain sqrt(2 K I cos2) at K = 1/4
+   I 0.05: cos2 1.0: 0.158 z, cos2 0.1: 0.050 z, cos2 0.01: 0.016 z
+   I 0.2: cos2 1.0: 0.316 z, cos2 0.1: 0.100 z, cos2 0.01: 0.032 z
+   I 0.41: cos2 1.0: 0.453 z, cos2 0.1: 0.143 z, cos2 0.01: 0.045 z
+   cost-optimal batch N* = sqrt(c_f B / c_g), c_f $0.581 a step (2,500 held-out games, four candidates), c_g $7.76e-05:
+   B 1,000 games: N* 2,737
+   B 10,000 games: N* 8,654
+   B 100,000 games: N* 27,366
+   B 1,000,000 games: N* 86,539

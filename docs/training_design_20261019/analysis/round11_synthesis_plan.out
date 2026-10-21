@@ -1,0 +1,65 @@
+1. prices at $0.577/h (generation and training at the argmax game length; the T1 length is unmeasured and scales every line)
+   generation $2.598e-05 a game; training every decision $5.162e-05 a game (1.99x generation); two-network game $8.848e-05
+   forward over a held-out game: at most $5.162e-05; illustration at 3x a trained position's speed $1.721e-05
+   box setup 22 min $0.212; luck walk $1.51e-06 a game
+2a. stage 1 (no training): 30,000 own2 T1 self-play games (20,000 to train on, 10,000 held out) $0.78; D0 own2@T1 v own2@reference, 12,800 decisive, one network $0.33; memory 64 v 0 slots at T1, 3,200 decisive, two networks $0.28; luck walk $0.045; setup $0.21; total $1.65
+2b. stage C (gradients and candidate steps, nothing played): gradient pass over 20,000 games $1.03; 8.65 forward-equivalents over 10,000 held-out games; total $2.73 (illustrative forward speed) to $5.71 (bound)
+    trimmed (no heads-only arm, no 5,000-game point), forwards at the bound: 7.35 forward-equivalents, $5.04
+2c. stage P, the planted step played (its gradient and offline readout are in stage C): 5,000 two-network games $0.44 + setup = $0.65; the sharpening link match, iff its slope is resolved: 12,800 decisive one-network games $0.33
+2d. a round: N self-play games trained once + |H| held out, three radii read on H, a 12,800-game claim every third round
+   N 10,000 |H|  5,000: $ 1.58 to $ 2.17 (generation $0.39, gradient $0.52, forwards $0.30-0.89, claim share $0.38)
+   N 20,000 |H| 10,000: $ 2.78 to $ 3.97 (generation $0.78, gradient $1.03, forwards $0.59-1.78, claim share $0.38)
+   N 40,000 |H| 10,000: $ 4.33 to $ 5.52 (generation $1.30, gradient $2.06, forwards $0.59-1.78, claim share $0.38)
+   N 80,000 |H| 20,000: $ 8.29 to $10.67 (generation $2.60, gradient $4.13, forwards $1.19-3.56, claim share $0.38)
+   budget $81.44 if the $5 window counted: after stages 1, C, P $73.42 to $76.40; rounds at N 20,000: 18 to 27
+   budget $84.10 if not: after stages 1, C, P $76.08 to $79.06; rounds at N 20,000: 19 to 28
+2e. a round's wall at N 20,000, |H| 10,000: generation 1.35 h, gradient pass 1.79 h, forwards 1.03-3.09 h, claim share 0.65 h: 4.8 to 6.9 box-hours
+3. standard errors
+   per-decision KL eps and per-side-game KL K = eps x 237.9 decisions (argmax length):
+     K 0.125 per side-game = eps 0.00053 per decision
+     K 0.250 per side-game = eps 0.00105 per decision
+     K 0.500 per side-game = eps 0.00210 per decision
+   match SE (Elo) by decisive games n and win rate p:
+     n  3,200: p 0.50:  6.1, p 0.25:  7.1, p 0.09: 10.7, p 0.05: 14.1
+     n  6,400: p 0.50:  4.3, p 0.25:  5.0, p 0.09:  7.6, p 0.05: 10.0
+     n 12,800: p 0.50:  3.1, p 0.25:  3.5, p 0.09:  5.4, p 0.05:  7.0
+   held-out reading of a step (one seat switched against pi_k), on half of H, in Elo:
+     sigma2 0.699,  2,500 games: K 0.125: 2.19, K 0.250: 3.31, K 0.500: 5.38
+     sigma2 0.699,  5,000 games: K 0.125: 1.55, K 0.250: 2.34, K 0.500: 3.81
+     sigma2 0.699, 10,000 games: K 0.125: 1.09, K 0.250: 1.65, K 0.500: 2.69
+     sigma2 1.000,  2,500 games: K 0.125: 2.62, K 0.250: 3.96, K 0.500: 6.44
+     sigma2 1.000,  5,000 games: K 0.125: 1.85, K 0.250: 2.80, K 0.500: 4.55
+     sigma2 1.000, 10,000 games: K 0.125: 1.31, K 0.250: 1.98, K 0.500: 3.22
+4. operating characteristics of the round rules (s = SE of the confirmed reading on half B)
+   revert iff the confirmed reading < -2 s: P(revert | true gain g):
+     g/s 0.0: 0.023, g/s 0.5: 0.006, g/s 1.0: 0.001, g/s 2.0: 0.000
+   pause for the user iff the sum of the last three confirmed readings is not above 2 SE (SE sqrt(3) s): P(pause at a check | per-round gain g):
+     g/s 0.0: 0.977, g/s 0.5: 0.872, g/s 1.0: 0.606, g/s 1.5: 0.275, g/s 2.0: 0.072, g/s 3.0: 0.001
+     at K 0.25, half H 5,000, sigma2 0.699: s 2.34 Elo; a per-round gain of 3.8 Elo passes a check with probability 0.8
+     at K 0.5, half H 5,000, sigma2 0.699: s 3.81 Elo; a per-round gain of 6.2 Elo passes a check with probability 0.8
+   cumulative transfer check at round k: claim_k - claim_0 against the sum of k confirmed readings; SE sqrt(SE_claim(p_0)^2 + SE_claim(p_k)^2 + k s^2), claims of 12,800 decisive games:
+     p_0 0.09, p_k 0.09, s 2.34: k  3:  8.6, k  6:  9.5, k  9: 10.3, k 12: 11.1
+     p_0 0.09, p_k 0.25, s 2.34: k  3:  7.6, k  6:  8.6, k  9:  9.5, k 12: 10.3
+     p_0 0.25, p_k 0.50, s 2.34: k  3:  6.2, k  6:  7.4, k  9:  8.4, k 12:  9.4
+     p_0 0.50, p_k 0.50, s 2.34: k  3:  5.9, k  6:  7.2, k  9:  8.3, k 12:  9.2
+5. cost-optimal round size N* = sqrt(c_f B / c_g) (McCandlish et al. 2018 with a fixed per-round cost); B in games under the step's metric is unmeasured (stage C)
+   c_f $1.23 (illustrative forward), c_g $7.76e-05: B 1,000:     3,983, B 10,000:    12,595, B 100,000:    39,828, B 1,000,000:   125,947
+   c_f $2.42 (forward bound), c_g $7.76e-05: B 1,000:     5,582, B 10,000:    17,653, B 100,000:    55,823, B 1,000,000:   176,529
+6. the radius ladder against the fixed step and the ratio rule (round11_challenge_critique_rule.out), 12 stationary rounds, mean share of the best round's gain
+   k0 0.0625, z* 0.5, correlation 0.9: share 0.704; rounds at k >= 4: 0.019
+   k0 0.0625, z* 0.5, correlation 0.0: share 0.624; rounds at k >= 4: 0.019
+   k0 0.0625, z* 1.0, correlation 0.9: share 0.811; rounds at k >= 4: 0.013
+   k0 0.0625, z* 1.0, correlation 0.0: share 0.716; rounds at k >= 4: 0.020
+   k0 0.0625, z* 2.0, correlation 0.9: share 0.880; rounds at k >= 4: 0.002
+   k0 0.0625, z* 2.0, correlation 0.0: share 0.810; rounds at k >= 4: 0.014
+   k0 0.0625, z* 3.0, correlation 0.9: share 0.900; rounds at k >= 4: 0.000
+   k0 0.0625, z* 3.0, correlation 0.0: share 0.853; rounds at k >= 4: 0.007
+   k0 0.0100, z* 0.5, correlation 0.9: share 0.508; rounds at k >= 4: 0.002
+   k0 0.0100, z* 0.5, correlation 0.0: share 0.396; rounds at k >= 4: 0.001
+   k0 0.0100, z* 1.0, correlation 0.9: share 0.659; rounds at k >= 4: 0.001
+   k0 0.0100, z* 1.0, correlation 0.0: share 0.511; rounds at k >= 4: 0.001
+   k0 0.0100, z* 2.0, correlation 0.9: share 0.748; rounds at k >= 4: 0.000
+   k0 0.0100, z* 2.0, correlation 0.0: share 0.649; rounds at k >= 4: 0.001
+   k0 0.0100, z* 3.0, correlation 0.9: share 0.768; rounds at k >= 4: 0.000
+   k0 0.0100, z* 3.0, correlation 0.0: share 0.709; rounds at k >= 4: 0.000
+   fixed step at k0 1/16: share 2 sqrt(k0) - k0 = 0.438; at k0 1/100: 0.190

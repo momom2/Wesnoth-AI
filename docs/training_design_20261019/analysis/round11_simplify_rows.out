@@ -1,0 +1,10 @@
+== all: 19466 rows
+  turns a game: mean 27.27, median 19.0
+  walk CPU seconds a game: mean 0.321, median 0.176
+  attacks a game: mean 109.2
+  ended by: {'leader_killed': 18800, 'max_turns': 662, 'max_actions': 4}
+== self-play (gen_own1_selfplay, own64_selfplay): 1600 rows
+  turns a game: mean 20.08, median 18.0
+  walk CPU seconds a game: mean 0.291, median 0.166
+  attacks a game: mean 108.8
+  ended by: {'leader_killed': 1600}
