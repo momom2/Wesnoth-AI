@@ -44,9 +44,8 @@ def _play(spec: str, out: Path, *flags, seed: int = 7, side_a: int = 1):
     return result, record
 
 
-def _old_choose(self, priors, actors, is_end, is_attack, coin_key=None, is_recruit=None):
-    """The decode before the coins and the recruit rule: the end_turn
-    shift, then the end_turn rule."""
+def _old_choose(self, priors, actors, is_end, is_attack, coin_key=None):
+    """The decode before the coins: the end_turn shift, then the rule."""
     from tools.raw_player import actor_rule_index, pick_index, shift_end_turn_prior
     priors = shift_end_turn_prior(priors, is_end, self.end_turn_offset)
     if self.end_turn_rule == "actor":
@@ -57,10 +56,8 @@ def _old_choose(self, priors, actors, is_end, is_attack, coin_key=None, is_recru
 @needs_core
 def test_without_coins_a_game_and_its_record_are_the_old_decode_s(spec, tmp_path, monkeypatch):
     from tools.raw_player import RawPolicyPlayer
-    monkeypatch.setattr(RawPolicyPlayer, "_rule_choice", lambda *a, **k: pytest.fail("the rule asked with it off"))
     result, record = _play(spec, tmp_path / "now")
-    assert "coins" not in record and "recruit_rule" not in record
-    assert not any(k.startswith(("coin_", "band_", "attack_coin", "recruit_rule", "rule_")) for k in result)
+    assert "coins" not in record and not any(k.startswith(("coin_", "band_", "attack_coin")) for k in result)
     assert result["procedure_a"] == result["procedure_b"] == "raw:t0+eo-6"
     monkeypatch.setattr(RawPolicyPlayer, "_choose", _old_choose)
     monkeypatch.setattr(RawPolicyPlayer, "_log_band", lambda *a, **k: pytest.fail("a band logged with coins off"))
