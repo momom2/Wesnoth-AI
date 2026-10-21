@@ -173,7 +173,6 @@ The bound's noise lives in four dimensions, so it resolves where the full gradie
 | Planted recovery | C offline, P played | $0.65 | Gate before rounds |
 | The link at temperature 1 | Antisymmetric match, iff the slope ≥ 3 SE | $0.33 | Whether first-order labels price play |
 | Second-order loss against the radius; transfer to the reference | Each round's ladder; claims | inside rounds | The radius; continue or stop |
-| Whether the $5 window counted | Ask the user | $0 | The budget line |
 | Exploitability; human level | None | — | Nothing rests on them |
 
 ## 5. Checks and plants
@@ -205,7 +204,7 @@ The memory's credit path is the recipe's back-propagation, validated by the own-
 | **Claims**, every third round | $1.13 | claim_k − claim_0 against the sum of confirmed readings since round 0; SE 8.6–11.1 Elo at rounds 3–12 at a 0.09 win rate [D, *plan* §4] | **Lower tail at 2 SE:** gains do not transfer; stop; the user picks a magnet or a pool. **Upper tail:** reported |
 
 **Budget** [D, *plan* §2d]:
-- $81.44 is left if the $5 window counted, $84.10 if not.
+- $81.18 is left [M: the Vast account's spendable balance, read 2026-10-21 with no instance running].
 - Stages 1, C and P cost $5.03–8.01.
 - That leaves 18–27 rounds at N 20,000.
 - A round takes 4.8–6.9 box-hours at N 20,000 [D, *plan* §2e].

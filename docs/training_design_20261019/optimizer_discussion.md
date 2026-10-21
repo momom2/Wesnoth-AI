@@ -113,7 +113,7 @@ The sharpening slope, read free from stage 1's logs, is how much a slightly cold
 **Questions for you:**
 - **Stage 1.** Approve it?
 - **Stage C.** Does it count as a measurement or as training? It computes round 1's step without playing or keeping it. If training is approved afterwards, round 1 uses that step, so nothing is discarded.
-- **The budget.** Did the $5 window count ($81.44 left, or $84.10)? What ceiling for rounds?
+- **The budget.** The Vast account holds $81.18 (read 2026-10-21, no instance running; the $5 window was spent from it). What ceiling for rounds?
 
 ## What would run first, and what each outcome would mean
 
