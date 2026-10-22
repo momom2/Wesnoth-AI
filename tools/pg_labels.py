@@ -181,24 +181,32 @@ def label(row: Dict, fit: BaselineFit, heldout_from: int) -> Dict:
             "R": float(row["z"]) - b - beta_s}
 
 
-def side_labels(rows: Sequence[Dict], heldout_from: int) -> Tuple[List[Dict], Dict]:
+def zero_baseline() -> BaselineFit:
+    """b = 0 and beta = 0: R = z. For tests on runs too small to fit them
+    (a held-out half of a few games fits seven luck slopes exactly)."""
+    return BaselineFit(intercept=0.0, beta=np.zeros(len(COLUMNS)))
+
+
+def side_labels(rows: Sequence[Dict], heldout_from: int, zero: bool = False) -> Tuple[List[Dict], Dict]:
     """(the label rows of every walked side row, in the rows' order, the
     three fits' summaries and the rows left out). Training games are
     labelled by the fit on every held-out game, each held-out half by the
-    fit on the other half."""
+    fit on the other half; with `zero`, every fit is `zero_baseline`."""
     usable = [r for r in rows if "S" in r and "error" not in r]
     heldout = [r for r in usable if int(r["index"]) >= heldout_from]
     halves = {h: [r for r in heldout if half_of(r["index"]) == h] for h in ("A", "B")}
     if not halves["A"] or not halves["B"]:
         raise ValueError(f"both held-out halves need games (index >= {heldout_from}): "
                          f"A {len(halves['A'])} rows, B {len(halves['B'])}")
-    fits = {"train": fit_baseline(heldout), "A": fit_baseline(halves["B"]), "B": fit_baseline(halves["A"])}
+    fit = (lambda _rows: zero_baseline()) if zero else fit_baseline
+    fits = {"train": fit(heldout), "A": fit(halves["B"]), "B": fit(halves["A"])}
     out = []
     for r in usable:
         which = half_of(r["index"]) if int(r["index"]) >= heldout_from else "train"
         out.append(label(r, fits[which], heldout_from))
     info = {"fits": {name: f.summary() for name, f in fits.items()},
-            "fitted_on": {"train": "every held-out game", "A": "held-out half B", "B": "held-out half A"},
+            "fitted_on": ({"train": "zero", "A": "zero", "B": "zero"} if zero else
+                          {"train": "every held-out game", "A": "held-out half B", "B": "held-out half A"}),
             "heldout_from": heldout_from, "rows": len(rows), "labelled": len(out),
             "left_out": sorted({r["game"] for r in rows if "S" not in r or "error" in r})}
     return out, info
@@ -219,8 +227,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--heldout-from", type=int, required=True, help="the first held-out game index")
     ap.add_argument("--out", type=Path, required=True, help="labels.jsonl")
     ap.add_argument("--fits", type=Path, default=None, help="the fits' summaries as JSON")
+    ap.add_argument("--zero-baseline", action="store_true",
+                    help="b = 0 and beta = 0 for every row (R = z): tests on runs too small to fit them")
     args = ap.parse_args(argv)
-    labels, info = side_labels(load_rows(args.rows), args.heldout_from)
+    labels, info = side_labels(load_rows(args.rows), args.heldout_from, zero=args.zero_baseline)
     write_jsonl(args.out, labels)
     if args.fits is not None:
         args.fits.write_text(json.dumps(info, indent=1) + "\n", encoding="utf-8", newline="\n")

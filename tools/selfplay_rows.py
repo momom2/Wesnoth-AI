@@ -34,6 +34,7 @@ played and some capped, which is a complete run.
 
     python tools/selfplay_rows.py --games DIR --walk walk.jsonl --out rows.jsonl \\
         --seed-base 0 [--jobs N]
+    python tools/selfplay_rows.py --walk walk_planted.jsonl --no-walk --out rows.jsonl --seed-base 0
 """
 from __future__ import annotations
 
@@ -59,9 +60,13 @@ def cell_of(scenario: str, seat: int, faction: str, opponent: str) -> str:
 
 
 def side_rows(walk_row: Dict, seed_base: int) -> List[Dict]:
-    """The two side rows of one game's walk row (tools/match_luck.py)."""
+    """The two side rows of one game's walk row (tools/match_luck.py).
+    Side A's z is the row's `z` (the walk writes the result's, a planted
+    copy its own, tools/pg_plant.py); a game is capped when its result has
+    no winner."""
     side_a = int(walk_row["side_a"])
-    z_a = result_z(walk_row.get("outcome_a"))
+    result = result_z(walk_row.get("outcome_a"))
+    z_a = float(walk_row["z"]) if "z" in walk_row else result
     index = int(walk_row["seed"]) - int(seed_base)
     if index < 0:
         raise ValueError(f"{walk_row['game']}: seed {walk_row['seed']} lies below the seed base {seed_base}")
@@ -70,7 +75,7 @@ def side_rows(walk_row: Dict, seed_base: int) -> List[Dict]:
         sign = 1 if side == side_a else -1
         own, opp = ("a", "b") if sign == 1 else ("b", "a")
         row = {"game": walk_row["game"], "index": index, "side": side,
-               "label": walk_row.get(f"label_{own}"), "z": sign * z_a, "capped": z_a == 0,
+               "label": walk_row.get(f"label_{own}"), "z": sign * z_a, "capped": result == 0,
                "cell": cell_of(walk_row["scenario_id"], side, walk_row[f"faction_{own}"],
                                walk_row[f"faction_{opp}"]),
                "turns": walk_row.get("turns"), "ended_by": walk_row.get("ended_by")}
@@ -116,8 +121,10 @@ def load_rows(path: Path) -> List[Dict]:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--games", type=Path, required=True, help="the run's games directory or tarball")
+    ap.add_argument("--games", type=Path, default=None, help="the run's games directory or tarball")
     ap.add_argument("--walk", type=Path, required=True, help="the luck walk's rows (resumed when present)")
+    ap.add_argument("--no-walk", action="store_true",
+                    help="convert the walk's rows as they are, walking no game (a planted copy, tools/pg_plant.py)")
     ap.add_argument("--out", type=Path, required=True, help="the side rows")
     ap.add_argument("--seed-base", type=int, required=True, help="run_elo_batch's --seed-base of the run")
     ap.add_argument("--jobs", type=int, default=1)
@@ -126,8 +133,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="games whose walk may fail (left out of the labels) before the walk fails")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    n = walk_matches([(MATCH_NAME, args.games)], args.walk, jobs=args.jobs, verify=not args.no_verify)
-    log.info("%d games walked into %s", n, args.walk)
+    if args.no_walk:
+        if not args.walk.is_file():
+            ap.error(f"--no-walk converts {args.walk}, which does not exist")
+    elif args.games is None:
+        ap.error("--games is required unless --no-walk")
+    else:
+        n = walk_matches([(MATCH_NAME, args.games)], args.walk, jobs=args.jobs, verify=not args.no_verify)
+        log.info("%d games walked into %s", n, args.walk)
     counts = convert(args.walk, args.out, args.seed_base)
     log.info("%s: %d games, %d side rows, %d capped, %d unwalked (at most %d)", args.out, counts["games"],
              counts["side_rows"], counts["capped"], counts["errors"], args.max_errors)
