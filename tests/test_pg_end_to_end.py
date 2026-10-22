@@ -72,13 +72,13 @@ def _heldout_gradient(run, rows):
 @needs_core
 @pytest.mark.slow
 def test_stage_1_to_stage_c_on_the_cpu(tmp_path):
-    from helpers.pg_run import selfplay_run
+    from helpers.pg_run import e2e_run
     from tools.pg_eval import network_factory
     from tools.pg_positions import RecordIndex, read_record
     from tools.pg_stage_c import main as stage_c
     from wesnoth_ai.pg_records import decisions_of, read_labels
     from wesnoth_ai.pg_step import DEFAULT_ARM, KL_RTOL, direction, dot, first_order_gain, norm
-    run = selfplay_run()
+    run = e2e_run()
     rows = read_labels(run.labels)
     pass_ = torch.load(run.pass_path, map_location="cpu", weights_only=True)
 
@@ -95,11 +95,11 @@ def test_stage_1_to_stage_c_on_the_cpu(tmp_path):
     args = ["--pass", str(run.pass_path), "--factory", "tools.pg_eval:network_factory",
             "--price-per-game", str(PRICE_PER_GAME), "--round-fixed-cost", str(ROUND_FIXED), "--out", str(out)]
     for key, value in (("checkpoint", run.checkpoint), ("games", run.games), ("labels", run.labels),
-                       ("device", "cpu"), ("streams", 4), ("kl_fraction", 1.0)):
+                       ("device", "cpu"), ("streams", 4)):
         args += ["--factory-arg", f"{key}={value}"]
     assert stage_c(args) == 0
     readout = json.loads(out.read_text(encoding="utf-8"))
-    assert readout["gate"]["verdict"] in ("resolved", "rounds_at_size", "neither")
+    assert readout["errors"] == {} and readout["gate"]["verdict"] in ("resolved", "rounds_at_size", "neither")
     assert readout["pass"]["checkpoint_sha256"] == pass_["checkpoint_sha256"]
     eps = readout["heldout"]["eps"]
     for arm, row in readout["arms"].items():
@@ -113,7 +113,7 @@ def test_stage_1_to_stage_c_on_the_cpu(tmp_path):
     # small second moment, and finite steps along it read 0.3-0.5 % below
     # the gradient in code of its own too (2026-10-22), hence its 1 %.
     factory, _, sha = network_factory(str(run.checkpoint), str(run.games), str(run.labels), device="cpu",
-                                      streams="4", kl_fraction="1.0")
+                                      streams="4")
     assert sha == pass_["checkpoint_sha256"]
     g_H = _heldout_gradient(run, rows)
     index = RecordIndex([run.games])

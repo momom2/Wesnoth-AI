@@ -444,8 +444,10 @@ class StageC:
 
     def _quadratic(self, d: Direction, s_total: float, size_total: float) -> float:
         """d's Fisher form, read at the step that puts it near the whole
-        pass's direction's KL at s_total (steps scaled by the ratio of norms)."""
-        return fisher_quadratic(self.factory(d), s_total * size_total / norm(d))
+        pass's direction's KL at s_total (steps scaled by the ratio of norms);
+        0 for a zero direction (a split whose games all carry R = 0)."""
+        size = norm(d)
+        return 0.0 if size == 0 else fisher_quadratic(self.factory(d), s_total * size_total / size)
 
     def critical_batch(self, arm: str) -> CriticalBatch:
         """Part 5 for one arm: the Fisher forms of the whole pass's direction,

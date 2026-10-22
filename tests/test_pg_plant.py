@@ -19,11 +19,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from wesnoth_ai import game_core as gc  # noqa: E402
 
 needs_core = pytest.mark.skipif(gc.game_core_class() is None, reason="wesnoth_core.GameCore not available")
-# The planted run: 64 training games (eight a split) and 4 held out, b and
-# beta at zero (four held-out games fit seven luck slopes exactly, and the
-# training labels would carry that fit's noise). The readout reached 6.4-6.7
-# SE on attacks there (2026-10-22).
-PLANT_GAMES, PLANT_HELDOUT_FROM = 68, 64
+# The planted run (helpers.pg_run.plant_run): 64 training games (eight a
+# split) and 4 held out, b and beta at zero. The readout reached 6.4-6.8 SE
+# on attacks there (2026-10-22).
 
 
 def _read_jsonl(path: Path):
@@ -152,11 +150,11 @@ def test_the_planted_readout_passes_and_catches_a_reversed_seat_and_a_broken_joi
     given: at 64 games the plant's own noise caps its resolution near 6.5
     SE, and the rule's delta, 10 SE of the run's label noise alone, reaches
     about 5 of them.)"""
-    from helpers.pg_run import plant_grads, planted_readout, selfplay_run
+    from helpers.pg_run import PLANT_HELDOUT_FROM, plant_grads, plant_run, planted_readout
     from tools import selfplay_rows
     from tools.pg_plant import AGREE_SE, MIN_RESOLUTION
     import torch
-    run = selfplay_run(PLANT_GAMES, PLANT_HELDOUT_FROM, decisive_halves=False, zero_baseline=True)
+    run = plant_run()
     grads_path = plant_grads(run, run.root / "plant_grads.pt", "attack", delta=3.0)
     grads = torch.load(grads_path, map_location="cpu", weights_only=True)
     assert len(grads["train_games"]) == PLANT_HELDOUT_FROM and len(grads["u"]) == 8

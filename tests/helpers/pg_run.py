@@ -2,15 +2,21 @@
 end-to-end tests of the policy-gradient path: a tiny network's
 temperature-1 self-play games through the production path
 (helpers.pg_games.selfplay_games), each game's index its seed less the seed
-base and its seat alternating as run_elo_batch alternates them; the luck
-walk and the side rows (tools/selfplay_rows.py), the labels with their b and
-beta fits (tools/pg_labels.py), and the gradient pass (tools/pg_pass.py),
+base and its seat alternating as run_elo_batch alternates them, played and
+walked once per process (`played`); the side rows (tools/selfplay_rows.py),
+the labels (tools/pg_labels.py) and the gradient pass (tools/pg_pass.py),
 each through its command line.
 
-Games 0-7 are trained on (one game a split), 8-11 held out (8 and 9 in half
-A, 10 and 11 in half B). Eight turns on the mini maps give decisive games in
-both sets; the run checks it, since a capped game's z is 0 and a set of
-capped games has R = 0 throughout.
+Two runs read the set:
+- `e2e_run`: its first 12 games, 0-7 trained on (one game a split) and 8-11
+  held out (8 and 9 in half A, 10 and 11 in half B), labelled with their b
+  and beta fits, and its pass. Eight turns on the mini maps give decisive
+  games in both sets; the run checks it, since a capped game's z is 0 and a
+  set of capped games has R = 0 throughout.
+- `plant_run`: all 68, 0-63 trained on and 64-67 held out, b and beta at
+  zero (four held-out games fit seven luck slopes exactly, and the training
+  labels would carry that fit's noise), no pass (the planted readout's tests
+  give delta).
 """
 from __future__ import annotations
 
@@ -25,10 +31,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 SEED_BASE = 108
-GAMES = 12
-HELDOUT_FROM = 8
+GAMES = 68
+E2E_GAMES, E2E_HELDOUT_FROM = 12, 8
+PLANT_HELDOUT_FROM = 64
 MAX_TURNS = 8
-PASS_STREAMS = 4
+PASS_STREAMS = 32
 
 
 def play(root: Path, n_games: int = GAMES):
@@ -43,11 +50,11 @@ def play(root: Path, n_games: int = GAMES):
     return checkpoint, games
 
 
-def label(root: Path, games: Path, walk: Path, heldout_from: int = HELDOUT_FROM, walked: bool = False,
+def label(root: Path, games: Path, walk: Path, heldout_from: int, walked: bool = True,
           zero_baseline: bool = False) -> Path:
-    """The side rows of `walk` (walked from `games` first, unless `walked`:
-    a planted copy is converted as it is) and their labels: labels.jsonl
-    beside fits.json in `root`."""
+    """The side rows of `walk` (converted as it is, or walked from `games`
+    first when not `walked`) and their labels: labels.jsonl beside fits.json
+    in `root`."""
     from tools import pg_labels, selfplay_rows
     rows = root / (walk.stem + ".rows.jsonl")
     source = ["--no-walk"] if walked else ["--games", str(games)]
@@ -61,9 +68,12 @@ def label(root: Path, games: Path, walk: Path, heldout_from: int = HELDOUT_FROM,
 
 
 def gradient_pass(checkpoint: Path, games: Path, labels: Path, out: Path) -> Path:
+    """The pass through its command line; no floor reading (its own test,
+    tests/test_pg_pass.py, reads it; on this CPU's bf16 it is 7 % of a pass)."""
     from tools.pg_pass import main
     assert main(["--checkpoint", str(checkpoint), "--games", str(games), "--labels", str(labels), "--out", str(out),
-                 "--device", "cpu", "--streams", str(PASS_STREAMS), "--log-level", "WARNING"]) == 0
+                 "--device", "cpu", "--streams", str(PASS_STREAMS), "--floor-dtype", "off",
+                 "--log-level", "WARNING"]) == 0
     return out
 
 
@@ -85,12 +95,12 @@ def planted_readout(run, grads: Path, tag: str, zero_baseline: bool = False) -> 
     walk = run.root / f"walk_{tag}.jsonl"
     assert main(["plant", "--walk", str(run.walk), "--games", str(run.games), "--grads", str(grads),
                  "--out", str(walk)]) == 0
-    labels = label(run.root, run.games, walk, run.heldout_from, walked=True, zero_baseline=zero_baseline)
+    labels = label(run.root, run.games, walk, run.heldout_from, zero_baseline=zero_baseline)
     pass_path = gradient_pass(run.checkpoint, run.games, labels, run.root / f"pass_{tag}.pt")
     out = run.root / f"plant_{tag}.json"
     assert main(["readout", "--checkpoint", str(run.checkpoint), "--games", str(run.games), "--labels", str(labels),
-                 "--pass", str(pass_path), "--grads", str(grads), "--device", "cpu", "--streams", "4",
-                 "--kl-fraction", "1.0", "--out", str(out)]) == 0
+                 "--pass", str(pass_path), "--grads", str(grads), "--device", "cpu", "--streams", "8",
+                 "--out", str(out)]) == 0
     return json.loads(out.read_text(encoding="utf-8"))
 
 
@@ -105,20 +115,45 @@ def decisive(labels: Path) -> dict:
 
 
 @functools.lru_cache(maxsize=None)
-def selfplay_run(n_games: int = GAMES, heldout_from: int = HELDOUT_FROM, decisive_halves: bool = True,
-                 zero_baseline: bool = False) -> SimpleNamespace:
-    """The run of `n_games` games, held out from `heldout_from`, built once
-    per process in a temporary directory; with `decisive_halves`, both
-    held-out halves must hold a decisive game (stage C reads R there);
-    `zero_baseline` labels it with b = beta = 0."""
+def played() -> SimpleNamespace:
+    """The games, played and walked once per process in a temporary
+    directory."""
+    from tools.match_luck import walk_matches
+    from tools.selfplay_rows import MATCH_NAME
     root = Path(tempfile.mkdtemp(prefix="pg_run_"))
     atexit.register(shutil.rmtree, root, True)
-    checkpoint, games = play(root, n_games)
+    checkpoint, games = play(root)
     walk = root / "walk.jsonl"
-    labels = label(root, games, walk, heldout_from, zero_baseline=zero_baseline)
+    walk_matches([(MATCH_NAME, games)], walk)
+    return SimpleNamespace(root=root, checkpoint=checkpoint, games=games, walk=walk, seed_base=SEED_BASE)
+
+
+def _first_games(walk: Path, out: Path, n: int) -> Path:
+    """The walk's rows of the games of index below n."""
+    rows = [line for line in walk.read_text(encoding="utf-8").splitlines()
+            if line.strip() and int(json.loads(line)["seed"]) - SEED_BASE < n]
+    out.write_text("".join(r + "\n" for r in rows), encoding="utf-8")
+    return out
+
+
+@functools.lru_cache(maxsize=None)
+def e2e_run() -> SimpleNamespace:
+    """The set's first 12 games, labelled with their fits, and their pass."""
+    p = played()
+    walk = _first_games(p.walk, p.root / "walk_e2e.jsonl", E2E_GAMES)
+    labels = label(p.root, p.games, walk, E2E_HELDOUT_FROM)
     found = decisive(labels)
-    if len(found["train"]) < 2 or (decisive_halves and not (found["A"] and found["B"])):
+    if len(found["train"]) < 2 or not (found["A"] and found["B"]):
         raise AssertionError(f"the run needs decisive games in training and in both halves: {found}")
-    pass_path = gradient_pass(checkpoint, games, labels, root / "pass.pt")
-    return SimpleNamespace(root=root, checkpoint=checkpoint, games=games, walk=walk, labels=labels,
-                           pass_path=pass_path, decisive=found, seed_base=SEED_BASE, heldout_from=heldout_from)
+    pass_path = gradient_pass(p.checkpoint, p.games, labels, p.root / "pass_e2e.pt")
+    return SimpleNamespace(root=p.root, checkpoint=p.checkpoint, games=p.games, walk=walk, labels=labels,
+                           pass_path=pass_path, decisive=found, seed_base=SEED_BASE, heldout_from=E2E_HELDOUT_FROM)
+
+
+@functools.lru_cache(maxsize=None)
+def plant_run() -> SimpleNamespace:
+    """All 68 games, labelled with b = beta = 0; no pass."""
+    p = played()
+    labels = label(p.root, p.games, p.walk, PLANT_HELDOUT_FROM, zero_baseline=True)
+    return SimpleNamespace(root=p.root, checkpoint=p.checkpoint, games=p.games, walk=p.walk, labels=labels,
+                           pass_path=None, seed_base=SEED_BASE, heldout_from=PLANT_HELDOUT_FROM)
