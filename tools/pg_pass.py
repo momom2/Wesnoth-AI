@@ -38,8 +38,9 @@ What pass.pt holds beyond the contract's keys:
     split_windows  windows per split
     position_counts  the replay's counts (pg_positions)
     seconds        the pass's wall time
-    rate           decisions a second past its first WARMUP_WINDOWS windows
-                   (None for a shorter pass)
+    rate           decisions a second over the windows this process timed
+                   past its first WARMUP_WINDOWS (None, unread, for fewer);
+                   `seconds` too is this process's wall
     config         the pass's settings
 
     floor          the precision floor and the trunks' path check on the
@@ -310,8 +311,9 @@ class GradientPass:
         self._split_max = torch.zeros((), dtype=torch.float64, device=self.device)
         self.probe_carry = torch.zeros(len(CLASSES), device=self.device)   # the probes' gradient of splits taken
         self.floor = self._new_floor()
-        self._warm: Optional[tuple] = None          # (clock, rows) at the end of the warm-up windows
+        self._warm: Optional[tuple] = None          # (clock, timed rows) at the end of the warm-up windows
         self._windows_run = 0
+        self._timed_rows = 0                        # decisions forwarded in this process (not taken splits)
         self.rows = 0
         self.shadow = 0
         self.memories: Dict[int, torch.Tensor] = {}
@@ -355,6 +357,7 @@ class GradientPass:
             self.replay[2] += diff.sum()
             self.replay[3] += (diff * diff).sum()
             self.rows += len(steps)
+            self._timed_rows += len(steps)
             self.shadow += sum(p.shadow for p in positions)
         return total, router.memories()
 
@@ -381,7 +384,7 @@ class GradientPass:
             self._windows_run += 1
             self.loader.keep_only(g.file for g in schedule.upcoming(self.config.prefetch))
             if self._windows_run == WARMUP_WINDOWS:
-                self._warm = (self._clock(), self.rows)
+                self._warm = (self._clock(), self._timed_rows)
         self.loader.keep_only(())
         self._write_split(i, before)
 
@@ -392,13 +395,14 @@ class GradientPass:
         return time.perf_counter()
 
     def _rate(self) -> Optional[Dict]:
-        """Decisions a second past the first WARMUP_WINDOWS windows (the
-        replay workers' start, the device's first kernels), or None for a
-        pass that short."""
-        if self._warm is None or self.rows <= self._warm[1]:
+        """Decisions a second over the windows this process timed past its
+        first WARMUP_WINDOWS (the replay workers' start, the device's first
+        kernels); splits taken from written sums never count. None (unread)
+        for a process that timed no window past its warm-up."""
+        if self._warm is None or self._timed_rows <= self._warm[1]:
             return None
         seconds = self._clock() - self._warm[0]
-        rows = self.rows - self._warm[1]
+        rows = self._timed_rows - self._warm[1]
         return {"positions_per_second": rows / seconds, "decisions": rows, "seconds": seconds,
                 "warmup_windows": WARMUP_WINDOWS}
 
@@ -491,6 +495,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--floor-dtype", default="bfloat16", choices=("bfloat16", "float16", "off"),
                     help="the serving precision the floor reads")
     ap.add_argument("--procedure", default=SELF_PLAY_PROCEDURE, help="the labelled game-sides' procedure tag")
+    ap.add_argument("--fresh", action="store_true",
+                    help="discard the splits an earlier run wrote: a timed pass (stage 1's rates, stage C's C0)")
     ap.add_argument("--train-limit", type=int, default=0,
                     help="train on the first N labelled training games only (stage C's C0; 0: all)")
     ap.add_argument("--no-verify", action="store_true", help="skip the records' fingerprints")
@@ -509,6 +515,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         procedure=args.procedure, replay_kl_limit=args.replay_kl_limit,
                         floor_sides=args.floor_sides, floor_dtype=args.floor_dtype)
     partial = args.out.with_name(args.out.stem + ".splits")
+    if args.fresh:
+        shutil.rmtree(partial, ignore_errors=True)
     try:
         result = GradientPass(args.checkpoint, records, labels, torch.device(args.device), config,
                               partial_dir=partial).run()

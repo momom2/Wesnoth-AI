@@ -508,9 +508,10 @@ rates_line() {                   # the projection in a few words
 import json, sys
 r = json.load(open(sys.argv[1]))
 m = r["rates"]
-bf16 = ", ".join(f"{k} {v:.0f}/s" for k, v in r["measured"]["compare"].items())
+bf16 = ", ".join(f"{k} {v:.0f}/s" if v else f"{k} unread" for k, v in r["measured"]["compare"].items())
+memory = f", KL laws {r['memory']['laws_gb']:.1f} GB" if r.get("memory") else ""
 print(f"pass {m['trainer']:.0f}/s ({bf16}), forwards {m['forwards']:.0f}/s; stage C {r['wall_hours']:.1f} h, "
-      f"${r['cost']:.2f}{' trimmed' if r['trim'] else ''}")
+      f"${r['cost']:.2f}{' trimmed' if r['trim'] else ''}{memory}")
 EOF
 }
 measure_rates() {                # stage C's rates on this run's games and its projected wall and cost (rates.json); RATES says what
@@ -531,15 +532,16 @@ measure_rates() {                # stage C's rates on this run's games and its p
         restore_games "$name" || { RATES="not measured: games_$name could not be restored (restore.log)"; return 1; }
         dirs+=("$OUT/games_$name")
     done
-    mkdir -p "$work"
+    rm -rf "$work" && mkdir -p "$work"            # timed passes never resume an earlier entry's splits
     RATES_WHY=""
     # The rate passes read no precision floor: at 150 games it would read every game-side (at 20,000, 400
-    # of them, about 2 % of the pass's time, which the projection leaves out); stage C's C0 reads it.
+    # of them, about 1 % of the pass's time, which the projection leaves out); stage C's C0 reads it.
     rates_step fp32 python tools/pg_pass.py --checkpoint "$REF_PT" --games "${dirs[@]}" --labels "$OUT/labels.jsonl" \
-        --train-limit "$RATE_GAMES" --floor-dtype off --out "$work/pass_fp32.pt" --device cuda --workers "$WALK_JOBS"
+        --train-limit "$RATE_GAMES" --floor-dtype off --fresh --out "$work/pass_fp32.pt" --device cuda \
+        --workers "$WALK_JOBS"
     [ -n "$RATES_WHY" ] || rates_step bf16 python tools/pg_pass.py --checkpoint "$REF_PT" --games "${dirs[@]}" \
-        --labels "$OUT/labels.jsonl" --train-limit "$RATE_GAMES" --bf16 --floor-dtype off --out "$work/pass_bf16.pt" \
-        --device cuda --workers "$WALK_JOBS"
+        --labels "$OUT/labels.jsonl" --train-limit "$RATE_GAMES" --bf16 --floor-dtype off --fresh \
+        --out "$work/pass_bf16.pt" --device cuda --workers "$WALK_JOBS"
     [ -n "$RATES_WHY" ] || rates_step forwards python tools/pg_eval.py time --checkpoint "$REF_PT" --games "${dirs[@]}" \
         --labels "$OUT/labels.jsonl" --held-games "$RATE_GAMES" --device cuda --workers "$WALK_JOBS" \
         --out "$OUT/rates_forwards.json"

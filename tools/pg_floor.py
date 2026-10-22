@@ -17,17 +17,22 @@ the floor's own:
                departure the replay identity exists to catch, which the
                floor must not absorb).
 
-The replay limit then rises by twice the floor's upper bound, its mean plus
-FLOOR_UPPER_SE SEs clustered by game-side: max(base, base + 2 upper). Above
-FLOOR_LIMIT_CAP the pass refuses: a serving precision that far from fp32
-cannot certify the replay at the step search's scale, and stage 1 should
-serve in fp32.
+The replay limit is then, as `replay_limit` codes it,
+
+    limit = max(base, base + 2 (mean + 2 SE)),   base 1e-4 (pg_pass.REPLAY_KL_LIMIT),
+
+mean the rounding's per-decision mean over the drawn decisions and SE its
+SE clustered by game (both seats of a game can be drawn, and they share the
+game's positions). Above FLOOR_LIMIT_CAP the pass refuses: a serving
+precision that far from fp32 cannot certify the replay at the step search's
+scale, and stage 1 should serve in fp32.
 
 The game-sides are drawn by a hash of their names, FLOOR_SIDES of them (all
-of a smaller pass): with 400 the SE is a twentieth of the spread of a
-game-side's mean rounding, so the upper bound overstates the floor by a
-tenth of that spread; the three forwards on 2 % of a 20,000-game pass's
-decisions cost about 6 % of its forwards, 2 % of its time.
+of a smaller pass): 400 of a 20,000-game pass's 40,000, 1 % of its
+decisions. Over about 300 to 400 games the SE is about a twentieth of the
+spread of a game's mean rounding, so the bound overstates the floor by
+about a tenth of that spread; the three forwards on 1 % of the decisions
+cost about 3 % of the pass's forwards, 1 % of its time.
 """
 from __future__ import annotations
 
@@ -124,26 +129,32 @@ class FloorReader:
             self.sums[tuple(k)] = list(v)
 
     def stats(self) -> Optional[Dict]:
-        """The floor's mean over its decisions with its SE clustered by
-        game-side (a ratio estimator), its upper bound, and the path
-        reading; None when no game-side was read."""
+        """The floor's mean over its decisions with its SE clustered by game
+        (a ratio estimator over the games' sums), its upper bound, and the
+        path reading; None when no game-side was read."""
         if not self.sums:
             return None
-        values = list(self.sums.values())
-        rounding = torch.tensor([v[0] for v in values], dtype=torch.float64)
-        counts = torch.tensor([v[2] for v in values], dtype=torch.float64)
+        by_game: Dict[str, list] = {}
+        for (game, _side), v in self.sums.items():
+            entry = by_game.setdefault(game, [0.0, 0])
+            entry[0] += v[0]
+            entry[1] += v[2]
+        rounding = torch.tensor([v[0] for v in by_game.values()], dtype=torch.float64)
+        counts = torch.tensor([v[1] for v in by_game.values()], dtype=torch.float64)
         mean = float(rounding.sum() / counts.sum())
-        m = len(values)
+        m = len(by_game)
         se = (float(((rounding - mean * counts) ** 2).sum() * m / (m - 1)) ** 0.5 / float(counts.sum())
               if m > 1 else float("nan"))
+        values = list(self.sums.values())
         return {"kl": mean, "se": se, "upper": mean + FLOOR_UPPER_SE * se if math.isfinite(se) else float("nan"),
                 "path_kl": sum(v[1] for v in values) / float(counts.sum()), "path_max": max(v[3] for v in values),
-                "decisions": int(counts.sum()), "game_sides": m, "dtype": self.dtype}
+                "decisions": int(counts.sum()), "game_sides": len(values), "games": m, "dtype": self.dtype}
 
 
 def replay_limit(base: float, floor: Optional[Dict]) -> float:
-    """The replay identity's limit over a measured floor: max(base, base + 2
-    upper), the floor's upper bound (module docstring); the base without one."""
+    """The replay identity's limit over a measured floor: max(base, base +
+    2 (mean + 2 SE)) (module docstring), the floor's mean alone when its SE
+    is not read (one game); the base without a floor."""
     if floor is None:
         return base
     upper = floor["upper"] if math.isfinite(floor["upper"]) else floor["kl"]

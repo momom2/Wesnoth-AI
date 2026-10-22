@@ -205,6 +205,14 @@ def test_evaluators_share_theta_k_and_forward_only_what_they_are_asked(tmp_path)
     kls = [ev.mean_kl(0.3), ev.mean_kl(-0.3), other.mean_kl(0.3), ev.mean_kl(0.3)]
     assert kls[0] == kls[3] > 0 and kls[1] > 0 and kls[2] > 0
     assert context.reads == Counter({"full": 2, "half A": 1, "subsample": 4})
+    # theta_k's laws keep each factor's legal entries only, so their bytes per
+    # decision are bounded in its legal actions n (about 73 floats against a
+    # mean n of 33 here, 2026-10-22); padded actors x hexes per factor would
+    # be thousands of floats.
+    from tools.pg_positions import read_record
+    logged = [d.n for gs in context.kl_sides for d in decisions_of(read_record(games.records[gs.game]))
+              if d.side == gs.side]
+    assert context.laws_bytes_per_decision <= 4 * (3 * np.mean(logged) + 128)
     context.close()
 
 
@@ -226,6 +234,7 @@ def test_the_c0_forward_reading_counts_and_reproduces_the_held_out_decisions(tmp
     assert got["games"] == 2
     assert got["decisions"] == sum(len(decisions_of(read_record(games.records[g]))) for g in first)
     assert got["positions_per_second"] > 0 and got["replay"]["max_abs"] < 1e-4 and got["replay"]["pass"]
+    assert got["laws_bytes_per_decision"] > 0         # stage C's plan projects the KL laws' memory from it
     # Held to a limit just below its estimate, the reading fails as the pass does.
     assert main(["time", "--checkpoint", str(games.checkpoint), "--games", str(games.games), "--labels", str(labels),
                  "--held-games", "2", "--device", "cpu", "--streams", "2",

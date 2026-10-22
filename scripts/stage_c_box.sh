@@ -252,7 +252,7 @@ ok() { box_marked_this_stage "$OUT/$1.done"; }
 c0() {                           # C0: the replay identity, the floor and the two rates
     skip_part c0 && return 0
     box_bounded "c0 pass" "$C0_CUT_MIN" c0.log python tools/pg_pass.py --checkpoint "$CKPT" --games "${DIRS[@]}" \
-        --labels "$S1/labels.jsonl" --train-limit "$C0_GAMES" --out "$OUT/c0_pass.pt" --device cuda \
+        --labels "$S1/labels.jsonl" --train-limit "$C0_GAMES" --fresh --out "$OUT/c0_pass.pt" --device cuda \
         --workers "$WORKERS"
     pass_refused c0 "$C0_GAMES training games" c0.log c0_pass || return 1
     local limit
@@ -281,15 +281,19 @@ pass_refused() {                 # pass_refused PART WHAT LOG STEM: false (PART 
     esac
     return 1
 }
-c0_plan() {                      # the arms and the steps' bounds from C0's rates (tools/stage_c_plan.py); false when the run does not fit
+c0_plan() {                      # the arms and the steps' bounds from C0's rates (tools/stage_c_plan.py); 1 when the run does not fit, 2 when unpriced
     local at left
     if [ ! -f "$OUT/c0_plan.txt" ]; then
         at=$(cat "$BOX_OUT/tmp/deadman.at" 2>/dev/null)
         [[ $at =~ ^[0-9]+$ ]] || at=$(( $(box_now) + 3600 * 24 ))
         left=$(( (at - $(box_now)) / 60 - RESERVE_MIN ))
-        timeout 2m python tools/stage_c_plan.py --pass-summary "$OUT/c0_pass.json" --forwards "$OUT/c0_forwards.json" \
-            --labels "$S1/labels.jsonl" --n-plant "$N_PLANT" --readout-fraction "$PLANT_READOUT_FRACTION" \
-            --left-min "$left" --out "$OUT/c0_plan.json" --line > "$OUT/c0_plan.txt.tmp" || return 1
+        if ! timeout 2m python tools/stage_c_plan.py --pass-summary "$OUT/c0_pass.json" \
+                --forwards "$OUT/c0_forwards.json" --labels "$S1/labels.jsonl" --n-plant "$N_PLANT" \
+                --readout-fraction "$PLANT_READOUT_FRACTION" --left-min "$left" --out "$OUT/c0_plan.json" \
+                --line > "$OUT/c0_plan.txt.tmp" 2>> "$OUT/c0.log"; then
+            STATE+=("plan: unpriced, C0's rates could not be read (c0.log);")
+            return 2
+        fi
         mv -f "$OUT/c0_plan.txt.tmp" "$OUT/c0_plan.txt"
     fi
     read -r TRIM PLAN_MIN LEFT_MIN PASS_CUT STAGE_C_CUT PLANT_CUT N_TRAIN _ < "$OUT/c0_plan.txt"
@@ -394,10 +398,12 @@ if ! restore_stage1; then
     box_finish "STAGE1_UNUSABLE: $S1_WHY (restore.log)" 1
 fi
 if c0 && ok c0; then
-    if ! c0_plan; then
-        verdict
-        box_finish "C0_OVER_SWITCH ${STATE[*]} (c0_plan.json)" 1
-    fi
+    c0_plan
+    case $? in
+        0) ;;
+        1) verdict; box_finish "C0_OVER_SWITCH ${STATE[*]} (c0_plan.json)" 1 ;;
+        *) verdict; box_finish "C0_UNPRICED ${STATE[*]}" 1 ;;
+    esac
     if gradient_pass && ok pass; then
         stage_c
         plant

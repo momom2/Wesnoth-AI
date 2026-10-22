@@ -256,7 +256,7 @@ def test_the_replay_limit_rises_by_twice_the_floors_upper_bound(tmp_path):
     clean = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(**floor_config),
                          serving_forward=warm).run()
     floor = clean["floor"]
-    assert floor["decisions"] == clean["decisions"] and floor["game_sides"] == 6
+    assert floor["decisions"] == clean["decisions"] and floor["game_sides"] == 6 and floor["games"] == 3
     assert 0 < floor["se"] < floor["kl"] and floor["upper"] == pytest.approx(floor["kl"] + 2 * floor["se"])
     assert floor["path_kl"] < PATH_KL_LIMIT
     limit = clean["replay"]["limit"]
@@ -321,6 +321,11 @@ def test_a_cut_pass_takes_its_written_splits_and_reads_the_rest(tmp_path, monkey
                         lambda self, i, schedule: (read.append(i), run_split(self, i, schedule)))
     resumed = GradientPass(games.checkpoint, games.records, labels, CPU, config, partial_dir=partial).run()
     assert set(read).isdisjoint(done) and sorted(read + done) == list(range(8))
+    # Its rate is the windows it timed, never the splits it took: too few here, so unread, and unpriced.
+    from tools.stage_c_plan import UnreadRate, pass_rate
+    assert resumed["rate"] is None
+    with pytest.raises(UnreadRate):
+        pass_rate({k: resumed[k] for k in ("rate", "decisions", "seconds")})
     names = whole["names"]
     assert torch.allclose(_flat(resumed["total"], names), _flat(whole["total"], names), rtol=1e-6, atol=1e-9)
     for key in ("probes", "head_slopes"):

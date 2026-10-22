@@ -98,9 +98,12 @@ def configured_plan(trim: bool) -> Dict[str, int]:
 
 
 def project(trainer_rate: float, forward_rate: float, decisions_per_game: float, n_train: int, n_held: int,
-            n_plant: int = N_PLANT, readout_fraction: float = READOUT_FRACTION) -> Dict:
+            n_plant: int = N_PLANT, readout_fraction: float = READOUT_FRACTION,
+            laws_bytes_per_decision: Optional[float] = None) -> Dict:
     """Stage C's parts in minutes, their cuts, the wall and the cost
-    (module docstring)."""
+    (module docstring); with the evaluator's measured bytes a decision of
+    theta_k's KL laws (pg_eval.py time), the memory they take at stage C's
+    size: KL_FRACTION of the held-out decisions."""
     t, f, D = float(trainer_rate), float(forward_rate), float(decisions_per_game)
     if not (t > 0 and f > 0 and D > 0):
         raise ValueError(f"rates and decisions must be positive: trainer {t}, forwards {f}, decisions {D}")
@@ -120,14 +123,37 @@ def project(trainer_rate: float, forward_rate: float, decisions_per_game: float,
             "cuts": {k: int(CUT_FACTOR * v + CUT_PAD_MIN) for k, v in minutes.items()},
             "wall_hours": wall, "cost": wall * HOST_RATE,
             "read_plan": plan, "forward_equivalents": fwd,
+            "memory": None if laws_bytes_per_decision is None else {
+                "laws_bytes_per_decision": float(laws_bytes_per_decision),
+                "laws_gb": KL_FRACTION * n_held * D * float(laws_bytes_per_decision) / 1e9},
             "constants": {"host_rate": HOST_RATE, "fixed_hours": FIXED_HOURS, "kl_fraction": KL_FRACTION,
                           "kl_evals": KL_EVALS, "readout_fraction": readout_fraction, "trim_ratio": TRIM_RATIO}}
 
 
+EXIT_UNREAD = 3
+
+
+class UnreadRate(ValueError):
+    """A pass's summary carries no rate: fewer than its warm-up windows
+    were timed in its process (a short or resumed pass)."""
+
+
 def pass_rate(summary: Dict) -> float:
-    """The pass's decisions a second: past its warm-up when it read one."""
-    rate = summary.get("rate") or {}
-    return float(rate.get("positions_per_second") or summary["decisions"] / summary["seconds"])
+    """The pass's decisions a second, from the windows its process timed
+    past the warm-up (tools/pg_pass.py `rate`); `UnreadRate` without one:
+    the decisions over the wall would count splits taken from an earlier
+    run's records."""
+    rate = (summary.get("rate") or {}).get("positions_per_second")
+    if not rate:
+        raise UnreadRate("the pass's rate was not read: fewer than its warm-up windows were timed in its process")
+    return float(rate)
+
+
+def _compare_rate(summary: Dict) -> Optional[float]:
+    try:
+        return pass_rate(summary)
+    except UnreadRate:
+        return None
 
 
 def label_counts(labels: Path) -> Dict[str, int]:
@@ -157,12 +183,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     summary = json.loads(args.pass_summary.read_text(encoding="utf-8"))
     forwards = json.loads(args.forwards.read_text(encoding="utf-8"))
     counts = label_counts(args.labels)
-    plan = project(pass_rate(summary), forwards["positions_per_second"], summary["decisions"] / summary["games"],
-                   counts["train"], counts["held"], args.n_plant, args.readout_fraction)
+    try:
+        rate = pass_rate(summary)
+    except UnreadRate as e:
+        print(f"stage_c_plan: {e} ({args.pass_summary}): no price", file=sys.stderr)
+        return EXIT_UNREAD
+    plan = project(rate, forwards["positions_per_second"], summary["decisions"] / summary["games"],
+                   counts["train"], counts["held"], args.n_plant, args.readout_fraction,
+                   forwards.get("laws_bytes_per_decision"))
     plan["measured"] = {"pass": {k: summary.get(k) for k in ("games", "decisions", "seconds", "rate", "replay",
                                                              "floor", "config")},
                         "forwards": forwards,
-                        "compare": {p.stem: pass_rate(json.loads(p.read_text(encoding="utf-8"))) for p in args.compare}}
+                        "compare": {p.stem: _compare_rate(json.loads(p.read_text(encoding="utf-8")))
+                                    for p in args.compare}}
     if args.left_min is not None:
         plan["left_minutes"] = args.left_min
         plan["fits"] = plan["total_minutes"] <= args.left_min

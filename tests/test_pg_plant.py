@@ -109,6 +109,30 @@ def _shifted_join(original):
     return side_rows
 
 
+def test_the_paired_se_reads_the_difference_of_a_subset_and_its_superset():
+    """The planted reading is a mean over the first P of the main reading's N
+    games (both split by index mod 8): the difference's spread over repeats,
+    sigma_e^2 / P + sigma_o^2 (1/P - 1/N), is what the per-split
+    differences read, not the sum of the two readings' variances."""
+    from tools.pg_plant import paired_split_se, split_total_se
+    rng = np.random.default_rng(7)
+    P, N, k = 400, 1600, 8
+    split = np.arange(N) % k
+    diffs, ses, naive = [], [], []
+    for _ in range(3000):
+        o = rng.normal(0.3, 2.0, N)                      # each game's unplanted contribution
+        e = rng.normal(0.0, 0.5, P)                      # the plant's own noise on the planted games
+        planted = [(o[:P] + e)[split[:P] == i].sum() / (2 * P) for i in range(k)]
+        main = [o[split == i].sum() / (2 * N) for i in range(k)]
+        diffs.append(sum(planted) - sum(main))
+        ses.append(paired_split_se(planted, main))
+        naive.append(math.hypot(split_total_se(planted, [P // k] * k), split_total_se(main, [N // k] * k)))
+    true = math.sqrt(0.5 ** 2 / P + 2.0 ** 2 * (1 / P - 1 / N)) / 2
+    assert np.std(diffs) == pytest.approx(true, rel=0.05)
+    assert np.sqrt(np.mean(np.square(ses))) == pytest.approx(true, rel=0.08)
+    assert np.mean(naive) > 1.15 * true                  # the sum of the variances overstates it
+
+
 def test_delta_puts_the_plant_at_its_target_over_the_noisier_seat():
     """The rule on a main pass of known noise: each split's gradient is the
     games' mean plus noise of known per-game spread along the seat's
@@ -165,10 +189,12 @@ def test_the_planted_readout_passes_and_catches_a_reversed_seat_and_a_broken_joi
         r = good["seats"][seat]
         assert r["resolution"] >= MIN_RESOLUTION and abs(r["miss_se"]) <= AGREE_SE
         assert r["forecast_truncated"] == pytest.approx(r["forecast"], rel=0.05)
-        # The unplanted gradient's own effect, read from the run's pass, in the forecast and its SE.
+        # The unplanted gradient's own effect, read from the run's pass, in the forecast; the plant's
+        # games are all the main pass's, so the shared unplanted noise leaves the miss's SE below
+        # the plant's own reading's.
         main = r["main"]
         assert main["se"] > 0 and r["forecast_total"] == pytest.approx(r["forecast"] + main["change"])
-        assert r["se"] == pytest.approx(math.hypot(r["se_plant"], main["se"]))
+        assert 0 < r["se"] < r["se_plant"]
 
     original = selfplay_rows.side_rows
     monkeypatch.setattr(selfplay_rows, "side_rows", _reversed_seat(original))

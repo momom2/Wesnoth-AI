@@ -211,12 +211,43 @@ def _kl(lp: torch.Tensor, lq: torch.Tensor, ok: torch.Tensor) -> torch.Tensor:
 def legal_kl(p, q, views: Dict[str, torch.Tensor], rows: Optional[torch.Tensor] = None) -> torch.Tensor:
     """[n] float32: KL(p || q) of two networks' joint legal laws at the
     rows `rows` (default all) of their padded outputs `p` and `q`, under
-    the staged mask views of those rows. By the chain rule: the actor's KL,
-    plus under each actor's probability its type's KL and, under each
-    type's probability, its target's and (attacks) its weapon's."""
+    the staged mask views of those rows (`legal_kl_laws`)."""
     if rows is None:
         rows = torch.arange(p.actor_logits.shape[0], device=p.actor_logits.device)
-    P, Q = factor_laws(p, views, rows), factor_laws(q, views, rows)
+    return legal_kl_laws(factor_laws(p, views, rows), factor_laws(q, views, rows))
+
+
+# The factors of a FactorLaws, each with its mask `<name>_ok`.
+LAW_KEYS = ("actor", "type", "attack", "move", "recruit", "weapon")
+
+
+def compact_laws(laws: FactorLaws) -> Dict[str, torch.Tensor]:
+    """Each factor's log law at its legal entries only, flat in the mask's
+    order, on the CPU: a decision's share is about its legal actions, its
+    actors and their types, not the padded actors x hexes."""
+    return {k: getattr(laws, k)[getattr(laws, k + "_ok")].detach().float().cpu() for k in LAW_KEYS}
+
+
+def expand_laws(compact: Dict[str, torch.Tensor], like: FactorLaws) -> FactorLaws:
+    """`compact` laid back on the masks of `like` (the same positions'
+    factors, another network's), 0 off them."""
+    out = {}
+    for k in LAW_KEYS:
+        ok = getattr(like, k + "_ok")
+        values = compact[k].to(ok.device)
+        if values.numel() != int(ok.sum()):
+            raise ValueError(f"{k}: {values.numel()} stored entries for {int(ok.sum())} legal ones: other positions")
+        dense = torch.zeros_like(getattr(like, k))
+        dense[ok] = values
+        out[k] = dense
+    return dataclasses.replace(like, **out)
+
+
+def legal_kl_laws(P: FactorLaws, Q: FactorLaws) -> torch.Tensor:
+    """[n] float32: KL(P || Q) of two joint legal laws given by their factors
+    on the same masks. By the chain rule: the actor's KL, plus under each
+    actor's probability its type's KL and, under each type's probability,
+    its target's and (attacks) its weapon's."""
     p_actor = _law(P.actor, P.actor_ok)
     p_type = _law(P.type, P.type_ok)
     unit_terms = (_kl(P.type, Q.type, P.type_ok)

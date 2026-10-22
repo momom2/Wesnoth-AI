@@ -96,7 +96,8 @@ elif rc in (0, 3, 4, 5) and name in ("c0 pass", "pass", "plant pass"):
     out = out if rc == 0 else out.with_name(f"{out.stem}.{refused[rc]}.pt")
     out.write_text("a pass")
     out.with_suffix(".json").write_text(json.dumps({
-        "decisions": games * D, "seconds": 2 * games * D / t, "games": games, "rate": {"positions_per_second": t},
+        "decisions": games * D, "seconds": 2 * games * D / t, "games": games,
+        "rate": None if os.environ.get("STUB_NO_RATE") else {"positions_per_second": t},
         "replay": {"kl": 0.0, "limit": 1e-4}, "floor": {"kl": 1e-6, "se": 1e-7}}))
 elif name == "c0 forwards":
     pathlib.Path(opt("--out")).write_text(json.dumps({"positions_per_second": f, "games": int(opt("--held-games")),
@@ -186,7 +187,8 @@ def test_the_run_restores_measures_passes_reads_plants_and_decides(tmp_path):
     dirs = " ".join(f"{s1}/games_s{k:02d}" for k in range(8))
     assert all((tmp_path / "stage1" / f"games_s{k:02d}" / "game_x.json").is_file() for k in range(8))
     assert (tmp_path / "stage1" / "walk.jsonl").read_text().count("\n") == 8
-    assert f"--games {dirs} --labels {s1}/labels.jsonl --train-limit 200 --out {out}/c0_pass.pt" in _step(got, "c0 pass")
+    assert f"--games {dirs} --labels {s1}/labels.jsonl --train-limit 200 --fresh --out {out}/c0_pass.pt" \
+        in _step(got, "c0 pass")
     # 30 games x 100 decisions at 1,000 a second: 50 s, so the pass's cut is 15 minutes.
     assert _step(got, "pass").startswith("pass [15] python tools/pg_pass.py --checkpoint /ckpt/own2.pt")
     driver = _step(got, "stage c")
@@ -264,6 +266,9 @@ def test_c0_gates_the_evaluators_replay_and_names_the_floors_refusals(tmp_path):
         in floor["finish"]
     path = _run(tmp_path / "t", STUB_RC='{"pass": 5}')
     assert "pass: FAILED, the packed and padded trunks disagree in fp32" in path["finish"]
+    unread = _run(tmp_path / "u", STUB_NO_RATE="1")
+    assert unread["rc"] == 1 and unread["finish"].startswith("C0_UNPRICED") and _run_steps(unread) == [
+        "c0 pass", "c0 forwards"], unread["finish"]
 
 
 def test_stage_1s_failed_gates_or_missing_games_stop_the_run(tmp_path):

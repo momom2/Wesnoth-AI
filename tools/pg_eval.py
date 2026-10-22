@@ -22,9 +22,11 @@ the KL subsample, the game-sides drawn with probability `kl_fraction` by a
 hash of their names; theta_k + s d carries its own memory along it.
 
 What every evaluator of a context shares is read once: theta_k over every
-held-out decision (`EvalContext.base_reading`) and theta_k's logits at each time
-step of the KL subsample (on the CPU, about A x H floats a decision), so a
-KL reading forwards only the moved network. `EvalContext.reads` counts the
+held-out decision (`EvalContext.base_reading`) and theta_k's factored legal
+laws at each time step of the KL subsample (on the CPU, each factor's legal
+entries only: about the decision's legal actions plus its actors and their
+types, `laws_bytes_per_decision`), so a KL reading forwards only the moved
+network. `EvalContext.reads` counts the
 forwards each set of game-sides took, for the stage C plan's check.
 
 The forwards run in float32, whatever the device: bfloat16 rounds a log
@@ -59,7 +61,6 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, fields
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 import numpy as np
@@ -73,7 +74,8 @@ from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex
                                 refuse_foreign, side_lengths)
 from tools.pg_schedule import PGMemoryRouter, game_order  # noqa: E402
 from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
-from wesnoth_ai.pg_loss import CLASSES, action_log_probs, class_masses, legal_kl  # noqa: E402
+from wesnoth_ai.pg_loss import (CLASSES, action_log_probs, class_masses, compact_laws, expand_laws,  # noqa: E402
+                                factor_laws, legal_kl_laws)
 from wesnoth_ai.pg_protocol import GameSide  # noqa: E402
 from wesnoth_ai.pg_records import LabelRow, labelled_games, read_labels  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide as StreamSide  # noqa: E402
@@ -99,10 +101,6 @@ class Reading:
     """One step's forwards, per held-out decision (NaN where not read)."""
     logp: np.ndarray                  # [n] float64
     masses: np.ndarray                # [n, 3] float64, CLASSES' order
-
-
-# The output fields the legal law reads (pg_loss.factor_laws).
-LAW_FIELDS = ("actor_logits", "type_logits", "target_logits", "weapon_logits")
 
 
 class EvalContext:
@@ -136,7 +134,8 @@ class EvalContext:
                           < config.kl_fraction] or self.sides[:1])
         self.decisions = start
         self._base: Optional[Reading] = None            # theta_k over every held-out decision
-        self._laws: Optional[List[SimpleNamespace]] = None   # theta_k's logits at each KL time step, on the CPU
+        self._laws: Optional[List[Dict[str, torch.Tensor]]] = None   # theta_k's laws at each KL time step
+        self.laws_bytes_per_decision: Optional[float] = None
         # The forwards run, by the set of game-sides they read: "full" (every
         # held-out game-side), "half A" / "half B", "subsample" (the KL
         # subsample) or "other"; one per network and read.
@@ -235,18 +234,23 @@ class EvalContext:
             self._base = self.read({}, [0.0], self.sides)[0.0]
         return self._base
 
-    def _theta_k_laws(self) -> List[SimpleNamespace]:
-        """theta_k's logits at each time step of the KL subsample's replay,
-        read once (on the CPU)."""
+    def _theta_k_laws(self) -> List[Dict[str, torch.Tensor]]:
+        """theta_k's factored legal laws at each time step of the KL
+        subsample's replay, read once and kept compact on the CPU (each
+        factor's legal entries only, pg_loss.compact_laws);
+        `laws_bytes_per_decision` says what they hold."""
         if self._laws is None:
-            laws: List[SimpleNamespace] = []
+            laws: List[Dict[str, torch.Tensor]] = []
+            count = [0]
 
             def keep(t, steps_t, batch, outputs) -> None:
-                p = outputs[0.0]
-                laws.append(SimpleNamespace(**{k: getattr(p, k).float().cpu() for k in LAW_FIELDS}))
+                laws.append(compact_laws(factor_laws(outputs[0.0], batch.views, batch.rows)))
+                count[0] += len(steps_t)
 
             self._walk({0.0: (self.encoder, self.model)}, self.kl_sides, keep)
             self._laws = laws
+            stored = sum(v.numel() * v.element_size() for step in laws for v in step.values())
+            self.laws_bytes_per_decision = stored / max(1, count[0])
         return self._laws
 
     def kl(self, direction: Mapping[str, torch.Tensor], steps: Sequence[float]) -> Dict[float, float]:
@@ -258,12 +262,9 @@ class EvalContext:
         count = [0]
 
         def on_step(t, steps_t, batch, outputs) -> None:
-            p = SimpleNamespace(**{k: getattr(laws[t], k).to(self.device) for k in LAW_FIELDS})
-            if p.actor_logits.shape[0] != len(steps_t):
-                raise RuntimeError(f"KL step {t} holds {len(steps_t)} rows, theta_k's reading of it "
-                                   f"{p.actor_logits.shape[0]}: the replays differ")
             for s, q in outputs.items():
-                sums[s] += float(legal_kl(p, q, batch.views, batch.rows).double().sum())
+                Q = factor_laws(q, batch.views, batch.rows)
+                sums[s] += float(legal_kl_laws(expand_laws(laws[t], Q), Q).double().sum())
             count[0] += len(steps_t)
 
         self._walk({s: self.network(direction, s) for s in keys}, self.kl_sides, on_step)
@@ -401,6 +402,7 @@ def time_forwards(checkpoint: Path, dirs: Sequence[Path], labels: Path, device: 
         seconds = time.perf_counter() - t0
         logged = np.array([d.logp for gs in context.sides for d in decisions_of(read_record(records[gs.game]))
                            if d.side == gs.side])
+        context._theta_k_laws()           # what a KL reading keeps a decision, for stage C's memory
     finally:
         context.close()
     diff = logged - base
@@ -408,6 +410,7 @@ def time_forwards(checkpoint: Path, dirs: Sequence[Path], labels: Path, device: 
             "positions_per_second": len(base) / seconds if seconds > 0 else float("nan"),
             "replay": {"kl": float(diff.mean()), "max_abs": float(np.abs(diff).max())},
             "warmup_sides": min(WARMUP_SIDES, len(context.sides)),
+            "laws_bytes_per_decision": context.laws_bytes_per_decision,
             "config": {"streams": config.streams, "workers": config.workers}}
 
 

@@ -254,7 +254,7 @@ def test_the_run_plays_logs_labels_reads_and_measures(tmp_path):
     # 5 minutes, the projection on the labels (40 trained on, 20 held out)
     # at the rates past warm-up.
     assert _step(got, "rates fp32").startswith("rates fp32 python tools/pg_pass.py")
-    assert "--train-limit 150 --floor-dtype off --out" in _step(got, "rates fp32")
+    assert "--train-limit 150 --floor-dtype off --fresh --out" in _step(got, "rates fp32")
     assert "--train-limit 150 --bf16 --floor-dtype off" in _step(got, "rates bf16")
     assert "--held-games 150 " in _step(got, "rates forwards")
     assert "hold rates.done rates.json" in got["steps"]

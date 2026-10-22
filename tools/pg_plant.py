@@ -37,7 +37,16 @@ The readout, per seat (A, B), on the held-out games H (a fraction of them,
             windows of the pass's length;
   main      with the unplanted labels' pass (`--main-pass`), the unplanted
             gradient's own effect s <P' grad M, g> joins the forecast (the
-            miss's mean is that, not 0) and its split SE joins the SE;
+            miss's mean is that, not 0). The planted games are the main
+            pass's first N_P training games, split by the same index, so the
+            two readings share those games' unplanted noise: the miss is
+            the plant's own noise (variance s_e^2 / P) plus the unplanted
+            noise of the main pass's other games (s_o^2 (1/P - 1/N): the
+            mean over P games less the mean over the N that hold them), not
+            the sum of the two readings' variances (1/P + 1/N). Per split
+            the difference of the two readings carries exactly that, so the
+            SE is read from the spread of the eight split differences
+            (`paired_split_se`);
 and passes when on both seats the forecast is resolved (MIN_RESOLUTION SE)
 and the measured change lies within AGREE_SE SE of it. A wrong direction or
 step reads the wrong size. One network plays both seats, so a seat whose
@@ -216,17 +225,28 @@ def _check_inputs(rows, pass_: Mapping, grads: Mapping) -> None:
                              f"its windows are not the pass's")
 
 
+def paired_split_se(a: Sequence[float], b: Sequence[float]) -> float:
+    """The SE of sum(a) - sum(b) from the spread of the per-split
+    differences m_i = a_i - b_i: k independent splits of nearly equal games
+    (index mod 8) give Var(sum m) = k Var(m), read as k times the m_i's
+    sample variance over the splits holding games in `a`."""
+    m = np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
+    m = m[np.asarray(a, dtype=np.float64) != 0]
+    if len(m) < 2:
+        return math.nan
+    return math.sqrt(len(m) * float(m.var(ddof=1)))
+
+
 def _main_effect(w: Mapping[str, torch.Tensor], s: float, main_pass: Optional[Mapping]) -> Optional[Dict]:
     """The unplanted gradient's own first-order effect at the step,
     s <P' grad M, g>, g the main pass's gradient (the same per-game mean the
-    planted pass's unplanted part estimates), with its SE from the main
-    pass's splits and its z. Its noise is counted beside the planted pass's
-    own, which holds the same games' noise: the SE errs high."""
+    planted pass's unplanted part estimates), with the SE and z of the main
+    pass's reading alone and its per-split projections."""
     if main_pass is None:
         return None
     parts = _project(w, main_pass["splits"])
     change, se = s * sum(parts), s * split_total_se(parts, main_pass["split_games"])
-    return {"change": change, "se": se, "z": change / se if se > 0 else math.nan}
+    return {"change": change, "se": se, "z": change / se if se > 0 else math.nan, "parts": parts}
 
 
 def plant_readout(checkpoint: Path, records: Mapping[str, Path], rows, pass_: Mapping, grads: Mapping,
@@ -271,7 +291,7 @@ def plant_readout(checkpoint: Path, records: Mapping[str, Path], rows, pass_: Ma
         forecast = s * delta * (along[h][seat] - along[-h][seat]) / (2.0 * h)
         main = _main_effect(w, s, main_pass)
         total = forecast + (main["change"] if main else 0.0)
-        se_total = math.hypot(se, main["se"]) if main else se
+        se_total = s * paired_split_se(deviation, main.pop("parts")) if main else se
         measured = (at[s][seat] - at[-s][seat]) / 2.0
         resolution = forecast / se_total if se_total > 0 else math.nan
         miss = (measured - total) / se_total if se_total > 0 else math.nan
