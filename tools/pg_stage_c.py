@@ -24,7 +24,8 @@ From pass.pt (build_contracts.md §3) and an Evaluator factory
   8. the gate on round 1's candidate (§6): resolved, rounds at a size the
      gain curve resolves within the round budget, or neither.
 The readout JSON is rewritten after each part, so a cut run keeps what it
-read.
+read. A part, or an arm, that fails is recorded under `errors` (an arm under
+its own entry) and the parts that do not need it run.
 
 Usage:
     python tools/pg_stage_c.py --pass pass.pt --factory MODULE:CALLABLE \
@@ -402,24 +403,32 @@ class StageC:
         return read_candidate(evaluator, point.s, point.kl, {select: self.by_half[select]})[select]
 
     def arms(self, arms: Sequence[str]) -> str:
-        """Parts 2 and 3: every arm at KL eps on half A, and the winner."""
-        table = {}
+        """Parts 2 and 3: every arm at KL eps on half A, and the winner. An
+        arm that fails is recorded with its error and left out of the
+        comparison; the others are read."""
+        table = self.readout.setdefault("arms", {})
         for arm in arms:
-            d = self.direction(arm, span_fisher=self.F_s)
-            evaluator, point = self._scaled(d, self.default_evaluator if arm == DEFAULT_ARM else None)
-            reading = self._read_half_a(evaluator, point)
+            try:
+                d = self.direction(arm, span_fisher=self.F_s if arm == "probe_span" else None)
+                evaluator, point = self._scaled(d, self.default_evaluator if arm == DEFAULT_ARM else None)
+                reading = self._read_half_a(evaluator, point)
+            except Exception as e:                    # noqa: BLE001 - an arm fails alone
+                table[arm] = {"error": f"{type(e).__name__}: {e}"[:500]}
+                self.write()
+                continue
             self.directions[arm], self.points[arm], self.arm_readings[arm] = d, point, reading
             table[arm] = {"s": point.s, "kl": point.kl, "evals": point.evals, "norm": norm(d),
                           self.halves[0]: reading.summary()}
-            self.readout["arms"] = table
             self.write()
+        if not self.arm_readings:
+            raise RuntimeError(f"no arm of {list(arms)} was read")
         exact = {arm: r.exact for arm, r in self.arm_readings.items()}
         in_range = self.k_side <= SIDE_KL_RANGE
         readable = {arm: in_range and r.ess_ok for arm, r in self.arm_readings.items()}
         if DEFAULT_ARM in exact:
             winner, paired, reason = choose_arm(exact, readable)
         else:
-            winner = max((a for a in exact if readable[a]), key=lambda a: exact[a].estimate, default=arms[0])
+            winner = max((a for a in exact if readable[a]), key=lambda a: exact[a].estimate, default=next(iter(exact)))
             paired, reason = {}, f"{DEFAULT_ARM} not run: the readable arm of highest ΔĴ"
         self.readout["optimizer"] = {"winner": winner, "reason": reason, "paired_vs_default": paired}
         self.write()
@@ -504,17 +513,36 @@ def run_stage_c(pass_: Mapping, params: Mapping[str, torch.Tensor], factory: Eva
                 k_side: float = K_SIDE, arms: Sequence[str] = ARMS, halves: Tuple[str, str] = ("A", "B"),
                 span_step: float = SPAN_STEP, curve_splits: Sequence[int] = CURVE_SPLITS,
                 prices: Optional[RoundPrices] = None) -> Dict:
-    """The whole stage C readout (module docstring), written to `out`."""
+    """The whole stage C readout (module docstring), written to `out`. Each
+    part fails alone: its error goes to the readout's `errors` and the parts
+    that do not need it run; a gate without a ladder reads "neither"."""
     run = StageC(pass_, params, factory, out, k_side, halves, span_step)
-    run.span()
-    winner = run.arms(arms)
-    run.ladder(winner)
-    if DEFAULT_ARM in arms:
-        run.gain_curve(run.critical_batch(DEFAULT_ARM), curve_splits)
-    if winner != DEFAULT_ARM and winner in LINEAR_ARMS:
-        run.critical_batch(winner)
-    run.floor()
-    run.gate(winner, prices)
+    errors = run.readout.setdefault("errors", {})
+
+    def part(name: str, fn, *args):
+        try:
+            return True, fn(*args)
+        except Exception as e:                        # noqa: BLE001 - a part fails alone
+            errors[name] = f"{type(e).__name__}: {e}"[:500]
+            run.write()
+            return False, None
+
+    spanned, _ = part("span", run.span)
+    _, winner = part("arms", run.arms, arms)
+    laddered = winner is not None and part("ladder", run.ladder, winner)[0]
+    if DEFAULT_ARM in run.points:
+        _, batch = part("critical_batch", run.critical_batch, DEFAULT_ARM)
+        if batch is not None:
+            part("gain_curve", run.gain_curve, batch, curve_splits)
+    if winner is not None and winner != DEFAULT_ARM and winner in LINEAR_ARMS:
+        part(f"critical_batch_{winner}", run.critical_batch, winner)
+    if spanned:
+        part("floor", run.floor)
+    if laddered:
+        part("gate", run.gate, winner, prices)
+    if "gate" not in run.readout:
+        run.readout["gate"] = {"verdict": "neither", "reason": f"the gate could not be read: {sorted(errors)} failed"}
+        run.write()
     return run.readout
 
 
@@ -553,7 +581,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     readout = run_stage_c(pass_, params, factory, args.out, args.k_side, args.arms, span_step=args.span_step,
                           curve_splits=args.curve_splits, prices=prices)
     print(json.dumps({"verdict": readout["gate"]["verdict"], "reason": readout["gate"]["reason"],
-                      "winner": readout["optimizer"]["winner"], "ladder": readout["ladder"]["reason"]}))
+                      "winner": readout.get("optimizer", {}).get("winner"),
+                      "ladder": readout.get("ladder", {}).get("reason"), "errors": readout["errors"]}))
     return 0
 
 

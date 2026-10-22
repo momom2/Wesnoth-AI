@@ -406,12 +406,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--floor-dtype", default="bfloat16", choices=("bfloat16", "float16", "off"),
                     help="the serving precision the floor reads")
     ap.add_argument("--procedure", default=SELF_PLAY_PROCEDURE, help="the labelled game-sides' procedure tag")
+    ap.add_argument("--train-limit", type=int, default=0,
+                    help="train on the first N labelled training games only (stage C's C0; 0: all)")
     ap.add_argument("--no-verify", action="store_true", help="skip the records' fingerprints")
     ap.add_argument("--log-level", default="INFO")
     args = ap.parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(name)s %(levelname)s %(message)s")
     from wesnoth_ai.pg_records import read_labels
     labels = read_labels(args.labels)
+    if args.train_limit > 0:
+        first = list(dict.fromkeys(r.game for r in labels if not r.heldout))[:args.train_limit]
+        labels = [r for r in labels if r.game in set(first)]
     index = RecordIndex(args.games)
     records = {r.game: index.path(r.game) for r in labels if not r.heldout}
     config = PassConfig(streams=args.streams, window=args.window, seed=args.seed, slots=args.slots,

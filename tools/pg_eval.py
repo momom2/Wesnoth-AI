@@ -31,6 +31,13 @@ end_turn, attacks and recruits at theta_k + s d, by seat (the planted
 round's offline readout). `write_candidate(s, path)` writes theta_k + s d
 as a checkpoint any loader reads.
 
+`time_forwards` (the command line's `time`) is stage C's C0 reading of the
+forwards: one replay of a few held-out games at theta_k, its decisions a
+second and its replay identity:
+
+    python tools/pg_eval.py time --checkpoint own2.pt --games DIR [DIR ...] --labels labels.jsonl \\
+        --held-games 100 --workers 30 --out c0_forwards.json
+
 `network_factory` is the stage C driver's `--factory` (tools/pg_stage_c.py):
 
     python tools/pg_stage_c.py --pass pass.pt --factory tools.pg_eval:network_factory \\
@@ -281,6 +288,61 @@ def _config_value(name: str, text: str):
     return float(text) if name == "kl_fraction" else int(text)
 
 
+def time_forwards(checkpoint: Path, dirs: Sequence[Path], labels: Path, device: torch.device, config: EvalConfig,
+                  n_games: int) -> Dict:
+    """Stage C's C0 reading of the forwards: theta_k's law at every decision
+    of the first `n_games` held-out games (by name), one replay of their
+    positions, timed; its decisions a second and its replay identity on
+    held-out games (the logged log p less the recomputed one)."""
+    import time
+    from tools.pg_positions import read_record
+    from wesnoth_ai.pg_records import decisions_of
+    rows = read_labels(labels)
+    chosen = sorted({r.game for r in rows if r.heldout})[:n_games]
+    index = RecordIndex(dirs)
+    records = {g: index.path(g) for g in chosen}
+    context = EvalContext(checkpoint, records, [r for r in rows if r.heldout and r.game in set(chosen)], device,
+                          config)
+    try:
+        evaluator = context.bind({})
+        t0 = time.perf_counter()
+        base = evaluator.base_logp()
+        seconds = time.perf_counter() - t0
+        logged = np.array([d.logp for gs in context.sides for d in decisions_of(read_record(records[gs.game]))
+                           if d.side == gs.side])
+    finally:
+        context.close()
+    diff = logged - base
+    return {"games": len(chosen), "decisions": int(len(base)), "seconds": seconds,
+            "positions_per_second": len(base) / seconds if seconds > 0 else float("nan"),
+            "replay": {"kl": float(diff.mean()), "max_abs": float(np.abs(diff).max())},
+            "config": {"streams": config.streams, "workers": config.workers}}
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """`time`: the C0 forward reading (`time_forwards`) as JSON."""
+    import argparse
+    import json
+    ap = argparse.ArgumentParser(description="The network evaluator's C0 reading of its forwards.")
+    ap.add_argument("command", choices=("time",))
+    ap.add_argument("--checkpoint", type=Path, required=True)
+    ap.add_argument("--games", type=Path, nargs="+", required=True)
+    ap.add_argument("--labels", type=Path, required=True)
+    ap.add_argument("--held-games", type=int, default=100)
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--streams", type=int, default=EvalConfig.streams)
+    ap.add_argument("--workers", type=int, default=0)
+    ap.add_argument("--out", type=Path, required=True)
+    args = ap.parse_args(argv)
+    result = time_forwards(args.checkpoint, args.games, args.labels, torch.device(args.device),
+                           EvalConfig(streams=args.streams, workers=args.workers), args.held_games)
+    tmp = args.out.with_name(args.out.name + ".tmp")
+    tmp.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, args.out)
+    print(json.dumps(result))
+    return 0
+
+
 def network_factory(checkpoint: str, games: str, labels: str, device: Optional[str] = None, **config: str):
     """(evaluator factory, theta_k by name, the checkpoint's SHA-256): the
     stage C driver's `--factory` (module docstring). `games` lists the
@@ -297,3 +359,7 @@ def network_factory(checkpoint: str, games: str, labels: str, device: Optional[s
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     context = EvalContext(Path(checkpoint), records, rows, dev, EvalConfig(**parsed))
     return context.bind, context.params(), context.checkpoint_sha256
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

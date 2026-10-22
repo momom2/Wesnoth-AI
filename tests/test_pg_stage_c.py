@@ -135,6 +135,36 @@ def test_stage_c_reads_every_part_on_the_toy(toy, tmp_path):
         assert torch.allclose(whole[n], pass_["total"][n], rtol=1e-5, atol=1e-9)
 
 
+def test_a_failing_arm_or_part_fails_alone(toy, tmp_path, monkeypatch):
+    """An arm whose direction raises is recorded and left out of the
+    comparison while the other arms are read; a part that raises is
+    recorded and the parts that do not need it run; without a ladder the
+    gate reads "neither"."""
+    import wesnoth_ai.pg_step as pg_step
+    from tools import pg_stage_c
+    game, params, pass_, heldout = toy
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("an injected failure")
+
+    monkeypatch.setattr(pg_step, "muon_direction", broken)
+    monkeypatch.setattr(pg_stage_c.StageC, "gain_curve", broken)
+    prices = RoundPrices(7.76e-5, 2.42)
+    readout = run_stage_c(pass_, params, toy_game.factory(params, heldout), tmp_path / "a.json", k_side=0.1,
+                          prices=prices)
+    assert readout["arms"]["muon"] == {"error": "RuntimeError: an injected failure"}
+    assert all("s" in readout["arms"][arm] for arm in ARMS if arm != "muon")
+    assert "muon" not in readout["optimizer"]["paired_vs_default"]
+    assert set(readout["errors"]) == {"gain_curve"}
+    assert "floor" in readout and "critical_batch" in readout and readout["gate"]["verdict"] == "resolved"
+    monkeypatch.setattr(pg_stage_c.StageC, "ladder", broken)
+    readout = run_stage_c(pass_, params, toy_game.factory(params, heldout), tmp_path / "b.json", k_side=0.1,
+                          prices=prices)
+    assert set(readout["errors"]) == {"gain_curve", "ladder"} and "floor" in readout
+    assert readout["gate"]["verdict"] == "neither"
+    assert json.loads((tmp_path / "b.json").read_text())["gate"] == readout["gate"]
+
+
 def test_another_arm_replaces_the_default_only_beyond_two_paired_se():
     """Paired by game, beyond 2 SE, and only when both arms' importance
     weights pass the check."""

@@ -4,6 +4,7 @@ identity), the readings move along the bound direction, and a written
 candidate is the network the readings read."""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -182,6 +183,26 @@ def test_the_stage_c_factory_binds_evaluators_to_the_pass_network(tmp_path):
     with pytest.raises(ValueError):
         factory({name: torch.zeros(3, 1, 7)})
     ev.context.close()
+
+
+@needs_core
+def test_the_c0_forward_reading_counts_and_reproduces_the_held_out_decisions(tmp_path):
+    """`pg_eval.py time` replays the first held-out games once: every logged
+    decision of theirs, at the logged law."""
+    from helpers.pg_games import named, played_games, write_labels
+    from tools.pg_eval import main
+    from tools.pg_positions import read_record
+    games = played_games()
+    labels = write_labels(tmp_path / "labels.jsonl", {g: 0 for g in games.records}, named(games, R),
+                          heldout=list(games.records), halves=named(games, HALVES))
+    out = tmp_path / "c0_forwards.json"
+    assert main(["time", "--checkpoint", str(games.checkpoint), "--games", str(games.games), "--labels", str(labels),
+                 "--held-games", "2", "--device", "cpu", "--streams", "2", "--out", str(out)]) == 0
+    got = json.loads(out.read_text(encoding="utf-8"))
+    first = sorted(games.records)[:2]
+    assert got["games"] == 2
+    assert got["decisions"] == sum(len(decisions_of(read_record(games.records[g]))) for g in first)
+    assert got["positions_per_second"] > 0 and got["replay"]["max_abs"] < 1e-4
 
 
 def test_a_held_out_game_whose_seats_sit_in_two_halves_is_refused(tmp_path):
