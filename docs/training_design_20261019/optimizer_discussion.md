@@ -103,8 +103,8 @@ Under (a), the optimizer is only the rule that turns the round's summed gradient
 
 | Stage | Cost | What it reads |
 |---|---|---|
-| 1. No training | $1.65 | 30,000 logged games at temperature 1; the sampling debt (12,800 games against the reference); memory on against off. Reads game length and prices, turn-cap rate, score noise and which corrections cut it, that the player samples what it logs, the sharpening slope |
-| C. Gradients and candidate steps on stage 1's games, nothing played or kept | $2.73–5.71 | Whether one round's step gains measurably, and per dollar; the optimizer; the step size; the round size; the planted check offline |
+| 1. No training | $1.65 at the argmax game length; at most $3.75 (its 6.5-hour dead-man limit) if temperature-1 games run long | 30,000 logged games at temperature 1; the sampling debt (12,800 games against the reference); memory on against off. Reads game length and prices, turn-cap rate, score noise and which corrections cut it, that the player samples what it logs, the sharpening slope; and the gradient pass's and evaluator's real rates, which price stage C before you decide on it |
+| C. Gradients and candidate steps on stage 1's games, nothing played or kept | $4.3–7.8 at the recorded trainer rate (built and costed 2026-10-22; more if fp32 runs slower, which stage 1 measures) | Whether one round's step gains measurably, and per dollar; the optimizer; the step size; the round size; the planted check offline |
 | P. The planted check played | $0.65 (+$0.33) | A planted reward recovered at its predicted size; a match testing the sharpening slope in play |
 | Each round | $2.78–3.97 at 20,000 games | 18–27 rounds fit in the budget |
 
