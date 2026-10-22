@@ -288,12 +288,17 @@ def _config_value(name: str, text: str):
     return float(text) if name == "kl_fraction" else int(text)
 
 
+WARMUP_SIDES = 8          # the game-sides the forwards' timing reads first, untimed
+
+
 def time_forwards(checkpoint: Path, dirs: Sequence[Path], labels: Path, device: torch.device, config: EvalConfig,
                   n_games: int) -> Dict:
     """Stage C's C0 reading of the forwards: theta_k's law at every decision
     of the first `n_games` held-out games (by name), one replay of their
-    positions, timed; its decisions a second and its replay identity on
-    held-out games (the logged log p less the recomputed one)."""
+    positions timed after an untimed one of WARMUP_SIDES game-sides (the
+    replay workers' start, the device's first kernels); its decisions a
+    second and its replay identity on held-out games (the logged log p less
+    the recomputed one)."""
     import time
     from tools.pg_positions import read_record
     from wesnoth_ai.pg_records import decisions_of
@@ -304,9 +309,13 @@ def time_forwards(checkpoint: Path, dirs: Sequence[Path], labels: Path, device: 
     context = EvalContext(checkpoint, records, [r for r in rows if r.heldout and r.game in set(chosen)], device,
                           config)
     try:
-        evaluator = context.bind({})
+        context.read({}, [0.0], context.sides[:WARMUP_SIDES], kl=False)
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         t0 = time.perf_counter()
-        base = evaluator.base_logp()
+        base = context.bind({}).base_logp()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         seconds = time.perf_counter() - t0
         logged = np.array([d.logp for gs in context.sides for d in decisions_of(read_record(records[gs.game]))
                            if d.side == gs.side])
@@ -316,6 +325,7 @@ def time_forwards(checkpoint: Path, dirs: Sequence[Path], labels: Path, device: 
     return {"games": len(chosen), "decisions": int(len(base)), "seconds": seconds,
             "positions_per_second": len(base) / seconds if seconds > 0 else float("nan"),
             "replay": {"kl": float(diff.mean()), "max_abs": float(np.abs(diff).max())},
+            "warmup_sides": min(WARMUP_SIDES, len(context.sides)),
             "config": {"streams": config.streams, "workers": config.workers}}
 
 

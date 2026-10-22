@@ -278,19 +278,27 @@ def test_the_replay_limit_rises_by_twice_the_measured_floor(tmp_path):
 @needs_core
 def test_the_command_line_trains_on_the_first_games_when_limited(tmp_path):
     """--train-limit N (stage C's C0): the first N labelled training games,
-    in the labels' order, and every decision of theirs."""
+    in the labels' order, and every decision of theirs. Beside pass.pt, its
+    summary; the rate counts the decisions past the warm-up windows."""
     from helpers.pg_games import named, write_labels
-    from tools.pg_pass import main
+    from tools.pg_pass import WARMUP_WINDOWS, main
     from tools.pg_positions import read_record
     games, _ = _labels(tmp_path)
     labels = write_labels(tmp_path / "cli.jsonl", named(games, SPLITS), named(games, R))
     out = tmp_path / "c0_pass.pt"
     assert main(["--checkpoint", str(games.checkpoint), "--games", str(games.games), "--labels", str(labels),
-                 "--out", str(out), "--device", "cpu", "--streams", "2", "--train-limit", "2"]) == 0
+                 "--out", str(out), "--device", "cpu", "--streams", "2", "--window", "2", "--train-limit", "2"]) == 0
     result = torch.load(out, weights_only=True)
     first = [games.names["g0"], games.names["g1"]]
     assert result["games"] == 2
     assert result["decisions"] == sum(len(decisions_of(read_record(games.records[g]))) for g in first)
+    summary = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+    assert {k: summary[k] for k in ("games", "decisions", "replay", "probes")} == \
+        {k: result[k] for k in ("games", "decisions", "replay", "probes")}
+    assert result["windows"] > WARMUP_WINDOWS
+    rate = result["rate"]
+    assert 0 < rate["decisions"] < result["decisions"] and rate["seconds"] < result["seconds"]
+    assert rate["positions_per_second"] == pytest.approx(rate["decisions"] / rate["seconds"])
 
 
 @needs_core

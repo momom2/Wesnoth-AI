@@ -11,7 +11,8 @@
 #   identity against the logged law and the precision floor, tools/pg_pass.py)
 #   and one replay of C0_HELD held-out games at theta_k (tools/pg_eval.py
 #   time): the trainer's and the forwards' measured rates, from which the rest
-#   is sized (c0_plan);
+#   is sized (c0_plan, by tools/stage_c_plan.py, the projection stage 1's
+#   rate measurement prints);
 #   the gradient pass over every training game of stage 1 (20,000 when stage 1
 #   ran whole; the 5,000 and 10,000 points of the gain curve are its splits);
 #   the stage C driver on it (tools/pg_stage_c.py on tools/pg_eval.py's
@@ -36,16 +37,19 @@
 # a game (the argmax census; stage 1 measures the temperature-1 length and C0
 # reads it); a forward costing a third of a trained position to one (the
 # design's illustration and bound); 8.65 forward-equivalents over the 10,000
-# held-out games for stage C (round11_synthesis_plan.py, stage_c_forwards).
+# held-out games for stage C (round11_synthesis_plan.py, stage_c_forwards),
+# 7.35 when the forwards run at the bound and the arms are trimmed. The
+# projection is tools/stage_c_plan.py's, which stage 1 runs on its measured
+# rates (its rates.json) before stage C is decided:
 #   bring-up, restore, C0 and uploads about 1.0 h; the pass 20,000 x 475.7 /
-#   1,477 = 1.79 h; stage C 2.58 h (forwards at 3x) to 7.74 h (at the bound);
-#   the plant (two 5,000-game passes, grad M over 2,000 held-out games, five
-#   forwards of them) 1.37 to 1.97 h. In all 6.7 to 12.5 h, $3.9 to $7.2.
-#   The pass and the evaluator run fp32 on the padded trunk without
+#   1,477 = 1.79 h; stage C 2.58 h (forwards at 3x) to 6.58 h (at the bound,
+#   trimmed); the plant (two 5,000-game passes, grad M over 2,000 held-out
+#   games, five forwards of them) 1.37 to 1.97 h. In all 6.7 to 11.3 h, $3.9
+#   to $6.5. The pass and the evaluator run fp32 on the padded trunk without
 #   compilation, so they may run 2 to 4 times slower than the calibration: at
-#   half its rate the run takes about 12.5 h with forwards at 3x ($7.2), 24.0 h
-#   at the bound ($13.8). C0 measures both rates; c0_plan trims the arms when the
-#   forwards run at the bound (design §6: no heads-only arm, no 5,000-game
+#   half its rate the run takes about 12.5 h with forwards at 3x ($7.2), 21.7 h
+#   at the bound ($12.5). C0 measures both rates; c0_plan trims the arms when
+#   the forwards run at the bound (design §6: no heads-only arm, no 5,000-game
 #   point) and stops the run, before the pass, when the projected wall does not
 #   fit the switch. BOX_MAX_H 13 ($7.50 at most).
 #
@@ -75,8 +79,6 @@ PLANT_READOUT_FRACTION="${PLANT_READOUT_FRACTION:-0.2}"
 PLANT_CLASS="${PLANT_CLASS:-attack}"
 PRICE_PER_GAME="${PRICE_PER_GAME:-7.76e-5}"    # design §2: c_g, a generated and trained game
 ROUND_FIXED="${ROUND_FIXED:-2.42}"             # design §2: c_f's high end
-FWD_EQ="${FWD_EQ:-8.65}"                       # stage C's forward-equivalents over the held-out games
-FWD_EQ_TRIMMED="${FWD_EQ_TRIMMED:-7.35}"       # ... without heads-only and the 5,000-game point
 RESERVE_MIN="${RESERVE_MIN:-35}"               # kept for the uploads and the finish when the run is sized
 BOX_MAX_H="${BOX_MAX_H:-13}"
 # ---- the configuration (end)
@@ -112,12 +114,12 @@ for v in SP_SEED_BASE CHUNK_GAMES C0_GAMES C0_HELD N_PLANT RESERVE_MIN; do
         box_finish "BAD_PLAN: $v=${!v} is not a positive integer" 1
     fi
 done
-for v in PLANT_READOUT_FRACTION PRICE_PER_GAME ROUND_FIXED FWD_EQ FWD_EQ_TRIMMED; do
+for v in PLANT_READOUT_FRACTION PRICE_PER_GAME ROUND_FIXED; do
     if ! [[ ${!v} =~ ^[0-9]*\.?[0-9]+(e-?[0-9]+)?$ ]]; then
         box_finish "BAD_PLAN: $v=${!v} is not a positive number" 1
     fi
 done
-RESTORE=(c0.json c0_pass.pt c0_forwards.json c0_plan.txt pass.pt stage_c.json plant_grads.pt
+RESTORE=(c0_pass.json c0_pass.pt c0_forwards.json c0_plan.json c0_plan.txt pass.pt stage_c.json plant_grads.pt
          walk_planted.jsonl rows_planted.jsonl labels_planted.jsonl fits_planted.json pass_planted.pt
          plant_readout.json verdict.json)
 for part in "${PARTS[@]}"; do
@@ -250,48 +252,17 @@ c0() {                           # C0: the replay identity, the floor and the tw
         --games "${DIRS[@]}" --labels "$S1/labels.jsonl" --held-games "$C0_HELD" --device cuda --workers "$WORKERS" \
         --out "$OUT/c0_forwards.json" \
         || { failed_part c0 "the C0 forwards ended rc=$BOX_RC $BOX_WHY (c0.log)"; return 1; }
-    if ! timeout 2m python - "$OUT/c0_pass.pt" "$OUT/c0_forwards.json" "$OUT/c0.json" <<'EOF'
-import json, sys, torch
-p = torch.load(sys.argv[1], map_location="cpu", weights_only=True)
-f = json.load(open(sys.argv[2]))
-c0 = {"trainer_rate": p["decisions"] / p["seconds"], "decisions_per_game": p["decisions"] / p["games"],
-      "forward_rate": f["positions_per_second"], "replay": p["replay"], "floor": p["floor"],
-      "heldout_replay": f["replay"], "games": p["games"], "held_games": f["games"]}
-json.dump(c0, open(sys.argv[3], "w"), indent=1)
-EOF
-    then
-        failed_part c0 "c0.json could not be written"
-        return 1
-    fi
-    part_done c0 c0.json c0_pass.pt c0_forwards.json
+    part_done c0 c0_pass.json c0_pass.pt c0_forwards.json
 }
-c0_plan() {                      # the arms and the steps' bounds from C0's rates (c0_plan.txt); false when the run does not fit
+c0_plan() {                      # the arms and the steps' bounds from C0's rates (tools/stage_c_plan.py); false when the run does not fit
     local at left
     if [ ! -f "$OUT/c0_plan.txt" ]; then
         at=$(cat "$BOX_OUT/tmp/deadman.at" 2>/dev/null)
         [[ $at =~ ^[0-9]+$ ]] || at=$(( $(box_now) + 3600 * 24 ))
         left=$(( (at - $(box_now)) / 60 - RESERVE_MIN ))
-        timeout 2m python - "$OUT/c0.json" "$S1/labels.jsonl" "$left" "$N_PLANT" "$PLANT_READOUT_FRACTION" \
-            "$FWD_EQ" "$FWD_EQ_TRIMMED" > "$OUT/c0_plan.txt.tmp" <<'EOF' || return 1
-import json, math, sys
-c0 = json.load(open(sys.argv[1]))
-train, held = set(), set()
-for line in open(sys.argv[2]):
-    if line.strip():
-        r = json.loads(line)
-        (held if r["heldout"] else train).add(r["game"])
-left, n_plant, fraction, fwd, fwd_trimmed = int(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), \
-    float(sys.argv[6]), float(sys.argv[7])
-t, f, D = c0["trainer_rate"], c0["forward_rate"], c0["decisions_per_game"]
-trim = f < math.sqrt(3.0) * t           # the forwards run at the bound (design §6), nearer it than 3x
-n_plant = min(n_plant, len(train))
-minutes = {"pass": len(train) * D / t / 60,
-           "stage_c": (fwd_trimmed if trim else fwd) * len(held) * D / f / 60,
-           "plant": ((2 * n_plant + fraction * len(held)) * D / t + 5 * fraction * len(held) * D / f) / 60}
-total = sum(minutes.values())
-cut = {k: int(1.5 * v + 15) for k, v in minutes.items()}
-print(int(trim), int(total), left, cut["pass"], cut["stage_c"], cut["plant"], len(train), len(held))
-EOF
+        timeout 2m python tools/stage_c_plan.py --pass-summary "$OUT/c0_pass.json" --forwards "$OUT/c0_forwards.json" \
+            --labels "$S1/labels.jsonl" --n-plant "$N_PLANT" --readout-fraction "$PLANT_READOUT_FRACTION" \
+            --left-min "$left" --out "$OUT/c0_plan.json" --line > "$OUT/c0_plan.txt.tmp" || return 1
         mv -f "$OUT/c0_plan.txt.tmp" "$OUT/c0_plan.txt"
     fi
     read -r TRIM PLAN_MIN LEFT_MIN PASS_CUT STAGE_C_CUT PLANT_CUT N_TRAIN _ < "$OUT/c0_plan.txt"
@@ -370,7 +341,7 @@ out = pathlib.Path(sys.argv[1])
 def read(name):
     p = out / name
     return json.loads(p.read_text()) if p.is_file() else None
-c, plant, c0 = read("stage_c.json"), read("plant_readout.json"), read("c0.json")
+c, plant, c0 = read("stage_c.json"), read("plant_readout.json"), read("c0_plan.json")
 gate = (c or {}).get("gate", {}).get("verdict")
 nxt = {"resolved": "P (the planted step played), then rounds",
        "rounds_at_size": "rounds at the size the gain curve names",
@@ -394,7 +365,7 @@ fi
 if c0 && ok c0; then
     if ! c0_plan; then
         verdict
-        box_finish "C0_OVER_SWITCH ${STATE[*]} (c0.json, c0_plan.txt)" 1
+        box_finish "C0_OVER_SWITCH ${STATE[*]} (c0_plan.json)" 1
     fi
     if gradient_pass && ok pass; then
         stage_c

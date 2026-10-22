@@ -10,6 +10,7 @@ done."""
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -86,11 +87,14 @@ if name == "restore stage1":
             shutil.rmtree(d)
         else:
             p.write_text('{"game": "x"}\n')
-elif rc == 0 and name in ("c0 pass", "pass", "plant pass"):
-    import torch
+elif rc in (0, 3) and name in ("c0 pass", "pass", "plant pass"):
     games = int(opt("--train-limit")) if "--train-limit" in args else 30
-    torch.save({"decisions": games * D, "seconds": games * D / t, "games": games,
-                "replay": {"kl": 0.0, "limit": 1e-4}, "floor": {"kl": 1e-6, "se": 1e-7}}, opt("--out"))
+    out = pathlib.Path(opt("--out"))
+    out = out if rc == 0 else out.with_name(out.stem + ".replay_failed.pt")
+    out.write_text("a pass")
+    out.with_suffix(".json").write_text(json.dumps({
+        "decisions": games * D, "seconds": 2 * games * D / t, "games": games, "rate": {"positions_per_second": t},
+        "replay": {"kl": 0.0, "limit": 1e-4}, "floor": {"kl": 1e-6, "se": 1e-7}}))
 elif rc == 0 and name == "c0 forwards":
     pathlib.Path(opt("--out")).write_text(json.dumps({"positions_per_second": f, "games": int(opt("--held-games")),
                                                       "replay": {"kl": 0.0, "max_abs": 0.0}}))
@@ -114,8 +118,10 @@ def _block(begin: str, end: str) -> str:
 
 def _run(tmp_path: Path, deadline_min: float | None = None, **env) -> dict:
     """One entry; `deadline_min`: when the dead-man's switch fires, from now."""
-    out, s1 = tmp_path / "out", tmp_path / "stage1"
+    out, s1, checkout = tmp_path / "out", tmp_path / "stage1", tmp_path / "checkout"
     (out / "tmp").mkdir(parents=True, exist_ok=True)
+    (checkout / "tools").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ROOT / "tools" / "stage_c_plan.py", checkout / "tools" / "stage_c_plan.py")
     (out / "steps.txt").unlink(missing_ok=True)
     now = int(time.time())
     (tmp_path / "clock").write_text(str(now))
@@ -126,7 +132,7 @@ def _run(tmp_path: Path, deadline_min: float | None = None, **env) -> dict:
     settings = "\n".join(f"export {k}='{v}'" for k, v in env.items())
     script = f"""set -uo pipefail
 export PATH="{bash_path(Path(sys.executable).parent)}:/usr/bin:$PATH"
-cd "{bash_path(tmp_path)}" || exit 9
+cd "{bash_path(checkout)}" || exit 9
 OUT="{bash_path(out)}" BOX_OUT="{bash_path(out)}" S1="{bash_path(s1)}" STAGE=stage_test BOX_LIB=/lib
 FAKE="{bash_path(fake)}" CKPT=/ckpt/own2.pt WORKERS=3 SMALL_CUT_MIN=30 C0_CUT_MIN=40 RESTORE_CUT_MIN=60
 export STUB_DIR="{bash_path(tmp_path)}"
@@ -186,12 +192,14 @@ def test_the_run_restores_measures_passes_reads_plants_and_decides(tmp_path):
     assert "--train-games 5000 --class attack --readout-fraction 0.2 " in _step(got, "plant delta")
     assert "--heldout-from 30 " in _step(got, "plant labels")
     assert f"--no-walk --walk {out}/walk_planted.jsonl" in _step(got, "plant rows")
-    for hold in ("hold c0.done c0.json c0_pass.pt c0_forwards.json", "hold pass.done pass.pt",
+    for hold in ("hold c0.done c0_pass.json c0_pass.pt c0_forwards.json", "hold pass.done pass.pt",
                  "hold stage_c.done stage_c.json",
                  "hold plant.done plant_readout.json plant_grads.pt pass_planted.pt labels_planted.jsonl"):
         assert hold in got["steps"], hold
     verdict = json.loads((got["out"] / "verdict.json").read_text())
     assert verdict["gate"]["verdict"] == "resolved" and verdict["plant"]["verdict"] == "pass"
+    # The plan reads the pass's rate past its warm-up (1,000), not its wall (500 a second).
+    assert verdict["c0"]["rates"]["trainer"] == 1000 and verdict["c0"]["trim"] is False
     assert verdict["next"].startswith("P (the planted step played)")
     assert "gate=resolved plant=pass" in got["finish"]
     again = _run(tmp_path, CHUNK_GAMES=5)

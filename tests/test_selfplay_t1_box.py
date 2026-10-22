@@ -96,8 +96,22 @@ if name.startswith("rows "):
     pathlib.Path(opt("--out")).write_text(json.dumps({"game": name}) + "\n")
     sys.exit(0 if unwalked <= int(opt("--max-errors")) else 1)
 elif name == "labels":
-    pathlib.Path(opt("--out")).write_text("{}\n")
+    held = int(opt("--heldout-from"))
+    pathlib.Path(opt("--out")).write_text("".join(json.dumps({"game": f"g{i}", "side": s, "heldout": i >= held}) + "\n"
+                                                  for i in range(held + held // 2) for s in (1, 2)))
     pathlib.Path(opt("--fits")).write_text("{}")
+elif name.startswith("rates "):
+    if name.split()[1] in os.environ.get("STUB_RATES_FAIL", "").split():
+        sys.exit(1)
+    out = pathlib.Path(opt("--out"))
+    if name == "rates forwards":
+        out.write_text(json.dumps({"positions_per_second": 3000.0, "games": int(opt("--held-games"))}))
+    else:
+        games, rate = int(opt("--train-limit")), (2000.0 if "--bf16" in args else 1000.0)
+        out.write_text("a pass")
+        out.with_suffix(".json").write_text(json.dumps({"games": games, "decisions": games * 400,
+                                                        "seconds": games * 400 / rate * 1.5,
+                                                        "rate": {"positions_per_second": rate}}))
 elif name == "readout":
     gates = {k: {"pass": k not in os.environ.get("STUB_FAIL_GATES", "").split()}
              for k in ("i_sample", "legal_mass", "i_count", "dice_control", "i_v")}
@@ -122,7 +136,7 @@ def _checkout(tmp_path: Path) -> Path:
     """The live reference config, the real tools/reference_player.py with the
     package module it imports, and a stand-in for the reference's file."""
     root = tmp_path / "checkout"
-    for rel in ("tools/reference_player.py", "wesnoth_ai/__init__.py", "wesnoth_ai/paths.py",
+    for rel in ("tools/reference_player.py", "tools/stage_c_plan.py", "wesnoth_ai/__init__.py", "wesnoth_ai/paths.py",
                 "configs/reference_player.json"):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / rel, root / rel)
@@ -154,7 +168,8 @@ OUT="{bash_path(out)}" BOX_OUT="{bash_path(out)}" BOX_REPO="{bash_path(checkout)
 FAKE="{bash_path(fake)}" WALK_JOBS=3
 export STUB_DIR="{bash_path(tmp_path)}"
 N_SELFPLAY=60 CHUNK_GAMES=20 HELDOUT_FROM=40 D0_GAMES=16 MEM_GAMES=8
-WALK_CUT_MIN=30 WALK_STALL_MIN=10 LABELS_CUT_MIN=15 READOUT_CUT_MIN=60 FIT_CUT_MIN=15
+WALK_CUT_MIN=30 WALK_STALL_MIN=10 LABELS_CUT_MIN=15 READOUT_CUT_MIN=60 FIT_CUT_MIN=15 RATES_CUT_MIN=15
+RATES="not measured"
 {settings}
 {_block("# ---- the configuration (begin)", "# ---- the configuration (end)")}
 CHUNKS=()
@@ -173,7 +188,7 @@ MEASURES=()
     path.write_bytes(script.encode())
     done = subprocess.run([BASH, bash_path(path)], cwd=tmp_path, capture_output=True, text=True, timeout=600)
     steps = (out / "steps.txt").read_text().splitlines() if (out / "steps.txt").exists() else []
-    two = ("match", "rows", "fit", "upload", "hold")
+    two = ("match", "rows", "fit", "upload", "hold", "rates")
     return {"rc": done.returncode, "stderr": done.stderr, "steps": steps,
             "names": [" ".join(s.split()[:2]) if s.split()[0] in two else s.split()[0] for s in steps],
             "finish": (out / "FINISH").read_text().strip() if (out / "FINISH").exists() else "", "out": out,
@@ -186,14 +201,17 @@ def _step(got: dict, name: str) -> str:
 
 
 def _played(got: dict) -> list:
-    return [n for n in got["names"] if n.split()[0] in ("match", "rows", "labels", "readout", "fit")]
+    return [n for n in got["names"] if n.split()[0] in ("match", "rows", "labels", "readout", "fit", "rates")]
+
+
+RATES = ["rates fp32", "rates bf16", "rates forwards"]
 
 
 def test_the_run_plays_logs_labels_reads_and_measures(tmp_path):
     got = _run(tmp_path)
     assert got["rc"] == 0 and got["finish"].startswith("SELFPLAY_T1_DONE"), (got["finish"], got["stderr"][-3000:])
     assert _played(got) == ["match s00", "rows s00", "match d0", "fit d0", "match s01", "rows s01", "match s02",
-                            "rows s02", "labels", "readout", "match memory", "fit memory"], got["names"]
+                            "rows s02", "labels", "readout", "match memory", "fit memory", *RATES], got["names"]
     # Each done marker waits for its games' tarball.
     for name in ("s00", "s01", "s02"):
         assert f"hold chunk_{name}.done games_{name}.tar.gz" in got["steps"]
@@ -231,6 +249,22 @@ def test_the_run_plays_logs_labels_reads_and_measures(tmp_path):
     assert "--anchor own2 " in _step(got, "fit d0") and "--anchor own2m0 " in _step(got, "fit memory")
     assert "own2t1 -12.3 +- 3.1 Elo against own2" in got["finish"]
     assert "i_sample=pass legal_mass=pass i_count=pass dice_control=pass i_v=pass" in got["finish"]
+    # Stage C's rates on the logged games: the pass twice on the first 200
+    # training games, the forwards on 200 held-out ones, the projection on
+    # the labels (40 trained on, 20 held out) at the rates past warm-up.
+    assert "--train-limit 200 --out" in _step(got, "rates fp32") and "--floor-dtype off" not in _step(got, "rates fp32")
+    assert "--train-limit 200 --bf16 --floor-dtype off" in _step(got, "rates bf16")
+    assert "--held-games 200 " in _step(got, "rates forwards")
+    assert "hold rates.done rates.json" in got["steps"]
+    rates = json.loads((got["out"] / "rates.json").read_text())
+    assert rates["rates"] == {"trainer": 1000.0, "forwards": 3000.0, "decisions_per_game": 400.0,
+                              "forward_to_trainer": 3.0}
+    assert rates["games"] == {"train": 40, "held": 20, "plant": 40} and rates["trim"] is False
+    minutes = 40 * 400 / 1000 / 60 + 8.65 * 20 * 400 / 3000 / 60 + ((2 * 40 + 4) * 400 / 1000 + 5 * 4 * 400 / 3000) / 60
+    assert rates["total_minutes"] == pytest.approx(minutes)
+    assert rates["cost"] == pytest.approx((1.0 + minutes / 60) * 0.577)
+    assert rates["measured"]["compare"] == {"rates_pass_bf16": 2000.0}
+    assert "rates: pass 1000/s (rates_pass_bf16 2000/s), forwards 3000/s; stage C 1." in got["finish"]
     # A re-entry plays nothing done.
     again = _run(tmp_path)
     assert again["rc"] == 0 and _played(again) == [], (again["steps"], again["stderr"][-2000:])
@@ -240,13 +274,16 @@ def test_the_run_plays_logs_labels_reads_and_measures(tmp_path):
 def test_short_matches_are_played_again_once_and_accepted_within_the_bound(tmp_path):
     """Capped games complete a self-play match; a cut one is resumed; one
     whose two games failed twice is accepted with two missing, its walk
-    allowed the rest of the bound."""
-    got = _run(tmp_path, VARIANT_s00="capped", VARIANT_s01="cut complete", VARIANT_s02="lossy")
+    allowed the rest of the bound. The rates' forwards fail: the stage is
+    done all the same, the rates' word naming the failure."""
+    got = _run(tmp_path, VARIANT_s00="capped", VARIANT_s01="cut complete", VARIANT_s02="lossy",
+               STUB_RATES_FAIL="forwards")
     assert got["rc"] == 0 and got["finish"].startswith("SELFPLAY_T1_DONE"), (got["finish"], got["stderr"][-3000:])
     assert [n for n in _played(got) if n.startswith("match s")] == ["match s00", "match s01", "match s01",
                                                                    "match s02", "match s02"]
     assert "--max-errors 8" in _step(got, "rows s02")
     assert "s02: accepted with 2 of 20 missing (at most 10)" in got["matches"]
+    assert "rates: FAILED, rates forwards ended rc=1" in got["finish"]
 
 
 def test_games_lost_past_the_bound_fail_the_self_play_but_not_the_measurements(tmp_path):
@@ -272,10 +309,10 @@ def test_unwalked_games_past_the_bound_fail_the_match_and_a_replay_drops_an_old_
 
 def test_the_rest_of_the_self_play_is_sized_from_the_first_matchs_rate(tmp_path):
     """30 s a game: s00 takes 10 minutes (120 games an hour), D0 8. With
-    the switch 90 minutes out, 18 are left once the memory report (9),
-    the readouts (30) and the finish (15) are kept: 30 more games at 85 %,
-    so 48 in all, 32 trained on."""
-    got = _run(tmp_path, deadline_min=90, STUB_S_PER_GAME=30)
+    the switch 102 minutes out, 18 are left once the memory report (9),
+    the readouts (30), the rates (12) and the finish (15) are kept: 30 more
+    games at 85 %, so 48 in all, 32 trained on."""
+    got = _run(tmp_path, deadline_min=102, STUB_S_PER_GAME=30)
     assert got["rc"] == 0 and got["finish"].startswith("SELFPLAY_T1_DONE"), (got["finish"], got["stderr"][-3000:])
     assert (got["out"] / "plan.txt").read_text().split() == ["48", "32", "120"]
     assert " --games 8 " in _step(got, "match s02") and "--heldout-from 32 " in _step(got, "labels")
@@ -289,9 +326,17 @@ def test_the_self_play_ends_after_its_first_match_when_less_than_half_fits(tmp_p
     assert "self-play: CUT after s00: at its rate, 120 games an hour" in got["finish"]
 
 
-def test_a_cut_measure_twice_fails_and_a_failed_gate_is_named(tmp_path):
-    got = _run(tmp_path, LOST_MAX=2, VARIANT_memory="cut", STUB_FAIL_GATES="i_sample")
+def test_a_cut_measure_twice_fails_a_failed_gate_is_named_and_a_failed_rate_costs_only_itself(tmp_path):
+    """The memory report cut twice fails, a failed gate is named; the bf16
+    pass of the rates fails, so their forwards are not read and only the
+    rates' word says so, and a re-entry runs nothing (the rates' failure
+    stays)."""
+    got = _run(tmp_path, LOST_MAX=2, VARIANT_memory="cut", STUB_FAIL_GATES="i_sample", STUB_RATES_FAIL="bf16")
     assert got["rc"] == 1, got["stderr"][-3000:]
     assert got["names"].count("match memory") == 2 and "fit memory" not in got["names"]
     assert "readout: i_sample=FAIL legal_mass=pass" in got["finish"]
     assert "memory: FAILED, the match ended rc=3 with 4 of 8 decisive games" in got["finish"]
+    assert [n for n in _played(got) if n.startswith("rates")] == ["rates fp32", "rates bf16"]
+    assert "rates: FAILED, rates bf16 ended rc=1" in got["finish"] and not (got["out"] / "rates.json").exists()
+    again = _run(tmp_path)
+    assert _played(again) == [] and "rates: FAILED at an earlier entry" in again["finish"]

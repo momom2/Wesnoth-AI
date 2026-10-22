@@ -38,6 +38,8 @@ What pass.pt holds beyond the contract's keys:
     split_windows  windows per split
     position_counts  the replay's counts (pg_positions)
     seconds        the pass's wall time
+    rate           decisions a second past its first WARMUP_WINDOWS windows
+                   (None for a shorter pass)
     config         the pass's settings
 
     floor          the precision floor: on the decisions of a fraction of
@@ -45,6 +47,9 @@ What pass.pt holds beyond the contract's keys:
                    their names), the mean KL from the law at the serving
                    precision to the pass's fp32 law, with its SE clustered
                    by game-side (None when no game-side was drawn)
+
+Beside pass.pt the command line writes pass.json, its scalars
+(`SUMMARY_KEYS`), for readers without torch.
 
 The labels must name the network's own games: every labelled game-side was
 played by the checkpoint (its match result's hash) at the pass's memory
@@ -139,6 +144,9 @@ EXIT_REPLAY = 3
 # The game-sides whose decisions read the precision floor: two in a
 # hundred, about 95,000 decisions of a 20,000-game pass.
 FLOOR_FRACTION = 0.02
+# The windows the pass's rate leaves out (`rate`): the replay workers'
+# start and the device's first kernels.
+WARMUP_WINDOWS = 5
 
 
 def replay_limit(base: float, floor: Optional[float]) -> float:
@@ -267,6 +275,7 @@ class GradientPass:
         # The replay's sums of d = logged - trainer log p: |d|, max |d|, d, d^2.
         self.replay = torch.zeros(4, dtype=torch.float64, device=self.device)
         self.floor_sums: Dict[tuple, tuple] = {}
+        self._warm: Optional[tuple] = None          # (clock, rows) at the end of the warm-up windows
         self.rows = 0
         self.shadow = 0
         self.memories: Dict[int, torch.Tensor] = {}
@@ -330,7 +339,26 @@ class GradientPass:
             self.memories = {s: m.detach() for s, m in memories.items()}
             self.split_windows[i] += 1
             self.loader.keep_only(g.file for g in schedule.upcoming(self.config.prefetch))
+            if sum(self.split_windows) == WARMUP_WINDOWS:
+                self._warm = (self._clock(), self.rows)
         self.loader.keep_only(())
+
+    def _clock(self) -> float:
+        """The wall clock with the device's queued work done."""
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
+        return time.perf_counter()
+
+    def _rate(self) -> Optional[Dict]:
+        """Decisions a second past the first WARMUP_WINDOWS windows (the
+        replay workers' start, the device's first kernels), or None for a
+        pass that short."""
+        if self._warm is None or self.rows <= self._warm[1]:
+            return None
+        seconds = self._clock() - self._warm[0]
+        rows = self.rows - self._warm[1]
+        return {"positions_per_second": rows / seconds, "decisions": rows, "seconds": seconds,
+                "warmup_windows": WARMUP_WINDOWS}
 
     def run(self) -> Dict:
         """The pass; the pass.pt dict (module docstring). Raises
@@ -376,17 +404,26 @@ class GradientPass:
                        "base_limit": float(self.config.replay_kl_limit)},
             "floor": floor,
             "shadow": int(self.shadow), "split_windows": list(self.split_windows),
-            "position_counts": dict(self.loader.counts), "seconds": float(seconds),
+            "position_counts": dict(self.loader.counts), "seconds": float(seconds), "rate": self._rate(),
             "config": asdict(self.config),
         }
 
 
+SUMMARY_KEYS = ("games", "decisions", "windows", "seconds", "rate", "replay", "floor", "probes", "shadow",
+                "split_games", "checkpoint_sha256", "config")
+
+
 def save_pass(result: Dict, out: Path) -> None:
-    """Atomic: a temporary file, then a rename."""
+    """Atomic: a temporary file, then a rename; beside it `<out stem>.json`,
+    the result's scalars (`SUMMARY_KEYS`), readable without torch."""
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(out.suffix + ".tmp")
     torch.save(result, tmp)
     os.replace(tmp, out)
+    summary = out.with_suffix(".json")
+    tmp = summary.with_name(summary.name + ".tmp")
+    tmp.write_text(json.dumps({k: result.get(k) for k in SUMMARY_KEYS}, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, summary)
 
 
 def main(argv: Optional[List[str]] = None) -> int:

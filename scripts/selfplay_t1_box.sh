@@ -23,9 +23,17 @@
 #   (12,800) decisive games, one network on one server, and its fit
 #   (tools/elo_collect.py, the reference at 0);
 #   the memory report: `own2` at temperature 1 with 64 slots against 0 slots,
-#   MEM_GAMES (3,200) decisive games, and its fit.
+#   MEM_GAMES (3,200) decisive games, and its fit;
+#   stage C's rates on the logged games, no training and no optimizer step:
+#   the gradient pass (tools/pg_pass.py, forward and backward) over the first
+#   RATE_GAMES (200) training games in fp32 and in bf16, the evaluator's
+#   forwards (tools/pg_eval.py time) over the first RATE_GAMES held-out
+#   games, each rate read past a warm-up, and stage C's wall and cost
+#   projected from them by tools/stage_c_plan.py, the function stage C's
+#   own C0 sizes the run with (rates.json). It fails alone: a failure costs
+#   only the measurement.
 # The order: the first self-play match, D0, the rest of the self-play, its
-# labels and readouts, the memory report. The rest of the self-play is sized
+# labels and readouts, the memory report, the rates. The rest of the self-play is sized
 # from the first match's measured rate so the run ends before the dead-man's
 # switch (size_plan states the rule): N_SELFPLAY shrinks, keeping the
 # held-out share, when the planned games do not fit, and the self-play ends
@@ -54,8 +62,10 @@
 # minutes; self-play 30,000 games 82 minutes, six matches' start-up and last
 # wave 4, their walks 6 (800 games in 9-11 s on 31 workers); the labels and
 # the readouts, one pass over 30,000 records, about 10; D0 about 13,000 games
-# 36 minutes; the memory report about 3,300 games 9; the fits 2. In all
-# about 3.0 hours, $1.7 at $0.577 an hour. At twice the argmax game length
+# 36 minutes; the memory report about 3,300 games 9; the fits 2; the rates
+# 5 to 10 (two passes over 95,000 decisions at 500 to 1,500 a second, one
+# forward of as many, three model loads). In all about 3.1 hours, $1.8 at
+# $0.577 an hour. At twice the argmax game length
 # the full plan takes about 5.5 hours ($3.2); BOX_MAX_H is 6.5 ($3.75 at
 # most), and a slower rate shrinks the self-play rather than the switch
 # cutting the run.
@@ -93,6 +103,8 @@ GAMES_PER_H="${GAMES_PER_H:-21966}"            # the pool's steady rate, for the
 LOST_MAX="${LOST_MAX:-10}"                     # games a match may miss, 0.2 % of a self-play match
 READ_RESERVE_MIN="${READ_RESERVE_MIN:-30}"     # kept for the labels and readouts when the self-play is sized
 FINISH_RESERVE_MIN="${FINISH_RESERVE_MIN:-15}" # kept for the finish's upload when the self-play is sized
+RATE_GAMES="${RATE_GAMES:-200}"                # stage C's rates: training games passed twice, held-out games read
+RATES_RESERVE_MIN="${RATES_RESERVE_MIN:-12}"   # kept for the rates when the self-play is sized
 BOX_MAX_H="${BOX_MAX_H:-6.5}"
 # ---- the configuration (end)
 BOX_WORKER_GB="${BOX_WORKER_GB:-0.5}"           # a walking worker holds about 230 MB (match_luck_box.sh)
@@ -102,6 +114,7 @@ WALK_STALL_MIN="${WALK_STALL_MIN:-10}"         # no row for this long: the walk 
 LABELS_CUT_MIN="${LABELS_CUT_MIN:-15}"
 READOUT_CUT_MIN="${READOUT_CUT_MIN:-60}"
 FIT_CUT_MIN="${FIT_CUT_MIN:-15}"
+RATES_CUT_MIN="${RATES_CUT_MIN:-15}"           # each of the rates' three steps
 export HF_DIR="${HF_DIR:-tier-b/selfplay_t1_20261022}"
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
@@ -114,6 +127,7 @@ RESTORE=()
 SELFPLAY="not run"
 READOUT="not read"
 MEASURES=()
+RATES="not measured"
 
 # shellcheck disable=SC2317 # called by the library, in the reason of an unexpected exit
 box_notes() { notes; }
@@ -148,7 +162,7 @@ plan_chunks() {
     done
 }
 for v in SP_SEED_BASE N_SELFPLAY CHUNK_GAMES HELDOUT_FROM D0_SEED_BASE D0_GAMES MEM_SEED_BASE MEM_GAMES JOBS \
-         WORKER_GAMES GAMES_PER_H LOST_MAX; do
+         WORKER_GAMES GAMES_PER_H LOST_MAX RATE_GAMES; do
     if ! [[ ${!v} =~ ^[1-9][0-9]*$ ]]; then
         box_finish "BAD_PLAN: $v=${!v} is not a positive integer" 1
     fi
@@ -158,7 +172,8 @@ done
    && MEM_SEED_BASE + MEM_GAMES <= 1000000 )) \
     || box_finish "BAD_PLAN: the seed ranges overlap or pass 1,000,000 (a replacement's offset)" 1
 plan_chunks
-RESTORE=(matches.txt plan.txt rows.jsonl labels.jsonl fits.json readout.json readout.done labels.log readout.log)
+RESTORE=(matches.txt plan.txt rows.jsonl labels.jsonl fits.json readout.json readout.done labels.log readout.log
+         rates.json rates.done rates.failed)
 for name in "${CHUNKS[@]}"; do
     RESTORE+=("walk_$name.jsonl" "rows_$name.jsonl" "wall_$name.txt" "chunk_$name.done" "chunk_$name.failed")
 done
@@ -362,7 +377,8 @@ size_plan() {                    # the self-play past its first match, sized to 
     # The first match's games an hour, R, give the minutes the rest takes.
     # From the minutes the switch leaves are kept the memory report at R
     # (1.1 x MEM_GAMES games and 5 minutes), READ_RESERVE_MIN for the
-    # labels and readouts and FINISH_RESERVE_MIN; the self-play may use 85 %
+    # labels and readouts, RATES_RESERVE_MIN for stage C's rates and
+    # FINISH_RESERVE_MIN; the self-play may use 85 %
     # of the rest at R. When the planned games do not fit, N_SELFPLAY
     # shrinks to the first match's games plus those that fit and
     # HELDOUT_FROM keeps the planned held-out share; when fewer than half the
@@ -377,7 +393,8 @@ size_plan() {                    # the self-play past its first match, sized to 
         if [[ $at =~ ^[0-9]+$ && $secs =~ ^[0-9]+$ && $RESULTS =~ ^[0-9]+$ ]] && (( secs > 0 && RESULTS > 0 )); then
             rate=$(( RESULTS * 3600 / secs ))
             (( rate > 0 )) || rate=1
-            left=$(( (at - $(box_now)) / 60 - (MEM_GAMES * 66 / rate + 5) - READ_RESERVE_MIN - FINISH_RESERVE_MIN ))
+            left=$(( (at - $(box_now)) / 60 - (MEM_GAMES * 66 / rate + 5) - READ_RESERVE_MIN - RATES_RESERVE_MIN
+                     - FINISH_RESERVE_MIN ))
             fit=$(( left > 0 ? left * rate * 85 / 6000 : 0 ))
             want=$(( N_SELFPLAY - CHUNK_SIZES[0] ))
             (( fit >= want )) || n=$(( (CHUNK_SIZES[0] + fit) / 4 * 4 ))
@@ -478,9 +495,76 @@ measure() {                      # measure NAME GAMES SEED_BASE ANCHOR LABEL FLA
     fi
     MEASURES+=("$name: $label $(elo_of "$name" "$label") Elo against $anchor;")
 }
+rates_step() {                   # rates_step NAME CMD...: one step of the rate measurement; RATES_WHY on failure
+    box_bounded "rates $1" "$RATES_CUT_MIN" rates.log "${@:2}" && return 0
+    # pg_pass exits 3 when its replay identity misses (its sums go aside): the rate is read all the same.
+    [ "$1" != forwards ] && [ "$BOX_RC" -eq 3 ] && return 0
+    RATES_WHY="rates $1 ended rc=$BOX_RC $BOX_WHY (rates.log)"
+    return 1
+}
+rates_line() {                   # the projection in a few words
+    timeout 1m python - "$OUT/rates.json" <<'EOF' 2>/dev/null | tr -d '\r' || echo "unread"
+import json, sys
+r = json.load(open(sys.argv[1]))
+m = r["rates"]
+bf16 = ", ".join(f"{k} {v:.0f}/s" for k, v in r["measured"]["compare"].items())
+print(f"pass {m['trainer']:.0f}/s ({bf16}), forwards {m['forwards']:.0f}/s; stage C {r['wall_hours']:.1f} h, "
+      f"${r['cost']:.2f}{' trimmed' if r['trim'] else ''}")
+EOF
+}
+measure_rates() {                # stage C's rates on this run's games and its projected wall and cost (rates.json); RATES says what
+    local work=$OUT/rates_work name dirs=() kind summary
+    if box_marked_this_stage "$OUT/rates.done"; then
+        RATES=$(rates_line)
+        return 0
+    fi
+    if [ -f "$OUT/rates.failed" ]; then
+        RATES="FAILED at an earlier entry, $(cat "$OUT/rates.failed")"
+        return 1
+    fi
+    if [[ $SELFPLAY != DONE* || ! -f "$OUT/labels.jsonl" ]]; then
+        RATES="not measured: no labelled self-play"
+        return 1
+    fi
+    for name in "${CHUNKS[@]}"; do
+        restore_games "$name" || { RATES="not measured: games_$name could not be restored (restore.log)"; return 1; }
+        dirs+=("$OUT/games_$name")
+    done
+    mkdir -p "$work"
+    RATES_WHY=""
+    rates_step fp32 python tools/pg_pass.py --checkpoint "$REF_PT" --games "${dirs[@]}" --labels "$OUT/labels.jsonl" \
+        --train-limit "$RATE_GAMES" --out "$work/pass_fp32.pt" --device cuda --workers "$WALK_JOBS"
+    [ -n "$RATES_WHY" ] || rates_step bf16 python tools/pg_pass.py --checkpoint "$REF_PT" --games "${dirs[@]}" \
+        --labels "$OUT/labels.jsonl" --train-limit "$RATE_GAMES" --bf16 --floor-dtype off --out "$work/pass_bf16.pt" \
+        --device cuda --workers "$WALK_JOBS"
+    [ -n "$RATES_WHY" ] || rates_step forwards python tools/pg_eval.py time --checkpoint "$REF_PT" --games "${dirs[@]}" \
+        --labels "$OUT/labels.jsonl" --held-games "$RATE_GAMES" --device cuda --workers "$WALK_JOBS" \
+        --out "$OUT/rates_forwards.json"
+    if [ -z "$RATES_WHY" ]; then
+        for kind in fp32 bf16; do            # a pass whose replay identity missed wrote its summary aside
+            for summary in "$work/pass_$kind.json" "$work/pass_$kind.replay_failed.json"; do
+                [ ! -f "$summary" ] || { cp -f "$summary" "$OUT/rates_pass_$kind.json"; break; }
+            done
+        done
+        timeout 2m python tools/stage_c_plan.py --pass-summary "$OUT/rates_pass_fp32.json" \
+            --forwards "$OUT/rates_forwards.json" --labels "$OUT/labels.jsonl" --compare "$OUT/rates_pass_bf16.json" \
+            --out "$OUT/rates.json" >> "$OUT/rates.log" 2>&1 || RATES_WHY="the projection failed (rates.log)"
+    fi
+    if [ -n "$RATES_WHY" ]; then
+        echo "$RATES_WHY" > "$OUT/rates.failed"
+        RATES="FAILED, $RATES_WHY"
+        return 1
+    fi
+    box_upload_hold rates.done rates.json
+    box_mark "$OUT/rates.done"
+    RATES=$(rates_line)
+    box_upload_async
+}
 
 # The first self-play match, then D0, then the rest of the self-play sized
-# from the first match's rate, its labels and readouts, the memory report.
+# from the first match's rate, its labels and readouts, the memory report,
+# and stage C's rates measured on the logged games (it fails alone: a failure
+# costs only the measurement).
 FIRST_OK=0
 selfplay_match 0 && FIRST_OK=1
 measure d0 "$D0_GAMES" "$D0_SEED_BASE" "$REF_LABEL" own2t1 "${D0_A[@]}" "${D0_B[@]}" \
@@ -489,7 +573,8 @@ if [ "$FIRST_OK" = 1 ] && size_plan && selfplay_rest; then
     read_selfplay
 fi
 measure memory "$MEM_GAMES" "$MEM_SEED_BASE" own2m0 own2m64 "${MEM_A[@]}" "${MEM_B[@]}" "${T1[@]}"
-REASON="self-play: $SELFPLAY; readout: $READOUT; ${MEASURES[*]}"
+measure_rates
+REASON="self-play: $SELFPLAY; readout: $READOUT; ${MEASURES[*]} rates: $RATES"
 if [[ $SELFPLAY == DONE* && $READOUT != *FAIL* && " ${MEASURES[*]} " != *FAILED* ]]; then
     box_finish "SELFPLAY_T1_DONE $REASON"
 fi
