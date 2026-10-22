@@ -36,22 +36,25 @@
 # sequence trainer in bf16 with the packed, compiled trunk); 475.7 decisions
 # a game (the argmax census; stage 1 measures the temperature-1 length and C0
 # reads it); a forward costing a third of a trained position to one (the
-# design's illustration and bound); 8.65 forward-equivalents over the 10,000
-# held-out games for stage C (round11_synthesis_plan.py, stage_c_forwards),
-# 7.35 when the forwards run at the bound and the arms are trimmed. The
-# projection is tools/stage_c_plan.py's, which stage 1 runs on its measured
-# rates (its rates.json) before stage C is decided:
+# design's illustration and bound); stage C's forwards over the 10,000
+# held-out games counted from the driver's reads (tools/stage_c_plan.py
+# read_plan, which tests/test_pg_stage_c.py checks against the reads the
+# driver makes; a KL search priced at 4 readings): 11.25 forward-equivalents
+# with every arm, 9.85 trimmed (the critical batches' 68 KL readings on the
+# 5 % subsample are 3.4 of them). The projection is tools/stage_c_plan.py's,
+# which stage 1 runs on its measured rates (its rates.json) before stage C is
+# decided:
 #   bring-up, restore, C0 and uploads about 1.0 h; the pass 20,000 x 475.7 /
-#   1,477 = 1.79 h; stage C 2.58 h (forwards at 3x) to 6.58 h (at the bound,
+#   1,477 = 1.79 h; stage C 3.35 h (forwards at 3x) to 8.81 h (at the bound,
 #   trimmed); the plant (two 5,000-game passes, grad M over 2,000 held-out
-#   games, five forwards of them) 1.37 to 1.97 h. In all 6.7 to 11.3 h, $3.9
-#   to $6.5. The pass and the evaluator run fp32 on the padded trunk without
+#   games, five forwards of them) 1.37 to 1.97 h. In all 7.5 to 13.6 h, $4.3
+#   to $7.8. The pass and the evaluator run fp32 on the padded trunk without
 #   compilation, so they may run 2 to 4 times slower than the calibration: at
-#   half its rate the run takes about 12.5 h with forwards at 3x ($7.2), 21.7 h
-#   at the bound ($12.5). C0 measures both rates; c0_plan trims the arms when
+#   half its rate the run takes about 14.0 h with forwards at 3x ($8.1), 26.1 h
+#   at the bound ($15.1). C0 measures both rates; c0_plan trims the arms when
 #   the forwards run at the bound (design §6: no heads-only arm, no 5,000-game
 #   point) and stops the run, before the pass, when the projected wall does not
-#   fit the switch. BOX_MAX_H 13 ($7.50 at most).
+#   fit the switch. BOX_MAX_H 15 ($8.66 at most), the recorded rates' bound.
 #
 # Runs on the box library (scripts/box/boxlib.sh, docs/box_runbook.md): the
 # onstart of scripts/rent_box.py fetches the library of STAGE, then this
@@ -80,7 +83,7 @@ PLANT_CLASS="${PLANT_CLASS:-attack}"
 PRICE_PER_GAME="${PRICE_PER_GAME:-7.76e-5}"    # design §2: c_g, a generated and trained game
 ROUND_FIXED="${ROUND_FIXED:-2.42}"             # design §2: c_f's high end
 RESERVE_MIN="${RESERVE_MIN:-35}"               # kept for the uploads and the finish when the run is sized
-BOX_MAX_H="${BOX_MAX_H:-13}"
+BOX_MAX_H="${BOX_MAX_H:-15}"
 # ---- the configuration (end)
 BOX_WORKER_GB="${BOX_WORKER_GB:-1.0}"
 TESTS_CUT_MIN="${TESTS_CUT_MIN:-40}"
@@ -192,7 +195,14 @@ restore_stage1() {               # stage 1's records into S1: its plan, labels, 
         --hf-dir "$STAGE1_HF_DIR" --restore "${names[@]}"
     for name in "${CHUNKS[@]}"; do
         if [ ! -d "$S1/games_$name" ] && [ -f "$S1/games_$name.tar.gz" ]; then
-            timeout -k 30s 30m tar -xzf "$S1/games_$name.tar.gz" -C "$S1" && rm -f "$S1/games_$name.tar.gz"
+            # Into a directory of its own, renamed whole on success: a cut or failed extraction leaves no
+            # partial games_$name to be counted complete.
+            rm -rf "$S1/.extract_$name" && mkdir -p "$S1/.extract_$name"
+            if timeout -k 30s 30m tar -xzf "$S1/games_$name.tar.gz" -C "$S1/.extract_$name" \
+                    && [ -d "$S1/.extract_$name/games_$name" ]; then
+                mv "$S1/.extract_$name/games_$name" "$S1/games_$name" && rm -f "$S1/games_$name.tar.gz"
+            fi
+            rm -rf "$S1/.extract_$name"
         fi
         [ -d "$S1/games_$name" ] || missing+=("games_$name")
         [ -f "$S1/walk_$name.jsonl" ] || missing+=("walk_$name.jsonl")
@@ -216,9 +226,10 @@ EOF
 )
     [ -z "$S1_WHY" ]
 }
-failed_part() {                  # failed_part PART WHY: the part's .failed file and its word
-    echo "$2" > "$OUT/$1.failed"
-    STATE+=("$1: FAILED, $2;")
+failed_part() {                  # failed_part PART WHY...: the part's .failed file and its word
+    local why="${*:2}"
+    echo "$why" > "$OUT/$1.failed"
+    STATE+=("$1: FAILED, $why;")
 }
 skip_part() {                    # skip_part PART: true when PART is done (or failed) at an earlier entry
     if box_marked_this_stage "$OUT/$1.done"; then
@@ -243,16 +254,32 @@ c0() {                           # C0: the replay identity, the floor and the tw
     box_bounded "c0 pass" "$C0_CUT_MIN" c0.log python tools/pg_pass.py --checkpoint "$CKPT" --games "${DIRS[@]}" \
         --labels "$S1/labels.jsonl" --train-limit "$C0_GAMES" --out "$OUT/c0_pass.pt" --device cuda \
         --workers "$WORKERS"
-    case $BOX_RC in
-        0) ;;
-        3) failed_part c0 "the replay identity failed on $C0_GAMES games (c0.log, c0_pass.replay_failed.pt)"; return 1 ;;
-        *) failed_part c0 "the C0 pass ended rc=$BOX_RC $BOX_WHY (c0.log)"; return 1 ;;
-    esac
+    pass_refused c0 "$C0_GAMES training games" c0.log c0_pass || return 1
+    local limit
+    limit=$(timeout 1m python -c "import json, sys; print(json.load(open(sys.argv[1]))['replay']['limit'])" \
+        "$OUT/c0_pass.json" 2>/dev/null | tr -d '\r')
+    [[ $limit =~ ^[0-9.eE+-]+$ ]] || { failed_part c0 "c0_pass.json names no replay limit"; return 1; }
     box_bounded "c0 forwards" "$C0_CUT_MIN" c0.log python tools/pg_eval.py time --checkpoint "$CKPT" \
         --games "${DIRS[@]}" --labels "$S1/labels.jsonl" --held-games "$C0_HELD" --device cuda --workers "$WORKERS" \
-        --out "$OUT/c0_forwards.json" \
-        || { failed_part c0 "the C0 forwards ended rc=$BOX_RC $BOX_WHY (c0.log)"; return 1; }
+        --replay-kl-limit "$limit" --out "$OUT/c0_forwards.json"
+    case $BOX_RC in
+        0) ;;
+        3) failed_part c0 "the evaluator's replay identity failed on $C0_HELD held-out games, limit $limit" \
+               "(c0.log, c0_forwards.json)"; return 1 ;;
+        *) failed_part c0 "the C0 forwards ended rc=$BOX_RC $BOX_WHY (c0.log)"; return 1 ;;
+    esac
     part_done c0 c0_pass.json c0_pass.pt c0_forwards.json
+}
+pass_refused() {                 # pass_refused PART WHAT LOG STEM: false (PART failed, saying why) unless the pass's BOX_RC is 0
+    case $BOX_RC in
+        0) return 0 ;;
+        3) failed_part "$1" "the replay identity failed on $2 ($3, $4.replay_failed.pt)" ;;
+        4) failed_part "$1" "the precision floor's bound lifts the replay limit past its cap: stage 1 should serve" \
+               "in fp32 ($3, $4.floor_refused.json)" ;;
+        5) failed_part "$1" "the packed and padded trunks disagree in fp32 ($3, $4.path_failed.json)" ;;
+        *) failed_part "$1" "the pass ended rc=$BOX_RC $BOX_WHY ($3)" ;;
+    esac
+    return 1
 }
 c0_plan() {                      # the arms and the steps' bounds from C0's rates (tools/stage_c_plan.py); false when the run does not fit
     local at left
@@ -273,11 +300,8 @@ gradient_pass() {                # the pass over every training game
     skip_part pass && return 0
     box_bounded pass "$PASS_CUT" pass.log python tools/pg_pass.py --checkpoint "$CKPT" --games "${DIRS[@]}" \
         --labels "$S1/labels.jsonl" --out "$OUT/pass.pt" --device cuda --workers "$WORKERS"
-    case $BOX_RC in
-        0) part_done pass pass.pt ;;
-        3) failed_part pass "the replay identity failed on $N_TRAIN games (pass.log, pass.replay_failed.pt)"; return 1 ;;
-        *) failed_part pass "the pass ended rc=$BOX_RC $BOX_WHY (pass.log)"; return 1 ;;
-    esac
+    pass_refused pass "$N_TRAIN training games" pass.log pass || return 1
+    part_done pass pass.pt
 }
 stage_c() {                      # the stage C driver: arms, ladder, B, gain curve, floor, gate
     local arms=(sgd reduced_adamw muon heads_only probe_span) splits=(2 4) dirs
@@ -300,8 +324,8 @@ stage_c() {                      # the stage C driver: arms, ladder, B, gain cur
 }
 plant_step() {                   # plant_step NAME CUT CMD...: one step of the plant; PLANT_WHY on failure
     box_bounded "plant $1" "$2" plant.log "${@:3}" && return 0
-    # pg_labels exits 1 when a game had no luck walk: both its sides are left out.
-    [ "$1" = labels ] && [ "$BOX_RC" -eq 1 ] && return 0
+    # pg_labels exits 3 when a game had no luck walk: both its sides are left out.
+    [ "$1" = labels ] && [ "$BOX_RC" -eq 3 ] && return 0
     PLANT_WHY="plant $1 ended rc=$BOX_RC $BOX_WHY (plant.log)"
     return 1
 }
@@ -327,7 +351,8 @@ plant() {                        # the planted offline readout
         --device cuda --workers "$WORKERS"
     [ -n "$PLANT_WHY" ] || plant_step readout "$half" python tools/pg_plant.py readout --checkpoint "$CKPT" \
         --games "${DIRS[@]}" --labels "$OUT/labels_planted.jsonl" --pass "$OUT/pass_planted.pt" \
-        --grads "$OUT/plant_grads.pt" --device cuda --workers "$WORKERS" --out "$OUT/plant_readout.json"
+        --grads "$OUT/plant_grads.pt" --main-pass "$OUT/pass.pt" --device cuda --workers "$WORKERS" \
+        --out "$OUT/plant_readout.json"
     if [ -n "$PLANT_WHY" ]; then
         failed_part plant "$PLANT_WHY"
         return 1
@@ -343,11 +368,17 @@ def read(name):
     return json.loads(p.read_text()) if p.is_file() else None
 c, plant, c0 = read("stage_c.json"), read("plant_readout.json"), read("c0_plan.json")
 gate = (c or {}).get("gate", {}).get("verdict")
-nxt = {"resolved": "P (the planted step played), then rounds",
-       "rounds_at_size": "rounds at the size the gain curve names",
-       "neither": "no rounds: the user chooses the $1,000 case, sized from the curve, or a stop"}.get(gate, "no verdict")
-if plant is not None and plant.get("verdict") != "pass":
+if gate in (None, "unread"):
+    nxt = "stage C did not read its gate (stage_c.json's errors, or no driver readout): fix it and run it again"
+elif gate == "neither":
+    nxt = "no rounds: the user chooses the $1,000 case, sized from the curve, or a stop"
+elif plant is None:
+    nxt = "the planted readout did not land: run it before P and rounds"
+elif plant.get("verdict") != "pass":
     nxt = "the planted readout missed: debug before P and rounds"
+else:
+    nxt = {"resolved": "P (the planted step played), then rounds",
+           "rounds_at_size": "rounds at the size the gain curve names"}.get(gate, "no verdict")
 v = {"gate": (c or {}).get("gate"), "optimizer": (c or {}).get("optimizer"), "stage_c_errors": (c or {}).get("errors"),
      "plant": None if plant is None else {"verdict": plant["verdict"], "seats": plant["seats"], "delta": plant["delta"]},
      "c0": c0, "next": nxt}

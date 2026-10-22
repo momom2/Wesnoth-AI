@@ -168,7 +168,7 @@ OUT="{bash_path(out)}" BOX_OUT="{bash_path(out)}" BOX_REPO="{bash_path(checkout)
 FAKE="{bash_path(fake)}" WALK_JOBS=3
 export STUB_DIR="{bash_path(tmp_path)}"
 N_SELFPLAY=60 CHUNK_GAMES=20 HELDOUT_FROM=40 D0_GAMES=16 MEM_GAMES=8
-WALK_CUT_MIN=30 WALK_STALL_MIN=10 LABELS_CUT_MIN=15 READOUT_CUT_MIN=60 FIT_CUT_MIN=15 RATES_CUT_MIN=15
+WALK_CUT_MIN=30 WALK_STALL_MIN=10 LABELS_CUT_MIN=15 READOUT_CUT_MIN=60 FIT_CUT_MIN=15
 RATES="not measured"
 {settings}
 {_block("# ---- the configuration (begin)", "# ---- the configuration (end)")}
@@ -249,18 +249,22 @@ def test_the_run_plays_logs_labels_reads_and_measures(tmp_path):
     assert "--anchor own2 " in _step(got, "fit d0") and "--anchor own2m0 " in _step(got, "fit memory")
     assert "own2t1 -12.3 +- 3.1 Elo against own2" in got["finish"]
     assert "i_sample=pass legal_mass=pass i_count=pass dice_control=pass i_v=pass" in got["finish"]
-    # Stage C's rates on the logged games: the pass twice on the first 200
-    # training games, the forwards on 200 held-out ones, the projection on
-    # the labels (40 trained on, 20 held out) at the rates past warm-up.
-    assert "--train-limit 200 --out" in _step(got, "rates fp32") and "--floor-dtype off" not in _step(got, "rates fp32")
-    assert "--train-limit 200 --bf16 --floor-dtype off" in _step(got, "rates bf16")
-    assert "--held-games 200 " in _step(got, "rates forwards")
+    # Stage C's rates on the logged games: the pass twice on the first 150
+    # training games, the forwards on 150 held-out ones, each step cut at
+    # 5 minutes, the projection on the labels (40 trained on, 20 held out)
+    # at the rates past warm-up.
+    assert _step(got, "rates fp32").startswith("rates fp32 python tools/pg_pass.py")
+    assert "--train-limit 150 --floor-dtype off --out" in _step(got, "rates fp32")
+    assert "--train-limit 150 --bf16 --floor-dtype off" in _step(got, "rates bf16")
+    assert "--held-games 150 " in _step(got, "rates forwards")
     assert "hold rates.done rates.json" in got["steps"]
     rates = json.loads((got["out"] / "rates.json").read_text())
     assert rates["rates"] == {"trainer": 1000.0, "forwards": 3000.0, "decisions_per_game": 400.0,
                               "forward_to_trainer": 3.0}
     assert rates["games"] == {"train": 40, "held": 20, "plant": 40} and rates["trim"] is False
-    minutes = 40 * 400 / 1000 / 60 + 8.65 * 20 * 400 / 3000 / 60 + ((2 * 40 + 4) * 400 / 1000 + 5 * 4 * 400 / 3000) / 60
+    from tools.stage_c_plan import configured_plan, forward_equivalents
+    fwd = forward_equivalents(configured_plan(trim=False))
+    minutes = 40 * 400 / 1000 / 60 + fwd * 20 * 400 / 3000 / 60 + ((2 * 40 + 4) * 400 / 1000 + 5 * 4 * 400 / 3000) / 60
     assert rates["total_minutes"] == pytest.approx(minutes)
     assert rates["cost"] == pytest.approx((1.0 + minutes / 60) * 0.577)
     assert rates["measured"]["compare"] == {"rates_pass_bf16": 2000.0}
@@ -309,10 +313,10 @@ def test_unwalked_games_past_the_bound_fail_the_match_and_a_replay_drops_an_old_
 
 def test_the_rest_of_the_self_play_is_sized_from_the_first_matchs_rate(tmp_path):
     """30 s a game: s00 takes 10 minutes (120 games an hour), D0 8. With
-    the switch 102 minutes out, 18 are left once the memory report (9),
-    the readouts (30), the rates (12) and the finish (15) are kept: 30 more
-    games at 85 %, so 48 in all, 32 trained on."""
-    got = _run(tmp_path, deadline_min=102, STUB_S_PER_GAME=30)
+    the switch 105 minutes out, 18 are left once the memory report (9),
+    the readouts (30), the rates (their three 5-minute cuts) and the finish
+    (15) are kept: 30 more games at 85 %, so 48 in all, 32 trained on."""
+    got = _run(tmp_path, deadline_min=105, STUB_S_PER_GAME=30)
     assert got["rc"] == 0 and got["finish"].startswith("SELFPLAY_T1_DONE"), (got["finish"], got["stderr"][-3000:])
     assert (got["out"] / "plan.txt").read_text().split() == ["48", "32", "120"]
     assert " --games 8 " in _step(got, "match s02") and "--heldout-from 32 " in _step(got, "labels")

@@ -56,6 +56,10 @@ from tools.match_luck_readout import fit_beta  # noqa: E402
 
 SPLITS = 8
 BACKFIT_SWEEPS = 20
+# The command line's exit code when games had no luck walk and were left out
+# (both sides, named in the fits' summary): a code of its own, not an
+# uncaught exception's 1.
+EXIT_LEFT_OUT = 3
 # The between-cell variance's floor: a fit whose cells do not differ
 # shrinks every cell to the additive baseline.
 MIN_BETWEEN = 1e-9
@@ -237,7 +241,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"{info['labelled']} game-sides labelled of {info['rows']}; {len(info['left_out'])} games left out "
           f"(no luck walk); beta (train) " + ", ".join(f"{c} {b:+.4g}" for c, b in
                                                     zip(COLUMNS, info["fits"]["train"]["beta"])))
-    return 0 if not info["left_out"] else 1
+    return 0 if not info["left_out"] else EXIT_LEFT_OUT
 
 
 if __name__ == "__main__":

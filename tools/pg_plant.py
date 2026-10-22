@@ -35,6 +35,9 @@ The readout, per seat (A, B), on the held-out games H (a fraction of them,
   SE        s times the SE over the planted pass's eight splits of
             <P' grad M, g' - delta u>, g' its gradient, grad M taken through
             windows of the pass's length;
+  main      with the unplanted labels' pass (`--main-pass`), the unplanted
+            gradient's own effect s <P' grad M, g> joins the forecast (the
+            miss's mean is that, not 0) and its split SE joins the SE;
 and passes when on both seats the forecast is resolved (MIN_RESOLUTION SE)
 and the measured change lies within AGREE_SE SE of it. A wrong direction or
 step reads the wrong size. One network plays both seats, so a seat whose
@@ -213,12 +216,31 @@ def _check_inputs(rows, pass_: Mapping, grads: Mapping) -> None:
                              f"its windows are not the pass's")
 
 
+def _main_effect(w: Mapping[str, torch.Tensor], s: float, main_pass: Optional[Mapping]) -> Optional[Dict]:
+    """The unplanted gradient's own first-order effect at the step,
+    s <P' grad M, g>, g the main pass's gradient (the same per-game mean the
+    planted pass's unplanted part estimates), with its SE from the main
+    pass's splits and its z. Its noise is counted beside the planted pass's
+    own, which holds the same games' noise: the SE errs high."""
+    if main_pass is None:
+        return None
+    parts = _project(w, main_pass["splits"])
+    change, se = s * sum(parts), s * split_total_se(parts, main_pass["split_games"])
+    return {"change": change, "se": se, "z": change / se if se > 0 else math.nan}
+
+
 def plant_readout(checkpoint: Path, records: Mapping[str, Path], rows, pass_: Mapping, grads: Mapping,
-                  device: torch.device, eval_config, k_side: float = K_SIDE) -> Dict:
-    """The readout of module docstring, per seat, and its verdict."""
+                  device: torch.device, eval_config, k_side: float = K_SIDE,
+                  main_pass: Optional[Mapping] = None) -> Dict:
+    """The readout of module docstring, per seat, and its verdict. With
+    `main_pass` (the unplanted labels' pass) the forecast adds the
+    unplanted gradient's own effect, s <P' grad M, g>, and its noise joins
+    the SE."""
     from tools.pg_eval import EvalContext
     from wesnoth_ai.pg_step import decisions_per_side, kl_search
     _check_inputs(rows, pass_, grads)
+    if main_pass is not None and main_pass["checkpoint_sha256"] != grads["checkpoint_sha256"]:
+        raise ValueError("the main pass is not this checkpoint's")
     cls, delta, side_a = grads["class"], float(grads["delta"]), dict(grads["side_a"])
     v = _metric(pass_)
     d = reduced_adamw({n: pass_["total"][n].float() for n in pass_["names"]}, v)
@@ -247,14 +269,18 @@ def plant_readout(checkpoint: Path, records: Mapping[str, Path], rows, pass_: Ma
         deviation = [g - delta * x for g, x in zip(_project(w, pass_["splits"]), u_parts)]
         se = s * split_total_se(deviation, pass_["split_games"])
         forecast = s * delta * (along[h][seat] - along[-h][seat]) / (2.0 * h)
+        main = _main_effect(w, s, main_pass)
+        total = forecast + (main["change"] if main else 0.0)
+        se_total = math.hypot(se, main["se"]) if main else se
         measured = (at[s][seat] - at[-s][seat]) / 2.0
-        resolution = forecast / se if se > 0 else math.nan
-        miss = (measured - forecast) / se if se > 0 else math.nan
+        resolution = forecast / se_total if se_total > 0 else math.nan
+        miss = (measured - total) / se_total if se_total > 0 else math.nan
         passed = bool(resolution >= MIN_RESOLUTION and abs(miss) <= AGREE_SE)
         ok = ok and passed
         seats[seat] = {"measured": measured, "measured_plain": at[s][seat] - at[0.0][seat], "forecast": forecast,
-                       "forecast_truncated": s * delta * sum(u_parts), "se": se, "resolution": resolution,
-                       "miss_se": miss, "base": at[0.0][seat], "pass": passed}
+                       "forecast_truncated": s * delta * sum(u_parts), "main": main, "forecast_total": total,
+                       "se": se_total, "se_plant": se, "resolution": resolution, "miss_se": miss,
+                       "base": at[0.0][seat], "pass": passed}
     return {"class": cls, "delta": delta, "step": {"s": s, "kl": point.kl, "eps": eps, "k_side": k_side},
             "fd_step": h, "seats": seats, "games": {"train": len(grads["train_games"]), "readout": len(readout)},
             "rules": {"agree_se": AGREE_SE, "min_resolution": MIN_RESOLUTION},
@@ -335,8 +361,9 @@ def cmd_readout(args) -> int:
     records = {g: index.path(g) for g in grads["readout_games"]}
     config = EvalConfig(streams=args.streams, workers=args.workers, kl_fraction=args.kl_fraction,
                         slots=grads["config"]["slots"])
+    main_pass = None if args.main_pass is None else torch.load(args.main_pass, map_location="cpu", weights_only=True)
     result = plant_readout(args.checkpoint, records, rows, pass_, grads, torch.device(args.device), config,
-                           args.k_side)
+                           args.k_side, main_pass)
     _write_json(args.out, result)
     log.info("PG_PLANT_READOUT %s %s", result["verdict"],
              json.dumps({s: {k: r[k] for k in ("resolution", "miss_se")} for s, r in result["seats"].items()}))
@@ -372,6 +399,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--grads", type=Path, required=True)
     p = sub.choices["readout"]
     p.add_argument("--grads", type=Path, required=True)
+    p.add_argument("--main-pass", type=Path, default=None,
+                   help="the unplanted labels' pass: the unplanted gradient's effect joins the forecast")
     p.add_argument("--streams", type=int, default=64)
     p.add_argument("--kl-fraction", type=float, default=0.05)
     p.add_argument("--k-side", type=float, default=K_SIDE)

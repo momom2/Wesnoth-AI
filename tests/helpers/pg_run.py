@@ -15,8 +15,8 @@ Two runs read the set:
   set of capped games has R = 0 throughout.
 - `plant_run`: all 68, 0-63 trained on and 64-67 held out, b and beta at
   zero (four held-out games fit seven luck slopes exactly, and the training
-  labels would carry that fit's noise), no pass (the planted readout's tests
-  give delta).
+  labels would carry that fit's noise), and its unplanted pass (the
+  readout's main effect; the planted readout's tests give delta).
 """
 from __future__ import annotations
 
@@ -98,9 +98,10 @@ def planted_readout(run, grads: Path, tag: str, zero_baseline: bool = False) -> 
     labels = label(run.root, run.games, walk, run.heldout_from, zero_baseline=zero_baseline)
     pass_path = gradient_pass(run.checkpoint, run.games, labels, run.root / f"pass_{tag}.pt")
     out = run.root / f"plant_{tag}.json"
+    main_pass = [] if run.pass_path is None else ["--main-pass", str(run.pass_path)]
     assert main(["readout", "--checkpoint", str(run.checkpoint), "--games", str(run.games), "--labels", str(labels),
                  "--pass", str(pass_path), "--grads", str(grads), "--device", "cpu", "--streams", "8",
-                 "--out", str(out)]) == 0
+                 *main_pass, "--out", str(out)]) == 0
     return json.loads(out.read_text(encoding="utf-8"))
 
 
@@ -152,8 +153,9 @@ def e2e_run() -> SimpleNamespace:
 
 @functools.lru_cache(maxsize=None)
 def plant_run() -> SimpleNamespace:
-    """All 68 games, labelled with b = beta = 0; no pass."""
+    """All 68 games, labelled with b = beta = 0, and their pass."""
     p = played()
     labels = label(p.root, p.games, p.walk, PLANT_HELDOUT_FROM, zero_baseline=True)
+    pass_path = gradient_pass(p.checkpoint, p.games, labels, p.root / "pass_plant.pt")
     return SimpleNamespace(root=p.root, checkpoint=p.checkpoint, games=p.games, walk=p.walk, labels=labels,
-                           pass_path=None, seed_base=SEED_BASE, heldout_from=PLANT_HELDOUT_FROM)
+                           pass_path=pass_path, seed_base=SEED_BASE, heldout_from=PLANT_HELDOUT_FROM)

@@ -223,8 +223,13 @@ class ToyEvaluator:
     def game_sides(self) -> Sequence[GameSide]:
         return self.sides
 
-    def logp(self, s: float) -> np.ndarray:
-        return log_policy(step_params(self.params, self.d, s))[self.states, self.actions]
+    def logp(self, s: float, halves=None) -> np.ndarray:
+        out = log_policy(step_params(self.params, self.d, s))[self.states, self.actions]
+        if halves is not None:
+            for gs in self.sides:
+                if gs.half not in halves:
+                    out[gs.start:gs.stop] = np.nan
+        return out
 
     def base_logp(self) -> np.ndarray:
         return self.logp(0.0)

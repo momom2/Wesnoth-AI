@@ -8,9 +8,12 @@ candidates only through it, so the same code runs on the enumerable toy
 game of the tests (tests/helpers/toy_game.py) and on the network
 (tools/pg_eval.py, `NetworkEvaluator`).
 
-- The evaluator is bound to one direction d at construction; `logp(s)` is
-  log pi at theta_k + s * d for every held-out decision; `base_logp()` is
-  `logp(0.0)` as the trainer recomputes it (not the logged value).
+- The evaluator is bound to one direction d at construction; `logp(s,
+  halves)` is log pi at theta_k + s * d for every held-out decision of the
+  game-sides in `halves` (every game-side when None), NaN at the others, so
+  a candidate judged on one half forwards that half only; `base_logp()` is
+  `logp(0.0)` over every game-side as the trainer recomputes it (not the
+  logged value).
 - The logp arrays are ordered by game-side: each game-side's decisions, in
   play order, are one contiguous range [start, stop). This is not the log's
   play order, where the two sides' decisions interleave.
@@ -51,7 +54,7 @@ class GameSide:
 class Evaluator(Protocol):
     def game_sides(self) -> Sequence[GameSide]: ...
     def base_logp(self) -> np.ndarray: ...
-    def logp(self, s: float) -> np.ndarray: ...
+    def logp(self, s: float, halves: Optional[Sequence[str]] = None) -> np.ndarray: ...
     def mean_kl(self, s: float) -> float: ...
 
 

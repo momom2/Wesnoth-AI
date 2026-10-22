@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -139,7 +140,7 @@ def test_a_failing_arm_or_part_fails_alone(toy, tmp_path, monkeypatch):
     """An arm whose direction raises is recorded and left out of the
     comparison while the other arms are read; a part that raises is
     recorded and the parts that do not need it run; without a ladder the
-    gate reads "neither"."""
+    gate reads "unread", not the measured "neither"."""
     import wesnoth_ai.pg_step as pg_step
     from tools import pg_stage_c
     game, params, pass_, heldout = toy
@@ -161,8 +162,86 @@ def test_a_failing_arm_or_part_fails_alone(toy, tmp_path, monkeypatch):
     readout = run_stage_c(pass_, params, toy_game.factory(params, heldout), tmp_path / "b.json", k_side=0.1,
                           prices=prices)
     assert set(readout["errors"]) == {"gain_curve", "ladder"} and "floor" in readout
-    assert readout["gate"]["verdict"] == "neither"
+    assert readout["gate"]["verdict"] == "unread"
     assert json.loads((tmp_path / "b.json").read_text())["gate"] == readout["gate"]
+
+
+class _Counted:
+    """A factory whose evaluators share theta_k's reading and keep their own,
+    as tools/pg_eval.py's do, counting each read the driver asks for: theta_k
+    ("full", once), a candidate over every game-side ("all") or one half
+    ("half"), a KL reading inside a KL search or outside one."""
+
+    def __init__(self, factory):
+        self.factory, self.reads, self.in_search, self.searches = factory, Counter(), False, []
+
+    def __call__(self, d):
+        return _CountedEvaluator(self, self.factory(d))
+
+
+class _CountedEvaluator:
+    def __init__(self, counted, inner):
+        self.counted, self.inner, self.logps, self.kls = counted, inner, set(), set()
+
+    def game_sides(self):
+        return self.inner.game_sides()
+
+    def base_logp(self):
+        self.counted.reads["full"] = 1
+        return self.inner.base_logp()
+
+    def logp(self, s, halves=None):
+        if float(s) == 0.0:
+            return self.base_logp()
+        key = (float(s), None if halves is None else tuple(sorted(halves)))
+        if key not in self.logps:
+            self.logps.add(key)
+            self.counted.reads["all" if halves is None else "half"] += 1 if halves is None else len(key[1])
+        return self.inner.logp(s, halves)
+
+    def mean_kl(self, s):
+        if float(s) != 0.0 and float(s) not in self.kls:
+            self.kls.add(float(s))
+            self.counted.reads["kl_search" if self.counted.in_search else "kl_readings"] += 1
+        return self.inner.mean_kl(s)
+
+
+def test_the_driver_reads_what_its_plan_prices(toy, tmp_path, monkeypatch):
+    """The reads run_stage_c asks of evaluators that share theta_k's reading,
+    counted on the toy, are the read plan stage C is priced by
+    (tools/stage_c_plan.read_plan): theta_k once, no candidate over every
+    game-side, each half read the plan names, its KL searches, and its fixed
+    KL readings; a search's readings average at most the plan's KL_EVALS."""
+    import wesnoth_ai.pg_step as pg_step
+    from tools import pg_stage_c
+    from tools.stage_c_plan import KL_EVALS
+    game, params, pass_, heldout = toy
+    counted = _Counted(toy_game.factory(params, heldout))
+    search = pg_step.kl_search
+
+    def counted_search(kl_at, target, **kwargs):
+        counted.in_search = True
+        counted.searches.append(0)
+
+        def at(s):
+            counted.searches[-1] += 1
+            return kl_at(s)
+        try:
+            return search(at, target, **kwargs)
+        finally:
+            counted.in_search = False
+
+    monkeypatch.setattr(pg_step, "kl_search", counted_search)
+    monkeypatch.setattr(pg_stage_c, "kl_search", counted_search)
+    readout = run_stage_c(pass_, params, counted, tmp_path / "c.json", k_side=0.1, prices=RoundPrices(7.76e-5, 2.42))
+    plan = readout["read_plan"]
+    assert readout["errors"] == {}
+    assert counted.reads["full"] == plan["full"] and counted.reads["all"] == 0
+    assert counted.reads["half"] == plan["half"]
+    assert len(counted.searches) == plan["kl_searches"]
+    assert counted.reads["kl_readings"] == plan["kl_readings"]
+    assert counted.reads["kl_search"] <= sum(counted.searches)
+    assert np.mean(counted.searches) <= KL_EVALS, counted.searches
 
 
 def test_another_arm_replaces_the_default_only_beyond_two_paired_se():

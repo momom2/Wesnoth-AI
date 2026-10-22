@@ -165,6 +165,10 @@ def test_the_planted_readout_passes_and_catches_a_reversed_seat_and_a_broken_joi
         r = good["seats"][seat]
         assert r["resolution"] >= MIN_RESOLUTION and abs(r["miss_se"]) <= AGREE_SE
         assert r["forecast_truncated"] == pytest.approx(r["forecast"], rel=0.05)
+        # The unplanted gradient's own effect, read from the run's pass, in the forecast and its SE.
+        main = r["main"]
+        assert main["se"] > 0 and r["forecast_total"] == pytest.approx(r["forecast"] + main["change"])
+        assert r["se"] == pytest.approx(math.hypot(r["se_plant"], main["se"]))
 
     original = selfplay_rows.side_rows
     monkeypatch.setattr(selfplay_rows, "side_rows", _reversed_seat(original))

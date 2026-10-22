@@ -226,53 +226,115 @@ def test_a_game_side_another_player_played_is_refused(tmp_path, where, key, valu
         EvalContext(games.checkpoint, records, held, CPU, EvalConfig())
 
 
-def _served_hotter(encoder, model, staged, memory):
-    """An injected serving precision: the fp32 law with its actor logits
-    scaled by 1.3, a floor of known sign and a size well above 1e-4."""
+def _scaled_actor(scale: float, packed: bool):
+    """An injected forward: the fp32 law of the packed (or padded) trunk with
+    its actor logits scaled, a difference of known sign and of a size set by
+    the scale."""
     import dataclasses
-    out = model.forward_embedded(encoder.embed_staged(staged), memory=memory).float32()
-    return dataclasses.replace(out, actor_logits=out.actor_logits * 1.3)
+
+    def forward(encoder, model, staged, memory):
+        out = model.forward_embedded(encoder.embed_staged(staged), memory=memory, packed=packed).float32()
+        return dataclasses.replace(out, actor_logits=out.actor_logits * scale)
+    return forward
 
 
 @needs_core
-def test_the_replay_limit_rises_by_twice_the_measured_floor(tmp_path):
-    """The floor read at an injected serving precision lifts the limit to
-    1e-4 + 2 floor: logs shifted to a KL estimate of 1e-4 + floor fail the
-    pass without the floor and pass with it, and a shift to 1e-4 + 3 floor
-    fails either way. pass.pt records the floor, its SE and the limit."""
-    from tools.pg_pass import GradientPass, PassConfig, ReplayMismatch
+def test_the_replay_limit_rises_by_twice_the_floors_upper_bound(tmp_path):
+    """The floor read at an injected serving precision (rounding against the
+    packed trunk in fp32) lifts the limit to 1e-4 + 2 (floor + 2 SE): logs
+    shifted to a KL estimate inside it fail without the floor and pass with
+    it, past it fail either way. The real trunks agree in fp32 (the path
+    check). A floor whose bound lifts the limit past 1e-3 is refused, and so
+    is a packed trunk that disagrees with the padded one; pass.pt records the
+    floor, its SE, its bound and the limit."""
+    from tools.pg_floor import FLOOR_LIMIT_CAP, PATH_KL_LIMIT
+    from tools.pg_pass import FloorRefused, GradientPass, PassConfig, PathMismatch, ReplayMismatch
     from tools.pg_positions import read_record
     games, labels = _labels(tmp_path)
-    floor_config = dict(streams=2, floor_fraction=1.0)
+    floor_config = dict(streams=2, floor_sides=1000)
+    warm = _scaled_actor(1.05, packed=True)
     clean = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(**floor_config),
-                         serving_forward=_served_hotter).run()
+                         serving_forward=warm).run()
     floor = clean["floor"]
-    assert floor["kl"] > 1e-3 and 0 < floor["se"] < floor["kl"]
     assert floor["decisions"] == clean["decisions"] and floor["game_sides"] == 6
-    assert clean["replay"]["limit"] == pytest.approx(1e-4 + 2 * floor["kl"])
+    assert 0 < floor["se"] < floor["kl"] and floor["upper"] == pytest.approx(floor["kl"] + 2 * floor["se"])
+    assert floor["path_kl"] < PATH_KL_LIMIT
+    limit = clean["replay"]["limit"]
+    assert limit == pytest.approx(1e-4 + 2 * floor["upper"]) and 2e-4 < limit < FLOOR_LIMIT_CAP
     dst, records = _copied_games(tmp_path, games)
     shifted = records[games.names["g2"]]
     original = read_record(shifted)
     share = len(original["decisions"]) / clean["decisions"]
 
-    def run(kl, **config):
+    def run(kl, serving=warm, packed=None, **config):
         rec = json.loads(json.dumps(original))
         for d in rec["decisions"]:
             d["logp"] += kl / share
         _rewrite(shifted, rec)
-        return GradientPass(games.checkpoint, records, labels, CPU, PassConfig(**config),
-                            serving_forward=_served_hotter).run()
+        return GradientPass(games.checkpoint, records, labels, CPU, PassConfig(**config), serving_forward=serving,
+                            packed_forward=packed).run()
 
-    inside = 1e-4 + floor["kl"]
+    inside = (1e-4 + limit) / 2
     assert run(inside, **floor_config)["replay"]["kl"] == pytest.approx(inside, rel=1e-3)
     with pytest.raises(ReplayMismatch):
         run(inside, streams=2, floor_dtype="off")
     with pytest.raises(ReplayMismatch):
-        run(1e-4 + 3 * floor["kl"], **floor_config)
-    # The default reading, bf16 autocast on this device: a KL, read on every decision.
+        run((limit + FLOOR_LIMIT_CAP) / 2, **floor_config)
+    with pytest.raises(FloorRefused, match="stage 1 should serve in fp32"):
+        run(0.0, serving=_scaled_actor(1.3, packed=True), **floor_config)
+    with pytest.raises(PathMismatch, match="packed and padded trunks disagree"):
+        run(0.0, packed=_scaled_actor(1.02, packed=True), **floor_config)
+    # The default reading, bf16 autocast on this device's packed trunk.
     bf16 = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(**floor_config)).run()["floor"]
     assert bf16["dtype"] == "bfloat16" and bf16["decisions"] == clean["decisions"]
-    assert math.isfinite(bf16["kl"]) and bf16["kl"] > -1e-7
+    assert math.isfinite(bf16["kl"]) and bf16["kl"] > -1e-7 and bf16["path_kl"] < PATH_KL_LIMIT
+
+
+@needs_core
+def test_a_cut_pass_takes_its_written_splits_and_reads_the_rest(tmp_path, monkeypatch):
+    """Each split's sums are written as it completes; a pass cut in its
+    third split, started again, takes the two written splits and reads the
+    rest, and its sums are the uncut pass's. A written split of other labels
+    is read again."""
+    from tools import pg_pass
+    from tools.pg_pass import GradientPass, PassConfig
+    games, labels = _labels(tmp_path)
+    config = PassConfig(streams=2, floor_sides=1000)
+    whole = GradientPass(games.checkpoint, games.records, labels, CPU, config).run()
+    partial = tmp_path / "splits"
+    run_split = pg_pass.GradientPass._run_split
+    done = []
+
+    def cut(self, i, schedule):
+        if len(done) == 2:
+            raise KeyboardInterrupt("the box's cut")
+        run_split(self, i, schedule)
+        done.append(i)
+
+    monkeypatch.setattr(pg_pass.GradientPass, "_run_split", cut)
+    with pytest.raises(KeyboardInterrupt):
+        GradientPass(games.checkpoint, games.records, labels, CPU, config, partial_dir=partial).run()
+    assert sorted(p.name for p in partial.iterdir()) == [f"split{i}.pt" for i in sorted(done)]
+    monkeypatch.setattr(pg_pass.GradientPass, "_run_split", run_split)
+    read = []
+    monkeypatch.setattr(pg_pass.GradientPass, "_run_split",
+                        lambda self, i, schedule: (read.append(i), run_split(self, i, schedule)))
+    resumed = GradientPass(games.checkpoint, games.records, labels, CPU, config, partial_dir=partial).run()
+    assert set(read).isdisjoint(done) and sorted(read + done) == list(range(8))
+    names = whole["names"]
+    assert torch.allclose(_flat(resumed["total"], names), _flat(whole["total"], names), rtol=1e-6, atol=1e-9)
+    for key in ("probes", "head_slopes"):
+        assert resumed[key] == pytest.approx(whole[key], rel=1e-6, abs=1e-9), key
+    assert resumed["replay"] == pytest.approx(whole["replay"]) and resumed["decisions"] == whole["decisions"]
+    assert resumed["floor"]["kl"] == pytest.approx(whole["floor"]["kl"])
+    assert resumed["split_windows"] == whole["split_windows"] and resumed["shadow"] == whole["shadow"]
+    from wesnoth_ai.pg_records import read_labels
+    from helpers.pg_games import named, write_labels
+    other = read_labels(write_labels(tmp_path / "other.jsonl", named(games, SPLITS),
+                                     {k: -v for k, v in named(games, R).items()}))
+    read.clear()
+    GradientPass(games.checkpoint, games.records, other, CPU, config, partial_dir=partial).run()
+    assert sorted(read) == sorted(SPLITS.values())
 
 
 @needs_core

@@ -24,6 +24,7 @@ pass to a float32 tensor of that parameter's shape.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -361,10 +362,10 @@ def paired_ratio(a: Reading, b: Reading) -> Tuple[float, float]:
 
 
 def _side_sums(values: np.ndarray, sides: Sequence[GameSide]) -> np.ndarray:
-    cumulative = np.concatenate([[0.0], np.cumsum(np.asarray(values, dtype=np.float64))])
-    start = np.fromiter((gs.start for gs in sides), dtype=np.int64, count=len(sides))
-    stop = np.fromiter((gs.stop for gs in sides), dtype=np.int64, count=len(sides))
-    return cumulative[stop] - cumulative[start]
+    """Each game-side's sum of `values` over its decisions; entries of
+    game-sides not listed (NaN when not read) are never touched."""
+    values = np.asarray(values, dtype=np.float64)
+    return np.fromiter((values[gs.start:gs.stop].sum() for gs in sides), dtype=np.float64, count=len(sides))
 
 
 def _labels(sides: Sequence[GameSide]) -> Tuple[np.ndarray, List[str]]:
@@ -443,10 +444,10 @@ def decisions_per_side(sides: Sequence[GameSide]) -> float:
 
 def read_candidate(evaluator: Evaluator, s: float, kl: float, halves: Mapping[str, Sequence[GameSide]],
                    base: Optional[np.ndarray] = None) -> Dict[str, HalfReading]:
-    """Ĝ, ΔĴ and the importance-weight check of theta_k + s d on each half,
-    from one forward pass."""
+    """Ĝ, ΔĴ and the importance-weight check of theta_k + s d on each half
+    of `halves`, from one forward pass over those halves only."""
     base = evaluator.base_logp() if base is None else base
-    log_ratio = np.asarray(evaluator.logp(s), dtype=np.float64) - base
+    log_ratio = np.asarray(evaluator.logp(s, halves=tuple(halves)), dtype=np.float64) - base
     out = {}
     for half, sides in halves.items():
         side_kl = kl * decisions_per_side(sides)
@@ -490,6 +491,13 @@ class Decision:
                 "chosen": self.chosen, "reason": self.reason, "rungs": [r.summary() for r in self.rungs]}
 
 
+def select_rung(rungs: Sequence[Rung], select: str) -> Optional[int]:
+    """The rung of highest ΔĴ on the selection half among those ΔĴ can read
+    (in range, importance weights not heavy-tailed), or None."""
+    readable = [i for i, rung in enumerate(rungs) if rung.readable(select)]
+    return max(readable, key=lambda i: rungs[i].halves[select].exact.estimate) if readable else None
+
+
 def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B")) -> Decision:
     """Design §1 step 5: the rung of highest ΔĴ on the selection half among
     those ΔĴ can read (in range, importance weights not heavy-tailed) is read
@@ -500,11 +508,10 @@ def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B
     the check on the confirmation half (design §5: such a rung is read by a
     cross-play match, not by importance weights)."""
     select, confirm = halves
-    readable = [i for i, rung in enumerate(rungs) if rung.readable(select)]
-    if not readable:
+    best = select_rung(rungs, select)
+    if best is None:
         return Decision(False, 0.0, eps, eps / 2.0, None, "no rung readable by importance weights",
                         list(rungs))
-    best = max(readable, key=lambda i: rungs[i].halves[select].exact.estimate)
     if not rungs[best].halves[confirm].ess_ok:
         return Decision(False, 0.0, eps, eps / 2.0, best,
                         f"half {confirm}'s importance weights fail the check: the rung needs a cross-play match",
@@ -519,10 +526,15 @@ def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B
 
 
 def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
-           halves: Tuple[str, str] = ("A", "B"), s0: float = 1.0) -> Decision:
+           halves: Tuple[str, str] = ("A", "B"), s0: float = 1.0,
+           known: Optional[Mapping[float, KLPoint]] = None) -> Decision:
     """Three candidates theta_k + s d at mean per-decision KL eps/2, eps and
-    2 eps, each read by Ĝ and ΔĴ on both halves; the decision is `decide`'s.
-    Every reading is returned. `s0` starts the first rung's KL search.
+    2 eps, each read by Ĝ and ΔĴ on the selection half; the rung `decide`
+    would choose is read on the confirmation half as well, and the decision
+    is `decide`'s. Every reading is returned. `s0` starts the first rung's KL
+    search; `known` gives rungs (by multiplier) whose step is already known
+    (the arm read at eps), so neither its KL search nor its selection-half
+    reading is repeated by an evaluator that keeps its readings.
 
     A rung past SIDE_KL_RANGE (1/2 nat per side-game) is never selected, so
     this ladder caps every round at K = 1/2, where design §1.2 reads such a
@@ -531,16 +543,24 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     by_half = sides_by_half(evaluator.game_sides(), halves)
     per_side = decisions_per_side(evaluator.game_sides())
     base = evaluator.base_logp()
+    select, confirm = halves
     rungs, s_guess, previous = [], s0, None
     for multiplier in LADDER_MULTIPLIERS:
         target = multiplier * eps
-        if previous is not None:
-            s_guess = previous.s * math.sqrt(target / previous.kl)
-        point = kl_search(evaluator.mean_kl, target, s0=s_guess)
+        point = (known or {}).get(multiplier)
+        if point is None:
+            if previous is not None:
+                s_guess = previous.s * math.sqrt(target / previous.kl)
+            point = kl_search(evaluator.mean_kl, target, s0=s_guess)
         in_range = target * per_side <= SIDE_KL_RANGE * (1.0 + 1e-9)
         rungs.append(Rung(multiplier, target, point.s, point.kl, in_range,
-                          read_candidate(evaluator, point.s, point.kl, by_half, base)))
+                          read_candidate(evaluator, point.s, point.kl, {select: by_half[select]}, base)))
         previous = point
+    best = select_rung(rungs, select)
+    if best is not None:
+        rung = rungs[best]
+        confirmed = read_candidate(evaluator, rung.s, rung.kl, {confirm: by_half[confirm]}, base)
+        rungs[best] = dataclasses.replace(rung, halves={**rung.halves, **confirmed})
     return decide(rungs, eps, halves)
 
 

@@ -78,6 +78,8 @@ if name == "restore stage1":
             failed = os.environ.get("STUB_FAIL_GATES", "").split()
             p.write_text(json.dumps({k: {"pass": k not in failed}
                                      for k in ("i_sample", "legal_mass", "i_count", "dice_control", "i_v")}))
+        elif item.endswith(".tar.gz") and item[len("games_"):-len(".tar.gz")] in os.environ.get("STUB_BAD_TAR", "").split():
+            p.write_bytes(b"not a tarball")
         elif item.endswith(".tar.gz"):
             d = out / item[:-len(".tar.gz")]
             d.mkdir(exist_ok=True)
@@ -87,17 +89,19 @@ if name == "restore stage1":
             shutil.rmtree(d)
         else:
             p.write_text('{"game": "x"}\n')
-elif rc in (0, 3) and name in ("c0 pass", "pass", "plant pass"):
+elif rc in (0, 3, 4, 5) and name in ("c0 pass", "pass", "plant pass"):
     games = int(opt("--train-limit")) if "--train-limit" in args else 30
     out = pathlib.Path(opt("--out"))
-    out = out if rc == 0 else out.with_name(out.stem + ".replay_failed.pt")
+    refused = {3: "replay_failed", 4: "floor_refused", 5: "path_failed"}
+    out = out if rc == 0 else out.with_name(f"{out.stem}.{refused[rc]}.pt")
     out.write_text("a pass")
     out.with_suffix(".json").write_text(json.dumps({
         "decisions": games * D, "seconds": 2 * games * D / t, "games": games, "rate": {"positions_per_second": t},
         "replay": {"kl": 0.0, "limit": 1e-4}, "floor": {"kl": 1e-6, "se": 1e-7}}))
-elif rc == 0 and name == "c0 forwards":
+elif name == "c0 forwards":
     pathlib.Path(opt("--out")).write_text(json.dumps({"positions_per_second": f, "games": int(opt("--held-games")),
-                                                      "replay": {"kl": 0.0, "max_abs": 0.0}}))
+                                                      "replay": {"kl": 0.0, "max_abs": 0.0,
+                                                                 "limit": float(opt("--replay-kl-limit"))}}))
 elif name == "stage c":
     body = {"arms": {}} if rc else {"gate": {"verdict": os.environ.get("STUB_GATE", "resolved"), "reason": "stub"},
                                     "optimizer": {"winner": "reduced_adamw"}, "errors": {}}
@@ -105,7 +109,7 @@ elif name == "stage c":
 elif name == "plant readout" and rc == 0:
     pathlib.Path(opt("--out")).write_text(json.dumps({"verdict": os.environ.get("STUB_PLANT", "pass"), "seats": {},
                                                       "delta": 0.1}))
-elif name.startswith("plant ") and rc in (0, 1):
+elif name.startswith("plant ") and rc in (0, 3):
     pathlib.Path(opt("--out")).write_text("{}\n")
 sys.exit(rc)
 '''
@@ -218,28 +222,56 @@ def test_forwards_at_the_bound_trim_the_arms_and_a_run_past_the_switch_stops_bef
 def test_a_failed_replay_stops_what_needs_it_and_stays_failed(tmp_path):
     got = _run(tmp_path, STUB_RC='{"c0 pass": 3}')
     assert got["rc"] == 1 and _run_steps(got) == ["c0 pass"]
-    assert "c0: FAILED, the replay identity failed on 200 games" in got["finish"]
+    assert "c0: FAILED, the replay identity failed on 200 training games" in got["finish"]
     again = _run(tmp_path)
     assert again["rc"] == 1 and _run_steps(again) == [] and "FAILED at an earlier entry" in again["finish"]
     full = _run(tmp_path / "pass", STUB_RC='{"pass": 3}')
     assert full["rc"] == 1 and _run_steps(full) == ["c0 pass", "c0 forwards", "pass"]
-    assert "pass: FAILED, the replay identity failed on 30 games" in full["finish"]
+    assert "pass: FAILED, the replay identity failed on 30 training games" in full["finish"]
 
 
 def test_a_failed_driver_leaves_the_plant_and_a_failed_plant_leaves_the_verdict(tmp_path):
+    """The driver's crash leaves the plant to run and the verdict reads no
+    gate; a plant that fails at its pass (its labels' 3, games left out,
+    accepted) leaves stage C's gate, and the verdict says the plant did not
+    land; a plant whose labels end 1 (an exception) fails there; a missed
+    readout says so."""
     got = _run(tmp_path / "c", STUB_RC='{"stage c": 1}')
     assert got["rc"] == 1 and _run_steps(got) == ALL, got["names"]
     assert "stage_c: FAILED, the driver ended rc=1" in got["finish"] and "plant: done" in got["finish"]
     assert "hold stage_c.done" not in " ".join(got["steps"])
-    plant = _run(tmp_path / "p", STUB_RC='{"plant pass": 1, "plant labels": 1}', STUB_GATE="neither")
+    assert "next: stage C did not read its gate" in got["finish"]
+    plant = _run(tmp_path / "p", STUB_RC='{"plant pass": 1, "plant labels": 3}')
     assert plant["rc"] == 1 and _run_steps(plant) == ALL[:-1], plant["names"]
     assert "plant: FAILED, plant pass ended rc=1" in plant["finish"] and "stage_c: done" in plant["finish"]
-    assert "gate=neither plant=None" in plant["finish"]
+    assert "gate=resolved plant=None next: the planted readout did not land" in plant["finish"]
+    labels = _run(tmp_path / "l", STUB_RC='{"plant labels": 1}')
+    assert "plant: FAILED, plant labels ended rc=1" in labels["finish"]
     missed = _run(tmp_path / "m", STUB_PLANT="fail")
     assert "the planted readout missed: debug before P and rounds" in missed["finish"]
 
 
+def test_c0_gates_the_evaluators_replay_and_names_the_floors_refusals(tmp_path):
+    """C0's forwards are held to the C0 pass's replay limit; a pass whose
+    floor lifts the limit past its cap, or whose trunks disagree, fails C0
+    saying which."""
+    got = _run(tmp_path / "e", STUB_RC='{"c0 forwards": 3}')
+    assert got["rc"] == 1 and _run_steps(got) == ["c0 pass", "c0 forwards"]
+    assert "--replay-kl-limit 0.0001 " in _step(got, "c0 forwards")
+    assert "c0: FAILED, the evaluator's replay identity failed on 100 held-out games" in got["finish"]
+    floor = _run(tmp_path / "f", STUB_RC='{"c0 pass": 4}')
+    assert "c0: FAILED, the precision floor's bound lifts the replay limit past its cap: stage 1 should serve in fp32" \
+        in floor["finish"]
+    path = _run(tmp_path / "t", STUB_RC='{"pass": 5}')
+    assert "pass: FAILED, the packed and padded trunks disagree in fp32" in path["finish"]
+
+
 def test_stage_1s_failed_gates_or_missing_games_stop_the_run(tmp_path):
+    """Stage 1's failed gate stops the run; a games tarball that does not
+    extract leaves no partial directory counted complete."""
     got = _run(tmp_path / "g", STUB_FAIL_GATES="i_count")
     assert got["rc"] == 1 and got["finish"].startswith("STAGE1_UNUSABLE: gates failed: i_count"), got["finish"]
     assert _run_steps(got) == []
+    bad = _run(tmp_path / "b", STUB_BAD_TAR="s00")
+    assert bad["rc"] == 1 and "STAGE1_UNUSABLE: missing from" in bad["finish"] and "games_s00" in bad["finish"]
+    assert not (tmp_path / "b" / "stage1" / "games_s00").exists() and _run_steps(bad) == []

@@ -60,11 +60,15 @@ for _p in (_ROOT, _ROOT / "tools"):
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
+from tools.stage_c_plan import read_plan  # noqa: E402
+# The head-temperature floor (part 7), its names re-exported for the driver's callers.
+from tools.pg_head_floor import (FloorReading, fisher_from_pass, floor, floor_reading,  # noqa: E402,F401
+                                 slope_covariance, slopes_from_pass)
 from wesnoth_ai.pg_protocol import EvaluatorFactory  # noqa: E402
 from wesnoth_ai.pg_step import (ARMS, DEFAULT_ARM, SIDE_KL_RANGE, Decision, Direction, HalfReading,  # noqa: E402
                                 Reading, decisions_per_side, direction, fisher_quadratic, head_directions,
                                 kl_search, ladder, norm, paired_difference, paired_ratio, pooled_gradient,
-                                read_candidate, sides_by_half, solve, span_fisher, span_slopes)
+                                read_candidate, sides_by_half, span_fisher, span_slopes)
 
 REPLACE_SE = 2.0               # an arm replaces the default beyond this many paired SE (§2)
 RESOLVED_SE = 2.0              # a reading resolves when it lies this many SE above 0
@@ -73,8 +77,6 @@ K_SIDE = 0.25                  # the arms' KL per side-game (§6)
 CURVE_SPLITS = (2, 4)          # the gain curve's points besides the whole pass
 SPAN_STEP = 0.05               # the head-temperature Fisher's step: a 5% logit scale
 LINEAR_ARMS = ("sgd", "reduced_adamw", "heads_only", "probe_span")
-# tools/pg_pass.py's head names (wesnoth_ai/pg_loss.py HEADS) for pg_step's HEAD_MAPS.
-PASS_HEADS = {"actor": "actor_head", "type": "type_head", "target": "target_q_proj", "weapon": "weapon_head.2"}
 NAN = float("nan")
 
 
@@ -156,94 +158,6 @@ def gain_ratio(N: float, N_ref: float, B: float) -> float:
     """The model's Ĝ(N)/Ĝ(N_ref), gain_curve(N, B)/gain_curve(N_ref, B)
     (design §5, the gain-curve check)."""
     return math.sqrt(N * (N_ref + B) / (N_ref * (N + B)))
-
-
-# ---------------------------------------------------------------- the floor
-
-def _pass_head_order(pass_: Mapping, heads: Sequence[str]) -> Optional[List[int]]:
-    """The index in the pass's head order (its `head_slopes` keys) of each of
-    `heads`, or None when the pass has no head readings or other heads."""
-    if "head_slopes" not in pass_ or "head_fisher" not in pass_:
-        return None
-    order = [PASS_HEADS.get(name) for name in pass_["head_slopes"]]
-    if sorted(map(str, order)) != sorted(heads):
-        return None
-    return [order.index(head) for head in heads]
-
-
-def fisher_from_pass(pass_: Mapping, heads: Sequence[str]) -> Optional[np.ndarray]:
-    """The head-temperature Fisher per decision, ordered as `heads`, from
-    tools/pg_pass.py's `head_fisher`: (1/2N) sum over the training decisions
-    of the sampled scores' outer products, a per-side-game Fisher, divided
-    here by the pass's decisions per side-game. None when the pass lacks it."""
-    index = _pass_head_order(pass_, heads)
-    if index is None:
-        return None
-    per_side = pass_["decisions"] / (2.0 * pass_["games"])
-    return np.asarray(pass_["head_fisher"], dtype=np.float64)[np.ix_(index, index)] / per_side
-
-
-def slopes_from_pass(pass_: Mapping, heads: Sequence[str]) -> Optional[List[float]]:
-    """The pass's own head slopes, ordered as `heads` (a check on the slopes
-    read from `total` and the weights: the two agree up to rounding)."""
-    index = _pass_head_order(pass_, heads)
-    if index is None:
-        return None
-    values = list(pass_["head_slopes"].values())
-    return [float(values[i]) for i in index]
-
-
-def floor(s: np.ndarray, F_s: np.ndarray, K: float) -> float:
-    """sqrt(2K s^T F_s^-1 s): the first-order gain of the best step at KL K
-    within the span of the directions whose slopes are s and Fisher F_s
-    (design §3.4). By Cauchy-Schwarz in the Fisher metric the best step over
-    every parameter gains at least as much. F_s and K share one
-    normalisation (both per decision, or both per side-game)."""
-    s = np.asarray(s, dtype=np.float64)
-    return math.sqrt(2.0 * K * max(float(s @ solve(np.asarray(F_s, dtype=np.float64), s)), 0.0))
-
-
-def slope_covariance(total_slopes: np.ndarray, split_slopes: Sequence[np.ndarray],
-                     split_games: Sequence[int]) -> np.ndarray:
-    """C, the per-game covariance of the slopes, from the splits:
-    sum_i n_i (s_i - s)(s_i - s)^T / (k - 1), unbiased since
-    E[n_i (s_i - s)(s_i - s)^T] = C (1 - n_i / N)."""
-    n = np.asarray(split_games, dtype=np.float64)
-    deviations = np.asarray(split_slopes, dtype=np.float64) - np.asarray(total_slopes, dtype=np.float64)
-    return np.einsum("i,ij,ik->jk", n, deviations, deviations) / (len(n) - 1)
-
-
-@dataclass(frozen=True)
-class FloorReading:
-    floor: float
-    floor_se: float
-    floor_debiased: float
-    quadratic: float            # Q = s^T F_s^-1 s
-    quadratic_se: float
-    quadratic_noise: float      # E[Q] - Q_true = tr(F_s^-1 C) / N
-
-    def summary(self) -> Dict:
-        return dataclasses.asdict(self)
-
-
-def floor_reading(total_slopes: np.ndarray, split_slopes: Sequence[np.ndarray], split_games: Sequence[int],
-                  F_s: np.ndarray, K: float) -> FloorReading:
-    """The floor with its SE, and less its noise. The slopes s have
-    covariance C / N, and Q = s^T F_s^-1 s has gradient 2 F_s^-1 s, so
-    Var(Q) is about 4 s^T F_s^-1 (C / N) F_s^-1 s and the floor
-    sqrt(2K Q) has SE sqrt(2K) SE(Q) / (2 sqrt(Q)). Q is biased upward by
-    tr(F_s^-1 C) / N, which the debiased floor removes. F_s, read on fixed
-    held-out positions, is taken as exact."""
-    s = np.asarray(total_slopes, dtype=np.float64)
-    F_s = np.asarray(F_s, dtype=np.float64)
-    N = float(np.sum(split_games))
-    C = slope_covariance(s, split_slopes, split_games)
-    x = solve(F_s, s)
-    Q = float(s @ x)
-    Q_se = 2.0 * math.sqrt(max(float(x @ C @ x), 0.0) / N)
-    noise = float(np.trace(solve(F_s, C))) / N
-    floor_se = math.sqrt(2.0 * K) * Q_se / (2.0 * math.sqrt(Q)) if Q > 0 else NAN
-    return FloorReading(floor(s, F_s, K), floor_se, math.sqrt(2.0 * K * max(Q - noise, 0.0)), Q, Q_se, noise)
 
 
 # ---------------------------------------------------------------- the optimizer and the gate
@@ -351,6 +265,7 @@ class StageC:
         self.params = {name: params[name].detach().float().cpu() for name in pass_["names"]}
         self.span_step, self.k_side = span_step, k_side
         self.directions: Dict[str, Direction] = {}
+        self.evaluators: Dict = {}
         self.points: Dict = {}
         self.arm_readings: Dict[str, HalfReading] = {}
         self.batches: Dict[str, CriticalBatch] = {}
@@ -402,10 +317,12 @@ class StageC:
         select = self.halves[0]
         return read_candidate(evaluator, point.s, point.kl, {select: self.by_half[select]})[select]
 
-    def arms(self, arms: Sequence[str]) -> str:
+    def arms(self, arms: Sequence[str]) -> Optional[str]:
         """Parts 2 and 3: every arm at KL eps on half A, and the winner. An
         arm that fails is recorded with its error and left out of the
-        comparison; the others are read."""
+        comparison; the others are read. When the default arm was asked for
+        and failed, no arm can be held to the 2-paired-SE rule against it:
+        there is no winner (None) and the comparison is reported impossible."""
         table = self.readout.setdefault("arms", {})
         for arm in arms:
             try:
@@ -417,6 +334,7 @@ class StageC:
                 self.write()
                 continue
             self.directions[arm], self.points[arm], self.arm_readings[arm] = d, point, reading
+            self.evaluators[arm] = evaluator
             table[arm] = {"s": point.s, "kl": point.kl, "evals": point.evals, "norm": norm(d),
                           self.halves[0]: reading.summary()}
             self.write()
@@ -427,6 +345,10 @@ class StageC:
         readable = {arm: in_range and r.ess_ok for arm, r in self.arm_readings.items()}
         if DEFAULT_ARM in exact:
             winner, paired, reason = choose_arm(exact, readable)
+        elif DEFAULT_ARM in arms:
+            winner, paired = None, {}
+            reason = (f"the comparison is impossible: {DEFAULT_ARM} failed, and no arm is held to the "
+                      f"{REPLACE_SE:g}-paired-SE rule against it")
         else:
             winner = max((a for a in exact if readable[a]), key=lambda a: exact[a].estimate, default=next(iter(exact)))
             paired, reason = {}, f"{DEFAULT_ARM} not run: the readable arm of highest ΔĴ"
@@ -435,9 +357,11 @@ class StageC:
         return winner
 
     def ladder(self, winner: str) -> Decision:
-        """Part 4: the winner's ladder."""
-        self.decision = ladder(self.factory, self.directions[winner], self.eps, self.halves,
-                               s0=self.points[winner].s * math.sqrt(0.5))
+        """Part 4: the winner's ladder, on the winner's own evaluator: its
+        rung at eps is the arm's step, read on half A already."""
+        evaluator = self.evaluators[winner]
+        self.decision = ladder(lambda _d: evaluator, self.directions[winner], self.eps, self.halves,
+                               s0=self.points[winner].s * math.sqrt(0.5), known={1.0: self.points[winner]})
         self.readout["ladder"] = {"arm": winner, **self.decision.summary()}
         self.write()
         return self.decision
@@ -518,7 +442,10 @@ def run_stage_c(pass_: Mapping, params: Mapping[str, torch.Tensor], factory: Eva
                 prices: Optional[RoundPrices] = None) -> Dict:
     """The whole stage C readout (module docstring), written to `out`. Each
     part fails alone: its error goes to the readout's `errors` and the parts
-    that do not need it run; a gate without a ladder reads "neither"."""
+    that do not need it run; a gate without a ladder reads "unread", which is
+    not the measured "neither". The readout records the reads the run's
+    configuration plans (tools/stage_c_plan.read_plan, the count stage C is
+    priced by)."""
     run = StageC(pass_, params, factory, out, k_side, halves, span_step)
     errors = run.readout.setdefault("errors", {})
 
@@ -544,8 +471,14 @@ def run_stage_c(pass_: Mapping, params: Mapping[str, torch.Tensor], factory: Eva
     if laddered:
         part("gate", run.gate, winner, prices)
     if "gate" not in run.readout:
-        run.readout["gate"] = {"verdict": "neither", "reason": f"the gate could not be read: {sorted(errors)} failed"}
-        run.write()
+        why = (run.readout.get("optimizer", {}).get("reason") if winner is None and "arms" not in errors
+               else f"{sorted(errors)} failed")
+        run.readout["gate"] = {"verdict": "unread", "reason": f"the gate could not be read: {why}"}
+    critical = 1 + int(winner is not None and winner != DEFAULT_ARM and winner in LINEAR_ARMS)
+    span_forms = 0 if run.readout.get("span", {}).get("fisher_source") != "kl" else len(run.heads) * (len(run.heads) + 1) // 2
+    run.readout["read_plan"] = read_plan(arms=len(arms), curve_points=sum(k < len(pass_["splits"]) for k in curve_splits),
+                                         critical_batches=critical, span_forms=span_forms)
+    run.write()
     return run.readout
 
 

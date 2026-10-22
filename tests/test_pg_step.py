@@ -169,7 +169,7 @@ class _LadderEvaluator:
     def mean_kl(self, s):
         return s * s
 
-    def logp(self, s):
+    def logp(self, s, halves=None):
         rung = min(self.gains["A"], key=lambda m: abs(m * self.eps - s * s))
         gain = np.where(self.half == "A", self.gains["A"][rung], self.gains["B"][rung])
         x = self.R * (gain + self.noise)
@@ -245,7 +245,7 @@ class _FixedWeights:
         self.out = np.zeros(len(log_weights) * decisions)
         self.out[::decisions] = log_weights
 
-    def logp(self, s):
+    def logp(self, s, halves=None):
         return self.out
 
     def base_logp(self):

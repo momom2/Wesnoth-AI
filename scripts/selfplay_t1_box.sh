@@ -26,7 +26,7 @@
 #   MEM_GAMES (3,200) decisive games, and its fit;
 #   stage C's rates on the logged games, no training and no optimizer step:
 #   the gradient pass (tools/pg_pass.py, forward and backward) over the first
-#   RATE_GAMES (200) training games in fp32 and in bf16, the evaluator's
+#   RATE_GAMES (150) training games in fp32 and in bf16, the evaluator's
 #   forwards (tools/pg_eval.py time) over the first RATE_GAMES held-out
 #   games, each rate read past a warm-up, and stage C's wall and cost
 #   projected from them by tools/stage_c_plan.py, the function stage C's
@@ -63,8 +63,8 @@
 # wave 4, their walks 6 (800 games in 9-11 s on 31 workers); the labels and
 # the readouts, one pass over 30,000 records, about 10; D0 about 13,000 games
 # 36 minutes; the memory report about 3,300 games 9; the fits 2; the rates
-# 5 to 10 (two passes over 95,000 decisions at 500 to 1,500 a second, one
-# forward of as many, three model loads). In all about 3.1 hours, $1.8 at
+# 4 to 8 (two passes over 71,000 decisions at 500 to 1,500 a second, one
+# forward of as many, three model loads; each step cut at 5). In all about 3.1 hours, $1.8 at
 # $0.577 an hour. At twice the argmax game length
 # the full plan takes about 5.5 hours ($3.2); BOX_MAX_H is 6.5 ($3.75 at
 # most), and a slower rate shrinks the self-play rather than the switch
@@ -103,8 +103,9 @@ GAMES_PER_H="${GAMES_PER_H:-21966}"            # the pool's steady rate, for the
 LOST_MAX="${LOST_MAX:-10}"                     # games a match may miss, 0.2 % of a self-play match
 READ_RESERVE_MIN="${READ_RESERVE_MIN:-30}"     # kept for the labels and readouts when the self-play is sized
 FINISH_RESERVE_MIN="${FINISH_RESERVE_MIN:-15}" # kept for the finish's upload when the self-play is sized
-RATE_GAMES="${RATE_GAMES:-200}"                # stage C's rates: training games passed twice, held-out games read
-RATES_RESERVE_MIN="${RATES_RESERVE_MIN:-12}"   # kept for the rates when the self-play is sized
+RATE_GAMES="${RATE_GAMES:-150}"                # stage C's rates: training games passed twice, held-out games read
+RATES_CUT_MIN="${RATES_CUT_MIN:-5}"            # each of the rates' three steps (about 71,000 decisions)
+RATES_RESERVE_MIN=$(( 3 * RATES_CUT_MIN ))     # kept for the rates when the self-play is sized: their three cuts
 BOX_MAX_H="${BOX_MAX_H:-6.5}"
 # ---- the configuration (end)
 BOX_WORKER_GB="${BOX_WORKER_GB:-0.5}"           # a walking worker holds about 230 MB (match_luck_box.sh)
@@ -114,7 +115,6 @@ WALK_STALL_MIN="${WALK_STALL_MIN:-10}"         # no row for this long: the walk 
 LABELS_CUT_MIN="${LABELS_CUT_MIN:-15}"
 READOUT_CUT_MIN="${READOUT_CUT_MIN:-60}"
 FIT_CUT_MIN="${FIT_CUT_MIN:-15}"
-RATES_CUT_MIN="${RATES_CUT_MIN:-15}"           # each of the rates' three steps
 export HF_DIR="${HF_DIR:-tier-b/selfplay_t1_20261022}"
 BOX_OUT=$OUT
 # shellcheck source=box/boxlib.sh
@@ -446,8 +446,8 @@ read_selfplay() {                # the labels and the readouts of every self-pla
     cat "${rows[@]}" > "$OUT/rows.jsonl.tmp" && mv -f "$OUT/rows.jsonl.tmp" "$OUT/rows.jsonl"
     box_bounded labels "$LABELS_CUT_MIN" labels.log python tools/pg_labels.py "$OUT/rows.jsonl" \
         --heldout-from "$HELDOUT_FROM" --out "$OUT/labels.jsonl" --fits "$OUT/fits.json"
-    # pg_labels exits 1 when a game had no luck walk: both its sides are left out, named in fits.json.
-    if [ "$BOX_RC" -gt 1 ] || [ ! -f "$OUT/labels.jsonl" ]; then
+    # pg_labels exits 3 when a game had no luck walk: both its sides are left out, named in fits.json.
+    if { [ "$BOX_RC" -ne 0 ] && [ "$BOX_RC" -ne 3 ]; } || [ ! -f "$OUT/labels.jsonl" ]; then
         READOUT="FAILED: the labels, rc=$BOX_RC $BOX_WHY (labels.log)"
         return 1
     fi
@@ -497,8 +497,9 @@ measure() {                      # measure NAME GAMES SEED_BASE ANCHOR LABEL FLA
 }
 rates_step() {                   # rates_step NAME CMD...: one step of the rate measurement; RATES_WHY on failure
     box_bounded "rates $1" "$RATES_CUT_MIN" rates.log "${@:2}" && return 0
-    # pg_pass exits 3 when its replay identity misses (its sums go aside): the rate is read all the same.
-    [ "$1" != forwards ] && [ "$BOX_RC" -eq 3 ] && return 0
+    # A replay identity that misses (3; the pass's floor refused, 4, or its trunks' path, 5) leaves the
+    # step's summary aside, and the rate is read all the same: the verdicts are stage C's C0's to gate.
+    case $BOX_RC in 3|4|5) return 0 ;; esac
     RATES_WHY="rates $1 ended rc=$BOX_RC $BOX_WHY (rates.log)"
     return 1
 }
@@ -532,8 +533,10 @@ measure_rates() {                # stage C's rates on this run's games and its p
     done
     mkdir -p "$work"
     RATES_WHY=""
+    # The rate passes read no precision floor: at 150 games it would read every game-side (at 20,000, 400
+    # of them, about 2 % of the pass's time, which the projection leaves out); stage C's C0 reads it.
     rates_step fp32 python tools/pg_pass.py --checkpoint "$REF_PT" --games "${dirs[@]}" --labels "$OUT/labels.jsonl" \
-        --train-limit "$RATE_GAMES" --out "$work/pass_fp32.pt" --device cuda --workers "$WALK_JOBS"
+        --train-limit "$RATE_GAMES" --floor-dtype off --out "$work/pass_fp32.pt" --device cuda --workers "$WALK_JOBS"
     [ -n "$RATES_WHY" ] || rates_step bf16 python tools/pg_pass.py --checkpoint "$REF_PT" --games "${dirs[@]}" \
         --labels "$OUT/labels.jsonl" --train-limit "$RATE_GAMES" --bf16 --floor-dtype off --out "$work/pass_bf16.pt" \
         --device cuda --workers "$WALK_JOBS"
@@ -542,7 +545,7 @@ measure_rates() {                # stage C's rates on this run's games and its p
         --out "$OUT/rates_forwards.json"
     if [ -z "$RATES_WHY" ]; then
         for kind in fp32 bf16; do            # a pass whose replay identity missed wrote its summary aside
-            for summary in "$work/pass_$kind.json" "$work/pass_$kind.replay_failed.json"; do
+            for summary in "$work/pass_$kind".{json,replay_failed.json,floor_refused.json,path_failed.json}; do
                 [ ! -f "$summary" ] || { cp -f "$summary" "$OUT/rates_pass_$kind.json"; break; }
             done
         done

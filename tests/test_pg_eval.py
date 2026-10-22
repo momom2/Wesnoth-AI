@@ -186,6 +186,29 @@ def test_the_stage_c_factory_binds_evaluators_to_the_pass_network(tmp_path):
 
 
 @needs_core
+def test_evaluators_share_theta_k_and_forward_only_what_they_are_asked(tmp_path):
+    """Two evaluators of one context read theta_k over the held-out set once
+    between them; a candidate read on half A forwards half A only (NaN
+    elsewhere, the full reading's values there); every KL reading forwards
+    the moved network alone, theta_k's laws read once on the subsample."""
+    from collections import Counter
+    games, ev = _evaluator(tmp_path)
+    context = ev.context
+    other = context.bind(_direction(games.model, games.encoder, seed=9))
+    assert np.array_equal(other.base_logp(), ev.base_logp())
+    half = ev.logp(0.5, halves=("A",))
+    assert ev.logp(0.5, halves=("A",)) is half
+    full = ev.logp(0.5)
+    in_a = np.concatenate([np.full(gs.stop - gs.start, gs.half == "A") for gs in ev.game_sides()])
+    assert in_a.any() and not in_a.all()
+    assert np.isnan(half[~in_a]).all() and np.allclose(half[in_a], full[in_a], atol=1e-6)
+    kls = [ev.mean_kl(0.3), ev.mean_kl(-0.3), other.mean_kl(0.3), ev.mean_kl(0.3)]
+    assert kls[0] == kls[3] > 0 and kls[1] > 0 and kls[2] > 0
+    assert context.reads == Counter({"full": 2, "half A": 1, "subsample": 4})
+    context.close()
+
+
+@needs_core
 def test_the_c0_forward_reading_counts_and_reproduces_the_held_out_decisions(tmp_path):
     """`pg_eval.py time` replays the first held-out games once: every logged
     decision of theirs, at the logged law."""
@@ -202,7 +225,11 @@ def test_the_c0_forward_reading_counts_and_reproduces_the_held_out_decisions(tmp
     first = sorted(games.records)[:2]
     assert got["games"] == 2
     assert got["decisions"] == sum(len(decisions_of(read_record(games.records[g]))) for g in first)
-    assert got["positions_per_second"] > 0 and got["replay"]["max_abs"] < 1e-4
+    assert got["positions_per_second"] > 0 and got["replay"]["max_abs"] < 1e-4 and got["replay"]["pass"]
+    # Held to a limit just below its estimate, the reading fails as the pass does.
+    assert main(["time", "--checkpoint", str(games.checkpoint), "--games", str(games.games), "--labels", str(labels),
+                 "--held-games", "2", "--device", "cpu", "--streams", "2",
+                 f"--replay-kl-limit={got['replay']['kl'] - 1e-6}", "--out", str(out)]) == 3
 
 
 def test_a_held_out_game_whose_seats_sit_in_two_halves_is_refused(tmp_path):
