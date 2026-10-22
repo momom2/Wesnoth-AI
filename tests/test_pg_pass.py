@@ -226,6 +226,55 @@ def test_a_game_side_another_player_played_is_refused(tmp_path, where, key, valu
         EvalContext(games.checkpoint, records, held, CPU, EvalConfig())
 
 
+def _served_hotter(encoder, model, staged, memory):
+    """An injected serving precision: the fp32 law with its actor logits
+    scaled by 1.3, a floor of known sign and a size well above 1e-4."""
+    import dataclasses
+    out = model.forward_embedded(encoder.embed_staged(staged), memory=memory).float32()
+    return dataclasses.replace(out, actor_logits=out.actor_logits * 1.3)
+
+
+@needs_core
+def test_the_replay_limit_rises_by_twice_the_measured_floor(tmp_path):
+    """The floor read at an injected serving precision lifts the limit to
+    1e-4 + 2 floor: logs shifted to a KL estimate of 1e-4 + floor fail the
+    pass without the floor and pass with it, and a shift to 1e-4 + 3 floor
+    fails either way. pass.pt records the floor, its SE and the limit."""
+    from tools.pg_pass import GradientPass, PassConfig, ReplayMismatch
+    from tools.pg_positions import read_record
+    games, labels = _labels(tmp_path)
+    floor_config = dict(streams=2, floor_fraction=1.0)
+    clean = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(**floor_config),
+                         serving_forward=_served_hotter).run()
+    floor = clean["floor"]
+    assert floor["kl"] > 1e-3 and 0 < floor["se"] < floor["kl"]
+    assert floor["decisions"] == clean["decisions"] and floor["game_sides"] == 6
+    assert clean["replay"]["limit"] == pytest.approx(1e-4 + 2 * floor["kl"])
+    dst, records = _copied_games(tmp_path, games)
+    shifted = records[games.names["g2"]]
+    original = read_record(shifted)
+    share = len(original["decisions"]) / clean["decisions"]
+
+    def run(kl, **config):
+        rec = json.loads(json.dumps(original))
+        for d in rec["decisions"]:
+            d["logp"] += kl / share
+        _rewrite(shifted, rec)
+        return GradientPass(games.checkpoint, records, labels, CPU, PassConfig(**config),
+                            serving_forward=_served_hotter).run()
+
+    inside = 1e-4 + floor["kl"]
+    assert run(inside, **floor_config)["replay"]["kl"] == pytest.approx(inside, rel=1e-3)
+    with pytest.raises(ReplayMismatch):
+        run(inside, streams=2, floor_dtype="off")
+    with pytest.raises(ReplayMismatch):
+        run(1e-4 + 3 * floor["kl"], **floor_config)
+    # The default reading, bf16 autocast on this device: a KL, read on every decision.
+    bf16 = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(**floor_config)).run()["floor"]
+    assert bf16["dtype"] == "bfloat16" and bf16["decisions"] == clean["decisions"]
+    assert math.isfinite(bf16["kl"]) and bf16["kl"] > -1e-7
+
+
 @needs_core
 def test_a_log_the_trainer_does_not_reproduce_fails_the_pass(tmp_path):
     """Logged log probabilities 0.05 above the network's on one game: the

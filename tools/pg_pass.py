@@ -40,12 +40,31 @@ What pass.pt holds beyond the contract's keys:
     seconds        the pass's wall time
     config         the pass's settings
 
+    floor          the precision floor: on the decisions of a fraction of
+                   the game-sides (`floor_fraction`, drawn by a hash of
+                   their names), the mean KL from the law at the serving
+                   precision to the pass's fp32 law, with its SE clustered
+                   by game-side (None when no game-side was drawn)
+
 The labels must name the network's own games: every labelled game-side was
 played by the checkpoint (its match result's hash) at the pass's memory
 slots under the temperature-1 procedure with no offset, or the pass refuses
 to start (`pg_positions.refuse_foreign`). It fails after its sum when the
-replay's KL estimate exceeds `REPLAY_KL_LIMIT`, and the command line then
-writes its result as `<out>.replay_failed.pt` and exits 3.
+replay's KL estimate exceeds its limit, `replay_limit(REPLAY_KL_LIMIT,
+floor)`, and the command line then writes its result as
+`<out>.replay_failed.pt` and exits 3.
+
+The floor: the box generator serves in bf16 (tools/eval_inference_server.py:
+the embedding in fp32, the trunk under bf16 autocast, the packed varlen
+trunk on CUDA, each batch's numerics depending on its composition), while
+the pass recomputes in fp32, so the logged law sits some distance from the
+trainer's before anything is wrong. The floor reading forwards its
+decisions twice, at the pass's precision and at the serving one as the
+trainer reproduces it (the same embedding, bf16 autocast, the packed trunk
+where the device has it; the batch is the floor's own), and the limit
+becomes max(1e-4, 1e-4 + 2 floor). `floor_dtype` names the serving
+precision ("off" reads no floor); the reading is injectable
+(`serving_forward`), for a device whose bf16 is not the server's.
 
 The network runs in eval mode (no dropout: the law the player sampled), in
 float32 unless `--bf16` (the device's bfloat16 autocast: its rounding,
@@ -78,10 +97,12 @@ from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex
                                 refuse_foreign, side_lengths)
 from tools.pg_schedule import PGMemoryRouter, split_schedules  # noqa: E402
 from tools.sequence_setup import ARCH, build_modules  # noqa: E402
+from wesnoth_ai.memory import MemoryBatch  # noqa: E402
 from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
-from wesnoth_ai.pg_loss import (CLASSES, HEADS, action_log_probs, head_scores, probe_offsets,  # noqa: E402
-                                stage_actions)
+from wesnoth_ai.pg_loss import (CLASSES, HEADS, action_log_probs, head_scores, legal_kl,  # noqa: E402
+                                probe_offsets, stage_actions)
 from wesnoth_ai.pg_records import N_SPLITS, LabelRow, labelled_games  # noqa: E402
+from wesnoth_ai.sequence_streams import unit_draw  # noqa: E402
 
 log = logging.getLogger("pg_pass")
 
@@ -115,6 +136,15 @@ def stage_step(positions, staged, model, device):
 # "the mean KL is below eps/20"), on the unbiased per-decision KL estimate.
 REPLAY_KL_LIMIT = 1e-4
 EXIT_REPLAY = 3
+# The game-sides whose decisions read the precision floor: two in a
+# hundred, about 95,000 decisions of a 20,000-game pass.
+FLOOR_FRACTION = 0.02
+
+
+def replay_limit(base: float, floor: Optional[float]) -> float:
+    """The replay identity's limit over a measured precision floor (module
+    docstring): max(base, base + 2 floor)."""
+    return base if floor is None else max(base, base + 2.0 * floor)
 
 
 class ReplayMismatch(RuntimeError):
@@ -122,7 +152,8 @@ class ReplayMismatch(RuntimeError):
 
     def __init__(self, result: Dict):
         super().__init__(f"the replay's KL estimate {result['replay']['kl']:.3g} nats per decision exceeds its "
-                         f"limit {result['replay']['limit']:.3g} ({json.dumps(result['replay'])})")
+                         f"limit {result['replay']['limit']:.3g} ({json.dumps(result['replay'])}; "
+                         f"floor {json.dumps(result['floor'])})")
         self.result = result
 
 
@@ -139,14 +170,18 @@ class PassConfig:
     recompute: Optional[bool] = None        # recompute each step in the backward pass (default: on CUDA)
     verify: bool = True                     # check the records' fingerprints while replaying
     procedure: str = SELF_PLAY_PROCEDURE    # the procedure every labelled game-side was played under
-    replay_kl_limit: float = REPLAY_KL_LIMIT
+    replay_kl_limit: float = REPLAY_KL_LIMIT  # before the floor (`replay_limit`)
+    floor_fraction: float = FLOOR_FRACTION
+    floor_dtype: str = "bfloat16"           # the serving precision; "off" reads no floor
 
 
 class GradientPass:
-    """The pass of module docstring over the training games of `labels`."""
+    """The pass of module docstring over the training games of `labels`.
+    `serving_forward(encoder, model, staged, memory)`, when given, replaces
+    the floor's forward at the serving precision."""
 
     def __init__(self, checkpoint_path: Path, records: Dict[str, Path], labels: Sequence[LabelRow],
-                 device: torch.device, config: PassConfig = PassConfig()):
+                 device: torch.device, config: PassConfig = PassConfig(), serving_forward=None):
         from tools.eval_provenance import file_sha256
         self.config, self.device = config, device
         self.checkpoint_sha256 = file_sha256(checkpoint_path)
@@ -168,7 +203,59 @@ class GradientPass:
         self.autocast = torch.bfloat16 if (device.type == "cuda" and config.bf16) else None
         self.recompute = device.type == "cuda" if config.recompute is None else bool(config.recompute)
         self.probes = torch.zeros(len(CLASSES), device=device, requires_grad=True)
+        self.serving_forward = serving_forward or self._serving_forward
+        self.floor_sides = set() if config.floor_dtype == "off" else {
+            (g, s) for g in self.games for s in (1, 2) if unit_draw("pg_floor", config.seed, g, s) < config.floor_fraction}
         self._reset_sums()
+
+    # ---- the precision floor ----------------------------------------------
+    def _serving_forward(self, encoder, model, staged, memory):
+        """The law at the serving precision as the trainer reproduces it: the
+        embedding in fp32, the trunk under autocast at `floor_dtype`, the
+        packed varlen trunk where the device has it (CUDA)."""
+        packed = getattr(model, "infer_packed_trunk", False)
+        model.infer_packed_trunk = self.device.type == "cuda"
+        try:
+            streams = encoder.embed_staged(staged)
+            with torch.autocast(self.device.type, dtype=getattr(torch, self.config.floor_dtype)):
+                return model.forward_embedded(streams, memory=memory).float32()
+        finally:
+            model.infer_packed_trunk = packed
+
+    def _read_floor(self, steps, positions, mems: MemoryBatch) -> None:
+        """KL(serving law || the pass's law) at the step's floor rows, each
+        forwarded in a batch of the floor's own."""
+        rows = [i for i, s in enumerate(steps) if (s.game_side.file, s.game_side.side) in self.floor_sides]
+        if not rows:
+            return
+        sub = [positions[i] for i in rows]
+        with torch.no_grad():
+            memory = MemoryBatch(padded=mems.padded[rows].detach(), counts=[mems.counts[i] for i in rows])
+            staged = self.encoder.stage_raws([p.raw for p in sub], device=self.device)
+            batch = stage_step(sub, staged, self.model, self.device)
+            with torch.autocast(self.device.type, dtype=self.autocast, enabled=self.autocast is not None):
+                exact = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=memory,
+                                                    packed=self.config.packed)
+            served = self.serving_forward(self.encoder, self.model, staged, memory)
+            kl = legal_kl(served, exact.float32(), batch.views, batch.rows).double().cpu().tolist()
+        for i, value in zip(rows, kl):
+            key = (steps[i].game_side.file, steps[i].game_side.side)
+            total, count = self.floor_sums.get(key, (0.0, 0))
+            self.floor_sums[key] = (total + value, count + 1)
+
+    def _floor(self) -> Optional[Dict]:
+        """The floor's mean over its decisions and its SE clustered by
+        game-side (a ratio estimator), or None."""
+        if not self.floor_sums:
+            return None
+        sums = torch.tensor([v for v, _ in self.floor_sums.values()], dtype=torch.float64)
+        counts = torch.tensor([n for _, n in self.floor_sums.values()], dtype=torch.float64)
+        mean = float(sums.sum() / counts.sum())
+        m = len(sums)
+        se = (float(((sums - mean * counts) ** 2).sum() * m / (m - 1)) ** 0.5 / float(counts.sum())
+              if m > 1 else float("nan"))
+        return {"kl": mean, "se": se, "decisions": int(counts.sum()), "game_sides": m,
+                "dtype": self.config.floor_dtype, "fraction": self.config.floor_fraction}
 
     def _reset_sums(self) -> None:
         zeros = {n: torch.zeros_like(p, dtype=torch.float32) for n, p in self.named}
@@ -179,6 +266,7 @@ class GradientPass:
         self.head_fisher = torch.zeros(len(HEADS), len(HEADS), dtype=torch.float64, device=self.device)
         # The replay's sums of d = logged - trainer log p: |d|, max |d|, d, d^2.
         self.replay = torch.zeros(4, dtype=torch.float64, device=self.device)
+        self.floor_sums: Dict[tuple, tuple] = {}
         self.rows = 0
         self.shadow = 0
         self.memories: Dict[int, torch.Tensor] = {}
@@ -212,6 +300,7 @@ class GradientPass:
                                               else self._step(*args))
             total = total + loss
             router.wrote(steps, mem_padded, [p.shadow for p in positions])
+            self._read_floor(steps, positions, mems)
             self.head_sums += (w.double().unsqueeze(1) * scores).sum(dim=0)
             self.head_fisher += scores.T @ scores
             self.replay[0] += diff.abs().sum()
@@ -272,6 +361,7 @@ class GradientPass:
         sq = [{n: (t / max(1, k)).cpu() for n, t in s.items()} for s, k in zip(self.sq, self.split_windows)]
         probe_grad = torch.zeros(len(CLASSES)) if self.probes.grad is None else -self.probes.grad.detach().cpu()
         rows = max(1, self.rows)
+        floor = self._floor()
         return {
             "names": [n for n, _ in self.named], "total": total, "splits": splits, "sq": sq,
             "windows": int(sum(self.split_windows)), "games": N, "decisions": int(self.rows),
@@ -282,7 +372,9 @@ class GradientPass:
             "head_fisher": (self.head_fisher * scale).cpu().tolist(),
             "replay": {"kl": float(self.replay[2]) / rows, "half_mean_square": 0.5 * float(self.replay[3]) / rows,
                        "mean_abs": float(self.replay[0]) / rows, "max_abs": float(self.replay[1]),
-                       "limit": float(self.config.replay_kl_limit)},
+                       "limit": replay_limit(self.config.replay_kl_limit, floor["kl"] if floor else None),
+                       "base_limit": float(self.config.replay_kl_limit)},
+            "floor": floor,
             "shadow": int(self.shadow), "split_windows": list(self.split_windows),
             "position_counts": dict(self.loader.counts), "seconds": float(seconds),
             "config": asdict(self.config),
@@ -308,7 +400,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     for name in ("streams", "window", "seed", "slots", "workers", "prefetch"):
         ap.add_argument("--" + name, type=int, default=getattr(defaults, name))
     ap.add_argument("--bf16", action="store_true", help="the device's bfloat16 autocast (module docstring)")
-    ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT)
+    ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT, help="the limit before the floor")
+    ap.add_argument("--floor-fraction", type=float, default=FLOOR_FRACTION,
+                    help="the game-sides whose decisions read the precision floor")
+    ap.add_argument("--floor-dtype", default="bfloat16", choices=("bfloat16", "float16", "off"),
+                    help="the serving precision the floor reads")
     ap.add_argument("--procedure", default=SELF_PLAY_PROCEDURE, help="the labelled game-sides' procedure tag")
     ap.add_argument("--no-verify", action="store_true", help="skip the records' fingerprints")
     ap.add_argument("--log-level", default="INFO")
@@ -320,7 +416,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     records = {r.game: index.path(r.game) for r in labels if not r.heldout}
     config = PassConfig(streams=args.streams, window=args.window, seed=args.seed, slots=args.slots,
                         workers=args.workers, prefetch=args.prefetch, bf16=args.bf16, verify=not args.no_verify,
-                        procedure=args.procedure, replay_kl_limit=args.replay_kl_limit)
+                        procedure=args.procedure, replay_kl_limit=args.replay_kl_limit,
+                        floor_fraction=args.floor_fraction, floor_dtype=args.floor_dtype)
     try:
         result = GradientPass(args.checkpoint, records, labels, torch.device(args.device), config).run()
     except ReplayMismatch as e:
@@ -329,9 +426,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         log.error("PG_PASS_REPLAY_FAILED %s; the sums are in %s", e, failed)
         return EXIT_REPLAY
     save_pass(result, args.out)
-    log.info("PG_PASS_DONE %d games, %d decisions, %d windows in %.0f s; replay %s; probes %s", result["games"],
-             result["decisions"], result["windows"], result["seconds"], json.dumps(result["replay"]),
-             json.dumps(result["probes"]))
+    log.info("PG_PASS_DONE %d games, %d decisions, %d windows in %.0f s; replay %s; floor %s; probes %s",
+             result["games"], result["decisions"], result["windows"], result["seconds"], json.dumps(result["replay"]),
+             json.dumps(result["floor"]), json.dumps(result["probes"]))
     return 0
 
 
