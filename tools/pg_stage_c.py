@@ -456,11 +456,12 @@ class StageC:
         s_total, size = self.points[arm].s / 2.0, norm(d_total)
         q_total = fisher_quadratic(self.factory(d_total), s_total)
         q_splits, q_deviations = [], []
+        span = self.F_s if arm == "probe_span" else None
         for i in range(len(self.pass_["splits"])):
             split = pooled_gradient(self.pass_, [i])
-            q_splits.append(self._quadratic(self.direction(arm, self.F_s, split), s_total, size))
+            q_splits.append(self._quadratic(self.direction(arm, span, split), s_total, size))
             deviation = {name: split[name] - total[name] for name in split}
-            q_deviations.append(self._quadratic(self.direction(arm, self.F_s, deviation), s_total, size))
+            q_deviations.append(self._quadratic(self.direction(arm, span, deviation), s_total, size))
         result = critical_batch(q_splits, q_deviations, q_total, self.pass_["split_games"])
         self.batches[arm] = result
         self.readout.setdefault("critical_batch", {})[arm] = {**result.summary(), "q_total": q_total,
