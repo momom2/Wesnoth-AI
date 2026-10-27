@@ -13,6 +13,10 @@ rebuilt (status: [CLAUDE.md](CLAUDE.md); plan:
 
 ## Quickstart
 
+A new development machine also needs credentials, the secret guard,
+Claude's state and the local data: see
+[docs/new_machine.md](docs/new_machine.md).
+
 ```powershell
 # 1. Environment: Python 3.11 or later (the laptop and CI run 3.13).
 python -m venv .venv
