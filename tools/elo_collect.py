@@ -53,6 +53,7 @@ ESTIMAND_DEFAULTS = {
     "memory_a": None, "memory_b": None,
     "mcts_batch": 1,
     "infer_bf16": False, "infer_compile": False, "infer_bf16_residual": False, "infer_fused_relu": False,
+    "infer_fp16": False,
     "infer_fp8_a": False, "infer_fp8_b": False,
     "shared_inference": False, "infer_packed_trunk": False,
     "combat_stream": "shared",

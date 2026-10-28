@@ -61,7 +61,7 @@ import torch
 from wesnoth_ai.classes import GameState
 from wesnoth_ai.encoder import EncodedState, RawEncoded, encode_raw
 from wesnoth_ai.memory import MemoryBatch
-from wesnoth_ai.model import ModelOutput
+from wesnoth_ai.model import ModelOutput, autocast_dtype
 from wesnoth_ai.stage_timing import stage
 
 log = logging.getLogger(__name__)
@@ -593,7 +593,7 @@ class InferenceServer:
                         return model.forward_streams(*streams)
                 t1 = time.perf_counter()
                 if bf16:
-                    with torch.autocast("cuda", dtype=torch.bfloat16):
+                    with torch.autocast("cuda", dtype=autocast_dtype(model)):
                         padded = forward().float32()
                 else:
                     padded = forward()

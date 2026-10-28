@@ -53,8 +53,8 @@ from wesnoth_ai.model_output import (
 from wesnoth_ai.packed_trunk import (
     CompiledPackedTrunk, EmbeddedStreams, PackedEmbeddedIndex, PackedTrunkWeights, WindowHeadIndex,
     batch_counts,
-    build_packed_layout, check_packed_trunk_supported, flash_varlen_applies, host_to_device,
-    packed_trunk, padded_gather_index,
+    build_packed_layout, check_packed_trunk_supported, host_to_device,
+    packed_trunk, padded_gather_index, varlen_attention_applies,
 )
 from wesnoth_ai.material import MATERIAL_SCALE
 from wesnoth_ai.profile_regions import region
@@ -66,11 +66,17 @@ from wesnoth_ai.trunk_modes import CompiledBlock, TrunkMode, check_trunk_mode_su
 from wesnoth_ai.fp8_inference import Fp8TrunkWeights, check_fp8_inference_supported, make_fp8_trunk_layers
 
 __all__ = [
-    "WesnothModel",
+    "WesnothModel", "autocast_dtype",
     # Re-exports: importers and pickles address these through this module.
     "ModelOutput", "PaddedOutput", "TokenKind", "ActorKind", "UnitActionType",
     "MAX_ATTACKS", "VALUE_N_ATOMS", "VALUE_V_MIN", "VALUE_V_MAX", "random_padded_streams",
 ]
+
+
+def autocast_dtype(model) -> torch.dtype:
+    """The dtype of `model`'s inference autocast (its
+    `infer_autocast_dtype`; bfloat16 for a model built before it existed)."""
+    return getattr(model, "infer_autocast_dtype", torch.bfloat16)
 
 
 def _check_packed_index(prebuilt: PackedEmbeddedIndex, sizes, sightings, mem) -> None:
@@ -154,10 +160,17 @@ class WesnothModel(nn.Module):
         # Packed varlen trunk for batched inference (docs/
         # gpu_forward_design_20260904.md section 5.3; wesnoth_ai/
         # packed_trunk.py). Off until measured on the box. When on, it
-        # serves only the calls the flash varlen kernel can take (CUDA,
-        # bf16/fp16; see _packed_trunk_applies); every other call keeps
-        # the padded trunk.
+        # serves only the calls a varlen kernel can take (flash on CUDA,
+        # bf16/fp16; the HIP kernel on ROCm, fp16; see
+        # _packed_trunk_applies); every other call keeps the padded trunk.
         self.infer_packed_trunk = False
+        # The dtype of the inference autocast that infer_autocast_bf16 (and
+        # a caller's autocast_bf16) switches on: bfloat16, or float16 on a
+        # GPU without bf16 matrix units (an RDNA2 card runs bf16 matmuls at
+        # a fifth of fp16's rate, training/metrics/local_gpu_20261028; the
+        # server's --infer-fp16). The bf16-only modes below stay off under
+        # float16 (_bf16_inference).
+        self.infer_autocast_dtype = torch.bfloat16
         # Compiled variant of the packed trunk (design note section 13;
         # packed_trunk.CompiledPackedTrunk): the layer loop as one
         # inductor graph over a native-dtype (bf16 on CUDA) copy of the
@@ -320,13 +333,14 @@ class WesnothModel(nn.Module):
                 and not self.training
                 and encoded.hex_tokens.device.type == "cuda"):
             import dataclasses
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            low = autocast_dtype(self)
+            with torch.autocast("cuda", dtype=low):
                 out = self._forward_impl(encoded)
             return dataclasses.replace(out, **{
                 f.name: v.float()
                 for f in dataclasses.fields(out)
                 if isinstance((v := getattr(out, f.name)), torch.Tensor)
-                and v.dtype == torch.bfloat16})
+                and v.dtype == low})
         return self._forward_impl(encoded)
 
     def _forward_impl(self, encoded: "EncodedState") -> ModelOutput:
@@ -496,7 +510,7 @@ class WesnothModel(nn.Module):
         use_bf16 = (getattr(self, "infer_autocast_bf16", False)
                     if autocast_bf16 is None else bool(autocast_bf16))
         if use_bf16 and not self.training and device.type == "cuda":
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            with torch.autocast("cuda", dtype=autocast_dtype(self)):
                 out = self._forward_padded_impl(encoded_list, packed, memory)
             return out.float32()
         return self._forward_padded_impl(encoded_list, packed, memory)
@@ -601,15 +615,17 @@ class WesnothModel(nn.Module):
     def _packed_trunk_applies(self, x: torch.Tensor) -> bool:
         """The packed trunk serves a call when it is switched on, the
         model is in eval mode, and the in-projections will produce a
-        dtype the flash varlen kernel takes on CUDA: bf16/fp16 inputs, or
+        dtype a varlen kernel takes on the device: bf16/fp16 inputs, or
         fp32 inputs under a bf16/fp16 autocast (torch.is_autocast_enabled
         takes the device type: torch 2.5.1 torch/csrc/autograd/init.cpp
-        :559-580). Everything else keeps the padded trunk."""
+        :559-580), flash on CUDA and the HIP kernel on ROCm (fp16).
+        Everything else keeps the padded trunk."""
         if not (getattr(self, "infer_packed_trunk", False) and not self.training
                 and x.device.type == "cuda"):
             return False
         dtype = torch.get_autocast_dtype("cuda") if torch.is_autocast_enabled("cuda") else x.dtype
-        return flash_varlen_applies(x.device, dtype)
+        head_dim = self.d_model // self.encoder.layers[0].self_attn.num_heads
+        return varlen_attention_applies(x.device, dtype, head_dim)
 
     def _forward_streams_packed(self, hex_batch, unit_batch, recruit_batch, global_batch,
                                 end_turn_batch, sizes,

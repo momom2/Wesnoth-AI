@@ -690,6 +690,12 @@ def main(argv: List[str]) -> int:
                          "rounding, so it is for self-play generation, never a strength match; "
                          "the games record it (infer_bf16_residual) and an outdir never mixes "
                          "it.")
+    ap.add_argument("--infer-fp16", action="store_true",
+                    help="Shared inference: the servers autocast to float16 instead of bfloat16 "
+                         "(eval_inference_server --infer-fp16), for a GPU without bf16 matrix units; "
+                         "on a ROCm build the packed trunk then runs the HIP varlen kernel "
+                         "(wesnoth_ai/hip_attention.py). Another rounding than bf16's: the games "
+                         "record it (infer_fp16) and an outdir never mixes it.")
     ap.add_argument("--fused-relu", action="store_true",
                     help="Shared inference: the servers run the packed trunk's first "
                          "feed-forward linear, its bias and the ReLU in one cuBLASLt call. It may "
@@ -777,6 +783,9 @@ def main(argv: List[str]) -> int:
     if args.device == "cpu" and (args.infer_bf16 or args.infer_compile):
         # Refuse up front: every child would refuse per game.
         ap.error("--infer-bf16/--infer-compile require a cuda device")
+    if args.infer_fp16 and (args.device == "cpu" or not args.shared_inference or args.infer_bf16):
+        ap.error("--infer-fp16 is the shared servers' precision: with --shared-inference on a cuda "
+                 "device, in place of --infer-bf16")
     _any_tcs = (
         (sims_a > 0 and not args.plan_a
          and not (args.no_turn_search or args.no_turn_search_a))
@@ -1023,6 +1032,7 @@ def main(argv: List[str]) -> int:
                     f"uses {_want}: numerics differ, refusing to "
                     f"mix. Use a fresh outdir.")
         for _fld, _want in (("infer_bf16_residual", args.bf16_residual),
+                            ("infer_fp16", args.infer_fp16),
                             ("infer_fused_relu", args.fused_relu),
                             ("infer_fp8_a", args.fp8_inference_a),
                             ("infer_fp8_b", args.fp8_inference_b)):
@@ -1129,7 +1139,8 @@ def main(argv: List[str]) -> int:
                         graphed=bool(args.graphed_serve), rust_stage=bool(args.rust_stage),
                         server_memory=bool(args.server_memory), priors_only=bool(args.priors_only),
                         bf16_residual=bool(args.bf16_residual), fused_relu=bool(args.fused_relu),
-                        fp8=fp8, timeline_s=float(args.inference_timeline_s),
+                        fp8=fp8, fp16=bool(args.infer_fp16),
+                        timeline_s=float(args.inference_timeline_s),
                         profile_batches=int(args.inference_profile_batches),
                         profile_after=int(args.inference_profile_after))
                     servers[key].append(handle)
@@ -1309,6 +1320,7 @@ def main(argv: List[str]) -> int:
                                else _effective_precision(args, "infer_compile")),
              "infer_bf16_residual": bool(args.bf16_residual and servers),
              "infer_fused_relu": bool(args.fused_relu and servers),
+             "infer_fp16": bool(args.infer_fp16 and servers),
              "infer_fp8_a": bool(args.fp8_inference_a and servers),
              "infer_fp8_b": bool(args.fp8_inference_b and servers),
              "shared_inference": bool(servers),

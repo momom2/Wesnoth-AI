@@ -891,6 +891,8 @@ def main(argv) -> int:
         # of their own.
         inf_bf16_residual = bool(_hello.get("bf16_residual", False))
         inf_fused_relu = bool(_hello.get("fused_relu", False))
+        # The server's float16 autocast (--infer-fp16), in place of bf16.
+        inf_fp16 = bool(_hello.get("infer_fp16", False))
         # The trunk's fp8 products, per side: the two sides of a play check
         # are served by two servers, one of them fp8 (run_elo_batch
         # --fp8-inference-a / -b).
@@ -923,7 +925,7 @@ def main(argv) -> int:
         inf_compile = (_cuda if args.infer_compile is None
                        else args.infer_compile)
         inf_packed = False           # the per-process forward is single-sample
-        inf_bf16_residual = inf_fused_relu = False    # a server's switches
+        inf_bf16_residual = inf_fused_relu = inf_fp16 = False    # a server's switches
         inf_fp8 = {"a": False, "b": False}
         if (inf_bf16 or inf_compile) and not _cuda:
             raise SystemExit(
@@ -969,6 +971,7 @@ def main(argv) -> int:
                     f"the logits, refusing to mix. Use a fresh "
                     f"outdir.")
             for _fld, _now in (("infer_bf16_residual", inf_bf16_residual),
+                               ("infer_fp16", inf_fp16),
                                ("infer_fused_relu", inf_fused_relu),
                                ("infer_fp8_a", inf_fp8["a"]), ("infer_fp8_b", inf_fp8["b"])):
                 if bool(prev.get(_fld, False)) != _now:
@@ -1233,6 +1236,8 @@ def main(argv) -> int:
         # another game.
         "infer_bf16_residual": inf_bf16_residual,
         "infer_fused_relu": inf_fused_relu,
+        # The server's autocast in float16 instead of bfloat16 (--infer-fp16).
+        "infer_fp16": inf_fp16,
         # Each side's trunk products on e4m3 operands (the server's
         # --fp8-inference): another rounding, another player.
         "infer_fp8_a": inf_fp8["a"],

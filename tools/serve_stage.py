@@ -40,7 +40,7 @@ from wesnoth_ai.byte_wire import DTYPES, REQUEST_SCALARS
 from wesnoth_ai.encoder import MAX_FACTIONS, StagedBatch
 from wesnoth_ai.leaf_wire import ALL_FIELDS, MASK_FIELDS, PARITY_FIELDS
 from wesnoth_ai.memory import MemoryBatch
-from wesnoth_ai.model import ActorKind, TokenKind, UnitActionType
+from wesnoth_ai.model import ActorKind, TokenKind, UnitActionType, autocast_dtype
 from wesnoth_ai import profile_regions
 from wesnoth_ai.packed_trunk import (FlatLayout, PackedEmbeddedIndex, PackedIndex, PackedLayout,
                                      batch_counts)
@@ -163,7 +163,7 @@ def _packed_trunk_applies(model, device: torch.device, bf16: bool) -> bool:
     """`WesnothModel._packed_trunk_applies` for this server's forwards."""
     probe = torch.empty(0, device=device)
     if bf16 and device.type == "cuda":
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        with torch.autocast("cuda", dtype=autocast_dtype(model)):
             return bool(model._packed_trunk_applies(probe))
     return bool(model._packed_trunk_applies(probe))
 
@@ -428,7 +428,7 @@ def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
             streams = encoder.embed_staged(staged)
         with region("forward"):
             if bf16:
-                with torch.autocast("cuda", dtype=torch.bfloat16):
+                with torch.autocast("cuda", dtype=autocast_dtype(model)):
                     padded = model.forward_embedded(streams, memory=states, index=prebuilt).float32()
             else:
                 padded = model.forward_embedded(streams, memory=states, index=prebuilt)

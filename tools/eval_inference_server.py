@@ -304,7 +304,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             server_memory: bool = True, priors_only: bool = False,
                             profile_batches: int = 0, profile_after: int = 0,
                             bf16_residual: bool = False, fused_relu: bool = False,
-                            fp8: bool = False, timeline_s: float = 0.0) -> InferenceServerHandle:
+                            fp8: bool = False, timeline_s: float = 0.0,
+                            fp16: bool = False) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -318,6 +319,8 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
            "--stats-out", str(stats_path), "--label", tag]
     if infer_bf16 is not None:
         cmd.append("--infer-bf16" if infer_bf16 else "--no-infer-bf16")
+    if fp16:
+        cmd.append("--infer-fp16")
     cmd.append("--packed-embed" if packed_embed else "--no-packed-embed")
     if compile_packed:
         cmd.append("--compile-packed")
@@ -487,13 +490,16 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
                  packed: bool, packed_embed: bool, compiled: bool, graphed: bool,
                  rust_stage: bool = True, server_memory: bool = False,
                  priors_only: bool = False, bf16_residual: bool = False,
-                 fused_relu: bool = False, fp8: bool = False) -> Dict:
+                 fused_relu: bool = False, fp8: bool = False, fp16: bool = False) -> Dict:
     """What a server tells each connection: the checkpoint it serves, its
     precision path, the structure a worker's encoder must build and the
     vocab."""
     return {
         "spec": str(spec), "checkpoint_sha256": checkpoint_sha256,
         "device": device, "infer_bf16": bf16,
+        # The autocast in float16 instead of bfloat16 (--infer-fp16): a
+        # numerics path of its own, recorded by every game.
+        "infer_fp16": bool(fp16),
         "packed_trunk": packed, "packed_embed": packed_embed, "compile_packed": compiled,
         # The packed trunk's residual stream in bf16 and its fused ReLU
         # (model.infer_bf16_residual, infer_fused_relu): numerics paths of
@@ -555,9 +561,16 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--infer-bf16", action=argparse.BooleanOptionalAction, default=None,
                     help="bf16 autocast for the served forwards. Default AUTO: on "
                          "with cuda, off on cpu; forcing it on with cpu is refused.")
+    ap.add_argument("--infer-fp16", action="store_true",
+                    help="Autocast the served forwards to float16 instead of bfloat16 "
+                         "(model.infer_autocast_dtype), for a GPU without bf16 matrix units (an "
+                         "RDNA2 card, training/metrics/local_gpu_20261028). Replaces --infer-bf16; "
+                         "the bf16-only paths (--bf16-residual, --fused-relu, --fp8-inference, "
+                         "--compile-packed, --graphed) are refused with it. The games record it.")
     ap.add_argument("--packed-trunk", action=argparse.BooleanOptionalAction, default=True,
-                    help="The packed varlen trunk (model.infer_packed_trunk) where the "
-                         "flash kernel applies (cuda + bf16); the padded trunk elsewhere.")
+                    help="The packed varlen trunk (model.infer_packed_trunk) where a varlen "
+                         "kernel applies (flash: cuda + bf16; the HIP kernel: ROCm + fp16); "
+                         "the padded trunk elsewhere.")
     ap.add_argument("--packed-embed", action=argparse.BooleanOptionalAction, default=True,
                     help="Embed the batch as one packed sequence on the host (the pool's "
                          "default; -4.9 ms of host work per 16-leaf batch); with the "
@@ -626,26 +639,42 @@ def main(argv: List[str]) -> int:
     from tools.eval_players import _load_policy
     from tools.inference_seam import InferenceServer
     from tools.eval_provenance import file_sha256
-    from wesnoth_ai.packed_trunk import check_packed_trunk_supported, flash_varlen_applies
+    from wesnoth_ai.model import autocast_dtype
+    from wesnoth_ai.packed_trunk import check_packed_trunk_supported, varlen_attention_applies
     torch.set_num_threads(max(1, args.torch_threads))
     device = _resolve_device(args.device)
     cuda = device.type == "cuda"
-    bf16 = cuda if args.infer_bf16 is None else bool(args.infer_bf16)
-    if bf16 and not cuda:
-        raise SystemExit("--infer-bf16 requires a cuda device: on cpu it would no-op "
+    fp16 = bool(args.infer_fp16)
+    if fp16 and args.infer_bf16:
+        raise SystemExit("--infer-fp16 replaces --infer-bf16's dtype: pass one of them")
+    if fp16 and (args.bf16_residual or args.fused_relu or args.fp8_inference or args.compile_packed
+                 or args.graphed):
+        raise SystemExit("--infer-fp16 serves the eager float16 trunk: not with --bf16-residual, "
+                         "--fused-relu, --fp8-inference, --compile-packed or --graphed (bf16 paths)")
+    bf16 = (cuda if args.infer_bf16 is None else bool(args.infer_bf16)) and not fp16
+    if (bf16 or fp16) and not cuda:
+        raise SystemExit("--infer-bf16/--infer-fp16 require a cuda device: on cpu they would no-op "
                          "and the results would claim a precision that never ran")
+    autocast = bf16 or fp16
     # The games record which checkpoint they were served (the hello).
     checkpoint_sha256 = file_sha256(spec)
-    policy = _load_policy(spec, device, label=args.label, infer_bf16=bf16,
+    policy = _load_policy(spec, device, label=args.label, infer_bf16=autocast,
                           infer_compile=False)
     model = policy._inference_model
     encoder = policy._inference_encoder
+    if fp16:
+        model.infer_autocast_dtype = torch.float16
     model.infer_priors_only = bool(args.priors_only)
     packed = False
-    if args.packed_trunk and cuda and bf16 and flash_varlen_applies(device, torch.bfloat16):
+    head_dim = model.d_model // model.encoder.layers[0].self_attn.num_heads
+    if args.packed_trunk and cuda and autocast and varlen_attention_applies(
+            device, autocast_dtype(model), head_dim):
         check_packed_trunk_supported(model.encoder)
         model.infer_packed_trunk = True
         packed = True
+    elif args.packed_trunk and fp16:
+        log.warning("--infer-fp16: no varlen kernel serves %s (see the hip_attention warning); "
+                    "serving the padded trunk", device)
     if args.graphed and (args.bf16_residual or args.fused_relu):
         raise SystemExit("--graphed runs its own layer loop (the float32 stream, the plain ReLU): "
                          "not with --bf16-residual or --fused-relu")
@@ -716,14 +745,14 @@ def main(argv: List[str]) -> int:
             with torch.no_grad():
                 log.info("graphed serve preflight: %s", graphed.preflight())
     server = InferenceServer(model, encoder, device=device,
-                             output_device=torch.device("cpu"), autocast_bf16=bf16,
+                             output_device=torch.device("cpu"), autocast_bf16=autocast,
                              packed_embed=packed_embed, graphed=graphed)
     hello = server_hello(spec, checkpoint_sha256, encoder, model, device=device.type, bf16=bf16,
                          packed=packed, packed_embed=packed_embed, compiled=compiled,
                          graphed=graphed is not None and graphed.disabled is None,
                          rust_stage=rust_stage, server_memory=memory is not None,
                          priors_only=bool(args.priors_only), bf16_residual=bf16_residual,
-                         fused_relu=fused_relu, fp8=fp8)
+                         fused_relu=fused_relu, fp8=fp8, fp16=fp16)
     listener = Listener()
     infer_fn = _model_infer_fn(server, rust_stage=rust_stage, memory=memory)
     profiler = None
@@ -748,8 +777,8 @@ def main(argv: List[str]) -> int:
     info.update(window_ms=args.window_ms, max_batch=args.max_batch)
     print(f"{ADDR_PREFIX}{listener.address}", flush=True)
     print(f"{INFO_PREFIX}{json.dumps(info)}", flush=True)
-    log.info("serving %s on %s (device=%s bf16=%s packed=%s packed_embed=%s compiled=%s "
-             "window=%.1fms max_batch=%d)", spec.name, listener.address, device.type, bf16,
+    log.info("serving %s on %s (device=%s bf16=%s fp16=%s packed=%s packed_embed=%s compiled=%s "
+             "window=%.1fms max_batch=%d)", spec.name, listener.address, device.type, bf16, fp16,
              packed, packed_embed, compiled, args.window_ms, args.max_batch)
     # Until the driver closes our stdin, or a device fault: then this
     # process exits and the driver, seeing it dead, admits no more games.
