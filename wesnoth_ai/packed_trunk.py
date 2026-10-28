@@ -38,7 +38,7 @@ F.scaled_dot_product_attention applies as well. torch 2.10 keeps the same
 positional signature (checked on the local wheel).
 
 On a ROCm build the flash kernel is not used; fp16 calls go to the HIP
-varlen kernel of wesnoth_ai/hip_attention.py, which takes the same
+varlen kernel of wesnoth_ai/hip_kernels.py, which takes the same
 arguments (forward only).
 
 Outside the kernels' domain (CPU, fp32) the same packed bookkeeping runs
@@ -72,7 +72,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from wesnoth_ai.hip_attention import hip_varlen_applies, hip_varlen_attention
+from wesnoth_ai.hip_kernels import hip_varlen_applies, hip_varlen_attention
 
 log = logging.getLogger(__name__)
 
@@ -454,7 +454,7 @@ def flash_varlen_applies(device: torch.device, dtype: torch.dtype) -> bool:
     (flash_api.cpp:567-575: CUDA, fp16 or bf16). A ROCm build reports its
     GPUs as "cuda" too, but its flash kernel is not this one and has no
     kernel for some of them (gfx1032, 2026-10-28): there the HIP kernel
-    (wesnoth_ai/hip_attention.py) serves instead."""
+    (wesnoth_ai/hip_kernels.py) serves instead."""
     return device.type == "cuda" and torch.version.hip is None and dtype in _FLASH_DTYPES
 
 

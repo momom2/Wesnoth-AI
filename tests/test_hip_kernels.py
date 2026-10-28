@@ -1,8 +1,9 @@
-"""The HIP varlen attention kernel (wesnoth_ai/hip_attention.py): its
-dispatch off ROCm, and on a ROCm GPU the kernel against
+"""The HIP kernels (wesnoth_ai/hip_kernels.py): their dispatch off ROCm,
+and on a ROCm GPU the varlen attention against
 F.scaled_dot_product_attention per segment, the fallback when a gradient
-is wanted, and the packed fp16 trunk against the padded fp32 trunk over
-the real slots. The GPU checks skip without a ROCm build and a GPU the
+is wanted, the fused residual add and layer norm against F.layer_norm,
+and the packed fp16 trunk (the model's fused loop) against the padded
+fp32 trunk over the real slots. The GPU checks skip without a ROCm build and a GPU the
 kernel serves (CI has neither); on the local RX 6600 they run under the
 ROCm venv (training/metrics/local_gpu_20261028/README.md)."""
 from __future__ import annotations
@@ -17,7 +18,9 @@ import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from wesnoth_ai.hip_attention import HEAD_DIMS, hip_varlen_applies, hip_varlen_attention  # noqa: E402
+from wesnoth_ai.hip_kernels import (  # noqa: E402
+    HEAD_DIMS, hip_add_layer_norm, hip_add_layer_norm_applies, hip_varlen_applies, hip_varlen_attention,
+)
 from wesnoth_ai.packed_trunk import (  # noqa: E402
     PackedIndex, flash_varlen_applies, packed_attention, varlen_attention_applies,
 )
@@ -30,6 +33,7 @@ def test_dispatch_off_rocm():
     on a ROCm build."""
     assert not hip_varlen_applies(torch.device("cpu"), torch.float16)
     assert not varlen_attention_applies(torch.device("cpu"), torch.float16)
+    assert not hip_add_layer_norm_applies(torch.device("cpu"), 384)
     if torch.version.hip is None:
         assert not hip_varlen_applies(torch.device("cuda"), torch.float16)
     else:
@@ -106,13 +110,33 @@ def test_gradient_falls_back_to_sdpa():
 
 
 @rocm
+@pytest.mark.parametrize("d", [128, 384])
+def test_add_layer_norm_matches_torch(d):
+    """float32 to its rounding (the order of the sums differs), and the
+    fp16 copy within one fp16 step of the reference's rounding."""
+    g = torch.Generator().manual_seed(d)
+    x = (torch.randn(1001, d, generator=g) * 3).to(DEV)
+    y = torch.randn(1001, d, generator=g).to(DEV, torch.float16)
+    w, b = (torch.rand(d, generator=g) + 0.5).to(DEV), torch.randn(d, generator=g).to(DEV)
+    assert hip_add_layer_norm_applies(DEV, d)
+    o32, o16 = hip_add_layer_norm(x, y, w, b, 1e-5)
+    ref = F.layer_norm(x + y.float(), (d,), w, b, 1e-5)
+    assert (o32 - ref).abs().max().item() < 1e-4
+    assert o16.dtype == torch.float16
+    assert (o16.float() - ref.half().float()).abs().max().item() <= 2 ** -10 * ref.abs().max().item()
+
+
+@rocm
 def test_packed_fp16_trunk_matches_padded_fp32():
-    """A small random network (head_dim 32): the packed trunk in fp16 on
-    the HIP kernel against the padded trunk in fp32, over every sample's
-    real slots."""
+    """A small random network (head_dim 32, width 128): the packed trunk in
+    fp16 (the fused loop: the HIP attention and add-and-norm) against the
+    padded trunk in fp32, over every sample's real slots."""
     from wesnoth_ai.model import WesnothModel
     torch.manual_seed(5)
     model = WesnothModel(d_model=128, num_layers=2, num_heads=4, d_ff=256).to(DEV).eval()
+    calls = []
+    fused = model._run_hip_fp16_trunk
+    model._run_hip_fp16_trunk = lambda x, index: calls.append(1) or fused(x, index)
     rng = random.Random(6)
     sizes = [(rng.randint(1, 30), rng.randint(0, 7), rng.randint(100, 600)) for _ in range(12)]
     g = torch.Generator(device=DEV).manual_seed(7)
@@ -126,6 +150,7 @@ def test_packed_fp16_trunk_matches_padded_fp32():
         ref = model.forward_streams(*streams, packed=False)
         with torch.autocast("cuda", dtype=torch.float16):
             got = model.forward_streams(*streams, packed=True).float32()
+    assert calls, "the fp16 forward did not take the fused loop"
     for f in FIELDS:
         diff = scale = 0.0
         for x, y in zip(got.samples(), ref.samples()):

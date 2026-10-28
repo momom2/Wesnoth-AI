@@ -56,6 +56,7 @@ from wesnoth_ai.packed_trunk import (
     build_packed_layout, check_packed_trunk_supported, host_to_device,
     packed_trunk, padded_gather_index, varlen_attention_applies,
 )
+from wesnoth_ai.hip_kernels import hip_add_layer_norm, hip_add_layer_norm_applies, hip_varlen_attention
 from wesnoth_ai.material import MATERIAL_SCALE
 from wesnoth_ai.profile_regions import region
 from wesnoth_ai.padded_streams import (ExtraStreams, PaddedIndex, check_sighting_stream,
@@ -842,9 +843,12 @@ class WesnothModel(nn.Module):
     def _inference_layers(self, x: torch.Tensor, index) -> torch.Tensor:
         """The packed trunk's layers on x [total, d] for _packed_trunk_heads:
         the fp8 loop or the inference trunk modes where they apply, the
-        compiled loop with infer_compile_packed, _packed_layers otherwise."""
+        compiled loop with infer_compile_packed, the fused fp16 loop on a
+        ROCm GPU, _packed_layers otherwise."""
         if self.infer_fp8 and self._bf16_inference(x):
             return self._run_fp8_trunk(x, index)
+        if not self.infer_compile_packed and self._hip_fp16_inference(x):
+            return self._run_hip_fp16_trunk(x, index)
         mode = self._inference_trunk_mode(x)
         if mode is not None:
             return self._run_inference_trunk_mode(x, index, mode)
@@ -947,6 +951,47 @@ class WesnothModel(nn.Module):
         dev = x.device.type
         return (not self.training and torch.is_autocast_enabled(dev)
                 and torch.get_autocast_dtype(dev) == torch.bfloat16)
+
+    def _hip_fp16_inference(self, x: torch.Tensor) -> bool:
+        """Eval mode under an fp16 autocast on a GPU the HIP kernels serve at
+        this width (wesnoth_ai/hip_kernels.py: a ROCm build), with affine
+        layer norms: where _run_hip_fp16_trunk applies."""
+        if self.training or x.device.type != "cuda" or not torch.is_autocast_enabled("cuda") \
+                or torch.get_autocast_dtype("cuda") != torch.float16:
+            return False
+        norms = [n for layer in self.encoder.layers for n in (layer.norm1, layer.norm2)]
+        if any(n.weight is None or n.bias is None for n in norms):
+            return False
+        return hip_add_layer_norm_applies(x.device, self.d_model)
+
+    def _run_hip_fp16_trunk(self, x: torch.Tensor, index) -> torch.Tensor:
+        """The packed trunk's layers in the fp16 autocast's numerics on fused
+        kernels: the linears on an fp16 copy of the weights (the autocast
+        casts the same values every call), the attention by the HIP varlen
+        kernel, and each residual add with its layer norm and the result's
+        fp16 rounding (the next linear's input) in one kernel, the residual
+        stream in float32 as under the autocast. Per layer of a 48-leaf
+        batch on the RX 6600 the add, norm and cast took 0.97 ms unfused and
+        0.52 fused (2026-10-28). Returns float32 rows."""
+        w = self._weight_copy(torch.float16, torch.float32, x.device)
+        total = x.shape[0]
+        with torch.autocast("cuda", enabled=False):
+            h32 = x.float()
+            h16 = h32.half()
+            for layer, (qkv_w, qkv_b, out_w, out_b, ln1_w, ln1_b, ff1_w, ff1_b, ff2_w, ff2_b,
+                        ln2_w, ln2_b) in zip(self.encoder.layers, w.layers):
+                _, heads, head_dim, E = qkv_w.shape
+                qkv = F.linear(h16, qkv_w.view(3 * E, E), None if qkv_b is None else qkv_b.view(3 * E))
+                q, k, v = qkv.view(total, 3, heads, head_dim).unbind(1)
+                ctx = hip_varlen_attention(q, k, v, index.cu_seqlens, index.max_len)
+                sa = F.linear(ctx.view(total, E), out_w, out_b)
+                h32, h16 = hip_add_layer_norm(h32, sa, ln1_w, ln1_b, layer.norm1.eps)
+                ff = F.linear(layer.activation(F.linear(h16, ff1_w, ff1_b)), ff2_w, ff2_b)
+                h32, h16 = hip_add_layer_norm(h32, ff, ln2_w, ln2_b, layer.norm2.eps)
+            if w.final_norm is not None:
+                h32 = F.layer_norm(h32, (h32.shape[-1],), w.final_norm[0], w.final_norm[1],
+                                   self.encoder.norm.eps)
+        return h32
 
     def _inference_trunk_mode(self, x: torch.Tensor) -> Optional[TrunkMode]:
         """infer_bf16_residual and infer_fused_relu as a trainer's trunk mode,

@@ -673,7 +673,7 @@ def main(argv: List[str]) -> int:
         model.infer_packed_trunk = True
         packed = True
     elif args.packed_trunk and fp16:
-        log.warning("--infer-fp16: no varlen kernel serves %s (see the hip_attention warning); "
+        log.warning("--infer-fp16: no varlen kernel serves %s (see the hip kernels warning); "
                     "serving the padded trunk", device)
     if args.graphed and (args.bf16_residual or args.fused_relu):
         raise SystemExit("--graphed runs its own layer loop (the float32 stream, the plain ReLU): "

@@ -694,7 +694,7 @@ def main(argv: List[str]) -> int:
                     help="Shared inference: the servers autocast to float16 instead of bfloat16 "
                          "(eval_inference_server --infer-fp16), for a GPU without bf16 matrix units; "
                          "on a ROCm build the packed trunk then runs the HIP varlen kernel "
-                         "(wesnoth_ai/hip_attention.py). Another rounding than bf16's: the games "
+                         "(wesnoth_ai/hip_kernels.py). Another rounding than bf16's: the games "
                          "record it (infer_fp16) and an outdir never mixes it.")
     ap.add_argument("--fused-relu", action="store_true",
                     help="Shared inference: the servers run the packed trunk's first "
