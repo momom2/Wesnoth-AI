@@ -1,0 +1,17 @@
+{
+ "device": "AMD Radeon RX 6600",
+ "torch": "2.14.0+rocm10.1.0",
+ "hip": "7.16.26385",
+ "threads": 6,
+ "positions": 200,
+ "forward_batch": 64,
+ "train_batch": 32,
+ "positions_per_s": {
+  "forward_fp32": 20.7,
+  "forward_fp16": 19.0,
+  "forward_bf16": 17.1,
+  "train_fp32": 3.0,
+  "train_fp16": 3.3,
+  "train_bf16": 0.6
+ }
+}
