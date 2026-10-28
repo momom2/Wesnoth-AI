@@ -290,6 +290,23 @@ $1.47 in all):
     on `own2`'s games at temperature 1, one KL-sized step per round checked
     offline on held-out games; stage 1 ($1.65) and stage C ($2.73-5.71) wait
     on the user.
+  - **Stages 0, 1 and C built, not merged** (2026-10-22, autonomous window;
+    `feature/pg-integration`, tip 1e52cec, CI 39714607673 green; contracts in
+    `docs/training_design_20261019/build_contracts.md`): the decision log and
+    `--log-decisions`, label rows with cross-fitted b and β, stage 1's
+    readouts and `scripts/selfplay_t1_box.sh` (which also measures the pass
+    and evaluator rates and prices stage C); the gradient pass (`pg_pass`,
+    per-split resumable, replay identity gated above a measured bf16 floor)
+    and the network evaluator; the step math (`pg_step`, `pg_stage_c`: arms,
+    KL search, Ĝ and ΔĴ, the ladder, the critical batch, the head floor, the
+    gate's verdict); the planted offline readout; `scripts/stage_c_box.sh`.
+    Each branch and the integration were reviewed adversarially and fixed
+    (bugs caught: b's shrinkage variance divided by N, not N − C; stage C's
+    plan undercounting forwards 3x; a precision floor that could hide a path
+    bug; a 24 GB subsample store; an inflated resumed rate). The actor-level
+    end_turn rule left the code with it. Waits on the user: approval of
+    stage 1 ($1.65, at most $3.75), then of stage C ($4.3-7.8 at the
+    recorded rate, re-priced by stage 1's measured rates).
 - For the training plan's design (user, 2026-10-15): a curvature-aware
   optimizer as a candidate measurement. The 2014 saddle-free Newton paper
   (arXiv 1406.2572) does not apply: it costs many Hessian-vector products a

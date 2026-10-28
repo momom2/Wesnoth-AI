@@ -268,7 +268,7 @@ fn parse_type(name: &str, u: &Bound<'_, PyDict>, movetypes: &Bound<'_, PyDict>) 
             });
         }
     }
-    // `_movetype_costs`: the type's merged table, else its movetype's.
+    // Movement costs: the type's merged table, else its movetype's.
     let mut movement_costs = int_table(opt(u, "movement_costs")?)?;
     if movement_costs.is_empty() {
         if let Some(mt) = opt::<String>(u, "movement_type")? {

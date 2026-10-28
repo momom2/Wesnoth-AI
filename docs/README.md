@@ -17,6 +17,7 @@ leg records and runbooks (index in `archive/README.md`).
 | box_runbook.md | how a run goes on a rented box, from the checks before renting to the destroy, with the box library's quickstart |
 | box_specs.md | the current box shape, the worksheet that derives it, and every throughput measurement |
 | checkpoint_naming.md | the checkpoint naming scheme and the lineage of named checkpoints |
+| new_machine.md | setting up a new development machine: credentials, the secret guard, Claude's state, the Rust core, Wesnoth, and the data that lived only on the first laptop |
 | rust_port_plan.md | the Rust kernels: rules of the port, phases and status |
 | turn_proposer_design_20260905.md | the design of the turn-level search pipeline that phase 2 builds (rows 1 to 6 without a pre-grader) |
 | techniques.md | catalog of every learning technique the training system implements beyond bare REINFORCE, with its default and a code citation |

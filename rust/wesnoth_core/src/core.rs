@@ -361,10 +361,9 @@ impl GameCore {
         (classes.len() - 1) as i64
     }
 
-    /// One class's arrays over the map: `_move_cost_at_hex` (the type's
-    /// movement costs, doubled below UNREACHABLE when slowed), the
-    /// defense subcost `defense_pct_at` and the combat defense
-    /// `_terrain_def_pct`; a hex with no terrain code reads the flat key.
+    /// One class's arrays over the map: the type's movement costs
+    /// (doubled below UNREACHABLE when slowed), the defense subcost and
+    /// the combat defense; a hex with no terrain code reads the flat key.
     fn compute_class(&self, t: &TypeRec, slowed: bool, table: &DefTable) -> ClassRec {
         let all: Vec<usize> = (0..self.map.h).collect();
         let (mcost, dsub, defense_pct) = self.compute_class_at(t, slowed, table, &all);
