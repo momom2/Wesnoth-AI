@@ -46,6 +46,7 @@ What pass.pt holds beyond the contract's keys:
     floor          the precision floor and the trunks' path check on the
                    decisions of FLOOR_SIDES drawn game-sides
                    (tools/pg_floor.py), None when not read
+    floor_dtype    the precision the floor read ("off": none)
 
 Beside pass.pt the command line writes pass.json, its scalars
 (`SUMMARY_KEYS`), for readers without torch.
@@ -60,8 +61,13 @@ the floor's upper bound lifts the replay limit past its cap (exit 4: stage
 limit, `pg_floor.replay_limit(REPLAY_KL_LIMIT, floor)` (exit 3); the
 command line then writes its result as `<out>.path_failed.pt`,
 `<out>.floor_refused.pt` or `<out>.replay_failed.pt`. `floor_dtype` names
-the serving precision ("off" reads no floor); the serving and packed
-forwards are injectable, for a device whose bf16 is not the server's.
+the serving precision the floor reads: "auto" (the command line's default)
+takes it from the labelled games' match results, bfloat16 on a box and
+float16 on the local RX 6600, a named one is refused when the games were
+served in the other, and "off" reads no floor
+(`pg_floor.resolve_floor_dtype`; `floor_dtype` in pass.pt is the one
+read). The serving and packed forwards are injectable, for a device whose
+bf16 is not the server's.
 
 Each split's sums are written aside as it completes (`<out>.splits/`), and
 a pass started again over the same games, labels, checkpoint and settings
@@ -98,10 +104,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
 from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex, record_facts,  # noqa: E402
-                                refuse_foreign, side_lengths)
+                                refuse_foreign, servings, side_lengths)
 from tools.pg_schedule import PGMemoryRouter, split_schedules  # noqa: E402
 from tools.sequence_setup import ARCH, build_modules  # noqa: E402
-from tools.pg_floor import FLOOR_SIDES, FloorReader, draw_sides, refusal, replay_limit  # noqa: E402
+from tools.pg_floor import (FLOOR_DTYPES, FLOOR_SIDES, FloorReader, draw_sides, refusal,  # noqa: E402
+                            replay_limit, resolve_floor_dtype)
 from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
 from wesnoth_ai.pg_loss import CLASSES, HEADS, action_log_probs, head_scores, probe_offsets, stage_actions  # noqa: E402
 from wesnoth_ai.pg_records import N_SPLITS, LabelRow, labelled_games  # noqa: E402
@@ -189,7 +196,7 @@ class PassConfig:
     procedure: str = SELF_PLAY_PROCEDURE    # the procedure every labelled game-side was played under
     replay_kl_limit: float = REPLAY_KL_LIMIT  # before the floor (`pg_floor.replay_limit`)
     floor_sides: int = FLOOR_SIDES          # the game-sides the floor reads (pg_floor.draw_sides)
-    floor_dtype: str = "bfloat16"           # the serving precision; "off" reads no floor
+    floor_dtype: str = "bfloat16"           # the serving precision (pg_floor.FLOOR_DTYPES); "auto": the games'
 
 
 class GradientPass:
@@ -214,6 +221,7 @@ class GradientPass:
         paths = {g: records[g] for g in self.games}
         facts = record_facts(paths, config.workers)
         refuse_foreign(facts, self.checkpoint_sha256, config.slots, config.procedure)
+        self.floor_dtype = resolve_floor_dtype(config.floor_dtype, servings(facts))
         self.lengths = side_lengths(facts)
         self.loader = PositionLoader(paths, dict(self.encoder.unit_type_to_id), dict(self.encoder.faction_to_id),
                                      workers=config.workers, verify=config.verify)
@@ -228,12 +236,12 @@ class GradientPass:
         self._reset_sums()
 
     def _new_floor(self) -> Optional[FloorReader]:
-        if self.config.floor_dtype == "off":
+        if self.floor_dtype == "off":
             return None
         serving, packed = self.floor_config
         return FloorReader(self.encoder, self.model, self.device,
                            draw_sides(self.games, self.config.seed, self.config.floor_sides),
-                           self.config.floor_dtype, serving=serving, packed=packed)
+                           self.floor_dtype, serving=serving, packed=packed)
 
     # ---- a split's sums, written as it completes ----------------------------
     def _split_games(self, i: int) -> List[str]:
@@ -454,15 +462,15 @@ class GradientPass:
                        "mean_abs": float(self.replay[0]) / rows, "max_abs": float(self.replay[1]),
                        "limit": replay_limit(self.config.replay_kl_limit, floor),
                        "base_limit": float(self.config.replay_kl_limit)},
-            "floor": floor,
+            "floor": floor, "floor_dtype": self.floor_dtype,
             "shadow": int(self.shadow), "split_windows": list(self.split_windows),
             "position_counts": dict(self.loader.counts), "seconds": float(seconds), "rate": self._rate(),
             "config": asdict(self.config),
         }
 
 
-SUMMARY_KEYS = ("games", "decisions", "windows", "seconds", "rate", "replay", "floor", "probes", "shadow",
-                "split_games", "checkpoint_sha256", "config")
+SUMMARY_KEYS = ("games", "decisions", "windows", "seconds", "rate", "replay", "floor", "floor_dtype", "probes",
+                "shadow", "split_games", "checkpoint_sha256", "config")
 
 
 def save_pass(result: Dict, out: Path) -> None:
@@ -492,8 +500,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT, help="the limit before the floor")
     ap.add_argument("--floor-sides", type=int, default=FLOOR_SIDES,
                     help="the game-sides whose decisions read the precision floor (tools/pg_floor.py)")
-    ap.add_argument("--floor-dtype", default="bfloat16", choices=("bfloat16", "float16", "off"),
-                    help="the serving precision the floor reads")
+    ap.add_argument("--floor-dtype", default="auto", choices=FLOOR_DTYPES,
+                    help="the serving precision the floor reads: auto, the labelled games' own "
+                         "(tools/pg_floor.py resolve_floor_dtype); off, none")
     ap.add_argument("--procedure", default=SELF_PLAY_PROCEDURE, help="the labelled game-sides' procedure tag")
     ap.add_argument("--fresh", action="store_true",
                     help="discard the splits an earlier run wrote: a timed pass (stage 1's rates, stage C's C0)")
