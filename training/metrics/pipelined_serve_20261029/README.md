@@ -1,6 +1,13 @@
 # The pipelined serve loop (2026-10-29)
 
-**The numbers here come from a CPU stand-in for the GPU, not from the GPU.**
+**On the GPU (the lead, 20:28-20:51, idle RX 6600): +9.2% decisions a
+second at 96 games in flight and +11.1% at 144** (section "The GPU A/B:
+results" at the end). That is above the stand-in's +7.1% and +6.4%. The
+loop stays opt-in in `run_elo_batch` (boxes were not measured), and the
+desktop's scripts turn it on.
+
+**The numbers below, up to that section, come from a CPU stand-in for the
+GPU, not from the GPU.**
 The serve loop ran on the desktop (Windows 10, Ryzen 5 7600, 12 threads)
 with a sleeping stand-in device. Stage 1's self-play was running beside it
 on the RX 6600: 12 worker processes and a server at below-normal priority,
@@ -282,3 +289,36 @@ Beyond the steady rate, read each run's server stats line in its log:
 The one-against-two-servers A/B read +2.5% and called it the noise, and
 two rounds of one arm have differed by 2.2%. If an arm pair reads under
 about 3% either way, play it again before reading it.
+
+## The GPU A/B: results (the lead, 2026-10-29 20:28-20:51)
+
+`ab_gpu.sh` as above, at 89e995c6, on the idle RX 6600 right after stage 1
+ended. Every run exited 0. Steady decisions a second by `ab_steady.py`;
+the server's counters are from its stats line in each run's log (out
+`C:\Users\momom2\wesnoth_runs\pipelined_ab_20261029`):
+
+| Arm | Run 1 | Run 2 | Mean | Over serial | Wall a run (s) | `t_finish` / wall | Launch ms a batch | Mean batch (`ab_steady`) |
+|---|---|---|---|---|---|---|---|---|
+| serial, 96 | 517.3 | 523.1 | 520.2 | | 162, 168 | 0.74, 0.76 | 7.1, 5.9 | 77.0, 73.9 |
+| pipelined, 96 | 569.2 | 567.0 | 568.1 | **+9.2%** | 150, 155 | 0.64, 0.63 | 5.5, 5.0 | 41.2, 41.7 |
+| serial, 144 | 518.4 | 508.4 | 513.4 | | 161, 163 | 0.76, 0.77 | 7.2, 6.6 | 92.2, 91.0 |
+| pipelined, 144 | 577.5 | 562.9 | 570.2 | **+11.1%** | 140, 146 | 0.66, 0.64 | 5.8, 5.7 | 58.7, 57.1 |
+
+"Launch ms a batch" is `t_stage + t_forward + t_priors` over the batches.
+
+What it settles from "What the stand-in does not settle":
+- **The gain is larger than the stand-in's** (+9.2% against +7.1% at 96).
+  So part of the 14 ms a batch the events did not explain is host-side,
+  and the pipelined loop hides it. That is the README's second case.
+- **Cross-thread waits do not stall the launches.** A pipelined batch's
+  launch takes 5.0-5.8 ms against 5.9-7.2 for a serial one, though the
+  serial batches are larger. The waiter thread's `synchronize()` holds no
+  lock the launches need.
+- **144 in flight does not pay over 96** for the pipelined loop (+0.4%,
+  inside the 2-3% between identical runs). The desktop stays at 96.
+- **Against stage 1's code**, the pipelined loop at 96 reads 568.1 against
+  485.1 (`pipe_buffer_20261029`'s idle A/B, another session of the same
+  day): about +17% for the bias fold, the pipe buffer and the pipelined
+  loop together. That comparison crosses sessions, so it is looser than the
+  pairs above.
+- **VRAM** was not read; no run failed for memory.
