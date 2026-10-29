@@ -62,8 +62,15 @@ def test_run_match_steps_aside_and_runs_the_match_again(tmp_path):
     code = ("import pathlib, sys, time; p = pathlib.Path(sys.argv[1]); "
             "n = len(p.read_text().split()) if p.exists() else 0; "
             "p.write_text('start ' * (n + 1)); time.sleep(30 if n == 0 else 0)")
-    samples = iter([{99999: 80.0}, {99999: 80.0}] + [{99999: 0.0}] * 1000)
-    y = GpuYield(threshold=15, busy_samples=2, quiet_minutes=0.01, sample=lambda: next(samples))
+    busy = iter([{99999: 80.0}, {99999: 80.0}])
+
+    def sample():
+        """Quiet until the first run has written its start (a loaded machine
+        can take seconds to start Python), then busy twice, then quiet."""
+        if starts.exists():
+            return next(busy, {99999: 0.0})
+        return {99999: 0.0}
+    y = GpuYield(threshold=15, busy_samples=2, quiet_minutes=0.01, sample=sample)
     rc = run_match(tmp_path, "toy", ["-c", code, str(starts)], "toy.log", 5, sys.executable,
                    gpu_yield=y, poll_s=0.3)
     assert rc == 0
