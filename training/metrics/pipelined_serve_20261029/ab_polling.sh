@@ -9,7 +9,7 @@ PY=/c/Users/momom2/venvs/wesnoth_rocm/Scripts/python.exe
 CK='C:\Users\momom2\Desktop\perso\projects\wesnoth_ai-stage1\training\checkpoints\own2.pt'
 OUT=/c/Users/momom2/wesnoth_runs/pipelined_polling_20261029
 WOUT='C:\Users\momom2\wesnoth_runs\pipelined_polling_20261029'
-SAMPLER='C:\Users\momom2\AppData\Local\Temp\claude\C--Users-momom2-Desktop-perso-projects-wesnoth-ai\7b200955-e036-4946-bdc5-fa60a454f611\scratchpad\server_cpu_sampler.ps1'
+SAMPLER="$(cygpath -w "$(dirname "$0")/server_cpu_sampler.ps1")"
 mkdir -p $OUT
 run() {  # tag dir rep
   local tag=$1 dir=$2 rep=$3
