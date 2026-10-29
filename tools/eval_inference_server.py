@@ -385,6 +385,27 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
 # Server process
 # ---------------------------------------------------------------------
 
+# A reply larger than a Windows named pipe's buffer (multiprocessing's 8 kB)
+# completes only as its client reads it, and a client reads only when its
+# thread holds its process's GIL: the serve thread waited about 0.17 ms a
+# reply in stage 1's self-play, 8% of the wall
+# (training/metrics/async_replies_20261029). Replies take about 20 bytes a
+# legal action (8.5 kB on average, about 40 kB at 2,000 actions), and a
+# connection has one outstanding at a time.
+PIPE_BUFFER_BYTES = 1 << 18
+
+
+def pipe_listener() -> Listener:
+    """The server's Listener; on Windows its pipes buffer PIPE_BUFFER_BYTES
+    each way, so a reply's write completes without its client (the buffer
+    is set where the pipes are made, multiprocessing.connection.BUFSIZE).
+    Elsewhere a Unix socket, unchanged."""
+    if sys.platform == "win32":
+        import multiprocessing.connection as mpc
+        mpc.BUFSIZE = max(mpc.BUFSIZE, PIPE_BUFFER_BYTES)
+    return Listener()
+
+
 def _resolve_device(name: str):
     import torch
     if name == "cpu":
@@ -753,7 +774,7 @@ def main(argv: List[str]) -> int:
                          rust_stage=rust_stage, server_memory=memory is not None,
                          priors_only=bool(args.priors_only), bf16_residual=bf16_residual,
                          fused_relu=fused_relu, fp8=fp8, fp16=fp16)
-    listener = Listener()
+    listener = pipe_listener()
     infer_fn = _model_infer_fn(server, rust_stage=rust_stage, memory=memory)
     profiler = None
     if args.profile_batches > 0:
