@@ -12,6 +12,13 @@ shadow rows (tools/pg_positions.py). The gradient flows through the
 memory across windows of `--window` decisions, as the sequence trainer's
 does, and the memory is carried into the next window detached.
 
+With corrections (`--corrections`, tools/pg_corrections.py), decision t's
+weight is R_{g,s} - alpha v_t - gamma beta^T x_t in place of R_{g,s}: v_t the
+logged value head's reading and x_t the luck dealt before the decision, its
+side's frame (tools/pg_positions.py `luck`). These are design §1 step 2's
+per-decision corrections, fitted on held-out games and frozen. Both are
+functions of the history before a_t, so the sum stays unbiased.
+
 Each split runs alone (tools/pg_schedule.py), so its windows' gradients
 accumulate into its own sum. Per window w the gradient g_w of
 sum_{rows} R log pi is kept as follows:
@@ -111,9 +118,9 @@ import shutil
 import sys
 import time
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 from torch.utils.checkpoint import checkpoint
@@ -121,6 +128,7 @@ from torch.utils.checkpoint import checkpoint
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.match_luck import COLUMNS as LUCK_COLUMNS  # noqa: E402
 from tools.pg_loss_scale import LossScale  # noqa: E402
 from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex, record_facts,  # noqa: E402
                                 refuse_foreign, servings, side_lengths)
@@ -218,6 +226,9 @@ class PassConfig:
     floor_sides: int = FLOOR_SIDES          # the game-sides the floor reads (pg_floor.draw_sides)
     floor_dtype: str = "bfloat16"           # the serving precision (pg_floor.FLOOR_DTYPES); "auto": the games'
     floor_chunk: int = 0                    # the floor's rows a forward (0: a step's at once; FloorReader)
+    alpha: float = 0.0                      # the corrections (module docstring): the value head's coefficient,
+    gamma: float = 0.0                      # the luck dealt so far's along luck_beta (tools/pg_corrections.py)
+    luck_beta: Tuple[float, ...] = ()
 
 
 class GradientPass:
@@ -244,8 +255,11 @@ class GradientPass:
         refuse_foreign(facts, self.checkpoint_sha256, config.slots, config.procedure)
         self.floor_dtype = resolve_floor_dtype(config.floor_dtype, servings(facts))
         self.lengths = side_lengths(facts)
+        if config.gamma and len(config.luck_beta) != len(LUCK_COLUMNS):
+            raise ValueError(f"the luck correction needs one beta per luck column ({len(LUCK_COLUMNS)}), "
+                             f"got {len(config.luck_beta)}")
         self.loader = PositionLoader(paths, dict(self.encoder.unit_type_to_id), dict(self.encoder.faction_to_id),
-                                     workers=config.workers, verify=config.verify)
+                                     workers=config.workers, verify=config.verify, luck=bool(config.gamma))
         splits = {g: sides[1].split for g, sides in self.games.items()}
         self.split_counts = Counter(splits.values())
         self.schedules = split_schedules(splits, self.lengths, config.streams, config.seed, config.slots)
@@ -408,6 +422,15 @@ class GradientPass:
             diff = logged - lp.detach().double()
         return -(w * lp).sum(), out.memory_padded, scores, diff
 
+    def weight(self, R: float, p) -> float:
+        """A decision's weight: its game-side's R less the corrections
+        (module docstring); R itself without them."""
+        c = self.config
+        w = R - c.alpha * p.v if c.alpha else R
+        if c.gamma:
+            w -= c.gamma * sum(b * x for b, x in zip(c.luck_beta, p.luck))
+        return w
+
     def _forward_window(self, window) -> tuple:
         """The window's loss and the memories it carries out."""
         router = PGMemoryRouter(self.model, self.device, self.memories)
@@ -417,7 +440,8 @@ class GradientPass:
             mems = router.batch(steps)
             staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
             batch = stage_step(positions, staged, self.model, self.device)
-            w = torch.tensor([self.R[(s.game_side.file, s.game_side.side)] for s in steps], device=self.device)
+            w = torch.tensor([self.weight(self.R[(s.game_side.file, s.game_side.side)], p)
+                              for s, p in zip(steps, positions)], device=self.device)
             logged = torch.tensor([p.logp for p in positions], dtype=torch.float64, device=self.device)
             args = (staged, mems, batch, w, logged)
             loss, mem_padded, scores, diff = (checkpoint(self._step, *args, use_reentrant=False) if self.recompute
@@ -621,6 +645,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="the game-sides whose decisions read the precision floor (tools/pg_floor.py)")
     ap.add_argument("--floor-chunk", type=int, default=0,
                     help="the floor's rows a forward (0: a step's drawn rows at once; tools/pg_floor.py FloorReader)")
+    ap.add_argument("--corrections", type=Path, default=None,
+                    help="the labels' per-decision corrections (tools/pg_corrections.py's JSON; module docstring)")
     ap.add_argument("--floor-dtype", default="auto", choices=FLOOR_DTYPES,
                     help="the serving precision the floor reads: auto, the labelled games' own, the path "
                          "alone for games served in float32 (tools/pg_floor.py resolve_floor_dtype); off, "
@@ -647,6 +673,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                         procedure=args.procedure, replay_kl_limit=args.replay_kl_limit,
                         floor_sides=args.floor_sides, floor_dtype=args.floor_dtype,
                         floor_chunk=args.floor_chunk)
+    if args.corrections is not None:
+        c = json.loads(args.corrections.read_text(encoding="utf-8"))
+        config = replace(config, alpha=float(c["alpha"]), gamma=float(c["gamma"]),
+                         luck_beta=tuple(float(b) for b in c["beta"]))
     partial = args.out.with_name(args.out.stem + ".splits")
     if args.fresh:
         shutil.rmtree(partial, ignore_errors=True)

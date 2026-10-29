@@ -40,6 +40,36 @@ def _run(tmp_path, splits=SPLITS, records=None, **config):
     return games, GradientPass(games.checkpoint, records or games.records, labels, CPU, PassConfig(**config)).run()
 
 
+@needs_core
+def test_the_corrections_weight_each_decision_and_the_pass_is_linear_in_them(tmp_path):
+    """With corrections (module docstring) decision t weighs R - alpha v_t -
+    gamma beta^T x_t. The sum is linear in the weights: the corrected pass is
+    the plain pass less alpha times the pass weighing v_t and gamma times
+    the one weighing beta^T x_t, both run on R = 0 labels with coefficient
+    -1. Zero corrections are the plain pass, bit for bit."""
+    from helpers.pg_games import named, played_games, write_labels
+    from tools.match_luck import COLUMNS
+    from tools.pg_pass import GradientPass, PassConfig
+    games = played_games()
+    beta = tuple(0.1 * (k + 1) for k in range(len(COLUMNS)))
+
+    def total(name, R_of, **corrections):
+        labels = read_labels(write_labels(tmp_path / f"{name}.jsonl", named(games, SPLITS), named(games, R_of)))
+        return GradientPass(games.checkpoint, games.records, labels, CPU,
+                            PassConfig(streams=2, floor_dtype="off", **corrections)).run()["total"]
+    zero_R = {k: 0.0 for k in R}
+    plain = total("plain", R)
+    assert all(torch.equal(t, plain[n]) for n, t in total("zero", R, alpha=0.0, gamma=0.0).items())
+    alpha, gamma = 0.6, -0.9
+    corrected = total("corrected", R, alpha=alpha, gamma=gamma, luck_beta=beta)
+    by_v = total("v", zero_R, alpha=-1.0)
+    by_luck = total("luck", zero_R, gamma=-1.0, luck_beta=beta)
+    num = sum(float(((corrected[n] - (plain[n] - alpha * by_v[n] - gamma * by_luck[n])) ** 2).sum()) for n in plain)
+    den = sum(float((corrected[n] ** 2).sum()) for n in plain)
+    assert den > 0 and num <= 1e-8 * den
+    assert sum(float((by_luck[n] ** 2).sum()) for n in plain) > 0        # the luck term reached the sum
+
+
 def _log_sums(games, R_of):
     """The logs' sum over every decision of R (1[c] - p(c)), by class: for
     attacks p(attack | the sampled actor), no term where its actor has

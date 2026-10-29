@@ -3,8 +3,10 @@ docs/training_design_20261019/current_design.md §6): the parts of
 scripts/stage_c_box.sh on the local stage 1's run directory
 (scripts/selfplay_t1_local.py), without the box library.
 
-    C0: the pass on the first C0_GAMES training games (the replay identity,
-        the precision floor, the trainer's rate) and one replay of C0_HELD
+    C0: the labels' per-decision corrections fitted on stage 1's held-out
+        games (tools/pg_corrections.py; every pass reads them), the pass on
+        the first C0_GAMES training games (the replay identity, the
+        precision floor, the trainer's rate) and one replay of C0_HELD
         held-out games (the forwards' rate and their identity);
     the plan from C0's rates (tools/stage_c_plan.py): the arms' trim and
         each step's cut;
@@ -36,6 +38,10 @@ What differs from the box script:
   in for them (the run's pre-registration names it).
 - The driver's gate weighs the box's prices (PRICE_PER_GAME, ROUND_FIXED):
   the design's yardstick for a round's size, not this machine's costs.
+- The passes weigh each decision by its corrected label (tools/pg_pass.py
+  --corrections): stage 1 found the value head's correction entering, and
+  the luck dealt so far enters beside it
+  (training/metrics/luck_baseline_20261030); the box script predates both.
 
     HIP_VISIBLE_DEVICES=1 <rocm venv>/python scripts/stage_c_local.py \\
         --stage1 C:/Users/<you>/wesnoth_runs/selfplay_t1_local --out C:/Users/<you>/wesnoth_runs/stage_c_local
@@ -145,7 +151,7 @@ class Run:
         chunks = [f"s{c:02d}" for c in range((N_SELFPLAY + CHUNK_GAMES - 1) // CHUNK_GAMES)]
         missing = [f"games_{c}" for c in chunks if not (self.s1 / f"games_{c}").is_dir()]
         missing += [f"walk_{c}.jsonl" for c in chunks if not (self.s1 / f"walk_{c}.jsonl").is_file()]
-        missing += [n for n in ("labels.jsonl", "readout.json") if not (self.s1 / n).is_file()]
+        missing += [n for n in ("labels.jsonl", "fits.json", "readout.json") if not (self.s1 / n).is_file()]
         if missing:
             return f"missing from {self.s1}: {' '.join(missing)}"
         self.dirs = [str(self.s1 / f"games_{c}") for c in chunks]
@@ -167,13 +173,24 @@ class Run:
         self.mark(part, f"{PASS_EXITS.get(rc, f'the pass ended rc={rc}')} on {what} ({log_name})")
         return True
 
+    def corrections(self) -> List[str]:
+        return ["--corrections", str(self.out / "corrections.json")]
+
     def c0(self) -> bool:
         if self.skip("c0"):
             return self.done("c0")
+        if not (self.out / "corrections.json").exists():
+            rc = self.step("corrections", ["tools/pg_corrections.py", *self.games(), "--labels",
+                                           str(self.s1 / "labels.jsonl"), "--fits", str(self.s1 / "fits.json"),
+                                           "--workers", self.workers, "--out", str(self.out / "corrections.json")],
+                           "c0.log", SMALL_CUT_MIN, gpu=False)
+            if rc != 0 or not (self.out / "corrections.json").exists():
+                self.mark("c0", f"the corrections' fit ended rc={rc} (c0.log)")
+                return False
         rc = self.step("c0 pass", ["tools/pg_pass.py", "--checkpoint", self.ck, *self.games(), "--labels",
                                    str(self.s1 / "labels.jsonl"), "--train-limit", str(C0_GAMES), "--fresh",
                                    "--out", str(self.out / "c0_pass.pt"), "--device", "cuda", "--workers",
-                                   self.workers, *PASS_FP16], "c0.log", C0_CUT_MIN)
+                                   self.workers, *PASS_FP16, *self.corrections()], "c0.log", C0_CUT_MIN)
         if self._pass_refused("c0", rc, f"{C0_GAMES} training games", "c0.log"):
             return False
         try:
@@ -221,8 +238,8 @@ class Run:
             return self.done("pass")
         rc = self.step("pass", ["tools/pg_pass.py", "--checkpoint", self.ck, *self.games(), "--labels",
                                 str(self.s1 / "labels.jsonl"), "--out", str(self.out / "pass.pt"), "--device",
-                                "cuda", "--workers", self.workers, *PASS_FP16, "--floor-sides", str(FLOOR_SIDES)],
-                       "pass.log", self.cuts["pass"])
+                                "cuda", "--workers", self.workers, *PASS_FP16, "--floor-sides", str(FLOOR_SIDES),
+                                *self.corrections()], "pass.log", self.cuts["pass"])
         if self._pass_refused("pass", rc, "every training game", "pass.log"):
             return False
         self.mark("pass")
@@ -271,7 +288,7 @@ class Run:
             ("pass", half, True, self.out / "pass_planted.pt",
              ["tools/pg_pass.py", "--checkpoint", self.ck, *self.games(), "--labels", planted, "--out",
               str(self.out / "pass_planted.pt"), "--device", "cuda", "--workers", self.workers, *PASS_FP16,
-              "--floor-sides", str(FLOOR_SIDES)]),
+              "--floor-sides", str(FLOOR_SIDES), *self.corrections()]),
             ("readout", half, True, None,
              ["tools/pg_plant.py", "readout", "--checkpoint", self.ck, *self.games(), "--labels", planted,
               "--pass", str(self.out / "pass_planted.pt"), "--grads", str(self.out / "plant_grads.pt"),
