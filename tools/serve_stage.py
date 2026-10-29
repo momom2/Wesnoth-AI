@@ -519,7 +519,9 @@ def _launch_eager(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
             ev_end.record()
         done = None
         if commit_at_launch and cuda:
-            done = torch.cuda.Event()
+            # Blocking: the waiter thread's synchronize on it yields its core
+            # (a default event's spins on HIP, a core for the whole run).
+            done = torch.cuda.Event(blocking=True)
             done.record()
             # A query submits what the driver may still hold back (Windows
             # display drivers batch the queued work), so the device starts
