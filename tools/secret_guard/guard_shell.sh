@@ -35,7 +35,9 @@ if [ -z "$py" ]; then
          "so the command was not run" >&2
     exit 126
 fi
-"$BASH" -c "$1" 2> >("$py" -I -S "$guard" filter >&2) | "$py" -I -S "$guard" filter
-status=${PIPESTATUS[0]}
+# The stderr filter is made by this shell, outside the pipeline, so that $!
+# names it and the wait holds the exit until its last line is out (made on the
+# pipeline's first command, it would belong to that command's subshell).
+{ "$BASH" -c "$1" | "$py" -I -S "$guard" filter; status=${PIPESTATUS[0]}; } 2> >("$py" -I -S "$guard" filter >&2)
 wait "$!" 2>/dev/null
 exit "$status"

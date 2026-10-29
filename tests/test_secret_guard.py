@@ -192,6 +192,19 @@ def test_the_shell_prefix_runs_nothing_without_a_working_python(tmp_path):
     assert (run.returncode, run.stdout.decode()) == (4, f"out {P}\n")
 
 
+@needs_bash
+def test_the_shell_prefix_returns_after_its_last_stderr_line(tmp_path):
+    """A reader that takes the stderr when the prefix exits (a file, not a
+    pipe read to its end) has all of it: the prefix waits for its stderr
+    filter, which waits for a background job still holding the stream."""
+    err = tmp_path / "err.txt"
+    with open(err, "wb") as f:
+        run = _guard(f"(sleep 2; echo late {SENTINEL} >&2) >/dev/null & echo out {SENTINEL}; exit 3",
+                     stdout=subprocess.PIPE, stderr=f)
+    assert run.returncode == 3 and run.stdout.decode() == f"out {P}\n"
+    assert err.read_bytes().decode() == f"late {P}\n"
+
+
 def test_the_installer_merges_its_settings_and_removes_exactly_them(tmp_path):
     path = tmp_path / "settings.json"
     mine = {"autoMode": True, "hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [
