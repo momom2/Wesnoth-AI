@@ -47,7 +47,7 @@ and wakes the serve thread's wait, so that:
   idle.
 
 `tools/serve_stage.py` `launch_requests` splits `serve_requests` into
-halves:
+halves (the second in `tools/serve_launched.py`):
 - the launch, which ends with a CUDA event and a `query()` that submits
   the queued work;
 - `complete()`, which waits on that event and writes the replies.
@@ -63,13 +63,20 @@ Why it is safe (argued in the module docstrings; tested):
   (`MemoryTable`) hold one pending plan, and N+1 is planned before N
   completes, so a batch commits its books at its launch. Committing after
   the device ran, as the serial path does, would lose N's commit.
-  - A failure past the launch leaves the versions that batch wrote held.
-    No client was handed them, so none is read.
+  - A failure past the launch leaves the versions that batch wrote held,
+    in rows the device may not have written. None is read before it is
+    written again. After a device fault the batch's replies are errors,
+    so no client is handed them. Otherwise each request is retried alone,
+    and the retry reads version v again and writes v + 1 again into the
+    same row before its reply hands it out. A request that fails alone
+    too gets an error, and its client never reads v + 1.
   - A connection that closes while its request runs frees its rows. A new
     game-side that takes one of them writes it after N, in stream order.
 - **Failures.** A launch or a completion that raises is answered as a
   failed batch: the health probe, then each request alone through the
-  serial path.
+  serial path. A request whose connection closed while its batch ran is
+  not retried: its memory states were released at the close, and a retry
+  would hold new ones that nothing releases.
 - **Stop.** stop() answers the batch in flight before the connections
   close.
 
@@ -192,13 +199,20 @@ How to read this:
   arms' launch seconds a batch (`t_stage`, `t_forward`, `t_priors` in the
   server's stats line) stay at the serial arms' level. If they grow, make
   the waiter poll `query()` instead.
-- **CPU.** A device wait may spin a core (CUDA's default schedule does).
-  The serial loop spins one during its wait; the pipelined loop may spin
-  two, the waiter and the serve thread's completion. Stage 1 left the CPU
-  about 90% idle today.
-- **VRAM.** Pipelining keeps two batches' tensors alive. At 144 in flight,
-  the batches are about 63 leaves pipelined and about 130 serial. Neither
-  was tried on the RX 6600.
+- **CPU.** A wait on a default event may spin a core (CUDA's default
+  schedule does). The serial loop spins one during its wait; the pipelined
+  loop may spin two, the waiter and the serve thread's completion. Stage 1
+  left the CPU about 90% idle today. `torch.cuda.Event(blocking=True)` for
+  the batch's `done` event (`serve_stage._launch_eager`) would make both
+  waits yield the core instead, at some wake latency. It is not exposed as
+  a switch: that is not a one-line change through the server's flags. Try
+  it as a variant if the A/B shows the spinning.
+- **VRAM.** Only the pinned host buffers of two batches live at once:
+  the staging and output buffers, a few MB. A batch's device tensors are
+  freed when its launch returns, and the caching allocator reuses them for
+  the next batch in stream order. Pipelined batches are about half the
+  serial ones (about 63 leaves against about 130 at 144 in flight), so the
+  device's peak should not rise. Neither was tried on the RX 6600.
 - **Boxes.** Linux, the 4090 and the graphed path were not measured, and
   `--pipelined` refuses `--graphed`.
 - **The games.** The stand-in's games are lighter than real ones (a 2 ms
@@ -214,6 +228,8 @@ How to read this:
   - every client gets its own reply, and two batches on the device never
     share a connection;
   - stop() answers the batch in flight;
+  - a batch whose finishing raises leaves the next batch answered, once;
+  - a retry one at a time skips a client that closed while its batch ran;
   - the end-to-end match runs with `--inference-pipelined`; this variant is
     in the slow tier.
 - `tests/test_serve_stage.py::test_launched_batches_overlap_and_keep_the_memory`:
@@ -245,9 +261,22 @@ Each arm is `run_elo_batch` with stage 1's flags, as in `ab_idle.sh`:
 `--jobs 96 --worker-games 8` or `--jobs 144 --worker-games 12`, with
 `--inference-pipelined` or `--no-inference-pipelined`.
 
+Read the steady rate and `t_finish`, not a GPU-busy share from the
+events: the events' device milliseconds are not comparable between the
+arms.
+- A pipelined batch's bracket opens only when the device reaches it,
+  right after the batch before it.
+- Both arms' brackets include the device's waits on the host's kernel
+  launches.
+
+On this branch the start event is recorded at a batch's first copy to the
+device, not before its host staging, as on `main`. So the serial arm's
+`gpu_ms` reads about the host staging time (part of `t_stage`, at most
+about 1 ms a batch) below `main`'s.
+
 Beyond the steady rate, read each run's server stats line in its log:
 - the launch seconds a batch (above);
-- `t_finish` a batch against the GPU ms a batch;
+- `t_finish` a batch;
 - `busy-wait`.
 
 The one-against-two-servers A/B read +2.5% and called it the noise, and

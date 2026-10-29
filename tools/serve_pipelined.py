@@ -29,8 +29,10 @@ Why it is safe:
   game-side is written after N's write of it, in stream order.
 - A batch whose launch or completion raises is answered as a failed batch
   (the device's health probe, then each request alone through the serial
-  `infer_fn`); a fault that fails the probe stops the service after the
-  batch in flight is answered.
+  `infer_fn`, but for one whose connection has closed: its memory states
+  went at the close, and a retry would hold new ones nothing releases).
+  A fault that fails the probe stops the service after the batch in
+  flight is answered.
 - stop() answers the batch in flight before the connections close.
 
 The replies a client receives for a given batch are the serial loop's
@@ -101,10 +103,11 @@ class PipelinedInferenceService(InferenceService):
                 batch = self._collect(done)
                 if not batch and done is not None and not done.is_set():
                     continue                       # a hello or a release alone; the device is busy
-                launched = self._launch(batch) if batch else None
-                if inflight is not None:
-                    self._finish(inflight)
-                inflight = launched
+                # N+1 becomes the batch in flight before N is finished: should
+                # finishing N raise, the `finally` answers N+1, not N again.
+                previous, inflight = inflight, (self._launch(batch) if batch else None)
+                if previous is not None:
+                    self._finish(previous)
                 if self.fatal is not None:
                     self._halt()
                     break

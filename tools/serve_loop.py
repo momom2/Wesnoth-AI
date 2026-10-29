@@ -469,7 +469,8 @@ class InferenceService:
     def _recover(self, batch: List[Request], gpu: Dict[str, float], error: str) -> Tuple[list, list]:
         """(replies, errors) for a batch whose forward raised `error`: the
         device's fault when it fails its probe, otherwise each request
-        alone through `infer_fn`."""
+        alone through `infer_fn`, but for a request whose connection has
+        closed meanwhile."""
         self.stats.failed_batches += 1
         probe = self._probe_failure()
         if probe is not None:
@@ -486,6 +487,13 @@ class InferenceService:
                       len(batch), error)
             replies, errors = [], []
             for p in batch:
+                if p.conn not in self._cids:
+                    # Closed since the batch was read (the pipelined loop reads
+                    # while a batch runs) and its memory states released: a
+                    # retry would hold new ones for a connection that is gone.
+                    replies.append(None)
+                    errors.append("the connection closed before its retry")
+                    continue
                 try:
                     replies.extend(self._infer([p], gpu))
                     errors.append(None)

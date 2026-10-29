@@ -46,6 +46,8 @@ from wesnoth_ai.packed_trunk import (FlatLayout, PackedEmbeddedIndex, PackedInde
                                      batch_counts)
 from wesnoth_ai.profile_regions import region
 from wesnoth_ai.server_priors import mask_layout, priors_outputs
+from tools.serve_launched import (REPLY_EXTRAS, TORCH_CODE, EagerBatch, LaunchedBatch, RefusedBatch,
+                                 merge_refused)
 
 log = logging.getLogger(__name__)
 
@@ -63,11 +65,6 @@ _TOKEN_KINDS = (TokenKind.HEX, TokenKind.UNIT, TokenKind.RECRUIT, TokenKind.SIGH
 _ACTOR_KINDS = (ActorKind.UNIT, ActorKind.RECRUIT, ActorKind.END_TURN)
 _MASK_NAMES = ("actor_mask", "slot_kind", "n_attacks", "type_valid", "attack_bits", "move_bits",
                "union_bits")
-# The head outputs a reply carries, in byte_wire.REPLY_FIELDS's order.
-_REPLY_EXTRAS = ("value", "value_logits", "cliffness", "moves_left")
-_TORCH_CODE = {torch.float32: _CODE[np.dtype(np.float32)], torch.float64: _CODE[np.dtype(np.float64)],
-               torch.int32: _CODE[np.dtype(np.int32)], torch.int64: _CODE[np.dtype(np.int64)],
-               torch.int8: _CODE[np.dtype(np.int8)], torch.uint8: _CODE[np.dtype(np.uint8)]}
 assert tuple(n for n, _ in MASK_FIELDS)[:6] == ("actor_mask", "type_valid", "attack_valid", "move_valid",
                                                "union_valid", "n_attacks")
 
@@ -234,7 +231,7 @@ def _parse_and_plan(server, requests, memory: Optional[ServerMemory], cids):
 
 def launch_requests(server, requests, stats: Optional[Dict[str, float]] = None, *,
                     memory: Optional[ServerMemory] = None, cids: Optional[Sequence[int]] = None
-                    ) -> "LaunchedBatch":
+                    ) -> LaunchedBatch:
     """`serve_requests` in two halves, for a serve loop that stages the
     next batch while the device runs this one (tools/serve_loop.py,
     pipelined): the host work done and the device work queued now, the
@@ -250,8 +247,13 @@ def launch_requests(server, requests, stats: Optional[Dict[str, float]] = None, 
     after this batch's write of it, and a game reads the version this
     batch writes only after its reply, which `complete()` gives after the
     device work. A failure past this point (the device wait, the replies)
-    leaves the versions this batch wrote held; none was handed to a
-    client (the batch's replies are errors), so none is read."""
+    leaves the versions this batch wrote held, in rows the device may not
+    have written; none is read before it is written again. After a device
+    fault the batch's replies are errors, so no client is handed them.
+    Otherwise the serve loop retries each request alone (serve_loop
+    `_recover`): a retry reads version v again and writes v + 1 again, into
+    the same row, before its reply hands it out; a request that fails alone
+    too gets an error, and its client never reads v + 1."""
     if server._graphed_serve() is not None:
         raise ValueError("pipelined serving runs the eager path, not a graphed server's")
     t0 = time.perf_counter()
@@ -263,7 +265,7 @@ def launch_requests(server, requests, stats: Optional[Dict[str, float]] = None, 
         by_request = dict(zip((id(r) for r in requests), cids))
         inner = (launch_requests(server, kept, stats, memory=memory, cids=[by_request[id(r)] for r in kept])
                  if kept else None)
-        return _RefusedBatch(requests, refused, inner)
+        return RefusedBatch(requests, refused, inner)
     t1 = time.perf_counter()
     try:
         return _launch_eager(server, parsed, counts, stats, memory, plan, t0, t1, commit_at_launch=True)
@@ -287,13 +289,6 @@ def _refusals(requests, per_request: Sequence[int], why) -> Dict[int, str]:
     return refused
 
 
-def _merge_refused(requests, refused: Dict[int, str], served: List[bytes]) -> List[bytes]:
-    from tools.serve_loop import error_message
-    it = iter(served)
-    return [error_message(requests[r].rid, f"memory refused: {refused[r]}") if r in refused
-            else next(it) for r in range(len(requests))]
-
-
 def answer_refused(requests, per_request: Sequence[int], why, memory: ServerMemory,
                    serve_kept: Callable[[list], List[bytes]]) -> List[bytes]:
     """The batch's replies when the memory books refused some of its
@@ -302,35 +297,7 @@ def answer_refused(requests, per_request: Sequence[int], why, memory: ServerMemo
     memory.abort()
     refused = _refusals(requests, per_request, why)
     kept = [requests[r] for r in range(len(requests)) if r not in refused]
-    return _merge_refused(requests, refused, serve_kept(kept) if kept else [])
-
-
-class LaunchedBatch:
-    """A batch whose device work is queued (`launch_requests`). `wait()`
-    returns once the device work is done, from any thread (the GIL
-    released meanwhile); `complete()`, on the launching thread, waits too
-    and returns the replies in order, or raises what the batch failed on."""
-
-    def wait(self) -> None:
-        raise NotImplementedError
-
-    def complete(self) -> List[bytes]:
-        raise NotImplementedError
-
-
-class _RefusedBatch(LaunchedBatch):
-    """The memory books' refusals, and the batch's other requests launched."""
-
-    def __init__(self, requests, refused: Dict[int, str], inner: Optional[LaunchedBatch]):
-        self._requests, self._refused, self._inner = requests, refused, inner
-
-    def wait(self) -> None:
-        if self._inner is not None:
-            self._inner.wait()
-
-    def complete(self) -> List[bytes]:
-        served = self._inner.complete() if self._inner is not None else []
-        return _merge_refused(self._requests, self._refused, served)
+    return merge_refused(requests, refused, serve_kept(kept) if kept else [])
 
 
 @dataclass
@@ -399,10 +366,10 @@ def _serve_graphed(server, gserve, parsed, counts, stats, memory, plan, t0: floa
     t2 = time.perf_counter()
     offsets = {name: (off, dt, shape) for name, dt, shape, off, _n in got.layout.fields}
     extras = []
-    for n in _REPLY_EXTRAS:
+    for n in REPLY_EXTRAS:
         if n in got.extras:
             off, dt, shape = offsets[f"extra{got.extras.index(n)}"]
-            extras.append((off, _TORCH_CODE[dt], list(shape[1:])))
+            extras.append((off, TORCH_CODE[dt], list(shape[1:])))
         else:
             extras.append(None)
     memory_arg = None
@@ -430,7 +397,7 @@ def _serve_parsed(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
 
 
 def _launch_eager(server, parsed, counts, stats, memory, plan, t0: float, t1: float, *,
-                  commit_at_launch: bool) -> "_EagerBatch":
+                  commit_at_launch: bool) -> EagerBatch:
     """The eager path's host work and its device work queued. With
     `commit_at_launch` (`launch_requests`) the memory books commit here and
     an event marks the batch's end on the stream; otherwise
@@ -443,7 +410,6 @@ def _launch_eager(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
     if timing:
         ev_start = torch.cuda.Event(enable_timing=True)
         ev_end = torch.cuda.Event(enable_timing=True)
-        ev_start.record()
     B = len(parsed)
     sizes = parsed.sizes()
     parity = bool(encoder.observation_parity)
@@ -501,6 +467,11 @@ def _launch_eager(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
                    for b, (u, r, h) in enumerate(sizes)]
         profile_regions.note_batch(lengths, A_max, H_max, K_max)
     with torch.no_grad():
+        if timing:
+            # At the batch's first device work, not before its host staging:
+            # the device time from here to `ev_end`, not the staging's wall,
+            # and a pipelined batch's bracket opens when the device reaches it.
+            ev_start.record()
         with region("h2d"):
             embed_dev = embed_host if not cuda else embed_host.to(dev, non_blocking=True)
             aux_dev = aux_host if not cuda else aux_host.to(dev, non_blocking=True)
@@ -532,7 +503,7 @@ def _launch_eager(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
             else:
                 padded = model.forward_embedded(streams, memory=states, index=prebuilt)
         t3 = time.perf_counter()
-        names = [n for n in _REPLY_EXTRAS if getattr(padded, n) is not None]
+        names = [n for n in REPLY_EXTRAS if getattr(padded, n) is not None]
         ride = [getattr(padded, n) for n in names]
         if wire_memory:
             ride.append(padded.memory_padded.float())
@@ -561,74 +532,13 @@ def _launch_eager(server, parsed, counts, stats, memory, plan, t0: float, t1: fl
         for key, dt in (("t_parse", t1 - t0), ("t_stage", t_mem - t1), ("t_memory", t2 - t_mem),
                         ("t_forward", t3 - t2), ("t_priors", t4 - t3)):
             stats[key] = stats.get(key, 0.0) + dt
-    return _EagerBatch(
+    return EagerBatch(
         dev=dev, done=done, commit=memory if plan is not None and not commit_at_launch else None,
         stats=stats, events=(ev_start, ev_end) if timing else None, parsed=parsed, out_layout=out_layout,
         out_host=out_host, names=names, memory_arg=(K_max, int(model.d_model)) if wire_memory else None,
         capacity=capacity, actor_kind=padded.actor_kind, a_max=A_max,
         versions=plan[2] if plan is not None else None,
         keep=(embed_host, aux_host, mem_host if wire_memory else None))
-
-
-@dataclass
-class _EagerBatch(LaunchedBatch):
-    """An eager batch past its launch: what its replies are written from,
-    and the pinned host buffers its queued copies read, kept until then."""
-    dev: torch.device
-    done: Optional[object]               # a cuda event at the batch's end on the stream
-    commit: Optional[ServerMemory]       # the books to commit after the device ran
-    stats: Optional[Dict[str, float]]
-    events: Optional[tuple]              # the timing events (start, end)
-    parsed: object
-    out_layout: object
-    out_host: torch.Tensor
-    names: List[str]
-    memory_arg: Optional[tuple]          # (K_max, d) when the memory rides the wire
-    capacity: int
-    actor_kind: torch.Tensor
-    a_max: int
-    versions: Optional[List[int]]
-    keep: tuple
-
-    def wait(self) -> None:
-        if self.done is not None:
-            self.done.synchronize()
-
-    def complete(self) -> List[bytes]:
-        t4 = time.perf_counter()
-        if self.dev.type == "cuda":
-            if self.done is not None:
-                self.done.synchronize()
-            else:
-                torch.cuda.current_stream(self.dev).synchronize()
-        if self.commit is not None:
-            self.commit.commit()
-        t5 = time.perf_counter()
-        out_offsets = {name: (off, dt, shape) for name, dt, shape, off, _n in self.out_layout.fields}
-        extras = []
-        for n in _REPLY_EXTRAS:
-            if n in self.names:
-                off, dt, shape = out_offsets[f"extra{self.names.index(n)}"]
-                extras.append((off, _TORCH_CODE[dt], list(shape[1:])))
-            else:
-                extras.append(None)
-        memory_arg = None
-        if self.memory_arg is not None:
-            memory_arg = (out_offsets[f"extra{len(self.names)}"][0],) + self.memory_arg
-        actor_kind = np.ascontiguousarray(self.actor_kind.numpy(), dtype=np.int64).reshape(-1)
-        replies = self.parsed.replies(self.out_host.numpy(),
-                                      [out_offsets[n][0] for n in ("ends", "actor", "kind", "target", "weapon",
-                                                                   "prior")],
-                                      self.capacity, extras, actor_kind, self.a_max, memory_arg, self.versions)
-        t6 = time.perf_counter()
-        self.keep = ()
-        stats = self.stats
-        if self.events is not None:
-            stats["gpu_ms"] = stats.get("gpu_ms", 0.0) + self.events[0].elapsed_time(self.events[1])
-        if stats is not None:
-            for key, dt in (("t_finish", t5 - t4), ("t_replies", t6 - t5)):
-                stats[key] = stats.get(key, 0.0) + dt
-        return replies
 
 
 def _slots(model) -> int:

@@ -21,7 +21,7 @@ from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 
 def _service(window_s: float, max_batch: int, poison=None, health=None, pipelined: bool = False,
-             device_s: float = 0.0, poison_at: str = "launch", log=None):
+             device_s: float = 0.0, poison_at: str = "launch", log=None, retried=None, release=None):
     """An in-process service over a fake model: each request carries one
     int64, its reply the value doubled; the batch sizes it saw are the
     coalescer's record. A request holding `poison` makes the forward
@@ -30,9 +30,13 @@ def _service(window_s: float, max_batch: int, poison=None, health=None, pipeline
     `pipelined`: the pipelined loop over a fake device that runs each
     launched batch for `device_s` seconds after the one before it (a
     queue); the poison raises at the launch or, with
-    `poison_at="complete"`, at the completion. `log` gets ("launch" |
-    "complete", batch number, the batch's connection numbers) in the
-    serve thread's order."""
+    `poison_at="complete"`, at the completion; with `poison_at="deliver"`
+    the completion gives the poisoned request a reply no connection can
+    send (the serve thread's finishing of the batch raises). `log` gets
+    ("launch" | "complete", batch number, the batch's connection numbers)
+    in the serve thread's order. `retried` gets the values of each
+    `infer_fn` call (the retries one at a time); `release` is the
+    service's release_fn."""
     from tools.serve_loop import REQUEST_HEAD_BYTES, InferenceService, ok_message
     from tools.serve_pipelined import PipelinedInferenceService
     seen = []
@@ -47,10 +51,12 @@ def _service(window_s: float, max_batch: int, poison=None, health=None, pipeline
 
     def infer(requests, stats=None):
         seen.append(sum(r.leaves for r in requests))
+        if retried is not None:
+            retried.append(values_of(requests))
         return answer(requests, values_of(requests))
 
     listener = Listener()
-    kw = dict(window_s=window_s, max_batch=max_batch, health_fn=health)
+    kw = dict(window_s=window_s, max_batch=max_batch, health_fn=health, release_fn=release)
     if not pipelined:
         svc = InferenceService(listener, infer, {"hello": True}, **kw)
         svc.start()
@@ -73,6 +79,9 @@ def _service(window_s: float, max_batch: int, poison=None, health=None, pipeline
                 log.append(("complete", self.n, sorted(r.cid for r in self.requests)))
             if poison_at == "complete":
                 return answer(self.requests, self.values)
+            if poison_at == "deliver":
+                return [None if v == poison else ok_message(r.rid, struct.pack("<q", 2 * v))
+                        for r, v in zip(self.requests, self.values)]
             return [ok_message(r.rid, struct.pack("<q", 2 * v)) for r, v in zip(self.requests, self.values)]
 
     def launch(requests, stats=None):
@@ -338,6 +347,75 @@ def test_the_pipelined_loop_answers_every_client_its_own_reply():
             running.pop(n)
     assert overlapped > 0, log[:10]
     assert not running
+
+
+def _read_reply(conn, got: dict, name: str) -> threading.Thread:
+    """A thread putting the connection's next reply, or "closed", in got[name]."""
+    def read():
+        try:
+            got[name] = _reply(conn.recv_bytes())
+        except (EOFError, OSError):
+            got[name] = "closed"
+    t = threading.Thread(target=read)
+    t.start()
+    return t
+
+
+def _wait_for(predicate, timeout_s: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert predicate()
+
+
+# The serve thread ends on the exception it is made to raise.
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a_batch_that_cannot_be_finished_leaves_the_next_answered():
+    """Finishing batch N raises (its reply cannot be sent) after batch N+1
+    was launched: N+1 is still answered, and completed once, before the
+    connections close."""
+    log, got = [], {}
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, pipelined=True, device_s=0.3,
+                                   poison_at="deliver", log=log)
+    a, b = Client(address), Client(address)
+    try:
+        a.send_bytes(_request(13))
+        _wait_for(lambda: len(log) >= 1)
+        b.send_bytes(_request(5))
+        readers = [_read_reply(a, got, "a"), _read_reply(b, got, "b")]
+        for t in readers:
+            t.join(10)
+        assert got == {"a": "closed", "b": (5, [10])}
+        assert [(e, n) for e, n, _c in log] == [("launch", 0), ("launch", 1), ("complete", 0), ("complete", 1)]
+    finally:
+        a.close()
+        b.close()
+        svc.stop()
+
+
+def test_a_retry_skips_a_connection_that_closed_while_its_batch_ran():
+    """A batch fails at its completion after one of its clients has gone,
+    its memory states released: the retries one at a time serve only the
+    clients still there. A retry of the gone one would hold new states for
+    a connection nothing will release again."""
+    log, retried, released, got = [], [], [], {}
+    svc, address, _seen = _service(window_s=0.25, max_batch=8, poison=13, pipelined=True, device_s=0.4,
+                                   poison_at="complete", log=log, retried=retried, release=released.append)
+    gone, stays = Client(address), Client(address)
+    try:
+        gone.send_bytes(_request(13))
+        stays.send_bytes(_request(5))
+        _wait_for(lambda: log and len(log[0][2]) == 2)
+        gone.close()
+        _read_reply(stays, got, "stays").join(10)
+        assert got == {"stays": (5, [10])}
+        assert retried == [[5]], retried
+        assert len(released) == 1
+        st = svc.stats.as_dict()
+        assert st["failed_batches"] == 1 and st["failed_requests"] == 1
+    finally:
+        stays.close()
+        svc.stop()
 
 
 def test_stop_answers_the_batch_in_flight():
