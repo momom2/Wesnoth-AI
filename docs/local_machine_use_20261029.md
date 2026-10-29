@@ -22,14 +22,17 @@ the options. The rules themselves are the user's.
 | Stage 1 of the training design | about 11.5 hours, $0 | about 3.1 hours, $1.8 |
 | The full test suite, both tiers | 11.5 minutes | CI |
 | The forward of `own2` | 535 positions a second (fp16, the HIP kernels) | |
-| A training step of `own2` | 3 positions a second (fp32, padded math attention) | 1,477 positions a second |
+| A training step of `own2` | 3 positions a second before 2026-10-29 (fp32, padded math attention); 88.5-148 with the HIP attention backward in fp16, measured beside generation | 1,477 positions a second |
+| The gradient pass (stage C), fp16 on the packed trunk | 21.9 decisions a second on 16 pilot games, most streams empty; a full pass's rate is between that and about 84, unmeasured | 500-1,500 decisions a second |
 
-The training rate is what the backward-kernel work on branch
-`feature/hip-attention-backward` set out to change (TO FILL with its
-result).
-
-Sources: `training/metrics/local_gpu_20261028/README.md` and
+Sources: `training/metrics/local_gpu_20261028/README.md`,
+`training/metrics/hip_backward_20261029/README.md` and
 `docs/selfplay_t1_local_prereg_20261028.md`.
+
+So the desktop generates at about a third of a box's rate and trains at
+a tenth or less: generation and matches here, training on a box, or here
+only where a few hours do not matter. A stage C gradient pass over 20,000
+games would take most of a day here, against about an hour on a box.
 
 ## What a run costs the user
 
@@ -87,3 +90,24 @@ Sources: `training/metrics/local_gpu_20261028/README.md` and
   with bf16 matches. Whether matches on the desktop chain onto box matches
   is a decision: the numerics differ the way bf16's batched numerics
   already do.
+
+## Decisions waiting on the user (2026-10-29)
+
+1. **The rules of use** above: the monitor cable, the windows, and
+   `--yield-gpu` with its threshold.
+2. **Windows Update:** active hours or a pause while a run is planned.
+3. **Stage C on the local stage 1** (docs/stage1_local_handoff_20261029.md
+   section 9):
+   - whether stage C may train on fp16-served games;
+   - the fp16 precision floor (C0's replay limit about 1.1e-4 instead of
+     the bf16 floor's 5.9e-4);
+   - D0 and the memory report were read with both seats in fp16, so a
+     claim played on a box in bf16 does not chain onto D0;
+   - the upload, about 1.5 GB into a new HF folder.
+4. **fp16 in the imitation trainers** (`sequence_train`, `supervised_train`),
+   parked since 2026-10-04: not built.
+5. **Merging and pushing.** None of the branches is pushed (no GitHub
+   sign-in for momom2 on this machine yet):
+   - `feature/local-gpu-stage1`: the kernels, the local runners, the
+     training backward, the stage C hand-off;
+   - `fix/windows-portability`: from `main`, on its own.
