@@ -29,6 +29,36 @@ def _read_jsonl(path: Path):
 
 
 @needs_core
+def test_the_fp16_mass_gradient_is_the_float32_one():
+    """MassGradients' `fp16` (on a CPU the packed trunk in float32, with the
+    loss scale and the weights' normalization applied, both undone
+    exactly) reads the default path's split and seat gradients."""
+    import torch
+    from helpers.pg_games import SLOTS, played_games
+    from tools.pg_plant_grad import MassGradients
+    games = played_games()
+    names = sorted(games.records)
+    splits = {g: i % 2 for i, g in enumerate(names)}
+    seats = {"a": [(names[0], 1), (names[1], 2)], "b": [(names[0], 2), (names[1], 1)]}
+    read = {}
+    for fp16 in (False, True):
+        reader = MassGradients(games.checkpoint, games.records, torch.device("cpu"), streams=2, window=4,
+                               seed=3, slots=SLOTS, fp16=fp16)
+        try:
+            read[fp16] = (reader.split_gradients(splits, "end_turn"), reader.seat_gradients(seats, "end_turn"))
+        finally:
+            reader.close()
+    (split32, seat32), (split16, seat16) = read[False], read[True]
+    read_nonzero = 0
+    for want, got in list(zip(split32, split16)) + [(seat32[s], seat16[s]) for s in seats]:
+        norm = math.sqrt(sum(float((t * t).sum()) for t in want.values()))
+        diff = math.sqrt(sum(float(((got[n] - t) ** 2).sum()) for n, t in want.items()))
+        assert diff <= 1e-4 * norm            # a split no game fills (of N_SPLITS) is zero on both paths
+        read_nonzero += norm > 0
+    assert read_nonzero == 2 + len(seats)
+
+
+@needs_core
 def test_a_planted_copy_reaches_both_seats_in_side_a_frame(tmp_path):
     """z' = z + delta Y in the walk's copy, Y side A's attacks less their
     logged mass, less side B's: the join gives side A z' and side B -z',

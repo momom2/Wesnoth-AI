@@ -370,9 +370,10 @@ class GradientPass:
         self._split_max = torch.zeros((), dtype=torch.float64, device=self.device)
         self.probe_carry = torch.zeros(len(CLASSES), device=self.device)   # the probes' gradient of splits taken
         self.floor = self._new_floor()
-        self._warm: Optional[tuple] = None          # (clock, timed rows) at the end of the warm-up windows
+        self._warm: Optional[tuple] = None          # (clock, timed rows, floor seconds) past the warm-up windows
         self._windows_run = 0
         self._timed_rows = 0                        # decisions forwarded in this process (not taken splits)
+        self._floor_seconds = 0.0                   # the floor's forwards, kept out of the rate
         self.rows = 0
         self.shadow = 0
         self.memories: Dict[int, torch.Tensor] = {}
@@ -421,8 +422,10 @@ class GradientPass:
                                               else self._step(*args))
             total = total + loss
             router.wrote(steps, mem_padded, [p.shadow for p in positions])
-            if self.floor is not None:
+            if self.floor is not None and self.floor.reads(steps):
+                start = self._clock()                 # the pass's queued work done: the floor's own seconds
                 self.floor.read(steps, positions, mems, stage_step)
+                self._floor_seconds += self._clock() - start
             self.head_sums += (w.double().unsqueeze(1) * scores).sum(dim=0)
             self.head_fisher += scores.T @ scores
             self.replay[0] += diff.abs().sum()
@@ -452,7 +455,7 @@ class GradientPass:
             self._windows_run += 1
             self.loader.keep_only(g.file for g in schedule.upcoming(self.config.prefetch))
             if self._windows_run == WARMUP_WINDOWS:
-                self._warm = (self._clock(), self._timed_rows)
+                self._warm = (self._clock(), self._timed_rows, self._floor_seconds)
         self.loader.keep_only(())
         self._write_split(i, before)
 
@@ -508,14 +511,19 @@ class GradientPass:
     def _rate(self) -> Optional[Dict]:
         """Decisions a second over the windows this process timed past its
         first WARMUP_WINDOWS (the replay workers' start, the device's first
-        kernels); splits taken from written sums never count. None (unread)
-        for a process that timed no window past its warm-up."""
+        kernels); splits taken from written sums never count. The floor's
+        forwards are not the pass's: their seconds are left out of `seconds`
+        (C0 reads the floor on every one of its game-sides, the main pass on
+        1 %). None (unread) for a process that timed no window past its
+        warm-up."""
         if self._warm is None or self._timed_rows <= self._warm[1]:
             return None
-        seconds = self._clock() - self._warm[0]
+        wall = self._clock() - self._warm[0]
+        floor = self._floor_seconds - self._warm[2]
+        seconds = wall - floor
         rows = self._timed_rows - self._warm[1]
         return {"positions_per_second": rows / seconds, "decisions": rows, "seconds": seconds,
-                "warmup_windows": WARMUP_WINDOWS}
+                "floor_seconds": floor, "wall_seconds": wall, "warmup_windows": WARMUP_WINDOWS}
 
     def run(self) -> Dict:
         """The pass; the pass.pt dict (module docstring). Raises a

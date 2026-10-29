@@ -884,6 +884,14 @@ class WesnothModel(nn.Module):
         self._weights_version += 1
         return result
 
+    def weights_changed(self) -> None:
+        """The parameters were written in place, not through load_state_dict
+        (tools/pg_eval.py's moved copies): the frozen weight copies of the
+        packed trunks refresh at their next use. A deep copy carries the
+        source's copies, so without this a moved copy's fused fp16 loop
+        would serve the source's weights."""
+        self._weights_version += 1
+
     def configure_packed_compile(self, *, backend="inductor",
                                  mode: Optional[str] = None) -> CompiledPackedTrunk:
         """Turns infer_compile_packed on with these torch.compile options

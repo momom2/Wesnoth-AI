@@ -366,6 +366,9 @@ def test_the_command_line_trains_on_the_first_games_when_limited(tmp_path):
     rate = result["rate"]
     assert 0 < rate["decisions"] < result["decisions"] and rate["seconds"] < result["seconds"]
     assert rate["positions_per_second"] == pytest.approx(rate["decisions"] / rate["seconds"])
+    # The floor reads every game-side of so few games: its forwards are kept out of the rate.
+    assert rate["floor_seconds"] > 0
+    assert rate["seconds"] + rate["floor_seconds"] == pytest.approx(rate["wall_seconds"])
 
 
 @needs_core

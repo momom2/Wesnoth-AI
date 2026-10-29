@@ -14,6 +14,15 @@ carried along each game-side as the player carried it, its gradient cut at
 the schedule's windows: `split_gradients` walks the planted pass's own
 schedule (tools/pg_schedule.split_schedules with the pass's streams, window,
 seed and slots), so it cuts the memory's gradient where the pass cuts it.
+
+`fp16` runs the forwards as the pass's `--fp16 --packed-trunk` does: the
+packed trunk under the device's float16 autocast (a GPU only), its backward
+loss-scaled by the pass's rule (tools/pg_loss_scale.py), a window whose
+scaled gradient is not finite run again at half the scale. The weights
+enter a window's loss divided by their largest, so the loss is a sum of
+masses of order one, as the pass's R-weighted sum is (a split's 1/(2N)
+would leave the fp16 backward's gradients about 2^13 smaller at N 5,000);
+the gradient is multiplied back after.
 """
 from __future__ import annotations
 
@@ -27,6 +36,7 @@ from torch.utils.checkpoint import checkpoint
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.pg_loss_scale import LossScale  # noqa: E402
 from tools.pg_pass import load_network, stage_step  # noqa: E402
 from tools.pg_positions import PositionLoader, record_facts, side_lengths  # noqa: E402
 from tools.pg_schedule import PGMemoryRouter, split_schedules  # noqa: E402
@@ -42,8 +52,11 @@ class MassGradients:
     ({game: record path}), for gradients of class masses."""
 
     def __init__(self, checkpoint: Path, records: Mapping[str, Path], device: torch.device, *, streams: int,
-                 window: int, seed: int, slots: int, workers: int = 0, prefetch: int = 64, verify: bool = True):
+                 window: int, seed: int, slots: int, workers: int = 0, prefetch: int = 64, verify: bool = True,
+                 fp16: bool = False):
         self.device = device
+        self.fp16 = fp16
+        self.loss_scale = LossScale() if fp16 else None
         self.streams, self.window, self.seed, self.slots, self.prefetch = streams, window, seed, slots, prefetch
         self.encoder, self.model = load_network(Path(checkpoint), device)
         self.named = named_model_parameters(self.model, self.encoder)
@@ -60,36 +73,55 @@ class MassGradients:
         return {n: torch.zeros_like(p, dtype=torch.float32) for n, p in self.named}
 
     def _mass_step(self, staged, mems, batch, w, column: int):
-        out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems).float32()
+        autocast = self.fp16 and self.device.type == "cuda"
+        with torch.autocast(self.device.type, dtype=torch.float16, enabled=autocast):
+            out = self.model.forward_embedded(self.encoder.embed_staged(staged), memory=mems,
+                                              packed=True if self.fp16 else None)
+        out = out.float32()
         return (w * class_masses(out, batch)[:, column]).sum(), out.memory_padded
+
+    def _window_loss(self, window, memories, weights, unit: float, column: int):
+        """The window's sum of weight / unit * p(X), and its router."""
+        router = PGMemoryRouter(self.model, self.device, memories)
+        loss = torch.zeros((), device=self.device)
+        for steps in window:
+            positions = [self.loader.side(s.game_side.file, s.game_side.side)[s.offset] for s in steps]
+            mems = router.batch(steps)
+            staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
+            batch = stage_step(positions, staged, self.model, self.device)
+            w = torch.tensor([weights[(s.game_side.file, s.game_side.side)] / unit for s in steps],
+                             device=self.device)
+            args = (staged, mems, batch, w, column)
+            part, written = (checkpoint(self._mass_step, *args, use_reentrant=False) if self.recompute
+                             else self._mass_step(*args))
+            loss = loss + part
+            router.wrote(steps, written, [p.shadow for p in positions])
+        return loss, router
 
     def _walk(self, schedule: StreamSchedule, weights: Mapping[Tuple[str, int], float], column: int) -> Gradient:
         """The gradient of sum weight * p(X) over the schedule's rows."""
         total = self._zeros()
         params = [p for _, p in self.named]
+        unit = (max(abs(w) for w in weights.values()) or 1.0) if self.fp16 else 1.0
         memories: Dict[int, torch.Tensor] = {}
         while not schedule.exhausted():
             window = schedule.window(self.window)
             if not window:
                 break
             self.loader.prefetch(g.file for g in schedule.upcoming(self.prefetch))
-            router = PGMemoryRouter(self.model, self.device, memories)
-            loss = torch.zeros((), device=self.device)
-            for steps in window:
-                positions = [self.loader.side(s.game_side.file, s.game_side.side)[s.offset] for s in steps]
-                mems = router.batch(steps)
-                staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
-                batch = stage_step(positions, staged, self.model, self.device)
-                w = torch.tensor([weights[(s.game_side.file, s.game_side.side)] for s in steps], device=self.device)
-                args = (staged, mems, batch, w, column)
-                part, written = (checkpoint(self._mass_step, *args, use_reentrant=False) if self.recompute
-                                 else self._mass_step(*args))
-                loss = loss + part
-                router.wrote(steps, written, [p.shadow for p in positions])
-            grads = torch.autograd.grad(loss, params, allow_unused=True)
+            while True:
+                scale = 1.0 if self.loss_scale is None else self.loss_scale.scale
+                loss, router = self._window_loss(window, memories, weights, unit, column)
+                grads = torch.autograd.grad(loss * scale, params, allow_unused=True)
+                if self.loss_scale is None:
+                    break
+                if all(g is None or bool(torch.isfinite(g).all()) for g in grads):
+                    self.loss_scale.finite()
+                    break
+                self.loss_scale.overflowed()          # the window runs again from the same memories
             for (n, _), g in zip(self.named, grads):
                 if g is not None:
-                    total[n] += g.float()
+                    total[n] += g.float() * (unit / scale)
             memories = {s: m.detach() for s, m in router.memories().items()}
             self.loader.keep_only(g.file for g in schedule.upcoming(self.prefetch))
         self.loader.keep_only(())

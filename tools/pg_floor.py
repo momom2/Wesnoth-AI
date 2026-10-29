@@ -212,6 +212,11 @@ class FloorReader:
         # game-side -> [rounding sum, path sum, decisions, largest path KL]
         self.sums: Dict[Tuple[str, int], list] = {}
 
+    def reads(self, steps) -> bool:
+        """Whether `read` forwards anything at this step: a row of a drawn
+        game-side."""
+        return any((s.game_side.file, s.game_side.side) in self.sides for s in steps)
+
     def read(self, steps, positions, mems: MemoryBatch, stage_step) -> None:
         """The step's rows of drawn game-sides."""
         rows = [i for i, s in enumerate(steps) if (s.game_side.file, s.game_side.side) in self.sides]
