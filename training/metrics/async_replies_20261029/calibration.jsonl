@@ -1,0 +1,6 @@
+{"step_gil_ms": 0.0, "mode": "inline", "measure_s": 10.0, "decisions_per_s": 500.4, "mean_batch": 75.8, "reply_ms_per_request": 0.023, "reply_share": 0.012}
+{"step_gil_ms": 0.3, "mode": "inline", "measure_s": 10.0, "decisions_per_s": 464.7, "mean_batch": 93.4, "reply_ms_per_request": 0.194, "reply_share": 0.09}
+{"step_gil_ms": 0.4, "mode": "inline", "measure_s": 10.0, "decisions_per_s": 467.4, "mean_batch": 93.5, "reply_ms_per_request": 0.226, "reply_share": 0.105}
+{"step_gil_ms": 0.5, "mode": "inline", "measure_s": 10.0, "decisions_per_s": 448.6, "mean_batch": 93.5, "reply_ms_per_request": 0.28, "reply_share": 0.126}
+{"step_gil_ms": 1.0, "mode": "inline", "measure_s": 10.0, "decisions_per_s": 383.6, "mean_batch": 91.3, "reply_ms_per_request": 0.621, "reply_share": 0.238}
+{"step_gil_ms": 2.0, "mode": "inline", "measure_s": 10.0, "decisions_per_s": 316.3, "mean_batch": 93.8, "reply_ms_per_request": 1.276, "reply_share": 0.395}
