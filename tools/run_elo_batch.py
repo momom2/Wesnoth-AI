@@ -1147,12 +1147,13 @@ def main(argv: List[str]) -> int:
                     servers[key].append(handle)
                     log.info("inference server %d/%d for %s at %s: %s", k, j, spec,
                              handle.address, handle.info)
-            infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]))
+            infos = {(bool(h.info["infer_bf16"]), bool(h.info["packed_trunk"]),
+                      bool(h.info.get("infer_fp16", False)))
                      for hs in servers.values() for h in hs}
             if len(infos) != 1:
                 raise SystemExit(f"the inference servers disagree on precision "
                                  f"{sorted(infos)}; one match, one numerics path")
-            shared_bf16, shared_packed = infos.pop()
+            shared_bf16, shared_packed, _shared_fp16 = infos.pop()
             # The games record the checkpoint their server loaded; the
             # pre-scan and the timeout artifacts use the driver's read.
             for (spec, _fp8), hs in servers.items():

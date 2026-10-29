@@ -953,11 +953,13 @@ class WesnothModel(nn.Module):
                 and torch.get_autocast_dtype(dev) == torch.bfloat16)
 
     def _hip_fp16_inference(self, x: torch.Tensor) -> bool:
-        """Eval mode under an fp16 autocast on a GPU the HIP kernels serve at
-        this width (wesnoth_ai/hip_kernels.py: a ROCm build), with affine
-        layer norms: where _run_hip_fp16_trunk applies."""
-        if self.training or x.device.type != "cuda" or not torch.is_autocast_enabled("cuda") \
-                or torch.get_autocast_dtype("cuda") != torch.float16:
+        """Eval mode with no gradient wanted, under an fp16 autocast, on a GPU
+        the HIP kernels serve at this width (wesnoth_ai/hip_kernels.py: a
+        ROCm build), with affine layer norms: where _run_hip_fp16_trunk
+        applies. Its weights are frozen fp16 copies and its kernels have no
+        backward, so a forward with grad enabled keeps packed_trunk."""
+        if self.training or torch.is_grad_enabled() or x.device.type != "cuda" \
+                or not torch.is_autocast_enabled("cuda") or torch.get_autocast_dtype("cuda") != torch.float16:
             return False
         norms = [n for layer in self.encoder.layers for n in (layer.norm1, layer.norm2)]
         if any(n.weight is None or n.bias is None for n in norms):

@@ -891,8 +891,14 @@ def main(argv) -> int:
         # of their own.
         inf_bf16_residual = bool(_hello.get("bf16_residual", False))
         inf_fused_relu = bool(_hello.get("fused_relu", False))
-        # The server's float16 autocast (--infer-fp16), in place of bf16.
-        inf_fp16 = bool(_hello.get("infer_fp16", False))
+        # The server's float16 autocast (--infer-fp16), in place of bf16;
+        # both sides' servers, which run_elo_batch launches alike.
+        fp16s = {bool(_shared_client(address).hello.get("infer_fp16", False))
+                 for address in (args.inference_address_a, args.inference_address_b) if address}
+        if len(fp16s) != 1:
+            raise SystemExit("the two sides' inference servers disagree on --infer-fp16: one game, "
+                             "one numerics path")
+        inf_fp16 = fp16s.pop()
         # The trunk's fp8 products, per side: the two sides of a play check
         # are served by two servers, one of them fp8 (run_elo_batch
         # --fp8-inference-a / -b).
