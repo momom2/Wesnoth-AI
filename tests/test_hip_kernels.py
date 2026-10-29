@@ -221,6 +221,65 @@ def test_packed_fp16_trunk_gradients_match_padded_fp32():
     assert worst < 0.05, worst
 
 
+def test_closed_form_gradients_match_sdpa_autograd():
+    """The backward's self-test reference (no autograd: it can run inside a
+    checkpointed forward) against SDPA's autograd, in float32 on the CPU."""
+    from wesnoth_ai.hip_attention_grad import closed_form_gradients, reference_attention
+    g = torch.Generator().manual_seed(12)
+    cu = [0, 1, 6, 23]
+    q, k, v = (torch.randn(cu[-1], 3, 8, generator=g).requires_grad_(True) for _ in range(3))
+    up = torch.randn(cu[-1], 3, 8, generator=g)
+    out = reference_attention(q, k, v, cu)
+    (out * up).sum().backward()
+    want = {"out": out.detach(), "dq": q.grad, "dk": k.grad, "dv": v.grad}
+    got = closed_form_gradients(q.detach(), k.detach(), v.detach(), up, cu)
+    for name in want:
+        assert torch.allclose(got[name], want[name], atol=1e-5), name
+
+
+@rocm
+def test_the_backward_builds_inside_a_checkpointed_forward():
+    """The gradient pass's case (tools/pg_pass.py): the kernels' first use
+    comes inside a forward under non-reentrant activation checkpointing.
+    Building and self-testing them there finishes, and the gradients are
+    right (2026-10-29: a self-test through autograd deadlocked there, its
+    graph taken by the checkpoint's hooks). Run in a thread with a timeout,
+    so a deadlock fails the test instead of hanging the run; last in the
+    file, since a deadlocked build keeps its lock."""
+    import threading
+
+    from torch.utils.checkpoint import checkpoint
+
+    import wesnoth_ai.hip_attention_grad as hg
+    from wesnoth_ai.hip_attention_grad import closed_form_gradients
+    q, k, v, cu, cu_dev = _segments([7, 40, 129], 12, 32, seed=11)
+    leaves = [t.detach().requires_grad_(True) for t in (q, k, v)]
+    built = dict(hg._backward)
+    hg._backward.clear()
+    outcome = []
+
+    def run():
+        try:
+            out = checkpoint(lambda a, b, c: packed_attention(a, b, c, _index(cu, cu_dev)), *leaves,
+                             use_reentrant=False)
+            out.float().sum().backward()
+            outcome.append(None)
+        except Exception as e:  # noqa: BLE001 -- reported by the assertion below
+            outcome.append(e)
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(120)
+    if not hg._backward:
+        hg._backward.update(built)
+    assert outcome, "the first use inside a checkpointed forward did not finish within 120 s (a deadlock)"
+    assert outcome[0] is None, outcome[0]
+    assert hg._backward and all(kern is not None for kern in hg._backward.values())
+    ref = closed_form_gradients(q, k, v, torch.ones(q.shape, device=DEV), cu)
+    for name, leaf in zip(("dq", "dk", "dv"), leaves):
+        rel = ((leaf.grad.float() - ref[name]).abs().max() / ref[name].abs().max()).item()
+        assert rel < GRAD_REL, (name, rel)
+
+
 @rocm
 @pytest.mark.parametrize("d", [128, 384])
 def test_add_layer_norm_matches_torch(d):

@@ -21,7 +21,7 @@ in two kernels, so no row is written by two blocks (no atomics):
         segment and walks the segment's keys in tiles held in shared
         memory, as the forward does; it also computes D_i from O and dO
         and writes it, float32 [heads, total];
-  dkdv  one thread owns a key row (_KV_KPT) and walks the segment's
+  dkdv  one thread owns a few key rows (_KV_KPT) and walks the segment's
         queries in tiles (q, dO, L, D), after the dq kernel on the same
         stream.
 The products are v_dot2_f32_f16 into fp32 accumulators, as in the
@@ -37,8 +37,9 @@ forward's, so no launch runs long (a launch past 2 s resets the display
 driver on Windows, the RX 6600 driving the screen).
 
 Built with hiprtc beside the forward's module, and checked on first use
-per device against F.scaled_dot_product_attention's fp32 gradients on a
-fixed problem; a device where either fails is reported once in the log,
+per device against the closed-form fp32 gradients on a fixed problem,
+without autograd (the first use can come inside a checkpointed forward,
+`_self_test`); a device where either fails is reported once in the log,
 and the callers keep the per-segment SDPA (`hip_varlen_backward_applies`
 is False).
 """
@@ -62,14 +63,18 @@ from wesnoth_ai.hip_kernels import _kernel_view
 log = logging.getLogger(__name__)
 
 _NT = 32                        # threads a block, one wave32
-# dq: query rows a thread and keys a tile; three rows a thread (the
-# forward's choice) do not fit beside dO's rows and dQ's accumulators.
+# dq: query rows a thread and keys a tile; two rows a thread take 201
+# registers, so three (the forward's choice) do not fit beside dO's rows
+# and dQ's accumulators.
 _DQ_QPT = {32: 2, 64: 1}
 _DQ_BK = 16
-# dkdv: key rows a thread and queries a tile (dK and dV's accumulators are
-# twice the forward's).
-_KV_KPT = {32: 1, 64: 1}
-_KV_BQ = {32: 16, 64: 8}
+# dkdv: key rows a thread and queries a tile. Measured 2026-10-29 on the RX
+# 6600 at head_dim 32 (48 segments of 141-692 tokens, 12 heads, best of
+# four rounds while the generation run shared the GPU): one row and 16
+# queries 11.3 ms; one and 32, 8.3; two and 16, 7.5; two and 8, 5.0-6.7
+# (244 registers); two and 4, 6.0; three rows spill (36-68 ms).
+_KV_KPT = {32: 2, 64: 1}
+_KV_BQ = {32: 8, 64: 8}
 _LOG2E = 1.4426950408889634
 # The self-test's bound on each gradient's largest error, relative to that
 # gradient's largest magnitude: fp16 operands and fp32 sums read about
@@ -497,26 +502,51 @@ def attention_errors(q, k, v, cu_host, weight, function) -> Dict[str, Dict[str, 
     return errors
 
 
+def closed_form_gradients(q, k, v, g, cu_host):
+    """The attention's output and its gradients for the upstream gradient g,
+    in float32 by the formulas of the module docstring, segment by segment,
+    with no autograd: [rows, heads, head_dim] each."""
+    outs = {name: [] for name in ("out", "dq", "dk", "dv")}
+    s = 1.0 / math.sqrt(q.shape[-1])
+    for lo, hi in zip(cu_host[:-1], cu_host[1:]):
+        qs, ks, vs, gs = (t[lo:hi].float().transpose(0, 1) for t in (q, k, v, g))     # [heads, n, d]
+        p = torch.softmax(s * qs @ ks.transpose(1, 2), dim=-1)                       # [heads, n, n]
+        o = p @ vs
+        ds = p * (gs @ vs.transpose(1, 2) - (gs * o).sum(-1, keepdim=True))
+        for name, t in (("out", o), ("dq", s * ds @ ks), ("dk", s * ds.transpose(1, 2) @ qs),
+                        ("dv", p.transpose(1, 2) @ gs)):
+            outs[name].append(t.transpose(0, 1))
+    return {name: torch.cat(ts) for name, ts in outs.items()}
+
+
 def _self_test(kern: _BackwardKernels, device: torch.device) -> None:
     """The forward with its log-sum-exp and the three gradients against the
-    fp32 reference on a fixed problem per instantiated head size: segments
-    that end inside, on and past a tile and a block, and one longer than
-    a block."""
+    closed-form fp32 reference on a fixed problem per instantiated head
+    size: segments that end inside, on and past a tile and a block, and one
+    longer than a block. The kernels are launched directly and nothing here
+    records an autograd graph: the first use can come inside a forward under
+    activation checkpointing (tools/pg_pass.py), whose saved-tensor hooks
+    would take a graph built here and recompute the checkpointed forward,
+    which asks for these kernels again, from its backward."""
     gen = torch.Generator().manual_seed(1)
     lens = [1, 2, _DQ_BK - 1, _DQ_BK, _NT + 1, 2 * _NT * max(_DQ_QPT.values()) + 5]
     cu_host = [0]
     for n in lens:
         cu_host.append(cu_host[-1] + n)
     cu = torch.tensor(cu_host, dtype=torch.int32, device=device)
-    for d in HEAD_DIMS:
-        heads = 2
-        qkv = torch.randn(cu_host[-1], 3, heads, d, generator=gen).to(device, torch.float16)
-        weight = torch.randn(cu_host[-1], heads, d, generator=gen).to(device)
-        errors = attention_errors(*qkv.unbind(1), cu_host, weight,
-                                  lambda q, k, v: _HipVarlenAttention.apply(q, k, v, cu, max(lens), None, kern))
-        worst = max(e["rel"] for e in errors.values())
-        if not worst <= _SELF_TEST_REL:
-            raise RuntimeError(f"self-test at head_dim {d}: relative errors {errors} above {_SELF_TEST_REL}")
+    with torch.no_grad():
+        for d in HEAD_DIMS:
+            heads = 2
+            qkv = torch.randn(cu_host[-1], 3, heads, d, generator=gen).to(device, torch.float16)
+            g = torch.randn(cu_host[-1], heads, d, generator=gen).to(device, torch.float16)
+            out, lse, (q, k, v) = hip_varlen_attention_lse(*qkv.unbind(1), cu, max(lens))
+            dq, dk, dv = (torch.empty(q.shape, dtype=torch.float16, device=device) for _ in range(3))
+            kern.launch(q, k, v, out, g, lse, torch.empty_like(lse), dq, dk, dv, cu, max(lens))
+            ref = closed_form_gradients(q, k, v, g, cu_host)
+            errors = {name: ((got.float() - ref[name]).abs().max() / ref[name].abs().max()).item()
+                      for name, got in (("out", out), ("dq", dq), ("dk", dk), ("dv", dv))}
+            if not max(errors.values()) <= _SELF_TEST_REL:
+                raise RuntimeError(f"self-test at head_dim {d}: relative errors {errors} above {_SELF_TEST_REL}")
 
 
 class _HipVarlenAttention(torch.autograd.Function):
