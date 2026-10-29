@@ -82,7 +82,8 @@ replays; `python main.py --check-setup` verifies that install.
 ### On the local Windows machine (RX 6600)
 
 The desktop's RX 6600 plays the same match at no cost, an 800-game match
-in about 15 minutes (`training/metrics/local_gpu_20261028/README.md`;
+in about 15 minutes by its generation rate (not yet timed on a full match;
+`training/metrics/local_gpu_20261028/README.md`;
 setup in docs/new_machine.md, step 8). `scripts/match_local.py` is the
 whole procedure in one command:
 - the reference on side B, from `configs/reference_player.json`;
@@ -93,7 +94,8 @@ whole procedure in one command:
 - then the PURE fit, the reference at 0, in `<out>/result.json`.
 
 A re-run of the same command resumes, and a display-driver reset stops
-the match. The games record their fp16 serving (`infer_fp16`), so they
+the match. `--yield-gpu PCT` steps aside while another program uses the
+GPU and resumes after quiet minutes (docs/local_machine_use_20261029.md). The games record their fp16 serving (`infer_fp16`), so they
 never pool with a box's bf16 games.
 
 ```powershell
