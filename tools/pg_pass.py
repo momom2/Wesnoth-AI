@@ -76,7 +76,12 @@ bf16 is not the server's.
 Each split's sums are written aside as it completes (`<out>.splits/`), and
 a pass started again over the same games, labels, checkpoint and settings
 takes the completed splits from there: a cut pass loses at most one split.
-The command line removes them once pass.pt is written.
+Under a loss scale each split file also holds the split's overflows,
+growths and smallest scale and the scale it ended on: a pass started again
+adds the counts and carries the scale on from the last split it takes, so
+`loss_scale` in pass.pt is the uncut pass's (an fp16 split file without
+that record is read again). The command line removes them once pass.pt is
+written.
 
 The network runs in eval mode (no dropout: the law the player sampled), in
 float32 unless `--bf16` (the device's bfloat16 autocast: its rounding,
@@ -278,8 +283,21 @@ class GradientPass:
 
     def _tally(self) -> Dict:
         probes = torch.zeros(len(CLASSES), device=self.device) if self.probes.grad is None else self.probes.grad
+        ls = self.loss_scale
         return {"head_sums": self.head_sums.clone(), "head_fisher": self.head_fisher.clone(),
-                "replay": self.replay.clone(), "rows": self.rows, "shadow": self.shadow, "probes": probes.clone()}
+                "replay": self.replay.clone(), "rows": self.rows, "shadow": self.shadow, "probes": probes.clone(),
+                "scale_counts": None if ls is None else (ls.overflows, ls.growths)}
+
+    def _split_scale(self, before: Dict) -> Optional[Dict]:
+        """A split's loss-scale record: its overflows and growths, the
+        smallest scale its windows ran at, and the scale and finite run it
+        ends on (the next split's start); None without a loss scale."""
+        ls = self.loss_scale
+        if ls is None:
+            return None
+        overflows, growths = before["scale_counts"]
+        return {"overflows": ls.overflows - overflows, "growths": ls.growths - growths,
+                "smallest": self._split_smallest, "scale": ls.scale, "finite_run": ls.finite_run}
 
     def _write_split(self, i: int, before: Dict) -> None:
         if self.partial_dir is None:
@@ -294,7 +312,8 @@ class GradientPass:
                 "head_sums": (now["head_sums"] - before["head_sums"]).cpu(),
                 "head_fisher": (now["head_fisher"] - before["head_fisher"]).cpu(), "replay": replay.cpu(),
                 "rows": now["rows"] - before["rows"], "shadow": now["shadow"] - before["shadow"],
-                "probes": (now["probes"] - before["probes"]).cpu(), "floor": floor}
+                "probes": (now["probes"] - before["probes"]).cpu(), "floor": floor,
+                "loss_scale": self._split_scale(before)}
         self.partial_dir.mkdir(parents=True, exist_ok=True)
         path = self.partial_dir / f"split{i}.pt"
         tmp = path.with_name(path.name + ".tmp")
@@ -302,7 +321,9 @@ class GradientPass:
         os.replace(tmp, path)
 
     def _load_split(self, i: int) -> bool:
-        """Take split i's written sums when they are this pass's."""
+        """Take split i's written sums when they are this pass's, and with a
+        loss scale its record: the counts added, the scale and its finite
+        run carried on from the split's end."""
         path = None if self.partial_dir is None else self.partial_dir / f"split{i}.pt"
         if path is None or not path.is_file():
             return False
@@ -310,6 +331,16 @@ class GradientPass:
         if part.get("key") != self._split_key(i):
             log.warning("%s is another pass's split: it is read again", path)
             return False
+        scale = part.get("loss_scale")
+        if self.loss_scale is not None and scale is None:
+            log.warning("%s was written without its loss scale: it is read again", path)
+            return False
+        if self.loss_scale is not None:
+            ls = self.loss_scale
+            ls.overflows += int(scale["overflows"])
+            ls.growths += int(scale["growths"])
+            ls.smallest = min(ls.smallest, float(scale["smallest"]))
+            ls.scale, ls.finite_run = float(scale["scale"]), int(scale["finite_run"])
         dev = self.device
         self.splits[i] = {n: t.to(dev) for n, t in part["sums"].items()}
         self.sq[i] = {n: t.to(dev) for n, t in part["sq"].items()}
@@ -347,6 +378,7 @@ class GradientPass:
         self.memories: Dict[int, torch.Tensor] = {}
         # Under fp16 (on a CPU, where no autocast runs, the scale is kept: exact in fp32).
         self.loss_scale = LossScale() if self.config.fp16 else None
+        self._split_smallest: Optional[float] = None    # the smallest scale the running split's windows ran at
 
     # ---- a window's readings, kept to be undone (an fp16 window run again) -
     def _mark(self) -> tuple:
@@ -408,6 +440,7 @@ class GradientPass:
         self.memories: Dict[int, torch.Tensor] = {}
         before = self._tally()
         self._split_max = torch.zeros((), dtype=torch.float64, device=self.device)
+        self._split_smallest = None if self.loss_scale is None else self.loss_scale.scale
         while not schedule.exhausted():
             window = schedule.window(self.config.window)
             if not window:
@@ -444,6 +477,7 @@ class GradientPass:
                     self.probes.grad = carried
                     self._restore(mark)
                     self.loss_scale.overflowed()
+                    self._split_smallest = min(self._split_smallest, self.loss_scale.scale)
                     log.info("a window's gradient overflowed: run again at loss scale %g", self.loss_scale.scale)
                     continue
                 self.loss_scale.finite()

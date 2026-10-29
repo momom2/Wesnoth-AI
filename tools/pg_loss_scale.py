@@ -25,6 +25,7 @@ GradScaler's 2**16 start was not tried.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Optional
 
 INITIAL_SCALE = 2.0 ** 10
 GROWTH_INTERVAL = 200        # windows: about a ninth of a 20,000-game pass's split (2,500 games, ~1,850 windows)
@@ -39,7 +40,11 @@ class LossScale:
     finite_run: int = 0          # finite windows since the last change
     overflows: int = 0           # windows run again
     growths: int = 0
-    smallest: float = INITIAL_SCALE
+    smallest: Optional[float] = None     # the smallest scale a window ran at (None: the starting scale)
+
+    def __post_init__(self) -> None:
+        if self.smallest is None:
+            self.smallest = self.scale
 
     def overflowed(self) -> None:
         """A window's scaled gradient was not finite: halve the scale (the

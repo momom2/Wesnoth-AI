@@ -429,11 +429,49 @@ def test_an_fp16_window_that_overflows_is_run_again_and_sums_as_fp32(tmp_path, m
         assert scaled[key] == plain[key], key
 
 
+@needs_core
+def test_a_resumed_fp16_pass_keeps_the_loss_scale_of_its_written_splits(tmp_path, monkeypatch):
+    """Each split file holds the split's loss-scale counts and its end
+    scale; a pass cut after four splits (two of them with windows) and
+    started again takes them, carries the scale on from the last split
+    taken, and records the uncut pass's loss scale: its overflows and
+    growths over every split, its smallest and its end scale."""
+    from tools import pg_pass
+    from tools.pg_loss_scale import LossScale
+    from tools.pg_pass import GradientPass, PassConfig
+    games, labels = _labels(tmp_path)
+    config = PassConfig(fp16=True, streams=2, window=8, floor_sides=1000)
+    monkeypatch.setattr(pg_pass, "LossScale", lambda: LossScale(scale=2.0 ** 127, growth_interval=3))
+    whole = GradientPass(games.checkpoint, games.records, labels, CPU, config).run()
+    assert whole["loss_scale"]["overflows"] > whole["loss_scale"]["growths"] >= 1
+    partial = tmp_path / "splits"
+    run_split = pg_pass.GradientPass._run_split
+    done = []
+
+    def cut(self, i, schedule):
+        if len(done) == 4:
+            raise KeyboardInterrupt("the box's cut")
+        run_split(self, i, schedule)
+        done.append(i)
+    monkeypatch.setattr(pg_pass.GradientPass, "_run_split", cut)
+    with pytest.raises(KeyboardInterrupt):
+        GradientPass(games.checkpoint, games.records, labels, CPU, config, partial_dir=partial).run()
+    assert done == [0, 1, 2, 3]
+    written = [torch.load(partial / f"split{i}.pt", weights_only=True)["loss_scale"] for i in done]
+    assert sum(w["overflows"] for w in written) > 0
+    monkeypatch.setattr(pg_pass.GradientPass, "_run_split", run_split)
+    resumed = GradientPass(games.checkpoint, games.records, labels, CPU, config, partial_dir=partial).run()
+    assert resumed["loss_scale"] == whole["loss_scale"]
+    names = whole["names"]
+    assert torch.allclose(_flat(resumed["total"], names), _flat(whole["total"], names), rtol=1e-6, atol=1e-9)
+
+
 def test_the_loss_scale_stops_at_its_floor():
     """Halving below MIN_SCALE would not help an overflow fp16 itself makes:
     the pass stops there."""
     from tools.pg_loss_scale import MIN_SCALE, LossScale
     scale = LossScale(scale=2 * MIN_SCALE, growth_interval=2)
+    assert scale.smallest == 2 * MIN_SCALE                 # the scale it starts from, not INITIAL_SCALE
     scale.overflowed()
     assert scale.scale == MIN_SCALE and scale.overflows == 1
     with pytest.raises(FloatingPointError):
