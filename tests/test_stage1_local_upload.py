@@ -250,6 +250,47 @@ def test_the_upload_sends_the_box_layout_markers_after_their_data_and_all_done_l
     assert sorted(hf.sent) == sorted([box_upload.LOG_NAME, box_upload.LOG_NAME, "ALL_DONE"])
 
 
+def test_a_staging_directory_this_script_did_not_fill_is_refused_and_left_alone(tmp_path, capsys):
+    """--staging pointed at a directory of other files (the repository's
+    root, say): the upload is refused before anything is sent, and every
+    file there is left as it was. An empty directory is taken."""
+    run = _run_dir(tmp_path)
+    hf = StubHf(tmp_path / "hf")
+    elsewhere = tmp_path / "elsewhere"
+    _write(elsewhere / "CLAUDE.md", "the project's instructions")
+    _write(elsewhere / "README.md", "the readme")
+    _write(elsewhere / "docs" / "note.md", "a note")
+    before = {p.relative_to(elsewhere).as_posix(): p.read_bytes() for p in elsewhere.rglob("*") if p.is_file()}
+    assert _main(run, "--upload", api=lambda: hf, staging=elsewhere) == 2
+    out = capsys.readouterr().out
+    assert "REFUSED" in out and "holds no tmp/stage1_local_upload.json" in out
+    assert {p.relative_to(elsewhere).as_posix(): p.read_bytes() for p in elsewhere.rglob("*") if p.is_file()} == before
+    assert hf.sent == []
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert _main(run, "--upload", api=lambda: hf, staging=empty) == 0
+
+
+def test_a_file_dropped_into_the_staging_directory_is_refused_and_kept(tmp_path, capsys):
+    """After an upload, the staging directory holds what this script wrote
+    and its record of it. A file it did not write, put there since, stops
+    the next upload (the uploader would send it, and nothing here deletes
+    it); a file it wrote and no longer sends is removed."""
+    run, hf = _upload(tmp_path)
+    staging = run.with_name("staging")
+    assert json.loads((staging / "tmp" / "stage1_local_upload.json").read_text())["written"]
+    _write(staging / "notes.txt", "mine")
+    hf.sent.clear()
+    assert _main(run, "--upload", api=lambda: hf) == 2
+    assert "holds files this script did not write (notes.txt)" in capsys.readouterr().out
+    assert (staging / "notes.txt").read_text() == "mine" and hf.sent == []
+    (staging / "notes.txt").unlink()
+    assert (staging / "d0.worker_stages.json").is_file()
+    (run / "games_d0" / ".worker_stages.json").unlink()
+    assert _main(run, "--upload", api=lambda: hf) == 0
+    assert not (staging / "d0.worker_stages.json").exists() and (staging / "d0.inference_server_0.json").is_file()
+
+
 def test_stage_cs_restore_reads_the_uploaded_folder(tmp_path):
     """box_upload.py's own --restore of the names scripts/stage_c_box.sh asks
     for, then its extraction: plan.txt names the plan, and each games

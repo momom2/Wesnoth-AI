@@ -46,6 +46,13 @@ held-out split is the plan's, and every self-play result names `own2` at
 64 slots on both seats under raw:t1, served in float16 alike. A folder
 that already holds files on HF and that this staging directory did not
 fill is refused too; the box stage 1's folder always is.
+
+The staging directory (--staging, by default <run>_upload beside the run)
+must be new, empty, or one this script filled: its record,
+tmp/stage1_local_upload.json, names the files the script wrote there, and
+only those are ever deleted (the ones a later upload no longer writes).
+Any other existing directory is refused, and so is a staging directory
+holding a file its record does not name, which the uploader would send.
 """
 from __future__ import annotations
 
@@ -71,6 +78,12 @@ DEFAULT_HF_DIR = "tier-b/selfplay_t1_local_20261028"
 HF_DIR_PATTERN = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")      # boxlib.sh's check of HF_DIR
 NOT_SENT = {"STOP", box_upload.ALL_DONE, box_upload.LOG_NAME}
 GENERATED = ("plan.txt", "local_provenance.json")
+# The staging directory's record of the names this script wrote there
+# (`stage`), under tmp/ (the uploader sends every regular file directly in
+# the directory). Only the names it lists are ever deleted; an existing
+# directory without it, or with a file it does not list, is refused.
+STAGING_RECORD = Path("tmp") / "stage1_local_upload.json"
+RECORD_SCRIPT = "scripts/stage1_local_upload.py"
 # The self-play results' facts every game must share (scripts/selfplay_t1_local.py's sides).
 SELFPLAY_PROCEDURE, SELFPLAY_SLOTS, SERVED = "raw:t1", 64, "float16"
 
@@ -330,17 +343,73 @@ def listing(up: Upload, hf_dir: str, staging: Path, plan: Plan) -> str:
     return "\n".join(lines)
 
 
+class StagingError(RuntimeError):
+    """The staging directory holds what this script did not write."""
+
+
+def read_staging_record(staging: Path) -> Optional[Dict]:
+    """The staging directory's record (STAGING_RECORD), or None when it has
+    none or one this script did not write."""
+    try:
+        record = json.loads((staging / STAGING_RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or record.get("script") != RECORD_SCRIPT \
+            or not isinstance(record.get("written"), list):
+        return None
+    return record
+
+
+def staging_problems(staging: Path) -> List[str]:
+    """Why `staging` cannot take the upload: it exists, is not empty, and
+    holds no record of this script; or it holds regular files the record
+    does not name, which the uploader would send (it sends every regular
+    file directly in its directory) and which this script never deletes.
+    A new or empty directory takes it."""
+    if not staging.exists():
+        return []
+    if not staging.is_dir():
+        return [f"--staging {staging} is not a directory"]
+    record = read_staging_record(staging)
+    if record is None:
+        if any(staging.iterdir()):
+            return [f"--staging {staging} is not empty and holds no {STAGING_RECORD.as_posix()}: this script did "
+                    f"not fill it, and nothing in it is touched; name a new or empty directory"]
+        return []
+    ours = set(record["written"]) | {box_upload.LOG_NAME}
+    foreign = sorted(p.name for p in staging.iterdir() if p.is_file() and p.name not in ours)
+    if foreign:
+        return [f"--staging {staging} holds files this script did not write ({', '.join(foreign[:5])}"
+                f"{', ...' if len(foreign) > 5 else ''}): the uploader would send them; move them out"]
+    return []
+
+
+def _write_record(staging: Path, record: Dict) -> None:
+    path = staging / STAGING_RECORD
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def stage(up: Upload, staging: Path) -> Path:
     """The staging directory's files and the uploader's spec; its path. The
     run directory is only read: what is sent from it goes by path (`extra`
     and `dir` entries), and the copies, generated files and markers are
-    written here."""
+    written here. Refused (`StagingError`) on a directory `staging_problems`
+    names; of the files there, only those the record lists and this upload
+    no longer writes are deleted, before the record names what it writes."""
+    problems = staging_problems(staging)
+    if problems:
+        raise StagingError("; ".join(problems))
+    record = read_staging_record(staging) or {"script": RECORD_SCRIPT, "written": []}
     staging.mkdir(parents=True, exist_ok=True)
     (staging / "tmp").mkdir(exist_ok=True)
-    keep = {e.name for e in up.entries if e.kind in ("copy", "text")} | {box_upload.LOG_NAME}
-    for p in staging.iterdir():          # a former staging's other files; tmp/ keeps the landed versions
-        if p.is_file() and p.name not in keep:
+    written = sorted({e.name for e in up.entries if e.kind in ("copy", "text")})
+    for name in sorted(set(record["written"]) - set(written)):     # a former staging's; tmp/ keeps the landed
+        p = staging / name
+        if Path(name).name == name and p.is_file():                # a bare name directly here, nothing else
             p.unlink()
+    _write_record(staging, {**record, "written": written})
     lines = []
     for e in up.entries:
         dst = staging / e.name
@@ -424,10 +493,14 @@ def main(argv: Optional[List[str]] = None, api_factory: Callable[[], object] = d
         ap.error(f"--staging {staging} lies inside the run directory, which is only read")
     up = plan_upload(run, plan)
     print(listing(up, hf_dir, staging, plan))
+    problems = staging_problems(staging)
+    if problems:
+        print("\nthe staging directory would be refused:")
+        print("\n".join(f"  - {p}" for p in problems))
     if not args.upload:
         print("\ndry run: nothing written, nothing sent (--upload sends)")
         return 0
-    if up.blockers:
+    if up.blockers or problems:
         print("\nREFUSED: nothing sent")
         return 2
     api = api_factory()

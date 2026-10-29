@@ -211,6 +211,15 @@ It also refuses a folder holding files this staging directory did not
 send, and always refuses the box stage 1's folder. It uses
 huggingface_hub's stored login and never reads the token.
 
+The staging directory must be new, empty, or one the script filled: its
+record, `tmp/stage1_local_upload.json`, names the files the script wrote
+there, and only those are ever deleted. Any other existing directory is
+refused with nothing touched, and so is a file the record does not name,
+since the uploader sends every file directly in the directory. (A first
+version deleted every top-level file not in the upload, so a `--staging`
+pointed at the repository's root would have deleted CLAUDE.md and
+README.md; found on review, 2026-10-29.)
+
 Dry run on the real directory at 10:32, s00 only (abridged):
 
 ```
