@@ -56,7 +56,9 @@ from wesnoth_ai.packed_trunk import (
     build_packed_layout, check_packed_trunk_supported, host_to_device,
     packed_trunk, padded_gather_index, varlen_attention_applies,
 )
-from wesnoth_ai.hip_elementwise import hip_add_layer_norm, hip_add_layer_norm_applies, hip_bias_relu_
+from wesnoth_ai.hip_elementwise import (
+    hip_add_layer_norm, hip_add_layer_norm_applies, hip_bias_relu_, hip_elementwise_bias_applies,
+)
 from wesnoth_ai.hip_kernels import hip_varlen_applies, hip_varlen_attention, hip_varlen_bias_applies
 from wesnoth_ai.material import MATERIAL_SCALE
 from wesnoth_ai.profile_regions import region
@@ -990,11 +992,12 @@ class WesnothModel(nn.Module):
         out-projection's and the second feed-forward linear's in the add and
         norm, and the first feed-forward linear's in one bias and ReLU pass
         where the activation is a ReLU. Where the attention's bias variant
-        is not served, the linears take their biases as before. Returns
-        float32 rows."""
+        or the row-wise kernels' bias variants are not served, the linears
+        take their biases as before. Returns float32 rows."""
         w = self._weight_copy(torch.float16, torch.float32, x.device)
         total = x.shape[0]
-        fold = hip_varlen_bias_applies(x.device, w.layers[0][0].shape[2])
+        fold = (hip_varlen_bias_applies(x.device, w.layers[0][0].shape[2])
+                and hip_elementwise_bias_applies(x.device, self.d_model))
         with torch.autocast("cuda", enabled=False):
             h32 = x.float()
             h16 = h32.half()
@@ -1009,8 +1012,8 @@ class WesnothModel(nn.Module):
                 sa = F.linear(ctx.view(total, E), out_w, None if fold else out_b)
                 h32, h16 = hip_add_layer_norm(h32, sa, ln1_w, ln1_b, layer.norm1.eps,
                                               y_bias=out_b if fold else None)
-                if fold and ff1_b is not None and (layer.activation is F.relu
-                                                   or isinstance(layer.activation, nn.ReLU)):
+                if (fold and ff1_b is not None and ff1_w.shape[0] % 8 == 0
+                        and (layer.activation is F.relu or isinstance(layer.activation, nn.ReLU))):
                     a = hip_bias_relu_(F.linear(h16, ff1_w), ff1_b)
                 else:
                     a = layer.activation(F.linear(h16, ff1_w, ff1_b))

@@ -418,7 +418,8 @@ def test_the_self_tests_run_with_the_callers_autocast_off(monkeypatch):
     with torch.no_grad(), torch.autocast("cpu", dtype=torch.float16):
         hk._self_test(forward, cpu)
         hk._self_test(forward, cpu, bias=True)
-        he._self_test(forward, cpu)
+        he._self_test(forward, cpu, with_bias=False)
+        he._self_test(forward, cpu, with_bias=True)
         hg._self_test(backward, cpu)
     assert forward.autocast_at_launch and not any(forward.autocast_at_launch)
     assert backward.autocast_at_launch and not any(backward.autocast_at_launch)
@@ -588,6 +589,53 @@ def test_fused_loop_folds_the_biases(monkeypatch, activation):
         assert diff <= 0.02 * max(scale, 1.0), (f, diff, scale)
         diff, scale = _worst(folded, unfolded, f)
         assert diff <= 0.01 * max(scale, 1.0), (f, diff, scale)
+
+
+@rocm
+def test_a_failed_bias_self_test_keeps_the_fused_loop(monkeypatch):
+    """The row-wise kernels' bias variants fail their self-test (a code
+    generation that rounds one ulp apart, say): the plain add and norm
+    still serves, the fold is off, and the fused loop runs with its
+    linears taking their biases, close to the padded fp32 trunk."""
+    import wesnoth_ai.hip_elementwise as he
+    import wesnoth_ai.model as wm
+    from wesnoth_ai.model import WesnothModel
+    real = he._self_test
+
+    def failing(kern, device, *, with_bias):
+        if with_bias:
+            raise RuntimeError("bias variants fail here")
+        real(kern, device, with_bias=False)
+    monkeypatch.setattr(he, "_kernels", {})
+    monkeypatch.setattr(he, "_self_test", failing)
+    assert he.hip_add_layer_norm_applies(DEV, 128)
+    assert not he.hip_elementwise_bias_applies(DEV, 128)
+    torch.manual_seed(15)
+    model = WesnothModel(d_model=128, num_layers=2, num_heads=4, d_ff=256).to(DEV).eval()
+    g = torch.Generator().manual_seed(16)
+    with torch.no_grad():
+        for layer in model.encoder.layers:
+            for p in (layer.self_attn.in_proj_bias, layer.self_attn.out_proj.bias, layer.linear1.bias,
+                      layer.linear2.bias):
+                p.copy_(torch.randn(p.shape, generator=g) * 0.5)
+    fused, bias_relu = [], []
+    trunk = model._run_hip_fp16_trunk
+    model._run_hip_fp16_trunk = lambda x, index: fused.append(1) or trunk(x, index)
+    monkeypatch.setattr(wm, "hip_bias_relu_", lambda y, b: bias_relu.append(1) or hip_bias_relu_(y, b))
+    rng = random.Random(17)
+    sizes = [(rng.randint(1, 30), rng.randint(0, 7), rng.randint(100, 600)) for _ in range(12)]
+    gd = torch.Generator(device=DEV).manual_seed(18)
+    B, d = len(sizes), 128
+    H_max, U_max, R_max = (max(s[i] for s in sizes) for i in (2, 0, 1))
+    streams = tuple(torch.randn(B, n, d, generator=gd, device=DEV) for n in (H_max, U_max, R_max, 1, 1)) + (sizes,)
+    with torch.no_grad():
+        ref = model.forward_streams(*streams, packed=False)
+        with torch.autocast("cuda", dtype=torch.float16):
+            out = model.forward_streams(*streams, packed=True).float32()
+    assert fused and not bias_relu
+    for f in FIELDS:
+        diff, scale = _worst(out, ref, f)
+        assert diff <= 0.02 * max(scale, 1.0), (f, diff, scale)
 
 
 @rocm

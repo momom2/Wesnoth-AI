@@ -151,6 +151,8 @@ class _DeviceKernels:
         self.add_ln = {128 * ni: self._function(f"add_ln_d{ni}") for ni in _LN_NI}
         self.add_ln_bias = {128 * ni: self._function(f"add_ln_bias_d{ni}") for ni in _LN_NI}
         self.bias_relu = self._function("bias_relu_f16")
+        # Set by _kernels_for: the bias variants passed their own self-test.
+        self.bias_served = False
 
     def _function(self, name: str) -> ctypes.c_void_p:
         return module_function(self.hip, self.module, name)
@@ -180,43 +182,53 @@ _kernels: Dict[int, Optional[_DeviceKernels]] = {}
 
 def _kernels_for(device: torch.device) -> Optional[_DeviceKernels]:
     """The device's kernels, built and self-tested on first use; None
-    (reported once) where either fails."""
+    (reported once) where the build or the plain add and norm's self-test
+    fails. The bias variants are tested apart (`bias_served`), so their
+    failure costs the fold only, not the fused loop."""
     index = device.index if device.index is not None else torch.cuda.current_device()
     with _lock:
         if index not in _kernels:
             try:
                 kern = _DeviceKernels(torch.device("cuda", index))
-                _self_test(kern, torch.device("cuda", index))
+                _self_test(kern, torch.device("cuda", index), with_bias=False)
                 log.info("hip elementwise kernels: built for %s on cuda:%d", kern.arch, index)
             except Exception as e:  # noqa: BLE001 -- any failure means: not served here
                 log.warning("hip elementwise kernels unavailable on cuda:%d: %s", index, e)
                 kern = None
+            if kern is not None:
+                try:
+                    _self_test(kern, torch.device("cuda", index), with_bias=True)
+                    kern.bias_served = True
+                except Exception as e:  # noqa: BLE001 -- the fold is not served here
+                    log.warning("hip elementwise bias variants unavailable on cuda:%d: %s", index, e)
             _kernels[index] = kern
         return _kernels[index]
 
 
-def _self_test(kern: _DeviceKernels, device: torch.device) -> None:
-    """The add and norm, without and with the bias, against F.layer_norm per
-    instantiated width, and the bias and ReLU against F.relu of the fp32
-    sum rounded to fp16 (the same value: the kernel's fp16 add is
-    correctly rounded), on fixed problems, with the caller's autocast off."""
-    gen = torch.Generator().manual_seed(0)
+def _self_test(kern: _DeviceKernels, device: torch.device, *, with_bias: bool) -> None:
+    """The add and norm against F.layer_norm per instantiated width, on
+    fixed problems with the caller's autocast off; `with_bias`, its bias
+    variant instead, and the bias and ReLU against F.relu of the fp32 sum
+    rounded to fp16 (the same value: the kernel's fp16 add is correctly
+    rounded)."""
+    gen = torch.Generator().manual_seed(1 if with_bias else 0)
     with torch.autocast(device.type, enabled=False):
         for d in sorted(kern.add_ln):
             x = (torch.randn(37, d, generator=gen) * 3).to(device)
             y = torch.randn(37, d, generator=gen).to(device, torch.float16)
             w, b = (torch.rand(d, generator=gen) + 0.5).to(device), torch.randn(d, generator=gen).to(device)
-            yb = torch.randn(d, generator=gen).to(device, torch.float16)
-            for bias in (None, yb):
-                o32, o16 = torch.empty_like(x), torch.empty_like(y)
-                kern.launch_add_ln(x, y, w, b, o32, o16, 1e-5, yb=bias)
-                sub = y.float() if bias is None else y.float() + bias.float()
-                ref = F.layer_norm(x + sub, (d,), w, b, 1e-5)
-                worst = (o32 - ref).abs().max().item()
-                if not worst <= 1e-4 or not (o16.float() - ref).abs().max().item() <= _SELF_TEST_TOL:
-                    raise RuntimeError(f"self-test of the add and layer norm at d {d} "
-                                       f"({'with' if bias is not None else 'without'} a bias): "
-                                       f"max abs error {worst}")
+            bias = torch.randn(d, generator=gen).to(device, torch.float16) if with_bias else None
+            o32, o16 = torch.empty_like(x), torch.empty_like(y)
+            kern.launch_add_ln(x, y, w, b, o32, o16, 1e-5, yb=bias)
+            sub = y.float() if bias is None else y.float() + bias.float()
+            ref = F.layer_norm(x + sub, (d,), w, b, 1e-5)
+            worst = (o32 - ref).abs().max().item()
+            if not worst <= 1e-4 or not (o16.float() - ref).abs().max().item() <= _SELF_TEST_TOL:
+                raise RuntimeError(f"self-test of the add and layer norm at d {d} "
+                                   f"({'with' if bias is not None else 'without'} a bias): "
+                                   f"max abs error {worst}")
+        if not with_bias:
+            return
         y = (torch.randn(29, 24, generator=gen) * 2).to(device, torch.float16)
         bias = torch.randn(24, generator=gen).to(device, torch.float16)
         ref = F.relu(y.float() + bias.float()).half()
@@ -231,11 +243,17 @@ def _self_test(kern: _DeviceKernels, device: torch.device) -> None:
 # ---------------------------------------------------------------------
 
 def hip_add_layer_norm_applies(device: torch.device, d: int) -> bool:
-    """Whether hip_add_layer_norm serves rows of width `d` on `device`, and
-    hip_bias_relu_ any rows there."""
+    """Whether hip_add_layer_norm serves rows of width `d` on `device`
+    (without `y_bias`)."""
     if torch.version.hip is None or device.type != "cuda" or d not in tuple(128 * ni for ni in _LN_NI):
         return False
     return _kernels_for(device) is not None
+
+
+def hip_elementwise_bias_applies(device: torch.device, d: int) -> bool:
+    """Whether hip_add_layer_norm serves rows of width `d` on `device` with
+    `y_bias` too, and hip_bias_relu_ rows whose width is a multiple of 8."""
+    return hip_add_layer_norm_applies(device, d) and _kernels_for(device).bias_served
 
 
 def hip_add_layer_norm(x: torch.Tensor, y: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor,
@@ -272,14 +290,14 @@ def hip_bias_relu_(y: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
     written into y when y is contiguous and 16-byte aligned (a fresh
     F.linear output is), else into an aligned copy; returns the tensor
     written. n a multiple of 8. The caller has checked
-    `hip_add_layer_norm_applies`; forward only."""
+    `hip_elementwise_bias_applies`; forward only."""
     n = y.shape[-1]
     if y.dtype != torch.float16 or bias.dtype != torch.float16 or bias.shape != (n,) or n % 8:
         raise TypeError(f"hip_bias_relu_ takes fp16 y [..., n] and bias [n], n a multiple of 8: "
                         f"{y.dtype} {tuple(y.shape)}, {bias.dtype} {tuple(bias.shape)}")
     if bias.device != y.device:
         raise ValueError("hip_bias_relu_'s tensors must be on one device")
-    if y.numel() // 8 >= 2 ** 31:
+    if y.numel() // 8 + _RELU_THREADS >= 2 ** 31:     # the last block's thread index, in int32
         raise ValueError(f"hip_bias_relu_ indexes chunks in int32: {y.numel()} elements")
     if y.requires_grad and torch.is_grad_enabled():
         raise RuntimeError("hip_bias_relu_ has no backward")
