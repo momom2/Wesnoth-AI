@@ -41,9 +41,18 @@ games would take most of a day here, against about an hour on a box.
   capped. A game or a 3D program then competes with it, and the run slows
   it down.
 - **The display.** The card drives the screen, so a kernel that stalls the
-  GPU past 2 s resets the display driver (a TDR, System event 4101). That
-  happened once, on 2026-10-28 at 17:01, with the old padded path. None
-  happened since the kernels, and the runner stops on one.
+  GPU past 2 s resets the display driver (a TDR, System event 4101).
+  - 2026-10-28 17:01: the old padded path, alone.
+  - 2026-10-29 14:06 and 14:18: a benchmark run beside stage 1's server,
+    which queued twelve 48-leaf forwards without waiting for any. Stage 1
+    lost no game; its runner stopped after the match, on its rule, and
+    resumed. The same benchmark waiting after each forward ran five times
+    without one.
+  - Stage 1 alone served about 13 hours on the kernels without one.
+
+  So a second heavy GPU program beside a run can reset the display, and a
+  game of the user's may be one. The runner stops on a reset;
+  `--yield-gpu` (option 3 below) steps aside before it comes to that.
 - **The CPU.** About 2-3 of 12 threads, at below-normal priority: the
   user's programs come first.
 - **Sleep and restarts.**
