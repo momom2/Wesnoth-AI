@@ -185,3 +185,34 @@ at 70% of the run:
 The one-against-two-servers A/B read +2.5% and called it the noise
 level; if this one reads under about 3% either way, play the pair again
 in the other order before reading it.
+
+## The GPU A/B, run (the lead, 2026-10-29 15:04-15:33)
+
+On the idle RX 6600, while stage 1 was stopped: 192 games of `own2` at
+temperature 1, 96 in flight, two rounds, five arms
+(`training/metrics/pipe_buffer_20261029/` on `feature/pipe-buffer`).
+Steady decisions a second, mean of two:
+
+| arm | rate | against old |
+|---|---|---|
+| old (041bd7ca) | 485.1 | |
+| this branch, `--inference-async-replies` | 504.4 | +4.0% |
+| a 256 kB pipe buffer instead (`feature/pipe-buffer`) | 500.1 | +3.1% |
+
+The GPU reading agrees with the stand-in's +4.1%, and the mean batch
+falls from about 80 to about 45, as predicted.
+
+**Not adopted.** Raising the pipe buffer removes the waits found in "Why
+a write cost 0.17 ms", where they arise:
+- it takes most of this gain (the two arms are within each other's noise,
+  about 2%);
+- it needs no thread and keeps the batches whole;
+- it changes nothing on the boxes.
+
+The code stays on this branch.
+
+**A defect of the branch's stats under the writer thread.** The server's
+GPU seconds read 17.6 of a 157 s run (the inline arms: 96-119 of
+154-172), so the timeline's GPU-busy share reads 0.04-0.05. The
+accounting of `gpu_ms` with the writer thread on is wrong. It was not
+investigated further, since the branch is not merged.
