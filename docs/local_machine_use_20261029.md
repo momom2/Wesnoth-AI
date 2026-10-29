@@ -121,5 +121,17 @@ games would take most of a day here, against about an hour on a box.
 5. **Merging and pushing.** None of the branches is pushed (no GitHub
    sign-in for momom2 on this machine yet):
    - `feature/local-gpu-stage1`: the kernels, the local runners, the
-     training backward, the stage C hand-off;
-   - `fix/windows-portability`: from `main`, on its own.
+     training backward, the stage C hand-off, and since 15:35 on
+     2026-10-29 the bias fold and the pipe buffer (self-play +9.6%);
+   - `fix/windows-portability`: from `main`, on its own;
+   - `feature/async-replies` and `feature/int8-linear`: not adopted; their
+     records are on `feature/local-gpu-stage1`, their code stays on them.
+6. **The bias fold changes fp16 serving's rounding.** Against the old
+   fused loop, own2's logits move by at most 0.055 (target head) and actor
+   argmax agrees on 200 of 200 bench positions; against fp32 both loops sit
+   within 0.044. Its games still record `infer_fp16` only, like stage 1's,
+   so `elo_collect` pools them with D0 and the memory report.
+   - Proposed: treat them as one estimand, as bf16's batch-dependent
+     rounding already is.
+   - Otherwise: a server field for the loop's version, and claims against
+     D0 played on stage 1's code (fc560ab9).
