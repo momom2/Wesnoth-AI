@@ -56,7 +56,8 @@ from wesnoth_ai.packed_trunk import (
     build_packed_layout, check_packed_trunk_supported, host_to_device,
     packed_trunk, padded_gather_index, varlen_attention_applies,
 )
-from wesnoth_ai.hip_kernels import hip_add_layer_norm, hip_add_layer_norm_applies, hip_varlen_attention
+from wesnoth_ai.hip_elementwise import hip_add_layer_norm, hip_add_layer_norm_applies, hip_bias_relu_
+from wesnoth_ai.hip_kernels import hip_varlen_applies, hip_varlen_attention, hip_varlen_bias_applies
 from wesnoth_ai.material import MATERIAL_SCALE
 from wesnoth_ai.profile_regions import region
 from wesnoth_ai.padded_streams import (ExtraStreams, PaddedIndex, check_sighting_stream,
@@ -968,7 +969,9 @@ class WesnothModel(nn.Module):
         norms = [n for layer in self.encoder.layers for n in (layer.norm1, layer.norm2)]
         if any(n.weight is None or n.bias is None for n in norms):
             return False
-        return hip_add_layer_norm_applies(x.device, self.d_model)
+        head_dim = self.d_model // self.encoder.layers[0].self_attn.num_heads
+        return (hip_add_layer_norm_applies(x.device, self.d_model)
+                and hip_varlen_applies(x.device, torch.float16, head_dim))
 
     def _run_hip_fp16_trunk(self, x: torch.Tensor, index) -> torch.Tensor:
         """The packed trunk's layers in the fp16 autocast's numerics on fused
@@ -978,22 +981,42 @@ class WesnothModel(nn.Module):
         fp16 rounding (the next linear's input) in one kernel, the residual
         stream in float32 as under the autocast. Per layer of a 48-leaf
         batch on the RX 6600 the add, norm and cast took 0.97 ms unfused and
-        0.52 fused (2026-10-28). Returns float32 rows."""
+        0.52 fused (2026-10-28).
+
+        The linears run without their biases, each added by the kernel that
+        reads the output (ROCm's addmm adds a bias in a pass of its own,
+        training/metrics/hip_bias_fold_20261029/README.md): the
+        in-projection's as the attention loads q, k and v, the
+        out-projection's and the second feed-forward linear's in the add and
+        norm, and the first feed-forward linear's in one bias and ReLU pass
+        where the activation is a ReLU. Where the attention's bias variant
+        is not served, the linears take their biases as before. Returns
+        float32 rows."""
         w = self._weight_copy(torch.float16, torch.float32, x.device)
         total = x.shape[0]
+        fold = hip_varlen_bias_applies(x.device, w.layers[0][0].shape[2])
         with torch.autocast("cuda", enabled=False):
             h32 = x.float()
             h16 = h32.half()
             for layer, (qkv_w, qkv_b, out_w, out_b, ln1_w, ln1_b, ff1_w, ff1_b, ff2_w, ff2_b,
                         ln2_w, ln2_b) in zip(self.encoder.layers, w.layers):
                 _, heads, head_dim, E = qkv_w.shape
-                qkv = F.linear(h16, qkv_w.view(3 * E, E), None if qkv_b is None else qkv_b.view(3 * E))
+                qkv = F.linear(h16, qkv_w.view(3 * E, E),
+                               None if fold or qkv_b is None else qkv_b.view(3 * E))
                 q, k, v = qkv.view(total, 3, heads, head_dim).unbind(1)
-                ctx = hip_varlen_attention(q, k, v, index.cu_seqlens, index.max_len)
-                sa = F.linear(ctx.view(total, E), out_w, out_b)
-                h32, h16 = hip_add_layer_norm(h32, sa, ln1_w, ln1_b, layer.norm1.eps)
-                ff = F.linear(layer.activation(F.linear(h16, ff1_w, ff1_b)), ff2_w, ff2_b)
-                h32, h16 = hip_add_layer_norm(h32, ff, ln2_w, ln2_b, layer.norm2.eps)
+                ctx = hip_varlen_attention(q, k, v, index.cu_seqlens, index.max_len,
+                                           bias=qkv_b if fold else None)
+                sa = F.linear(ctx.view(total, E), out_w, None if fold else out_b)
+                h32, h16 = hip_add_layer_norm(h32, sa, ln1_w, ln1_b, layer.norm1.eps,
+                                              y_bias=out_b if fold else None)
+                if fold and ff1_b is not None and (layer.activation is F.relu
+                                                   or isinstance(layer.activation, nn.ReLU)):
+                    a = hip_bias_relu_(F.linear(h16, ff1_w), ff1_b)
+                else:
+                    a = layer.activation(F.linear(h16, ff1_w, ff1_b))
+                ff = F.linear(a, ff2_w, None if fold else ff2_b)
+                h32, h16 = hip_add_layer_norm(h32, ff, ln2_w, ln2_b, layer.norm2.eps,
+                                              y_bias=ff2_b if fold else None)
             if w.final_norm is not None:
                 h32 = F.layer_norm(h32, (h32.shape[-1],), w.final_norm[0], w.final_norm[1],
                                    self.encoder.norm.eps)
