@@ -149,7 +149,7 @@ __device__ __forceinline__ void attn_bwd_dq(
         #pragma unroll
         for (int c = 0; c < C; ++c) { qr[r][c] = (h2)(0); gr[r][c] = (h2)(0); }
         if (active[r]) {
-            const long row = start + qi;
+            const long long row = start + qi;
             load_row<D>(qr[r], q + row * sq + hd * D);
             load_row<D>(gr[r], g + row * sg + hd * D);
             const h8* os = (const h8*)(o + row * so + hd * D);
@@ -161,8 +161,8 @@ __device__ __forceinline__ void attn_bwd_dq(
                 for (int e = 0; e < 4; ++e) dsum = __builtin_amdgcn_fdot2(gr[r][c * 4 + e], pair_of(t, e), dsum, false);
             }
             dl[r] = dsum;
-            delta[(long)hd * ls + row] = dsum;
-            lr[r] = lse[(long)hd * ls + row] * LOG2E;
+            delta[(long long)hd * ls + row] = dsum;
+            lr[r] = lse[(long long)hd * ls + row] * LOG2E;
         }
     }
     float acc[QPT][D];
@@ -176,8 +176,8 @@ __device__ __forceinline__ void attn_bwd_dq(
             const int j = i / CH, c = i % CH;
             h8 tk = (h8)(0), tv = (h8)(0);
             if (kb + j < n) {
-                tk = ((const h8*)(k + (long)(start + kb + j) * sk + hd * D))[c];
-                tv = ((const h8*)(v + (long)(start + kb + j) * sv + hd * D))[c];
+                tk = ((const h8*)(k + (long long)(start + kb + j) * sk + hd * D))[c];
+                tv = ((const h8*)(v + (long long)(start + kb + j) * sv + hd * D))[c];
             }
             *(h8*)&Ks[j][c * 4] = tk;
             *(h8*)&Vs[j][c * 4] = tv;
@@ -186,8 +186,8 @@ __device__ __forceinline__ void attn_bwd_dq(
             const int jj = i / CH, c = i % CH;
             const int j0 = kb + 2 * jj;
             h8 a = (h8)(0), b = (h8)(0);
-            if (j0 < n) a = ((const h8*)(k + (long)(start + j0) * sk + hd * D))[c];
-            if (j0 + 1 < n) b = ((const h8*)(k + (long)(start + j0 + 1) * sk + hd * D))[c];
+            if (j0 < n) a = ((const h8*)(k + (long long)(start + j0) * sk + hd * D))[c];
+            if (j0 + 1 < n) b = ((const h8*)(k + (long long)(start + j0 + 1) * sk + hd * D))[c];
             store_pairs(&Kp[jj][c * 8], a, b);
         }
         __syncthreads();
@@ -243,7 +243,7 @@ __device__ __forceinline__ void attn_bwd_dq(
     }
     #pragma unroll
     for (int r = 0; r < QPT; ++r)
-        if (active[r]) store_row<D>(dq + (long)(start + q0 + r * NT + tid) * sdq + hd * D, acc[r], scale);
+        if (active[r]) store_row<D>(dq + (long long)(start + q0 + r * NT + tid) * sdq + hd * D, acc[r], scale);
 }
 
 // dK and dV. Grid (key blocks, heads, segments); NT threads, KPT key rows
@@ -274,8 +274,8 @@ __device__ __forceinline__ void attn_bwd_dkdv(
         #pragma unroll
         for (int c = 0; c < C; ++c) { kr[r][c] = (h2)(0); vr[r][c] = (h2)(0); }
         if (active[r]) {
-            load_row<D>(kr[r], k + (long)(start + kj) * sk + hd * D);
-            load_row<D>(vr[r], v + (long)(start + kj) * sv + hd * D);
+            load_row<D>(kr[r], k + (long long)(start + kj) * sk + hd * D);
+            load_row<D>(vr[r], v + (long long)(start + kj) * sv + hd * D);
         }
     }
     float gk[KPT][D], gv[KPT][D];
@@ -289,8 +289,8 @@ __device__ __forceinline__ void attn_bwd_dkdv(
             const int j = i / CH, c = i % CH;
             h8 tq = (h8)(0), tg = (h8)(0);
             if (qb + j < n) {
-                tq = ((const h8*)(q + (long)(start + qb + j) * sq + hd * D))[c];
-                tg = ((const h8*)(g + (long)(start + qb + j) * sg + hd * D))[c];
+                tq = ((const h8*)(q + (long long)(start + qb + j) * sq + hd * D))[c];
+                tg = ((const h8*)(g + (long long)(start + qb + j) * sg + hd * D))[c];
             }
             *(h8*)&Qs[j][c * 4] = tq;
             *(h8*)&Gs[j][c * 4] = tg;
@@ -300,12 +300,12 @@ __device__ __forceinline__ void attn_bwd_dkdv(
             const int i0 = qb + 2 * jj;
             h8 a = (h8)(0), b = (h8)(0), e = (h8)(0), f = (h8)(0);
             if (i0 < n) {
-                a = ((const h8*)(q + (long)(start + i0) * sq + hd * D))[c];
-                e = ((const h8*)(g + (long)(start + i0) * sg + hd * D))[c];
+                a = ((const h8*)(q + (long long)(start + i0) * sq + hd * D))[c];
+                e = ((const h8*)(g + (long long)(start + i0) * sg + hd * D))[c];
             }
             if (i0 + 1 < n) {
-                b = ((const h8*)(q + (long)(start + i0 + 1) * sq + hd * D))[c];
-                f = ((const h8*)(g + (long)(start + i0 + 1) * sg + hd * D))[c];
+                b = ((const h8*)(q + (long long)(start + i0 + 1) * sq + hd * D))[c];
+                f = ((const h8*)(g + (long long)(start + i0 + 1) * sg + hd * D))[c];
             }
             store_pairs(&Qp[jj][c * 8], a, b);
             store_pairs(&Gp[jj][c * 8], e, f);
@@ -313,8 +313,8 @@ __device__ __forceinline__ void attn_bwd_dkdv(
         for (int i = tid; i < BQ; i += NT) {
             const bool ok = qb + i < n;
             // A query past the segment: P = exp2(score - inf) = 0.
-            Ls[i] = ok ? lse[(long)hd * ls + start + qb + i] * LOG2E : __builtin_inff();
-            Dl[i] = ok ? delta[(long)hd * ls + start + qb + i] : 0.f;
+            Ls[i] = ok ? lse[(long long)hd * ls + start + qb + i] * LOG2E : __builtin_inff();
+            Dl[i] = ok ? delta[(long long)hd * ls + start + qb + i] : 0.f;
         }
         __syncthreads();
         h2 pp[KPT][BQ / 2], dsp[KPT][BQ / 2];
@@ -377,7 +377,7 @@ __device__ __forceinline__ void attn_bwd_dkdv(
     #pragma unroll
     for (int r = 0; r < KPT; ++r) {
         if (active[r]) {
-            const long row = start + k0 + r * NT + tid;
+            const long long row = start + k0 + r * NT + tid;
             store_row<D>(dk + row * sdk + hd * D, gk[r], scale);
             store_row<D>(dv + row * sdv + hd * D, gv[r], 1.f);
         }

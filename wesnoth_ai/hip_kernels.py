@@ -96,7 +96,7 @@ __device__ __forceinline__ void attn_fwd(
         const int qi = q0 + r * NT + tid;
         active[r] = qi < n;
         if (active[r]) {
-            const h8* src = (const h8*)(q + (long)(start + qi) * sq + hd * D);
+            const h8* src = (const h8*)(q + (long long)(start + qi) * sq + hd * D);
             #pragma unroll
             for (int c = 0; c < CH; ++c) {
                 h8 t = src[c];
@@ -121,15 +121,15 @@ __device__ __forceinline__ void attn_fwd(
         for (int i = tid; i < BK * CH; i += NT) {
             const int j = i / CH, c = i % CH;
             h8 t = (h8)(0);
-            if (kb + j < n) t = ((const h8*)(k + (long)(start + kb + j) * sk + hd * D))[c];
+            if (kb + j < n) t = ((const h8*)(k + (long long)(start + kb + j) * sk + hd * D))[c];
             *(h8*)&Ks[j][c * 4] = t;
         }
         for (int i = tid; i < (BK / 2) * CH; i += NT) {
             const int jj = i / CH, c = i % CH;
             const int j0 = kb + 2 * jj;
             h8 a = (h8)(0), b = (h8)(0);
-            if (j0 < n) a = ((const h8*)(v + (long)(start + j0) * sv + hd * D))[c];
-            if (j0 + 1 < n) b = ((const h8*)(v + (long)(start + j0 + 1) * sv + hd * D))[c];
+            if (j0 < n) a = ((const h8*)(v + (long long)(start + j0) * sv + hd * D))[c];
+            if (j0 + 1 < n) b = ((const h8*)(v + (long long)(start + j0 + 1) * sv + hd * D))[c];
             *(h8*)&Vp[jj][c * 8] = __builtin_shufflevector(a, b, 0, 8, 1, 9, 2, 10, 3, 11);
             *(h8*)&Vp[jj][c * 8 + 4] = __builtin_shufflevector(a, b, 4, 12, 5, 13, 6, 14, 7, 15);
         }
@@ -203,7 +203,7 @@ __device__ __forceinline__ void attn_fwd(
     for (int r = 0; r < QPT; ++r) {
         if (active[r]) {
             const float inv = 1.f / l[r];
-            h8* dst = (h8*)(o + (long)(start + q0 + r * NT + tid) * so + hd * D);
+            h8* dst = (h8*)(o + (long long)(start + q0 + r * NT + tid) * so + hd * D);
             #pragma unroll
             for (int c = 0; c < CH; ++c) {
                 h8 t;
@@ -212,7 +212,7 @@ __device__ __forceinline__ void attn_fwd(
                 dst[c] = t;
             }
             // m and log2(l) are base 2 of the scaled scores: times ln 2, the natural log.
-            if (LSE) lse[(long)hd * ls + start + q0 + r * NT + tid] = (m[r] + log2f(l[r])) * 0.6931471805599453f;
+            if (LSE) lse[(long long)hd * ls + start + q0 + r * NT + tid] = (m[r] + log2f(l[r])) * 0.6931471805599453f;
         }
     }
 }
@@ -247,7 +247,7 @@ __device__ __forceinline__ void add_ln(const float* __restrict__ x, const _Float
     const int lane = threadIdx.x & 31;
     const int row = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
     if (row >= rows) return;        // a whole wave: no lane of it reaches the shuffles
-    const long base = (long)row * D;
+    const long long base = (long long)row * D;
     f4 v[NI];
     float s = 0.f;
     #pragma unroll
@@ -522,14 +522,36 @@ def hip_varlen_applies(device: torch.device, dtype: torch.dtype, head_dim: Optio
     return _kernels_for(device) is not None
 
 
+def _aligned(t: torch.Tensor) -> torch.Tensor:
+    """A contiguous t whose data starts on a 16-byte boundary, for the
+    kernels' 16-byte loads and stores: t itself when it is one, else a
+    copy (contiguous() returns a contiguous view unchanged, however its
+    start is aligned)."""
+    c = t.contiguous()
+    return c if c.data_ptr() % 16 == 0 else c.clone()
+
+
 def _kernel_view(t: torch.Tensor) -> torch.Tensor:
-    """t, or a contiguous copy where its layout is not the kernel's:
-    unit-stride head dim, heads adjacent, 16-byte rows and token strides."""
+    """t, or an aligned contiguous copy where its layout is not the
+    kernel's: unit-stride head dim, heads adjacent, 16-byte rows and token
+    strides."""
     d = t.shape[-1]
     if (t.stride(2) == 1 and t.stride(1) == d and t.stride(0) % 8 == 0
             and t.data_ptr() % 16 == 0):
         return t
-    return t.contiguous()
+    return _aligned(t)
+
+
+def _check_attention_args(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, cu_seqlens: torch.Tensor) -> None:
+    """The kernels read raw pointers: refuse what they would misread."""
+    if not (q.dtype == k.dtype == v.dtype == torch.float16):
+        raise TypeError(f"hip varlen attention takes fp16 q, k, v, not {q.dtype}, {k.dtype}, {v.dtype}")
+    if q.dim() != 3 or q.shape != k.shape or q.shape != v.shape:
+        raise ValueError(f"q, k, v must share a [total, heads, head_dim] shape: {q.shape}, {k.shape}, {v.shape}")
+    if q.shape[-1] not in HEAD_DIMS:
+        raise ValueError(f"head_dim {q.shape[-1]} is not one the source instantiates {HEAD_DIMS}")
+    if not (q.device == k.device == v.device == cu_seqlens.device):
+        raise ValueError("q, k, v and cu_seqlens must be on one device")
 
 
 def hip_add_layer_norm_applies(device: torch.device, d: int) -> bool:
@@ -546,11 +568,19 @@ def hip_add_layer_norm(x: torch.Tensor, y: torch.Tensor, weight: torch.Tensor, b
     computes it, up to the order of the sums), and its fp16 rounding, the
     next linear's input, in one pass. weight and bias float32 [d]. The
     caller has checked `hip_add_layer_norm_applies`; forward only."""
+    if x.dtype != torch.float32 or y.dtype != torch.float16 or x.dim() != 2 or y.shape != x.shape:
+        raise TypeError(f"hip_add_layer_norm takes float32 x and fp16 y of one [rows, d] shape: "
+                        f"{x.dtype} {tuple(x.shape)}, {y.dtype} {tuple(y.shape)}")
+    d = x.shape[1]
+    if weight.dtype != torch.float32 or bias.dtype != torch.float32 or weight.shape != (d,) or bias.shape != (d,):
+        raise TypeError(f"hip_add_layer_norm takes float32 weight and bias of [{d}]")
+    if not (x.device == y.device == weight.device == bias.device):
+        raise ValueError("hip_add_layer_norm's tensors must be on one device")
     kern = _kernels_for(x.device)
-    x, y = x.contiguous(), y.contiguous()
+    x, y = _aligned(x), _aligned(y)
     o32 = torch.empty_like(x)
     o16 = torch.empty(x.shape, dtype=torch.float16, device=x.device)
-    kern.launch_add_ln(x, y, weight.contiguous(), bias.contiguous(), o32, o16, eps)
+    kern.launch_add_ln(x, y, _aligned(weight), _aligned(bias), o32, o16, eps)
     return o32, o16
 
 
@@ -563,6 +593,7 @@ def hip_varlen_attention_lse(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
     offsets' last unwritten), and the q, k, v the kernel read (kernel
     views). The backward's forward (wesnoth_ai/hip_attention_grad.py);
     no autograd here. The caller has checked `hip_varlen_applies`."""
+    _check_attention_args(q, k, v, cu_seqlens)
     kern = _kernels_for(q.device)
     q, k, v = (_kernel_view(t) for t in (q, k, v))
     total, heads, _ = q.shape
@@ -581,6 +612,7 @@ def hip_varlen_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
     if q.requires_grad or k.requires_grad or v.requires_grad:
         if torch.is_grad_enabled():
             raise RuntimeError("hip_varlen_attention has no backward")
+    _check_attention_args(q, k, v, cu_seqlens)
     kern = _kernels_for(q.device)
     q, k, v = (_kernel_view(t) for t in (q, k, v))
     out = torch.empty(q.shape, dtype=q.dtype, device=q.device)

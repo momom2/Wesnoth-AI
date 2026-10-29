@@ -332,3 +332,31 @@ def test_packed_fp16_trunk_matches_padded_fp32():
                 diff = max(diff, (xf - yf).abs()[fin].max().item())
                 scale = max(scale, yf.abs()[fin].max().item())
         assert diff <= 0.02 * max(scale, 1.0), (f, diff, scale)
+
+
+def test_misaligned_and_malformed_inputs_never_reach_a_kernel():
+    """The kernels read raw pointers with 16-byte loads: a contiguous view
+    starting off a 16-byte boundary is copied (contiguous() alone returns
+    it unchanged), and a wrong dtype, shape, head size or device is refused
+    before any launch (CPU tensors: nothing here needs a GPU)."""
+    from wesnoth_ai.hip_kernels import _aligned, _check_attention_args, hip_add_layer_norm
+    base = torch.zeros(3 * 12 * 32 + 4, dtype=torch.float16)
+    view = base[4:].view(3, 12, 32)                       # 8 bytes past base's start
+    assert view.is_contiguous() and view.data_ptr() % 16 != 0
+    copy = _aligned(view)
+    assert copy.data_ptr() % 16 == 0 and torch.equal(copy, view)
+    aligned = torch.zeros(3, 12, 32, dtype=torch.float16)
+    assert _aligned(aligned) is aligned
+    cu = torch.tensor([0, 3], dtype=torch.int32)
+    with pytest.raises(TypeError, match="fp16"):
+        _check_attention_args(aligned.float(), aligned, aligned, cu)
+    with pytest.raises(ValueError, match="shape"):
+        _check_attention_args(aligned, aligned[:2], aligned, cu)
+    odd = torch.zeros(3, 12, 48, dtype=torch.float16)
+    with pytest.raises(ValueError, match="head_dim 48"):
+        _check_attention_args(odd, odd, odd, cu)
+    x = torch.zeros(5, 128)
+    with pytest.raises(TypeError, match="float32 x and fp16 y"):
+        hip_add_layer_norm(x.half(), x.half(), torch.ones(128), torch.zeros(128), 1e-5)
+    with pytest.raises(TypeError, match="weight and bias"):
+        hip_add_layer_norm(x, x.half(), torch.ones(128).half(), torch.zeros(128), 1e-5)
