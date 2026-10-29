@@ -29,12 +29,15 @@ eight a worker process, one server autocasting to fp16 (--infer-fp16, the
 HIP kernels). The games record infer_fp16, so a local match never pools
 with a box's bf16 games.
 
-Seeds. The default base is 900000: on 2026-10-29 no tracked file names a
-seed from 873300 to 999999, and this machine's runs took 870000-871015 (the
-pilots), 873000-873299 (stage 1's smoke) and 874000-874999 (this script's
-smoke); stage 1 holds 800000-848199, the recruit-rule match 700000-739999.
-Every candidate measured from the default base plays the same seeds (maps,
-factions, luck); pass another base for fresh ones, a confirmation.
+Seeds. The default base is 900000. On 2026-10-29 the seeds taken end below
+it: no branch's scripts, documents or records name one from 900000 to
+999999. Stage 1 holds 800000-848199, the recruit-rule match 700000-739999,
+and the coin batches of exp/near-tie-coins up to 600000-899999 (their own
+check keeps them below 900000); this machine's runs took 870000-871015
+(the pilots), 873000-873299 (stage 1's smoke) and 874000-874015 (this
+script's smoke). Every candidate measured from the default base plays the
+same seeds (maps, factions, luck); pass another base for fresh ones, a
+confirmation.
 
 The process: below-normal priority (--normal-priority opts out),
 --keep-awake holds the machine awake, and a display-driver reset (Windows
