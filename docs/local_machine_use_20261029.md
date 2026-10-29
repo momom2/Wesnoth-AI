@@ -22,7 +22,7 @@ the options. The rules themselves are the user's.
 | Stage 1 of the training design | about 11.5 hours, $0 | about 3.1 hours, $1.8 |
 | The full test suite, both tiers | 11.5 minutes | CI |
 | The forward of `own2` | 535 positions a second (fp16, the HIP kernels) | |
-| A training step of `own2` | 3 positions a second before 2026-10-29 (fp32, padded math attention); 88.5-148 with the HIP attention backward in fp16, measured beside generation | 1,477 positions a second |
+| A training step of `own2` | 3 positions a second before 2026-10-29 (fp32, padded math attention); 150.5 with the HIP attention backward in fp16 on an idle GPU (training/metrics/idle_measure_20261029) | 1,477 positions a second |
 | The gradient pass (stage C), fp16 on the packed trunk | 21.9 decisions a second on 16 pilot games, most streams empty; a full pass's rate is between that and about 84, unmeasured | 500-1,500 decisions a second |
 
 Sources: `training/metrics/local_gpu_20261028/README.md`,
