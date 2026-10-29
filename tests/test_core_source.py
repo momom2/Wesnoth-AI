@@ -45,7 +45,12 @@ def test_line_ends_and_files_the_build_does_not_read_leave_it(tmp_path):
     crate = _copy_crate(tmp_path / "a")
     base = source_hash(crate)
     lib = crate / "src" / "lib.rs"
-    lib.write_bytes(lib.read_bytes().replace(b"\n", b"\r\n"))
+    # The checkout's own ends are LF or, under core.autocrlf, CRLF already:
+    # both of git's forms of the file hash alike, whichever the copy holds.
+    lf = lib.read_bytes().replace(b"\r\n", b"\n")
+    for ends, text in (("LF", lf), ("CRLF", lf.replace(b"\n", b"\r\n"))):
+        lib.write_bytes(text)
+        assert source_hash(crate) == base, ends
     (crate / "src" / "notes.md").write_text("not a source file\n")
     (crate / "Cargo.lock").write_text("# not hashed\n")
     assert source_hash(crate) == base

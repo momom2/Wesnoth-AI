@@ -57,7 +57,11 @@ def install(target: Path) -> None:
 
 
 def guard_settings(target: Path) -> dict:
-    hook = {"type": "command", "command": "python",
+    # The hook runs on the Python running this installer, by its full path,
+    # which check() runs it on: a bare `python` is looked up on PATH when the
+    # hook fires and can be the Microsoft Store's alias on Windows, and a
+    # hook that fails lets the result through unredacted.
+    hook = {"type": "command", "command": sys.executable,
             "args": ["-I", "-S", (target / "secret_guard.py").as_posix(), "hook"], "timeout": 30}
     return {
         "env": {"CLAUDE_CODE_SHELL_PREFIX": (target / "guard_shell.sh").as_posix()},
@@ -89,7 +93,8 @@ def check(target: Path) -> List[str]:
         problems.append(f"the shell prefix returned {run.returncode}, not the command's 7")
     event = {"hook_event_name": "PostToolUse", "tool_name": "Read",
              "tool_response": {"file": {"content": f"a {sentinel} b"}}}
-    hook = subprocess.run([sys.executable, "-I", "-S", str(target / "secret_guard.py"), "hook"],
+    spec = guard_settings(target)["hooks"]["PostToolUse"][0]["hooks"][0]      # the hook as installed
+    hook = subprocess.run([spec["command"]] + spec["args"],
                           input=json.dumps(event).encode(), env=env, capture_output=True, timeout=60)
     text = hook.stdout.decode(errors="replace")
     if sentinel in text or "<redacted>" not in text:

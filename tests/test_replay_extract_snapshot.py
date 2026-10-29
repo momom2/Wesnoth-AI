@@ -107,7 +107,8 @@ def main() -> int:
         return 1
     SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
     data = {name: fingerprint(path) for name, path in sources}
-    SNAPSHOT.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
+    # LF on every platform, as git stores it (.gitattributes: *.json eol=lf).
+    SNAPSHOT.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8", newline="\n")
     print(f"wrote {SNAPSHOT} ({len(data)} replays)")
     return 0
 
