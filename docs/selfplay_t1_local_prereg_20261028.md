@@ -298,6 +298,11 @@ At temperature 1 the memory costs nothing either, as at argmax in round 2
 - **Corrections:** v̂ enters and U does not.
 - **Cap rate:** 0, so there is no ruling to make.
 - **The link match:** it runs in P.
-- **Next is stage C.** It waits on the user's decision about these
-  fp16-served games and their upload
-  (docs/local_machine_use_20261029.md, decision 3).
+- **Next is stage C.** The user approved it on these fp16-served games
+  the same evening (docs/local_machine_use_20261029.md, decision 3).
+  - The run directory is on Hugging Face: 91 files, 1.6 GB, every name
+    stage C restores, with none failed (2026-10-29 21:45-22:09).
+    `momom2/wesnoth-model-checkpoints:tier-b/selfplay_t1_local_20261028`;
+    the upload's log is `upload.log` there.
+  - The box waits on a green CI run of the commit to stage, and on a Vast
+    key on the desktop.
