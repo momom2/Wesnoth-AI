@@ -11,7 +11,9 @@ scripts/match_local.py import it.
 - `reference_flags`: the reference player's run_elo_batch flags for a side;
 - `run_tool`: one tool to its end or its cut, and, given a poll, stopped
   when the poll names a reason; `kill_tree` ends it with every process it
-  started.
+  started;
+- `run_match`: run_tool for a match, which may step aside while the user's
+  own programs use the GPU (scripts/gpu_yield.py) and resume after.
 
 Off Windows the priority is `os.nice(5)`, keep-awake does nothing and no
 reset is ever logged, so the scripts and their tests run on Linux.
@@ -174,3 +176,44 @@ def run_tool(out: Path, name: str, cmd: List[str], log_name: str, timeout_min: f
                     log(out, f"{name}: {why}: stopped")
                     kill_tree(p)
                     raise ToolStopped(why)
+
+
+def run_match(out: Path, name: str, cmd: List[str], log_name: str, timeout_min: float, python: str, *,
+              poll: Optional[Callable[[], Optional[str]]] = None, gpu_yield=None,
+              poll_s: float = 60.0, cwd: Path = REPO, runner: Callable[..., int] = None) -> int:
+    """run_tool for a match, which resumes in its directory when run again.
+    With `gpu_yield` (gpu_yield.GpuYield), the GPU use of every process
+    outside this one's tree is sampled at each poll. When the user's
+    programs take the GPU, the match is stopped, the run waits until they
+    have been quiet for the policy's minutes, and the same command runs
+    again, losing only the games in flight. A stop for `poll`'s reason
+    raises ToolStopped as run_tool does. `runner` stands in for run_tool
+    (the scripts pass their own name for it, which their tests replace)."""
+    runner = runner or run_tool
+    if gpu_yield is None:
+        return runner(out, name, cmd, log_name, timeout_min, python, poll=poll, poll_s=poll_s, cwd=cwd)
+    from scripts.gpu_yield import tree_pids
+    yielded: List[str] = []
+
+    def watch() -> Optional[str]:
+        why = poll() if poll is not None else None
+        if why:
+            return why
+        busy = gpu_yield.step_aside(tree_pids(os.getpid()))
+        if busy:
+            yielded.append(busy)
+            return f"the GPU yielded to the user ({busy})"
+        return None
+
+    while True:
+        yielded.clear()
+        try:
+            return runner(out, name, cmd, log_name, timeout_min, python, poll=watch, poll_s=poll_s, cwd=cwd)
+        except ToolStopped:
+            if not yielded:
+                raise
+        t0 = time.monotonic()
+        gpu_yield.wait_until_quiet(lambda: tree_pids(os.getpid()), every_s=poll_s,
+                                   log=lambda m: log(out, f"{name}: {m}"))
+        log(out, f"{name}: the GPU has been quiet for {gpu_yield.quiet_s / 60:.0f} min after "
+                 f"{(time.monotonic() - t0) / 60:.0f} min of waiting: the match resumes")

@@ -52,3 +52,20 @@ def test_waits_for_a_quiet_spell_of_the_full_length():
     y.wait_until_quiet(lambda: {1}, every_s=30, log=logs.append, clock=lambda: now[0], sleep=sleep)
     assert now[0] == 60 + 120                 # busy at 60 s, then 120 s of quiet
     assert logs and "pid 9000" in logs[0]
+
+
+def test_run_match_steps_aside_and_runs_the_match_again(tmp_path):
+    """A tool that runs until stopped: two busy samples stop it, a quiet
+    spell lets it run again, and the second run ends on its own."""
+    from scripts.local_machine import run_match
+    starts = tmp_path / "starts.txt"
+    code = ("import pathlib, sys, time; p = pathlib.Path(sys.argv[1]); "
+            "n = len(p.read_text().split()) if p.exists() else 0; "
+            "p.write_text('start ' * (n + 1)); time.sleep(30 if n == 0 else 0)")
+    samples = iter([{99999: 80.0}, {99999: 80.0}] + [{99999: 0.0}] * 1000)
+    y = GpuYield(threshold=15, busy_samples=2, quiet_minutes=0.01, sample=lambda: next(samples))
+    rc = run_match(tmp_path, "toy", ["-c", code, str(starts)], "toy.log", 5, sys.executable,
+                   gpu_yield=y, poll_s=0.3)
+    assert rc == 0
+    assert starts.read_text().split() == ["start", "start"]
+    assert "yielded to the user" in (tmp_path / "runner.log").read_text(encoding="utf-8")

@@ -36,9 +36,10 @@ from typing import List, Optional, Tuple
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from scripts.gpu_yield import GpuYield  # noqa: E402
 from scripts.local_machine import (  # noqa: E402
     below_normal_priority, default_tools_python, display_resets_since, keep_awake, log, reference_flags,
-    require_visible_gpu, run_tool,
+    require_visible_gpu, run_match, run_tool,
 )
 
 # The box script's configuration (scripts/selfplay_t1_box.sh, "the configuration").
@@ -85,6 +86,8 @@ class Run:
         self.out: Path = args.out
         self.py = args.python
         self.tools_py = args.tools_python
+        self.gpu_yield = (GpuYield(threshold=args.yield_gpu, quiet_minutes=getattr(args, "yield_quiet_min", 10.0))
+                          if getattr(args, "yield_gpu", 0) > 0 else None)
 
     # ---- markers and records
     def marked(self, step: str) -> bool:
@@ -149,7 +152,8 @@ class Run:
                   "--min-free-mb", str(MIN_FREE_MB), "--infer-fp16", "--inference-timeline-s", "30",
                   "--time-budget-min", str(int(3 * est / 2 + 10))])
         t0 = time.time()
-        rc = self.run(f"match {name}", cmd, f"match_{name}.log", 2 * est + 15, self.py)
+        rc = run_match(self.out, f"match {name}", cmd, f"match_{name}.log", 2 * est + 15, self.py,
+                       gpu_yield=self.gpu_yield, runner=run_tool)
         results, decisive, lost = self.count_games(d)
         resets = display_resets_since(t0)
         if resets:
@@ -280,6 +284,11 @@ def main() -> int:
                     help="the interpreter of the CPU tools (default: the repository's .venv, whose CPU torch "
                          "is faster than the ROCm build's)")
     ap.add_argument("--normal-priority", action="store_true")
+    ap.add_argument("--yield-gpu", type=float, default=0.0, metavar="PCT",
+                    help="step aside while another process uses at least PCT%% of a GPU engine (the "
+                         "machine's user's programs; scripts/gpu_yield.py), and resume after "
+                         "--yield-quiet-min quiet minutes; 0 (the default) never yields")
+    ap.add_argument("--yield-quiet-min", type=float, default=10.0)
     ap.add_argument("--keep-awake", action="store_true",
                     help="ask Windows not to sleep while the runner lives (keep_awake); the machine's "
                          "user decides when a run may hold the machine up")

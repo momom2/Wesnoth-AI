@@ -68,9 +68,10 @@ from typing import List, Optional, Tuple
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from scripts.gpu_yield import GpuYield  # noqa: E402
 from scripts.local_machine import (  # noqa: E402
     ToolStopped, below_normal_priority, default_tools_python, display_resets_since, keep_awake, log,
-    reference_flags, require_visible_gpu, run_tool,
+    reference_flags, require_visible_gpu, run_match, run_tool,
 )
 from tools.eval_provenance import effective_memory, file_sha256  # noqa: E402
 
@@ -285,6 +286,8 @@ class Match:
         self.a, self.cand, self.ref = args, cand, ref
         self.out: Path = args.out
         self.games_dir = self.out / "games"
+        self.gpu_yield = (GpuYield(threshold=args.yield_gpu, quiet_minutes=args.yield_quiet_min)
+                          if getattr(args, "yield_gpu", 0) > 0 else None)
 
     def note(self, line: str) -> None:
         with open(self.out / "matches.txt", "a", encoding="utf-8") as f:
@@ -303,8 +306,8 @@ class Match:
             return f"{n} display-driver reset(s) (System event 4101) during the match" if n else None
 
         try:
-            rc = run_tool(self.out, f"match attempt {k}", argv, "match.log", 2 * est + 15, self.a.python,
-                          poll=resets)
+            rc = run_match(self.out, f"match attempt {k}", argv, "match.log", 2 * est + 15, self.a.python,
+                           poll=resets, gpu_yield=self.gpu_yield, runner=run_tool)
         except ToolStopped as e:
             raise DisplayReset(str(e)) from e
         why = resets()
@@ -393,6 +396,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                     help="the interpreter of the CPU tools (default: the repository's .venv, whose CPU torch "
                          "is faster than the ROCm build's)")
     ap.add_argument("--normal-priority", action="store_true")
+    ap.add_argument("--yield-gpu", type=float, default=0.0, metavar="PCT",
+                    help="step aside while another process uses at least PCT%% of a GPU engine (the "
+                         "machine's user's programs; scripts/gpu_yield.py), and resume after "
+                         "--yield-quiet-min quiet minutes; 0 (the default) never yields")
+    ap.add_argument("--yield-quiet-min", type=float, default=10.0)
     ap.add_argument("--keep-awake", action="store_true",
                     help="ask Windows not to sleep while the match runs; the machine's user decides when a "
                          "run may hold the machine up")

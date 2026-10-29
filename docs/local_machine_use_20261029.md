@@ -59,13 +59,20 @@ Sources: `training/metrics/local_gpu_20261028/README.md` and
    move, and is the single most useful change.
 2. **Runs only in agreed windows**, overnight or when the user is away: a
    STOP file ends a run between steps, and every run resumes.
-3. **Yield to the user's GPU use (buildable, not built).** Windows
-   reports GPU use per process (`\GPU Engine(*)\Utilization Percentage`; on
-   2026-10-29 it showed the server at 88% compute and nothing else). A run
-   could watch for other processes using the GPU above a threshold, stop
-   its match, wait until they have been quiet for some minutes, and resume:
-   every match resumes, losing only the games in flight, one to two
-   minutes of work. Typing and browsing would not trigger it; a game would.
+3. **Yield to the user's GPU use (built, off by default).** Windows
+   reports GPU use per process (`\GPU Engine(*)\Utilization Percentage`;
+   on 2026-10-29 it showed the server at 88-90% compute and nothing else).
+   - `--yield-gpu PCT` on both local scripts (`scripts/gpu_yield.py`,
+     `local_machine.run_match`) watches every process outside the run once
+     a minute.
+   - When one has used at least PCT% of a GPU engine for two samples in a
+     row, the match stops. The run waits until no such process has been
+     seen for `--yield-quiet-min` minutes (10), then runs the match again.
+     The match resumes, losing only the games in flight, one to two
+     minutes of work.
+   - Typing and browsing stay in single digits; a game takes most of an
+     engine.
+   - Not yet exercised against a real game.
 4. **A fixed share.** Half the GPU at all times cannot be had on Windows
    with an AMD card, since compute does not split. The nearest is option 3
    with a schedule.
