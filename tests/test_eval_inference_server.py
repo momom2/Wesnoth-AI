@@ -8,6 +8,7 @@ import json
 import struct
 import sys
 import threading
+import time
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
 
@@ -19,26 +20,36 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 
-def _service(window_s: float, max_batch: int, poison=None, health=None):
+def _service(window_s: float, max_batch: int, poison=None, health=None,
+             async_replies: bool = True, pad: int = 0, release=None):
     """An in-process service over a fake model: each request carries one
     int64, its reply the value doubled; the batch sizes it saw are the
     coalescer's record. A request holding `poison` makes the forward
-    raise; `health` is the device probe."""
+    raise; `health` is the device probe. Each reply carries `pad` more
+    bytes (a write larger than the pipe's buffer waits for its client to
+    read); `release` is the service's release_fn."""
     from tools.serve_loop import REQUEST_HEAD_BYTES, InferenceService, ok_message
     seen = []
+    tail = bytes(pad)
 
     def infer(requests, stats=None):
         seen.append(sum(r.leaves for r in requests))
         values = [struct.unpack_from("<q", r.message, REQUEST_HEAD_BYTES)[0] for r in requests]
         if poison is not None and poison in values:
             raise ValueError(f"poisoned position {poison}")
-        return [ok_message(r.rid, struct.pack("<q", 2 * v)) for r, v in zip(requests, values)]
+        return [ok_message(r.rid, struct.pack("<q", 2 * v) + tail) for r, v in zip(requests, values)]
 
     listener = Listener()
     svc = InferenceService(listener, infer, {"hello": True},
-                           window_s=window_s, max_batch=max_batch, health_fn=health)
+                           window_s=window_s, max_batch=max_batch, health_fn=health,
+                           release_fn=release, async_replies=async_replies)
     svc.start()
     return svc, listener.address, seen
+
+
+# What the tests marked so check holds on both reply paths: the serve
+# thread writing each batch's replies, or the writer thread doing it.
+BOTH_REPLY_PATHS = pytest.mark.parametrize("async_replies", [False, True], ids=["inline", "async"])
 
 
 def _request(v: int) -> bytes:
@@ -81,7 +92,8 @@ def _send_together(address: str, values):
 def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
     """A client holding its reply reads counters that include it: the
     service counts each batch before answering it. The counter is read
-    at every reply the serve thread sends, one request per batch."""
+    at every reply the serve thread sends, one request per batch (the
+    inline path; the writer thread's is the next test)."""
     from multiprocessing.connection import _ConnectionBase
     counted_at_send = []
     real_send = _ConnectionBase.send_bytes
@@ -93,7 +105,7 @@ def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
         return real_send(self, buf, *a, **k)
 
     monkeypatch.setattr(_ConnectionBase, "send_bytes", send_bytes)
-    svc, address, _seen = _service(window_s=0.0, max_batch=1)
+    svc, address, _seen = _service(window_s=0.0, max_batch=1, async_replies=False)
     box["svc"] = svc
     try:
         replies = _send_together(address, [1, 2, 3])
@@ -103,9 +115,42 @@ def test_a_reply_is_counted_before_it_is_sent(monkeypatch):
         svc.stop()
 
 
-def test_coalescer_window_and_max_batch():
+def test_an_async_reply_is_counted_before_it_is_written(monkeypatch):
+    """The same contract under async replies: the serve thread counts a
+    batch before it hands the replies to the writer, so at each write the
+    counter includes that reply and every reply written before it. The
+    serve thread may count the next batch before the write, so the
+    counter may run ahead; it never lags. No reply is written by the
+    serve thread."""
+    from multiprocessing.connection import _ConnectionBase
+    counted_at_write = []
+    real_send = _ConnectionBase.send_bytes
+    box = {}
+
+    def send_bytes(self, buf, *a, **k):
+        if threading.current_thread().name == "infer-reply":
+            counted_at_write.append(box["svc"].stats.requests)
+        elif threading.current_thread().name == "infer-serve":
+            counted_at_write.append("written by the serve thread")
+        return real_send(self, buf, *a, **k)
+
+    monkeypatch.setattr(_ConnectionBase, "send_bytes", send_bytes)
+    svc, address, _seen = _service(window_s=0.0, max_batch=1, async_replies=True)
+    box["svc"] = svc
+    try:
+        replies = _send_together(address, [1, 2, 3])
+        assert replies == {1: (1, [2]), 2: (2, [4]), 3: (3, [6])}
+        assert len(counted_at_write) == 3, counted_at_write
+        assert all(isinstance(n, int) and n >= k for k, n in enumerate(counted_at_write, 1)), \
+            counted_at_write
+    finally:
+        svc.stop()
+
+
+@BOTH_REPLY_PATHS
+def test_coalescer_window_and_max_batch(async_replies):
     from tools.serve_loop import HELLO_MESSAGE
-    svc, address, seen = _service(window_s=0.25, max_batch=3)
+    svc, address, seen = _service(window_s=0.25, max_batch=3, async_replies=async_replies)
     try:
         c = Client(address)
         c.send_bytes(HELLO_MESSAGE)
@@ -131,10 +176,11 @@ def test_coalescer_window_and_max_batch():
         svc.stop()
 
 
-def test_a_closed_connection_leaves_the_others_served():
+@BOTH_REPLY_PATHS
+def test_a_closed_connection_leaves_the_others_served(async_replies):
     """A client that goes away (a worker killed mid-game) is dropped; the
     games on the other connections keep being answered."""
-    svc, address, _seen = _service(window_s=0.0, max_batch=8)
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, async_replies=async_replies)
     try:
         gone = Client(address)
         gone.send_bytes(_request(4))
@@ -144,11 +190,12 @@ def test_a_closed_connection_leaves_the_others_served():
         svc.stop()
 
 
-def test_a_failing_request_does_not_fail_its_batch_mates():
+@BOTH_REPLY_PATHS
+def test_a_failing_request_does_not_fail_its_batch_mates(async_replies):
     """A batch holds one decision from each of several games: when
     the forward raises, the requests are retried one at a time and
     only the offender's game sees the error."""
-    svc, address, seen = _service(window_s=0.25, max_batch=8, poison=13)
+    svc, address, seen = _service(window_s=0.25, max_batch=8, poison=13, async_replies=async_replies)
     try:
         replies = _send_together(address, [11, 13, 14])
         assert replies[11] == (11, [22]) and replies[14] == (14, [28])
@@ -161,7 +208,8 @@ def test_a_failing_request_does_not_fail_its_batch_mates():
         svc.stop()
 
 
-def test_a_device_that_fails_its_probe_stops_the_service():
+@BOTH_REPLY_PATHS
+def test_a_device_that_fails_its_probe_stops_the_service(async_replies):
     """A sticky device fault (an illegal address, a device-side assert)
     fails every later call on the device: the 2026-09-14 server answered
     every request after one with the same CUDA error and looked alive
@@ -172,7 +220,8 @@ def test_a_device_that_fails_its_probe_stops_the_service():
     def broken():
         raise RuntimeError("CUDA error: an illegal memory access was encountered")
 
-    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=broken)
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=broken,
+                                   async_replies=async_replies)
     stdin_closed = threading.Event()             # the driver keeps our stdin open
     try:
         replies = _send_together(address, [13])
@@ -184,7 +233,8 @@ def test_a_device_that_fails_its_probe_stops_the_service():
         stdin_closed.set()
         svc.stop()
 
-    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=lambda: None)
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, poison=13, health=lambda: None,
+                                   async_replies=async_replies)
     try:
         replies = _send_together(address, [13])
         assert replies[13][:2] == (13, None) and "poisoned position 13" in replies[13][2]
@@ -193,6 +243,130 @@ def test_a_device_that_fails_its_probe_stops_the_service():
         assert svc.serve_until_closed(lambda: None, poll_s=0.01) is None   # stdin closed
     finally:
         svc.stop()
+
+
+def _until(cond, timeout_s: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while not cond():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+    return True
+
+
+def test_async_replies_reach_every_client_under_load():
+    """32 clients, each sending 40 requests one after the other as a game
+    sends its decisions, and replies of 64 kB, whose writes wait for their
+    client to read: every client gets every reply, its own rid and value,
+    while the writer thread writes one batch's replies as the serve thread
+    reads and answers the next."""
+    svc, address, seen = _service(window_s=0.002, max_batch=8, async_replies=True, pad=64 << 10)
+    clients, requests = 32, 40
+    wrong = []
+
+    def game(k: int) -> None:
+        try:
+            conn = Client(address)
+            for i in range(requests):
+                v = 1000 * k + i
+                conn.send_bytes(_request(v))
+                got = _reply(conn.recv_bytes())
+                if got != (v, [2 * v]):
+                    wrong.append((k, i, got))
+                    break
+            conn.close()
+        except Exception as e:                      # noqa: BLE001 -- reported below
+            wrong.append((k, repr(e)))
+
+    threads = [threading.Thread(target=game, args=(k,)) for k in range(clients)]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+        assert not any(t.is_alive() for t in threads), "a client is still waiting for a reply"
+        assert not wrong, wrong[:5]
+        st = svc.stats.as_dict()
+        assert st["requests"] == clients * requests and st["send_failures"] == 0
+        assert max(seen) <= 8 and sum(seen) == clients * requests
+        assert st["send_s"] > 0
+    finally:
+        svc.stop()
+
+
+def test_a_client_gone_mid_write_is_dropped_once_and_the_others_served():
+    """A client that goes away while its reply is being written (4 MB,
+    which waits for a read that never comes): the write fails, the
+    connection is dropped and its memory states given up once (its read
+    fails too), and the other clients keep being answered."""
+    released = []
+    svc, address, _seen = _service(window_s=0.0, max_batch=8, async_replies=True, pad=4 << 20,
+                                   release=released.append)
+    try:
+        gone = Client(address)                      # the service's first connection: cid 1
+        gone.send_bytes(_request(4))
+        assert _until(lambda: svc.stats.requests >= 1)
+        time.sleep(0.2)                             # the writer is inside the write
+        gone.close()
+        assert _send_together(address, [5, 6]) == {5: (5, [10]), 6: (6, [12])}
+        assert _until(lambda: 1 in released and svc.stats.send_failures >= 1)
+        time.sleep(0.1)
+        assert released.count(1) == 1, released
+        assert svc.stats.send_failures == 1
+    finally:
+        svc.stop()
+
+
+def test_stop_writes_the_queued_replies_and_returns_promptly():
+    """stop() with replies still being written: to clients that read
+    (late), every reply is delivered before stop returns, well inside the
+    flush bound; to clients that never read, stop returns within the
+    bound, and the writer ends once their connections are gone."""
+    from tools.serve_loop import FLUSH_S
+    svc, address, _seen = _service(window_s=0.05, max_batch=8, async_replies=True, pad=1 << 20)
+    conns = [Client(address) for _ in range(4)]
+    got = {}
+
+    def late_reader(conn) -> None:
+        time.sleep(0.3)
+        rid, values = _reply(conn.recv_bytes())
+        got[rid] = values
+
+    try:
+        for v, conn in enumerate(conns, 1):
+            conn.send_bytes(_request(v))
+        assert _until(lambda: svc.stats.requests == 4)
+        readers = [threading.Thread(target=late_reader, args=(c,)) for c in conns]
+        for t in readers:
+            t.start()
+        t0 = time.monotonic()
+        svc.stop()
+        took = time.monotonic() - t0
+        for t in readers:
+            t.join(timeout=10)
+        assert got == {v: [2 * v] for v in range(1, 5)}
+        assert took < FLUSH_S, took
+    finally:
+        svc.stop()
+        for c in conns:
+            c.close()
+
+    svc, address, _seen = _service(window_s=0.05, max_batch=8, async_replies=True, pad=1 << 20)
+    writer = svc._replier._thread                   # the service drops its writer at stop
+    conns = [Client(address) for _ in range(4)]
+    try:
+        for v, conn in enumerate(conns, 1):
+            conn.send_bytes(_request(v))
+        assert _until(lambda: svc.stats.requests == 4)
+        t0 = time.monotonic()
+        svc.stop()
+        took = time.monotonic() - t0
+        assert took < FLUSH_S + 1.5, took
+    finally:
+        for c in conns:
+            c.close()
+    writer.join(timeout=10)
+    assert not writer.is_alive(), "the writer outlived its connections"
 
 
 def test_startup_failure_reports_the_servers_stderr(tmp_path):
@@ -259,6 +433,8 @@ def test_shared_inference_end_to_end(tmp_path):
     stats = json.loads((out / ".inference_server_0.json").read_text(encoding="utf-8"))
     assert stats["requests"] == stats["leaves"] == forwards
     assert stats["batches"] >= 1 and stats["connections"] == 2
+    # The default reply path, every reply written.
+    assert stats["async_replies"] is True and stats["send_failures"] == 0
     # Every decision's stages, from both workers, summed per decision.
     stages = json.loads((out / ".worker_stages.json").read_text(encoding="utf-8"))
     assert stages["workers"] == 2 and stages["decisions"] == forwards

@@ -32,6 +32,19 @@ Batching: the serve thread waits for the first ready connection, reads
 every ready request, then reads what arrives within `window_s` up to
 `max_batch` leaves, and runs one forward. Every worker game has one
 decision in flight, so a batch never exceeds the games in flight.
+
+Replies (`async_replies`, the default). The serve thread hands each
+batch's replies to a writer thread in one queue item and goes on to the
+next batch, so the writes overlap the next collect and forward. Written
+by the serve thread, one `send_bytes` per request, they idled the device
+for 331.9 of the 4,091 s of a stage 1 match on Windows (about 0.17 ms a
+write on a named pipe, 12 ms of every 149 ms batch; the benchmark and
+the A/B are in training/metrics/async_replies_20261029/). While the
+writer runs it alone writes to and closes the connections (`_Replier`).
+A client sends its next request only after it has read its reply
+(EvalInferenceClient, one request in flight per connection), and one
+thread writes a connection's messages in the order the serve thread
+handed them over, so a connection's replies cannot be reordered.
 """
 from __future__ import annotations
 
@@ -46,9 +59,16 @@ import traceback
 from collections import Counter
 from dataclasses import dataclass, field
 from multiprocessing.connection import Listener, Pipe, wait
+from multiprocessing.reduction import ForkingPickler
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger("serve_loop")
+
+# The longest the shutdown waits for the writer to write the replies it
+# holds: a client that is reading gets its reply within milliseconds; one
+# that stopped reading must not hold the shutdown (closing its connection
+# then interrupts the write).
+FLUSH_S = 2.0
 
 KIND_HELLO, KIND_INFER, KIND_RELEASE = 1, 2, 3
 STATUS_OK, STATUS_ERROR = 0, 1
@@ -102,7 +122,13 @@ class ServeStats:
     window_s: float = 0.0    # collecting the rest of a batch (its reads included)
     recv_s: float = 0.0      # reading requests off the connections
     infer_s: float = 0.0
+    # The serve thread's seconds on the replies: writing them, or with
+    # async replies handing them to the writer. The writer's own seconds
+    # writing (async replies only; they overlap the serve thread's) are
+    # send_s, and send_failures counts the messages whose write failed.
     reply_s: float = 0.0
+    send_s: float = 0.0
+    send_failures: int = 0
     gpu_ms: float = 0.0
     # The infer function's host seconds by stage (decode, encode, forward,
     # priors, finish, reply, wire), summed over batches.
@@ -127,6 +153,7 @@ class ServeStats:
             "idle_s": round(self.idle_s, 3), "window_s": round(self.window_s, 3),
             "recv_s": round(self.recv_s, 3),
             "infer_s": round(self.infer_s, 3), "reply_s": round(self.reply_s, 3),
+            "send_s": round(self.send_s, 3), "send_failures": self.send_failures,
             "gpu_ms": round(self.gpu_ms, 1),
             "stage_s": {k: round(v, 3) for k, v in sorted(self.stage_s.items())},
             "wall_s": round(time.monotonic() - self.started, 3),
@@ -198,25 +225,96 @@ class _Ready:
         if self._sel is not None:
             self._sel.register(conn, selectors.EVENT_READ)
 
+    def forget(self, conn) -> bool:
+        """Stop waiting on `conn` and run the close callback, leaving the
+        connection open; False when it was not in the set."""
+        if conn not in self.conns:
+            return False
+        self.conns.remove(conn)
+        if self._on_close is not None:
+            self._on_close(conn)
+        if self._sel is not None:
+            try:
+                self._sel.unregister(conn)
+            except (KeyError, ValueError, OSError):
+                pass
+        return True
+
     def remove(self, conn) -> None:
-        if conn in self.conns:
-            self.conns.remove(conn)
-            if self._on_close is not None:
-                self._on_close(conn)
-            if self._sel is not None:
-                try:
-                    self._sel.unregister(conn)
-                except (KeyError, ValueError, OSError):
-                    pass
-        try:
-            conn.close()
-        except OSError:
-            pass
+        self.forget(conn)
+        _close(conn)
 
     def wait(self, timeout: float) -> List[Any]:
         if self._sel is None:
             return wait(self.conns, timeout)
         return [key.fileobj for key, _ in self._sel.select(timeout)]
+
+
+def _close(conn) -> None:
+    try:
+        conn.close()
+    except OSError:
+        pass
+
+
+class _Replier:
+    """The thread that writes the service's messages under async replies.
+    The serve thread hands it lists of (connection, message) and goes on;
+    it writes them in the order handed over, a message None closing the
+    connection. The writes release the GIL (a pipe or socket write).
+
+    It alone writes to and closes the connections while it runs: two
+    threads writing one connection could interleave a message's framing
+    (POSIX) or refuse it ("concurrent send_bytes() calls are not
+    supported", Windows), and a connection closed under a write could hand
+    its handle to the next connection opened. So the serve thread never
+    writes or closes a connection itself: a connection it stops reading is
+    closed here, after the messages handed over before it.
+
+    A failed write leaves the connection open and posts it to `failed`;
+    the serve thread, which alone touches the set of connections it reads
+    (and fires their releases), drops it between batches."""
+
+    _STOP = object()
+
+    def __init__(self, stats: ServeStats):
+        self._stats = stats
+        self._q: "queue.SimpleQueue[Any]" = queue.SimpleQueue()
+        self.failed: "queue.SimpleQueue[Any]" = queue.SimpleQueue()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="infer-reply")
+        self._thread.start()
+
+    def put(self, items: List[Tuple[Any, Optional[bytes]]]) -> None:
+        self._q.put(items)
+
+    def stop(self, timeout: float) -> bool:
+        """Write what was handed over, then end; False when the writes
+        were still going after `timeout` seconds."""
+        self._q.put(self._STOP)
+        self._thread.join(timeout)
+        return not self._thread.is_alive()
+
+    def _run(self) -> None:
+        st = self._stats
+        while True:
+            items = self._q.get()
+            if items is self._STOP:
+                return
+            t0 = time.monotonic()
+            for conn, message in items:
+                if message is None:
+                    _close(conn)
+                    continue
+                try:
+                    conn.send_bytes(message)
+                except (OSError, EOFError, ValueError):
+                    st.send_failures += 1
+                    self.failed.put(conn)             # the client went away
+                except Exception:                     # noqa: BLE001 -- a writer that died would hang every client
+                    log.exception("a reply's write failed")
+                    st.send_failures += 1
+                    self.failed.put(conn)
+            st.send_s += time.monotonic() - t0
 
 
 class InferenceService:
@@ -238,15 +336,24 @@ class InferenceService:
     call, so a service that kept answering would fail every game that
     reaches it while its process looked alive (2026-09-14: 40 of 40
     games). When the probe fails, the service answers the batch with the
-    fault, stops, and keeps the fault in `fatal`."""
+    fault, stops, and keeps the fault in `fatal`.
+
+    `async_replies`: the replies are written by a writer thread
+    (`_Replier`) while the serve thread goes on to the next batch; off,
+    the serve thread writes each batch's replies before it reads the
+    next. The bytes each client receives are the same either way."""
 
     def __init__(self, listener: Listener, infer_fn: Callable, hello: Dict, *,
                  window_s: float, max_batch: int,
                  health_fn: Optional[Callable[[], None]] = None,
-                 release_fn: Optional[Callable[[int], None]] = None):
+                 release_fn: Optional[Callable[[int], None]] = None,
+                 async_replies: bool = True):
         self._listener = listener
         self._infer_fn = infer_fn
-        self._hello = hello
+        # Pickled once, as Connection.send pickles it at each hello.
+        self._hello_message = bytes(ForkingPickler.dumps(hello))
+        self.async_replies = bool(async_replies)
+        self._replier: Optional[_Replier] = None
         self._window = max(0.0, float(window_s))
         self._max_batch = max(1, int(max_batch))
         self._health_fn = health_fn
@@ -265,6 +372,8 @@ class InferenceService:
         self.fatal: Optional[str] = None
 
     def start(self) -> None:
+        if self.async_replies:
+            self._replier = _Replier(self.stats)
         self._serve_thread = threading.Thread(target=self._serve, daemon=True,
                                               name="infer-serve")
         self._serve_thread.start()
@@ -342,6 +451,27 @@ class InferenceService:
             self._next_cid += 1
             self._ready.add(conn)
 
+    def _reap(self) -> None:
+        """Drop the connections whose reply the writer failed to write."""
+        if self._replier is None:
+            return
+        while True:
+            try:
+                conn = self._replier.failed.get_nowait()
+            except queue.Empty:
+                return
+            self._drop(conn)
+
+    def _drop(self, conn) -> None:
+        """Stop reading `conn`, give up its memory states and close it: at
+        once, or under async replies by the writer, after the messages
+        handed to it before (a connection is dropped once: a client that
+        goes away fails its read and its reply's write)."""
+        if self._replier is None:
+            self._ready.remove(conn)
+        elif self._ready.forget(conn):
+            self._replier.put([(conn, None)])
+
     def _release(self, cid: int) -> None:
         self.stats.releases += 1
         if self._release_fn is not None:
@@ -364,7 +494,7 @@ class InferenceService:
             try:
                 message = conn.recv_bytes()
             except (EOFError, OSError):
-                self._ready.remove(conn)
+                self._drop(conn)
                 continue
             if len(message) < REQUEST_HEAD_BYTES:
                 self._send(conn, error_message(-1, f"a request of {len(message)} bytes"))
@@ -376,20 +506,22 @@ class InferenceService:
             elif kind == KIND_RELEASE:
                 self._release(self._cids.get(conn, 0))
             elif kind == KIND_HELLO:
-                try:
-                    conn.send(self._hello)
-                except (OSError, EOFError, ValueError):
-                    self._ready.remove(conn)
+                self._send(conn, self._hello_message)
             else:
                 self._send(conn, error_message(rid, f"unknown message kind {kind}"))
         self.stats.recv_s += time.monotonic() - t0
         return leaves
 
     def _send(self, conn, message) -> None:
+        """Write one message: here, or handed to the writer."""
+        if self._replier is not None:
+            self._replier.put([(conn, message)])
+            return
         try:
             conn.send_bytes(message)
         except (OSError, EOFError, ValueError):
-            self._ready.remove(conn)              # the client went away
+            self.stats.send_failures += 1
+            self._drop(conn)                      # the client went away
 
     # -- batches -------------------------------------------------------
 
@@ -481,6 +613,7 @@ class InferenceService:
         st = self.stats
         try:
             while not self._stop.is_set():
+                self._reap()
                 self._admit()
                 batch = self._collect()
                 if not batch:
@@ -489,8 +622,9 @@ class InferenceService:
                 gpu: Dict[str, float] = {}
                 replies, errors = self._answer(batch, gpu)
                 t1 = time.monotonic()
-                # Counted before answering, so a client holding its reply
-                # reads counters that include it.
+                # Counted before answering (before the replies are handed
+                # to the writer), so a client holding its reply reads
+                # counters that include it.
                 leaves = sum(p.leaves for p in batch)
                 st.requests += len(batch)
                 st.batches += 1
@@ -498,12 +632,18 @@ class InferenceService:
                 st.batch_hist[leaves] += 1
                 st.infer_s += t1 - t0
                 st.add_batch(gpu)
-                for p, reply, error in zip(batch, replies, errors):
-                    self._send(p.conn, reply if error is None else error_message(p.rid, error))
+                messages = [(p.conn, reply if error is None else error_message(p.rid, error))
+                            for p, reply, error in zip(batch, replies, errors)]
+                if self._replier is not None:
+                    self._replier.put(messages)
+                else:
+                    for conn, message in messages:
+                        self._send(conn, message)
                 st.reply_s += time.monotonic() - t1
                 if self.fatal is not None:
                     # Accept nothing more; the process exits once the main
-                    # thread sees the fault.
+                    # thread sees the fault. The batch's replies (the fault)
+                    # are written before the connections close (finally).
                     self._stop.set()
                     try:
                         self._listener.close()
@@ -511,6 +651,10 @@ class InferenceService:
                         pass
                     return
         finally:
+            if self._replier is not None and not self._replier.stop(FLUSH_S):
+                log.warning("the reply writer still writes after %.1f s (a client that stopped "
+                            "reading?); closing the connections under it", FLUSH_S)
+            self._replier = None                  # from here this thread closes the connections
             for conn in list(self._ready.conns):
                 self._ready.remove(conn)
             try:

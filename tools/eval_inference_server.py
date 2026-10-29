@@ -305,7 +305,7 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             profile_batches: int = 0, profile_after: int = 0,
                             bf16_residual: bool = False, fused_relu: bool = False,
                             fp8: bool = False, timeline_s: float = 0.0,
-                            fp16: bool = False) -> InferenceServerHandle:
+                            fp16: bool = False, async_replies: bool = True) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -336,6 +336,7 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
         cmd.append("--fused-relu")
     if fp8:
         cmd.append("--fp8-inference")
+    cmd.append("--async-replies" if async_replies else "--no-async-replies")
     if timeline_s > 0:
         cmd += ["--timeline-out", str(outdir / f".inference_server_{tag}.timeline.jsonl"),
                 "--timeline-s", str(timeline_s)]
@@ -622,6 +623,10 @@ def main(argv: List[str]) -> int:
                     help="Append the serving counters (requests, batches, leaves, device ms) here every "
                          "--timeline-s seconds, one JSON line each, from the start of serving.")
     ap.add_argument("--timeline-s", type=float, default=5.0)
+    ap.add_argument("--async-replies", action=argparse.BooleanOptionalAction, default=True,
+                    help="Write the replies from a writer thread while the serve thread goes on to the "
+                         "next batch (tools/serve_loop.py); off, the serve thread writes each batch's "
+                         "replies before it reads the next. The same bytes either way; the stats record it.")
     ap.add_argument("--window-ms", type=float, default=DEFAULT_WINDOW_MS)
     ap.add_argument("--max-batch", type=int, default=16, help="leaves per forward")
     ap.add_argument("--torch-threads", type=int, default=4)
@@ -767,14 +772,15 @@ def main(argv: List[str]) -> int:
     service = InferenceService(listener, infer_fn,
                                hello, window_s=args.window_ms / 1000.0, max_batch=args.max_batch,
                                health_fn=_device_health_fn(device),
-                               release_fn=None if memory is None else memory.release_connection)
+                               release_fn=None if memory is None else memory.release_connection,
+                               async_replies=bool(args.async_replies))
     service.start()
     timeline = None
     if args.timeline_out is not None:
         from tools.serve_loop import Timeline
         timeline = Timeline(service.stats, args.timeline_out, args.timeline_s).start()
     info = {k: v for k, v in hello.items() if k not in ("type_to_id", "faction_to_id")}
-    info.update(window_ms=args.window_ms, max_batch=args.max_batch)
+    info.update(window_ms=args.window_ms, max_batch=args.max_batch, async_replies=service.async_replies)
     print(f"{ADDR_PREFIX}{listener.address}", flush=True)
     print(f"{INFO_PREFIX}{json.dumps(info)}", flush=True)
     log.info("serving %s on %s (device=%s bf16=%s fp16=%s packed=%s packed_embed=%s compiled=%s "
