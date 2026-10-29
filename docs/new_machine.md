@@ -135,8 +135,10 @@ Steps 1 to 3 come before the first Claude Code session that touches a key.
    - **Matches.** Pass `--infer-fp16` with `--shared-inference`: this card
      runs bf16 matmuls at a fifth of fp16's rate.
    - **Stage 1** runs with `scripts/selfplay_t1_local.py`.
+   - **Strength matches** run with `scripts/match_local.py` (README,
+     Quickstart, "On the local Windows machine").
    - **The display.** The card drives the screen, and a GPU stall past 2 s
-     resets the display driver (System event 4101). The runner stops on
+     resets the display driver (System event 4101). Both scripts stop on
      one.
 
 Copy by hand anything else you want: the Claude Code session transcripts

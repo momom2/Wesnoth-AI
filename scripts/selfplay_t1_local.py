@@ -28,13 +28,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+
+from scripts.local_machine import (  # noqa: E402
+    below_normal_priority, default_tools_python, display_resets_since, keep_awake, log, reference_flags,
+    require_visible_gpu, run_tool,
+)
 
 # The box script's configuration (scripts/selfplay_t1_box.sh, "the configuration").
 SP_SEED_BASE = 800000
@@ -47,62 +52,31 @@ MEM_SEED_BASE = 845000
 MEM_GAMES = 3200
 LOST_MAX = 10
 MIN_FREE_MB = 300
+# The readout's gates (the box script's gates(), tools/selfplay_readout.py).
+GATES = ("i_sample", "legal_mass", "i_count", "dice_control", "i_v")
 
 
-def log(out: Path, msg: str) -> None:
-    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}"
-    print(line, flush=True)
-    with open(out / "runner.log", "a", encoding="utf-8") as f:
-        f.write(line + "\n")
-
-
-def below_normal_priority() -> None:
-    """The runner at below-normal priority; Windows gives the processes it
-    starts the same class (CreateProcess: a child of a below-normal or idle
-    process inherits its class)."""
-    if sys.platform != "win32":
-        os.nice(5)
-        return
-    import ctypes
-    from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.GetCurrentProcess.restype = wintypes.HANDLE          # the pseudo-handle -1, 64 bits wide
-    k32.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    k32.SetPriorityClass.restype = wintypes.BOOL
-    if not k32.SetPriorityClass(k32.GetCurrentProcess(), 0x4000):     # BELOW_NORMAL_PRIORITY_CLASS
-        raise ctypes.WinError(ctypes.get_last_error())
-
-
-def keep_awake() -> None:
-    """Asks Windows not to sleep while the runner lives (SetThreadExecutionState
-    with ES_CONTINUOUS | ES_SYSTEM_REQUIRED, which a media player or a backup
-    makes too): the request ends with the process, and no power setting
-    changes. The display may still turn off. On 2026-10-28 the machine slept
-    30 minutes after an update's restart. A restart itself is not prevented."""
-    if sys.platform != "win32":
-        return
-    import ctypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.SetThreadExecutionState.argtypes = [ctypes.c_uint32]
-    k32.SetThreadExecutionState.restype = ctypes.c_uint32
-    if not k32.SetThreadExecutionState(0x80000000 | 0x00000001):     # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
-        raise ctypes.WinError(ctypes.get_last_error())
-
-
-def display_resets_since(t0: float) -> int:
-    """Display-driver resets (Windows System event 4101, a TDR) logged since
-    t0 (epoch seconds); 0 off Windows. The RX 6600 drives the display, so
-    a reset means a kernel stalled the GPU past 2 s: the run stops."""
-    if sys.platform != "win32":
-        return 0
-    start = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t0))
-    cmd = (f"(Get-WinEvent -FilterHashtable @{{LogName='System'; Id=4101; StartTime=[datetime]'{start}'}} "
-           f"-ErrorAction SilentlyContinue | Measure-Object).Count")
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=120)
+def gates_of(readout_json: Path) -> str:
+    """The readout's gates, one word each (the box script's gates()):
+    `i_sample=pass legal_mass=FAIL ...`; "unreadable" when readout.json is."""
     try:
-        return int(r.stdout.strip() or 0)
-    except ValueError:
-        return 0
+        r = json.loads(readout_json.read_text(encoding="utf-8"))
+        return " ".join(f"{k}={'pass' if r[k]['pass'] else 'FAIL'}" for k in GATES if k in r)
+    except Exception:  # noqa: BLE001 -- any unreadable readout reads the same
+        return "unreadable"
+
+
+def gates_passed(words: str) -> bool:
+    """Every gate read and passed. The readout writes dice_control and I-V
+    only from 4 labelled games on, and then exits 1 (no gates_pass): a
+    missing gate does not pass."""
+    return set(words.split()) == {f"{k}=pass" for k in GATES}
+
+
+def verdict(selfplay: str, readout: str, d0: str, mem: str) -> int:
+    """The run's exit status: 0 when every step is done and every gate
+    passed, as the box script's SELFPLAY_T1_DONE; 1 otherwise."""
+    return 0 if (selfplay == "played" and gates_passed(readout) and d0 == "done" and mem == "done") else 1
 
 
 class Run:
@@ -133,25 +107,11 @@ class Run:
 
     def run(self, name: str, cmd: List[str], log_name: str, timeout_min: float, python: str) -> int:
         """One tool to its end or its cut, its output in log_name."""
-        full = [python, "-u"] + cmd
-        log(self.out, f"{name}: {' '.join(cmd[:2])} ... (cut at {timeout_min:.0f} min, {log_name})")
-        with open(self.out / log_name, "a", encoding="utf-8") as f:
-            f.write(f"\n==== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(full)}\n")
-            f.flush()
-            p = subprocess.Popen(full, cwd=REPO, stdout=f, stderr=subprocess.STDOUT)
-            try:
-                return p.wait(timeout=timeout_min * 60)
-            except subprocess.TimeoutExpired:
-                log(self.out, f"{name}: past {timeout_min:.0f} min, cut")
-                p.kill()
-                p.wait()
-                return 124
+        return run_tool(self.out, name, cmd, log_name, timeout_min, python)
 
     # ---- the sides (the box script's side_flags / reference_flags)
     def reference_flags(self, side: str) -> List[str]:
-        r = subprocess.run([self.tools_py, "tools/reference_player.py", "--flags", side], cwd=REPO,
-                           capture_output=True, text=True, check=True)
-        return r.stdout.split()
+        return reference_flags(side, self.tools_py)
 
     def side_flags(self, side: str, label: str, slots: Optional[int] = None) -> List[str]:
         flags, out = self.reference_flags(side), []
@@ -252,8 +212,10 @@ class Run:
         return True
 
     def read_selfplay(self) -> str:
+        """The labels and the readout of every self-play match: the gates'
+        words (gates_of), or the step that failed."""
         if self.marked("readout"):
-            return "read"
+            return gates_of(self.out / "readout.json")
         names = [f"s{k:02d}" for k in range(self.n_chunks())]
         with open(self.out / "rows.jsonl.tmp", "w", encoding="utf-8") as dst:
             for n in names:
@@ -274,7 +236,7 @@ class Run:
         if rc > 1 or not (self.out / "readout.json").exists():
             return f"FAILED: the readout, rc={rc} (readout.log)"
         self.mark("readout")
-        return "read"
+        return gates_of(self.out / "readout.json")
 
     def measure(self, name: str, games: int, base: int, anchor: str, flags: List[str]) -> str:
         step = f"measure_{name}"
@@ -330,10 +292,8 @@ def main() -> int:
         SP_SEED_BASE, N_SELFPLAY, CHUNK_GAMES, HELDOUT_FROM = 873000, 48, 24, 24
         D0_SEED_BASE, D0_GAMES, MEM_SEED_BASE, MEM_GAMES = 873100, 24, 873200, 24
     if args.tools_python is None:
-        venv = REPO / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-        args.tools_python = str(venv) if venv.exists() else sys.executable
-    if "HIP_VISIBLE_DEVICES" not in os.environ and "CUDA_VISIBLE_DEVICES" not in os.environ:
-        raise SystemExit("set HIP_VISIBLE_DEVICES to the GPU's index (1 for the RX 6600 here: device 0 is the iGPU)")
+        args.tools_python = default_tools_python(REPO)
+    require_visible_gpu()
     args.out.mkdir(parents=True, exist_ok=True)
     if not args.normal_priority:
         below_normal_priority()
@@ -386,7 +346,7 @@ def main() -> int:
     log(args.out, f"memory report: {mem}")
     r.progress(f"done: self-play {selfplay}, readout {readout}, D0 {d0}, memory {mem}")
     (args.out / "ALL_DONE").write_text(time.strftime("%Y-%m-%d %H:%M:%S") + "\n", encoding="utf-8")
-    return 0 if (selfplay == "played" and readout == "read" and d0 == "done" and mem == "done") else 1
+    return verdict(selfplay, readout, d0, mem)
 
 
 if __name__ == "__main__":
