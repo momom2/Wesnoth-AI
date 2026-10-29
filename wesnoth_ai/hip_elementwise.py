@@ -8,9 +8,10 @@ residual stream) and its fp16 rounding (the next linear's input): an
 add, a layer norm and a cast in one pass, one wave32 a row. A variant
 also adds the sublayer's bias (fp16 [d]) to its output in float32 before
 the residual add, so the sublayer's GEMM runs without one: ROCm's addmm
-adds a bias in a pass of its own (training/metrics/hip_bias_fold_20261029/
-README.md). The kernels without the bias compile to the instructions they
-had in hip_kernels.py before it (that record's same_code.py).
+adds a bias in a pass of its own
+(training/metrics/hip_bias_fold_20261029/README.md). The kernels without
+the bias compile to the instructions they had in hip_kernels.py before
+it (that record's same_code.py).
 
 The bias and ReLU writes relu(y + bias) over the fp16 rows y in place:
 the first feed-forward linear's bias and activation in one pass, the add
