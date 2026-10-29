@@ -21,7 +21,9 @@ pre-registered diagnostic of where the error comes from.
 `smooth` (the prereg's arm S): per layer and linear, a float32 factor per
 input channel that multiplies the input before its quantization while the
 weight is quantized divided by it (SmoothQuant's migration, exact before
-rounding).
+rounding). `record_activation_ranges` reads each linear input's largest
+magnitude per channel from a float32 pass over calibration positions, and
+`smoothing_factors` turns those ranges into the factors.
 """
 from __future__ import annotations
 
@@ -181,3 +183,71 @@ def run_int8_trunk(x: torch.Tensor, index, weights: Int8TrunkWeights,
             w, b, eps = weights.final_norm
             h32 = F.layer_norm(h32, (E,), w, b, eps)
     return h32
+
+
+# ---------------------------------------------------------------------
+# Arm S: SmoothQuant's per-channel migration
+# ---------------------------------------------------------------------
+
+def record_activation_ranges(x: torch.Tensor, index, encoder: nn.TransformerEncoder,
+                             ranges: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
+    """The packed trunk's layers in float32 on x [total, d] (F.linear on the
+    encoder's parameters, the attention per segment in float32), folding
+    each linear input's largest magnitude per channel into `ranges` (per
+    layer a dict by linear class, filled on first use). Returns the
+    float32 rows, so a forward's heads can run on them."""
+    total, E = x.shape
+    while len(ranges) < len(encoder.layers):
+        ranges.append({})
+
+    def seen(i: int, cls: str, t: torch.Tensor) -> None:
+        m = t.detach().abs().amax(dim=0).float()
+        ranges[i][cls] = m if cls not in ranges[i] else torch.maximum(ranges[i][cls], m)
+
+    with torch.autocast(x.device.type, enabled=False):
+        h = x.float()
+        for i, layer in enumerate(encoder.layers):
+            mha = layer.self_attn
+            heads = mha.num_heads
+            seen(i, "qkv", h)
+            qkv = F.linear(h, mha.in_proj_weight.float(), mha.in_proj_bias.float())
+            q, k, v = qkv.view(total, 3, heads, E // heads).unbind(1)
+            ctx = torch.ops.wesnoth_ai.packed_attention.default(q, k, v, index.cu_seqlens,
+                                                                index.max_len).reshape(total, E)
+            seen(i, "out", ctx)
+            sa = F.linear(ctx, mha.out_proj.weight.float(), mha.out_proj.bias.float())
+            h = F.layer_norm(h + sa, (E,), layer.norm1.weight.float(), layer.norm1.bias.float(), layer.norm1.eps)
+            seen(i, "ff1", h)
+            f = F.relu(F.linear(h, layer.linear1.weight.float(), layer.linear1.bias.float()))
+            seen(i, "ff2", f)
+            ff = F.linear(f, layer.linear2.weight.float(), layer.linear2.bias.float())
+            h = F.layer_norm(h + ff, (E,), layer.norm2.weight.float(), layer.norm2.bias.float(), layer.norm2.eps)
+        if encoder.norm is not None:
+            n = encoder.norm
+            h = F.layer_norm(h, (E,), n.weight.float(), n.bias.float(), n.eps)
+    return h
+
+
+# SmoothQuant's reference code clamps the weight ranges and the factors at
+# 1e-5 (an all-zero weight column; a channel never seen nonzero in
+# calibration); `smoothing_factors` reports where the factors' floor binds.
+_SMOOTH_FLOOR = 1e-5
+
+
+def smoothing_factors(encoder: nn.TransformerEncoder, ranges: Sequence[Dict[str, torch.Tensor]],
+                      alpha: float = 0.5) -> Tuple[List[Dict[str, torch.Tensor]], int]:
+    """(per layer and linear class, the factor m = 1 / s that multiplies the
+    input, s_k = max|X_k|^alpha / max_j |W_jk|^(1 - alpha) (SmoothQuant,
+    Xiao et al. 2023); the count of channels where the floor bound s)."""
+    out, floored = [], 0
+    for layer, rng in zip(encoder.layers, ranges):
+        weights = {"qkv": layer.self_attn.in_proj_weight, "out": layer.self_attn.out_proj.weight,
+                   "ff1": layer.linear1.weight, "ff2": layer.linear2.weight}
+        factors = {}
+        for cls, w in weights.items():
+            w_max = w.detach().float().abs().amax(dim=0).cpu().clamp_min(_SMOOTH_FLOOR)
+            s = rng[cls].cpu().pow(alpha) / w_max.pow(1.0 - alpha)
+            floored += int((s < _SMOOTH_FLOOR).sum())
+            factors[cls] = 1.0 / s.clamp_min(_SMOOTH_FLOOR)
+        out.append(factors)
+    return out, floored
