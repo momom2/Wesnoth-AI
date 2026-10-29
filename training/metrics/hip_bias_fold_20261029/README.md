@@ -8,12 +8,13 @@ serving loop (`WesnothModel._run_hip_fp16_trunk`) get faster if the GEMMs
 run without biases and each bias is added by the kernel that already reads
 that output?
 
-**Answer: yes, about 7% on the whole forward, measured on a contended GPU.**
-The change passes all three gates. The kill criterion was a forward less
-than 3% faster; it is 7% (an earlier run read 12 to 14%). Every number
-here was read while stage 1's
-self-play run (96 games in flight) shared the RX 6600, so the timings are
-inflated and noisy. The lead confirms on an idle GPU.
+**Answer: yes. On an idle GPU the forward takes 0.921 of the old time at
+48 leaves (528 to 574 positions a second) and 0.914 at 24** (the section
+"On an idle GPU" below). The change passes all three gates; the kill
+criterion was a forward less than 3% faster. The gates' sections were read
+while stage 1's self-play run (96 games in flight) shared the RX 6600, so
+their timings are inflated and noisy (about 7% there; an earlier run read
+12 to 14%).
 
 ## The change
 
@@ -169,6 +170,41 @@ server should:
   positions its score matrices hold GBs;
 - cap the process's memory (`--memory-fraction 0.25`).
 
+## On an idle GPU (the lead, 2026-10-29 15:05)
+
+Stage 1 stopped after its match s02, on the two resets above (its
+pre-registered rule), and the GPU had nothing else on it. At 98e1ab1b,
+after the review's fixes (below):
+- `tests/test_hip_kernels.py`: 27 passed on the RX 6600.
+- `bias_fold_ab.py --parts forward,kernels` (`ab_idle.json`):
+
+| | B=48 | B=24 |
+|---|---|---|
+| forward, median new/old (quartiles) | **0.921** (0.918, 0.925), 48 pairs | **0.914** (0.909, 0.921), 96 pairs |
+| forward, positions a second, old to new | 528.4 to 574.4 | 523.4 to 574.3 |
+| trunk alone, median new/old | 0.912 | 0.902 |
+
+One layer at 21,975 tokens, medians: the four GEMMs 7.54 ms with their
+biases and 6.48 without; the attention 2.02 (old), 2.00 (new, no bias),
+2.08 (with the bias); the add and norm 0.56, 0.57, 0.60; ReLU 0.708, bias
+and ReLU 0.707. One layer summed: 11.39 ms old, 10.45 new (0.918).
+
+**The review's fixes (98e1ab1b).** An independent review found no
+correctness defect and two risks, both fixed:
+- the row-wise bias variants shared the plain add and norm's self-test, so
+  their failure would have turned off the whole fused loop; they are now
+  tested apart (`hip_elementwise_bias_applies`), and their failure turns
+  off the fold only (a new GPU test fails them on purpose);
+- the fold called the bias and ReLU for any ff1 width; it now checks the
+  width is a multiple of 8, and keeps the linear's bias otherwise.
+
+Its other notes stand as known limits:
+- the golden-digest test pins gfx1032's outputs and will need re-pinning
+  after a ROCm or hiprtc update that changes code generation;
+- the runtime self-test cannot catch a wrong offset of k's bias, since the
+  softmax is unchanged by a shift common to every key; the bit-exact GPU
+  test does.
+
 ## Reproduce
 
 ```
@@ -183,5 +219,10 @@ set HIP_VISIBLE_DEVICES=1
 `--kernel-rounds` set the repetitions. The full run took 2 min 44 s on the
 contended GPU.
 
-**Not measured:** any of this on an idle GPU, and self-play's decision
-rate.
+**Self-play's decision rate** (the lead, idle GPU, 2026-10-29 15:04-15:33;
+`training/metrics/pipe_buffer_20261029/` on `feature/pipe-buffer`): 192
+games of `own2` at temperature 1, 96 in flight, two rounds:
+- the old code: 489.0 and 481.2 steady decisions a second;
+- the bias fold: 521.1 and 524.0 (+7.7%);
+- the bias fold with the server's larger pipe buffer: 536.7 and 526.8
+  (+9.6%).
