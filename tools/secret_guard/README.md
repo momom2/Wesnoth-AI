@@ -17,14 +17,20 @@ python tools/secret_guard/install.py --remove-settings # take them out again
 
 The settings apply to running sessions as soon as the file is saved. After
 changing `secret_guard.py` or `guard_shell.sh`, run the installer again:
-sessions use the installed copy.
+sessions use the installed copy. The hook runs on the Python that ran the
+installer, named by its full path, so run it with a Python that stays (not a
+virtual environment you may delete).
 
 ## What it covers
 
 - **Bash**, including failed commands, background commands and subagents:
   the shell prefix (`CLAUDE_CODE_SHELL_PREFIX` = `guard_shell.sh`) runs
   each command with its stdout and stderr passed through
-  `secret_guard.py filter` before Claude Code reads them.
+  `secret_guard.py filter` before Claude Code reads them. The filter runs
+  on `SECRET_GUARD_PYTHON` when it is set, else on the first of `python`,
+  `python3` and `py` that runs Python 3.7 or later (on Windows, `python3`
+  and sometimes `python` are the Microsoft Store's alias, which runs no
+  Python); with none, the command is not run and the prefix says so.
 - **The other tools that return text** (Read, Grep, the PowerShell tool,
   web and MCP tools): a `PostToolUse` hook rewrites a successful result
   (`updatedToolOutput`). A hook cannot rewrite a failed call's output, so
@@ -51,4 +57,6 @@ private-key blocks.
   input): redirect the job's output, or use `run_in_background`.
 - Redaction is by value and by shape: a credential re-encoded (base64, hex)
   or cut into pieces shorter than 10 characters passes.
-- Each Bash call starts two Python processes (about 0.2 s here).
+- Each Bash call starts three Python processes: one that checks the
+  interpreter before the command runs, then the two filters (those two took
+  about 0.2 s on the laptop).
