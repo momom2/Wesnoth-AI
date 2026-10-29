@@ -1,0 +1,108 @@
+{
+ "device": "AMD Radeon RX 6600",
+ "torch": "2.14.0+rocm10.1.0",
+ "hip": "7.16.26385",
+ "positions": 200,
+ "train_batch": 32,
+ "warmup_batches": 3,
+ "reps": 3,
+ "memory_slots": 64,
+ "positions_per_s": {
+  "fp16_packed": 148.03
+ },
+ "phase_ms_per_batch": {
+  "fp16_packed": {
+   "forward": 67.5,
+   "backward": 144.6,
+   "optimizer": 10.1
+  }
+ },
+ "grad_scaler_scale": 32.0,
+ "gradient_check": {
+  "positions": 8,
+  "tensors": 113,
+  "loss_scales": {
+   "fp32_padded": 1024.0,
+   "fp16_packed": 128.0,
+   "fp16_packed_sdpa": 128.0,
+   "fp16_padded": 128.0
+  },
+  "fp16_packed_hip_vs_fp32_padded": {
+   "cosine": 0.999995,
+   "relative_norm_error": 0.00317,
+   "trunk_rel_max": 0.0266,
+   "median_rel": 0.00162,
+   "worst_rel": {
+    "encoder.layers.1.linear1.bias": 0.0266,
+    "encoder.layers.5.linear1.bias": 0.01829,
+    "encoder.layers.1.linear1.weight": 0.0152
+   }
+  },
+  "fp16_packed_sdpa_vs_fp32_padded": {
+   "cosine": 0.999997,
+   "relative_norm_error": 0.00252,
+   "trunk_rel_max": 0.0262,
+   "median_rel": 0.00149,
+   "worst_rel": {
+    "encoder.layers.1.linear1.bias": 0.0262,
+    "encoder.layers.1.linear1.weight": 0.0149,
+    "encoder.layers.7.linear1.weight": 0.01222
+   }
+  },
+  "fp16_padded_vs_fp32_padded": {
+   "cosine": 0.999996,
+   "relative_norm_error": 0.00287,
+   "trunk_rel_max": 0.0266,
+   "median_rel": 0.00174,
+   "worst_rel": {
+    "encoder.layers.1.linear1.bias": 0.0266,
+    "encoder.layers.4.linear1.bias": 0.01552,
+    "encoder.layers.1.linear1.weight": 0.0152
+   }
+  },
+  "fp16_packed_hip_vs_fp16_packed_sdpa": {
+   "cosine": 0.999995,
+   "relative_norm_error": 0.00313,
+   "trunk_rel_max": 0.01865,
+   "median_rel": 0.00155,
+   "worst_rel": {
+    "encoder.layers.5.linear1.bias": 0.01865,
+    "encoder.layers.5.linear1.weight": 0.01273,
+    "encoder.layers.4.linear1.weight": 0.00941
+   }
+  },
+  "fp16_packed_hip_vs_itself_again": {
+   "cosine": 1.0,
+   "relative_norm_error": 0.0,
+   "trunk_rel_max": 0.0,
+   "median_rel": 0.0,
+   "worst_rel": {
+    "token_kind_embed.weight": 0.0,
+    "encoder.layers.0.self_attn.in_proj_weight": 0.0,
+    "encoder.layers.0.self_attn.in_proj_bias": 0.0
+   }
+  },
+  "fp32_padded_vs_itself_again": {
+   "cosine": 1.0,
+   "relative_norm_error": 0.0,
+   "trunk_rel_max": 0.0,
+   "median_rel": 0.0,
+   "worst_rel": {
+    "token_kind_embed.weight": 0.0,
+    "encoder.layers.0.self_attn.in_proj_weight": 0.0,
+    "encoder.layers.0.self_attn.in_proj_bias": 0.0
+   }
+  }
+ },
+ "attention_one_layer": {
+  "segments": 48,
+  "tokens": 20693,
+  "heads": 12,
+  "head_dim": 32,
+  "inference_forward_ms": 1.712,
+  "forward_lse_ms": 1.823,
+  "backward_ms": 9.016,
+  "forward_tflops": 8.55,
+  "backward_tflops": 4.32
+ }
+}

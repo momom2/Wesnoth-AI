@@ -71,7 +71,16 @@ The command line removes them once pass.pt is written.
 The network runs in eval mode (no dropout: the law the player sampled), in
 float32 unless `--bf16` (the device's bfloat16 autocast: its rounding,
 about 0.016 nats on a log probability near -5, is a KL of the order of the
-limit, so a bf16 pass is held to a limit of its own, `--replay-kl-limit`).
+limit, so a bf16 pass is held to a limit of its own, `--replay-kl-limit`)
+or `--fp16` (the device's float16 autocast, for a GPU whose bf16 is slow,
+the local RX 6600: rounding eight times finer than bf16's, held to a limit
+of its own likewise; each window's loss is scaled before its backward and
+its gradient unscaled after, a window that overflows run again at a lower
+scale, tools/pg_loss_scale.py; `loss_scale` in pass.pt). `--packed-trunk`
+runs the trunk on the real tokens only (wesnoth_ai/packed_trunk.py: flash
+on CUDA, and on ROCm in fp16 the HIP kernels with their backward,
+wesnoth_ai/hip_attention_grad.py); the floor's path reading checks that it
+computes the padded trunk's function.
 
     python tools/pg_pass.py --checkpoint own2.pt --games DIR [DIR ...] --labels labels.jsonl \\
         --out pass.pt --device cuda --workers 30
@@ -97,6 +106,7 @@ from torch.utils.checkpoint import checkpoint
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.pg_loss_scale import LossScale  # noqa: E402
 from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex, record_facts,  # noqa: E402
                                 refuse_foreign, side_lengths)
 from tools.pg_schedule import PGMemoryRouter, split_schedules  # noqa: E402
@@ -183,6 +193,7 @@ class PassConfig:
     workers: int = 0                        # replay processes (0: on the calling thread)
     prefetch: int = 64                      # game-sides replayed ahead of the slots
     bf16: bool = False                      # the device's bfloat16 autocast (CUDA only)
+    fp16: bool = False                      # the device's float16 autocast, loss-scaled (CUDA only)
     packed: Optional[bool] = None           # None: the trunk the forward picks
     recompute: Optional[bool] = None        # recompute each step in the backward pass (default: on CUDA)
     verify: bool = True                     # check the records' fingerprints while replaying
@@ -220,7 +231,12 @@ class GradientPass:
         splits = {g: sides[1].split for g, sides in self.games.items()}
         self.split_counts = Counter(splits.values())
         self.schedules = split_schedules(splits, self.lengths, config.streams, config.seed, config.slots)
-        self.autocast = torch.bfloat16 if (device.type == "cuda" and config.bf16) else None
+        if config.bf16 and config.fp16:
+            raise ValueError("bf16 and fp16 exclude each other")
+        cuda = device.type == "cuda"
+        self.autocast = (torch.bfloat16 if cuda and config.bf16 else torch.float16 if cuda and config.fp16
+                         else None)
+        self.loss_scale: Optional[LossScale] = None
         self.recompute = device.type == "cuda" if config.recompute is None else bool(config.recompute)
         self.probes = torch.zeros(len(CLASSES), device=device, requires_grad=True)
         self.floor_config = (serving_forward, packed_forward)
@@ -317,6 +333,20 @@ class GradientPass:
         self.rows = 0
         self.shadow = 0
         self.memories: Dict[int, torch.Tensor] = {}
+        # Under fp16 (on a CPU, where no autocast runs, the scale is kept: exact in fp32).
+        self.loss_scale = LossScale() if self.config.fp16 else None
+
+    # ---- a window's readings, kept to be undone (an fp16 window run again) -
+    def _mark(self) -> tuple:
+        floor = None if self.floor is None else {k: list(v) for k, v in self.floor.sums.items()}
+        return (self.head_sums.clone(), self.head_fisher.clone(), self.replay.clone(), self._split_max.clone(),
+                self.rows, self._timed_rows, self.shadow, floor)
+
+    def _restore(self, mark: tuple) -> None:
+        (self.head_sums, self.head_fisher, self.replay, self._split_max,
+         self.rows, self._timed_rows, self.shadow, floor) = mark
+        if self.floor is not None:
+            self.floor.sums = floor
 
     # ---- one time step --------------------------------------------------
     def _step(self, staged, mems, batch, w, logged):
@@ -371,14 +401,7 @@ class GradientPass:
             if not window:
                 break
             self.loader.prefetch(g.file for g in schedule.upcoming(self.config.prefetch))
-            loss, memories = self._forward_window(window)
-            loss.backward()
-            for n, p in self.named:
-                if p.grad is not None:
-                    g = -p.grad.float()                   # the ascent direction: grad of sum R log pi
-                    self.splits[i][n] += g
-                    self.sq[i][n] += g * g
-                    p.grad = None
+            memories = self._window_gradient(i, window)
             self.memories = {s: m.detach() for s, m in memories.items()}
             self.split_windows[i] += 1
             self._windows_run += 1
@@ -387,6 +410,48 @@ class GradientPass:
                 self._warm = (self._clock(), self._timed_rows)
         self.loader.keep_only(())
         self._write_split(i, before)
+
+    def _window_gradient(self, i: int, window) -> Dict[int, torch.Tensor]:
+        """The window's forward and backward, its gradient added to split i's
+        sums; the memories it carries out. With a loss scale the loss is
+        multiplied by it before the backward and the gradients divided by it
+        after (a power of two: exact), and a window whose gradient is not
+        finite is run again at half the scale, its readings undone first."""
+        while True:
+            scale = None if self.loss_scale is None else self.loss_scale.scale
+            if scale is not None:
+                mark, carried = self._mark(), self.probes.grad
+                self.probes.grad = None
+            loss, memories = self._forward_window(window)
+            (loss if scale is None else loss * scale).backward()
+            grads = [(n, p) for n, p in self.named if p.grad is not None]
+            if scale is not None:
+                if not self._finite([p.grad for _, p in grads] + [self.probes.grad]):
+                    for _, p in grads:
+                        p.grad = None
+                    self.probes.grad = carried
+                    self._restore(mark)
+                    self.loss_scale.overflowed()
+                    log.info("a window's gradient overflowed: run again at loss scale %g", self.loss_scale.scale)
+                    continue
+                self.loss_scale.finite()
+                if self.probes.grad is not None:
+                    window_probes = self.probes.grad / scale
+                    self.probes.grad = window_probes if carried is None else carried + window_probes
+                else:
+                    self.probes.grad = carried
+            for n, p in grads:
+                g = -p.grad.float()                       # the ascent direction: grad of sum R log pi
+                if scale is not None:
+                    g = g / scale
+                self.splits[i][n] += g
+                self.sq[i][n] += g * g
+                p.grad = None
+            return memories
+
+    @staticmethod
+    def _finite(tensors) -> bool:
+        return bool(torch.stack([torch.isfinite(t).all() for t in tensors if t is not None]).all())
 
     def _clock(self) -> float:
         """The wall clock with the device's queued work done."""
@@ -458,11 +523,12 @@ class GradientPass:
             "shadow": int(self.shadow), "split_windows": list(self.split_windows),
             "position_counts": dict(self.loader.counts), "seconds": float(seconds), "rate": self._rate(),
             "config": asdict(self.config),
+            "loss_scale": None if self.loss_scale is None else self.loss_scale.summary(),
         }
 
 
 SUMMARY_KEYS = ("games", "decisions", "windows", "seconds", "rate", "replay", "floor", "probes", "shadow",
-                "split_games", "checkpoint_sha256", "config")
+                "split_games", "checkpoint_sha256", "config", "loss_scale")
 
 
 def save_pass(result: Dict, out: Path) -> None:
@@ -488,7 +554,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     defaults = PassConfig()
     for name in ("streams", "window", "seed", "slots", "workers", "prefetch"):
         ap.add_argument("--" + name, type=int, default=getattr(defaults, name))
-    ap.add_argument("--bf16", action="store_true", help="the device's bfloat16 autocast (module docstring)")
+    precision = ap.add_mutually_exclusive_group()
+    precision.add_argument("--bf16", action="store_true", help="the device's bfloat16 autocast (module docstring)")
+    precision.add_argument("--fp16", action="store_true",
+                           help="the device's float16 autocast with a loss scale (module docstring)")
+    ap.add_argument("--packed-trunk", action="store_true",
+                    help="the packed trunk (module docstring); default: the trunk the forward picks")
     ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT, help="the limit before the floor")
     ap.add_argument("--floor-sides", type=int, default=FLOOR_SIDES,
                     help="the game-sides whose decisions read the precision floor (tools/pg_floor.py)")
@@ -511,7 +582,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     index = RecordIndex(args.games)
     records = {r.game: index.path(r.game) for r in labels if not r.heldout}
     config = PassConfig(streams=args.streams, window=args.window, seed=args.seed, slots=args.slots,
-                        workers=args.workers, prefetch=args.prefetch, bf16=args.bf16, verify=not args.no_verify,
+                        workers=args.workers, prefetch=args.prefetch, bf16=args.bf16, fp16=args.fp16,
+                        packed=True if args.packed_trunk else None, verify=not args.no_verify,
                         procedure=args.procedure, replay_kl_limit=args.replay_kl_limit,
                         floor_sides=args.floor_sides, floor_dtype=args.floor_dtype)
     partial = args.out.with_name(args.out.stem + ".splits")

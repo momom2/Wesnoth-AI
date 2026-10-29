@@ -395,3 +395,49 @@ def test_a_log_the_trainer_does_not_reproduce_fails_the_pass(tmp_path):
     assert code == EXIT_REPLAY and not out.exists()
     kept = torch.load(tmp_path / "pass.replay_failed.pt", weights_only=True)
     assert kept["replay"]["kl"] > kept["replay"]["limit"] and kept["games"] == 3
+
+
+@needs_core
+def test_an_fp16_window_that_overflows_is_run_again_and_sums_as_fp32(tmp_path, monkeypatch):
+    """--fp16 off a GPU runs no autocast but keeps its loss scale, and scaling
+    by a power of two is exact in fp32. A scale so large that the windows'
+    gradients overflow fp32 is halved until they do not, grown again every
+    three finite windows (so it overflows again), and each overflowed window
+    is run again with its readings undone: the sums, probes, readings, floor
+    and counts are still the plain fp32 pass's."""
+    from tools import pg_pass
+    from tools.pg_loss_scale import LossScale
+    from tools.pg_pass import GradientPass, PassConfig
+    games, labels = _labels(tmp_path)
+    config = dict(streams=2, window=8, floor_sides=1000)
+    plain = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(**config)).run()
+    assert plain["loss_scale"] is None
+    monkeypatch.setattr(pg_pass, "LossScale", lambda: LossScale(scale=2.0 ** 127, growth_interval=3))
+    scaled = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(fp16=True, **config)).run()
+    ls = scaled["loss_scale"]
+    assert ls["overflows"] > ls["growths"] >= 1 and ls["smallest"] < 2.0 ** 127
+    names = plain["names"]
+    assert torch.allclose(_flat(scaled["total"], names), _flat(plain["total"], names), rtol=1e-5, atol=1e-9)
+    for i in range(8):
+        assert torch.allclose(_flat(scaled["sq"][i], names), _flat(plain["sq"][i], names), rtol=1e-4, atol=1e-12)
+    for key in ("probes", "head_slopes"):
+        assert scaled[key] == pytest.approx(plain[key], rel=1e-5, abs=1e-9), key
+    assert torch.allclose(torch.tensor(scaled["head_fisher"]), torch.tensor(plain["head_fisher"]), rtol=1e-9)
+    assert scaled["replay"] == pytest.approx(plain["replay"], rel=1e-9)
+    assert scaled["floor"]["kl"] == pytest.approx(plain["floor"]["kl"], rel=1e-9)
+    for key in ("decisions", "windows", "split_windows", "shadow"):
+        assert scaled[key] == plain[key], key
+
+
+def test_the_loss_scale_stops_at_its_floor():
+    """Halving below MIN_SCALE would not help an overflow fp16 itself makes:
+    the pass stops there."""
+    from tools.pg_loss_scale import MIN_SCALE, LossScale
+    scale = LossScale(scale=2 * MIN_SCALE, growth_interval=2)
+    scale.overflowed()
+    assert scale.scale == MIN_SCALE and scale.overflows == 1
+    with pytest.raises(FloatingPointError):
+        scale.overflowed()
+    scale.finite()
+    scale.finite()
+    assert scale.scale == 2 * MIN_SCALE and scale.growths == 1
