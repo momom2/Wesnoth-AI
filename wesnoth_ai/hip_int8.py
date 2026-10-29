@@ -63,7 +63,7 @@ log = logging.getLogger(__name__)
 _NT = 256
 _BM, _BN, _BK = 128, 128, 32
 _TM, _TN = 8, 8
-# The quantizers: a wave32 a row, LN_THREADS threads a block; the widths are
+# The quantizers: a wave32 a row, Q_THREADS threads a block; the widths are
 # 128 times NI (own2: 384 = 128 x 3, its d_ff 1536 = 128 x 12).
 _Q_THREADS = 128
 _Q_NI = (1, 2, 3, 4, 6, 8, 12)
