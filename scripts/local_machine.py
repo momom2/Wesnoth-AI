@@ -10,7 +10,8 @@ scripts/match_local.py import it.
 - `default_tools_python`: the interpreter of the CPU tools;
 - `reference_flags`: the reference player's run_elo_batch flags for a side;
 - `run_tool`: one tool to its end or its cut, and, given a poll, stopped
-  when the poll names a reason.
+  when the poll names a reason; `kill_tree` ends it with every process it
+  started.
 
 Off Windows the priority is `os.nice(5)`, keep-awake does nothing and no
 reset is ever logged, so the scripts and their tests run on Linux.
@@ -106,6 +107,40 @@ def reference_flags(side: str, python: str, repo: Path = REPO) -> List[str]:
     return r.stdout.split()
 
 
+def kill_tree(p: subprocess.Popen, grace_s: float = 10.0) -> None:
+    """Ends `p` and every process under it. On Windows a venv's python.exe is
+    a launcher that starts the interpreter as its child, so killing `p` alone
+    would leave the tool (run_elo_batch, its servers and its workers)
+    running. Each process is terminated, and what is left after grace_s is
+    killed; without psutil, `taskkill /T /F` on Windows, `p` alone elsewhere."""
+    try:
+        import psutil
+    except ImportError:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True, timeout=120)
+        p.kill()
+        p.wait()
+        return
+    try:
+        root = psutil.Process(p.pid)
+        procs = [root] + root.children(recursive=True)     # listed before the root goes
+    except psutil.NoSuchProcess:
+        procs = []
+    for q in procs:
+        try:
+            q.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    _gone, alive = psutil.wait_procs(procs, timeout=grace_s)
+    for q in alive:
+        try:
+            q.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(alive, timeout=grace_s)
+    p.wait()
+
+
 class ToolStopped(Exception):
     """run_tool's poll named a reason to stop: the tool was killed."""
 
@@ -116,7 +151,8 @@ def run_tool(out: Path, name: str, cmd: List[str], log_name: str, timeout_min: f
     """One tool to its end or its cut, its output appended to out/log_name:
     its exit status, 124 when cut at timeout_min. Given `poll`, it is asked
     every poll_s seconds while the tool runs; when it returns a reason, the
-    tool is killed and ToolStopped(reason) raised."""
+    tool is killed and ToolStopped(reason) raised. A cut or a stop kills the
+    tool's whole process tree (kill_tree)."""
     full = [python, "-u"] + cmd
     log(out, f"{name}: {' '.join(cmd[:2])} ... (cut at {timeout_min:.0f} min, {log_name})")
     with open(out / log_name, "a", encoding="utf-8") as f:
@@ -128,8 +164,7 @@ def run_tool(out: Path, name: str, cmd: List[str], log_name: str, timeout_min: f
             left = deadline - time.monotonic()
             if left <= 0:
                 log(out, f"{name}: past {timeout_min:.0f} min, cut")
-                p.kill()
-                p.wait()
+                kill_tree(p)
                 return 124
             try:
                 return p.wait(timeout=left if poll is None else min(left, poll_s))
@@ -137,6 +172,5 @@ def run_tool(out: Path, name: str, cmd: List[str], log_name: str, timeout_min: f
                 why = poll() if poll is not None and time.monotonic() < deadline else None
                 if why:
                     log(out, f"{name}: {why}: stopped")
-                    p.kill()
-                    p.wait()
+                    kill_tree(p)
                     raise ToolStopped(why)

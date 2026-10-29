@@ -340,6 +340,69 @@ def test_run_tool_cuts_a_tool_past_its_time(tmp_path):
     assert "past 0 min, cut" in (tmp_path / "runner.log").read_text(encoding="utf-8")
 
 
+# A tool that starts a grandchild and prints its pid, then sleeps: a cut must
+# end both (on Windows the venv's python.exe is a launcher, so even the tool
+# is a grandchild of the process run_tool starts).
+_PARENT = ("import subprocess, sys, time; "
+           "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); "
+           "print('grandchild', c.pid, flush=True); time.sleep(120)")
+
+
+def _gone(psutil, pid: int, seconds: float) -> bool:
+    """The process has exited (a zombie counts: reaping it is its new parent's business)."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                return True
+        except psutil.NoSuchProcess:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
+def _grandchild(log: Path, seconds: float = 60) -> int:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        m = re.search(r"grandchild (\d+)", log.read_text(encoding="utf-8", errors="replace"))
+        if m:
+            return int(m.group(1))
+        time.sleep(0.1)
+    raise AssertionError(f"the tool never started its grandchild: {log.read_text(errors='replace')[-500:]}")
+
+
+@pytest.mark.parametrize("with_psutil", [True, False])
+def test_a_cut_ends_the_tools_whole_process_tree(tmp_path, monkeypatch, with_psutil):
+    psutil = pytest.importorskip("psutil")
+    if not with_psutil:
+        if sys.platform != "win32":
+            pytest.skip("without psutil only Windows' taskkill /T reaches the tree")
+        monkeypatch.setitem(sys.modules, "psutil", None)          # kill_tree's import fails
+    real_wait = subprocess.Popen.wait
+    pid = []
+
+    def wait_for_the_grandchild(self, timeout=None):
+        # The cut comes once the grandchild runs, however slow the machine.
+        if not pid:
+            pid.append(_grandchild(tmp_path / "tree.log"))
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        return real_wait(self, timeout=timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait_for_the_grandchild)
+    try:
+        rc = lm.run_tool(tmp_path, "tree", ["-c", _PARENT], "tree.log", 0.05, sys.executable)
+        assert rc == 124
+        assert _gone(psutil, pid[0], 30), "the cut left the tool's grandchild running"
+    finally:
+        monkeypatch.undo()
+        for p in pid:
+            try:
+                psutil.Process(p).kill()
+            except psutil.NoSuchProcess:
+                pass
+
+
 def test_run_tool_stops_a_tool_when_its_poll_names_a_reason(tmp_path):
     answers = iter([None, "the display reset"])
     t0 = time.monotonic()

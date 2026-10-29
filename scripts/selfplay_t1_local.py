@@ -52,6 +52,31 @@ MEM_SEED_BASE = 845000
 MEM_GAMES = 3200
 LOST_MAX = 10
 MIN_FREE_MB = 300
+# The readout's gates (the box script's gates(), tools/selfplay_readout.py).
+GATES = ("i_sample", "legal_mass", "i_count", "dice_control", "i_v")
+
+
+def gates_of(readout_json: Path) -> str:
+    """The readout's gates, one word each (the box script's gates()):
+    `i_sample=pass legal_mass=FAIL ...`; "unreadable" when readout.json is."""
+    try:
+        r = json.loads(readout_json.read_text(encoding="utf-8"))
+        return " ".join(f"{k}={'pass' if r[k]['pass'] else 'FAIL'}" for k in GATES if k in r)
+    except Exception:  # noqa: BLE001 -- any unreadable readout reads the same
+        return "unreadable"
+
+
+def gates_passed(words: str) -> bool:
+    """Every gate read and passed. The readout writes dice_control and I-V
+    only from 4 labelled games on, and then exits 1 (no gates_pass): a
+    missing gate does not pass."""
+    return set(words.split()) == {f"{k}=pass" for k in GATES}
+
+
+def verdict(selfplay: str, readout: str, d0: str, mem: str) -> int:
+    """The run's exit status: 0 when every step is done and every gate
+    passed, as the box script's SELFPLAY_T1_DONE; 1 otherwise."""
+    return 0 if (selfplay == "played" and gates_passed(readout) and d0 == "done" and mem == "done") else 1
 
 
 class Run:
@@ -187,8 +212,10 @@ class Run:
         return True
 
     def read_selfplay(self) -> str:
+        """The labels and the readout of every self-play match: the gates'
+        words (gates_of), or the step that failed."""
         if self.marked("readout"):
-            return "read"
+            return gates_of(self.out / "readout.json")
         names = [f"s{k:02d}" for k in range(self.n_chunks())]
         with open(self.out / "rows.jsonl.tmp", "w", encoding="utf-8") as dst:
             for n in names:
@@ -209,7 +236,7 @@ class Run:
         if rc > 1 or not (self.out / "readout.json").exists():
             return f"FAILED: the readout, rc={rc} (readout.log)"
         self.mark("readout")
-        return "read"
+        return gates_of(self.out / "readout.json")
 
     def measure(self, name: str, games: int, base: int, anchor: str, flags: List[str]) -> str:
         step = f"measure_{name}"
@@ -319,7 +346,7 @@ def main() -> int:
     log(args.out, f"memory report: {mem}")
     r.progress(f"done: self-play {selfplay}, readout {readout}, D0 {d0}, memory {mem}")
     (args.out / "ALL_DONE").write_text(time.strftime("%Y-%m-%d %H:%M:%S") + "\n", encoding="utf-8")
-    return 0 if (selfplay == "played" and readout == "read" and d0 == "done" and mem == "done") else 1
+    return verdict(selfplay, readout, d0, mem)
 
 
 if __name__ == "__main__":
