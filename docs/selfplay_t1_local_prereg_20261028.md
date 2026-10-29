@@ -75,6 +75,10 @@ was logged during the pilots [M, System event log, event 4101].
 3. **No stage C rates.** They price a box's trainer. This GPU trains at
    about 3 positions a second in fp32 [M], so its rates price nothing. The
    box that runs stage C measures them, as C0 does.
+   - Addendum, 2026-10-29: a HIP attention backward since raised the
+     train step to 88.5-148 positions a second in fp16
+     (training/metrics/hip_backward_20261029). Stage C is still a box's
+     to run and to price, so the run's plan is unchanged.
 4. **No deadline sizing.** No dead-man's switch, so every planned match is
    played. A STOP file in the output directory ends the run between steps,
    and a new start resumes from the markers.
