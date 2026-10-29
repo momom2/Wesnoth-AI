@@ -21,7 +21,7 @@ from wesnoth_ai.constants import OBSERVATION_EPOCH  # noqa: E402
 
 
 def _service(window_s: float, max_batch: int, poison=None, health=None,
-             async_replies: bool = True, pad: int = 0, release=None):
+             async_replies: bool = False, pad: int = 0, release=None):
     """An in-process service over a fake model: each request carries one
     int64, its reply the value doubled; the batch sizes it saw are the
     coalescer's record. A request holding `poison` makes the forward
@@ -413,7 +413,7 @@ def test_shared_inference_end_to_end(tmp_path):
                "--raw-temperature-b", "0", "--max-turns", "2", "--device", "cpu",
                "--jobs", "2", "--persistent-workers", "--shared-inference",
                "--max-extra-games", "0", "--time-budget-min", "5",
-               "--min-free-mb", "0"])
+               "--min-free-mb", "0", "--inference-async-replies"])
     # 2 turns decide nothing and no replacement is allowed.
     assert rc == EXIT_GUARD_SPENT
     sha = hashlib.sha256(Path(spec).read_bytes()).hexdigest()
@@ -433,7 +433,7 @@ def test_shared_inference_end_to_end(tmp_path):
     stats = json.loads((out / ".inference_server_0.json").read_text(encoding="utf-8"))
     assert stats["requests"] == stats["leaves"] == forwards
     assert stats["batches"] >= 1 and stats["connections"] == 2
-    # The default reply path, every reply written.
+    # The writer thread's replies, asked for through the driver, every one written.
     assert stats["async_replies"] is True and stats["send_failures"] == 0
     # Every decision's stages, from both workers, summed per decision.
     stages = json.loads((out / ".worker_stages.json").read_text(encoding="utf-8"))

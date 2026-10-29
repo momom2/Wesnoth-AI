@@ -753,11 +753,14 @@ def main(argv: List[str]) -> int:
                          "cost, so a second process on the same GPU raises the "
                          "ceiling; games are handed to servers round-robin. "
                          "Costs one model copy of VRAM per extra process.")
-    ap.add_argument("--inference-async-replies", action=argparse.BooleanOptionalAction, default=True,
+    ap.add_argument("--inference-async-replies", action=argparse.BooleanOptionalAction, default=False,
                     help="Shared inference: the servers write their replies from a writer thread "
                          "while the next batch is collected and run (tools/serve_loop.py); off, "
                          "each batch's replies are written before the next is read. The same "
-                         "bytes either way; the servers' stats record it.")
+                         "bytes either way, another batch shape: +4.1%% on a CPU stand-in of the "
+                         "local stage 1 (Windows pipes), -13%% on one of a launch-bound GPU "
+                         "(training/metrics/async_replies_20261029). The servers' hello and stats "
+                         "record it.")
     ap.add_argument("--inference-window-ms", type=float, default=1.5,
                     help="Shared inference: after a first request, how long "
                          "the server collects more before one forward.")

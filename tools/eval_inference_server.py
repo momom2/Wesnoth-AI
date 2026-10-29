@@ -305,7 +305,7 @@ def launch_inference_server(spec: str, outdir: Path, tag: str, *, device: str,
                             profile_batches: int = 0, profile_after: int = 0,
                             bf16_residual: bool = False, fused_relu: bool = False,
                             fp8: bool = False, timeline_s: float = 0.0,
-                            fp16: bool = False, async_replies: bool = True) -> InferenceServerHandle:
+                            fp16: bool = False, async_replies: bool = False) -> InferenceServerHandle:
     """Popen one server for `spec` and wait for its address and info
     lines. Stderr goes to `outdir/.inference_server_<tag>.log`, stats
     to `.inference_server_<tag>.json` (dot-prefixed: the result globs
@@ -491,7 +491,8 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
                  packed: bool, packed_embed: bool, compiled: bool, graphed: bool,
                  rust_stage: bool = True, server_memory: bool = False,
                  priors_only: bool = False, bf16_residual: bool = False,
-                 fused_relu: bool = False, fp8: bool = False, fp16: bool = False) -> Dict:
+                 fused_relu: bool = False, fp8: bool = False, fp16: bool = False,
+                 async_replies: bool = False) -> Dict:
     """What a server tells each connection: the checkpoint it serves, its
     precision path, the structure a worker's encoder must build and the
     vocab."""
@@ -516,6 +517,9 @@ def server_hello(spec, checkpoint_sha256: str, encoder, model, *, device: str, b
         # The replies carry the policy's priors alone: no value, no head
         # output beside them (model.infer_priors_only).
         "priors_only": bool(priors_only),
+        # The replies written by a writer thread (tools/serve_loop.py): the
+        # same bytes, another throughput.
+        "async_replies": bool(async_replies),
         "relevant_set": bool(getattr(encoder, "relevant_set_hexes", False)),
         "fog_hides_enemy_villages": bool(getattr(encoder, "fog_hides_enemy_villages", False)),
         "terrain_multi_hot": bool(getattr(encoder, "terrain_multi_hot", False)),
@@ -623,10 +627,11 @@ def main(argv: List[str]) -> int:
                     help="Append the serving counters (requests, batches, leaves, device ms) here every "
                          "--timeline-s seconds, one JSON line each, from the start of serving.")
     ap.add_argument("--timeline-s", type=float, default=5.0)
-    ap.add_argument("--async-replies", action=argparse.BooleanOptionalAction, default=True,
+    ap.add_argument("--async-replies", action=argparse.BooleanOptionalAction, default=False,
                     help="Write the replies from a writer thread while the serve thread goes on to the "
                          "next batch (tools/serve_loop.py); off, the serve thread writes each batch's "
-                         "replies before it reads the next. The same bytes either way; the stats record it.")
+                         "replies before it reads the next. The same bytes either way; the hello and "
+                         "the stats record it.")
     ap.add_argument("--window-ms", type=float, default=DEFAULT_WINDOW_MS)
     ap.add_argument("--max-batch", type=int, default=16, help="leaves per forward")
     ap.add_argument("--torch-threads", type=int, default=4)
@@ -757,7 +762,8 @@ def main(argv: List[str]) -> int:
                          graphed=graphed is not None and graphed.disabled is None,
                          rust_stage=rust_stage, server_memory=memory is not None,
                          priors_only=bool(args.priors_only), bf16_residual=bf16_residual,
-                         fused_relu=fused_relu, fp8=fp8, fp16=fp16)
+                         fused_relu=fused_relu, fp8=fp8, fp16=fp16,
+                         async_replies=bool(args.async_replies))
     listener = Listener()
     infer_fn = _model_infer_fn(server, rust_stage=rust_stage, memory=memory)
     profiler = None
@@ -780,7 +786,7 @@ def main(argv: List[str]) -> int:
         from tools.serve_loop import Timeline
         timeline = Timeline(service.stats, args.timeline_out, args.timeline_s).start()
     info = {k: v for k, v in hello.items() if k not in ("type_to_id", "faction_to_id")}
-    info.update(window_ms=args.window_ms, max_batch=args.max_batch, async_replies=service.async_replies)
+    info.update(window_ms=args.window_ms, max_batch=args.max_batch)
     print(f"{ADDR_PREFIX}{listener.address}", flush=True)
     print(f"{INFO_PREFIX}{json.dumps(info)}", flush=True)
     log.info("serving %s on %s (device=%s bf16=%s fp16=%s packed=%s packed_embed=%s compiled=%s "

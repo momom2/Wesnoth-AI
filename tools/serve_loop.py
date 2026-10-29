@@ -33,18 +33,23 @@ every ready request, then reads what arrives within `window_s` up to
 `max_batch` leaves, and runs one forward. Every worker game has one
 decision in flight, so a batch never exceeds the games in flight.
 
-Replies (`async_replies`, the default). The serve thread hands each
-batch's replies to a writer thread in one queue item and goes on to the
-next batch, so the writes overlap the next collect and forward. Written
-by the serve thread, one `send_bytes` per request, they idled the device
-for 331.9 of the 4,091 s of a stage 1 match on Windows (about 0.17 ms a
-write on a named pipe, 12 ms of every 149 ms batch; the benchmark and
-the A/B are in training/metrics/async_replies_20261029/). While the
-writer runs it alone writes to and closes the connections (`_Replier`).
-A client sends its next request only after it has read its reply
-(EvalInferenceClient, one request in flight per connection), and one
-thread writes a connection's messages in the order the serve thread
-handed them over, so a connection's replies cannot be reordered.
+Replies. By default the serve thread writes each batch's replies, one
+`send_bytes` per request, before it reads the next batch. With
+`async_replies` (opt-in) it hands them to a writer thread in one queue
+item and goes on to the next batch, so the writes overlap the next
+collect and forward. On Windows a reply past the named pipe's 8 kB
+buffer is written only as its client reads it: the inline writes idled
+the device for 331.9 of the 4,091 s of a stage 1 match (0.17 ms a write).
+The writer also changes how batches form (the clients of one batch
+cannot join the next), which costs where a forward's cost is mostly per
+batch: +4.1% on a CPU stand-in of stage 1, -13% on one of a
+launch-bound GPU with cheap writes (training/metrics/
+async_replies_20261029/). While the writer runs it alone writes to and
+closes the connections (`_Replier`). A client sends its next request
+only after it has read its reply (EvalInferenceClient, one request in
+flight per connection), and one thread writes a connection's messages
+in the order the serve thread handed them over, so a connection's
+replies cannot be reordered.
 """
 from __future__ import annotations
 
@@ -339,15 +344,16 @@ class InferenceService:
     fault, stops, and keeps the fault in `fatal`.
 
     `async_replies`: the replies are written by a writer thread
-    (`_Replier`) while the serve thread goes on to the next batch; off,
-    the serve thread writes each batch's replies before it reads the
-    next. The bytes each client receives are the same either way."""
+    (`_Replier`) while the serve thread goes on to the next batch; off
+    (the default), the serve thread writes each batch's replies before it
+    reads the next. The bytes each client receives are the same either
+    way."""
 
     def __init__(self, listener: Listener, infer_fn: Callable, hello: Dict, *,
                  window_s: float, max_batch: int,
                  health_fn: Optional[Callable[[], None]] = None,
                  release_fn: Optional[Callable[[int], None]] = None,
-                 async_replies: bool = True):
+                 async_replies: bool = False):
         self._listener = listener
         self._infer_fn = infer_fn
         # Pickled once, as Connection.send pickles it at each hello.
