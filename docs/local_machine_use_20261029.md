@@ -98,7 +98,10 @@ games would take most of a day here, against about an hour on a box.
 2. **Windows Update:** active hours or a pause while a run is planned.
 3. **Stage C on the local stage 1** (docs/stage1_local_handoff_20261029.md
    section 9):
-   - whether stage C may train on fp16-served games;
+   - whether stage C may train on fp16-served games. The fp16 serving path
+     sits about ten times closer to the fp32 trunk than bf16 does on own2's
+     logits (training/metrics/int8_linear_20261029, where it was measured
+     beside bf16);
    - the fp16 precision floor (C0's replay limit about 1.1e-4 instead of
      the bf16 floor's 5.9e-4);
    - D0 and the memory report were read with both seats in fp16, so a
