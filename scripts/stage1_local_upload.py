@@ -15,7 +15,9 @@ line in upload.log) under huggingface_hub's own login on this machine: the
 script never reads, prints or passes a token.
 
 What goes up, each under its own name in --hf-dir of the model repository
-(the names the box's stage 1 sends, scripts/selfplay_t1_box.sh):
+(DEFAULT_HF_DIR; a --smoke run's, SMOKE_HF_DIR, and neither run's folder
+takes the other's records), the names the box's stage 1 sends
+(scripts/selfplay_t1_box.sh):
 - every regular file directly in the run directory: the walks, rows,
   labels, fits and readout, the D0 and memory fits, matches.txt, the logs,
   the done markers; but STOP, files being written (.tmp) and upload.log
@@ -46,10 +48,22 @@ held-out split is the plan's, and every self-play result names `own2` at
 64 slots on both seats under raw:t1, served in float16 alike. A folder
 that already holds files on HF and that this staging directory did not
 fill is refused too; the box stage 1's folder always is.
+
+The staging directory (--staging, by default <run>_upload beside the run)
+must be new, empty, or one this script filled: its record,
+tmp/stage1_local_upload.json, names the files the script wrote there, and
+only those are ever deleted (the ones a later upload no longer writes).
+Any other existing directory is refused, and so is a staging directory
+holding a file its record does not name, which the uploader would send.
+The record also names the run (`run_fingerprint`: ALL_DONE's content and
+the census): the uploader's landed state, kept there, is keyed by the HF
+folder only, so another run's upload through it is refused rather than
+continued into the same folder.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -68,9 +82,16 @@ import scripts.selfplay_t1_local as runner  # noqa: E402
 from scripts.box import box_upload  # noqa: E402
 
 DEFAULT_HF_DIR = "tier-b/selfplay_t1_local_20261028"
+SMOKE_HF_DIR = "tier-b/selfplay_t1_local_smoke"     # --smoke's: never the local stage 1's folder
 HF_DIR_PATTERN = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")      # boxlib.sh's check of HF_DIR
 NOT_SENT = {"STOP", box_upload.ALL_DONE, box_upload.LOG_NAME}
 GENERATED = ("plan.txt", "local_provenance.json")
+# The staging directory's record of the names this script wrote there
+# (`stage`), under tmp/ (the uploader sends every regular file directly in
+# the directory). Only the names it lists are ever deleted; an existing
+# directory without it, or with a file it does not list, is refused.
+STAGING_RECORD = Path("tmp") / "stage1_local_upload.json"
+RECORD_SCRIPT = "scripts/stage1_local_upload.py"
 # The self-play results' facts every game must share (scripts/selfplay_t1_local.py's sides).
 SELFPLAY_PROCEDURE, SELFPLAY_SLOTS, SERVED = "raw:t1", 64, "float16"
 
@@ -111,6 +132,7 @@ class Upload:
     census: Dict
     blockers: List[str]
     skipped: List[str]
+    fingerprint: str = ""        # run_fingerprint: which run these are
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +191,17 @@ def selfplay_problems(name: str, census: Dict, sha: str) -> List[str]:
         if wrong:
             out.append(f"games_{name}: {kind['games']} results with {', '.join(wrong)}")
     return out
+
+
+def run_fingerprint(run: Path, census: Dict) -> str:
+    """Which run the records are: a hash of ALL_DONE's content (the time the
+    runner ended) and the census of the match results, not of the run's
+    path, so a moved run is the same run. The upload's landed state
+    (box_upload's, kept in the staging directory) is keyed by the HF folder
+    only; the staging record keeps this beside it."""
+    done = run / box_upload.ALL_DONE
+    body = {"all_done": done.read_text(encoding="utf-8") if done.is_file() else None, "census": census}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def reference_sha() -> str:
@@ -278,7 +311,7 @@ def plan_upload(run: Path, plan: Plan = Plan(), sha: Optional[str] = None) -> Up
             blockers.append(f"readout.json: the gates read '{words}' (stage C runs only on five passed gates)")
     if (run / "labels.jsonl").is_file() and (run / "rows.jsonl").is_file():
         blockers.extend(_labels_split_problems(run, plan))
-    return Upload(entries, census, blockers, skipped)
+    return Upload(entries, census, blockers, skipped, run_fingerprint(run, census))
 
 
 # ---------------------------------------------------------------------------
@@ -330,17 +363,82 @@ def listing(up: Upload, hf_dir: str, staging: Path, plan: Plan) -> str:
     return "\n".join(lines)
 
 
-def stage(up: Upload, staging: Path) -> Path:
+class StagingError(RuntimeError):
+    """The staging directory holds what this script did not write."""
+
+
+def read_staging_record(staging: Path) -> Optional[Dict]:
+    """The staging directory's record (STAGING_RECORD), or None when it has
+    none or one this script did not write."""
+    try:
+        record = json.loads((staging / STAGING_RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or record.get("script") != RECORD_SCRIPT \
+            or not isinstance(record.get("written"), list):
+        return None
+    return record
+
+
+def staging_problems(staging: Path, fingerprint: str) -> List[str]:
+    """Why `staging` cannot take the upload of the run `fingerprint` names
+    (run_fingerprint): it exists, is not empty, and holds no record of this
+    script; or its record is another run's, whose landed state would pass
+    that run's files on HF as this one's; or it holds regular files the
+    record does not name, which the uploader would send (it sends every
+    regular file directly in its directory) and which this script never
+    deletes. A new or empty directory takes it."""
+    if not staging.exists():
+        return []
+    if not staging.is_dir():
+        return [f"--staging {staging} is not a directory"]
+    record = read_staging_record(staging)
+    if record is None:
+        if any(staging.iterdir()):
+            return [f"--staging {staging} is not empty and holds no {STAGING_RECORD.as_posix()}: this script did "
+                    f"not fill it, and nothing in it is touched; name a new or empty directory"]
+        return []
+    out = []
+    if record.get("fingerprint") != fingerprint:
+        out.append(f"--staging {staging} holds the upload of another run (from {record.get('run')}; its ALL_DONE "
+                   f"or match results differ from this run's): its landed state would mix the two runs in one "
+                   f"folder; name a new staging directory and a new --hf-dir")
+    ours = set(record["written"]) | {box_upload.LOG_NAME}
+    foreign = sorted(p.name for p in staging.iterdir() if p.is_file() and p.name not in ours)
+    if foreign:
+        out.append(f"--staging {staging} holds files this script did not write ({', '.join(foreign[:5])}"
+                   f"{', ...' if len(foreign) > 5 else ''}): the uploader would send them; move them out")
+    return out
+
+
+def _write_record(staging: Path, record: Dict) -> None:
+    path = staging / STAGING_RECORD
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def stage(up: Upload, staging: Path, run: Optional[Path] = None) -> Path:
     """The staging directory's files and the uploader's spec; its path. The
     run directory is only read: what is sent from it goes by path (`extra`
     and `dir` entries), and the copies, generated files and markers are
-    written here."""
+    written here. Refused (`StagingError`) on a directory `staging_problems`
+    names; of the files there, only those the record lists and this upload
+    no longer writes are deleted, before the record names what it writes
+    and the run it holds (`up.fingerprint`; `run` where it was read)."""
+    problems = staging_problems(staging, up.fingerprint)
+    if problems:
+        raise StagingError("; ".join(problems))
+    record = read_staging_record(staging) or {"script": RECORD_SCRIPT, "written": []}
     staging.mkdir(parents=True, exist_ok=True)
     (staging / "tmp").mkdir(exist_ok=True)
-    keep = {e.name for e in up.entries if e.kind in ("copy", "text")} | {box_upload.LOG_NAME}
-    for p in staging.iterdir():          # a former staging's other files; tmp/ keeps the landed versions
-        if p.is_file() and p.name not in keep:
+    written = sorted({e.name for e in up.entries if e.kind in ("copy", "text")})
+    for name in sorted(set(record["written"]) - set(written)):     # a former staging's; tmp/ keeps the landed
+        p = staging / name
+        if Path(name).name == name and p.is_file():                # a bare name directly here, nothing else
             p.unlink()
+    _write_record(staging, {**record, "written": written, "fingerprint": up.fingerprint,
+                            "run": str(run) if run is not None else record.get("run")})
     lines = []
     for e in up.entries:
         dst = staging / e.name
@@ -371,11 +469,12 @@ def foreign_files(api, hf_dir: str, staging: Path) -> List[str]:
     return sorted(set(on_hf) - set(landed) - {box_upload.LOG_NAME, box_upload.ALL_DONE})
 
 
-def upload(up: Upload, hf_dir: str, staging: Path, api, budget_s: float, min_rate: float) -> bool:
+def upload(up: Upload, hf_dir: str, staging: Path, api, budget_s: float, min_rate: float,
+           run: Optional[Path] = None) -> bool:
     """Two rounds of box_upload.Round: every file and tarball, the markers
     once their data landed and upload.log; then, only when all of it
     landed, ALL_DONE. True when everything landed."""
-    spec = box_upload.read_spec(str(stage(up, staging)))
+    spec = box_upload.read_spec(str(stage(up, staging, run)))
     timing = box_upload.Timing(min_rate=min_rate)
     deadline = time.monotonic() + budget_s
     first = box_upload.Round(staging, hf_dir, api, spec=spec, budget_s=budget_s, timing=timing)
@@ -398,7 +497,9 @@ def main(argv: Optional[List[str]] = None, api_factory: Callable[[], object] = d
          plan: Plan = Plan()) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", type=Path, required=True, help="the local stage 1's output directory (only read)")
-    ap.add_argument("--hf-dir", default=DEFAULT_HF_DIR, help="the folder in the model repository")
+    ap.add_argument("--hf-dir", default=None,
+                    help=f"the folder in the model repository (default: {DEFAULT_HF_DIR}, with --smoke "
+                         f"{SMOKE_HF_DIR})")
     ap.add_argument("--staging", type=Path, default=None,
                     help="where the copies, generated files, tarballs and upload state go "
                          "(default: <run>_upload beside the run directory)")
@@ -413,21 +514,29 @@ def main(argv: Optional[List[str]] = None, api_factory: Callable[[], object] = d
     plan = SMOKE if args.smoke else plan
     run = args.run.resolve()
     staging = (args.staging or run.with_name(run.name + "_upload")).resolve()
-    hf_dir = args.hf_dir.strip("/")
+    hf_dir = (args.hf_dir or (SMOKE_HF_DIR if args.smoke else DEFAULT_HF_DIR)).strip("/")
     if not run.is_dir():
         ap.error(f"--run {run} is not a directory")
     if not HF_DIR_PATTERN.match(hf_dir):
         ap.error(f"--hf-dir {args.hf_dir!r} is not a folder path")
     if hf_dir == box_stage1_hf_dir():
         ap.error(f"--hf-dir {hf_dir} is the box stage 1's folder: the local records go to a folder of their own")
+    if args.smoke and hf_dir == DEFAULT_HF_DIR:
+        ap.error(f"--hf-dir {hf_dir} is the local stage 1's folder: a smoke run goes to a folder of its own")
+    if not args.smoke and hf_dir == SMOKE_HF_DIR:
+        ap.error(f"--hf-dir {hf_dir} is the smoke runs' folder: without --smoke, name another")
     if staging == run or run in staging.parents:
         ap.error(f"--staging {staging} lies inside the run directory, which is only read")
     up = plan_upload(run, plan)
     print(listing(up, hf_dir, staging, plan))
+    problems = staging_problems(staging, up.fingerprint)
+    if problems:
+        print("\nthe staging directory would be refused:")
+        print("\n".join(f"  - {p}" for p in problems))
     if not args.upload:
         print("\ndry run: nothing written, nothing sent (--upload sends)")
         return 0
-    if up.blockers:
+    if up.blockers or problems:
         print("\nREFUSED: nothing sent")
         return 2
     api = api_factory()
@@ -436,7 +545,7 @@ def main(argv: Optional[List[str]] = None, api_factory: Callable[[], object] = d
         print(f"\nREFUSED: {box_upload.REPO}:{hf_dir}/ already holds {len(foreign)} files this staging "
               f"directory did not send ({', '.join(foreign[:5])}): pick another --hf-dir")
         return 2
-    ok = upload(up, hf_dir, staging, api, args.budget_h * 3600.0, args.min_rate_kbs * 1000.0)
+    ok = upload(up, hf_dir, staging, api, args.budget_h * 3600.0, args.min_rate_kbs * 1000.0, run=run)
     print(f"\n{'UPLOADED' if ok else 'INCOMPLETE: run it again to send what did not land'} "
           f"({staging / box_upload.LOG_NAME})")
     return 0 if ok else 1

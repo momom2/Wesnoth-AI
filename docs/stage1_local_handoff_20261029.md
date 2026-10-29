@@ -143,22 +143,39 @@ What this shows:
 - `pg_positions.serving_precision` reads each match result's precision:
   `float16` under `infer_fp16`, `bfloat16` under `infer_bf16`, else
   `float32` (absent fields read False, as `elo_eval_game`'s own resume guard
-  reads them). `record_facts` carries it as `serving`.
+  reads them). `record_facts` carries it as `serving`. A game served on one
+  of the server's other numerics paths (`infer_bf16_residual`,
+  `infer_fused_relu`, `infer_fp8_a`/`_b`) reads as its precision followed by
+  them, `bfloat16+infer_bf16_residual` say, and the floor refuses it under
+  every choice but `off`: those paths round otherwise than the plain
+  autocast the floor reads (a first version read them as plain bf16; found
+  on review, 2026-10-29). Stage 1's scripts, box and local, serve none of
+  them.
 - `pg_floor.resolve_floor_dtype`:
-  - `auto` reads the games' precision, and `off` for games served in
-    float32;
+  - `auto` reads the games' precision. For games served in float32 it
+    reads the path alone (`float32`, `pg_floor.PATH_ONLY`): no rounding is
+    read, so the limit is the base, and the packed-against-padded check
+    (exit 5) still runs;
   - a named precision is refused when the games were served in the other
     one;
-  - games of both precisions in one pass are refused.
+  - games of more than one serving precision in one pass are refused under
+    `auto`, float32 among them: a reduced precision's floor would lift the
+    limit for the decisions of fp32-served games, which carry no rounding.
+    A named precision still takes fp32-served games, alone or beside games
+    of that precision, as the suite's CPU games do (the caller's choice);
+  - `off` reads neither the floor nor the path.
 - `pg_pass --floor-dtype` now defaults to `auto`. pass.pt and pass.json
   record `floor_dtype`, the precision read. The API's default stays
   `bfloat16`.
 - No behaviour changes for a box's bf16 records: they resolve to the same
   bfloat16 floor, and a test checks that the floor and the limit are
   identical.
-- Records served in float32 under the command line now read no floor;
-  before, they read a bf16 floor. Only the suite's CPU games are served in
-  float32.
+- Records served in float32 under the command line read the path alone;
+  before this branch they read a bf16 floor, the path included. A first
+  version of this branch resolved them to `off`, which dropped the path
+  check with the rounding (found on review, 2026-10-29): a stage 1
+  re-served in fp32, as C0's exit 4 advises, would have lost it, since
+  `stage_c_box.sh` passes no `--floor-dtype`.
 - The derivation is in `tools/pg_floor.py`'s docstring, "The serving
   precision".
 
@@ -200,6 +217,20 @@ sending nothing, unless all of these hold:
 It also refuses a folder holding files this staging directory did not
 send, and always refuses the box stage 1's folder. It uses
 huggingface_hub's stored login and never reads the token.
+
+The staging directory must be new, empty, or one the script filled: its
+record, `tmp/stage1_local_upload.json`, names the files the script wrote
+there, and only those are ever deleted. Any other existing directory is
+refused with nothing touched, and so is a file the record does not name,
+since the uploader sends every file directly in the directory. (A first
+version deleted every top-level file not in the upload, so a `--staging`
+pointed at the repository's root would have deleted CLAUDE.md and
+README.md; found on review, 2026-10-29.) The record also names the run, by
+a hash of `ALL_DONE`'s content and the census: the uploader's landed state
+is keyed by the HF folder alone, so another run sent through the same
+staging directory to the same folder would have passed the first run's
+landed files as its own. It is refused; a run whose directory moved is the
+same run.
 
 Dry run on the real directory at 10:32, s00 only (abridged):
 
@@ -243,7 +274,10 @@ When the run is whole, the upload holds about 1.4 GB of self-play games
 (six tarballs of about 224 MB), D0's and the memory report's, and about
 70 MB of walks and rows. The runner's smoke run
 (`wesnoth_runs/stage1_smoke`, `--smoke`) is whole, and its dry run passes
-every check but one: its `dice_control` gate failed on 48 games.
+every check but one: its `dice_control` gate failed on 48 games. With
+`--smoke` the upload's folder is `tier-b/selfplay_t1_local_smoke` unless one
+is named, and the stage 1 folder is refused (a first version kept the
+stage 1 folder as the smoke run's default; found on review, 2026-10-29).
 
 ## 6. Commands (the user's or the coordinator's to run)
 

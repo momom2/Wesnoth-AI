@@ -211,6 +211,22 @@ def test_the_box_stage_1s_folder_and_a_staging_inside_the_run_are_refused(tmp_pa
         up.main(["--run", str(run), "--staging", str(run / "up")], api_factory=_no_api, plan=PLAN)
 
 
+def test_a_smoke_run_goes_to_a_folder_of_its_own(tmp_path, capsys):
+    """--smoke without --hf-dir sends to the smoke folder, never to the
+    local stage 1's; naming one run's folder for the other is refused."""
+    run = _run_dir(tmp_path)
+    staging = ["--staging", str(tmp_path / "staging")]
+    assert up.SMOKE_HF_DIR != up.DEFAULT_HF_DIR
+    assert up.main(["--run", str(run), "--smoke", *staging], api_factory=_no_api, plan=PLAN) == 0
+    out = capsys.readouterr().out
+    assert f"destination: {box_upload.REPO}:{up.SMOKE_HF_DIR}/" in out and up.DEFAULT_HF_DIR not in out
+    assert up.main(["--run", str(run), *staging], api_factory=_no_api, plan=PLAN) == 0
+    assert f"destination: {box_upload.REPO}:{up.DEFAULT_HF_DIR}/" in capsys.readouterr().out
+    for argv in (["--smoke", "--hf-dir", up.DEFAULT_HF_DIR], ["--hf-dir", up.SMOKE_HF_DIR]):
+        with pytest.raises(SystemExit):
+            up.main(["--run", str(run), *staging, *argv], api_factory=_no_api, plan=PLAN)
+
+
 def test_a_folder_another_upload_filled_is_refused(tmp_path, capsys):
     run = _run_dir(tmp_path)
     hf = StubHf(tmp_path / "hf", on_hf=[f"{HF_DIR}/plan.txt"])
@@ -247,6 +263,66 @@ def test_the_upload_sends_the_box_layout_markers_after_their_data_and_all_done_l
     # Again: nothing changed, so only the logs and ALL_DONE go up again.
     hf.sent.clear()
     assert _main(run, "--upload", api=lambda: hf) == 0
+    assert sorted(hf.sent) == sorted([box_upload.LOG_NAME, box_upload.LOG_NAME, "ALL_DONE"])
+
+
+def test_a_staging_directory_this_script_did_not_fill_is_refused_and_left_alone(tmp_path, capsys):
+    """--staging pointed at a directory of other files (the repository's
+    root, say): the upload is refused before anything is sent, and every
+    file there is left as it was. An empty directory is taken."""
+    run = _run_dir(tmp_path)
+    hf = StubHf(tmp_path / "hf")
+    elsewhere = tmp_path / "elsewhere"
+    _write(elsewhere / "CLAUDE.md", "the project's instructions")
+    _write(elsewhere / "README.md", "the readme")
+    _write(elsewhere / "docs" / "note.md", "a note")
+    before = {p.relative_to(elsewhere).as_posix(): p.read_bytes() for p in elsewhere.rglob("*") if p.is_file()}
+    assert _main(run, "--upload", api=lambda: hf, staging=elsewhere) == 2
+    out = capsys.readouterr().out
+    assert "REFUSED" in out and "holds no tmp/stage1_local_upload.json" in out
+    assert {p.relative_to(elsewhere).as_posix(): p.read_bytes() for p in elsewhere.rglob("*") if p.is_file()} == before
+    assert hf.sent == []
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert _main(run, "--upload", api=lambda: hf, staging=empty) == 0
+
+
+def test_a_file_dropped_into_the_staging_directory_is_refused_and_kept(tmp_path, capsys):
+    """After an upload, the staging directory holds what this script wrote
+    and its record of it. A file it did not write, put there since, stops
+    the next upload (the uploader would send it, and nothing here deletes
+    it); a file it wrote and no longer sends is removed."""
+    run, hf = _upload(tmp_path)
+    staging = run.with_name("staging")
+    assert json.loads((staging / "tmp" / "stage1_local_upload.json").read_text())["written"]
+    _write(staging / "notes.txt", "mine")
+    hf.sent.clear()
+    assert _main(run, "--upload", api=lambda: hf) == 2
+    assert "holds files this script did not write (notes.txt)" in capsys.readouterr().out
+    assert (staging / "notes.txt").read_text() == "mine" and hf.sent == []
+    (staging / "notes.txt").unlink()
+    assert (staging / "d0.worker_stages.json").is_file()
+    (run / "games_d0" / ".worker_stages.json").unlink()
+    assert _main(run, "--upload", api=lambda: hf) == 0
+    assert not (staging / "d0.worker_stages.json").exists() and (staging / "d0.inference_server_0.json").is_file()
+
+
+def test_another_runs_upload_is_not_continued_from_this_staging_directory(tmp_path, capsys):
+    """The staging directory keeps the landed state of one run's upload: a
+    second run (its own ALL_DONE) sent through it to the same folder would
+    take the first run's landed files as its own and mix the two runs in
+    one folder. It is refused, nothing sent; the first run continues, and
+    so does a run whose directory moved."""
+    run, hf = _upload(tmp_path)
+    staging = run.with_name("staging")
+    other = _run_dir(tmp_path / "other")
+    _write(other / "ALL_DONE", "2026-10-30 08:00:00\n")
+    hf.sent.clear()
+    assert _main(other, "--upload", api=lambda: hf, staging=staging) == 2
+    assert "holds the upload of another run" in capsys.readouterr().out
+    assert hf.sent == []
+    moved = run.rename(tmp_path / "moved")
+    assert _main(moved, "--upload", api=lambda: hf, staging=staging) == 0
     assert sorted(hf.sent) == sorted([box_upload.LOG_NAME, box_upload.LOG_NAME, "ALL_DONE"])
 
 

@@ -4,12 +4,15 @@ F.scaled_dot_product_attention per segment, its backward against SDPA's
 fp32 autograd and its dispatch when a gradient is wanted, the fused
 residual add and layer norm against F.layer_norm, and the packed fp16
 trunk (the model's fused loop; packed_trunk with the backward when a
-gradient is wanted) against the padded fp32 trunk. The GPU checks skip
+gradient is wanted) against the padded fp32 trunk. On the CPU, the
+self-tests run with the caller's autocast off and their references stay
+float32 inside an fp16 autocast. The GPU checks skip
 without a ROCm build and a GPU the kernel serves (CI has neither); on the
 local RX 6600 they run under the ROCm venv
 (training/metrics/local_gpu_20261028/README.md)."""
 from __future__ import annotations
 
+import math
 import random
 import sys
 from pathlib import Path
@@ -23,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from wesnoth_ai.hip_attention_grad import (  # noqa: E402
     attention_errors, hip_varlen_attention_trainable, hip_varlen_backward_applies,
 )
+from wesnoth_ai.hip_attention_grad import closed_form_gradients as _closed_form  # noqa: E402 (unpatched)
 from wesnoth_ai.hip_kernels import (  # noqa: E402
     HEAD_DIMS, hip_add_layer_norm, hip_add_layer_norm_applies, hip_varlen_applies, hip_varlen_attention,
     hip_varlen_attention_lse,
@@ -235,6 +239,100 @@ def test_closed_form_gradients_match_sdpa_autograd():
     got = closed_form_gradients(q.detach(), k.detach(), v.detach(), up, cu)
     for name in want:
         assert torch.allclose(got[name], want[name], atol=1e-5), name
+
+
+def _autocast_casts_on_the_cpu() -> bool:
+    with torch.autocast("cpu", dtype=torch.float16):
+        return (torch.ones(2, 2) @ torch.ones(2, 2)).dtype == torch.float16
+
+
+def test_the_self_tests_references_are_float32_inside_an_fp16_autocast():
+    """The kernels' first use can come inside the gradient pass's fp16
+    autocast (tools/pg_pass.py `_step`) or the server's, and no_grad does
+    not turn an autocast off. The self-tests' references (SDPA per segment,
+    the closed-form gradients) stay float32 there, equal to those built
+    outside it, on the CPU's fp16 autocast, which casts matmul and SDPA to
+    fp16 as CUDA's does."""
+    from wesnoth_ai.hip_attention_grad import closed_form_gradients, reference_attention
+    if not _autocast_casts_on_the_cpu():
+        pytest.skip("this torch's CPU autocast does not cast matmul to fp16")
+    g = torch.Generator().manual_seed(13)
+    cu = [0, 3, 20]
+    q, k, v, up = (torch.randn(cu[-1], 2, 32, generator=g).half() for _ in range(4))
+    want_out, want = reference_attention(q, k, v, cu), closed_form_gradients(q, k, v, up, cu)
+    with torch.no_grad(), torch.autocast("cpu", dtype=torch.float16):
+        got_out, got = reference_attention(q, k, v, cu), closed_form_gradients(q, k, v, up, cu)
+    assert got_out.dtype == torch.float32 and torch.equal(got_out, want_out)
+    for name in want:
+        assert got[name].dtype == torch.float32 and torch.equal(got[name], want[name]), name
+
+
+class _CpuKernels:
+    """The kernels' entry points computed by torch on the CPU, recording
+    whether an autocast was on at each launch: the self-tests run on them."""
+
+    def __init__(self):
+        from wesnoth_ai.hip_kernels import _LN_NI
+        self.add_ln = {128 * ni: None for ni in _LN_NI}
+        self.autocast_at_launch = []
+
+    def _seen(self):
+        self.autocast_at_launch.append(torch.is_autocast_enabled("cpu"))
+
+    def launch(self, q, k, v, out, cu_seqlens, max_len, lse=None):
+        self._seen()
+        cu = cu_seqlens.tolist()
+        with torch.autocast("cpu", enabled=False):
+            out[:cu[-1]] = _closed_form(q, k, v, torch.zeros_like(q), cu)["out"].to(out.dtype)
+            if lse is not None:
+                s = 1.0 / math.sqrt(q.shape[-1])
+                for lo, hi in zip(cu[:-1], cu[1:]):
+                    qs, ks = q[lo:hi].float().transpose(0, 1), k[lo:hi].float().transpose(0, 1)
+                    lse[:, lo:hi] = torch.logsumexp(s * qs @ ks.transpose(1, 2), dim=-1)
+
+    def launch_add_ln(self, x, y, w, b, o32, o16, eps):
+        self._seen()
+        with torch.autocast("cpu", enabled=False):
+            o32.copy_(F.layer_norm(x + y.float(), (x.shape[1],), w, b, eps))
+            o16.copy_(o32.half())
+
+
+class _CpuBackward:
+    def __init__(self):
+        self.autocast_at_launch = []
+
+    def launch(self, q, k, v, o, g, lse, delta, dq, dk, dv, cu_seqlens, max_len):
+        self.autocast_at_launch.append(torch.is_autocast_enabled("cpu"))
+        with torch.autocast("cpu", enabled=False):
+            ref = _closed_form(q, k, v, g, cu_seqlens.tolist())
+        for name, t in (("dq", dq), ("dk", dk), ("dv", dv)):
+            t.copy_(ref[name].to(t.dtype))
+
+
+def test_the_self_tests_run_with_the_callers_autocast_off(monkeypatch):
+    """Both self-tests called inside an fp16 autocast on their device (the
+    CPU here, with the kernels computed by torch): every launch, and every
+    reference built between them, sees no autocast."""
+    import wesnoth_ai.hip_attention_grad as hg
+    import wesnoth_ai.hip_kernels as hk
+    if not _autocast_casts_on_the_cpu():
+        pytest.skip("this torch's CPU autocast does not cast matmul to fp16")
+    forward, backward = _CpuKernels(), _CpuBackward()
+    monkeypatch.setattr(hk, "_kernels_for", lambda device: forward)
+    references = {"attention": [], "gradients": []}
+
+    def recorded(name, function):
+        return lambda *a: references[name].append(torch.is_autocast_enabled("cpu")) or function(*a)
+    monkeypatch.setattr(hk, "reference_attention", recorded("attention", hk.reference_attention))
+    monkeypatch.setattr(hg, "closed_form_gradients", recorded("gradients", hg.closed_form_gradients))
+    cpu = torch.device("cpu")
+    with torch.no_grad(), torch.autocast("cpu", dtype=torch.float16):
+        hk._self_test(forward, cpu)
+        hg._self_test(backward, cpu)
+    assert forward.autocast_at_launch and not any(forward.autocast_at_launch)
+    assert backward.autocast_at_launch and not any(backward.autocast_at_launch)
+    for name, seen in references.items():
+        assert seen and not any(seen), name
 
 
 @rocm

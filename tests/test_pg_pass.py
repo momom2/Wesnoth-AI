@@ -429,11 +429,49 @@ def test_an_fp16_window_that_overflows_is_run_again_and_sums_as_fp32(tmp_path, m
         assert scaled[key] == plain[key], key
 
 
+@needs_core
+def test_a_resumed_fp16_pass_keeps_the_loss_scale_of_its_written_splits(tmp_path, monkeypatch):
+    """Each split file holds the split's loss-scale counts and its end
+    scale; a pass cut after four splits (two of them with windows) and
+    started again takes them, carries the scale on from the last split
+    taken, and records the uncut pass's loss scale: its overflows and
+    growths over every split, its smallest and its end scale."""
+    from tools import pg_pass
+    from tools.pg_loss_scale import LossScale
+    from tools.pg_pass import GradientPass, PassConfig
+    games, labels = _labels(tmp_path)
+    config = PassConfig(fp16=True, streams=2, window=8, floor_sides=1000)
+    monkeypatch.setattr(pg_pass, "LossScale", lambda: LossScale(scale=2.0 ** 127, growth_interval=3))
+    whole = GradientPass(games.checkpoint, games.records, labels, CPU, config).run()
+    assert whole["loss_scale"]["overflows"] > whole["loss_scale"]["growths"] >= 1
+    partial = tmp_path / "splits"
+    run_split = pg_pass.GradientPass._run_split
+    done = []
+
+    def cut(self, i, schedule):
+        if len(done) == 4:
+            raise KeyboardInterrupt("the box's cut")
+        run_split(self, i, schedule)
+        done.append(i)
+    monkeypatch.setattr(pg_pass.GradientPass, "_run_split", cut)
+    with pytest.raises(KeyboardInterrupt):
+        GradientPass(games.checkpoint, games.records, labels, CPU, config, partial_dir=partial).run()
+    assert done == [0, 1, 2, 3]
+    written = [torch.load(partial / f"split{i}.pt", weights_only=True)["loss_scale"] for i in done]
+    assert sum(w["overflows"] for w in written) > 0
+    monkeypatch.setattr(pg_pass.GradientPass, "_run_split", run_split)
+    resumed = GradientPass(games.checkpoint, games.records, labels, CPU, config, partial_dir=partial).run()
+    assert resumed["loss_scale"] == whole["loss_scale"]
+    names = whole["names"]
+    assert torch.allclose(_flat(resumed["total"], names), _flat(whole["total"], names), rtol=1e-6, atol=1e-9)
+
+
 def test_the_loss_scale_stops_at_its_floor():
     """Halving below MIN_SCALE would not help an overflow fp16 itself makes:
     the pass stops there."""
     from tools.pg_loss_scale import MIN_SCALE, LossScale
     scale = LossScale(scale=2 * MIN_SCALE, growth_interval=2)
+    assert scale.smallest == 2 * MIN_SCALE                 # the scale it starts from, not INITIAL_SCALE
     scale.overflowed()
     assert scale.scale == MIN_SCALE and scale.overflows == 1
     with pytest.raises(FloatingPointError):
@@ -461,12 +499,13 @@ def test_the_floor_reads_the_precision_the_games_were_served_in(tmp_path):
     """auto reads the floor at the precision the games' results name: float16
     for games served in fp16 (the local RX 6600's stage 1), bfloat16 for a
     box's, the very floor and limit a named bfloat16 reads (a box's records
-    pass as before), and none for games served in float32. A named precision
-    the games were not served in is refused before anything is replayed, and
-    so are games of both precisions in one pass. The command line reads auto
-    by default, and its summary names the floor read."""
+    pass as before), and the path alone for games served in float32, at the
+    base limit. A named precision the games were not served in is refused
+    before anything is replayed, and so are games of both precisions in one
+    pass. The command line reads auto by default, and its summary names the
+    floor read."""
     from helpers.pg_games import named, write_labels
-    from tools.pg_floor import FloorDtypeError
+    from tools.pg_floor import PATH_KL_LIMIT, PATH_ONLY, FloorDtypeError
     from tools.pg_pass import GradientPass, PassConfig, main
     games, labels = _labels(tmp_path)
     config = dict(streams=2, floor_sides=1000)
@@ -487,7 +526,9 @@ def test_the_floor_reads_the_precision_the_games_were_served_in(tmp_path):
     with pytest.raises(FloorDtypeError, match="served in bfloat16"):
         construct(bf16, "float16")
     fp32 = construct(games.records, "auto").run()
-    assert fp32["floor_dtype"] == "off" and fp32["floor"] is None
+    assert fp32["floor_dtype"] == fp32["floor"]["dtype"] == PATH_ONLY and fp32["floor"]["kl"] is None
+    assert fp32["floor"]["decisions"] == fp32["decisions"] and fp32["floor"]["path_kl"] < PATH_KL_LIMIT
+    assert fp32["replay"]["limit"] == fp32["replay"]["base_limit"]
     mixed = dict(fp16)
     mixed[games.names["g2"]] = bf16[games.names["g2"]]
     with pytest.raises(FloorDtypeError, match="bfloat16 and float16"):
@@ -499,3 +540,44 @@ def test_the_floor_reads_the_precision_the_games_were_served_in(tmp_path):
     summary = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
     assert summary["floor_dtype"] == "float16" and summary["config"]["floor_dtype"] == "auto"
     assert summary["floor"]["dtype"] == "float16"
+
+
+@needs_core
+def test_games_served_in_float32_keep_the_path_check_under_auto(tmp_path):
+    """auto on games served in float32 (a stage 1 re-served in fp32, as C0's
+    exit 4 advises) reads no rounding, and still checks the packed trunk
+    against the padded one: a packed trunk that departs fails the pass
+    (exit 5) as it does under a reduced-precision floor. Games served in
+    float32 beside games served in float16 are refused: an fp16 floor would
+    lift the limit for decisions that carry no rounding."""
+    from tools.pg_floor import FloorDtypeError
+    from tools.pg_pass import GradientPass, PassConfig, PathMismatch
+    games, labels = _labels(tmp_path)
+    config = PassConfig(floor_dtype="auto", streams=2, floor_sides=1000)
+    with pytest.raises(PathMismatch, match="packed and padded trunks disagree") as caught:
+        GradientPass(games.checkpoint, games.records, labels, CPU, config,
+                     packed_forward=_scaled_actor(1.02, packed=True)).run()
+    floor = caught.value.result["floor"]
+    assert caught.value.result["floor_dtype"] == "float32" and floor["kl"] is None
+    assert floor["decisions"] == caught.value.result["decisions"]
+    _, fp16 = _served(tmp_path / "fp16", games, infer_fp16=True, infer_bf16=False)
+    mixed = dict(games.records)
+    mixed[games.names["g1"]] = fp16[games.names["g1"]]
+    with pytest.raises(FloorDtypeError, match="float16 and float32"):
+        GradientPass(games.checkpoint, mixed, labels, CPU, config)
+
+
+@needs_core
+def test_games_served_on_other_numerics_are_refused_by_the_floor(tmp_path):
+    """Games served with the bf16 residual stream (or the fused ReLU, or fp8
+    products) carry another rounding than the plain bf16 autocast the floor
+    reads: the pass refuses them before replaying anything, unless the
+    floor is off."""
+    from tools.pg_floor import FloorDtypeError
+    from tools.pg_pass import GradientPass, PassConfig
+    games, labels = _labels(tmp_path)
+    _, residual = _served(tmp_path / "residual", games, infer_bf16=True, infer_bf16_residual=True)
+    for dtype in ("auto", "bfloat16"):
+        with pytest.raises(FloorDtypeError, match="bfloat16\\+infer_bf16_residual"):
+            GradientPass(games.checkpoint, residual, labels, CPU, PassConfig(floor_dtype=dtype))
+    assert GradientPass(games.checkpoint, residual, labels, CPU, PassConfig(floor_dtype="off")).floor_dtype == "off"

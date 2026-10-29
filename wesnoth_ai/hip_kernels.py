@@ -34,9 +34,11 @@ the device's architecture on first use, and the HIP module API loads
 it; both are reached through ctypes, so no host compiler is needed (the
 local machine has none). The launch goes on torch's current stream. On
 first use per device the kernels are checked against
-F.scaled_dot_product_attention and F.layer_norm on fixed problems; a
-device where the build or a check fails is reported once in the log and
-served by the callers' fallbacks (the `*_applies` functions are False).
+F.scaled_dot_product_attention and F.layer_norm in float32 on fixed
+problems, with the caller's autocast off (the first use can come inside
+an fp16 autocast, which no_grad leaves on); a device where the build or a
+check fails is reported once in the log and served by the callers'
+fallbacks (the `*_applies` functions are False).
 """
 from __future__ import annotations
 
@@ -472,39 +474,52 @@ def _kernels_for(device: torch.device) -> Optional[_DeviceKernels]:
         return _kernels[index]
 
 
+def reference_attention(q, k, v, cu_host):
+    """F.scaled_dot_product_attention per segment in float32, differentiable:
+    the reference the kernels are checked against. Any autocast on the
+    inputs' device is off here: under one, SDPA runs at its reduced
+    precision, no_grad or not, and the kernels' first use can come inside
+    the gradient pass's fp16 autocast or the server's."""
+    with torch.autocast(q.device.type, enabled=False):
+        outs = []
+        for lo, hi in zip(cu_host[:-1], cu_host[1:]):
+            seg = [t[lo:hi].float().transpose(0, 1).unsqueeze(0) for t in (q, k, v)]
+            outs.append(F.scaled_dot_product_attention(*seg)[0].transpose(0, 1))
+        return torch.cat(outs)
+
+
 def _self_test(kern: _DeviceKernels, device: torch.device) -> None:
     """The attention against F.scaled_dot_product_attention (fp32) on a
     fixed problem per instantiated head size (segment lengths that end
     inside, on and past a tile, and a segment longer than a query block),
-    and the add and norm against F.layer_norm per instantiated width."""
+    and the add and norm against F.layer_norm per instantiated width. Run
+    with the caller's autocast off (`reference_attention`), so the
+    references are the fp32 they are checked as."""
     gen = torch.Generator().manual_seed(0)
     bq = _NT * _QPT[32]
     lens = [1, _BK - 1, _BK, _NT + 1, bq - 1, bq + 3, 2 * bq + _BK + 5]
     cu_host = [0]
     for n in lens:
         cu_host.append(cu_host[-1] + n)
-    for d in HEAD_DIMS:
-        qkv = torch.randn(cu_host[-1], 3, 3, d, generator=gen).to(device, torch.float16)
-        q, k, v = qkv.unbind(1)
-        out = torch.empty(q.shape, dtype=q.dtype, device=device)
-        kern.launch(q, k, v, out, torch.tensor(cu_host, dtype=torch.int32, device=device), max(lens))
-        worst = 0.0
-        for lo, hi in zip(cu_host[:-1], cu_host[1:]):
-            seg = [t[lo:hi].float().transpose(0, 1).unsqueeze(0) for t in (q, k, v)]
-            ref = F.scaled_dot_product_attention(*seg)[0].transpose(0, 1)
-            worst = max(worst, (out[lo:hi].float() - ref).abs().max().item())
-        if not worst <= _SELF_TEST_TOL:
-            raise RuntimeError(f"self-test at head_dim {d}: max abs error {worst} > {_SELF_TEST_TOL}")
-    for d in sorted(kern.add_ln):
-        x = (torch.randn(37, d, generator=gen) * 3).to(device)
-        y = torch.randn(37, d, generator=gen).to(device, torch.float16)
-        w, b = (torch.rand(d, generator=gen) + 0.5).to(device), torch.randn(d, generator=gen).to(device)
-        o32, o16 = torch.empty_like(x), torch.empty_like(y)
-        kern.launch_add_ln(x, y, w, b, o32, o16, 1e-5)
-        ref = F.layer_norm(x + y.float(), (d,), w, b, 1e-5)
-        worst = (o32 - ref).abs().max().item()
-        if not worst <= 1e-4 or not (o16.float() - ref).abs().max().item() <= _SELF_TEST_TOL:
-            raise RuntimeError(f"self-test of the add and layer norm at d {d}: max abs error {worst}")
+    with torch.autocast(device.type, enabled=False):
+        for d in HEAD_DIMS:
+            qkv = torch.randn(cu_host[-1], 3, 3, d, generator=gen).to(device, torch.float16)
+            q, k, v = qkv.unbind(1)
+            out = torch.empty(q.shape, dtype=q.dtype, device=device)
+            kern.launch(q, k, v, out, torch.tensor(cu_host, dtype=torch.int32, device=device), max(lens))
+            worst = (out.float() - reference_attention(q, k, v, cu_host)).abs().max().item()
+            if not worst <= _SELF_TEST_TOL:
+                raise RuntimeError(f"self-test at head_dim {d}: max abs error {worst} > {_SELF_TEST_TOL}")
+        for d in sorted(kern.add_ln):
+            x = (torch.randn(37, d, generator=gen) * 3).to(device)
+            y = torch.randn(37, d, generator=gen).to(device, torch.float16)
+            w, b = (torch.rand(d, generator=gen) + 0.5).to(device), torch.randn(d, generator=gen).to(device)
+            o32, o16 = torch.empty_like(x), torch.empty_like(y)
+            kern.launch_add_ln(x, y, w, b, o32, o16, 1e-5)
+            ref = F.layer_norm(x + y.float(), (d,), w, b, 1e-5)
+            worst = (o32 - ref).abs().max().item()
+            if not worst <= 1e-4 or not (o16.float() - ref).abs().max().item() <= _SELF_TEST_TOL:
+                raise RuntimeError(f"self-test of the add and layer norm at d {d}: max abs error {worst}")
 
 
 # ---------------------------------------------------------------------

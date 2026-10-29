@@ -38,10 +38,12 @@ driver on Windows, the RX 6600 driving the screen).
 
 Built with hiprtc beside the forward's module, and checked on first use
 per device against the closed-form fp32 gradients on a fixed problem,
-without autograd (the first use can come inside a checkpointed forward,
+without autograd and with the caller's autocast off (the first use can
+come inside a checkpointed forward under the pass's fp16 autocast,
 `_self_test`); a device where either fails is reported once in the log,
 and the callers keep the per-segment SDPA (`hip_varlen_backward_applies`
-is False).
+is False). `reference_attention` (SDPA per segment in fp32) lives in
+wesnoth_ai/hip_kernels.py, which checks the forward against it.
 """
 from __future__ import annotations
 
@@ -51,12 +53,11 @@ import threading
 from typing import Dict, Optional
 
 import torch
-import torch.nn.functional as F
 from torch.autograd.function import once_differentiable
 
 from wesnoth_ai.hip_kernels import (
     HEAD_DIMS, compile_source, device_arch, function_resources, hip_runtime, hip_varlen_applies,
-    hip_varlen_attention_lse, launch, load_module, module_function,
+    hip_varlen_attention_lse, launch, load_module, module_function, reference_attention,
 )
 from wesnoth_ai.hip_kernels import _kernel_view
 
@@ -470,16 +471,6 @@ def _backward_for(device: torch.device) -> Optional[_BackwardKernels]:
         return _backward[index]
 
 
-def reference_attention(q, k, v, cu_host):
-    """F.scaled_dot_product_attention per segment in float32, differentiable:
-    the reference the kernels are checked against."""
-    outs = []
-    for lo, hi in zip(cu_host[:-1], cu_host[1:]):
-        seg = [t[lo:hi].float().transpose(0, 1).unsqueeze(0) for t in (q, k, v)]
-        outs.append(F.scaled_dot_product_attention(*seg)[0].transpose(0, 1))
-    return torch.cat(outs)
-
-
 def attention_errors(q, k, v, cu_host, weight, function) -> Dict[str, Dict[str, float]]:
     """The output and the three gradients of sum(weight * attention) by
     `function(q, k, v)` against `reference_attention`: per tensor, the
@@ -505,17 +496,20 @@ def attention_errors(q, k, v, cu_host, weight, function) -> Dict[str, Dict[str, 
 def closed_form_gradients(q, k, v, g, cu_host):
     """The attention's output and its gradients for the upstream gradient g,
     in float32 by the formulas of the module docstring, segment by segment,
-    with no autograd: [rows, heads, head_dim] each."""
+    with no autograd: [rows, heads, head_dim] each. Any autocast on the
+    inputs' device is off here (its matmuls would run at its reduced
+    precision, no_grad or not)."""
     outs = {name: [] for name in ("out", "dq", "dk", "dv")}
     s = 1.0 / math.sqrt(q.shape[-1])
-    for lo, hi in zip(cu_host[:-1], cu_host[1:]):
-        qs, ks, vs, gs = (t[lo:hi].float().transpose(0, 1) for t in (q, k, v, g))     # [heads, n, d]
-        p = torch.softmax(s * qs @ ks.transpose(1, 2), dim=-1)                       # [heads, n, n]
-        o = p @ vs
-        ds = p * (gs @ vs.transpose(1, 2) - (gs * o).sum(-1, keepdim=True))
-        for name, t in (("out", o), ("dq", s * ds @ ks), ("dk", s * ds.transpose(1, 2) @ qs),
-                        ("dv", p.transpose(1, 2) @ gs)):
-            outs[name].append(t.transpose(0, 1))
+    with torch.autocast(q.device.type, enabled=False):
+        for lo, hi in zip(cu_host[:-1], cu_host[1:]):
+            qs, ks, vs, gs = (t[lo:hi].float().transpose(0, 1) for t in (q, k, v, g))     # [heads, n, d]
+            p = torch.softmax(s * qs @ ks.transpose(1, 2), dim=-1)                       # [heads, n, n]
+            o = p @ vs
+            ds = p * (gs @ vs.transpose(1, 2) - (gs * o).sum(-1, keepdim=True))
+            for name, t in (("out", o), ("dq", s * ds @ ks), ("dk", s * ds.transpose(1, 2) @ qs),
+                            ("dv", p.transpose(1, 2) @ gs)):
+                outs[name].append(t.transpose(0, 1))
     return {name: torch.cat(ts) for name, ts in outs.items()}
 
 
@@ -527,14 +521,17 @@ def _self_test(kern: _BackwardKernels, device: torch.device) -> None:
     records an autograd graph: the first use can come inside a forward under
     activation checkpointing (tools/pg_pass.py), whose saved-tensor hooks
     would take a graph built here and recompute the checkpointed forward,
-    which asks for these kernels again, from its backward."""
+    which asks for these kernels again, from its backward. That forward
+    runs under the pass's fp16 autocast, which no_grad leaves on: the
+    caller's autocast is off here, so the reference is the fp32 it is
+    checked as."""
     gen = torch.Generator().manual_seed(1)
     lens = [1, 2, _DQ_BK - 1, _DQ_BK, _NT + 1, 2 * _NT * max(_DQ_QPT.values()) + 5]
     cu_host = [0]
     for n in lens:
         cu_host.append(cu_host[-1] + n)
     cu = torch.tensor(cu_host, dtype=torch.int32, device=device)
-    with torch.no_grad():
+    with torch.no_grad(), torch.autocast(device.type, enabled=False):
         for d in HEAD_DIMS:
             heads = 2
             qkv = torch.randn(cu_host[-1], 3, heads, d, generator=gen).to(device, torch.float16)
