@@ -565,3 +565,19 @@ def test_games_served_in_float32_keep_the_path_check_under_auto(tmp_path):
     mixed[games.names["g1"]] = fp16[games.names["g1"]]
     with pytest.raises(FloorDtypeError, match="float16 and float32"):
         GradientPass(games.checkpoint, mixed, labels, CPU, config)
+
+
+@needs_core
+def test_games_served_on_other_numerics_are_refused_by_the_floor(tmp_path):
+    """Games served with the bf16 residual stream (or the fused ReLU, or fp8
+    products) carry another rounding than the plain bf16 autocast the floor
+    reads: the pass refuses them before replaying anything, unless the
+    floor is off."""
+    from tools.pg_floor import FloorDtypeError
+    from tools.pg_pass import GradientPass, PassConfig
+    games, labels = _labels(tmp_path)
+    _, residual = _served(tmp_path / "residual", games, infer_bf16=True, infer_bf16_residual=True)
+    for dtype in ("auto", "bfloat16"):
+        with pytest.raises(FloorDtypeError, match="bfloat16\\+infer_bf16_residual"):
+            GradientPass(games.checkpoint, residual, labels, CPU, PassConfig(floor_dtype=dtype))
+    assert GradientPass(games.checkpoint, residual, labels, CPU, PassConfig(floor_dtype="off")).floor_dtype == "off"

@@ -47,7 +47,10 @@ the formula above with the mean read at that precision: nothing in it
 depends on which precision that is. Games served in float32 carry no
 serving rounding: auto reads their path alone (PATH_ONLY), so the base
 limit holds and a packed trunk that departs from the padded one still
-fails the pass. One pass takes the games of one serving precision.
+fails the pass. One pass takes the games of one serving precision. Games
+served on another numerics path beside the autocast (the bf16 residual
+stream, the fused ReLU, fp8 products: pg_positions.OTHER_NUMERICS) carry a
+rounding the floor's autocast does not read, and are refused.
 
 - **float16 against bfloat16.** A rounding moves a value by up to its
   format's unit roundoff relative to it: 2^-8 for bfloat16's 8 significant
@@ -134,12 +137,23 @@ def resolve_floor_dtype(requested: str, servings: Iterable[Optional[str]]) -> st
                    do: the floor then reads a rounding they do not carry,
                    the caller's choice;
         off        no floor and no path check.
+
+    Games served on another numerics path beside the autocast
+    (pg_positions.OTHER_NUMERICS: "bfloat16+infer_bf16_residual", say) are
+    refused under every choice but off: the floor's autocast reads the
+    plain trunk's rounding, not theirs.
     """
     if requested not in FLOOR_DTYPES:
         raise FloorDtypeError(f"--floor-dtype {requested!r} is none of {FLOOR_DTYPES}")
     if requested == "off":
         return "off"
     served = sorted({s for s in servings if s is not None})
+    other = [s for s in served if s not in SERVING_DTYPES and s != PATH_ONLY]
+    if other:
+        raise FloorDtypeError(f"the labelled games were served on numerics the floor does not read "
+                              f"({', '.join(other)}): its autocast reads the plain trunk's rounding, not "
+                              f"theirs; pass games served without them, or --floor-dtype off (no floor, no "
+                              f"path check)")
     if requested == "auto":
         if len(served) > 1:
             raise FloorDtypeError(f"the labelled games were served in {' and '.join(served)}: one pass reads one "

@@ -28,6 +28,23 @@ def test_a_result_names_the_precision_its_game_was_served_in():
     assert serving_precision(None) is None
 
 
+def test_a_result_served_on_other_numerics_names_them():
+    """The server's numerics paths beside its autocast (elo_eval_game's
+    infer_bf16_residual, infer_fused_relu, infer_fp8_a/b) are other
+    roundings than the plain autocast the floor reads: the precision names
+    them, and the floor refuses them under every choice but off."""
+    assert serving_precision({"infer_bf16": True, "infer_bf16_residual": True}) == "bfloat16+infer_bf16_residual"
+    assert serving_precision({"infer_bf16": True, "infer_fused_relu": True}) == "bfloat16+infer_fused_relu"
+    assert serving_precision({"infer_bf16": True, "infer_bf16_residual": True, "infer_fp8_b": True}) == \
+        "bfloat16+infer_bf16_residual+infer_fp8_b"
+    assert serving_precision({"infer_fp16": True, "infer_bf16_residual": False, "infer_fused_relu": False,
+                              "infer_fp8_a": False, "infer_fp8_b": False}) == "float16"
+    for requested in ("auto", "bfloat16", "float16"):
+        with pytest.raises(FloorDtypeError, match="numerics the floor does not read"):
+            resolve_floor_dtype(requested, ["bfloat16", "bfloat16+infer_fp8_a"])
+    assert resolve_floor_dtype("off", ["bfloat16+infer_fused_relu"]) == "off"
+
+
 @pytest.mark.parametrize("requested, servings, read", [
     ("auto", ["float16"] * 3, "float16"),
     ("auto", ["bfloat16"] * 3, "bfloat16"),

@@ -143,7 +143,14 @@ What this shows:
 - `pg_positions.serving_precision` reads each match result's precision:
   `float16` under `infer_fp16`, `bfloat16` under `infer_bf16`, else
   `float32` (absent fields read False, as `elo_eval_game`'s own resume guard
-  reads them). `record_facts` carries it as `serving`.
+  reads them). `record_facts` carries it as `serving`. A game served on one
+  of the server's other numerics paths (`infer_bf16_residual`,
+  `infer_fused_relu`, `infer_fp8_a`/`_b`) reads as its precision followed by
+  them, `bfloat16+infer_bf16_residual` say, and the floor refuses it under
+  every choice but `off`: those paths round otherwise than the plain
+  autocast the floor reads (a first version read them as plain bf16; found
+  on review, 2026-10-29). Stage 1's scripts, box and local, serve none of
+  them.
 - `pg_floor.resolve_floor_dtype`:
   - `auto` reads the games' precision. For games served in float32 it
     reads the path alone (`float32`, `pg_floor.PATH_ONLY`): no rounding is

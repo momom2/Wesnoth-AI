@@ -273,20 +273,27 @@ def result_path(record: Path) -> Path:
     return record.with_name(record.name[:-len(RECORD_SUFFIX)] + ".json")
 
 
+# The server's numerics paths beside its autocast, which a match result
+# records (tools/elo_eval_game.py) and tools/eval_inference_server.py serves
+# for self-play generation: the residual stream in bf16, the fused ReLU
+# (cuBLASLt's epilogue), each side's fp8 products. Each is another rounding
+# than the plain autocast the precision floor reads (tools/pg_floor.py).
+OTHER_NUMERICS = ("infer_bf16_residual", "infer_fused_relu", "infer_fp8_a", "infer_fp8_b")
+
+
 def serving_precision(result: Optional[dict]) -> Optional[str]:
     """The precision a match result's game was served in, as its precision
     fields record it (tools/elo_eval_game.py): "float16" under the server's
     --infer-fp16 (the local RX 6600), "bfloat16" under its bf16 autocast (a
     4090 box), "float32" otherwise (fp32 serving, or a result older than
     the fields: an absent field reads False, as elo_eval_game's own resume
-    guard reads it); None without a result."""
+    guard reads it), followed by each of OTHER_NUMERICS the game was served
+    on ("bfloat16+infer_bf16_residual", say; the floor refuses those); None
+    without a result."""
     if result is None:
         return None
-    if result.get("infer_fp16"):
-        return "float16"
-    if result.get("infer_bf16"):
-        return "bfloat16"
-    return "float32"
+    base = "float16" if result.get("infer_fp16") else "bfloat16" if result.get("infer_bf16") else "float32"
+    return "+".join([base] + [f for f in OTHER_NUMERICS if result.get(f)])
 
 
 def _record_facts(path: str) -> Dict[int, dict]:
