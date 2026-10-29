@@ -3,8 +3,10 @@ PyTorch's fused attention does not serve (2026-10-28: the local RX 6600,
 gfx1032, ROCm on Windows, where flash and memory-efficient SDPA both
 report "No available kernel" and the math path took 65% of a forward;
 training/metrics/local_gpu_20261028/README.md): the variable-length
-self-attention, and the residual add fused with the layer norm after it
-(WesnothModel._run_hip_fp16_trunk).
+self-attention (WesnothModel._run_hip_fp16_trunk, packed_trunk), and the
+loader the other HIP modules share. The row-wise kernels of the fused
+loop (the residual add and layer norm, the bias and ReLU) are in
+wesnoth_ai/hip_elementwise.py.
 
 The attention is a flash-attention forward written in HIP for GPUs without
 matrix units (RDNA2): one thread owns a few query rows (_QPT) of one head
@@ -22,23 +24,25 @@ softmax scale 1/sqrt(head_dim), no mask, not causal; the output is a
 new contiguous [total, heads, head_dim] whose rows past cu_seqlens[-1]
 are left unwritten, as flash leaves them. A variant also writes each
 row's log-sum-exp, which the backward (wesnoth_ai/hip_attention_grad.py)
-recomputes the probabilities from; this module has no autograd.
-
-The add and norm reads the float32 residual rows and the fp16 sublayer
-output, and writes the float32 layer norm of their sum (the autocast's
-residual stream) and its fp16 rounding (the next linear's input): an
-add, a layer norm and a cast in one pass, one wave32 a row.
+recomputes the probabilities from; this module has no autograd. Another
+(inference only) adds the in-projection's bias as it loads q, k and v,
+so the projection's GEMM runs without one (ROCm's addmm adds a bias in a
+pass of its own, training/metrics/hip_bias_fold_20261029/README.md): an
+fp16 add, correctly rounded as torch's is, of the bias [3, heads,
+head_dim]. The kernels without it compile to the instructions they had
+before it (that record's same_code.py).
 
 Build: hiprtc (shipped with the ROCm runtime) compiles the source for
 the device's architecture on first use, and the HIP module API loads
 it; both are reached through ctypes, so no host compiler is needed (the
 local machine has none). The launch goes on torch's current stream. On
 first use per device the kernels are checked against
-F.scaled_dot_product_attention and F.layer_norm in float32 on fixed
-problems, with the caller's autocast off (the first use can come inside
-an fp16 autocast, which no_grad leaves on); a device where the build or a
-check fails is reported once in the log and served by the callers'
-fallbacks (the `*_applies` functions are False).
+F.scaled_dot_product_attention in float32 on fixed problems, with the
+caller's autocast off (the first use can come inside an fp16 autocast,
+which no_grad leaves on); a device where the build or a check fails is
+reported once in the log and served by the callers' fallbacks (the
+`*_applies` functions are False). The bias variant has its own check,
+on its first use, so its failure leaves the others serving.
 """
 from __future__ import annotations
 
@@ -65,10 +69,6 @@ HEAD_DIMS = (32, 64)        # the head sizes the source instantiates
 _NT = 32
 _QPT = {32: 3, 64: 1}       # head_dim 64's accumulators allow one row a thread
 _BK = 16
-# The layer norm: LN_THREADS threads a block, a wave32 a row; the model
-# widths it serves are 128 times LN_NI (own2's 384: 3).
-_LN_THREADS = 128
-_LN_NI = (1, 2, 3, 4, 6)
 _LOG2E = 1.4426950408889634
 _SELF_TEST_TOL = 2e-2       # fp16 inputs and output against an fp32 reference
 
@@ -78,19 +78,30 @@ typedef _Float16 h8 __attribute__((ext_vector_type(8)));
 
 // LSE: also write each row's log-sum-exp of its scaled scores (natural
 // log, float32 [heads, ls]) for the backward (hip_attention_grad.py).
-template <int NT, int QPT, int BK, int D, bool LSE>
+// BIAS: add bias [3, heads, D] (q's, k's, v's; fp16) to each q, k and v
+// row as it is loaded, an fp16 add (correctly rounded). A thread loads
+// the same 8-wide chunk of every key and value row it loads (NT a
+// multiple of CH), so it holds that chunk of k's and v's bias.
+template <int NT, int QPT, int BK, int D, bool LSE, bool BIAS>
 __device__ __forceinline__ void attn_fwd(
     const _Float16* __restrict__ q, const _Float16* __restrict__ k, const _Float16* __restrict__ v,
     _Float16* __restrict__ o, const int* __restrict__ cu,
-    int sq, int sk, int sv, int so, float scale_log2, float* __restrict__ lse, int ls)
+    int sq, int sk, int sv, int so, float scale_log2, float* __restrict__ lse, int ls,
+    const _Float16* __restrict__ bias)
 {
     constexpr int C = D / 2, CH = D / 8, BQ = NT * QPT;
+    static_assert(NT % CH == 0, "a thread's key and value chunk must not vary over the loads");
     __shared__ __attribute__((aligned(16))) h2 Ks[BK][C];
     __shared__ __attribute__((aligned(16))) h2 Vp[BK / 2][D];
     const int seg = blockIdx.z, hd = blockIdx.y, tid = threadIdx.x;
     const int start = cu[seg], n = cu[seg + 1] - start;
     const int q0 = blockIdx.x * BQ;
     if (q0 >= n) return;
+    h8 kbias = (h8)(0), vbias = (h8)(0);
+    if (BIAS) {
+        kbias = ((const h8*)(bias + (gridDim.y + hd) * D))[tid % CH];
+        vbias = ((const h8*)(bias + (2 * gridDim.y + hd) * D))[tid % CH];
+    }
     h2 qr[QPT][C];
     bool active[QPT];
     #pragma unroll
@@ -102,6 +113,7 @@ __device__ __forceinline__ void attn_fwd(
             #pragma unroll
             for (int c = 0; c < CH; ++c) {
                 h8 t = src[c];
+                if (BIAS) t += ((const h8*)(bias + hd * D))[c];
                 qr[r][c * 4 + 0] = __builtin_shufflevector(t, t, 0, 1);
                 qr[r][c * 4 + 1] = __builtin_shufflevector(t, t, 2, 3);
                 qr[r][c * 4 + 2] = __builtin_shufflevector(t, t, 4, 5);
@@ -123,15 +135,24 @@ __device__ __forceinline__ void attn_fwd(
         for (int i = tid; i < BK * CH; i += NT) {
             const int j = i / CH, c = i % CH;
             h8 t = (h8)(0);
-            if (kb + j < n) t = ((const h8*)(k + (long long)(start + kb + j) * sk + hd * D))[c];
+            if (kb + j < n) {
+                t = ((const h8*)(k + (long long)(start + kb + j) * sk + hd * D))[c];
+                if (BIAS) t += kbias;
+            }
             *(h8*)&Ks[j][c * 4] = t;
         }
         for (int i = tid; i < (BK / 2) * CH; i += NT) {
             const int jj = i / CH, c = i % CH;
             const int j0 = kb + 2 * jj;
             h8 a = (h8)(0), b = (h8)(0);
-            if (j0 < n) a = ((const h8*)(v + (long long)(start + j0) * sv + hd * D))[c];
-            if (j0 + 1 < n) b = ((const h8*)(v + (long long)(start + j0 + 1) * sv + hd * D))[c];
+            if (j0 < n) {
+                a = ((const h8*)(v + (long long)(start + j0) * sv + hd * D))[c];
+                if (BIAS) a += vbias;
+            }
+            if (j0 + 1 < n) {
+                b = ((const h8*)(v + (long long)(start + j0 + 1) * sv + hd * D))[c];
+                if (BIAS) b += vbias;
+            }
             *(h8*)&Vp[jj][c * 8] = __builtin_shufflevector(a, b, 0, 8, 1, 9, 2, 10, 3, 11);
             *(h8*)&Vp[jj][c * 8 + 4] = __builtin_shufflevector(a, b, 4, 12, 5, 13, 6, 14, 7, 15);
         }
@@ -223,79 +244,28 @@ __device__ __forceinline__ void attn_fwd(
 extern "C" __global__ void __launch_bounds__(NT_VALUE) \
 varlen_attn_fwd_f16_d##D(const _Float16* q, const _Float16* k, const _Float16* v, _Float16* o, \
                          const int* cu, int sq, int sk, int sv, int so, float scale_log2) \
-{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D, false>(q, k, v, o, cu, sq, sk, sv, so, scale_log2, nullptr, 0); } \
+{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D, false, false>(q, k, v, o, cu, sq, sk, sv, so, scale_log2, \
+                                                     nullptr, 0, nullptr); } \
 extern "C" __global__ void __launch_bounds__(NT_VALUE) \
 varlen_attn_fwd_lse_f16_d##D(const _Float16* q, const _Float16* k, const _Float16* v, _Float16* o, \
                              const int* cu, int sq, int sk, int sv, int so, float scale_log2, \
                              float* lse, int ls) \
-{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D, true>(q, k, v, o, cu, sq, sk, sv, so, scale_log2, lse, ls); }
+{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D, true, false>(q, k, v, o, cu, sq, sk, sv, so, scale_log2, \
+                                                    lse, ls, nullptr); } \
+extern "C" __global__ void __launch_bounds__(NT_VALUE) \
+varlen_attn_fwd_bias_f16_d##D(const _Float16* q, const _Float16* k, const _Float16* v, _Float16* o, \
+                              const int* cu, int sq, int sk, int sv, int so, float scale_log2, \
+                              const _Float16* bias) \
+{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D, false, true>(q, k, v, o, cu, sq, sk, sv, so, scale_log2, \
+                                                    nullptr, 0, bias); }
 ATTN_INSTANCE(32, QPT32_VALUE)
 ATTN_INSTANCE(64, QPT64_VALUE)
-
-// The residual add and the layer norm after it: o32 = LN(x + float(y)),
-// o16 = half(o32), the next linear's input. One wave32 a row, four
-// elements a lane a step (d = 128 NI); the mean and the variance by two
-// passes over the row held in registers.
-typedef _Float16 h4 __attribute__((ext_vector_type(4)));
-typedef float f4 __attribute__((ext_vector_type(4)));
-
-template <int NI>
-__device__ __forceinline__ void add_ln(const float* __restrict__ x, const _Float16* __restrict__ y,
-                                       const float* __restrict__ w, const float* __restrict__ b,
-                                       float* __restrict__ o32, _Float16* __restrict__ o16,
-                                       int rows, float eps)
-{
-    constexpr int D = 128 * NI;
-    const int lane = threadIdx.x & 31;
-    const int row = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
-    if (row >= rows) return;        // a whole wave: no lane of it reaches the shuffles
-    const long long base = (long long)row * D;
-    f4 v[NI];
-    float s = 0.f;
-    #pragma unroll
-    for (int i = 0; i < NI; ++i) {
-        const int c = i * 128 + lane * 4;
-        v[i] = *(const f4*)(x + base + c) + __builtin_convertvector(*(const h4*)(y + base + c), f4);
-        s += v[i][0] + v[i][1] + v[i][2] + v[i][3];
-    }
-    #pragma unroll
-    for (int off = 16; off > 0; off >>= 1) s += __shfl_xor(s, off, 32);
-    const float mean = s * (1.f / D);
-    float q = 0.f;
-    #pragma unroll
-    for (int i = 0; i < NI; ++i) {
-        const f4 dl = v[i] - mean;
-        q += dl[0] * dl[0] + dl[1] * dl[1] + dl[2] * dl[2] + dl[3] * dl[3];
-    }
-    #pragma unroll
-    for (int off = 16; off > 0; off >>= 1) q += __shfl_xor(q, off, 32);
-    const float rstd = 1.f / sqrtf(q * (1.f / D) + eps);
-    #pragma unroll
-    for (int i = 0; i < NI; ++i) {
-        const int c = i * 128 + lane * 4;
-        const f4 r = (v[i] - mean) * rstd * *(const f4*)(w + c) + *(const f4*)(b + c);
-        *(f4*)(o32 + base + c) = r;
-        *(h4*)(o16 + base + c) = __builtin_convertvector(r, h4);
-    }
-}
-
-#define LN_INSTANCE(NI) \
-extern "C" __global__ void __launch_bounds__(LN_THREADS_VALUE) \
-add_ln_d##NI(const float* x, const _Float16* y, const float* w, const float* b, float* o32, \
-             _Float16* o16, int rows, float eps) \
-{ add_ln<NI>(x, y, w, b, o32, o16, rows, eps); }
-LN_INSTANCE(1)
-LN_INSTANCE(2)
-LN_INSTANCE(3)
-LN_INSTANCE(4)
-LN_INSTANCE(6)
 '''
 
 
 def _source() -> str:
     return (_SOURCE.replace("NT_VALUE", str(_NT)).replace("BK_VALUE", str(_BK))
-            .replace("QPT32_VALUE", str(_QPT[32])).replace("QPT64_VALUE", str(_QPT[64]))
-            .replace("LN_THREADS_VALUE", str(_LN_THREADS)))
+            .replace("QPT32_VALUE", str(_QPT[32])).replace("QPT64_VALUE", str(_QPT[64])))
 
 
 # ---------------------------------------------------------------------
@@ -424,7 +394,7 @@ class _DeviceKernels:
         self.module = load_module(self.hip, compile_source(self.arch, _source()), device)
         self.functions = {d: self._function(f"varlen_attn_fwd_f16_d{d}") for d in HEAD_DIMS}
         self.functions_lse = {d: self._function(f"varlen_attn_fwd_lse_f16_d{d}") for d in HEAD_DIMS}
-        self.add_ln = {128 * ni: self._function(f"add_ln_d{ni}") for ni in _LN_NI}
+        self.functions_bias = {d: self._function(f"varlen_attn_fwd_bias_f16_d{d}") for d in HEAD_DIMS}
 
     def _function(self, name: str) -> ctypes.c_void_p:
         return module_function(self.hip, self.module, name)
@@ -432,35 +402,41 @@ class _DeviceKernels:
     def _launch(self, fn, grid, threads: int, args, device: torch.device) -> None:
         launch(self.hip, fn, grid, threads, args, device)
 
-    def launch(self, q, k, v, out, cu_seqlens, max_len: int, lse: Optional[torch.Tensor] = None) -> None:
+    def launch(self, q, k, v, out, cu_seqlens, max_len: int, lse: Optional[torch.Tensor] = None,
+               bias: Optional[torch.Tensor] = None) -> None:
         """The attention; with `lse` (float32 [heads, rows], rows at least
         the offsets' last), the variant that also writes each row's
-        log-sum-exp, the arithmetic otherwise the same."""
+        log-sum-exp, the arithmetic otherwise the same; with `bias` (fp16
+        [3, heads, head_dim], contiguous), the variant that adds it to q,
+        k and v as it loads them. Not both."""
         total, heads, d = q.shape
         bq = _NT * _QPT[d]
         grid = ((max_len + bq - 1) // bq, heads, cu_seqlens.numel() - 1)
         args = [q, k, v, out, cu_seqlens, q.stride(0), k.stride(0), v.stride(0), out.stride(0),
                 _LOG2E / math.sqrt(d)]
-        if lse is None:
-            self._launch(self.functions[d], grid, _NT, args, q.device)
-        else:
+        if lse is not None and bias is not None:
+            raise ValueError("the attention has no variant with both a bias and the log-sum-exp")
+        if lse is not None:
             self._launch(self.functions_lse[d], grid, _NT, args + [lse, lse.stride(0)], q.device)
-
-    def launch_add_ln(self, x, y, w, b, o32, o16, eps: float) -> None:
-        rows, d = x.shape
-        per_block = _LN_THREADS // 32
-        self._launch(self.add_ln[d], ((rows + per_block - 1) // per_block, 1, 1), _LN_THREADS,
-                     [x, y, w, b, o32, o16, rows, float(eps)], x.device)
+        elif bias is not None:
+            self._launch(self.functions_bias[d], grid, _NT, args + [bias], q.device)
+        else:
+            self._launch(self.functions[d], grid, _NT, args, q.device)
 
 
 _lock = threading.Lock()
 _kernels: Dict[int, Optional[_DeviceKernels]] = {}
+_bias_checked: Dict[int, bool] = {}
+
+
+def _device_index(device: torch.device) -> int:
+    return device.index if device.index is not None else torch.cuda.current_device()
 
 
 def _kernels_for(device: torch.device) -> Optional[_DeviceKernels]:
     """The device's kernels, built and self-tested on first use; None
     (reported once) where either fails."""
-    index = device.index if device.index is not None else torch.cuda.current_device()
+    index = _device_index(device)
     with _lock:
         if index not in _kernels:
             try:
@@ -472,6 +448,24 @@ def _kernels_for(device: torch.device) -> Optional[_DeviceKernels]:
                 kern = None
             _kernels[index] = kern
         return _kernels[index]
+
+
+def _bias_served(device: torch.device) -> bool:
+    """Whether the bias variant passed its self-test on `device` (run on
+    the first ask, reported once on failure); the device's kernels built."""
+    kern = _kernels_for(device)
+    if kern is None:
+        return False
+    index = _device_index(device)
+    with _lock:
+        if index not in _bias_checked:
+            try:
+                _self_test(kern, torch.device("cuda", index), bias=True)
+                _bias_checked[index] = True
+            except Exception as e:  # noqa: BLE001 -- any failure means: not served here
+                log.warning("hip attention's bias variant unavailable on cuda:%d: %s", index, e)
+                _bias_checked[index] = False
+        return _bias_checked[index]
 
 
 def reference_attention(q, k, v, cu_host):
@@ -488,14 +482,14 @@ def reference_attention(q, k, v, cu_host):
         return torch.cat(outs)
 
 
-def _self_test(kern: _DeviceKernels, device: torch.device) -> None:
+def _self_test(kern: _DeviceKernels, device: torch.device, bias: bool = False) -> None:
     """The attention against F.scaled_dot_product_attention (fp32) on a
     fixed problem per instantiated head size (segment lengths that end
-    inside, on and past a tile, and a segment longer than a query block),
-    and the add and norm against F.layer_norm per instantiated width. Run
+    inside, on and past a tile, and a segment longer than a query block);
+    with `bias`, its bias variant against SDPA of the biased q, k, v. Run
     with the caller's autocast off (`reference_attention`), so the
     references are the fp32 they are checked as."""
-    gen = torch.Generator().manual_seed(0)
+    gen = torch.Generator().manual_seed(int(bias))
     bq = _NT * _QPT[32]
     lens = [1, _BK - 1, _BK, _NT + 1, bq - 1, bq + 3, 2 * bq + _BK + 5]
     cu_host = [0]
@@ -504,22 +498,16 @@ def _self_test(kern: _DeviceKernels, device: torch.device) -> None:
     with torch.autocast(device.type, enabled=False):
         for d in HEAD_DIMS:
             qkv = torch.randn(cu_host[-1], 3, 3, d, generator=gen).to(device, torch.float16)
+            b = torch.randn(3, 3, d, generator=gen).to(device, torch.float16) if bias else None
             q, k, v = qkv.unbind(1)
             out = torch.empty(q.shape, dtype=q.dtype, device=device)
-            kern.launch(q, k, v, out, torch.tensor(cu_host, dtype=torch.int32, device=device), max(lens))
-            worst = (out.float() - reference_attention(q, k, v, cu_host)).abs().max().item()
+            kern.launch(q, k, v, out, torch.tensor(cu_host, dtype=torch.int32, device=device), max(lens),
+                        bias=b)
+            ins = (q, k, v) if b is None else [t.float() + c.float() for t, c in zip((q, k, v), b)]
+            worst = (out.float() - reference_attention(*ins, cu_host)).abs().max().item()
             if not worst <= _SELF_TEST_TOL:
-                raise RuntimeError(f"self-test at head_dim {d}: max abs error {worst} > {_SELF_TEST_TOL}")
-        for d in sorted(kern.add_ln):
-            x = (torch.randn(37, d, generator=gen) * 3).to(device)
-            y = torch.randn(37, d, generator=gen).to(device, torch.float16)
-            w, b = (torch.rand(d, generator=gen) + 0.5).to(device), torch.randn(d, generator=gen).to(device)
-            o32, o16 = torch.empty_like(x), torch.empty_like(y)
-            kern.launch_add_ln(x, y, w, b, o32, o16, 1e-5)
-            ref = F.layer_norm(x + y.float(), (d,), w, b, 1e-5)
-            worst = (o32 - ref).abs().max().item()
-            if not worst <= 1e-4 or not (o16.float() - ref).abs().max().item() <= _SELF_TEST_TOL:
-                raise RuntimeError(f"self-test of the add and layer norm at d {d}: max abs error {worst}")
+                raise RuntimeError(f"self-test{' of the bias variant' if bias else ''} at head_dim {d}: "
+                                   f"max abs error {worst} > {_SELF_TEST_TOL}")
 
 
 # ---------------------------------------------------------------------
@@ -535,6 +523,13 @@ def hip_varlen_applies(device: torch.device, dtype: torch.dtype, head_dim: Optio
     if head_dim is not None and head_dim not in HEAD_DIMS:
         return False
     return _kernels_for(device) is not None
+
+
+def hip_varlen_bias_applies(device: torch.device, head_dim: int) -> bool:
+    """Whether hip_varlen_attention takes a `bias` here: the kernel serves
+    fp16 at this head size, and the bias variant passed its self-test
+    (run here on first ask)."""
+    return hip_varlen_applies(device, torch.float16, head_dim) and _bias_served(device)
 
 
 def _aligned(t: torch.Tensor) -> torch.Tensor:
@@ -569,34 +564,14 @@ def _check_attention_args(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, cu_
         raise ValueError("q, k, v and cu_seqlens must be on one device")
 
 
-def hip_add_layer_norm_applies(device: torch.device, d: int) -> bool:
-    """Whether hip_add_layer_norm serves rows of width `d` on `device`."""
-    if torch.version.hip is None or device.type != "cuda" or d not in tuple(128 * ni for ni in _LN_NI):
-        return False
-    return _kernels_for(device) is not None
-
-
-def hip_add_layer_norm(x: torch.Tensor, y: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor,
-                       eps: float) -> Tuple[torch.Tensor, torch.Tensor]:
-    """F.layer_norm(x + y) for the float32 residual rows x [rows, d] and the
-    fp16 sublayer output y, in float32 (as an autocast's layer norm
-    computes it, up to the order of the sums), and its fp16 rounding, the
-    next linear's input, in one pass. weight and bias float32 [d]. The
-    caller has checked `hip_add_layer_norm_applies`; forward only."""
-    if x.dtype != torch.float32 or y.dtype != torch.float16 or x.dim() != 2 or y.shape != x.shape:
-        raise TypeError(f"hip_add_layer_norm takes float32 x and fp16 y of one [rows, d] shape: "
-                        f"{x.dtype} {tuple(x.shape)}, {y.dtype} {tuple(y.shape)}")
-    d = x.shape[1]
-    if weight.dtype != torch.float32 or bias.dtype != torch.float32 or weight.shape != (d,) or bias.shape != (d,):
-        raise TypeError(f"hip_add_layer_norm takes float32 weight and bias of [{d}]")
-    if not (x.device == y.device == weight.device == bias.device):
-        raise ValueError("hip_add_layer_norm's tensors must be on one device")
-    kern = _kernels_for(x.device)
-    x, y = _aligned(x), _aligned(y)
-    o32 = torch.empty_like(x)
-    o16 = torch.empty(x.shape, dtype=torch.float16, device=x.device)
-    kern.launch_add_ln(x, y, _aligned(weight), _aligned(bias), o32, o16, eps)
-    return o32, o16
+def _check_bias(bias: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+    """The in-projection's bias as the bias variant reads it: fp16 [3,
+    heads, head_dim] (any shape of that many elements), aligned."""
+    _, heads, d = q.shape
+    if bias.dtype != torch.float16 or bias.numel() != 3 * heads * d or bias.device != q.device:
+        raise TypeError(f"hip_varlen_attention's bias is fp16 with 3 x {heads} x {d} elements on q's device: "
+                        f"{bias.dtype} {tuple(bias.shape)} on {bias.device}")
+    return _aligned(bias.reshape(3, heads, d))
 
 
 def hip_varlen_attention_lse(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
@@ -620,11 +595,14 @@ def hip_varlen_attention_lse(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
 
 
 def hip_varlen_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
-                         cu_seqlens: torch.Tensor, max_len: int) -> torch.Tensor:
+                         cu_seqlens: torch.Tensor, max_len: int,
+                         bias: Optional[torch.Tensor] = None) -> torch.Tensor:
     """Self-attention within each segment of the packed [total, heads,
-    head_dim] q, k, v (module docstring). The caller has checked
-    `hip_varlen_applies`."""
-    if q.requires_grad or k.requires_grad or v.requires_grad:
+    head_dim] q, k, v (module docstring); with `bias` (fp16, [3, heads,
+    head_dim]: q's, k's, v's), of q + bias[0], k + bias[1], v + bias[2],
+    each sum rounded to fp16. The caller has checked `hip_varlen_applies`,
+    and `hip_varlen_bias_applies` for a bias."""
+    if any(t is not None and t.requires_grad for t in (q, k, v, bias)):
         if torch.is_grad_enabled():
             raise RuntimeError("hip_varlen_attention has no backward")
     _check_attention_args(q, k, v, cu_seqlens)
@@ -632,5 +610,6 @@ def hip_varlen_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
     q, k, v = (_kernel_view(t) for t in (q, k, v))
     out = torch.empty(q.shape, dtype=q.dtype, device=q.device)
     cu = cu_seqlens if cu_seqlens.dtype == torch.int32 else cu_seqlens.to(torch.int32)
-    kern.launch(q, k, v, out, cu.contiguous(), int(max_len))
+    kern.launch(q, k, v, out, cu.contiguous(), int(max_len),
+                bias=None if bias is None else _check_bias(bias, q))
     return out

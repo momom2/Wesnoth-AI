@@ -1,17 +1,21 @@
-"""The HIP kernels (wesnoth_ai/hip_kernels.py, wesnoth_ai/hip_attention_grad.py):
-their dispatch off ROCm, and on a ROCm GPU the varlen attention against
-F.scaled_dot_product_attention per segment, its backward against SDPA's
-fp32 autograd and its dispatch when a gradient is wanted, the fused
-residual add and layer norm against F.layer_norm, and the packed fp16
-trunk (the model's fused loop; packed_trunk with the backward when a
-gradient is wanted) against the padded fp32 trunk. On the CPU, the
-self-tests run with the caller's autocast off and their references stay
-float32 inside an fp16 autocast. The GPU checks skip
+"""The HIP kernels (wesnoth_ai/hip_kernels.py, wesnoth_ai/hip_elementwise.py,
+wesnoth_ai/hip_attention_grad.py): their dispatch off ROCm, and on a ROCm
+GPU the varlen attention against F.scaled_dot_product_attention per
+segment (with and without the in-projection's bias, and without it bit for
+bit as before the bias variant), its backward against SDPA's fp32 autograd
+and its dispatch when a gradient is wanted, the fused residual add and
+layer norm against F.layer_norm (with and without the sublayer's bias), the
+bias and ReLU against F.relu, and the packed fp16 trunk (the model's fused
+loop, its biases folded into those kernels or not; packed_trunk with the
+backward when a gradient is wanted) against the padded fp32 trunk. On the
+CPU, the self-tests run with the caller's autocast off and their
+references stay float32 inside an fp16 autocast. The GPU checks skip
 without a ROCm build and a GPU the kernel serves (CI has neither); on the
 local RX 6600 they run under the ROCm venv
 (training/metrics/local_gpu_20261028/README.md)."""
 from __future__ import annotations
 
+import hashlib
 import math
 import random
 import sys
@@ -27,9 +31,12 @@ from wesnoth_ai.hip_attention_grad import (  # noqa: E402
     attention_errors, hip_varlen_attention_trainable, hip_varlen_backward_applies,
 )
 from wesnoth_ai.hip_attention_grad import closed_form_gradients as _closed_form  # noqa: E402 (unpatched)
+from wesnoth_ai.hip_elementwise import (  # noqa: E402
+    hip_add_layer_norm, hip_add_layer_norm_applies, hip_bias_relu_,
+)
 from wesnoth_ai.hip_kernels import (  # noqa: E402
-    HEAD_DIMS, hip_add_layer_norm, hip_add_layer_norm_applies, hip_varlen_applies, hip_varlen_attention,
-    hip_varlen_attention_lse,
+    HEAD_DIMS, device_arch, hip_varlen_applies, hip_varlen_attention, hip_varlen_attention_lse,
+    hip_varlen_bias_applies,
 )
 from wesnoth_ai.packed_trunk import (  # noqa: E402
     PackedIndex, flash_varlen_applies, packed_attention, varlen_attention_applies,
@@ -44,6 +51,7 @@ def test_dispatch_off_rocm():
     assert not hip_varlen_applies(torch.device("cpu"), torch.float16)
     assert not varlen_attention_applies(torch.device("cpu"), torch.float16)
     assert not hip_add_layer_norm_applies(torch.device("cpu"), 384)
+    assert not hip_varlen_bias_applies(torch.device("cpu"), 32)
     assert not hip_varlen_backward_applies(torch.device("cpu"), torch.float16)
     if torch.version.hip is None:
         assert not hip_varlen_applies(torch.device("cuda"), torch.float16)
@@ -105,6 +113,77 @@ def test_kernel_copies_a_foreign_layout():
     assert qt.stride(1) != 32
     out = hip_varlen_attention(qt, k, v, cu_dev, 300)
     assert (out.float() - _reference(q, k, v, cu)).abs().max().item() < 1e-2
+
+
+@rocm
+@pytest.mark.parametrize("d", HEAD_DIMS)
+def test_bias_variant_is_the_kernel_on_biased_inputs(d):
+    """The in-projection's bias added as the kernel loads q, k and v: bit for
+    bit the kernel without one on q + bias[0], k + bias[1], v + bias[2]
+    rounded to fp16 by torch (both adds are correctly rounded), and against
+    fp32 SDPA of the fp32 sums, on the segment lengths of
+    test_kernel_matches_sdpa."""
+    assert hip_varlen_bias_applies(DEV, d)
+    rng = random.Random(40 + d)
+    lens = [1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 129, 692] + [rng.randint(141, 692) for _ in range(4)]
+    rng.shuffle(lens)
+    q, k, v, cu, cu_dev = _segments(lens, 384 // d, d, seed=50 + d)
+    bias = torch.randn(3, 384 // d, d, generator=torch.Generator().manual_seed(60 + d)).to(DEV, torch.float16)
+    out = hip_varlen_attention(q, k, v, cu_dev, max(lens), bias=bias)
+    assert torch.equal(out, hip_varlen_attention(q + bias[0], k + bias[1], v + bias[2], cu_dev, max(lens)))
+    assert torch.equal(out, hip_varlen_attention(q, k, v, cu_dev, max(lens), bias=bias.view(-1)))
+    ref = _reference(*(t.float() + b.float() for t, b in zip((q, k, v), bias)), cu)
+    assert (out.float() - ref).abs().max().item() < 2e-2
+
+
+# SHA-256 of the kernels' outputs at 041bd7ca, before the bias variants,
+# on gfx1032 (the RX 6600), for the inputs of the test below: the kernels
+# without a bias are the same code since. Another architecture compiles
+# other code, so the digests hold on gfx1032 only.
+_DIGESTS_041BD7CA_GFX1032 = {
+    "attn32": "d7138ac17453015875015d6036a3828d2de51b96195d3844dc1db2c912bdc8be",
+    "lse32": "b91454223954f797eab91de8c7ff9f26bce0b0dec890d943ddb0be38f8b8e44a",
+    "attn64": "59fd5dedb7b8081753c9f5a74d0c14bb81ea09897d341f7116e355c0ee4509c8",
+    "lse64": "ee53ac82fad89ca499c5a2090d244bcc2d97d542ace37a2b5706734d24b19cff",
+    "ln32_128": "1bd365d00ed7ffa32ac6b9855515a7f1b1952060fff3db36e999fd99a788e212",
+    "ln16_128": "12a049f66cc99f2bfe0f1d16ed2cad306060e27d2b2249c3dd53d2bd7b8e7d8c",
+    "ln32_384": "6b455b4433705b6d226d834717ce5c2b2875206e76a9ee060421ffe7f8611478",
+    "ln16_384": "4134d2212afc72e14b44bc784aaf2e4d2d84e3969d87ebf88bf4628af14c4ee7",
+}
+
+
+def _digest(t: torch.Tensor) -> str:
+    return hashlib.sha256(t.cpu().contiguous().numpy().tobytes()).hexdigest()
+
+
+@rocm
+def test_kernels_without_a_bias_are_unchanged_bit_for_bit():
+    """The attention, its log-sum-exp variant (the training path's forward)
+    and the add and norm without a bias give 041bd7ca's outputs bit for bit
+    on fixed inputs (the digests above)."""
+    if device_arch(DEV) != "gfx1032":
+        pytest.skip("the digests are of gfx1032's code")
+    got = {}
+    lens = [1, 15, 16, 17, 95, 96, 97, 141, 300, 692]
+    cu = [0]
+    for n in lens:
+        cu.append(cu[-1] + n)
+    cu_dev = torch.tensor(cu, dtype=torch.int32, device=DEV)
+    for d in HEAD_DIMS:
+        g = torch.Generator().manual_seed(100 + d)
+        q, k, v = (torch.randn(cu[-1], 3, 384 // d, d, generator=g) * 2).to(DEV, torch.float16).unbind(1)
+        got[f"attn{d}"] = _digest(hip_varlen_attention(q, k, v, cu_dev, max(lens)))
+        out, lse, _ = hip_varlen_attention_lse(q, k, v, cu_dev, max(lens))
+        assert _digest(out) == got[f"attn{d}"]
+        got[f"lse{d}"] = _digest(lse)
+    for d in (128, 384):
+        g = torch.Generator().manual_seed(200 + d)
+        x = (torch.randn(1001, d, generator=g) * 3).to(DEV)
+        y = torch.randn(1001, d, generator=g).to(DEV, torch.float16)
+        w, b = (torch.rand(d, generator=g) + 0.5).to(DEV), torch.randn(d, generator=g).to(DEV)
+        o32, o16 = hip_add_layer_norm(x, y, w, b, 1e-5)
+        got[f"ln32_{d}"], got[f"ln16_{d}"] = _digest(o32), _digest(o16)
+    assert got == _DIGESTS_041BD7CA_GFX1032
 
 
 def _index(cu, cu_dev):
@@ -272,17 +351,19 @@ class _CpuKernels:
     whether an autocast was on at each launch: the self-tests run on them."""
 
     def __init__(self):
-        from wesnoth_ai.hip_kernels import _LN_NI
+        from wesnoth_ai.hip_elementwise import _LN_NI
         self.add_ln = {128 * ni: None for ni in _LN_NI}
         self.autocast_at_launch = []
 
     def _seen(self):
         self.autocast_at_launch.append(torch.is_autocast_enabled("cpu"))
 
-    def launch(self, q, k, v, out, cu_seqlens, max_len, lse=None):
+    def launch(self, q, k, v, out, cu_seqlens, max_len, lse=None, bias=None):
         self._seen()
         cu = cu_seqlens.tolist()
         with torch.autocast("cpu", enabled=False):
+            if bias is not None:
+                q, k, v = (t + b for t, b in zip((q, k, v), bias))
             out[:cu[-1]] = _closed_form(q, k, v, torch.zeros_like(q), cu)["out"].to(out.dtype)
             if lse is not None:
                 s = 1.0 / math.sqrt(q.shape[-1])
@@ -290,11 +371,17 @@ class _CpuKernels:
                     qs, ks = q[lo:hi].float().transpose(0, 1), k[lo:hi].float().transpose(0, 1)
                     lse[:, lo:hi] = torch.logsumexp(s * qs @ ks.transpose(1, 2), dim=-1)
 
-    def launch_add_ln(self, x, y, w, b, o32, o16, eps):
+    def launch_add_ln(self, x, y, w, b, o32, o16, eps, yb=None):
         self._seen()
         with torch.autocast("cpu", enabled=False):
-            o32.copy_(F.layer_norm(x + y.float(), (x.shape[1],), w, b, eps))
+            sub = y.float() if yb is None else y.float() + yb.float()
+            o32.copy_(F.layer_norm(x + sub, (x.shape[1],), w, b, eps))
             o16.copy_(o32.half())
+
+    def launch_bias_relu(self, y, bias):
+        self._seen()
+        with torch.autocast("cpu", enabled=False):
+            y.copy_(F.relu(y.float() + bias.float()).half())
 
 
 class _CpuBackward:
@@ -310,10 +397,12 @@ class _CpuBackward:
 
 
 def test_the_self_tests_run_with_the_callers_autocast_off(monkeypatch):
-    """Both self-tests called inside an fp16 autocast on their device (the
+    """The self-tests (the attention, its bias variant, the backward, the
+    row-wise kernels) called inside an fp16 autocast on their device (the
     CPU here, with the kernels computed by torch): every launch, and every
     reference built between them, sees no autocast."""
     import wesnoth_ai.hip_attention_grad as hg
+    import wesnoth_ai.hip_elementwise as he
     import wesnoth_ai.hip_kernels as hk
     if not _autocast_casts_on_the_cpu():
         pytest.skip("this torch's CPU autocast does not cast matmul to fp16")
@@ -328,6 +417,9 @@ def test_the_self_tests_run_with_the_callers_autocast_off(monkeypatch):
     cpu = torch.device("cpu")
     with torch.no_grad(), torch.autocast("cpu", dtype=torch.float16):
         hk._self_test(forward, cpu)
+        hk._self_test(forward, cpu, bias=True)
+        he._self_test(forward, cpu, with_bias=False)
+        he._self_test(forward, cpu, with_bias=True)
         hg._self_test(backward, cpu)
     assert forward.autocast_at_launch and not any(forward.autocast_at_launch)
     assert backward.autocast_at_launch and not any(backward.autocast_at_launch)
@@ -396,6 +488,157 @@ def test_add_layer_norm_matches_torch(d):
 
 
 @rocm
+@pytest.mark.parametrize("d", [128, 384])
+def test_add_layer_norm_with_a_bias_matches_torch(d):
+    """The sublayer's fp16 bias added to its output in float32 before the
+    residual add: F.layer_norm(x + (y + bias)) to float32 rounding."""
+    g = torch.Generator().manual_seed(70 + d)
+    x = (torch.randn(1001, d, generator=g) * 3).to(DEV)
+    y = torch.randn(1001, d, generator=g).to(DEV, torch.float16)
+    w, b = (torch.rand(d, generator=g) + 0.5).to(DEV), torch.randn(d, generator=g).to(DEV)
+    y_bias = torch.randn(d, generator=g).to(DEV, torch.float16)
+    o32, o16 = hip_add_layer_norm(x, y, w, b, 1e-5, y_bias=y_bias)
+    ref = F.layer_norm(x + (y.float() + y_bias.float()), (d,), w, b, 1e-5)
+    assert (o32 - ref).abs().max().item() < 1e-4
+    assert (o16.float() - ref.half().float()).abs().max().item() <= 2 ** -10 * ref.abs().max().item()
+    assert (o32 - hip_add_layer_norm(x, y, w, b, 1e-5)[0]).abs().max().item() > 1e-2   # the bias is read
+
+
+@rocm
+def test_bias_relu_matches_torch():
+    """relu(y + bias) in fp16: F.relu of the fp32 sum rounded to fp16, bit
+    for bit (the kernel's fp16 add is correctly rounded); a NaN stays NaN
+    as F.relu keeps it; written in place on a contiguous aligned y, into a
+    copy otherwise."""
+    g = torch.Generator().manual_seed(80)
+    y = (torch.randn(1003, 1536, generator=g) * 2).to(DEV, torch.float16)
+    bias = torch.randn(1536, generator=g).to(DEV, torch.float16)
+    y[3, 5] = float("nan")
+    ref = F.relu(y.float() + bias.float()).half()
+    out = hip_bias_relu_(y, bias)
+    assert out.data_ptr() == y.data_ptr()
+    assert torch.equal(out.isnan(), ref.isnan()) and out.isnan().sum().item() == 1
+    assert torch.equal(torch.nan_to_num(out), torch.nan_to_num(ref))
+    wide = (torch.randn(24, 64, generator=g)).to(DEV, torch.float16)
+    view = wide[:, :32]                                   # not contiguous
+    want = F.relu(view.float() + bias[:32].float()).half()
+    got = hip_bias_relu_(view, bias[:32].clone())
+    assert got.data_ptr() != wide.data_ptr() and torch.equal(got, want)
+
+
+def _worst(got, ref, field):
+    """The largest difference of `field` over every sample's real slots,
+    and the reference's largest magnitude there."""
+    diff = scale = 0.0
+    for x, y in zip(got.samples(), ref.samples()):
+        xf, yf = getattr(x, field), getattr(y, field)
+        fin = torch.isfinite(yf)
+        assert torch.equal(fin, torch.isfinite(xf)), field
+        if fin.any():
+            diff = max(diff, (xf - yf).abs()[fin].max().item())
+            scale = max(scale, yf.abs()[fin].max().item())
+    return diff, scale
+
+
+@rocm
+@pytest.mark.parametrize("activation", ["relu", "gelu"])
+def test_fused_loop_folds_the_biases(monkeypatch, activation):
+    """Every bias of a small random network set nonzero (the attention's are
+    zero at init). The fused loop runs its linears without them, adding the
+    in-projection's in the attention, the out-projection's and the second
+    feed-forward linear's in the add and norm, the first's in the bias and
+    ReLU (with a ReLU; a GELU keeps its linear's bias): against the padded
+    fp32 trunk as test_packed_fp16_trunk_matches_padded_fp32, and close to
+    the loop whose linears take their biases, which runs where the
+    attention's bias variant is not served."""
+    import wesnoth_ai.model as wm
+    from wesnoth_ai.model import WesnothModel
+    torch.manual_seed(15)
+    model = WesnothModel(d_model=128, num_layers=2, num_heads=4, d_ff=256).to(DEV).eval()
+    g = torch.Generator().manual_seed(16)
+    with torch.no_grad():
+        for layer in model.encoder.layers:
+            for p in (layer.self_attn.in_proj_bias, layer.self_attn.out_proj.bias, layer.linear1.bias,
+                      layer.linear2.bias):
+                p.copy_(torch.randn(p.shape, generator=g) * 0.5)
+            if activation == "gelu":
+                layer.activation, layer.activation_relu_or_gelu = F.gelu, 2
+    fused, bias_relu = [], []
+    trunk = model._run_hip_fp16_trunk
+    model._run_hip_fp16_trunk = lambda x, index: fused.append(1) or trunk(x, index)
+    monkeypatch.setattr(wm, "hip_bias_relu_", lambda y, b: bias_relu.append(1) or hip_bias_relu_(y, b))
+    rng = random.Random(17)
+    sizes = [(rng.randint(1, 30), rng.randint(0, 7), rng.randint(100, 600)) for _ in range(12)]
+    gd = torch.Generator(device=DEV).manual_seed(18)
+    B, d = len(sizes), 128
+    H_max, U_max, R_max = (max(s[i] for s in sizes) for i in (2, 0, 1))
+    streams = tuple(torch.randn(B, n, d, generator=gd, device=DEV) for n in (H_max, U_max, R_max, 1, 1)) + (sizes,)
+
+    def fp16():
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+            return model.forward_streams(*streams, packed=True).float32()
+    with torch.no_grad():
+        ref = model.forward_streams(*streams, packed=False)
+    folded = fp16()
+    assert fused and len(bias_relu) == (2 if activation == "relu" else 0)
+    monkeypatch.setattr(wm, "hip_varlen_bias_applies", lambda device, head_dim: False)
+    unfolded = fp16()
+    assert len(fused) == 2 and len(bias_relu) == (2 if activation == "relu" else 0)
+    for f in FIELDS:
+        diff, scale = _worst(folded, ref, f)
+        assert diff <= 0.02 * max(scale, 1.0), (f, diff, scale)
+        diff, scale = _worst(folded, unfolded, f)
+        assert diff <= 0.01 * max(scale, 1.0), (f, diff, scale)
+
+
+@rocm
+def test_a_failed_bias_self_test_keeps_the_fused_loop(monkeypatch):
+    """The row-wise kernels' bias variants fail their self-test (a code
+    generation that rounds one ulp apart, say): the plain add and norm
+    still serves, the fold is off, and the fused loop runs with its
+    linears taking their biases, close to the padded fp32 trunk."""
+    import wesnoth_ai.hip_elementwise as he
+    import wesnoth_ai.model as wm
+    from wesnoth_ai.model import WesnothModel
+    real = he._self_test
+
+    def failing(kern, device, *, with_bias):
+        if with_bias:
+            raise RuntimeError("bias variants fail here")
+        real(kern, device, with_bias=False)
+    monkeypatch.setattr(he, "_kernels", {})
+    monkeypatch.setattr(he, "_self_test", failing)
+    assert he.hip_add_layer_norm_applies(DEV, 128)
+    assert not he.hip_elementwise_bias_applies(DEV, 128)
+    torch.manual_seed(15)
+    model = WesnothModel(d_model=128, num_layers=2, num_heads=4, d_ff=256).to(DEV).eval()
+    g = torch.Generator().manual_seed(16)
+    with torch.no_grad():
+        for layer in model.encoder.layers:
+            for p in (layer.self_attn.in_proj_bias, layer.self_attn.out_proj.bias, layer.linear1.bias,
+                      layer.linear2.bias):
+                p.copy_(torch.randn(p.shape, generator=g) * 0.5)
+    fused, bias_relu = [], []
+    trunk = model._run_hip_fp16_trunk
+    model._run_hip_fp16_trunk = lambda x, index: fused.append(1) or trunk(x, index)
+    monkeypatch.setattr(wm, "hip_bias_relu_", lambda y, b: bias_relu.append(1) or hip_bias_relu_(y, b))
+    rng = random.Random(17)
+    sizes = [(rng.randint(1, 30), rng.randint(0, 7), rng.randint(100, 600)) for _ in range(12)]
+    gd = torch.Generator(device=DEV).manual_seed(18)
+    B, d = len(sizes), 128
+    H_max, U_max, R_max = (max(s[i] for s in sizes) for i in (2, 0, 1))
+    streams = tuple(torch.randn(B, n, d, generator=gd, device=DEV) for n in (H_max, U_max, R_max, 1, 1)) + (sizes,)
+    with torch.no_grad():
+        ref = model.forward_streams(*streams, packed=False)
+        with torch.autocast("cuda", dtype=torch.float16):
+            out = model.forward_streams(*streams, packed=True).float32()
+    assert fused and not bias_relu
+    for f in FIELDS:
+        diff, scale = _worst(out, ref, f)
+        assert diff <= 0.02 * max(scale, 1.0), (f, diff, scale)
+
+
+@rocm
 def test_packed_fp16_trunk_matches_padded_fp32():
     """A small random network (head_dim 32, width 128): the packed trunk in
     fp16 (the fused loop: the HIP attention and add-and-norm) against the
@@ -437,7 +680,7 @@ def test_misaligned_and_malformed_inputs_never_reach_a_kernel():
     starting off a 16-byte boundary is copied (contiguous() alone returns
     it unchanged), and a wrong dtype, shape, head size or device is refused
     before any launch (CPU tensors: nothing here needs a GPU)."""
-    from wesnoth_ai.hip_kernels import _aligned, _check_attention_args, hip_add_layer_norm
+    from wesnoth_ai.hip_kernels import _aligned, _check_attention_args, _check_bias
     base = torch.zeros(3 * 12 * 32 + 4, dtype=torch.float16)
     view = base[4:].view(3, 12, 32)                       # 8 bytes past base's start
     assert view.is_contiguous() and view.data_ptr() % 16 != 0
@@ -458,3 +701,14 @@ def test_misaligned_and_malformed_inputs_never_reach_a_kernel():
         hip_add_layer_norm(x.half(), x.half(), torch.ones(128), torch.zeros(128), 1e-5)
     with pytest.raises(TypeError, match="weight and bias"):
         hip_add_layer_norm(x, x.half(), torch.ones(128).half(), torch.zeros(128), 1e-5)
+    with pytest.raises(TypeError, match="y_bias"):
+        hip_add_layer_norm(x, x.half(), torch.ones(128), torch.zeros(128), 1e-5, y_bias=torch.zeros(128))
+    with pytest.raises(TypeError, match="bias"):
+        _check_bias(torch.zeros(3, 12, 32), aligned)            # float32
+    with pytest.raises(TypeError, match="bias"):
+        _check_bias(torch.zeros(3, 12, 16, dtype=torch.float16), aligned)
+    assert _check_bias(torch.zeros(3 * 12 * 32, dtype=torch.float16), aligned).shape == (3, 12, 32)
+    with pytest.raises(TypeError, match="multiple of 8"):
+        hip_bias_relu_(torch.zeros(4, 12, dtype=torch.float16), torch.zeros(12, dtype=torch.float16))
+    with pytest.raises(TypeError, match="fp16"):
+        hip_bias_relu_(torch.zeros(4, 16), torch.zeros(16, dtype=torch.float16))
