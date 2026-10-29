@@ -322,3 +322,23 @@ What it settles from "What the stand-in does not settle":
   loop together. That comparison crosses sessions, so it is looser than the
   pairs above.
 - **VRAM** was not read; no run failed for memory.
+- **The CPU: the pipelined server spins about one core.** One more run of
+  each 96-games arm (20:51-20:57, out
+  `C:\Users\momom2\wesnoth_runs\pipelined_cpu_20261029`) sampled the
+  server process's CPU time every 5 s:
+  - serial: 35.8 CPU seconds over 168 s, 0.21 of a core;
+  - pipelined: 172.2 over 148 s, 1.17 cores.
+
+  The serial loop waits with a stream synchronize (`complete()`, `done` is
+  None there). The pipelined waiter waits on a default event
+  (`serve_stage`'s `done = torch.cuda.Event()`). On HIP the event's
+  synchronize most likely spins, while the stream's yields. The rate
+  gained anyway, but the desktop loses a core to it. The next variant to
+  try is a blocking event (`torch.cuda.Event(blocking=True)`).
+- **A machine limitation, not this change:**
+  `test_serve_stage.py::test_on_cuda_the_kept_memory_plays_as_the_wire[True]`
+  fails on the RX 6600, here and at fc560ab9 (before the merge). Every
+  CUDA graph capture fails on ROCm for Windows ("Cannot copy between CPU
+  and CUDA tensors during CUDA graph capture unless the CPU tensor is
+  pinned"), so the eager path serves, with the same bytes. The desktop
+  never runs the graphed path. The other 18 GPU tests of the file pass.
