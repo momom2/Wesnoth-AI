@@ -142,7 +142,8 @@ class ServeStats:
         serve thread adds to them (no container is iterated)."""
         return {"wall_s": round(time.monotonic() - self.started, 3), "requests": self.requests,
                 "batches": self.batches, "leaves": self.leaves, "gpu_ms": round(self.gpu_ms, 1),
-                "idle_s": round(self.idle_s, 3), "infer_s": round(self.infer_s, 3)}
+                "idle_s": round(self.idle_s, 3), "busy_wait_s": round(self.busy_wait_s, 3),
+                "infer_s": round(self.infer_s, 3)}
 
 
 class Timeline:
