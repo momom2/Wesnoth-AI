@@ -196,12 +196,17 @@ class FloorReader:
     the packed trunk's forward at the serving precision and in fp32: a
     device whose bf16 is not the server's, or an injected difference. At
     PATH_ONLY (games served in float32) no serving forward runs and the
-    rounding is not read (`serving` is unused): the path alone."""
+    rounding is not read (`serving` is unused): the path alone. `chunk`
+    rows at a time (None: a step's drawn rows at once) bounds each forward:
+    on the RX 6600 the padded fp32 forward takes about 3 s at 64 rows, the
+    kind of call that reset its display on 2026-10-28."""
 
     def __init__(self, encoder, model, device: torch.device, sides: set, dtype: str,
-                 serving: Optional[Forward] = None, packed: Optional[Forward] = None):
+                 serving: Optional[Forward] = None, packed: Optional[Forward] = None,
+                 chunk: Optional[int] = None):
         self.encoder, self.model, self.device, self.sides = encoder, model, device, sides
         self.dtype = dtype
+        self.chunk = chunk
         self.reads_rounding = dtype != PATH_ONLY
         if self.reads_rounding:
             precision = getattr(torch, dtype)
@@ -220,8 +225,11 @@ class FloorReader:
     def read(self, steps, positions, mems: MemoryBatch, stage_step) -> None:
         """The step's rows of drawn game-sides."""
         rows = [i for i, s in enumerate(steps) if (s.game_side.file, s.game_side.side) in self.sides]
-        if not rows:
-            return
+        size = self.chunk or len(rows)
+        for start in range(0, len(rows), size):
+            self._read_rows(steps, positions, mems, stage_step, rows[start:start + size])
+
+    def _read_rows(self, steps, positions, mems: MemoryBatch, stage_step, rows) -> None:
         sub = [positions[i] for i in rows]
         with torch.no_grad():
             memory = MemoryBatch(padded=mems.padded[rows].detach(), counts=[mems.counts[i] for i in rows])

@@ -217,6 +217,7 @@ class PassConfig:
     replay_kl_limit: float = REPLAY_KL_LIMIT  # before the floor (`pg_floor.replay_limit`)
     floor_sides: int = FLOOR_SIDES          # the game-sides the floor reads (pg_floor.draw_sides)
     floor_dtype: str = "bfloat16"           # the serving precision (pg_floor.FLOOR_DTYPES); "auto": the games'
+    floor_chunk: int = 0                    # the floor's rows a forward (0: a step's at once; FloorReader)
 
 
 class GradientPass:
@@ -266,7 +267,7 @@ class GradientPass:
         serving, packed = self.floor_config
         return FloorReader(self.encoder, self.model, self.device,
                            draw_sides(self.games, self.config.seed, self.config.floor_sides),
-                           self.floor_dtype, serving=serving, packed=packed)
+                           self.floor_dtype, serving=serving, packed=packed, chunk=self.config.floor_chunk or None)
 
     # ---- a split's sums, written as it completes ----------------------------
     def _split_games(self, i: int) -> List[str]:
@@ -276,7 +277,8 @@ class GradientPass:
         """What a split's written sums depend on: the checkpoint, the
         settings that shape the sum, the split's game-sides, labels and
         lengths."""
-        config = {k: v for k, v in asdict(self.config).items() if k not in ("workers", "prefetch", "verify")}
+        config = {k: v for k, v in asdict(self.config).items()
+                  if k not in ("workers", "prefetch", "verify", "floor_chunk")}
         sides = [[g, s, self.R[(g, s)], self.lengths[StreamSide(g, s)]] for g in self._split_games(i) for s in (1, 2)]
         body = json.dumps({"checkpoint": self.checkpoint_sha256, "config": config, "sides": sides}, sort_keys=True)
         return hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -617,6 +619,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT, help="the limit before the floor")
     ap.add_argument("--floor-sides", type=int, default=FLOOR_SIDES,
                     help="the game-sides whose decisions read the precision floor (tools/pg_floor.py)")
+    ap.add_argument("--floor-chunk", type=int, default=0,
+                    help="the floor's rows a forward (0: a step's drawn rows at once; tools/pg_floor.py FloorReader)")
     ap.add_argument("--floor-dtype", default="auto", choices=FLOOR_DTYPES,
                     help="the serving precision the floor reads: auto, the labelled games' own, the path "
                          "alone for games served in float32 (tools/pg_floor.py resolve_floor_dtype); off, "
@@ -641,7 +645,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         workers=args.workers, prefetch=args.prefetch, bf16=args.bf16, fp16=args.fp16,
                         packed=True if args.packed_trunk else None, verify=not args.no_verify,
                         procedure=args.procedure, replay_kl_limit=args.replay_kl_limit,
-                        floor_sides=args.floor_sides, floor_dtype=args.floor_dtype)
+                        floor_sides=args.floor_sides, floor_dtype=args.floor_dtype,
+                        floor_chunk=args.floor_chunk)
     partial = args.out.with_name(args.out.stem + ".splits")
     if args.fresh:
         shutil.rmtree(partial, ignore_errors=True)

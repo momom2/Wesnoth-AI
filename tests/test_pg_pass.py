@@ -258,6 +258,11 @@ def test_the_replay_limit_rises_by_twice_the_floors_upper_bound(tmp_path):
     floor = clean["floor"]
     assert floor["decisions"] == clean["decisions"] and floor["game_sides"] == 6 and floor["games"] == 3
     assert 0 < floor["se"] < floor["kl"] and floor["upper"] == pytest.approx(floor["kl"] + 2 * floor["se"])
+    # One row a forward reads the same floor, to fp32 batch rounding (the RX 6600 bounds its padded forwards).
+    chunked = GradientPass(games.checkpoint, games.records, labels, CPU, PassConfig(floor_chunk=1, **floor_config),
+                           serving_forward=warm).run()["floor"]
+    assert chunked["decisions"] == floor["decisions"] and chunked["kl"] == pytest.approx(floor["kl"], rel=1e-3)
+    assert chunked["path_kl"] < PATH_KL_LIMIT
     assert floor["path_kl"] < PATH_KL_LIMIT
     limit = clean["replay"]["limit"]
     assert limit == pytest.approx(1e-4 + 2 * floor["upper"]) and 2e-4 < limit < FLOOR_LIMIT_CAP
