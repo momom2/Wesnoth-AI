@@ -170,32 +170,37 @@ def test_a_game_with_the_memory_on_the_server_plays_as_with_it_on_the_wire(tmp_p
     game-side's memory between its decisions and one sending it over the
     wire: the same commands and turn digests, the same bytes in every
     reply's priors and value. The game's release leaves the server
-    holding no state."""
+    holding no state. A third server keeps the memory under the pipelined
+    serve loop (--pipelined): the same game again."""
     import tools.elo_eval_game as eg
     from tools.eval_inference_server import launch_inference_server
     spec = _memory_checkpoint(tmp_path / "memory.pt")
     games, outputs, stats = {}, {}, {}
-    for mode in ("wire", "server"):
+    for mode in ("wire", "server", "pipelined"):
         outputs[mode] = _Outputs(monkeypatch)
         server = launch_inference_server(spec, tmp_path, mode, device="cpu", infer_bf16=None,
                                          window_ms=1.0, max_batch=4, torch_threads=2,
-                                         startup_timeout_s=300.0, server_memory=mode == "server")
+                                         startup_timeout_s=300.0, server_memory=mode != "wire",
+                                         pipelined=mode == "pipelined")
         try:
             games[mode] = tmp_path / mode
             assert eg.main(_game_argv(spec, 22, games[mode], server.address)) == 0
         finally:
             stats[mode] = server.shutdown()
-    assert _commands(games["wire"], 22) == _commands(games["server"], 22)
     assert len(_commands(games["wire"], 22)) > 100
-    assert _turn_digests(games["wire"], 22) == _turn_digests(games["server"], 22)
     [(_, wire)] = outputs["wire"].by_game.items()
-    [(_, kept)] = outputs["server"].by_game.items()
-    assert len(wire) == len(kept) == stats["server"]["requests"]
-    assert [row[:5] for row in wire] == [row[:5] for row in kept]
-    assert all(isinstance(row[5], bytes) for row in wire) and not any(isinstance(row[5], bytes) for row in kept)
-    memory = stats["server"]["memory_states"]
-    assert memory["refused"] == 0 and memory["held"] == 0 and memory["released"] == 2
-    assert stats["server"]["server_memory"] is True and stats["wire"]["server_memory"] is False
+    for mode in ("server", "pipelined"):
+        assert _commands(games["wire"], 22) == _commands(games[mode], 22)
+        assert _turn_digests(games["wire"], 22) == _turn_digests(games[mode], 22)
+        [(_, kept)] = outputs[mode].by_game.items()
+        assert len(wire) == len(kept) == stats[mode]["requests"]
+        assert [row[:5] for row in wire] == [row[:5] for row in kept]
+        assert not any(isinstance(row[5], bytes) for row in kept)
+        memory = stats[mode]["memory_states"]
+        assert memory["refused"] == 0 and memory["held"] == 0 and memory["released"] == 2
+        assert stats[mode]["server_memory"] is True and stats[mode]["pipelined"] is (mode == "pipelined")
+    assert all(isinstance(row[5], bytes) for row in wire)
+    assert stats["wire"]["server_memory"] is False
 
 
 @needs_core
