@@ -26,8 +26,9 @@ scripts/parity3_baselines_box.sh, scripts/unit_vocab_retrain_box.sh):
 
 The pool (training/metrics/local_gpu_20261028/README.md): 96 games in flight,
 eight a worker process, one server autocasting to fp16 (--infer-fp16, the
-HIP kernels). The games record infer_fp16, so a local match never pools
-with a box's bf16 games.
+HIP kernels) whose serve loop overlaps batches (--inference-pipelined, +9.2%
+self-play on this GPU, training/metrics/pipelined_serve_20261029). The games
+record infer_fp16, so a local match never pools with a box's bf16 games.
 
 Seeds. The default base is 900000. On 2026-10-29 the seeds taken end below
 it: no branch's scripts, documents or records name one from 900000 to
@@ -89,7 +90,7 @@ PURE = "PURE (decisive only, primary)"
 # The procedure both sides play (CLAUDE.md, "Eval procedure").
 DECODE = ["--mcts-sims", "0", "--raw-temperature-a", "0", "--raw-temperature-b", "0"]
 POOL = ["--persistent-workers", "--shared-inference", "--no-infer-compile", "--device", "cuda", "--infer-fp16",
-        "--min-free-mb", str(MIN_FREE_MB), "--inference-timeline-s", "30"]
+        "--inference-pipelined", "--min-free-mb", str(MIN_FREE_MB), "--inference-timeline-s", "30"]
 
 
 @dataclass
