@@ -20,7 +20,9 @@ docstring): q, k, v [total, heads, head_dim] fp16 with a unit-stride
 last dim and the heads adjacent, cu_seqlens int32 [B+1] on the device,
 softmax scale 1/sqrt(head_dim), no mask, not causal; the output is a
 new contiguous [total, heads, head_dim] whose rows past cu_seqlens[-1]
-are left unwritten, as flash leaves them. Forward only: no backward.
+are left unwritten, as flash leaves them. A variant also writes each
+row's log-sum-exp, which the backward (wesnoth_ai/hip_attention_grad.py)
+recomputes the probabilities from; this module has no autograd.
 
 The add and norm reads the float32 residual rows and the fp16 sublayer
 output, and writes the float32 layer norm of their sum (the autocast's
@@ -72,11 +74,13 @@ _SOURCE = r'''
 typedef _Float16 h2 __attribute__((ext_vector_type(2)));
 typedef _Float16 h8 __attribute__((ext_vector_type(8)));
 
-template <int NT, int QPT, int BK, int D>
+// LSE: also write each row's log-sum-exp of its scaled scores (natural
+// log, float32 [heads, ls]) for the backward (hip_attention_grad.py).
+template <int NT, int QPT, int BK, int D, bool LSE>
 __device__ __forceinline__ void attn_fwd(
     const _Float16* __restrict__ q, const _Float16* __restrict__ k, const _Float16* __restrict__ v,
     _Float16* __restrict__ o, const int* __restrict__ cu,
-    int sq, int sk, int sv, int so, float scale_log2)
+    int sq, int sk, int sv, int so, float scale_log2, float* __restrict__ lse, int ls)
 {
     constexpr int C = D / 2, CH = D / 8, BQ = NT * QPT;
     __shared__ __attribute__((aligned(16))) h2 Ks[BK][C];
@@ -207,6 +211,8 @@ __device__ __forceinline__ void attn_fwd(
                 for (int e = 0; e < 8; ++e) t[e] = (_Float16)(acc[r][c * 8 + e] * inv);
                 dst[c] = t;
             }
+            // m and log2(l) are base 2 of the scaled scores: times ln 2, the natural log.
+            if (LSE) lse[(long)hd * ls + start + q0 + r * NT + tid] = (m[r] + log2f(l[r])) * 0.6931471805599453f;
         }
     }
 }
@@ -215,7 +221,12 @@ __device__ __forceinline__ void attn_fwd(
 extern "C" __global__ void __launch_bounds__(NT_VALUE) \
 varlen_attn_fwd_f16_d##D(const _Float16* q, const _Float16* k, const _Float16* v, _Float16* o, \
                          const int* cu, int sq, int sk, int sv, int so, float scale_log2) \
-{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D>(q, k, v, o, cu, sq, sk, sv, so, scale_log2); }
+{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D, false>(q, k, v, o, cu, sq, sk, sv, so, scale_log2, nullptr, 0); } \
+extern "C" __global__ void __launch_bounds__(NT_VALUE) \
+varlen_attn_fwd_lse_f16_d##D(const _Float16* q, const _Float16* k, const _Float16* v, _Float16* o, \
+                             const int* cu, int sq, int sk, int sv, int so, float scale_log2, \
+                             float* lse, int ls) \
+{ attn_fwd<NT_VALUE, QPT, BK_VALUE, D, true>(q, k, v, o, cu, sq, sk, sv, so, scale_log2, lse, ls); }
 ATTN_INSTANCE(32, QPT32_VALUE)
 ATTN_INSTANCE(64, QPT64_VALUE)
 
@@ -311,12 +322,13 @@ _HIP_NAMES = ("amdhip64_7.dll", "amdhip64_6.dll", "amdhip64*.dll", "libamdhip64.
 _RTC_NAMES = ("hiprtc0*.dll", "libhiprtc.so")
 
 
-def _compile(arch: str) -> bytes:
+def compile_source(arch: str, source: str, name: str = "wesnoth_kernels.hip") -> bytes:
+    """`source` compiled by hiprtc for `arch`: the code object's bytes."""
     rtc = _rocm_library(_RTC_NAMES)
     if rtc is None:
         raise RuntimeError("hiprtc not found beside torch")
     prog = ctypes.c_void_p()
-    _check_rtc(rtc.hiprtcCreateProgram(ctypes.byref(prog), _source().encode(), b"wesnoth_kernels.hip",
+    _check_rtc(rtc.hiprtcCreateProgram(ctypes.byref(prog), source.encode(), name.encode(),
                                        0, None, None), "hiprtcCreateProgram")
     try:
         opts = [f"--offload-arch={arch}".encode(), b"-O3"]
@@ -342,51 +354,95 @@ def _check_rtc(r: int, what: str) -> None:
         raise RuntimeError(f"{what} returned {r}")
 
 
+def check_hip(r: int, what: str) -> None:
+    if r != 0:
+        raise RuntimeError(f"{what} returned hipError {r}")
+
+
+def hip_runtime() -> ctypes.CDLL:
+    hip = _rocm_library(_HIP_NAMES)
+    if hip is None:
+        raise RuntimeError("the HIP runtime library was not found")
+    return hip
+
+
+def device_arch(device: torch.device) -> str:
+    return torch.cuda.get_device_properties(device).gcnArchName.split(":")[0]
+
+
+def load_module(hip: ctypes.CDLL, code: bytes, device: torch.device) -> ctypes.c_void_p:
+    """A compiled code object loaded on `device`."""
+    module = ctypes.c_void_p()
+    with torch.cuda.device(device):
+        check_hip(hip.hipModuleLoadData(ctypes.byref(module), code), "hipModuleLoadData")
+    return module
+
+
+def module_function(hip: ctypes.CDLL, module: ctypes.c_void_p, name: str) -> ctypes.c_void_p:
+    fn = ctypes.c_void_p()
+    check_hip(hip.hipModuleGetFunction(ctypes.byref(fn), module, name.encode()), "hipModuleGetFunction")
+    return fn
+
+
+def launch(hip: ctypes.CDLL, fn, grid, threads: int, args, device: torch.device) -> None:
+    """One launch of `fn` on torch's current stream; `args` are tensors
+    (their data pointers), ints and floats, in the kernel's order."""
+    held = [ctypes.c_void_p(a.data_ptr()) if isinstance(a, torch.Tensor)
+            else ctypes.c_float(a) if isinstance(a, float) else ctypes.c_int(a) for a in args]
+    params = (ctypes.c_void_p * len(held))(
+        *[ctypes.cast(ctypes.byref(a), ctypes.c_void_p) for a in held])
+    stream = ctypes.c_void_p(torch.cuda.current_stream(device).cuda_stream)
+    check_hip(hip.hipModuleLaunchKernel(fn, grid[0], grid[1], grid[2], threads, 1, 1, 0,
+                                        stream, params, None),
+              "hipModuleLaunchKernel")
+
+
+# hipFunction_attribute (hip/driver_types.h, an enum from 0): the
+# per-thread scratch ("local") bytes, nonzero where the compiler spilled
+# registers, and the registers a thread uses.
+_ATTR_LOCAL_SIZE_BYTES, _ATTR_NUM_REGS = 3, 4
+
+
+def function_resources(hip: ctypes.CDLL, fn) -> Dict[str, int]:
+    """A compiled kernel's registers and scratch bytes per thread."""
+    out = {}
+    for key, attr in (("registers", _ATTR_NUM_REGS), ("scratch_bytes", _ATTR_LOCAL_SIZE_BYTES)):
+        value = ctypes.c_int()
+        check_hip(hip.hipFuncGetAttribute(ctypes.byref(value), attr, fn), "hipFuncGetAttribute")
+        out[key] = int(value.value)
+    return out
+
+
 class _DeviceKernels:
     """The compiled module on one device and its entry points."""
 
     def __init__(self, device: torch.device):
-        self.hip = _rocm_library(_HIP_NAMES)
-        if self.hip is None:
-            raise RuntimeError("the HIP runtime library was not found")
-        arch = torch.cuda.get_device_properties(device).gcnArchName.split(":")[0]
-        self.arch = arch
-        code = _compile(arch)
-        self.module = ctypes.c_void_p()
-        with torch.cuda.device(device):
-            self._check(self.hip.hipModuleLoadData(ctypes.byref(self.module), code), "hipModuleLoadData")
+        self.hip = hip_runtime()
+        self.arch = device_arch(device)
+        self.module = load_module(self.hip, compile_source(self.arch, _source()), device)
         self.functions = {d: self._function(f"varlen_attn_fwd_f16_d{d}") for d in HEAD_DIMS}
+        self.functions_lse = {d: self._function(f"varlen_attn_fwd_lse_f16_d{d}") for d in HEAD_DIMS}
         self.add_ln = {128 * ni: self._function(f"add_ln_d{ni}") for ni in _LN_NI}
 
     def _function(self, name: str) -> ctypes.c_void_p:
-        fn = ctypes.c_void_p()
-        self._check(self.hip.hipModuleGetFunction(ctypes.byref(fn), self.module, name.encode()),
-                    "hipModuleGetFunction")
-        return fn
-
-    @staticmethod
-    def _check(r: int, what: str) -> None:
-        if r != 0:
-            raise RuntimeError(f"{what} returned hipError {r}")
+        return module_function(self.hip, self.module, name)
 
     def _launch(self, fn, grid, threads: int, args, device: torch.device) -> None:
-        """One launch on torch's current stream; `args` are tensors (their
-        data pointers), ints and floats, in the kernel's order."""
-        held = [ctypes.c_void_p(a.data_ptr()) if isinstance(a, torch.Tensor)
-                else ctypes.c_float(a) if isinstance(a, float) else ctypes.c_int(a) for a in args]
-        params = (ctypes.c_void_p * len(held))(
-            *[ctypes.cast(ctypes.byref(a), ctypes.c_void_p) for a in held])
-        stream = ctypes.c_void_p(torch.cuda.current_stream(device).cuda_stream)
-        self._check(self.hip.hipModuleLaunchKernel(fn, grid[0], grid[1], grid[2], threads, 1, 1, 0,
-                                                   stream, params, None),
-                    "hipModuleLaunchKernel")
+        launch(self.hip, fn, grid, threads, args, device)
 
-    def launch(self, q, k, v, out, cu_seqlens, max_len: int) -> None:
+    def launch(self, q, k, v, out, cu_seqlens, max_len: int, lse: Optional[torch.Tensor] = None) -> None:
+        """The attention; with `lse` (float32 [heads, rows], rows at least
+        the offsets' last), the variant that also writes each row's
+        log-sum-exp, the arithmetic otherwise the same."""
         total, heads, d = q.shape
         bq = _NT * _QPT[d]
-        self._launch(self.functions[d], ((max_len + bq - 1) // bq, heads, cu_seqlens.numel() - 1), _NT,
-                     [q, k, v, out, cu_seqlens, q.stride(0), k.stride(0), v.stride(0), out.stride(0),
-                      _LOG2E / math.sqrt(d)], q.device)
+        grid = ((max_len + bq - 1) // bq, heads, cu_seqlens.numel() - 1)
+        args = [q, k, v, out, cu_seqlens, q.stride(0), k.stride(0), v.stride(0), out.stride(0),
+                _LOG2E / math.sqrt(d)]
+        if lse is None:
+            self._launch(self.functions[d], grid, _NT, args, q.device)
+        else:
+            self._launch(self.functions_lse[d], grid, _NT, args + [lse, lse.stride(0)], q.device)
 
     def launch_add_ln(self, x, y, w, b, o32, o16, eps: float) -> None:
         rows, d = x.shape
@@ -496,6 +552,25 @@ def hip_add_layer_norm(x: torch.Tensor, y: torch.Tensor, weight: torch.Tensor, b
     o16 = torch.empty(x.shape, dtype=torch.float16, device=x.device)
     kern.launch_add_ln(x, y, weight.contiguous(), bias.contiguous(), o32, o16, eps)
     return o32, o16
+
+
+def hip_varlen_attention_lse(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
+                             cu_seqlens: torch.Tensor, max_len: int
+                             ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...]]:
+    """hip_varlen_attention's output (the same arithmetic), each row's
+    log-sum-exp of its scaled scores, ln sum_j exp(q.k_j / sqrt(head_dim))
+    over its segment's keys (float32 [heads, total]; rows past the
+    offsets' last unwritten), and the q, k, v the kernel read (kernel
+    views). The backward's forward (wesnoth_ai/hip_attention_grad.py);
+    no autograd here. The caller has checked `hip_varlen_applies`."""
+    kern = _kernels_for(q.device)
+    q, k, v = (_kernel_view(t) for t in (q, k, v))
+    total, heads, _ = q.shape
+    out = torch.empty(q.shape, dtype=q.dtype, device=q.device)
+    lse = torch.empty((heads, total), dtype=torch.float32, device=q.device)
+    cu = cu_seqlens if cu_seqlens.dtype == torch.int32 else cu_seqlens.to(torch.int32)
+    kern.launch(q, k, v, out, cu.contiguous(), int(max_len), lse=lse)
+    return out, lse, (q, k, v)
 
 
 def hip_varlen_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
