@@ -17,7 +17,7 @@ the options. The rules themselves are the user's.
 
 | Job | Here | On a rented 4090 box |
 |---|---|---|
-| Self-play generation, `own2` at temperature 1 | 457-470 decisions a second at 96 games in flight (about 4,300 games an hour), stage 1's code; 531.8 steady with the bias fold and the pipe buffer, against 485.1 for stage 1's code in the same A/B (+9.6%, idle GPU, training/metrics/pipe_buffer_20261029) | about 2,900 decisions a second |
+| Self-play generation, `own2` at temperature 1 | 457-470 decisions a second at 96 games in flight (about 4,300 games an hour), stage 1's code; 531.8 steady with the bias fold and the pipe buffer, against 485.1 for stage 1's code in the same A/B (+9.6%, idle GPU, training/metrics/pipe_buffer_20261029); 568.1 with the pipelined serve loop on top, against 520.2 serial in its A/B (+9.2%, training/metrics/pipelined_serve_20261029); its server at a third of a core since its waiter polls (it spun a whole core before) | about 2,900 decisions a second |
 | A strength match: 800 decisive games at the reference decode | about 15 minutes (estimated from the generation rate, about 476 decisions a game) | about 17 minutes, $0.12 |
 | Stage 1 of the training design | about 11.4 hours of running, $0; done 2026-10-29 20:27, every gate green (docs/selfplay_t1_local_prereg_20261028.md, Results) | about 3.1 hours, $1.8 |
 | The full test suite, both tiers | 11.5 minutes | CI |
@@ -124,7 +124,9 @@ games would take most of a day here, against about an hour on a box.
    sign-in for momom2 on this machine yet):
    - `feature/local-gpu-stage1`: the kernels, the local runners, the
      training backward, the stage C hand-off, and since 15:35 on
-     2026-10-29 the bias fold and the pipe buffer (self-play +9.6%);
+     2026-10-29 the bias fold and the pipe buffer (self-play +9.6%), and
+     since 21:00 the pipelined serve loop (+9.2% more; on in
+     `scripts/match_local.py`, off by default in `run_elo_batch`);
    - `fix/windows-portability`: from `main`, on its own;
    - `feature/async-replies` and `feature/int8-linear`: not adopted; their
      records are on `feature/local-gpu-stage1`, their code stays on them.
