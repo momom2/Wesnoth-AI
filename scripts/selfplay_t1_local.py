@@ -73,6 +73,22 @@ def below_normal_priority() -> None:
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+def keep_awake() -> None:
+    """Asks Windows not to sleep while the runner lives (SetThreadExecutionState
+    with ES_CONTINUOUS | ES_SYSTEM_REQUIRED, which a media player or a backup
+    makes too): the request ends with the process, and no power setting
+    changes. The display may still turn off. On 2026-10-28 the machine slept
+    30 minutes after an update's restart. A restart itself is not prevented."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.SetThreadExecutionState.argtypes = [ctypes.c_uint32]
+    k32.SetThreadExecutionState.restype = ctypes.c_uint32
+    if not k32.SetThreadExecutionState(0x80000000 | 0x00000001):     # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def display_resets_since(t0: float) -> int:
     """Display-driver resets (Windows System event 4101, a TDR) logged since
     t0 (epoch seconds); 0 off Windows. The RX 6600 drives the display, so
@@ -302,6 +318,9 @@ def main() -> int:
                     help="the interpreter of the CPU tools (default: the repository's .venv, whose CPU torch "
                          "is faster than the ROCm build's)")
     ap.add_argument("--normal-priority", action="store_true")
+    ap.add_argument("--keep-awake", action="store_true",
+                    help="ask Windows not to sleep while the runner lives (keep_awake); the machine's "
+                         "user decides when a run may hold the machine up")
     ap.add_argument("--smoke", action="store_true",
                     help="the whole chain on a few games, on seeds outside stage 1's (873000 on): two "
                          "self-play matches of 24 (the second held out), D0 and the memory report of 24")
@@ -318,6 +337,8 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     if not args.normal_priority:
         below_normal_priority()
+    if args.keep_awake:
+        keep_awake()
     r = Run(args)
     log(args.out, f"stage 1 local: out {args.out}, jobs {args.jobs}x{args.worker_games}, "
                   f"python {args.python}, tools {args.tools_python}")
