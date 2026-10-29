@@ -262,7 +262,10 @@ When the run is whole, the upload holds about 1.4 GB of self-play games
 (six tarballs of about 224 MB), D0's and the memory report's, and about
 70 MB of walks and rows. The runner's smoke run
 (`wesnoth_runs/stage1_smoke`, `--smoke`) is whole, and its dry run passes
-every check but one: its `dice_control` gate failed on 48 games.
+every check but one: its `dice_control` gate failed on 48 games. With
+`--smoke` the upload's folder is `tier-b/selfplay_t1_local_smoke` unless one
+is named, and the stage 1 folder is refused (a first version kept the
+stage 1 folder as the smoke run's default; found on review, 2026-10-29).
 
 ## 6. Commands (the user's or the coordinator's to run)
 

@@ -211,6 +211,22 @@ def test_the_box_stage_1s_folder_and_a_staging_inside_the_run_are_refused(tmp_pa
         up.main(["--run", str(run), "--staging", str(run / "up")], api_factory=_no_api, plan=PLAN)
 
 
+def test_a_smoke_run_goes_to_a_folder_of_its_own(tmp_path, capsys):
+    """--smoke without --hf-dir sends to the smoke folder, never to the
+    local stage 1's; naming one run's folder for the other is refused."""
+    run = _run_dir(tmp_path)
+    staging = ["--staging", str(tmp_path / "staging")]
+    assert up.SMOKE_HF_DIR != up.DEFAULT_HF_DIR
+    assert up.main(["--run", str(run), "--smoke", *staging], api_factory=_no_api, plan=PLAN) == 0
+    out = capsys.readouterr().out
+    assert f"destination: {box_upload.REPO}:{up.SMOKE_HF_DIR}/" in out and up.DEFAULT_HF_DIR not in out
+    assert up.main(["--run", str(run), *staging], api_factory=_no_api, plan=PLAN) == 0
+    assert f"destination: {box_upload.REPO}:{up.DEFAULT_HF_DIR}/" in capsys.readouterr().out
+    for argv in (["--smoke", "--hf-dir", up.DEFAULT_HF_DIR], ["--hf-dir", up.SMOKE_HF_DIR]):
+        with pytest.raises(SystemExit):
+            up.main(["--run", str(run), *staging, *argv], api_factory=_no_api, plan=PLAN)
+
+
 def test_a_folder_another_upload_filled_is_refused(tmp_path, capsys):
     run = _run_dir(tmp_path)
     hf = StubHf(tmp_path / "hf", on_hf=[f"{HF_DIR}/plan.txt"])

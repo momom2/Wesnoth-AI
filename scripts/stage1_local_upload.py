@@ -15,7 +15,9 @@ line in upload.log) under huggingface_hub's own login on this machine: the
 script never reads, prints or passes a token.
 
 What goes up, each under its own name in --hf-dir of the model repository
-(the names the box's stage 1 sends, scripts/selfplay_t1_box.sh):
+(DEFAULT_HF_DIR; a --smoke run's, SMOKE_HF_DIR, and neither run's folder
+takes the other's records), the names the box's stage 1 sends
+(scripts/selfplay_t1_box.sh):
 - every regular file directly in the run directory: the walks, rows,
   labels, fits and readout, the D0 and memory fits, matches.txt, the logs,
   the done markers; but STOP, files being written (.tmp) and upload.log
@@ -75,6 +77,7 @@ import scripts.selfplay_t1_local as runner  # noqa: E402
 from scripts.box import box_upload  # noqa: E402
 
 DEFAULT_HF_DIR = "tier-b/selfplay_t1_local_20261028"
+SMOKE_HF_DIR = "tier-b/selfplay_t1_local_smoke"     # --smoke's: never the local stage 1's folder
 HF_DIR_PATTERN = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")      # boxlib.sh's check of HF_DIR
 NOT_SENT = {"STOP", box_upload.ALL_DONE, box_upload.LOG_NAME}
 GENERATED = ("plan.txt", "local_provenance.json")
@@ -467,7 +470,9 @@ def main(argv: Optional[List[str]] = None, api_factory: Callable[[], object] = d
          plan: Plan = Plan()) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", type=Path, required=True, help="the local stage 1's output directory (only read)")
-    ap.add_argument("--hf-dir", default=DEFAULT_HF_DIR, help="the folder in the model repository")
+    ap.add_argument("--hf-dir", default=None,
+                    help=f"the folder in the model repository (default: {DEFAULT_HF_DIR}, with --smoke "
+                         f"{SMOKE_HF_DIR})")
     ap.add_argument("--staging", type=Path, default=None,
                     help="where the copies, generated files, tarballs and upload state go "
                          "(default: <run>_upload beside the run directory)")
@@ -482,13 +487,17 @@ def main(argv: Optional[List[str]] = None, api_factory: Callable[[], object] = d
     plan = SMOKE if args.smoke else plan
     run = args.run.resolve()
     staging = (args.staging or run.with_name(run.name + "_upload")).resolve()
-    hf_dir = args.hf_dir.strip("/")
+    hf_dir = (args.hf_dir or (SMOKE_HF_DIR if args.smoke else DEFAULT_HF_DIR)).strip("/")
     if not run.is_dir():
         ap.error(f"--run {run} is not a directory")
     if not HF_DIR_PATTERN.match(hf_dir):
         ap.error(f"--hf-dir {args.hf_dir!r} is not a folder path")
     if hf_dir == box_stage1_hf_dir():
         ap.error(f"--hf-dir {hf_dir} is the box stage 1's folder: the local records go to a folder of their own")
+    if args.smoke and hf_dir == DEFAULT_HF_DIR:
+        ap.error(f"--hf-dir {hf_dir} is the local stage 1's folder: a smoke run goes to a folder of its own")
+    if not args.smoke and hf_dir == SMOKE_HF_DIR:
+        ap.error(f"--hf-dir {hf_dir} is the smoke runs' folder: without --smoke, name another")
     if staging == run or run in staging.parents:
         ap.error(f"--staging {staging} lies inside the run directory, which is only read")
     up = plan_upload(run, plan)
