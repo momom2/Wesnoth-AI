@@ -38,6 +38,7 @@ from wesnoth_ai.hip_int8 import (
     hip_add_layer_norm_q, hip_int8_linear, hip_quantize_rows, int8_width_served, quantize_weight,
 )
 from wesnoth_ai.hip_kernels import HEAD_DIMS, hip_add_layer_norm, hip_varlen_attention
+from wesnoth_ai import packed_trunk  # noqa: F401 -- registers the packed attention op the calibration calls
 
 LINEAR_CLASSES = ("qkv", "out", "ff1", "ff2")
 _K_MULTIPLE = 32            # the GEMM's K tile (hip_int8._BK)

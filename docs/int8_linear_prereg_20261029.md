@@ -49,6 +49,18 @@ the bench set: the first 200 entries of
 game file is not one of `configs/bench_states.json`'s. S runs only if P
 fails the gate.
 
+**Deviation (recorded 2026-10-29, after P's reading and before any S
+number).** The calibration draw above is infeasible. The corpus holds 369
+holdout games of at least 4 turns. The draw at seed 2 exhausted the ladder
+ones and found only 52 off the bench set: the bench's 200 positions take
+most of them. S's 200 calibration positions are therefore drawn by the
+same procedure (`build_state_manifest`'s rule: a uniform game on a ladder
+map, a uniform cut turn in [2, n_turns - 1], seed 2) from the corpus's
+non-holdout games. No game is shared with the bench set, which is all
+holdout. The manifest is
+`training/metrics/int8_linear_20261029/calibration_states.json`. Nothing
+else about S changes.
+
 ## Speed (read first)
 
 - **GEMM:** the kernel against `F.linear` in fp16 at M = 20,693 on the four

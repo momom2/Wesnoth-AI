@@ -85,28 +85,45 @@ def gate(arm, bf16):
 
 
 def calibration_states(dataset: Path, bench_manifest: Path, out: Path, reconstruct_boundary):
-    """Arm S's calibration positions (the prereg): the first 200 entries of
-    tools/bench_pipeline.build_state_manifest(dataset, 400, seed=2) whose
-    game file is not one of the bench set's, rebuilt; their manifest is
-    written to `out`."""
+    """Arm S's calibration positions: 200 drawn by the procedure of
+    tools/bench_pipeline.build_state_manifest (a uniform game on a ladder
+    map with at least 4 turns, a uniform cut turn in [2, n_turns - 1],
+    seed 2) from the corpus's NON-holdout games, so none shares a game with
+    the bench set (all holdout). The prereg named the holdout games minus
+    the bench's; only 52 of those exist (the prereg's "Deviation"). Their
+    manifest is written to `out`; returns the rebuilt states."""
     import gzip
-    from tools.bench_pipeline import build_state_manifest
+    import random
+    from wesnoth_ai.rules.scenario_pool import LADDER_SCENARIO_IDS
     bench = {e["file"] for e in json.loads(bench_manifest.read_text(encoding="utf-8"))["states"]}
-    man = build_state_manifest(dataset, 400, seed=2)
-    entries = [e for e in man["states"] if e["file"] not in bench][:CALIBRATION_N]
-    if len(entries) < CALIBRATION_N:
-        raise RuntimeError(f"only {len(entries)} calibration positions off the bench set")
-    out.write_text(json.dumps({"dataset": man["dataset"], "seed": man["seed"], "drawn": len(man["states"]),
-                               "excluded_bench_files": len(bench), "states": entries}, indent=1) + "\n",
-                   encoding="utf-8")
-    states = []
-    for e in entries:
-        with gzip.open(dataset / e["file"], "rt", encoding="utf-8") as f:
+    rows = [json.loads(ln) for ln in (dataset / "manifest.jsonl").open(encoding="utf-8") if ln.strip()]
+    pool = [r for r in rows if not r.get("holdout") and r.get("n_turns", 0) >= 4]
+    rng = random.Random(2)
+    rng.shuffle(pool)
+    ladder = set(LADDER_SCENARIO_IDS)
+    entries, states = [], []
+    for r in pool:
+        if len(entries) >= CALIBRATION_N:
+            break
+        if r["file"] in bench:
+            raise RuntimeError(f"a non-holdout game is in the bench set: {r['file']}")
+        with gzip.open(dataset / r["file"], "rt", encoding="utf-8") as f:
             data = json.load(f)
-        res = reconstruct_boundary(data, e["cut_turn"])
-        if res is None or res[1] != e["begin_side"]:
-            raise RuntimeError(f"calibration state failed to reconstruct: {e}")
-        states.append(res[0])
+        if data.get("scenario_id") not in ladder:
+            continue
+        cut = rng.randint(2, r["n_turns"] - 1)
+        res = reconstruct_boundary(data, cut)
+        if res is None:
+            continue
+        gs, begin_side = res
+        entries.append({"file": r["file"], "scenario_id": data["scenario_id"], "cut_turn": cut,
+                        "begin_side": begin_side, "turn_number": gs.global_info.turn_number,
+                        "n_units": len(gs.map.units), "n_hexes": len(gs.map.hexes)})
+        states.append(gs)
+    if len(entries) < CALIBRATION_N:
+        raise RuntimeError(f"only {len(entries)} calibration positions")
+    out.write_text(json.dumps({"dataset": dataset.name, "seed": 2, "pool": "non-holdout, ladder, n_turns >= 4",
+                               "states": entries}, indent=1) + "\n", encoding="utf-8")
     return states
 
 
