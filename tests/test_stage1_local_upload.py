@@ -307,6 +307,25 @@ def test_a_file_dropped_into_the_staging_directory_is_refused_and_kept(tmp_path,
     assert not (staging / "d0.worker_stages.json").exists() and (staging / "d0.inference_server_0.json").is_file()
 
 
+def test_another_runs_upload_is_not_continued_from_this_staging_directory(tmp_path, capsys):
+    """The staging directory keeps the landed state of one run's upload: a
+    second run (its own ALL_DONE) sent through it to the same folder would
+    take the first run's landed files as its own and mix the two runs in
+    one folder. It is refused, nothing sent; the first run continues, and
+    so does a run whose directory moved."""
+    run, hf = _upload(tmp_path)
+    staging = run.with_name("staging")
+    other = _run_dir(tmp_path / "other")
+    _write(other / "ALL_DONE", "2026-10-30 08:00:00\n")
+    hf.sent.clear()
+    assert _main(other, "--upload", api=lambda: hf, staging=staging) == 2
+    assert "holds the upload of another run" in capsys.readouterr().out
+    assert hf.sent == []
+    moved = run.rename(tmp_path / "moved")
+    assert _main(moved, "--upload", api=lambda: hf, staging=staging) == 0
+    assert sorted(hf.sent) == sorted([box_upload.LOG_NAME, box_upload.LOG_NAME, "ALL_DONE"])
+
+
 def test_stage_cs_restore_reads_the_uploaded_folder(tmp_path):
     """box_upload.py's own --restore of the names scripts/stage_c_box.sh asks
     for, then its extraction: plan.txt names the plan, and each games

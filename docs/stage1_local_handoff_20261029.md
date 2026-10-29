@@ -218,7 +218,12 @@ refused with nothing touched, and so is a file the record does not name,
 since the uploader sends every file directly in the directory. (A first
 version deleted every top-level file not in the upload, so a `--staging`
 pointed at the repository's root would have deleted CLAUDE.md and
-README.md; found on review, 2026-10-29.)
+README.md; found on review, 2026-10-29.) The record also names the run, by
+a hash of `ALL_DONE`'s content and the census: the uploader's landed state
+is keyed by the HF folder alone, so another run sent through the same
+staging directory to the same folder would have passed the first run's
+landed files as its own. It is refused; a run whose directory moved is the
+same run.
 
 Dry run on the real directory at 10:32, s00 only (abridged):
 
