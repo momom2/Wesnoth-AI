@@ -127,6 +127,33 @@ by the runner, and is played again once.
 
 None of these is a verdict on stage 1. They decide only where it runs.
 
+## Incidents
+
+- **2026-10-28 23:59: an automatic restart.** Windows Update restarted
+  the machine (System event 1074: svchost, on behalf of NT AUTHORITY)
+  47 minutes into the first match, with 3,488 of its 5,000 games played
+  at about 470 decisions a second. Every process of the run died; the
+  machine then slept at 00:30, with no session holding it awake.
+  - Fix (faafcced): the runner's `--keep-awake` holds the system awake
+    for its process's lifetime.
+  - Not prevented: a restart. Only the user can change Windows Update's
+    active hours or pause it.
+- **2026-10-29 09:04: the resume refused its own games.** run_elo_batch's
+  resume pre-scan expected `infer_bf16` on cuda, while the fp16 games
+  record it False. The first match's two attempts each refused at once,
+  the runner marked it failed, and D0 began.
+  - Fix (fc560ab9): `precision_wants`, with a test.
+  - The runner was stopped, the false failure marker removed by hand (both
+    noted in runner.log), and the run resumed from fc560ab9 at 09:11. The
+    code that plays the games did not change: 115be5d1's.
+  - D0's 339 games from that interval stay in its directory; they were
+    played under the same flags.
+- **2026-10-29 09:17-09:25: a pause** for an A/B of one against two
+  inference servers, 192 games each, seeds 872700. One server served 443.5
+  decisions a second at steady state, two 454.7: +2.5%, at the noise
+  level. One server was kept, and the run resumed at 3,868 of the first
+  match's games.
+
 ## Results
 
 (Written when the run lands.)
