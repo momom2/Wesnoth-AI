@@ -158,6 +158,28 @@ None of these is a verdict on stage 1. They decide only where it runs.
   level. One server was kept, and the run resumed at 3,868 of the first
   match's games.
 
+- **2026-10-29 14:06 and 14:18: two display-driver resets, from a
+  benchmark run beside the match.** At 14:06:10 and 14:18:09 (System event
+  4101), during match s02, a kernel benchmark in another checkout
+  (`feature/hip-bias-fold`, training/metrics/hip_bias_fold_20261029)
+  queued twelve 48-leaf forwards on the same GPU without waiting for any.
+  The benchmark's own process failed both times.
+  - The run lost no game: s02 played its 5,000. Its server served about a
+    fifth of its rate in the 30 s around the first reset, then recovered.
+  - The kill criterion ("the run stops if the display driver resets")
+    fired as written: the runner stopped after s02, at 15:02:59, and wrote
+    STOP.
+  - The cause was outside the run:
+    - both resets fell inside the benchmark's two unsynced attempts;
+    - the same benchmark waiting after each forward ran five times without
+      one;
+    - the run had served about 13 hours on the kernels without one.
+  - So the run resumed at 15:33:49, from the same frozen checkout (noted in
+    runner.log). Meanwhile the GPU served an idle A/B for the next code
+    (training/metrics/pipe_buffer_20261029); that code is not the run's.
+  - Lesson, for the rules of use (docs/local_machine_use_20261029.md): a
+    second heavy GPU program beside a run can reset the display.
+
 ## Results
 
 - **D0, landed 2026-10-29 12:31** [M, `d0.fit.json`]: `own2` at temperature
