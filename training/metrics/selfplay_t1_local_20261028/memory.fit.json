@@ -1,0 +1,15 @@
+{
+  "n_games": 3200,
+  "tables": {
+    "PURE (decisive only, primary)": {
+      "own2m0": {
+        "elo": 0.0,
+        "se": 0.0
+      },
+      "own2m64": {
+        "elo": 1.3024825234235697,
+        "se": 6.14093517591349
+      }
+    }
+  }
+}

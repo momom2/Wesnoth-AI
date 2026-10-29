@@ -19,7 +19,7 @@ the options. The rules themselves are the user's.
 |---|---|---|
 | Self-play generation, `own2` at temperature 1 | 457-470 decisions a second at 96 games in flight (about 4,300 games an hour), stage 1's code; 531.8 steady with the bias fold and the pipe buffer, against 485.1 for stage 1's code in the same A/B (+9.6%, idle GPU, training/metrics/pipe_buffer_20261029) | about 2,900 decisions a second |
 | A strength match: 800 decisive games at the reference decode | about 15 minutes (estimated from the generation rate, about 476 decisions a game) | about 17 minutes, $0.12 |
-| Stage 1 of the training design | about 11.5 hours, $0 | about 3.1 hours, $1.8 |
+| Stage 1 of the training design | about 11.4 hours of running, $0; done 2026-10-29 20:27, every gate green (docs/selfplay_t1_local_prereg_20261028.md, Results) | about 3.1 hours, $1.8 |
 | The full test suite, both tiers | 11.5 minutes | CI |
 | The forward of `own2` | 535 positions a second (fp16, the HIP kernels); 574 with the biases folded into them (training/metrics/hip_bias_fold_20261029) | |
 | A training step of `own2` | 3 positions a second before 2026-10-29 (fp32, padded math attention); 150.5 with the HIP attention backward in fp16 on an idle GPU (training/metrics/idle_measure_20261029) | 1,477 positions a second |

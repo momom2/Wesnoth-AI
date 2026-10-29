@@ -194,5 +194,110 @@ None of these is a verdict on stage 1. They decide only where it runs.
     (docs/raw_argmax_control_20260904.md).
   - The decision it feeds (the design's section 4, "D0"): the debt the
     rounds' claims start from.
-- The first self-play match landed at 09:43 (5,000 games). The rest is to
-  come.
+- **The run ended 2026-10-29 20:27:18**, every step done
+  (`training/metrics/selfplay_t1_local_20261028/`):
+  - 30,000 self-play games, D0's 12,800 and the memory report's 3,200;
+  - every game decisive, none capped, no failed slot, no replacement used.
+  - From the resume at 09:11 to the end took 11.3 hours, three pauses (41
+    minutes) included. The 3,488 games played in the 48 minutes before
+    the restart of 2026-10-28 were kept. So the run's own time was about
+    11.4 hours, against the 11.5 estimated.
+  - Self-play served 450-467 requests a second on an uncontended machine
+    (s01, s04, s05) [M, `server_stats.txt`], about 4,300 games an hour as
+    estimated.
+
+### The census [M, `readout.json`]
+
+| | Temperature 1 (this run) | Argmax (design §4) |
+|---|---|---|
+| Decisions a game | 378.3 | 475.7 ± 3.2 |
+| Decisions a side-game | 189.1 | 237.9 |
+| Side-turns a side-game | 16.34 | 20.16 |
+| Turns a game | 17.09 | |
+| Shares: move, attack, recruit, end_turn | 0.579, 0.237, 0.097, 0.086 | 0.579, 0.237, 0.099, 0.085 |
+| Refused recruits a game | 0.0 | |
+| Cap rate | 0 of 30,000 | 2 of 6,402 |
+
+- At temperature 1 a game takes 0.795 of argmax's decisions and 0.81 of
+  its side-turns, with the same action shares.
+- So costs that scale with decisions drop by about a fifth [D].
+- The cap rate is below 0.009, so cap scoring needs no ruling.
+
+### The gates: all five pass [M, `readout.json`]
+
+The 18 statistical tests share a family-wise false-alarm rate of 0.01
+(|z| ≤ 3.45 each).
+
+- **I-sample**, over 11,348,812 decisions:
+  - end_turn χ² 11.3 on 12 dof (p 0.50), attack 7.0 (p 0.86), recruit 7.9
+    (p 0.79);
+  - the sampled action's cdf position χ² 18.6 on 19 dof (p 0.48);
+  - the temperature score z = 1.46 (p 0.14).
+- **Legal mass:** the largest deviation from 1 is 4.0e-7, against a
+  tolerance of 1e-3.
+- **I-count:** no game with a problem.
+- **Dice control:** separate code reproduces the luck slope to 8.4e-15. The
+  labels' z on β_S reads slope 0.998 ± 0.019.
+- **I-V:** all twelve means are within the gates' z; the largest |z| is
+  1.75 (b against recruit).
+
+### Label noise and the corrections [M, `readout.json` "label_noise"]
+
+Per side-game:
+- E[z²] = 1;
+- E[(z − b)²] = 0.983 ± 0.002;
+- E[R²] = 0.851 ± 0.004.
+
+Per decision, cross-fitted over two folds by game:
+
+| Label | E[R²] | Cut from luck alone | Share | Enters (2 SE and ≥ 5%) |
+|---|---|---|---|---|
+| Luck alone | 0.880 ± 0.005 | | | |
+| − α·v̂ (the value head) | 0.643 ± 0.005 | 0.237 ± 0.003 | 26.9% | **yes** (α 0.744, 0.757 by fold) |
+| − κ·U (the opponent's score) | 0.869 ± 0.005 | 0.010 ± 0.001 | 1.2% | no: below 5% |
+| Both | 0.637 ± 0.005 | 0.242 ± 0.003 | 27.5% | U adds 0.005 over v̂ alone |
+
+- So **v̂ enters the labels as a baseline and U does not**. This is the
+  admission the design's §4 left to this reading ("Value head as baseline:
+  admitted only on stage 1's reading").
+- The design's argmax figure, E[R²] 0.699, came from round 9's residual
+  script. Whether its estimator is this one's is not checked here.
+- In the held-out halves' fits the cells' shrinkage constant reads k ≈
+  8.5e8 (132 over all held-out games): the between-cell variance is at its
+  floor. So each half's cell means shrink to zero, and the half-fits'
+  baseline is the map, the pair and β alone [M, `fits.json`].
+
+### The sharpening slope [M]
+
+The mean over side-games of R · Σ_t (log p_t + H_t) is **+2.64 ± 0.08 (z =
+32.4)**: resolved. Sampling colder raises the outcome at first order. D0
+shows the same direction in play, though its argmax side also carries the
+end_turn offset.
+
+By the design's §4 rule (slope ≥ 3 SE), the link match runs in stage P
+(+$0.33 on a box).
+
+### P1's targets [M]
+
+These are Σ R(1[a ∈ X] − p(X)) per game, which stage C's probe gradients
+must reproduce:
+- end_turn −0.107;
+- attack −0.039;
+- recruit +0.027.
+
+### The memory at temperature 1 [M, `memory.fit.json`]
+
+`own2` at 64 slots against the same weights at 0 slots, both at temperature
+1, reads **+1.3 ± 6.1 Elo** over 3,200 decisive games (1,606 to 1,594).
+At temperature 1 the memory costs nothing either, as at argmax in round 2
+(+13.0 ± 12.3).
+
+### What it decides (the design's §6, stage 1)
+
+- **Gates:** green, so there is nothing to fix.
+- **Corrections:** v̂ enters and U does not.
+- **Cap rate:** 0, so there is no ruling to make.
+- **The link match:** it runs in P.
+- **Next is stage C.** It waits on the user's decision about these
+  fp16-served games and their upload
+  (docs/local_machine_use_20261029.md, decision 3).
