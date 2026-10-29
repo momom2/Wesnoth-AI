@@ -160,4 +160,17 @@ None of these is a verdict on stage 1. They decide only where it runs.
 
 ## Results
 
-(Written when the run lands.)
+- **D0, landed 2026-10-29 12:31** [M, `d0.fit.json`]: `own2` at temperature
+  1 (64 slots, no offset) against the reference at its decode
+  (`raw:t0+eo-1.5`) reads **-415.2 +- 5.5 Elo** (PURE, decisive games only,
+  the reference at 0). That is 12,800 games, all decisive, none capped,
+  with no replacement used, seeds 830000-842799. The match took 9,997 s
+  from its resume at 09:44, about 4,600 games an hour; 339 of its games
+  were played between 09:04 and 09:10, before the pause.
+  - The record it sharpens: on 2026-09-04 the September seed at argmax beat
+    the same weights sampling by +412 +- 97 Elo over 40 games
+    (docs/raw_argmax_control_20260904.md).
+  - The decision it feeds (the design's section 4, "D0"): the debt the
+    rounds' claims start from.
+- The first self-play match landed at 09:43 (5,000 games). The rest is to
+  come.
