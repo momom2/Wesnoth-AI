@@ -279,6 +279,30 @@ def _effective_precision(args, field: str) -> bool:
     return device == "cuda"
 
 
+def precision_wants(args) -> dict:
+    """What the resume pre-scan expects each precision field of a result
+    file to read under this batch's flags; None where it cannot know
+    before the servers report (no explicit flag, --device auto: the
+    per-game guard still protects). The fp16 servers autocast in place of
+    bf16, so their games record infer_bf16 False (the resume of
+    2026-10-29 was refused on every game without this)."""
+    wants = {}
+    for fld, flag in (("infer_bf16", args.infer_bf16), ("infer_compile", args.infer_compile)):
+        want = flag if flag is not None else {"cuda": True, "cpu": False}.get(args.device)
+        if fld == "infer_compile" and args.shared_inference:
+            # The games record the server's setting (its hello's
+            # compile_packed), which --compile-packed turns on.
+            want = bool(args.compile_packed)
+        if fld == "infer_bf16" and args.infer_fp16:
+            want = False
+        wants[fld] = want
+    for fld, flag in (("infer_bf16_residual", args.bf16_residual), ("infer_fp16", args.infer_fp16),
+                      ("infer_fused_relu", args.fused_relu), ("infer_fp8_a", args.fp8_inference_a),
+                      ("infer_fp8_b", args.fp8_inference_b)):
+        wants[fld] = bool(flag and args.shared_inference)
+    return wants
+
+
 def slot_for(i: int, seed_base: int) -> Tuple[int, int]:
     """(side_a, seed) for BASE slot index i."""
     return (1 if i % 2 == 0 else 2), seed_base + i
@@ -1013,31 +1037,8 @@ def main(argv: List[str]) -> int:
                 f"uses {_want_cs}: the shared stream gives every game "
                 f"the same luck vector, so the two are different "
                 f"estimands. Use a fresh outdir.")
-        # Precision/compile pre-scan: the effective value is known
-        # here only when the flag is explicit or the device is
-        # forced; otherwise the per-game guard still protects.
-        for _fld, _flag in (("infer_bf16", args.infer_bf16),
-                            ("infer_compile", args.infer_compile)):
-            _want = (_flag if _flag is not None
-                     else {"cuda": True, "cpu": False}.get(args.device))
-            if _fld == "infer_compile" and args.shared_inference:
-                # The games record the server's setting (its hello's
-                # compile_packed), which --compile-packed turns on.
-                _want = bool(args.compile_packed)
-            if _want is not None \
-                    and bool(prev.get(_fld, False)) != _want:
-                raise SystemExit(
-                    f"{f.name} was played with {_fld}="
-                    f"{bool(prev.get(_fld, False))} but this run "
-                    f"uses {_want}: numerics differ, refusing to "
-                    f"mix. Use a fresh outdir.")
-        for _fld, _want in (("infer_bf16_residual", args.bf16_residual),
-                            ("infer_fp16", args.infer_fp16),
-                            ("infer_fused_relu", args.fused_relu),
-                            ("infer_fp8_a", args.fp8_inference_a),
-                            ("infer_fp8_b", args.fp8_inference_b)):
-            _want = bool(_want and args.shared_inference)
-            if bool(prev.get(_fld, False)) != _want:
+        for _fld, _want in precision_wants(args).items():
+            if _want is not None and bool(prev.get(_fld, False)) != _want:
                 raise SystemExit(
                     f"{f.name} was played with {_fld}={bool(prev.get(_fld, False))} but this run "
                     f"uses {_want}: numerics differ, refusing to mix. Use a fresh outdir.")
