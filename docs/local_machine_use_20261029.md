@@ -102,8 +102,10 @@ games would take most of a day here, against about an hour on a box.
 
 ## Decisions waiting on the user (2026-10-29)
 
-1. **The rules of use** above: the monitor cable, the windows, and
-   `--yield-gpu` with its threshold.
+1. **The rules of use. Decided (user, 2026-10-29 evening):** the project
+   uses the GPU freely, and the user says when they want it for gaming.
+   Runs then stop between steps (the STOP file) or step aside
+   (`--yield-gpu`).
 2. **Windows Update:** active hours or a pause while a run is planned.
 3. **Stage C on the local stage 1** (docs/stage1_local_handoff_20261029.md
    section 9):
