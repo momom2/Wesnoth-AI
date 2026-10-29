@@ -107,7 +107,13 @@ games would take most of a day here, against about an hour on a box.
    Runs then stop between steps (the STOP file) or step aside
    (`--yield-gpu`).
 2. **Windows Update:** active hours or a pause while a run is planned.
-3. **Stage C on the local stage 1** (docs/stage1_local_handoff_20261029.md
+3. **Stage C on the local stage 1. Decided (user, 2026-10-29 evening):
+   yes**: stage C trains on these fp16-served games, and the upload goes
+   ahead (to `tier-b/selfplay_t1_local_20261028`, started 21:45). The floor
+   follows at float16 (the hand-off's `--floor-dtype auto`). Still needed
+   before the box: a green CI run (GitHub sign-in on this machine) and the
+   Vast key. Claims chain onto D0 only if played in fp16, as the desktop
+   plays them. The items it settled (docs/stage1_local_handoff_20261029.md
    section 9):
    - whether stage C may train on fp16-served games. The fp16 serving path
      sits about ten times closer to the fp32 trunk than bf16 does on own2's

@@ -34,6 +34,11 @@ Steps 1 to 3 come before the first Claude Code session that touches a key.
      GitHub account the browser is signed in to. Sign the browser in as
      the repository's owner first, or pick the device-code option in its
      window. A refused push stores nothing, so the next push asks again.
+   - `vastai` (unpinned in requirements.txt) pulls in 37 packages,
+     `requests`, `urllib3` and `pillow` among them. On the desktop it lives
+     in a venv of its own, `%USERPROFILE%\venvs\wesnoth_vast` (`vastai`
+     and `huggingface_hub`, 2026-10-29), which runs `scripts/rent_box.py`;
+     the key goes in with that venv's `vastai set api-key`.
 
 3. **Secret guard.** It redacts credentials from everything a tool
    returns to Claude:

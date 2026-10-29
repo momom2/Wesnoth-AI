@@ -349,6 +349,17 @@ about 1.1e-4 in place of about 5.9e-4 (section 4).
 
 ## 9. Decisions for the user
 
+**Decided (user, 2026-10-29 evening): stage C may train on the local stage
+1's fp16-served games, and the upload goes ahead.**
+- Items 1, 2 and 4 are settled by it: the fp16 games, the float16 floor
+  and the upload.
+- Item 3 follows: a claim chains onto D0 only when played in fp16, as the
+  desktop plays it.
+- Item 5 stands: stage C is staged from a commit with a green CI run.
+  That waits on a GitHub sign-in on this machine, and the box on a Vast key
+  (`vastai set api-key`, in `%USERPROFILE%\venvs\wesnoth_vast`, the box
+  tooling's own venv on the desktop).
+
 1. **May stage C consume fp16-served games at all?** π_k's games were
    served by the HIP kernels in fp16 on the RX 6600. The trainer
    recomputes in fp32 on a 4090. The design asks that actions be drawn
