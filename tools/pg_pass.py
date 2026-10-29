@@ -45,8 +45,10 @@ What pass.pt holds beyond the contract's keys:
 
     floor          the precision floor and the trunks' path check on the
                    decisions of FLOOR_SIDES drawn game-sides
-                   (tools/pg_floor.py), None when not read
-    floor_dtype    the precision the floor read ("off": none)
+                   (tools/pg_floor.py), its rounding fields None for games
+                   served in float32 (the path alone), None when not read
+    floor_dtype    the precision the floor read ("float32": the path
+                   alone; "off": none)
 
 Beside pass.pt the command line writes pass.json, its scalars
 (`SUMMARY_KEYS`), for readers without torch.
@@ -63,8 +65,10 @@ command line then writes its result as `<out>.path_failed.pt`,
 `<out>.floor_refused.pt` or `<out>.replay_failed.pt`. `floor_dtype` names
 the serving precision the floor reads: "auto" (the command line's default)
 takes it from the labelled games' match results, bfloat16 on a box and
-float16 on the local RX 6600, a named one is refused when the games were
-served in the other, and "off" reads no floor
+float16 on the local RX 6600, and for games served in float32 reads the
+path alone (no rounding: the base limit, the path still checked); games of
+more than one serving precision are refused; a named one is refused when
+the games were served in the other, and "off" reads no floor and no path
 (`pg_floor.resolve_floor_dtype`; `floor_dtype` in pass.pt is the one
 read). The serving and packed forwards are injectable, for a device whose
 bf16 is not the server's.
@@ -572,8 +576,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--floor-sides", type=int, default=FLOOR_SIDES,
                     help="the game-sides whose decisions read the precision floor (tools/pg_floor.py)")
     ap.add_argument("--floor-dtype", default="auto", choices=FLOOR_DTYPES,
-                    help="the serving precision the floor reads: auto, the labelled games' own "
-                         "(tools/pg_floor.py resolve_floor_dtype); off, none")
+                    help="the serving precision the floor reads: auto, the labelled games' own, the path "
+                         "alone for games served in float32 (tools/pg_floor.py resolve_floor_dtype); off, "
+                         "no floor and no path check")
     ap.add_argument("--procedure", default=SELF_PLAY_PROCEDURE, help="the labelled game-sides' procedure tag")
     ap.add_argument("--fresh", action="store_true",
                     help="discard the splits an earlier run wrote: a timed pass (stage 1's rates, stage C's C0)")

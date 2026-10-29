@@ -461,12 +461,13 @@ def test_the_floor_reads_the_precision_the_games_were_served_in(tmp_path):
     """auto reads the floor at the precision the games' results name: float16
     for games served in fp16 (the local RX 6600's stage 1), bfloat16 for a
     box's, the very floor and limit a named bfloat16 reads (a box's records
-    pass as before), and none for games served in float32. A named precision
-    the games were not served in is refused before anything is replayed, and
-    so are games of both precisions in one pass. The command line reads auto
-    by default, and its summary names the floor read."""
+    pass as before), and the path alone for games served in float32, at the
+    base limit. A named precision the games were not served in is refused
+    before anything is replayed, and so are games of both precisions in one
+    pass. The command line reads auto by default, and its summary names the
+    floor read."""
     from helpers.pg_games import named, write_labels
-    from tools.pg_floor import FloorDtypeError
+    from tools.pg_floor import PATH_KL_LIMIT, PATH_ONLY, FloorDtypeError
     from tools.pg_pass import GradientPass, PassConfig, main
     games, labels = _labels(tmp_path)
     config = dict(streams=2, floor_sides=1000)
@@ -487,7 +488,9 @@ def test_the_floor_reads_the_precision_the_games_were_served_in(tmp_path):
     with pytest.raises(FloorDtypeError, match="served in bfloat16"):
         construct(bf16, "float16")
     fp32 = construct(games.records, "auto").run()
-    assert fp32["floor_dtype"] == "off" and fp32["floor"] is None
+    assert fp32["floor_dtype"] == fp32["floor"]["dtype"] == PATH_ONLY and fp32["floor"]["kl"] is None
+    assert fp32["floor"]["decisions"] == fp32["decisions"] and fp32["floor"]["path_kl"] < PATH_KL_LIMIT
+    assert fp32["replay"]["limit"] == fp32["replay"]["base_limit"]
     mixed = dict(fp16)
     mixed[games.names["g2"]] = bf16[games.names["g2"]]
     with pytest.raises(FloorDtypeError, match="bfloat16 and float16"):
@@ -499,3 +502,28 @@ def test_the_floor_reads_the_precision_the_games_were_served_in(tmp_path):
     summary = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
     assert summary["floor_dtype"] == "float16" and summary["config"]["floor_dtype"] == "auto"
     assert summary["floor"]["dtype"] == "float16"
+
+
+@needs_core
+def test_games_served_in_float32_keep_the_path_check_under_auto(tmp_path):
+    """auto on games served in float32 (a stage 1 re-served in fp32, as C0's
+    exit 4 advises) reads no rounding, and still checks the packed trunk
+    against the padded one: a packed trunk that departs fails the pass
+    (exit 5) as it does under a reduced-precision floor. Games served in
+    float32 beside games served in float16 are refused: an fp16 floor would
+    lift the limit for decisions that carry no rounding."""
+    from tools.pg_floor import FloorDtypeError
+    from tools.pg_pass import GradientPass, PassConfig, PathMismatch
+    games, labels = _labels(tmp_path)
+    config = PassConfig(floor_dtype="auto", streams=2, floor_sides=1000)
+    with pytest.raises(PathMismatch, match="packed and padded trunks disagree") as caught:
+        GradientPass(games.checkpoint, games.records, labels, CPU, config,
+                     packed_forward=_scaled_actor(1.02, packed=True)).run()
+    floor = caught.value.result["floor"]
+    assert caught.value.result["floor_dtype"] == "float32" and floor["kl"] is None
+    assert floor["decisions"] == caught.value.result["decisions"]
+    _, fp16 = _served(tmp_path / "fp16", games, infer_fp16=True, infer_bf16=False)
+    mixed = dict(games.records)
+    mixed[games.names["g1"]] = fp16[games.names["g1"]]
+    with pytest.raises(FloorDtypeError, match="float16 and float32"):
+        GradientPass(games.checkpoint, mixed, labels, CPU, config)

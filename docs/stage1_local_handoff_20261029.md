@@ -145,20 +145,30 @@ What this shows:
   `float32` (absent fields read False, as `elo_eval_game`'s own resume guard
   reads them). `record_facts` carries it as `serving`.
 - `pg_floor.resolve_floor_dtype`:
-  - `auto` reads the games' precision, and `off` for games served in
-    float32;
+  - `auto` reads the games' precision. For games served in float32 it
+    reads the path alone (`float32`, `pg_floor.PATH_ONLY`): no rounding is
+    read, so the limit is the base, and the packed-against-padded check
+    (exit 5) still runs;
   - a named precision is refused when the games were served in the other
     one;
-  - games of both precisions in one pass are refused.
+  - games of more than one serving precision in one pass are refused under
+    `auto`, float32 among them: a reduced precision's floor would lift the
+    limit for the decisions of fp32-served games, which carry no rounding.
+    A named precision still takes fp32-served games, alone or beside games
+    of that precision, as the suite's CPU games do (the caller's choice);
+  - `off` reads neither the floor nor the path.
 - `pg_pass --floor-dtype` now defaults to `auto`. pass.pt and pass.json
   record `floor_dtype`, the precision read. The API's default stays
   `bfloat16`.
 - No behaviour changes for a box's bf16 records: they resolve to the same
   bfloat16 floor, and a test checks that the floor and the limit are
   identical.
-- Records served in float32 under the command line now read no floor;
-  before, they read a bf16 floor. Only the suite's CPU games are served in
-  float32.
+- Records served in float32 under the command line read the path alone;
+  before this branch they read a bf16 floor, the path included. A first
+  version of this branch resolved them to `off`, which dropped the path
+  check with the rounding (found on review, 2026-10-29): a stage 1
+  re-served in fp32, as C0's exit 4 advises, would have lost it, since
+  `stage_c_box.sh` passes no `--floor-dtype`.
 - The derivation is in `tools/pg_floor.py`'s docstring, "The serving
   precision".
 

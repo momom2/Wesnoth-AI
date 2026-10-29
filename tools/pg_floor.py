@@ -44,7 +44,10 @@ loop of WesnothModel._run_hip_fp16_trunk). The floor is read at the
 precision the labelled games were served in (`resolve_floor_dtype`; the
 pass's command line takes it from the records, "auto"), and the limit is
 the formula above with the mean read at that precision: nothing in it
-depends on which precision that is.
+depends on which precision that is. Games served in float32 carry no
+serving rounding: auto reads their path alone (PATH_ONLY), so the base
+limit holds and a packed trunk that departs from the padded one still
+fails the pass. One pass takes the games of one serving precision.
 
 - **float16 against bfloat16.** A rounding moves a value by up to its
   format's unit roundoff relative to it: 2^-8 for bfloat16's 8 significant
@@ -101,6 +104,10 @@ PATH_KL_LIMIT = 1e-6
 # which the floor reads; FLOOR_DTYPES adds the pass's two other choices.
 SERVING_DTYPES = ("bfloat16", "float16")
 FLOOR_DTYPES = SERVING_DTYPES + ("auto", "off")
+# What auto reads on games served in float32: no serving rounding (they
+# carry none, so nothing lifts the base limit), the path alone (the packed
+# and padded trunks' fp32 agreement, which no serving precision decides).
+PATH_ONLY = "float32"
 
 
 class FloorDtypeError(ValueError):
@@ -112,29 +119,33 @@ def resolve_floor_dtype(requested: str, servings: Iterable[Optional[str]]) -> st
     precision of each labelled game (pg_positions.serving_precision; None,
     a game without a match result, is left to refuse_foreign):
 
-        auto       the games' precision; "off" when they were served in
-                   float32 (no serving rounding to read: the base limit
-                   holds); refused when they were served in both bfloat16
-                   and float16 (one pass, one floor);
+        auto       the games' precision; PATH_ONLY ("float32") when they
+                   were served in float32: no rounding read, so the base
+                   limit holds, and the path still read and checked;
+                   refused when the games were served in more than one
+                   precision, float32 among them (one pass, one floor: a
+                   reduced precision's floor would lift the limit for the
+                   decisions of fp32-served games, which carry no rounding);
         bfloat16, float16
                    that precision; refused when a game was served in the
                    other one (module docstring: too loose or too strict).
-                   Games served in float32 take either, as the suite's CPU
-                   games do: the floor then reads a rounding they do not
-                   carry, the caller's choice;
-        off        no floor.
+                   Games served in float32 take either, alone or beside
+                   games of the named precision, as the suite's CPU games
+                   do: the floor then reads a rounding they do not carry,
+                   the caller's choice;
+        off        no floor and no path check.
     """
     if requested not in FLOOR_DTYPES:
         raise FloorDtypeError(f"--floor-dtype {requested!r} is none of {FLOOR_DTYPES}")
     if requested == "off":
         return "off"
-    reduced = sorted({s for s in servings if s in SERVING_DTYPES})
+    served = sorted({s for s in servings if s is not None})
     if requested == "auto":
-        if len(reduced) > 1:
-            raise FloorDtypeError(f"the labelled games were served in {' and '.join(reduced)}: one pass reads one "
+        if len(served) > 1:
+            raise FloorDtypeError(f"the labelled games were served in {' and '.join(served)}: one pass reads one "
                                   f"precision floor; pass the games of one serving precision")
-        return reduced[0] if reduced else "off"
-    other = [s for s in reduced if s != requested]
+        return served[0] if served else PATH_ONLY          # "float32" is PATH_ONLY itself
+    other = [s for s in served if s in SERVING_DTYPES and s != requested]
     if other:
         raise FloorDtypeError(f"the labelled games were served in {other[0]}, and a {requested} floor reads another "
                               f"rounding than theirs (tools/pg_floor.py): --floor-dtype {other[0]}, or auto")
@@ -169,14 +180,20 @@ class FloorReader:
     """The rounding and path readings over the drawn game-sides' decisions,
     summed by game-side (module docstring). `serving` and `packed` replace
     the packed trunk's forward at the serving precision and in fp32: a
-    device whose bf16 is not the server's, or an injected difference."""
+    device whose bf16 is not the server's, or an injected difference. At
+    PATH_ONLY (games served in float32) no serving forward runs and the
+    rounding is not read (`serving` is unused): the path alone."""
 
     def __init__(self, encoder, model, device: torch.device, sides: set, dtype: str,
                  serving: Optional[Forward] = None, packed: Optional[Forward] = None):
         self.encoder, self.model, self.device, self.sides = encoder, model, device, sides
         self.dtype = dtype
-        precision = getattr(torch, dtype)
-        self.serving = serving or (lambda e, m, st, mem: packed_forward(e, m, st, mem, precision, device))
+        self.reads_rounding = dtype != PATH_ONLY
+        if self.reads_rounding:
+            precision = getattr(torch, dtype)
+            self.serving = serving or (lambda e, m, st, mem: packed_forward(e, m, st, mem, precision, device))
+        else:
+            self.serving = None
         self.packed = packed or (lambda e, m, st, mem: packed_forward(e, m, st, mem, None, device))
         # game-side -> [rounding sum, path sum, decisions, largest path KL]
         self.sums: Dict[Tuple[str, int], list] = {}
@@ -193,8 +210,11 @@ class FloorReader:
             batch = stage_step(sub, staged, self.model, self.device)
             padded = padded_forward(self.encoder, self.model, staged, memory)
             packed = self.packed(self.encoder, self.model, staged, memory)
-            served = self.serving(self.encoder, self.model, staged, memory)
-            rounding = legal_kl(served, packed, batch.views, batch.rows).double().cpu().tolist()
+            if self.serving is None:
+                rounding = [0.0] * len(rows)                 # PATH_ONLY: unread (stats reports None)
+            else:
+                served = self.serving(self.encoder, self.model, staged, memory)
+                rounding = legal_kl(served, packed, batch.views, batch.rows).double().cpu().tolist()
             path = legal_kl(packed, padded, batch.views, batch.rows).double().cpu().tolist()
         for i, r, p in zip(rows, rounding, path):
             key = (steps[i].game_side.file, steps[i].game_side.side)
@@ -215,7 +235,8 @@ class FloorReader:
     def stats(self) -> Optional[Dict]:
         """The floor's mean over its decisions with its SE clustered by game
         (a ratio estimator over the games' sums), its upper bound, and the
-        path reading; None when no game-side was read."""
+        path reading; the three rounding fields None at PATH_ONLY (not
+        read); None when no game-side was read."""
         if not self.sums:
             return None
         by_game: Dict[str, list] = {}
@@ -225,21 +246,25 @@ class FloorReader:
             entry[1] += v[2]
         rounding = torch.tensor([v[0] for v in by_game.values()], dtype=torch.float64)
         counts = torch.tensor([v[1] for v in by_game.values()], dtype=torch.float64)
-        mean = float(rounding.sum() / counts.sum())
         m = len(by_game)
+        values = list(self.sums.values())
+        path = {"path_kl": sum(v[1] for v in values) / float(counts.sum()), "path_max": max(v[3] for v in values),
+                "decisions": int(counts.sum()), "game_sides": len(values), "games": m, "dtype": self.dtype}
+        if not self.reads_rounding:
+            return {"kl": None, "se": None, "upper": None, **path}
+        mean = float(rounding.sum() / counts.sum())
         se = (float(((rounding - mean * counts) ** 2).sum() * m / (m - 1)) ** 0.5 / float(counts.sum())
               if m > 1 else float("nan"))
-        values = list(self.sums.values())
         return {"kl": mean, "se": se, "upper": mean + FLOOR_UPPER_SE * se if math.isfinite(se) else float("nan"),
-                "path_kl": sum(v[1] for v in values) / float(counts.sum()), "path_max": max(v[3] for v in values),
-                "decisions": int(counts.sum()), "game_sides": len(values), "games": m, "dtype": self.dtype}
+                **path}
 
 
 def replay_limit(base: float, floor: Optional[Dict]) -> float:
     """The replay identity's limit over a measured floor: max(base, base +
     2 (mean + 2 SE)) (module docstring), the floor's mean alone when its SE
-    is not read (one game); the base without a floor."""
-    if floor is None:
+    is not read (one game); the base without a floor or with the path alone
+    (PATH_ONLY: no rounding read)."""
+    if floor is None or floor["kl"] is None:
         return base
     upper = floor["upper"] if math.isfinite(floor["upper"]) else floor["kl"]
     return max(base, base + 2.0 * upper)
@@ -247,12 +272,15 @@ def replay_limit(base: float, floor: Optional[Dict]) -> float:
 
 def refusal(floor: Optional[Dict], limit: float) -> Optional[str]:
     """Why the pass refuses its floor, or None: the trunks disagree, or the
-    limit passes FLOOR_LIMIT_CAP."""
+    limit passes FLOOR_LIMIT_CAP (a limit the floor lifted: not one read on
+    the path alone, whose limit is the caller's base)."""
     if floor is None:
         return None
     if not floor["path_kl"] <= PATH_KL_LIMIT:
         return (f"path: the packed and padded trunks disagree in fp32 by {floor['path_kl']:.3g} nats a decision "
                 f"(largest {floor['path_max']:.3g}), above {PATH_KL_LIMIT:g}")
+    if floor["kl"] is None:
+        return None
     if not limit <= FLOOR_LIMIT_CAP:
         return (f"floor: its upper bound {floor['upper']:.3g} lifts the replay limit to {limit:.3g}, above "
                 f"{FLOOR_LIMIT_CAP:g}; stage 1 should serve in fp32")
