@@ -441,3 +441,61 @@ def test_the_loss_scale_stops_at_its_floor():
     scale.finite()
     scale.finite()
     assert scale.scale == 2 * MIN_SCALE and scale.growths == 1
+
+
+def _served(root: Path, games, **fields):
+    """The suite's records copied under `root`, their match results naming
+    the serving precision of `fields` (elo_eval_game's infer_* fields)."""
+    from tools.pg_positions import result_path
+    root.mkdir()
+    dst, records = _copied_games(root, games)
+    for path in records.values():
+        res = json.loads(result_path(path).read_text(encoding="utf-8"))
+        res.update(fields)
+        result_path(path).write_text(json.dumps(res), encoding="utf-8")
+    return dst, records
+
+
+@needs_core
+def test_the_floor_reads_the_precision_the_games_were_served_in(tmp_path):
+    """auto reads the floor at the precision the games' results name: float16
+    for games served in fp16 (the local RX 6600's stage 1), bfloat16 for a
+    box's, the very floor and limit a named bfloat16 reads (a box's records
+    pass as before), and none for games served in float32. A named precision
+    the games were not served in is refused before anything is replayed, and
+    so are games of both precisions in one pass. The command line reads auto
+    by default, and its summary names the floor read."""
+    from helpers.pg_games import named, write_labels
+    from tools.pg_floor import FloorDtypeError
+    from tools.pg_pass import GradientPass, PassConfig, main
+    games, labels = _labels(tmp_path)
+    config = dict(streams=2, floor_sides=1000)
+
+    def construct(records, dtype):
+        return GradientPass(games.checkpoint, records, labels, CPU, PassConfig(floor_dtype=dtype, **config))
+
+    fp16_dir, fp16 = _served(tmp_path / "fp16", games, infer_fp16=True, infer_bf16=False)
+    half = construct(fp16, "auto").run()
+    assert half["floor_dtype"] == "float16" and half["floor"]["dtype"] == "float16"
+    assert half["floor"]["decisions"] == half["decisions"] and half["floor"]["kl"] > -1e-7
+    with pytest.raises(FloorDtypeError, match="served in float16"):
+        construct(fp16, "bfloat16")
+    _, bf16 = _served(tmp_path / "bf16", games, infer_bf16=True)
+    auto, explicit = construct(bf16, "auto").run(), construct(bf16, "bfloat16").run()
+    assert auto["floor_dtype"] == explicit["floor_dtype"] == "bfloat16"
+    assert auto["floor"] == explicit["floor"] and auto["replay"] == explicit["replay"]
+    with pytest.raises(FloorDtypeError, match="served in bfloat16"):
+        construct(bf16, "float16")
+    fp32 = construct(games.records, "auto").run()
+    assert fp32["floor_dtype"] == "off" and fp32["floor"] is None
+    mixed = dict(fp16)
+    mixed[games.names["g2"]] = bf16[games.names["g2"]]
+    with pytest.raises(FloorDtypeError, match="bfloat16 and float16"):
+        construct(mixed, "auto")
+    cli = write_labels(tmp_path / "cli.jsonl", named(games, SPLITS), named(games, R))
+    out = tmp_path / "pass.pt"
+    assert main(["--checkpoint", str(games.checkpoint), "--games", str(fp16_dir), "--labels", str(cli),
+                 "--out", str(out), "--device", "cpu", "--streams", "2", "--floor-sides", "1000"]) == 0
+    summary = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+    assert summary["floor_dtype"] == "float16" and summary["config"]["floor_dtype"] == "auto"
+    assert summary["floor"]["dtype"] == "float16"

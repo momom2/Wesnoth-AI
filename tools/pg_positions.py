@@ -273,10 +273,27 @@ def result_path(record: Path) -> Path:
     return record.with_name(record.name[:-len(RECORD_SUFFIX)] + ".json")
 
 
+def serving_precision(result: Optional[dict]) -> Optional[str]:
+    """The precision a match result's game was served in, as its precision
+    fields record it (tools/elo_eval_game.py): "float16" under the server's
+    --infer-fp16 (the local RX 6600), "bfloat16" under its bf16 autocast (a
+    4090 box), "float32" otherwise (fp32 serving, or a result older than
+    the fields: an absent field reads False, as elo_eval_game's own resume
+    guard reads it); None without a result."""
+    if result is None:
+        return None
+    if result.get("infer_fp16"):
+        return "float16"
+    if result.get("infer_bf16"):
+        return "bfloat16"
+    return "float32"
+
+
 def _record_facts(path: str) -> Dict[int, dict]:
     """Per side of one record: its logged decisions, the procedure and
-    memory its player recorded (tools/elo_eval_game.py), and the checkpoint
-    and memory reset its match result names (None without a result)."""
+    memory its player recorded (tools/elo_eval_game.py), and the checkpoint,
+    memory reset and serving precision its match result names (None without
+    a result)."""
     record = Path(path)
     rec = read_record(record)
     counts = side_counts(decisions_of(rec))
@@ -289,8 +306,14 @@ def _record_facts(path: str) -> Dict[int, dict]:
         facts[side] = {"decisions": counts[side], "procedure": player.get("procedure"),
                        "memory": player.get("memory"),
                        "checkpoint_sha256": None if x is None else res.get(f"checkpoint_sha256_{x}"),
-                       "memory_reset": None if x is None else bool(res.get(f"memory_reset_{x}"))}
+                       "memory_reset": None if x is None else bool(res.get(f"memory_reset_{x}")),
+                       "serving": serving_precision(res)}
     return facts
+
+
+def servings(facts: Dict[str, Dict[int, dict]]) -> List[Optional[str]]:
+    """The serving precision of each game of `facts`, once a game."""
+    return [next(iter(sides.values()))["serving"] for sides in facts.values() if sides]
 
 
 def record_facts(paths: Dict[str, Path], workers: int = 0) -> Dict[str, Dict[int, dict]]:
