@@ -32,6 +32,10 @@ Batching: the serve thread waits for the first ready connection, reads
 every ready request, then reads what arrives within `window_s` up to
 `max_batch` leaves, and runs one forward. Every worker game has one
 decision in flight, so a batch never exceeds the games in flight.
+
+Here the device idles while the serve thread collects, stages and launches
+a batch and while it writes the replies of the last one;
+tools/serve_pipelined.py overlaps them (opt-in).
 """
 from __future__ import annotations
 
@@ -98,7 +102,8 @@ class ServeStats:
     failed_batches: int = 0      # batches whose forward raised
     failed_requests: int = 0     # requests that still failed alone
     batch_hist: Counter = field(default_factory=Counter)
-    idle_s: float = 0.0      # waiting for a first request
+    idle_s: float = 0.0      # waiting for a first request, no batch on the device
+    busy_wait_s: float = 0.0  # waiting for a first request while a batch runs (pipelined)
     window_s: float = 0.0    # collecting the rest of a batch (its reads included)
     recv_s: float = 0.0      # reading requests off the connections
     infer_s: float = 0.0
@@ -124,8 +129,8 @@ class ServeStats:
             "failed_requests": self.failed_requests,
             "mean_batch": (self.leaves / self.batches if self.batches else 0.0),
             "batch_hist": {str(k): v for k, v in sorted(self.batch_hist.items())},
-            "idle_s": round(self.idle_s, 3), "window_s": round(self.window_s, 3),
-            "recv_s": round(self.recv_s, 3),
+            "idle_s": round(self.idle_s, 3), "busy_wait_s": round(self.busy_wait_s, 3),
+            "window_s": round(self.window_s, 3), "recv_s": round(self.recv_s, 3),
             "infer_s": round(self.infer_s, 3), "reply_s": round(self.reply_s, 3),
             "gpu_ms": round(self.gpu_ms, 1),
             "stage_s": {k: round(v, 3) for k, v in sorted(self.stage_s.items())},
@@ -240,6 +245,8 @@ class InferenceService:
     games). When the probe fails, the service answers the batch with the
     fault, stops, and keeps the fault in `fatal`."""
 
+    pipelined = False                    # tools/serve_pipelined.py's subclass
+
     def __init__(self, listener: Listener, infer_fn: Callable, hello: Dict, *,
                  window_s: float, max_batch: int,
                  health_fn: Optional[Callable[[], None]] = None,
@@ -256,8 +263,10 @@ class InferenceService:
         self._next_cid = 1
         self._ready = _Ready(on_close=self._closed)
         # The accept thread wakes the serve thread's wait through this pipe
-        # when it hands over a connection.
+        # when it hands over a connection (and the pipelined loop's waiter
+        # thread when a batch's device work is done).
         self._wake_r, self._wake_w = Pipe(duplex=False)
+        self._wake_lock = threading.Lock()
         self._ready.add(self._wake_r)
         self._stop = threading.Event()
         self._serve_thread: Optional[threading.Thread] = None
@@ -308,17 +317,27 @@ class InferenceService:
                 log.exception("accept failed")
                 return
             self._incoming.put(conn)
-            try:
-                self._wake_w.send_bytes(b"")
-            except OSError:
+            if not self._wake():
                 return
 
-    def _wait(self, timeout: float) -> List[Any]:
+    def _wake(self) -> bool:
+        """Wake the serve thread's wait; False once the service has closed."""
+        try:
+            with self._wake_lock:
+                self._wake_w.send_bytes(b"")
+        except OSError:
+            return False
+        return True
+
+    def _wait(self, timeout: float, done: Optional[threading.Event] = None) -> List[Any]:
         """The connections with a message within `timeout`. A connection
         the accept thread hands over meanwhile joins the set and the wait
-        goes on for what is left of it."""
+        goes on for what is left of it. `done` (the device work of the
+        batch in flight is done) ends the wait when it is set."""
         deadline = time.monotonic() + timeout
         while True:
+            if done is not None and done.is_set():
+                timeout = 0.0
             ready = self._ready.wait(max(0.0, timeout))
             if self._wake_r not in ready:
                 return ready
@@ -327,7 +346,7 @@ class InferenceService:
                 self._wake_r.recv_bytes()
             self._admit()
             timeout = deadline - time.monotonic()
-            if ready or timeout <= 0:
+            if ready or timeout <= 0 or (done is not None and done.is_set()):
                 return ready
 
     def _admit(self) -> None:
@@ -393,15 +412,25 @@ class InferenceService:
 
     # -- batches -------------------------------------------------------
 
-    def _collect(self) -> List[Request]:
+    def _collect(self, done: Optional[threading.Event] = None) -> List[Request]:
         """The next batch: every request ready now (waiting up to 50 ms
         for a first one, so stop is noticed), then what arrives within
-        the window, up to max_batch leaves."""
+        the window, up to max_batch leaves. With `done` (a batch runs on
+        the device) the wait for a first request lasts until that batch is
+        done, and its being done closes the window: the device would idle."""
         st = self.stats
         t0 = time.monotonic()
-        ready = self._wait(0.05)
+        if done is None:
+            ready = self._wait(0.05)
+        else:
+            ready = self._wait(0.0) if done.is_set() else []
+            while not (ready or done.is_set() or self._stop.is_set()):
+                ready = self._wait(0.05, done)
         t1 = time.monotonic()
-        st.idle_s += t1 - t0
+        if done is None:
+            st.idle_s += t1 - t0
+        else:
+            st.busy_wait_s += t1 - t0
         if not ready:
             return []
         batch: List[Request] = []
@@ -409,9 +438,9 @@ class InferenceService:
         deadline = t1 + self._window
         while leaves < self._max_batch:
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            if remaining <= 0 or (done is not None and done.is_set()):
                 break
-            ready = self._wait(remaining)
+            ready = self._wait(remaining, done)
             if not ready:
                 break
             leaves = self._read(ready, batch, leaves)
@@ -434,11 +463,17 @@ class InferenceService:
         try:
             return self._infer(batch, gpu), [None] * len(batch)
         except Exception:                          # noqa: BLE001
-            error = traceback.format_exc()
+            return self._recover(batch, gpu, traceback.format_exc())
+
+    def _recover(self, batch: List[Request], gpu: Dict[str, float], error: str) -> Tuple[list, list]:
+        """(replies, errors) for a batch whose forward raised `error`: the
+        device's fault when it fails its probe, otherwise each request
+        alone through `infer_fn`."""
         self.stats.failed_batches += 1
         probe = self._probe_failure()
         if probe is not None:
-            self.fatal = f"{error}\nthen the device failed its health probe:\n{probe}"
+            if self.fatal is None:
+                self.fatal = f"{error}\nthen the device failed its health probe:\n{probe}"
             self.stats.failed_requests += len(batch)
             log.error("a failed batch left the device unable to serve; stopping:\n%s",
                       self.fatal)
@@ -477,8 +512,42 @@ class InferenceService:
             return traceback.format_exc()
         return None
 
-    def _serve(self) -> None:
+    def _deliver(self, batch: List[Request], replies: list, errors: list, gpu: Dict[str, float],
+                 infer_s: float) -> None:
+        """Count the batch, then send its replies: counted before, so a
+        client holding its reply reads counters that include it."""
         st = self.stats
+        t1 = time.monotonic()
+        leaves = sum(p.leaves for p in batch)
+        st.requests += len(batch)
+        st.batches += 1
+        st.leaves += leaves
+        st.batch_hist[leaves] += 1
+        st.infer_s += infer_s
+        st.add_batch(gpu)
+        for p, reply, error in zip(batch, replies, errors):
+            self._send(p.conn, reply if error is None else error_message(p.rid, error))
+        st.reply_s += time.monotonic() - t1
+
+    def _halt(self) -> None:
+        """After a device fault: accept nothing more; the process exits
+        once the main thread sees the fault."""
+        self._stop.set()
+        try:
+            self._listener.close()
+        except OSError:
+            pass
+
+    def _close_all(self) -> None:
+        for conn in list(self._ready.conns):
+            self._ready.remove(conn)
+        with self._wake_lock:
+            try:
+                self._wake_w.close()
+            except OSError:
+                pass
+
+    def _serve(self) -> None:
         try:
             while not self._stop.is_set():
                 self._admit()
@@ -488,32 +557,9 @@ class InferenceService:
                 t0 = time.monotonic()
                 gpu: Dict[str, float] = {}
                 replies, errors = self._answer(batch, gpu)
-                t1 = time.monotonic()
-                # Counted before answering, so a client holding its reply
-                # reads counters that include it.
-                leaves = sum(p.leaves for p in batch)
-                st.requests += len(batch)
-                st.batches += 1
-                st.leaves += leaves
-                st.batch_hist[leaves] += 1
-                st.infer_s += t1 - t0
-                st.add_batch(gpu)
-                for p, reply, error in zip(batch, replies, errors):
-                    self._send(p.conn, reply if error is None else error_message(p.rid, error))
-                st.reply_s += time.monotonic() - t1
+                self._deliver(batch, replies, errors, gpu, time.monotonic() - t0)
                 if self.fatal is not None:
-                    # Accept nothing more; the process exits once the main
-                    # thread sees the fault.
-                    self._stop.set()
-                    try:
-                        self._listener.close()
-                    except OSError:
-                        pass
+                    self._halt()
                     return
         finally:
-            for conn in list(self._ready.conns):
-                self._ready.remove(conn)
-            try:
-                self._wake_w.close()
-            except OSError:
-                pass
+            self._close_all()
