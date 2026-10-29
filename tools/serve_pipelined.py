@@ -142,6 +142,12 @@ class PipelinedInferenceService(InferenceService):
         """The batch's device wait and replies, counted and sent."""
         t0 = time.monotonic()
         if item.launched is not None:
+            # The waiter's word that the device is done, rather than the
+            # device's own wait inside complete(), which spins on HIP; a dead
+            # waiter leaves the wait to complete().
+            while not item.done.wait(0.05):
+                if self._waiter is None or not self._waiter.is_alive():
+                    break
             try:
                 replies = list(item.launched.complete())
                 if len(replies) != len(item.batch):

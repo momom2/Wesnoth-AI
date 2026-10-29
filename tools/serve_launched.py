@@ -21,6 +21,11 @@ from wesnoth_ai.byte_wire import DTYPES
 _CODE = {dt: i for i, dt in enumerate(DTYPES)}
 # The head outputs a reply carries, in byte_wire.REPLY_FIELDS's order.
 REPLY_EXTRAS = ("value", "value_logits", "cliffness", "moves_left")
+# The waiter's poll of a batch's done event. An event's synchronize spins
+# its thread's core on HIP for Windows, blocking flag or not (training/
+# metrics/pipelined_serve_20261029, "The CPU"); a poll this fine adds at
+# most about a millisecond to a batch of about 35.
+WAIT_POLL_S = 0.0002
 TORCH_CODE = {torch.float32: _CODE[np.dtype(np.float32)], torch.float64: _CODE[np.dtype(np.float64)],
               torch.int32: _CODE[np.dtype(np.int32)], torch.int64: _CODE[np.dtype(np.int64)],
               torch.int8: _CODE[np.dtype(np.int8)], torch.uint8: _CODE[np.dtype(np.uint8)]}
@@ -84,7 +89,8 @@ class EagerBatch(LaunchedBatch):
 
     def wait(self) -> None:
         if self.done is not None:
-            self.done.synchronize()
+            while not self.done.query():
+                time.sleep(WAIT_POLL_S)
 
     def complete(self) -> List[bytes]:
         t4 = time.perf_counter()
