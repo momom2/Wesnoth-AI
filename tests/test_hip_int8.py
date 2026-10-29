@@ -106,6 +106,43 @@ def test_trunk_support_check():
         check_int8_trunk_supported(pre)
 
 
+def _index(cu):
+    from wesnoth_ai.packed_trunk import PackedIndex
+    cu_t = torch.tensor(cu, dtype=torch.int32)
+    return PackedIndex(src=None, kind=None, actor=None, hex=None, unit=None, glob=None, cu_seqlens=cu_t,
+                       cu_host=cu, max_len=max(b - a for a, b in zip(cu[:-1], cu[1:])))
+
+
+def test_activation_ranges_and_smoothing_factors():
+    """Arm S's calibration on the CPU: the recording loop returns the packed
+    float32 trunk's output, the first layer's qkv range is its input's
+    largest magnitude per channel, every range covers its input, and the
+    factors are max|W|^0.5 / max|X|^0.5 (the input's multiplier, 1 / s)."""
+    from wesnoth_ai.int8_trunk import record_activation_ranges, smoothing_factors
+    from wesnoth_ai.packed_trunk import packed_trunk
+    torch.manual_seed(3)
+    enc = nn.TransformerEncoder(nn.TransformerEncoderLayer(128, 4, 256, batch_first=True), 2,
+                                enable_nested_tensor=False).eval()
+    cu = [0, 5, 40, 41]
+    x = torch.randn(cu[-1], 128)
+    ranges = []
+    with torch.no_grad():
+        out = record_activation_ranges(x, _index(cu), enc, ranges)
+        ref = packed_trunk(enc, x, _index(cu))
+    assert torch.allclose(out, ref, atol=1e-4)
+    assert len(ranges) == 2 and all(set(r) == set(LINEAR_CLASSES) for r in ranges)
+    assert torch.equal(ranges[0]["qkv"], x.abs().amax(dim=0))
+    assert ranges[0]["ff2"].shape == (256,) and (ranges[0]["ff2"] >= 0).all()
+    factors, floored = smoothing_factors(enc, ranges)
+    assert floored == 0
+    w = enc.layers[1].linear1.weight.detach().abs().amax(dim=0)
+    want = w.sqrt() / ranges[1]["ff1"].sqrt()
+    assert torch.allclose(factors[1]["ff1"], want, rtol=1e-5)
+    ranges[0]["out"][3] = 0                           # a channel never seen nonzero
+    _, floored = smoothing_factors(enc, ranges)
+    assert floored == 1
+
+
 def _rocm_int8() -> bool:
     return torch.version.hip is not None and torch.cuda.is_available() and hip_int8_applies(torch.device("cuda"))
 

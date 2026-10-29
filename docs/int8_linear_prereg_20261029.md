@@ -176,3 +176,62 @@ drives the display: a launch that stalls it past 2 s resets the driver
   session, and any reset is reported.
 - **Rates:** read low under the contention, so they are reported only as
   ratios to fp16 measured interleaved.
+
+## Measured (2026-10-29)
+
+Records in `training/metrics/int8_linear_20261029/` (README.md there):
+`gemm_rates.json`, `accuracy_P.json` (P's reading), `accuracy_PS.json`
+(S's, with P rerun in the same process), `calibration_states.json`.
+
+**Speed passes.** The int8 GEMM's summed time over the four shapes is
+below fp16's: fp16 over int8 is 2.02 (ratio of medians, 60 interleaved
+rounds), against a stop rule of 1.
+- qkv 2.46, out 2.13, ff1 (ReLU fused) 2.58, ff2 1.47.
+- The ReLU output's quantization costs 0.61 ms a 48-leaf layer and the
+  attention output's 0.17; `add_ln_q` costs what `add_ln` does.
+
+**The gate fails, both arms.** E over bf16's E per head, and D:
+
+| arm | actor | type | target | weapon | value | D (bf16's) |
+|---|---|---|---|---|---|---|
+| P | 3.26 | 3.59 | 4.30 | 3.64 | 1.82 | 7 (1) |
+| P, rerun beside S | 3.04 | 4.61 | 5.22 | 4.04 | 1.82 | 7 (1) |
+| S | 27.09 | 35.91 | 91.76 | 48.01 | 6.25 | 5 (1) |
+
+**Verdict: rejected.**
+- "Rejected: int8 linears with per-token and per-channel scales, because
+  every head's largest logit error is 1.8 to 4.3 times bf16's, with 7
+  actor argmax flips against bf16's 1."
+- "Rejected: SmoothQuant at alpha 0.5 with its reference clamp, because
+  3,819 channels with a near-zero calibration range got the floor's factor
+  of 1e5, and S on ff2 alone carries the whole failure (E up to 1.05 of
+  the target head's scale)." Those channels are presumably ReLU units
+  that never fired in calibration; that was not checked channel by
+  channel.
+
+Nothing is wired, and the whole forward was not measured.
+
+**Diagnostics.** The error sits on the layer norms' outputs.
+- On the actor head, qkv alone reads 3.2 times bf16 and ff1 alone 4.7.
+  Out alone reads 1.5 and ff2 alone 0.7.
+- Smoothing helps the norms' outputs: ff1 alone goes from 4.7 to 1.25.
+- No int8 configuration measured passes the whole gate, even with one
+  linear class alone.
+
+| reading | predicted | measured |
+|---|---|---|
+| int8 GEMM over fp16, the four shapes summed | 1.5x (1.1x to 2.0x) | 2.02x |
+| int8 GEMM on ff1, TOPS | 18 (12 to 24) | 23.6 (median, under contention) |
+| whole forward, int8 over fp16 | 1.2x | not measured (gate failed) |
+| bf16's largest E over the heads | 0.02 (0.005 to 0.08) | 0.0207, and 0.0165 in the second process |
+| P passes | probability 0.25 | no |
+| S passes, given P fails | probability 0.35 | no |
+
+**Run-to-run variation.** The two processes read different E for the
+same paths: bf16's actor E is 0.0207 in one and 0.0165 in the other.
+- The value head and D match in both processes.
+- Within a process the forward is bit-reproducible, so the gate's
+  comparisons stand.
+- The cause is not pinned (README.md, "Run-to-run variation").
+
+No display-driver reset (System event 4101) was logged on 2026-10-29.

@@ -1,0 +1,104 @@
+{
+ "M": 20693,
+ "rounds": 60,
+ "wall_s": 5.24,
+ "median_ms": {
+  "qkv_fp16": 2.0647,
+  "qkv_int8": 0.8399,
+  "out_fp16": 0.8017,
+  "out_int8": 0.376,
+  "ff1_fp16": 2.6675,
+  "ff1_int8": 1.0338,
+  "ff2_fp16": 2.6011,
+  "ff2_int8": 1.768,
+  "relu_fp16_1536": 0.6922,
+  "quant_384": 0.1667,
+  "quant_1536": 0.605,
+  "add_ln_fp16": 0.7199,
+  "add_ln_q": 0.6128
+ },
+ "min_ms": {
+  "qkv_fp16": 1.6767,
+  "qkv_int8": 0.6954,
+  "out_fp16": 0.5781,
+  "out_int8": 0.2876,
+  "ff1_fp16": 2.3362,
+  "ff1_int8": 0.2942,
+  "ff2_fp16": 1.9183,
+  "ff2_int8": 1.1997,
+  "relu_fp16_1536": 0.5899,
+  "quant_384": 0.1189,
+  "quant_1536": 0.4957,
+  "add_ln_fp16": 0.4644,
+  "add_ln_q": 0.4294
+ },
+ "rates": {
+  "qkv": {
+   "fp16_tflops_min": 10.92,
+   "int8_tops_min": 26.33,
+   "ratio_of_medians": 2.458,
+   "ratio_of_mins": 2.411,
+   "median_paired_ratio": 2.241
+  },
+  "out": {
+   "fp16_tflops_min": 10.56,
+   "int8_tops_min": 21.22,
+   "ratio_of_medians": 2.132,
+   "ratio_of_mins": 2.01,
+   "median_paired_ratio": 2.164
+  },
+  "ff1": {
+   "fp16_tflops_min": 10.45,
+   "int8_tops_min": 82.97,
+   "ratio_of_medians": 2.58,
+   "ratio_of_mins": 7.941,
+   "median_paired_ratio": 2.671
+  },
+  "ff2": {
+   "fp16_tflops_min": 12.73,
+   "int8_tops_min": 20.35,
+   "ratio_of_medians": 1.471,
+   "ratio_of_mins": 1.599,
+   "median_paired_ratio": 1.598
+  }
+ },
+ "sum_ms_median": {
+  "fp16": 8.135,
+  "int8": 4.018,
+  "ratio": 2.025
+ },
+ "sum_ms_min": {
+  "fp16": 6.509,
+  "int8": 2.477,
+  "ratio": 2.628
+ },
+ "device": "AMD Radeon RX 6600",
+ "torch": "2.14.0+rocm10.1.0",
+ "arch": "gfx1032",
+ "resources": {
+  "gemm_relu_False": {
+   "registers": 105,
+   "scratch_bytes": 0
+  },
+  "gemm_relu_True": {
+   "registers": 105,
+   "scratch_bytes": 0
+  },
+  "quant_d1536": {
+   "registers": 53,
+   "scratch_bytes": 0
+  },
+  "add_ln_q_d1536": {
+   "registers": 100,
+   "scratch_bytes": 0
+  }
+ },
+ "tiling": {
+  "threads": 256,
+  "BM": 128,
+  "BN": 128,
+  "BK": 32,
+  "TM": 8,
+  "TN": 8
+ }
+}
