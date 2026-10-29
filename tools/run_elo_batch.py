@@ -475,10 +475,11 @@ def _log_server_stats(stats: dict) -> None:
             log.error("inference server %s stopped serving on a device fault:\n%s",
                       Path(spec).name, st["fatal"][-2000:])
         log.info("inference server %s: %d requests in %d batches, mean batch "
-                 "%.2f, hist %s; idle %.1fs window %.1fs (reads %.1fs) infer %.1fs "
+                 "%.2f, hist %s; idle %.1fs (busy-wait %.1fs) window %.1fs (reads %.1fs) infer %.1fs "
                  "reply %.1fs of %.1fs wall (gpu %.1fs); host seconds by stage %s",
                  Path(spec).name, st["requests"], st["batches"], st["mean_batch"],
-                 st["batch_hist"], st["idle_s"], st["window_s"], st.get("recv_s", 0.0),
+                 st["batch_hist"], st["idle_s"], st.get("busy_wait_s", 0.0), st["window_s"],
+                 st.get("recv_s", 0.0),
                  st["infer_s"], st["reply_s"], st["wall_s"], st["gpu_ms"] / 1000.0,
                  st.get("stage_s", {}))
 
@@ -753,6 +754,11 @@ def main(argv: List[str]) -> int:
                          "cost, so a second process on the same GPU raises the "
                          "ceiling; games are handed to servers round-robin. "
                          "Costs one model copy of VRAM per extra process.")
+    ap.add_argument("--inference-pipelined", action=argparse.BooleanOptionalAction, default=False,
+                    help="Shared inference: each server launches its next batch before completing the "
+                         "one on the device and collects it while the device runs "
+                         "(eval_inference_server --pipelined, tools/serve_pipelined.py). A timing "
+                         "switch: the same replies for a given batch; recorded in each server's info.")
     ap.add_argument("--inference-window-ms", type=float, default=1.5,
                     help="Shared inference: after a first request, how long "
                          "the server collects more before one forward.")
@@ -1141,6 +1147,7 @@ def main(argv: List[str]) -> int:
                         server_memory=bool(args.server_memory), priors_only=bool(args.priors_only),
                         bf16_residual=bool(args.bf16_residual), fused_relu=bool(args.fused_relu),
                         fp8=fp8, fp16=bool(args.infer_fp16),
+                        pipelined=bool(args.inference_pipelined),
                         timeline_s=float(args.inference_timeline_s),
                         profile_batches=int(args.inference_profile_batches),
                         profile_after=int(args.inference_profile_after))
