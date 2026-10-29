@@ -144,6 +144,38 @@ def test_a_closed_connection_leaves_the_others_served():
         svc.stop()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="the buffer is a Windows named pipe's")
+def test_a_reply_larger_than_the_old_pipe_buffer_is_written_without_its_client():
+    """The server's pipes hold a whole reply: a 64 kB write (an 8 kB pipe
+    makes the writer wait for its reader) returns while the client is not
+    reading, which it does only seconds later."""
+    import time
+
+    from tools.eval_inference_server import pipe_listener
+    listener = pipe_listener()
+    read, got = threading.Event(), []
+
+    def client():
+        c = Client(listener.address)
+        read.wait(10)
+        got.append(len(c.recv_bytes()))
+        c.close()
+    t = threading.Thread(target=client)
+    t.start()
+    conn = listener.accept()
+    try:
+        t0 = time.monotonic()
+        conn.send_bytes(b"x" * 65536)
+        took = time.monotonic() - t0
+    finally:
+        read.set()
+        t.join(10)
+        conn.close()
+        listener.close()
+    assert took < 1.0, took
+    assert got == [65536]
+
+
 def test_a_failing_request_does_not_fail_its_batch_mates():
     """A batch holds one decision from each of several games: when
     the forward raises, the requests are retried one at a time and
