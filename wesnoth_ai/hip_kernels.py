@@ -29,7 +29,8 @@ recomputes the probabilities from; this module has no autograd. Another
 so the projection's GEMM runs without one (ROCm's addmm adds a bias in a
 pass of its own, training/metrics/hip_bias_fold_20261029/README.md): an
 fp16 add, correctly rounded as torch's is, of the bias [3, heads,
-head_dim]. The kernels without it are the same code as before it.
+head_dim]. The kernels without it compile to the instructions they had
+before it (that record's same_code.py).
 
 Build: hiprtc (shipped with the ROCm runtime) compiles the source for
 the device's architecture on first use, and the HIP module API loads

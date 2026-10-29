@@ -8,8 +8,9 @@ residual stream) and its fp16 rounding (the next linear's input): an
 add, a layer norm and a cast in one pass, one wave32 a row. A variant
 also adds the sublayer's bias (fp16 [d]) to its output in float32 before
 the residual add, so the sublayer's GEMM runs without one: ROCm's addmm
-adds a bias in a pass of its own, about a third of the GEMM's time at a
-48-leaf batch (training/metrics/hip_bias_fold_20261029/README.md).
+adds a bias in a pass of its own (training/metrics/hip_bias_fold_20261029/
+README.md). The kernels without the bias compile to the instructions they
+had in hip_kernels.py before it (that record's same_code.py).
 
 The bias and ReLU writes relu(y + bias) over the fp16 rows y in place:
 the first feed-forward linear's bias and activation in one pass, the add
@@ -72,9 +73,13 @@ __device__ __forceinline__ void add_ln(const float* __restrict__ x, const _Float
     #pragma unroll
     for (int i = 0; i < NI; ++i) {
         const int c = i * 128 + lane * 4;
-        f4 yv = __builtin_convertvector(*(const h4*)(y + base + c), f4);
-        if (BIAS) yv += __builtin_convertvector(*(const h4*)(yb + c), f4);
-        v[i] = *(const f4*)(x + base + c) + yv;
+        if (BIAS) {
+            const f4 yv = __builtin_convertvector(*(const h4*)(y + base + c), f4)
+                          + __builtin_convertvector(*(const h4*)(yb + c), f4);
+            v[i] = *(const f4*)(x + base + c) + yv;
+        } else {   // the expression before the bias variant, so the same code
+            v[i] = *(const f4*)(x + base + c) + __builtin_convertvector(*(const h4*)(y + base + c), f4);
+        }
         s += v[i][0] + v[i][1] + v[i][2] + v[i][3];
     }
     #pragma unroll
