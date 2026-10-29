@@ -256,6 +256,30 @@ def test_a_server_without_memory_refuses_a_served_state(leaves, server):
             serve(server, [req])
 
 
+def test_the_waiter_polls_a_launched_batch_and_never_synchronizes():
+    """The pipelined waiter polls the batch's done event: an event's
+    synchronize spins a core on HIP for Windows
+    (training/metrics/pipelined_serve_20261029, "The CPU")."""
+    from tools.serve_launched import EagerBatch
+
+    class Event:
+        polls = 0
+
+        def query(self):
+            self.polls += 1
+            return self.polls >= 3
+
+        def synchronize(self):
+            raise AssertionError("the waiter synchronized on the event")
+
+    done = Event()
+    batch = EagerBatch(dev=torch.device("cuda"), done=done, commit=None, stats=None, events=None,
+                       parsed=None, out_layout=None, out_host=torch.empty(0), names=[], memory_arg=None,
+                       capacity=0, actor_kind=torch.empty(0), a_max=0, versions=None, keep=())
+    batch.wait()
+    assert done.polls == 3
+
+
 def test_launched_batches_overlap_and_keep_the_memory(leaves, server):
     """The pipelined loop's order on the memory books (tools/serve_pipelined.py):
     batch B launched before batch A completes, A's next launched after A's

@@ -333,8 +333,36 @@ What it settles from "What the stand-in does not settle":
   None there). The pipelined waiter waits on a default event
   (`serve_stage`'s `done = torch.cuda.Event()`). On HIP the event's
   synchronize most likely spins, while the stream's yields. The rate
-  gained anyway, but the desktop loses a core to it. The next variant to
-  try is a blocking event (`torch.cuda.Event(blocking=True)`).
+  gained anyway, but the desktop loses a core to it.
+
+  Two variants on `exp/pipelined-blocking-wait`, each A/B'd against the
+  pipelined loop as merged (`feature/local-gpu-stage1` at f544cbdd). Each
+  had two rounds at 96 in flight, the second in reverse order, with the
+  server's CPU sampled.
+
+  | Variant | Server CPU, cores | Steady decisions/s | Against its default arms |
+  |---|---|---|---|
+  | default event (two A/Bs, 4 runs) | 1.17-1.19 | 574.3-594.7 | |
+  | blocking event, `torch.cuda.Event(blocking=True)` (26ca6310) | 1.16, 1.17 | 593.2, 599.9 | +2.1%, the noise |
+  | **the waiter polls `query()` every 0.2 ms; the serve thread waits on the waiter's signal** | **0.32, 0.33** | 598.3, 599.7 | +2.8%, the noise |
+
+  - **The blocking event is rejected.** On HIP for Windows the flag does
+    not change the wait: both threads still spin.
+  - **The poll is adopted.**
+    - `EagerBatch.wait()` polls the event instead of synchronizing on it.
+    - `PipelinedInferenceService._finish` waits on the waiter's
+      `threading.Event` before `complete()`, whose synchronize then returns
+      at once.
+    - The server gives back about 0.85 of a core, near the serial loop's
+      0.21, and the rate does not drop.
+    - A dead waiter leaves the wait to `complete()`.
+    - `test_serve_stage.py::test_the_waiter_polls_a_launched_batch_and_never_synchronizes`
+      pins the poll.
+  - With the poll, the pipelined loop's device wait no longer shows in
+    `t_finish` (0.05 s a run). It is in the serve thread's wait on the
+    waiter, so it shows in `infer` only. Read the steady rate.
+  - Out dirs: `C:\Users\momom2\wesnoth_runs\pipelined_blocking_20261029`
+    and `pipelined_polling_20261029`.
 - **A machine limitation, not this change:**
   `test_serve_stage.py::test_on_cuda_the_kept_memory_plays_as_the_wire[True]`
   fails on the RX 6600, here and at fc560ab9 (before the merge). Every
