@@ -147,7 +147,8 @@ class EvalContext:
                           < config.kl_fraction] or self.sides[:1])
         self.decisions = start
         self.cache: Optional[ReadingCache] = (
-            ReadingCache(Path(config.cache), context_key(self.checkpoint_sha256, self.sides, self.kl_sides, config))
+            ReadingCache(Path(config.cache), context_key(self.checkpoint_sha256, self.sides, self.kl_sides, config,
+                                                         device=self.device.type))
             if config.cache else None)
         self._base: Optional[Reading] = None            # theta_k over every held-out decision
         self._laws: Optional[List[Dict[str, torch.Tensor]]] = None   # theta_k's laws at each KL time step

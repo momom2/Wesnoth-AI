@@ -76,20 +76,31 @@ def keep_awake() -> None:
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+RESET_CHECK_TIMED_OUT = -1         # display_resets_since's answer when its query hung twice: the run stops
+
+
 def display_resets_since(t0: float) -> int:
     """Display-driver resets (Windows System event 4101, a TDR) logged since
     t0 (epoch seconds); 0 off Windows. The RX 6600 drives the display, so
-    a reset means a kernel stalled the GPU past 2 s: the run stops."""
+    a reset means a kernel stalled the GPU past 2 s: the run stops.
+    RESET_CHECK_TIMED_OUT (nonzero, so it stops a run too) when the query
+    hung twice."""
     if sys.platform != "win32":
         return 0
     start = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t0))
     cmd = (f"(Get-WinEvent -FilterHashtable @{{LogName='System'; Id=4101; StartTime=[datetime]'{start}'}} "
            f"-ErrorAction SilentlyContinue | Measure-Object).Count")
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=120)
-    try:
-        return int(r.stdout.strip() or 0)
-    except ValueError:
-        return 0
+    for _ in range(2):                          # a query that hangs once is asked again
+        try:
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True,
+                               timeout=120)
+        except subprocess.TimeoutExpired:
+            continue
+        try:
+            return int(r.stdout.strip() or 0)
+        except ValueError:
+            return 0
+    return RESET_CHECK_TIMED_OUT
 
 
 def require_visible_gpu() -> None:
@@ -319,7 +330,10 @@ class Steps:
         if gpu:
             n = self.resets(t0)
             if n:
-                why = f"{n} display-driver reset(s) (System event 4101) during {name}"
+                why = (f"the display-reset check timed out twice after {name}" if n == RESET_CHECK_TIMED_OUT
+                       else f"{n} display-driver reset(s) (System event 4101) during {name}")
+                if rc == 0:                     # its product may be whole: the lead decides, never a plain rerun
+                    why += f"; {name} returned 0, so check its product before running it again"
                 (self.out / "STOP").write_text(why + "\n", encoding="utf-8")
                 raise Stopped(why)
         return rc

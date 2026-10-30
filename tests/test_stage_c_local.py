@@ -132,7 +132,8 @@ def test_a_display_reset_stops_the_run_and_a_new_start_resumes_past_what_landed(
     tools = FakeTools(reset_at="pass")
     rc, out = _run(tmp_path, tools)
     assert rc == 2 and tools.names() == ORDER[:5]
-    assert "display-driver reset" in (out / "STOP").read_text(encoding="utf-8")
+    stop = (out / "STOP").read_text(encoding="utf-8")
+    assert "display-driver reset" in stop and "returned 0, so check its product" in stop    # never a plain rerun
     blocked = FakeTools()
     assert _run(tmp_path, blocked)[0] == 2 and blocked.names() == []          # STOP holds until removed
     (out / "STOP").unlink()

@@ -7,7 +7,8 @@ A reading is keyed by everything it depends on:
 - the context: the checkpoint's SHA-256, the held-out game-sides in their
   order (game, side, start, stop, half), the KL subsample, the `EvalConfig`
   fields that change a forward (not `workers`, `prefetch`, `verify` or
-  `cache`), and CACHE_VERSION;
+  `cache`), the device type, torch's version, CACHE_VERSION, and the code
+  (`code_key`: the forward path's sources and the installed core's binary);
 - the direction: the SHA-256 of its parameters' names, shapes and float32
   bytes;
 - the step s, exactly (`float.hex`), and for a half reading its halves.
@@ -20,6 +21,7 @@ the pass's sums, so they are bit-identical from one start to the next.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -32,14 +34,34 @@ import torch
 
 CACHE_VERSION = 1                       # bump when a reading's meaning changes
 _UNREAD_FIELDS = ("workers", "prefetch", "verify", "cache")      # EvalConfig fields no forward depends on
+_REPO = Path(__file__).resolve().parents[1]
+_CODE_GLOBS = ("wesnoth_ai/**/*.py", "tools/pg_*.py")              # the encoder, the model, the HIP kernels, the pg tools
 
 
-def context_key(checkpoint_sha256: str, sides: Sequence, kl_sides: Sequence, config) -> str:
+@functools.lru_cache(maxsize=1)
+def code_key() -> str:
+    """The SHA-256 of the forward path's sources (_CODE_GLOBS under the
+    repository, by path and bytes) and of the installed core's binary, so a
+    reading written by other code is a miss."""
+    import wesnoth_core
+    files = sorted({p for g in _CODE_GLOBS for p in _REPO.glob(g) if "__pycache__" not in p.parts})
+    h = hashlib.sha256()
+    for p in files:
+        h.update(p.relative_to(_REPO).as_posix().encode())
+        h.update(p.read_bytes())
+    for p in sorted(Path(wesnoth_core.__file__).parent.glob("*.pyd")) + sorted(Path(wesnoth_core.__file__).parent.glob("*.so")):
+        h.update(p.name.encode())
+        h.update(p.read_bytes())
+    return h.hexdigest()[:24]
+
+
+def context_key(checkpoint_sha256: str, sides: Sequence, kl_sides: Sequence, config, device: str = "") -> str:
     """The key of an evaluation context (module docstring)."""
     fields = {k: v for k, v in asdict(config).items() if k not in _UNREAD_FIELDS}
     spec = {"version": CACHE_VERSION, "checkpoint": checkpoint_sha256, "config": fields,
             "sides": [[gs.game, gs.side, gs.start, gs.stop, gs.half] for gs in sides],
-            "kl_sides": [[gs.game, gs.side] for gs in kl_sides]}
+            "kl_sides": [[gs.game, gs.side] for gs in kl_sides],
+            "device": device, "torch": torch.__version__, "code": code_key()}
     return hashlib.sha256(json.dumps(spec, sort_keys=True, default=str).encode()).hexdigest()[:24]
 
 

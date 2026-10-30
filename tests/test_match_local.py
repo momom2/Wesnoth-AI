@@ -450,6 +450,21 @@ def test_display_resets_are_read_from_the_system_log(monkeypatch):
         assert lm.display_resets_since(time.time() - 60) == n
     assert calls[0][0] == "powershell" and "Id=4101" in calls[0][-1] and "LogName='System'" in calls[0][-1]
 
+    hangs = []
+
+    def hung_run(cmd, **kw):                             # hangs `len(hangs)` < limit times, then answers
+        hangs.append(cmd)
+        if len(hangs) <= limit:
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        return subprocess.CompletedProcess(cmd, 0, stdout="3\n", stderr="")
+
+    monkeypatch.setattr(lm.subprocess, "run", hung_run)
+    limit = 1
+    assert lm.display_resets_since(time.time() - 60) == 3 and len(hangs) == 2      # asked again once
+    hangs.clear()
+    limit = 2
+    assert lm.display_resets_since(time.time() - 60) == lm.RESET_CHECK_TIMED_OUT and len(hangs) == 2
+
 
 def test_priority_and_keep_awake_off_windows(monkeypatch):
     niced = []

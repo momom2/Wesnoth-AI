@@ -341,3 +341,27 @@ def test_a_restarted_evaluator_reads_its_readings_back_from_the_cache(tmp_path):
     k1 = context_key("sha", context.sides, context.kl_sides, EvalConfig(streams=2, cache="x"))
     assert k1 == context_key("sha", context.sides, context.kl_sides, EvalConfig(streams=2, workers=9, cache="y"))
     assert k1 != context_key("sha", context.sides, context.kl_sides, EvalConfig(streams=4, cache="x"))
+
+
+def test_the_reading_caches_key_holds_the_code_and_the_device(tmp_path, monkeypatch):
+    """A reading written by other code, or on another device, is a miss:
+    the key hashes the forward path's sources and the core's binary, and
+    names the device type."""
+    import tools.pg_eval_cache as pc
+    from tools.pg_eval import EvalConfig
+    src = tmp_path / "wesnoth_ai"
+    src.mkdir()
+    (src / "model.py").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(pc, "_REPO", tmp_path)
+    pc.code_key.cache_clear()
+    try:
+        before = pc.code_key()
+        assert pc.code_key() == before                                    # stable
+        k_cpu = pc.context_key("sha", [], [], EvalConfig(), device="cpu")
+        assert k_cpu != pc.context_key("sha", [], [], EvalConfig(), device="cuda")
+        (src / "model.py").write_text("x = 2\n", encoding="utf-8")
+        pc.code_key.cache_clear()
+        assert pc.code_key() != before
+        assert pc.context_key("sha", [], [], EvalConfig(), device="cpu") != k_cpu
+    finally:
+        pc.code_key.cache_clear()

@@ -117,6 +117,8 @@ def test_the_rounds_run_in_order_each_played_by_the_last_adopted_policy(tmp_path
     assert rc == 0 and tools.names() == ORDER
     first = tools.cmd("round 1 step")
     assert first[first.index("--adopt-from") + 1].endswith("stage_c.json")
+    for k in (1, 2, 3):                                  # each ladder keeps its readings, so a restart resumes
+        assert f"cache={out / f'round_{k:02d}' / 'eval_cache'}" in tools.cmd(f"round {k} step")
     pi_1 = str(out / "round_01" / "pi.pt")
     assert tools.cmd("round 2 games")[tools.cmd("round 2 games").index("--checkpoint") + 1] == pi_1
     assert tools.cmd("round 3 games")[tools.cmd("round 3 games").index("--checkpoint") + 1] == pi_1

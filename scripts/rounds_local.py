@@ -170,10 +170,12 @@ class Rounds(Steps):
         chunks = (self.n_train + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES
         return [str(play / f"games_s{c:02d}") for c in range(chunks)]
 
-    def factory_args(self, checkpoint: str, dirs: List[str], labels: Path) -> List[str]:
+    def factory_args(self, checkpoint: str, dirs: List[str], labels: Path, cache: Path) -> List[str]:
+        """The evaluator's arguments; its readings are kept in `cache`, so a
+        restarted ladder resumes (tools/pg_eval_cache.py)."""
         out = []
         for key, value in (("checkpoint", checkpoint), ("games", ",".join(dirs)), ("labels", labels),
-                           ("device", "cuda"), ("workers", self.workers), ("fp16", "1")):
+                           ("device", "cuda"), ("workers", self.workers), ("fp16", "1"), ("cache", cache)):
             out += ["--factory-arg", f"{key}={value}"]
         return out
 
@@ -186,7 +188,7 @@ class Rounds(Steps):
         dirs = [str(p) for p in sorted(self.s1.glob("games_s*")) if p.is_dir()]
         rc = self.step("round 1 step", ["tools/pg_round.py", "--pass", str(self.sc / "pass.pt"), "--factory",
                                         "tools.pg_eval:network_factory",
-                                        *self.factory_args(self.pi0, dirs, self.s1 / "labels.jsonl"),
+                                        *self.factory_args(self.pi0, dirs, self.s1 / "labels.jsonl", d / "eval_cache"),
                                         "--adopt-from", str(self.sc / "stage_c.json"), "--out", str(d / "round.json"),
                                         "--candidate", str(d / "pi.pt"), "--direction-out",
                                         str(d / "direction.pt")], "round_01.log", STEP_CUT_MIN)
@@ -239,7 +241,7 @@ class Rounds(Steps):
             previous = ["--previous", str(prev / "direction.pt")] if (prev / "direction.pt").exists() else []
             rc = self.step(f"round {k} step", ["tools/pg_round.py", "--pass", str(d / "pass.pt"), "--factory",
                                                "tools.pg_eval:network_factory",
-                                               *self.factory_args(pi, dirs, labels), "--eps-from",
+                                               *self.factory_args(pi, dirs, labels, d / "eval_cache"), "--eps-from",
                                                str(prev / "round.json"), "--arm-from", str(self.sc / "stage_c.json"),
                                                *previous, "--out", str(d / "round.json"), "--candidate",
                                                str(d / "pi.pt"), "--direction-out", str(d / "direction.pt")],
