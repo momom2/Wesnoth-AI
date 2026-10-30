@@ -306,12 +306,17 @@ class StageC:
                                 "pass_slopes": slopes_from_pass(self.pass_, list(self.heads))}
         self.write()
 
-    def _scaled(self, d: Direction, evaluator=None):
+    def _scaled(self, d: Direction, evaluator=None, like: Optional[Tuple[float, float]] = None):
+        """d's evaluator and its step at KL eps. The search starts at 1/|d|,
+        or, given `like` = (s, |d'|) of a direction d' already searched,
+        at the step that moves the network as far: s |d'| / |d| (as
+        `_quadratic` places its forms)."""
         evaluator = evaluator if evaluator is not None else self.factory(d)
         size = norm(d)
         if size == 0:
             raise ValueError("a zero direction")
-        return evaluator, kl_search(evaluator.mean_kl, self.eps, s0=1.0 / size)
+        s0 = 1.0 / size if like is None else like[0] * like[1] / size
+        return evaluator, kl_search(evaluator.mean_kl, self.eps, s0=s0)
 
     def _read_half_a(self, evaluator, point) -> HalfReading:
         select = self.halves[0]
@@ -401,16 +406,18 @@ class StageC:
         games = self.pass_["split_games"]
         full_games = sum(games)
         full = self.arm_readings[DEFAULT_ARM].first_order
+        like = (self.points[DEFAULT_ARM].s, norm(self.directions[DEFAULT_ARM]))
         points = []
         for k in splits:
             if k >= len(games):
                 continue
             d = self.direction(DEFAULT_ARM, gradient=pooled_gradient(self.pass_, range(k)))
-            evaluator, point = self._scaled(d)
+            evaluator, point = self._scaled(d, like=like)       # warm: the whole pass's step, by norm
             reading = self._read_half_a(evaluator, point).first_order
             ratio, ratio_se = paired_ratio(reading, full)
             n = sum(games[:k])
-            points.append({"splits": k, "games": n, "s": point.s, "kl": point.kl,
+            points.append({"splits": k, "games": n, "s": point.s, "kl": point.kl, "evals": point.evals,
+                           "norm": norm(d),
                            "first_order": reading.summary(), "ratio": ratio, "ratio_se": ratio_se,
                            "model_ratio": gain_ratio(n, full_games, batch.B) if batch.resolved else NAN})
             self.readout["gain_curve"] = {"B": batch.B, "B_status": batch.status, "full_games": full_games,

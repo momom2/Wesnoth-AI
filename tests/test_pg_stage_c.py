@@ -211,13 +211,16 @@ def test_the_driver_reads_what_its_plan_prices(toy, tmp_path, monkeypatch):
     counted on the toy, are the read plan stage C is priced by
     (tools/stage_c_plan.read_plan): theta_k once, no candidate over every
     game-side, each half read the plan names, its KL searches, and its fixed
-    KL readings; a search's readings average at most the plan's KL_EVALS."""
+    KL readings; a search's readings average at most the plan's KL_EVALS.
+    The gain curve's searches start warm, at the whole pass's step scaled by
+    the ratio of the directions' norms."""
     import wesnoth_ai.pg_step as pg_step
     from tools import pg_stage_c
     from tools.stage_c_plan import KL_EVALS
     game, params, pass_, heldout = toy
     counted = _Counted(toy_game.factory(params, heldout))
     search = pg_step.kl_search
+    starts = {}                                         # a search's result s -> its starting s
 
     def counted_search(kl_at, target, **kwargs):
         counted.in_search = True
@@ -227,7 +230,9 @@ def test_the_driver_reads_what_its_plan_prices(toy, tmp_path, monkeypatch):
             counted.searches[-1] += 1
             return kl_at(s)
         try:
-            return search(at, target, **kwargs)
+            point = search(at, target, **kwargs)
+            starts[point.s] = kwargs.get("s0")
+            return point
         finally:
             counted.in_search = False
 
@@ -242,6 +247,11 @@ def test_the_driver_reads_what_its_plan_prices(toy, tmp_path, monkeypatch):
     assert counted.reads["kl_readings"] == plan["kl_readings"]
     assert counted.reads["kl_search"] <= sum(counted.searches)
     assert np.mean(counted.searches) <= KL_EVALS, counted.searches
+    full = readout["arms"]["reduced_adamw"]
+    points = readout["gain_curve"]["points"]
+    assert points
+    for p in points:
+        assert starts[p["s"]] == pytest.approx(full["s"] * full["norm"] / p["norm"], rel=1e-12)
 
 
 def test_another_arm_replaces_the_default_only_beyond_two_paired_se():
