@@ -34,13 +34,31 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
    - the driver;
    - the plant;
    - the verdict.
-4. **P and the link match**, by design §6, if stage C's verdict says
-   rounds. Neither is built yet.
-5. **The rounds:**
+4. **P and the link match**, by design §6, if stage C's verdict says P
+   (built 2026-10-30, `scripts/p_local.py`):
+
+       HIP_VISIBLE_DEVICES=1 <rocm venv>/python scripts/p_local.py --stage1 C:/Users/momom2/wesnoth_runs/selfplay_t1_local \
+           --stage-c C:/Users/momom2/wesnoth_runs/stage_c_local --out C:/Users/momom2/wesnoth_runs/p_local --e 0.02 --keep-awake
+
+   - **P:** the planted step θ′ (stage C's `planted.pt`) against π₀, 5,000
+     games at temperature 1. X per side-game must rise on each seat by 2
+     SE, and every game-side θ′ played must carry θ′'s weights.
+   - **The link:** `own2` at T = 1/1.02 against `own2` at T = 1/0.98,
+     12,800 games, against the forecast 2e × 2.64 ± 2e × 0.08 =
+     **0.106 ± 0.003** in E[z]. It holds within 2 combined SE.
+   - **Why e = 0.02, proposed here for the next session to seal before the
+     match:**
+     - the forecast is exact to second order, so a small e keeps the third
+       order negligible;
+     - the match's SE over 12,800 games, about 0.009, still resolves the
+       forecast at about 12 SE;
+     - a miss of 2 combined SE is about 17% of the forecast.
+5. **The rounds** wait on stage P's two verdicts (`--p-out`):
 
        HIP_VISIBLE_DEVICES=1 <rocm venv>/python scripts/rounds_local.py \
            --stage1 C:/Users/momom2/wesnoth_runs/selfplay_t1_local \
-           --stage-c C:/Users/momom2/wesnoth_runs/stage_c_local --out C:/Users/momom2/wesnoth_runs/rounds_local --keep-awake
+           --stage-c C:/Users/momom2/wesnoth_runs/stage_c_local --p-out C:/Users/momom2/wesnoth_runs/p_local \
+           --out C:/Users/momom2/wesnoth_runs/rounds_local --keep-awake
 
 ## What differs from the design's box run, and why
 
