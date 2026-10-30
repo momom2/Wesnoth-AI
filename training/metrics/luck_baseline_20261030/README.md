@@ -102,3 +102,27 @@ Building them is work on `feature/pg-fp16`'s line:
 
     <cpu python> training/metrics/luck_baseline_20261030/partial_luck.py \
         --run C:/Users/momom2/wesnoth_runs/selfplay_t1_local --jobs 10 --out partial_luck.json
+
+## Further history features: rejected by the rule (2026-10-30)
+
+`value_features.py` tests three more baseline features, on the same 30,000
+games, cross-fitted. Each is a function of the history before a_t:
+- `v_opp`: minus the opponent's latest reading;
+- `v_prev`: the side's own previous reading;
+- `v_mean`: the mean of the side's readings so far.
+
+Results are in `value_features.json`:
+
+| Label | E[R²] a decision | Over v̂ + luck | Share of luck-only |
+|---|---|---|---|
+| v̂ + luck | 0.5958 | | |
+| + v_opp | 0.5818 | 0.0140 ± 0.0002 | 1.59% |
+| + v_prev | 0.5950 | 0.0008 ± 0.0000 | 0.09% |
+| + v_mean | 0.5957 | 0.0001 ± 0.0001 | 0.01% |
+| + all three | 0.5813 | 0.0144 ± 0.0002 | 1.64% |
+
+The opponent's reading is a real gain (z 70), but at 1.6% of the luck-only
+noise it is below the rule's 5% (design §4: "5% of about $70 of rounds is
+$3.5"). The side's own earlier readings add nothing to v̂_t. **None
+enters.** The rule prices a correction's upkeep; at 1.6% it does not pay
+for itself.
