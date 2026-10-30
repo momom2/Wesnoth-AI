@@ -58,8 +58,8 @@ from typing import Callable, Dict, List, Optional
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from scripts.local_machine import (below_normal_priority, default_tools_python, display_resets_since,  # noqa: E402
-                                   keep_awake, log, require_visible_gpu, run_tool)
+from scripts.local_machine import (Steps, Stopped, below_normal_priority, default_tools_python,  # noqa: E402
+                                   display_resets_since, keep_awake, log, require_visible_gpu, run_tool)
 from scripts.selfplay_t1_local import CHUNK_GAMES, GATES, HELDOUT_FROM, N_SELFPLAY, SP_SEED_BASE  # noqa: E402
 
 C0_GAMES = 200
@@ -82,64 +82,17 @@ PASS_EXITS = {3: "the replay identity failed", 4: "the precision floor's bound l
               5: "the packed and padded trunks disagree in fp32"}
 
 
-class Stopped(Exception):
-    """The run ends here: a STOP file, or a display reset during a step."""
-
-
-class Run:
+class Run(Steps):
     def __init__(self, args, runner: Callable[..., int] = run_tool,
                  resets: Callable[[float], int] = display_resets_since):
+        super().__init__(args.out, args.python, args.tools_python, runner, resets)
         self.a = args
-        self.out: Path = args.out
         self.s1: Path = args.stage1
         self.ck = str(args.checkpoint)
-        self.py, self.tools_py = args.python, args.tools_python
         self.workers = str(args.workers)
-        self.runner, self.resets = runner, resets
-        self.state: List[str] = []
         self.dirs: List[str] = []
         self.cuts: Dict[str, float] = {}
         self.trim = False
-
-    # ---- markers
-    def done(self, part: str) -> bool:
-        return (self.out / f"{part}.done").exists()
-
-    def failed_before(self, part: str) -> Optional[str]:
-        f = self.out / f"{part}.failed"
-        return f.read_text(encoding="utf-8").strip() if f.exists() else None
-
-    def mark(self, part: str, why: Optional[str] = None) -> None:
-        name = f"{part}.failed" if why else f"{part}.done"
-        (self.out / name).write_text((why or time.strftime("%Y-%m-%d %H:%M:%S")) + "\n", encoding="utf-8")
-        self.state.append(f"{part}: {'FAILED, ' + why if why else 'done'};")
-
-    def skip(self, part: str) -> bool:
-        """True when `part` is done or failed at an earlier start."""
-        if self.done(part):
-            self.state.append(f"{part}: done;")
-            return True
-        why = self.failed_before(part)
-        if why:
-            self.state.append(f"{part}: FAILED at an earlier start, {why};")
-            return True
-        return False
-
-    def check_stop(self, before: str) -> None:
-        if (self.out / "STOP").exists():
-            raise Stopped(f"STOP found before {before}")
-
-    # ---- one step
-    def step(self, name: str, cmd: List[str], log_name: str, cut_min: float, gpu: bool = True) -> int:
-        t0 = time.time()
-        rc = self.runner(self.out, name, cmd, log_name, cut_min, self.py if gpu else self.tools_py)
-        if gpu:
-            n = self.resets(t0)
-            if n:
-                why = f"{n} display-driver reset(s) (System event 4101) during {name}"
-                (self.out / "STOP").write_text(why + "\n", encoding="utf-8")
-                raise Stopped(why)
-        return rc
 
     def games(self) -> List[str]:
         return ["--games", *self.dirs]

@@ -57,6 +57,28 @@ MIN_FREE_MB = 300
 GATES = ("i_sample", "legal_mass", "i_count", "dice_control", "i_v")
 
 
+def player_flags(reference: List[str], side: str, label: str, slots: Optional[int] = None,
+                 spec: Optional[str] = None) -> List[str]:
+    """The reference's run_elo_batch flags for `side` (`reference`) as a
+    temperature-1 player's: its label replaced, its end_turn offset dropped,
+    its memory at `slots` and its checkpoint `spec` when given (a round's
+    player)."""
+    out = []
+    for i in range(0, len(reference) - 1, 2):
+        k, v = reference[i], reference[i + 1]
+        if k == f"--label-{side}":
+            out += [k, label]
+        elif k == f"--spec-{side}" and spec is not None:
+            out += [k, str(spec)]
+        elif k == f"--memory-{side}":
+            out += [k, str(slots if slots is not None else v)]
+        elif k == f"--raw-end-turn-offset-{side}":
+            continue
+        else:
+            out += [k, v]
+    return out
+
+
 def gates_of(readout_json: Path) -> str:
     """The readout's gates, one word each (the box script's gates()):
     `i_sample=pass legal_mass=FAIL ...`; "unreadable" when readout.json is."""
@@ -118,23 +140,7 @@ class Run:
         return reference_flags(side, self.tools_py)
 
     def side_flags(self, side: str, label: str, slots: Optional[int] = None, spec: Optional[str] = None) -> List[str]:
-        """The reference's flags for `side` at temperature 1: its label
-        replaced, its end_turn offset dropped, its memory at `slots` and its
-        checkpoint `spec` when given (a round's player)."""
-        flags, out = self.reference_flags(side), []
-        for i in range(0, len(flags) - 1, 2):
-            k, v = flags[i], flags[i + 1]
-            if k == f"--label-{side}":
-                out += [k, label]
-            elif k == f"--spec-{side}" and spec is not None:
-                out += [k, str(spec)]
-            elif k == f"--memory-{side}":
-                out += [k, str(slots if slots is not None else v)]
-            elif k == f"--raw-end-turn-offset-{side}":
-                continue
-            else:
-                out += [k, v]
-        return out
+        return player_flags(self.reference_flags(side), side, label, slots, spec)
 
     # ---- a match (the box script's play / play_through)
     def count_games(self, d: Path) -> Tuple[int, int, int]:
