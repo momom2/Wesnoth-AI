@@ -55,7 +55,9 @@ second and its replay identity:
     python tools/pg_eval.py time --checkpoint own2.pt --games DIR [DIR ...] --labels labels.jsonl \\
         --held-games 100 --workers 30 --out c0_forwards.json
 
-`network_factory` is the stage C driver's `--factory` (tools/pg_stage_c.py):
+`network_factory` is the stage C driver's `--factory` (tools/pg_stage_c.py).
+With `--factory-arg cache=DIR` every reading is kept in DIR and read back by
+its key (tools/pg_eval_cache.py), so a restarted driver resumes:
 
     python tools/pg_stage_c.py --pass pass.pt --factory tools.pg_eval:network_factory \\
         --factory-arg checkpoint=own2.pt --factory-arg games=DIR[,DIR...] \\
@@ -77,6 +79,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.pg_eval_cache import ReadingCache, context_key, direction_key, step_key  # noqa: E402
 from tools.pg_pass import REPLAY_KL_LIMIT, load_network, stage_step  # noqa: E402
 from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex, record_facts,  # noqa: E402
                                 refuse_foreign, side_lengths)
@@ -103,6 +106,7 @@ class EvalConfig:
     kl_fraction: float = 0.05
     procedure: str = SELF_PLAY_PROCEDURE      # the procedure every held-out game-side was played under
     fp16: bool = False                        # the packed trunk under the float16 autocast (module docstring)
+    cache: str = ""                           # a directory keeping the readings by key (tools/pg_eval_cache.py); "" off
 
 
 @dataclass
@@ -142,6 +146,9 @@ class EvalContext:
         self.kl_sides = ([gs for gs in self.sides if unit_draw("pg_kl", config.seed, gs.game, gs.side)
                           < config.kl_fraction] or self.sides[:1])
         self.decisions = start
+        self.cache: Optional[ReadingCache] = (
+            ReadingCache(Path(config.cache), context_key(self.checkpoint_sha256, self.sides, self.kl_sides, config))
+            if config.cache else None)
         self._base: Optional[Reading] = None            # theta_k over every held-out decision
         self._laws: Optional[List[Dict[str, torch.Tensor]]] = None   # theta_k's laws at each KL time step
         self.laws_bytes_per_decision: Optional[float] = None
@@ -251,7 +258,13 @@ class EvalContext:
         """theta_k over every held-out decision, read once and shared by the
         evaluators."""
         if self._base is None:
-            self._base = self.read({}, [0.0], self.sides)[0.0]
+            hit = self.cache.arrays("base") if self.cache else None
+            if hit is not None:
+                self._base = Reading(logp=hit["logp"], masses=hit["masses"])
+            else:
+                self._base = self.read({}, [0.0], self.sides)[0.0]
+                if self.cache:
+                    self.cache.put_arrays("base", logp=self._base.logp, masses=self._base.masses)
         return self._base
 
     def _theta_k_laws(self) -> List[Dict[str, torch.Tensor]]:
@@ -260,14 +273,18 @@ class EvalContext:
         factor's legal entries only, pg_loss.compact_laws);
         `laws_bytes_per_decision` says what they hold."""
         if self._laws is None:
-            laws: List[Dict[str, torch.Tensor]] = []
-            count = [0]
+            laws = self.cache.laws() if self.cache else None
+            count = [sum(gs.stop - gs.start for gs in self.kl_sides)]
+            if laws is None:
+                laws, count = [], [0]
 
-            def keep(t, steps_t, batch, outputs) -> None:
-                laws.append(compact_laws(factor_laws(outputs[0.0], batch.views, batch.rows)))
-                count[0] += len(steps_t)
+                def keep(t, steps_t, batch, outputs) -> None:
+                    laws.append(compact_laws(factor_laws(outputs[0.0], batch.views, batch.rows)))
+                    count[0] += len(steps_t)
 
-            self._walk({0.0: (self.encoder, self.model)}, self.kl_sides, keep)
+                self._walk({0.0: (self.encoder, self.model)}, self.kl_sides, keep)
+                if self.cache:
+                    self.cache.put_laws(laws)
             self._laws = laws
             stored = sum(v.numel() * v.element_size() for step in laws for v in step.values())
             self.laws_bytes_per_decision = stored / max(1, count[0])
@@ -305,6 +322,7 @@ class NetworkEvaluator:
                 raise ValueError(f"the direction's {n} is {tuple(d.shape)}, the parameter "
                                  f"{tuple(context.base[n].shape)}")
         self.context = context
+        self._key = direction_key(direction) if context.cache else None
         self.direction = {n: d.detach().to(device=context.device, dtype=torch.float32) for n, d in direction.items()}
         self._full: Dict[float, Reading] = {}
         self._halves: Dict[tuple, np.ndarray] = {}
@@ -323,14 +341,28 @@ class NetworkEvaluator:
             return self._reading(s).logp
         key = (s, tuple(sorted(set(halves))))
         if key not in self._halves:
-            sides = [gs for gs in self.context.sides if gs.half in key[1]]
-            self._halves[key] = self.context.read(self.direction, [s], sides)[s].logp
+            name = f"half_{self._key}_{step_key(s)}_{''.join(key[1])}"
+            hit = self.context.cache.arrays(name) if self.context.cache else None
+            if hit is not None:
+                self._halves[key] = hit["logp"]
+            else:
+                sides = [gs for gs in self.context.sides if gs.half in key[1]]
+                self._halves[key] = self.context.read(self.direction, [s], sides)[s].logp
+                if self.context.cache:
+                    self.context.cache.put_arrays(name, logp=self._halves[key])
         return self._halves[key]
 
     def mean_kl(self, s: float) -> float:
         s = float(s)
         if s not in self._kl:
-            self._kl[s] = 0.0 if s == 0.0 else self.context.kl(self.direction, [s])[s]
+            cache, name = self.context.cache, f"kl_{self._key}_{step_key(s)}"
+            hit = cache.value(name) if cache and s != 0.0 else None
+            if hit is not None:
+                self._kl[s] = hit
+            else:
+                self._kl[s] = 0.0 if s == 0.0 else self.context.kl(self.direction, [s])[s]
+                if cache and s != 0.0:
+                    cache.put_value(name, self._kl[s])
         return self._kl[s]
 
     # ---- beyond the protocol --------------------------------------------
@@ -338,8 +370,19 @@ class NetworkEvaluator:
         """Read the steps not yet read over every held-out decision, in one
         replay of the positions (theta_k comes from the context's reading)."""
         todo = sorted({float(s) for s in steps} - set(self._full) - {0.0})
+        cache = self.context.cache
+        if cache:
+            for s in list(todo):
+                hit = cache.arrays(f"full_{self._key}_{step_key(s)}")
+                if hit is not None:
+                    self._full[s] = Reading(logp=hit["logp"], masses=hit["masses"])
+                    todo.remove(s)
         if todo:
-            self._full.update(self.context.read(self.direction, todo, self.context.sides))
+            read = self.context.read(self.direction, todo, self.context.sides)
+            self._full.update(read)
+            if cache:
+                for s, r in read.items():
+                    cache.put_arrays(f"full_{self._key}_{step_key(s)}", logp=r.logp, masses=r.masses)
 
     def class_mass_by_seat(self, s: float, seat_of: Optional[Callable[[str, int], object]] = None
                            ) -> Dict[object, Dict[str, np.ndarray]]:
@@ -386,7 +429,7 @@ def _config_value(name: str, text: str):
         return str(text).strip().lower() in ("1", "true", "yes", "on")
     if name == "packed":
         return None if text.lower() == "auto" else _config_value("verify", text)
-    if name == "procedure":
+    if name in ("procedure", "cache"):
         return str(text)
     return float(text) if name == "kl_fraction" else int(text)
 

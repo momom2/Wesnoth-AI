@@ -34,6 +34,9 @@ What differs from the box script:
 - No dead-man's switch: the plan's time left is unbounded, and each step's
   cut is the plan's (tools/stage_c_plan.py: 1.5 times its estimate plus 15
   minutes).
+- The driver keeps every reading in --out/driver_cache (tools/pg_eval_cache.py):
+  after a failure (delete stage_c.failed and start again) it reads back
+  the readings already made and forwards only the rest.
 - No uploads, and no CPU tests on the box: the desktop's full suite stands
   in for them (the run's pre-registration names it).
 - The driver's gate weighs the box's prices (PRICE_PER_GAME, ROUND_FIXED):
@@ -211,6 +214,7 @@ class Run(Steps):
                                    "--factory-arg", "games=" + ",".join(self.dirs), "--factory-arg",
                                    f"labels={self.s1 / 'labels.jsonl'}", "--factory-arg", "device=cuda",
                                    "--factory-arg", f"workers={self.workers}", "--factory-arg", "fp16=1",
+                                   "--factory-arg", f"cache={self.out / 'driver_cache'}",
                                    "--price-per-game", str(PRICE_PER_GAME), "--round-fixed-cost", str(ROUND_FIXED),
                                    "--arms", *arms, "--curve-splits", *splits, "--out",
                                    str(self.out / "stage_c.json")], "stage_c.log", self.cuts["stage_c"])

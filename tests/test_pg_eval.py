@@ -300,3 +300,44 @@ def test_the_policy_gradient_tools_load_the_network_with_the_bias_fold_off(tmp_p
     _, moved = ev.context.network(ev.direction, 1.0)
     assert moved.fold_biases is False
     ev.context.close()
+
+
+@needs_core
+def test_a_restarted_evaluator_reads_its_readings_back_from_the_cache(tmp_path):
+    """With a cache, a second context over the same network, data and
+    configuration forwards nothing for the readings the first one made
+    (theta_k's, a full and a half reading, a KL value, theta_k's laws), and
+    gets them bit for bit; another direction is a miss and forwards."""
+    from tools.pg_eval import EvalConfig, EvalContext
+    cache = tmp_path / "cache"
+    games, ev = _evaluator(tmp_path, cache=str(cache))
+    first = {"base": ev.base_logp(), "half": ev.logp(0.5, halves=("A",)), "full": ev.logp(0.7),
+             "masses": ev.class_mass_by_seat(0.7), "kl": ev.mean_kl(0.3)}
+    laws = ev.context._theta_k_laws()
+    ev.context.close()
+    labels = read_labels(tmp_path / "labels.jsonl")
+    context = EvalContext(games.checkpoint, games.records, labels, CPU,
+                          EvalConfig(streams=2, window=4, kl_fraction=1.0, cache=str(cache)))
+    again = context.bind(_direction(games.model, games.encoder))
+
+    def no_forward(*a, **kw):
+        raise AssertionError("a cached reading was forwarded again")
+    context._walk = no_forward
+    assert np.array_equal(again.base_logp(), first["base"])
+    assert np.array_equal(again.logp(0.5, halves=("A",)), first["half"], equal_nan=True)
+    assert np.array_equal(again.logp(0.7), first["full"])
+    seats = again.class_mass_by_seat(0.7)
+    assert all(np.array_equal(seats[k][c], first["masses"][k][c]) for k in seats for c in seats[k])
+    assert again.mean_kl(0.3) == first["kl"]
+    back = context._theta_k_laws()
+    assert len(back) == len(laws) and all(torch.equal(a[k], b[k]) for a, b in zip(laws, back) for k in a)
+    assert not context.reads and context.cache.hits == 5          # the masses reuse the full reading
+    other = context.bind(_direction(games.model, games.encoder, seed=9))
+    with pytest.raises(AssertionError, match="forwarded again"):
+        other.logp(0.7)
+    context.close()
+    # Another configuration is another context: nothing of the first one's is read.
+    from tools.pg_eval_cache import context_key
+    k1 = context_key("sha", context.sides, context.kl_sides, EvalConfig(streams=2, cache="x"))
+    assert k1 == context_key("sha", context.sides, context.kl_sides, EvalConfig(streams=2, workers=9, cache="y"))
+    assert k1 != context_key("sha", context.sides, context.kl_sides, EvalConfig(streams=4, cache="x"))
