@@ -126,3 +126,42 @@ noise it is below the rule's 5% (design §4: "5% of about $70 of rounds is
 $3.5"). The side's own earlier readings add nothing to v̂_t. **None
 enters.** The rule prices a correction's upkeep; at 1.6% it does not pay
 for itself.
+
+## A turn-dependent α, and v̂ cubed: rejected by the rule (2026-10-30)
+
+`phase_value.py` asks whether v̂_t should be priced by more than one
+coefficient. Each candidate is a function of the history before a_t.
+- **The turn.** A coefficient per bucket of turns: 1-3, 4-6, 7-9, 10-13,
+  and 14 on. The turn is counted from the end_turn commands before the
+  decision's slot.
+- **Curvature.** v̂_t cubed, since E[R | v̂_t] need not be linear.
+
+The run covers the same 30,000 games, cross-fitted, in 4 minutes on 10
+processes. Results are in `phase_value.json`:
+
+| Label | E[R²] a decision | Over v̂ + luck | Share of luck-only |
+|---|---|---|---|
+| v̂ + luck | 0.5958 | | |
+| + α by turn bucket | 0.5928 | 0.0030 ± 0.0002 | 0.34% |
+| + v̂³ | 0.5903 | 0.0055 ± 0.0003 | 0.62% |
+| + both | 0.5898 | 0.0060 ± 0.0003 | 0.68% |
+
+The turn structure is real:
+- v̂'s coefficient grows with the turn. The two folds agree to 0.02:
+  0.44-0.46 on turns 1-3, 0.66-0.67, 0.76-0.78 and 0.85-0.86 on the three
+  buckets between, and 0.89-0.90 from turn 14 on;
+- the cut reads z 15.
+
+It is still a third of a percent of the luck-only noise, and the cube adds
+two thirds. **Neither enters** (§4's 5%).
+
+Together with the history features above, the record reads this way.
+After v̂ and the luck dealt, the label's remaining noise (0.596 of 0.880
+a decision) is not in any cheap function of the logged readings, the
+turn or the luck. The largest single cut is the opponent's reading's 1.6%,
+and the sets' cuts sum to 2.3% (not fitted jointly). That
+noise is the game's own outcome given its history, which only more games
+(or a better critic) reduce.
+
+    <cpu python> training/metrics/luck_baseline_20261030/phase_value.py \
+        --run C:/Users/momom2/wesnoth_runs/selfplay_t1_local --jobs 10 --out phase_value.json
