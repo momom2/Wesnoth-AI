@@ -72,6 +72,57 @@ reboot by the user restores HIP (docs/autonomy_20261029.md, the log).
 3. Something in the heads or memory write under no_grad fp16. A code
    reading found nothing.
 
+## The second reading (2026-10-30, 06:45-07:30, the lead)
+
+The probe's hang lies between step t's last trunk kernel and step t+1's
+first attention, the latter included (its sync never returned). That
+stretch holds: the final norm, the gathers, the memory write, the four
+heads, the cast to float32, `action_log_probs` and `class_masses`, the
+`.cpu()` copies, then step t+1's staging (`stage_raws`, `stage_step`), the
+memory router's batch, `embed_staged`, the in-projection, and the bias
+variant of the attention.
+
+**Every op in that stretch has run clean on this GPU in another tool,**
+except the fold's kernels:
+- **The server** (stage 1, 13 h, fc560ab9): `forward_embedded` on the fused
+  fp16 loop without the fold, the gathers, the 64-slot memory write and all
+  four heads with the value head. Stage 1's records carry v̂, on which the
+  labels' α 0.830 was fitted.
+- **The pass** (`tools/pg_pass.py`, fp16 with a gradient): the same
+  `stage_raws`, `stage_step`, `embed_staged` and `PGMemoryRouter`, and
+  `action_log_probs` on the GPU. It takes `packed_trunk`, not the fused
+  loop.
+- **The runtime** is the same torch `+rocm10.1.0` everywhere.
+
+So the fold is the only code element unique to the runs that reset: the
+two `bias_fold_ab.py` attempts and this walk.
+
+**The fold's kernels, read for out-of-range access:**
+- `bias_relu_f16` writes exactly `numel / 8` 16-byte chunks. The width is
+  a multiple of 8 and the pointer 16-byte aligned (`_aligned`).
+- `add_ln_bias_d*` reads `yb[c .. c+3]` for c < d and writes `rows × d`. A
+  whole wave exits together on `row >= rows`, before the shuffles.
+- The attention's bias variant reads q's bias at `hd·D`, and k's and v's at
+  `(heads + hd)·D` and `(2·heads + hd)·D`. That is in range for the
+  contiguous `[3, heads, D]` that `_check_bias` enforces.
+  - The key loop's bound, `cu[seg+1] − cu[seg]`, is uniform across the
+    block.
+  - The early return precedes every `__syncthreads`.
+- Every launch goes on torch's current stream, so temporaries freed after a
+  launch are stream-ordered.
+
+No kernel writes past its output, so nothing points to a corruption that
+a later kernel would trip on. With the fold's kernels clean on this
+reading, the two live hypotheses remain:
+1. the fold's kernels hang or fault on the hardware in a way the reading
+   cannot show;
+2. an intermittent stall of the 10.1.0 runtime (TheRock #9564) that the
+   fold's extra launches (three per layer) make likelier.
+
+Both are answered by the same first GPU step: the probe with the fold off,
+now the default everywhere. **The protocol below is unchanged.** If the
+fold-off probe also hangs, the fold is cleared and the runtime is next.
+
 ## The protocol for the next GPU session (the user present: a wedge costs a reboot)
 
 1. **A health check:** a small matmul.
