@@ -42,6 +42,7 @@ import argparse
 import dataclasses
 import json
 import logging
+import math
 import multiprocessing as mp
 import sys
 import time
@@ -237,7 +238,18 @@ def _position(cs, d: Decision, i: int, type_to_id, faction_to_id, counts: Counte
     # and the true enemy faction stay out.
     raw = dataclasses.replace(raw, observation=None, their_faction_id=0, core_masks=None)
     return PGPosition(raw=raw, masks=masks, action=d.action, shadow=d.refused, index=i, logp=d.logp,
-                      v=float(d.v))
+                      v=finite_v(d.v, counts))
+
+
+def finite_v(v, counts: Counter) -> float:
+    """A logged value reading, 0 (the decision's label left uncorrected) when
+    it is missing or not finite, which `counts["v_nonfinite"]` reports: one
+    NaN would otherwise carry into every weight of the pass's gradient."""
+    x = float(v) if v is not None else math.nan
+    if math.isfinite(x):
+        return x
+    counts["v_nonfinite"] += 1
+    return 0.0
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,10 @@
-"""scripts/rounds_local.py: round 1 from stage C's decision, each later
-round's games, corrections, pass and step in order, each played by the
-policy the previous round left, a claim every third round, and design §6's
-two stops (the pause on weak confirmed readings, the claims' transfer
-check). The tools are stood in for by a fake runner that writes what each
-step leaves."""
+"""scripts/rounds_local.py: stage C's gate deciding whether rounds run and
+at what size, round 1 from stage C's decision, each later round's games,
+corrections, pass and step in order, each played by the policy the previous
+round left, a claim every third round, and design §6's two stops (the pause
+on weak confirmed readings, the claims' transfer check, both reported when
+both fire; the upper tail logged). The tools are stood in for by a fake
+runner that writes what each step leaves."""
 from __future__ import annotations
 
 import json
@@ -68,20 +69,24 @@ class FakeTools:
         return next(c for n, c, _ in self.calls if n == name)
 
 
-def _setup(tmp_path: Path):
+RESOLVED = {"verdict": "resolved", "reason": "read"}
+
+
+def _setup(tmp_path: Path, gate=RESOLVED):
     s1, sc = tmp_path / "stage1", tmp_path / "stage_c"
     for d in (s1 / "games_s00", sc):
         d.mkdir(parents=True, exist_ok=True)
     (s1 / "labels.jsonl").write_text("", encoding="utf-8")
     (s1 / "d0.fit.json").write_text(json.dumps({"tables": {"PURE (decisive only, primary)": {
         "own2t1": {"elo": -415.2, "se": 5.5}, "own2": {"elo": 0.0, "se": 0.0}}}}), encoding="utf-8")
-    (sc / "stage_c.json").write_text(json.dumps({"optimizer": {"winner": "reduced_adamw"},
+    (sc / "stage_c.json").write_text(json.dumps({"optimizer": {"winner": "reduced_adamw"}, "gate": gate,
                                                  "ladder": {"rungs": [_rung(0.02, 0.004)]}}), encoding="utf-8")
     return s1, sc
 
 
-def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False):
-    s1, sc = _setup(tmp_path)
+def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False,
+         gate=RESOLVED):
+    s1, sc = _setup(tmp_path, gate)
     out = tmp_path / "out"
     out.mkdir(exist_ok=True)
     p_out = None
@@ -121,7 +126,12 @@ def test_the_rounds_run_in_order_each_played_by_the_last_adopted_policy(tmp_path
         step = tools.cmd(f"round {k} step")
         assert step[step.index("--eps-from") + 1] == str(out / f"round_{k - 1:02d}" / "round.json")
         assert "fp16=1" in step and step[step.index("--arm-from") + 1].endswith("stage_c.json")
+    games = tools.cmd("round 2 games")
+    assert games[games.index("--games") + 1] == str(rl.N_TRAIN + rl.N_HELD)
+    assert games[games.index("--heldout-from") + 1] == str(rl.N_TRAIN)
+    assert games[games.index("--seed-base") + 1] == str(rl.SEED_BASE + 2 * rl.SEED_STRIDE)
     claim = tools.cmd("round 3 claim")
+    assert claim[claim.index("--seed-base") + 1] == str(rl.CLAIM_SEED_BASE + 3 * rl.CLAIM_SEED_STRIDE)
     assert claim[claim.index("--spec-a") + 1] == str(out / "round_03" / "pi.pt")
     assert claim[claim.index("--raw-temperature-a") + 1] == "1" and "--raw-end-turn-offset-a" not in claim
     python = {n: py for n, _, py in tools.calls}
@@ -142,7 +152,40 @@ def test_a_claim_far_below_its_forecast_stops_the_rounds(tmp_path, monkeypatch):
     _reference(monkeypatch)
     tools = FakeTools(reading=(0.05, 0.004), claim_elo=-420.0)        # forecast +52 Elo over D0, claim -5
     rc, out = _run(tmp_path, tools)
-    assert rc == 3 and "gains do not transfer" in (out / "STOP").read_text(encoding="utf-8")
+    stop = (out / "STOP").read_text(encoding="utf-8")
+    assert rc == 3 and "gains do not transfer" in stop and "PAUSE" not in stop
+
+
+def test_both_stops_are_reported_when_both_fire(tmp_path, monkeypatch):
+    _reference(monkeypatch)
+    tools = FakeTools(reading=(0.001, 0.01), claim_elo=-500.0)        # a weak sum, and the claim 85 Elo under D0
+    rc, out = _run(tmp_path, tools)
+    stop = (out / "STOP").read_text(encoding="utf-8")
+    assert rc == 3 and "PAUSE after round 3" in stop and "gains do not transfer" in stop
+
+
+def test_the_claims_upper_tail_is_logged_and_the_rounds_go_on(tmp_path, monkeypatch):
+    _reference(monkeypatch)
+    tools = FakeTools(claim_elo=-300.0)                               # +115 Elo over D0 against +21 forecast
+    rc, out = _run(tmp_path, tools)
+    assert rc == 0 and not (out / "STOP").exists()
+    assert "UPPER_TAIL at round 3" in (out / "runner.log").read_text(encoding="utf-8")
+
+
+def test_stage_cs_gate_decides_whether_rounds_run_and_at_what_size(tmp_path, monkeypatch):
+    _reference(monkeypatch)
+    for name, gate in (("neither", {"verdict": "neither", "reason": "unresolved"}),
+                       ("unread", {"verdict": "unread", "reason": "no driver readout"}), ("missing", None),
+                       ("infinite", {"verdict": "rounds_at_size", "round_size": float("inf")})):
+        tools = FakeTools()
+        rc, out = _run(tmp_path / name, tools, gate=gate, no_p_gate=True)        # P's waiver is not stage C's
+        assert rc == 3 and tools.names() == [], name
+        assert "ROUNDS_WAIT before round 1" in (out / "runner.log").read_text(encoding="utf-8")
+    sized = FakeTools()
+    rc, _ = _run(tmp_path / "sized", sized, gate={"verdict": "rounds_at_size", "round_size": 7342.6})
+    games = sized.cmd("round 2 games")
+    assert rc == 0 and games[games.index("--games") + 1] == str(7343 + rl.N_HELD)
+    assert games[games.index("--heldout-from") + 1] == "7343"
 
 
 def test_a_failed_part_stops_the_chain_and_stays_failed(tmp_path, monkeypatch):
@@ -173,3 +216,6 @@ def test_round_2_waits_on_stage_p_unless_waived(tmp_path, monkeypatch):
     assert rc == 0 and waived.names() == ORDER
     unnamed = FakeTools()
     assert _run(tmp_path / "unnamed", unnamed, p_verdicts=None)[0] == 3 and unnamed.names() == ["round 1 step"]
+    unlinked = FakeTools()                                   # the link not run: the slope under 3 SE
+    rc, _ = _run(tmp_path / "unlinked", unlinked, p_verdicts=("pass", "not run"))
+    assert rc == 0 and unlinked.names() == ORDER

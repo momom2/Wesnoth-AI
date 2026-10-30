@@ -579,9 +579,10 @@ def test_fused_loop_folds_the_biases(monkeypatch, activation):
             return model.forward_streams(*streams, packed=True).float32()
     with torch.no_grad():
         ref = model.forward_streams(*streams, packed=False)
+    model.fold_biases = True                   # off by default (WesnothModel.__init__)
     folded = fp16()
     assert fused and len(bias_relu) == (2 if activation == "relu" else 0)
-    model.fold_biases = False                  # the policy-gradient tools' setting (tools/pg_pass.py load_network)
+    model.fold_biases = False                  # the default, and the policy-gradient tools' setting
     switched = fp16()
     assert len(fused) == 2 and len(bias_relu) == (2 if activation == "relu" else 0)    # no bias kernel ran
     model.fold_biases = True
@@ -617,6 +618,7 @@ def test_a_failed_bias_self_test_keeps_the_fused_loop(monkeypatch):
     assert not he.hip_elementwise_bias_applies(DEV, 128)
     torch.manual_seed(15)
     model = WesnothModel(d_model=128, num_layers=2, num_heads=4, d_ff=256).to(DEV).eval()
+    model.fold_biases = True                   # asked for, and refused by the failed self-test
     g = torch.Generator().manual_seed(16)
     with torch.no_grad():
         for layer in model.encoder.layers:

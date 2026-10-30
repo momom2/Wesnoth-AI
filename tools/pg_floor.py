@@ -225,6 +225,8 @@ class FloorReader:
     def read(self, steps, positions, mems: MemoryBatch, stage_step) -> None:
         """The step's rows of drawn game-sides."""
         rows = [i for i, s in enumerate(steps) if (s.game_side.file, s.game_side.side) in self.sides]
+        if not rows:
+            return
         size = self.chunk or len(rows)
         for start in range(0, len(rows), size):
             self._read_rows(steps, positions, mems, stage_step, rows[start:start + size])

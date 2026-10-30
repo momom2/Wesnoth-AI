@@ -1,7 +1,8 @@
 """scripts/p_local.py: the planted step's match and readout, then the link
-match and its readout, run only when stage C's verdict says P; a planted
-miss or a link miss stops the rounds; a new start resumes. The tools are
-stood in for by a fake runner."""
+match and its readout (only when stage 1's sharpening slope is resolved),
+run only when stage C's verdict says P; a planted miss or a link miss stops
+the rounds; a new start resumes. The tools are stood in for by a fake
+runner."""
 from __future__ import annotations
 
 import json
@@ -38,9 +39,12 @@ class FakeTools:
         return [c[0] for c in self.calls]
 
 
-def _run(tmp_path, tools, nxt="P (the planted step played), then rounds"):
+def _run(tmp_path, tools, nxt="P (the planted step played), then rounds", resolved=True):
     sc = tmp_path / "stage_c"
     sc.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "stage1").mkdir(exist_ok=True)
+    (tmp_path / "stage1" / "readout.json").write_text(json.dumps({"sharpening": {
+        "slope": 2.64, "se": 0.08 if resolved else 1.5, "resolved": resolved}}), encoding="utf-8")
     (sc / "verdict.json").write_text(json.dumps({"next": nxt}), encoding="utf-8")
     (sc / "planted.pt").write_text("theta'", encoding="utf-8")
     out = tmp_path / "out"
@@ -77,3 +81,14 @@ def test_p_waits_for_stage_cs_verdict(tmp_path):
     tools = FakeTools()
     rc, _ = _run(tmp_path, tools, nxt="no rounds: the user chooses the $1,000 case")
     assert rc == 3 and tools.names() == []
+    sized = FakeTools()
+    rc, _ = _run(tmp_path / "sized", sized,
+                 nxt="P (the planted step played), then rounds at the size the gain curve names")
+    assert rc == 0 and sized.names() == ORDER
+
+
+def test_an_unresolved_slope_plays_no_link_match(tmp_path):
+    tools = FakeTools()
+    rc, out = _run(tmp_path, tools, resolved=False)
+    assert rc == 0 and tools.names() == ORDER[:2]
+    assert json.loads((out / "link.json").read_text(encoding="utf-8"))["verdict"] == "not run"

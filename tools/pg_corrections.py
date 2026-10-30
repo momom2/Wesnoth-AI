@@ -33,6 +33,7 @@ import json
 import math
 import os
 import sys
+from collections import Counter
 from multiprocessing import get_context
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -50,10 +51,12 @@ CLASSES = ("end_turn", "attack", "recruit")
 
 def side_sums(path: str, beta: Sequence[float]) -> Dict[int, Dict[str, object]]:
     """One record's per-side sufficient statistics: n, sums of v, v^2, y, v y,
-    y^2 (y = beta^T x), and the I-V sums of v and y against 1[a in X] - p(X)."""
+    y^2 (y = beta^T x), and the I-V sums of v and y against 1[a in X] - p(X).
+    A missing or non-finite v counts as 0, as the pass reads it
+    (tools/pg_positions.finite_v), and is counted in `v_nonfinite`."""
     from tools import game_record
     from tools.match_luck import COLUMNS, attack_luck
-    from tools.pg_positions import decision_slots, read_record
+    from tools.pg_positions import decision_slots, finite_v, read_record
     from wesnoth_ai.pg_records import decisions_of
     from wesnoth_ai.server_priors import KIND_ATTACK, KIND_END_TURN, KIND_RECRUIT
     rec = read_record(Path(path))
@@ -70,11 +73,13 @@ def side_sums(path: str, beta: Sequence[float]) -> Dict[int, Dict[str, object]]:
     rejections = [(int(k), int(x), int(y)) for k, x, y in rec.get("rejections", ())]
     slots = decision_slots(decisions, rejections, len(rec["commands"]))
     out: Dict[int, Dict[str, object]] = {s: {"n": 0, "v": 0.0, "vv": 0.0, "y": 0.0, "vy": 0.0, "yy": 0.0,
-                                             "iv_v": np.zeros(3), "iv_y": np.zeros(3)} for s in (1, 2)}
+                                             "iv_v": np.zeros(3), "iv_y": np.zeros(3), "v_nonfinite": 0}
+                                         for s in (1, 2)}
+    bad = Counter()
     for d, (k, _r) in zip(decisions, slots):
         j = int(np.searchsorted(ks, k, side="left"))          # the attacks among the commands before the slot
         y = (cum[j - 1] if j > 0 else 0.0) * (1.0 if d.side == 1 else -1.0)
-        v = float(d.v)
+        v = finite_v(d.v, bad)
         kind = d.kind
         r = np.array([kind == KIND_END_TURN, kind == KIND_ATTACK, kind == KIND_RECRUIT], dtype=float) \
             - np.array([d.p_end, d.p_att, d.p_rec], dtype=float)
@@ -87,6 +92,7 @@ def side_sums(path: str, beta: Sequence[float]) -> Dict[int, Dict[str, object]]:
         s["yy"] += y * y
         s["iv_v"] = s["iv_v"] + v * r
         s["iv_y"] = s["iv_y"] + y * r
+        s["v_nonfinite"] += bad.pop("v_nonfinite", 0)
     return out
 
 
@@ -202,6 +208,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             rows.append({"game": g, "fold": i % 2, "R": rows_by_side[(g, side)].R, **s})
     result = decide(rows)
     result.update(beta=list(beta), games=len(games), decisions=int(sum(r["n"] for r in rows)),
+                  v_nonfinite=int(sum(r.get("v_nonfinite", 0) for r in rows)),
                   fitted_on="the held-out games", labels=str(args.labels), fits=str(args.fits))
     tmp = args.out.with_name(args.out.name + ".tmp")
     tmp.write_text(json.dumps(result, indent=1, default=lambda x: x.tolist()) + "\n", encoding="utf-8")

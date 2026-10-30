@@ -619,3 +619,17 @@ def test_games_served_on_other_numerics_are_refused_by_the_floor(tmp_path):
         with pytest.raises(FloorDtypeError, match="bfloat16\\+infer_bf16_residual"):
             GradientPass(games.checkpoint, residual, labels, CPU, PassConfig(floor_dtype=dtype))
     assert GradientPass(games.checkpoint, residual, labels, CPU, PassConfig(floor_dtype="off")).floor_dtype == "off"
+
+
+def test_a_step_with_no_drawn_game_side_reads_nothing():
+    """The floor reader on a step whose rows are none of its drawn
+    game-sides runs no forward, chunked or not (unchunked, an empty step
+    once gave range() a step of 0)."""
+    from types import SimpleNamespace
+    from tools.pg_floor import PATH_ONLY, FloorReader
+    steps = [SimpleNamespace(game_side=SimpleNamespace(file="g", side=1))]
+    for chunk in (None, 8):
+        reader = FloorReader(None, None, CPU, {("other", 2)}, PATH_ONLY, chunk=chunk)
+        reader._read_rows = lambda *a: pytest.fail("a forward ran on no drawn row")
+        reader.read(steps, [], None, None)
+        assert reader.sums == {}

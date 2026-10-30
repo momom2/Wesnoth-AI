@@ -43,9 +43,21 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
    - **P:** the planted step θ′ (stage C's `planted.pt`) against π₀, 5,000
      games at temperature 1. X per side-game must rise on each seat by 2
      SE, and every game-side θ′ played must carry θ′'s weights.
+     - A seat is the game's side, 1 or 2. run_elo_batch keeps θ′ on label
+       A and alternates the sides, so θ′'s count on side s is read over the
+       games it held s, and π₀'s over the games π₀ held s. The first build
+       keyed the seats by label, so in that layout it could never have
+       passed (review of 2026-10-30).
    - **The link:** `own2` at T = 1/1.02 against `own2` at T = 1/0.98,
      12,800 games, against the forecast 2e × 2.64 ± 2e × 0.08 =
      **0.106 ± 0.003** in E[z]. It holds within 2 combined SE.
+     - It is played only if stage 1's sharpening slope is resolved at 3 SE
+       (design §6). It reads 32 SE, so it is played; otherwise `link.json`
+       records "not run" and the rounds do not wait on it.
+     - Its mean z counts wins, losses and the game's own caps (turns,
+       actions, no progress) at 0. A game killed on the wall clock
+       (`timeout_kill`) ended on the machine's speed, not on the play, so
+       it is left out and counted.
    - **Why e = 0.02, proposed here for the next session to seal before the
      match:**
      - the forecast is exact to second order, so a small e keeps the third
@@ -53,7 +65,12 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
      - the match's SE over 12,800 games, about 0.009, still resolves the
        forecast at about 12 SE;
      - a miss of 2 combined SE is about 17% of the forecast.
-5. **The rounds** wait on stage P's two verdicts (`--p-out`):
+5. **The rounds** run on stage C's gate (`stage_c.json` "gate"). "resolved"
+   plays N 20,000 a round, and "rounds_at_size" plays the gain curve's
+   `round_size`. "neither", or a gate stage C did not read, plays no round,
+   round 1 included, and `--no-p-gate` does not waive this. |H| stays
+   10,000 either way. Round 2 waits on stage P's two verdicts
+   (`--p-out`):
 
        HIP_VISIBLE_DEVICES=1 <rocm venv>/python scripts/rounds_local.py \
            --stage1 C:/Users/momom2/wesnoth_runs/selfplay_t1_local \
@@ -97,14 +114,60 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
    the design's yardstick for a round's size, not this machine's costs.
 6. **The rounds:**
    - round 1 is stage C's decision taken as read (`pg_round --adopt-from`);
-   - later rounds play N 20,000 + H 10,000 games of the policy on seeds from
-     1,000,000 + 100,000·k;
+   - later rounds play N (20,000, or the gate's size) + |H| 10,000 games of
+     the policy on seeds from 10,000,000 + 1,000,000·k, k ≤ 39;
    - claims run every third round (12,800 decisive games against the
      reference at temperature 1, as D0);
    - the pause and transfer stops follow §6 (`scripts/rounds_local.py`);
    - b and β are fitted on each round's own held-out games, which it does
      not train on. The design's text has them from the previous round's;
-     both are fixed before the games they label.
+     both are fixed before the games they label;
+   - when both §6 stops fire after a claim, STOP names both. The claims'
+     upper tail is logged, and the rounds go on (design §6: "reported").
+7. **P before rounds at the gain curve's size too.** The design's stage C
+   row names P after "resolved" only. P asks whether first-order labels
+   price play (§6's P row), which round 1's verdict does not decide, so
+   stage C's verdict sends "rounds_at_size" through P as well. It costs
+   17,800 games of play.
+8. **The bias fold is off by default everywhere** (`WesnothModel.fold_biases`,
+   since 2026-10-30), not only in the pg tools. Its route hung the GPU, the
+   cause is not found, and a hang costs a reboot. The stage 1 games were
+   served unfolded. This gives up the fold's share of the serve A/B's +17%
+   (training/metrics/pipelined_serve_20261029).
+9. **The serve loop is the pipelined one** (`--inference-pipelined`, +9.2%
+   decisions a second on the GPU), not the serial loop that served stage 1.
+   It changes how forwards are batched, so their fp16 rounding can differ.
+   Each pass's replay identity bounds that against the trainer.
+10. **P's played-law check is the weights' SHA-256** at θ′'s memory slots
+    under `raw:t1`, in place of a law identity. The served numerics are held
+    to the trainer by each round's replay identity.
+11. **The corrections' coefficients:** whether a correction enters is read
+    cross-fitted (two folds of H), and α and γ are then fitted on all of H.
+    A missing or non-finite v̂ counts as 0 and is counted (`v_nonfinite` in
+    the pass's position counts and in `corrections.json`).
+12. **P1 under corrections** holds the probe gradients against the logs'
+    Σ R_t(1[c] − p(c)) with R_t the corrected label. That is the design's
+    identity with its label corrected, checked in the CI tier
+    (tests/test_pg_pass.py).
+13. **The human holdout cross-entropy, design §6's per-round crash barrier,
+    is not computed.** `tools/holdout_ce.py` exists, but it reads the network
+    at 0 slots, through the padded fp32 forward in batches of 64. On the RX
+    6600 that is about 3 s a call, the kind of call that reset the display
+    on 2026-10-28. Its cost on the CPU is unmeasured. A run of it is a
+    follow-up, measured before it is scheduled.
+14. **The seeds** are laid out so that no two matches share one (a match's
+    replacements step by 1,000,000 a generation):
+    - stage 1: 800,000-848,199, its measures' replacements under 10M;
+    - the rounds' play: 10M + 1M·k;
+    - P: 50M, and the link: 60M;
+    - round k's claim: 100M + 10M·k.
+
+    The first build put the claims at 2,000,000 + 100,000·k, inside round
+    10's play block and later ones.
+15. **Stage C checks stage 1's split:** every label's game index (its seed
+    less 800,000) is under 30,000 and held out iff it is at least 20,000.
+    The planted labels are cut at the same index. Stage 1's labels pass:
+    30,000 games, 10,000 of them held out.
 
 ## Expected walls [U]
 
@@ -129,7 +192,8 @@ days. The rounds' size and count are stage C's gate's to set.
   is found before anything resumes.
 - The replay identity, the floor's cap or the path check failing (pg_pass
   exits 3, 4, 5): the part fails and the chain stops.
-- Stage C's verdict "neither": no rounds; the user decides.
+- Stage C's gate "neither" or unread: no rounds (`rounds_local` refuses
+  before round 1); the user decides.
 - The rounds' pause or transfer stop (§6): the chain stops for the user.
 
 ## Decisions per outcome

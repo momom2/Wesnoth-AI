@@ -20,12 +20,23 @@ ORDER = ["corrections", "c0 pass", "c0 forwards", "plan", "pass", "stage c", "pl
          "plant rows", "plant labels", "plant pass", "plant readout"]
 
 
-def _stage1(root: Path, gates_pass: bool = True) -> Path:
+def _labels(heldout_from: int = sc.HELDOUT_FROM) -> str:
+    """Two training and two held-out games' label rows, split at
+    `heldout_from` (the stage 1 run's own)."""
+    rows = []
+    for i in (0, 1, sc.HELDOUT_FROM, sc.HELDOUT_FROM + 1):
+        for side in (1, 2):
+            rows.append({"game": f"game_own2a_own2b_s{1 + i % 2}_{sc.SP_SEED_BASE + i}", "side": side,
+                         "heldout": i >= heldout_from})
+    return "".join(json.dumps(r) + "\n" for r in rows)
+
+
+def _stage1(root: Path, gates_pass: bool = True, labels: str = None) -> Path:
     s1 = root / "stage1"
     for c in range(6):
         (s1 / f"games_s{c:02d}").mkdir(parents=True, exist_ok=True)
         (s1 / f"walk_s{c:02d}.jsonl").write_text(json.dumps({"game": f"g{c}"}) + "\n", encoding="utf-8")
-    (s1 / "labels.jsonl").write_text("", encoding="utf-8")
+    (s1 / "labels.jsonl").write_text(_labels() if labels is None else labels, encoding="utf-8")
     (s1 / "fits.json").write_text("{}", encoding="utf-8")
     readout = {k: {"pass": gates_pass or k != "i_v"} for k in sc.GATES}
     (s1 / "readout.json").write_text(json.dumps(readout), encoding="utf-8")
@@ -134,3 +145,13 @@ def test_stage_1s_failed_gates_refuse_the_run(tmp_path):
     tools = FakeTools()
     rc, _ = _run(tmp_path, tools, s1=_stage1(tmp_path, gates_pass=False))
     assert rc == 1 and tools.names() == []
+
+
+def test_stage_1_labels_split_at_other_sizes_refuse_the_run(tmp_path):
+    """Stage 1 run with another held-out split (its --smoke's 24, say) or
+    no held-out games: the planted labels would be split unlike stage 1's."""
+    for name, labels in (("split", _labels(heldout_from=1)), ("empty", "")):
+        tools = FakeTools()
+        rc, out = _run(tmp_path / name, tools, s1=_stage1(tmp_path / name, labels=labels))
+        assert rc == 1 and tools.names() == [], name
+        assert "stage 1's labels" in (out / "runner.log").read_text(encoding="utf-8"), name

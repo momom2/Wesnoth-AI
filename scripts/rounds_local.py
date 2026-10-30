@@ -2,6 +2,15 @@
 docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
 "Claims"), after stage C (scripts/stage_c_local.py), round after round:
 
+- **Stage C's gate** (its stage_c.json "gate", design §6) decides whether
+  rounds run and at what size: "resolved" plays N_TRAIN training games a
+  round; "rounds_at_size" plays the gain curve's `round_size`; "neither",
+  or a gate stage C did not read, plays no round (the user chooses). The
+  held-out set stays N_HELD either way. --no-p-gate does not waive it.
+- **P before the rounds** (design §6): round 2 waits on stage P's planted
+  readout passing and its link holding, or the link not run (stage 1's
+  sharpening slope under 3 SE).
+
 - **Round 1** is stage C's ladder on stage 1's pass (design §6). Its
   decision is taken as read and its candidate written (tools/pg_round.py
   --adopt-from).
@@ -28,7 +37,9 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
     the confirmed readings since round 1 by more than 2 combined SE. Gains
     do not transfer, and the user picks a magnet or a pool.
 
-  Either writes STOP with its reason; the chain waits for the user.
+  Either writes STOP with every reason that fired; the chain waits for the
+  user. The claims' upper tail (claim_k - D0 above the forecast by more
+  than 2 combined SE) is logged and the rounds go on (design §6: reported).
 
 A failed part stops the chain: the next round needs its policy. A failed
 part stays failed at a new start (its `rNN_<part>.failed`: delete it to run
@@ -59,12 +70,24 @@ from scripts.selfplay_t1_local import CHUNK_GAMES, MIN_FREE_MB, player_flags  # 
 
 N_TRAIN = 20000                 # design §1: N, a round's training games (stage C's gate may name another)
 N_HELD = 10000                  # |H|, its held-out games
-SEED_BASE = 1_000_000           # round k's games from SEED_BASE + k * SEED_STRIDE: past stage 1's (800000-848199)
-CLAIM_SEED_BASE = 2_000_000     # round k's claim from CLAIM_SEED_BASE + k * SEED_STRIDE
-SEED_STRIDE = 100_000
+# The seeds, so that no two matches share one. A match's replacement games
+# take seed + gen * 1,000,000 (tools/run_elo_batch.py REPL_SEED_OFFSET):
+# - stage 1's games 800,000-848,199, its measures' replacements under 10M;
+# - round k's games (no replacements) from SEED_BASE + k * SEED_STRIDE, a
+#   block of 1M for each of rounds 1-MAX_ROUNDS, all under stage P's 50M;
+# - stage P at 50M and the link at 60M (scripts/p_local.py, no replacements);
+# - round k's claim from CLAIM_SEED_BASE + k * CLAIM_SEED_STRIDE, which holds
+#   its replacements of generations 1-9.
+SEED_BASE = 10_000_000
+SEED_STRIDE = 1_000_000
+MAX_ROUNDS = 39                 # round 39's block ends at 50M, where stage P's starts
+CLAIM_SEED_BASE = 100_000_000
+CLAIM_SEED_STRIDE = 10_000_000
 CLAIM_EVERY = 3
 CLAIM_GAMES = 12800             # design §3.2: a claim's decisive games, D0's
-ELO_PER_Z = 347.4               # Elo per unit of E[z] at a win rate of 1/2: 400 / ln 10 / (4 p (1 - p))
+# Elo per unit of E[z] at a win rate of 1/2: Elo = 400 log10(p / (1 - p))
+# and E[z] = 2 p - 1, so dElo / dE[z] = 200 / ln 10 / (p (1 - p)) = 347.4.
+ELO_PER_Z = 347.4
 FLOOR_SIDES = 100
 PASS_FP16 = ["--fp16", "--packed-trunk", "--floor-chunk", "8", "--floor-sides", str(FLOOR_SIDES)]
 POOL = ["--persistent-workers", "--shared-inference", "--no-infer-compile", "--device", "cuda", "--jobs", "96",
@@ -87,6 +110,7 @@ class Rounds(Steps):
         self.s1, self.sc = Path(args.stage1), Path(args.stage_c)
         self.pi0 = str(args.checkpoint)
         self.workers = str(args.workers)
+        self.n_train = N_TRAIN
 
     # ---- the rounds' files
     def rdir(self, k: int) -> Path:
@@ -106,10 +130,29 @@ class Rounds(Steps):
             k -= 1
         return self.pi0
 
+    def stage_c_gate(self) -> Tuple[Optional[int], str]:
+        """(N, its source) from stage C's gate (module docstring), or (None,
+        why no round runs)."""
+        f = self.sc / "stage_c.json"
+        gate = json.loads(f.read_text(encoding="utf-8")).get("gate") if f.is_file() else None
+        verdict = (gate or {}).get("verdict")
+        if verdict == "resolved":
+            return N_TRAIN, "stage C's gate: resolved"
+        if verdict == "rounds_at_size":
+            size = gate.get("round_size")
+            if isinstance(size, (int, float)) and math.isfinite(size) and size >= 1:
+                n = int(math.ceil(size))
+                return n, f"stage C's gate: rounds at the gain curve's size {n}"
+            return None, f"stage C's gate says rounds_at_size with no finite round_size ({size!r})"
+        if verdict == "neither":
+            return None, f"stage C's gate reads neither ({gate.get('reason')}): no rounds; the user chooses"
+        return None, f"stage C's gate is {verdict or 'missing'} ({f}): no rounds until it reads"
+
     def p_gate(self) -> Optional[str]:
         """Design §6: P before the rounds. None when stage P read back and the
-        link held (scripts/p_local.py's p_readout.json and link.json in
-        --p-out), or when the gate is waived (--no-p-gate); why not otherwise."""
+        link held or was not run (scripts/p_local.py's p_readout.json and
+        link.json in --p-out), or when the gate is waived (--no-p-gate); why
+        not otherwise."""
         if self.a.p_out is None:
             return None if self.a.no_p_gate else "no --p-out: stage P (scripts/p_local.py) has not been named"
         reads = {}
@@ -118,13 +161,14 @@ class Rounds(Steps):
             if not f.exists():
                 return f"stage P's {name} is missing from {self.a.p_out}"
             reads[name] = json.loads(f.read_text(encoding="utf-8")).get("verdict")
-        if reads["p_readout.json"] != "pass" or reads["link.json"] != "holds":
+        if reads["p_readout.json"] != "pass" or reads["link.json"] not in ("holds", "not run"):
             return f"stage P reads {reads}: the rounds wait (design §6)"
         return None
 
     def game_dirs(self, k: int) -> List[str]:
         play = self.rdir(k) / "play"
-        return [str(play / f"games_s{c:02d}") for c in range((N_TRAIN + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES)]
+        chunks = (self.n_train + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES
+        return [str(play / f"games_s{c:02d}") for c in range(chunks)]
 
     def factory_args(self, checkpoint: str, dirs: List[str], labels: Path) -> List[str]:
         out = []
@@ -162,8 +206,9 @@ class Rounds(Steps):
             self.check_stop(f"round {k}'s games")
             rc = self.step(f"round {k} games", ["scripts/selfplay_t1_local.py", "--out", str(d / "play"),
                                                 "--checkpoint", pi, "--label", f"pi{k}", "--seed-base",
-                                                str(SEED_BASE + k * SEED_STRIDE), "--games", str(N_TRAIN + N_HELD),
-                                                "--heldout-from", str(N_TRAIN), "--no-measures"],
+                                                str(SEED_BASE + k * SEED_STRIDE), "--games",
+                                                str(self.n_train + N_HELD), "--heldout-from", str(self.n_train),
+                                                "--no-measures"],
                            f"round_{k:02d}.log", PLAY_CUT_MIN)
             if rc == 2 or rc == 5 or (d / "play" / "STOP").exists():
                 raise Stopped(f"round {k}'s games stopped (rc={rc}, {d / 'play'})")
@@ -231,7 +276,7 @@ class Rounds(Steps):
                                                 "--raw-temperature-a", "1", "--raw-temperature-b", "0", "--outdir",
                                                 str(games), "--games", str(CLAIM_GAMES), "--max-extra-games",
                                                 str(CLAIM_GAMES // 2), "--seed-base",
-                                                str(CLAIM_SEED_BASE + k * SEED_STRIDE), *POOL],
+                                                str(CLAIM_SEED_BASE + k * CLAIM_SEED_STRIDE), *POOL],
                            f"claim_{k:02d}.log", CLAIM_CUT_MIN)
             if rc in (0, 4):
                 rc = self.step(f"round {k} claim fit", ["tools/elo_collect.py", str(games), "--no-catalog",
@@ -242,24 +287,32 @@ class Rounds(Steps):
             return None
         return pure(fit, label)
 
-    def stops(self, k: int, claim: Optional[Tuple[float, float]]) -> Optional[str]:
-        """Design §6's two stops after round k; None to go on."""
+    def stops(self, k: int, claim: Optional[Tuple[float, float]]) -> Tuple[Optional[str], List[str]]:
+        """Design §6's two stops after round k: (every stop that fired, joined,
+        or None to go on; the notes to log, the claims' upper tail)."""
+        why, notes = [], []
         last = [self.confirmed(j) for j in range(max(1, k - CLAIM_EVERY + 1), k + 1)]
         total, se = sum(e for e, _ in last), math.sqrt(sum(s * s for _, s in last))
         if not total > 2 * se:
-            return (f"PAUSE after round {k}: the last {len(last)} confirmed readings sum to {total:.4g} "
-                    f"(SE {se:.3g}), not above 0 by 2 SE (design §6)")
+            why.append(f"PAUSE after round {k}: the last {len(last)} confirmed readings sum to {total:.4g} "
+                       f"(SE {se:.3g}), not above 0 by 2 SE (design §6)")
         if claim is not None:
             d0 = pure(self.s1 / "d0.fit.json", "own2t1")
             readings = [self.confirmed(j) for j in range(1, k + 1)]
             forecast = ELO_PER_Z * sum(e for e, _ in readings)
             gain = claim[0] - d0[0]
             combined = math.sqrt(claim[1] ** 2 + d0[1] ** 2 + ELO_PER_Z ** 2 * sum(s * s for _, s in readings))
+            read = (f"claim - D0 reads {gain:+.1f} Elo against {forecast:+.1f} forecast from the confirmed "
+                    f"readings (combined SE {combined:.1f})")
             if gain - forecast < -2 * combined:
-                return (f"STOP after round {k}'s claim: claim - D0 reads {gain:+.1f} Elo against {forecast:+.1f} "
-                        f"forecast from the confirmed readings, below by more than 2 SE ({combined:.1f}): gains do "
-                        f"not transfer; the user picks a magnet or a pool (design §6)")
-        return None
+                why.append(f"STOP after round {k}'s claim: {read}, below by more than 2 SE: gains do not "
+                           f"transfer; the user picks a magnet or a pool (design §6)")
+            elif gain - forecast > 2 * combined:
+                notes.append(f"UPPER_TAIL at round {k}'s claim: {read}, above by more than 2 SE: play gains "
+                             f"more than the labels price (design §6: reported)")
+            else:
+                notes.append(f"round {k}'s claim: {read}, within 2 SE")
+        return ("; ".join(why) or None), notes
 
 
 def pure(fit_json: Path, label: str) -> Tuple[float, float]:
@@ -272,6 +325,18 @@ def run(r: Rounds, rounds: int) -> int:
     """Rounds 1..`rounds`: 0 when all ran, 1 on a failed part, 2 on STOP, 3
     when a design §6 stop fires."""
     out = r.out
+    if rounds > MAX_ROUNDS:
+        log(out, f"ROUNDS_REFUSED: {rounds} rounds, past the {MAX_ROUNDS} the seed blocks hold (SEED_BASE)")
+        return 1
+    n, source = r.stage_c_gate()
+    if n is None:
+        log(out, f"ROUNDS_WAIT before round 1: {source}")
+        return 3
+    if n + N_HELD > SEED_STRIDE:
+        log(out, f"ROUNDS_REFUSED: rounds of {n} + {N_HELD} games overrun a round's {SEED_STRIDE} seeds")
+        return 1
+    r.n_train = n
+    log(out, f"rounds of N {n} + |H| {N_HELD} games ({source})")
     try:
         for k in range(1, rounds + 1):
             r.check_stop(f"round {k}")
@@ -291,7 +356,9 @@ def run(r: Rounds, rounds: int) -> int:
                     log(out, f"ROUNDS_FAILED at round {k}'s claim: {' '.join(r.state)}")
                     return 1
                 log(out, f"round {k}'s claim: {claim[0]:+.1f} +- {claim[1]:.1f} Elo against the reference")
-                why = r.stops(k, claim)
+                why, notes = r.stops(k, claim)
+                for note in notes:
+                    log(out, note)
                 if why:
                     (out / "STOP").write_text(why + "\n", encoding="utf-8")
                     log(out, why)

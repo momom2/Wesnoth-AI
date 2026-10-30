@@ -115,6 +115,9 @@ class Run(Steps):
                 for c in chunks:
                     f.write((self.s1 / f"walk_{c}.jsonl").read_bytes())
             tmp.replace(walk)
+        sizes = labels_mismatch(self.s1 / "labels.jsonl")
+        if sizes:
+            return sizes
         readout = json.loads((self.s1 / "readout.json").read_text(encoding="utf-8"))
         failed = [k for k in GATES if not (readout.get(k) or {}).get("pass")]
         return f"gates failed: {' '.join(failed)}" if failed else None
@@ -260,6 +263,30 @@ class Run(Steps):
         return True
 
 
+def labels_mismatch(labels: Path) -> Optional[str]:
+    """None when stage 1's labels were split as this script splits them
+    (scripts/selfplay_t1_local.py's sizes, which the planted labels and the
+    chunks above take): every game's index, its seed less SP_SEED_BASE, is
+    under N_SELFPLAY, held out iff it is at least HELDOUT_FROM, and both sets
+    hold games. Else why not: a stage 1 run at other sizes (its --smoke, say)."""
+    train, held, wrong = set(), set(), []
+    with open(labels, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            i = int(row["game"].rsplit("_", 1)[1]) - SP_SEED_BASE
+            if not 0 <= i < N_SELFPLAY or bool(row["heldout"]) != (i >= HELDOUT_FROM):
+                wrong.append(f"{row['game']} (index {i}, heldout {row['heldout']})")
+            (held if row["heldout"] else train).add(row["game"])
+    if wrong:
+        return (f"stage 1's labels are not split at {HELDOUT_FROM} of {N_SELFPLAY} games from seed {SP_SEED_BASE}: "
+                f"{len(wrong)} rows, e.g. {wrong[0]}")
+    if not train or not held:
+        return f"stage 1's labels hold {len(train)} training and {len(held)} held-out games"
+    return None
+
+
 def verdict(out: Path) -> str:
     """verdict.json: design §6's decision on what landed (the box script's
     rule); its line."""
@@ -277,8 +304,13 @@ def verdict(out: Path) -> str:
     elif plant.get("verdict") != "pass":
         nxt = "the planted readout missed: debug before P and rounds"
     else:
+        # P before the rounds in both cases: it checks that first-order labels
+        # price play (design §6's P row), which round 1's verdict does not
+        # decide; the design's C row names it after "resolved" only
+        # (docs/stage_c_rounds_local_prereg_20261030.md).
         nxt = {"resolved": "P (the planted step played), then rounds",
-               "rounds_at_size": "rounds at the size the gain curve names"}.get(gate, "no verdict")
+               "rounds_at_size": "P (the planted step played), then rounds at the size the gain curve names"
+               }.get(gate, "no verdict")
     v = {"gate": (c or {}).get("gate"), "optimizer": (c or {}).get("optimizer"),
          "stage_c_errors": (c or {}).get("errors"),
          "plant": None if plant is None else {"verdict": plant["verdict"], "seats": plant["seats"],
