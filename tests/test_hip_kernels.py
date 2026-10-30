@@ -581,14 +581,19 @@ def test_fused_loop_folds_the_biases(monkeypatch, activation):
         ref = model.forward_streams(*streams, packed=False)
     folded = fp16()
     assert fused and len(bias_relu) == (2 if activation == "relu" else 0)
+    model.fold_biases = False                  # the policy-gradient tools' setting (tools/pg_pass.py load_network)
+    switched = fp16()
+    assert len(fused) == 2 and len(bias_relu) == (2 if activation == "relu" else 0)    # no bias kernel ran
+    model.fold_biases = True
     monkeypatch.setattr(wm, "hip_varlen_bias_applies", lambda device, head_dim: False)
     unfolded = fp16()
-    assert len(fused) == 2 and len(bias_relu) == (2 if activation == "relu" else 0)
+    assert len(fused) == 3 and len(bias_relu) == (2 if activation == "relu" else 0)
     for f in FIELDS:
         diff, scale = _worst(folded, ref, f)
         assert diff <= 0.02 * max(scale, 1.0), (f, diff, scale)
         diff, scale = _worst(folded, unfolded, f)
         assert diff <= 0.01 * max(scale, 1.0), (f, diff, scale)
+        assert _worst(switched, unfolded, f)[0] == 0.0, f        # the switch is the unfolded loop, bit for bit
 
 
 @rocm

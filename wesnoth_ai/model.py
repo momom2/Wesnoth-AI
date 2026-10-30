@@ -168,6 +168,13 @@ class WesnothModel(nn.Module):
         # bf16/fp16; the HIP kernel on ROCm, fp16; see
         # _packed_trunk_applies); every other call keeps the padded trunk.
         self.infer_packed_trunk = False
+        # The fused fp16 loop folds the linears' biases into its kernels
+        # (_run_hip_fp16_trunk). The policy-gradient tools turn it off
+        # (tools/pg_pass.py load_network): their forwards reach the loop
+        # through the Python-built layout, the route that hung the RX 6600
+        # with the fold on (2026-10-29, docs/autonomy_20261029.md); the
+        # unfolded loop is the one that served stage 1.
+        self.fold_biases = True
         # The dtype of the inference autocast that infer_autocast_bf16 (and
         # a caller's autocast_bf16) switches on: bfloat16, or float16 on a
         # GPU without bf16 matrix units (an RDNA2 card runs bf16 matmuls at
@@ -1004,7 +1011,8 @@ class WesnothModel(nn.Module):
         take their biases as before. Returns float32 rows."""
         w = self._weight_copy(torch.float16, torch.float32, x.device)
         total = x.shape[0]
-        fold = (hip_varlen_bias_applies(x.device, w.layers[0][0].shape[2])
+        fold = (getattr(self, "fold_biases", True)
+                and hip_varlen_bias_applies(x.device, w.layers[0][0].shape[2])
                 and hip_elementwise_bias_applies(x.device, self.d_model))
         with torch.autocast("cuda", enabled=False):
             h32 = x.float()

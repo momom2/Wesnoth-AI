@@ -145,12 +145,16 @@ log = logging.getLogger("pg_pass")
 
 
 def load_network(path: Path, device: torch.device):
-    """(encoder, model) of a checkpoint, in eval mode, on `device`."""
+    """(encoder, model) of a checkpoint, in eval mode, on `device`, the
+    fused fp16 loop's bias fold off (WesnothModel.fold_biases: these tools'
+    no-grad fp16 forwards, the floor's and the evaluator's, run the loop
+    that served stage 1)."""
     ck = torch.load(path, map_location="cpu", weights_only=True)
     arch = {k: int(ck["arch"][k]) for k in ARCH}
     encoder, model = build_modules(ck["unit_type_to_id"], ck["faction_to_id"], device, arch)
     model.load_state_dict(ck["model_state"])
     encoder.load_state_dict(ck["encoder_state"])
+    model.fold_biases = False
     return encoder.eval(), model.eval()
 
 

@@ -288,3 +288,15 @@ def test_a_held_out_game_whose_seats_sit_in_two_halves_is_refused(tmp_path):
     split = [r if r.side == 1 else dataclasses.replace(r, half="B") for r in rows]
     with pytest.raises(RecordFormatError):
         labelled_games(split, heldout=True)
+
+
+@needs_core
+def test_the_policy_gradient_tools_load_the_network_with_the_bias_fold_off(tmp_path):
+    """tools/pg_pass.py load_network (the pass, the evaluator, the plant's
+    gradients) turns the fused fp16 loop's bias fold off, and the moved
+    copies keep it off: the loop that served stage 1 (WesnothModel.fold_biases)."""
+    _, ev = _evaluator(tmp_path)
+    assert ev.context.model.fold_biases is False
+    _, moved = ev.context.network(ev.direction, 1.0)
+    assert moved.fold_biases is False
+    ev.context.close()
