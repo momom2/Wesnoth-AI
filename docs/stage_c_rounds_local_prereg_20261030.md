@@ -170,7 +170,9 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
     30,000 games, 10,000 of them held out.
 
 16. **Every GPU tool runs with its kernels serialized** (`AMD_SERIALIZE_KERNEL=3`,
-    set on the runner, which its tools inherit). Added 2026-10-30, after the
+    set on the runner, which its tools inherit; from the planned restart
+    on, set in code for every GPU tool, `run_tool` in
+    scripts/local_machine.py, e940ab2e). Added 2026-10-30, after the
     reboot (training/metrics/pg_fp16_20261030, "After the reboot"):
     - the fp16 evaluator's 8-game walk faulted unserialized with the fold
       off (a launch failure and a display reset, at 08:44);
@@ -184,6 +186,20 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
     files: the pass split (107 passed) and the gain curve's warm start (31).
     The rest is records. Stage C launched from eb1594c5 at 08:55 on
     2026-10-30.
+18. **A planned restart after the pass** (2026-10-30 10:31; the 10:13
+    review). A planned STOP ends the runner after the pass. A watcher
+    (`C:/Users/momom2/wesnoth_runs/tools/relaunch_after_stop.py`) then
+    relaunches it on the worktree's code, f070d548, which skips C0 and the
+    pass on their done markers. That code adds two things:
+    - serialization set in code, with each step's commit logged;
+    - the driver's readings cached on disk by key (tools/pg_eval_cache.py),
+      so a restarted driver resumes.
+    The cache changes no reading. A reading is read back only for the same
+    checkpoint, held-out data, forward-changing configuration, direction
+    bytes and step, and the code is not in the key: nothing is merged into
+    the worktree while stage C lives. Its tests passed: 67 with the
+    runner's. The full suite on f070d548's tree runs before the restart, and
+    its result is logged in docs/autonomy_20261029.md.
 
 ## Expected walls [U]
 
@@ -210,7 +226,8 @@ trainer reads 76 positions a second and the forwards 352. The plan prices:
 - the plant at 19.9 h;
 - 82 h in all.
 
-Expected: the pass ends about Oct 31 14:00, the driver about Nov 1 18:00,
+Expected: the pass ends about Oct 31 14:00 (corrected 22:20: its splits
+take 3 h 02 to 3 h 08 each, 85-86 decisions a second, so about 10:40), the driver about Nov 1 18:00,
 the plant about Nov 2 14:00, then P. At about 28 h of pass a round, about
 two rounds fit before the window ends, so no claim falls on "every third
 round". One PURE match of the window's last candidate against own2 is to
