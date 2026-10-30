@@ -332,6 +332,27 @@ def test_run_tool_returns_the_exit_status_and_keeps_the_output(tmp_path):
     assert "probe: -c" in (tmp_path / "runner.log").read_text(encoding="utf-8")
 
 
+def test_tools_run_serialized_and_match_drivers_do_not(monkeypatch):
+    """A pg tool gets SERIALIZE_ENV even from a runner started without it;
+    a match driver loses it even from a runner started with it."""
+    monkeypatch.delenv("AMD_SERIALIZE_KERNEL", raising=False)
+    assert lm.tool_env(["tools/pg_pass.py", "--fp16"])["AMD_SERIALIZE_KERNEL"] == "3"
+    monkeypatch.setenv("AMD_SERIALIZE_KERNEL", "3")
+    for driver in lm.UNSERIALIZED_TOOLS:
+        assert "AMD_SERIALIZE_KERNEL" not in lm.tool_env([driver, "--out", "x"])
+    assert "AMD_SERIALIZE_KERNEL" not in lm.tool_env(["tools/pg_eval.py"], serialize=False)
+
+
+def test_run_tool_passes_the_environment_and_logs_the_commit(tmp_path, monkeypatch):
+    monkeypatch.delenv("AMD_SERIALIZE_KERNEL", raising=False)
+    show = "import os; print('serial=' + os.environ.get('AMD_SERIALIZE_KERNEL', 'none'))"
+    assert lm.run_tool(tmp_path, "env", ["-c", show], "env.log", 1, sys.executable) == 0
+    assert "serial=3" in (tmp_path / "env.log").read_text(encoding="utf-8")
+    line = (tmp_path / "runner.log").read_text(encoding="utf-8")
+    assert "serialized" in line and f"code {lm.code_version()}" in line
+    assert lm.code_version() != "unknown"
+
+
 def test_run_tool_cuts_a_tool_past_its_time(tmp_path):
     t0 = time.monotonic()
     rc = lm.run_tool(tmp_path, "sleeper", ["-c", "import time; time.sleep(60)"], "sleeper.log", 0.02,
