@@ -57,6 +57,28 @@ MIN_FREE_MB = 300
 GATES = ("i_sample", "legal_mass", "i_count", "dice_control", "i_v")
 
 
+def player_flags(reference: List[str], side: str, label: str, slots: Optional[int] = None,
+                 spec: Optional[str] = None) -> List[str]:
+    """The reference's run_elo_batch flags for `side` (`reference`) as a
+    temperature-1 player's: its label replaced, its end_turn offset dropped,
+    its memory at `slots` and its checkpoint `spec` when given (a round's
+    player)."""
+    out = []
+    for i in range(0, len(reference) - 1, 2):
+        k, v = reference[i], reference[i + 1]
+        if k == f"--label-{side}":
+            out += [k, label]
+        elif k == f"--spec-{side}" and spec is not None:
+            out += [k, str(spec)]
+        elif k == f"--memory-{side}":
+            out += [k, str(slots if slots is not None else v)]
+        elif k == f"--raw-end-turn-offset-{side}":
+            continue
+        else:
+            out += [k, v]
+    return out
+
+
 def gates_of(readout_json: Path) -> str:
     """The readout's gates, one word each (the box script's gates()):
     `i_sample=pass legal_mass=FAIL ...`; "unreadable" when readout.json is."""
@@ -77,7 +99,8 @@ def gates_passed(words: str) -> bool:
 def verdict(selfplay: str, readout: str, d0: str, mem: str) -> int:
     """The run's exit status: 0 when every step is done and every gate
     passed, as the box script's SELFPLAY_T1_DONE; 1 otherwise."""
-    return 0 if (selfplay == "played" and gates_passed(readout) and d0 == "done" and mem == "done") else 1
+    measured = {"done", "skipped"}         # skipped: a round's games (--no-measures)
+    return 0 if (selfplay == "played" and gates_passed(readout) and d0 in measured and mem in measured) else 1
 
 
 class Run:
@@ -116,19 +139,8 @@ class Run:
     def reference_flags(self, side: str) -> List[str]:
         return reference_flags(side, self.tools_py)
 
-    def side_flags(self, side: str, label: str, slots: Optional[int] = None) -> List[str]:
-        flags, out = self.reference_flags(side), []
-        for i in range(0, len(flags) - 1, 2):
-            k, v = flags[i], flags[i + 1]
-            if k == f"--label-{side}":
-                out += [k, label]
-            elif k == f"--memory-{side}":
-                out += [k, str(slots if slots is not None else v)]
-            elif k == f"--raw-end-turn-offset-{side}":
-                continue
-            else:
-                out += [k, v]
-        return out
+    def side_flags(self, side: str, label: str, slots: Optional[int] = None, spec: Optional[str] = None) -> List[str]:
+        return player_flags(self.reference_flags(side), side, label, slots, spec)
 
     # ---- a match (the box script's play / play_through)
     def count_games(self, d: Path) -> Tuple[int, int, int]:
@@ -149,7 +161,8 @@ class Run:
                + ["--outdir", str(d), "--games", str(games), "--max-extra-games", str(extra),
                   "--seed-base", str(base), "--persistent-workers", "--shared-inference", "--no-infer-compile",
                   "--device", "cuda", "--jobs", str(self.a.jobs), "--worker-games", str(self.a.worker_games),
-                  "--min-free-mb", str(MIN_FREE_MB), "--infer-fp16", "--inference-timeline-s", "30",
+                  "--min-free-mb", str(MIN_FREE_MB), "--infer-fp16", "--inference-pipelined",
+                  "--inference-timeline-s", "30",
                   "--time-budget-min", str(int(3 * est / 2 + 10))])
         t0 = time.time()
         rc = run_match(self.out, f"match {name}", cmd, f"match_{name}.log", 2 * est + 15, self.py,
@@ -272,6 +285,7 @@ class Run:
 
 
 def main() -> int:
+    global SP_SEED_BASE, N_SELFPLAY, CHUNK_GAMES, HELDOUT_FROM, D0_SEED_BASE, D0_GAMES, MEM_SEED_BASE, MEM_GAMES
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--jobs", type=int, default=96, help="games in flight (the pilots: 96 kept the GPU busy)")
@@ -295,11 +309,24 @@ def main() -> int:
     ap.add_argument("--smoke", action="store_true",
                     help="the whole chain on a few games, on seeds outside stage 1's (873000 on): two "
                          "self-play matches of 24 (the second held out), D0 and the memory report of 24")
+    # A round's games (scripts/rounds_local.py): another player, its own seeds and sizes, no measures.
+    ap.add_argument("--checkpoint", default=None,
+                    help="the player on both seats (default: the reference's checkpoint, own2)")
+    ap.add_argument("--label", default="own2", help="the self-play labels' prefix (<label>a, <label>b)")
+    ap.add_argument("--seed-base", type=int, default=None, help=f"default {SP_SEED_BASE}")
+    ap.add_argument("--games", type=int, default=None, help=f"self-play games in all (default {N_SELFPLAY})")
+    ap.add_argument("--heldout-from", type=int, default=None, help=f"default {HELDOUT_FROM}")
+    ap.add_argument("--no-measures", action="store_true", help="the self-play and its readout only: no D0, no "
+                                                               "memory report")
     args = ap.parse_args()
     if args.smoke:
-        global SP_SEED_BASE, N_SELFPLAY, CHUNK_GAMES, HELDOUT_FROM, D0_SEED_BASE, D0_GAMES, MEM_SEED_BASE, MEM_GAMES
         SP_SEED_BASE, N_SELFPLAY, CHUNK_GAMES, HELDOUT_FROM = 873000, 48, 24, 24
         D0_SEED_BASE, D0_GAMES, MEM_SEED_BASE, MEM_GAMES = 873100, 24, 873200, 24
+    SP_SEED_BASE = args.seed_base if args.seed_base is not None else SP_SEED_BASE
+    N_SELFPLAY = args.games if args.games is not None else N_SELFPLAY
+    HELDOUT_FROM = args.heldout_from if args.heldout_from is not None else HELDOUT_FROM
+    if not 0 < HELDOUT_FROM < N_SELFPLAY:
+        raise SystemExit(f"--heldout-from {HELDOUT_FROM} must leave games on both sides of {N_SELFPLAY}")
     if args.tools_python is None:
         args.tools_python = default_tools_python(REPO)
     require_visible_gpu()
@@ -315,7 +342,8 @@ def main() -> int:
     ref_label = ref[ref.index("--label-b") + 1]
     if ref_label != "own2" or ref[ref.index("--memory-b") + 1] != "64":
         raise SystemExit(f"REFERENCE_CHANGED: {ref}; stage 1 plays own2 at 64 slots")
-    sp_a, sp_b = r.side_flags("a", "own2a"), r.side_flags("b", "own2b")
+    sp_a = r.side_flags("a", f"{args.label}a", spec=args.checkpoint)
+    sp_b = r.side_flags("b", f"{args.label}b", spec=args.checkpoint)
     d0_a, d0_b = r.side_flags("a", "own2t1"), ref
     mem_a, mem_b = r.side_flags("a", "own2m64", 64), r.side_flags("b", "own2m0", 0)
     t1 = ["--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "1"]
@@ -329,11 +357,13 @@ def main() -> int:
         return stop("the first match")
     first_ok = r.selfplay_match(0, sp_a, sp_b)
     r.progress("first match " + ("done" if first_ok else "FAILED"))
-    if r.stop_requested():
-        return stop("D0")
-    d0 = r.measure("d0", D0_GAMES, D0_SEED_BASE, ref_label,
-                   d0_a + d0_b + ["--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "0"])
-    log(args.out, f"D0: {d0}")
+    d0 = mem = "skipped"
+    if not args.no_measures:
+        if r.stop_requested():
+            return stop("D0")
+        d0 = r.measure("d0", D0_GAMES, D0_SEED_BASE, ref_label,
+                       d0_a + d0_b + ["--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "0"])
+        log(args.out, f"D0: {d0}")
     selfplay = "not played" if not first_ok else "played"
     if first_ok:
         for k in range(1, r.n_chunks()):
@@ -349,10 +379,11 @@ def main() -> int:
             return stop("the labels")
         readout = r.read_selfplay()
     log(args.out, f"self-play: {selfplay}; readout: {readout}")
-    if r.stop_requested():
-        return stop("the memory report")
-    mem = r.measure("memory", MEM_GAMES, MEM_SEED_BASE, "own2m0", mem_a + mem_b + t1)
-    log(args.out, f"memory report: {mem}")
+    if not args.no_measures:
+        if r.stop_requested():
+            return stop("the memory report")
+        mem = r.measure("memory", MEM_GAMES, MEM_SEED_BASE, "own2m0", mem_a + mem_b + t1)
+        log(args.out, f"memory report: {mem}")
     r.progress(f"done: self-play {selfplay}, readout {readout}, D0 {d0}, memory {mem}")
     (args.out / "ALL_DONE").write_text(time.strftime("%Y-%m-%d %H:%M:%S") + "\n", encoding="utf-8")
     return verdict(selfplay, readout, d0, mem)

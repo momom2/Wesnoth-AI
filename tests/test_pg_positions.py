@@ -77,6 +77,38 @@ def test_every_logged_decision_has_its_position():
     assert shadows == 2
 
 
+@needs_core
+def test_each_position_carries_its_logged_value_and_the_luck_dealt_before_it():
+    """With `luck`, a position carries the luck of the attacks among the
+    commands before its slot, its side's frame: none before the game's
+    first attack, the game's whole luck (match_luck.game_luck) after its
+    last, opposite for the two sides. Its v is the log's. Without `luck`, no
+    luck is read."""
+    from tools.match_luck import COLUMNS, game_luck
+    games = _games()
+    after_last = 0
+    for stem, path in games.records.items():
+        rec = read_record(path)
+        decisions = decisions_of(rec)
+        rejections = [(int(k), int(x), int(y)) for k, x, y in rec.get("rejections", ())]
+        slots = decision_slots(decisions, rejections, len(rec["commands"]))
+        attacks = [k for k, c in enumerate(rec["commands"]) if c[0] == "attack"]
+        total = np.array([game_luck(rec, 1, verify=False)["S"][c] for c in COLUMNS])
+        plain = positions_of(rec, *games.vocab, game=stem)
+        pos = positions_of(rec, *games.vocab, game=stem, luck=True)
+        for side, rows in pos.sides.items():
+            assert all(p.luck is None for p in plain.sides[side])
+            for p in rows:
+                assert p.v == decisions[p.index].v and len(p.luck) == len(COLUMNS)
+                k = slots[p.index][0]
+                if not attacks or k <= attacks[0]:
+                    assert np.allclose(p.luck, 0.0)
+                elif k > attacks[-1]:
+                    assert np.allclose(p.luck, (1.0 if side == 1 else -1.0) * total)
+                    after_last += 1
+    assert after_last > 0
+
+
 def _hex_token(raw, hex_) -> int:
     return [(h.x, h.y) for h in raw.hex_positions].index(hex_)
 

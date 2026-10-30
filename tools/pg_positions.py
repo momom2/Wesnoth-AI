@@ -21,6 +21,11 @@ command index sit in log order:
   ordered hex, which only later decisions see. Its action is the log's,
   the ordered hex, not the command's.
 
+With `luck`, each position also carries the dice luck dealt before it: the
+sum of tools/match_luck.attack_luck's terms over the attacks among the
+commands before its index, in its side's frame (the label's per-decision
+correction, tools/pg_corrections.py). Its own attack is never in it.
+
 So a decision sees, of its index's rejections, as many as the refused
 recruits before it at that index. A record whose rejections do not fit
 that count, whose decisions fall out of order, or whose logged action is
@@ -75,6 +80,9 @@ class PGPosition:
     shadow: bool                    # refused: reads the memory from before it, writes nothing
     index: int                      # its index in the record's decision log
     logp: float                     # the logged log probability of its action
+    v: float = 0.0                  # the logged value head's reading, the deciding side's frame
+    luck: Optional[Tuple[float, ...]] = None   # with `luck`: the luck dealt before it (match_luck.COLUMNS),
+    #                                            its side's frame
 
 
 @dataclass
@@ -150,11 +158,13 @@ def action_is_legal(masks: PackedMasks, action: ActionKey) -> bool:
 # ---------------------------------------------------------------------------
 
 def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                 game: Optional[str] = None, verify: bool = True) -> GamePositions:
+                 game: Optional[str] = None, verify: bool = True, luck: bool = False) -> GamePositions:
     """Every logged decision of `rec` at its position, by side, in log
     order. With `verify`, the record's fingerprints are checked as
-    `game_record.walk` checks them."""
+    `game_record.walk` checks them; with `luck`, each position carries the
+    luck dealt before it (module docstring)."""
     from tools.game_record import _check, start_core
+    from tools.match_luck import COLUMNS, attack_luck
     decisions = decisions_of(rec)
     commands = rec["commands"]
     rejections = [(int(k), int(x), int(y)) for k, x, y in rec.get("rejections", ())]
@@ -168,6 +178,7 @@ def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str,
     cs = start_core(rec, verify=verify)
     applied = {"commands": 0}
     seen: Counter = Counter()
+    dealt = [0.0] * len(COLUMNS)              # the luck of the attacks applied so far, side 1's frame
 
     def reject_up_to(k: int, n: int) -> None:
         for x, y in by_slot.get(k, [])[seen[k]:n]:
@@ -178,6 +189,11 @@ def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str,
         while applied["commands"] < k:
             c = applied["commands"]
             reject_up_to(c, len(by_slot.get(c, ())))
+            if luck and commands[c][0] == "attack":
+                terms = attack_luck(cs, list(commands[c]), 1).terms     # read on a fork: cs is unchanged
+                if terms is not None:
+                    for j, col in enumerate(COLUMNS):
+                        dealt[j] += terms[col]
             cs.apply_command(list(commands[c]))
             _check(rec, cs, digests.get(c), f"after command {c} ({commands[c][0]})")
             applied["commands"] += 1
@@ -185,7 +201,10 @@ def positions_of(rec: dict, type_to_id: Dict[str, int], faction_to_id: Dict[str,
     for i, (d, (k, r)) in enumerate(zip(decisions, slots)):
         advance_to(k)
         reject_up_to(k, r)
-        out.sides[d.side].append(_position(cs, d, i, type_to_id, faction_to_id, counts, out.game))
+        position = _position(cs, d, i, type_to_id, faction_to_id, counts, out.game)
+        if luck:                      # the luck terms flip sign with the frame (match_luck's side_sign)
+            position.luck = tuple(dealt) if d.side == 1 else tuple(-x for x in dealt)
+        out.sides[d.side].append(position)
         if not d.refused and commands[d.cmd][0] not in KIND_COMMANDS.get(d.kind, ()):
             counts["command_mismatch"] += 1
     advance_to(len(commands))
@@ -217,7 +236,8 @@ def _position(cs, d: Decision, i: int, type_to_id, faction_to_id, counts: Counte
     # (preencode_sequences.sequence_position): the true state's observation
     # and the true enemy faction stay out.
     raw = dataclasses.replace(raw, observation=None, their_faction_id=0, core_masks=None)
-    return PGPosition(raw=raw, masks=masks, action=d.action, shadow=d.refused, index=i, logp=d.logp)
+    return PGPosition(raw=raw, masks=masks, action=d.action, shadow=d.refused, index=i, logp=d.logp,
+                      v=float(d.v))
 
 
 # ---------------------------------------------------------------------------
@@ -376,24 +396,26 @@ def refuse_foreign(facts: Dict[str, Dict[int, dict]], checkpoint_sha256: str, sl
 _W: Dict = {}
 
 
-def _worker_init(type_to_id, faction_to_id, verify) -> None:
-    _W.update(type_to_id=type_to_id, faction_to_id=faction_to_id, verify=verify)
+def _worker_init(type_to_id, faction_to_id, verify, luck=False) -> None:
+    _W.update(type_to_id=type_to_id, faction_to_id=faction_to_id, verify=verify, luck=luck)
 
 
 def _build(game: str, path: str) -> GamePositions:
     return positions_of(read_record(Path(path)), _W["type_to_id"], _W["faction_to_id"], game=game,
-                        verify=_W["verify"])
+                        verify=_W["verify"], luck=_W["luck"])
 
 
 class PositionLoader:
     """Games' positions built ahead on `workers` processes (0: on the
-    calling thread, when asked) and kept until `keep_only` drops them."""
+    calling thread, when asked) and kept until `keep_only` drops them;
+    with `luck`, each carries the luck dealt before it (`positions_of`)."""
 
     def __init__(self, paths: Dict[str, Path], type_to_id: Dict[str, int], faction_to_id: Dict[str, int],
-                 workers: int = 0, verify: bool = True):
+                 workers: int = 0, verify: bool = True, luck: bool = False):
         self.paths = {g: Path(p) for g, p in paths.items()}
         self.vocab = (type_to_id, faction_to_id)
         self.verify = bool(verify)
+        self.luck = bool(luck)
         self._games: Dict[str, object] = {}
         # The replay's counts, summed over the games built (each once).
         self.counts: Counter = Counter()
@@ -401,7 +423,7 @@ class PositionLoader:
         self._pool = None
         if workers > 0:
             self._pool = ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn"), initializer=_worker_init,
-                                             initargs=(type_to_id, faction_to_id, self.verify))
+                                             initargs=(type_to_id, faction_to_id, self.verify, self.luck))
         self.wait_seconds = 0.0
 
     def prefetch(self, games: Iterable[str]) -> None:
@@ -419,7 +441,7 @@ class PositionLoader:
                 got = self._games[game]
             else:
                 got = self._games[game] = positions_of(read_record(self.paths[game]), *self.vocab, game=game,
-                                                       verify=self.verify)
+                                                       verify=self.verify, luck=self.luck)
         if not isinstance(got, GamePositions):
             t0 = time.perf_counter()
             got = self._games[game] = got.result()

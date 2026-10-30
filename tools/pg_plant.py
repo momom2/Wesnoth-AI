@@ -334,7 +334,7 @@ def cmd_delta(args) -> int:
     sha = file_sha256(args.checkpoint)
     reader = MassGradients(args.checkpoint, {g: index.path(g) for g in train + chosen}, torch.device(args.device),
                            streams=args.streams, window=args.window, seed=args.seed, slots=args.slots,
-                           workers=args.workers)
+                           workers=args.workers, fp16=args.fp16)
     try:
         u = reader.split_gradients({g: split[g] for g in train}, args.cls)
         grad_M = reader.seat_gradients(seat_sides(chosen, side_a), args.cls)
@@ -349,7 +349,8 @@ def cmd_delta(args) -> int:
         rule = delta_rule(main_pass, grad_M, u, len(train))
     grads = {"class": args.cls, "delta": rule["delta"], "delta_rule": rule, "train_games": train,
              "heldout_games": heldout, "readout_games": chosen, "side_a": side_a, "checkpoint_sha256": sha,
-             "config": {"streams": args.streams, "window": args.window, "seed": args.seed, "slots": args.slots},
+             "config": {"streams": args.streams, "window": args.window, "seed": args.seed, "slots": args.slots,
+                        "fp16": args.fp16},
              "u": u, "grad_M": grad_M}
     tmp = args.out.with_name(args.out.name + ".tmp")
     torch.save(grads, tmp)
@@ -380,7 +381,7 @@ def cmd_readout(args) -> int:
     index = RecordIndex(args.games)
     records = {g: index.path(g) for g in grads["readout_games"]}
     config = EvalConfig(streams=args.streams, workers=args.workers, kl_fraction=args.kl_fraction,
-                        slots=grads["config"]["slots"])
+                        slots=grads["config"]["slots"], fp16=args.fp16)
     main_pass = None if args.main_pass is None else torch.load(args.main_pass, map_location="cpu", weights_only=True)
     result = plant_readout(args.checkpoint, records, rows, pass_, grads, torch.device(args.device), config,
                            args.k_side, main_pass)
@@ -405,6 +406,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
             p.add_argument("--workers", type=int, default=0)
             p.add_argument("--pass", dest="pass_path", type=Path, required=name == "readout")
+            p.add_argument("--fp16", action="store_true",
+                           help="the packed trunk under the device's float16 autocast (tools/pg_plant_grad.py, "
+                                "tools/pg_eval.py)")
     p = sub.choices["delta"]
     p.add_argument("--walk", type=Path, required=True, help="the luck walk's table (the games' seeds)")
     p.add_argument("--seed-base", type=int, required=True)

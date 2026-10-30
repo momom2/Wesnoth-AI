@@ -33,7 +33,7 @@ def _direction(model, encoder, seed: int = 7):
             for n, p in named_model_parameters(model, encoder)}
 
 
-def _evaluator(tmp_path, direction=None):
+def _evaluator(tmp_path, direction=None, **config):
     from helpers.pg_games import named, played_games, write_labels
     from tools.pg_eval import EvalConfig, EvalContext
     games = played_games()
@@ -42,7 +42,7 @@ def _evaluator(tmp_path, direction=None):
     if direction is None:
         direction = _direction(games.model, games.encoder)
     context = EvalContext(games.checkpoint, games.records, labels, CPU,
-                          EvalConfig(streams=2, window=4, kl_fraction=1.0))
+                          EvalConfig(streams=2, window=4, kl_fraction=1.0, **config))
     return games, context.bind(direction)
 
 
@@ -109,6 +109,43 @@ def test_the_readings_move_along_the_bound_direction(tmp_path):
     assert set(written) == set(want)
     assert all(torch.allclose(written[n], want[n], atol=1e-7) for n in want)
     ev.context.close()
+
+
+@needs_core
+def test_a_moved_copy_serves_its_own_weights_on_the_packed_trunk(tmp_path):
+    """A moved network deep-copies theta_k's, and with it theta_k's frozen
+    weight copies (what the fused fp16 loop reads): the move bumps the copy's
+    weight version, so its packed trunk reads the moved weights, not
+    theta_k's."""
+    _, ev = _evaluator(tmp_path)
+    context = ev.context
+    base = context.model._weight_copy(torch.float32, torch.float32, CPU)       # theta_k's copy, built first
+    _, moved = context.network(ev.direction, 1.0)
+    copied = moved._weight_copy(torch.float32, torch.float32, CPU)
+    ff1 = 6                                              # linear1.weight in a layer's copy (packed_trunk)
+    assert torch.equal(copied.layers[0][ff1], moved.encoder.layers[0].linear1.weight.detach())
+    assert not torch.equal(copied.layers[0][ff1], base.layers[0][ff1])
+    context.close()
+
+
+@needs_core
+def test_the_fp16_evaluator_reads_the_packed_trunk_in_float32_outputs(tmp_path):
+    """`fp16` forwards the packed trunk (on a CPU in float32: the autocast
+    runs on a GPU only) and casts its outputs to float32: its log
+    probabilities at theta_k and off it are the default path's."""
+    from tools.pg_eval import _config_value
+    _, ev = _evaluator(tmp_path)
+    (tmp_path / "fp16").mkdir()
+    _, ev16 = _evaluator(tmp_path / "fp16", fp16=True)
+    ev.evaluate([0.5])
+    ev16.evaluate([0.5])
+    for s in (0.0, 0.5):
+        assert ev16.logp(s).dtype == np.float64
+        assert np.allclose(ev16.logp(s), ev.logp(s), atol=1e-4)
+    assert ev16.mean_kl(0.5) == pytest.approx(ev.mean_kl(0.5), rel=1e-3)
+    assert _config_value("fp16", "1") is True and _config_value("fp16", "off") is False
+    ev.context.close()
+    ev16.context.close()
 
 
 @needs_core
@@ -251,3 +288,15 @@ def test_a_held_out_game_whose_seats_sit_in_two_halves_is_refused(tmp_path):
     split = [r if r.side == 1 else dataclasses.replace(r, half="B") for r in rows]
     with pytest.raises(RecordFormatError):
         labelled_games(split, heldout=True)
+
+
+@needs_core
+def test_the_policy_gradient_tools_load_the_network_with_the_bias_fold_off(tmp_path):
+    """tools/pg_pass.py load_network (the pass, the evaluator, the plant's
+    gradients) turns the fused fp16 loop's bias fold off, and the moved
+    copies keep it off: the loop that served stage 1 (WesnothModel.fold_biases)."""
+    _, ev = _evaluator(tmp_path)
+    assert ev.context.model.fold_biases is False
+    _, moved = ev.context.network(ev.direction, 1.0)
+    assert moved.fold_biases is False
+    ev.context.close()

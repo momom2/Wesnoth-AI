@@ -12,6 +12,13 @@ shadow rows (tools/pg_positions.py). The gradient flows through the
 memory across windows of `--window` decisions, as the sequence trainer's
 does, and the memory is carried into the next window detached.
 
+With corrections (`--corrections`, tools/pg_corrections.py), decision t's
+weight is R_{g,s} - alpha v_t - gamma beta^T x_t in place of R_{g,s}: v_t the
+logged value head's reading and x_t the luck dealt before the decision, its
+side's frame (tools/pg_positions.py `luck`). These are design §1 step 2's
+per-decision corrections, fitted on held-out games and frozen. Both are
+functions of the history before a_t, so the sum stays unbiased.
+
 Each split runs alone (tools/pg_schedule.py), so its windows' gradients
 accumulate into its own sum. Per window w the gradient g_w of
 sum_{rows} R log pi is kept as follows:
@@ -111,9 +118,9 @@ import shutil
 import sys
 import time
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 from torch.utils.checkpoint import checkpoint
@@ -121,6 +128,7 @@ from torch.utils.checkpoint import checkpoint
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
+from tools.match_luck import COLUMNS as LUCK_COLUMNS  # noqa: E402
 from tools.pg_loss_scale import LossScale  # noqa: E402
 from tools.pg_positions import (SELF_PLAY_PROCEDURE, PositionLoader, RecordIndex, record_facts,  # noqa: E402
                                 refuse_foreign, servings, side_lengths)
@@ -137,12 +145,16 @@ log = logging.getLogger("pg_pass")
 
 
 def load_network(path: Path, device: torch.device):
-    """(encoder, model) of a checkpoint, in eval mode, on `device`."""
+    """(encoder, model) of a checkpoint, in eval mode, on `device`, the
+    fused fp16 loop's bias fold off (WesnothModel.fold_biases: these tools'
+    no-grad fp16 forwards, the floor's and the evaluator's, run the loop
+    that served stage 1)."""
     ck = torch.load(path, map_location="cpu", weights_only=True)
     arch = {k: int(ck["arch"][k]) for k in ARCH}
     encoder, model = build_modules(ck["unit_type_to_id"], ck["faction_to_id"], device, arch)
     model.load_state_dict(ck["model_state"])
     encoder.load_state_dict(ck["encoder_state"])
+    model.fold_biases = False
     return encoder.eval(), model.eval()
 
 
@@ -217,6 +229,10 @@ class PassConfig:
     replay_kl_limit: float = REPLAY_KL_LIMIT  # before the floor (`pg_floor.replay_limit`)
     floor_sides: int = FLOOR_SIDES          # the game-sides the floor reads (pg_floor.draw_sides)
     floor_dtype: str = "bfloat16"           # the serving precision (pg_floor.FLOOR_DTYPES); "auto": the games'
+    floor_chunk: int = 0                    # the floor's rows a forward (0: a step's at once; FloorReader)
+    alpha: float = 0.0                      # the corrections (module docstring): the value head's coefficient,
+    gamma: float = 0.0                      # the luck dealt so far's along luck_beta (tools/pg_corrections.py)
+    luck_beta: Tuple[float, ...] = ()
 
 
 class GradientPass:
@@ -243,8 +259,11 @@ class GradientPass:
         refuse_foreign(facts, self.checkpoint_sha256, config.slots, config.procedure)
         self.floor_dtype = resolve_floor_dtype(config.floor_dtype, servings(facts))
         self.lengths = side_lengths(facts)
+        if config.gamma and len(config.luck_beta) != len(LUCK_COLUMNS):
+            raise ValueError(f"the luck correction needs one beta per luck column ({len(LUCK_COLUMNS)}), "
+                             f"got {len(config.luck_beta)}")
         self.loader = PositionLoader(paths, dict(self.encoder.unit_type_to_id), dict(self.encoder.faction_to_id),
-                                     workers=config.workers, verify=config.verify)
+                                     workers=config.workers, verify=config.verify, luck=bool(config.gamma))
         splits = {g: sides[1].split for g, sides in self.games.items()}
         self.split_counts = Counter(splits.values())
         self.schedules = split_schedules(splits, self.lengths, config.streams, config.seed, config.slots)
@@ -266,7 +285,7 @@ class GradientPass:
         serving, packed = self.floor_config
         return FloorReader(self.encoder, self.model, self.device,
                            draw_sides(self.games, self.config.seed, self.config.floor_sides),
-                           self.floor_dtype, serving=serving, packed=packed)
+                           self.floor_dtype, serving=serving, packed=packed, chunk=self.config.floor_chunk or None)
 
     # ---- a split's sums, written as it completes ----------------------------
     def _split_games(self, i: int) -> List[str]:
@@ -276,7 +295,8 @@ class GradientPass:
         """What a split's written sums depend on: the checkpoint, the
         settings that shape the sum, the split's game-sides, labels and
         lengths."""
-        config = {k: v for k, v in asdict(self.config).items() if k not in ("workers", "prefetch", "verify")}
+        config = {k: v for k, v in asdict(self.config).items()
+                  if k not in ("workers", "prefetch", "verify", "floor_chunk")}
         sides = [[g, s, self.R[(g, s)], self.lengths[StreamSide(g, s)]] for g in self._split_games(i) for s in (1, 2)]
         body = json.dumps({"checkpoint": self.checkpoint_sha256, "config": config, "sides": sides}, sort_keys=True)
         return hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -370,9 +390,10 @@ class GradientPass:
         self._split_max = torch.zeros((), dtype=torch.float64, device=self.device)
         self.probe_carry = torch.zeros(len(CLASSES), device=self.device)   # the probes' gradient of splits taken
         self.floor = self._new_floor()
-        self._warm: Optional[tuple] = None          # (clock, timed rows) at the end of the warm-up windows
+        self._warm: Optional[tuple] = None          # (clock, timed rows, floor seconds) past the warm-up windows
         self._windows_run = 0
         self._timed_rows = 0                        # decisions forwarded in this process (not taken splits)
+        self._floor_seconds = 0.0                   # the floor's forwards, kept out of the rate
         self.rows = 0
         self.shadow = 0
         self.memories: Dict[int, torch.Tensor] = {}
@@ -405,6 +426,15 @@ class GradientPass:
             diff = logged - lp.detach().double()
         return -(w * lp).sum(), out.memory_padded, scores, diff
 
+    def weight(self, R: float, p) -> float:
+        """A decision's weight: its game-side's R less the corrections
+        (module docstring); R itself without them."""
+        c = self.config
+        w = R - c.alpha * p.v if c.alpha else R
+        if c.gamma:
+            w -= c.gamma * sum(b * x for b, x in zip(c.luck_beta, p.luck))
+        return w
+
     def _forward_window(self, window) -> tuple:
         """The window's loss and the memories it carries out."""
         router = PGMemoryRouter(self.model, self.device, self.memories)
@@ -414,15 +444,18 @@ class GradientPass:
             mems = router.batch(steps)
             staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
             batch = stage_step(positions, staged, self.model, self.device)
-            w = torch.tensor([self.R[(s.game_side.file, s.game_side.side)] for s in steps], device=self.device)
+            w = torch.tensor([self.weight(self.R[(s.game_side.file, s.game_side.side)], p)
+                              for s, p in zip(steps, positions)], device=self.device)
             logged = torch.tensor([p.logp for p in positions], dtype=torch.float64, device=self.device)
             args = (staged, mems, batch, w, logged)
             loss, mem_padded, scores, diff = (checkpoint(self._step, *args, use_reentrant=False) if self.recompute
                                               else self._step(*args))
             total = total + loss
             router.wrote(steps, mem_padded, [p.shadow for p in positions])
-            if self.floor is not None:
+            if self.floor is not None and self.floor.reads(steps):
+                start = self._clock()                 # the pass's queued work done: the floor's own seconds
                 self.floor.read(steps, positions, mems, stage_step)
+                self._floor_seconds += self._clock() - start
             self.head_sums += (w.double().unsqueeze(1) * scores).sum(dim=0)
             self.head_fisher += scores.T @ scores
             self.replay[0] += diff.abs().sum()
@@ -452,7 +485,7 @@ class GradientPass:
             self._windows_run += 1
             self.loader.keep_only(g.file for g in schedule.upcoming(self.config.prefetch))
             if self._windows_run == WARMUP_WINDOWS:
-                self._warm = (self._clock(), self._timed_rows)
+                self._warm = (self._clock(), self._timed_rows, self._floor_seconds)
         self.loader.keep_only(())
         self._write_split(i, before)
 
@@ -508,14 +541,19 @@ class GradientPass:
     def _rate(self) -> Optional[Dict]:
         """Decisions a second over the windows this process timed past its
         first WARMUP_WINDOWS (the replay workers' start, the device's first
-        kernels); splits taken from written sums never count. None (unread)
-        for a process that timed no window past its warm-up."""
+        kernels); splits taken from written sums never count. The floor's
+        forwards are not the pass's: their seconds are left out of `seconds`
+        (C0 reads the floor on every one of its game-sides, the main pass on
+        1 %). None (unread) for a process that timed no window past its
+        warm-up."""
         if self._warm is None or self._timed_rows <= self._warm[1]:
             return None
-        seconds = self._clock() - self._warm[0]
+        wall = self._clock() - self._warm[0]
+        floor = self._floor_seconds - self._warm[2]
+        seconds = wall - floor
         rows = self._timed_rows - self._warm[1]
         return {"positions_per_second": rows / seconds, "decisions": rows, "seconds": seconds,
-                "warmup_windows": WARMUP_WINDOWS}
+                "floor_seconds": floor, "wall_seconds": wall, "warmup_windows": WARMUP_WINDOWS}
 
     def run(self) -> Dict:
         """The pass; the pass.pt dict (module docstring). Raises a
@@ -609,6 +647,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT, help="the limit before the floor")
     ap.add_argument("--floor-sides", type=int, default=FLOOR_SIDES,
                     help="the game-sides whose decisions read the precision floor (tools/pg_floor.py)")
+    ap.add_argument("--floor-chunk", type=int, default=0,
+                    help="the floor's rows a forward (0: a step's drawn rows at once; tools/pg_floor.py FloorReader)")
+    ap.add_argument("--corrections", type=Path, default=None,
+                    help="the labels' per-decision corrections (tools/pg_corrections.py's JSON; module docstring)")
     ap.add_argument("--floor-dtype", default="auto", choices=FLOOR_DTYPES,
                     help="the serving precision the floor reads: auto, the labelled games' own, the path "
                          "alone for games served in float32 (tools/pg_floor.py resolve_floor_dtype); off, "
@@ -633,7 +675,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                         workers=args.workers, prefetch=args.prefetch, bf16=args.bf16, fp16=args.fp16,
                         packed=True if args.packed_trunk else None, verify=not args.no_verify,
                         procedure=args.procedure, replay_kl_limit=args.replay_kl_limit,
-                        floor_sides=args.floor_sides, floor_dtype=args.floor_dtype)
+                        floor_sides=args.floor_sides, floor_dtype=args.floor_dtype,
+                        floor_chunk=args.floor_chunk)
+    if args.corrections is not None:
+        c = json.loads(args.corrections.read_text(encoding="utf-8"))
+        config = replace(config, alpha=float(c["alpha"]), gamma=float(c["gamma"]),
+                         luck_beta=tuple(float(b) for b in c["beta"]))
     partial = args.out.with_name(args.out.stem + ".splits")
     if args.fresh:
         shutil.rmtree(partial, ignore_errors=True)

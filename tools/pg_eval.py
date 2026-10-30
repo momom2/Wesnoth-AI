@@ -29,9 +29,17 @@ types, `laws_bytes_per_decision`), so a KL reading forwards only the moved
 network. `EvalContext.reads` counts the
 forwards each set of game-sides took, for the stage C plan's check.
 
-The forwards run in float32, whatever the device: bfloat16 rounds a log
-probability near -5 by about 0.016 nats, more than the per-decision KL the
-step search targets (about 0.001).
+The forwards run in float32 by default: bfloat16 rounds a log probability
+near -5 by about 0.016 nats, more than the per-decision KL the step search
+targets (about 0.001). With `fp16` (the RX 6600, where float32 forwards run
+at 20 to 55 positions a second and bfloat16 has no matrix units) they run
+the packed trunk under the device's float16 autocast, on the fused HIP loop
+where it serves, and every output is cast to float32 before the log
+softmax. float16 keeps 11 significant bits to bfloat16's 8, so it rounds a
+log probability near -5 by about 0.002 nats, and independent rounding of
+two laws lifts a KL reading by about half its variance, some 2e-6 a
+decision (training/metrics/pg_fp16_20261030 measures both against the
+float32 path).
 
 `evaluate([s, ...])` reads several steps over every held-out decision in one
 replay of the positions (each `logp` call replays them otherwise). `class_mass_by_seat(s)` is the
@@ -94,6 +102,7 @@ class EvalConfig:
     verify: bool = True
     kl_fraction: float = 0.05
     procedure: str = SELF_PLAY_PROCEDURE      # the procedure every held-out game-side was played under
+    fp16: bool = False                        # the packed trunk under the float16 autocast (module docstring)
 
 
 @dataclass
@@ -162,7 +171,19 @@ class EvalContext:
             for n, p in named_model_parameters(model, encoder):
                 d = direction.get(n)
                 p.copy_(self.base[n] if d is None else self.base[n] + s * d)
+        model.weights_changed()
         return encoder.eval(), model.eval()
+
+    def _forward(self, encoder, model, staged, memory):
+        """One network's forward of a staged step, its outputs in float32.
+        Under `fp16` the trunk is the packed one, and the autocast runs on a
+        GPU only, as the pass's (tools/pg_pass.py): on a CPU the packed trunk
+        runs in float32."""
+        fp16 = self.config.fp16
+        with torch.autocast(self.device.type, dtype=torch.float16, enabled=fp16 and self.device.type == "cuda"):
+            out = model.forward_embedded(encoder.embed_staged(staged), memory=memory,
+                                         packed=True if fp16 else self.config.packed)
+        return out.float32() if fp16 else out
 
     def _kind(self, sides: Sequence[GameSide]) -> str:
         if sides is self.kl_sides:
@@ -198,8 +219,7 @@ class EvalContext:
                     shadow = [p.shadow for p in positions]
                     outputs = {}
                     for s, (encoder, model) in networks.items():
-                        outputs[s] = model.forward_embedded(encoder.embed_staged(staged),
-                                                            memory=routers[s].batch(steps), packed=self.config.packed)
+                        outputs[s] = self._forward(encoder, model, staged, routers[s].batch(steps))
                         routers[s].wrote(steps, outputs[s].memory_padded, shadow)
                     on_step(t, steps, batch, outputs)
                     t += 1
@@ -362,7 +382,7 @@ class NetworkEvaluator:
 
 def _config_value(name: str, text: str):
     """An `EvalConfig` field from its text."""
-    if name == "verify":
+    if name in ("verify", "fp16"):
         return str(text).strip().lower() in ("1", "true", "yes", "on")
     if name == "packed":
         return None if text.lower() == "auto" else _config_value("verify", text)
@@ -411,7 +431,7 @@ def time_forwards(checkpoint: Path, dirs: Sequence[Path], labels: Path, device: 
             "replay": {"kl": float(diff.mean()), "max_abs": float(np.abs(diff).max())},
             "warmup_sides": min(WARMUP_SIDES, len(context.sides)),
             "laws_bytes_per_decision": context.laws_bytes_per_decision,
-            "config": {"streams": config.streams, "workers": config.workers}}
+            "config": {"streams": config.streams, "workers": config.workers, "fp16": config.fp16}}
 
 
 EXIT_REPLAY = 3
@@ -432,12 +452,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--streams", type=int, default=EvalConfig.streams)
     ap.add_argument("--workers", type=int, default=0)
+    ap.add_argument("--fp16", action="store_true",
+                    help="the packed trunk under the device's float16 autocast (module docstring)")
     ap.add_argument("--replay-kl-limit", type=float, default=REPLAY_KL_LIMIT,
                     help="the replay identity's limit (stage C's C0 passes the pass's, over its floor)")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     result = time_forwards(args.checkpoint, args.games, args.labels, torch.device(args.device),
-                           EvalConfig(streams=args.streams, workers=args.workers), args.held_games)
+                           EvalConfig(streams=args.streams, workers=args.workers, fp16=args.fp16), args.held_games)
     result["replay"]["limit"] = args.replay_kl_limit
     result["replay"]["pass"] = bool(result["replay"]["kl"] <= args.replay_kl_limit)
     tmp = args.out.with_name(args.out.name + ".tmp")

@@ -78,3 +78,19 @@ def test_a_readout_whose_gate_fails_is_marked_read_with_its_failure(tmp_path, mo
     assert run.marked("readout")                           # the step ran to its end: not run again
     assert run.read_selfplay() == words and calls == ["labels", "readout"]
     assert st.verdict("played", words, "done", "done") == 1
+
+
+def test_a_rounds_player_replaces_the_checkpoint_and_its_measures_may_be_skipped():
+    """A round's games (scripts/rounds_local.py): the reference's flags with
+    its label and checkpoint replaced and its end_turn offset dropped; a run
+    without D0 and the memory report passes on its self-play and gates."""
+    r = st.Run.__new__(st.Run)
+    r.reference_flags = lambda side: [f"--label-{side}", "own2", f"--spec-{side}", "training/checkpoints/own2.pt",
+                                      f"--memory-{side}", "64", f"--raw-end-turn-offset-{side}", "-1.5"]
+    assert r.side_flags("b", "pi2b", spec="C:/rounds/pi_2.pt") == \
+        ["--label-b", "pi2b", "--spec-b", "C:/rounds/pi_2.pt", "--memory-b", "64"]
+    assert r.side_flags("a", "own2a") == ["--label-a", "own2a", "--spec-a", "training/checkpoints/own2.pt",
+                                          "--memory-a", "64"]
+    words = " ".join(f"{k}=pass" for k in st.GATES)
+    assert st.verdict("played", words, "skipped", "skipped") == 0
+    assert st.verdict("played", words, "skipped", "FAILED: x") == 1

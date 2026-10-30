@@ -13,7 +13,11 @@ scripts/match_local.py import it.
   when the poll names a reason; `kill_tree` ends it with every process it
   started;
 - `run_match`: run_tool for a match, which may step aside while the user's
-  own programs use the GPU (scripts/gpu_yield.py) and resume after.
+  own programs use the GPU (scripts/gpu_yield.py) and resume after;
+- `Steps`: a resumable run's parts (scripts/stage_c_local.py,
+  scripts/rounds_local.py): `<part>.done` / `<part>.failed` markers, a STOP
+  file between steps, and a display reset during a GPU step writing STOP
+  and ending the run (`Stopped`).
 
 Off Windows the priority is `os.nice(5)`, keep-awake does nothing and no
 reset is ever logged, so the scripts and their tests run on Linux.
@@ -217,3 +221,62 @@ def run_match(out: Path, name: str, cmd: List[str], log_name: str, timeout_min: 
                                    log=lambda m: log(out, f"{name}: {m}"))
         log(out, f"{name}: the GPU has been quiet for {gpu_yield.quiet_s / 60:.0f} min after "
                  f"{(time.monotonic() - t0) / 60:.0f} min of waiting: the match resumes")
+
+
+class Stopped(Exception):
+    """A run ends here: a STOP file, or a display reset during a step."""
+
+
+class Steps:
+    """A resumable run's parts in `out` (module docstring). `runner` stands
+    in for run_tool and `resets` for display_resets_since (their tests
+    replace both); GPU steps run on `py`, CPU steps on `tools_py`."""
+
+    def __init__(self, out: Path, py: str, tools_py: str, runner: Callable[..., int] = None,
+                 resets: Callable[[float], int] = None):
+        self.out, self.py, self.tools_py = Path(out), py, tools_py
+        self.runner = runner or run_tool
+        self.resets = resets or display_resets_since
+        self.state: List[str] = []
+
+    def done(self, part: str) -> bool:
+        return (self.out / f"{part}.done").exists()
+
+    def failed_before(self, part: str) -> Optional[str]:
+        f = self.out / f"{part}.failed"
+        return f.read_text(encoding="utf-8").strip() if f.exists() else None
+
+    def mark(self, part: str, why: Optional[str] = None) -> None:
+        name = f"{part}.failed" if why else f"{part}.done"
+        (self.out / name).write_text((why or time.strftime("%Y-%m-%d %H:%M:%S")) + "\n", encoding="utf-8")
+        self.state.append(f"{part}: {'FAILED, ' + why if why else 'done'};")
+
+    def skip(self, part: str) -> bool:
+        """True when `part` is done or failed at an earlier start."""
+        if self.done(part):
+            self.state.append(f"{part}: done;")
+            return True
+        why = self.failed_before(part)
+        if why:
+            self.state.append(f"{part}: FAILED at an earlier start, {why};")
+            return True
+        return False
+
+    def check_stop(self, before: str) -> None:
+        if (self.out / "STOP").exists():
+            raise Stopped(f"STOP found before {before}")
+
+    def step(self, name: str, cmd: List[str], log_name: str, cut_min: float, gpu: bool = True,
+             out: Optional[Path] = None) -> int:
+        """One tool to its end or its cut, its output in `out`/log_name (out:
+        the run's by default); after a GPU step, a display reset writes STOP
+        in the run's directory and raises Stopped."""
+        t0 = time.time()
+        rc = self.runner(out or self.out, name, cmd, log_name, cut_min, self.py if gpu else self.tools_py)
+        if gpu:
+            n = self.resets(t0)
+            if n:
+                why = f"{n} display-driver reset(s) (System event 4101) during {name}"
+                (self.out / "STOP").write_text(why + "\n", encoding="utf-8")
+                raise Stopped(why)
+        return rc
