@@ -109,6 +109,38 @@ def test_each_position_carries_its_logged_value_and_the_luck_dealt_before_it():
     assert after_last > 0
 
 
+@needs_core
+def test_a_played_decisions_luck_is_its_earlier_attacks_luck():
+    """Mid-game, read without decision_slots: a played decision's luck is
+    the sum of match_luck.attack_luck's terms over the attack commands
+    before its own command, in its side's frame; an attack's own dice are
+    not in it."""
+    from tools import game_record
+    from tools.match_luck import COLUMNS, attack_luck
+    games = _games()
+    mid = 0
+    for stem, path in games.records.items():
+        rec = read_record(path)
+        decisions = decisions_of(rec)
+        dealt = {}                                         # command index -> its attack's terms, side 1's frame
+        for k, cs, cmd in game_record.walk_core(rec, verify=False):
+            if cmd[0] == "attack":
+                terms = attack_luck(cs, list(cmd), 1).terms
+                if terms is not None:
+                    dealt[k] = np.array([terms[c] for c in COLUMNS])
+        pos = positions_of(rec, *games.vocab, game=stem, luck=True)
+        for side, rows in pos.sides.items():
+            for p in rows:
+                d = decisions[p.index]
+                if d.refused:
+                    continue
+                before = [x for k, x in dealt.items() if k < d.cmd]
+                want = (sum(before) if before else np.zeros(len(COLUMNS))) * (1.0 if side == 1 else -1.0)
+                assert np.allclose(p.luck, want, atol=1e-12), (stem, p.index)
+                mid += bool(before) and len(before) < len(dealt)
+    assert mid > 0
+
+
 def _hex_token(raw, hex_) -> int:
     return [(h.x, h.y) for h in raw.hex_positions].index(hex_)
 

@@ -59,6 +59,41 @@ def test_the_fp16_mass_gradient_is_the_float32_one():
 
 
 @needs_core
+def test_an_fp16_mass_window_that_overflows_is_run_again(monkeypatch):
+    """A loss scale at the edge of fp32 (2^127), grown every three finite
+    windows, overflows (at 2^128 here) and is halved, and each overflowed
+    window runs again from the same memories: the seat gradients are still
+    the fp32 path's (as tools/pg_pass.py's, its
+    test_an_fp16_window_that_overflows_is_run_again_and_sums_as_fp32)."""
+    import torch
+    import tools.pg_plant_grad as plant_grad
+    from helpers.pg_games import SLOTS, played_games
+    from tools.pg_loss_scale import LossScale
+    from tools.pg_plant_grad import MassGradients
+    games = played_games()
+    names = sorted(games.records)
+    seats = {"a": [(names[0], 1), (names[1], 2)], "b": [(names[0], 2), (names[1], 1)]}
+    read, scales = {}, {}
+    for fp16 in (False, True):
+        if fp16:
+            monkeypatch.setattr(plant_grad, "LossScale", lambda: LossScale(scale=2.0 ** 127, growth_interval=3))
+        reader = MassGradients(games.checkpoint, games.records, torch.device("cpu"), streams=2, window=2,
+                               seed=3, slots=SLOTS, fp16=fp16)
+        try:
+            read[fp16] = reader.seat_gradients(seats, "attack")
+            scales[fp16] = None if reader.loss_scale is None else reader.loss_scale.summary()
+        finally:
+            reader.close()
+    ls = scales[True]
+    assert scales[False] is None and ls["overflows"] >= 1 and ls["growths"] >= 1
+    for s in seats:
+        want, got = read[False][s], read[True][s]
+        norm = math.sqrt(sum(float((t * t).sum()) for t in want.values()))
+        diff = math.sqrt(sum(float(((got[n] - t) ** 2).sum()) for n, t in want.items()))
+        assert norm > 0 and diff <= 1e-4 * norm, s
+
+
+@needs_core
 def test_a_planted_copy_reaches_both_seats_in_side_a_frame(tmp_path):
     """z' = z + delta Y in the walk's copy, Y side A's attacks less their
     logged mass, less side B's: the join gives side A z' and side B -z',

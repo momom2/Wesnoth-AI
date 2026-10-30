@@ -3,7 +3,9 @@
 rungs and writes an adopted rung's network as theta_k + s d; the cosine
 with the previous direction reads 1 on the same pass; round 1 taken from
 stage C's decision writes its step without a ladder, and nothing when stage
-C kept pi_k; the radius and the arm are read from either readout."""
+C kept pi_k; the radius and the arm are read from either readout; the
+probe_span arm's span Fisher is stage C's in round 1 and the round's own
+later."""
 from __future__ import annotations
 
 import json
@@ -107,3 +109,49 @@ def test_the_radius_and_the_arm_are_read_from_either_readout(tmp_path):
     assert arm_of(tmp_path / "bare.json") == "reduced_adamw"
     with pytest.raises(ValueError, match="no next_eps"):
         eps_of(tmp_path / "bare.json")
+
+
+def _heads_params():
+    torch.manual_seed(0)
+    return {f"{h}.weight": torch.randn(3, 2) for h in ("actor_head", "type_head", "target_q_proj", "weapon_head.2")}
+
+
+def test_probe_span_takes_stage_cs_fisher_in_round_1_and_its_own_later(monkeypatch):
+    """Round 1's probe_span steps by stage C's span Fisher (its heads must be
+    this network's); a later round's comes from its pass, else the KL, the
+    order stage C reads them in (tools/pg_stage_c.StageC.span)."""
+    import numpy as np
+    import tools.pg_head_floor as head_floor
+    import tools.pg_round as pr
+    params = _heads_params()
+    heads = list(pr.head_directions(params))
+    F = np.diag([1.0, 2.0, 3.0, 4.0])
+    got, source = pr.round_span_fisher({}, params, None, {"span": {"heads": heads, "fisher": F.tolist(),
+                                                                  "fisher_source": "pass"}})
+    assert np.array_equal(got, F) and source == "stage C (pass)"
+    with pytest.raises(ValueError, match="not this network's"):
+        pr.round_span_fisher({}, params, None, {"span": {"heads": heads[:2], "fisher": F.tolist()}})
+    with pytest.raises(ValueError, match="no span Fisher"):
+        pr.round_span_fisher({}, params, None, {"ladder": {}})
+    monkeypatch.setattr(head_floor, "fisher_from_pass", lambda pass_, names: 2 * F if names == heads else None)
+    got, source = pr.round_span_fisher({}, params, None)
+    assert np.array_equal(got, 2 * F) and source == "pass"
+    monkeypatch.setattr(head_floor, "fisher_from_pass", lambda pass_, names: None)
+    monkeypatch.setattr(pr, "span_fisher", lambda factory, dirs, s: (factory, len(dirs), s))
+    got, source = pr.round_span_fisher({}, params, "factory")
+    assert got == ("factory", 4, pytest.importorskip("tools.pg_stage_c").SPAN_STEP) and source == "kl"
+
+
+def test_round_1_adopts_a_probe_span_step_along_stage_cs_fisher(monkeypatch):
+    import numpy as np
+    import tools.pg_round as pr
+    params = _heads_params()
+    torch.manual_seed(1)
+    pass_ = {"total": {n: torch.randn_like(t) for n, t in params.items()}, "games": 4, "decisions": 40}
+    monkeypatch.setattr(pr, "direction", lambda p, arm, prm, fisher: {"fisher": fisher})
+    F = np.diag([1.0, 2.0, 3.0, 4.0])
+    stage_c = {"span": {"heads": list(pr.head_directions(params)), "fisher": F.tolist(), "fisher_source": "kl"}}
+    adopt = {"adopt": True, "s": 0.5, "eps": 1e-3, "next_eps": 2e-3, "chosen": 1, "reason": "read"}
+    monkeypatch.setattr(pr, "norm", lambda d: 1.0)
+    readout, d, s = pr.run_round(pass_, params, None, "probe_span", 1e-3, adopt=adopt, stage_c=stage_c)
+    assert np.array_equal(d["fisher"], F) and s == 0.5 and readout["span_fisher"]["source"] == "stage C (kl)"

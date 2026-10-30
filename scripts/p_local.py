@@ -12,7 +12,10 @@ verdict.json "next").
     the link match: pi_0 at T = 1/(1 + e) on side A against pi_0 at
         T = 1/(1 - e) on side B, LINK_GAMES games; read back by
         tools/pg_planted_play.py link against 2 e times stage 1's sharpening
-        slope.
+        slope. It is played only when that slope is resolved at 3 SE (stage
+        1's readout.json "sharpening" "resolved", design §6: "iff the slope
+        >= 3 SE"); otherwise link.json records "not run" and the rounds do
+        not wait on it.
 
 The link's e is the pre-registration's (--e, no default): the forecast is
 sealed before the match is played.
@@ -46,8 +49,8 @@ from scripts.rounds_local import POOL  # noqa: E402
 
 P_GAMES = 5000                  # design §5: the planted step against pi_0
 LINK_GAMES = 12800              # design §4: the link match ($0.33 on a box)
-P_SEED_BASE = 3_000_000
-LINK_SEED_BASE = 3_100_000
+P_SEED_BASE = 50_000_000       # past the rounds' blocks (scripts/rounds_local.py's seed layout)
+LINK_SEED_BASE = 60_000_000
 PLANTED_LABEL = "planted"
 MATCH_CUT_MIN = 6 * 60
 
@@ -103,27 +106,36 @@ def run(p: P) -> int:
                                          str(out / "p_readout.json")], out / "p_readout.json")
         if not p_read:
             return 1
-        link_games = out / "games_link"
-        flags = (p.side("a", "own2c", p.pi0, 1.0 / (1.0 + p.e)) + p.side("b", "own2h", p.pi0, 1.0 / (1.0 - p.e)))
-        if not p.match("link_match", link_games, flags, LINK_GAMES, LINK_SEED_BASE):
-            return 1
-        link = p.readout("link_readout", ["tools/pg_planted_play.py", "link", "--games", str(link_games),
-                                          "--readout", str(p.s1 / "readout.json"), "--e", repr(p.e), "--out",
-                                          str(out / "link.json")], out / "link.json")
-        if not link:
-            return 1
+        sharp = json.loads((p.s1 / "readout.json").read_text(encoding="utf-8")).get("sharpening") or {}
+        if sharp.get("resolved"):
+            link_games = out / "games_link"
+            flags = (p.side("a", "own2c", p.pi0, 1.0 / (1.0 + p.e))
+                     + p.side("b", "own2h", p.pi0, 1.0 / (1.0 - p.e)))
+            if not p.match("link_match", link_games, flags, LINK_GAMES, LINK_SEED_BASE):
+                return 1
+            link = p.readout("link_readout", ["tools/pg_planted_play.py", "link", "--games", str(link_games),
+                                              "--readout", str(p.s1 / "readout.json"), "--e", repr(p.e), "--out",
+                                              str(out / "link.json")], out / "link.json")
+            if not link:
+                return 1
+        else:
+            link = {"verdict": "not run", "sharpening": sharp,
+                    "reason": "stage 1's sharpening slope is not resolved at 3 SE (design §6)"}
+            (out / "link.json").write_text(json.dumps(link, indent=1) + "\n", encoding="utf-8")
+            log(out, f"LINK_NOT_RUN: the sharpening slope reads {sharp}")
     except Stopped as e:
         log(out, f"STOPPED: {e}; a new start resumes")
         return 2
     if p_read["verdict"] != "pass":
         why = f"P_MISS: the planted step played does not read back ({p_read['seats']}): debug before the rounds"
-    elif link["verdict"] != "holds":
+    elif link["verdict"] not in ("holds", "not run"):
         why = (f"LINK_MISS: measured {link['measured']:.4f} against the forecast {link['forecast']:.4f} "
                f"({link['miss_se']:.1f} combined SE): first-order labels do not price play at temperature 1; "
                f"stop and diagnose before the rounds")
     else:
-        log(out, f"P_DONE: the planted step reads back on both seats and the link holds "
-                 f"({link['measured']:.4f} against {link['forecast']:.4f}): the rounds may start")
+        held = (f"the link holds ({link['measured']:.4f} against {link['forecast']:.4f})"
+                if link["verdict"] == "holds" else "the link was not run")
+        log(out, f"P_DONE: the planted step reads back on both seats and {held}: the rounds may start")
         return 0
     (out / "STOP").write_text(why + "\n", encoding="utf-8")
     log(out, why)
