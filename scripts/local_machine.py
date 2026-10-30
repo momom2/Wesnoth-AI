@@ -11,7 +11,8 @@ scripts/match_local.py import it.
 - `reference_flags`: the reference player's run_elo_batch flags for a side;
 - `run_tool`: one tool to its end or its cut, and, given a poll, stopped
   when the poll names a reason; `kill_tree` ends it with every process it
-  started;
+  started. Its kernels run serialized except a match driver's (`tool_env`),
+  and its log line names the commit it runs (`code_version`);
 - `run_match`: run_tool for a match, which may step aside while the user's
   own programs use the GPU (scripts/gpu_yield.py) and resume after;
 - `Steps`: a resumable run's parts (scripts/stage_c_local.py,
@@ -151,20 +152,62 @@ class ToolStopped(Exception):
     """run_tool's poll named a reason to stop: the tool was killed."""
 
 
+# The RX 6600 faults (a launch failure and a display reset) when the pg
+# tools' kernels run unserialized, and runs them clean serialized
+# (training/metrics/pg_fp16_20261030, "After the reboot"). So every tool
+# runs with SERIALIZE_ENV, except the match drivers below: their inference
+# server ran stage 1's 13 h unserialized without a fault.
+SERIALIZE_ENV = {"AMD_SERIALIZE_KERNEL": "3"}
+UNSERIALIZED_TOOLS = frozenset({"tools/run_elo_batch.py", "scripts/selfplay_t1_local.py", "scripts/match_local.py"})
+
+
+def tool_env(cmd: List[str], serialize: Optional[bool] = None) -> dict:
+    """The environment a tool runs in: this process's, with SERIALIZE_ENV
+    set when the tool is serialized and removed when it is not. `serialize`
+    None: serialized unless cmd[0] is in UNSERIALIZED_TOOLS."""
+    if serialize is None:
+        serialize = not cmd or cmd[0] not in UNSERIALIZED_TOOLS
+    env = dict(os.environ)
+    for k, v in SERIALIZE_ENV.items():
+        if serialize:
+            env[k] = v
+        else:
+            env.pop(k, None)
+    return env
+
+
+def code_version(cwd: Path = REPO) -> str:
+    """The commit a tool runs from cwd, "+dirty" when tracked files differ
+    from it; "unknown" without git."""
+    try:
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=cwd, capture_output=True,
+                              text=True, timeout=30).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "-uno"], cwd=cwd, capture_output=True,
+                               text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return (head or "unknown") + ("+dirty" if dirty else "")
+
+
 def run_tool(out: Path, name: str, cmd: List[str], log_name: str, timeout_min: float, python: str, *,
              poll: Optional[Callable[[], Optional[str]]] = None, poll_s: float = 60.0,
-             cwd: Path = REPO) -> int:
+             cwd: Path = REPO, serialize: Optional[bool] = None) -> int:
     """One tool to its end or its cut, its output appended to out/log_name:
     its exit status, 124 when cut at timeout_min. Given `poll`, it is asked
     every poll_s seconds while the tool runs; when it returns a reason, the
     tool is killed and ToolStopped(reason) raised. A cut or a stop kills the
-    tool's whole process tree (kill_tree)."""
+    tool's whole process tree (kill_tree). The tool's environment is
+    `tool_env(cmd, serialize)`; the step's log line names the commit it runs
+    and whether its kernels are serialized."""
     full = [python, "-u"] + cmd
-    log(out, f"{name}: {' '.join(cmd[:2])} ... (cut at {timeout_min:.0f} min, {log_name})")
+    env = tool_env(cmd, serialize)
+    serialized = all(env.get(k) == v for k, v in SERIALIZE_ENV.items())
+    log(out, f"{name}: {' '.join(cmd[:2])} ... (cut at {timeout_min:.0f} min, {log_name}; "
+             f"code {code_version(cwd)}, {'serialized' if serialized else 'unserialized'})")
     with open(out / log_name, "a", encoding="utf-8") as f:
         f.write(f"\n==== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(full)}\n")
         f.flush()
-        p = subprocess.Popen(full, cwd=cwd, stdout=f, stderr=subprocess.STDOUT)
+        p = subprocess.Popen(full, cwd=cwd, stdout=f, stderr=subprocess.STDOUT, env=env)
         deadline = time.monotonic() + timeout_min * 60
         while True:
             left = deadline - time.monotonic()
