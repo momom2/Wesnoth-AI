@@ -251,8 +251,10 @@ def _main_effect(w: Mapping[str, torch.Tensor], s: float, main_pass: Optional[Ma
 
 def plant_readout(checkpoint: Path, records: Mapping[str, Path], rows, pass_: Mapping, grads: Mapping,
                   device: torch.device, eval_config, k_side: float = K_SIDE,
-                  main_pass: Optional[Mapping] = None) -> Dict:
+                  main_pass: Optional[Mapping] = None, candidate: Optional[Path] = None) -> Dict:
     """The readout of module docstring, per seat, and its verdict. With
+    `candidate`, the planted step theta_k + s d' is written there as a
+    checkpoint (design §5's P plays it against pi_0). With
     `main_pass` (the unplanted labels' pass) the forecast adds the
     unplanted gradient's own effect, s <P' grad M, g>, and its noise joins
     the SE."""
@@ -280,6 +282,9 @@ def plant_readout(checkpoint: Path, records: Mapping[str, Path], rows, pass_: Ma
         ev_u = context.bind(pu)
         ev_u.evaluate([h, -h])
         along = {x: _seat_means(ev_u, x, cls, side_a) for x in (h, -h)}
+        written = None
+        if candidate is not None:
+            written = {"path": str(candidate), "sha256": ev.write_candidate(s, Path(candidate)), "s": s}
     finally:
         context.close()
     seats, ok = {}, True
@@ -303,7 +308,7 @@ def plant_readout(checkpoint: Path, records: Mapping[str, Path], rows, pass_: Ma
                        "base": at[0.0][seat], "pass": passed}
     return {"class": cls, "delta": delta, "step": {"s": s, "kl": point.kl, "eps": eps, "k_side": k_side},
             "fd_step": h, "seats": seats, "games": {"train": len(grads["train_games"]), "readout": len(readout)},
-            "rules": {"agree_se": AGREE_SE, "min_resolution": MIN_RESOLUTION},
+            "rules": {"agree_se": AGREE_SE, "min_resolution": MIN_RESOLUTION}, "candidate": written,
             "verdict": "pass" if ok else "fail"}
 
 
@@ -384,7 +389,7 @@ def cmd_readout(args) -> int:
                         slots=grads["config"]["slots"], fp16=args.fp16)
     main_pass = None if args.main_pass is None else torch.load(args.main_pass, map_location="cpu", weights_only=True)
     result = plant_readout(args.checkpoint, records, rows, pass_, grads, torch.device(args.device), config,
-                           args.k_side, main_pass)
+                           args.k_side, main_pass, candidate=args.candidate)
     _write_json(args.out, result)
     log.info("PG_PLANT_READOUT %s %s", result["verdict"],
              json.dumps({s: {k: r[k] for k in ("resolution", "miss_se")} for s, r in result["seats"].items()}))
@@ -428,6 +433,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--streams", type=int, default=64)
     p.add_argument("--kl-fraction", type=float, default=0.05)
     p.add_argument("--k-side", type=float, default=K_SIDE)
+    p.add_argument("--candidate", type=Path, default=None,
+                   help="write the planted step theta_k + s d' here (design §5's P plays it against pi_0)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     if args.command == "delta" and args.delta is None and args.pass_path is None:

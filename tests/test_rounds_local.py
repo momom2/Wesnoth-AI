@@ -80,12 +80,18 @@ def _setup(tmp_path: Path):
     return s1, sc
 
 
-def _run(tmp_path, tools, rounds=3, monkeypatch=None):
+def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False):
     s1, sc = _setup(tmp_path)
     out = tmp_path / "out"
     out.mkdir(exist_ok=True)
+    p_out = None
+    if p_verdicts is not None:
+        p_out = tmp_path / "p"
+        p_out.mkdir(exist_ok=True)
+        for name, verdict in zip(("p_readout.json", "link.json"), p_verdicts):
+            (p_out / name).write_text(json.dumps({"verdict": verdict}), encoding="utf-8")
     args = Namespace(out=out, stage1=s1, stage_c=sc, checkpoint=Path("own2.pt"), python="gpu-py",
-                     tools_python="cpu-py", workers=3)
+                     tools_python="cpu-py", workers=3, p_out=p_out, no_p_gate=no_p_gate)
     return rl.run(rl.Rounds(args, runner=tools, resets=tools.resets), rounds), out
 
 
@@ -155,3 +161,15 @@ def test_a_failed_part_stops_the_chain_and_stays_failed(tmp_path, monkeypatch):
     assert "replay identity" in (out / "r02_pass.failed").read_text(encoding="utf-8")
     again = FakeTools()
     assert _run(tmp_path, again)[0] == 1 and again.names() == []
+
+
+def test_round_2_waits_on_stage_p_unless_waived(tmp_path, monkeypatch):
+    _reference(monkeypatch)
+    tools = FakeTools()
+    rc, out = _run(tmp_path / "miss", tools, p_verdicts=("fail", "holds"))
+    assert rc == 3 and tools.names() == ["round 1 step"]
+    waived = FakeTools()
+    rc, _ = _run(tmp_path / "waived", waived, p_verdicts=None, no_p_gate=True)
+    assert rc == 0 and waived.names() == ORDER
+    unnamed = FakeTools()
+    assert _run(tmp_path / "unnamed", unnamed, p_verdicts=None)[0] == 3 and unnamed.names() == ["round 1 step"]
