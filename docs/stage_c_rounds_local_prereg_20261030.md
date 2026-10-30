@@ -179,7 +179,7 @@ second), stage 1's 378 decisions a game give these estimates:
 | Part | Estimate |
 |---|---|
 | Stage C's pass | 14 to 26 h |
-| The driver's forwards (11.25 forward-equivalents over 3.8M held-out decisions) | 20 to 25 h |
+| The driver's forwards (9.3 forward-equivalents over 3.8M held-out decisions when reduced AdamW wins, 11.25 at worst; 2.0 h each at 528 a second with the fold off: training/metrics/stage_c_forwards_20261030) | about 19 h, 22.5 at worst |
 | The plant | 8 to 12 h |
 | A later round | 30 to 45 h: about 6 h of play (pipelined), 14 to 26 of pass, 6 to 10 of step |
 
