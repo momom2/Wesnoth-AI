@@ -198,8 +198,8 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
     checkpoint, held-out data, forward-changing configuration, direction
     bytes and step, and the code is not in the key: nothing is merged into
     the worktree while stage C lives. Its tests passed: 67 with the
-    runner's. The full suite on f070d548's tree runs before the restart, and
-    its result is logged in docs/autonomy_20261029.md.
+    runner's. The full suite on f070d548's tree passed before the restart
+    (2026-10-30 22:36: 2,181 passed, 0 failed, 139 skipped).
 
 ## Expected walls [U]
 
