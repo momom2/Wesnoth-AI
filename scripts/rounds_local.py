@@ -106,6 +106,22 @@ class Rounds(Steps):
             k -= 1
         return self.pi0
 
+    def p_gate(self) -> Optional[str]:
+        """Design §6: P before the rounds. None when stage P read back and the
+        link held (scripts/p_local.py's p_readout.json and link.json in
+        --p-out), or when the gate is waived (--no-p-gate); why not otherwise."""
+        if self.a.p_out is None:
+            return None if self.a.no_p_gate else "no --p-out: stage P (scripts/p_local.py) has not been named"
+        reads = {}
+        for name in ("p_readout.json", "link.json"):
+            f = Path(self.a.p_out) / name
+            if not f.exists():
+                return f"stage P's {name} is missing from {self.a.p_out}"
+            reads[name] = json.loads(f.read_text(encoding="utf-8")).get("verdict")
+        if reads["p_readout.json"] != "pass" or reads["link.json"] != "holds":
+            return f"stage P reads {reads}: the rounds wait (design §6)"
+        return None
+
     def game_dirs(self, k: int) -> List[str]:
         play = self.rdir(k) / "play"
         return [str(play / f"games_s{c:02d}") for c in range((N_TRAIN + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES)]
@@ -259,6 +275,11 @@ def run(r: Rounds, rounds: int) -> int:
     try:
         for k in range(1, rounds + 1):
             r.check_stop(f"round {k}")
+            if k == 2:
+                why = r.p_gate()
+                if why:
+                    log(out, f"ROUNDS_WAIT before round 2: {why}")
+                    return 3
             if not (r.round1() if k == 1 else r.round_k(k)):
                 log(out, f"ROUNDS_FAILED at round {k}: {' '.join(r.state)}")
                 return 1
@@ -290,6 +311,8 @@ def main() -> int:
     ap.add_argument("--stage-c", type=Path, required=True, help="the local stage C's out (stage_c.json, pass.pt)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--rounds", type=int, default=12)
+    ap.add_argument("--p-out", type=Path, default=None, help="stage P's out (scripts/p_local.py): round 2 waits on it")
+    ap.add_argument("--no-p-gate", action="store_true", help="play the rounds without stage P (the user's waiver)")
     ap.add_argument("--checkpoint", type=Path, default=REPO / "training" / "checkpoints" / "own2.pt",
                     help="pi_0, the network stage 1 played (own2)")
     ap.add_argument("--workers", type=int, default=6)

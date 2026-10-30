@@ -246,7 +246,7 @@ class Run(Steps):
              ["tools/pg_plant.py", "readout", "--checkpoint", self.ck, *self.games(), "--labels", planted,
               "--pass", str(self.out / "pass_planted.pt"), "--grads", str(self.out / "plant_grads.pt"),
               "--main-pass", str(self.out / "pass.pt"), "--device", "cuda", "--workers", self.workers, *FP16,
-              "--out", str(self.out / "plant_readout.json")]),
+              "--candidate", str(self.out / "planted.pt"), "--out", str(self.out / "plant_readout.json")]),
         ]
         for name, cut, gpu, product, cmd in steps:
             if product is not None and product.exists():
