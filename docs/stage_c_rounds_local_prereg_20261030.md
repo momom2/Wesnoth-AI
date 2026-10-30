@@ -202,6 +202,20 @@ second), stage 1's 378 decisions a game give these estimates:
 Stage C would then take about 2 to 2.5 days, and each round about 1.5 to 2
 days. The rounds' size and count are stage C's gate's to set.
 
+**Measured by C0, serialized (2026-10-30 09:51, c0_plan.json).** The
+trainer reads 76 positions a second and the forwards 352. The plan prices:
+- the pass at 28.1 h (cut 42.4 h);
+- the driver at 34.4 h (the 11.25 forward-equivalents of the worst case;
+  about 28 h at the expected 9.3);
+- the plant at 19.9 h;
+- 82 h in all.
+
+Expected: the pass ends about Oct 31 14:00, the driver about Nov 1 18:00,
+the plant about Nov 2 14:00, then P. At about 28 h of pass a round, about
+two rounds fit before the window ends, so no claim falls on "every third
+round". One PURE match of the window's last candidate against own2 is to
+be pre-registered at the end.
+
 ## Kill criteria
 
 - A display reset during any GPU step: the run stops (STOP), and the cause
