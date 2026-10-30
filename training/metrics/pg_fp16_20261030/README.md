@@ -123,6 +123,47 @@ Both are answered by the same first GPU step: the probe with the fold off,
 now the default everywhere. **The protocol below is unchanged.** If the
 fold-off probe also hangs, the fold is cleared and the runtime is next.
 
+## After the reboot (2026-10-30, 08:33-08:55)
+
+The user rebooted at 08:33. HIP was healthy (a 4096-square fp16 matmul
+loop). Logs are in `C:/Users/momom2/wesnoth_runs/gpu_probe_20261030/`.
+
+| Run | Fold | Serialized (`AMD_SERIALIZE_KERNEL=3`) | Result |
+|---|---|---|---|
+| The 2-game probe (module hooks, a sync per fused kernel; `HIP_LAUNCH_BLOCKING=1`) | off | yes | clean: 812 decisions, both readings, 29 s |
+| `accuracy.py`, 8 games | off | no | **launch failure 27 s in, at the laws walk's `nonzero`, with a display reset at 08:44:14**. HIP survived it |
+| `accuracy.py`, 8 games | off | yes | clean |
+| `pg_eval time --fp16`, 200 held-out games, 6 workers | off | yes | clean: **406 positions a second**, replay identity KL 7.9e-6 |
+
+**So the fold is cleared.** The fault needs unserialized kernels, not the
+fold's. The earlier probe's log (`tdr_probe_1.log`, fold on) ends right
+after step 0's last trunk kernel: the hang came at that step's first
+unsynced op or later.
+
+On the CPU's side the stretch is the same code as the clean runs. Since
+serialization hides the fault, the likeliest cause is an asynchronous
+hazard on the evaluator's path. That path differs from stage 1's clean
+server in two ways:
+- its staging (`stage_raws`: a fresh pinned buffer and a non-blocking copy
+  per step, plus `host_to_device` copies for the memory router and the
+  step's batch), where the server staged through the Rust stage;
+- its memory router.
+
+The two HIP runtimes are one: torch's `amdhip64_7.dll` and the kernels'
+ctypes handle are the same module.
+
+**fp16 against fp32** (8 games, 2,500 decisions, a random direction at a
+KL of about 6.7e-4 a decision):
+- θ_k's log-probabilities differ by 0.0017 on average (0.015 at most);
+- the KL readings by 0.75% (6.67e-4 against 6.62e-4);
+- each game-side's log W by 0.036 on average, against 0.24 for log W
+  itself (16 sides).
+
+Stage C runs serialized (its prereg, departure 16). Next, when a reset is
+affordable (the user present, or automatic sign-in): the same 8-game run
+unserialized with the copies blocking. That separates the copies from the
+kernels.
+
 ## The protocol for the next GPU session (the user present: a wedge costs a reboot)
 
 1. **A health check:** a small matmul.

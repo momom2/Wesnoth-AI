@@ -169,6 +169,22 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
     The planted labels are cut at the same index. Stage 1's labels pass:
     30,000 games, 10,000 of them held out.
 
+16. **Every GPU tool runs with its kernels serialized** (`AMD_SERIALIZE_KERNEL=3`,
+    set on the runner, which its tools inherit). Added 2026-10-30, after the
+    reboot (training/metrics/pg_fp16_20261030, "After the reboot"):
+    - the fp16 evaluator's 8-game walk faulted unserialized with the fold
+      off (a launch failure and a display reset, at 08:44);
+    - serialized, the same run passed, as did the 2-game probe, and 200
+      held-out games read 406 positions a second with the replay identity
+      holding.
+    The cost is unmeasured until the cause is found; C0 reads the rates
+    under it.
+17. **The full suite last ran at 1252ecba** (2,177 passed, 1 failed: this
+    machine's `test_turn_gap`). The merges since then ran their own test
+    files: the pass split (107 passed) and the gain curve's warm start (31).
+    The rest is records. Stage C launched from eb1594c5 at 08:55 on
+    2026-10-30.
+
 ## Expected walls [U]
 
 Every rate is unmeasured on the GPU. C0 measures the pass's and the
