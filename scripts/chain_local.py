@@ -20,15 +20,22 @@ worktree P and the rounds should run (pinned at a tested commit):
 3. It runs scripts/p_local.py, then scripts/rounds_local.py with --p-out,
    but only when P returns 0 (P passes and the link holds). A step that
    fails is never run again.
+4. With --final-out, once the rounds end (0, or 3 when a design stop or a
+   wait ended them), it plays the window's final match
+   (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
+   on the last round that adopted a candidate, after checking that
+   candidate's SHA-256 against its round.json. No adopted round, no match.
 
 Every decision is logged to --log (default: chain.log beside --rounds-out).
-Exit: 0 when the rounds returned 0, 1 when the chain refused or a step
-failed (that step's code is in the log).
+Exit: 0 when the rounds returned 0 and the final match (if asked) returned
+0, 1 when the chain refused or a step failed (that step's code is in the
+log).
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -45,6 +52,9 @@ from scripts.local_machine import log, stage_c_unfinished  # noqa: E402
 RUNNER = "stage_c_local.py"              # the stage C runner's script, as its command line names it
 POLL_S = 300.0                           # seconds between looks at stage C
 EXIT_WAIT_LOOKS = 12                     # looks (an hour) for the runner to exit after its ALL_DONE
+FINAL_GAMES = 12800                      # the final match's decisive games (its prereg)
+FINAL_SEED_BASE = 900000                 # the final match's seeds (its prereg)
+ROUNDS_ENDED = (0, 3)                    # rounds_local's codes after which the final match plays
 
 
 def runner_alive(script: str = RUNNER) -> bool:
@@ -58,7 +68,10 @@ def runner_alive(script: str = RUNNER) -> bool:
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-Command", query], capture_output=True, text=True,
                            timeout=120)
-        return int(r.stdout.strip() or 0) > 0
+        out = r.stdout.strip()
+        if r.returncode != 0 or not out:       # a query that failed or said nothing has not seen the runner end
+            return True
+        return int(out) > 0
     except (subprocess.TimeoutExpired, ValueError):
         return True
 
@@ -85,6 +98,17 @@ def run_logged(cmd: List[str], console: Path, hip_devices: str) -> int:
     env = dict(os.environ, HIP_VISIBLE_DEVICES=hip_devices)
     with open(console, "a", encoding="utf-8") as f:
         return subprocess.run(cmd, cwd=REPO, env=env, stdout=f, stderr=subprocess.STDOUT).returncode
+
+
+def last_adopted(rounds_out: Path) -> Optional[Tuple[int, dict]]:
+    """(k, round k's candidate) for the last round whose round.json names a
+    candidate, as rounds_local's policy_after reads it; None when none did."""
+    adopted = []
+    for rj in rounds_out.glob("round_*/round.json"):
+        cand = (json.loads(rj.read_text(encoding="utf-8")).get("candidate") or {})
+        if cand.get("path"):
+            adopted.append((int(rj.parent.name.split("_")[1]), cand))
+    return max(adopted, key=lambda kc: kc[0]) if adopted else None
 
 
 def last_line(path: Path) -> str:
@@ -132,7 +156,11 @@ class Chain:
         head, dirty = self.head()
         if not head.startswith(self.a.expect_head) or dirty:
             return f"this worktree is at {head}{' with tracked changes' if dirty else ''}, not {self.a.expect_head}"
-        digest = self.sha(self.a.checkpoint)
+        ckpt = self.a.checkpoint if self.a.checkpoint.is_absolute() else REPO / self.a.checkpoint
+        try:                                   # resolved as P and the rounds resolve it (cwd=REPO)
+            digest = self.sha(ckpt)
+        except OSError as e:
+            return f"{ckpt} cannot be read: {e}"
         if digest != self.a.checkpoint_sha256:
             return f"{self.a.checkpoint}'s SHA-256 is {digest}, not {self.a.checkpoint_sha256}"
         return None
@@ -163,7 +191,36 @@ class Chain:
                       a.hip_visible_devices)
         self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
-        return 0 if rc == 0 else 1
+        if a.final_out is None or rc not in ROUNDS_ENDED:
+            return 0 if rc == 0 else 1
+        final = self.final_match()
+        return 0 if rc == 0 and final == 0 else 1
+
+    def final_match(self) -> int:
+        """The window's final match on the last adopted round's policy; its
+        code, or 1 when it does not start."""
+        a = self.a
+        last = last_adopted(a.rounds_out)
+        if last is None:
+            self.note("CHAIN_NO_FINAL: no round adopted a candidate, so nothing is measured (the final match's prereg)")
+            return 1
+        k, cand = last
+        pi = a.rounds_out / f"round_{k:02d}" / "pi.pt"
+        try:
+            digest = self.sha(pi)
+        except OSError as e:
+            self.note(f"CHAIN_NO_FINAL: round {k}'s candidate {pi} cannot be read: {e}")
+            return 1
+        if digest != cand.get("sha256"):
+            self.note(f"CHAIN_NO_FINAL: {pi}'s SHA-256 is {digest}, not round {k}'s {cand.get('sha256')}")
+            return 1
+        self.note(f"CHAIN_FINAL: the final match on round {k}'s candidate {pi} ({digest[:12]})")
+        rc = self.run([a.gpu_python, "-u", "scripts/match_local.py", "--label", f"final_round{k}", "--checkpoint",
+                       str(pi), "--out", str(a.final_out), "--games", str(a.final_games), "--seed-base",
+                       str(a.final_seed_base), "--tools-python", a.tools_python, "--keep-awake"],
+                      a.final_out / "console.log", a.hip_visible_devices)
+        self.note(f"CHAIN_FINAL_DONE: match_local returned {rc} ({a.final_out})")
+        return rc
 
 
 def main() -> int:
@@ -180,6 +237,10 @@ def main() -> int:
     ap.add_argument("--gpu-python", required=True, help="the GPU tools' interpreter (the ROCm venv)")
     ap.add_argument("--tools-python", default=sys.executable, help="the CPU tools' (default: this interpreter)")
     ap.add_argument("--hip-visible-devices", default="1", help="the GPU's index (1 here: device 0 is the iGPU)")
+    ap.add_argument("--final-out", type=Path, default=None,
+                    help="play the window's final match into this directory once the rounds end")
+    ap.add_argument("--final-games", type=int, default=FINAL_GAMES)
+    ap.add_argument("--final-seed-base", type=int, default=FINAL_SEED_BASE)
     ap.add_argument("--log", type=Path, default=None)
     return Chain(ap.parse_args())()
 
