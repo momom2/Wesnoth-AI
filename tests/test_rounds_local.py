@@ -86,7 +86,7 @@ def _setup(tmp_path: Path, gate=RESOLVED, arm="reduced_adamw"):
 
 
 def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False,
-         gate=RESOLVED, finished=True, arm="reduced_adamw", heads_only_pass=False):
+         gate=RESOLVED, finished=True, arm="reduced_adamw", heads_only_pass=False, end_by=None, now=None):
     s1, sc = _setup(tmp_path, gate, arm)
     if not finished:
         (sc / "ALL_DONE").unlink()
@@ -100,8 +100,9 @@ def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds
             (p_out / name).write_text(json.dumps({"verdict": verdict}), encoding="utf-8")
     args = Namespace(out=out, stage1=s1, stage_c=sc, checkpoint=Path("own2.pt"), python="gpu-py",
                      tools_python="cpu-py", workers=3, p_out=p_out, no_p_gate=no_p_gate,
-                     heads_only_pass=heads_only_pass)
-    return rl.run(rl.Rounds(args, runner=tools, resets=tools.resets), rounds), out
+                     heads_only_pass=heads_only_pass, end_by=end_by)
+    clock = {} if now is None else {"now": now}
+    return rl.run(rl.Rounds(args, runner=tools, resets=tools.resets, **clock), rounds), out
 
 
 def _reference(monkeypatch):
@@ -242,3 +243,39 @@ def test_the_heads_only_pass_serves_only_an_arm_that_reads_the_heads_alone(tmp_p
         assert rc == 0, (arm, asked)
         for k in (2, 3):
             assert ("--heads-only" in tools.cmd(f"round {k} pass")) is heads, (arm, asked, k)
+
+
+class Clock:
+    """The rounds' clock: each pass moves it on by `pass_h` hours, and each
+    call of the runner goes through it."""
+
+    def __init__(self, tools, start: str, pass_h: float):
+        from datetime import datetime
+        self.tools, self.t = tools, datetime.strptime(start, rl.END_BY_FORMAT).timestamp()
+        self.pass_s = pass_h * 3600
+
+    def now(self) -> float:
+        return self.t
+
+    def __call__(self, out, name, *a, **k):
+        if name.endswith(" pass"):
+            self.t += self.pass_s
+        return self.tools(out, name, *a, **k)
+
+    def resets(self, t0):
+        return 0
+
+
+def test_end_by_starts_a_round_only_when_the_longest_round_fits(tmp_path, monkeypatch):
+    """Rounds of 4 h from Nov 2 00:00: round k >= 3 starts at 4 (k - 2) h
+    and needs 1.2 x 4 = 4.8 h before --end-by."""
+    _reference(monkeypatch)
+    for end_by, last in (("2026-11-02 20:00", 5), ("2026-11-02 08:00", 2), ("2026-11-02 13:00", 4), (None, 6)):
+        tools = FakeTools(claim_elo=-380.0)
+        clock = Clock(tools, "2026-11-02 00:00", 4.0)
+        rc, out = _run(tmp_path / str(end_by).replace(":", "").replace(" ", "_"), clock, rounds=6, end_by=end_by,
+                       now=clock.now)
+        assert rc == 0, end_by
+        assert max(int(n.split()[1]) for n in tools.names()) == last, end_by
+        log = (out / "runner.log").read_text(encoding="utf-8")
+        assert ("past --end-by" in log) is (last < 6), end_by

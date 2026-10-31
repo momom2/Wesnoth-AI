@@ -41,6 +41,12 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
   user. The claims' upper tail (claim_k - D0 above the forecast by more
   than 2 combined SE) is logged and the rounds go on (design §6: reported).
 
+**--end-by** (a local time, "YYYY-MM-DD HH:MM"): the rounds must end by
+then. Round k >= 3 starts only when END_BY_MARGIN times the longest round
+so far (rounds 2 on, from `times.json`) fits before it. Otherwise the
+rounds end there, done (exit 0), so the window's final match can start on
+time. A round already started is finished.
+
 A failed part stops the chain: the next round needs its policy. A failed
 part stays failed at a new start (its `rNN_<part>.failed`: delete it to run
 it again), and a done part is not run again. A STOP file in --out ends the
@@ -57,6 +63,7 @@ import json
 import math
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
@@ -93,6 +100,8 @@ FLOOR_SIDES = 100
 # serves them (--heads-only-pass): wesnoth_ai/pg_step.py HEADS_ONLY_ARMS,
 # which tests/test_rounds_local.py holds equal (this file imports no torch).
 HEADS_ONLY_ARMS = ("heads_only", "probe_span")
+END_BY_MARGIN = 1.2             # --end-by: a round may run this much longer than the longest so far
+END_BY_FORMAT = "%Y-%m-%d %H:%M"
 PASS_FP16 = ["--fp16", "--packed-trunk", "--floor-chunk", "8", "--floor-sides", str(FLOOR_SIDES)]
 POOL = ["--persistent-workers", "--shared-inference", "--no-infer-compile", "--device", "cuda", "--jobs", "96",
         "--worker-games", "8", "--min-free-mb", str(MIN_FREE_MB), "--infer-fp16", "--inference-pipelined",
@@ -108,8 +117,9 @@ PASS_EXITS = {3: "the replay identity failed", 4: "the precision floor's bound l
 
 class Rounds(Steps):
     def __init__(self, args, runner: Callable[..., int] = run_tool,
-                 resets: Callable[[float], int] = display_resets_since):
+                 resets: Callable[[float], int] = display_resets_since, now: Callable[[], float] = time.time):
         super().__init__(args.out, args.python, args.tools_python, runner, resets)
+        self.now = now
         self.a = args
         self.s1, self.sc = Path(args.stage1), Path(args.stage_c)
         self.pi0 = str(args.checkpoint)
@@ -176,6 +186,35 @@ class Rounds(Steps):
         play = self.rdir(k) / "play"
         chunks = (self.n_train + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES
         return [str(play / f"games_s{c:02d}") for c in range(chunks)]
+
+    # ---- the rounds' walls (--end-by)
+    def _times(self) -> dict:
+        path = self.out / "times.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+    def timed(self, k: int, event: str) -> None:
+        """Records round k's start (its first, kept across restarts) or end."""
+        times = self._times()
+        entry = times.setdefault(str(k), {})
+        if event == "end" or "start" not in entry:
+            entry[event] = self.now()
+        (self.out / "times.json").write_text(json.dumps(times, indent=1), encoding="utf-8")
+
+    def no_time(self, k: int) -> Optional[str]:
+        """Why round k must not start under --end-by, or None."""
+        end_by = getattr(self.a, "end_by", None)
+        times = self._times()
+        if end_by is None or k < 3 or "start" in times.get(str(k), {}):
+            return None
+        walls = [t["end"] - t["start"] for j, t in times.items() if int(j) >= 2 and "end" in t and "start" in t]
+        if not walls:
+            return None
+        need = END_BY_MARGIN * max(walls)
+        deadline = datetime.strptime(end_by, END_BY_FORMAT).timestamp()
+        if self.now() + need <= deadline:
+            return None
+        return (f"round {k} would need about {need / 3600:.1f} h ({END_BY_MARGIN} times the longest round), "
+                f"past --end-by {end_by}")
 
     def pass_scope(self) -> List[str]:
         """["--heads-only"] when --heads-only-pass is given and stage C's arm
@@ -359,11 +398,16 @@ def run(r: Rounds, rounds: int) -> int:
     try:
         for k in range(1, rounds + 1):
             r.check_stop(f"round {k}")
+            late = r.no_time(k)
+            if late:
+                log(out, f"ROUNDS_DONE through round {k - 1}: {late}; policy {r.policy_after(k - 1)}")
+                return 0
             if k == 2:
                 why = r.p_gate()
                 if why:
                     log(out, f"ROUNDS_WAIT before round 2: {why}")
                     return 3
+            r.timed(k, "start")
             if not (r.round1() if k == 1 else r.round_k(k)):
                 log(out, f"ROUNDS_FAILED at round {k}: {' '.join(r.state)}")
                 return 1
@@ -382,6 +426,7 @@ def run(r: Rounds, rounds: int) -> int:
                     (out / "STOP").write_text(why + "\n", encoding="utf-8")
                     log(out, why)
                     return 3
+            r.timed(k, "end")
             (out / "progress.txt").write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\nround {k} done; policy "
                                               f"{r.policy_after(k)}\n", encoding="utf-8")
     except Stopped as e:
@@ -404,6 +449,8 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--python", default=sys.executable, help="the GPU tools' interpreter (the ROCm venv)")
     ap.add_argument("--tools-python", default=None, help="the CPU tools' (default: the repository's .venv)")
+    ap.add_argument("--end-by", default=None, metavar="'YYYY-MM-DD HH:MM'",
+                    help="the rounds must end by this local time (module docstring)")
     ap.add_argument("--heads-only-pass", action="store_true",
                     help="each round's pass takes the head maps' gradient alone when stage C's arm reads no "
                          "other (HEADS_ONLY_ARMS; tools/pg_pass.py --heads-only)")
@@ -418,8 +465,11 @@ def main() -> int:
         below_normal_priority()
     if args.keep_awake:
         keep_awake()
+    if args.end_by is not None:
+        datetime.strptime(args.end_by, END_BY_FORMAT)               # refused now, not at round 3
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "
-                  f"rounds {args.rounds}, pi_0 {args.checkpoint}")
+                  f"rounds {args.rounds}, pi_0 {args.checkpoint}, end by {args.end_by}, "
+                  f"heads-only pass {args.heads_only_pass}")
     return run(Rounds(args), args.rounds)
 
 
