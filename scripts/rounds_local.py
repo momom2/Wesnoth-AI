@@ -89,6 +89,10 @@ CLAIM_GAMES = 12800             # design §3.2: a claim's decisive games, D0's
 # and E[z] = 2 p - 1, so dElo / dE[z] = 200 / ln 10 / (p (1 - p)) = 347.4.
 ELO_PER_Z = 347.4
 FLOOR_SIDES = 100
+# The arms that read the head maps' gradient alone, so a heads-only pass
+# serves them (--heads-only-pass): wesnoth_ai/pg_step.py HEADS_ONLY_ARMS,
+# which tests/test_rounds_local.py holds equal (this file imports no torch).
+HEADS_ONLY_ARMS = ("heads_only", "probe_span")
 PASS_FP16 = ["--fp16", "--packed-trunk", "--floor-chunk", "8", "--floor-sides", str(FLOOR_SIDES)]
 POOL = ["--persistent-workers", "--shared-inference", "--no-infer-compile", "--device", "cuda", "--jobs", "96",
         "--worker-games", "8", "--min-free-mb", str(MIN_FREE_MB), "--infer-fp16", "--inference-pipelined",
@@ -173,6 +177,15 @@ class Rounds(Steps):
         chunks = (self.n_train + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES
         return [str(play / f"games_s{c:02d}") for c in range(chunks)]
 
+    def pass_scope(self) -> List[str]:
+        """["--heads-only"] when --heads-only-pass is given and stage C's arm
+        reads the head maps alone (HEADS_ONLY_ARMS); else nothing, the
+        full pass."""
+        if not self.a.heads_only_pass:
+            return []
+        stage_c = json.loads((self.sc / "stage_c.json").read_text(encoding="utf-8"))
+        return ["--heads-only"] if (stage_c.get("optimizer") or {}).get("winner") in HEADS_ONLY_ARMS else []
+
     def factory_args(self, checkpoint: str, dirs: List[str], labels: Path, cache: Path) -> List[str]:
         """The evaluator's arguments; its readings are kept in `cache`, so a
         restarted ladder resumes (tools/pg_eval_cache.py)."""
@@ -232,8 +245,9 @@ class Rounds(Steps):
             self.check_stop(f"round {k}'s pass")
             rc = self.step(f"round {k} pass", ["tools/pg_pass.py", "--checkpoint", pi, "--games", *dirs,
                                                "--labels", str(labels), "--out", str(d / "pass.pt"), "--device",
-                                               "cuda", "--workers", self.workers, *PASS_FP16, "--corrections",
-                                               str(d / "corrections.json")], f"round_{k:02d}.log", PASS_CUT_MIN)
+                                               "cuda", "--workers", self.workers, *PASS_FP16, *self.pass_scope(),
+                                               "--corrections", str(d / "corrections.json")], f"round_{k:02d}.log",
+                                   PASS_CUT_MIN)
             self.mark(f"{tag}_pass", None if rc == 0 else
                       f"{PASS_EXITS.get(rc, f'the pass ended rc={rc}')} (round_{k:02d}.log)")
         if not self.done(f"{tag}_pass"):
@@ -390,6 +404,9 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--python", default=sys.executable, help="the GPU tools' interpreter (the ROCm venv)")
     ap.add_argument("--tools-python", default=None, help="the CPU tools' (default: the repository's .venv)")
+    ap.add_argument("--heads-only-pass", action="store_true",
+                    help="each round's pass takes the head maps' gradient alone when stage C's arm reads no "
+                         "other (HEADS_ONLY_ARMS; tools/pg_pass.py --heads-only)")
     ap.add_argument("--normal-priority", action="store_true")
     ap.add_argument("--keep-awake", action="store_true")
     args = ap.parse_args()

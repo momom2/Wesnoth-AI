@@ -72,22 +72,22 @@ class FakeTools:
 RESOLVED = {"verdict": "resolved", "reason": "read"}
 
 
-def _setup(tmp_path: Path, gate=RESOLVED):
+def _setup(tmp_path: Path, gate=RESOLVED, arm="reduced_adamw"):
     s1, sc = tmp_path / "stage1", tmp_path / "stage_c"
     for d in (s1 / "games_s00", sc):
         d.mkdir(parents=True, exist_ok=True)
     (s1 / "labels.jsonl").write_text("", encoding="utf-8")
     (s1 / "d0.fit.json").write_text(json.dumps({"tables": {"PURE (decisive only, primary)": {
         "own2t1": {"elo": -415.2, "se": 5.5}, "own2": {"elo": 0.0, "se": 0.0}}}}), encoding="utf-8")
-    (sc / "stage_c.json").write_text(json.dumps({"optimizer": {"winner": "reduced_adamw"}, "gate": gate,
+    (sc / "stage_c.json").write_text(json.dumps({"optimizer": {"winner": arm}, "gate": gate,
                                                  "ladder": {"rungs": [_rung(0.02, 0.004)]}}), encoding="utf-8")
     (sc / "ALL_DONE").write_text("done\n", encoding="utf-8")
     return s1, sc
 
 
 def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False,
-         gate=RESOLVED, finished=True):
-    s1, sc = _setup(tmp_path, gate)
+         gate=RESOLVED, finished=True, arm="reduced_adamw", heads_only_pass=False):
+    s1, sc = _setup(tmp_path, gate, arm)
     if not finished:
         (sc / "ALL_DONE").unlink()
     out = tmp_path / "out"
@@ -99,7 +99,8 @@ def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds
         for name, verdict in zip(("p_readout.json", "link.json"), p_verdicts):
             (p_out / name).write_text(json.dumps({"verdict": verdict}), encoding="utf-8")
     args = Namespace(out=out, stage1=s1, stage_c=sc, checkpoint=Path("own2.pt"), python="gpu-py",
-                     tools_python="cpu-py", workers=3, p_out=p_out, no_p_gate=no_p_gate)
+                     tools_python="cpu-py", workers=3, p_out=p_out, no_p_gate=no_p_gate,
+                     heads_only_pass=heads_only_pass)
     return rl.run(rl.Rounds(args, runner=tools, resets=tools.resets), rounds), out
 
 
@@ -228,3 +229,16 @@ def test_round_2_waits_on_stage_p_unless_waived(tmp_path, monkeypatch):
     unlinked = FakeTools()                                   # the link not run: the slope under 3 SE
     rc, _ = _run(tmp_path / "unlinked", unlinked, p_verdicts=("pass", "not run"))
     assert rc == 0 and unlinked.names() == ORDER
+
+
+def test_the_heads_only_pass_serves_only_an_arm_that_reads_the_heads_alone(tmp_path, monkeypatch):
+    from wesnoth_ai.pg_step import HEADS_ONLY_ARMS
+    assert rl.HEADS_ONLY_ARMS == HEADS_ONLY_ARMS
+    _reference(monkeypatch)
+    for arm, asked, heads in (("heads_only", True, True), ("probe_span", True, True),
+                              ("reduced_adamw", True, False), ("heads_only", False, False)):
+        tools = FakeTools()
+        rc, _ = _run(tmp_path / f"{arm}_{asked}", tools, arm=arm, heads_only_pass=asked)
+        assert rc == 0, (arm, asked)
+        for k in (2, 3):
+            assert ("--heads-only" in tools.cmd(f"round {k} pass")) is heads, (arm, asked, k)

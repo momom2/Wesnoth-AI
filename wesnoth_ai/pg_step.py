@@ -46,6 +46,7 @@ DEFAULT_ARM = "reduced_adamw"
 # scales that head's logits; target_k_proj is left out, since scaling the
 # query alone already scales the pointer logits.
 HEAD_MAPS = ("actor_head", "type_head", "target_q_proj", "weapon_head.2")
+HEADS_ONLY_ARMS = ("heads_only", "probe_span")   # the arms that read no gradient beyond HEAD_MAPS'
 # Every embedding table of the network is a module named `*_embed`.
 EMBEDDING_SUFFIX = "_embed.weight"
 
@@ -206,6 +207,8 @@ def direction(pass_: Mapping, arm: str, params: Optional[Mapping[str, torch.Tens
     probe_span (needs `params`, the weights at theta_k). `gradient` replaces
     the pass's total (a split's gradient, say) under the pass's own metric."""
     names = _names(pass_)
+    if (pass_.get("config") or {}).get("heads_only") and arm not in HEADS_ONLY_ARMS:
+        raise ValueError(f"a heads-only pass holds the head maps' gradient alone; the {arm} arm reads them all")
     source = pass_["total"] if gradient is None else gradient
     g = {name: source[name].detach().float().cpu() for name in names}
     if arm == "sgd":

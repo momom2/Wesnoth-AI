@@ -104,6 +104,15 @@ on CUDA, and on ROCm in fp16 the HIP kernels with their backward,
 wesnoth_ai/hip_attention_grad.py); the floor's path reading checks that it
 computes the padded trunk's function.
 
+`--heads-only` takes the gradient of the output heads' final linear maps
+alone (wesnoth_ai/pg_step.py HEAD_MAPS): every other parameter is frozen,
+so the trunk and the memory run without a graph and no step is recomputed,
+and their sums in pass.pt are zero. The heads' sums are the full pass's,
+since a head map's gradient does not depend on whether the layers below it
+learn; the forward and its readings (replay, floor, probes, head slopes and
+Fisher) are unchanged. Only the heads_only and probe_span arms read nothing
+else (pg_step.direction refuses the others on such a pass).
+
     python tools/pg_pass.py --checkpoint own2.pt --games DIR [DIR ...] --labels labels.jsonl \\
         --out pass.pt --device cuda --workers 30
 """
@@ -139,6 +148,7 @@ from tools.pg_floor import (FLOOR_DTYPES, FLOOR_SIDES, FloorReader, draw_sides, 
 from wesnoth_ai.param_groups import named_model_parameters  # noqa: E402
 from wesnoth_ai.pg_loss import CLASSES, HEADS, action_log_probs, head_scores, probe_offsets, stage_actions  # noqa: E402
 from wesnoth_ai.pg_records import N_SPLITS, LabelRow, labelled_games  # noqa: E402
+from wesnoth_ai.pg_step import head_of  # noqa: E402
 
 log = logging.getLogger("pg_pass")
 
@@ -232,6 +242,7 @@ class PassConfig:
     alpha: float = 0.0                      # the corrections (module docstring): the value head's coefficient,
     gamma: float = 0.0                      # the luck dealt so far's along luck_beta (tools/pg_corrections.py)
     luck_beta: Tuple[float, ...] = ()
+    heads_only: bool = False                # the head maps' gradient alone (module docstring)
 
 
 class GradientPass(SplitFiles):
@@ -249,6 +260,12 @@ class GradientPass(SplitFiles):
         self.checkpoint_sha256 = file_sha256(checkpoint_path)
         self.encoder, self.model = load_network(checkpoint_path, device)
         self.named = named_model_parameters(self.model, self.encoder)
+        if config.heads_only:
+            heads = [n for n, _ in self.named if head_of(n)]
+            if not heads:
+                raise ValueError("no parameter belongs to a head map (pg_step.HEAD_MAPS)")
+            for n, p in self.named:
+                p.requires_grad_(head_of(n) is not None)
         self.games = labelled_games(labels, heldout=False)
         if not self.games:
             raise ValueError("no training game in the labels")
@@ -273,6 +290,8 @@ class GradientPass(SplitFiles):
                          else None)
         self.loss_scale: Optional[LossScale] = None
         self.recompute = device.type == "cuda" if config.recompute is None else bool(config.recompute)
+        if config.heads_only:
+            self.recompute = False              # no graph through the trunk: nothing to recompute
         self.probes = torch.zeros(len(CLASSES), device=device, requires_grad=True)
         self.floor_config = (serving_forward, packed_forward)
         self.partial_dir = None if partial_dir is None else Path(partial_dir)
@@ -546,6 +565,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     defaults = PassConfig()
     for name in ("streams", "window", "seed", "slots", "workers", "prefetch"):
         ap.add_argument("--" + name, type=int, default=getattr(defaults, name))
+    ap.add_argument("--heads-only", action="store_true",
+                    help="the head maps' gradient alone; the trunk runs without a graph (module docstring)")
     precision = ap.add_mutually_exclusive_group()
     precision.add_argument("--bf16", action="store_true", help="the device's bfloat16 autocast (module docstring)")
     precision.add_argument("--fp16", action="store_true",
@@ -584,7 +605,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         packed=True if args.packed_trunk else None, verify=not args.no_verify,
                         procedure=args.procedure, replay_kl_limit=args.replay_kl_limit,
                         floor_sides=args.floor_sides, floor_dtype=args.floor_dtype,
-                        floor_chunk=args.floor_chunk)
+                        floor_chunk=args.floor_chunk, heads_only=args.heads_only)
     if args.corrections is not None:
         c = json.loads(args.corrections.read_text(encoding="utf-8"))
         config = replace(config, alpha=float(c["alpha"]), gamma=float(c["gamma"]),

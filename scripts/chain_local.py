@@ -186,8 +186,9 @@ class Chain:
                       f"{last_line(a.p_out / 'runner.log')}); the rounds do not start")
             return 1
         self.note("CHAIN_ROUNDS: P passed and the link holds; the rounds start")
+        heads = ["--heads-only-pass"] if a.heads_only_pass else []
         rc = self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
-                       "--rounds", str(a.rounds), "--p-out", str(a.p_out)], a.rounds_out / "console.log",
+                       "--rounds", str(a.rounds), "--p-out", str(a.p_out), *heads], a.rounds_out / "console.log",
                       a.hip_visible_devices)
         self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
@@ -237,6 +238,9 @@ def main() -> int:
     ap.add_argument("--gpu-python", required=True, help="the GPU tools' interpreter (the ROCm venv)")
     ap.add_argument("--tools-python", default=sys.executable, help="the CPU tools' (default: this interpreter)")
     ap.add_argument("--hip-visible-devices", default="1", help="the GPU's index (1 here: device 0 is the iGPU)")
+    ap.add_argument("--heads-only-pass", action="store_true",
+                    help="passed to rounds_local: each round's pass takes the head maps' gradient alone when "
+                         "stage C's arm reads no other")
     ap.add_argument("--final-out", type=Path, default=None,
                     help="play the window's final match into this directory once the rounds end")
     ap.add_argument("--final-games", type=int, default=FINAL_GAMES)

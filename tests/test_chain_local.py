@@ -16,6 +16,7 @@ def _args(tmp_path, **kw):
     base = dict(stage_c=sc, stage1=tmp_path / "stage1", p_out=tmp_path / "p", rounds_out=tmp_path / "rounds",
                 e=0.02, rounds=3, checkpoint=Path("own2.pt"), checkpoint_sha256="cafe", expect_head=HEAD[:8],
                 gpu_python="gpu-py", tools_python="cpu-py", hip_visible_devices="1", log=None, final_out=None,
+                heads_only_pass=False,
                 final_games=cl.FINAL_GAMES, final_seed_base=cl.FINAL_SEED_BASE)
     base.update(kw)
     return Namespace(**base)
@@ -67,8 +68,12 @@ def test_a_finished_stage_c_starts_p_then_the_rounds(tmp_path):
     for cmd in (p, rounds):
         assert cmd[0] == "gpu-py" and cmd[cmd.index("--tools-python") + 1] == "cpu-py" and "--keep-awake" in cmd
         assert cmd[cmd.index("--checkpoint") + 1] == "own2.pt"
-    assert {hip for _, _, hip in f.ran} == {"1"}
+    assert {hip for _, _, hip in f.ran} == {"1"} and "--heads-only-pass" not in rounds
     assert "CHAIN_P" in _log(args) and "CHAIN_ROUNDS" in _log(args)
+    args = _args(tmp_path / "heads", heads_only_pass=True)
+    (args.stage_c / "ALL_DONE").write_text("done\n", encoding="utf-8")
+    f = Fakes(args.stage_c)
+    assert f.chain(args)() == 0 and "--heads-only-pass" in f.ran[1][1]
 
 
 def test_a_runner_gone_without_all_done_refuses_after_two_looks(tmp_path):
