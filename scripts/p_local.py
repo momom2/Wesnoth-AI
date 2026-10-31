@@ -44,7 +44,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from scripts.local_machine import (Steps, Stopped, below_normal_priority, default_tools_python,  # noqa: E402
-                                   display_resets_since, keep_awake, log, require_visible_gpu, run_tool)
+                                   display_resets_since, keep_awake, log, require_visible_gpu, run_tool,
+                                   stage_c_unfinished)
 from scripts.rounds_local import POOL  # noqa: E402
 
 P_GAMES = 5000                  # design §5: the planted step against pi_0
@@ -87,6 +88,10 @@ def run(p: P) -> int:
     """0 when P passes and the link holds (the rounds may start), 1 on a
     failed step, 2 on STOP, 3 when P or the link stops the rounds."""
     out = p.out
+    unfinished = stage_c_unfinished(p.sc)
+    if unfinished:
+        log(out, f"P_NOT_DUE: {unfinished}")
+        return 3
     verdict = json.loads((p.sc / "verdict.json").read_text(encoding="utf-8"))
     if not str(verdict.get("next", "")).startswith("P"):
         log(out, f"P_NOT_DUE: stage C's verdict says {verdict.get('next')!r}")

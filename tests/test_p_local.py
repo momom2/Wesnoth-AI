@@ -39,7 +39,7 @@ class FakeTools:
         return [c[0] for c in self.calls]
 
 
-def _run(tmp_path, tools, nxt="P (the planted step played), then rounds", resolved=True):
+def _run(tmp_path, tools, nxt="P (the planted step played), then rounds", resolved=True, spoil=None):
     sc = tmp_path / "stage_c"
     sc.mkdir(parents=True, exist_ok=True)
     (tmp_path / "stage1").mkdir(exist_ok=True)
@@ -47,6 +47,9 @@ def _run(tmp_path, tools, nxt="P (the planted step played), then rounds", resolv
         "slope": 2.64, "se": 0.08 if resolved else 1.5, "resolved": resolved}}), encoding="utf-8")
     (sc / "verdict.json").write_text(json.dumps({"next": nxt}), encoding="utf-8")
     (sc / "planted.pt").write_text("theta'", encoding="utf-8")
+    (sc / "ALL_DONE").write_text("done\n", encoding="utf-8")
+    if spoil:
+        spoil(sc)
     out = tmp_path / "out"
     out.mkdir(exist_ok=True)
     args = Namespace(out=out, stage1=tmp_path / "stage1", stage_c=sc, checkpoint=Path("own2.pt"), e=0.02,
@@ -92,3 +95,15 @@ def test_an_unresolved_slope_plays_no_link_match(tmp_path):
     rc, out = _run(tmp_path, tools, resolved=False)
     assert rc == 0 and tools.names() == ORDER[:2]
     assert json.loads((out / "link.json").read_text(encoding="utf-8"))["verdict"] == "not run"
+
+
+def test_p_waits_for_stage_c_to_finish(tmp_path):
+    """Stage C writes its verdict even when it stops early: P starts only on
+    a finished stage C (ALL_DONE, no STOP, no failed part)."""
+    for name, spoil in (("unfinished", lambda sc: (sc / "ALL_DONE").unlink()),
+                        ("stopped", lambda sc: (sc / "STOP").write_text("x", encoding="utf-8")),
+                        ("failed", lambda sc: (sc / "plant.failed").write_text("x", encoding="utf-8"))):
+        tools = FakeTools()
+        rc, out = _run(tmp_path / name, tools, spoil=spoil)
+        assert rc == 3 and tools.names() == [], name
+        assert "P_NOT_DUE" in (out / "runner.log").read_text(encoding="utf-8"), name

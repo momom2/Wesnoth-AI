@@ -81,12 +81,15 @@ def _setup(tmp_path: Path, gate=RESOLVED):
         "own2t1": {"elo": -415.2, "se": 5.5}, "own2": {"elo": 0.0, "se": 0.0}}}}), encoding="utf-8")
     (sc / "stage_c.json").write_text(json.dumps({"optimizer": {"winner": "reduced_adamw"}, "gate": gate,
                                                  "ladder": {"rungs": [_rung(0.02, 0.004)]}}), encoding="utf-8")
+    (sc / "ALL_DONE").write_text("done\n", encoding="utf-8")
     return s1, sc
 
 
 def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False,
-         gate=RESOLVED):
+         gate=RESOLVED, finished=True):
     s1, sc = _setup(tmp_path, gate)
+    if not finished:
+        (sc / "ALL_DONE").unlink()
     out = tmp_path / "out"
     out.mkdir(exist_ok=True)
     p_out = None
@@ -183,6 +186,10 @@ def test_stage_cs_gate_decides_whether_rounds_run_and_at_what_size(tmp_path, mon
         rc, out = _run(tmp_path / name, tools, gate=gate, no_p_gate=True)        # P's waiver is not stage C's
         assert rc == 3 and tools.names() == [], name
         assert "ROUNDS_WAIT before round 1" in (out / "runner.log").read_text(encoding="utf-8")
+    unfinished = FakeTools()                                # a resolved gate in an unfinished stage C
+    rc, out = _run(tmp_path / "unfinished", unfinished, finished=False, no_p_gate=True)
+    assert rc == 3 and unfinished.names() == []
+    assert "stage C has not finished" in (out / "runner.log").read_text(encoding="utf-8")
     sized = FakeTools()
     rc, _ = _run(tmp_path / "sized", sized, gate={"verdict": "rounds_at_size", "round_size": 7342.6})
     games = sized.cmd("round 2 games")

@@ -35,7 +35,7 @@ import torch
 CACHE_VERSION = 1                       # bump when a reading's meaning changes
 _UNREAD_FIELDS = ("workers", "prefetch", "verify", "cache")      # EvalConfig fields no forward depends on
 _REPO = Path(__file__).resolve().parents[1]
-_CODE_GLOBS = ("wesnoth_ai/**/*.py", "tools/pg_*.py")              # the encoder, the model, the HIP kernels, the pg tools
+_CODE_GLOBS = ("wesnoth_ai/**/*.py", "tools/*.py")      # the encoder, the model, the HIP kernels, every tool the forward imports
 
 
 @functools.lru_cache(maxsize=1)

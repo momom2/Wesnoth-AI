@@ -72,7 +72,7 @@ sys.path.insert(0, str(REPO))
 from scripts.gpu_yield import GpuYield  # noqa: E402
 from scripts.local_machine import (  # noqa: E402
     ToolStopped, below_normal_priority, default_tools_python, display_resets_since, keep_awake, log,
-    reference_flags, require_visible_gpu, run_match, run_tool,
+    reference_flags, require_visible_gpu, reset_reason, run_match, run_tool,
 )
 from tools.eval_provenance import effective_memory, file_sha256  # noqa: E402
 
@@ -304,7 +304,7 @@ class Match:
 
         def resets() -> Optional[str]:
             n = display_resets_since(t0)
-            return f"{n} display-driver reset(s) (System event 4101) during the match" if n else None
+            return reset_reason(n, "the match") if n else None
 
         try:
             rc = run_match(self.out, f"match attempt {k}", argv, "match.log", 2 * est + 15, self.a.python,

@@ -65,7 +65,7 @@ sys.path.insert(0, str(REPO))
 
 from scripts.local_machine import (Steps, Stopped, below_normal_priority, default_tools_python,  # noqa: E402
                                    display_resets_since, keep_awake, log, reference_flags, require_visible_gpu,
-                                   run_tool)
+                                   run_tool, stage_c_unfinished)
 from scripts.selfplay_t1_local import CHUNK_GAMES, MIN_FREE_MB, player_flags  # noqa: E402
 
 N_TRAIN = 20000                 # design §1: N, a round's training games (stage C's gate may name another)
@@ -133,6 +133,9 @@ class Rounds(Steps):
     def stage_c_gate(self) -> Tuple[Optional[int], str]:
         """(N, its source) from stage C's gate (module docstring), or (None,
         why no round runs)."""
+        unfinished = stage_c_unfinished(self.sc)
+        if unfinished:
+            return None, f"{unfinished}: no rounds"
         f = self.sc / "stage_c.json"
         gate = json.loads(f.read_text(encoding="utf-8")).get("gate") if f.is_file() else None
         verdict = (gate or {}).get("verdict")

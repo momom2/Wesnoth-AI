@@ -103,6 +103,27 @@ def display_resets_since(t0: float) -> int:
     return RESET_CHECK_TIMED_OUT
 
 
+def reset_reason(n: int, during: str) -> str:
+    """STOP's text for display_resets_since's nonzero answer `n`."""
+    if n == RESET_CHECK_TIMED_OUT:
+        return f"the display-reset check timed out twice after {during}"
+    return f"{n} display-driver reset(s) (System event 4101) during {during}"
+
+
+def stage_c_unfinished(sc: Path) -> Optional[str]:
+    """Why stage C's out `sc` is not a finished run (no ALL_DONE, a STOP, a
+    failed part), or None. P and the rounds start only on a finished one:
+    stage C writes its verdict even when it stops early."""
+    if (sc / "STOP").exists():
+        return f"stage C holds a STOP ({sc / 'STOP'})"
+    failed = sorted(p.name for p in sc.glob("*.failed"))
+    if failed:
+        return f"stage C has failed parts ({', '.join(failed)})"
+    if not (sc / "ALL_DONE").exists():
+        return f"stage C has not finished ({sc / 'ALL_DONE'} is missing)"
+    return None
+
+
 def require_visible_gpu() -> None:
     """Refuses to go on unless the GPU is picked: on this machine device 0
     is the iGPU, which the gfx1032 wheel has no kernels for."""
@@ -330,8 +351,7 @@ class Steps:
         if gpu:
             n = self.resets(t0)
             if n:
-                why = (f"the display-reset check timed out twice after {name}" if n == RESET_CHECK_TIMED_OUT
-                       else f"{n} display-driver reset(s) (System event 4101) during {name}")
+                why = reset_reason(n, name)
                 if rc == 0:                     # its product may be whole: the lead decides, never a plain rerun
                     why += f"; {name} returned 0, so check its product before running it again"
                 (self.out / "STOP").write_text(why + "\n", encoding="utf-8")
