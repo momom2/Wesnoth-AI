@@ -58,8 +58,8 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
        actions, no progress) at 0. A game killed on the wall clock
        (`timeout_kill`) ended on the machine's speed, not on the play, so
        it is left out and counted.
-   - **Why e = 0.02, proposed here for the next session to seal before the
-     match:**
+   - **e = 0.02, sealed 2026-10-31** (the morning review: P starts on its
+     own after stage C, so it must not play an unsealed forecast). **Why:**
      - the forecast is exact to second order, so a small e keeps the third
        order negligible;
      - the match's SE over 12,800 games, about 0.009, still resolves the
@@ -200,6 +200,31 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
     the worktree while stage C lives. Its tests passed: 67 with the
     runner's. The full suite on f070d548's tree passed before the restart
     (2026-10-30 22:36: 2,181 passed, 0 failed, 139 skipped).
+19. **P and the rounds run from a pinned worktree, on `fix/handoff-safety`'s
+    code** (2026-10-31; the 2026-10-31 morning review). The stage1 worktree
+    keeps stage C's code until stage C exits. P and the rounds run from
+    `..\wesnoth_ai-run`, a worktree detached at 934f137a, with own2.pt copied
+    in and its SHA-256 checked. Its code differs from stage C's in five safety
+    checks and the cache, and no reading or decision rule changes:
+    - the reading cache's key holds the code (wesnoth_ai/, tools/, the core's
+      binary), the device and torch's version;
+    - the rounds' ladder passes `cache=`, so a restarted ladder resumes;
+    - a hung display-reset check is asked again;
+    - STOP says when a step had returned 0;
+    - P and the rounds refuse a stage C without ALL_DONE, or with a STOP or a
+      failed part.
+    The full suite on 934f137a: 2188 passed, 139 skipped, 5 warnings in 802.48s (0:13:22).
+20. **A launcher chains stage C, P and the rounds** (scripts/chain_local.py,
+    2026-10-31).
+    - P starts once stage C has finished and the pinned worktree and the
+      checkpoint check out.
+    - The rounds start only when P returns 0, with `--rounds 3`: round 1 is
+      stage C's decision, rounds 2 and 3 play, and round 3 claims
+      (`k % 3 == 0`).
+    - Nothing is retried, and every refusal is written to
+      `C:/Users/momom2/wesnoth_runs/chain.log`.
+    - The window's final match is pre-registered apart
+      (docs/final_match_local_prereg_20261031.md).
 
 ## Expected walls [U]
 
