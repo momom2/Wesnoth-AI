@@ -52,6 +52,26 @@ records.
   plus 5 minutes. Its time budget is 5.9 h (1.5 times the estimate plus 10
   minutes).
 
+## Forecast (2026-10-31 22:40, before stage C's gate reads)
+
+Expected: **near 0, within ±2 SE**, and if anything slightly negative.
+- Stage C's half-A readings at the same KL:
+  - heads_only reads +0.1097 ± 0.0076;
+  - sgd +0.0128, reduced_adamw +0.0124, muon +0.0147 (each ± about 0.0036).
+- The four head temperatures alone (stage_c.json's span: its slopes, and
+  its Fisher from the pass) reach √(2·eps·sᵀF⁻¹s) = √(2 · 0.001334 · 3.449) =
+  0.096 at that KL, about 88% of heads_only's first-order gain (the 2026-10-31
+  evening review).
+- So the rounds will mostly sharpen the heads. Sharpening leaves an argmax
+  choice where it was, so a match at argmax sees only the rest.
+- Sharper actor logits also shrink the fixed −1.5 end_turn offset's relative
+  effect, and −1.5 is at the offset curve's peak, so the rest leans
+  negative.
+- The trained player samples from its policy (Principle 3). Its reading is
+  the round-3 T=1 claim against the reference, reported beside this match
+  and never pooled with it. This match answers the standard question: is
+  the policy stronger where the reference plays, at argmax.
+
 ## Decision rule
 
 | PURE Elo of the candidate | Reading |
@@ -66,6 +86,11 @@ records.
 
 ## Timing and kill criteria
 
+- **The launcher starts it when the rounds end** (scripts/chain_local.py
+  `--final-out`, 6e5a4286: after rounds_local returns 0 or 3, on the last
+  adopted round, its SHA-256 checked against its round.json). The 2026-10-31
+  evening review projects that at about Nov 6 08:00. Starting there rather
+  than at the deadline leaves time to play a faulted match again.
 - **Start no later than 2026-11-07 12:00**, so it ends before the user's
   return. At that hour the rounds get a STOP. A step still running then is
   cut, since the window ends anyway; its loss is recorded.
