@@ -279,7 +279,9 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
         chain would stop at P and the GPU would idle until the user returns.
     - **The design's rule for this case:** the checks table says "Heavy-tailed
       ratios (a rare action raised): that rung is read by a cross-play
-      match", and §3 "Range" sizes that match at 10,000 games against pi_k.
+      match", and the design's §1 "Range" bullet (current_design.md:70)
+      sizes such a match at 10,000 games against pi_k (corrected 2026-11-01
+      by the morning review; first written "§3 'Range'").
       The code had implemented the case as "keep pi_k", and the gate as
       "neither". The design rule is now built and applied to every round.
       The user is away; the decision is the lead's, under the standing
@@ -316,12 +318,14 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
       (5a045b33) predates the rule, so the chain reads stage C's verdict
       again with the new code before P (`refresh_verdict`; the runner's
       verdict is kept as verdict_stage_c.json). Then round 1's step, its
-      match (about 3 h at 3,450 games an hour), and the rounds.
+      match (about 3 h at 3,450 games an hour), and the rounds. As first
+      built the match had no time budget and would have stopped at 55 min
+      (departure 24).
     - The tests: the case and the reading (tests/test_pg_cross_play.py);
       the rounds' flow, both stops of round 1's match, and a short match
       (tests/test_rounds_local.py); the verdict and its second reading;
       the chain; pg_round's rung network on the miniature stage 1.
-    - The full suite on f9deb26c: 38 failed, 2164 passed, 139 skipped, 5 warnings in 1237.72s (0:20:37); every failure is a bash box test (test_boxlib 34, test_rent_box 4), code the change does not touch, run while stage C's driver loaded the CPU (20.6 min against 15). The two files alone after: 77 passed and 1 failed, a wall-clock test (test_the_switch_charges_the_stages_running_time), which then passed alone twice.
+    - The full suite on f9deb26c (the 38 failures below): 38 failed, 2164 passed, 139 skipped, 5 warnings in 1237.72s (0:20:37); every failure is a bash box test (test_boxlib 34, test_rent_box 4), code the change does not touch, run while stage C's driver loaded the CPU (20.6 min against 15). The two files alone after: 77 passed and 1 failed, a wall-clock test (test_the_switch_charges_the_stages_running_time), which then passed alone twice.
 
 ## Expected walls [U]
 
@@ -375,3 +379,30 @@ Design §6, unchanged:
 - P before rounds;
 - the link match iff the sharpening slope is at least 3 SE. It reads
   +2.64 ± 0.08, so it runs.
+24. **Every match P and the rounds play has a time budget within its cut,
+    and is played again once when it ends short** (`fix/match-time-budget`
+    96be1a81, merged into `feature/cross-play-rung` at 2287f570; registered
+    2026-11-01 11:00, before P or any match of the rounds has played).
+    - **What was wrong** (the 2026-11-01 09:43 review, H1): run_elo_batch
+      stops a match at `--time-budget-min`, 55 min by default, and exits 3
+      with games left to play. P's planted match (5,000 games, 70-87 min at
+      stage 1's rates), the link (12,800), the cross-play match (10,000) and
+      the claims (12,800) passed no budget, and their callers read 3 as a
+      failed part. P would have failed about 55 min in, and the chain
+      stopped with the GPU idle; the final match plays only after the rounds
+      return 0 or 3.
+    - **The rule:**
+      - Each match's budget is its cut less 15 min, for the games in flight
+        to drain before the cut: P's matches and the cross-play match 345
+        min, a claim 585.
+      - A match that ends short (a failed game, the budget or the cut: exit
+        1, 3 or 124) is played again once from the games on disk, as
+        scripts/match_local.py plays the final match. A replayed slot keeps
+        its seed (run_elo_batch derives seeds from the game index). A second
+        short end fails the part, and a display reset still stops the run.
+      - No decision rule changes.
+    - The tests: tests/test_p_local.py (the budget, a match played again, a
+      second short end failing the part); tests/test_rounds_local.py (the
+      cross-play match's and the claim's budgets); tests/test_chain_local.py
+      (the liveness query's OSError, fixed in the same commit).
+    - The full suite on 2287f570: 38 failed, 2165 passed, 139 skipped, 5 warnings in 1254.63s (0:20:54); the 38 are the bash box tests that failed on f9deb26c (test_boxlib 34, test_rent_box 4), under stage C's CPU load, code the change does not touch.
