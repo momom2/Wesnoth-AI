@@ -126,7 +126,7 @@ def _setup(tmp_path: Path, gate=RESOLVED, arm="reduced_adamw", ladder=None):
 
 def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False,
          gate=RESOLVED, finished=True, arm="reduced_adamw", heads_only_pass=False, end_by=None, now=None,
-         ladder=None):
+         ladder=None, n_train=None):
     s1, sc = _setup(tmp_path, gate, arm, ladder)
     if not finished:
         (sc / "ALL_DONE").unlink()
@@ -138,15 +138,17 @@ def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds
         p_out.mkdir(exist_ok=True)
         for name, verdict in zip(("p_readout.json", "link.json"), p_verdicts):
             (p_out / name).write_text(json.dumps({"verdict": verdict}), encoding="utf-8")
-    args = _args(tmp_path, s1, sc, out, p_out, no_p_gate, heads_only_pass, end_by)
+    args = _args(tmp_path, s1, sc, out, p_out, no_p_gate, heads_only_pass, end_by, n_train)
     clock = {} if now is None else {"now": now}
     return rl.run(rl.Rounds(args, runner=tools, resets=tools.resets, **clock), rounds), out
 
 
-def _args(tmp_path, s1=None, sc=None, out=None, p_out=None, no_p_gate=True, heads_only_pass=False, end_by=None):
+def _args(tmp_path, s1=None, sc=None, out=None, p_out=None, no_p_gate=True, heads_only_pass=False, end_by=None,
+          n_train=None):
     return Namespace(out=out or tmp_path / "out", stage1=s1 or tmp_path / "stage1", stage_c=sc or tmp_path / "stage_c",
                      checkpoint=Path("own2.pt"), python="gpu-py", tools_python="cpu-py", workers=3, p_out=p_out,
-                     no_p_gate=no_p_gate, heads_only_pass=heads_only_pass, end_by=end_by)
+                     no_p_gate=no_p_gate, heads_only_pass=heads_only_pass, end_by=end_by,
+                     n_train=n_train or rl.N_TRAIN)
 
 
 def _reference(monkeypatch):
@@ -242,6 +244,50 @@ def test_stage_cs_gate_decides_whether_rounds_run_and_at_what_size(tmp_path, mon
     games = sized.cmd("round 2 games")
     assert rc == 0 and games[games.index("--games") + 1] == str(7343 + rl.N_HELD)
     assert games[games.index("--heldout-from") + 1] == "7343"
+
+
+def _pass_dirs(tools, k: int) -> list:
+    cmd = tools.cmd(f"round {k} pass")
+    return cmd[cmd.index("--games") + 1:cmd.index("--labels")]
+
+
+def test_n_train_sizes_the_rounds_and_a_round_keeps_the_size_it_began_with(tmp_path, monkeypatch):
+    """--n-train is N where stage C's gate names no size (prereg departure
+    25): the resolved gate and the cross-play case; the gain curve's size
+    still wins. A round whose games started at one N finishes at it under
+    another."""
+    _reference(monkeypatch)
+    monkeypatch.setattr(rl, "XP_GAMES", 20)
+    for name, gate, ladder, xp in (("resolved", RESOLVED, None, ()), ("xp", XP_GATE, XP_LADDER, {1})):
+        tools = FakeTools(xp=xp, xp_outcomes=["win"] * 14 + ["loss"] * 4 + ["draw"] * 2)
+        rc, out = _run(tmp_path / name, tools, rounds=2, gate=gate, ladder=ladder, n_train=5000)
+        games = tools.cmd("round 2 games")
+        assert rc == 0 and games[games.index("--games") + 1] == str(5000 + rl.N_HELD), name
+        assert games[games.index("--heldout-from") + 1] == "5000", name
+        assert len(_pass_dirs(tools, 2)) == (5000 + rl.N_HELD) // rl.CHUNK_GAMES, name
+        assert (out / "round_02" / "n_train.txt").read_text(encoding="utf-8").strip() == "5000", name
+        assert "rounds of N 5000" in (out / "runner.log").read_text(encoding="utf-8"), name
+        assert "prereg departure 25" in (out / "runner.log").read_text(encoding="utf-8"), name
+    sized = FakeTools()
+    rc, _ = _run(tmp_path / "sized", sized, rounds=2, gate={"verdict": "rounds_at_size", "round_size": 7342.6},
+                 n_train=5000)
+    assert rc == 0 and sized.cmd("round 2 games")[sized.cmd("round 2 games").index("--heldout-from") + 1] == "7343"
+
+    class Failing(FakeTools):
+        def __call__(self, out, name, cmd, log_name, cut, python, **kw):
+            if name == "round 2 pass":
+                self.calls.append((name, cmd, python))
+                return 1
+            return super().__call__(out, name, cmd, log_name, cut, python, **kw)
+
+    begun = Failing()
+    rc, out = _run(tmp_path / "begun", begun, rounds=2, n_train=5000)
+    assert rc == 1 and begun.names()[-1] == "round 2 pass"
+    (out / "r02_pass.failed").unlink()
+    later = FakeTools()                                  # a new start at the default N
+    rc, _ = _run(tmp_path / "begun", later, rounds=2)
+    assert rc == 0 and later.names() == ["round 2 pass", "round 2 step"]
+    assert _pass_dirs(later, 2) == _pass_dirs(begun, 2)
 
 
 def test_a_failed_part_stops_the_chain_and_stays_failed(tmp_path, monkeypatch):

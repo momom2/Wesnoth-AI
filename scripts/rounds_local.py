@@ -3,14 +3,17 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
 "Claims"), after stage C (scripts/stage_c_local.py), round after round:
 
 - **Stage C's gate** (its stage_c.json "gate", design §6) decides whether
-  rounds run and at what size: "resolved" plays N_TRAIN training games a
-  round; "rounds_at_size" plays the gain curve's `round_size`; "neither",
+  rounds run and at what size: "resolved" plays N training games a round
+  (N_TRAIN, or --n-train: prereg departure 25); "rounds_at_size" plays the
+  gain curve's `round_size`; "neither",
   or a gate stage C did not read, plays no round (the user chooses). The
   held-out set stays N_HELD either way. --no-p-gate does not waive it.
   One "neither" is read on: when its ladder's chosen rung failed half B's
   importance-weight check (the cross-play case below), round 1 reads that
-  rung by a cross-play match, and the rounds go on at N_TRAIN iff the
-  match's lower 2-SE bound is above 0 (prereg departure 23).
+  rung by a cross-play match, and the rounds go on at N iff the match's
+  lower 2-SE bound is above 0 (prereg departure 23). A round's N is
+  recorded when its games start (its n_train.txt), so a new start with
+  another --n-train finishes a round at the size it began with.
 - **P before the rounds** (design §6): round 2 waits on stage P's planted
   readout passing and its link holding, or the link not run (stage 1's
   sharpening slope under 3 SE).
@@ -19,7 +22,7 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
   decision is taken as read and its candidate written (tools/pg_round.py
   --adopt-from).
 - **Round k >= 2**, from the policy pi the previous round left:
-  - its games: N_TRAIN + N_HELD temperature-1 self-play games of pi on both
+  - its games: N + N_HELD temperature-1 self-play games of pi on both
     seats, walked, labelled and read, the last N_HELD held out
     (scripts/selfplay_t1_local.py --checkpoint pi --no-measures, on seeds of
     the round's own);
@@ -146,7 +149,8 @@ class Rounds(Steps):
         self.s1, self.sc = Path(args.stage1), Path(args.stage_c)
         self.pi0 = str(args.checkpoint)
         self.workers = str(args.workers)
-        self.n_train = N_TRAIN
+        self.n_design = int(getattr(args, "n_train", None) or N_TRAIN)     # the gate's N where it names none
+        self.n_train = self.n_design
         self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
 
     # ---- the rounds' files
@@ -176,8 +180,9 @@ class Rounds(Steps):
         f = self.sc / "stage_c.json"
         gate = json.loads(f.read_text(encoding="utf-8")).get("gate") if f.is_file() else None
         verdict = (gate or {}).get("verdict")
+        sized = "" if self.n_design == N_TRAIN else f" (--n-train {self.n_design}, prereg departure 25)"
         if verdict == "resolved":
-            return N_TRAIN, "stage C's gate: resolved"
+            return self.n_design, "stage C's gate: resolved" + sized
         if verdict == "rounds_at_size":
             size = gate.get("round_size")
             if isinstance(size, (int, float)) and math.isfinite(size) and size >= 1:
@@ -188,9 +193,9 @@ class Rounds(Steps):
             ladder = json.loads(f.read_text(encoding="utf-8")).get("ladder") or {}
             if cross_play_case(ladder, ladder.get("rungs") or []) is not None:
                 self.xp_gate = True
-                return N_TRAIN, ("stage C's gate reads neither because its ladder's rung fails half B's "
-                                 "importance-weight check: round 1 reads the rung by a cross-play match, and the "
-                                 "rounds go on iff it resolves (prereg departure 23)")
+                return self.n_design, ("stage C's gate reads neither because its ladder's rung fails half B's "
+                                       "importance-weight check: round 1 reads the rung by a cross-play match, and "
+                                       "the rounds go on iff it resolves (prereg departure 23)" + sized)
             return None, f"stage C's gate reads neither ({gate.get('reason')}): no rounds; the user chooses"
         return None, f"stage C's gate is {verdict or 'missing'} ({f}): no rounds until it reads"
 
@@ -211,9 +216,17 @@ class Rounds(Steps):
             return f"stage P reads {reads}: the rounds wait (design §6)"
         return None
 
+    def round_size(self, k: int) -> int:
+        """Round k's N: the one recorded when its games started, else the
+        rounds' N, recorded now."""
+        f = self.rdir(k) / "n_train.txt"
+        if not f.exists():
+            f.write_text(f"{self.n_train}\n", encoding="utf-8")
+        return int(f.read_text(encoding="utf-8"))
+
     def game_dirs(self, k: int) -> List[str]:
         play = self.rdir(k) / "play"
-        chunks = (self.n_train + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES
+        chunks = (self.round_size(k) + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES
         return [str(play / f"games_s{c:02d}") for c in range(chunks)]
 
     # ---- the rounds' walls (--end-by)
@@ -294,7 +307,8 @@ class Rounds(Steps):
             rc = self.step(f"round {k} games", ["scripts/selfplay_t1_local.py", "--out", str(d / "play"),
                                                 "--checkpoint", pi, "--label", f"pi{k}", "--seed-base",
                                                 str(SEED_BASE + k * SEED_STRIDE), "--games",
-                                                str(self.n_train + N_HELD), "--heldout-from", str(self.n_train),
+                                                str(self.round_size(k) + N_HELD), "--heldout-from",
+                                                str(self.round_size(k)),
                                                 "--no-measures"],
                            f"round_{k:02d}.log", PLAY_CUT_MIN)
             if rc == 2 or rc == 5 or (d / "play" / "STOP").exists():
@@ -547,6 +561,8 @@ def main() -> int:
     ap.add_argument("--no-p-gate", action="store_true", help="play the rounds without stage P (the user's waiver)")
     ap.add_argument("--checkpoint", type=Path, default=REPO / "training" / "checkpoints" / "own2.pt",
                     help="pi_0, the network stage 1 played (own2)")
+    ap.add_argument("--n-train", type=int, default=N_TRAIN,
+                    help="N, a round's training games where stage C's gate names no size (prereg departure 25)")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--python", default=sys.executable, help="the GPU tools' interpreter (the ROCm venv)")
     ap.add_argument("--tools-python", default=None, help="the CPU tools' (default: the repository's .venv)")
@@ -568,6 +584,8 @@ def main() -> int:
         keep_awake()
     if args.end_by is not None:
         datetime.strptime(args.end_by, END_BY_FORMAT)               # refused now, not at round 3
+    if args.n_train < 1:
+        ap.error(f"--n-train {args.n_train}: a round trains on at least one game")
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "
                   f"rounds {args.rounds}, pi_0 {args.checkpoint}, end by {args.end_by}, "
                   f"heads-only pass {args.heads_only_pass}")
