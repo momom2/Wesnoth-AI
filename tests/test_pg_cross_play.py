@@ -89,3 +89,12 @@ def test_the_match_takes_half_bs_place_in_decides_rule():
         assert down["adopt"] is False and down["s"] == 0.0 and down["next_eps"] == pytest.approx(5e-4), reading
     with pytest.raises(ValueError, match="not the cross-play case"):
         xp.decide_by_match({**dec, "chosen": 1}, rungs, {"estimate": 0.1, "se": 0.01})
+
+
+def test_a_rung_read_at_the_ranges_edge_sets_the_next_radius_to_the_edge():
+    """A rung clipped to the range's edge (pg_step.ladder) is adopted at its
+    target KL, not at its multiplier times the round's radius."""
+    dec, rungs = _case()
+    rungs[2] = {**rungs[2], "target_kl": 1.7e-3}
+    up = xp.decide_by_match(dec, rungs, {"estimate": 0.15, "se": 0.01, "games": 10000})
+    assert up["adopt"] is True and up["next_eps"] == pytest.approx(1.7e-3)

@@ -96,6 +96,6 @@ def decide_by_match(decision: Mapping, rungs: Sequence[Mapping], reading: Mappin
                    reason=f"the cross-play match reads {est:.4g} below -{REVERT_SE:g} SE ({se:.3g})")
     else:
         rung = rungs[chosen]
-        out.update(adopt=True, s=float(rung["s"]), next_eps=float(rung["multiplier"]) * eps,
+        out.update(adopt=True, s=float(rung["s"]), next_eps=float(rung["target_kl"]),
                    reason=f"the cross-play match reads {est:.4g} (SE {se:.3g})")
     return out

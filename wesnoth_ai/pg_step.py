@@ -57,6 +57,10 @@ REVERT_SE = 2.0                    # half B below -REVERT_SE SE keeps pi_k
 # ΔĴ reads a step up to this KL per side-game (design §1.2); past it a rung
 # is read by a cross-play match, not by importance weights.
 SIDE_KL_RANGE = 0.5
+# A rung past the range is read at its edge only when the edge is at least
+# this factor above the rung below: the rungs are a factor 2 apart, and an
+# edge nearer the rung below than the geometric midpoint repeats its reading.
+EDGE_MIN_RATIO = math.sqrt(2.0)
 
 
 # ---------------------------------------------------------------- the pass
@@ -465,7 +469,7 @@ def read_candidate(evaluator: Evaluator, s: float, kl: float, halves: Mapping[st
 @dataclass(frozen=True)
 class Rung:
     multiplier: float
-    target_kl: float
+    target_kl: float        # multiplier * eps, or the range's edge for a rung clipped to it
     s: Optional[float]      # None past the range: the rung is neither searched nor read
     kl: Optional[float]
     in_range: bool          # the rung's KL per side-game is within SIDE_KL_RANGE
@@ -509,7 +513,8 @@ def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B
     starts from the adopted rung's radius. pi_k also stays and the radius
     halves when no rung is readable, or when the chosen rung's weights fail
     the check on the confirmation half (design §5: such a rung is read by a
-    cross-play match, not by importance weights)."""
+    cross-play match, not by importance weights). The adopted rung's radius
+    is its target KL, the range's edge for a rung clipped to it."""
     select, confirm = halves
     best = select_rung(rungs, select)
     if best is None:
@@ -524,7 +529,7 @@ def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B
         return Decision(False, 0.0, eps, eps / 2.0, best,
                         f"half {confirm} reads {check.estimate:.4g} below -{REVERT_SE:g} SE ({check.se:.3g})",
                         list(rungs))
-    return Decision(True, rungs[best].s, eps, rungs[best].multiplier * eps, best,
+    return Decision(True, rungs[best].s, eps, rungs[best].target_kl, best,
                     f"half {confirm} reads {check.estimate:.4g} (SE {check.se:.3g})", list(rungs))
 
 
@@ -539,22 +544,28 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     (the arm read at eps), so neither its KL search nor its selection-half
     reading is repeated by an evaluator that keeps its readings.
 
-    A rung past SIDE_KL_RANGE (1/2 nat per side-game) is never selected, so
-    it is neither searched nor read (its s and kl are None, its halves
-    empty): this ladder caps every round at K = 1/2, where design §1.2 reads
-    such a rung by a cross-play match against pi_k instead."""
+    This ladder caps every round at K = SIDE_KL_RANGE (1/2 nat per
+    side-game), where design §1.2 reads a rung past it by a cross-play match
+    against pi_k instead. The first rung past the range is read at its edge,
+    when the edge is at least EDGE_MIN_RATIO above the rung below; every
+    other rung past it is neither searched nor read (its s and kl are None,
+    its halves empty)."""
     evaluator = evaluator_factory(d)
     by_half = sides_by_half(evaluator.game_sides(), halves)
     per_side = decisions_per_side(evaluator.game_sides())
+    edge = SIDE_KL_RANGE / per_side
     base = evaluator.base_logp()
     select, confirm = halves
-    rungs, s_guess, previous = [], s0, None
+    rungs, s_guess, previous, below = [], s0, None, 0.0
     for multiplier in LADDER_MULTIPLIERS:
         target = multiplier * eps
-        if not target * per_side <= SIDE_KL_RANGE * (1.0 + 1e-9):
-            rungs.append(Rung(multiplier, target, None, None, False, {}))
-            continue
-        point = (known or {}).get(multiplier)
+        if not target <= edge * (1.0 + 1e-9):
+            if not edge >= EDGE_MIN_RATIO * below:
+                rungs.append(Rung(multiplier, target, None, None, False, {}))
+                continue
+            target = edge
+        below = target
+        point = (known or {}).get(multiplier) if target == multiplier * eps else None
         if point is None:
             if previous is not None:
                 s_guess = previous.s * math.sqrt(target / previous.kl)
