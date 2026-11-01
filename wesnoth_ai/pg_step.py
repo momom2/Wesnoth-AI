@@ -466,8 +466,8 @@ def read_candidate(evaluator: Evaluator, s: float, kl: float, halves: Mapping[st
 class Rung:
     multiplier: float
     target_kl: float
-    s: float
-    kl: float
+    s: Optional[float]      # None past the range: the rung is neither searched nor read
+    kl: Optional[float]
     in_range: bool          # the rung's KL per side-game is within SIDE_KL_RANGE
     halves: Dict[str, HalfReading]
 
@@ -540,8 +540,9 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     reading is repeated by an evaluator that keeps its readings.
 
     A rung past SIDE_KL_RANGE (1/2 nat per side-game) is never selected, so
-    this ladder caps every round at K = 1/2, where design §1.2 reads such a
-    rung by a cross-play match against pi_k instead."""
+    it is neither searched nor read (its s and kl are None, its halves
+    empty): this ladder caps every round at K = 1/2, where design §1.2 reads
+    such a rung by a cross-play match against pi_k instead."""
     evaluator = evaluator_factory(d)
     by_half = sides_by_half(evaluator.game_sides(), halves)
     per_side = decisions_per_side(evaluator.game_sides())
@@ -550,13 +551,15 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     rungs, s_guess, previous = [], s0, None
     for multiplier in LADDER_MULTIPLIERS:
         target = multiplier * eps
+        if not target * per_side <= SIDE_KL_RANGE * (1.0 + 1e-9):
+            rungs.append(Rung(multiplier, target, None, None, False, {}))
+            continue
         point = (known or {}).get(multiplier)
         if point is None:
             if previous is not None:
                 s_guess = previous.s * math.sqrt(target / previous.kl)
             point = kl_search(evaluator.mean_kl, target, s0=s_guess)
-        in_range = target * per_side <= SIDE_KL_RANGE * (1.0 + 1e-9)
-        rungs.append(Rung(multiplier, target, point.s, point.kl, in_range,
+        rungs.append(Rung(multiplier, target, point.s, point.kl, True,
                           read_candidate(evaluator, point.s, point.kl, {select: by_half[select]}, base)))
         previous = point
     best = select_rung(rungs, select)
