@@ -185,3 +185,8 @@ def test_runner_alive_reads_a_failed_or_empty_query_as_alive(monkeypatch):
         monkeypatch.setattr(cl.subprocess, "run",
                             lambda *a, rc=rc, out=out, **k: subprocess.CompletedProcess(a, rc, stdout=out, stderr=""))
         assert cl.runner_alive("x.py") is alive, (rc, out)
+
+    def unstartable(*a, **k):
+        raise OSError("powershell not found")
+    monkeypatch.setattr(cl.subprocess, "run", unstartable)
+    assert cl.runner_alive("x.py") is True                   # not started: nothing seen to end
