@@ -321,6 +321,7 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
       the rounds' flow, both stops of round 1's match, and a short match
       (tests/test_rounds_local.py); the verdict and its second reading;
       the chain; pg_round's rung network on the miniature stage 1.
+    - The full suite on f9deb26c: 38 failed, 2164 passed, 139 skipped, 5 warnings in 1237.72s (0:20:37); every failure is a bash box test (test_boxlib 34, test_rent_box 4), code the change does not touch, run while stage C's driver loaded the CPU (20.6 min against 15). The two files alone after: 77 passed and 1 failed, a wall-clock test (test_the_switch_charges_the_stages_running_time), which then passed alone twice.
 
 ## Expected walls [U]
 
