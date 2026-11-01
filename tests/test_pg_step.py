@@ -227,6 +227,28 @@ def test_rungs_importance_weights_cannot_read_are_not_selected():
     assert not kept.adopt and kept.chosen is None and kept.next_eps == pytest.approx(0.15)
 
 
+def test_a_rung_past_the_range_is_neither_searched_nor_read(monkeypatch):
+    """At 1 decision a side-game, eps 0.3 puts the 2 eps rung at K 0.6, past
+    the range: the ladder spends no KL search and no reading on it, its
+    summary says so, and the decision is the one a read rung would give."""
+    import wesnoth_ai.pg_step as pg_step
+    gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.0}}
+    evaluator = _LadderEvaluator(gains, 0.3)
+    searched, read = [], []
+    monkeypatch.setattr(pg_step, "kl_search", lambda kl_at, target, **kw: searched.append(target)
+                        or kl_search(kl_at, target, **kw))
+    logp = evaluator.logp
+    evaluator.logp = lambda s, halves=None: read.append(s * s) or logp(s, halves)
+    decision = ladder(lambda d: evaluator, {}, 0.3)
+    assert searched == pytest.approx([0.15, 0.3])
+    assert read == pytest.approx([0.15, 0.3, 0.3], rel=KL_RTOL)             # rungs 0.5 and 1 on A, rung 1 on B
+    far = decision.rungs[2]
+    assert not far.in_range and far.s is None and far.kl is None and far.halves == {}
+    assert decision.summary()["rungs"][2] == {"multiplier": 2.0, "target_kl": pytest.approx(0.6), "s": None,
+                                              "kl": None, "in_range": False, "halves": {}}
+    assert decision.adopt and decision.chosen == 1 and decision.next_eps == pytest.approx(0.3)
+
+
 def test_half_b_weights_must_pass_before_its_reading_counts():
     """The rung chosen on half A whose weights fail the check on half B is
     not adopted on half B's reading: pi_k stays and the radius halves."""
