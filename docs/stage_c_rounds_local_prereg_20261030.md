@@ -453,6 +453,13 @@ Design §6, unchanged:
     - The full suite on 8af92eb6: 38 failed, 2166 passed, 139 skipped, 5
       warnings in 1234.29s (0:20:34). The 38 are the bash box tests above,
       under stage C's CPU load.
+    - **Amended 2026-11-01 evening (the 21:43 review, L2):** "agrees" is too
+      strong. The curve is consistent with the model, but it is no test of
+      it at B ≈ 281: it was read at reduced AdamW's B (44), where the model
+      predicts 0.997 whatever B holds for heads_only, and its 5,000-game
+      direction used the whole pass's second moment. What carries the choice
+      is B, which was measured on heads_only, and the decision is robust: even
+      at B 2,000 the model keeps 0.89 of the gain.
 26. **The ladder neither searches nor reads a rung past the range**
     (`fix/ladder-skip-past-range` c3d2286b, merged into
     `feature/cross-play-rung` at 97298a01; registered 2026-11-01 18:50,
@@ -481,3 +488,47 @@ Design §6, unchanged:
       (test_boxlib 34, test_rent_box 4); the one more passed is the new test.
     - The chain was re-armed at 97298a01 with `--rounds-n-train 5000` on
       2026-11-01 19:06 (pid 14296), while it still waited on stage C's plant.
+27. **The first rung past the range is read at its edge**
+    (`fix/ladder-edge-rung` d622278d, merged into `feature/cross-play-rung`
+    at 118d7a23; registered 2026-11-01 22:55, before any round's ladder has
+    run).
+    - **Why** (the 2026-11-01 21:43 review, M2): stage C set ε at K ¼ a
+      side-game (0.25 / 187.35 decisions), so its 2ε rung sat at K ½ to float
+      precision. If round 1 adopts that rung, round 2's ε is 0.0026687, and
+      its ε rung lands on the edge again. Whether it is read then turns on
+      π₁'s decisions per side-game: games slightly longer put it past the
+      range, so only the ε/2 rung (K ¼) is read. Adopting that rung halves the
+      radius, and the step alternates between K ½ and ¼ from round to round.
+      In stage C, half A read ΔĴ 0.110 at K ¼ against 0.154 at K ½.
+    - **The rule:** the first rung past SIDE_KL_RANGE is searched and read at
+      the edge (target KL ½ / decisions per side-game). It is skipped when
+      the edge is less than EDGE_MIN_RATIO = √2 above the rung below (the
+      rungs' geometric midpoint), since its reading would then repeat that
+      rung's. Every other rung past the range is neither searched nor read,
+      as in departure 26.
+      - An adopted rung's next radius is its target KL, the edge for a
+        clipped rung, in pg_step.decide and pg_cross_play.decide_by_match.
+        For an unclipped rung this equals the old multiplier × ε.
+      - A known point at ε (stage C's arm reading) is not reused for a rung
+        moved to the edge.
+    - **Unchanged:** the range itself (K ½); the selection on half A; the
+      confirmation and the revert on half B; departure 23's cross-play case;
+      round 1, which takes stage C's ladder as it stands (its chosen rung is
+      unclipped, target 0.0026687 = 2ε).
+    - The tests: tests/test_pg_step.py::test_the_first_rung_past_the_range_is_read_at_its_edge
+      and tests/test_pg_cross_play.py::test_a_rung_read_at_the_ranges_edge_sets_the_next_radius_to_the_edge.
+      - Three tests that put a rung past the range move from ε 0.3 (0.006 at
+        50 decisions) to 0.4 (0.008), so their far rung stays past the edge
+        and unread under the new rule; their assertions are unchanged.
+      - The rounds test's rung gains the `target_kl` that every real summary
+        carries.
+      - The ladder, cross-play, round, stage C, end-to-end, rounds, chain, P
+        and evaluator tests: 83 passed.
+    - The full suite on 118d7a23: 38 failed, 2169 passed, 139 skipped, 5
+      warnings in 1173.70s (0:19:33). The 38 are the box tests, which fail
+      only when pytest is launched from PowerShell: its PATH lacks Git's
+      coreutils, so boxlib.sh's bash finds no dirname, mkdir, rm or date.
+      From Git Bash the two files pass (78 passed, 20 skipped). The
+      earlier departures' "under stage C's CPU load" was that artifact.
+    - The chain was re-armed at 118d7a23 on 2026-11-01 23:02 (pid 12536),
+      while it still waited on stage C's plant.
