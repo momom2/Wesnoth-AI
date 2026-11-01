@@ -2,8 +2,9 @@
 local stage 1, with the RX 6600's fp16 flags; the box script's failure rules
 (a failed C0 stops everything, a failed driver leaves the plant); a display
 reset or a STOP file ends the run and a new start resumes; stage 1's failed
-gates refuse it. The tools are stood in for by a fake runner that writes
-what each step leaves."""
+gates refuse it; a "neither" whose rung is left to a cross-play match goes
+to P, and the verdict read again keeps the first. The tools are stood in
+for by a fake runner that writes what each step leaves."""
 from __future__ import annotations
 
 import json
@@ -156,3 +157,30 @@ def test_stage_1_labels_split_at_other_sizes_refuse_the_run(tmp_path):
         rc, out = _run(tmp_path / name, tools, s1=_stage1(tmp_path / name, labels=labels))
         assert rc == 1 and tools.names() == [], name
         assert "stage 1's labels" in (out / "runner.log").read_text(encoding="utf-8"), name
+
+
+def test_a_neither_whose_rung_is_left_to_a_cross_play_match_goes_to_p(tmp_path):
+    """Prereg departure 23: stage C's "neither" for a rung whose weights fail
+    half B's check goes to P, then round 1's match; any other "neither"
+    stops. refresh_verdict reads it again and keeps the first verdict."""
+    rung = {"multiplier": 2.0, "s": 0.04, "halves": {"A": {"ess_ok": True}, "B": {"ess_ok": False}}}
+    ladder = {"adopt": False, "chosen": 0, "eps": 1e-3, "rungs": [rung]}
+    (tmp_path / "plant_readout.json").write_text(json.dumps({"verdict": "pass", "seats": {}, "delta": 0.1}),
+                                                 encoding="utf-8")
+    for case, starts in ((ladder, "P (the planted step played), then round 1's rung read by a cross-play match"),
+                         ({**ladder, "chosen": None}, "no rounds"),
+                         ({**ladder, "rungs": [{**rung, "halves": {"B": {"ess_ok": True}}}]}, "no rounds")):
+        (tmp_path / "stage_c.json").write_text(json.dumps({"gate": {"verdict": "neither"}, "ladder": case,
+                                                           "optimizer": {}, "errors": {}}), encoding="utf-8")
+        sc.verdict(tmp_path)
+        v = json.loads((tmp_path / "verdict.json").read_text(encoding="utf-8"))
+        assert v["next"].startswith(starts) and v["cross_play_case"] is (case is ladder), case
+    (tmp_path / "plant_readout.json").write_text(json.dumps({"verdict": "fail", "seats": {}, "delta": 0.1}),
+                                                 encoding="utf-8")
+    (tmp_path / "stage_c.json").write_text(json.dumps({"gate": {"verdict": "neither"}, "ladder": ladder}),
+                                           encoding="utf-8")
+    assert "planted readout missed" in sc.verdict(tmp_path)
+    (tmp_path / "verdict.json").write_text(json.dumps({"next": "the runner's"}), encoding="utf-8")
+    for _ in range(2):
+        assert "planted readout missed" in sc.refresh_verdict(tmp_path)
+        assert json.loads((tmp_path / "verdict_stage_c.json").read_text(encoding="utf-8")) == {"next": "the runner's"}

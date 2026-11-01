@@ -3,8 +3,9 @@ at what size, round 1 from stage C's decision, each later round's games,
 corrections, pass and step in order, each played by the policy the previous
 round left, a claim every third round, and design §6's two stops (the pause
 on weak confirmed readings, the claims' transfer check, both reported when
-both fire; the upper tail logged). The tools are stood in for by a fake
-runner that writes what each step leaves."""
+both fire; the upper tail logged), and a rung left to a cross-play match
+read by one (the gate's one readable "neither" included). The tools are
+stood in for by a fake runner that writes what each step leaves."""
 from __future__ import annotations
 
 import json
@@ -15,7 +16,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import pytest  # noqa: E402
+
 import scripts.rounds_local as rl  # noqa: E402
+
+SHA = "c" * 64
 
 
 def _rung(estimate: float, se: float) -> dict:
@@ -23,18 +28,50 @@ def _rung(estimate: float, se: float) -> dict:
                        "B": {"exact": {"estimate": estimate, "se": se}}}}
 
 
+def _xp_rung() -> dict:
+    """A rung chosen on half A whose weights fail half B's check."""
+    return {"multiplier": 2.0, "s": 0.04, "halves": {"A": {"exact": {"estimate": 0.15, "se": 0.01}, "ess_ok": True},
+                                                     "B": {"exact": {"estimate": 0.10, "se": 0.04}, "ess_ok": False}}}
+
+
+XP_GATE = {"verdict": "neither", "reason": "half B's importance weights fail the check"}
+XP_LADDER = {"arm": "heads_only", "adopt": False, "s": 0.0, "eps": 1e-3, "next_eps": 5e-4, "chosen": 0,
+             "reason": "half B's importance weights fail the check: the rung needs a cross-play match",
+             "rungs": [_xp_rung()]}
+
+
 class FakeTools:
     """Each step's products; `adopt` per round (round 1 included), `reading`
-    each adopted rung's half-B ΔĴ and SE, `claim_elo` the claim's Elo."""
+    each adopted rung's half-B ΔĴ and SE, `claim_elo` the claim's Elo; the
+    rounds in `xp` leave their rung to a cross-play match, whose games end
+    as `xp_outcomes` (label A's)."""
 
-    def __init__(self, adopt=None, reading=(0.02, 0.004), claim_elo=-400.0):
+    def __init__(self, adopt=None, reading=(0.02, 0.004), claim_elo=-400.0, xp=(), xp_outcomes=()):
         self.calls, self.adopt, self.reading, self.claim_elo = [], adopt or {}, reading, claim_elo
+        self.xp, self.xp_outcomes = set(xp), list(xp_outcomes)
 
     def __call__(self, out, name, cmd, log_name, cut, python, **_):
         self.calls.append((name, cmd, python))
         arg = lambda flag: cmd[cmd.index(flag) + 1]                          # noqa: E731
         words = name.split()
-        if name.endswith(" step"):
+        if name.endswith(" step") and int(words[1]) in self.xp:
+            k = int(words[1])
+            dec = {"adopt": False, "s": 0.0, "eps": 1e-3, "next_eps": 5e-4, "chosen": 0,
+                   "reason": "half B's importance weights fail the check: the rung needs a cross-play match"}
+            if k > 1:
+                dec["rungs"] = [_xp_rung()]
+            net = Path(arg("--chosen-network"))
+            net.write_text("rung", encoding="utf-8")
+            Path(arg("--out")).write_text(json.dumps({"decision": dec, "candidate": None, "chosen_network": {
+                "path": str(net), "sha256": SHA, "s": 0.04, "rung": 0}}), encoding="utf-8")
+        elif name.endswith(" cross-play"):
+            games = Path(arg("--outdir"))
+            games.mkdir(parents=True, exist_ok=True)
+            for i, outcome in enumerate(self.xp_outcomes):
+                (games / f"game_rung_{i}.json").write_text(json.dumps({
+                    "label_a": arg("--label-a"), "checkpoint_sha256_a": SHA, "memory_a": 64, "procedure_a": "raw:t1",
+                    "procedure_b": "raw:t1", "outcome_a": outcome}), encoding="utf-8")
+        elif name.endswith(" step"):
             k = int(words[1])
             adopted = self.adopt.get(k, True)
             dec = {"adopt": adopted, "s": 0.4 if adopted else 0.0, "eps": 1e-3, "next_eps": 2e-3 if adopted else 5e-4,
@@ -72,7 +109,7 @@ class FakeTools:
 RESOLVED = {"verdict": "resolved", "reason": "read"}
 
 
-def _setup(tmp_path: Path, gate=RESOLVED, arm="reduced_adamw"):
+def _setup(tmp_path: Path, gate=RESOLVED, arm="reduced_adamw", ladder=None):
     s1, sc = tmp_path / "stage1", tmp_path / "stage_c"
     for d in (s1 / "games_s00", sc):
         d.mkdir(parents=True, exist_ok=True)
@@ -80,14 +117,16 @@ def _setup(tmp_path: Path, gate=RESOLVED, arm="reduced_adamw"):
     (s1 / "d0.fit.json").write_text(json.dumps({"tables": {"PURE (decisive only, primary)": {
         "own2t1": {"elo": -415.2, "se": 5.5}, "own2": {"elo": 0.0, "se": 0.0}}}}), encoding="utf-8")
     (sc / "stage_c.json").write_text(json.dumps({"optimizer": {"winner": arm}, "gate": gate,
-                                                 "ladder": {"rungs": [_rung(0.02, 0.004)]}}), encoding="utf-8")
+                                                 "ladder": ladder or {"rungs": [_rung(0.02, 0.004)]}}),
+                                     encoding="utf-8")
     (sc / "ALL_DONE").write_text("done\n", encoding="utf-8")
     return s1, sc
 
 
 def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False,
-         gate=RESOLVED, finished=True, arm="reduced_adamw", heads_only_pass=False, end_by=None, now=None):
-    s1, sc = _setup(tmp_path, gate, arm)
+         gate=RESOLVED, finished=True, arm="reduced_adamw", heads_only_pass=False, end_by=None, now=None,
+         ladder=None):
+    s1, sc = _setup(tmp_path, gate, arm, ladder)
     if not finished:
         (sc / "ALL_DONE").unlink()
     out = tmp_path / "out"
@@ -98,11 +137,15 @@ def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds
         p_out.mkdir(exist_ok=True)
         for name, verdict in zip(("p_readout.json", "link.json"), p_verdicts):
             (p_out / name).write_text(json.dumps({"verdict": verdict}), encoding="utf-8")
-    args = Namespace(out=out, stage1=s1, stage_c=sc, checkpoint=Path("own2.pt"), python="gpu-py",
-                     tools_python="cpu-py", workers=3, p_out=p_out, no_p_gate=no_p_gate,
-                     heads_only_pass=heads_only_pass, end_by=end_by)
+    args = _args(tmp_path, s1, sc, out, p_out, no_p_gate, heads_only_pass, end_by)
     clock = {} if now is None else {"now": now}
     return rl.run(rl.Rounds(args, runner=tools, resets=tools.resets, **clock), rounds), out
+
+
+def _args(tmp_path, s1=None, sc=None, out=None, p_out=None, no_p_gate=True, heads_only_pass=False, end_by=None):
+    return Namespace(out=out or tmp_path / "out", stage1=s1 or tmp_path / "stage1", stage_c=sc or tmp_path / "stage_c",
+                     checkpoint=Path("own2.pt"), python="gpu-py", tools_python="cpu-py", workers=3, p_out=p_out,
+                     no_p_gate=no_p_gate, heads_only_pass=heads_only_pass, end_by=end_by)
 
 
 def _reference(monkeypatch):
@@ -279,3 +322,66 @@ def test_end_by_starts_a_round_only_when_the_longest_round_fits(tmp_path, monkey
         assert max(int(n.split()[1]) for n in tools.names()) == last, end_by
         log = (out / "runner.log").read_text(encoding="utf-8")
         assert ("past --end-by" in log) is (last < 6), end_by
+
+
+def test_a_rung_left_to_a_cross_play_match_is_read_by_one_and_the_rounds_go_on(tmp_path, monkeypatch):
+    """Stage C's "neither" for a failed weight check: round 1 reads its rung
+    by a match against pi_0, adopts it, and the rounds go on; round 2's rung,
+    left to a match as well, plays pi_1."""
+    _reference(monkeypatch)
+    monkeypatch.setattr(rl, "XP_GAMES", 20)
+    tools = FakeTools(xp={1, 2}, xp_outcomes=["win"] * 14 + ["loss"] * 4 + ["draw"] * 2)
+    rc, out = _run(tmp_path, tools, rounds=2, gate=XP_GATE, ladder=XP_LADDER)
+    assert rc == 0 and tools.names() == ["round 1 step", "round 1 cross-play", "round 2 games", "round 2 corrections",
+                                         "round 2 pass", "round 2 step", "round 2 cross-play"]
+    step = tools.cmd("round 1 step")
+    assert step[step.index("--chosen-network") + 1] == str(out / "round_01" / "rung.pt")
+    xp1 = tools.cmd("round 1 cross-play")
+    flag = lambda f: xp1[xp1.index(f) + 1]                                   # noqa: E731
+    assert flag("--spec-a") == str(out / "round_01" / "rung.pt") and flag("--spec-b") == "own2.pt"
+    assert flag("--label-a") == "rung1" and flag("--raw-temperature-a") == "1" and flag("--raw-temperature-b") == "1"
+    assert "--raw-end-turn-offset-a" not in xp1 and "--raw-end-turn-offset-b" not in xp1
+    assert flag("--memory-a") == "64" and flag("--memory-b") == "64"
+    assert flag("--games") == "20" and flag("--max-extra-games") == "0"
+    assert flag("--seed-base") == str(rl.XP_SEED_BASE + rl.XP_SEED_STRIDE)
+    r1 = json.loads((out / "round_01" / "round.json").read_text(encoding="utf-8"))
+    assert r1["decision"]["adopt"] is True and r1["decision"]["importance"]["adopt"] is False
+    assert r1["decision"]["next_eps"] == pytest.approx(2e-3) and r1["decision"]["s"] == pytest.approx(0.04)
+    assert r1["candidate"]["sha256"] == SHA and (out / "round_01" / "pi.pt").read_text(encoding="utf-8") == "rung"
+    pi_1 = str(out / "round_01" / "pi.pt")
+    games = tools.cmd("round 2 games")
+    assert games[games.index("--checkpoint") + 1] == pi_1
+    xp2 = tools.cmd("round 2 cross-play")
+    assert xp2[xp2.index("--spec-b") + 1] == pi_1 and xp2[xp2.index("--spec-a") + 1] == str(out / "round_02" / "rung.pt")
+    assert xp2[xp2.index("--seed-base") + 1] == str(rl.XP_SEED_BASE + 2 * rl.XP_SEED_STRIDE)
+    rounds = rl.Rounds(_args(tmp_path, out=out), runner=tools, resets=tools.resets)
+    assert rounds.policy_after(2) == str(out / "round_02" / "pi.pt")
+    estimate, se = rounds.confirmed(1)
+    assert estimate == pytest.approx(0.5) and se == pytest.approx(r1["decision"]["cross_play"]["se"])
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert "cross-play match" in log and "round 1's cross-play match: +0.5000" in log
+    again = FakeTools(xp={1, 2})                                         # done: nothing runs, nothing is read again
+    assert _run(tmp_path, again, rounds=2, gate=XP_GATE, ladder=XP_LADDER)[0] == 0 and again.names() == []
+
+
+def test_round_1s_match_decides_whether_the_rounds_go_on(tmp_path, monkeypatch):
+    """Adopted but not resolved (0 +- 0.23): the rounds wait; below -2 SE:
+    pi_0 stays and the rounds wait; a short match fails its part."""
+    _reference(monkeypatch)
+    monkeypatch.setattr(rl, "XP_GAMES", 20)
+    for name, outcomes, adopt in (("weak", ["win"] * 10 + ["loss"] * 10, True),
+                                  ("worse", ["win"] * 2 + ["loss"] * 18, False)):
+        tools = FakeTools(xp={1}, xp_outcomes=outcomes)
+        rc, out = _run(tmp_path / name, tools, gate=XP_GATE, ladder=XP_LADDER)
+        assert rc == 3 and tools.names() == ["round 1 step", "round 1 cross-play"], name
+        r1 = json.loads((out / "round_01" / "round.json").read_text(encoding="utf-8"))
+        assert r1["decision"]["adopt"] is adopt and (r1["candidate"] is not None) is adopt, name
+        if not adopt:
+            assert r1["decision"]["next_eps"] == pytest.approx(5e-4)
+        assert "ROUNDS_WAIT after round 1" in (out / "runner.log").read_text(encoding="utf-8"), name
+    short = FakeTools(xp={1}, xp_outcomes=["win"] * 17)                    # 17 of 20 read, under 90%
+    rc, out = _run(tmp_path / "short", short, gate=XP_GATE, ladder=XP_LADDER)
+    assert rc == 1 and "17 games of 20" in (out / "r01_xp_read.failed").read_text(encoding="utf-8")
+    assert "cross_play" not in json.loads((out / "round_01" / "round.json").read_text(encoding="utf-8"))["decision"]
+    again = FakeTools(xp={1}, xp_outcomes=["win"] * 20)
+    assert _run(tmp_path / "short", again, gate=XP_GATE, ladder=XP_LADDER)[0] == 1 and again.names() == []

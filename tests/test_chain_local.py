@@ -70,6 +70,8 @@ def test_a_finished_stage_c_starts_p_then_the_rounds(tmp_path):
         assert cmd[cmd.index("--checkpoint") + 1] == "own2.pt"
     assert {hip for _, _, hip in f.ran} == {"1"} and "--heads-only-pass" not in rounds
     assert "CHAIN_P" in _log(args) and "CHAIN_ROUNDS" in _log(args)
+    assert _log(args).index("CHAIN_VERDICT") < _log(args).index("CHAIN_P:")      # read again before P
+    assert "did not read its gate" in json.loads((args.stage_c / "verdict.json").read_text(encoding="utf-8"))["next"]
     args = _args(tmp_path / "heads", heads_only_pass=True, rounds_end_by="2026-11-07 12:00")
     (args.stage_c / "ALL_DONE").write_text("done\n", encoding="utf-8")
     f = Fakes(args.stage_c)

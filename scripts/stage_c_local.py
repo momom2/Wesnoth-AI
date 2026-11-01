@@ -14,7 +14,10 @@ scripts/stage_c_box.sh on the local stage 1's run directory
     the stage C driver (tools/pg_stage_c.py on tools/pg_eval.py's factory);
     the planted offline readout (tools/pg_plant.py, tools/selfplay_rows.py,
         tools/pg_labels.py, a planted pass);
-    the verdict (verdict.json), by the box script's rule.
+    the verdict (verdict.json), by the box script's rule, with one case
+        added: a "neither" whose ladder left its rung to a cross-play match
+        (wesnoth_ai/pg_cross_play.py) goes to P, then to round 1's match
+        (scripts/rounds_local.py; prereg departure 23).
 
 A failed C0 or pass stops what needs it, a failed driver leaves the plant to
 run and the other way round, and a part's failure stays failed at a new
@@ -64,6 +67,7 @@ sys.path.insert(0, str(REPO))
 from scripts.local_machine import (Steps, Stopped, below_normal_priority, default_tools_python,  # noqa: E402
                                    display_resets_since, keep_awake, log, require_visible_gpu, run_tool)
 from scripts.selfplay_t1_local import CHUNK_GAMES, GATES, HELDOUT_FROM, N_SELFPLAY, SP_SEED_BASE  # noqa: E402
+from wesnoth_ai.pg_cross_play import cross_play_case  # noqa: E402
 
 C0_GAMES = 200
 C0_HELD = 100
@@ -299,9 +303,11 @@ def verdict(out: Path) -> str:
         return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
     c, plant, c0 = read("stage_c.json"), read("plant_readout.json"), read("c0_plan.json")
     gate = (c or {}).get("gate", {}).get("verdict")
+    ladder = (c or {}).get("ladder") or {}
+    xp = gate == "neither" and cross_play_case(ladder, ladder.get("rungs") or []) is not None
     if gate in (None, "unread"):
         nxt = "stage C did not read its gate (stage_c.json's errors, or no driver readout): fix it and run it again"
-    elif gate == "neither":
+    elif gate == "neither" and not xp:
         nxt = "no rounds: the user chooses the $1,000 case, sized from the curve, or a stop"
     elif plant is None:
         nxt = "the planted readout did not land: run it before P and rounds"
@@ -313,15 +319,27 @@ def verdict(out: Path) -> str:
         # decide; the design's C row names it after "resolved" only
         # (docs/stage_c_rounds_local_prereg_20261030.md).
         nxt = {"resolved": "P (the planted step played), then rounds",
-               "rounds_at_size": "P (the planted step played), then rounds at the size the gain curve names"
-               }.get(gate, "no verdict")
+               "rounds_at_size": "P (the planted step played), then rounds at the size the gain curve names",
+               "neither": "P (the planted step played), then round 1's rung read by a cross-play match (its "
+                          "importance weights fail on half B), and rounds iff the match resolves (prereg "
+                          "departure 23)"}.get(gate, "no verdict")
     v = {"gate": (c or {}).get("gate"), "optimizer": (c or {}).get("optimizer"),
          "stage_c_errors": (c or {}).get("errors"),
          "plant": None if plant is None else {"verdict": plant["verdict"], "seats": plant["seats"],
                                               "delta": plant["delta"]},
-         "c0": c0, "next": nxt}
+         "c0": c0, "cross_play_case": xp, "next": nxt}
     (out / "verdict.json").write_text(json.dumps(v, indent=1) + "\n", encoding="utf-8")
     return f"gate={gate} plant={None if plant is None else plant['verdict']} next: {nxt}"
+
+
+def refresh_verdict(out: Path) -> str:
+    """verdict.json read again by this code after a run of other code wrote
+    it (scripts/chain_local.py, before P); the first one written is kept as
+    verdict_stage_c.json. Its line."""
+    first = out / "verdict_stage_c.json"
+    if (out / "verdict.json").exists() and not first.exists():
+        first.write_bytes((out / "verdict.json").read_bytes())
+    return verdict(out)
 
 
 def run(r: Run) -> int:

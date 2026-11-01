@@ -17,9 +17,11 @@ worktree P and the rounds should run (pinned at a tested commit):
      failed part);
    - that this worktree's HEAD is --expect-head and has no tracked change;
    - that the checkpoint's SHA-256 is --checkpoint-sha256.
-3. It runs scripts/p_local.py, then scripts/rounds_local.py with --p-out,
-   but only when P returns 0 (P passes and the link holds). A step that
-   fails is never run again.
+3. It reads stage C's verdict again with this worktree's code
+   (stage_c_local.refresh_verdict: the stage C runner's code may predate a
+   rule, prereg departure 23), then runs scripts/p_local.py, then
+   scripts/rounds_local.py with --p-out, but only when P returns 0 (P
+   passes and the link holds). A step that fails is never run again.
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them), it plays the window's final match
    (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
@@ -48,6 +50,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from scripts.local_machine import log, stage_c_unfinished  # noqa: E402
+from scripts.stage_c_local import refresh_verdict  # noqa: E402
 
 RUNNER = "stage_c_local.py"              # the stage C runner's script, as its command line names it
 POLL_S = 300.0                           # seconds between looks at stage C
@@ -178,6 +181,7 @@ class Chain:
         if why:
             self.note(f"CHAIN_REFUSED: {why}")
             return 1
+        self.note(f"CHAIN_VERDICT: stage C's verdict read again at {a.expect_head}: {refresh_verdict(a.stage_c)}")
         self.note("CHAIN_P: stage C finished; P starts")
         rc = self.run([a.gpu_python, "-u", "scripts/p_local.py", *self.common(), "--out", str(a.p_out),
                        "--e", repr(a.e)], a.p_out / "console.log", a.hip_visible_devices)

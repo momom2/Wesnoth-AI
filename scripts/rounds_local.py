@@ -7,6 +7,10 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
   round; "rounds_at_size" plays the gain curve's `round_size`; "neither",
   or a gate stage C did not read, plays no round (the user chooses). The
   held-out set stays N_HELD either way. --no-p-gate does not waive it.
+  One "neither" is read on: when its ladder's chosen rung failed half B's
+  importance-weight check (the cross-play case below), round 1 reads that
+  rung by a cross-play match, and the rounds go on at N_TRAIN iff the
+  match's lower 2-SE bound is above 0 (prereg departure 23).
 - **P before the rounds** (design §6): round 2 waits on stage P's planted
   readout passing and its link holding, or the link not run (stage 1's
   sharpening slope under 3 SE).
@@ -26,6 +30,12 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
   - the step (tools/pg_round.py): the ladder at the radius the previous
     round left, under stage C's arm, its decision and, when a rung is
     adopted, the next pi.
+- **The cross-play case** (any round; wesnoth_ai/pg_cross_play.py, design
+  §5): when the rung the step chose fails half B's importance-weight check,
+  its network (pg_round --chosen-network) plays the round's pi at
+  temperature 1, XP_GAMES games, and the match's mean z takes half B's
+  place in the decision, which round.json then holds (the importance
+  decision under "importance").
 - **Every CLAIM_EVERY-th round, a claim:** pi at temperature 1 against the
   reference, CLAIM_GAMES decisive games (D0's match:
   scripts/selfplay_t1_local.py's measure), fitted PURE with the reference at 0.
@@ -74,6 +84,7 @@ from scripts.local_machine import (Steps, Stopped, below_normal_priority, defaul
                                    display_resets_since, keep_awake, log, reference_flags, require_visible_gpu,
                                    run_tool, stage_c_unfinished)
 from scripts.selfplay_t1_local import CHUNK_GAMES, MIN_FREE_MB, player_flags  # noqa: E402
+from wesnoth_ai.pg_cross_play import cross_play_case, decide_by_match, mean_z  # noqa: E402
 
 N_TRAIN = 20000                 # design §1: N, a round's training games (stage C's gate may name another)
 N_HELD = 10000                  # |H|, its held-out games
@@ -83,12 +94,22 @@ N_HELD = 10000                  # |H|, its held-out games
 # - round k's games (no replacements) from SEED_BASE + k * SEED_STRIDE, a
 #   block of 1M for each of rounds 1-MAX_ROUNDS, all under stage P's 50M;
 # - stage P at 50M and the link at 60M (scripts/p_local.py, no replacements);
+# - round k's cross-play match (no replacements) from XP_SEED_BASE + k *
+#   XP_SEED_STRIDE, between the link's block and the claims';
 # - round k's claim from CLAIM_SEED_BASE + k * CLAIM_SEED_STRIDE, which holds
 #   its replacements of generations 1-9.
 SEED_BASE = 10_000_000
 SEED_STRIDE = 1_000_000
 MAX_ROUNDS = 39                 # round 39's block ends at 50M, where stage P's starts
 CLAIM_SEED_BASE = 100_000_000
+XP_SEED_BASE = 70_000_000
+XP_SEED_STRIDE = 100_000
+# The cross-play case's match (design §3 "Range": a 10,000-game cross-play
+# match against pi_k). A match that read fewer than XP_MIN_SHARE of its games
+# fails its part: the rule adopts unless the reading is below -2 SE, so a
+# short match must not stand in for one.
+XP_GAMES = 10000
+XP_MIN_SHARE = 0.9
 CLAIM_SEED_STRIDE = 10_000_000
 CLAIM_EVERY = 3
 CLAIM_GAMES = 12800             # design §3.2: a claim's decisive games, D0's
@@ -111,6 +132,7 @@ CORRECTIONS_CUT_MIN = 60
 PASS_CUT_MIN = 48 * 60          # 20,000 games at 80 to 150 decisions a second: 14 to 26 h, unmeasured
 STEP_CUT_MIN = 36 * 60          # the ladder's forwards over 10,000 held-out games, unmeasured
 CLAIM_CUT_MIN = 10 * 60
+XP_CUT_MIN = 6 * 60             # 10,000 games at about 3,450 an hour (scripts/match_local.py's estimate)
 PASS_EXITS = {3: "the replay identity failed", 4: "the precision floor's bound lifts the replay limit past its cap",
               5: "the packed and padded trunks disagree in fp32"}
 
@@ -125,6 +147,7 @@ class Rounds(Steps):
         self.pi0 = str(args.checkpoint)
         self.workers = str(args.workers)
         self.n_train = N_TRAIN
+        self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
 
     # ---- the rounds' files
     def rdir(self, k: int) -> Path:
@@ -162,6 +185,12 @@ class Rounds(Steps):
                 return n, f"stage C's gate: rounds at the gain curve's size {n}"
             return None, f"stage C's gate says rounds_at_size with no finite round_size ({size!r})"
         if verdict == "neither":
+            ladder = json.loads(f.read_text(encoding="utf-8")).get("ladder") or {}
+            if cross_play_case(ladder, ladder.get("rungs") or []) is not None:
+                self.xp_gate = True
+                return N_TRAIN, ("stage C's gate reads neither because its ladder's rung fails half B's "
+                                 "importance-weight check: round 1 reads the rung by a cross-play match, and the "
+                                 "rounds go on iff it resolves (prereg departure 23)")
             return None, f"stage C's gate reads neither ({gate.get('reason')}): no rounds; the user chooses"
         return None, f"stage C's gate is {verdict or 'missing'} ({f}): no rounds until it reads"
 
@@ -246,7 +275,8 @@ class Rounds(Steps):
                                         *self.factory_args(self.pi0, dirs, self.s1 / "labels.jsonl", d / "eval_cache"),
                                         "--adopt-from", str(self.sc / "stage_c.json"), "--out", str(d / "round.json"),
                                         "--candidate", str(d / "pi.pt"), "--direction-out",
-                                        str(d / "direction.pt")], "round_01.log", STEP_CUT_MIN)
+                                        str(d / "direction.pt"), "--chosen-network", str(d / "rung.pt")],
+                         "round_01.log", STEP_CUT_MIN)
         if rc != 0 or not (d / "round.json").exists():
             self.mark(part, f"round 1's step ended rc={rc} (round_01.log)")
             return False
@@ -300,20 +330,86 @@ class Rounds(Steps):
                                                *self.factory_args(pi, dirs, labels, d / "eval_cache"), "--eps-from",
                                                str(prev / "round.json"), "--arm-from", str(self.sc / "stage_c.json"),
                                                *previous, "--out", str(d / "round.json"), "--candidate",
-                                               str(d / "pi.pt"), "--direction-out", str(d / "direction.pt")],
+                                               str(d / "pi.pt"), "--direction-out", str(d / "direction.pt"),
+                                               "--chosen-network", str(d / "rung.pt")],
                            f"round_{k:02d}.log", STEP_CUT_MIN)
             ok = rc == 0 and (d / "round.json").exists()
             self.mark(f"{tag}_step", None if ok else f"round {k}'s step ended rc={rc} (round_{k:02d}.log)")
         return self.done(f"{tag}_step")
 
+    # ---- the cross-play case
+    def rungs_of(self, k: int) -> list:
+        """Round k's rungs: its ladder's, or stage C's for round 1."""
+        rungs = self.round_json(k)["decision"].get("rungs")
+        if not rungs:
+            rungs = json.loads((self.sc / "stage_c.json").read_text(encoding="utf-8"))["ladder"]["rungs"]
+        return rungs
+
+    def cross_play(self, k: int) -> bool:
+        """Round k's chosen rung read by a cross-play match when its step
+        left it to one (module docstring); True when round k's decision
+        stands, read or not needed."""
+        tag, d = f"r{k:02d}_xp", self.rdir(k)
+        r = self.round_json(k)
+        net = r.get("chosen_network")
+        if net is None or "cross_play" in r["decision"]:
+            return True
+        games, label = d / "cross_play", f"rung{k}"
+        ref_a = reference_flags("a", self.tools_py)
+        if not self.skip(tag):
+            self.check_stop(f"round {k}'s cross-play match")
+            side_a = player_flags(ref_a, "a", label, spec=net["path"])
+            side_b = player_flags(reference_flags("b", self.tools_py), "b", f"pi{k - 1}", spec=self.policy_after(k - 1))
+            rc = self.step(f"round {k} cross-play", ["tools/run_elo_batch.py", *side_a, *side_b, "--mcts-sims", "0",
+                                                     "--raw-temperature-a", "1", "--raw-temperature-b", "1",
+                                                     "--outdir", str(games), "--games", str(XP_GAMES),
+                                                     "--max-extra-games", "0", "--seed-base",
+                                                     str(XP_SEED_BASE + k * XP_SEED_STRIDE), *POOL],
+                           f"round_{k:02d}.log", XP_CUT_MIN)
+            self.mark(tag, None if rc in (0, 4) else f"round {k}'s cross-play match ended rc={rc} (round_{k:02d}.log)")
+        if not self.done(tag) or self.skip(f"{tag}_read"):
+            return False
+        slots = int(ref_a[ref_a.index("--memory-a") + 1])
+        reading = mean_z(games, label, net["sha256"], slots)
+        if reading["games_refused"] or reading["games"] < XP_MIN_SHARE * XP_GAMES:
+            self.mark(f"{tag}_read", f"round {k}'s cross-play match read {reading['games']} games of {XP_GAMES}, "
+                                     f"{reading['games_refused']} refused ({reading['refused_examples'][:2]})")
+            return False
+        r["decision"] = decide_by_match(r["decision"], self.rungs_of(k), reading)
+        if r["decision"]["adopt"]:
+            pi = d / "pi.pt"
+            pi.write_bytes(Path(net["path"]).read_bytes())
+            r["candidate"] = {"path": str(pi), "sha256": net["sha256"], "s": net["s"], "from": "the cross-play match"}
+        tmp = d / "round.json.tmp"
+        tmp.write_text(json.dumps(r, indent=1) + "\n", encoding="utf-8")
+        tmp.replace(d / "round.json")
+        log(self.out, f"round {k}'s cross-play match: {reading['estimate']:+.4f} +- {reading['se']:.4f} over "
+                      f"{reading['games']} games ({reading['games_left_out']} left out)")
+        return True
+
+    def xp_resolved(self) -> Optional[str]:
+        """Why round 1's cross-play match stops the rounds (its lower 2-SE
+        bound is not above 0), or None."""
+        xp = self.round_json(1)["decision"].get("cross_play")
+        if xp is None:
+            return "round 1 holds no cross-play reading"
+        lower = xp["estimate"] - 2.0 * xp["se"]
+        if lower > 0:
+            return None
+        return (f"round 1's cross-play match reads {xp['estimate']:+.4f} +- {xp['se']:.4f}, its lower 2-SE bound "
+                f"{lower:+.4f} not above 0: stage C's gate stays neither (prereg departure 23)")
+
     # ---- the readings and the claims
     def confirmed(self, k: int) -> Tuple[float, float]:
-        """Round k's confirmed reading (half B's ΔĴ of its adopted rung, in
-        units of E[z]) and its SE; (0, 0) for a round that kept pi."""
+        """Round k's confirmed reading (half B's ΔĴ of its adopted rung, or
+        its cross-play match's mean z, in units of E[z]) and its SE; (0, 0)
+        for a round that kept pi."""
         r = self.round_json(k)
         dec = r["decision"]
         if not dec.get("adopt"):
             return 0.0, 0.0
+        if "cross_play" in dec:
+            return float(dec["cross_play"]["estimate"]), float(dec["cross_play"]["se"])
         rungs = dec.get("rungs")
         if not rungs:                                    # round 1: stage C's ladder holds them
             rungs = json.loads((self.sc / "stage_c.json").read_text(encoding="utf-8"))["ladder"]["rungs"]
@@ -408,11 +504,16 @@ def run(r: Rounds, rounds: int) -> int:
                     log(out, f"ROUNDS_WAIT before round 2: {why}")
                     return 3
             r.timed(k, "start")
-            if not (r.round1() if k == 1 else r.round_k(k)):
+            if not ((r.round1() if k == 1 else r.round_k(k)) and r.cross_play(k)):
                 log(out, f"ROUNDS_FAILED at round {k}: {' '.join(r.state)}")
                 return 1
             dec = r.round_json(k)["decision"]
             log(out, f"round {k}: adopt={dec.get('adopt')} next_eps={dec.get('next_eps')}: {dec.get('reason')}")
+            if k == 1 and r.xp_gate:
+                why = r.xp_resolved()
+                if why:
+                    log(out, f"ROUNDS_WAIT after round 1: {why}")
+                    return 3
             if k % CLAIM_EVERY == 0:
                 claim = r.claim(k)
                 if claim is None:

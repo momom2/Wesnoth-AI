@@ -2,8 +2,9 @@
 (helpers.pg_run.e2e_run): the ladder through the command line reads three
 rungs and writes an adopted rung's network as theta_k + s d; the cosine
 with the previous direction reads 1 on the same pass; round 1 taken from
-stage C's decision writes its step without a ladder, and nothing when stage
-C kept pi_k; the radius and the arm are read from either readout; the
+stage C's decision writes its step without a ladder, nothing when stage C
+kept pi_k, and the chosen rung's network when a cross-play match must read
+it; the radius and the arm are read from either readout; the
 probe_span arm's span Fisher is stage C's in round 1 and the round's own
 later."""
 from __future__ import annotations
@@ -81,21 +82,28 @@ def test_round_1_is_stage_cs_decision_taken_as_read(tmp_path):
     from wesnoth_ai.pg_step import direction
     run = e2e_run()
     common = ["--pass", str(run.pass_path), "--factory", "tools.pg_eval:network_factory", *_factory_args(run)]
-    for adopt in (True, False):
-        stage_c = tmp_path / f"stage_c_{adopt}.json"
+    xp_rung = {"multiplier": 2.0, "s": 0.7, "halves": {"A": {"ess_ok": True}, "B": {"ess_ok": False}}}
+    pass_ = torch.load(run.pass_path, weights_only=True)
+    for name, adopt, chosen, rungs in (("adopt", True, 2, []), ("keep", False, 2, []), ("xp", False, 0, [xp_rung])):
+        stage_c = tmp_path / f"stage_c_{name}.json"
         stage_c.write_text(json.dumps({"optimizer": {"winner": "sgd"},
                                        "ladder": {"arm": "sgd", "adopt": adopt, "s": 0.5 if adopt else 0.0,
-                                                  "eps": 1e-3, "next_eps": 2e-3 if adopt else 5e-4, "chosen": 2,
-                                                  "reason": "read on half B", "rungs": []}}), encoding="utf-8")
-        out, candidate = tmp_path / f"round_{adopt}.json", tmp_path / f"pi_1_{adopt}.pt"
-        assert main(common + ["--adopt-from", str(stage_c), "--out", str(out), "--candidate", str(candidate)]) == 0
+                                                  "eps": 1e-3, "next_eps": 2e-3 if adopt else 5e-4, "chosen": chosen,
+                                                  "reason": "read on half B", "rungs": rungs}}), encoding="utf-8")
+        out, candidate, net = tmp_path / f"round_{name}.json", tmp_path / f"pi_1_{name}.pt", tmp_path / f"rung_{name}.pt"
+        assert main(common + ["--adopt-from", str(stage_c), "--out", str(out), "--candidate", str(candidate),
+                              "--chosen-network", str(net)]) == 0
         r = json.loads(out.read_text(encoding="utf-8"))
         assert r["arm"] == "sgd" and r["decision"]["adopt"] is adopt and "rungs" not in r["decision"]
         if adopt:
-            pass_ = torch.load(run.pass_path, weights_only=True)
             _same_network(candidate, run.checkpoint, direction(pass_, "sgd"), 0.5)
         else:
             assert r["candidate"] is None and not candidate.exists()
+        if name == "xp":                                 # the rung the match reads, not a candidate
+            assert r["chosen_network"]["s"] == 0.7 and r["chosen_network"]["rung"] == 0
+            _same_network(net, run.checkpoint, direction(pass_, "sgd"), 0.7)
+        else:
+            assert r["chosen_network"] is None and not net.exists()
 
 
 def test_the_radius_and_the_arm_are_read_from_either_readout(tmp_path):
