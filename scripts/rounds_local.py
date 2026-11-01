@@ -360,12 +360,12 @@ class Rounds(Steps):
             self.check_stop(f"round {k}'s cross-play match")
             side_a = player_flags(ref_a, "a", label, spec=net["path"])
             side_b = player_flags(reference_flags("b", self.tools_py), "b", f"pi{k - 1}", spec=self.policy_after(k - 1))
-            rc = self.step(f"round {k} cross-play", ["tools/run_elo_batch.py", *side_a, *side_b, "--mcts-sims", "0",
-                                                     "--raw-temperature-a", "1", "--raw-temperature-b", "1",
-                                                     "--outdir", str(games), "--games", str(XP_GAMES),
-                                                     "--max-extra-games", "0", "--seed-base",
-                                                     str(XP_SEED_BASE + k * XP_SEED_STRIDE), *POOL],
-                           f"round_{k:02d}.log", XP_CUT_MIN)
+            rc = self.play_match(f"round {k} cross-play", ["tools/run_elo_batch.py", *side_a, *side_b, "--mcts-sims",
+                                                           "0", "--raw-temperature-a", "1", "--raw-temperature-b", "1",
+                                                           "--outdir", str(games), "--games", str(XP_GAMES),
+                                                           "--max-extra-games", "0", "--seed-base",
+                                                           str(XP_SEED_BASE + k * XP_SEED_STRIDE), *POOL],
+                                 f"round_{k:02d}.log", XP_CUT_MIN)
             self.mark(tag, None if rc in (0, 4) else f"round {k}'s cross-play match ended rc={rc} (round_{k:02d}.log)")
         if not self.done(tag) or self.skip(f"{tag}_read"):
             return False
@@ -426,12 +426,12 @@ class Rounds(Steps):
             ref_b = reference_flags("b", self.tools_py)
             side_a = player_flags(reference_flags("a", self.tools_py), "a", label, spec=self.policy_after(k))
             games = d / "claim"
-            rc = self.step(f"round {k} claim", ["tools/run_elo_batch.py", *side_a, *ref_b, "--mcts-sims", "0",
-                                                "--raw-temperature-a", "1", "--raw-temperature-b", "0", "--outdir",
-                                                str(games), "--games", str(CLAIM_GAMES), "--max-extra-games",
-                                                str(CLAIM_GAMES // 2), "--seed-base",
-                                                str(CLAIM_SEED_BASE + k * CLAIM_SEED_STRIDE), *POOL],
-                           f"claim_{k:02d}.log", CLAIM_CUT_MIN)
+            rc = self.play_match(f"round {k} claim", ["tools/run_elo_batch.py", *side_a, *ref_b, "--mcts-sims", "0",
+                                                      "--raw-temperature-a", "1", "--raw-temperature-b", "0",
+                                                      "--outdir", str(games), "--games", str(CLAIM_GAMES),
+                                                      "--max-extra-games", str(CLAIM_GAMES // 2), "--seed-base",
+                                                      str(CLAIM_SEED_BASE + k * CLAIM_SEED_STRIDE), *POOL],
+                                 f"claim_{k:02d}.log", CLAIM_CUT_MIN)
             if rc in (0, 4):
                 rc = self.step(f"round {k} claim fit", ["tools/elo_collect.py", str(games), "--no-catalog",
                                                         "--anchor", ref_b[ref_b.index("--label-b") + 1],

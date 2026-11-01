@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 import pytest  # noqa: E402
 
 import scripts.rounds_local as rl  # noqa: E402
+from scripts.local_machine import MATCH_DRAIN_MIN  # noqa: E402
 
 SHA = "c" * 64
 
@@ -184,6 +185,7 @@ def test_the_rounds_run_in_order_each_played_by_the_last_adopted_policy(tmp_path
     assert claim[claim.index("--seed-base") + 1] == str(rl.CLAIM_SEED_BASE + 3 * rl.CLAIM_SEED_STRIDE)
     assert claim[claim.index("--spec-a") + 1] == str(out / "round_03" / "pi.pt")
     assert claim[claim.index("--raw-temperature-a") + 1] == "1" and "--raw-end-turn-offset-a" not in claim
+    assert claim[claim.index("--time-budget-min") + 1] == f"{rl.CLAIM_CUT_MIN - MATCH_DRAIN_MIN:g}"
     python = {n: py for n, _, py in tools.calls}
     assert {n for n, py in python.items() if py == "cpu-py"} == {"round 2 corrections", "round 3 corrections",
                                                                     "round 3 claim fit"}
@@ -344,6 +346,7 @@ def test_a_rung_left_to_a_cross_play_match_is_read_by_one_and_the_rounds_go_on(t
     assert flag("--memory-a") == "64" and flag("--memory-b") == "64"
     assert flag("--games") == "20" and flag("--max-extra-games") == "0"
     assert flag("--seed-base") == str(rl.XP_SEED_BASE + rl.XP_SEED_STRIDE)
+    assert flag("--time-budget-min") == f"{rl.XP_CUT_MIN - MATCH_DRAIN_MIN:g}"   # not run_elo_batch's 55 min
     r1 = json.loads((out / "round_01" / "round.json").read_text(encoding="utf-8"))
     assert r1["decision"]["adopt"] is True and r1["decision"]["importance"]["adopt"] is False
     assert r1["decision"]["next_eps"] == pytest.approx(2e-3) and r1["decision"]["s"] == pytest.approx(0.04)

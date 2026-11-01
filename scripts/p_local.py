@@ -71,9 +71,9 @@ class P(Steps):
         if self.skip(part):
             return self.done(part)
         self.check_stop(part)
-        rc = self.step(part, ["tools/run_elo_batch.py", *flags, "--mcts-sims", "0", "--outdir", str(games_dir),
-                              "--games", str(games), "--max-extra-games", "0", "--seed-base", str(seed), *POOL],
-                       f"{part}.log", MATCH_CUT_MIN)
+        rc = self.play_match(part, ["tools/run_elo_batch.py", *flags, "--mcts-sims", "0", "--outdir", str(games_dir),
+                                    "--games", str(games), "--max-extra-games", "0", "--seed-base", str(seed), *POOL],
+                             f"{part}.log", MATCH_CUT_MIN)
         self.mark(part, None if rc in (0, 4) else f"the match ended rc={rc} ({part}.log)")
         return self.done(part)
 

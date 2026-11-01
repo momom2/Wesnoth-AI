@@ -75,7 +75,7 @@ def runner_alive(script: str = RUNNER) -> bool:
         if r.returncode != 0 or not out:       # a query that failed or said nothing has not seen the runner end
             return True
         return int(out) > 0
-    except (subprocess.TimeoutExpired, ValueError):
+    except (subprocess.TimeoutExpired, ValueError, OSError):    # OSError: powershell could not be started
         return True
 
 
