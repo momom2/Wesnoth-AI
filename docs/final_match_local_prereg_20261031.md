@@ -91,6 +91,10 @@ Expected: **near 0, within ±2 SE**, and if anything slightly negative.
   adopted round, its SHA-256 checked against its round.json). The 2026-10-31
   evening review projects that at about Nov 6 08:00. Starting there rather
   than at the deadline leaves time to play a faulted match again.
+- **Since 2026-11-01 the rounds run to a deadline** (rounds_local
+  `--end-by "2026-11-07 10:00"`, with heads-only passes: the stage C and
+  rounds prereg, departures 21-22). The match starts when they end, which
+  is no later than about Nov 7 10:00.
 - **Start no later than 2026-11-07 12:00**, so it ends before the user's
   return. At that hour the rounds get a STOP. A step still running then is
   cut, since the window ends anyway; its loss is recorded.

@@ -225,6 +225,44 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
       `C:/Users/momom2/wesnoth_runs/chain.log`.
     - The window's final match is pre-registered apart
       (docs/final_match_local_prereg_20261031.md).
+21. **Each round's pass takes the head maps' gradient alone**
+    (`tools/pg_pass.py --heads-only`, rounds_local `--heads-only-pass`;
+    `feature/heads-only-pass` 6faf2162, 2026-11-01).
+    - **Why:** stage C chose heads_only (+0.0973 ± 0.0079 over reduced_adamw
+      on half A, z 12.3). That arm reads the pass's g and v on the four head
+      maps alone (`pg_step.direction`), so the full pass's gradient through
+      the trunk, most of a 25 h pass, is computed and thrown away.
+    - **What it does:** the heads-only pass freezes every other parameter.
+      The trunk and the memory run without a graph, no step is recomputed,
+      and the other parameters' sums are zero.
+    - **Why the direction is unchanged:** a head map's gradient does not
+      depend on whether the layers below it learn. Checked three ways:
+      - the tests (tests/test_pg_pass.py) hold, on the suite's games, the
+        heads' sums equal to the full pass's, the forward's readings equal
+        to rounding, and the heads_only and probe_span directions equal;
+      - on 3 of stage 1's games, on the CPU, the head maps' sums agree to
+        4e-6 of their scale, every other sum is 0, the decisions and
+        windows are the same, and the replay KL agrees (5.497e-5 against
+        5.511e-5);
+      - the CPU rate went from 4.1 to 7.5 decisions a second.
+    - **Speed on the GPU is unmeasured.** The GPU's full pass also
+      recomputed each step (two forwards and a backward), so the gain
+      should be larger than the CPU's. At worst the pass runs at the full
+      pass's speed. The pass's cut stays 48 h.
+    - The other arms refuse such a pass. It changes no estimate and no
+      decision rule.
+    - **Found while testing:** the actor head's bias gradient is rounding,
+      because the bias shifts every actor's logit alike. Reduced AdamW
+      turns it into a unit-sized entry of the heads_only direction, in
+      either pass, which moves no probability.
+22. **The rounds run to a deadline instead of a count** (rounds_local
+    `--end-by`, f7cbe1e9, 2026-11-01).
+    - The chain runs `--rounds 9 --end-by "2026-11-07 10:00"`. Round k >= 3
+      starts only when 1.2 times the longest round so far fits before the
+      deadline; otherwise the rounds end there, done.
+    - The final match then starts by its 2026-11-07 12:00 limit. Claims
+      stay every third round.
+    - The full suite on f7cbe1e9: 2195 passed, 139 skipped, 5 warnings in 905.76s (0:15:05).
 
 ## Expected walls [U]
 
