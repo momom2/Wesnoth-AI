@@ -406,3 +406,78 @@ Design §6, unchanged:
       cross-play match's and the claim's budgets); tests/test_chain_local.py
       (the liveness query's OSError, fixed in the same commit).
     - The full suite on 2287f570: 38 failed, 2165 passed, 139 skipped, 5 warnings in 1254.63s (0:20:54); the 38 are the bash box tests that failed on f9deb26c (test_boxlib 34, test_rent_box 4), under stage C's CPU load, code the change does not touch.
+25. **The rounds play N = 5,000 training games a round, not 20,000**
+    (rounds_local `--n-train`, passed by chain_local `--rounds-n-train`:
+    `feature/rounds-n-train` f8ad2f97, merged into `feature/cross-play-rung`
+    at 8af92eb6; registered 2026-11-01 18:50, after stage C's driver wrote its
+    critical batches and its gate at 17:12, before P or any round has played).
+    - **Why:** design §2 sizes a round at N* = √(c_f·B/c_g). Stage C's arm is
+      heads_only, and the gate reads B in the winner's metric: 280.9 ± 29.9
+      games, resolved (reduced AdamW's reads 44.3 ± 6.4).
+    - **The prices, in this desktop's hours** (the one GPU's hours bound the
+      rounds; the autonomy log, 2026-11-01 12:41):
+      - c_g is 0.00093-0.00148 h a game: play at 0.84 s a game, the full
+        pass at 4.48 s.
+      - c_f is 6.5-11 h a round, up to about 16 h with the rounds' 9.5-h
+        step.
+      - N* is then 1,111-2,198 games, and 1,223-2,421 at B + 2 SE. At the
+        box's prices (the gate's: $7.76e-5 a game, $2.42 a round) it is
+        2,960.
+    - **The rule:** N = clamp(ceil(N*), 5,000, 20,000). The floor is the
+      smallest size the gain curve measured (2 of the pass's 8 splits). N
+      stays 20,000 if B is unresolved. So **N = 5,000**.
+    - **The gain curve agrees.** A step built from 5,000 games reads 1.062 ±
+      0.039 of the whole pass's first-order gain; the model
+      √[(N/(N+B))/(20,000/(20,000+B))] reads 0.98 at B 281. A step from
+      10,000 games reads 1.058 ± 0.037 (model 0.99). Both are read in
+      reduced AdamW's metric.
+    - **What it buys:**
+      - play of 15,000 games a round, not 30,000 (3.5 h, not 7);
+      - a pass over 5,000 games: at most 6.2 h at the full pass's rate,
+        against 25;
+      - the step unchanged, since it reads the 10,000 held-out games.
+
+      That is about 19 h a round against 41, so about 5-6 rounds by Nov 7
+      10:00 instead of 2-3.
+    - **Unchanged:**
+      - N_HELD 10,000;
+      - the gate's reading, the ladder and the claims;
+      - the seeds: round k's are 10M + k·1M, and N + N_HELD stays under 1M;
+      - departure 23's cross-play case, which goes on at N too.
+
+      A round's N is recorded when its games start (its `n_train.txt`), so
+      a re-arm finishes a begun round at the size it began with.
+    - The tests: tests/test_rounds_local.py (N in the resolved and cross-play
+      cases, a begun round keeping its size), tests/test_chain_local.py (the
+      flag passed through).
+    - The full suite on 8af92eb6: 38 failed, 2166 passed, 139 skipped, 5
+      warnings in 1234.29s (0:20:34). The 38 are the bash box tests above,
+      under stage C's CPU load.
+26. **The ladder neither searches nor reads a rung past the range**
+    (`fix/ladder-skip-past-range` c3d2286b, merged into
+    `feature/cross-play-rung` at 97298a01; registered 2026-11-01 18:50,
+    before any round's ladder has run).
+    - **Why** (the 2026-11-01 09:43 review, L1): a rung whose KL per
+      side-game is past K = ½ is never selected, yet the ladder ran its KL
+      search and read its ΔĴ on half A. That costs about 1-2 h of a round's
+      step once the radius reaches the range's edge. Stage C's 2ε rung was
+      just inside the range (ε 0.00133), so after the first adopted 2ε step a
+      round's 2ε rung is likely past it.
+    - **The rule:** such a rung is recorded with `in_range` false, `s` and
+      `kl` null, and no halves. Every consumer reads only the chosen rung,
+      which is always in range, so every decision is the one the old ladder
+      made.
+    - **Not taken:** the design's cross-play match for a 2ε candidate past
+      the range (current_design.md §1.2, "Range"). It costs a 10,000-game
+      match a round (2.3-2.9 h here, more than the reading it replaces), and
+      the rounds' code has no path that selects on it. The ladder stays capped
+      at K = ½, as it was.
+    - The test:
+      tests/test_pg_step.py::test_a_rung_past_the_range_is_neither_searched_nor_read.
+      The ladder, round, cross-play, stage C and rounds tests: 45 passed
+      before it was added.
+    - The full suite on 97298a01: 38 failed, 2167 passed, 139 skipped, 5
+      warnings in 1196.04s (0:19:56). The 38 are the same bash box tests
+      (test_boxlib 34, test_rent_box 4); the one more passed is the new test.
+    - The chain was re-armed at 97298a01 with `--rounds-n-train 5000` on
+      2026-11-01 19:06 (pid 14296), while it still waited on stage C's plant.
