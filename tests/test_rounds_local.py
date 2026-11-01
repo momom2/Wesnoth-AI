@@ -31,7 +31,7 @@ def _rung(estimate: float, se: float) -> dict:
 
 def _xp_rung() -> dict:
     """A rung chosen on half A whose weights fail half B's check."""
-    return {"multiplier": 2.0, "s": 0.04, "halves": {"A": {"exact": {"estimate": 0.15, "se": 0.01}, "ess_ok": True},
+    return {"multiplier": 2.0, "target_kl": 2e-3, "s": 0.04, "halves": {"A": {"exact": {"estimate": 0.15, "se": 0.01}, "ess_ok": True},
                                                      "B": {"exact": {"estimate": 0.10, "se": 0.04}, "ess_ok": False}}}
 
 
