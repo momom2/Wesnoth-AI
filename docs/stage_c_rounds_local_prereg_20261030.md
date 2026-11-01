@@ -263,6 +263,64 @@ The design is `docs/training_design_20261019/current_design.md`, §1, §5 and
     - The final match then starts by its 2026-11-07 12:00 limit. Claims
       stay every third round.
     - The full suite on f7cbe1e9: 2195 passed, 139 skipped, 5 warnings in 905.76s (0:15:05).
+23. **A rung whose importance weights fail half B's check is read by a
+    cross-play match** (`feature/cross-play-rung` f9deb26c, registered
+    2026-11-01 04:56, before any game of it is played).
+    - **What happened:** stage C's ladder on heads_only (stage_c.json,
+      2026-11-01 03:43) chose its 2x rung on half A:
+      - the rungs on half A: KL 0.00267 a decision, side KL 0.50, ΔĴ
+        +0.154 +- 0.012; the 1x rung +0.110 +- 0.008; the 1/2x +0.078 +-
+        0.005.
+      - On half B the 2x rung's weights fail the check: ESS share 0.098
+        against the floor 0.185. Its exact reading is +0.103 +- 0.036, its
+        first order +0.152 +- 0.009.
+      - pg_step.decide keeps pi_0 ("the rung needs a cross-play match"), so
+        stage C's gate reads "neither". As registered (kill criteria), the
+        chain would stop at P and the GPU would idle until the user returns.
+    - **The design's rule for this case:** the checks table says "Heavy-tailed
+      ratios (a rare action raised): that rung is read by a cross-play
+      match", and §3 "Range" sizes that match at 10,000 games against pi_k.
+      The code had implemented the case as "keep pi_k", and the gate as
+      "neither". The design rule is now built and applied to every round.
+      The user is away; the decision is the lead's, under the standing
+      delegation of 2026-10-30.
+    - **The match:**
+      - The chosen rung's network theta_k + s d (pg_round
+        `--chosen-network`; round 1: s 0.04015 along heads_only) plays pi_k
+        at temperature 1, both at 64 memory slots, with no end_turn offset.
+        This is stage 1's decode, the one ΔĴ reads.
+      - XP_GAMES 10,000 games, no replacements, seeds 70M + 100k k.
+      - It is read as the link is read: a win 1, a loss -1, a cap 0, and a
+        wall-clock kill left out. Its mean z is in E[z], ΔĴ's unit, since
+        pi_k against itself reads 0.
+      - A game whose label A is not the rung's network (by SHA-256), not at
+        64 slots, or not raw:t1 on both sides is refused. Any refusal, or
+        fewer than 9,000 games read, fails the part and the chain stops.
+    - **Decision rules, sealed here:**
+      - Adoption is decide's rule with the match in half B's place: the rung
+        is adopted unless the match reads below -2 SE; otherwise pi_k stays
+        and the radius halves. round.json keeps the importance decision
+        under "importance".
+      - Stage C's gate, for round 1 only: the rounds go on at N 20,000
+        (the gate's "resolved") iff the match's lower 2-SE bound is above 0.
+        Otherwise the rounds wait for the user, as "neither" did. The final
+        match still plays round 1's rung if the rung was adopted (the
+        chain's rule for a rounds wait).
+      - A later round's match changes that round's decision only. The
+        pause and transfer stops read its mean z as that round's confirmed
+        reading.
+    - **Forecast** (from half A, which selected the rung, so biased
+      upward): +0.15. Half B's first order reads +0.152 +- 0.009, and its
+      exact reading +0.103 +- 0.036. The match's SE is about 0.01.
+    - **Order:** P runs first, as for "resolved". The stage C runner's code
+      (5a045b33) predates the rule, so the chain reads stage C's verdict
+      again with the new code before P (`refresh_verdict`; the runner's
+      verdict is kept as verdict_stage_c.json). Then round 1's step, its
+      match (about 3 h at 3,450 games an hour), and the rounds.
+    - The tests: the case and the reading (tests/test_pg_cross_play.py);
+      the rounds' flow, both stops of round 1's match, and a short match
+      (tests/test_rounds_local.py); the verdict and its second reading;
+      the chain; pg_round's rung network on the miniature stage 1.
 
 ## Expected walls [U]
 
@@ -303,7 +361,9 @@ be pre-registered at the end.
 - The replay identity, the floor's cap or the path check failing (pg_pass
   exits 3, 4, 5): the part fails and the chain stops.
 - Stage C's gate "neither" or unread: no rounds (`rounds_local` refuses
-  before round 1); the user decides.
+  before round 1); the user decides. The one exception, departure 23: a
+  "neither" whose ladder left its rung to a cross-play match is decided by
+  that match.
 - The rounds' pause or transfer stop (§6): the chain stops for the user.
 
 ## Decisions per outcome
