@@ -27,11 +27,18 @@ worktree P and the rounds should run (pinned at a tested commit):
    (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
    on the last round that adopted a candidate, after checking that
    candidate's SHA-256 against its round.json. No adopted round, no match.
+5. With --tail-out, once the final match returns 0, it plays the tail match
+   (docs/tail_local_prereg_20261102.md): the same candidate against the
+   reference, both sampling at temperature 1 (match_local --t1).
+6. With --continue-rounds and --continue-end-by, once the rounds returned 0
+   and the final match (and the tail, if asked) returned 0, the rounds go
+   on: rounds_local again, resumed, to the later deadline. With
+   --continue-final-out, a round adopted after the final match's gets its
+   own final match there.
 
 Every decision is logged to --log (default: chain.log beside --rounds-out).
-Exit: 0 when the rounds returned 0 and the final match (if asked) returned
-0, 1 when the chain refused or a step failed (that step's code is in the
-log).
+Exit: 0 when the rounds returned 0 and every match asked for returned 0, 1
+when the chain refused or a step failed (that step's code is in the log).
 """
 from __future__ import annotations
 
@@ -42,6 +49,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
@@ -57,6 +65,11 @@ POLL_S = 300.0                           # seconds between looks at stage C
 EXIT_WAIT_LOOKS = 12                     # looks (an hour) for the runner to exit after its ALL_DONE
 FINAL_GAMES = 12800                      # the final match's decisive games (its prereg)
 FINAL_SEED_BASE = 900000                 # the final match's seeds (its prereg)
+TAIL_GAMES = 12800                       # the tail match's decisive games (its prereg)
+TAIL_SEED_BASE = 950000                  # the tail match's seeds (its prereg): no record names 950000-964299
+END_BY_FORMAT = "%Y-%m-%d %H:%M"         # rounds_local's --end-by
+MATCHES = {"FINAL":"the final match", "TAIL": "the tail match (raw:t1)",
+           "CONTINUE_FINAL": "the continuation's final match"}
 ROUNDS_ENDED = (0, 3)                    # rounds_local's codes after which the final match plays
 
 
@@ -190,47 +203,98 @@ class Chain:
                       f"{last_line(a.p_out / 'runner.log')}); the rounds do not start")
             return 1
         self.note("CHAIN_ROUNDS: P passed and the link holds; the rounds start")
-        heads = ["--heads-only-pass"] if a.heads_only_pass else []
-        heads += ["--end-by", a.rounds_end_by] if a.rounds_end_by else []
-        heads += ["--n-train", str(a.rounds_n_train)] if a.rounds_n_train else []
-        rc = self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
-                       "--rounds", str(a.rounds), "--p-out", str(a.p_out), *heads], a.rounds_out / "console.log",
-                      a.hip_visible_devices)
+        rc = self.rounds(a.rounds, a.rounds_end_by)
         self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
         if a.final_out is None or rc not in ROUNDS_ENDED:
             return 0 if rc == 0 else 1
-        final = self.final_match()
-        return 0 if rc == 0 and final == 0 else 1
+        final = self.final_match("FINAL", a.final_out)
+        if final[0] == 0 and a.tail_out is not None:
+            final = (self.tail_match(), final[1])
+        if final[0] != 0 or rc != 0 or a.continue_end_by is None:
+            return 0 if rc == 0 and final[0] == 0 else 1
+        return self.continuation(final[1])
 
-    def final_match(self) -> int:
-        """The window's final match on the last adopted round's policy; its
-        code, or 1 when it does not start."""
+    def rounds(self, n: int, end_by: Optional[str]) -> int:
+        """rounds_local to round `n` by `end_by`, resumed from its markers."""
         a = self.a
-        last = last_adopted(a.rounds_out)
+        heads = ["--heads-only-pass"] if a.heads_only_pass else []
+        heads += ["--end-by", end_by] if end_by else []
+        heads += ["--n-train", str(a.rounds_n_train)] if a.rounds_n_train else []
+        return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
+                         "--rounds", str(n), "--p-out", str(a.p_out), *heads], a.rounds_out / "console.log",
+                        a.hip_visible_devices)
+
+    def candidate(self, what: str) -> Optional[Tuple[int, Path, str]]:
+        """(k, its pi.pt, its SHA-256) for the last round that adopted a
+        candidate, once the file's SHA-256 is its round.json's; None, noted
+        as CHAIN_NO_<what>, otherwise."""
+        last = last_adopted(self.a.rounds_out)
         if last is None:
-            self.note("CHAIN_NO_FINAL: no round adopted a candidate, so nothing is measured (the final match's prereg)")
-            return 1
+            self.note(f"CHAIN_NO_{what}: no round adopted a candidate, so nothing is measured (the final match's "
+                      f"prereg)")
+            return None
         k, cand = last
-        pi = a.rounds_out / f"round_{k:02d}" / "pi.pt"
+        pi = self.a.rounds_out / f"round_{k:02d}" / "pi.pt"
         try:
             digest = self.sha(pi)
         except OSError as e:
-            self.note(f"CHAIN_NO_FINAL: round {k}'s candidate {pi} cannot be read: {e}")
-            return 1
+            self.note(f"CHAIN_NO_{what}: round {k}'s candidate {pi} cannot be read: {e}")
+            return None
         if digest != cand.get("sha256"):
-            self.note(f"CHAIN_NO_FINAL: {pi}'s SHA-256 is {digest}, not round {k}'s {cand.get('sha256')}")
-            return 1
-        self.note(f"CHAIN_FINAL: the final match on round {k}'s candidate {pi} ({digest[:12]})")
-        rc = self.run([a.gpu_python, "-u", "scripts/match_local.py", "--label", f"final_round{k}", "--checkpoint",
-                       str(pi), "--out", str(a.final_out), "--games", str(a.final_games), "--seed-base",
-                       str(a.final_seed_base), "--tools-python", a.tools_python, "--keep-awake"],
-                      a.final_out / "console.log", a.hip_visible_devices)
-        self.note(f"CHAIN_FINAL_DONE: match_local returned {rc} ({a.final_out})")
+            self.note(f"CHAIN_NO_{what}: {pi}'s SHA-256 is {digest}, not round {k}'s {cand.get('sha256')}")
+            return None
+        return k, pi, digest
+
+    def match(self, what: str, k: int, pi: Path, digest: str, out: Path, label: str, extra: List[str]) -> int:
+        """match_local on round k's candidate into `out`; its code."""
+        a = self.a
+        self.note(f"CHAIN_{what}: {MATCHES[what]} on round {k}'s candidate {pi} ({digest[:12]})")
+        rc = self.run([a.gpu_python, "-u", "scripts/match_local.py", "--label", label, "--checkpoint", str(pi),
+                       "--out", str(out), *extra, "--tools-python", a.tools_python, "--keep-awake"],
+                      out / "console.log", a.hip_visible_devices)
+        self.note(f"CHAIN_{what}_DONE: match_local returned {rc} ({out})")
         return rc
 
+    def final_match(self, what: str, out: Path) -> Tuple[int, Optional[int]]:
+        """The standard match on the last adopted round's policy: (its code,
+        or 1 when it does not start; that round, None without one)."""
+        cand = self.candidate(what)
+        if cand is None:
+            return 1, None
+        k, pi, digest = cand
+        return self.match(what, k, pi, digest, out, f"final_round{k}",
+                          ["--games", str(self.a.final_games), "--seed-base", str(self.a.final_seed_base)]), k
 
-def main() -> int:
+    def tail_match(self) -> int:
+        """The tail match (raw:t1) on the last adopted round's policy; its
+        code, or 1 when it does not start."""
+        cand = self.candidate("TAIL")
+        if cand is None:
+            return 1
+        k, pi, digest = cand
+        return self.match("TAIL", k, pi, digest, self.a.tail_out, f"final_round{k}t1",
+                          ["--t1", "--games", str(self.a.tail_games), "--seed-base", str(self.a.tail_seed_base)])
+
+    def continuation(self, measured: int) -> int:
+        """The rounds resumed to --continue-rounds by --continue-end-by, then
+        the standard match on a round adopted after round `measured`."""
+        a = self.a
+        self.note(f"CHAIN_CONTINUE: the rounds go on to round {a.continue_rounds}, ending by {a.continue_end_by}")
+        rc = self.rounds(a.continue_rounds, a.continue_end_by)
+        self.note(f"CHAIN_CONTINUE_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
+                  f"{last_line(a.rounds_out / 'runner.log')})")
+        if a.continue_final_out is None or rc not in ROUNDS_ENDED:
+            return 0 if rc == 0 else 1
+        last = last_adopted(a.rounds_out)
+        if last is None or last[0] <= measured:
+            self.note(f"CHAIN_NO_CONTINUE_FINAL: no round after round {measured} adopted a candidate")
+            return 0 if rc == 0 else 1
+        final, _k = self.final_match("CONTINUE_FINAL", a.continue_final_out)
+        return 0 if rc == 0 and final == 0 else 1
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stage-c", type=Path, required=True)
     ap.add_argument("--stage1", type=Path, required=True)
@@ -255,8 +319,44 @@ def main() -> int:
                     help="play the window's final match into this directory once the rounds end")
     ap.add_argument("--final-games", type=int, default=FINAL_GAMES)
     ap.add_argument("--final-seed-base", type=int, default=FINAL_SEED_BASE)
+    ap.add_argument("--tail-out", type=Path, default=None,
+                    help="play the tail match (raw:t1) into this directory once the final match returns 0")
+    ap.add_argument("--tail-games", type=int, default=TAIL_GAMES)
+    ap.add_argument("--tail-seed-base", type=int, default=TAIL_SEED_BASE)
+    ap.add_argument("--continue-rounds", type=int, default=None,
+                    help="after the final match (and the tail), resume the rounds to this round")
+    ap.add_argument("--continue-end-by", default=None, metavar="'YYYY-MM-DD HH:MM'",
+                    help="the continued rounds' --end-by")
+    ap.add_argument("--continue-final-out", type=Path, default=None,
+                    help="the standard match on a round the continuation adopts, into this directory")
     ap.add_argument("--log", type=Path, default=None)
-    return Chain(ap.parse_args())()
+    args = ap.parse_args(argv)
+    if (args.continue_rounds is None) != (args.continue_end_by is None):
+        ap.error("--continue-rounds and --continue-end-by go together")
+    for flag, when in (("--rounds-end-by", args.rounds_end_by), ("--continue-end-by", args.continue_end_by)):
+        if when is not None:
+            try:
+                datetime.strptime(when, END_BY_FORMAT)
+            except ValueError:
+                ap.error(f"{flag} {when!r} is not 'YYYY-MM-DD HH:MM'")
+    if args.continue_end_by is not None and args.rounds_end_by is not None and \
+            datetime.strptime(args.continue_end_by, END_BY_FORMAT) <= datetime.strptime(args.rounds_end_by,
+                                                                                       END_BY_FORMAT):
+        ap.error("--continue-end-by must come after --rounds-end-by")
+    if args.continue_rounds is not None and (args.final_out is None or args.continue_rounds <= args.rounds):
+        ap.error("the continuation follows the final match (--final-out) and goes past --rounds")
+    if (args.tail_out is not None or args.continue_final_out is not None) and args.final_out is None:
+        ap.error("--tail-out and --continue-final-out follow the final match (--final-out)")
+    if args.continue_final_out is not None and args.continue_rounds is None:
+        ap.error("--continue-final-out needs the continuation (--continue-rounds)")
+    for out in ("tail_out", "continue_final_out"):
+        if getattr(args, out) is not None and getattr(args, out) == args.final_out:
+            ap.error(f"--{out.replace('_', '-')} must differ from --final-out (match_local refuses a changed match)")
+    return args
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    return Chain(parse_args(argv))()
 
 
 if __name__ == "__main__":

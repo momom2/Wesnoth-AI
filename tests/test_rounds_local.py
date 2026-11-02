@@ -372,6 +372,27 @@ def test_end_by_starts_a_round_only_when_the_longest_round_fits(tmp_path, monkey
         assert ("past --end-by" in log) is (last < 6), end_by
 
 
+def test_a_resume_keeps_the_finished_rounds_walls_and_goes_on_to_a_later_end_by(tmp_path, monkeypatch):
+    """The continuation (docs/tail_local_prereg_20261102.md): rounds 1-4 end
+    by 13:00 as above (round 4 at 12:00); after a 10 h pause they resume
+    with --end-by Nov 3 08:00, and rounds 5 (22:00-02:00) and 6 (02:00-06:00)
+    fit, round 7 does not. A resume that moved the finished rounds' ends to
+    22:00 would read round 2's wall as 22 h and start none."""
+    _reference(monkeypatch)
+    tools = FakeTools(claim_elo=-380.0)
+    clock = Clock(tools, "2026-11-02 00:00", 4.0)
+    rc, out = _run(tmp_path, clock, rounds=6, end_by="2026-11-02 13:00", now=clock.now)
+    assert rc == 0 and max(int(n.split()[1]) for n in tools.names()) == 4
+    before = json.loads((out / "times.json").read_text(encoding="utf-8"))
+    clock.t += 10 * 3600
+    rc, out = _run(tmp_path, clock, rounds=8, end_by="2026-11-03 08:00", now=clock.now)
+    assert rc == 0 and max(int(n.split()[1]) for n in tools.names()) == 6
+    assert tools.names().count("round 2 step") == 1                 # the finished rounds are not played again
+    after = json.loads((out / "times.json").read_text(encoding="utf-8"))
+    assert {k: after[k] for k in before} == before
+    assert "past --end-by 2026-11-03 08:00" in (out / "runner.log").read_text(encoding="utf-8")
+
+
 def test_a_rung_left_to_a_cross_play_match_is_read_by_one_and_the_rounds_go_on(tmp_path, monkeypatch):
     """Stage C's "neither" for a failed weight check: round 1 reads its rung
     by a match against pi_0, adopts it, and the rounds go on; round 2's rung,

@@ -18,6 +18,10 @@ scripts/parity3_baselines_box.sh, scripts/unit_vocab_retrain_box.sh):
   the weights and the decode together.
 - Both sides raw players at argmax: --mcts-sims 0 --raw-temperature-a 0
   --raw-temperature-b 0, the procedure raw:t0+eo-1.5.
+- With --t1, both sides sample at temperature 1 with no end_turn offset,
+  the decode the rounds train at (scripts/selfplay_t1_local.py's
+  player_flags): the procedure raw:t1, the reference relabelled <label>t1
+  with its memory kept (docs/tail_local_prereg_20261102.md).
 - N decisive games (800) from --seed-base. A capped game of slot i is
   replaced at seed + i + k * 1,000,000, up to --max-extra-games (1,500, the
   box's 800-game matches; they capped at most 7 of 807 games). A match short
@@ -89,6 +93,8 @@ GAMES_PER_H = 3450.0
 PURE = "PURE (decisive only, primary)"
 # The procedure both sides play (CLAUDE.md, "Eval procedure").
 DECODE = ["--mcts-sims", "0", "--raw-temperature-a", "0", "--raw-temperature-b", "0"]
+# --t1: both sides sample, as the rounds' self-play does (raw:t1).
+DECODE_T1 = ["--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "1"]
 POOL = ["--persistent-workers", "--shared-inference", "--no-infer-compile", "--device", "cuda", "--infer-fp16",
         "--inference-pipelined", "--min-free-mb", str(MIN_FREE_MB), "--inference-timeline-s", "30"]
 
@@ -117,6 +123,17 @@ def parse_reference(flags: List[str]) -> Reference:
     memory = int(d["--memory-b"]) if "--memory-b" in d else None
     return Reference(d["--label-b"], d["--spec-b"], memory, float(d.get("--raw-end-turn-offset-b", 0.0)),
                      list(flags))
+
+
+def sampled(ref: Reference) -> Reference:
+    """The reference as --t1 plays it: relabelled <label>t1, its end_turn
+    offset dropped, its checkpoint and memory kept."""
+    label, flags = f"{ref.label}t1", []
+    for k, v in zip(ref.flags[0::2], ref.flags[1::2]):
+        if k == "--raw-end-turn-offset-b":
+            continue
+        flags += [k, label if k == "--label-b" else v]
+    return Reference(label, ref.spec, ref.memory, 0.0, flags)
 
 
 @dataclass
@@ -190,11 +207,11 @@ def memory_slots_of(spec: Path, python: str) -> int:
 
 
 def match_argv(cand: Candidate, ref: Reference, games_dir: Path, games: int, seed_base: int, max_extra: int,
-               jobs: int, worker_games: int, budget_min: int) -> List[str]:
+               jobs: int, worker_games: int, budget_min: int, decode: List[str] = DECODE) -> List[str]:
     """run_elo_batch's command line for one attempt."""
     return (["tools/run_elo_batch.py"] + cand.flags() + ref.flags
             + ["--outdir", str(games_dir), "--games", str(games), "--max-extra-games", str(max_extra),
-               "--seed-base", str(seed_base)] + DECODE + POOL
+               "--seed-base", str(seed_base)] + decode + POOL
             + ["--jobs", str(jobs), "--worker-games", str(worker_games), "--time-budget-min", str(budget_min)])
 
 
@@ -287,6 +304,7 @@ class Match:
         self.a, self.cand, self.ref = args, cand, ref
         self.out: Path = args.out
         self.games_dir = self.out / "games"
+        self.decode = DECODE_T1 if getattr(args, "t1", False) else DECODE
         self.gpu_yield = (GpuYield(threshold=args.yield_gpu, quiet_minutes=args.yield_quiet_min)
                           if getattr(args, "yield_gpu", 0) > 0 else None)
 
@@ -299,7 +317,8 @@ class Match:
         Raises DisplayReset when a reset is logged while it runs."""
         est = estimate_min(self.a.games, self.a.games_per_h)
         argv = match_argv(self.cand, self.ref, self.games_dir, self.a.games, self.a.seed_base,
-                          self.a.max_extra_games, self.a.jobs, self.a.worker_games, int(3 * est / 2 + 10))
+                          self.a.max_extra_games, self.a.jobs, self.a.worker_games, int(3 * est / 2 + 10),
+                          self.decode)
         t0 = time.time()
 
         def resets() -> Optional[str]:
@@ -346,7 +365,7 @@ class Match:
                   "procedures": procedures(self.games_dir), "seed_base": self.a.seed_base,
                   "memory_a": self.cand.plays, "memory_b": self.ref.memory,
                   "end_turn_offset_a": self.cand.end_turn_offset, "end_turn_offset_b": self.ref.end_turn_offset,
-                  "decode_differs": self.cand.diffs, "infer_fp16": True,
+                  "decode_differs": self.cand.diffs, "decode": self.decode, "infer_fp16": True,
                   "checkpoint": self.cand.spec, "checkpoint_sha256": self.cand.sha256,
                   "fit": None, "time": time.strftime("%Y-%m-%d %H:%M:%S")}
         if t.decisive:
@@ -388,6 +407,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                     help="the candidate's end_turn logit offset (default: the reference's)")
     ap.add_argument("--allow-decode-change", action="store_true",
                     help="measure a candidate whose decode or memory differs from the reference's")
+    ap.add_argument("--t1", action="store_true",
+                    help="both sides sample at temperature 1 with no end_turn offset (raw:t1), the "
+                         "reference relabelled <label>t1")
     ap.add_argument("--jobs", type=int, default=JOBS, help="games in flight (the pilots: 96 kept the GPU busy)")
     ap.add_argument("--worker-games", type=int, default=WORKER_GAMES)
     ap.add_argument("--games-per-h", type=float, default=GAMES_PER_H,
@@ -430,6 +452,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.keep_awake:
         keep_awake()
     ref = parse_reference(reference_flags("b", args.tools_python))
+    if args.t1:
+        ref = sampled(ref)
     if args.label == ref.label:
         raise SystemExit(f"--label {args.label} is the reference's label; give the candidate its own")
     spec = args.checkpoint.resolve()
@@ -439,7 +463,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     check_config(args.out, {"label_a": cand.label, "checkpoint_sha256_a": cand.sha256,
                             "memory_a": memory, "end_turn_offset_a": eo, "reference": ref.flags,
                             "games": args.games, "seed_base": args.seed_base,
-                            "max_extra_games": args.max_extra_games, "decode": DECODE})
+                            "max_extra_games": args.max_extra_games,
+                            "decode": DECODE_T1 if args.t1 else DECODE})
     log(args.out, f"match local: {cand.label} ({spec}) against {ref.label}, {args.games} decisive games from "
                   f"seed {args.seed_base}, jobs {args.jobs}x{args.worker_games}, python {args.python}, "
                   f"tools {args.tools_python}" + (f"; decode differs: {diffs}" if diffs else ""))
