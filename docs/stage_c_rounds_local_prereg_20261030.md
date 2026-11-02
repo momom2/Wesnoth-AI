@@ -651,3 +651,63 @@ Design §6, unchanged:
       matches the gradient forecast to 4 digits. Yet the change measured
       along the pass's own direction d misses the first order predicted
       along d (0.0248 on seat A), and the trunk carries 0.0225 of that.
+
+31. **The rounds start without P** (`feature/chain-skip-p` 687cd3d9,
+    merged into `feature/cross-play-rung` at 6f86c363; registered
+    2026-11-02 11:00, before round 2).
+    - **Why:** P's played check cannot pass at the plant's size, so as
+      registered no round past round 1 could ever start (the 10:13
+      review, H2). `tools/pg_planted_play.py` `planted()` compares θ′'s
+      and π₀'s attack counts per side-game across different games
+      (unpaired). Those counts have an SD of about 25 (400 stage-1
+      games), so a seat's SE at 2,500 against 2,500 is about 0.71 and the
+      rule needs a rise above 1.42. The forecast rise is the plant's
+      teacher-forced change, about 0.026 (z about 0.04). The plant's δ was
+      sized for the teacher-forced readout (paired, 10 SE), never for a
+      played check.
+    - **What changes:** `chain_local --skip-p` runs no P (neither the
+      planted match nor the link) and passes `--no-p-gate` to rounds_local
+      in place of `--p-out`. The chain is re-armed with it once round 1 has
+      ended.
+    - **What stands in for P:**
+      - round 1's cross-play match, which reads the evaluator's forecast
+        of the step the rounds take in play: stage C's ladder reads the
+        chosen rung (heads_only, ×2, s 0.0401) at ΔĴ +0.153 ± 0.009 on
+        half A by first order, and +0.152 ± 0.009 on half B;
+      - the plant's own decomposition. The planted pass carries δu at
+        its expected size, and the miss is in the trunk's part of the
+        full-network direction (seat A: the matrices carry 0.0216 of the
+        first order 0.0248, the heads 0.0023). The heads-only rounds move
+        neither the trunk nor the memory.
+    - **Kill:** if round 1's match reads below its forecast by more than 3
+      combined SE, the rounds stop after round 1 for diagnosis (STOP in
+      `rounds_local/`), whatever departure 23's adoption rule says.
+    - The link match (own2 at T 1/1.02 against 1/0.98) is not played. The
+      cross-play match tests the same link, on the step itself.
+    - The test:
+      tests/test_chain_local.py::test_skip_p_runs_no_p_and_waives_the_rounds_p_gate.
+
+32. **The heads-only arm's own direction shares θ_k's trunk**
+    (`fix/shares-trunk-zeros` cbae242f, merged at 8eb24002; registered
+    2026-11-02 11:00, before round 2's step).
+    - **Why:** `pg_step.heads_only` keeps every parameter name, with zeros
+      off the heads, and `EvalContext.shares_trunk` required every name to
+      be a head map. So departure 28's one-trunk walk never engaged: every
+      rung ran full forwards (the 10:13 review, M1). Its saving was
+      unmeasured and its fp16 path never ran on the GPU.
+    - **What changes:** a name off the heads whose tensor is all zeros
+      counts as unmoved. The test builds the direction through
+      `pg_step.heads_only` and reads it on one trunk, bit for bit the head
+      names' reading.
+    - **Deployed only after a GPU check.** Before the chain is re-armed,
+      `shared_trunk_gpu_check.py` (wesnoth_runs/tools) reads stage C's
+      heads-only direction at θ_k and two rungs on one trunk and alone,
+      on 24 held-out games, under the rounds' config (fp16,
+      `AMD_SERIALIZE_KERNEL=3`). It passes when the differences are at
+      most 1e-3 in log probability and class mass, with one trunk read.
+      On a pass the chain runs at 8eb24002; otherwise at 6f86c363, without
+      the fix. The CPU smoke run of 1 game: equal bit for bit, one read,
+      18.7 s against 46.1 s for the three alone.
+    - **The fallback** written in departure 28 (re-arm at 118d7a23) is
+      void (the 10:13 review, M2): 118d7a23 knows neither the tail's
+      flags nor the resume fix. The fallback is now 6f86c363.
