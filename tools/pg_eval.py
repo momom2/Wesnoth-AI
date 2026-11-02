@@ -238,8 +238,11 @@ class EvalContext:
         """Whether theta_k + s d differs from theta_k in its heads' final
         linear maps alone (pg_step.HEAD_MAPS, what the heads-only arms move),
         which read nothing but the trunk's rows: then every step shares
-        theta_k's trunk and memory, and a walk runs the trunk once."""
-        return bool(direction) and all(head_of(n) is not None for n in direction)
+        theta_k's trunk and memory, and a walk runs the trunk once. A name
+        off the heads whose tensor is all zeros moves nothing:
+        pg_step.heads_only keeps every name, zeros off the heads."""
+        return bool(direction) and all(head_of(n) is not None or not bool(torch.any(t))
+                                       for n, t in direction.items())
 
     def _walk(self, networks: Mapping[float, tuple], sides: Sequence[GameSide], on_step,
               shared: bool = False) -> None:
