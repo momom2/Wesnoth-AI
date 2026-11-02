@@ -235,10 +235,12 @@ class Rounds(Steps):
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
     def timed(self, k: int, event: str) -> None:
-        """Records round k's start (its first, kept across restarts) or end."""
+        """Records round k's start or end, the first of each kept across
+        restarts: a resume walks the finished rounds again, and must not
+        move their ends (their walls bound --end-by)."""
         times = self._times()
         entry = times.setdefault(str(k), {})
-        if event == "end" or "start" not in entry:
+        if event not in entry:
             entry[event] = self.now()
         (self.out / "times.json").write_text(json.dumps(times, indent=1), encoding="utf-8")
 
