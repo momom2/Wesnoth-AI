@@ -22,6 +22,9 @@ worktree P and the rounds should run (pinned at a tested commit):
    rule, prereg departure 23), then runs scripts/p_local.py, then
    scripts/rounds_local.py with --p-out, but only when P returns 0 (P
    passes and the link holds). A step that fails is never run again.
+   With --skip-p, P is not run and the rounds run with --no-p-gate
+   (prereg departure 31: P's played check cannot resolve at the plant's
+   size).
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them), it plays the window's final match
    (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
@@ -188,21 +191,26 @@ class Chain:
 
     def __call__(self) -> int:
         a = self.a
-        self.note(f"CHAIN_WAIT: stage C {a.stage_c}; then P ({a.p_out}, e {a.e}) and {a.rounds} rounds "
-                  f"({a.rounds_out}) at {a.expect_head}")
+        p = "no P (--skip-p)" if a.skip_p else f"P ({a.p_out}, e {a.e})"
+        self.note(f"CHAIN_WAIT: stage C {a.stage_c}; then {p} and {a.rounds} rounds ({a.rounds_out}) at "
+                  f"{a.expect_head}")
         why = self.wait_for_stage_c() or self.preflight()
         if why:
             self.note(f"CHAIN_REFUSED: {why}")
             return 1
         self.note(f"CHAIN_VERDICT: stage C's verdict read again at {a.expect_head}: {refresh_verdict(a.stage_c)}")
-        self.note("CHAIN_P: stage C finished; P starts")
-        rc = self.run([a.gpu_python, "-u", "scripts/p_local.py", *self.common(), "--out", str(a.p_out),
-                       "--e", repr(a.e)], a.p_out / "console.log", a.hip_visible_devices)
-        if rc != 0:
-            self.note(f"CHAIN_STOPPED: P returned {rc} ({a.p_out / 'runner.log'}: "
-                      f"{last_line(a.p_out / 'runner.log')}); the rounds do not start")
-            return 1
-        self.note("CHAIN_ROUNDS: P passed and the link holds; the rounds start")
+        if a.skip_p:
+            self.note("CHAIN_ROUNDS: stage C finished; P is skipped (--skip-p, prereg departure 31): the rounds "
+                      "start with --no-p-gate")
+        else:
+            self.note("CHAIN_P: stage C finished; P starts")
+            rc = self.run([a.gpu_python, "-u", "scripts/p_local.py", *self.common(), "--out", str(a.p_out),
+                           "--e", repr(a.e)], a.p_out / "console.log", a.hip_visible_devices)
+            if rc != 0:
+                self.note(f"CHAIN_STOPPED: P returned {rc} ({a.p_out / 'runner.log'}: "
+                          f"{last_line(a.p_out / 'runner.log')}); the rounds do not start")
+                return 1
+            self.note("CHAIN_ROUNDS: P passed and the link holds; the rounds start")
         rc = self.rounds(a.rounds, a.rounds_end_by)
         self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
@@ -221,9 +229,9 @@ class Chain:
         heads = ["--heads-only-pass"] if a.heads_only_pass else []
         heads += ["--end-by", end_by] if end_by else []
         heads += ["--n-train", str(a.rounds_n_train)] if a.rounds_n_train else []
+        p = ["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
         return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
-                         "--rounds", str(n), "--p-out", str(a.p_out), *heads], a.rounds_out / "console.log",
-                        a.hip_visible_devices)
+                         "--rounds", str(n), *p, *heads], a.rounds_out / "console.log", a.hip_visible_devices)
 
     def candidate(self, what: str) -> Optional[Tuple[int, Path, str]]:
         """(k, its pi.pt, its SHA-256) for the last round that adopted a
@@ -308,6 +316,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument("--gpu-python", required=True, help="the GPU tools' interpreter (the ROCm venv)")
     ap.add_argument("--tools-python", default=sys.executable, help="the CPU tools' (default: this interpreter)")
     ap.add_argument("--hip-visible-devices", default="1", help="the GPU's index (1 here: device 0 is the iGPU)")
+    ap.add_argument("--skip-p", action="store_true",
+                    help="run no P: the rounds start with rounds_local --no-p-gate (prereg departure 31)")
     ap.add_argument("--heads-only-pass", action="store_true",
                     help="passed to rounds_local: each round's pass takes the head maps' gradient alone when "
                          "stage C's arm reads no other")

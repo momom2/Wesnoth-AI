@@ -21,7 +21,7 @@ def _args(tmp_path, **kw):
                 heads_only_pass=False, rounds_end_by=None, rounds_n_train=None,
                 final_games=cl.FINAL_GAMES, final_seed_base=cl.FINAL_SEED_BASE, tail_out=None,
                 tail_games=cl.TAIL_GAMES, tail_seed_base=cl.TAIL_SEED_BASE, continue_rounds=None,
-                continue_end_by=None, continue_final_out=None)
+                continue_end_by=None, continue_final_out=None, skip_p=False)
     base.update(kw)
     return Namespace(**base)
 
@@ -120,6 +120,20 @@ def test_a_p_that_does_not_pass_starts_no_round(tmp_path):
     f = Fakes(args.stage_c, rc={"scripts/p_local.py": 3})
     assert f.chain(args)() == 1 and [s for s, _, _ in f.ran] == ["scripts/p_local.py"]
     assert "CHAIN_STOPPED: P returned 3" in _log(args)
+
+
+def test_skip_p_runs_no_p_and_waives_the_rounds_p_gate(tmp_path):
+    args = _args(tmp_path, skip_p=True, final_out=tmp_path / "final")
+    (args.stage_c / "ALL_DONE").write_text("done\n", encoding="utf-8")
+    f = Fakes(args.stage_c, rc={"scripts/p_local.py": 3}, rounds_writes=_rounds([1]))
+    assert f.chain(args)() == 0
+    assert [s for s, _, _ in f.ran] == ["scripts/rounds_local.py", "scripts/match_local.py"]
+    rounds = f.ran[0][1]
+    assert "--no-p-gate" in rounds and "--p-out" not in rounds
+    log = _log(args)
+    assert "no P (--skip-p)" in log and "CHAIN_P:" not in log and "P is skipped" in log
+    assert log.index("CHAIN_VERDICT") < log.index("CHAIN_ROUNDS")
+    assert cl.parse_args(ARGV + ["--skip-p"]).skip_p and not cl.parse_args(ARGV).skip_p
 
 
 def test_a_runner_alive_long_after_all_done_refuses(tmp_path):
