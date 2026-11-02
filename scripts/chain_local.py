@@ -39,6 +39,13 @@ worktree P and the rounds should run (pinned at a tested commit):
    --continue-final-out, a round adopted after the final match's gets its
    own final match there.
 
+7. With --after-stop K0 (prereg departure 33), the rounds go on past round
+   K0's design stop instead: its STOP (which must name round K0) is moved
+   aside to STOP_roundK0, and rounds_local resumes with --rebase-after K0,
+   --rounds-arm as its --arm and --rounds-pass-window as its --pass-window.
+   No P, no tail and no continuation: with --final-out, the standard match
+   on a round adopted after K0, or none.
+
 Every decision is logged to --log (default: chain.log beside --rounds-out).
 Exit: 0 when the rounds returned 0 and every match asked for returned 0, 1
 when the chain refused or a step failed (that step's code is in the log).
@@ -211,6 +218,8 @@ class Chain:
                           f"{last_line(a.p_out / 'runner.log')}); the rounds do not start")
                 return 1
             self.note("CHAIN_ROUNDS: P passed and the link holds; the rounds start")
+        if a.after_stop is not None:
+            return self.after_stop()
         rc = self.rounds(a.rounds, a.rounds_end_by)
         self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
                   f"{last_line(a.rounds_out / 'runner.log')})")
@@ -223,12 +232,44 @@ class Chain:
             return 0 if rc == 0 and final[0] == 0 else 1
         return self.continuation(final[1])
 
+    def after_stop(self) -> int:
+        """Item 7 of the module docstring (prereg departure 33)."""
+        a, k0 = self.a, self.a.after_stop
+        stop = a.rounds_out / "STOP"
+        why = stop.read_text(encoding="utf-8").strip() if stop.exists() else ""
+        if f"after round {k0}" not in why:
+            self.note(f"CHAIN_REFUSED: --after-stop {k0} needs round {k0}'s design stop in {stop} "
+                      f"({why or 'no STOP'})")
+            return 1
+        aside, n = a.rounds_out / f"STOP_round{k0:02d}", 1
+        while aside.exists():
+            n += 1
+            aside = a.rounds_out / f"STOP_round{k0:02d}_{n}"
+        stop.rename(aside)
+        self.note(f"CHAIN_AFTER_STOP: round {k0}'s stop moved to {aside.name} ({why}); the rounds go on to round "
+                  f"{a.rounds} by {a.rounds_end_by}, arm {a.rounds_arm or 'from stage C'}, pass window "
+                  f"{a.rounds_pass_window or 'the default'}, rebased on round {k0} (prereg departure 33)")
+        rc = self.rounds(a.rounds, a.rounds_end_by)
+        self.note(f"CHAIN_DONE: the rounds returned {rc} ({a.rounds_out / 'runner.log'}: "
+                  f"{last_line(a.rounds_out / 'runner.log')})")
+        if a.final_out is None or rc not in ROUNDS_ENDED:
+            return 0 if rc == 0 else 1
+        last = last_adopted(a.rounds_out)
+        if last is None or last[0] <= k0:
+            self.note(f"CHAIN_NO_FINAL: no round after round {k0} adopted a candidate")
+            return 0 if rc == 0 else 1
+        final, _k = self.final_match("FINAL", a.final_out)
+        return 0 if rc == 0 and final == 0 else 1
+
     def rounds(self, n: int, end_by: Optional[str]) -> int:
         """rounds_local to round `n` by `end_by`, resumed from its markers."""
         a = self.a
         heads = ["--heads-only-pass"] if a.heads_only_pass else []
         heads += ["--end-by", end_by] if end_by else []
         heads += ["--n-train", str(a.rounds_n_train)] if a.rounds_n_train else []
+        heads += ["--arm", a.rounds_arm] if getattr(a, "rounds_arm", None) else []
+        heads += ["--pass-window", str(a.rounds_pass_window)] if getattr(a, "rounds_pass_window", None) else []
+        heads += ["--rebase-after", str(a.after_stop)] if getattr(a, "after_stop", None) is not None else []
         p = ["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
         return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
                          "--rounds", str(n), *p, *heads], a.rounds_out / "console.log", a.hip_visible_devices)
@@ -339,6 +380,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                     help="the continued rounds' --end-by")
     ap.add_argument("--continue-final-out", type=Path, default=None,
                     help="the standard match on a round the continuation adopts, into this directory")
+    ap.add_argument("--after-stop", type=int, default=None, metavar="K0",
+                    help="go on past round K0's design stop (module docstring item 7, prereg departure 33)")
+    ap.add_argument("--rounds-arm", default=None, help="passed to rounds_local --arm (prereg departure 33)")
+    ap.add_argument("--rounds-pass-window", type=int, default=None,
+                    help="passed to rounds_local --pass-window (prereg departure 33)")
     ap.add_argument("--log", type=Path, default=None)
     args = ap.parse_args(argv)
     if (args.continue_rounds is None) != (args.continue_end_by is None):
@@ -359,6 +405,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         ap.error("--tail-out and --continue-final-out follow the final match (--final-out)")
     if args.continue_final_out is not None and args.continue_rounds is None:
         ap.error("--continue-final-out needs the continuation (--continue-rounds)")
+    if args.after_stop is not None:
+        if not args.skip_p:
+            ap.error("--after-stop runs no P: give --skip-p")
+        if args.tail_out is not None or args.continue_rounds is not None:
+            ap.error("--after-stop plays no tail and no continuation")
+        if args.after_stop < 1 or args.rounds <= args.after_stop:
+            ap.error(f"--after-stop {args.after_stop}: the rounds must go past it (--rounds {args.rounds})")
     for out in ("tail_out", "continue_final_out"):
         if getattr(args, out) is not None and getattr(args, out) == args.final_out:
             ap.error(f"--{out.replace('_', '-')} must differ from --final-out (match_local refuses a changed match)")

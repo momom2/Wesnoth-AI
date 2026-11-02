@@ -60,6 +60,21 @@ so far (rounds 2 on, from `times.json`) fits before it. Otherwise the
 rounds end there, done (exit 0), so the window's final match can start on
 time. A round already started is finished.
 
+**After a design stop** (prereg departure 33), the rounds can go on past
+it in the same --out, and three options shape them:
+- `--arm NAME`: the step's arm (tools/pg_round.py --arm) in place of
+  stage C's winner; the pass is heads-only only when this arm reads the
+  heads alone and --heads-only-pass is given;
+- `--pass-window N`: the pass's window (tools/pg_pass.py --window), N
+  decisions; one larger than any game-side carries the memory's gradient
+  through the whole game-side;
+- `--rebase-after K0`: the stops of rounds K0 and before were acted on and
+  are not read again, and the stops after K0 read only the rounds after
+  it: the pause sums the confirmed readings after K0, and a claim is tested
+  against round K0's claim in place of D0.
+The STOP the stop wrote is moved aside by the caller (scripts/chain_local.py
+--after-stop) before the rounds resume.
+
 A failed part stops the chain: the next round needs its policy. A failed
 part stays failed at a new start (its `rNN_<part>.failed`: delete it to run
 it again), and a done part is not run again. A STOP file in --out ends the
@@ -124,6 +139,7 @@ FLOOR_SIDES = 100
 # serves them (--heads-only-pass): wesnoth_ai/pg_step.py HEADS_ONLY_ARMS,
 # which tests/test_rounds_local.py holds equal (this file imports no torch).
 HEADS_ONLY_ARMS = ("heads_only", "probe_span")
+ARMS = ("sgd", "reduced_adamw", "muon", "heads_only", "probe_span")    # wesnoth_ai/pg_step.py ARMS, held equal too
 END_BY_MARGIN = 1.2             # --end-by: a round may run this much longer than the longest so far
 END_BY_FORMAT = "%Y-%m-%d %H:%M"
 PASS_FP16 = ["--fp16", "--packed-trunk", "--floor-chunk", "8", "--floor-sides", str(FLOOR_SIDES)]
@@ -266,8 +282,24 @@ class Rounds(Steps):
         full pass."""
         if not self.a.heads_only_pass:
             return []
+        return ["--heads-only"] if self.arm() in HEADS_ONLY_ARMS else []
+
+    def arm(self) -> Optional[str]:
+        """The step's arm: --arm, else stage C's winner."""
+        if getattr(self.a, "arm", None):
+            return self.a.arm
         stage_c = json.loads((self.sc / "stage_c.json").read_text(encoding="utf-8"))
-        return ["--heads-only"] if (stage_c.get("optimizer") or {}).get("winner") in HEADS_ONLY_ARMS else []
+        return (stage_c.get("optimizer") or {}).get("winner")
+
+    def arm_args(self) -> List[str]:
+        """pg_round's arm: --arm when given, else stage C's winner read there."""
+        if getattr(self.a, "arm", None):
+            return ["--arm", self.a.arm]
+        return ["--arm-from", str(self.sc / "stage_c.json")]
+
+    def window_args(self) -> List[str]:
+        w = getattr(self.a, "pass_window", None)
+        return ["--window", str(w)] if w else []
 
     def factory_args(self, checkpoint: str, dirs: List[str], labels: Path, cache: Path) -> List[str]:
         """The evaluator's arguments; its readings are kept in `cache`, so a
@@ -331,6 +363,7 @@ class Rounds(Steps):
             rc = self.step(f"round {k} pass", ["tools/pg_pass.py", "--checkpoint", pi, "--games", *dirs,
                                                "--labels", str(labels), "--out", str(d / "pass.pt"), "--device",
                                                "cuda", "--workers", self.workers, *PASS_FP16, *self.pass_scope(),
+                                               *self.window_args(),
                                                "--corrections", str(d / "corrections.json")], f"round_{k:02d}.log",
                                    PASS_CUT_MIN)
             self.mark(f"{tag}_pass", None if rc == 0 else
@@ -344,8 +377,7 @@ class Rounds(Steps):
             rc = self.step(f"round {k} step", ["tools/pg_round.py", "--pass", str(d / "pass.pt"), "--factory",
                                                "tools.pg_eval:network_factory",
                                                *self.factory_args(pi, dirs, labels, d / "eval_cache"), "--eps-from",
-                                               str(prev / "round.json"), "--arm-from", str(self.sc / "stage_c.json"),
-                                               *previous, "--out", str(d / "round.json"), "--candidate",
+                                               str(prev / "round.json"), *self.arm_args(), *previous, "--out", str(d / "round.json"), "--candidate",
                                                str(d / "pi.pt"), "--direction-out", str(d / "direction.pt"),
                                                "--chosen-network", str(d / "rung.pt")],
                            f"round_{k:02d}.log", STEP_CUT_MIN)
@@ -461,19 +493,26 @@ class Rounds(Steps):
         """Design §6's two stops after round k: (every stop that fired, joined,
         or None to go on; the notes to log, the claims' upper tail)."""
         why, notes = [], []
-        last = [self.confirmed(j) for j in range(max(1, k - CLAIM_EVERY + 1), k + 1)]
+        k0 = getattr(self.a, "rebase_after", None) or 0
+        if k <= k0:
+            return None, [f"round {k}'s stops were acted on: the rounds go on after round {k0} (--rebase-after, "
+                          f"prereg departure 33)"]
+        last = [self.confirmed(j) for j in range(max(1, k0 + 1, k - CLAIM_EVERY + 1), k + 1)]
         total, se = sum(e for e, _ in last), math.sqrt(sum(s * s for _, s in last))
         if not total > 2 * se:
             why.append(f"PAUSE after round {k}: the last {len(last)} confirmed readings sum to {total:.4g} "
                        f"(SE {se:.3g}), not above 0 by 2 SE (design §6)")
         if claim is not None:
-            d0 = pure(self.s1 / "d0.fit.json", "own2t1")
-            readings = [self.confirmed(j) for j in range(1, k + 1)]
+            if k0:
+                base, base_name = pure(self.rdir(k0) / "claim.fit.json", f"pi{k0}t1"), f"round {k0}'s claim"
+            else:
+                base, base_name = pure(self.s1 / "d0.fit.json", "own2t1"), "D0"
+            readings = [self.confirmed(j) for j in range(k0 + 1, k + 1)]
             forecast = ELO_PER_Z * sum(e for e, _ in readings)
-            gain = claim[0] - d0[0]
-            combined = math.sqrt(claim[1] ** 2 + d0[1] ** 2 + ELO_PER_Z ** 2 * sum(s * s for _, s in readings))
-            read = (f"claim - D0 reads {gain:+.1f} Elo against {forecast:+.1f} forecast from the confirmed "
-                    f"readings (combined SE {combined:.1f})")
+            gain = claim[0] - base[0]
+            combined = math.sqrt(claim[1] ** 2 + base[1] ** 2 + ELO_PER_Z ** 2 * sum(s * s for _, s in readings))
+            read = (f"claim - {base_name} reads {gain:+.1f} Elo against {forecast:+.1f} forecast from the "
+                    f"confirmed readings (combined SE {combined:.1f})")
             if gain - forecast < -2 * combined:
                 why.append(f"STOP after round {k}'s claim: {read}, below by more than 2 SE: gains do not "
                            f"transfer; the user picks a magnet or a pool (design §6)")
@@ -573,6 +612,12 @@ def main() -> int:
     ap.add_argument("--heads-only-pass", action="store_true",
                     help="each round's pass takes the head maps' gradient alone when stage C's arm reads no "
                          "other (HEADS_ONLY_ARMS; tools/pg_pass.py --heads-only)")
+    ap.add_argument("--arm", choices=ARMS, default=None,
+                    help="the step's arm in place of stage C's winner (module docstring, prereg departure 33)")
+    ap.add_argument("--pass-window", type=int, default=None,
+                    help="the pass's window in decisions (tools/pg_pass.py --window; prereg departure 33)")
+    ap.add_argument("--rebase-after", type=int, default=None, metavar="K0",
+                    help="the stops of rounds K0 and before were acted on (module docstring, prereg departure 33)")
     ap.add_argument("--normal-priority", action="store_true")
     ap.add_argument("--keep-awake", action="store_true")
     args = ap.parse_args()
@@ -588,9 +633,14 @@ def main() -> int:
         datetime.strptime(args.end_by, END_BY_FORMAT)               # refused now, not at round 3
     if args.n_train < 1:
         ap.error(f"--n-train {args.n_train}: a round trains on at least one game")
+    if args.pass_window is not None and args.pass_window < 1:
+        ap.error(f"--pass-window {args.pass_window}: a window holds at least one decision")
+    if args.rebase_after is not None and args.rebase_after < 1:
+        ap.error(f"--rebase-after {args.rebase_after}: name the round whose stop was acted on")
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "
                   f"rounds {args.rounds}, pi_0 {args.checkpoint}, end by {args.end_by}, "
-                  f"heads-only pass {args.heads_only_pass}")
+                  f"heads-only pass {args.heads_only_pass}, arm {args.arm or 'from stage C'}, pass window "
+                  f"{args.pass_window or 'the pass default'}, rebase after {args.rebase_after}")
     return run(Rounds(args), args.rounds)
 
 

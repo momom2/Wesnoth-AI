@@ -21,7 +21,8 @@ def _args(tmp_path, **kw):
                 heads_only_pass=False, rounds_end_by=None, rounds_n_train=None,
                 final_games=cl.FINAL_GAMES, final_seed_base=cl.FINAL_SEED_BASE, tail_out=None,
                 tail_games=cl.TAIL_GAMES, tail_seed_base=cl.TAIL_SEED_BASE, continue_rounds=None,
-                continue_end_by=None, continue_final_out=None, skip_p=False)
+                continue_end_by=None, continue_final_out=None, skip_p=False, after_stop=None, rounds_arm=None,
+                rounds_pass_window=None)
     base.update(kw)
     return Namespace(**base)
 
@@ -323,3 +324,70 @@ def test_runner_alive_reads_a_failed_or_empty_query_as_alive(monkeypatch):
         raise OSError("powershell not found")
     monkeypatch.setattr(cl.subprocess, "run", unstartable)
     assert cl.runner_alive("x.py") is True                   # not started: nothing seen to end
+
+
+def _rounds_upto(adopted, last):
+    """A fake rounds_local writing rounds 1 to `last`, a candidate for each k in `adopted`."""
+    def write(out: Path):
+        for k in range(1, last + 1):
+            d = out / f"round_{k:02d}"
+            d.mkdir(parents=True, exist_ok=True)
+            cand = {"path": str(d / "pi.pt"), "sha256": "cafe"} if k in adopted else None
+            (d / "round.json").write_text(json.dumps({"candidate": cand, "decision": {}}), encoding="utf-8")
+    return write
+
+
+def _after_stop_args(tmp_path, stop="STOP after round 3's claim: claim - D0 reads ...; gains do not transfer"):
+    args = _args(tmp_path, skip_p=True, final_out=tmp_path / "final_after_stop", after_stop=3, rounds=39,
+                 rounds_end_by="2026-11-08 06:00", rounds_arm="reduced_adamw", rounds_pass_window=10 ** 7,
+                 heads_only_pass=True)
+    (args.stage_c / "ALL_DONE").write_text("done\n", encoding="utf-8")
+    args.rounds_out.mkdir(parents=True, exist_ok=True)
+    if stop:
+        (args.rounds_out / "STOP").write_text(stop + "\n", encoding="utf-8")
+    return args
+
+
+def test_after_stop_moves_the_stop_aside_and_resumes_the_rounds_rebased(tmp_path):
+    """Prereg departure 33: past round 3's design stop, the rounds go on with
+    the trunk arm in one window, then the standard match on round 5."""
+    args = _after_stop_args(tmp_path)
+    f = Fakes(args.stage_c, rounds_writes=_rounds_upto({1, 2, 3, 5}, 5))
+    assert f.chain(args)() == 0
+    assert [s for s, _, _ in f.ran] == ["scripts/rounds_local.py", "scripts/match_local.py"]
+    r = f.ran[0][1]
+    assert r[r.index("--rebase-after") + 1] == "3" and r[r.index("--arm") + 1] == "reduced_adamw"
+    assert r[r.index("--pass-window") + 1] == str(10 ** 7) and r[r.index("--rounds") + 1] == "39"
+    assert "--no-p-gate" in r and r[r.index("--end-by") + 1] == "2026-11-08 06:00"
+    assert not (args.rounds_out / "STOP").exists()
+    assert "gains do not transfer" in (args.rounds_out / "STOP_round03").read_text(encoding="utf-8")
+    m = f.ran[1][1]
+    assert m[m.index("--label") + 1] == "final_round5" and m[m.index("--out") + 1] == str(args.final_out)
+    log = _log(args)
+    assert "CHAIN_AFTER_STOP: round 3's stop moved to STOP_round03" in log and "CHAIN_FINAL_DONE" in log
+
+
+def test_after_stop_plays_no_match_without_a_round_adopted_past_the_stop(tmp_path):
+    args = _after_stop_args(tmp_path)
+    f = Fakes(args.stage_c, rounds_writes=_rounds_upto({1, 2, 3}, 5))
+    assert f.chain(args)() == 0
+    assert [s for s, _, _ in f.ran] == ["scripts/rounds_local.py"]
+    assert "CHAIN_NO_FINAL: no round after round 3 adopted a candidate" in _log(args)
+
+
+def test_after_stop_refuses_without_that_rounds_design_stop(tmp_path):
+    for stop in (None, "STOP found before round 4's games (a display reset)"):
+        args = _after_stop_args(tmp_path / str(bool(stop)), stop=stop)
+        f = Fakes(args.stage_c, rounds_writes=_rounds_upto({1, 2, 3}, 3))
+        assert f.chain(args)() == 1 and f.ran == []
+        assert "CHAIN_REFUSED: --after-stop 3 needs round 3's design stop" in _log(args)
+
+
+def test_the_command_line_holds_after_stop_to_its_own_flow(capsys):
+    a = cl.parse_args(ARGV + ["--skip-p", "--after-stop", "3", "--rounds-arm", "reduced_adamw",
+                              "--rounds-pass-window", "10000000", "--final-out", "f"])
+    assert a.after_stop == 3 and a.rounds_arm == "reduced_adamw" and a.rounds_pass_window == 10 ** 7
+    for extra in (["--after-stop", "3"], ["--skip-p", "--after-stop", "3", "--final-out", "f", "--tail-out", "t"],
+                  ["--skip-p", "--after-stop", "9"]):
+        with pytest.raises(SystemExit):
+            cl.parse_args(ARGV + extra)

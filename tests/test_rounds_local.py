@@ -93,8 +93,9 @@ class FakeTools:
             Path(arg("--out")).write_text("pass", encoding="utf-8")
         elif name.endswith(" claim fit"):
             label = f"pi{words[1]}t1"
+            elo = self.claim_elo(int(words[1])) if callable(self.claim_elo) else self.claim_elo
             Path(arg("--save-json")).write_text(json.dumps({"tables": {"PURE (decisive only, primary)": {
-                label: {"elo": self.claim_elo, "se": 5.0}, "own2": {"elo": 0.0, "se": 0.0}}}}), encoding="utf-8")
+                label: {"elo": elo, "se": 5.0}, "own2": {"elo": 0.0, "se": 0.0}}}}), encoding="utf-8")
         return 0
 
     def resets(self, t0):
@@ -126,7 +127,7 @@ def _setup(tmp_path: Path, gate=RESOLVED, arm="reduced_adamw", ladder=None):
 
 def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds"), no_p_gate=False,
          gate=RESOLVED, finished=True, arm="reduced_adamw", heads_only_pass=False, end_by=None, now=None,
-         ladder=None, n_train=None):
+         ladder=None, n_train=None, **extra):
     s1, sc = _setup(tmp_path, gate, arm, ladder)
     if not finished:
         (sc / "ALL_DONE").unlink()
@@ -139,6 +140,8 @@ def _run(tmp_path, tools, rounds=3, monkeypatch=None, p_verdicts=("pass", "holds
         for name, verdict in zip(("p_readout.json", "link.json"), p_verdicts):
             (p_out / name).write_text(json.dumps({"verdict": verdict}), encoding="utf-8")
     args = _args(tmp_path, s1, sc, out, p_out, no_p_gate, heads_only_pass, end_by, n_train)
+    for key, value in extra.items():                  # --arm, --pass-window, --rebase-after
+        setattr(args, key, value)
     clock = {} if now is None else {"now": now}
     return rl.run(rl.Rounds(args, runner=tools, resets=tools.resets, **clock), rounds), out
 
@@ -455,3 +458,60 @@ def test_round_1s_match_decides_whether_the_rounds_go_on(tmp_path, monkeypatch):
     assert "cross_play" not in json.loads((out / "round_01" / "round.json").read_text(encoding="utf-8"))["decision"]
     again = FakeTools(xp={1}, xp_outcomes=["win"] * 20)
     assert _run(tmp_path / "short", again, gate=XP_GATE, ladder=XP_LADDER)[0] == 1 and again.names() == []
+
+
+def test_the_arms_list_is_pg_steps():
+    from wesnoth_ai.pg_step import ARMS
+    assert rl.ARMS == ARMS
+
+
+def test_arm_and_pass_window_override_stage_cs_arm_in_the_pass_and_the_step(tmp_path, monkeypatch):
+    """Prereg departure 33: a trunk arm in one window, though stage C chose
+    heads_only and the heads-only pass was asked for."""
+    _reference(monkeypatch)
+    tools = FakeTools()
+    rc, _ = _run(tmp_path / "trunk", tools, arm="heads_only", heads_only_pass=True)
+    assert rc == 0 and "--heads-only" in tools.cmd("round 2 pass") and "--window" not in tools.cmd("round 2 pass")
+    assert "--arm-from" in tools.cmd("round 2 step") and "--arm" not in tools.cmd("round 2 step")
+    tools = FakeTools()
+    s1, sc = _setup(tmp_path / "t2", arm="heads_only")
+    out = tmp_path / "t2" / "out"
+    out.mkdir()
+    args = _args(tmp_path / "t2", s1, sc, out, None, True, True)
+    args.arm, args.pass_window = "reduced_adamw", 10 ** 7
+    assert rl.run(rl.Rounds(args, runner=tools, resets=tools.resets), 3) == 0
+    for k in (2, 3):
+        pass_cmd, step = tools.cmd(f"round {k} pass"), tools.cmd(f"round {k} step")
+        assert "--heads-only" not in pass_cmd and pass_cmd[pass_cmd.index("--window") + 1] == str(10 ** 7)
+        assert step[step.index("--arm") + 1] == "reduced_adamw" and "--arm-from" not in step
+
+
+def test_rounds_go_on_after_a_stop_acted_on_and_later_claims_test_against_its_claim(tmp_path, monkeypatch):
+    """Prereg departure 33: round 3's claim stops the rounds; with STOP moved
+    aside and --rebase-after 3 they go on, round 3's stop is not read again,
+    and round 6's claim is tested against round 3's (not D0) on the readings
+    of rounds 4 to 6 alone."""
+    _reference(monkeypatch)
+    forecast = rl.ELO_PER_Z * 0.05 * 3                     # rounds 4-6, 0.05 each: about +52 Elo
+    tools = FakeTools(reading=(0.05, 0.004), claim_elo=lambda k: -420.0 if k == 3 else -420.0 + forecast)
+    rc, out = _run(tmp_path, tools, rounds=3)
+    assert rc == 3 and "gains do not transfer" in (out / "STOP").read_text(encoding="utf-8")
+    (out / "STOP").rename(out / "STOP_round03")
+    rc, out = _run(tmp_path, tools, rounds=6, rebase_after=3)
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert rc == 0 and not (out / "STOP").exists(), log
+    assert "round 3's stops were acted on" in log
+    assert "round 6's claim: claim - round 3's claim reads +52.1 Elo against +52.1 forecast" in log
+    names = tools.names()
+    assert names.count("round 3 claim") == 1 and "round 6 claim" in names
+
+
+def test_a_claim_after_the_rebase_still_stops_when_it_falls_short_of_its_own_forecast(tmp_path, monkeypatch):
+    _reference(monkeypatch)
+    tools = FakeTools(reading=(0.05, 0.004), claim_elo=lambda k: -420.0)
+    rc, out = _run(tmp_path, tools, rounds=3)
+    assert rc == 3
+    (out / "STOP").rename(out / "STOP_round03")
+    rc, out = _run(tmp_path, tools, rounds=6, rebase_after=3)
+    stop = (out / "STOP").read_text(encoding="utf-8")
+    assert rc == 3 and "STOP after round 6's claim: claim - round 3's claim reads +0.0 Elo" in stop
