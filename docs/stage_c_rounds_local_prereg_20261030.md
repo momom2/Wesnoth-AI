@@ -582,3 +582,46 @@ Design §6, unchanged:
     - The full suite on 005ac4cb: 2211 passed, 139 skipped, 5 warnings in 833.93s (0:13:53), launched from Git Bash, so the box tests ran and passed; d9c000f2's tree is 005ac4cb's.
     - The chain was re-armed at d9c000f2 on 2026-11-02 01:38 (pid 3464),
       while it still waited on stage C's plant.
+
+29. **After the final match, the tail match and the continued rounds; a
+    resume keeps the finished rounds' walls** (`feature/tail-match`
+    58e713fc, merged into `feature/cross-play-rung` at ec0146d7;
+    registered 2026-11-02 03:30, before any round has run; the design is
+    docs/tail_local_prereg_20261102.md).
+    - **Why:** the final match's forecast is near 0 at argmax, so the
+      trained player's own gain may go unmeasured (the 2026-11-01 09:43
+      review). The GPU also idles 24-36 h after the final match (the
+      21:43 review, M3).
+    - **The tail:** once the final match returns 0, its candidate plays
+      own2 with both sides sampling at temperature 1 and no end_turn
+      offset (`match_local --t1`, raw:t1). The match is 12,800 decisive
+      games from seed 950,000 into `tail_match/`.
+    - **The continuation:**
+      - It runs once the tail returns 0, and only if the rounds returned 0.
+      - The rounds resume (rounds_local, the same arguments) with
+        `--rounds 39` and `--end-by "2026-11-08 12:00"`, under this
+        prereg as it stands.
+      - A round adopted after the final match's gets the standard match
+        into `final_match_cont/` (12,800 games from 900,000, paired with
+        the final match's).
+    - **The resume fix:** rounds_local's `timed` rewrote a finished
+      round's end at every restart, so a resume read each finished
+      round's wall as reaching the restart, and `--end-by` refused the
+      next round. Now the first start and the first end of each round
+      stand. This also bears on any re-arm during the rounds, the
+      departure-28 fallback included.
+    - **Unchanged:** the rounds, their stops and claims, P, the final
+      match and its seeds, every number a round reads.
+    - The tests:
+      - tests/test_match_local.py::test_t1_samples_both_sides_without_the_offset_and_relabels_the_reference;
+      - tests/test_match_local.py::test_a_t1_match_samples_both_sides_and_fits_against_the_relabelled_reference;
+      - tests/test_chain_local.py::test_the_tail_match_plays_the_final_candidate_at_t1_once_the_final_match_passes;
+      - tests/test_chain_local.py::test_the_continuation_resumes_the_rounds_then_measures_a_newer_round;
+      - tests/test_chain_local.py::test_no_continuation_after_a_failed_match_or_unfinished_rounds;
+      - tests/test_chain_local.py::test_the_command_line_holds_the_tail_and_the_continuation_together;
+      - tests/test_rounds_local.py::test_a_resume_keeps_the_finished_rounds_walls_and_goes_on_to_a_later_end_by
+        (with the old `timed` it fails: "round 5 would need about 26.4 h").
+      - The chain, match and rounds tests: 68 passed.
+    - The full suite on 58e713fc: 1 failed, 2218 passed, 139 skipped, 5 warnings in 1010.18s (0:16:50), launched from Git Bash. The failure is tests/test_boxlib.py::test_the_switch_charges_the_stages_running_time, the wall-clock test on record since Nov 1: a 3-s sleep entry read 8 s used under this machine's load, and it fails alone too; boxlib.sh and its tests are unchanged on this branch. ec0146d7's tree is 58e713fc's.
+    - The chain was re-armed at ec0146d7 on 2026-11-02 03:42 (pid 13656),
+      while it still waited on stage C's plant.
