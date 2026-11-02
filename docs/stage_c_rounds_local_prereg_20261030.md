@@ -625,3 +625,29 @@ Design §6, unchanged:
     - The full suite on 58e713fc: 1 failed, 2218 passed, 139 skipped, 5 warnings in 1010.18s (0:16:50), launched from Git Bash. The failure is tests/test_boxlib.py::test_the_switch_charges_the_stages_running_time, the wall-clock test on record since Nov 1: a 3-s sleep entry read 8 s used under this machine's load, and it fails alone too; boxlib.sh and its tests are unchanged on this branch. ec0146d7's tree is 58e713fc's.
     - The chain was re-armed at ec0146d7 on 2026-11-02 03:42 (pid 13656),
       while it still waited on stage C's plant.
+
+30. **Round 1 alone while the plant is debugged** (registered 2026-11-02
+    10:50, before round 1's step; no code change, ec0146d7 as run).
+    - **Why:** stage C ended at 10:13 with the plant failing on both seats
+      (`PG_PLANT_READOUT fail`: seat A measured 0.0007 against a forecast
+      of 0.0261, miss -6.4 SE; seat B 0.0021 against 0.0273, miss -6.1 SE;
+      resolutions 8.5 and 8.3). The rule "debug before P and rounds"
+      stopped the chain at P (rc 3, 10:17), and the GPU idles.
+    - **What runs:** `rounds_local --rounds 1` into `rounds_local/`, with
+      the chain's own arguments (`--heads-only-pass --end-by "2026-11-07
+      10:00" --n-train 5000 --p-out p_local`). Round 1 consults neither P
+      nor the plant: its step is stage C's ladder decision taken as read
+      (heads_only, the rung at K ½), and departure 23's 10,000-game
+      cross-play match at temperature 1 against π₀ reads it in play
+      (seeds 70,100,000 on). That match is independent of the gradient
+      machinery the plant tests.
+    - **Its reading:** as departure 23 (adopt iff the match's lower 2-SE
+      bound is above 0). It is not a strength claim against the reference.
+    - **Unchanged:** round 2 still waits on P (rounds_local's `p_gate`), and
+      P on the plant. A later chain resumes past round 1 from its markers.
+    - **While it plays:** the plant's miss is diagnosed. The planted pass
+      carries the plant at its expected size (its projection on P'u reads
+      276 against 290 expected), and the finite difference along P'u
+      matches the gradient forecast to 4 digits. Yet the change measured
+      along the pass's own direction d misses the first order predicted
+      along d (0.0248 on seat A), and the trunk carries 0.0225 of that.
