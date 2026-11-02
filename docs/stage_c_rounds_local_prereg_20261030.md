@@ -627,7 +627,7 @@ Design §6, unchanged:
       while it still waited on stage C's plant.
 
 30. **Round 1 alone while the plant is debugged** (registered 2026-11-02
-    10:50, before round 1's step; no code change, ec0146d7 as run).
+    10:30, before round 1's step; no code change, ec0146d7 as run).
     - **Why:** stage C ended at 10:13 with the plant failing on both seats
       (`PG_PLANT_READOUT fail`: seat A measured 0.0007 against a forecast
       of 0.0261, miss -6.4 SE; seat B 0.0021 against 0.0273, miss -6.1 SE;
@@ -654,7 +654,7 @@ Design §6, unchanged:
 
 31. **The rounds start without P** (`feature/chain-skip-p` 687cd3d9,
     merged into `feature/cross-play-rung` at 6f86c363; registered
-    2026-11-02 11:00, before round 2).
+    2026-11-02 10:42, before round 2).
     - **Why:** P's played check cannot pass at the plant's size, so as
       registered no round past round 1 could ever start (the 10:13
       review, H2). `tools/pg_planted_play.py` `planted()` compares θ′'s
@@ -689,7 +689,7 @@ Design §6, unchanged:
 
 32. **The heads-only arm's own direction shares θ_k's trunk**
     (`fix/shares-trunk-zeros` cbae242f, merged at 8eb24002; registered
-    2026-11-02 11:00, before round 2's step).
+    2026-11-02 10:42, before round 2's step).
     - **Why:** `pg_step.heads_only` keeps every parameter name, with zeros
       off the heads, and `EvalContext.shares_trunk` required every name to
       be a head map. So departure 28's one-trunk walk never engaged: every
