@@ -67,6 +67,19 @@ def test_the_match_puts_the_candidate_at_the_reference_decode_on_the_local_pool(
         "--save-json", str(tmp_path / "fit.json")]
 
 
+def test_t1_samples_both_sides_without_the_offset_and_relabels_the_reference(tmp_path):
+    ref = ml.sampled(_ref())
+    assert (ref.label, ref.spec, ref.memory, ref.end_turn_offset) == (f"{REF_LABEL}t1", _ref().spec, REF_SLOTS, 0.0)
+    assert "--raw-end-turn-offset-b" not in ref.flags and ref.flags[ref.flags.index("--label-b") + 1] == ref.label
+    memory, plays, eo, diffs = ml.candidate_decode(ref, REF_SLOTS, None, None, False)
+    assert (memory, plays, eo, diffs) == (REF_SLOTS, REF_SLOTS, 0.0, [])
+    cand = ml.Candidate("cand", "c.pt", "0" * 64, memory, plays, eo, diffs)
+    line = " ".join(ml.match_argv(cand, ref, tmp_path, 800, 950000, 1500, 96, 8, 38, ml.DECODE_T1))
+    assert "--mcts-sims 0 --raw-temperature-a 1 --raw-temperature-b 1" in line
+    assert "--raw-end-turn-offset" not in line and "--raw-temperature-a 0" not in line
+    assert f"--label-a cand --spec-a c.pt --memory-a {REF_SLOTS} --label-b {REF_LABEL}t1" in line
+
+
 def _declared(tool: str) -> set:
     """The options a tool's parser declares, with the --no- form of a
     BooleanOptionalAction."""
@@ -156,14 +169,15 @@ def test_the_checkpoints_memory_slots_are_read_in_a_child(tmp_path):
 
 # ---- the run: run_elo_batch faked, elo_collect real
 
-def _write_games(games_dir: Path, n: int, start: int, seed_base: int, wins_every: int = 2) -> None:
+def _write_games(games_dir: Path, n: int, start: int, seed_base: int, wins_every: int = 2,
+                 label_b: str = REF_LABEL, procedure: str = f"raw:t0+eo{REF_EO:g}") -> None:
     games_dir.mkdir(parents=True, exist_ok=True)
     for i in range(start, start + n):
         side = 1 if i % 2 == 0 else 2
-        rec = {"label_a": "cand", "label_b": REF_LABEL, "side_a": side, "seed": seed_base + i,
+        rec = {"label_a": "cand", "label_b": label_b, "side_a": side, "seed": seed_base + i,
                "outcome_a": "win" if i % wins_every == 0 else "loss",
-               "procedure_a": f"raw:t0+eo{REF_EO:g}", "procedure_b": f"raw:t0+eo{REF_EO:g}", "infer_fp16": True}
-        (games_dir / f"game_cand_{REF_LABEL}_s{side}_{seed_base + i}.json").write_text(json.dumps(rec))
+               "procedure_a": procedure, "procedure_b": procedure, "infer_fp16": True}
+        (games_dir / f"game_cand_{label_b}_s{side}_{seed_base + i}.json").write_text(json.dumps(rec))
 
 
 class FakeTools:
@@ -182,7 +196,10 @@ class FakeTools:
             games_dir = Path(cmd[cmd.index("--outdir") + 1])
             n, rc = self.plan.pop(0)
             have = len(list(games_dir.glob("game_*.json"))) if games_dir.is_dir() else 0
-            _write_games(games_dir, n, have, int(cmd[cmd.index("--seed-base") + 1]))
+            t1 = cmd[cmd.index("--raw-temperature-a") + 1] == "1"
+            _write_games(games_dir, n, have, int(cmd[cmd.index("--seed-base") + 1]),
+                         label_b=cmd[cmd.index("--label-b") + 1],
+                         procedure="raw:t1" if t1 else f"raw:t0+eo{REF_EO:g}")
             return rc
         if cmd[0] == "tools/reference_player.py":
             return 0
@@ -261,13 +278,31 @@ def test_a_partial_match_resumes_with_the_same_command(match_env):
 
 
 @pytest.mark.parametrize("extra", [["--seed-base", "875000"], ["--games", "16"], ["--max-extra-games", "0"],
-                                   ["--end-turn-offset", "-2.5", "--allow-decode-change"]])
+                                   ["--end-turn-offset", "-2.5", "--allow-decode-change"], ["--t1"]])
 def test_a_resume_with_another_configuration_is_refused(match_env, extra):
     out, run = match_env
     assert run([(0, 4)])[0] == 1            # a first start that played nothing: its record stands
     with pytest.raises(SystemExit, match="MATCH_CHANGED"):
         run([(8, 0)], *extra)
     assert run([(8, 0)])[0] == 0            # the recorded configuration still resumes
+
+
+def test_a_t1_match_samples_both_sides_and_fits_against_the_relabelled_reference(match_env):
+    out, run = match_env
+    rc, fake = run([(8, 0)], "--t1")
+    assert rc == 0
+    (argv,) = fake.matches()
+    line = " ".join(argv)
+    assert "--raw-temperature-a 1 --raw-temperature-b 1" in line and "--raw-end-turn-offset" not in line
+    assert f"--memory-a {REF_SLOTS}" in line and f"--label-b {REF_LABEL}t1" in line
+    result = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    assert result["complete"] and result["reference"] == f"{REF_LABEL}t1" and result["decode"] == ml.DECODE_T1
+    assert (result["end_turn_offset_a"], result["end_turn_offset_b"]) == (0.0, 0.0)
+    assert result["procedures"] == ["raw:t1 against raw:t1"] and isinstance(result["elo"], float)
+    assert json.loads((out / "fit.json").read_text(encoding="utf-8"))["tables"][ml.PURE][f"{REF_LABEL}t1"]["elo"] == 0.0
+    assert json.loads((out / "match.json").read_text(encoding="utf-8"))["config"]["decode"] == ml.DECODE_T1
+    with pytest.raises(SystemExit, match="MATCH_CHANGED"):
+        run([(8, 0)])                       # the same directory at argmax is another match
 
 
 def test_games_without_the_scripts_record_are_refused(match_env):
@@ -449,6 +484,21 @@ def test_display_resets_are_read_from_the_system_log(monkeypatch):
     for answer, n in (("2\r\n", 2), ("", 0), ("not a number", 0)):
         assert lm.display_resets_since(time.time() - 60) == n
     assert calls[0][0] == "powershell" and "Id=4101" in calls[0][-1] and "LogName='System'" in calls[0][-1]
+
+    hangs = []
+
+    def hung_run(cmd, **kw):                             # hangs `len(hangs)` < limit times, then answers
+        hangs.append(cmd)
+        if len(hangs) <= limit:
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        return subprocess.CompletedProcess(cmd, 0, stdout="3\n", stderr="")
+
+    monkeypatch.setattr(lm.subprocess, "run", hung_run)
+    limit = 1
+    assert lm.display_resets_since(time.time() - 60) == 3 and len(hangs) == 2      # asked again once
+    hangs.clear()
+    limit = 2
+    assert lm.display_resets_since(time.time() - 60) == lm.RESET_CHECK_TIMED_OUT and len(hangs) == 2
 
 
 def test_priority_and_keep_awake_off_windows(monkeypatch):

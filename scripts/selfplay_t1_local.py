@@ -39,7 +39,7 @@ sys.path.insert(0, str(REPO))
 from scripts.gpu_yield import GpuYield  # noqa: E402
 from scripts.local_machine import (  # noqa: E402
     below_normal_priority, default_tools_python, display_resets_since, keep_awake, log, reference_flags,
-    require_visible_gpu, run_match, run_tool,
+    require_visible_gpu, reset_reason, run_match, run_tool,
 )
 
 # The box script's configuration (scripts/selfplay_t1_box.sh, "the configuration").
@@ -170,7 +170,7 @@ class Run:
         results, decisive, lost = self.count_games(d)
         resets = display_resets_since(t0)
         if resets:
-            why = f"{resets} display-driver reset(s) (System event 4101) during match {name}"
+            why = reset_reason(resets, f"match {name}")
             self.note(f"STOPPED: {why}")
             (self.out / "STOP").write_text(why + "\n", encoding="utf-8")
             log(self.out, f"STOPPED: {why}; the STOP file is written, delete it to resume")

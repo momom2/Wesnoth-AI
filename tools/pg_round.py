@@ -23,6 +23,12 @@ sources: from the pass's sampled scores when it carries them
 (tools/pg_head_floor.fisher_from_pass), else through the KL on the held-out
 positions (pg_step.span_fisher at stage C's SPAN_STEP).
 
+`--chosen-network`: when the decision is decide's cross-play case (the
+chosen rung's importance weights fail on half B; wesnoth_ai/pg_cross_play.py),
+that rung's network theta_k + s d is written there for the match that reads
+it (scripts/rounds_local.py), and recorded under `chosen_network`. It is not
+the candidate: the match decides.
+
 round.json also logs what design §6 asks of each round:
 - Ĝ and ΔĴ at the three radii, and the half-B reading (the decision's
   rungs);
@@ -56,6 +62,7 @@ for _p in (_ROOT, _ROOT / "tools"):
 
 import numpy as np  # noqa: E402
 
+from wesnoth_ai.pg_cross_play import cross_play_case  # noqa: E402
 from wesnoth_ai.pg_step import (ARMS, DEFAULT_ARM, decisions_per_side, direction, dot, head_directions,  # noqa: E402
                                 ladder, norm, span_fisher)
 
@@ -151,6 +158,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--candidate", type=Path, required=True, help="where an adopted rung's network is written")
     ap.add_argument("--direction-out", type=Path, default=None)
+    ap.add_argument("--chosen-network", type=Path, default=None,
+                    help="where the chosen rung's network is written when a cross-play match must read it")
     args = ap.parse_args(argv)
     module, _, name = args.factory.partition(":")
     factory, params, sha = getattr(importlib.import_module(module), name)(**_factory_args(args.factory_arg))
@@ -177,6 +186,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     if s is not None:
         sha_out = factory(d).write_candidate(s, args.candidate)
         readout["candidate"] = {"path": str(args.candidate), "sha256": sha_out, "s": s}
+    readout["chosen_network"] = None
+    rungs = readout["decision"].get("rungs") or ((stage_c or {}).get("ladder") or {}).get("rungs") or []
+    chosen = cross_play_case(readout["decision"], rungs)
+    if args.chosen_network is not None and chosen is not None:
+        s_chosen = float(rungs[chosen]["s"])
+        sha_chosen = factory(d).write_candidate(s_chosen, args.chosen_network)
+        readout["chosen_network"] = {"path": str(args.chosen_network), "sha256": sha_chosen, "s": s_chosen,
+                                     "rung": chosen}
     _write_json(args.out, readout)
     dec = readout["decision"]
     print(f"PG_ROUND adopt={dec['adopt']} s={dec['s']:.4g} eps={eps:.4g} next_eps={dec['next_eps']:.4g} "

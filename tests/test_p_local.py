@@ -1,8 +1,9 @@
 """scripts/p_local.py: the planted step's match and readout, then the link
 match and its readout (only when stage 1's sharpening slope is resolved),
 run only when stage C's verdict says P; a planted miss or a link miss stops
-the rounds; a new start resumes. The tools are stood in for by a fake
-runner."""
+the rounds; a new start resumes; each match's time budget fits its cut,
+and a match that ends short is played again once. The tools are stood in
+for by a fake runner."""
 from __future__ import annotations
 
 import json
@@ -14,13 +15,18 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import scripts.p_local as pl  # noqa: E402
+from scripts.local_machine import MATCH_DRAIN_MIN  # noqa: E402
 
 ORDER = ["p_match", "p_readout", "link_match", "link_readout"]
 
 
 class FakeTools:
-    def __init__(self, planted="pass", link="holds"):
+    """`rcs`: per step name, the exit statuses its first calls return (0
+    after them)."""
+
+    def __init__(self, planted="pass", link="holds", rcs=None):
         self.calls, self.planted, self.link = [], planted, link
+        self.rcs = {k: list(v) for k, v in (rcs or {}).items()}
 
     def __call__(self, out, name, cmd, log_name, cut, python, **_):
         self.calls.append((name, cmd, python))
@@ -30,7 +36,8 @@ class FakeTools:
         elif name == "link_readout":
             target.write_text(json.dumps({"verdict": self.link, "measured": 0.1, "forecast": 0.106,
                                           "miss_se": -0.5}), encoding="utf-8")
-        return 0
+        left = self.rcs.get(name.removesuffix(" again"), [])
+        return left.pop(0) if left else 0
 
     def resets(self, t0):
         return 0
@@ -39,7 +46,7 @@ class FakeTools:
         return [c[0] for c in self.calls]
 
 
-def _run(tmp_path, tools, nxt="P (the planted step played), then rounds", resolved=True):
+def _run(tmp_path, tools, nxt="P (the planted step played), then rounds", resolved=True, spoil=None):
     sc = tmp_path / "stage_c"
     sc.mkdir(parents=True, exist_ok=True)
     (tmp_path / "stage1").mkdir(exist_ok=True)
@@ -47,6 +54,9 @@ def _run(tmp_path, tools, nxt="P (the planted step played), then rounds", resolv
         "slope": 2.64, "se": 0.08 if resolved else 1.5, "resolved": resolved}}), encoding="utf-8")
     (sc / "verdict.json").write_text(json.dumps({"next": nxt}), encoding="utf-8")
     (sc / "planted.pt").write_text("theta'", encoding="utf-8")
+    (sc / "ALL_DONE").write_text("done\n", encoding="utf-8")
+    if spoil:
+        spoil(sc)
     out = tmp_path / "out"
     out.mkdir(exist_ok=True)
     args = Namespace(out=out, stage1=tmp_path / "stage1", stage_c=sc, checkpoint=Path("own2.pt"), e=0.02,
@@ -92,3 +102,33 @@ def test_an_unresolved_slope_plays_no_link_match(tmp_path):
     rc, out = _run(tmp_path, tools, resolved=False)
     assert rc == 0 and tools.names() == ORDER[:2]
     assert json.loads((out / "link.json").read_text(encoding="utf-8"))["verdict"] == "not run"
+
+
+def test_p_waits_for_stage_c_to_finish(tmp_path):
+    """Stage C writes its verdict even when it stops early: P starts only on
+    a finished stage C (ALL_DONE, no STOP, no failed part)."""
+    for name, spoil in (("unfinished", lambda sc: (sc / "ALL_DONE").unlink()),
+                        ("stopped", lambda sc: (sc / "STOP").write_text("x", encoding="utf-8")),
+                        ("failed", lambda sc: (sc / "plant.failed").write_text("x", encoding="utf-8"))):
+        tools = FakeTools()
+        rc, out = _run(tmp_path / name, tools, spoil=spoil)
+        assert rc == 3 and tools.names() == [], name
+        assert "P_NOT_DUE" in (out / "runner.log").read_text(encoding="utf-8"), name
+
+
+def test_a_match_has_a_time_budget_within_its_cut_and_is_played_again_once_when_short(tmp_path):
+    """run_elo_batch's default budget, 55 min, would stop P's 5,000 games
+    short (exit 3) and fail P: each match's budget is its cut less
+    MATCH_DRAIN_MIN, and a match that ends short is played again once; a
+    second short end fails the part."""
+    tools = FakeTools(rcs={"p_match": [3]})
+    rc, out = _run(tmp_path / "again", tools)
+    assert rc == 0 and tools.names() == ["p_match", "p_match again", *ORDER[1:]]
+    for name, cmd, _ in tools.calls:
+        if "match" in name:
+            assert cmd[cmd.index("--time-budget-min") + 1] == f"{pl.MATCH_CUT_MIN - MATCH_DRAIN_MIN:g}", name
+    assert "p_match: ended rc=3, short" in (out / "runner.log").read_text(encoding="utf-8")
+    short = FakeTools(rcs={"link_match": [3, 1]})
+    rc, out = _run(tmp_path / "short", short)
+    assert rc == 1 and short.names() == [*ORDER[:3], "link_match again"]
+    assert "rc=1" in (out / "link_match.failed").read_text(encoding="utf-8")

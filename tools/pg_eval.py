@@ -42,7 +42,15 @@ decision (training/metrics/pg_fp16_20261030 measures both against the
 float32 path).
 
 `evaluate([s, ...])` reads several steps over every held-out decision in one
-replay of the positions (each `logp` call replays them otherwise). `class_mass_by_seat(s)` is the
+replay of the positions (each `logp` call replays them otherwise), and
+`prefetch([s, ...], halves)` reads them on some halves with theta_k's own
+reading of those halves (`base_logp_on`): the ladder's readings
+(wesnoth_ai/pg_step.py `ladder`), with no full reading of theta_k. When the
+direction moves the heads' final linear maps alone
+(`EvalContext.shares_trunk`, the heads-only arms), every theta_k + s d shares
+theta_k's trunk and memory: such a replay runs the trunk once a time step and
+each step's heads on its rows, the outputs each network's own forward gives
+(`WesnothModel.keeping_head_inputs`). `class_mass_by_seat(s)` is the
 teacher-forced sum over each game-side's decisions of the law's mass on
 end_turn, attacks and recruits at theta_k + s d, by seat (the planted
 round's offline readout). `write_candidate(s, path)` writes theta_k + s d
@@ -89,6 +97,7 @@ from wesnoth_ai.pg_loss import (CLASSES, action_log_probs, class_masses, compact
                                 factor_laws, legal_kl_laws)
 from wesnoth_ai.pg_protocol import GameSide  # noqa: E402
 from wesnoth_ai.pg_records import LabelRow, labelled_games, read_labels  # noqa: E402
+from wesnoth_ai.pg_step import head_of  # noqa: E402
 from wesnoth_ai.sequence_streams import GameSide as StreamSide  # noqa: E402
 from wesnoth_ai.sequence_streams import StreamSchedule, unit_draw  # noqa: E402
 
@@ -147,9 +156,11 @@ class EvalContext:
                           < config.kl_fraction] or self.sides[:1])
         self.decisions = start
         self.cache: Optional[ReadingCache] = (
-            ReadingCache(Path(config.cache), context_key(self.checkpoint_sha256, self.sides, self.kl_sides, config))
+            ReadingCache(Path(config.cache), context_key(self.checkpoint_sha256, self.sides, self.kl_sides, config,
+                                                         device=self.device.type))
             if config.cache else None)
         self._base: Optional[Reading] = None            # theta_k over every held-out decision
+        self._base_halves: Dict[tuple, np.ndarray] = {}  # theta_k's logp on some halves, NaN elsewhere
         self._laws: Optional[List[Dict[str, torch.Tensor]]] = None   # theta_k's laws at each KL time step
         self.laws_bytes_per_decision: Optional[float] = None
         # The forwards run, by the set of game-sides they read: "full" (every
@@ -202,15 +213,52 @@ class EvalContext:
             return f"half {halves.pop()}"
         return "other"
 
-    def _walk(self, networks: Mapping[float, tuple], sides: Sequence[GameSide], on_step) -> None:
+    def _shared_forward(self, networks: Mapping[float, tuple], staged, router, steps, shadow) -> Dict[float, object]:
+        """theta_k's trunk once on a staged step, its memory written through
+        `router`, then each network's heads on the trunk's rows (theta_k's
+        own output for theta_k), in float32 under `fp16` as `_forward`'s."""
+        kept: List[dict] = []
+        with self.model.keeping_head_inputs(kept):
+            trunk = self._forward(self.encoder, self.model, staged, router.batch(steps))
+        if len(kept) != 1:
+            raise RuntimeError(f"one forward ran the heads {len(kept)} times")
+        router.wrote(steps, trunk.memory_padded, shadow)
+        fp16 = self.config.fp16
+        out = {}
+        for s, (_, model) in networks.items():
+            if model is self.model:
+                out[s] = trunk
+                continue
+            with torch.autocast(self.device.type, dtype=torch.float16, enabled=fp16 and self.device.type == "cuda"):
+                heads = model.heads_from(kept[0])
+            out[s] = heads.float32() if fp16 else heads
+        return out
+
+    def shares_trunk(self, direction: Mapping[str, torch.Tensor]) -> bool:
+        """Whether theta_k + s d differs from theta_k in its heads' final
+        linear maps alone (pg_step.HEAD_MAPS, what the heads-only arms move),
+        which read nothing but the trunk's rows: then every step shares
+        theta_k's trunk and memory, and a walk runs the trunk once. A name
+        off the heads whose tensor is all zeros moves nothing:
+        pg_step.heads_only keeps every name, zeros off the heads."""
+        return bool(direction) and all(head_of(n) is not None or not bool(torch.any(t))
+                                       for n, t in direction.items())
+
+    def _walk(self, networks: Mapping[float, tuple], sides: Sequence[GameSide], on_step,
+              shared: bool = False) -> None:
         """One replay of `sides`' positions, each network forwarded at every
         time step with its own memory carried along each game-side;
-        on_step(t, steps, batch, outputs) sees each step's outputs."""
-        self.reads[self._kind(sides)] += len(networks)
+        on_step(t, steps, batch, outputs) sees each step's outputs. `shared`
+        (the networks differ from theta_k in their heads alone,
+        `shares_trunk`): theta_k's trunk runs once a time step, its memory
+        carried for them all, and each network's heads read its rows: the
+        same outputs as each network's own forward. `reads` counts trunks."""
+        self.reads[self._kind(sides)] += 1 if shared else len(networks)
         order = [StreamSide(gs.game, gs.side) for gs in sides]
         lengths = {StreamSide(gs.game, gs.side): gs.stop - gs.start for gs in sides}
         schedule = StreamSchedule(order, lengths, self.config.streams, self.config.seed, k=self.config.slots)
-        memories: Dict[float, Dict[int, torch.Tensor]] = {s: {} for s in networks}
+        lanes = [None] if shared else list(networks)          # the memories carried: one a trunk
+        memories: Dict[Optional[float], Dict[int, torch.Tensor]] = {lane: {} for lane in lanes}
         t = 0
         with torch.no_grad():
             while not schedule.exhausted():
@@ -218,19 +266,23 @@ class EvalContext:
                 if not window:
                     break
                 self.loader.prefetch(g.file for g in schedule.upcoming(self.config.prefetch))
-                routers = {s: PGMemoryRouter(networks[s][1], self.device, memories[s]) for s in networks}
+                routers = {lane: PGMemoryRouter(self.model if lane is None else networks[lane][1], self.device,
+                                                memories[lane]) for lane in lanes}
                 for steps in window:
                     positions = [self.loader.side(s.game_side.file, s.game_side.side)[s.offset] for s in steps]
                     staged = self.encoder.stage_raws([p.raw for p in positions], device=self.device)
                     batch = stage_step(positions, staged, self.model, self.device)
                     shadow = [p.shadow for p in positions]
-                    outputs = {}
-                    for s, (encoder, model) in networks.items():
-                        outputs[s] = self._forward(encoder, model, staged, routers[s].batch(steps))
-                        routers[s].wrote(steps, outputs[s].memory_padded, shadow)
+                    if shared:
+                        outputs = self._shared_forward(networks, staged, routers[None], steps, shadow)
+                    else:
+                        outputs = {}
+                        for s, (encoder, model) in networks.items():
+                            outputs[s] = self._forward(encoder, model, staged, routers[s].batch(steps))
+                            routers[s].wrote(steps, outputs[s].memory_padded, shadow)
                     on_step(t, steps, batch, outputs)
                     t += 1
-                memories = {s: routers[s].memories() for s in networks}
+                memories = {lane: routers[lane].memories() for lane in lanes}
                 self.loader.keep_only(g.file for g in schedule.upcoming(self.config.prefetch))
         self.loader.keep_only(())
 
@@ -238,7 +290,8 @@ class EvalContext:
              sides: Sequence[GameSide]) -> Dict[float, Reading]:
         """Each step's log probabilities and class masses over `sides`, in one
         replay of their positions; the arrays cover every held-out decision,
-        NaN outside `sides`."""
+        NaN outside `sides`. The steps share theta_k's trunk when the
+        direction moves the heads alone (`shares_trunk`)."""
         keys = sorted({float(s) for s in steps})
         networks = {s: self.network(direction, s) for s in keys}
         place = {(gs.game, gs.side): gs.start for gs in sides}
@@ -251,21 +304,54 @@ class EvalContext:
                 out[s].logp[index] = action_log_probs(padded, batch).double().cpu().numpy()
                 out[s].masses[index] = class_masses(padded, batch).double().cpu().numpy()
 
-        self._walk(networks, sides, on_step)
+        self._walk(networks, sides, on_step, shared=len(networks) > 1 and self.shares_trunk(direction))
         return out
+
+    def _base_at_hand(self) -> Optional[Reading]:
+        """theta_k's full reading when it was read or cached, else None."""
+        if self._base is None and self.cache:
+            hit = self.cache.arrays("base")
+            if hit is not None:
+                self._base = Reading(logp=hit["logp"], masses=hit["masses"])
+        return self._base
 
     def base_reading(self) -> Reading:
         """theta_k over every held-out decision, read once and shared by the
         evaluators."""
-        if self._base is None:
-            hit = self.cache.arrays("base") if self.cache else None
-            if hit is not None:
-                self._base = Reading(logp=hit["logp"], masses=hit["masses"])
-            else:
-                self._base = self.read({}, [0.0], self.sides)[0.0]
-                if self.cache:
-                    self.cache.put_arrays("base", logp=self._base.logp, masses=self._base.masses)
+        if self._base_at_hand() is None:
+            self._base = self.read({}, [0.0], self.sides)[0.0]
+            if self.cache:
+                self.cache.put_arrays("base", logp=self._base.logp, masses=self._base.masses)
         return self._base
+
+    def has_base(self, halves: Sequence[str]) -> bool:
+        """Whether theta_k's log probabilities on `halves` are at hand: its
+        full reading, or those halves' own, read or cached."""
+        if self._base_at_hand() is not None:
+            return True
+        key = tuple(sorted(set(halves)))
+        if key not in self._base_halves and self.cache:
+            hit = self.cache.arrays(f"base_{''.join(key)}")
+            if hit is not None:
+                self._base_halves[key] = hit["logp"]
+        return key in self._base_halves
+
+    def keep_base(self, halves: Sequence[str], logp: np.ndarray) -> None:
+        """theta_k's log probabilities on `halves` (NaN elsewhere), read
+        beside a walk's steps on those halves."""
+        key = tuple(sorted(set(halves)))
+        self._base_halves[key] = logp
+        if self.cache:
+            self.cache.put_arrays(f"base_{''.join(key)}", logp=logp)
+
+    def base_on(self, halves: Sequence[str]) -> np.ndarray:
+        """theta_k's log probabilities on the game-sides of `halves`: its
+        full reading when at hand, else those halves' own (NaN elsewhere),
+        read alone when no walk read them beside its steps."""
+        if not self.has_base(halves):
+            self.keep_base(halves, self.read({}, [0.0], [gs for gs in self.sides if gs.half in halves])[0.0].logp)
+        full = self._base_at_hand()
+        return full.logp if full is not None else self._base_halves[tuple(sorted(set(halves)))]
 
     def _theta_k_laws(self) -> List[Dict[str, torch.Tensor]]:
         """theta_k's factored legal laws at each time step of the KL
@@ -340,16 +426,8 @@ class NetworkEvaluator:
         if halves is None or s == 0.0 or s in self._full:
             return self._reading(s).logp
         key = (s, tuple(sorted(set(halves))))
-        if key not in self._halves:
-            name = f"half_{self._key}_{step_key(s)}_{''.join(key[1])}"
-            hit = self.context.cache.arrays(name) if self.context.cache else None
-            if hit is not None:
-                self._halves[key] = hit["logp"]
-            else:
-                sides = [gs for gs in self.context.sides if gs.half in key[1]]
-                self._halves[key] = self.context.read(self.direction, [s], sides)[s].logp
-                if self.context.cache:
-                    self.context.cache.put_arrays(name, logp=self._halves[key])
+        if not self._half_at_hand(*key):
+            self.prefetch([s], key[1], base=False)
         return self._halves[key]
 
     def mean_kl(self, s: float) -> float:
@@ -366,6 +444,41 @@ class NetworkEvaluator:
         return self._kl[s]
 
     # ---- beyond the protocol --------------------------------------------
+    def _half_at_hand(self, s: float, halves: tuple) -> bool:
+        """Whether step s's reading on `halves` was read or is cached."""
+        if (s, halves) not in self._halves and self.context.cache:
+            hit = self.context.cache.arrays(f"half_{self._key}_{step_key(s)}_{''.join(halves)}")
+            if hit is not None:
+                self._halves[(s, halves)] = hit["logp"]
+        return (s, halves) in self._halves
+
+    def prefetch(self, steps: Iterable[float], halves: Sequence[str], base: bool = True) -> None:
+        """`logp(s, halves)` of each step, and (with `base`) theta_k's on
+        those halves (`base_logp_on`), read in one replay of the halves'
+        positions, on one trunk when the direction moves the heads alone
+        (EvalContext.shares_trunk), so that later calls read them back. What
+        is at hand (read, cached, or a full reading) is not read again."""
+        key = tuple(sorted(set(halves)))
+        todo = [s for s in sorted({float(s) for s in steps} - {0.0})
+                if s not in self._full and not self._half_at_hand(s, key)]
+        base = base and not self.context.has_base(key)
+        if not todo and not base:
+            return
+        sides = [gs for gs in self.context.sides if gs.half in key]
+        read = self.context.read(self.direction, [0.0] * base + todo, sides)
+        if base:
+            self.context.keep_base(key, read[0.0].logp)
+        for s in todo:
+            self._halves[(s, key)] = read[s].logp
+            if self.context.cache:
+                self.context.cache.put_arrays(f"half_{self._key}_{step_key(s)}_{''.join(key)}", logp=read[s].logp)
+
+    def base_logp_on(self, halves: Sequence[str]) -> np.ndarray:
+        """theta_k's log probabilities on the game-sides of `halves`
+        (EvalContext.base_on): what the step math reads a half's candidates
+        against, with no forward of the other half."""
+        return self.context.base_on(halves)
+
     def evaluate(self, steps: Iterable[float]) -> None:
         """Read the steps not yet read over every held-out decision, in one
         replay of the positions (theta_k comes from the context's reading)."""

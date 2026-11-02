@@ -210,12 +210,12 @@ def test_the_ladder_adopts_reverts_and_sets_the_next_radius():
 
 
 def test_rungs_importance_weights_cannot_read_are_not_selected():
-    """At 1 decision a side-game, eps 0.3 puts the 2 eps rung at K 0.6, past
-    the range; heavy-tailed weights (one game-side's W at 51) fail the
-    effective-sample check; with no readable rung pi_k stays and the radius
-    halves."""
+    """At 1 decision a side-game, eps 0.4 puts the 2 eps rung at K 0.8, past
+    the range, with the edge within EDGE_MIN_RATIO of the eps rung; heavy-tailed
+    weights (one game-side's W at 51) fail the effective-sample check; with
+    no readable rung pi_k stays and the radius halves."""
     gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.0}}
-    decision = ladder(lambda d: _LadderEvaluator(gains, 0.3), {}, 0.3)
+    decision = ladder(lambda d: _LadderEvaluator(gains, 0.4), {}, 0.4)
     assert [r.in_range for r in decision.rungs] == [True, True, False]
     assert decision.adopt and decision.chosen == 1
 
@@ -223,8 +223,112 @@ def test_rungs_importance_weights_cannot_read_are_not_selected():
     assert heavy.rungs[2].in_range and not heavy.rungs[2].halves["A"].ess_ok
     assert heavy.rungs[2].halves["A"].exact.estimate > heavy.rungs[1].halves["A"].exact.estimate
     assert heavy.adopt and heavy.chosen == 1
-    kept = decide([dataclasses.replace(r, in_range=False) for r in decision.rungs], 0.3)
-    assert not kept.adopt and kept.chosen is None and kept.next_eps == pytest.approx(0.15)
+    kept = decide([dataclasses.replace(r, in_range=False) for r in decision.rungs], 0.4)
+    assert not kept.adopt and kept.chosen is None and kept.next_eps == pytest.approx(0.2)
+
+
+def _recording(monkeypatch, evaluator):
+    """The targets kl_search is asked for and the KLs logp is read at."""
+    import wesnoth_ai.pg_step as pg_step
+    searched, read = [], []
+    monkeypatch.setattr(pg_step, "kl_search", lambda kl_at, target, **kw: searched.append(target)
+                        or kl_search(kl_at, target, **kw))
+    logp = evaluator.logp
+    evaluator.logp = lambda s, halves=None: read.append(s * s) or logp(s, halves)
+    return searched, read
+
+
+def test_a_rung_past_the_range_is_neither_searched_nor_read(monkeypatch):
+    """At 1 decision a side-game, eps 0.4 puts the 2 eps rung at K 0.8, past
+    the range, and the edge (0.5) is within EDGE_MIN_RATIO of the eps rung:
+    the ladder spends no KL search and no reading on it, its summary says
+    so, and the decision is the one a read rung would give."""
+    gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.0}}
+    evaluator = _LadderEvaluator(gains, 0.4)
+    searched, read = _recording(monkeypatch, evaluator)
+    decision = ladder(lambda d: evaluator, {}, 0.4)
+    assert searched == pytest.approx([0.2, 0.4])
+    assert read == pytest.approx([0.2, 0.4, 0.4], rel=KL_RTOL)             # rungs 0.5 and 1 on A, rung 1 on B
+    far = decision.rungs[2]
+    assert not far.in_range and far.s is None and far.kl is None and far.halves == {}
+    assert decision.summary()["rungs"][2] == {"multiplier": 2.0, "target_kl": pytest.approx(0.8), "s": None,
+                                              "kl": None, "in_range": False, "halves": {}}
+    assert decision.adopt and decision.chosen == 1 and decision.next_eps == pytest.approx(0.4)
+
+
+def test_the_first_rung_past_the_range_is_read_at_its_edge(monkeypatch):
+    """At 1 decision a side-game the edge is K 0.5. At eps 0.3 the 2 eps rung
+    (0.6) is read at the edge, which then sets the next radius. At eps 0.6
+    the eps rung is read at the edge and the 2 eps rung, past it too, is not
+    read; a known point at eps is not reused for a rung moved to the edge."""
+    import wesnoth_ai.pg_step as pg_step
+    assert pg_step.EDGE_MIN_RATIO == pytest.approx(math.sqrt(2.0))
+    gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.01}}
+    evaluator = _LadderEvaluator(gains, 0.3)
+    searched, read = _recording(monkeypatch, evaluator)
+    top = ladder(lambda d: evaluator, {}, 0.3)
+    assert searched == pytest.approx([0.15, 0.3, 0.5])
+    assert read == pytest.approx([0.15, 0.3, 0.5, 0.5], rel=KL_RTOL)
+    edge = top.rungs[2]
+    assert edge.in_range and edge.multiplier == 2.0 and edge.target_kl == pytest.approx(0.5)
+    assert edge.kl == pytest.approx(0.5, rel=KL_RTOL) and edge.halves["B"].side_kl == pytest.approx(0.5, rel=KL_RTOL)
+    assert top.adopt and top.chosen == 2 and top.next_eps == pytest.approx(0.5)
+
+    gains = {"A": {0.5: 0.01, 1.0: 0.03, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.01, 2.0: 0.0}}
+    evaluator = _LadderEvaluator(gains, 0.6)
+    searched, read = _recording(monkeypatch, evaluator)
+    known = {1.0: kl_search(evaluator.mean_kl, 0.6)}
+    middle = ladder(lambda d: evaluator, {}, 0.6, known=known)
+    assert searched == pytest.approx([0.3, 0.5])
+    assert [r.in_range for r in middle.rungs] == [True, True, False]
+    assert middle.rungs[1].target_kl == pytest.approx(0.5) and middle.rungs[1].kl == pytest.approx(0.5, rel=KL_RTOL)
+    assert middle.rungs[2].s is None and middle.rungs[2].target_kl == pytest.approx(1.2)
+    assert middle.adopt and middle.chosen == 1 and middle.next_eps == pytest.approx(0.5)
+
+
+class _Prefetching(_LadderEvaluator):
+    """A `_LadderEvaluator` that also takes `prefetch` and `base_logp_on`
+    (tools/pg_eval.py's), recording its calls in order, by KL."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.calls = []
+
+    def mean_kl(self, s):
+        self.calls.append(("kl",))
+        return super().mean_kl(s)
+
+    def prefetch(self, steps, halves):
+        self.calls.append(("prefetch", [s * s for s in steps], halves))
+
+    def base_logp_on(self, halves):
+        self.calls.append(("base", halves))
+        return self.base_logp()
+
+    def logp(self, s, halves=None):
+        self.calls.append(("read", s * s, halves))
+        return super().logp(s, halves)
+
+
+def test_the_ladder_searches_every_rung_before_one_prefetch_a_half():
+    """Every rung's KL search comes before any reading; the rungs are then
+    prefetched on half A in one call, theta_k read there, the chosen rung
+    prefetched on half B and theta_k read there; the decision is the one an
+    evaluator without them gives."""
+    gains = {"A": {0.5: 0.01, 1.0: 0.03, 2.0: 0.02}, "B": {0.5: 0.04, 1.0: 0.02, 2.0: 0.0}}
+    evaluator = _Prefetching(gains, 0.01)
+    decision = ladder(lambda d: evaluator, {}, 0.01)
+    kinds = [c[0] for c in evaluator.calls]
+    first = kinds.index("prefetch")
+    assert set(kinds[:first]) == {"kl"} and "kl" not in kinds[first:]
+    prefetched = [c for c in evaluator.calls if c[0] == "prefetch"]
+    assert [c[2] for c in prefetched] == [("A",), ("B",)]
+    assert prefetched[0][1] == pytest.approx([0.005, 0.01, 0.02], rel=KL_RTOL)
+    assert prefetched[1][1] == pytest.approx([0.01], rel=KL_RTOL)
+    assert [c[1] for c in evaluator.calls if c[0] == "base"] == [("A",), ("B",)]
+    assert [c[2] for c in evaluator.calls if c[0] == "read"] == [("A",)] * 3 + [("B",)]
+    assert decision.adopt and decision.chosen == 1
+    assert decision.summary() == _ladder(gains).summary()
 
 
 def test_half_b_weights_must_pass_before_its_reading_counts():
@@ -253,12 +357,13 @@ class _FixedWeights:
 
 
 def test_the_kl_is_read_per_side_game():
-    """With 50 decisions a side-game: eps 0.006 a decision puts the 2 eps
-    rung at K 0.6 a side-game, past the range; and weights of
-    effective-sample share 1/3.25 pass the check at K 0.3 a side-game (floor
-    0.27), which read per decision (K 0.006, floor 0.49) they would fail."""
+    """With 50 decisions a side-game: eps 0.008 a decision puts the 2 eps
+    rung at K 0.8 a side-game, past the range (and the edge within
+    EDGE_MIN_RATIO of the eps rung's K 0.4); and weights of effective-sample
+    share 1/3.25 pass the check at K 0.3 a side-game (floor 0.27), which read
+    per decision (K 0.006, floor 0.49) they would fail."""
     gains = {"A": {0.5: 0.01, 1.0: 0.02, 2.0: 0.05}, "B": {0.5: 0.0, 1.0: 0.0, 2.0: 0.0}}
-    decision = ladder(lambda d: _LadderEvaluator(gains, 0.006, decisions=50), {}, 0.006)
+    decision = ladder(lambda d: _LadderEvaluator(gains, 0.008, decisions=50), {}, 0.008)
     assert [r.in_range for r in decision.rungs] == [True, True, False]
     assert decision.adopt and decision.chosen == 1
 

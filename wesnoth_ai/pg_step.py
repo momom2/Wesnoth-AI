@@ -46,6 +46,7 @@ DEFAULT_ARM = "reduced_adamw"
 # scales that head's logits; target_k_proj is left out, since scaling the
 # query alone already scales the pointer logits.
 HEAD_MAPS = ("actor_head", "type_head", "target_q_proj", "weapon_head.2")
+HEADS_ONLY_ARMS = ("heads_only", "probe_span")   # the arms that read no gradient beyond HEAD_MAPS'
 # Every embedding table of the network is a module named `*_embed`.
 EMBEDDING_SUFFIX = "_embed.weight"
 
@@ -56,6 +57,10 @@ REVERT_SE = 2.0                    # half B below -REVERT_SE SE keeps pi_k
 # ΔĴ reads a step up to this KL per side-game (design §1.2); past it a rung
 # is read by a cross-play match, not by importance weights.
 SIDE_KL_RANGE = 0.5
+# A rung past the range is read at its edge only when the edge is at least
+# this factor above the rung below: the rungs are a factor 2 apart, and an
+# edge nearer the rung below than the geometric midpoint repeats its reading.
+EDGE_MIN_RATIO = math.sqrt(2.0)
 
 
 # ---------------------------------------------------------------- the pass
@@ -206,6 +211,8 @@ def direction(pass_: Mapping, arm: str, params: Optional[Mapping[str, torch.Tens
     probe_span (needs `params`, the weights at theta_k). `gradient` replaces
     the pass's total (a split's gradient, say) under the pass's own metric."""
     names = _names(pass_)
+    if (pass_.get("config") or {}).get("heads_only") and arm not in HEADS_ONLY_ARMS:
+        raise ValueError(f"a heads-only pass holds the head maps' gradient alone; the {arm} arm reads them all")
     source = pass_["total"] if gradient is None else gradient
     g = {name: source[name].detach().float().cpu() for name in names}
     if arm == "sgd":
@@ -462,9 +469,9 @@ def read_candidate(evaluator: Evaluator, s: float, kl: float, halves: Mapping[st
 @dataclass(frozen=True)
 class Rung:
     multiplier: float
-    target_kl: float
-    s: float
-    kl: float
+    target_kl: float        # multiplier * eps, or the range's edge for a rung clipped to it
+    s: Optional[float]      # None past the range: the rung is neither searched nor read
+    kl: Optional[float]
     in_range: bool          # the rung's KL per side-game is within SIDE_KL_RANGE
     halves: Dict[str, HalfReading]
 
@@ -506,7 +513,8 @@ def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B
     starts from the adopted rung's radius. pi_k also stays and the radius
     halves when no rung is readable, or when the chosen rung's weights fail
     the check on the confirmation half (design §5: such a rung is read by a
-    cross-play match, not by importance weights)."""
+    cross-play match, not by importance weights). The adopted rung's radius
+    is its target KL, the range's edge for a rung clipped to it."""
     select, confirm = halves
     best = select_rung(rungs, select)
     if best is None:
@@ -521,7 +529,7 @@ def decide(rungs: Sequence[Rung], eps: float, halves: Tuple[str, str] = ("A", "B
         return Decision(False, 0.0, eps, eps / 2.0, best,
                         f"half {confirm} reads {check.estimate:.4g} below -{REVERT_SE:g} SE ({check.se:.3g})",
                         list(rungs))
-    return Decision(True, rungs[best].s, eps, rungs[best].multiplier * eps, best,
+    return Decision(True, rungs[best].s, eps, rungs[best].target_kl, best,
                     f"half {confirm} reads {check.estimate:.4g} (SE {check.se:.3g})", list(rungs))
 
 
@@ -536,32 +544,69 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     (the arm read at eps), so neither its KL search nor its selection-half
     reading is repeated by an evaluator that keeps its readings.
 
-    A rung past SIDE_KL_RANGE (1/2 nat per side-game) is never selected, so
-    this ladder caps every round at K = 1/2, where design §1.2 reads such a
-    rung by a cross-play match against pi_k instead."""
+    Every rung's step is searched before any is read, so an evaluator that
+    can (`_prefetch`) reads the rungs and theta_k on the selection half in
+    one replay of its positions, and the chosen rung and theta_k on the
+    confirmation half in another: theta_k's full reading is never needed.
+    The searches read only the KL subsample, so the order changes no number.
+
+    This ladder caps every round at K = SIDE_KL_RANGE (1/2 nat per
+    side-game), where design §1.2 reads a rung past it by a cross-play match
+    against pi_k instead. The first rung past the range is read at its edge,
+    when the edge is at least EDGE_MIN_RATIO above the rung below; every
+    other rung past it is neither searched nor read (its s and kl are None,
+    its halves empty)."""
     evaluator = evaluator_factory(d)
     by_half = sides_by_half(evaluator.game_sides(), halves)
     per_side = decisions_per_side(evaluator.game_sides())
-    base = evaluator.base_logp()
+    edge = SIDE_KL_RANGE / per_side
     select, confirm = halves
-    rungs, s_guess, previous = [], s0, None
+    points, s_guess, previous, below = [], s0, None, 0.0
     for multiplier in LADDER_MULTIPLIERS:
         target = multiplier * eps
-        point = (known or {}).get(multiplier)
+        if not target <= edge * (1.0 + 1e-9):
+            if not edge >= EDGE_MIN_RATIO * below:
+                points.append((multiplier, target, None))
+                continue
+            target = edge
+        below = target
+        point = (known or {}).get(multiplier) if target == multiplier * eps else None
         if point is None:
             if previous is not None:
                 s_guess = previous.s * math.sqrt(target / previous.kl)
             point = kl_search(evaluator.mean_kl, target, s0=s_guess)
-        in_range = target * per_side <= SIDE_KL_RANGE * (1.0 + 1e-9)
-        rungs.append(Rung(multiplier, target, point.s, point.kl, in_range,
-                          read_candidate(evaluator, point.s, point.kl, {select: by_half[select]}, base)))
+        points.append((multiplier, target, point))
         previous = point
+    searched = [p.s for _, _, p in points if p is not None]
+    _prefetch(evaluator, searched, (select,))
+    base = _base_on(evaluator, (select,)) if searched else None
+    rungs = [Rung(m, target, None, None, False, {}) if p is None else
+             Rung(m, target, p.s, p.kl, True, read_candidate(evaluator, p.s, p.kl, {select: by_half[select]}, base))
+             for m, target, p in points]
     best = select_rung(rungs, select)
     if best is not None:
         rung = rungs[best]
-        confirmed = read_candidate(evaluator, rung.s, rung.kl, {confirm: by_half[confirm]}, base)
+        _prefetch(evaluator, [rung.s], (confirm,))
+        confirmed = read_candidate(evaluator, rung.s, rung.kl, {confirm: by_half[confirm]},
+                                   _base_on(evaluator, (confirm,)))
         rungs[best] = dataclasses.replace(rung, halves={**rung.halves, **confirmed})
     return decide(rungs, eps, halves)
+
+
+def _prefetch(evaluator: Evaluator, steps: Sequence[float], halves: Tuple[str, ...]) -> None:
+    """The steps' readings on `halves` and theta_k's, in one replay, when the
+    evaluator reads them so (tools/pg_eval.py `NetworkEvaluator.prefetch`);
+    any other evaluator reads each when asked."""
+    prefetch = getattr(evaluator, "prefetch", None)
+    if prefetch is not None and steps:
+        prefetch(list(steps), halves)
+
+
+def _base_on(evaluator: Evaluator, halves: Tuple[str, ...]) -> np.ndarray:
+    """theta_k's log probabilities on `halves`: the evaluator's reading of
+    those halves when it keeps one (`base_logp_on`), else `base_logp()`."""
+    on = getattr(evaluator, "base_logp_on", None)
+    return evaluator.base_logp() if on is None else on(halves)
 
 
 # ---------------------------------------------------------------- the Fisher along directions

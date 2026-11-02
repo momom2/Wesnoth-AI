@@ -633,3 +633,56 @@ def test_a_step_with_no_drawn_game_side_reads_nothing():
         reader._read_rows = lambda *a: pytest.fail("a forward ran on no drawn row")
         reader.read(steps, [], None, None)
         assert reader.sums == {}
+
+
+@needs_core
+def test_a_heads_only_pass_is_the_full_pass_on_the_head_maps(tmp_path):
+    """--heads-only freezes every parameter but the head maps: their sums are
+    the full pass's, every other sum is zero, the forward's readings are
+    unchanged, the heads_only and probe_span directions are the full pass's,
+    and the other arms refuse such a pass."""
+    from tools.pg_pass import load_network
+    from wesnoth_ai.param_groups import named_model_parameters
+    from wesnoth_ai.pg_step import ARMS, HEADS_ONLY_ARMS, direction, head_of
+    games, full = _run(tmp_path, streams=2, window=8)
+    _, heads = _run(tmp_path, streams=2, window=8, heads_only=True)
+    names = full["names"]
+    head_names = [n for n in names if head_of(n)]
+    assert head_names and len(head_names) < len(names) and heads["config"]["heads_only"]
+    pairs = [(full["total"], heads["total"])] + list(zip(full["splits"], heads["splits"])) + list(zip(full["sq"], heads["sq"]))
+    for a, b in pairs:
+        # A tensor's own scale is no yardstick: the actor head's bias moves
+        # every unit's logit alike, so its gradient is rounding around 0.
+        scale = max(float(a[n].abs().max()) for n in head_names)
+        for n in names:
+            if head_of(n):
+                torch.testing.assert_close(b[n], a[n], rtol=1e-5, atol=1e-6 * scale + 1e-12)
+            else:
+                assert not b[n].any(), n
+    assert any(full["total"][n].any() for n in names if not head_of(n))
+    assert heads["split_windows"] == full["split_windows"] and heads["decisions"] == full["decisions"]
+    # A frozen trunk may take other kernels (attention's backend, say), so
+    # the forward differs by rounding: sums that cancel to a small value
+    # are held to their largest term's scale.
+    for key in ("head_slopes", "probes"):
+        scale = max(abs(v) for v in full[key].values())
+        for k, v in full[key].items():
+            assert heads[key][k] == pytest.approx(v, rel=1e-4, abs=1e-4 * scale), (key, k)
+    fisher = np.asarray(full["head_fisher"])
+    assert np.allclose(heads["head_fisher"], fisher, rtol=1e-4, atol=1e-4 * np.abs(fisher).max())
+    assert heads["replay"]["kl"] == pytest.approx(full["replay"]["kl"], abs=1e-6)   # 1% of REPLAY_KL_LIMIT
+    params = {n: p.detach() for n, p in named_model_parameters(*reversed(load_network(games.checkpoint, CPU)))}
+    # The actor head's bias shifts every actor's logit alike: its gradient is
+    # rounding (about 1e-7 of the weights'), which reduced AdamW's g / sqrt(v)
+    # makes a unit-sized entry in either pass. It moves no probability.
+    g_scale = max(float(full["total"][n].abs().max()) for n in head_names)
+    rounding = {n for n in head_names if float(full["total"][n].abs().max()) < 1e-5 * g_scale}
+    assert rounding <= {"model.actor_head.bias"}, rounding
+    for arm in HEADS_ONLY_ARMS:
+        a, b = direction(full, arm, params), direction(heads, arm, params)
+        scale = max(float(t.abs().max()) for t in a.values())
+        for n in set(names) - rounding:
+            torch.testing.assert_close(b[n], a[n], rtol=1e-4, atol=1e-5 * scale)
+    for arm in set(ARMS) - set(HEADS_ONLY_ARMS):
+        with pytest.raises(ValueError, match="heads-only pass"):
+            direction(heads, arm, params)

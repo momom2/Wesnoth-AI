@@ -18,7 +18,9 @@ scripts/match_local.py import it.
 - `Steps`: a resumable run's parts (scripts/stage_c_local.py,
   scripts/rounds_local.py): `<part>.done` / `<part>.failed` markers, a STOP
   file between steps, and a display reset during a GPU step writing STOP
-  and ending the run (`Stopped`).
+  and ending the run (`Stopped`); `play_match` runs a run_elo_batch match
+  as such a step, its time budget within the cut, played again once when
+  short.
 
 Off Windows the priority is `os.nice(5)`, keep-awake does nothing and no
 reset is ever logged, so the scripts and their tests run on Linux.
@@ -76,20 +78,52 @@ def keep_awake() -> None:
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+RESET_CHECK_TIMED_OUT = -1         # display_resets_since's answer when its query hung twice: the run stops
+
+
 def display_resets_since(t0: float) -> int:
     """Display-driver resets (Windows System event 4101, a TDR) logged since
     t0 (epoch seconds); 0 off Windows. The RX 6600 drives the display, so
-    a reset means a kernel stalled the GPU past 2 s: the run stops."""
+    a reset means a kernel stalled the GPU past 2 s: the run stops.
+    RESET_CHECK_TIMED_OUT (nonzero, so it stops a run too) when the query
+    hung twice."""
     if sys.platform != "win32":
         return 0
     start = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t0))
     cmd = (f"(Get-WinEvent -FilterHashtable @{{LogName='System'; Id=4101; StartTime=[datetime]'{start}'}} "
            f"-ErrorAction SilentlyContinue | Measure-Object).Count")
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=120)
-    try:
-        return int(r.stdout.strip() or 0)
-    except ValueError:
-        return 0
+    for _ in range(2):                          # a query that hangs once is asked again
+        try:
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True,
+                               timeout=120)
+        except subprocess.TimeoutExpired:
+            continue
+        try:
+            return int(r.stdout.strip() or 0)
+        except ValueError:
+            return 0
+    return RESET_CHECK_TIMED_OUT
+
+
+def reset_reason(n: int, during: str) -> str:
+    """STOP's text for display_resets_since's nonzero answer `n`."""
+    if n == RESET_CHECK_TIMED_OUT:
+        return f"the display-reset check timed out twice after {during}"
+    return f"{n} display-driver reset(s) (System event 4101) during {during}"
+
+
+def stage_c_unfinished(sc: Path) -> Optional[str]:
+    """Why stage C's out `sc` is not a finished run (no ALL_DONE, a STOP, a
+    failed part), or None. P and the rounds start only on a finished one:
+    stage C writes its verdict even when it stops early."""
+    if (sc / "STOP").exists():
+        return f"stage C holds a STOP ({sc / 'STOP'})"
+    failed = sorted(p.name for p in sc.glob("*.failed"))
+    if failed:
+        return f"stage C has failed parts ({', '.join(failed)})"
+    if not (sc / "ALL_DONE").exists():
+        return f"stage C has not finished ({sc / 'ALL_DONE'} is missing)"
+    return None
 
 
 def require_visible_gpu() -> None:
@@ -270,6 +304,14 @@ class Stopped(Exception):
     """A run ends here: a STOP file, or a display reset during a step."""
 
 
+# A match's time budget is its cut less this: the games in flight when the
+# budget ends drain before the cut (a game took about 80 s at 96 workers,
+# stage 1's 5,000 in 4,103-4,170 s). run_elo_batch's own default budget, 55
+# min, would stop a match of more than about 3,000 games short.
+MATCH_DRAIN_MIN = 15
+MATCH_SHORT = (1, 3, 124)       # a failed game, the time budget, the cut: run_elo_batch resumes from games on disk
+
+
 class Steps:
     """A resumable run's parts in `out` (module docstring). `runner` stands
     in for run_tool and `resets` for display_resets_since (their tests
@@ -319,7 +361,22 @@ class Steps:
         if gpu:
             n = self.resets(t0)
             if n:
-                why = f"{n} display-driver reset(s) (System event 4101) during {name}"
+                why = reset_reason(n, name)
+                if rc == 0:                     # its product may be whole: the lead decides, never a plain rerun
+                    why += f"; {name} returned 0, so check its product before running it again"
                 (self.out / "STOP").write_text(why + "\n", encoding="utf-8")
                 raise Stopped(why)
+        return rc
+
+    def play_match(self, name: str, cmd: List[str], log_name: str, cut_min: float,
+                   out: Optional[Path] = None) -> int:
+        """A run_elo_batch match (cmd) as a GPU step, its time budget the cut
+        less MATCH_DRAIN_MIN, played again once when it ends short
+        (MATCH_SHORT), as scripts/match_local.py plays one: the last exit
+        status."""
+        argv = [*cmd, "--time-budget-min", f"{cut_min - MATCH_DRAIN_MIN:g}"]
+        rc = self.step(name, argv, log_name, cut_min, out=out)
+        if rc in MATCH_SHORT:
+            log(self.out, f"{name}: ended rc={rc}, short: played again once from the games on disk")
+            rc = self.step(f"{name} again", argv, log_name, cut_min, out=out)
         return rc
