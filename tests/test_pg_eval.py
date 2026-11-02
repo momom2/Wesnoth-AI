@@ -286,7 +286,23 @@ def test_steps_that_move_the_heads_alone_share_theta_ks_trunk(tmp_path, packed):
     assert context.reads == Counter({"half A": 4})
     moved = ~np.isnan(together[0.0].logp)
     assert np.max(np.abs(together[1.0].logp[moved] - together[0.0].logp[moved])) > 1e-4
+    # the heads-only arm's own direction (pg_step.heads_only) keeps every
+    # name, zeros off the heads: it shares the trunk and reads the same
+    from wesnoth_ai.pg_step import head_of, heads_only
+    production = heads_only(full)
+    assert set(production) == set(full) and context.shares_trunk(production)
+    nudged = dict(production)
+    trunk = next(n for n in full if head_of(n) is None)
+    nudged[trunk] = production[trunk].clone()
+    nudged[trunk].view(-1)[0] = 1e-3
+    assert not context.shares_trunk(nudged)
+    again = context.read(production, [0.0, 0.5, 1.0], sides)
+    assert context.reads == Counter({"half A": 5})
+    for s in (0.0, 0.5, 1.0):
+        assert np.array_equal(together[s].logp, again[s].logp, equal_nan=True)
+        assert np.array_equal(together[s].masses, again[s].masses, equal_nan=True)
     context.close()
+
 
 
 @needs_core
