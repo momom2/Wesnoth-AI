@@ -28,6 +28,11 @@ game of the tests (tests/helpers/toy_game.py) and on the network
 - The forwards behind `logp` and `mean_kl` run in float32. bf16 rounds a
   log probability near -5 by about 0.016 nats, more than the KL of about
   0.001 nats per decision the step searches for.
+- Optional, beyond the protocol: `prefetch(steps, halves)` reads several
+  steps on some halves together with theta_k's reading of them, and
+  `base_logp_on(halves)` returns theta_k's log probabilities on those
+  halves (NaN elsewhere, or its full reading). The ladder uses them when
+  present (pg_step `_prefetch`, `_base_on`) and `base_logp()` otherwise.
 """
 from __future__ import annotations
 

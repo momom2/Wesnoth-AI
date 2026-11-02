@@ -544,6 +544,12 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     (the arm read at eps), so neither its KL search nor its selection-half
     reading is repeated by an evaluator that keeps its readings.
 
+    Every rung's step is searched before any is read, so an evaluator that
+    can (`_prefetch`) reads the rungs and theta_k on the selection half in
+    one replay of its positions, and the chosen rung and theta_k on the
+    confirmation half in another: theta_k's full reading is never needed.
+    The searches read only the KL subsample, so the order changes no number.
+
     This ladder caps every round at K = SIDE_KL_RANGE (1/2 nat per
     side-game), where design §1.2 reads a rung past it by a cross-play match
     against pi_k instead. The first rung past the range is read at its edge,
@@ -554,14 +560,13 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     by_half = sides_by_half(evaluator.game_sides(), halves)
     per_side = decisions_per_side(evaluator.game_sides())
     edge = SIDE_KL_RANGE / per_side
-    base = evaluator.base_logp()
     select, confirm = halves
-    rungs, s_guess, previous, below = [], s0, None, 0.0
+    points, s_guess, previous, below = [], s0, None, 0.0
     for multiplier in LADDER_MULTIPLIERS:
         target = multiplier * eps
         if not target <= edge * (1.0 + 1e-9):
             if not edge >= EDGE_MIN_RATIO * below:
-                rungs.append(Rung(multiplier, target, None, None, False, {}))
+                points.append((multiplier, target, None))
                 continue
             target = edge
         below = target
@@ -570,15 +575,38 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
             if previous is not None:
                 s_guess = previous.s * math.sqrt(target / previous.kl)
             point = kl_search(evaluator.mean_kl, target, s0=s_guess)
-        rungs.append(Rung(multiplier, target, point.s, point.kl, True,
-                          read_candidate(evaluator, point.s, point.kl, {select: by_half[select]}, base)))
+        points.append((multiplier, target, point))
         previous = point
+    searched = [p.s for _, _, p in points if p is not None]
+    _prefetch(evaluator, searched, (select,))
+    base = _base_on(evaluator, (select,)) if searched else None
+    rungs = [Rung(m, target, None, None, False, {}) if p is None else
+             Rung(m, target, p.s, p.kl, True, read_candidate(evaluator, p.s, p.kl, {select: by_half[select]}, base))
+             for m, target, p in points]
     best = select_rung(rungs, select)
     if best is not None:
         rung = rungs[best]
-        confirmed = read_candidate(evaluator, rung.s, rung.kl, {confirm: by_half[confirm]}, base)
+        _prefetch(evaluator, [rung.s], (confirm,))
+        confirmed = read_candidate(evaluator, rung.s, rung.kl, {confirm: by_half[confirm]},
+                                   _base_on(evaluator, (confirm,)))
         rungs[best] = dataclasses.replace(rung, halves={**rung.halves, **confirmed})
     return decide(rungs, eps, halves)
+
+
+def _prefetch(evaluator: Evaluator, steps: Sequence[float], halves: Tuple[str, ...]) -> None:
+    """The steps' readings on `halves` and theta_k's, in one replay, when the
+    evaluator reads them so (tools/pg_eval.py `NetworkEvaluator.prefetch`);
+    any other evaluator reads each when asked."""
+    prefetch = getattr(evaluator, "prefetch", None)
+    if prefetch is not None and steps:
+        prefetch(list(steps), halves)
+
+
+def _base_on(evaluator: Evaluator, halves: Tuple[str, ...]) -> np.ndarray:
+    """theta_k's log probabilities on `halves`: the evaluator's reading of
+    those halves when it keeps one (`base_logp_on`), else `base_logp()`."""
+    on = getattr(evaluator, "base_logp_on", None)
+    return evaluator.base_logp() if on is None else on(halves)
 
 
 # ---------------------------------------------------------------- the Fisher along directions

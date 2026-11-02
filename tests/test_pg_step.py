@@ -286,6 +286,51 @@ def test_the_first_rung_past_the_range_is_read_at_its_edge(monkeypatch):
     assert middle.adopt and middle.chosen == 1 and middle.next_eps == pytest.approx(0.5)
 
 
+class _Prefetching(_LadderEvaluator):
+    """A `_LadderEvaluator` that also takes `prefetch` and `base_logp_on`
+    (tools/pg_eval.py's), recording its calls in order, by KL."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.calls = []
+
+    def mean_kl(self, s):
+        self.calls.append(("kl",))
+        return super().mean_kl(s)
+
+    def prefetch(self, steps, halves):
+        self.calls.append(("prefetch", [s * s for s in steps], halves))
+
+    def base_logp_on(self, halves):
+        self.calls.append(("base", halves))
+        return self.base_logp()
+
+    def logp(self, s, halves=None):
+        self.calls.append(("read", s * s, halves))
+        return super().logp(s, halves)
+
+
+def test_the_ladder_searches_every_rung_before_one_prefetch_a_half():
+    """Every rung's KL search comes before any reading; the rungs are then
+    prefetched on half A in one call, theta_k read there, the chosen rung
+    prefetched on half B and theta_k read there; the decision is the one an
+    evaluator without them gives."""
+    gains = {"A": {0.5: 0.01, 1.0: 0.03, 2.0: 0.02}, "B": {0.5: 0.04, 1.0: 0.02, 2.0: 0.0}}
+    evaluator = _Prefetching(gains, 0.01)
+    decision = ladder(lambda d: evaluator, {}, 0.01)
+    kinds = [c[0] for c in evaluator.calls]
+    first = kinds.index("prefetch")
+    assert set(kinds[:first]) == {"kl"} and "kl" not in kinds[first:]
+    prefetched = [c for c in evaluator.calls if c[0] == "prefetch"]
+    assert [c[2] for c in prefetched] == [("A",), ("B",)]
+    assert prefetched[0][1] == pytest.approx([0.005, 0.01, 0.02], rel=KL_RTOL)
+    assert prefetched[1][1] == pytest.approx([0.01], rel=KL_RTOL)
+    assert [c[1] for c in evaluator.calls if c[0] == "base"] == [("A",), ("B",)]
+    assert [c[2] for c in evaluator.calls if c[0] == "read"] == [("A",)] * 3 + [("B",)]
+    assert decision.adopt and decision.chosen == 1
+    assert decision.summary() == _ladder(gains).summary()
+
+
 def test_half_b_weights_must_pass_before_its_reading_counts():
     """The rung chosen on half A whose weights fail the check on half B is
     not adopted on half B's reading: pi_k stays and the radius halves."""
