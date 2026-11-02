@@ -3,7 +3,7 @@
 Copies of the one-off helpers that ran from `C:/Users/momom2/wesnoth_runs/tools/`
 during the window (docs/autonomy_20261029.md), committed for the record
 (the 2026-11-02 21:45 review). The run uses the copies there; these are
-snapshots as of 2026-11-02 22:40.
+snapshots as of 2026-11-02 23:12.
 
 - `pytest_locked.py`: one pytest at a time on this machine.
 - `relaunch_after_stop.py`: relaunches stage C's driver after a stop.
@@ -19,3 +19,5 @@ snapshots as of 2026-11-02 22:40.
   subset of the readout.
 - `window_check.py`: the pass's full-network gradient windowed at 16 decisions
   against one window per game-side, on the CPU (the 21:45 review, item 1).
+- `after_stop.py` and `arm_after_stop.ps1`: prereg departure 33. If a design stop ends the rounds, the
+  paired arm reading, then the rounds go on (`chain_local --after-stop`).

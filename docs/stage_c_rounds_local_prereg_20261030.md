@@ -711,3 +711,76 @@ Design §6, unchanged:
     - **The fallback** written in departure 28 (re-arm at 118d7a23) is
       void (the 10:13 review, M2): 118d7a23 knows neither the tail's
       flags nor the resume fix. The fallback is now 6f86c363.
+
+33. **The rounds go on past a design stop** (`feature/after-stop`
+    786c453a, merged into `feature/cross-play-rung` at a0e2b56b;
+    registered 2026-11-02 23:12, before round 3's claim).
+    - **Why:**
+      - A design stop (rounds_local exit 3: the pause, or a claim below its
+        forecast) ends the chain after the final and tail matches, with no
+        continuation. The stop asks the user to choose a magnet or a pool,
+        and the user is away until about Nov 8.
+      - Round 3's claim comes about Nov 3 11:00, and a stop there would
+        idle the GPU for about 3.5 days (the 21:45 review, item 3).
+      - The transfer test is tight: its combined SE is about 10 Elo against
+        a forecast of about +150 after round 3.
+    - **Why the trunk** (the review's item 1, and the window check):
+      - Under `--heads-only` the gradient is window-free by construction.
+        The trunk arms' gradient is not.
+      - On 8 training games of stage C's pass, the full-network gradient
+        windowed at 16 decisions reads, against one window per game-side,
+        a cosine of 0.62 in stage C's reduced-AdamW metric. By group:
+        encoder layers 0.77, the memory 0.25-0.47, and the heads exactly
+        1.0 (the control). On the CPU the one-window pass costs 3% more.
+      - Stage C compared its arms on the windowed gradient: heads_only beat
+        reduced_adamw by 0.097 on half A, and the class probes alone carry
+        86% of that gain.
+      - Open: whether the window biases the expected gradient or only each
+        game's. The 64-game split reading (`window_check64`, due about Nov
+        3 05:00) is recorded beside this departure and does not gate it.
+    - **What runs.** Only after a design stop at round K0, and once the
+      final and tail matches returned 0 (`wesnoth_runs/tools/after_stop.py`,
+      a watcher started now):
+      1. **The paired arm reading**, when it and one trunk round fit before
+         Nov 8 02:00 (13 h + 19 h). First, a full-network pass in one window
+         per game-side on round K0's training games, at the policy that
+         played them (`pg_pass --window 10000000`, with the rounds' fp16
+         flags). Then `pg_round --arm reduced_adamw` at round K0's radius,
+         on the same halves. Its files go beside round K0's (`trunk_*`),
+         and its candidate is not adopted.
+      2. **The rounds go on** from round K0's policy (`chain_local
+         --after-stop K0`: rounds to 39, ending by Nov 8 02:00), rebased on
+         round K0:
+         - the stops of rounds K0 and before are not read again;
+         - the pause sums only the confirmed readings after K0;
+         - a claim is tested against round K0's claim in place of D0, with
+           the forecast from the readings after K0.
+         The arm is reduced_adamw in one window iff its best half-A reading
+         in step 1 is at least heads_only's best on the same half. It is
+         heads_only (with the heads-only pass) otherwise, or when step 1
+         fails or does not fit.
+      3. **The standard match** (`final_match_after_stop/`, seeds 900,000,
+         12,800 games) on a round adopted after K0; none otherwise.
+    - **Guards:**
+      - Step 1 is the one-window pass's first run on the GPU. If it fails,
+        a GPU health check (a 1,024-element sum) runs before anything
+        else, and on a failure nothing more runs on the GPU (never two
+        faults in a row).
+      - The rounds after K0 play on their own seed blocks (10M + k·1M, and
+        the cross-play and claim blocks by k), which no round has used,
+        since none ran past K0.
+      - The STOP is moved aside to `STOP_roundK0` and kept.
+    - **The readings:**
+      - Each round after K0 reports its halves and its claim as before.
+      - A trunk round's reading against the heads-only rounds' (0.14-0.16
+        a round at ε about 0.0025) is reported, not gated.
+      - Confounds: the trunk line changes the arm and the window at once.
+        Step 1 isolates the arm at one window on the same data (the same
+        θ, ε and halves), and stage C's reading isolates the arm at 16.
+      - The after-stop line's final match is a strength claim against the
+        reference, like the window's other final matches. The rest is not.
+    - **The tests:** tests/test_rounds_local.py covers the arm and the
+      window reaching the pass and the step, and the rebased stops.
+      tests/test_chain_local.py covers the after-stop flow: the stop moved
+      aside, the flags, a match only after K0, and the refusals. 36 passed.
+      The full suite runs at a0e2b56b.
