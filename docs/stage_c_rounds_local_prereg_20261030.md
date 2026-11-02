@@ -532,3 +532,53 @@ Design §6, unchanged:
       earlier departures' "under stage C's CPU load" was that artifact.
     - The chain was re-armed at 118d7a23 on 2026-11-01 23:02 (pid 12536),
       while it still waited on stage C's plant.
+28. **The ladder reads each half in one walk, the heads-only rungs on one
+    trunk** (`feature/shared-trunk-ladder` 005ac4cb, merged into
+    `feature/cross-play-rung` at d9c000f2; registered 2026-11-02 01:40,
+    before any round's ladder has run).
+    - **Why** (the 2026-11-01 21:43 review, M4): under the heads-only arm
+      a step moves only the heads' final linear maps (pg_step.HEAD_MAPS),
+      which read nothing but the trunk's rows. The memory is written from
+      the trunk's output (model.py:798-802), so θ_k and every rung share the
+      trunk and the memory along each game-side. Yet each rung walked its
+      half with full forwards, and θ_k's full reading was a walk of its own.
+      Stage C's driver_cache times a full walk at 146 min and a half's
+      reading at about 74.
+    - **The change:**
+      - The ladder searches every rung's step before reading any. The
+        searches read only the KL subsample, so no number changes.
+      - It then reads the rungs and θ_k on half A in one walk, and the
+        chosen rung and θ_k on half B in another (`NetworkEvaluator.prefetch`,
+        `base_logp_on`). θ_k's full reading is never taken.
+      - When the direction moves the head maps alone (`EvalContext.shares_trunk`),
+        such a walk runs θ_k's trunk once a time step, carries one memory,
+        and applies each rung's heads to the trunk's rows
+        (`WesnothModel.keeping_head_inputs`, `heads_from`).
+      - A direction that moves the trunk (the other arms) reads each half in
+        one walk with one forward a network, as `evaluate` always did.
+    - **What changes in the numbers:** only θ_k's reading. It now comes from
+      the half's own walk, batched with that half's positions, not from the
+      full walk. On the CPU in float32 the two agree to 4.8e-7 at most (the test games, padded and packed trunks) (test
+      below). On the GPU in fp16, θ_k and a rung read in one walk share the
+      trunk's rounding, so their log ratio carries the heads' rounding alone.
+      The old path subtracted readings from walks batched differently.
+    - **Expected wall:** a round's step loses the full walk (146 min) and
+      all but one of the half-A readings (74 min each, two or three rungs):
+      about 3.7-4.9 h of the 7.5-9 h step. This is an estimate from stage C's
+      times, unverified until round 2's step; that step's log times it.
+    - **Unchanged:** the rungs, the KL searches, the selection on half A,
+      the confirmation and the revert on half B, departures 23 and 26-27,
+      and every reading's cache key format (a new code key makes old
+      readings a miss).
+    - **Fallback:** if round 2's step fails on the GPU, re-arm the chain at
+      118d7a23 (the old ladder); the round resumes at its step.
+    - The tests:
+      - tests/test_pg_eval.py::test_steps_that_move_the_heads_alone_share_theta_ks_trunk
+        (bit-equal readings, padded and packed trunks, one trunk counted);
+      - tests/test_pg_eval.py::test_a_prefetch_reads_a_halfs_steps_beside_theta_k_in_one_walk;
+      - tests/test_pg_step.py::test_the_ladder_searches_every_rung_before_one_prefetch_a_half.
+      - The evaluator, ladder, stage C, end-to-end, cross-play, rounds, round
+        and plant tests: 74 passed.
+    - The full suite on 005ac4cb: 2211 passed, 139 skipped, 5 warnings in 833.93s (0:13:53), launched from Git Bash, so the box tests ran and passed; d9c000f2's tree is 005ac4cb's.
+    - The chain was re-armed at d9c000f2 on 2026-11-02 01:38 (pid 3464),
+      while it still waited on stage C's plant.
