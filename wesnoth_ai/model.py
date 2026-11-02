@@ -38,6 +38,7 @@ obs8's, parameter for parameter.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
@@ -1127,6 +1128,22 @@ class WesnothModel(nn.Module):
             w.refresh(self.encoder, self._weights_version)
         return w
 
+    @contextlib.contextmanager
+    def keeping_head_inputs(self, sink: List[dict]):
+        """Within the block, each call of the heads appends its arguments to
+        `sink`, whichever trunk produced them, so `heads_from` can run
+        another network's heads on this trunk's rows: networks that differ
+        in their heads' parameters alone share one trunk (tools/pg_eval.py)."""
+        previous, self._head_sink = getattr(self, "_head_sink", None), sink
+        try:
+            yield sink
+        finally:
+            self._head_sink = previous
+
+    def heads_from(self, inputs: dict) -> "PaddedOutput":
+        """This network's heads on arguments `keeping_head_inputs` kept."""
+        return self._heads(**inputs)
+
     def _heads(self, actor_ctx, hex_ctx, global_ctx, actor_kind, sizes,
                unit_ctx, material: Optional[torch.Tensor] = None,
                memory_padded: Optional[torch.Tensor] = None,
@@ -1135,6 +1152,11 @@ class WesnothModel(nn.Module):
         [B, H_max, d] and global [B, 1, d] rows, whichever trunk produced
         them; the belief head on the hex rows when the model has one.
         The new memory states ride along."""
+        sink = getattr(self, "_head_sink", None)
+        if sink is not None:
+            sink.append(dict(actor_ctx=actor_ctx, hex_ctx=hex_ctx, global_ctx=global_ctx, actor_kind=actor_kind,
+                             sizes=sizes, unit_ctx=unit_ctx, material=material, memory_padded=memory_padded,
+                             memory_counts=memory_counts))
         d = self.d_model
         device, dtype = actor_ctx.device, actor_ctx.dtype
         B, A_max, _ = actor_ctx.shape

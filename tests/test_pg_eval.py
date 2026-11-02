@@ -253,6 +253,84 @@ def test_evaluators_share_theta_k_and_forward_only_what_they_are_asked(tmp_path)
     context.close()
 
 
+def _heads_only(games):
+    """A small random direction over the heads' final linear maps alone."""
+    from wesnoth_ai.pg_step import head_of
+    full = _direction(games.model, games.encoder)
+    heads = {n: t for n, t in full.items() if head_of(n) is not None}
+    assert heads and len(heads) < len(full)
+    return full, heads
+
+
+@needs_core
+@pytest.mark.parametrize("packed", [False, True])
+def test_steps_that_move_the_heads_alone_share_theta_ks_trunk(tmp_path, packed):
+    """Steps along a direction over the heads' final linear maps alone, read
+    with theta_k in one walk, run theta_k's trunk once a time step (one read
+    counted), and each one's log probabilities and class masses are bit for
+    bit those of its own forward, on either trunk; a direction that moves
+    the trunk shares nothing."""
+    from collections import Counter
+    from helpers.pg_games import played_games
+    full, heads = _heads_only(played_games())
+    _, ev = _evaluator(tmp_path, direction=heads, packed=packed)
+    context = ev.context
+    assert context.shares_trunk(ev.direction) and not context.shares_trunk(full) and not context.shares_trunk({})
+    sides = [gs for gs in context.sides if gs.half == "A"]
+    together = context.read(ev.direction, [0.0, 0.5, 1.0], sides)
+    assert context.reads == Counter({"half A": 1})
+    for s in (0.0, 0.5, 1.0):
+        alone = context.read(ev.direction, [s], sides)[s]
+        assert np.array_equal(together[s].logp, alone.logp, equal_nan=True)
+        assert np.array_equal(together[s].masses, alone.masses, equal_nan=True)
+    assert context.reads == Counter({"half A": 4})
+    moved = ~np.isnan(together[0.0].logp)
+    assert np.max(np.abs(together[1.0].logp[moved] - together[0.0].logp[moved])) > 1e-4
+    context.close()
+
+
+@needs_core
+def test_a_prefetch_reads_a_halfs_steps_beside_theta_k_in_one_walk(tmp_path):
+    """`prefetch` reads steps on half A and theta_k's on it in one walk;
+    `logp` and `base_logp_on` read them back and a second prefetch reads
+    nothing. theta_k's reading of half A is NaN elsewhere and its full
+    reading's on half A, which serves once at hand. A restarted evaluator
+    gets both from the cache without a forward."""
+    from collections import Counter
+    from helpers.pg_games import played_games
+    from tools.pg_eval import EvalConfig, EvalContext
+    _, heads = _heads_only(played_games())
+    cache = tmp_path / "cache"
+    games, ev = _evaluator(tmp_path, direction=heads, cache=str(cache))
+    context = ev.context
+    ev.prefetch([0.5, 1.0], ("A",))
+    assert context.reads == Counter({"half A": 1})
+    base_a = ev.base_logp_on(("A",))
+    steps = {s: ev.logp(s, halves=("A",)) for s in (0.5, 1.0)}
+    ev.prefetch([0.5], ("A",))
+    assert context.reads == Counter({"half A": 1})
+    in_a = np.concatenate([np.full(gs.stop - gs.start, gs.half == "A") for gs in ev.game_sides()])
+    assert in_a.any() and not in_a.all() and np.isnan(base_a[~in_a]).all()
+    context.close()
+
+    labels = read_labels(tmp_path / "labels.jsonl")
+    again_context = EvalContext(games.checkpoint, games.records, labels, CPU,
+                                EvalConfig(streams=2, window=4, kl_fraction=1.0, cache=str(cache)))
+    again = again_context.bind(heads)
+
+    def no_forward(*a, **kw):
+        raise AssertionError("a cached reading was forwarded again")
+    again_context._walk = no_forward
+    again.prefetch([0.5, 1.0], ("A",))
+    assert np.array_equal(again.base_logp_on(("A",)), base_a, equal_nan=True)
+    assert all(np.array_equal(again.logp(s, halves=("A",)), v, equal_nan=True) for s, v in steps.items())
+    del again_context._walk
+    full = again.base_logp()
+    assert np.allclose(base_a[in_a], full[in_a], rtol=0, atol=1e-5)
+    assert again.base_logp_on(("A",)) is full
+    again_context.close()
+
+
 @needs_core
 def test_the_c0_forward_reading_counts_and_reproduces_the_held_out_decisions(tmp_path):
     """`pg_eval.py time` replays the first held-out games once: every logged
