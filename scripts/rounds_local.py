@@ -74,7 +74,8 @@ it in the same --out, and three options shape them:
 - `--rebase-after K0`: the stops of rounds K0 and before were acted on and
   are not read again, and the stops after K0 read only the rounds after
   it: the pause sums the confirmed readings after K0, and a claim is tested
-  against round K0's claim in place of D0.
+  against round K0's claim in place of D0. --end-by's walls are those of
+  the rounds after K0 once one has ended (prereg departure 35).
 The STOP the stop wrote is moved aside by the caller (scripts/chain_local.py
 --after-stop) before the rounds resume.
 
@@ -277,19 +278,26 @@ class Rounds(Steps):
         (self.out / "times.json").write_text(json.dumps(times, indent=1), encoding="utf-8")
 
     def no_time(self, k: int) -> Optional[str]:
-        """Why round k must not start under --end-by, or None."""
+        """Why round k must not start under --end-by, or None. Under
+        --rebase-after K0 the walls are the rounds' after K0 once one has
+        ended (prereg departure 35): they run as configured now, while the
+        rounds before ran another |H| and their stop's claim."""
         end_by = getattr(self.a, "end_by", None)
         times = self._times()
         if end_by is None or k < 3 or "start" in times.get(str(k), {}):
             return None
-        walls = [t["end"] - t["start"] for j, t in times.items() if int(j) >= 2 and "end" in t and "start" in t]
+        walls = {int(j): t["end"] - t["start"] for j, t in times.items()
+                 if int(j) >= 2 and "end" in t and "start" in t}
+        k0 = getattr(self.a, "rebase_after", None) or 0
+        since = [w for j, w in walls.items() if j > k0]
         if not walls:
             return None
-        need = END_BY_MARGIN * max(walls)
+        need = END_BY_MARGIN * max(since or walls.values())
         deadline = datetime.strptime(end_by, END_BY_FORMAT).timestamp()
         if self.now() + need <= deadline:
             return None
-        return (f"round {k} would need about {need / 3600:.1f} h ({END_BY_MARGIN} times the longest round), "
+        which = f"the longest round after round {k0}" if since else "the longest round"
+        return (f"round {k} would need about {need / 3600:.1f} h ({END_BY_MARGIN} times {which}), "
                 f"past --end-by {end_by}")
 
     def pass_scope(self) -> List[str]:
