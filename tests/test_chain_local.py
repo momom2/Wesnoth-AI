@@ -22,7 +22,7 @@ def _args(tmp_path, **kw):
                 final_games=cl.FINAL_GAMES, final_seed_base=cl.FINAL_SEED_BASE, tail_out=None,
                 tail_games=cl.TAIL_GAMES, tail_seed_base=cl.TAIL_SEED_BASE, continue_rounds=None,
                 continue_end_by=None, continue_final_out=None, skip_p=False, after_stop=None, rounds_arm=None,
-                rounds_pass_window=None)
+                rounds_pass_window=None, rounds_held=None)
     base.update(kw)
     return Namespace(**base)
 
@@ -77,10 +77,12 @@ def test_a_finished_stage_c_starts_p_then_the_rounds(tmp_path):
         assert cmd[0] == "gpu-py" and cmd[cmd.index("--tools-python") + 1] == "cpu-py" and "--keep-awake" in cmd
         assert cmd[cmd.index("--checkpoint") + 1] == "own2.pt"
     assert {hip for _, _, hip in f.ran} == {"1"} and "--heads-only-pass" not in rounds and "--n-train" not in rounds
+    assert "--held" not in rounds
     assert "CHAIN_P" in _log(args) and "CHAIN_ROUNDS" in _log(args)
     assert _log(args).index("CHAIN_VERDICT") < _log(args).index("CHAIN_P:")      # read again before P
     assert "did not read its gate" in json.loads((args.stage_c / "verdict.json").read_text(encoding="utf-8"))["next"]
-    args = _args(tmp_path / "heads", heads_only_pass=True, rounds_end_by="2026-11-07 12:00", rounds_n_train=5000)
+    args = _args(tmp_path / "heads", heads_only_pass=True, rounds_end_by="2026-11-07 12:00", rounds_n_train=5000,
+                 rounds_held=5000)
     (args.stage_c / "ALL_DONE").write_text("done\n", encoding="utf-8")
     f = Fakes(args.stage_c)
     assert f.chain(args)() == 0
@@ -88,6 +90,7 @@ def test_a_finished_stage_c_starts_p_then_the_rounds(tmp_path):
     assert "--heads-only-pass" in rounds
     assert rounds[rounds.index("--end-by") + 1] == "2026-11-07 12:00"
     assert rounds[rounds.index("--n-train") + 1] == "5000"
+    assert rounds[rounds.index("--held") + 1] == "5000"                  # prereg departure 34
 
 
 def test_a_runner_gone_without_all_done_refuses_after_two_looks(tmp_path):

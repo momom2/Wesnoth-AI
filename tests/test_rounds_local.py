@@ -293,6 +293,45 @@ def test_n_train_sizes_the_rounds_and_a_round_keeps_the_size_it_began_with(tmp_p
     assert _pass_dirs(later, 2) == _pass_dirs(begun, 2)
 
 
+
+def test_held_sizes_the_rounds_that_start_under_it_and_a_round_keeps_the_held_out_set_it_began_with(
+        tmp_path, monkeypatch):
+    """--held is |H| for the rounds whose games start under it (prereg
+    departure 34), recorded in the round's held.txt. A round whose games
+    started before held.txt existed played N_HELD and keeps it; one begun
+    under --held keeps that on a new start without it."""
+    _reference(monkeypatch)
+    old = FakeTools()                                    # round 2 played before departure 34
+    rc, out = _run(tmp_path / "resumed", old, rounds=2, n_train=5000)
+    assert rc == 0 and (out / "round_02" / "held.txt").read_text(encoding="utf-8").strip() == str(rl.N_HELD)
+    (out / "round_02" / "held.txt").unlink()
+    later = FakeTools()
+    rc, out = _run(tmp_path / "resumed", later, rounds=3, n_train=5000, held=5000)
+    games = later.cmd("round 3 games")
+    assert rc == 0 and "round 2 games" not in later.names()
+    assert games[games.index("--games") + 1] == "10000" and games[games.index("--heldout-from") + 1] == "5000"
+    assert len(_pass_dirs(later, 3)) == 10000 // rl.CHUNK_GAMES
+    assert (out / "round_02" / "held.txt").read_text(encoding="utf-8").strip() == str(rl.N_HELD)
+    assert (out / "round_03" / "held.txt").read_text(encoding="utf-8").strip() == "5000"
+    assert "rounds of N 5000 + |H| 5000 games" in (out / "runner.log").read_text(encoding="utf-8")
+
+    class Failing(FakeTools):
+        def __call__(self, out, name, cmd, log_name, cut, python, **kw):
+            if name == "round 2 pass":
+                self.calls.append((name, cmd, python))
+                return 1
+            return super().__call__(out, name, cmd, log_name, cut, python, **kw)
+
+    begun = Failing()
+    rc, out = _run(tmp_path / "begun", begun, rounds=2, n_train=5000, held=5000)
+    assert rc == 1 and len(_pass_dirs(begun, 2)) == 10000 // rl.CHUNK_GAMES
+    (out / "r02_pass.failed").unlink()
+    again = FakeTools()                                  # a new start at the default |H|
+    rc, _ = _run(tmp_path / "begun", again, rounds=2, n_train=5000)
+    assert rc == 0 and again.names() == ["round 2 pass", "round 2 step"]
+    assert _pass_dirs(again, 2) == _pass_dirs(begun, 2)
+
+
 def test_a_failed_part_stops_the_chain_and_stays_failed(tmp_path, monkeypatch):
     _reference(monkeypatch)
 

@@ -24,7 +24,8 @@ worktree P and the rounds should run (pinned at a tested commit):
    passes and the link holds). A step that fails is never run again.
    With --skip-p, P is not run and the rounds run with --no-p-gate
    (prereg departure 31: P's played check cannot resolve at the plant's
-   size).
+   size). --rounds-n-train and --rounds-held are rounds_local's --n-train
+   and --held (prereg departures 25 and 34).
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them), it plays the window's final match
    (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
@@ -267,6 +268,7 @@ class Chain:
         heads = ["--heads-only-pass"] if a.heads_only_pass else []
         heads += ["--end-by", end_by] if end_by else []
         heads += ["--n-train", str(a.rounds_n_train)] if a.rounds_n_train else []
+        heads += ["--held", str(a.rounds_held)] if getattr(a, "rounds_held", None) else []
         heads += ["--arm", a.rounds_arm] if getattr(a, "rounds_arm", None) else []
         heads += ["--pass-window", str(a.rounds_pass_window)] if getattr(a, "rounds_pass_window", None) else []
         heads += ["--rebase-after", str(a.after_stop)] if getattr(a, "after_stop", None) is not None else []
@@ -366,6 +368,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                     help="passed to rounds_local --end-by: the rounds end in time for the final match")
     ap.add_argument("--rounds-n-train", type=int, default=None,
                     help="passed to rounds_local --n-train: a round's training games (prereg departure 25)")
+    ap.add_argument("--rounds-held", type=int, default=None,
+                    help="passed to rounds_local --held: |H|, a round's held-out games, for rounds whose games "
+                         "start from now (prereg departure 34)")
     ap.add_argument("--final-out", type=Path, default=None,
                     help="play the window's final match into this directory once the rounds end")
     ap.add_argument("--final-games", type=int, default=FINAL_GAMES)
