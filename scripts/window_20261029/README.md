@@ -24,3 +24,9 @@ snapshots as of 2026-11-02 23:12.
 - `after_stop.py` and `arm_after_stop.ps1`: prereg departure 33, amended (33a, 2026-11-03 10:27). If a
   design stop ends the rounds, round K0's end is stamped and the rounds go on heads_only
   (`chain_local --after-stop`); the paired arm reading was withdrawn.
+- `after_stop_line.py` (with `after_stop_line_stubtest.py`, its stub test): prereg departure 35
+  (2026-11-03 22:42). It watches the after-stop line. A REDEPLOY stop that names "after
+  round K0" re-arms the line at --head. A later design stop at a claim round K, its final
+  match done, stamps round K's end and re-arms the line rebased on K, its final match into
+  `final_match_after_stop_kKK`. `arm_after_stop.ps1` gained `-FinalOut` and appends its
+  console log.
