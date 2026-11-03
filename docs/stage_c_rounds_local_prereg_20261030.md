@@ -784,3 +784,27 @@ Design §6, unchanged:
       tests/test_chain_local.py covers the after-stop flow: the stop moved
       aside, the flags, a match only after K0, and the refusals. 36 passed.
       The full suite runs at a0e2b56b.
+
+33a. **Amendment to departure 33** (registered 2026-11-03 10:27, before
+    round 3's claim reads; the 2026-11-03 review's findings 1 and 2).
+    - **Step 1, the paired arm reading, is withdrawn.**
+      - pg_pass's `--window` counts time steps across all 32 streams
+        (wesnoth_ai/sequence_streams.py, `StreamSchedule.window`). So
+        `--window 10000000` puts a whole split in one graph: about 270,000
+        decisions (about 8,500 steps), whose checkpointed inputs and
+        memories do not fit the card's 8 GB.
+      - The reduced-AdamW metric's second moment is the mean over windows
+        of each window's squared gradient (wesnoth_ai/pg_step.py,
+        `second_moment`). With one window a split it would be read from 8
+        split-level squares, so the arm's metric would change with the
+        window. Step 1 would not have isolated the arm as registered.
+    - **What runs after a design stop:** step 2 with the heads-only arm and
+      the heads-only pass, as in the rounds before the stop. Step 3 is
+      unchanged.
+    - **Round K0's end:** at a design stop rounds_local returns before it
+      stamps round K0's end in times.json, and the resume would stamp it
+      hours late. The round's wall would then bound `--end-by` too long and
+      end the rounds 1-2 rounds early. So the watcher stamps the end at the
+      STOP file's time before it arms the rounds.
+    - The watcher (`wesnoth_runs/tools/after_stop.py`) restarted with this
+      amendment at 10:27, before the claim reads.

@@ -21,5 +21,6 @@ snapshots as of 2026-11-02 23:12.
   against one window per game-side, on the CPU (the 21:45 review, item 1).
   `--resplit` deals the games over the pass's 8 splits, and `--pool` adds earlier runs'
   saved splits to the cross-split reading (updated 2026-11-03 07:13).
-- `after_stop.py` and `arm_after_stop.ps1`: prereg departure 33. If a design stop ends the rounds, the
-  paired arm reading, then the rounds go on (`chain_local --after-stop`).
+- `after_stop.py` and `arm_after_stop.ps1`: prereg departure 33, amended (33a, 2026-11-03 10:27). If a
+  design stop ends the rounds, round K0's end is stamped and the rounds go on heads_only
+  (`chain_local --after-stop`); the paired arm reading was withdrawn.
