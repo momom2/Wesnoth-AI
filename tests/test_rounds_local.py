@@ -554,3 +554,56 @@ def test_a_claim_after_the_rebase_still_stops_when_it_falls_short_of_its_own_for
     rc, out = _run(tmp_path, tools, rounds=6, rebase_after=3)
     stop = (out / "STOP").read_text(encoding="utf-8")
     assert rc == 3 and "STOP after round 6's claim: claim - round 3's claim reads +0.0 Elo" in stop
+
+
+
+def _stop_at_round_3_stamped_14_h(tmp_path, clock):
+    """Rounds of 4 h from Nov 2 00:00 at |H| 10,000 stop at round 3's claim
+    (08:00); its wall is stamped as 14 h (its claim and the window's other
+    work), as the watcher stamps it (after_stop.py)."""
+    rc, out = _run(tmp_path, clock, rounds=3, now=clock.now)
+    assert rc == 3
+    (out / "STOP").rename(out / "STOP_round03")
+    times = json.loads((out / "times.json").read_text(encoding="utf-8"))
+    times["3"] = {"start": clock.t - 14 * 3600, "end": clock.t}
+    (out / "times.json").write_text(json.dumps(times), encoding="utf-8")
+    return out
+
+
+def test_end_by_reads_the_walls_of_the_rounds_of_the_current_held_size(tmp_path, monkeypatch):
+    """Prereg departure 35: resumed under --rebase-after 3 at |H| 5,000 with
+    --end-by Nov 3 02:00, round 4 starts on the old walls (08:00 + 1.2 x 14 h
+    = 00:48), and from round 5 on the walls are those of |H| 5,000: rounds 5
+    to 7 fit (round 7 at 20:00 + 4.8 h), round 8 does not. Read on every
+    wall, the rounds would end at round 4."""
+    _reference(monkeypatch)
+    forecast = rl.ELO_PER_Z * 0.05 * 3
+    tools = FakeTools(reading=(0.05, 0.004), claim_elo=lambda k: -420.0 if k == 3 else -420.0 + forecast)
+    clock = Clock(tools, "2026-11-02 00:00", 4.0)
+    _stop_at_round_3_stamped_14_h(tmp_path, clock)
+    rc, out = _run(tmp_path, clock, rounds=9, rebase_after=3, held=5000, end_by="2026-11-03 02:00", now=clock.now)
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert rc == 0, log
+    assert max(int(n.split()[1]) for n in tools.names()) == 7
+    assert "round 8 would need about 4.8 h (1.2 times the longest round of |H| 5000)" in log
+
+
+def test_end_by_after_a_second_stop_still_reads_the_current_held_size(tmp_path, monkeypatch):
+    """The after-stop line re-armed at a later stop (round 6's claim falls
+    short, 20:00): under --rebase-after 6 no round after 6 has ended, and the
+    walls of |H| 5,000 (rounds 4-6) let round 7 start (00:48), where every
+    wall would refuse it (08:00 + 16.8 h is past 02:00)."""
+    _reference(monkeypatch)
+    tools = FakeTools(reading=(0.05, 0.004), claim_elo=-420.0)
+    clock = Clock(tools, "2026-11-02 00:00", 4.0)
+    out = _stop_at_round_3_stamped_14_h(tmp_path, clock)
+    rc, out = _run(tmp_path, clock, rounds=9, rebase_after=3, held=5000, now=clock.now)
+    assert rc == 3 and "STOP after round 6's claim" in (out / "STOP").read_text(encoding="utf-8")
+    (out / "STOP").rename(out / "STOP_round06")
+    times = json.loads((out / "times.json").read_text(encoding="utf-8"))
+    times["6"]["end"] = clock.t
+    (out / "times.json").write_text(json.dumps(times), encoding="utf-8")
+    rc, out = _run(tmp_path, clock, rounds=9, rebase_after=6, held=5000, end_by="2026-11-03 02:00", now=clock.now)
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert rc == 0, log
+    assert max(int(n.split()[1]) for n in tools.names()) == 7

@@ -59,7 +59,8 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
 
 **--end-by** (a local time, "YYYY-MM-DD HH:MM"): the rounds must end by
 then. Round k >= 3 starts only when END_BY_MARGIN times the longest round
-so far (rounds 2 on, from `times.json`) fits before it. Otherwise the
+so far (rounds 2 on, from `times.json`; those of the current |H| once one
+has ended, prereg departure 35) fits before it. Otherwise the
 rounds end there, done (exit 0), so the window's final match can start on
 time. A round already started is finished.
 
@@ -277,20 +278,32 @@ class Rounds(Steps):
         (self.out / "times.json").write_text(json.dumps(times, indent=1), encoding="utf-8")
 
     def no_time(self, k: int) -> Optional[str]:
-        """Why round k must not start under --end-by, or None."""
+        """Why round k must not start under --end-by, or None. The walls
+        are those of the rounds that played the current |H| once one has
+        ended (prereg departure 35): H sets about half a round's wall, its
+        games and its halves' reading."""
         end_by = getattr(self.a, "end_by", None)
         times = self._times()
         if end_by is None or k < 3 or "start" in times.get(str(k), {}):
             return None
-        walls = [t["end"] - t["start"] for j, t in times.items() if int(j) >= 2 and "end" in t and "start" in t]
+        walls = {int(j): t["end"] - t["start"] for j, t in times.items()
+                 if int(j) >= 2 and "end" in t and "start" in t}
         if not walls:
             return None
-        need = END_BY_MARGIN * max(walls)
+        same = [w for j, w in walls.items() if self.recorded_held(j) == self.held]
+        need = END_BY_MARGIN * max(same or walls.values())
         deadline = datetime.strptime(end_by, END_BY_FORMAT).timestamp()
         if self.now() + need <= deadline:
             return None
-        return (f"round {k} would need about {need / 3600:.1f} h ({END_BY_MARGIN} times the longest round), "
+        which = f"the longest round of |H| {self.held}" if same else "the longest round"
+        return (f"round {k} would need about {need / 3600:.1f} h ({END_BY_MARGIN} times {which}), "
                 f"past --end-by {end_by}")
+
+    def recorded_held(self, k: int) -> Optional[int]:
+        """Round k's |H| from its held.txt, None when it has none (no_time
+        reads it without writing one)."""
+        f = self.rdir(k) / "held.txt"
+        return int(f.read_text(encoding="utf-8")) if f.exists() else None
 
     def pass_scope(self) -> List[str]:
         """["--heads-only"] when --heads-only-pass is given and stage C's arm
