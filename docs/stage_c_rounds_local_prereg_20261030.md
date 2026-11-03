@@ -863,3 +863,62 @@ Design §6, unchanged:
         suite at e48a96c7 runs.
       - The watcher's REDEPLOY and design-stop paths were tested with the
         processes, git and PowerShell stubbed.
+
+35. **The after-stop line goes on at a later design stop, and --end-by
+    reads the current rounds' walls** (`fix/end-by-rebased` aa87740a, merged
+    into `feature/cross-play-rung` at d045e17c; the watcher
+    `C:/Users/momom2/wesnoth_runs/tools/after_stop_line.py`; registered
+    2026-11-03 22:45, during round 4's pass; the 2026-11-03 21:45 review,
+    M1 and M2).
+    - **Why (M1):** after the rebase on round 3, the claims at rounds 6, 9
+      and 12 test claim_k - claim_3 against 347.4 times the sum of the
+      half-B readings after round 3 (rounds_local.py `stops`). The readings
+      compare the T=1 policies, while the claim plays against the reference
+      at argmax, and on today's data the gain against the argmax reference is
+      0.88 +- 0.06 of the T=1 gain (118.4 against 134.1). The shortfall grows
+      with the forecast while the combined SE grows as the square root of the
+      rounds, so the stop can fire again: the review puts it at about 9% at
+      round 6 and 20-25% over the three claims if the gap is real. A stop
+      ends the line after its final match, and no watcher re-arms it: the GPU
+      would idle up to two days.
+    - **Rule (M1):** a later design stop (STOP or PAUSE after a claim round
+      K > K0) is acted on as departure 33 acted on round 3's. The line plays
+      its final match on round K's candidate (as registered, into its
+      final-out), then the watcher stamps round K's end at the STOP's time
+      and re-arms the line rebased on K, its final match into
+      `final_match_after_stop_kKK`. Each such stop costs about 3.7 h for its
+      final match, which reads round K at the reference's decode. The stops'
+      texts and the registered tests are unchanged; the stop is still
+      reported to the user.
+    - **Why (M2):** --end-by starts a round only when 1.2 times the longest
+      round so far fits. Round 3's wall is 14.2 h (|H| 10,000, its claim and
+      the diagnostics beside it), so no round would start after Nov 7 09:00,
+      while the rounds at |H| 5,000 run about 7.8 h (10.3 h with a claim).
+      The line would end about one round early, and the GPU would idle 8-13 h
+      before Nov 8 02:00.
+    - **Rule (M2):** the walls are those of the ended rounds whose held.txt
+      records the current |H|, once one has ended; otherwise every round's
+      (rounds_local.py `no_time`). A first version read the rounds after
+      --rebase-after, but a re-arm at a later stop would have read round 3's
+      wall again.
+    - **Deployment:** a REDEPLOY stop, written during round 4's pass, ends
+      the rounds at the next step boundary (rc 2: no final match). The
+      watcher checks out d045e17c in the run tree and re-arms the line
+      (arm_after_stop.ps1, now with -FinalOut and an appended console log)
+      with --after-stop 3, |H| 5,000 and the same final-out. The REDEPLOY
+      text names "after round 3", which chain_local --after-stop 3 requires,
+      and it moves that text aside as STOP_round03_2. The rounds resume from
+      their markers, with round 4's start kept.
+    - **Kill:** none for the rule, which changes no reading. If the re-arm
+      fails, the heartbeat re-arms the line by hand at e48a96c7.
+    - **Tests:**
+      - tests/test_rounds_local.py: a resume at |H| 5,000 after a 14 h round 3
+        goes on to round 7 by --end-by; so does a re-arm after round 6's stop.
+        Both fail on the old code. The file: 21 passed. The rounds, chain and
+        match files: 80 passed.
+      - The watcher was stub-tested (processes, git and PowerShell stubbed)
+        on five cases: REDEPLOY then a stop at round 6 then the end; a
+        REDEPLOY not naming K0; a stop whose final match failed; a stop with
+        no time left; the base stop.
+      - The arming script's command line was printed by a dry copy, for
+        K0 3 and K0 6.
