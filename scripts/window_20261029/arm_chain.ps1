@@ -1,8 +1,11 @@
-param([string]$Head = '8eb24002')
+param([string]$Head = '8eb24002', [int]$Held = 0)
 $py = 'C:\Users\momom2\Desktop\perso\projects\wesnoth_ai\.venv\Scripts\python.exe'
 $gpu = 'C:\Users\momom2\venvs\wesnoth_rocm\Scripts\python.exe'
 $runs = 'C:\Users\momom2\wesnoth_runs'
 # --skip-p: prereg departure 31 (the rounds start with --no-p-gate).
+# -Held: prereg departure 34 (|H| for the rounds whose games start from now).
+$held = ''
+if ($Held -gt 0) { $held = " --rounds-held $Held" }
 $args = "-u scripts\chain_local.py --stage-c $runs\stage_c_local --stage1 $runs\selfplay_t1_local " +
         "--p-out $runs\p_local --rounds-out $runs\rounds_local --e 0.02 --rounds 9 " +
         "--checkpoint training\checkpoints\own2.pt " +
@@ -10,8 +13,8 @@ $args = "-u scripts\chain_local.py --stage-c $runs\stage_c_local --stage1 $runs\
         "--expect-head $Head --gpu-python $gpu --tools-python $py --final-out $runs\final_match " +
         "--heads-only-pass --rounds-n-train 5000 --rounds-end-by `"2026-11-07 10:00`" " +
         "--tail-out $runs\tail_match --continue-rounds 39 --continue-end-by `"2026-11-08 12:00`" " +
-        "--continue-final-out $runs\final_match_cont --skip-p"
-$cmd = "cmd.exe /c `"`"$py`" $args > $runs\chain.console.log 2>&1`""
+        "--continue-final-out $runs\final_match_cont --skip-p" + $held
+$cmd = "cmd.exe /c `"`"$py`" $args >> $runs\chain.console.log 2>&1`""
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
     CommandLine = $cmd; CurrentDirectory = 'C:\Users\momom2\Desktop\perso\projects\wesnoth_ai-run' }
 "rc=$($r.ReturnValue) pid=$($r.ProcessId)"

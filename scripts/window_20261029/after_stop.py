@@ -21,6 +21,12 @@ reduced-AdamW step) was withdrawn by the amendment: pg_pass's window of
 10^7 time steps holds a whole split (about 270k decisions in one graph),
 which does not fit the card's 8 GB, and the reduced-AdamW metric would be
 read from 8 split-level squares, so the arm would change with the window.
+
+A STOP whose text starts with REDEPLOY (written by the lead between rounds,
+prereg departure 34) is not a design stop: the watcher moves it aside,
+checks out --head, re-arms the chain where it stopped (arm_chain.ps1, with
+--held), and goes back to step 1. --held is passed to both armings (0: the
+rounds' default |H|).
 """
 import argparse
 import json
@@ -37,6 +43,7 @@ RUN_TREE = Path("C:/Users/momom2/Desktop/perso/projects/wesnoth_ai-run")
 LOG = RUNS / "after_stop.log"
 FMT = "%Y-%m-%d %H:%M"
 HEADS_ROUND_H = 12.0                     # a heads-only round's wall, its claim aside (rounds 2 and 3: 9.6 and 11.4 h)
+REDEPLOY = "REDEPLOY"                    # a STOP's first word when the lead restarts the chain at --head
 
 
 def log(msg: str) -> None:
@@ -77,15 +84,43 @@ def stamp_stop_end(k0: int) -> None:
         f"(a wall of {wall:.1f} h)")
 
 
+def powershell(script: str, *args: str) -> str:
+    r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                        str(RUNS / "tools" / script), *args], capture_output=True, text=True)
+    return r.stdout.strip().splitlines()[0] if r.stdout.strip() else r.stderr[-300:]
+
+
+def redeploy(head: str, held: int) -> bool:
+    """A REDEPLOY stop: moved aside, --head checked out, the chain re-armed."""
+    stop = ROUNDS / "STOP"
+    aside = ROUNDS / f"STOP_redeploy_{time.strftime('%Y%m%d_%H%M%S')}"
+    stop.rename(aside)
+    subprocess.run(["git", "checkout", "-q", "--detach", head], cwd=RUN_TREE, check=True)
+    first = powershell("arm_chain.ps1", "-Head", head, "-Held", str(held))
+    log(f"REDEPLOY_ARMED at {head}, |H| {held or 'the default'} (the stop moved to {aside.name}): {first}")
+    return first.startswith("rc=0 ")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--head", required=True, help="the commit with chain_local --after-stop (prereg departure 33)")
     ap.add_argument("--rounds-end-by", default="2026-11-08 02:00")
+    ap.add_argument("--held", type=int, default=0, help="|H| for both armings (prereg departure 34); 0: the default")
     a = ap.parse_args()
-    log(f"AFTER_STOP waiting for the chain to exit (head {a.head}, rounds end by {a.rounds_end_by}; "
-        f"amended: heads_only, no paired reading)")
-    while chain_alive():
-        time.sleep(300)
+    log(f"AFTER_STOP waiting for the chain to exit (head {a.head}, rounds end by {a.rounds_end_by}, |H| "
+        f"{a.held or 'the default'}; amended: heads_only, no paired reading; a REDEPLOY stop re-arms the chain)")
+    while True:
+        while chain_alive():
+            time.sleep(300)
+        stop = ROUNDS / "STOP"
+        why = stop.read_text(encoding="utf-8").strip() if stop.exists() else ""
+        if not why.startswith(REDEPLOY):
+            break
+        log(f"the chain exited at a REDEPLOY stop: {why}")
+        if not redeploy(a.head, a.held):
+            log("REDEPLOY_FAILED: arm_chain.ps1 did not start the chain; the lead looks")
+            return 1
+        time.sleep(300)                                   # the new chain's processes are up before the next look
     k0 = design_stop()
     chain_log = (RUNS / "chain.log").read_text(encoding="utf-8") if (RUNS / "chain.log").exists() else ""
     tail = chain_log[chain_log.rfind("CHAIN_DONE"):] if "CHAIN_DONE" in chain_log else ""
@@ -103,11 +138,9 @@ def main() -> int:
         return 0
     stamp_stop_end(k0)
     subprocess.run(["git", "checkout", "-q", "--detach", a.head], cwd=RUN_TREE, check=True)
-    r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                        str(RUNS / "tools" / "arm_after_stop.ps1"), "-Head", a.head, "-K0", str(k0), "-Arm",
-                        "heads_only", "-EndBy", a.rounds_end_by], capture_output=True, text=True)
-    log(f"AFTER_STOP_ARMED at {a.head}, round {k0}, arm heads_only: "
-        f"{r.stdout.strip().splitlines()[0] if r.stdout.strip() else r.stderr[-300:]}")
+    first = powershell("arm_after_stop.ps1", "-Head", a.head, "-K0", str(k0), "-Arm", "heads_only", "-EndBy",
+                       a.rounds_end_by, "-Held", str(a.held))
+    log(f"AFTER_STOP_ARMED at {a.head}, round {k0}, arm heads_only, |H| {a.held or 'the default'}: {first}")
     return 0
 
 

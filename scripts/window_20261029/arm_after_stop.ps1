@@ -1,12 +1,13 @@
 param([Parameter(Mandatory=$true)][string]$Head, [Parameter(Mandatory=$true)][int]$K0,
       [Parameter(Mandatory=$true)][ValidateSet('heads_only', 'reduced_adamw')][string]$Arm,
-      [string]$EndBy = '2026-11-08 02:00')
+      [string]$EndBy = '2026-11-08 02:00', [int]$Held = 0)
 # Prereg departure 33: the rounds go on past round K0's design stop, rebased on it.
 $py = 'C:\Users\momom2\Desktop\perso\projects\wesnoth_ai\.venv\Scripts\python.exe'
 $gpu = 'C:\Users\momom2\venvs\wesnoth_rocm\Scripts\python.exe'
 $runs = 'C:\Users\momom2\wesnoth_runs'
 $trunk = ''
 if ($Arm -eq 'reduced_adamw') { $trunk = ' --rounds-arm reduced_adamw --rounds-pass-window 10000000' }
+if ($Held -gt 0) { $trunk += " --rounds-held $Held" }      # prereg departure 34
 $args = "-u scripts\chain_local.py --stage-c $runs\stage_c_local --stage1 $runs\selfplay_t1_local " +
         "--p-out $runs\p_local --rounds-out $runs\rounds_local --e 0.02 --rounds 39 " +
         "--checkpoint training\checkpoints\own2.pt " +

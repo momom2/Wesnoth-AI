@@ -808,3 +808,58 @@ Design §6, unchanged:
       STOP file's time before it arms the rounds.
     - The watcher (`wesnoth_runs/tools/after_stop.py`) restarted with this
       amendment at 10:27, before the claim reads.
+
+34. **|H| = 5,000 from round 4** (`feature/held-size` 2949d267, merged
+    into `feature/cross-play-rung` at e48a96c7; registered 2026-11-03
+    10:45, before round 3's claim reads; the 2026-11-03 review's advice).
+    - **Why:**
+      - H only measures. Its halves choose the rung (A) and confirm it (B),
+        and the corrections are fitted on it; the pass trains on the N =
+        5,000 training games alone. At |H| = 10,000, H holds 2/3 of each
+        round's games and costs about half of its wall. In round 3, H took
+        about 148 of the play's 222 min, and its halves 234 of the step's
+        291 min (the KL reads took 47).
+      - The ladder's range caps each round's step: round 3's x2 rung was
+        past the range and unread, and ε went 0.00267, 0.00244, 0.00229.
+        So the lever is rounds per day, not each round's precision.
+      - Halving H saves one chunk of play (about 74 min) and about half of
+        each half's reading (about 117 min): about 3.2 h of round 3's
+        11.4 h before its claim, 28%.
+    - **Costs:**
+      - Half B's SE grows by sqrt(2), from 0.0117-0.0174 to about
+        0.017-0.025, against readings of 0.11-0.16 (z of 4.5 or more).
+      - Half A's rung choice is noisier.
+      - The corrections (α, γ, β) are fitted on 5,000 held-out games in
+        place of 10,000.
+      - The transfer test's combined SE grows, since each round's SE
+        enters it times 347.4: from about 10.6 Elo at round 3 to about 13.
+      - The ESS check is unchanged: its floor depends on the step's KL
+        alone (wesnoth_ai/pg_step.py, `ess_floor`).
+    - **What runs:** the rounds whose games start from now play N + 5,000
+      games, the last 5,000 held out (`rounds_local --held 5000`, recorded
+      in each round's held.txt). Rounds 1-3 keep 10,000.
+      - If round 3's claim stops the rounds, departure 33a's after-stop
+        chain carries `--rounds-held 5000`.
+      - Otherwise a REDEPLOY stop, written before round 3's claim ends,
+        ends the chain at round 4's start (rounds_local reads its STOP
+        between steps only, so the claim plays to its end). The watcher
+        then re-arms the chain at e48a96c7 with `--rounds-held 5000`
+        (arm_chain.ps1 -Held), and the rounds resume from their markers.
+      - The seed blocks are unchanged: a round's 10,000 games stay inside
+        its 1M block.
+    - **Kill:** back to 10,000 at the next round boundary if either holds:
+      - half B's ESS check fails in two rounds in a row (each failure plays
+        a 2 h cross-play match, which eats the saving);
+      - a half B's SE exceeds 0.035 (a reading of about 0.1 would then be
+        under 3 SE).
+    - **The readings:** each round's wall and half B's SE, reported against
+      rounds 2 and 3.
+    - **The tests:**
+      - tests/test_rounds_local.py: |H| reaches the play and the pass, a
+        round begun before held.txt keeps N_HELD, and a resume without
+        --held keeps a round's recorded |H|.
+      - tests/test_chain_local.py: --rounds-held reaches rounds_local.
+      - 37 passed; the neighbouring local-script files, 59 passed. The full
+        suite at e48a96c7 runs.
+      - The watcher's REDEPLOY and design-stop paths were tested with the
+        processes, git and PowerShell stubbed.
