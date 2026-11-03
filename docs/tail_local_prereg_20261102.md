@@ -157,3 +157,33 @@ round's end at every restart.
   stated.
 - **A continued round past 1.5 times its estimate** is inspected and cut
   (the 2026-09-05 rule).
+
+## Measured (2026-11-03 19:28)
+
+The rounds stopped at round 3's claim, and the final match returned 0, so
+the chain played the tail on round 3's candidate (`round_03/pi.pt`,
+6c4e96f81ade...), 16:47-19:28: 12,800 decisive games from seed 950,000, no
+capped game.
+
+**final_round3t1: +134.1 ± 3.3 Elo against own2t1** (PURE, 8,755 won and
+4,045 lost; `raw:t1` on both sides, no end_turn offset, 64 memory slots
+each, local fp16 serving). **By the decision rule: the rounds made a stronger
+sampling player than own2, by 134.1 ± 3.3.**
+
+- **Against the forecast:** the rounds' confirmed readings sum to 0.4077
+  (round 1's cross-play 0.1612 ± 0.0099, half B 0.1378 ± 0.0174 and
+  0.1087 ± 0.0117), so the forecast is 347.4 × 0.4077 = +141.6 ± 8.1. The
+  tail reads 7.5 Elo below it, with a combined SE of 8.7: -0.9 SE. **The
+  confirmed gains transfer to play against own2 at T=1.** Neither tail of
+  the rule fires.
+- **Beside it, never pooled:**
+  - the round-3 claim against the reference at its own decode: claim - D0 =
+    +118.4 ± 10.7, which fired the transfer stop at 2.2 SE below the
+    forecast;
+  - the final match at the reference's decode: +31.8 ± 3.1.
+  - Under transitivity the tail and claim - D0 estimate the same number.
+    They differ by 15.7 Elo, with a combined SE of about 7.7 (2.0 SE), so the
+    rounds' gain reads somewhat smaller against the reference at argmax than
+    against it sampling. The tail does not test that difference; it is
+    reported, not acted on.
+- **Adoption:** this match measures; the standard claim is the final match.
