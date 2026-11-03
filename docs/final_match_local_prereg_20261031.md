@@ -112,3 +112,35 @@ have a combined standard error of about 7.8 Elo. No command runs a lone
 claim outside the rounds' every-third-round claim, and the standard
 procedure above resolves about 2.5 times finer. The round-3 claim, if
 played, is reported beside this match, not pooled with it.
+
+## Measured (2026-11-03 16:47)
+
+The rounds stopped at round 3's claim (the transfer stop), so the chain
+played this match on round 3's candidate (`round_03/pi.pt`, SHA-256
+6c4e96f81ade...), 13:06-16:47, 12,800 decisive games from seed 900,000 in
+one attempt (13,263 s, 19 capped games replaced).
+
+**final_round3: +31.8 ± 3.1 Elo against own2** (PURE, decisive games only,
+6,985 won and 5,815 lost; `raw:t0+eo-1.5` on both sides, 64 memory slots
+each, both served by the local fp16 server). **By the decision rule: stronger
+than own2 by 31.8 ± 3.1.** It is the first policy produced by self-play
+training to beat a reference.
+
+- **The forecast (near 0) missed by about 10 SE.** It reasoned that the
+  rounds would mostly sharpen the heads, which argmax does not see. The
+  reading says the head maps' change also moves argmax choices, and for the
+  better. Why is not measured.
+- **Both seats read positive:** +42.8 ± 4.4 as side 1 and +21.0 ± 4.4 as side
+  2 (6,400 games each).
+- **The gain is not acting more.** Over a quarter of the games (3,205),
+  per side-turn the candidate moves 6.97 times against the reference's 6.88,
+  attacks 2.71 against 2.79 and recruits 1.15 against 1.11. Neither side was
+  ever forced to end a turn.
+- **Beside it, never pooled:** the round-3 T=1 claim, -296.8 ± 4.3 against the
+  reference at its own decode (claim - D0 = +118.4, combined SE 10.7).
+- These games are local fp16 games: they do not pool with a box's bf16
+  matches.
+- **Adopting round 3's policy as the reference is the user's decision**
+  (the rule above); nothing here adopts it. The rounds go on after the stop
+  (departure 33a) with `own2` still the yardstick, and the after-stop
+  chain's final match measures their last adopted round against it.
