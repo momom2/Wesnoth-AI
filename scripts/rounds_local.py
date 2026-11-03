@@ -7,13 +7,16 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
   (N_TRAIN, or --n-train: prereg departure 25); "rounds_at_size" plays the
   gain curve's `round_size`; "neither",
   or a gate stage C did not read, plays no round (the user chooses). The
-  held-out set stays N_HELD either way. --no-p-gate does not waive it.
+  held-out set H stays N_HELD games either way, or --held's (prereg
+  departure 34). --no-p-gate does not waive it.
   One "neither" is read on: when its ladder's chosen rung failed half B's
   importance-weight check (the cross-play case below), round 1 reads that
   rung by a cross-play match, and the rounds go on at N iff the match's
-  lower 2-SE bound is above 0 (prereg departure 23). A round's N is
-  recorded when its games start (its n_train.txt), so a new start with
-  another --n-train finishes a round at the size it began with.
+  lower 2-SE bound is above 0 (prereg departure 23). A round's N and |H|
+  are recorded when its games start (its n_train.txt and held.txt), so a
+  new start with another --n-train or --held finishes a round at the sizes
+  it began with; a round whose games started before held.txt existed
+  played N_HELD.
 - **P before the rounds** (design §6): round 2 waits on stage P's planted
   readout passing and its link holding, or the link not run (stage 1's
   sharpening slope under 3 SE).
@@ -22,8 +25,8 @@ docs/training_design_20261019/current_design.md §1, §6 "Rounds" and
   decision is taken as read and its candidate written (tools/pg_round.py
   --adopt-from).
 - **Round k >= 2**, from the policy pi the previous round left:
-  - its games: N + N_HELD temperature-1 self-play games of pi on both
-    seats, walked, labelled and read, the last N_HELD held out
+  - its games: N + |H| temperature-1 self-play games of pi on both
+    seats, walked, labelled and read, the last |H| held out
     (scripts/selfplay_t1_local.py --checkpoint pi --no-measures, on seeds of
     the round's own);
   - the labels' corrections, fitted on its held-out games
@@ -105,7 +108,8 @@ from scripts.selfplay_t1_local import CHUNK_GAMES, MIN_FREE_MB, player_flags  # 
 from wesnoth_ai.pg_cross_play import cross_play_case, decide_by_match, mean_z  # noqa: E402
 
 N_TRAIN = 20000                 # design §1: N, a round's training games (stage C's gate may name another)
-N_HELD = 10000                  # |H|, its held-out games
+N_HELD = 10000                  # |H|, its held-out games (--held: prereg departure 34)
+MIN_HELD = 4                    # each half of H holds a pair of games: tools/pg_labels.py half_of
 # The seeds, so that no two matches share one. A match's replacement games
 # take seed + gen * 1,000,000 (tools/run_elo_batch.py REPL_SEED_OFFSET):
 # - stage 1's games 800,000-848,199, its measures' replacements under 10M;
@@ -167,6 +171,7 @@ class Rounds(Steps):
         self.workers = str(args.workers)
         self.n_design = int(getattr(args, "n_train", None) or N_TRAIN)     # the gate's N where it names none
         self.n_train = self.n_design
+        self.held = int(getattr(args, "held", None) or N_HELD)          # |H| for rounds whose games start now
         self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
 
     # ---- the rounds' files
@@ -240,9 +245,20 @@ class Rounds(Steps):
             f.write_text(f"{self.n_train}\n", encoding="utf-8")
         return int(f.read_text(encoding="utf-8"))
 
+    def held_size(self, k: int) -> int:
+        """Round k's |H|: the one recorded when its games started; else
+        N_HELD for a round whose games started before held.txt was written
+        (every round before prereg departure 34); else the rounds' |H|,
+        recorded now."""
+        f = self.rdir(k) / "held.txt"
+        if not f.exists():
+            started = (self.rdir(k) / "play").exists()
+            f.write_text(f"{N_HELD if started else self.held}\n", encoding="utf-8")
+        return int(f.read_text(encoding="utf-8"))
+
     def game_dirs(self, k: int) -> List[str]:
         play = self.rdir(k) / "play"
-        chunks = (self.round_size(k) + N_HELD + CHUNK_GAMES - 1) // CHUNK_GAMES
+        chunks = (self.round_size(k) + self.held_size(k) + CHUNK_GAMES - 1) // CHUNK_GAMES
         return [str(play / f"games_s{c:02d}") for c in range(chunks)]
 
     # ---- the rounds' walls (--end-by)
@@ -341,7 +357,7 @@ class Rounds(Steps):
             rc = self.step(f"round {k} games", ["scripts/selfplay_t1_local.py", "--out", str(d / "play"),
                                                 "--checkpoint", pi, "--label", f"pi{k}", "--seed-base",
                                                 str(SEED_BASE + k * SEED_STRIDE), "--games",
-                                                str(self.round_size(k) + N_HELD), "--heldout-from",
+                                                str(self.round_size(k) + self.held_size(k)), "--heldout-from",
                                                 str(self.round_size(k)),
                                                 "--no-measures"],
                            f"round_{k:02d}.log", PLAY_CUT_MIN)
@@ -541,11 +557,11 @@ def run(r: Rounds, rounds: int) -> int:
     if n is None:
         log(out, f"ROUNDS_WAIT before round 1: {source}")
         return 3
-    if n + N_HELD > SEED_STRIDE:
-        log(out, f"ROUNDS_REFUSED: rounds of {n} + {N_HELD} games overrun a round's {SEED_STRIDE} seeds")
+    if n + r.held > SEED_STRIDE:
+        log(out, f"ROUNDS_REFUSED: rounds of {n} + {r.held} games overrun a round's {SEED_STRIDE} seeds")
         return 1
     r.n_train = n
-    log(out, f"rounds of N {n} + |H| {N_HELD} games ({source})")
+    log(out, f"rounds of N {n} + |H| {r.held} games ({source}; a round started earlier keeps its own |H|)")
     try:
         for k in range(1, rounds + 1):
             r.check_stop(f"round {k}")
@@ -618,6 +634,9 @@ def main() -> int:
                     help="the pass's window in decisions (tools/pg_pass.py --window; prereg departure 33)")
     ap.add_argument("--rebase-after", type=int, default=None, metavar="K0",
                     help="the stops of rounds K0 and before were acted on (module docstring, prereg departure 33)")
+    ap.add_argument("--held", type=int, default=N_HELD,
+                    help="|H|, a round's held-out games, for rounds whose games start from now (prereg departure "
+                         "34); a round keeps the |H| it started with (its held.txt)")
     ap.add_argument("--normal-priority", action="store_true")
     ap.add_argument("--keep-awake", action="store_true")
     args = ap.parse_args()
@@ -633,12 +652,15 @@ def main() -> int:
         datetime.strptime(args.end_by, END_BY_FORMAT)               # refused now, not at round 3
     if args.n_train < 1:
         ap.error(f"--n-train {args.n_train}: a round trains on at least one game")
+    if args.held < MIN_HELD:
+        ap.error(f"--held {args.held}: each half of H needs a pair of games (tools/pg_labels.py half_of), so "
+                 f"|H| is at least {MIN_HELD}")
     if args.pass_window is not None and args.pass_window < 1:
         ap.error(f"--pass-window {args.pass_window}: a window holds at least one decision")
     if args.rebase_after is not None and args.rebase_after < 1:
         ap.error(f"--rebase-after {args.rebase_after}: name the round whose stop was acted on")
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "
-                  f"rounds {args.rounds}, pi_0 {args.checkpoint}, end by {args.end_by}, "
+                  f"rounds {args.rounds}, pi_0 {args.checkpoint}, |H| {args.held}, end by {args.end_by}, "
                   f"heads-only pass {args.heads_only_pass}, arm {args.arm or 'from stage C'}, pass window "
                   f"{args.pass_window or 'the pass default'}, rebase after {args.rebase_after}")
     return run(Rounds(args), args.rounds)
