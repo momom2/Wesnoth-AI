@@ -23,7 +23,7 @@ import torch
 
 from tools.pg_pass import GradientPass, PassConfig, PassRefused
 from tools.pg_positions import RecordIndex
-from wesnoth_ai.pg_records import read_labels
+from wesnoth_ai.pg_records import N_SPLITS, read_labels
 from wesnoth_ai.pg_step import head_of, reduced_adamw, second_moment
 
 RUNS = Path("C:/Users/momom2/wesnoth_runs")
@@ -72,23 +72,46 @@ def split_signal(sx, sy, names):
     unbiased for N_a N_b <E x, E y> whatever each game's own noise, so
     S_xy / sqrt(S_xx S_yy) estimates the cosine of the expected gradients
     (None when S_xx or S_yy reads <= 0: the signal unresolved). The share
-    S_yy / |sum y|^2 is the part of the full total's square that is signal."""
+    S_yy / |sum y|^2 is the part of the full total's square that is signal.
+    Read from the splits' Gram matrices; `cos_se` is the delete-one-split
+    jackknife's standard error of the cosine (None below 3 splits, or when a
+    leave-one-out reading is unresolved)."""
     out = {}
     for g, ns in groups_of(names).items():
         if not ns:
             continue
         xs = [torch.cat([s[n].double().flatten() for n in ns]) for s in sx]
         ys = [torch.cat([s[n].double().flatten() for n in ns]) for s in sy]
-        X, Y = sum(xs), sum(ys)
+        m = len(xs)
+        gram = {k: torch.zeros(m, m, dtype=torch.float64) for k in ("xx", "yy", "xy")}
+        for i in range(m):
+            for j in range(m):
+                gram["xy"][i, j] = float(xs[i] @ ys[j])
+                if j >= i:
+                    gram["xx"][i, j] = gram["xx"][j, i] = float(xs[i] @ xs[j])
+                    gram["yy"][i, j] = gram["yy"][j, i] = float(ys[i] @ ys[j])
 
-        def cross(u, us, w, ws):
-            return float(u @ w) - sum(float(a @ b) for a, b in zip(us, ws))
-        s_xx, s_yy, s_xy = cross(X, xs, X, xs), cross(Y, ys, Y, ys), cross(X, xs, Y, ys)
-        out[g] = {"S_xx": s_xx, "S_yy": s_yy, "S_xy": s_xy,
-                  "cos_signal": s_xy / (s_xx * s_yy) ** 0.5 if s_xx > 0 and s_yy > 0 else None,
-                  "signal_share_full": s_yy / float(Y @ Y) if float(Y @ Y) > 0 else None,
-                  "signal_share_windowed": s_xx / float(X @ X) if float(X @ X) > 0 else None}
+        def reading(keep):
+            idx = torch.tensor(keep)
+            s = {k: float(v[idx][:, idx].sum() - v[idx, idx].sum()) for k, v in gram.items()}
+            return s, (s["xy"] / (s["xx"] * s["yy"]) ** 0.5 if s["xx"] > 0 and s["yy"] > 0 else None)
+        s, cos = reading(list(range(m)))
+        loo = [reading([j for j in range(m) if j != i])[1] for i in range(m)] if m >= 3 else []
+        se = None
+        if loo and all(c is not None for c in loo):
+            mean = sum(loo) / m
+            se = ((m - 1) / m * sum((c - mean) ** 2 for c in loo)) ** 0.5
+        tx, ty = float(gram["xx"].sum()), float(gram["yy"].sum())
+        out[g] = {"S_xx": s["xx"], "S_yy": s["yy"], "S_xy": s["xy"], "cos_signal": cos, "cos_se": se,
+                  "splits": m,
+                  "signal_share_full": s["yy"] / ty if ty > 0 else None,
+                  "signal_share_windowed": s["xx"] / tx if tx > 0 else None}
     return out
+
+
+def nonempty(splits):
+    """The indices of the splits that hold a game (an empty split's sums are zeros)."""
+    return [i for i, s in enumerate(splits["full"]) if any(bool(torch.any(t)) for t in s.values())]
 
 
 def main() -> int:
@@ -100,6 +123,12 @@ def main() -> int:
     ap.add_argument("--checkpoint", default=str(Path.cwd() / "training" / "checkpoints" / "own2.pt"))
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--save", type=Path, default=None, help="the splits' sums of both gradients (a .pt), to pool runs")
+    ap.add_argument("--resplit", action="store_true",
+                    help="deal the games round-robin over the pass's splits (the labels' own splits can put a "
+                         "small sample in two or three, which leaves the cross-split reading one product)")
+    ap.add_argument("--pool", type=Path, nargs="*", default=[],
+                    help="earlier runs' --save files, on games disjoint from this run's: their non-empty splits "
+                         "join the cross-split reading")
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
     t0 = time.time()
@@ -107,6 +136,18 @@ def main() -> int:
     train = sorted({r.game for r in labels if not r.heldout})
     games = set(train[a.offset:: max(1, len(train) // a.games)][: a.games])
     labels = [r for r in labels if r.game in games]
+    if a.resplit:
+        deal = {g: i % N_SPLITS for i, g in enumerate(sorted(games))}
+        labels = [replace(r, split=deal[r.game]) for r in labels]
+    pooled = {"windowed": [], "full": []}
+    for p in a.pool:                          # read before the passes: a bad pool file fails in seconds, not hours
+        d = torch.load(p, map_location="cpu", weights_only=True)
+        shared = games & set(d["games"])
+        if shared:
+            raise SystemExit(f"{p} shares {len(shared)} games with this run: the splits must be independent")
+        keep = nonempty(d["splits"])
+        for label in pooled:
+            pooled[label] += [d["splits"][label][i] for i in keep]
     index = RecordIndex(sorted(p for p in S1.glob("games_s*") if p.is_dir()))
     records = {g: index.path(g) for g in games}
     sc = json.loads((SC / "pass.json").read_text(encoding="utf-8"))["config"]
@@ -136,15 +177,19 @@ def main() -> int:
     v = {n: t.float() for n, t in second_moment(pp).items()}
     result["reduced_adamw"] = compare(reduced_adamw(totals["windowed"], v), reduced_adamw(totals["full"], v), names)
     result["split_counts"] = [sum(1 for n in names if bool(torch.any(s[n]))) > 0 for s in splits["full"]]
-    result["signal_raw"] = split_signal(splits["windowed"], splits["full"], names)
-    result["signal_reduced_adamw"] = split_signal([reduced_adamw(s, v) for s in splits["windowed"]],
-                                                  [reduced_adamw(s, v) for s in splits["full"]], names)
+    keep = nonempty(splits)
+    sw = [splits["windowed"][i] for i in keep] + pooled["windowed"]
+    sf = [splits["full"][i] for i in keep] + pooled["full"]
+    result["pooled"] = {"files": [str(p) for p in a.pool], "splits": len(pooled["full"])}
+    result["signal_raw"] = split_signal(sw, sf, names)
+    result["signal_reduced_adamw"] = split_signal([reduced_adamw(s, v) for s in sw],
+                                                  [reduced_adamw(s, v) for s in sf], names)
     if a.save is not None:
         torch.save({"games": sorted(games), "splits": splits}, a.save)
     a.out.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")
     for k in ("signal_raw", "signal_reduced_adamw"):
         print(k, json.dumps({g: {kk: (round(vv, 4) if isinstance(vv, float) else vv) for kk, vv in x.items()
-                                 if kk in ("cos_signal", "signal_share_full", "signal_share_windowed")}
+                                 if kk in ("cos_signal", "cos_se", "signal_share_full", "signal_share_windowed")}
                              for g, x in result[k].items()}), flush=True)
     for k in ("raw", "reduced_adamw"):
         print(k, json.dumps({g: (round(x["cos"], 4) if x["cos"] is not None else None,

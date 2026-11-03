@@ -19,5 +19,7 @@ snapshots as of 2026-11-02 23:12.
   subset of the readout.
 - `window_check.py`: the pass's full-network gradient windowed at 16 decisions
   against one window per game-side, on the CPU (the 21:45 review, item 1).
+  `--resplit` deals the games over the pass's 8 splits, and `--pool` adds earlier runs'
+  saved splits to the cross-split reading (updated 2026-11-03 07:13).
 - `after_stop.py` and `arm_after_stop.ps1`: prereg departure 33. If a design stop ends the rounds, the
   paired arm reading, then the rounds go on (`chain_local --after-stop`).
