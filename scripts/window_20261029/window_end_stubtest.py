@@ -12,8 +12,16 @@ PROC = "raw:t0+eo-1.5 against raw:t0+eo-1.5"
 FINAL_OK = "x\nCHAIN_DONE: the rounds returned 0 (...)\nCHAIN_FINAL: ...\nCHAIN_FINAL_DONE: match_local returned 0 (...)\n"
 
 
-def setup(line_log, chain_log, results, digests=None, rcs=None):
+def setup(line_log, chain_log, results, digests=None, rcs=None, rounds=(), stop=False):
     tmp = Path(tempfile.mkdtemp())
+    for k in rounds:
+        (tmp / "rounds_local" / f"round_{k:02d}").mkdir(parents=True)
+        (tmp / "rounds_local" / f"round_{k:02d}" / "round.json").write_text(json.dumps(
+            {"candidate": {"path": f"C:/r/round_{k:02d}/pi.pt", "sha256": f"sha_round_{k:02d}"}}), encoding="utf-8")
+    (tmp / "rounds_local" / "round_07").mkdir(parents=True, exist_ok=True)
+    (tmp / "rounds_local" / "round_07" / "round.json").write_text(json.dumps({"candidate": None}), encoding="utf-8")
+    if stop:
+        (tmp / "window_end.STOP").write_text("x", encoding="utf-8")
     we.RUNS, we.LOG = tmp, tmp / "window_end.log"
     (tmp / "after_stop.log").write_text(line_log, encoding="utf-8")
     (tmp / "chain.log").write_text(chain_log, encoding="utf-8")
@@ -82,4 +90,43 @@ assert we.main() == 0 and [c[0] for c in calls] == ["confirm_round3"], calls
 # 7. a confirmation that fails plays no tail
 tmp, calls = setup(LINES_OK, FINAL_OK, {"final_match": res(3, 31.8), "final_match_after_stop": res(9, 45.0)}, rcs=[1])
 assert we.main() == 1 and [c[0] for c in calls] == ["confirm_round9"], calls
-print("all 7 cases pass")
+
+NO_FINAL = FINAL_OK + "CHAIN_DONE: the rounds returned 0 (runner.log: ROUNDS_DONE through round 15: ...)\nCHAIN_NO_FINAL: no round after round 15 adopted a candidate\n"
+# 8. a late re-arm whose rounds found no time: CHAIN_NO_FINAL after "returned 0" confirms
+tmp, calls = setup(LINES_OK, NO_FINAL, {"final_match": res(3, 31.8), "final_match_after_stop_k06": res(15, 55.5)})
+assert we.main() == 0 and [c[0] for c in calls] == ["confirm_round15", "window_round15t1"], calls
+
+# 9. CHAIN_NO_FINAL after a failed rounds code holds
+tmp, calls = setup(LINES_OK, FINAL_OK + "CHAIN_DONE: the rounds returned 1 (...)\nCHAIN_NO_FINAL: ...\n", {"final_match": res(3, 31.8)})
+assert we.main() == 1 and not calls
+
+R = (1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12)
+# 10. the extras after the tail: round 3 on the confirmation seeds, then the unread claim rounds (6, 12; 9 has its final)
+tmp, calls = setup(LINES_OK, FINAL_OK, {"final_match": res(3, 31.8), "final_match_after_stop": res(9, 45.0)}, rounds=R)
+assert we.main() == 0, (tmp / "window_end.log").read_text()
+assert [(c[0], c[1], c[2], c[3]) for c in calls] == [
+    ("confirm_round9", "C:/r/round_09/pi.pt", "confirm_match", ["--games", "12800", "--seed-base", "980000"]),
+    ("window_round9t1", "C:/r/round_09/pi.pt", "tail_match_window", ["--t1", "--games", "12800", "--seed-base", "950000"]),
+    ("confirm_round3", "C:/r/round_03/pi.pt", "confirm_match_round03", ["--games", "12800", "--seed-base", "980000"]),
+    ("final_round6", "C:/r/round_06/pi.pt", "final_match_round06", ["--games", "12800", "--seed-base", "900000"]),
+    ("final_round12", "C:/r/round_12/pi.pt", "final_match_round12", ["--games", "12800", "--seed-base", "900000"])], calls
+
+# 11. round 3 the candidate: no round-3 extra, the claim rounds 6, 9 and 12 at the final seeds
+tmp, calls = setup(LINES_OK, FINAL_OK, {"final_match": res(3, 31.8)}, rounds=R)
+assert we.main() == 0 and [c[0] for c in calls] == ["confirm_round3", "final_round6", "final_round9", "final_round12"], calls
+
+# 12. window_end.STOP: no extras
+tmp, calls = setup(LINES_OK, FINAL_OK, {"final_match": res(3, 31.8), "final_match_after_stop": res(9, 45.0)}, rounds=R, stop=True)
+assert we.main() == 0 and [c[0] for c in calls] == ["confirm_round9", "window_round9t1"], calls
+assert "WINDOW_END_EXTRAS_STOPPED" in (tmp / "window_end.log").read_text()
+
+# 13. an extra whose checkpoint changed holds
+tmp, calls = setup(LINES_OK, FINAL_OK, {"final_match": res(3, 31.8), "final_match_after_stop": res(9, 45.0)}, rounds=R,
+                   digests={"round_06": "other"})
+assert we.main() == 1 and [c[0] for c in calls] == ["confirm_round9", "window_round9t1", "confirm_round3"], calls
+
+# 14. a failed extra plays no further extras
+tmp, calls = setup(LINES_OK, FINAL_OK, {"final_match": res(3, 31.8), "final_match_after_stop": res(9, 45.0)}, rounds=R,
+                   rcs=[0, 0, 0, 5])
+assert we.main() == 1 and [c[0] for c in calls] == ["confirm_round9", "window_round9t1", "confirm_round3", "final_round6"], calls
+print("all 14 cases pass")

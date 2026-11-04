@@ -8,8 +8,11 @@ C:/Users/momom2/wesnoth_runs/window_end.log. Run detached on the repository's
 
 1. Wait until neither chain_local.py nor after_stop_line.py runs (5-min polls).
 2. Go on only if after_stop.log's last LINE line is LINE_DONE and chain.log's
-   last CHAIN_DONE is followed by `CHAIN_FINAL_DONE: match_local returned 0`;
-   otherwise WINDOW_END_HELD (the heartbeat looks).
+   last CHAIN_DONE is followed by `CHAIN_FINAL_DONE: match_local returned 0`,
+   or reads `the rounds returned 0` and is followed by CHAIN_NO_FINAL (a line
+   re-armed after a design stop whose rounds found no time: amendment 1, the
+   2026-11-04 21:43 review's H1); otherwise WINDOW_END_HELD (the heartbeat
+   looks).
 3. The candidate: of the complete final matches at seed base 900,000
    (final_match/ and final_match_after_stop*/, paired on their seeds), the
    highest Elo; its checkpoint's SHA-256 must still be the one it was read with.
@@ -18,6 +21,14 @@ C:/Users/momom2/wesnoth_runs/window_end.log. Run detached on the repository's
 5. If that returned 0 and the candidate is not round 3's (whose tail is
    tail_match/): its tail, match_local --t1, 12,800 games from 950,000 (round
    3's tail's seeds, so the two pair), into tail_match_window/.
+6. Then the extras (amendment 1, the review's L3), one at a time, each only
+   after the last returned 0 and while no window_end.STOP file exists in the
+   runs directory: if the candidate is not round 3, round 3 on the
+   confirmation's seeds (into confirm_match_round03/, so the candidate's gain
+   over round 3 reads paired); then each adopted claim round after round 3
+   that no final match read (6, 9, 12, ..., ascending), at the final matches'
+   seeds (into final_match_roundKK/, paired with every final): the argmax
+   learning curve.
 """
 import hashlib
 import json
@@ -39,6 +50,7 @@ CONFIRM_SEED_BASE = 980000              # fresh: 980,000-992,799 and its +g * 1M
 TAIL_SEED_BASE = 950000                 # round 3's tail's seeds (chain_local TAIL_SEED_BASE)
 GAMES = 12800                           # each match's decisive games, as the final and tail matches
 PROCEDURE = "raw:t0+eo-1.5 against raw:t0+eo-1.5"
+CLAIM_EVERY = 3                         # rounds_local CLAIM_EVERY: the claim rounds are 6, 9, 12, ...
 
 
 def log(msg: str) -> None:
@@ -70,7 +82,8 @@ def line_done() -> Tuple[bool, str]:
         return False, f"after_stop.log's last LINE line is not LINE_DONE: {last or 'none'}"
     text = (RUNS / "chain.log").read_text(encoding="utf-8") if (RUNS / "chain.log").exists() else ""
     tail = text[text.rfind("CHAIN_DONE"):] if "CHAIN_DONE" in text else ""
-    if "CHAIN_FINAL_DONE: match_local returned 0" not in tail:
+    no_time = tail.startswith("CHAIN_DONE: the rounds returned 0") and "CHAIN_NO_FINAL" in tail
+    if "CHAIN_FINAL_DONE: match_local returned 0" not in tail and not no_time:
         return False, f"chain.log's last CHAIN_DONE has no final match that returned 0: {tail.strip()[:300]}"
     return True, ""
 
@@ -99,6 +112,47 @@ def finals() -> List[dict]:
             continue
         out.append(dict(r, dir=d.name, round=int(m.group(1))))
     return out
+
+
+def adopted() -> List[Tuple[int, str, str]]:
+    """(k, candidate path, its SHA-256 as round.json records it) for every
+    round whose round.json names a candidate, as chain_local's last_adopted
+    reads them."""
+    out = []
+    for rj in (RUNS / "rounds_local").glob("round_*/round.json"):
+        cand = json.loads(rj.read_text(encoding="utf-8")).get("candidate") or {}
+        if cand.get("path"):
+            out.append((int(rj.parent.name.split("_")[1]), str(cand["path"]), str(cand.get("sha256"))))
+    return sorted(out)
+
+
+def extras(k: int, read: List[dict]) -> int:
+    """Step 6: round 3 on the confirmation's seeds unless it is the candidate,
+    then the unread claim rounds at the final seeds; 0, or the first failure."""
+    rounds = {j: (pi, sha) for j, pi, sha in adopted()}
+    plan = []
+    if k != 3 and 3 in rounds:
+        plan.append((3, "confirm_round3", RUNS / "confirm_match_round03", CONFIRM_SEED_BASE))
+    finalled = {r["round"] for r in read}
+    for j in sorted(rounds):
+        if j > 3 and j % CLAIM_EVERY == 0 and j not in finalled:
+            plan.append((j, f"final_round{j}", RUNS / f"final_match_round{j:02d}", FINAL_SEED_BASE))
+    log(f"WINDOW_END_EXTRAS: {', '.join(lab for _, lab, _, _ in plan) or 'none'}")
+    for j, label, out, seeds in plan:
+        if (RUNS / "window_end.STOP").exists():
+            log(f"WINDOW_END_EXTRAS_STOPPED before {label}: window_end.STOP exists")
+            return 0
+        pi, recorded = rounds[j]
+        digest = sha256(Path(pi))
+        if digest != recorded:
+            log(f"WINDOW_END_HELD: {pi}'s SHA-256 is {digest}, not round {j}'s recorded {recorded}")
+            return 1
+        rc = match(label, pi, out, ["--games", str(GAMES), "--seed-base", str(seeds)])
+        if rc != 0:
+            log(f"WINDOW_END_HELD: {label} returned {rc}; no further extras")
+            return 1
+    log("WINDOW_END_EXTRAS_DONE")
+    return 0
 
 
 def match(label: str, pi: str, out: Path, extra: List[str]) -> int:
@@ -142,11 +196,11 @@ def main() -> int:
         return 1
     if k == 3:
         log("WINDOW_END_DONE: the candidate is round 3, whose tail is tail_match/")
-        return 0
+        return extras(k, read)
     rc = match(f"window_round{k}t1", pi, RUNS / "tail_match_window",
                ["--t1", "--games", str(GAMES), "--seed-base", str(TAIL_SEED_BASE)])
     log(f"WINDOW_END_DONE: the tail returned {rc}")
-    return 0 if rc == 0 else 1
+    return extras(k, read) if rc == 0 else 1
 
 
 if __name__ == "__main__":

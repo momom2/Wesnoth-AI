@@ -87,6 +87,8 @@ with a tracked copy in `scripts/window_20261029/`.
 | The confirmation (12,800 games at argmax, 3.7 h) | Nov 8 04:25 |
 | The tail (12,800 games at T=1, 2.7 h) | Nov 8 07:10 |
 
+Corrected by amendment 1 (below): the line ends after round 15 or 16, and the tail about Nov 8 04:00-08:00.
+
 A design stop near the end, with under 6 h left, ends the line with
 LINE_DONE after its final match: the same path.
 
@@ -125,3 +127,38 @@ hashing stubbed, on seven cases:
 
 On the real runs directory (read-only), it reads `final_match/` as round 3
 at +31.8, the checkpoint's SHA-256 matches, and the line is not yet done.
+
+## Amendment 1 (2026-11-04 22:35, the 2026-11-04 21:43 review; before any step it changes has run)
+
+The watcher was still waiting (the line runs round 7). It is restarted on the
+amended script; nothing it started is lost.
+
+- **The no-time end (the review's H1).**
+  - The problem:
+    - `after_stop_line.py` re-arms the line after a later design stop whenever at least 6 h remain (`LEFT_H`).
+    - rounds_local's `no_time` needs 1.2 x the longest wall of the current |H|: about 7 h, and 11-13 h once round 9's claim wall counts.
+    - Between the two, the re-armed rounds return ROUNDS_DONE at once (rc 0), and chain_local writes `CHAIN_NO_FINAL` (chain_local.py:258-261) and returns 0. The watcher then logs LINE_DONE.
+    - Step 2 held on that end, since no CHAIN_FINAL_DONE follows the last CHAIN_DONE. The GPU would idle from the stop's final match on (about 5-15%: a PAUSE or a transfer stop at round 15).
+  - The amendment: step 2 also goes on when the last CHAIN_DONE reads `the rounds returned 0` and is followed by CHAIN_NO_FINAL. The design stop's own final match, in the chain before, is then the last one, and step 3 chooses among the complete finals as before.
+- **The extras (the review's L3: the GPU idles after the tail until the user returns).**
+  - Step 6 runs after step 5, or after step 4 when the candidate is round 3, one match at a time.
+  - Each extra runs only after the last match returned 0, and while no `window_end.STOP` file exists in the runs directory.
+    - The file lets the user free the GPU without killing anything mid-match: the current match finishes, and no further one starts.
+    - A match that returns non-zero ends the extras (WINDOW_END_HELD).
+  - The extras, in order:
+    1. **Round 3 on the confirmation's seeds,** if the candidate is not round 3: 12,800 decisive games from 980,000, into `confirm_match_round03/` (label `confirm_round3`). The candidate's gain over round 3 then reads paired on unselected seeds, beside the finals' paired +31.8 at 900,000.
+    2. **Each adopted claim round after round 3 that no final match read** (6, 9, 12, ...; adopted as chain_local's `last_adopted` reads round.json), ascending. Each plays at the final matches' seeds: 12,800 decisive games from 900,000, into `final_match_roundKK/` (label `final_roundK`), paired with every final. They give the argmax learning curve that the T=1 claims cannot.
+  - Each checkpoint's SHA-256 must equal its round.json's `candidate.sha256`, or the extras hold.
+  - Each extra takes about 3.9 h. Today only round 6 would qualify; rounds 9, 12 and 15 join as they are adopted.
+- **Seeds:** no new block. 980,000 is this pre-registration's; 900,000 is the final matches' (paired by design).
+- **The kill:** as above, plus the STOP file.
+- **Tests:** the stub test, now 14 cases (scripts/window_20261029/window_end_stubtest.py), all pass. The new cases:
+  - the no-time end confirms;
+  - CHAIN_NO_FINAL after a non-zero rounds code holds;
+  - the extras' order after a tail;
+  - the extras when the candidate is round 3;
+  - the STOP file;
+  - an extra's changed SHA holds;
+  - a failed extra ends the extras.
+
+  Read-only on the real files: the line is not yet done, the only final is round 3's at +31.8, rounds 1-6 are adopted, and round 6's SHA matches its round.json. The extras would play round 6 alone.
