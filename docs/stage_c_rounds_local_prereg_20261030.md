@@ -910,7 +910,9 @@ Design §6, unchanged:
       and it moves that text aside as STOP_round03_2. The rounds resume from
       their markers, with round 4's start kept.
     - **Kill:** none for the rule, which changes no reading. If the re-arm
-      fails, the heartbeat re-arms the line by hand at e48a96c7.
+      fails, the heartbeat re-arms the line by hand at d045e17c (corrected
+      2026-11-04 on the 09:43 review, L3: e48a96c7 as first written would
+      bring back M2's walls).
     - **Tests:**
       - tests/test_rounds_local.py: a resume at |H| 5,000 after a 14 h round 3
         goes on to round 7 by --end-by; so does a re-arm after round 6's stop.
@@ -922,3 +924,76 @@ Design §6, unchanged:
         no time left; the base stop.
       - The arming script's command line was printed by a dry copy, for
         K0 3 and K0 6.
+
+36. **|H| = 2,500 from round 7** (no code change: the line watcher
+    restarted with `--held 2500`, the line re-armed at d045e17c with
+    `-Held 2500`; registered 2026-11-04 10:45, during round 6's games; the
+    2026-11-04 09:43 review, M2).
+    - **Why:**
+      - The step adopts unless half B reads below -REVERT_SE SE
+        (wesnoth_ai/pg_step.py `decide`), so a noisier half B costs no
+        rounds. H's halves choose the rung (A) and confirm it (B), and the
+        corrections are fitted on it; the pass trains on the N = 5,000
+        training games alone.
+      - The x1 rung has sat at the range's edge since round 3
+        (SIDE_KL_RANGE over the decisions per side: next eps 0.00229,
+        0.00224, 0.00218), and the x2 rung is past it. Each round's step is
+        capped, so the lever is still rounds per day (departure 34's reason).
+      - At |H| 5,000, rounds 4 and 5 took 7.2 and 7.4 h: play 2.6 h (10,000
+        games), the pass about 2.5 h, the step 2.3 h. At |H| 10,000, round
+        3's step took 4.9 h, so the step scales with H. At 2,500, play takes
+        about 2.0 h and the step about 1.2 h: rounds of about 5.8 h, 8.6 h
+        with a claim.
+      - Under --end-by 2026-11-08 02:00, the line at 5,000 ends after round
+        14 (15 if its rounds stay under about 7.47 h; games lengthen, 223 to
+        230 decisions a side). At 2,500 it ends after about round 17, about
+        Nov 7 21:00: three more rounds, at about +0.085 on half B each (rounds
+        4 and 5: 0.0896 and 0.0875), about 30 Elo at T=1 by 347.4 Elo a unit.
+    - **Costs:**
+      - Half B's SE grows by sqrt(2), from 0.019 to about 0.027, against
+        readings of about 0.09 (z about 3.3).
+      - Half A's rung choice is noisier. In round 4, x0.5 read 0.073 and x1
+        0.106 on half A; the two share their games, so the difference reads
+        tighter than either. A pick of x0.5 halves the next radius, and the
+        next round's x2 rung reads it back at the edge.
+      - The corrections are fitted on 2,500 held-out games. In round 5 the
+        value term entered at 39 SE and the luck term over it at 11 SE, with
+        a share of 6.8% against the rule's 5%. At 2,500 they read about 28
+        and 8 SE, and the share's noise is about 0.009, so in an occasional
+        round the luck term drops out (coefficient 0), about 7% more E[R^2]
+        in that round's pass.
+      - The transfer test's combined SE grows: about 17 Elo at round 9,
+        against about 12.7 at round 6.
+      - The ESS floor is unchanged: it depends on the side KL alone
+        (pg_step.py `ess_floor`).
+      - The first round at 2,500 extrapolates --end-by from every round's
+        wall, round 3's 14.2 h included (departure 35's rule, no round of
+        the current |H| yet ended): harmless before Nov 7. Until round 9's
+        claim ends, the 2,500 walls hold no claim round. That matters only
+        near the end, where every claim round has been read.
+    - **What runs:** the rounds whose games start after the redeploy play
+      N 5,000 + 2,500 games, the last 2,500 held out. Round 6 keeps 5,000
+      (its held.txt). The seed blocks are unchanged.
+    - **Deployment:** the line watcher re-arms with its own `--held`
+      (after_stop_line.py `arm`), so it is restarted first with `--held
+      2500` (K0 3, the same head and final-out). Then a REDEPLOY stop naming
+      "after round 3" ends the line at round 6's next step boundary (after
+      its games, about 12:40; rc 2, no final match). The watcher re-arms the
+      line at d045e17c with `-Held 2500`; chain_local --after-stop 3 accepts
+      the text and moves it aside, and round 6 resumes from its markers at
+      5,000. A design stop at round 6's claim re-arms at 2,500 by the
+      departure 35 path.
+    - **Kill:** back to 5,000 at the next round boundary (the watcher
+      restarted at `--held 5000`, then a REDEPLOY) if any of these holds:
+      - half B's ESS check fails in two rounds in a row (each failure plays a
+        2.4 h cross-play match);
+      - a half B's SE exceeds 0.045 (a reading of 0.09 under 2 SE);
+      - a round at 2,500 without a claim takes over 6.8 h (the saving is not
+        there).
+    - **The readings:** each round's wall, half B's estimate and SE, and the
+      corrections' entries, against rounds 4 and 5.
+    - **Tests:** no code changes. The |H| paths are departure 34's: |H|
+      reaches the play and the pass, and a resume keeps a round's recorded
+      |H|. MIN_HELD (4) is far below 2,500. The full suite runs at the
+      stage1 tip (code equal to d045e17c, apart from
+      scripts/window_20261029/) during round 6 (the review's L2).

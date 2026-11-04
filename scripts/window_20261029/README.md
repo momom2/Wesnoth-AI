@@ -30,3 +30,8 @@ snapshots as of 2026-11-02 23:12.
   match done, stamps round K's end and re-arms the line rebased on K, its final match into
   `final_match_after_stop_kKK`. `arm_after_stop.ps1` gained `-FinalOut` and appends its
   console log.
+- `window_end.py` (with `window_end_stubtest.py`, its stub test): docs/window_end_prereg_20261104.md
+  (2026-11-04 10:50). Once the after-stop line has ended cleanly (LINE_DONE, its last
+  final match returned 0), it confirms the best final match's candidate on fresh seeds
+  (12,800 games from 980,000, `confirm_match/`), then plays that candidate's T=1 tail on
+  round 3's tail seeds (`tail_match_window/`) unless the candidate is round 3.
