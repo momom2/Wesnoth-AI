@@ -997,3 +997,11 @@ Design §6, unchanged:
       |H|. MIN_HELD (4) is far below 2,500. The full suite runs at the
       stage1 tip (code equal to d045e17c, apart from
       scripts/window_20261029/) during round 6 (the review's L2).
+    - **Corrected 2026-11-04 22:40 (the 2026-11-04 21:43 review; records only, nothing deployed changes):**
+      - **The line's end.** After round 9's claim, --end-by's need is 1.2 x the longest wall at |H| 2,500. That is a claim round's (about 9 h), so every later round needs about 11 h (rounds_local.py:294), the claimless ones included. The line ends after round 15 or 16, not about round 17: ROUNDS_DONE about Nov 7 17:00-21:00, the final match about Nov 7 21:00-Nov 8 01:00. This costs about one round, about +14 Elo at T=1. The "only near the end" above understated it.
+      - **The PAUSE bar.** The PAUSE needs the last three half-B readings' sum above 2 SE. At |H| 2,500 that bar is about 0.073, against 0.061 for rounds 4-6.
+        - Half B falls: 0.138, 0.109, 0.090, 0.088, 0.059. A geometric fit projects sums of about 0.12 for rounds 7-9 (clear), 0.06-0.08 for rounds 10-12 (about even) and 0.03-0.05 for rounds 13-15 (a likely PAUSE).
+        - A PAUSE is a design stop: a final match (about 3.9 h), then a re-arm when 6 h remain. Window-end amendment 1 covers the case where the re-armed rounds find no time.
+        - This cost is missing from the list above.
+      - **Half B's SE** at 2,500 reads about 0.021, from round 6's 0.0147 at 5,000, not 0.027.
+      - **The KL subsample.** `kl_fraction` 0.05 (pg_eval.py:115) reads about 250 game-sides at 2,500. The 1x rung's edge is placed from it, so its step can be a few percent off. Not listed above; small.
