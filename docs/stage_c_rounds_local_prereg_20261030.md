@@ -927,7 +927,7 @@ Design §6, unchanged:
 
 36. **|H| = 2,500 from round 7** (no code change: the line watcher
     restarted with `--held 2500`, the line re-armed at d045e17c with
-    `-Held 2500`; registered 2026-11-04 10:45, during round 6's games; the
+    `-Held 2500`; registered 2026-11-04 10:37, during round 6's games; the
     2026-11-04 09:43 review, M2).
     - **Why:**
       - The step adopts unless half B reads below -REVERT_SE SE

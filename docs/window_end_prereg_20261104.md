@@ -1,6 +1,6 @@
 # The window's end: a fresh-seed confirmation and a T=1 tail
 
-Pre-registered 2026-11-04 10:50, during round 6's games, on the 2026-11-04
+Pre-registered 2026-11-04 10:37, during round 6's games, on the 2026-11-04
 09:43 review's M1. The watcher is `C:/Users/momom2/wesnoth_runs/tools/window_end.py`,
 with a tracked copy in `scripts/window_20261029/`.
 
