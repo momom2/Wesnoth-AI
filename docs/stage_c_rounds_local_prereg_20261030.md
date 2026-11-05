@@ -1005,3 +1005,140 @@ Design §6, unchanged:
         - This cost is missing from the list above.
       - **Half B's SE** at 2,500 reads about 0.021, from round 6's 0.0147 at 5,000, not 0.027.
       - **The KL subsample.** `kl_fraction` 0.05 (pg_eval.py:115) reads about 250 game-sides at 2,500. The 1x rung's edge is placed from it, so its step can be a few percent off. Not listed above; small.
+37. **Each step also reads its direction averaged with the two rounds'
+    before it, and steps along whichever half A selects**
+    (`exp/cross-round-average` b6f41c0b and d06c352a, merged into
+    `feature/cross-play-rung` at 341ed806; the line watcher restarted with
+    `--average 2`; registered 2026-11-05 23:00, during round 10's step; the
+    2026-11-05 21:43 review, M1; a code review of the diff the same
+    evening).
+    - **Why:**
+      - The step is pinned at the side-KL range: the x1 rung's side KL reads
+        0.48-0.50 in rounds 4-9 against SIDE_KL_RANGE 0.5, and the x2 rung
+        has been past the range every round since 4. At a fixed KL, a
+        direction closer to the true gradient gains more.
+      - The heads' signal keeps its direction from round to round (the
+        signal cosine between consecutive rounds reads 0.96-1.11, round 8's
+        0.60 in reduced-AdamW coordinates reading 0.99 in raw ones), while
+        its share of each round's direction falls from 0.73 (round 2) to
+        0.24 (round 9) against a flat noise
+        (training/metrics/denoise_20261105.json).
+      - So the noises of consecutive rounds are independent and their
+        signals nearly equal. With one split of round k's 8 left out as the
+        reference and 7 in each estimate, the cosine with round k's signal
+        reads, alone and averaged with the two rounds before it: round 4
+        0.709 and 0.913, round 5 0.628 and 0.874, round 6 0.629 and 0.816,
+        round 7 0.604 and 0.769, round 8 0.526 and 0.636, round 9 0.471 and
+        0.797 (the review's `xround.py`, reproduced 2026-11-05 22:25).
+        With each round's estimate scaled to unit norm before the mean, as
+        the rule below does, they read the same: 0.912, 0.873, 0.815, 0.770,
+        0.638 and 0.793. Denoising target_q_proj adds about +0.005 at round 9.
+      - This is a cosine in the step's coordinates, a proxy. The policy's
+        gain at the step's KL is what half A reads, so the averaged
+        direction is offered beside the plain one, not in its place.
+    - **Rule:**
+      - A step taken from the redeploy on (pg_round `--average-with`, given by
+        rounds_local `--average 2`) builds the round's own direction d as
+        before, and the average of d and the direction.pt of the two rounds
+        before it, each scaled to unit norm (pg_step `averaged`).
+      - d keeps its ladder (eps/2, eps, 2 eps). The averaged direction is
+        searched at eps alone (AVERAGE_MULTIPLIERS): the eps/2 rung never
+        won half A in rounds 4-9, and each rung costs a KL search.
+      - Every rung of both is read on half A. The highest readable one is
+        read on half B, and `decide` is unchanged: it adopts unless half B
+        reads below -2 SE, and the next eps is the adopted rung's. Ties go
+        to d.
+      - The candidate (and a cross-play rung) steps along the chosen
+        direction.
+      - direction.pt stays d, the round's own, so a round's noise enters at
+        most three steps, and nothing accumulates as momentum would. A
+        chosen average is saved beside it as direction_average.pt, which
+        rebuilds the candidate.
+      - An input the averaging cannot take (another arm, an earlier
+        direction off the heads or lacking d's names, a zero average), or a
+        failure in its ladder, is recorded under round.json "average"
+        "error" (and PG_ROUND_AVERAGE_FAILED in the round's log), and the
+        round reads d's ladder alone: the step never fails for the average's
+        sake (the code review's M1).
+      - round.json's "decision" is the chosen direction's ladder, so its
+        "chosen" indexes that direction's rungs: 0 is the eps rung for the
+        average, the eps/2 rung for d. Read `rungs[chosen].multiplier`.
+    - **The number:** each round's paired half-A difference, the averaged
+      direction's eps rung less d's, clustered by game (round.json "paired"
+      "average_minus_plain_A"), and which direction was chosen. Pooled over
+      the rounds that read it, inverse-variance weighted: the factor helps
+      if the pooled difference is above 0 by 2 SE. It is a reading for the
+      next design, not a gate, since the selection already acts round by
+      round.
+    - **Costs:**
+      - The averaged direction's KL search, about 2-4 evaluations at about
+        2.75 min each (round 9's cache: 13:35-13:46 for d's five).
+      - Its rung's half-A reading rides d's replay on theta_k's trunk (pg_eval
+        `read_pairs`: both move the heads alone), so only its heads run
+        again: about a minute.
+      - About 10 min a step, so about 6.1 h a claimless round, against
+        round 9's 5.93 h. Under --end-by, round 16 still starts (by about
+        Nov 7 14:40, after round 15's claim about 13:20), and round 17 does
+        not.
+      - Half A selects among four candidates, not three, so half A's
+        reading of the chosen rung is more optimistic. Half B is
+        independent of the selection, and it is what decides adoption, the
+        PAUSE and the transfer test, so they are unchanged.
+      - The averaged direction re-applies the earlier rounds' noise, already
+        stepped along once. Its KL search accounts for its cost, and the
+        cosines above are with the current round's signal.
+    - **Deployment:**
+      - The deployed after_stop_line.py and arm_after_stop.ps1 are replaced
+        together and compared with the tracked copies (an old .ps1 refuses
+        `-Average`; the code review's M2). Then the line watcher is
+        restarted, with `--head 341ed806 --k0 3 --held 2500 --average 2`; it
+        re-arms with `-Average 2` (after_stop_line.py `arm`;
+        arm_after_stop.ps1 `-Average`).
+      - Then a REDEPLOY stop naming "after round 3" ends the line at round
+        11's first step boundary: before its games, since round 10's step
+        was running when the stop was written.
+      - The watcher re-arms within about 5 min (rc 2, no final match).
+        chain_local --after-stop 3 moves the stop aside, and round 11 plays
+        at the merge, its step averaging with rounds 10 and 9.
+    - **Kill:** back to the plain line at the next round boundary (the
+      watcher restarted at `--average 0` and the head d045e17c, both
+      together: chain_local at d045e17c refuses `--rounds-average`, and the
+      watcher would re-arm it every 5 minutes; then a REDEPLOY) if any of
+      these holds:
+      - a step fails (rc not 0, or no round.json). Its rNN_step.failed
+        marker is then moved aside before the redeploy, since every resume
+        honours it;
+      - a claimless round takes over 7.0 h (departure 36's 6.8 h plus the
+        averaged direction's cost);
+      - half B's ESS check fails in two rounds in a row (departure 36's).
+    - **Tests** (all CPU, on b6f41c0b):
+      - tests/test_pg_step.py: the average's weights; the paired ladder selects
+        across both and confirms the winner, ties to d, and with no winner
+        reads as d's own ladder; every rung is searched before one joint
+        prefetch of half A. 19 passed.
+      - tests/test_pg_eval.py: two heads-only directions read on half A in one
+        walk on theta_k's trunk, bit for bit their own prefetches' readings,
+        on either trunk (packed or not); two contexts are refused. 17 passed.
+      - tests/test_pg_round.py (slow, the miniature run): through the command
+        line, both ladders recorded, the round's own direction saved, the
+        candidate along the chosen one and a chosen average saved; a trunk
+        direction or another arm recorded as the average's error, the round
+        then reading d's ladder exactly as without --average-with. 6 passed.
+      - tests/test_rounds_local.py and tests/test_chain_local.py: `--average
+        2` gives each step the two previous rounds' direction.pt, latest
+        first, and the runner line names the chosen direction;
+        `--rounds-average` reaches rounds_local. 41 passed.
+      - The other tests on these modules (match_local, cross-play, the
+        end-to-end, the pass, stage C, stage 1): 89 passed.
+      - after_stop_line_stubtest.py: `--average 2` reaches both the REDEPLOY
+        and the re-arm, before -FinalOut, and is absent at 0. 6 cases pass.
+        arm_after_stop.ps1, its launch removed, writes `--rounds-average 2`
+        with `-Average 2` and nothing without it.
+      - The saved direction.pt of rounds 7-9 hold every name of round 9's
+        pass, are nonzero (norms 3.40, 3.29, 3.12) and are zero off the
+        heads; round 10's is checked when written.
+      - The full suite at 341ed806 (`pytest -m ""`), before the stop is
+        written.
+      - Not covered: the joint read of two directions on the GPU in fp16 (the
+        code review's L5). It runs the same `_shared_forward` path as the
+        several rungs of one direction, which the GPU check covered.

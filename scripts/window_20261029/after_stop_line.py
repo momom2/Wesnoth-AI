@@ -3,7 +3,10 @@
 C:/Users/momom2/wesnoth_runs/after_stop.log beside after_stop.py's lines.
 Run detached on the repository's .venv:
 
-    python C:/Users/momom2/wesnoth_runs/tools/after_stop_line.py --head <commit> --k0 3 --held 5000
+    python C:/Users/momom2/wesnoth_runs/tools/after_stop_line.py --head <commit> --k0 3 --held 5000 [--average 2]
+
+--average N (prereg departure 37) re-arms the line with chain_local
+--rounds-average N.
 
 1. Wait for chain_local to exit.
 2. Read rounds_local/STOP:
@@ -45,10 +48,11 @@ def chain_alive() -> bool:
         return True
 
 
-def arm(head: str, k0: int, held: int, end_by: str, final_out: str) -> str:
+def arm(head: str, k0: int, held: int, end_by: str, final_out: str, average: int = 0) -> str:
     subprocess.run(["git", "checkout", "-q", "--detach", head], cwd=base.RUN_TREE, check=True)
+    extra = ["-Average", str(average)] if average else []
     return base.powershell("arm_after_stop.ps1", "-Head", head, "-K0", str(k0), "-Arm", "heads_only",
-                           "-EndBy", end_by, "-Held", str(held), "-FinalOut", final_out)
+                           "-EndBy", end_by, "-Held", str(held), *extra, "-FinalOut", final_out)
 
 
 def final_done() -> bool:
@@ -67,10 +71,11 @@ def main() -> int:
     ap.add_argument("--final-out", default="final_match_after_stop", help="the running line's final match, "
                     "under C:/Users/momom2/wesnoth_runs")
     ap.add_argument("--end-by", default="2026-11-08 02:00")
+    ap.add_argument("--average", type=int, default=0, help="chain_local --rounds-average (prereg departure 37)")
     a = ap.parse_args()
     k0, final_out = a.k0, a.final_out
     base.log(f"LINE watching the after-stop line (head {a.head}, K0 {k0}, |H| {a.held}, final {final_out}, "
-             f"rounds end by {a.end_by}; prereg departure 35)")
+             f"rounds end by {a.end_by}, average {a.average}; prereg departure 35)")
     while True:
         while chain_alive():
             time.sleep(300)
@@ -80,7 +85,7 @@ def main() -> int:
             if f"after round {k0}" not in why:
                 base.log(f"LINE_HELD: the REDEPLOY stop does not name round {k0} ({why}); the lead looks")
                 return 1
-            first = arm(a.head, k0, a.held, a.end_by, final_out)
+            first = arm(a.head, k0, a.held, a.end_by, final_out, a.average)
             base.log(f"LINE_REDEPLOYED at {a.head}, K0 {k0}, final {final_out}: {first}")
             if not first.startswith("rc=0 "):
                 return 1
@@ -104,7 +109,7 @@ def main() -> int:
             return 0
         base.stamp_stop_end(k)
         k0, final_out = k, f"final_match_after_stop_k{k:02d}"
-        first = arm(a.head, k0, a.held, a.end_by, final_out)
+        first = arm(a.head, k0, a.held, a.end_by, final_out, a.average)
         base.log(f"LINE_REARMED after round {k0}'s design stop at {a.head}, final {final_out}: {first}")
         if not first.startswith("rc=0 "):
             return 1
