@@ -165,7 +165,7 @@ amended script; nothing it started is lost.
 
   Read-only on the real files: the line is not yet done, the only final is round 3's at +31.8, rounds 1-6 are adopted, and round 6's SHA matches its round.json. The extras would play round 6 alone.
 
-## Amendment 2 (2026-11-05 10:45, the 2026-11-05 09:43 review; the watcher is still waiting, so no step it changes has run)
+## Amendment 2 (2026-11-05 10:39, the 2026-11-05 09:43 review; committed 10:39:17, the watcher restarted 10:39:38 while still waiting, so no step it changes had run)
 
 The watcher is restarted on the amended script. Nothing it started is lost.
 
