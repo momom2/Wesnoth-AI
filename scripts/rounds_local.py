@@ -76,6 +76,10 @@ it in the same --out, and three options shape them:
   are not read again, and the stops after K0 read only the rounds after
   it: the pause sums the confirmed readings after K0, and a claim is tested
   against round K0's claim in place of D0.
+- `--average N` (prereg departure 37): a step not yet taken reads, beside
+  the round's own direction, its average with the direction.pt of the N
+  rounds before it that hold one (tools/pg_round.py --average-with), and
+  steps along whichever half A selects.
 The STOP the stop wrote is moved aside by the caller (scripts/chain_local.py
 --after-stop) before the rounds resume.
 
@@ -326,6 +330,14 @@ class Rounds(Steps):
             return ["--arm", self.a.arm]
         return ["--arm-from", str(self.sc / "stage_c.json")]
 
+    def average_args(self, k: int) -> List[str]:
+        """pg_round's --average-with: the direction.pt of the --average
+        rounds before round k that hold one (prereg departure 37)."""
+        n = getattr(self.a, "average", 0) or 0
+        paths = [self.rdir(j) / "direction.pt" for j in range(k - 1, max(0, k - 1 - n), -1)]
+        paths = [str(path) for path in paths if path.exists()]
+        return ["--average-with", *paths] if paths else []
+
     def window_args(self) -> List[str]:
         w = getattr(self.a, "pass_window", None)
         return ["--window", str(w)] if w else []
@@ -403,6 +415,7 @@ class Rounds(Steps):
             self.check_stop(f"round {k}'s step")
             prev = self.rdir(k - 1)
             previous = ["--previous", str(prev / "direction.pt")] if (prev / "direction.pt").exists() else []
+            previous += self.average_args(k)
             rc = self.step(f"round {k} step", ["tools/pg_round.py", "--pass", str(d / "pass.pt"), "--factory",
                                                "tools.pg_eval:network_factory",
                                                *self.factory_args(pi, dirs, labels, d / "eval_cache"), "--eps-from",
@@ -592,7 +605,9 @@ def run(r: Rounds, rounds: int) -> int:
                 log(out, f"ROUNDS_FAILED at round {k}: {' '.join(r.state)}")
                 return 1
             dec = r.round_json(k)["decision"]
-            log(out, f"round {k}: adopt={dec.get('adopt')} next_eps={dec.get('next_eps')}: {dec.get('reason')}")
+            paired = r.round_json(k).get("paired")
+            along = f" along {paired['chosen']}" if paired else ""
+            log(out, f"round {k}: adopt={dec.get('adopt')} next_eps={dec.get('next_eps')}{along}: {dec.get('reason')}")
             if k == 1 and r.xp_gate:
                 why = r.xp_resolved()
                 if why:
@@ -650,6 +665,9 @@ def main() -> int:
     ap.add_argument("--held", type=int, default=N_HELD,
                     help="|H|, a round's held-out games, for rounds whose games start from now (prereg departure "
                          "34); a round keeps the |H| it started with (its held.txt)")
+    ap.add_argument("--average", type=int, default=0, metavar="N",
+                    help="a step reads its direction averaged with the N previous rounds' beside it (module "
+                         "docstring, prereg departure 37)")
     ap.add_argument("--normal-priority", action="store_true")
     ap.add_argument("--keep-awake", action="store_true")
     args = ap.parse_args()
@@ -672,10 +690,13 @@ def main() -> int:
         ap.error(f"--pass-window {args.pass_window}: a window holds at least one decision")
     if args.rebase_after is not None and args.rebase_after < 1:
         ap.error(f"--rebase-after {args.rebase_after}: name the round whose stop was acted on")
+    if args.average < 0:
+        ap.error(f"--average {args.average}: a number of earlier rounds")
     log(args.out, f"rounds local: stage 1 {args.stage1}, stage C {args.stage_c}, out {args.out}, "
                   f"rounds {args.rounds}, pi_0 {args.checkpoint}, |H| {args.held}, end by {args.end_by}, "
                   f"heads-only pass {args.heads_only_pass}, arm {args.arm or 'from stage C'}, pass window "
-                  f"{args.pass_window or 'the pass default'}, rebase after {args.rebase_after}")
+                  f"{args.pass_window or 'the pass default'}, rebase after {args.rebase_after}, average "
+                  f"{args.average}")
     return run(Rounds(args), args.rounds)
 
 

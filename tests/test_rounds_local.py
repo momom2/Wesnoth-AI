@@ -607,3 +607,44 @@ def test_end_by_after_a_second_stop_still_reads_the_current_held_size(tmp_path, 
     log = (out / "runner.log").read_text(encoding="utf-8")
     assert rc == 0, log
     assert max(int(n.split()[1]) for n in tools.names()) == 7
+
+
+class _Directions(FakeTools):
+    """FakeTools whose steps also write their --direction-out, and whose
+    steps given --average-with record the averaged direction as chosen."""
+
+    def __call__(self, out, name, cmd, log_name, cut, python, **kw):
+        rc = super().__call__(out, name, cmd, log_name, cut, python, **kw)
+        if name.endswith(" step") and "--direction-out" in cmd:
+            Path(cmd[cmd.index("--direction-out") + 1]).write_text("d", encoding="utf-8")
+        if name.endswith(" step") and "--average-with" in cmd:
+            path = Path(cmd[cmd.index("--out") + 1])
+            r = json.loads(path.read_text(encoding="utf-8"))
+            path.write_text(json.dumps({**r, "paired": {"chosen": "average"}}), encoding="utf-8")
+        return rc
+
+
+def _averaged_with(cmd):
+    if "--average-with" not in cmd:
+        return None
+    rest = cmd[cmd.index("--average-with") + 1:]
+    return [Path(a).parent.name for a in rest[:next((i for i, a in enumerate(rest) if a.startswith("--")), len(rest))]]
+
+
+def test_average_gives_each_step_the_earlier_rounds_directions(tmp_path, monkeypatch):
+    """Prereg departure 37: --average 2 gives each step the direction.pt of
+    the two rounds before it that hold one, latest first, and the runner's
+    line names the direction the step chose; without --average no step
+    reads one."""
+    _reference(monkeypatch)
+    tools = _Directions()
+    rc, out = _run(tmp_path / "avg", tools, rounds=4, average=2)
+    assert rc == 0
+    assert [_averaged_with(tools.cmd(f"round {k} step")) for k in (2, 3, 4)] == [
+        ["round_01"], ["round_02", "round_01"], ["round_03", "round_02"]]
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert "round 4: adopt=True next_eps=0.002 along average: read" in log
+    tools = _Directions()
+    rc, out = _run(tmp_path / "plain", tools, rounds=4)
+    assert rc == 0 and all(_averaged_with(tools.cmd(f"round {k} step")) is None for k in (2, 3, 4))
+    assert " along " not in (out / "runner.log").read_text(encoding="utf-8")
