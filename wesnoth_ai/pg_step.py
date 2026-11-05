@@ -235,6 +235,28 @@ def norm(d: Direction) -> float:
     return math.sqrt(dot(d, d))
 
 
+def averaged(directions: Sequence[Direction]) -> Direction:
+    """The mean of the directions scaled to unit norm, one equal weight each
+    (prereg departure 37: a round's direction averaged with the earlier
+    rounds', whose signal keeps its direction while their noises are
+    independent). It covers the first direction's names, which every other
+    must hold."""
+    if not directions:
+        raise ValueError("averaged needs at least one direction")
+    names = list(directions[0])
+    sizes = []
+    for d in directions:
+        missing = [name for name in names if name not in d]
+        if missing:
+            raise ValueError(f"a direction to average lacks {missing[:3]}")
+        size = norm({name: d[name] for name in names})
+        if not size > 0:
+            raise ValueError("a direction to average is zero")
+        sizes.append(size)
+    return {name: sum(d[name].float() / size for d, size in zip(directions, sizes)) / len(directions)
+            for name in names}
+
+
 # ---------------------------------------------------------------- the KL search
 
 @dataclass(frozen=True)
@@ -558,11 +580,23 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
     its halves empty)."""
     evaluator = evaluator_factory(d)
     by_half = sides_by_half(evaluator.game_sides(), halves)
-    per_side = decisions_per_side(evaluator.game_sides())
-    edge = SIDE_KL_RANGE / per_side
+    edge = SIDE_KL_RANGE / decisions_per_side(evaluator.game_sides())
     select, confirm = halves
+    points = _search_rungs(evaluator, eps, edge, LADDER_MULTIPLIERS, s0, known)
+    _prefetch(evaluator, [p.s for _, _, p in points if p is not None], (select,))
+    rungs = _selection_rungs(evaluator, points, select, by_half[select])
+    best = select_rung(rungs, select)
+    if best is not None:
+        _confirm(evaluator, rungs, best, confirm, by_half[confirm])
+    return decide(rungs, eps, halves)
+
+
+def _search_rungs(evaluator: Evaluator, eps: float, edge: float, multipliers: Sequence[float], s0: float,
+                  known: Optional[Mapping[float, KLPoint]] = None) -> List[Tuple[float, float, Optional[KLPoint]]]:
+    """(multiplier, target KL, its step or None past the range) for each
+    rung, as `ladder` describes."""
     points, s_guess, previous, below = [], s0, None, 0.0
-    for multiplier in LADDER_MULTIPLIERS:
+    for multiplier in multipliers:
         target = multiplier * eps
         if not target <= edge * (1.0 + 1e-9):
             if not edge >= EDGE_MIN_RATIO * below:
@@ -577,20 +611,98 @@ def ladder(evaluator_factory: EvaluatorFactory, d: Direction, eps: float,
             point = kl_search(evaluator.mean_kl, target, s0=s_guess)
         points.append((multiplier, target, point))
         previous = point
-    searched = [p.s for _, _, p in points if p is not None]
-    _prefetch(evaluator, searched, (select,))
-    base = _base_on(evaluator, (select,)) if searched else None
-    rungs = [Rung(m, target, None, None, False, {}) if p is None else
-             Rung(m, target, p.s, p.kl, True, read_candidate(evaluator, p.s, p.kl, {select: by_half[select]}, base))
-             for m, target, p in points]
-    best = select_rung(rungs, select)
+    return points
+
+
+def _selection_rungs(evaluator: Evaluator, points: Sequence[Tuple[float, float, Optional[KLPoint]]],
+                     select: str, sides: Sequence[GameSide]) -> List[Rung]:
+    """The rungs, each searched one read on the selection half."""
+    base = _base_on(evaluator, (select,)) if any(p is not None for _, _, p in points) else None
+    return [Rung(m, target, None, None, False, {}) if p is None else
+            Rung(m, target, p.s, p.kl, True, read_candidate(evaluator, p.s, p.kl, {select: sides}, base))
+            for m, target, p in points]
+
+
+def _confirm(evaluator: Evaluator, rungs: List[Rung], best: int, confirm: str, sides: Sequence[GameSide]) -> None:
+    """Rung `best` read on the confirmation half as well, in place."""
+    rung = rungs[best]
+    _prefetch(evaluator, [rung.s], (confirm,))
+    confirmed = read_candidate(evaluator, rung.s, rung.kl, {confirm: sides}, _base_on(evaluator, (confirm,)))
+    rungs[best] = dataclasses.replace(rung, halves={**rung.halves, **confirmed})
+
+
+# The averaged direction's rungs (prereg departure 37): the plain ladder's eps/2
+# rung never won half A in rounds 4-9, and every rung searched costs a KL search.
+AVERAGE_MULTIPLIERS = (1.0,)
+
+
+@dataclass(frozen=True)
+class PairedDecision:
+    chosen: str                     # the direction whose rung was read on the confirmation half
+    decision: Decision              # decide's reading of that direction's rungs
+    rungs: Dict[str, List[Rung]]    # every direction's rungs
+
+    def summary(self) -> Dict:
+        return {"chosen": self.chosen, "rungs": {label: [r.summary() for r in rungs]
+                                                for label, rungs in self.rungs.items()}}
+
+
+def paired_ladder(evaluator_factory: EvaluatorFactory, directions: Mapping[str, Direction], eps: float,
+                  multipliers: Mapping[str, Sequence[float]], halves: Tuple[str, str] = ("A", "B"),
+                  s0: float = 1.0) -> PairedDecision:
+    """Prereg departure 37: `ladder` on several directions selected together.
+    Each direction's rungs (its `multipliers`) are searched, then read on the
+    selection half, all of them in one replay when the evaluators can
+    (`prefetch_jointly`, tools/pg_eval.py); the rung of highest ΔĴ among
+    every direction's readable rungs is read on the confirmation half, and
+    `decide` reads that direction's rungs, whose best it is. Ties go to the
+    earlier direction. `s0` starts the first direction's first search; a
+    later direction's starts from the first's step at its multiplier,
+    scaled by the directions' norms (the same Euclidean length), else from
+    1 / its norm."""
+    labels = list(directions)
+    evaluators = {label: evaluator_factory(directions[label]) for label in labels}
+    sides = evaluators[labels[0]].game_sides()
+    by_half = sides_by_half(sides, halves)
+    edge = SIDE_KL_RANGE / decisions_per_side(sides)
+    select, confirm = halves
+    points: Dict[str, List[Tuple[float, float, Optional[KLPoint]]]] = {}
+    for label in labels:
+        start = s0
+        if points:
+            first, size = labels[0], norm(directions[label])
+            at = {m: p for m, _, p in points[first] if p is not None}
+            m0 = multipliers[label][0]
+            start = (at[m0].s * norm(directions[first]) / size if m0 in at and size > 0
+                     else 1.0 / size if size > 0 else 1.0)
+        points[label] = _search_rungs(evaluators[label], eps, edge, multipliers[label], start)
+    _prefetch_jointly([(evaluators[label], [p.s for _, _, p in points[label] if p is not None])
+                       for label in labels], (select,))
+    rungs = {label: _selection_rungs(evaluators[label], points[label], select, by_half[select])
+             for label in labels}
+    best: Optional[Tuple[float, str, int]] = None
+    for label in labels:
+        i = select_rung(rungs[label], select)
+        if i is not None and (best is None or rungs[label][i].halves[select].exact.estimate > best[0]):
+            best = (rungs[label][i].halves[select].exact.estimate, label, i)
+    chosen = labels[0] if best is None else best[1]
     if best is not None:
-        rung = rungs[best]
-        _prefetch(evaluator, [rung.s], (confirm,))
-        confirmed = read_candidate(evaluator, rung.s, rung.kl, {confirm: by_half[confirm]},
-                                   _base_on(evaluator, (confirm,)))
-        rungs[best] = dataclasses.replace(rung, halves={**rung.halves, **confirmed})
-    return decide(rungs, eps, halves)
+        _confirm(evaluators[chosen], rungs[chosen], best[2], confirm, by_half[confirm])
+    return PairedDecision(chosen, decide(rungs[chosen], eps, halves), rungs)
+
+
+def _prefetch_jointly(requests: Sequence[Tuple[Evaluator, Sequence[float]]], halves: Tuple[str, ...]) -> None:
+    """Each evaluator's steps on `halves` and theta_k's, in one replay, when
+    the evaluators read them so together (tools/pg_eval.py
+    `NetworkEvaluator.prefetch_jointly`); else each evaluator's own
+    `_prefetch`."""
+    requests = [(evaluator, list(steps)) for evaluator, steps in requests if steps]
+    jointly = getattr(requests[0][0], "prefetch_jointly", None) if requests else None
+    if jointly is not None and all(hasattr(evaluator, "prefetch_jointly") for evaluator, _ in requests):
+        jointly(requests, halves)
+        return
+    for evaluator, steps in requests:
+        _prefetch(evaluator, steps, halves)
 
 
 def _prefetch(evaluator: Evaluator, steps: Sequence[float], halves: Tuple[str, ...]) -> None:

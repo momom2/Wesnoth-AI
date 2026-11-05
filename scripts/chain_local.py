@@ -24,8 +24,9 @@ worktree P and the rounds should run (pinned at a tested commit):
    passes and the link holds). A step that fails is never run again.
    With --skip-p, P is not run and the rounds run with --no-p-gate
    (prereg departure 31: P's played check cannot resolve at the plant's
-   size). --rounds-n-train and --rounds-held are rounds_local's --n-train
-   and --held (prereg departures 25 and 34).
+   size). --rounds-n-train, --rounds-held and --rounds-average are
+   rounds_local's --n-train, --held and --average (prereg departures 25,
+   34 and 37).
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them), it plays the window's final match
    (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
@@ -272,6 +273,7 @@ class Chain:
         heads += ["--arm", a.rounds_arm] if getattr(a, "rounds_arm", None) else []
         heads += ["--pass-window", str(a.rounds_pass_window)] if getattr(a, "rounds_pass_window", None) else []
         heads += ["--rebase-after", str(a.after_stop)] if getattr(a, "after_stop", None) is not None else []
+        heads += ["--average", str(a.rounds_average)] if getattr(a, "rounds_average", None) else []
         p = ["--no-p-gate"] if a.skip_p else ["--p-out", str(a.p_out)]
         return self.run([a.gpu_python, "-u", "scripts/rounds_local.py", *self.common(), "--out", str(a.rounds_out),
                          "--rounds", str(n), *p, *heads], a.rounds_out / "console.log", a.hip_visible_devices)
@@ -371,6 +373,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument("--rounds-held", type=int, default=None,
                     help="passed to rounds_local --held: |H|, a round's held-out games, for rounds whose games "
                          "start from now (prereg departure 34)")
+    ap.add_argument("--rounds-average", type=int, default=None,
+                    help="passed to rounds_local --average: a step reads its direction averaged with the N "
+                         "previous rounds' beside it (prereg departure 37)")
     ap.add_argument("--final-out", type=Path, default=None,
                     help="play the window's final match into this directory once the rounds end")
     ap.add_argument("--final-games", type=int, default=FINAL_GAMES)

@@ -79,7 +79,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -293,19 +293,28 @@ class EvalContext:
         NaN outside `sides`. The steps share theta_k's trunk when the
         direction moves the heads alone (`shares_trunk`)."""
         keys = sorted({float(s) for s in steps})
-        networks = {s: self.network(direction, s) for s in keys}
+        return dict(zip(keys, self.read_pairs([(direction, s) for s in keys], sides)))
+
+    def read_pairs(self, pairs: Sequence[Tuple[Mapping[str, torch.Tensor], float]],
+                   sides: Sequence[GameSide]) -> List[Reading]:
+        """`read` of several directions together (prereg departure 37): each
+        (direction, step)'s reading over `sides`, in order, in one replay of
+        their positions, on theta_k's trunk when every direction stepped
+        along moves the heads alone (`shares_trunk`)."""
+        networks = {i: self.network(direction, float(s)) for i, (direction, s) in enumerate(pairs)}
         place = {(gs.game, gs.side): gs.start for gs in sides}
-        out = {s: Reading(logp=np.full(self.decisions, np.nan),
-                          masses=np.full((self.decisions, len(CLASSES)), np.nan)) for s in keys}
+        out = {i: Reading(logp=np.full(self.decisions, np.nan),
+                          masses=np.full((self.decisions, len(CLASSES)), np.nan)) for i in networks}
 
         def on_step(t, steps_t, batch, outputs) -> None:
             index = np.array([place[(s.game_side.file, s.game_side.side)] + s.offset for s in steps_t])
-            for s, padded in outputs.items():
-                out[s].logp[index] = action_log_probs(padded, batch).double().cpu().numpy()
-                out[s].masses[index] = class_masses(padded, batch).double().cpu().numpy()
+            for i, padded in outputs.items():
+                out[i].logp[index] = action_log_probs(padded, batch).double().cpu().numpy()
+                out[i].masses[index] = class_masses(padded, batch).double().cpu().numpy()
 
-        self._walk(networks, sides, on_step, shared=len(networks) > 1 and self.shares_trunk(direction))
-        return out
+        shared = len(networks) > 1 and all(self.shares_trunk(direction) for direction, s in pairs if float(s) != 0.0)
+        self._walk(networks, sides, on_step, shared=shared)
+        return [out[i] for i in range(len(pairs))]
 
     def _base_at_hand(self) -> Optional[Reading]:
         """theta_k's full reading when it was read or cached, else None."""
@@ -458,20 +467,32 @@ class NetworkEvaluator:
         positions, on one trunk when the direction moves the heads alone
         (EvalContext.shares_trunk), so that later calls read them back. What
         is at hand (read, cached, or a full reading) is not read again."""
+        self.prefetch_jointly([(self, steps)], halves, base)
+
+    def prefetch_jointly(self, requests: Sequence[Tuple["NetworkEvaluator", Iterable[float]]],
+                         halves: Sequence[str], base: bool = True) -> None:
+        """`prefetch` of several evaluators of this context at once (prereg
+        departure 37): every evaluator's steps and (with `base`) theta_k's on
+        `halves` in one replay, on one trunk when every direction moves the
+        heads alone."""
+        if any(evaluator.context is not self.context for evaluator, _ in requests):
+            raise ValueError("prefetch_jointly reads the evaluators of one context")
         key = tuple(sorted(set(halves)))
-        todo = [s for s in sorted({float(s) for s in steps} - {0.0})
-                if s not in self._full and not self._half_at_hand(s, key)]
+        todo = [(evaluator, s) for evaluator, steps in requests for s in sorted({float(s) for s in steps} - {0.0})
+                if s not in evaluator._full and not evaluator._half_at_hand(s, key)]
         base = base and not self.context.has_base(key)
         if not todo and not base:
             return
         sides = [gs for gs in self.context.sides if gs.half in key]
-        read = self.context.read(self.direction, [0.0] * base + todo, sides)
+        read = self.context.read_pairs([({}, 0.0)] * base + [(evaluator.direction, s) for evaluator, s in todo],
+                                       sides)
         if base:
-            self.context.keep_base(key, read[0.0].logp)
-        for s in todo:
-            self._halves[(s, key)] = read[s].logp
+            self.context.keep_base(key, read[0].logp)
+        for (evaluator, s), reading in zip(todo, read[int(base):]):
+            evaluator._halves[(s, key)] = reading.logp
             if self.context.cache:
-                self.context.cache.put_arrays(f"half_{self._key}_{step_key(s)}_{''.join(key)}", logp=read[s].logp)
+                self.context.cache.put_arrays(f"half_{evaluator._key}_{step_key(s)}_{''.join(key)}",
+                                              logp=reading.logp)
 
     def base_logp_on(self, halves: Sequence[str]) -> np.ndarray:
         """theta_k's log probabilities on the game-sides of `halves`

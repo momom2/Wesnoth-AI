@@ -394,3 +394,15 @@ def test_the_command_line_holds_after_stop_to_its_own_flow(capsys):
                   ["--skip-p", "--after-stop", "9"]):
         with pytest.raises(SystemExit):
             cl.parse_args(ARGV + extra)
+
+
+def test_rounds_average_is_rounds_locals_average(tmp_path):
+    """Prereg departure 37: --rounds-average N reaches rounds_local as
+    --average N, and nothing when not given."""
+    for given, want in ((None, None), (2, "2")):
+        args = _args(tmp_path / str(given), rounds_average=given)
+        (args.stage_c / "ALL_DONE").write_text("done\n", encoding="utf-8")
+        f = Fakes(args.stage_c)
+        assert f.chain(args)() == 0
+        rounds = f.ran[1][1]
+        assert (rounds[rounds.index("--average") + 1] if "--average" in rounds else None) == want
