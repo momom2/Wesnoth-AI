@@ -45,7 +45,11 @@ both directions' rungs on half A and confirms on half B. The candidate (and
 a cross-play rung) steps along the chosen direction; round.json's "paired"
 holds both ladders and "average" the averaged direction's facts, and
 --direction-out still saves d, the round's own, so no average enters
-another twice.
+another twice; a chosen average is saved beside it as
+direction_average.pt. An input the averaging cannot take (another arm, an
+earlier direction off the heads or lacking d's names, a zero average) or a
+failure in its ladder is recorded under "average" "error", and the round
+reads d's ladder alone.
 
     python tools/pg_round.py --pass pass.pt --factory tools.pg_eval:network_factory \\
         --factory-arg checkpoint=pi_k.pt --factory-arg games=DIR,... --factory-arg labels=labels.jsonl \\
@@ -150,28 +154,45 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
         readout["decision"] = {"adopt": False, "s": 0.0, "eps": eps, "next_eps": eps / 2.0, "chosen": None,
                                "reason": "the direction is zero (every label 0)", "rungs": []}
         return readout, d, None, d
-    step_d = d
+    step_d, decision = d, None
     if average:
-        if arm != "heads_only":
-            raise ValueError(f"--average-with is prereg departure 37's, on the heads_only arm, not {arm}")
-        moved = sorted({n for e in average for n, t in e.items() if head_of(n) is None and bool(torch.any(t))})
-        if moved:
-            raise ValueError(f"an earlier direction to average moves more than the heads: {moved[:3]}")
-        d_avg = averaged([d, *average])
-        size_avg = norm(d_avg)
-        readout["average"] = {"of": [str(p) for p in (average_of or [])], "norm": size_avg,
-                              "cosine_plain": dot(d, d_avg) / (size * size_avg) if size_avg > 0 else math.nan}
-        paired = paired_ladder(factory, {"plain": d, "average": d_avg}, eps,
-                               {"plain": LADDER_MULTIPLIERS, "average": AVERAGE_MULTIPLIERS}, s0=1.0 / size)
-        decision = paired.decision
-        readout["paired"] = {**paired.summary(), "average_minus_plain_A": paired_a(paired.rungs)}
-        step_d = d_avg if paired.chosen == "average" else d
-    else:
+        readout["average"] = {"of": [str(p) for p in (average_of or [])]}
+        try:
+            decision, step_d = _paired_step(readout, factory, arm, eps, d, size, average)
+        except (ValueError, RuntimeError) as e:          # the plain step goes on (the 2026-11-05 code review's M1)
+            readout.pop("paired", None)
+            readout["average"]["error"] = f"{type(e).__name__}: {e}"
+            print(f"PG_ROUND_AVERAGE_FAILED: {readout['average']['error']}; the round reads d's ladder alone",
+                  file=sys.stderr, flush=True)
+            step_d = d
+    if decision is None:
         decision = ladder(factory, d, eps, s0=1.0 / size)
     readout["decision"] = decision.summary()
     sides = factory(d).game_sides()
     readout["heldout"] = {"game_sides": len(sides), "decisions_per_side": decisions_per_side(sides)}
     return readout, d, (decision.s if decision.adopt else None), step_d
+
+
+def _paired_step(readout: Dict, factory, arm: str, eps: float, d: Dict[str, torch.Tensor], size: float,
+                 average: Sequence[Dict[str, torch.Tensor]]) -> tuple:
+    """(decision, the direction it steps along) of the paired ladder over d
+    and its average with `average` (module docstring), its facts written
+    into `readout`. Raises ValueError on an input departure 37 does not
+    cover; run_round then reads d's ladder alone."""
+    if arm != "heads_only":
+        raise ValueError(f"--average-with is prereg departure 37's, on the heads_only arm, not {arm}")
+    moved = sorted({n for e in average for n, t in e.items() if head_of(n) is None and bool(torch.any(t))})
+    if moved:
+        raise ValueError(f"an earlier direction to average moves more than the heads: {moved[:3]}")
+    d_avg = averaged([d, *average])
+    size_avg = norm(d_avg)
+    if not size_avg > 0:
+        raise ValueError("the averaged direction is zero")
+    readout["average"].update({"norm": size_avg, "cosine_plain": dot(d, d_avg) / (size * size_avg)})
+    paired = paired_ladder(factory, {"plain": d, "average": d_avg}, eps,
+                           {"plain": LADDER_MULTIPLIERS, "average": AVERAGE_MULTIPLIERS}, s0=1.0 / size)
+    readout["paired"] = {**paired.summary(), "average_minus_plain_A": paired_a(paired.rungs)}
+    return paired.decision, (d_avg if paired.chosen == "average" else d)
 
 
 def paired_a(rungs: Dict[str, list]) -> Optional[Dict[str, float]]:
@@ -231,6 +252,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                                       args.average_with)
     if args.direction_out is not None:
         torch.save(d, args.direction_out)
+        if step_d is not d:              # what rebuilds an averaged candidate (the code review's L4)
+            averaged_out = args.direction_out.with_name("direction_average.pt")
+            torch.save(step_d, averaged_out)
+            readout["paired"]["direction"] = str(averaged_out)
     readout["candidate"] = None
     if s is not None:
         sha_out = factory(step_d).write_candidate(s, args.candidate)

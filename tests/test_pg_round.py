@@ -80,8 +80,9 @@ def test_a_round_averaged_with_earlier_directions_steps_along_the_one_half_a_sel
     """Prereg departure 37 through the command line: with --average-with
     the round reads both ladders, records them and the averaged direction,
     saves its own direction (not the average) and writes the candidate
-    along the chosen one; an earlier direction off the heads, or an arm
-    other than heads_only, is refused."""
+    along the chosen one (saved beside it when it is the average); an
+    earlier direction off the heads, or an arm other than heads_only, is
+    recorded and the round reads its own ladder alone."""
     from helpers.pg_run import e2e_run
     from tools.pg_eval import network_factory
     from tools.pg_round import main
@@ -111,21 +112,30 @@ def test_a_round_averaged_with_earlier_directions_steps_along_the_one_half_a_sel
     assert dec["rungs"] == paired["rungs"][paired["chosen"]]
     assert paired["average_minus_plain_A"] is None or set(paired["average_minus_plain_A"]) == {"estimate", "se", "z"}
     assert all(torch.equal(torch.load(saved, weights_only=True)[n], d[n]) for n in d)
+    averaged_path = tmp_path / "direction_average.pt"
+    assert averaged_path.exists() is (paired["chosen"] == "average")
+    if paired["chosen"] == "average":
+        assert paired["direction"] == str(averaged_path)
+        want = averaged([d, earlier])
+        assert all(torch.equal(torch.load(averaged_path, weights_only=True)[n], want[n]) for n in want)
     if dec["adopt"]:
         along = averaged([d, earlier]) if paired["chosen"] == "average" else d
         _same_network(candidate, run.checkpoint, along, dec["s"])
     else:
         assert not candidate.exists()
+    own_r = json.loads((tmp_path / "own.json").read_text(encoding="utf-8"))
     trunk = dict(earlier)
     name = next(n for n in d if head_of(n) is None)
     trunk[name] = torch.ones_like(d[name])
     torch.save(trunk, tmp_path / "trunk.pt")
-    with pytest.raises(ValueError, match="more than the heads"):
-        main(common + ["--average-with", str(tmp_path / "trunk.pt"), "--out", str(tmp_path / "x.json"),
-                       "--candidate", str(tmp_path / "x.pt")])
-    with pytest.raises(ValueError, match="heads_only arm"):
-        main([c if c != "heads_only" else "reduced_adamw" for c in common]
-             + ["--average-with", str(earlier_path), "--out", str(tmp_path / "y.json"), "--candidate", str(tmp_path / "y.pt")])
+    for tag, cmd, why in (("x", common + ["--average-with", str(tmp_path / "trunk.pt")], "more than the heads"),
+                          ("y", [c if c != "heads_only" else "reduced_adamw" for c in common]
+                           + ["--average-with", str(earlier_path)], "heads_only arm")):
+        assert main(cmd + ["--out", str(tmp_path / f"{tag}.json"), "--candidate", str(tmp_path / f"{tag}.pt")]) == 0
+        r = json.loads((tmp_path / f"{tag}.json").read_text(encoding="utf-8"))
+        assert why in r["average"]["error"] and "paired" not in r
+        if tag == "x":                                          # the plain round, as without --average-with
+            assert r["decision"] == own_r["decision"]
 
 
 @needs_core
