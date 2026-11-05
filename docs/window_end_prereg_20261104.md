@@ -128,7 +128,9 @@ hashing stubbed, on seven cases:
 On the real runs directory (read-only), it reads `final_match/` as round 3
 at +31.8, the checkpoint's SHA-256 matches, and the line is not yet done.
 
-## Amendment 1 (2026-11-04 22:35, the 2026-11-04 21:43 review; before any step it changes has run)
+## Amendment 1 (2026-11-04 22:31, the 2026-11-04 21:43 review; before any step it changes has run)
+
+*(Time corrected 2026-11-05 by the 09:43 review's L4: the heading read 22:35, but the commit is 22:31:33 and the watcher's restart 22:31:42, so it was written before the restart, not after.)*
 
 The watcher was still waiting (the line runs round 7). It is restarted on the
 amended script; nothing it started is lost.
@@ -162,3 +164,22 @@ amended script; nothing it started is lost.
   - a failed extra ends the extras.
 
   Read-only on the real files: the line is not yet done, the only final is round 3's at +31.8, rounds 1-6 are adopted, and round 6's SHA matches its round.json. The extras would play round 6 alone.
+
+## Amendment 2 (2026-11-05 10:45, the 2026-11-05 09:43 review; the watcher is still waiting, so no step it changes has run)
+
+The watcher is restarted on the amended script. Nothing it started is lost.
+
+- **The no-time test, narrowed (the review's L1).**
+  - The problem: amendment 1 accepted any `CHAIN_NO_FINAL` after `the rounds returned 0`. But chain_local writes two other CHAIN_NO_FINAL lines (chain_local.py:285-297, through `candidate`): the last round's candidate cannot be read, or its SHA-256 differs from its round.json's. The chain then returns 1, and the watcher would have confirmed the older finals and left the line's last rounds unread.
+  - The amendment: step 2 now matches the text `CHAIN_NO_FINAL: no round after round` (chain_local.py:260), the no-time end alone. Any other CHAIN_NO_FINAL holds (WINDOW_END_HELD).
+- **The extras' order (the review's L6).**
+  - The adopted claim rounds that no final read now come first, latest first (15, 12, 9, 6), and round 3 on the confirmation's seeds last.
+  - The reason: the argmax learning curve decides which round to adopt. The rounds nearest the candidate are its nearest rivals, so they matter most if the user returns before the queue empties. The 900,000 finals already pair round 3 with the line's last round.
+  - Seeds, directories and labels are unchanged.
+- **The wait, widened (the review's L2).** Step 1 also waits while `rounds_local.py`, `match_local.py` or `run_elo_batch.py` runs. A part of the line orphaned by a kill of chain_local alone would otherwise share the GPU with the confirmation.
+- **Tests:** the stub test, now 16 cases, all pass.
+  - Cases 10, 11, 13 and 14 take the new order.
+  - New case 15: the two other CHAIN_NO_FINAL lines after `returned 0` hold.
+  - New case 16: the wait covers each named script, an orphan included.
+  - The test now imports the window_end.py beside it (the tracked copy). The deployed copy must be byte-equal (cmp).
+- **Kill and holds:** as before.

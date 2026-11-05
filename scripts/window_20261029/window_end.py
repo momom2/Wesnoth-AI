@@ -6,13 +6,18 @@ C:/Users/momom2/wesnoth_runs/window_end.log. Run detached on the repository's
 
     python C:/Users/momom2/wesnoth_runs/tools/window_end.py
 
-1. Wait until neither chain_local.py nor after_stop_line.py runs (5-min polls).
+1. Wait until none of the line's scripts runs (`WAIT_FOR`, 5-min polls):
+   chain_local.py and after_stop_line.py, and since amendment 2 also
+   rounds_local.py, match_local.py and run_elo_batch.py, which an orphaned
+   part of the line would leave on the GPU.
 2. Go on only if after_stop.log's last LINE line is LINE_DONE and chain.log's
    last CHAIN_DONE is followed by `CHAIN_FINAL_DONE: match_local returned 0`,
-   or reads `the rounds returned 0` and is followed by CHAIN_NO_FINAL (a line
-   re-armed after a design stop whose rounds found no time: amendment 1, the
-   2026-11-04 21:43 review's H1); otherwise WINDOW_END_HELD (the heartbeat
-   looks).
+   or reads `the rounds returned 0` and is followed by `CHAIN_NO_FINAL: no
+   round after round` (a line re-armed after a design stop whose rounds found
+   no time: amendment 1, the 2026-11-04 21:43 review's H1; amendment 2 matches
+   that text, not chain_local's other CHAIN_NO_FINAL lines, which report a
+   candidate that cannot be read or whose SHA-256 changed); otherwise
+   WINDOW_END_HELD (the heartbeat looks).
 3. The candidate: of the complete final matches at seed base 900,000
    (final_match/ and final_match_after_stop*/, paired on their seeds), the
    highest Elo; its checkpoint's SHA-256 must still be the one it was read with.
@@ -23,12 +28,13 @@ C:/Users/momom2/wesnoth_runs/window_end.log. Run detached on the repository's
    3's tail's seeds, so the two pair), into tail_match_window/.
 6. Then the extras (amendment 1, the review's L3), one at a time, each only
    after the last returned 0 and while no window_end.STOP file exists in the
-   runs directory: if the candidate is not round 3, round 3 on the
-   confirmation's seeds (into confirm_match_round03/, so the candidate's gain
-   over round 3 reads paired); then each adopted claim round after round 3
-   that no final match read (6, 9, 12, ..., ascending), at the final matches'
-   seeds (into final_match_roundKK/, paired with every final): the argmax
-   learning curve.
+   runs directory. Since amendment 2 (the 2026-11-05 09:43 review's L6), first
+   each adopted claim round after round 3 that no final match read (..., 12,
+   9, 6: the latest, the adoption's nearest rivals, first), at the final
+   matches' seeds (into final_match_roundKK/, paired with every final): the
+   argmax learning curve; then, if the candidate is not round 3, round 3 on
+   the confirmation's seeds (into confirm_match_round03/, so the candidate's
+   gain over round 3 reads paired).
 """
 import hashlib
 import json
@@ -51,6 +57,8 @@ TAIL_SEED_BASE = 950000                 # round 3's tail's seeds (chain_local TA
 GAMES = 12800                           # each match's decisive games, as the final and tail matches
 PROCEDURE = "raw:t0+eo-1.5 against raw:t0+eo-1.5"
 CLAIM_EVERY = 3                         # rounds_local CLAIM_EVERY: the claim rounds are 6, 9, 12, ...
+NO_TIME = "CHAIN_NO_FINAL: no round after round"     # chain_local's no-time end (chain_local.py:260)
+WAIT_FOR = ("chain_local.py", "after_stop_line.py", "rounds_local.py", "match_local.py", "run_elo_batch.py")
 
 
 def log(msg: str) -> None:
@@ -82,7 +90,7 @@ def line_done() -> Tuple[bool, str]:
         return False, f"after_stop.log's last LINE line is not LINE_DONE: {last or 'none'}"
     text = (RUNS / "chain.log").read_text(encoding="utf-8") if (RUNS / "chain.log").exists() else ""
     tail = text[text.rfind("CHAIN_DONE"):] if "CHAIN_DONE" in text else ""
-    no_time = tail.startswith("CHAIN_DONE: the rounds returned 0") and "CHAIN_NO_FINAL" in tail
+    no_time = tail.startswith("CHAIN_DONE: the rounds returned 0") and NO_TIME in tail
     if "CHAIN_FINAL_DONE: match_local returned 0" not in tail and not no_time:
         return False, f"chain.log's last CHAIN_DONE has no final match that returned 0: {tail.strip()[:300]}"
     return True, ""
@@ -127,16 +135,17 @@ def adopted() -> List[Tuple[int, str, str]]:
 
 
 def extras(k: int, read: List[dict]) -> int:
-    """Step 6: round 3 on the confirmation's seeds unless it is the candidate,
-    then the unread claim rounds at the final seeds; 0, or the first failure."""
+    """Step 6: the unread claim rounds at the final seeds, latest first, then
+    round 3 on the confirmation's seeds unless it is the candidate; 0, or the
+    first failure."""
     rounds = {j: (pi, sha) for j, pi, sha in adopted()}
     plan = []
-    if k != 3 and 3 in rounds:
-        plan.append((3, "confirm_round3", RUNS / "confirm_match_round03", CONFIRM_SEED_BASE))
     finalled = {r["round"] for r in read}
-    for j in sorted(rounds):
+    for j in sorted(rounds, reverse=True):
         if j > 3 and j % CLAIM_EVERY == 0 and j not in finalled:
             plan.append((j, f"final_round{j}", RUNS / f"final_match_round{j:02d}", FINAL_SEED_BASE))
+    if k != 3 and 3 in rounds:
+        plan.append((3, "confirm_round3", RUNS / "confirm_match_round03", CONFIRM_SEED_BASE))
     log(f"WINDOW_END_EXTRAS: {', '.join(lab for _, lab, _, _ in plan) or 'none'}")
     for j, label, out, seeds in plan:
         if (RUNS / "window_end.STOP").exists():
@@ -170,7 +179,7 @@ def match(label: str, pi: str, out: Path, extra: List[str]) -> int:
 
 def main() -> int:
     log("WINDOW_END waiting for the after-stop line to end (docs/window_end_prereg_20261104.md)")
-    while running("chain_local.py") or running("after_stop_line.py"):
+    while any(running(s) for s in WAIT_FOR):
         time.sleep(300)
     ok, why = line_done()
     if not ok:
