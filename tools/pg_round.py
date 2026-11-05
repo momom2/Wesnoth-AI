@@ -37,10 +37,21 @@ round.json also logs what design §6 asks of each round:
   direction.pt), which reads oscillation directly, since nothing carries
   momentum.
 
+`--average-with` (prereg departure 37; the heads-only arm): earlier rounds'
+direction.pt files. Beside d the round reads their average with d
+(pg_step.averaged: each scaled to unit norm, one weight each) on
+pg_step.AVERAGE_MULTIPLIERS' rungs, and pg_step.paired_ladder selects among
+both directions' rungs on half A and confirms on half B. The candidate (and
+a cross-play rung) steps along the chosen direction; round.json's "paired"
+holds both ladders and "average" the averaged direction's facts, and
+--direction-out still saves d, the round's own, so no average enters
+another twice.
+
     python tools/pg_round.py --pass pass.pt --factory tools.pg_eval:network_factory \\
         --factory-arg checkpoint=pi_k.pt --factory-arg games=DIR,... --factory-arg labels=labels.jsonl \\
         --eps-from ../round_01/round.json --arm reduced_adamw --out round.json --candidate pi_k1.pt \\
-        --direction-out direction.pt [--previous ../round_01/direction.pt]
+        --direction-out direction.pt [--previous ../round_01/direction.pt] \\
+        [--average-with ../round_01/direction.pt ../round_00/direction.pt]
 """
 from __future__ import annotations
 
@@ -51,7 +62,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import torch
 
@@ -63,8 +74,9 @@ for _p in (_ROOT, _ROOT / "tools"):
 import numpy as np  # noqa: E402
 
 from wesnoth_ai.pg_cross_play import cross_play_case  # noqa: E402
-from wesnoth_ai.pg_step import (ARMS, DEFAULT_ARM, decisions_per_side, direction, dot, head_directions,  # noqa: E402
-                                ladder, norm, span_fisher)
+from wesnoth_ai.pg_step import (ARMS, AVERAGE_MULTIPLIERS, DEFAULT_ARM, LADDER_MULTIPLIERS,  # noqa: E402
+                                averaged, decisions_per_side, direction, dot, head_directions, head_of, ladder,
+                                norm, paired_difference, paired_ladder, span_fisher)
 
 
 def eps_of(path: Path) -> float:
@@ -111,10 +123,14 @@ def _write_json(path: Path, obj: Dict) -> None:
 
 def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, eps: float,
               previous: Optional[Dict[str, torch.Tensor]] = None, adopt: Optional[Dict] = None,
-              stage_c: Optional[Dict] = None) -> tuple:
-    """(readout, d, s or None): the round's direction, its ladder (or
-    stage C's decision, `adopt`, taken as read) and the step to write.
-    `stage_c` is stage_c.json, whose span Fisher round 1's probe_span takes."""
+              stage_c: Optional[Dict] = None, average: Optional[Sequence[Dict[str, torch.Tensor]]] = None,
+              average_of: Optional[Sequence[str]] = None) -> tuple:
+    """(readout, d, s or None, the direction s steps along): the round's
+    direction, its ladder (or stage C's decision, `adopt`, taken as read)
+    and the step to write. `stage_c` is stage_c.json, whose span Fisher
+    round 1's probe_span takes. `average` (the earlier rounds' directions,
+    `average_of` their paths) adds the averaged direction beside d (module
+    docstring), and the step may go along it."""
     fisher, source = (round_span_fisher(pass_, params, factory, stage_c if adopt is not None else None)
                       if arm == "probe_span" else (None, None))
     d = direction(pass_, arm, params, fisher)
@@ -129,16 +145,45 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
                                       / (size * norm({n: previous[n] for n in common}) or math.nan))
     if adopt is not None:
         readout["decision"] = {**adopt, "from": "stage C's ladder (round 1's step, design §6)"}
-        return readout, d, (float(adopt["s"]) if adopt.get("adopt") else None)
+        return readout, d, (float(adopt["s"]) if adopt.get("adopt") else None), d
     if size == 0:
         readout["decision"] = {"adopt": False, "s": 0.0, "eps": eps, "next_eps": eps / 2.0, "chosen": None,
                                "reason": "the direction is zero (every label 0)", "rungs": []}
-        return readout, d, None
-    decision = ladder(factory, d, eps, s0=1.0 / size)
+        return readout, d, None, d
+    step_d = d
+    if average:
+        if arm != "heads_only":
+            raise ValueError(f"--average-with is prereg departure 37's, on the heads_only arm, not {arm}")
+        moved = sorted({n for e in average for n, t in e.items() if head_of(n) is None and bool(torch.any(t))})
+        if moved:
+            raise ValueError(f"an earlier direction to average moves more than the heads: {moved[:3]}")
+        d_avg = averaged([d, *average])
+        size_avg = norm(d_avg)
+        readout["average"] = {"of": [str(p) for p in (average_of or [])], "norm": size_avg,
+                              "cosine_plain": dot(d, d_avg) / (size * size_avg) if size_avg > 0 else math.nan}
+        paired = paired_ladder(factory, {"plain": d, "average": d_avg}, eps,
+                               {"plain": LADDER_MULTIPLIERS, "average": AVERAGE_MULTIPLIERS}, s0=1.0 / size)
+        decision = paired.decision
+        readout["paired"] = {**paired.summary(), "average_minus_plain_A": paired_a(paired.rungs)}
+        step_d = d_avg if paired.chosen == "average" else d
+    else:
+        decision = ladder(factory, d, eps, s0=1.0 / size)
     readout["decision"] = decision.summary()
     sides = factory(d).game_sides()
     readout["heldout"] = {"game_sides": len(sides), "decisions_per_side": decisions_per_side(sides)}
-    return readout, d, (decision.s if decision.adopt else None)
+    return readout, d, (decision.s if decision.adopt else None), step_d
+
+
+def paired_a(rungs: Dict[str, list]) -> Optional[Dict[str, float]]:
+    """Departure 37's number: ΔĴ on half A of the averaged direction's eps
+    rung less the plain direction's, paired by game; None unless both read
+    there."""
+    def at_eps(label):
+        return next((r for r in rungs.get(label, []) if r.multiplier == 1.0 and r.in_range and "A" in r.halves), None)
+    a, b = at_eps("average"), at_eps("plain")
+    if a is None or b is None:
+        return None
+    return paired_difference(a.halves["A"].exact, b.halves["A"].exact).summary()
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -155,6 +200,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     arm.add_argument("--arm", choices=ARMS, default=None)
     arm.add_argument("--arm-from", type=Path, help="stage_c.json: its optimizer's winner")
     ap.add_argument("--previous", type=Path, default=None, help="the previous round's direction.pt")
+    ap.add_argument("--average-with", type=Path, nargs="+", default=None,
+                    help="earlier rounds' direction.pt: read their average with d beside d (prereg departure 37)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--candidate", type=Path, required=True, help="where an adopted rung's network is written")
     ap.add_argument("--direction-out", type=Path, default=None)
@@ -179,25 +226,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         arm = args.arm or (arm_of(args.arm_from) if args.arm_from else DEFAULT_ARM)
         eps = args.eps if args.eps is not None else eps_of(args.eps_from)
     previous = torch.load(args.previous, map_location="cpu", weights_only=True) if args.previous else None
-    readout, d, s = run_round(pass_, params, factory, arm, eps, previous, adopt, stage_c)
+    average = [torch.load(p, map_location="cpu", weights_only=True) for p in args.average_with or []]
+    readout, d, s, step_d = run_round(pass_, params, factory, arm, eps, previous, adopt, stage_c, average,
+                                      args.average_with)
     if args.direction_out is not None:
         torch.save(d, args.direction_out)
     readout["candidate"] = None
     if s is not None:
-        sha_out = factory(d).write_candidate(s, args.candidate)
+        sha_out = factory(step_d).write_candidate(s, args.candidate)
         readout["candidate"] = {"path": str(args.candidate), "sha256": sha_out, "s": s}
     readout["chosen_network"] = None
     rungs = readout["decision"].get("rungs") or ((stage_c or {}).get("ladder") or {}).get("rungs") or []
     chosen = cross_play_case(readout["decision"], rungs)
     if args.chosen_network is not None and chosen is not None:
         s_chosen = float(rungs[chosen]["s"])
-        sha_chosen = factory(d).write_candidate(s_chosen, args.chosen_network)
+        sha_chosen = factory(step_d).write_candidate(s_chosen, args.chosen_network)
         readout["chosen_network"] = {"path": str(args.chosen_network), "sha256": sha_chosen, "s": s_chosen,
                                      "rung": chosen}
     _write_json(args.out, readout)
     dec = readout["decision"]
+    along = f" along {readout['paired']['chosen']}" if "paired" in readout else ""
     print(f"PG_ROUND adopt={dec['adopt']} s={dec['s']:.4g} eps={eps:.4g} next_eps={dec['next_eps']:.4g} "
-          f"arm={arm}: {dec['reason']}")
+          f"arm={arm}{along}: {dec['reason']}")
     return 0
 
 

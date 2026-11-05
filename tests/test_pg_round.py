@@ -76,6 +76,60 @@ def test_a_round_reads_its_ladder_and_writes_an_adopted_rung(tmp_path):
 
 @needs_core
 @pytest.mark.slow
+def test_a_round_averaged_with_earlier_directions_steps_along_the_one_half_a_selects(tmp_path):
+    """Prereg departure 37 through the command line: with --average-with
+    the round reads both ladders, records them and the averaged direction,
+    saves its own direction (not the average) and writes the candidate
+    along the chosen one; an earlier direction off the heads, or an arm
+    other than heads_only, is refused."""
+    from helpers.pg_run import e2e_run
+    from tools.pg_eval import network_factory
+    from tools.pg_round import main
+    from wesnoth_ai.pg_step import AVERAGE_MULTIPLIERS, LADDER_MULTIPLIERS, averaged, decisions_per_side, head_of
+    run = e2e_run()
+    factory, _, _ = network_factory(str(run.checkpoint), str(run.games), str(run.labels), device="cpu", streams="4")
+    eps = 0.25 / decisions_per_side(factory({}).game_sides())
+    common = ["--pass", str(run.pass_path), "--factory", "tools.pg_eval:network_factory", *_factory_args(run),
+              "--eps", repr(eps), "--arm", "heads_only"]
+    own = tmp_path / "own.pt"
+    assert main(common + ["--out", str(tmp_path / "own.json"), "--candidate", str(tmp_path / "pi_own.pt"),
+                          "--direction-out", str(own)]) == 0
+    d = torch.load(own, weights_only=True)
+    g = torch.Generator().manual_seed(5)
+    earlier = {n: (torch.randn(t.shape, generator=g) * float(t.abs().mean() + 1e-6) if head_of(n) else torch.zeros_like(t))
+               for n, t in d.items()}
+    earlier_path, saved, out, candidate = (tmp_path / "earlier.pt", tmp_path / "direction.pt", tmp_path / "round.json",
+                                           tmp_path / "pi.pt")
+    torch.save(earlier, earlier_path)
+    assert main(common + ["--average-with", str(earlier_path), "--out", str(out), "--candidate", str(candidate),
+                          "--direction-out", str(saved)]) == 0
+    r = json.loads(out.read_text(encoding="utf-8"))
+    paired, dec = r["paired"], r["decision"]
+    assert paired["chosen"] in ("plain", "average") and r["average"]["of"] == [str(earlier_path)]
+    assert [x["multiplier"] for x in paired["rungs"]["plain"]] == list(LADDER_MULTIPLIERS)
+    assert [x["multiplier"] for x in paired["rungs"]["average"]] == list(AVERAGE_MULTIPLIERS)
+    assert dec["rungs"] == paired["rungs"][paired["chosen"]]
+    assert paired["average_minus_plain_A"] is None or set(paired["average_minus_plain_A"]) == {"estimate", "se", "z"}
+    assert all(torch.equal(torch.load(saved, weights_only=True)[n], d[n]) for n in d)
+    if dec["adopt"]:
+        along = averaged([d, earlier]) if paired["chosen"] == "average" else d
+        _same_network(candidate, run.checkpoint, along, dec["s"])
+    else:
+        assert not candidate.exists()
+    trunk = dict(earlier)
+    name = next(n for n in d if head_of(n) is None)
+    trunk[name] = torch.ones_like(d[name])
+    torch.save(trunk, tmp_path / "trunk.pt")
+    with pytest.raises(ValueError, match="more than the heads"):
+        main(common + ["--average-with", str(tmp_path / "trunk.pt"), "--out", str(tmp_path / "x.json"),
+                       "--candidate", str(tmp_path / "x.pt")])
+    with pytest.raises(ValueError, match="heads_only arm"):
+        main([c if c != "heads_only" else "reduced_adamw" for c in common]
+             + ["--average-with", str(earlier_path), "--out", str(tmp_path / "y.json"), "--candidate", str(tmp_path / "y.pt")])
+
+
+@needs_core
+@pytest.mark.slow
 def test_round_1_is_stage_cs_decision_taken_as_read(tmp_path):
     from helpers.pg_run import e2e_run
     from tools.pg_round import main
@@ -161,5 +215,5 @@ def test_round_1_adopts_a_probe_span_step_along_stage_cs_fisher(monkeypatch):
     stage_c = {"span": {"heads": list(pr.head_directions(params)), "fisher": F.tolist(), "fisher_source": "kl"}}
     adopt = {"adopt": True, "s": 0.5, "eps": 1e-3, "next_eps": 2e-3, "chosen": 1, "reason": "read"}
     monkeypatch.setattr(pr, "norm", lambda d: 1.0)
-    readout, d, s = pr.run_round(pass_, params, None, "probe_span", 1e-3, adopt=adopt, stage_c=stage_c)
+    readout, d, s, _ = pr.run_round(pass_, params, None, "probe_span", 1e-3, adopt=adopt, stage_c=stage_c)
     assert np.array_equal(d["fisher"], F) and s == 0.5 and readout["span_fisher"]["source"] == "stage C (kl)"

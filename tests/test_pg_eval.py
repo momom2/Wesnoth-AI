@@ -306,6 +306,47 @@ def test_steps_that_move_the_heads_alone_share_theta_ks_trunk(tmp_path, packed):
 
 
 @needs_core
+@pytest.mark.parametrize("packed", [False, True])
+def test_a_joint_prefetch_reads_two_heads_only_directions_on_one_trunk(tmp_path, packed):
+    """Prereg departure 37: two evaluators of one context whose directions
+    move the heads alone have their steps and theta_k read on half A in one
+    walk on theta_k's trunk; each step's log probabilities are bit for bit
+    those its own evaluator's prefetch reads, theta_k's the same, and a
+    second joint prefetch reads nothing. Evaluators of two contexts are
+    refused."""
+    from collections import Counter
+    from helpers.pg_games import played_games
+    _, heads = _heads_only(played_games())
+    other = {n: -0.5 * t + 0.01 for n, t in heads.items()}
+    games, ev = _evaluator(tmp_path, direction=heads, packed=packed)
+    context = ev.context
+    ev2 = context.bind(other)
+    ev.prefetch_jointly([(ev, [0.5, 1.0]), (ev2, [1.0])], ("A",))
+    assert context.reads == Counter({"half A": 1})
+    together = {(1, s): ev.logp(s, halves=("A",)) for s in (0.5, 1.0)}
+    together[(2, 1.0)] = ev2.logp(1.0, halves=("A",))
+    base_a = ev.base_logp_on(("A",))
+    assert np.array_equal(ev2.base_logp_on(("A",)), base_a, equal_nan=True)
+    ev.prefetch_jointly([(ev, [0.5]), (ev2, [1.0])], ("A",))
+    assert context.reads == Counter({"half A": 1})
+    assert not np.array_equal(together[(1, 1.0)], together[(2, 1.0)], equal_nan=True)
+    context.close()
+
+    (tmp_path / "alone").mkdir()
+    _, alone = _evaluator(tmp_path / "alone", direction=heads, packed=packed)
+    alone2 = alone.context.bind(other)
+    alone.prefetch([0.5, 1.0], ("A",))
+    alone2.prefetch([1.0], ("A",))
+    assert alone.context.reads == Counter({"half A": 2})
+    for (which, s), logp in together.items():
+        assert np.array_equal((alone if which == 1 else alone2).logp(s, halves=("A",)), logp, equal_nan=True)
+    assert np.array_equal(alone.base_logp_on(("A",)), base_a, equal_nan=True)
+    with pytest.raises(ValueError, match="one context"):
+        alone.prefetch_jointly([(alone, [0.25]), (ev2, [0.25])], ("A",))
+    alone.context.close()
+
+
+@needs_core
 def test_a_prefetch_reads_a_halfs_steps_beside_theta_k_in_one_walk(tmp_path):
     """`prefetch` reads steps on half A and theta_k's on it in one walk;
     `logp` and `base_logp_on` read them back and a second prefetch reads

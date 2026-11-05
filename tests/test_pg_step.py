@@ -435,3 +435,95 @@ def test_the_paired_ratio_se_matches_its_spread():
         ratios.append(ratio)
         ses.append(se)
     assert 0.85 < math.sqrt(np.mean(np.square(ses))) / np.std(ratios) < 1.15
+
+
+def test_the_average_weighs_each_direction_once_at_unit_norm():
+    """Prereg departure 37: each direction scaled to unit norm, the mean of
+    them, over the first's names; a direction lacking one, or zero, is
+    refused."""
+    from wesnoth_ai.pg_step import averaged, norm
+    a = {"x": torch.tensor([3.0, 0.0]), "y": torch.tensor([4.0])}
+    b = {"x": torch.tensor([0.0, 10.0]), "y": torch.tensor([0.0]), "z": torch.tensor([1.0])}
+    avg = averaged([a, b])
+    assert set(avg) == {"x", "y"}
+    assert torch.allclose(avg["x"], torch.tensor([0.3, 0.5])) and torch.allclose(avg["y"], torch.tensor([0.4]))
+    assert norm(averaged([a])) == pytest.approx(1.0)
+    with pytest.raises(ValueError, match="lacks"):
+        averaged([b, a])
+    with pytest.raises(ValueError, match="zero"):
+        averaged([a, {"x": torch.zeros(2), "y": torch.zeros(1)}])
+
+
+class _Jointly(_LadderEvaluator):
+    """A `_LadderEvaluator` that also takes `prefetch_jointly`, recording
+    every call in `log` by the evaluator's name and the steps' KLs."""
+
+    def __init__(self, name, log, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.name, self.log = name, log
+
+    def mean_kl(self, s):
+        self.log.append(("kl", self.name))
+        return super().mean_kl(s)
+
+    def prefetch(self, steps, halves):
+        self.log.append(("prefetch", self.name, [s * s for s in steps], halves))
+
+    def prefetch_jointly(self, requests, halves):
+        self.log.append(("jointly", [(e.name, [s * s for s in steps]) for e, steps in requests], halves))
+
+
+def _paired(gains_plain, gains_average, eps=0.01, log=None, cls=_LadderEvaluator):
+    """The paired ladder over a plain direction (norm 2) and an averaged one
+    (norm 1), each with its evaluator."""
+    from wesnoth_ai.pg_step import AVERAGE_MULTIPLIERS, LADDER_MULTIPLIERS, paired_ladder
+    log = [] if log is None else log
+    make = (lambda name, gains: cls(name, log, gains, eps)) if cls is _Jointly else (lambda name, gains: cls(gains, eps))
+    evaluators = {2.0: make("plain", gains_plain), 1.0: make("average", gains_average)}
+    directions = {"plain": {"x": torch.tensor([2.0])}, "average": {"x": torch.tensor([1.0])}}
+    return paired_ladder(lambda d: evaluators[float(d["x"])], directions, eps,
+                         {"plain": LADDER_MULTIPLIERS, "average": AVERAGE_MULTIPLIERS}, s0=0.5)
+
+
+def test_the_paired_ladder_selects_across_both_directions_and_confirms_the_winner():
+    """The rung of highest ΔĴ on half A among both directions' rungs is read
+    on half B, and decide reads that direction's rungs; the other's rungs
+    are read on half A alone. A tie goes to the plain direction, and the
+    decision with no average to win is the plain ladder's own."""
+    plain = {"A": {0.5: 0.01, 1.0: 0.03, 2.0: 0.02}, "B": {0.5: 0.0, 1.0: 0.02, 2.0: 0.0}}
+    better = {"A": {1.0: 0.05}, "B": {1.0: 0.04}}
+    won = _paired(plain, better)
+    assert won.chosen == "average" and won.decision.adopt and won.decision.chosen == 0
+    assert won.decision.rungs == won.rungs["average"] and len(won.rungs["average"]) == 1
+    assert won.rungs["average"][0].multiplier == 1.0 and set(won.rungs["average"][0].halves) == {"A", "B"}
+    assert all(set(r.halves) <= {"A"} for r in won.rungs["plain"])
+    assert won.decision.s == pytest.approx(math.sqrt(0.01), rel=KL_RTOL)
+    assert won.summary()["chosen"] == "average" and len(won.summary()["rungs"]["plain"]) == 3
+
+    lost = _paired(plain, {"A": {1.0: 0.01}, "B": {1.0: 0.04}})
+    assert lost.chosen == "plain" and lost.decision.summary() == _ladder(plain).summary()
+    assert set(lost.rungs["average"][0].halves) == {"A"}
+    tied = _paired(plain, {"A": {1.0: 0.03}, "B": {1.0: 0.04}})               # the same games, gains and noise
+    assert tied.rungs["average"][0].halves["A"].exact.estimate == tied.rungs["plain"][1].halves["A"].exact.estimate
+    assert tied.chosen == "plain" and tied.decision.summary() == _ladder(plain).summary()
+
+
+def test_the_paired_ladder_searches_both_then_reads_half_a_in_one_joint_prefetch():
+    """Every rung of both directions is searched before any reading; the
+    selection half is prefetched once for both, the confirmation half for
+    the winner alone, and the decision is the one evaluators without
+    prefetches give."""
+    plain = {"A": {0.5: 0.01, 1.0: 0.03, 2.0: 0.02}, "B": {0.5: 0.0, 1.0: 0.02, 2.0: 0.0}}
+    better = {"A": {1.0: 0.05}, "B": {1.0: 0.04}}
+    log = []
+    decision = _paired(plain, better, log=log, cls=_Jointly)
+    first = next(i for i, c in enumerate(log) if c[0] != "kl")
+    assert {c[0] for c in log[:first]} == {"kl"} and all(c[0] != "kl" for c in log[first:])
+    joint = [c for c in log if c[0] == "jointly"]
+    assert len(joint) == 1 and joint[0][2] == ("A",)
+    (n1, kl1), (n2, kl2) = joint[0][1]
+    assert (n1, n2) == ("plain", "average")
+    assert kl1 == pytest.approx([0.005, 0.01, 0.02], rel=KL_RTOL) and kl2 == pytest.approx([0.01], rel=KL_RTOL)
+    assert [c[1:] for c in log if c[0] == "prefetch"] == [("average", pytest.approx([0.01], rel=KL_RTOL), ("B",))]
+    assert decision.chosen == "average"
+    assert decision.summary() == _paired(plain, better).summary()
