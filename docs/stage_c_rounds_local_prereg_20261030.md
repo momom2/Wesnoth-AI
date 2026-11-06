@@ -1237,3 +1237,7 @@ Design §6, unchanged:
         re-arms the line with `-EndBy "2026-11-08 06:00"` (after_stop_line.py
         `arm`), and round 12 resumes at its next part.
     - **Kill:** none of its own. Departures 36-38's kills stand.
+    - [Corrected by the 2026-11-06 21:43 review, M1 and Low:]
+      - Round 12's wall reads 10.84 h in times.json, not 10.3, so no_time needs 13.0 h. Round 16 may start until about 16:59 Nov 7, not 17:38. Round 15 with its claim ends about 15:55-16:20, which leaves a margin of 40-65 min, not about 3 h.
+      - Round 16 would end about 22:15-22:40, the confirmation about 06:00-06:45 and the tail about 08:45-09:30 Nov 8. An --end-by below about 05:20 would refuse round 16. Round 17 stays refused.
+      - What round 16 buys is about 0-7 Elo at T=1 under half B's trend (slope -0.0073 ± 0.0026 a round over rounds 4-12), not +15.
