@@ -1142,3 +1142,56 @@ Design §6, unchanged:
       - Not covered: the joint read of two directions on the GPU in fp16 (the
         code review's L5). It runs the same `_shared_forward` path as the
         several rungs of one direction, which the GPU check covered.
+38. **Dice control's slope SE counts the held-out fit's noise**
+    (`fix/dice-control-slope-se` 773eb0a4, merged into
+    `feature/cross-play-rung` at f8697706; registered 2026-11-06 09:20,
+    after round 12's games failed the gate at 08:32 and stopped the line).
+    - **What happened:** round 12's readout read dice_control's slope of the
+      training game-sides' z on beta_S at 1.142 with SE 0.0336, z 4.24
+      against the gates' 3.45, and rounds_local stopped at r12_play. The
+      line watcher read no later design stop and exited (LINE_DONE), so the
+      GPU idled from 08:32 to 09:16. The other four gates passed, and the
+      separate-code refit of beta matched the labels' to 6.6e-15.
+    - **Why it is the test, not the run:** beta_S uses beta fitted on the
+      held-out games, but the SE counted only the training rows' noise.
+      The slope moves with the fit's noise too: to first order its variance
+      adds g'Vg, V the held-out fit's sandwich covariance and g the slope's
+      gradient in beta. That part grows as n_T / n_H, which departure 36
+      doubled (|H| 5,000 to 2,500 against 5,000 training games).
+      - Measured on rounds 4-12 (the scratchpad's `dice_slope_se.py`): the
+        omitted part is 0.9-1.1 times the counted one at |H| 5,000 (rounds 4-6)
+        and 1.3-1.8 times at 2,500 (rounds 7-12). With it, round 12 reads SE
+        0.0688 and z 2.07.
+      - A 2,000-draw joint bootstrap of round 12 (held-out and training
+        games resampled, beta refitted) reads the slope's SD as 0.0683.
+      - Rounds 4-11 read z with RMS 1.35 on the old SE and 0.82 on the full
+        one. Rounds 7-11 (|H| 2,500): 1.59 and 0.95. The old test was
+        over-dispersed before round 12 failed it.
+    - **Rule:** the gate's slope_se is the full SE, hypot(se_train,
+      se_beta), and readout.json reports both parts (slope_se_train,
+      slope_se_beta). Nothing else in the gate changes: slope 1 within the
+      gates' z 3.45. The rounds that passed under the narrower SE pass
+      under the full one.
+    - **Power:** the gate exists to catch a broken luck correction, such as
+      a flipped orientation, which reads slope near -1 (z near -29 at round
+      12's SE). The existing test of that case still fails the gate.
+    - **The risk named:** a gate corrected after it failed can be a gate
+      tuned to pass. The guard is that the correction is the derivation of
+      the statistic's variance, not a new threshold. It is checked against a
+      bootstrap, and it calibrates the rounds before the failure. If round
+      12 had read z over 3.45 on the full SE, the line would have stayed
+      stopped.
+    - **Deployment:** round 12's games are kept (they are the same games
+      under either SE). r12_play.failed was moved to r12_play.failed_pre38,
+      and round_12/play/readout.done to readout.done_pre38, with
+      readout.json copied to readout_pre38.json. A REDEPLOY stop naming
+      "after round 3" was written, and the line watcher was restarted at
+      `--head f8697706 --k0 3 --held 2500 --average 2`. It re-armed at
+      09:16:24, and round 12's play step re-ran its labels and readout.
+    - **Tests:** tests/test_selfplay_readout.py adds a calibration test. 300
+      sound planted runs with n_H 400 and n_T 1,600 read the slope's z with
+      SD in [0.85, 1.15] on the full SE and at least 1.8 on the training
+      rows' alone. 9 passed (`-m ""`). On rounds 11 and 12's real data the
+      fixed function reads the scratch script's numbers (round 12: SE
+      0.0688, se_beta 0.0600, pass). The full suite at f8697706 runs during
+      round 12's pass.
