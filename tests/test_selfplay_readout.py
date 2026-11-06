@@ -152,6 +152,32 @@ def test_dice_control_reproduces_the_slope_and_catches_a_flipped_orientation():
     assert not moved["beta_pass"]
 
 
+def test_dice_controls_slope_se_counts_the_held_out_fit():
+    """A sound run with few held-out games: the slope's z reads unit spread
+    only when its SE counts the held-out fit's noise (prereg departure 38)."""
+    from tools.match_luck import COLUMNS
+    rng = np.random.default_rng(11)
+    k, n_held, n_train = len(COLUMNS), 400, 1600
+    truth = rng.normal(0, 0.3, size=k)
+    full, train_only = [], []
+    for _ in range(300):
+        S = rng.normal(0, 1, size=(n_held + n_train, k))
+        z = np.sign(S @ truth + rng.normal(0, 0.8, size=len(S)))
+        beta = np.linalg.lstsq(S[:n_held], z[:n_held], rcond=None)[0]
+        labels = [{"game": g, "side": 1, "heldout": g < n_held, "z": float(z[g]), "S": S[g].tolist(),
+                   "beta_S": float(S[g] @ beta)} for g in range(len(S))]
+        walk = [{"game": g, "outcome_a": "win" if z[g] > 0 else "loss", "S": dict(zip(COLUMNS, S[g]))}
+                for g in range(n_held)]
+        out = dice_control(labels, walk, beta)
+        assert out["beta_pass"]
+        full.append((out["slope_z_on_beta_S"] - 1.0) / out["slope_se"])
+        train_only.append((out["slope_z_on_beta_S"] - 1.0) / out["slope_se_train"])
+    # held-out noise is n_train / n_held = 4 times the training rows': the
+    # training rows' SE alone reads a spread of about sqrt(5)
+    assert 0.85 <= np.std(full) <= 1.15, np.std(full)
+    assert np.std(train_only) >= 1.8, np.std(train_only)
+
+
 def test_i_count_accounts_for_a_real_records_commands(tmp_path):
     from tests.helpers.selfplay_games import selfplay_game, tiny_checkpoint
     spec = tiny_checkpoint(tmp_path / "net.pt")

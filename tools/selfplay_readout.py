@@ -33,8 +33,10 @@ with standard errors, and a pass/fail where the design states one.
                    the luck slope on the held-out games and must equal the
                    training labels' beta; the training game-sides' z
                    regressed on their beta_S must read slope 1 within the
-                   gates' z
-    i_v            each correction's mean against 1[a in X] - p(X), for X
+                   gates' z, its SE counting both the training rows' noise
+                   and the held-out fit's (beta is an estimate: the delta
+                   method on the fit's sandwich covariance)
+    i_v           each correction's mean against 1[a in X] - p(X), for X
                    end_turn, attack, recruit: 0 within the gates' z
     p1_targets     sum over decisions of R (1[a in X] - p(X)) / (2 games),
                    what the gradient pass's probes must equal (design §3.4)
@@ -413,16 +415,31 @@ def dice_control(labels: Sequence[Dict], walk_rows: Sequence[Dict], train_beta: 
     train = [lab for lab in labels if not lab["heldout"] and lab["side"] == 1]
     x = np.array([lab["beta_S"] for lab in train])
     y = np.array([lab["z"] for lab in train])
+    se_beta = math.nan
     if len(train) > 1 and float(x @ x) > 0:
-        slope = float(x @ y / (x @ x))
-        se = float(np.sqrt(np.sum(x ** 2 * (y - slope * x) ** 2)) / (x @ x))
+        xx, xy = float(x @ x), float(x @ y)
+        slope = xy / xx
+        se_train = float(np.sqrt(np.sum(x ** 2 * (y - slope * x) ** 2)) / xx)
+        # beta was fitted on the held-out games, so the slope also moves with
+        # that fit's noise: Var = g' V g, V the fit's sandwich covariance and
+        # g the slope's gradient in beta. At |H| 2,500 against 5,000 training
+        # games this part is about 1.5 times se_train (prereg departure 38).
+        if len(held) > len(COLUMNS):
+            ST = np.array([lab["S"] for lab in train], dtype=float)
+            b = np.asarray(train_beta, dtype=float)
+            A = np.linalg.pinv(S.T @ S)
+            e = z - S @ b
+            V = A @ (S.T * e ** 2) @ S @ A
+            g = (ST.T @ y * xx - 2.0 * xy * (ST.T @ x)) / xx ** 2
+            se_beta = float(np.sqrt(max(float(g @ V @ g), 0.0)))
+        se = se_train if math.isnan(se_beta) else float(np.hypot(se_train, se_beta))
     else:
-        slope, se = math.nan, math.nan
+        slope, se, se_train = math.nan, math.nan, math.nan
     slope_ok = bool(se > 0 and abs(slope - 1.0) <= GATE_Z * se)
     return {"beta_labels": [float(b) for b in train_beta], "beta_separate": beta.tolist(),
             "max_difference": diff, "beta_pass": bool(diff <= 1e-6 * scale),
-            "slope_z_on_beta_S": slope, "slope_se": se, "slope_pass": slope_ok,
-            "pass": bool(diff <= 1e-6 * scale and slope_ok)}
+            "slope_z_on_beta_S": slope, "slope_se": se, "slope_se_train": se_train, "slope_se_beta": se_beta,
+            "slope_pass": slope_ok, "pass": bool(diff <= 1e-6 * scale and slope_ok)}
 
 
 # ---------------------------------------------------------------------
