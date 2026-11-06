@@ -1079,7 +1079,9 @@ Design §6, unchanged:
       - About 10 min a step, so about 6.1 h a claimless round, against
         round 9's 5.93 h. Under --end-by, round 16 still starts (by about
         Nov 7 14:40, after round 15's claim about 13:20), and round 17 does
-        not.
+        not. [Corrected 2026-11-06: under --end-by 02:00, round 12's wall of
+        about 10.3 h with departure 38's idle refuses round 16; departure 39
+        moves --end-by to 06:00.]
       - Half A selects among four candidates, not three, so half A's
         reading of the chosen rung is more optimistic. Half B is
         independent of the selection, and it is what decides adoption, the
@@ -1165,8 +1167,12 @@ Design §6, unchanged:
       - A 2,000-draw joint bootstrap of round 12 (held-out and training
         games resampled, beta refitted) reads the slope's SD as 0.0683.
       - Rounds 4-11 read z with RMS 1.35 on the old SE and 0.82 on the full
-        one. Rounds 7-11 (|H| 2,500): 1.59 and 0.95. The old test was
-        over-dispersed before round 12 failed it.
+        one. Rounds 7-11 (|H| 2,500): 1.59 and 0.95. This suggests the old
+        test was over-dispersed before round 12 failed it (chi-square on 8 df
+        p about 0.07, on 5 df about 0.03), but does not prove it.
+      - The order of events: the fix went live at 09:16:24, before this
+        entry's commit and before the full suite (09:34). That cut the
+        idle time; the suite passed after.
     - **Rule:** the gate's slope_se is the full SE, hypot(se_train,
       se_beta), and readout.json reports both parts (slope_se_train,
       slope_se_beta). Nothing else in the gate changes: slope 1 within the
@@ -1197,7 +1203,7 @@ Design §6, unchanged:
       round 12's pass.
 39. **The rounds end by 2026-11-08 06:00, not 02:00** (no code change: the
     line watcher restarted with `--end-by "2026-11-08 06:00"`, then a
-    REDEPLOY; registered 2026-11-06 10:40, during round 12's pass; the
+    REDEPLOY; registered 2026-11-06 10:30, during round 12's pass; the
     2026-11-06 review, M1).
     - **Why:** rounds_local's `no_time` refuses round k when 1.2 times the
       longest wall at |H| 2,500 would pass --end-by. Round 12's wall will
