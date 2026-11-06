@@ -1195,3 +1195,39 @@ Design §6, unchanged:
       fixed function reads the scratch script's numbers (round 12: SE
       0.0688, se_beta 0.0600, pass). The full suite at f8697706 runs during
       round 12's pass.
+39. **The rounds end by 2026-11-08 06:00, not 02:00** (no code change: the
+    line watcher restarted with `--end-by "2026-11-08 06:00"`, then a
+    REDEPLOY; registered 2026-11-06 10:40, during round 12's pass; the
+    2026-11-06 review, M1).
+    - **Why:** rounds_local's `no_time` refuses round k when 1.2 times the
+      longest wall at |H| 2,500 would pass --end-by. Round 12's wall will
+      read about 10.3 h (06:21 to its claim's end, about 16:40, with
+      departure 38's 44-min idle), so no round starts after about 13:38 Nov
+      7. Rounds 13 and 14 take about 6.2 h each and round 15 with its claim
+      about 9.5 h, so round 15 ends about 14:40, and round 16 would be
+      refused. The 09:11 log's "round 16 should still start" was wrong: it
+      left out round 12's wall in the 1.2-times rule.
+    - **Rule:** --end-by is 2026-11-08 06:00, so round 16 may start until
+      about 17:38 Nov 7, a margin of about 3 h. Round 17 cannot start: round
+      16 ends about 20:55, and 1.2 times 10.3 h from then is about 09:20 Nov
+      8. Any --end-by between about 04:00 and 09:00 gives exactly round 16;
+      06:00 keeps a margin for slips without admitting round 17. Nothing
+      else changes.
+    - **What it costs:**
+      - The final match, the confirmation and the tail start when round 16
+        ends rather than round 15: about 21:00 Nov 7, against about 14:40.
+        The confirmation should end about 04:20 and the tail about 07:00
+        Nov 8. window_end's extras get about 6 h less.
+      - The restart costs one step boundary, about 5 min of idle GPU: the
+        stop is read at the end of round 12's pass, about 12:00.
+    - **What it buys:** one more round (round 16's half B, about 0.045 at
+      recent rates; at the claims' 347 Elo per unit, about +15 Elo at T=1),
+      in place of window_end's lowest-value extras.
+    - **Deployment:**
+      - The line watcher (cmd 14008) is stopped and restarted with `--head
+        f8697706 --k0 3 --held 2500 --average 2 --end-by "2026-11-08
+        06:00"`.
+      - A REDEPLOY stop naming "after round 3" is written. The watcher
+        re-arms the line with `-EndBy "2026-11-08 06:00"` (after_stop_line.py
+        `arm`), and round 12 resumes at its next part.
+    - **Kill:** none of its own. Departures 36-38's kills stand.
