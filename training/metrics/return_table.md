@@ -21,6 +21,7 @@ The final matches share seed base 900,000, so they pair game for game; the confi
 | round 6's claim | round 6 at T=1 | -204.2 ± 3.6 | 12800 |
 | round 9's claim | round 9 at T=1 | -146.5 ± 3.3 | 12801 |
 | round 12's claim | round 12 at T=1 | -100.8 ± 3.2 | 12800 |
+| round 15's claim | round 15 at T=1 | -43.4 ± 3.1 | 12800 |
 
 ## The rounds
 
@@ -40,4 +41,5 @@ The final matches share seed base 900,000, so they pair game for game; the confi
 | 12 | True | plain | half B reads 0.008686 (SE 0.0213) | 2026-11-06 13:32:02 |
 | 13 | True | average | half B reads 0.07487 (SE 0.0195) | 2026-11-06 23:29:43 |
 | 14 | True | average | half B reads 0.0351 (SE 0.024) | 2026-11-07 05:37:18 |
+| 15 | True | average | half B reads 0.07286 (SE 0.0221) | 2026-11-07 11:48:47 |
 
