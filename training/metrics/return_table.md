@@ -39,4 +39,5 @@ The final matches share seed base 900,000, so they pair game for game; the confi
 | 11 | True | plain | half B reads 0.0455 (SE 0.0219) | 2026-11-06 06:21:34 |
 | 12 | True | plain | half B reads 0.008686 (SE 0.0213) | 2026-11-06 13:32:02 |
 | 13 | True | average | half B reads 0.07487 (SE 0.0195) | 2026-11-06 23:29:43 |
+| 14 | True | average | half B reads 0.0351 (SE 0.024) | 2026-11-07 05:37:18 |
 
