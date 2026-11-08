@@ -1294,3 +1294,12 @@ Design §6, unchanged:
       - If rounds 12, 9 and 6's extras show the argmax curve flat since
         round 12, the continuation buys T=1 gains only, and the log says
         so before arming.
+    - **Note, 2026-11-08 15:35 (before arming):**
+      - Round 12's extra read +82.9 ± 3.2. Round 15 minus round 12 reads
+        +0.0185 ± 0.0051 in score on the same seeds, so the argmax curve
+        was not flat after round 12; level from round 15 to round 16.
+        The fairer argmax expectation is 0 to about +13 Elo over round 16.
+      - Timing: round 6's extra may end before 23:11, and round 3's would
+        then start. So `window_end.STOP` is written at the 21:11
+        heartbeat, once round 6's extra runs, if the user has not
+        written. It drops only round 3's extra, as above.
