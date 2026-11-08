@@ -1306,3 +1306,38 @@ Design §6, unchanged:
       - The crons were re-created at 19:11 Nov 8. The new heartbeat
         fires at :41 of odd hours, so `window_end.STOP` is written at
         21:41; a one-shot at 23:11 keeps departure 40's time.
+    - **Amendment, 2026-11-08 22:30 (before arming; the 2026-11-08 22:01 review, H1 and M1):**
+      - **EndBy 2026-11-10 13:30 and FinalOut final_match_r20, so rounds
+        17-20.** Dropping round 3's extra moves the resume from about
+        02:10 Nov 9 to about 23:13 Nov 8, and the 10:00 band no longer
+        holds. no_time needs 13.01 h (1.2 x round 12's 10.84 h,
+        times.json), so round 20 starts iff round 19 ends by 20:59
+        Nov 9. At rounds 13-16's walls (6.13-6.29 h, claim 9.65 h)
+        round 19 ends about 21:16, 17 min past it; at rounds 7-10's it
+        ends about 20:13 and round 20 would start. Under 13:30, round 20
+        starts iff round 19 ends by 00:29 Nov 10 (margin about 3 h) and
+        round 21 needs round 20 to end by 00:29 too (it ends about
+        02:00-04:00), so exactly round 20. Chosen over 07:15 (exactly
+        round 19) because the mandate is to train long and the GPU would
+        otherwise idle from about 01:00 Nov 10.
+      - It plays round 17 (about 6.2 h), round 18 with its claim (about
+        9.7 h; the transfer test and the PAUSE rule run), rounds 19 and
+        20 (about 6.2 h each), then the final on the last adopted round
+        into final_match_r20 at 900,000. It ends about 07:30 Nov 10
+        (06:00-08:00). The keep-awake is restarted to end Nov 10 14:00.
+      - **No pid waiter.** window_end exits before 23:11 on the STOP;
+        Windows reuses pids. The arming needs window_end.log's last line
+        to be WINDOW_END_EXTRAS_STOPPED and no python running
+        window_end.py, match_local.py, run_elo_batch.py,
+        eval_inference_server.py, rounds_local.py or chain_local.py. If
+        either fails, a detached waiter polls that condition, not the pid.
+      - The STOP is written as UTF-8 and read back, asserting
+        "after round 3" (chain_local.py:240-242).
+      - Expectation at argmax, restated: about 0, any gain mostly on
+        Arcanclave Citadel. Off that map round 16 minus round 15 reads
+        -0.0057 +- 0.0048 and round 16 minus round 12 +0.0091 +- 0.0054;
+        the 15:35 note's "not flat after round 12" rests on round 15,
+        the better of 15 and 16, and round 17 continues from round 16.
+      - Watched: a PAUSE at round 18 (about 2-20%) ends the line with
+        the final on round 18; a CHAIN_FINAL naming round 16 would
+        replay final_match_after_stop and is killed.
