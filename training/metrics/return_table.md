@@ -6,6 +6,7 @@
 |---|---|---|---|---|---|---|
 | final_match | round 3 | +31.8 ± 3.1 | 12800 of 12800 | 900,000 | fp16 | 2026-11-03 16:47:26 |
 | final_match_after_stop | round 16 | +94.1 ± 3.2 | 12800 of 12800 | 900,000 | fp16 | 2026-11-08 01:17:59 |
+| confirm_match | round 16 | +102.7 ± 3.2 | 12800 of 12800 | 980,000 | fp16 | 2026-11-08 05:06:32 |
 
 The final matches share seed base 900,000, so they pair game for game; the confirmations use fresh seeds from 980,000.
 
