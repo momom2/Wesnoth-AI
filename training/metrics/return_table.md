@@ -15,6 +15,7 @@ The final matches share seed base 900,000, so they pair game for game; the confi
 | Match | Policy | Elo | Decisive | Seed base | Served | Ended |
 |---|---|---|---|---|---|---|
 | tail_match | round 3 | +134.1 ± 3.3 | 12800 of 12800 | 950,000 | fp16 | 2026-11-03 19:28:07 |
+| tail_match_window | round 16 | +429.1 ± 5.7 | 12800 of 12800 | 950,000 | fp16 | 2026-11-08 07:33:28 |
 
 | Claim | Policy | Elo | Decisive |
 |---|---|---|---|
