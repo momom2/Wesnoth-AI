@@ -1241,3 +1241,56 @@ Design §6, unchanged:
       - Round 12's wall reads 10.84 h in times.json, not 10.3, so no_time needs 13.0 h. Round 16 may start until about 16:59 Nov 7, not 17:38. Round 15 with its claim ends about 15:55-16:20, which leaves a margin of 40-65 min, not about 3 h.
       - Round 16 would end about 22:15-22:40, the confirmation about 06:00-06:45 and the tail about 08:45-09:30 Nov 8. An --end-by below about 05:20 would refuse round 16. Round 17 stays refused.
       - What round 16 buys is about 0-7 Elo at T=1 under half B's trend (slope -0.0073 ± 0.0026 a round over rounds 4-12), not +15.
+40. **The line continues past window_end if the user is not back**
+    (no code change; registered 2026-11-08 10:50 on the 2026-11-08 morning
+    review's next step 3; armed only on the condition below).
+    - **Why:** the user's mandate is to train long and hard until they
+      return. Only adopting a reference is theirs. After window_end's
+      extras (about 02:10 Nov 9) the GPU would idle, unwatched, until they
+      come back. The rounds' own objective (T=1) still gains: half B read
+      0.030-0.075 a round over rounds 13-16, and the tail confirmed the
+      forecast. Whether argmax still moves is the open question, since
+      round 15 reads level with round 16 at argmax.
+    - **Condition:** the user has sent no message in the lead's session
+      by the 23:11 heartbeat on Nov 8 (the crons re-created at 19:11).
+      Otherwise the user decides, and nothing below happens.
+    - **Deployment, at that heartbeat:**
+      - `C:/Users/momom2/wesnoth_runs/window_end.STOP` is written. Round
+        6's extra, then running, finishes, and round 3's extra on 980,000
+        does not start: it re-reads a non-candidate whose gap to round 16
+        already reads 16 SE.
+      - A REDEPLOY stop naming "after round 3" is written to
+        rounds_local/STOP, as departures 38 and 39 did.
+      - A detached waiter runs `tools/arm_after_stop.ps1 -Head f8697706
+        -K0 3 -Arm heads_only -Held 2500 -Average 2 -EndBy "2026-11-10
+        10:00" -FinalOut final_match_r19` once window_end's python
+        (pid 11716) has exited. The run tree stays at f8697706.
+      - rounds_local resumes at round 17 from its markers. Every round
+        and match passes --keep-awake itself. The keep-awake shell, which
+        ends Nov 9 00:00, is restarted to end Nov 10 12:00 to cover the
+        gaps.
+    - **What it plays:**
+      - Round 17 (about 6.2 h).
+      - Round 18 with its claim (about 9.7 h), which is a claim round, so
+        the transfer test and the PAUSE rule run as before.
+      - Round 19 (about 6.2 h).
+      - Then chain_local's final on the last adopted round into
+        final_match_r19, at seed base 900,000. It pairs game by game with
+        the finals of rounds 3, 6, 9, 12, 15 and 16.
+      - It ends about 04:30 Nov 10. no_time needs 13.0 h, so round 19
+        may start until 21:00 Nov 9 (expected about 18:15). Round 20
+        would need its start plus 13.0 h before 10:00 Nov 10, so it is
+        refused. Any --end-by between about 07:15 and 13:30 Nov 10 gives
+        exactly round 19.
+    - **What it reads:** the argmax curve past round 16 (round 19's
+      final, paired with 16 and 15) and claim 18 at T=1. It adopts
+      nothing; configs/reference_player.json is not touched.
+    - **Kill:** departures 36-38's kills stand. The user may stop it at
+      any time by killing the chain's tree; it resumes from its files.
+    - **Expectation, written before it runs:**
+      - At T=1, rounds 17-19 add about 3 × 0.04 × 347.4, or about +40
+        Elo, at the recent half-B rate.
+      - At argmax, about 0 ± 10 Elo over round 16, given rounds 15-16.
+      - If rounds 12, 9 and 6's extras show the argmax curve flat since
+        round 12, the continuation buys T=1 gains only, and the log says
+        so before arming.
