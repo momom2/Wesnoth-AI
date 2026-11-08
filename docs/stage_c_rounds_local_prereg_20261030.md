@@ -1303,3 +1303,6 @@ Design §6, unchanged:
         then start. So `window_end.STOP` is written at the 21:11
         heartbeat, once round 6's extra runs, if the user has not
         written. It drops only round 3's extra, as above.
+      - The crons were re-created at 19:11 Nov 8. The new heartbeat
+        fires at :41 of odd hours, so `window_end.STOP` is written at
+        21:41; a one-shot at 23:11 keeps departure 40's time.
