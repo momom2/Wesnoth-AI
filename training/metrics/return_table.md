@@ -5,6 +5,7 @@
 | Match | Policy | Elo | Decisive | Seed base | Served | Ended |
 |---|---|---|---|---|---|---|
 | final_match | round 3 | +31.8 ± 3.1 | 12800 of 12800 | 900,000 | fp16 | 2026-11-03 16:47:26 |
+| final_match_after_stop | round 16 | +94.1 ± 3.2 | 12800 of 12800 | 900,000 | fp16 | 2026-11-08 01:17:59 |
 
 The final matches share seed base 900,000, so they pair game for game; the confirmations use fresh seeds from 980,000.
 
@@ -42,4 +43,5 @@ The final matches share seed base 900,000, so they pair game for game; the confi
 | 13 | True | average | half B reads 0.07487 (SE 0.0195) | 2026-11-06 23:29:43 |
 | 14 | True | average | half B reads 0.0351 (SE 0.024) | 2026-11-07 05:37:18 |
 | 15 | True | average | half B reads 0.07286 (SE 0.0221) | 2026-11-07 11:48:47 |
+| 16 | True | average | half B reads 0.02952 (SE 0.0199) | 2026-11-07 21:29:39 |
 
