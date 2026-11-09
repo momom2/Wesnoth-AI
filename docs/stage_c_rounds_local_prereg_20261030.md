@@ -1005,6 +1005,17 @@ Design §6, unchanged:
         - This cost is missing from the list above.
       - **Half B's SE** at 2,500 reads about 0.021, from round 6's 0.0147 at 5,000, not 0.027.
       - **The KL subsample.** `kl_fraction` 0.05 (pg_eval.py:115) reads about 250 game-sides at 2,500. The 1x rung's edge is placed from it, so its step can be a few percent off. Not listed above; small.
+    - **Clarified 2026-11-09 10:45 (the 2026-11-09 10:01 review, M1; records only, before round 18's step reads):**
+      - Round 17 was a cross-play round: its half B failed the ESS check (share 0.163 against a floor of 0.188), and a 10,000-game match read the rung.
+      - Read literally, it fires two of the kills above. Its wall was 9.40 h against 6.8 h (or the averaged line's 7.0 h), and half B's exact SE was 0.0622 against 0.045.
+      - Neither is acted on.
+        - The ESS clause prices a failure as a cross-play match of its own and tolerates one in a row. A wall or SE kill that fired on every match round would make "two in a row" meaningless.
+        - The exact SE that failed is the estimate the ESS check refused, and the match replaces it. Half B's first-order SE was 0.0176, in line with rounds 7-16's exact SEs of 0.0195-0.0240.
+        - |H| 2,500 still saves about 1.1 h a round against an expected match cost of about 0.26 h (one failure in 11 rounds, at 2.86 h).
+      - **From now on, in a cross-play round:**
+        - the wall kill reads the round's wall up to its step's end (round 17: 6.54 h);
+        - the SE kill reads half B's first-order SE.
+      - The match took 2.86 h (about 58 games a minute), not the 2.4 h priced above.
 37. **Each step also reads its direction averaged with the two rounds'
     before it, and steps along whichever half A selects**
     (`exp/cross-round-average` b6f41c0b and d06c352a, merged into
@@ -1113,6 +1124,10 @@ Design §6, unchanged:
       - a claimless round takes over 7.0 h (departure 36's 6.8 h plus the
         averaged direction's cost);
       - half B's ESS check fails in two rounds in a row (departure 36's).
+    - **Amended 2026-11-09 10:45 (the 2026-11-09 10:01 review, M2; before round 18's step reads):**
+      - The kill's head is f8697706 with `-Average 0`, not d045e17c. The first-parent commits between them are departures 37 and 38 (341ed806, f8697706), so d045e17c would also undo dice control's slope-SE fix. chain_local passes no --average for 0 (chain_local.py:276), and arm_after_stop.ps1 adds `--rounds-average` only above 0.
+      - A second ESS failure in a row fires this kill and departure 36's together, and the re-arm then takes `-Average 0 -Held 5000`.
+      - The procedure, with no line watcher: a REDEPLOY stop naming "after round 3" ends the line at its next step boundary (rc 2, no final match); then arm_after_stop.ps1 runs at f8697706 with the same EndBy and FinalOut.
     - **Tests** (all CPU, on b6f41c0b):
       - tests/test_pg_step.py: the average's weights; the paired ladder selects
         across both and confirms the winner, ties to d, and with no winner
@@ -1341,3 +1356,41 @@ Design §6, unchanged:
       - Watched: a PAUSE at round 18 (about 2-20%) ends the line with
         the final on round 18; a CHAIN_FINAL naming round 16 would
         replay final_match_after_stop and is killed.
+41. **The line goes on after departure 40's final** (no code change;
+    registered 2026-11-09 10:45 on the 2026-11-09 10:01 review's H1, before round 18's data;
+    armed only on the conditions below).
+    - **Why:**
+      - Under departure 40's EndBy (2026-11-10 13:30), no_time needs 13.01 h before a round starts: 1.2 x round 12's 10.84 h, the longest at |H| 2,500 (rounds_local.py:284-304).
+      - Round 17's cross-play match cost 2.86 h, so round 19 ends about 01:00 Nov 10, past 00:29. Round 20 is then refused, though round 20 and the final would end about 11:35.
+      - The final then runs to about 05:00-05:15 Nov 10, and nothing is queued after it.
+      - The user has not been back since about Oct 30, and the mandate is to train long until they return. Only adopting a reference is theirs.
+    - **Why not a REDEPLOY now:**
+      - A stop ends departure 40 without its final: rc 2 is not in ROUNDS_ENDED (chain_local.py:85, 257-258).
+      - A stop at round 18's step boundary counts the idle gap in round 18's wall (rounds_local.py:274-282), raising every later round's need.
+      - It would gain only about 4 h.
+    - **Conditions,** read at the first heartbeat after departure 40's final (expected 05:41 Nov 10). Every one must hold:
+      - chain.log's last line is CHAIN_FINAL_DONE, match_local returning 0, into final_match_r20;
+      - the rounds ended on --end-by (no_time's "would need about ... past --end-by" in runner.log);
+      - no rounds_local/STOP exists;
+      - no python runs chain_local.py, rounds_local.py, match_local.py, run_elo_batch.py or eval_inference_server.py;
+      - final_match_r20, paired on its seeds with final_match_after_stop (round 16), is not below it by more than 2 SE in score.
+      If any fails, the lead reads why and decides. Nothing re-arms blindly.
+    - **Deployment:**
+      - rounds_local/STOP is written as UTF-8 with a REDEPLOY text naming "after round 3" and departure 41, then read back and asserted.
+      - Then: `arm_after_stop.ps1 -Head f8697706 -K0 3 -Arm heads_only -Held 2500 -Average 2 -EndBy "2026-11-13 18:00" -FinalOut final_match_line41`.
+        - -Held 5000 if departure 36's kill fired: round 19's wall to its step's end above 6.8 h, or two ESS failures in a row.
+        - -Average 0 if departure 37's fired, as amended today.
+        - A fresh FinalOut, because match_local refuses a changed match.json.
+      - The keep-awake is restarted to end Nov 13 20:00. The crons expire about Nov 15 19:11.
+      - **A design stop at round 18** (a PAUSE, about 1-4% by the review's computation, or the transfer stop, claim 18 below about -64 Elo):
+        - its final plays the last adopted round (17 or 18) into final_match_r20;
+        - the re-arm then takes -K0 18 under the same conditions, since -K0 3 would fire round 18's stop again on resume (rounds_local.py:625-628).
+    - **What it plays:**
+      - Rounds 20 to 28 or 29, with claims at 21, 24 and 27. At rounds 13-19's walls (about 6.6 h, a claim round about 10 h) it ends about 14:00 Nov 13. Each cross-play case costs about 2.9 h and may drop round 29.
+      - Then the argmax final on the last adopted round against `own2`, into final_match_line41 at seed base 900,000, paired with the earlier finals.
+      - About 76 GPU-hours, no money.
+    - **Expectation:**
+      - At T=1, about +0.03-0.04 in score a round. Rounds 13-16's half B read 0.030-0.075, and round 17's match 0.039.
+      - At argmax, about 0 to +20 Elo over round 16, any gain mostly on Arcanclave Citadel. Off that map, round 16 minus round 12 reads +0.0091 ± 0.0054.
+    - **Kills:** departures 36 and 37's, as amended, at each round boundary. A message from the user hands every decision back to them.
+    - It adopts nothing; configs/reference_player.json is untouched.
