@@ -179,7 +179,6 @@ ARGMAX_SEED_BASE = 900_000      # scripts/chain_local.py FINAL_SEED_BASE: the fi
 ARGMAX_CUT_MIN = 5 * 60         # 3,200 games at the final matches' 40-60 a minute take 55-80 min; match_local
                                 # cuts an attempt at 136 min and plays a short match once more
 LEAN_KL_SIDES = 250             # the KL subsample: round 18's, 5 % of 5,000 held-out game-sides
-KL_FRACTION = 0.05              # tools/pg_eval.py EvalConfig.kl_fraction's default
 # Elo per unit of E[z] at a win rate of 1/2: Elo = 400 log10(p / (1 - p))
 # and E[z] = 2 p - 1, so dElo / dE[z] = 200 / ln 10 / (p (1 - p)) = 347.4.
 ELO_PER_Z = 347.4
@@ -656,7 +655,11 @@ class Rounds(Steps):
     def lean_stops(self, k: int, claim: Tuple[float, float],
                    best: Tuple[float, float]) -> Tuple[Optional[str], List[str]]:
         """--lean's two stops after round k's matches (module docstring): (every
-        stop that fired, joined, or None to go on; the notes to log)."""
+        stop that fired, joined, or None to go on; the notes to log). A round
+        at or before --rebase-after had its stops acted on, as in `stops`."""
+        k0 = getattr(self.a, "rebase_after", None) or 0
+        if k <= k0:
+            return None, [f"round {k}'s stops were acted on: the rounds go on after round {k0} (--rebase-after)"]
         why, notes = [], []
         for what, got, base_of, margin in (
                 ("claim", claim, lambda j: pure(self.out / f"round_{j:02d}" / "claim.fit.json", f"pi{j}t1"), 2.0),
@@ -699,6 +702,12 @@ def run(r: Rounds, rounds: int) -> int:
         return 3
     if n + r.held > SEED_STRIDE:
         log(out, f"ROUNDS_REFUSED: rounds of {n} + {r.held} games overrun a round's {SEED_STRIDE} seeds")
+        return 1
+    lean_rounds = [k for k in range(1, rounds + 1) if (out / f"round_{k:02d}" / "round.json").exists()
+                   and r.lean_round(k)]
+    if lean_rounds and not r.lean:
+        log(out, f"ROUNDS_REFUSED: rounds {lean_rounds[:3]} stepped lean (prereg departure 43), so the rounds after "
+                 f"them run with --lean: their steps hold no confirmed reading for the plain stops")
         return 1
     r.n_train = n
     log(out, f"rounds of N {n} + |H| {r.held} games ({source}; a round started earlier keeps its own |H|)")

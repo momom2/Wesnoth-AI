@@ -164,6 +164,8 @@ def run_round(pass_: Dict, params: Dict[str, torch.Tensor], factory, arm: str, e
     if size == 0:
         readout["decision"] = {"adopt": False, "s": 0.0, "eps": eps, "next_eps": eps / 2.0, "chosen": None,
                                "reason": "the direction is zero (every label 0)", "rungs": []}
+        if lean:
+            readout["decision"]["lean"] = True
         return readout, d, None, d
     if lean:
         return _lean_step(readout, factory, arm, eps, d, size, average or [], average_of)

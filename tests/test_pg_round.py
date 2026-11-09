@@ -330,3 +330,15 @@ def test_a_lean_round_through_the_command_line_writes_the_averaged_step(tmp_path
     assert r["candidate"]["s"] == dec["s"] and r["chosen_network"] is None and not net.exists()
     _same_network(candidate, run.checkpoint, want, dec["s"])
     assert all(torch.equal(torch.load(tmp_path / "direction.pt", weights_only=True)[n], d[n]) for n in d)
+
+
+def test_a_lean_round_with_a_zero_direction_is_still_marked_lean(monkeypatch):
+    """The review's L3: a lean round whose direction is zero keeps pi_k and
+    is marked lean, so rounds_local measures it as a lean round."""
+    import tools.pg_round as pr
+    params = _heads_params()
+    monkeypatch.setattr(pr, "direction", lambda p, arm, prm, fisher: {n: torch.zeros_like(t) for n, t in prm.items()})
+    readout, _, s, _ = pr.run_round({}, params, None, "heads_only", 1e-3, lean=True)
+    assert s is None and readout["decision"]["lean"] and not readout["decision"]["adopt"]
+    readout, _, _, _ = pr.run_round({}, params, None, "heads_only", 1e-3)
+    assert "lean" not in readout["decision"]

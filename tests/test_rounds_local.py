@@ -771,3 +771,35 @@ def test_a_lean_run_resumed_over_plain_rounds_measures_each_round_as_it_ran(tmp_
     assert claim[claim.index("--games") + 1] == str(rl.LEAN_GAMES)
     log = (out / "runner.log").read_text(encoding="utf-8")
     assert "round 12's claim: claim - round 6's claim reads +20.0 Elo (combined SE 7.1), above 0 by 2 SE" in log
+
+
+def test_a_lean_pause_acted_on_lets_the_rounds_go_on_past_it(tmp_path, monkeypatch):
+    """The 2026-11-10 pre-launch review's H1: round 12's lean claim pauses
+    the rounds; re-armed rebased on round 12 (--rebase-after 12, as
+    chain_local --after-stop 12 passes), the resumed walk does not pause at
+    round 12 again, and round 18's claim tests against round 12's."""
+    _reference(monkeypatch)
+    claims = {6: -100.0, 12: -95.0, 18: -60.0}
+    tools = FakeTools(claim_elo=lambda k: claims[k], argmax_elo=lambda k: 50.0 + 10 * k)
+    rc, out = _run(tmp_path, tools, rounds=12, lean=True)
+    assert rc == 3 and (out / "STOP").read_text(encoding="utf-8").startswith("PAUSE after round 12's claim")
+    (out / "STOP").rename(out / "STOP_round12")
+    again = FakeTools(claim_elo=lambda k: claims[k], argmax_elo=lambda k: 50.0 + 10 * k)
+    rc, out = _run(tmp_path, again, rounds=18, lean=True, rebase_after=12)
+    assert rc == 0 and not (out / "STOP").exists()
+    assert again.names()[0] == "round 13 games" and again.names()[-3:] == [
+        "round 18 claim", "round 18 claim fit", "round 18 argmax"]
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert "round 12's stops were acted on" in log
+    assert "round 18's claim: claim - round 12's claim reads +35.0 Elo" in log
+
+
+def test_a_plain_run_over_lean_rounds_is_refused_before_it_plays(tmp_path, monkeypatch):
+    """The review's L3: rounds after a lean round need --lean, so a run
+    without it is refused at its start, not a round later."""
+    _reference(monkeypatch)
+    assert _run(tmp_path, FakeTools(), rounds=3, lean=True)[0] == 0
+    tools = FakeTools()
+    rc, out = _run(tmp_path, tools, rounds=4)
+    assert rc == 1 and tools.names() == []
+    assert "ROUNDS_REFUSED: rounds [2, 3] stepped lean" in (out / "runner.log").read_text(encoding="utf-8")

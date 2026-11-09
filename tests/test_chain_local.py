@@ -427,3 +427,20 @@ def test_rounds_lean_reaches_the_rounds_and_a_final_follows_a_failed_round_only_
     assert args.rounds_lean and args.final_after_failure
     args = cl.parse_args(ARGV)
     assert not args.rounds_lean and not args.final_after_failure
+
+
+def test_final_newer_than_skips_a_final_on_a_round_already_measured(tmp_path):
+    """The review's M2: with --final-newer-than 5, rounds that end with
+    round 5 the last adopted (its final already played) play no final, as
+    with --final-after-failure after a failed round 6; a later adopted round
+    plays one."""
+    for name, adopted, rc_rounds, matches in (("same", {1, 2, 3, 5}, 1, []),
+                                              ("newer", {1, 2, 3, 5, 6}, 0, ["scripts/match_local.py"])):
+        args = _after_stop_args(tmp_path / name, stop="STOP after round 3's claim: REDEPLOY")
+        args.final_after_failure, args.final_newer_than = True, 5
+        f = Fakes(args.stage_c, rc={"scripts/rounds_local.py": rc_rounds}, rounds_writes=_rounds_upto(adopted, 6))
+        assert f.chain(args)() == rc_rounds
+        assert [s for s, _, _ in f.ran] == ["scripts/rounds_local.py", *matches], name
+        if not matches:
+            assert "CHAIN_NO_FINAL: no round after round 5 adopted a candidate" in _log(args)
+    assert cl.parse_args(ARGV + ["--final-newer-than", "18"]).final_newer_than == 18

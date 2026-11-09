@@ -30,7 +30,8 @@ worktree P and the rounds should run (pinned at a tested commit):
 4. With --final-out, once the rounds end (0, or 3 when a design stop or a
    wait ended them, or 1 too with --final-after-failure: prereg departure
    43, since a failed part taints only its own round), it plays the
-   window's final match
+   window's final match (after --after-stop K0, only on a round after K0
+   and after --final-newer-than's round, whose final is already measured)
    (docs/final_match_local_prereg_20261031.md) with scripts/match_local.py
    on the last round that adopted a candidate, after checking that
    candidate's SHA-256 against its round.json. No adopted round, no match.
@@ -259,8 +260,9 @@ class Chain:
         if a.final_out is None or rc not in self.ended():
             return 0 if rc == 0 else 1
         last = last_adopted(a.rounds_out)
-        if last is None or last[0] <= k0:
-            self.note(f"CHAIN_NO_FINAL: no round after round {k0} adopted a candidate")
+        after = max(k0, getattr(a, "final_newer_than", None) or 0)
+        if last is None or last[0] <= after:
+            self.note(f"CHAIN_NO_FINAL: no round after round {after} adopted a candidate")
             return 0 if rc == 0 else 1
         final, _k = self.final_match("FINAL", a.final_out)
         return 0 if rc == 0 and final == 0 else 1
@@ -389,6 +391,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument("--final-after-failure", action="store_true",
                     help="play the final match after a failed round too (module docstring item 4, prereg "
                          "departure 43)")
+    ap.add_argument("--final-newer-than", type=int, default=None, metavar="K",
+                    help="with --after-stop, play the final only on a round after K, whose final is already "
+                         "measured (prereg departure 43)")
     ap.add_argument("--final-out", type=Path, default=None,
                     help="play the window's final match into this directory once the rounds end")
     ap.add_argument("--final-games", type=int, default=FINAL_GAMES)
