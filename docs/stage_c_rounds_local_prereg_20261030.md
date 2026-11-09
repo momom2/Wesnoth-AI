@@ -1394,3 +1394,29 @@ Design §6, unchanged:
       - At argmax, about 0 to +20 Elo over round 16, any gain mostly on Arcanclave Citadel. Off that map, round 16 minus round 12 reads +0.0091 ± 0.0054.
     - **Kills:** departures 36 and 37's, as amended, at each round boundary. A message from the user hands every decision back to them.
     - It adopts nothing; configs/reference_player.json is untouched.
+42. **Round 19's games failed I-V, so departure 40's final plays round 18 by hand**
+    (no code change; registered 2026-11-09 22:00, after round 19's readout stopped the line at 20:41:56).
+    - **What happened:**
+      - Round 19's readout read I-V's v against recruit at mean -1.83e-4, SE 5.00e-5, z -3.66, against the gates' 3.45.
+      - v against attack read +2.48. The two are one signal: the residuals of the categories sum to minus the move residual, which reads about 0.
+      - The other four gates passed, as did I-V's other ten tests.
+      - rounds_local stopped at r19_play with rc 1. chain_local plays its final only after rc 0 or 3 (chain_local.py:85, 228), so it exited without one. The GPU idled from 20:42 to 21:46.
+    - **What the data say** (`scripts/window_20261029/iv_diag.py`):
+      - **The signal is diffuse.**
+        - Shard s00 (the training games) reads z -3.36, s01 (held out) -1.57.
+        - Dropping the 1, 5, 20 or 75 games with the largest contributions leaves z between -3.73 and -3.25 (-4.45 for 375).
+        - By map, none is past |z| 1.72, and 17 of 21 read negative, about what a total of -3.66 spread over 21 maps gives.
+      - **The SE is right for these games.** No value is NaN or outside [-1, 1]. A 2,000-draw bootstrap over games reads SD 5.13e-5 against the analytic 5.00e-5.
+      - **The test is calibrated over the line.**
+        - Across stage 1 and rounds 2-19, I-V's 228 z values read RMS 1.03.
+        - 9 exceed |z| 2 (10.4 expected) and 1 exceeds |z| 3 (0.62 expected): this one.
+        - v against recruit read +2.96 at round 12 and +1.96 at round 15, the opposite sign.
+      - So the reading fits the gates' false-alarm budget (1% a readout, about 17% over 19 readouts), and no fault is located. It is not shown to be a false alarm.
+    - **Rule:**
+      - The gate stands on these games: departure 38's guard is that a gate is not overridden on the data that failed it.
+      - Round 19 is not stepped.
+      - Departure 40's final plays the last adopted round, 18 (round.json's candidate, SHA-256 c5796941...). It runs the chain's own match_local command into final_match_r18, at seed base 900,000 and 12,800 decisive games, and was launched by hand at 21:46:04.
+    - **Departure 41 does not arm.** Its first condition (CHAIN_FINAL_DONE into final_match_r20) cannot hold, and the user is back, which hands the decision to them. The ways on, for the user:
+      - replay round 19's games on fresh seeds and continue if the gate passes there. rounds_local derives a round's seeds from its index, so this needs a seed offset (a code change). It costs about 2.25 h before the step;
+      - or end the line on this final.
+    - Nothing is adopted; configs/reference_player.json is untouched.
