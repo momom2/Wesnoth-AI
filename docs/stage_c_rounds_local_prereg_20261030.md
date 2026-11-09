@@ -1395,7 +1395,7 @@ Design §6, unchanged:
     - **Kills:** departures 36 and 37's, as amended, at each round boundary. A message from the user hands every decision back to them.
     - It adopts nothing; configs/reference_player.json is untouched.
 42. **Round 19's games failed I-V, so departure 40's final plays round 18 by hand**
-    (no code change; registered 2026-11-09 22:00, after round 19's readout stopped the line at 20:41:56).
+    (no code change; written 2026-11-09 21:47, a minute after the final's launch at 21:46:04, as the evening review's L2 noted; round 19's readout stopped the line at 20:41:56).
     - **What happened:**
       - Round 19's readout read I-V's v against recruit at mean -1.83e-4, SE 5.00e-5, z -3.66, against the gates' 3.45.
       - v against attack read +2.48. The two are one signal: the residuals of the categories sum to minus the move residual, which reads about 0.
@@ -1419,4 +1419,12 @@ Design §6, unchanged:
     - **Departure 41 does not arm.** Its first condition (CHAIN_FINAL_DONE into final_match_r20) cannot hold, and the user is back, which hands the decision to them. The ways on, for the user:
       - replay round 19's games on fresh seeds and continue if the gate passes there. rounds_local derives a round's seeds from its index, so this needs a seed offset (a code change). It costs about 2.25 h before the step;
       - or end the line on this final.
+    - **The retry rule, if the user chooses the replay** (pre-registered 2026-11-09 22:20, before any fresh game; the evening review):
+      - round_19/play moves to round_19/play_failed42, and round 19's games are played again on fresh seeds from 29,500,000. That is inside round 19's block, apart from its first 7,500 seeds and from round 20's block.
+      - The line steps only if every gate passes on the fresh games alone.
+      - v against recruit pooled over both sets is reported. Under the null it reads about -2.6 (-3.66 / sqrt 2).
+      - If the fresh games alone read v against recruit below -2, the line stays stopped and the sampler is investigated.
+      - Two changes would go with a continuation, each its own departure:
+        - chain_local plays the final after rc 1 too, since a failed gate taints only its own round. Skipping it idled the GPU 64 min;
+        - the claims shrink to about 3,200 games. That gives a combined SE of 28.7 against 28.2 and saves about 2.6 GPU-h a claim round (the review's M3).
     - Nothing is adopted; configs/reference_player.json is untouched.
