@@ -1428,3 +1428,79 @@ Design §6, unchanged:
         - chain_local plays the final after rc 1 too, since a failed gate taints only its own round. Skipping it idled the GPU 64 min;
         - the claims shrink to about 3,200 games. That gives a combined SE of 28.7 against 28.2 and saves about 2.6 GPU-h a claim round (the review's M3).
     - Nothing is adopted; configs/reference_player.json is untouched.
+
+43. **Lean evaluation, and round 19 replayed under it** (`feature/lean-rounds` d448a4b4; registered 2026-11-10 00:15, before any lean round, any fresh game of round 19, and the end of departure 42's final).
+    - **Why:** the user, back on 2026-11-09, wrote "Try to reduce evaluation proportion, from ~50% of compute to ~10%." Their next message reads "You're running autonomously for the next several hours. Find the highest value improvement and iterate." That hands departure 42's open decision back to the assistant: the line goes on, under this departure.
+    - **Where a round's GPU time went** (round 18's phase times from runner.log and its eval_cache files; rounds 16-18 for the matches):
+
+      | phase | minutes a round | kind |
+      |---|---|---|
+      | the 5,000 training games | about 90 | training |
+      | the 2,500 held-out games | about 45 | evaluation and fits |
+      | the pass | about 161 | training |
+      | the step: laws and KL search | about 19 | step |
+      | the step: half A's and half B's readings | about 67 | evaluation |
+      | the claim, 12,800 games every 3rd round | about 70 | evaluation |
+      | the cross-play match, 1 round in 17 | about 10 | evaluation |
+
+      That makes evaluation about 192 of 462 minutes, about 42%. The 12,800-game finals between chains push it near half.
+    - **What the evaluation decided:**
+      - 17 rounds of 17 adopted. The rule reverts only when half B reads below -2 SE, and that never happened.
+      - The chosen rung was x1 every round. x0.5 never won half A and x2 never fell in range.
+      - The radius has tracked the range's edge (0.5 nat a side-game) since round 2. The x1 rung was clipped to it in 12 of rounds 2-18. In the other 5 (9, 11 and 14-16) its eps, the previous round's edge, was already under it.
+      - The averaged direction won half A in each of rounds 13-18.
+      - The claims landed within 2 SE of their forecasts every time.
+    - **What changes.** One factor, what the line spends on evaluation (rounds_local `--lean`, chain_local `--rounds-lean`):
+      1. **The step is its KL search alone** (pg_round `--lean`). It goes along the averaged direction to the radius (eps or the edge), and is adopted unread. No half reads it, so there is no importance-weight check and no cross-play case.
+      2. **|H| goes from 2,500 to 1,250.** The held-out games now only fit the labels and the corrections and give the KL subsample.
+         - The labels' fit is 7 coefficients. Its dominant one, value_50, reads 0.870 on round 18's 2,500 held-out games and 0.882 and 0.816 on its halves of 1,250; the minor ones move more.
+         - The corrections are 2 coefficients. v's cut read 0.244 ± 0.009 on 2,500 games.
+         - The KL subsample keeps about 250 game-sides (kl_fraction 0.1), as at 2,500.
+      3. **The matches.** Every 6th round in place of every 3rd, two matches of 3,200 decisive games:
+         - the claim (T=1 against own2, as before);
+         - an argmax match (match_local: the reference's decode against own2, seeds from 900,000, the finals' seeds).
+      4. **The stops.** Either pauses the line (STOP):
+         - the claim must beat the latest earlier claim by 2 combined SE;
+         - the argmax match must beat the latest earlier argmax reading by 1 combined SE. Strength at the reference's decode comes first, so a flat argmax pauses for a decision.
+
+         The confirmed-readings pause and the claim-against-forecast test go with the halves.
+      5. **chain_local `--final-after-failure`:** the final also plays after rc 1, since a failed part taints only its own round.
+    - **The accounting this registers** (estimates, read back from times.json and the phase times):
+      - a round: 6,250 games (about 112 min), the pass (161), the KL search (about 12);
+      - the matches: about 135 min every 6th round, about 22 a round;
+      - so about 307 min a round: evaluation (the step and the matches) about 11%, the held-out games' fits about 7%, training about 82%.
+    - **Round 19 is replayed under departure 42's retry rule, by hand before the launch:**
+      - round_19/play moves to play_failed42;
+      - round_19/seed_base.txt reads 29,500,000;
+      - round_19/held.txt is rewritten to 1,250, so the round plays 6,250 games, seeds 29,500,000-29,506,249;
+      - r19_play.failed is deleted.
+
+      The rest of the retry rule stands. Every gate must pass on the fresh games, and v against recruit is reported pooled with play_failed42. If the fresh games alone read it below -2, a STOP goes in before round 19's step; this is checked by hand at the heartbeat after the readout.
+    - **The bases:**
+      - Round 24's claim tests against round 18's (-8.7 ± 3.1, 12,800 games).
+      - Round 24's argmax match tests against departure 42's final on round 18 (final_match_r18, 12,800 games from seed 900,000). Its result.json is copied by hand to round_18/argmax/result.json once it lands.
+      - The two share their first 3,200 seeds. The unpaired combined SE is used, which is conservative.
+    - **The run:** chain_local with:
+      - `--after-stop 3` (a REDEPLOY STOP naming round 3, as before);
+      - `--rounds 39 --rounds-end-by "2026-11-13 18:00"`;
+      - `--rounds-lean --final-after-failure`;
+      - `--rounds-held 1250 --rounds-average 2 --rounds-n-train 5000`;
+      - `--heads-only-pass --skip-p`;
+      - the final into final_match_lean.
+
+      At about 5.1 h a round, that reaches round 35 or so.
+    - **What decides whether lean stays:** claim Elo gained per GPU-hour.
+      - Rounds 16-18 gained +34.7 ± 4.4 (round 15's claim to round 18's) in 25.5 GPU-h of rounds (times.json), so 1.36 ± 0.17 Elo a GPU-hour.
+      - Lean stays if rounds 19-24 read no lower than that by 2 combined SE, about 0.8.
+      - A later line gains less a round, which biases this against lean. The argmax match's gain per GPU-hour is reported beside it.
+    - **What is lost:**
+      - the per-round confirmed reading and the forecast it fed;
+      - the importance-weight check and the cross-play case;
+      - half A's choice of direction.
+
+      A step worse than pi_k is no longer reverted. The two stops bound that to 6 rounds, about 31 h.
+    - **Kill:**
+      - the two stops;
+      - a gate failure, as before (departure 42), now with the final after it;
+      - a lean round past 1.5 times its estimate (about 7.7 h) is inspected.
+    - Nothing is adopted; configs/reference_player.json is untouched.
