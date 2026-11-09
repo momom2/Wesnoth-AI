@@ -13,6 +13,7 @@ and `docs/plan_20260904.md`.
 | backlog_20260904.md | the pre-restart BACKLOG.md, 1,055 lines of rulings and open items |
 | backlog_closed_20260926.md | BACKLOG.md's sections closed between 2026-09-12 and 2026-09-24 (fixes that landed, phase 1's record, the time of day, the scenario builder, the 2026-09-14 review), verbatim |
 | claude_status_20260904_20261007.md | CLAUDE.md's "Current status" log from 2026-09-04 to 2026-10-07 (references seed2 to `parity3`, phase 1, the Rust core, the parity-memory retrain, live games), verbatim |
+| claude_md_20261109.md | the whole CLAUDE.md as of 2026-11-09, before its rewrite into instructions only: its "Current status" block (2026-10-08 to 2026-10-21) and its architecture tour, verbatim |
 | backlog_closed_20261008.md | BACKLOG.md's historical sections as of 2026-10-08 (value head study, phase 2's prerequisite, training-signal panel, corpus census, the 2026-09-13 audits, the hide-cover review), verbatim |
 
 ## Plans that were followed and superseded

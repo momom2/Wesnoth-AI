@@ -1,7 +1,7 @@
 """The standard strength match on the local machine (Windows, the RX 6600;
 docs/new_machine.md step 8): a candidate checkpoint on side A against the
 reference player on side B, N decisive games, then the PURE fit, the
-reference anchored at 0 (CLAUDE.md, "Eval procedure").
+reference anchored at 0 (CLAUDE.md, "Strength claims").
 
     set HIP_VISIBLE_DEVICES=1
     <rocm venv>/python scripts/match_local.py --label cand --checkpoint path/to/cand.pt ^
@@ -91,7 +91,7 @@ MIN_FREE_MB = 300                # scripts/selfplay_t1_local.py's
 # about 476 decisions a game at argmax (the census): 3,456 games an hour.
 GAMES_PER_H = 3450.0
 PURE = "PURE (decisive only, primary)"
-# The procedure both sides play (CLAUDE.md, "Eval procedure").
+# The procedure both sides play (CLAUDE.md, "Strength claims").
 DECODE = ["--mcts-sims", "0", "--raw-temperature-a", "0", "--raw-temperature-b", "0"]
 # --t1: both sides sample, as the rounds' self-play does (raw:t1).
 DECODE_T1 = ["--mcts-sims", "0", "--raw-temperature-a", "1", "--raw-temperature-b", "1"]

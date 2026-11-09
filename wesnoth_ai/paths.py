@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Pinned 1.18.4 scrapes (CLAUDE.md, "Wesnoth data provenance").
+# Pinned 1.18.4 scrapes (CLAUDE.md, "Wesnoth data and rules").
 UNIT_STATS_PATH = REPO_ROOT / "unit_stats.json"
 TERRAIN_DB_PATH = REPO_ROOT / "terrain_db.json"
 

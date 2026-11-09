@@ -37,7 +37,7 @@ _FACTIONS_DIR = (Path(__file__).parent.parent / "wesnoth_src" / "data"
 def require_scenario_data() -> None:
     """Skip the calling test when the vendored Wesnoth data tree is
     absent (wesnoth_src/ is environment, not repo content — see
-    CLAUDE.md "Wesnoth data provenance" for the refresh command)."""
+    CLAUDE.md "Wesnoth data and rules" for the refresh command)."""
     if not _FACTIONS_DIR.is_dir():
         pytest.skip("wesnoth_src/data missing — refresh from the "
                     "Steam install (see CLAUDE.md)")

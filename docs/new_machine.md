@@ -96,7 +96,7 @@ Steps 1 to 3 come before the first Claude Code session that touches a key.
    - `python main.py --check-setup` links the add-on into Wesnoth's user
      data.
    - Copy the rest of `wesnoth_src/data/` from the install with the
-     robocopy command in CLAUDE.md, "Wesnoth data provenance".
+     robocopy command in CLAUDE.md, "Wesnoth data and rules".
    - The patched build comes from CI: see `tools/wesnoth_build/README.md`.
 
 7. **Local data.** Download `records.tar.gz` and `datasets.tar.gz` the

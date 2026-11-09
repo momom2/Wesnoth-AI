@@ -16,7 +16,7 @@
 checkpoint under one decode: since 2026-09-25 it is `obs8` at
 `raw:t0+eo-1.5` (HF `tier-b/observation_retrain_20260924/arm_epoch0.pt`,
 local `training/checkpoints/obs8.pt`). Every strength claim is a match
-against it (CLAUDE.md, "Eval procedure"). The earlier reference players
+against it (CLAUDE.md, "Strength claims"). The earlier reference players
 and the rest of the lineage are listed in docs/checkpoint_naming.md.
 
 ## Names

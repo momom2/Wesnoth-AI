@@ -2,7 +2,7 @@
 
 A reinforcement-learning AI for *Battle for Wesnoth* 1.18.x, warm-started
 by behavior cloning of human replays, with self-play training being
-rebuilt (status: [CLAUDE.md](CLAUDE.md); plan:
+rebuilt (status: [docs/status.md](docs/status.md); plan:
 [docs/plan_20260904.md](docs/plan_20260904.md); next actions:
 [BACKLOG.md](BACKLOG.md)). Two goals shape the design:
 
@@ -68,7 +68,7 @@ python tools/elo_collect.py eval_games/cand_vs_ref --no-catalog
 Every match game is drawn from the 21-map Ladder pool with fog, and both
 factions are drawn uniformly from the six default-era factions
 (`FORCED_FACTION` in `wesnoth_ai/rules/scenario_pool.py`; CLAUDE.md,
-"Eval procedure").
+"Strength claims").
 
 Imitation training is `tools/supervised_train.py` (its docstring gives
 the reference recipe); self-play legs run through `tools/az_loop.py`
@@ -172,14 +172,16 @@ signal_profiler/  Instruments that break the training signal down into
 benchmarks/       Micro-benchmarks.
 main.py           Setup/maintenance CLI (--check-setup, --clean-games).
 wesnoth_src/      WML-only copy of the Wesnoth 1.18.7 data tree (runtime
-                  subset tracked; CLAUDE.md, "Wesnoth data provenance").
+                  subset tracked; CLAUDE.md, "Wesnoth data and rules").
 add-ons/wesnoth_ai/   Lua side of the eval bridge.
 ```
 
 ## Where to look next
 
-- **[CLAUDE.md](CLAUDE.md)** — architecture, invariants, and working
-  agreements (the authoritative orientation for contributors).
+- **[docs/status.md](docs/status.md)** — where the project stands: the
+  reference player, the self-play rounds' results, the open questions.
+- **[CLAUDE.md](CLAUDE.md)** — the instructions: principles, rulings,
+  the code map, and the working agreements.
 - **[BACKLOG.md](BACKLOG.md)** — the next actions in order, and the
   open findings.
 - **[docs/README.md](docs/README.md)** — what each document in docs/ is,
@@ -199,7 +201,7 @@ add-ons/wesnoth_ai/   Lua side of the eval bridge.
   0-indexed internally. The ±1 conversion happens only where Wesnoth
   data enters or leaves Python: the WML and replay readers and writers
   and the live tools under `tools/` (listed in CLAUDE.md,
-  "Coordinates"). Game logic, the
+  "Wesnoth data and rules"). Game logic, the
   encoder and the model work in 0-indexed coordinates only.
 - **Version pin:** `unit_stats.json` / `terrain_db.json` are committed
   1.18.4 scrapes. Unit stats might drift between releases and break combat

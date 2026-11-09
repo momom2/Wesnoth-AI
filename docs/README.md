@@ -1,7 +1,8 @@
 # Documents
 
-Start with `CLAUDE.md` (status, architecture, rules of work),
-`BACKLOG.md` (the next actions in order) and `plan_20260904.md` below.
+Start with `status.md` (where the project stands), `CLAUDE.md` (the
+instructions: principles, rulings, the code map, rules of work) and
+`BACKLOG.md` (open items).
 A dated document is a record of the day it names: its "Measured"
 section holds the result, and a status line at its top says what
 became of it when that changed later. `archive/` holds superseded plans,
@@ -11,7 +12,10 @@ leg records and runbooks (index in `archive/README.md`).
 
 | document | what it is |
 |---|---|
-| plan_20260904.md | the plan in force: engineering first (phase 1, closed), then search over turns (phase 2) |
+| status.md | the project's state: the reference player and its lineage, the self-play rounds' results, the open questions, compute |
+| training_design_20261019/current_design.md | the design the self-play rounds follow: on-policy policy gradient, one certified step a round |
+| autonomy_20261029.md | the autonomous window of 2026-10-29 to 2026-11-09 on the desktop: its card for the user's return, rules, plan, reviews and log |
+| plan_20260904.md | the plan of 2026-09-04: engineering first (phase 1, closed), then search over turns (phase 2, superseded by the policy-iteration rounds); its standing rules still apply |
 | wesnoth_rules.md | the engine rules the simulator follows, each with its source citation |
 | design_constants.md | where the derived numerical constants come from |
 | box_runbook.md | how a run goes on a rented box, from the checks before renting to the destroy, with the box library's quickstart |

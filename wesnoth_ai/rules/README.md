@@ -53,7 +53,7 @@ docs/refactor_plan_20260925.md gives each its place.
 ## Invariants
 
 - `unit_stats.json` and `terrain_db.json` are pinned scrapes of Wesnoth
-  1.18.4 (CLAUDE.md, "Wesnoth data provenance"). `tools/scrape_terrain.py`
+  1.18.4 (CLAUDE.md, "Wesnoth data and rules"). `tools/scrape_terrain.py`
   and `tools/scrape_unit_stats.py` run only on a checkout of the 1.18.4
   tag, never on `wesnoth_src/`.
 - Every data location comes from `wesnoth_ai.paths`; no module here reads

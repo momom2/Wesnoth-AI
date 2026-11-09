@@ -2930,7 +2930,7 @@ holds up:
    pin to the version: C++ as `src/<path>:<line>` at the 1.18.4 tag
    on GitHub, WML and Lua as `wesnoth_src/data/<path>:<line>`
    (`wesnoth_src/` is a copy of the local 1.18.7 install's data tree;
-   CLAUDE.md, "Wesnoth data provenance").
+   CLAUDE.md, "Wesnoth data and rules").
 
 5. **Note non-obvious paths.** If the rule lives in Lua but the
    superficial search would land on C++, write that down.

@@ -1,773 +1,463 @@
 # CLAUDE.md — Wesnoth AI
 
+This file holds instructions for working in this repository, and only
+instructions. The project's state is in `docs/status.md`: read it first.
+Results, measurements and status logs never go here; they go in
+`docs/status.md`, the run's own record, or `docs/archive/`. The CLAUDE.md
+that carried status until 2026-11-09 is kept verbatim in
+`docs/archive/claude_md_20261109.md`.
+
 ## Project
 
-A reinforcement-learning AI for *Battle for Wesnoth*, trained by self-play,
-aiming to be (a) competitively strong against players and (b) readable
-enough that humans can study its strategies. Strength comes first (user
-ruling 2026-10-19): readability and steering (incentivizing unorthodox
-strategies, forcing openers) come later, once a superhuman player exists.
-Behaviour is learned: nothing hand-set beside the network decides play or
-shapes its training signal (user ruling 2026-10-21; Principle 3).
+A reinforcement-learning AI for *Battle for Wesnoth*, trained by
+self-play. It aims to be (a) strong against players and (b) readable
+enough that humans can study its strategies.
+- **Strength comes first** (user ruling 2026-10-19). Readability and
+  steering come later, once a superhuman player exists.
+- **Behaviour is learned** (user ruling 2026-10-21): nothing hand-set
+  beside the network decides play or shapes its training signal
+  (Principle 3).
 
-- **Language:** Python 3.11+
-- **ML:** PyTorch
-- **Game:** Wesnoth 1.18.x (Steam install on Windows)
-- **Run:** imitation training via `python tools/supervised_train.py`
-  (every reference checkpoint so far comes from it); self-play legs via
-  `python tools/az_loop.py`; demos via `python tools/sim_demo_game.py`;
-  live-Wesnoth setup checks via `python main.py --check-setup`
-- **Test:** `pytest` (tests are Python-only; they run the simulator,
-  encoder, model, trainer and tools on synthetic inputs and committed
-  data, and none of them launches Wesnoth). CI runs the full suite with
-  a freshly built Rust wheel on every push (see Testing).
+- **Language:** Python 3.11+, with a Rust core for the simulator's rules.
+- **ML:** PyTorch.
+- **Game:** Wesnoth 1.18.x (the Steam install on Windows).
+- **Machines:**
+  - **The desktop:** Windows, Ryzen 5 7600, 63 GB of RAM, a Radeon RX 6600.
+    It is the main machine, and its GPU is free to use (see "The desktop's
+    GPU").
+  - **Rented 4090 boxes on Vast:** about 5x the desktop's generation rate
+    and 10x its training rate, at a price (see "Compute").
+  - **GitHub Actions** runs CI.
 
-### Wesnoth data provenance (updated 2026-06-12)
+### Where things are
 
-`wesnoth_src/data/` is a WML-only copy (cfg/lua/map, no art) of the
-LOCAL STEAM INSTALL's data tree, taken from **1.18.7**. The install
-reports 1.18.8 (2026-09-23), and the files the simulator reads from it
-(multiplayer factions, scenarios and maps, core macros and units, the
-eras) are identical to this copy, compared that day. Refreshed via:
+| What | Where |
+|---|---|
+| The current state, the reference player and the open questions | `docs/status.md` |
+| Open items and older rulings (its NEXT section dates from 2026-10-09) | `BACKLOG.md` |
+| How to set up a machine: credentials, the Rust wheel, the ROCm venv | `docs/new_machine.md` |
+| Commands: install, the match, the local match | `README.md` |
+| The training design the self-play rounds follow | `docs/training_design_20261019/current_design.md` |
+| Wesnoth rules, with source quotes | `docs/wesnoth_rules.md` |
+| Derived constants | `docs/design_constants.md` |
+| Superseded plans, logs and runbooks | `docs/archive/` (index in its README) |
+| The 78 quarantined training mechanisms | `quarantine/INVENTORY.md` |
+| The standing rules of the 2026-09-04 plan | `docs/plan_20260904.md` |
 
-    robocopy "C:\Program Files (x86)\Steam\steamapps\common\wesnoth\data" wesnoth_src\data *.cfg *.lua *.map /S
+## Principles
 
-It serves the RUNTIME readers (scenario_pool factions/eras,
-scenario_events, map files). It is NOT a git checkout anymore and
-has no `src/` tree; for engine-internals research, read the GitHub
-**1.18.4 tag** directly (as docs/wesnoth_rules.md entries do).
-
-**The sim's runtime WML subset IS tracked in git (since 2026-07-02):**
-`data/multiplayer/{factions,scenarios,maps}`, `data/core/macros` (the
-31 files the scenario expander reads), and the add-ons
-`Mini_Maps_Collection`, `Seamless_Map_Picker` and `WL_Mappack` -- 276
-files, counted 2026-09-23 -- so a bare `git clone` can run
-self-play training on a GPU node with no Wesnoth install. The rest
-of `wesnoth_src/` stays untracked. A robocopy refresh from Steam
-will show these as git diffs; that's intentional (data drift
-becomes visible in review instead of silent).
-
-**`unit_stats.json` / `terrain_db.json` are pinned 1.18.4 scrapes
-and are COMMITTED. Never re-scrape them from this wesnoth_src.**
-Unit stats DRIFT between releases — e.g., in 1.19.x the Ghoul
-gained a `[resistance] pierce=90` override that doesn't exist in
-1.18.4 (where pierce inherits 70 from the gruefoot movement_type);
-using drifted stats made combat reconstruction overdamage units.
-The sim's bit-exact combat parity and the existing checkpoints
-assume the 1.18.4 stats. Re-scraping requires fetching the 1.18.4
-tag from GitHub first.
-
-Most replays in `replays_raw/` are from 1.18.x clients; pin
-accordingly. If a replay's `[scenario] version=` says something
-other than 1.18.x, scrape from that version's tag instead.
-
-## Current status (2026-10-08)
-
-**Read `BACKLOG.md` "NEXT" first.** The status log of 2026-09-04 to
-2026-10-07 is in `docs/archive/claude_status_20260904_20261007.md`,
-verbatim; older blocks are in `docs/archive/claude_status_history.md`,
-superseded plans and leg records in `docs/archive/` (index in its
-README), and the 78 quarantined training mechanisms in
-`quarantine/INVENTORY.md`. `docs/plan_20260904.md` keeps the standing
-rules; its phase 1 is closed.
-
-### The reference player
-
-`own2` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted
-2026-10-21 on the user's approval): HF
-`tier-b/memory_own_round2_20261011/own.pt`, local
-`training/checkpoints/own2.pt`, pinned in `configs/reference_player.json`.
-It is `own1` fine-tuned a second time on its own recorded games toward its
-memoryless reading, mixed with the human corpus
-(docs/memory_own_round2_prereg_20261011.md); `own1` is `parity3` trained
-the same way once (docs/memory_own_trajectories_prereg_20261011.md), and
-`parity3` itself was imitation-trained (`tools/sequence_train.py` under
-the anneal rule, docs/imitation_anneal_prereg_20261003.md). Its lineage,
-each step a match of 800 decisive games (6,400 for `own2`) under the
-observation of its day (Elo does not chain across observation epochs):
-
-| reference | adopted | over its predecessor |
-|---|---|---|
-| `own2` | 2026-10-21 | +22.7 +- 4.4 over `own1` (docs/own2_base_prereg_20261020.md): round 2 of training on its own games, after which the memory no longer costs strength |
-| `own1` | 2026-10-11 | +88.6 +- 12.7 over `parity3`: trained on its own games, the memory's cost in play cut from 105 to about 22 Elo |
-| `parity3` | 2026-10-04 | +82 +- 13 over `parity2` |
-| `parity2` | 2026-10-02 | +191 +- 14 over `obs8`: the network observes what a player sees, and a 64-slot memory carries it from decision to decision |
-| `obs8` | 2026-09-25 | +73 +- 13 over `terrain`: the same recipe on the corrected observation |
-| `terrain` | 2026-09-20 | +263 +- 16 over `relset`: the hex's terrain set, composed with the end_turn offset -1.5 |
-| `relset` | 2026-09-11 | +56 +- 12 over seed2's one-pass checkpoint: the relevant-set basis |
-| seed2 | 2026-09-11 | +33 +- 12 over the original imitation seed |
-
-Measured 2026-10-09 (docs/parity3_baselines_prereg_20261008.md): `parity3`'s
-self-pin reads -2.6 +- 12.3 Elo, and **the same checkpoint at 0 slots beats
-it by +105.5 +- 12.8 Elo** (16 slots play as 64); the memory player acts
-less per side-turn and stalls to the turn cap more. Whether the reference
-plays at 0 slots: **no (user ruling 2026-10-09): the memory stays, and
-that it plays worse is a design flaw to root-cause** (`parity2`'s memory
-cost 37 +- 12). Root-caused 2026-10-11
-(docs/memory_in_play_parity3_prereg_20261009.md "Measured"): a stronger
-end_turn offset recovers 65 of the 105 Elo, the rest is the choice of
-actions; the memory, trained only to predict a human from that human's
-history, continues its own history's patterns in play (causal confusion
-of history-conditioned imitation). Round 1 of training on its own
-trajectories (2026-10-11, docs/memory_own_trajectories_prereg_20261011.md)
-brings the 64-slot player level with `parity3` at 0 slots (-4.3 +- 12.3);
-confirmed on fresh seeds (docs/own_confirm_prereg_20261011.md): +88.6 +-
-12.7 over `parity3` at 64 slots, the memory costing it about 22 Elo against
-its own 0-slot reading (-21.7 +- 12.3), its 0-slot reading +22.6 +- 12.3
-over `parity3`'s (+37.4 in round 1). Round 2 (2026-10-12,
-docs/memory_own_round2_prereg_20261011.md): within `own2` the memory no
-longer costs strength (+13.0 +- 12.3 for 64 slots against 0); its
-memoryless reading did not improve again (saturated), and `own2` against
-`own1` reads +16.5 +- 12.3 over 800 games and +22.7 +- 4.4 over 6,400
-(2026-10-20, docs/own2_base_prereg_20261020.md); it is the reference
-since 2026-10-21.
-Budget (user, 2026-10-09): about $100 on Vast for the foreseeable future;
-the lead decides runs, a costly one only when confident it pays.
-
-### Self-play
-
-Nothing produced by self-play has beaten any reference. The 2026-09-04
-review (docs/raw_argmax_control_20260904.md): the seed at argmax beats
-the same weights sampling by +412 +- 97 Elo; Gumbel-MCTS-32 over atomic
-actions loses to argmax by -124 +- 58; the search targets were the prior
-or a truncation of it, and the value gradient owned 94-99% of every
-update through the shared trunk. Policy-gradient self-play was never
-measured on a current network (quarantine/INVENTORY.md 1.9).
-
-User rulings: self-play keeps the memory, whose size is open to
-discussion (2026-10-05; the memory reaches every place that plays or
-trains the network since 0.14.0, docs/memory_everywhere_20261005.md).
-No self-play training on the current algorithm, `az_loop`'s search
-distillation; before any training launches, a new algorithm must handle
-the reward's sparsity, multi-step turns whose plans depend on the dice
-rolled inside the turn, and the simulator's speed without being
-bottlenecked on the network (2026-10-06). Imitation's remaining gains
-are parked (2026-10-04). The program that answers the 2026-10-06 ruling
-is docs/selfplay_program_20261008.md (policy iteration with a one-step
-look-ahead over exact combat outcomes, its evaluator chosen by
-measurement). Step 1 read Kill on 2026-10-09: no learned critic a fair
-player can use selects better than material at this scale; the material
-look-ahead itself is neutral against `parity3` (-8.7 +- 12.3 Elo).
-
-Measured facts a new design starts from:
-- **Turn-level gaps exist.** Under `terrain`, 7 of 60 holdout positions
-  have a sampled alternative turn confirmed better by at least 0.25; in
-  6 of the 7 the better turn takes more decisions
-  (docs/turn_gap_ref_prereg_20260921.md). Two of the seven carry
-  in-turn luck in the alternative's favour, and the playouts saw
-  through fog.
-- **No cheap turn grader passes.** Ranking 5 candidate turns at 199
-  human positions against playout truth (corrected within-position
-  correlation): `obs8`'s value head 0.22, a fitted linear grader 0.27,
-  the HP margin after the turn 0.40, rollouts read four turns ahead 0.53
-  (docs/turn_value_prereg_20260925.md).
-- **Acting more is the largest lever on record:** the end_turn logit
-  offset -1.5 is worth about +229 Elo at decode
-  (docs/endturn_rule_prereg_20260919.md).
-- **Fog.** Every search and playout in the tree runs on the true state
-  (docs/hidden_information_20260926.md); a search that chooses actions
-  in play needs a root drawn from a belief model. A training-time critic
-  may see both sides.
-- **Common random numbers across branches were measured dead**
-  (docs/selfplay_redesign_20260904.md, Q8).
-
-Throughput (docs/box_specs.md): 3,200 leaf evaluations per second per
-4090 at serve batch cap 64 (`relset`, no memory); the trainer costs 2.2
-ms per experience; the Rust core forks a state in 0.019 ms and steps in
-0.050 ms; an attack's exact outcomes take about 0.06-0.11 ms. An
-800-decisive-game match at the reference decode takes about 17 minutes
-on a 4090 box (944 games of the memory model, 2026-10-04, $0.42 an
-hour). A single match wall is not resolvable below about 1.8x: identical
-repeats have differed by that much.
-
-### The simulator
-
-The Rust core (`rust/wesnoth_core`, adapter `wesnoth_ai/game_core.py`)
-is the state of record of the simulator and of replay reconstruction
-(0.9.0), and answers every rule asked of a state: the commands, the
-scenario's events, combat, the reach, what a side sees, the observation
-and the encoding. It was certified against the Python applier over the
-whole corpus (14,376 of 14,376 replays, 2026-10-01); that applier and
-the Python rules it carried are retired (docs/rust_core_port_20260928.md),
-and the core is checked against the engine's records and oracles only.
-`OBSERVATION_EPOCH` is 11 and
-`CORPUS_VERSION` 5: caches of another epoch refuse to load, and Elo
-measured under one epoch does not chain onto another. Real Wesnoth
-checks the rules: the scenario-init oracle (28 of 28 scenarios), the
-hidden-units oracle (54 of 54 positions), and live games against the
-default AI with the simulator mirroring the engine's log
-(`tools/live_vs_rca.py`), run on the project's patched Wesnoth 1.18.8
-(`tools/wesnoth_build/`), which plays a hosted game's 70% experience.
-
-### Standing rulings
-
-Standing rules (full list in the plan): the reference player is
-`own2` at `raw:t0+eo-1.5` with its memory at 64 slots (adopted
-2026-10-21; one checkpoint, its memory and one decode, all in
-`configs/reference_player.json`, which
-`tools/reference_player.py --flags b` turns into run_elo_batch flags);
-every strength claim is a PURE match against it with the standard
-error stated; no teacher is distilled before it wins such a
-match; one factor at a time, each with its own number and kill
-criterion; proxies are crash barriers, never verdicts; compute on
-rented boxes only, proposed with cost first.
-
-Also in force:
-- 2026-09-05: no optimizations conditioned on the MCTS loop; scope
-  every box test and train sparingly; results are written on the run,
-  never as atomic dumps; a box job past about 1.5x its estimate is
-  inspected and cut.
-- 2026-09-28: no faction is forced on eval games; matches before that
-  day had a Knalgan side and do not pool with later ones.
-- 2026-10-06: CI is the merge gate (Testing); trivial fixes go straight
-  to `main` (Branching); an engine parameter is passed to the engine,
-  never emulated.
-
-Eval procedure: the match command of README's Quickstart. The
-candidate plays side A, and `$(python tools/reference_player.py --flags
-b)` puts the reference on side B with its label, checkpoint and decode
-flags; the candidate takes the same decode with
-`--raw-end-turn-offset-a -1.5`, and `--mcts-sims 0 --raw-temperature-a 0
---raw-temperature-b 0` makes both sides raw players at argmax. The
-procedure tag is `raw:t0`, or `raw:t0+eo-1.5` with the offset; the
-legacy sampler (no raw temperature) is `raw` and never mixes with them
-in one outdir; searched players carry `mcts:<sims>` (Gumbel root) or
-`tcs:<sims>`. Every game draws a map from the 21-map Ladder pool with
-fog and both factions uniformly (`FORCED_FACTION` in
-`wesnoth_ai/rules/scenario_pool.py` is None since 2026-09-28; described
-with the scenario pool under Architecture), which each result records as
-`forced_faction`. Run on a
-4090 box with `--device cuda --jobs 20 --persistent-workers
---shared-inference` (docs/box_specs.md; every match script since
-2026-09-19 runs 20 workers). The last two are `store_true` and default
-OFF; without them you get the slowest mode in the repo, and every
-current match script passes them. `tools/elo_collect.py <outdir>
---no-catalog` fits the decisive games.
-
-## Architecture
-
-### Two paths that share encoder + model + trainer
-
-**Source layout (2026-07-23 reorg).** The core library modules listed
-below now live in the **`wesnoth_ai/`** package (imported as
-`from wesnoth_ai.X import ...`), not at the repo root. Scripts keep
-their `tools/` prefix; the test suite moved to **`tests/`**
-(`tests/conftest.py` bootstraps `sys.path`); `main.py` (the setup CLI)
-stays at the root. So a bare name like `classes.py` below means
-`wesnoth_ai/classes.py`.
-
-**Production path: in-process simulator.**
-- `tools/wesnoth_sim.py` — the simulator: it drives a game on the Rust
-  core (`rust/wesnoth_core`, adapter `wesnoth_ai/game_core.py`), which
-  applies every command and answers every rule, and `sim.gs` is a view
-  of that core (`game_core.view_of`). Replay reconstruction runs on the
-  same core (`tools/replay_dataset.record_core`, bit-exact against
-  Wesnoth's `[mp_checkup]` oracle on combat); the simulator swaps the
-  data source from "WML command stream" to "policy queries". A state
-  built by hand or copied gets a core built from it
-  (`game_core.core_for`). `tools/kernel_status.py` says whether the
-  installed wheel serves the adapter and the source.
-- `tools/az_loop.py` — the self-play loop
-  (docs/archive/az_minimal_spec.md): the actor pool
-  (`tools/actor_pool.py`) plays N games per iteration under MCTS, then
-  one gradient step toward the visit counts and the game results.
-- `tools/sim_self_play.py` — the game loop every producer runs
-  (`_play_one_game_safe`, which the actor pool calls), and the earlier
-  self-play entry point, which carries the quarantined mechanisms
-  (quarantine/INVENTORY.md). Its CLI trains by search distillation by
-  default (`--mcts`, with turn search); `--reinforce` selects REINFORCE
-  with a value baseline on the game's outcome (+1, -1, 0 for a capped
-  draw).
-- `wesnoth_ai/rules/scenario_pool.py` / `wesnoth_ai/rules/scenarios.py` — scenario
-  randomization: the Ladder Era 21-map whitelist (fogged or fogless),
-  the mini maps, the factions and leaders. `random_setup` puts
-  `FORCED_FACTION` on one side of the game when it is set, and both
-  sides draw uniformly from the six default-era factions when it is None,
-  its value since 2026-09-28 (user ruling). From 2026-07-04 to
-  2026-09-27 it was the Knalgan Alliance (user request 2026-04-30), so
-  every `run_elo_batch` match of that period, the reference players'
-  numbers included, had a Knalgan side (`LEGACY_FORCED_FACTION` for
-  records without the field); a match under the uniform draw does not
-  chain onto them. `sim_self_play --forced-faction NAME` still forces a
-  faction for its in-process games; `az_loop`'s actors always drew both
-  factions uniformly.
-- `tools/mcts.py` / `tools/mcts_policy.py` — MCTS implementation
-  and the MCTSPolicy adapter that wraps TransformerPolicy.
-- The actor pool (self-play generation): `tools/az_loop.py` drives
-  `tools/actor_pool.py`, whose actor processes (`tools/actor_worker.py`)
-  play the games and send their leaves to a serve thread or process
-  (`tools/serve_worker.py`) that holds the model;
-  `wesnoth_ai/server_priors.py` and `wesnoth_ai/leaf_wire.py` are the
-  wire, `tools/actor_stream.py` the continuous form (`--stream`) and
-  `tools/bench_pool.py` its benchmark.
-
-**Imitation (every reference checkpoint so far).**
-- `tools/supervised_train.py` — behavior cloning of the human corpus
-  with a value head trained on game outcomes in the same pass; its
-  docstring gives the reference recipe's command line, and
-  `configs/imitation.json` holds its loss settings (the winners'
-  decisions only, equal weight per game, the manifest's holdout split).
-- `tools/preencode_corpus.py` — encodes the corpus once, so a run
-  streams tensors (`supervised_train --preencoded`).
-- `scripts/unit_vocab_retrain_box.sh` — the whole recipe on a box: the
-  corpus from Hugging Face, the vocabulary (`tools/unit_vocab.py`), the
-  pre-encoding, one pass, the per-phase value table and the 800-game
-  match against the reference.
-
-**Evaluation (strength claims).**
-- `tools/run_elo_batch.py` — the match driver: resumable, memory-guarded,
-  sides alternated, seeds derived from the game index.
-- `tools/elo_eval_game.py` — one game, or many as a persistent worker
-  (`tools/eval_workers.py`); under `--shared-inference`,
-  `tools/eval_inference_server.py` serves the forwards of every worker.
-- `tools/raw_player.py` — the raw player's decode (temperature, end_turn
-  offset); `tools/reference_player.py` reads
-  `configs/reference_player.json`.
-- `tools/elo_collect.py` — fits Elo on the decisive games (capped games
-  are absences) and refuses to mix estimands within an outdir.
-- `tools/game_record.py` — each game is recorded whole beside its
-  result (`<game>.game.jsonl.gz`).
-
-**The Rust core.**
-- `rust/wesnoth_core/` — the core, installed with `pip install
-  ./rust/wesnoth_core`. `lib.rs` declares `__phase__`; the adapter
-  (`wesnoth_ai/game_core.py`, `_CORE_PHASE`) refuses an older wheel.
-  Python reads the core through `game_core` (`CoreState`),
-  `wesnoth_ai/observe.py` (the observation), `wesnoth_ai/encoder.py`
-  (`encode_raw`), `tools/pathfind_sim.py` (the planner's context and
-  reach), `wesnoth_ai/visibility.py` (what a side sees) and
-  `tools/combat_outcomes.py` (fight outcomes, the counter weapon);
-  docs/rust_port_plan.md and docs/rust_core_port_20260928.md record the
-  port.
-
-**Live-Wesnoth path (evaluation and rule checks only).**
-- `main.py` — setup / maintenance CLI (`--check-setup`,
-  `--clean-games`).
-- `wesnoth_ai/wesnoth_interface.py` — one Wesnoth process per game;
-  state channel uses `std_print` → log-file tail; actions written
-  atomically as `action.lua` and read via `wesnoth.read_file`.
-- `tools/live_vs_rca.py` + `tools/live_mirror.py` — the reference
-  against Wesnoth's default AI in a live game, the simulator mirroring it
-  from the engine's log and checking the board at every decision; Lua
-  side `lua/live_stage.lua` and `lua/board_report.lua`. It runs on the
-  project's patched Wesnoth (`tools/wesnoth_build/README.md`).
-- `tools/hidden_units_oracle.py` (Lua: `lua/turn_stage.lua`, a custom
-  AI stage that avoids the default AI's blacklist-on-failure rule, with
-  `lua/state_collector.lua` and `lua/action_executor.lua`, which runs
-  moves) and `tools/scenario_init_oracle.py` (`lua/init_oracle.lua`):
-  the simulator's rules checked against the engine.
-- `tools/sim_demo_game.py` — headless one-game demo via the sim;
-  exports a Wesnoth-loadable `.bz2` via
-  `sim_to_replay.export_replay_from_scratch` (composes save WML
-  from `wesnoth_src/` templates, no replays_raw/ dependency).
-
-**Shared by both paths (all under `wesnoth_ai/`):**
-- `wesnoth_ai/classes.py` — `GameState`, `Unit`, `Hex`, `Map`,
-  `SideInfo`, `state_key`.
-- `wesnoth_ai/encoder.py` — `GameState` → tensors (per-unit, per-hex,
-  recruit phantom features, global features).
-- `wesnoth_ai/model.py` — `WesnothModel` transformer with
-  distributional C51 value head; emits `ModelOutput(actor_logits,
-  type_logits, target_logits, weapon_logits, value, value_logits,
-  cliffness, ...)`.
-- `wesnoth_ai/action_sampler.py` — legal-action enumeration with
-  priors.
-- `wesnoth_ai/transformer_policy.py` — Policy adapter (`select_action`,
-  `observe`, `train_step`, `save_checkpoint`, `finalize_game`).
-- `wesnoth_ai/trainer.py` — REINFORCE + value baseline (`step`) and
-  AlphaZero-style soft-target distillation (`step_mcts`); both
-  use the categorical CE value loss against C51 atom projections.
-
-### Coordinates
-
-- **Wesnoth uses 1-indexed hex coordinates** (WML, replays, Lua).
-- **Python uses 0-indexed hex coordinates everywhere internally.**
-- The ±1 conversion happens where Wesnoth data enters or leaves Python:
-  the live tools (`tools/live_mirror.py`, `tools/live_vs_rca.py`),
-  the WML and replay readers (`tools/replay_extract.py`,
-  `wesnoth_ai/rules/scenario_pool.py`, `tools/scenario_events.py`,
-  `wesnoth_ai/rules/wml_state.py`) and the writers that emit WML or feed the
-  engine (`tools/sim_to_replay.py`, `tools/dump_savestate.py`,
-  `tools/hidden_units_oracle.py`, `tools/scenario_init_oracle.py`).
-  Keep it at those boundaries; game logic, the encoder and the model
-  work in 0-indexed coordinates only.
-
-## Architecture Principles
+### 1. Results are measured, pre-registered, and recorded either way
+- Every run gets a pre-registration (`docs/<topic>_prereg_<date>.md`)
+  before it launches. It states what is measured, the number that decides,
+  and the kill criteria.
+- A change to a registered run is a numbered departure, written before it
+  takes effect.
+- The result lands in the same document whatever it says: "rejected: X,
+  because Y" is what stops X being proposed again.
+- Change one factor at a time, each with its own number and kill
+  criterion.
+- Proxies (losses, KL, held-out readings) are crash barriers, never
+  verdicts. Strength is read from games.
 
 ### 2. Self-play is non-negotiable
-The learning signal comes from self-play. Bootstrapping methods
-(imitation from the built-in AI, human games) may be used to warm-start,
-but the end state is self-play. Do not design architectures that
-preclude it.
+The learning signal comes from self-play. Imitation of human games may
+warm-start a network, but the end state is self-play. Do not design
+architectures that preclude it.
 
 ### 3. Behaviour is learned
-The network decides play and learns it from training (user rulings
-2026-10-19 and 2026-10-21). No decode-time rule, table or fitted head
-beside the network, no hand-placed prior bias, no shaped reward or
-material score: the training signal is the game's outcome. "The model
-should learn to recruit like a human iff recruiting like a human works."
-The player being trained samples from its policy (user ruling
-2026-10-21); the reference keeps its pinned decode as the yardstick.
-Settings that remain (training
-curriculum, data selection) live in config, not in scattered constants.
+- The network decides play and learns it from training (user rulings
+  2026-10-19 and 2026-10-21).
+- So there is no decode-time rule, table or fitted head beside the network,
+  no hand-placed prior bias, and no shaped reward or material score. The
+  training signal is the game's outcome. "The model should learn to
+  recruit like a human iff recruiting like a human works."
+- The player being trained samples from its policy. The reference keeps
+  its pinned decode as the yardstick.
+- Settings that remain, such as a curriculum or data selection, live in
+  config, not in scattered constants.
 
-### 4. The simulator must be perfectly faithful to Wesnoth
-The simulator's combat math is verified against Wesnoth's own
-`[mp_checkup]` oracle on strict-sync replays (731/731 strikes
-matched; a 2026-05 figure with no record kept, and
-tests/test_combat_seed_alignment.py re-checks every strike of a
-29-attack strict-sync fixture on each run). Any sim change that
-touches combat, healing, or advancement must keep that parity.
-`tools/diff_replay.py` is the regression check (runs the simulator
-over a corpus, compares against the recorded WML command stream). New
-scenario events go in the core's event dispatch
-(`rust/wesnoth_core/src/events.rs`; `tools/scenario_events.py` parses
-them), new abilities and [effect] forms in the core (`core_attack.rs`,
-`core_step.rs`, `effects.rs`); both with citations: `src/<path>:<line>`
-at the 1.18.4 tag for C++, `wesnoth_src/data/<path>:<line>` for WML and
-Lua.
-
-Any mismatch between the simulator and Wesnoth (usually surfaced
-by OOS errors when strict syncing sim-produced replays) is a
-critical issue to be investigated and solved at the root.
-
-When live Wesnoth is in the loop (display, eval), the same
-narrow-waist principle applies: state crosses the bridge as one
-well-defined serialization, actions as one schema, Lua side stays
-dumb. But that path is no longer how training data is generated.
+### 4. The simulator is perfectly faithful to Wesnoth
+- The Rust core (`rust/wesnoth_core`) is the state of record for play and
+  for replay reconstruction.
+- Its combat is bit-exact against Wesnoth's `[mp_checkup]` oracle.
+  `tests/test_combat_seed_alignment.py` re-checks every strike of a
+  strict-sync fixture on each run, and `tools/diff_replay.py` runs the
+  simulator over a corpus against the recorded command stream.
+- Any change touching combat, healing or advancement keeps that parity.
+- New scenario events go in `rust/wesnoth_core/src/events.rs`, and new
+  abilities and `[effect]` forms in `core_attack.rs`, `core_step.rs` and
+  `effects.rs`, each with a citation:
+  - `src/<path>:<line>` at the 1.18.4 tag for C++;
+  - `wesnoth_src/data/<path>:<line>` for WML and Lua.
+- Any mismatch with Wesnoth (usually an OOS error when strict-syncing a
+  simulator-produced replay) is critical: find the root cause and fix it.
 
 ### 5. Failures are visible
-Both paths log timeouts and stage-of-failure. The simulator does not
-apply a refused action (a recruit onto a hex that turns out to be
-occupied under fog, a move outside the landable set, an attack with no
-hex to strike from): `WesnothSim.step` sets `last_step_rejected` and the
-caller decides again, a recruit bounce being recorded on
-`gs.global_info._recruit_rejected_hexes` (principle 6). An action it
-cannot translate ends the side's turn, and so do eight rejections in a
-row from a caller that ignores the mask (with a warning); the recorded
-end_turn then carries what was attempted. `tools/diff_replay.py`, which
-checks each command of a real replay before applying it, reports typed
-divergences (e.g. `"recruit:insufficient_gold"`). The bridge
-path (display, eval) wraps any Python wait in a finite timeout and
-logs which stage timed out; Lua errors reach the Python log, not
-silently die inside a `pcall`.
+- The simulator does not apply a refused action: `WesnothSim.step` sets
+  `last_step_rejected`, and the caller decides again.
+- An action it cannot translate ends the side's turn, and so do eight
+  rejections in a row, with a warning.
+- `tools/diff_replay.py` reports typed divergences
+  (`"recruit:insufficient_gold"`).
+- On the live bridge, every Python wait has a finite timeout and logs which
+  stage timed out. Lua errors reach the Python log; they never die silently
+  inside a `pcall`.
 
-### 6. Legality mask = pure function of OBSERVABLE STATE
-The action sampler's "legality mask" answers exactly one question:
-**what can the policy validly attempt right now, given the
-information it has?** It is a pure function of the observable state.
+### 6. The legality mask is a pure function of observable state
+The mask answers one question: what can the policy validly attempt now,
+given the information it has? Observable state is:
+1. the visible game state, which is what the encoder sees: own-side fog
+   hexes, but no enemy unit hidden in fog and nothing else from the
+   simulator's god view;
+2. the per-turn rejection history: the hexes where a recruit bounced this
+   turn, on `gs.global_info._recruit_rejected_hexes`, cleared at
+   `init_side`.
 
-Observable state has two pieces:
-1. **Visible game state** — what the encoder sees. Includes
-   own-side fog hexes (the encoder retains them after the
-   2026-04-28 fix), but NOT enemy units hidden in fog and NOT
-   any god-view information from the simulator.
-2. **Per-turn rejection history** — the set of hexes where a
-   recruit attempt has bounced this turn, stashed on
-   `gs.global_info._recruit_rejected_hexes`. Cleared at
-   `init_side` (so each side starts a turn with a fresh slate).
+So:
+- Fog castle hexes are legal recruit targets.
+- A recruit ordered onto a hex a hidden unit holds goes where the engine
+  puts it: the vacant castle hex nearest the leader, gold spent
+  (`docs/wesnoth_rules.md`, "A recruit onto an occupied hex"). With no
+  vacant castle hex it is refused.
+- Either way, the ordered hex becomes illegal for the turn, and the
+  encoder shows a `recruit_rejected` bit on it. The mask and the model read
+  the same state.
 
-What this resolves: the mask is NOT "what the engine will accept"
-(which would require god-view fog truth, cheating) AND it is NOT
-just "what the model wants to attempt" (which would let the model
-infinite-loop on the same fog-hidden hex). It is "what the model
-*can* validly attempt given everything it has observed so far,"
-which gives the model the same information a human player has.
+Forbidden:
+- god-view masking;
+- rejection history that persists across turns;
+- mutable state outside `gs.global_info`, such as cached per-call
+  counters.
 
-Concretely:
+The contract covers every action type. A future "tried and bounced" record
+lives on `gs.global_info`, clears at the right turn boundary, and is
+mirrored in the encoder's features.
 
-  - Fog castle hexes ARE legal recruit targets (the model can
-    attempt them; like a human, it can't see what's there until
-    it tries).
-  - A recruit ordered onto a hex a hidden unit holds goes where the
-    engine puts it: the vacant castle hex nearest the leader, gold
-    spent (docs/wesnoth_rules.md "A recruit onto an occupied hex");
-    only with no vacant castle hex is it refused. Either way the
-    ordered hex is rejected for the turn: it becomes illegal AND a
-    per-hex "recruit_rejected" bit appears in the encoder feature --
-    the mask consults the rejection set, the model sees the bit; both
-    read the same state.
-  - Next turn, rejection history clears. The hex is legal again
-    (the enemy may have moved away).
+## Rulings in force
 
-Designs that violate this contract are bugs. In particular:
+The user's, with dates. Ask before acting against one.
 
-  - **God-view masking is forbidden.** Even though the simulator
-    has fog truth, the mask must not consult it. The model must
-    play with the same information a human would have.
-  - **Rejection history is per-turn.** Persisting it across turns
-    would model long-term knowledge that the human player doesn't
-    have (the enemy could have moved).
-  - **The mask must be a pure function of observable state.** Two
-    decisions on the same observable state produce identical
-    masks. Mutable state outside `gs.global_info` (e.g. cached
-    per-call counters) is forbidden.
+- **The reference player** is whatever `configs/reference_player.json`
+  pins: one checkpoint, its memory size and one decode.
+  - Changing it is the user's decision.
+  - A candidate needs a PURE match against it first (see "Strength
+    claims").
+  - No teacher is distilled before it wins such a match.
+- **The memory stays** (2026-10-05, 2026-10-09). Self-play keeps the
+  network's memory, whose size is open to discussion. That a memory player
+  plays worse is a design flaw to root-cause, not a reason to drop it.
+- **Search distillation is out** (2026-10-06). There is no self-play
+  training on `tools/az_loop.py`'s search distillation. A new algorithm
+  must handle three things before it trains:
+  - the reward's sparsity;
+  - multi-step turns whose plans depend on dice rolled inside the turn;
+  - the simulator's speed, without bottlenecking on the network.
 
-This contract applies to all action types -- attack, move,
-recruit, end_turn -- not just recruits. The recruit-rejected
-case is the most prominent example, but the rule generalizes:
-if a future action category needs "we tried this and it
-bounced" tracking, it lives on `gs.global_info`, clears at the
-right turn boundary, and is mirrored in encoder features.
+  The policy-iteration rounds (`docs/status.md`) are the current answer.
+- **No optimization conditioned on the MCTS loop** (2026-09-05).
+- **No faction is forced on evaluation games** (2026-09-28).
+  `FORCED_FACTION` in `wesnoth_ai/rules/scenario_pool.py` is None. Matches
+  from before that day had a Knalgan side and do not pool with later ones.
+- **Engine parameters are passed to the engine, never emulated**
+  (2026-10-06).
+- **Imitation's remaining gains are parked** (2026-10-04).
+- **Runs:**
+  - Results are written as the run goes, never as one dump at the end.
+  - A run past about 1.5x its estimate is inspected, and cut if it is
+    stuck.
+  - Rented compute is proposed to the user with its cost first. The
+    budget is about $100 on Vast (2026-10-09).
 
-## Code Style
+## Strength claims
 
-### File Size
-Target ~600 lines. Split by responsibility when a file grows past that.
+- **Every strength claim is a PURE match against the reference,** with its
+  standard error. It is fitted on decisive games only, since capped games
+  are absences.
+- **The candidate plays side A** at the reference's decode. The
+  reference plays side B.
+- **800 decisive games is the minimum** for an adoption.
+- **Elo does not chain** across observation epochs (`OBSERVATION_EPOCH` in
+  `wesnoth_ai/constants.py`) or across the 2026-09-28 faction change.
+- **The procedure tag** names the decode:
+  - `raw:t0` is argmax;
+  - `raw:t0+eo-1.5` adds the −1.5 end_turn offset, the reference's decode;
+  - `raw:t1` samples at temperature 1;
+  - `raw` is the legacy sampler;
+  - `mcts:<sims>` and `tcs:<sims>` are searched players.
 
-### Naming
-- Classes: `PascalCase`
-- Functions/methods: `snake_case`
-- Constants: `UPPER_SNAKE_CASE`
-- Private members: `_leading_underscore`
-- Lua: same conventions (Lua allows `snake_case` fine)
+  Tags never mix in one outdir; `tools/elo_collect.py` refuses.
+- **Games:** every game draws a map from the 21-map Ladder pool, with fog
+  and both factions drawn uniformly.
+- **On the desktop:** `scripts/match_local.py` is the whole procedure in
+  one command (README, "On the local Windows machine"). It serves both
+  sides in fp16 and is a valid claim.
+- **On a box:** use README's Quickstart command with `$(python
+  tools/reference_player.py --flags b)`, `--raw-end-turn-offset-a -1.5`,
+  `--mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0`, and
+  `--device cuda --jobs 20 --persistent-workers --shared-inference`. The
+  last two flags default off, and without them you get the slowest mode in
+  the repo.
+- **Pooling:** record the serving (fp16 here, bf16 on a box), and don't
+  pool the two in one fit.
+- **Fitting:** `python tools/elo_collect.py <outdir> --no-catalog`.
 
-### Branching (adopted 2026-09-23)
-GitHub flow: `main` holds only finished, checked work. Everything else
-happens on a short-lived topic branch cut from `main`, merged back when
-it is ready, then deleted.
-- **Names:** `feature/<name>`, `fix/<name>`, `test/<name>`,
-  `exp/<name>`; short, descriptive, hyphenated
-  (`fix/heals-value-default`). One task, one branch.
-- **Ready to merge** = `ruff check .` clean and the branch's latest CI
-  run green, both tiers (`gh run list --branch <branch>`; see Testing).
-  CI is the gate; the laptop's full fast tier is not required.
-- **Merge with a merge commit** (`git merge --no-ff`), never squash:
-  the commit messages are this project's lab notebook.
-- **`exp/` branches differ.** An experiment's code merges only if it
-  wins, but its pre-registration and its result land on `main` either
-  way (a records-only merge or a direct commit): "rejected: X, because
-  Y" is what stops X being proposed again.
-- **Status entries** in this file and in BACKLOG.md are written on
-  `main` when the work lands, never on the branch. Nearly every change
-  touches them, so branch-side edits would conflict with each other.
-- **Parallel agent sessions** each use their own branch in their own
-  worktree, so no session edits another's files.
-- **Pushing** a topic branch is free (user ruling 2026-09-23).
-- **Trivial fixes go straight to `main`** (user ruling 2026-10-06):
-  corrections to records, docs and status entries, typos, and small
-  mechanical fixes that change no behaviour are committed to `main` and
-  pushed without asking, with their version bump. Anything else goes
-  through a topic branch; merging it, and pushing `main` for it, asks.
-- **Deleting a branch** that holds commits `main` does not have: tag
-  its tip `archive/<name>` and push the tag first, so the work stays
-  reachable.
-- Rejected: Git Flow's `develop` / `release/` branches. They serve
-  software shipped in numbered releases, and GitHub's own flow has
-  neither (docs.github.com, "GitHub flow").
+## The desktop's GPU (RX 6600)
 
-### Versioning (adopted 2026-09-23, revised the same day)
-- `wesnoth_ai.__version__` in `wesnoth_ai/__init__.py` is the only
-  place the version lives, and it numbers the states of `main`:
-  **every change that lands on `main` bumps it once** -- M for a
-  feature, P for anything else (fix, test, records) -- and N changes
-  only on the user's explicit decision (0 until then).
-- Bump it in the commit that lands the change on `main`: for a merge,
-  `git merge --no-ff --no-commit <branch>`, bump, then commit. Topic
-  branches never touch it, so two branches never claim one number.
-  State the new version on the first line of that commit's body.
-- History starts at 0.1.0 (the time-of-day encoder commit); nothing
-  before it carries a number. The first day bumped per commit; merges
-  to `main` are the unit from 0.2.2 on.
+- **It is free to use at any time** (user ruling 2026-10-29). When the user
+  says they want it, stop or yield the run: a STOP file between steps, or
+  `--yield-gpu` (`scripts/gpu_yield.py`).
+- **One heavy GPU job at a time.** A benchmark beside a run syncs every
+  batch.
+- **The card drives the display,** so a GPU stall past 2 s resets the
+  display driver (System event 4101). The runners stop on one. No single
+  kernel or call may approach 2 s.
+- **The ROCm build of torch** lives in its own venv,
+  `%USERPROFILE%\venvs\wesnoth_rocm`. Set `HIP_VISIBLE_DEVICES=1`, since
+  device 0 is the CPU's integrated GPU. The repository's `.venv` is CPU
+  torch, and its CPU kernels are much faster than the ROCm build's.
+- **Run the pg tools' fp16 GPU paths with `AMD_SERIALIZE_KERNEL=3`.**
+  Unserialized, the evaluator faulted the card, and two faults in a row
+  wedged HIP until a reboot (`training/metrics/pg_fp16_20261030/README.md`).
+- **Serve matches in fp16** (`--infer-fp16` with `--shared-inference`):
+  bf16 matmuls run at a fifth of fp16's rate on this card.
+- **CPU diagnostics beside a run** go at Idle priority on at most 4
+  threads. At below-normal, one cost a round about an hour.
+- **A run must resume from its own markers.** A Windows Update restart ends
+  everything, and after a reboot the machine waits at the sign-in screen.
+  `--keep-awake` holds it awake while a run lives.
 
-### Linting (adopted 2026-08-05)
-- **Run `ruff check .` before committing** — config in `ruff.toml`
-  (rules E/F/W; E501/E731 off; E402 allowed in tools//tests//scripts
-  for the sys.path bootstrap pattern). The check must come back clean;
-  `ruff check --fix` applies the safe autofixes.
-- Intentional exceptions get a targeted `# noqa: <rule>` with a short
-  reason, never a blanket file ignore.
+## Code map
 
-### Imports
-- No unused imports.
-- No circular imports — if A needs data from B, pass it explicitly.
-- `TYPE_CHECKING` blocks for type-only circular deps.
+- **`wesnoth_ai/`, the library:**
+  - `classes.py`: `GameState`, `Unit`, `Hex`, `Map`, `SideInfo`.
+  - `game_core.py`: the adapter to the Rust core (`CoreState`, `view_of`,
+    `core_for`).
+  - `observe.py` and `visibility.py`: what a side sees.
+  - `encoder.py`: state to tensors (`encode_raw`).
+  - `model.py`: `WesnothModel`, a transformer with a C51 value head and a
+    memory.
+  - `action_sampler.py`: legal actions with their priors.
+  - `transformer_policy.py`: the policy adapter.
+  - `trainer.py`: REINFORCE and AlphaZero-style steps.
+  - `hip_kernels.py`, `hip_attention_grad.py` and `hip_elementwise.py`: the
+    RX 6600's kernels.
+  - `pg_*.py`: the self-play rounds' step, loss, protocol, records and
+    cross-play.
+  - `rules/`: the scenario pool, the scenarios and WML state.
+  - `constants.py`.
+- **`rust/wesnoth_core/`:** every rule (commands, events, combat, reach,
+  vision, observation, encoding), installed as a wheel. `lib.rs` declares
+  `__phase__`, and the adapter's `_CORE_PHASE` refuses an older wheel.
+- **`tools/`, the programs:**
+  - the simulator: `wesnoth_sim.py`, `sim_demo_game.py`, `sim_to_replay.py`;
+  - replays: `replay_extract.py`, `replay_dataset.py`, `diff_replay.py`;
+  - imitation: `supervised_train.py`, `sequence_train.py`,
+    `preencode_corpus.py`;
+  - matches: `run_elo_batch.py`, `elo_eval_game.py`,
+    `eval_inference_server.py`, `raw_player.py`, `reference_player.py`,
+    `elo_collect.py`, `game_record.py`;
+  - the rounds' steps: `pg_corrections.py`, `pg_pass.py`, `pg_round.py`,
+    `pg_eval.py`, `pg_stage_c.py`, `pg_plant*.py`;
+  - live Wesnoth: `live_vs_rca.py`, `live_mirror.py`,
+    `hidden_units_oracle.py`, `scenario_init_oracle.py`;
+  - the earlier self-play, now unused for training: `az_loop.py`,
+    `sim_self_play.py`, `mcts.py`.
+- **`scripts/`, the runners:**
+  - the desktop's: `selfplay_t1_local.py`, `stage_c_local.py`,
+    `p_local.py`, `rounds_local.py`, `chain_local.py`, `match_local.py`,
+    `local_machine.py`, `gpu_yield.py`;
+  - the box's: `rent_box.py`, `scripts/box/`, `*_box.sh`;
+  - the autonomous window's arming, watchers and analyses:
+    `scripts/window_20261029/`.
+- **The live bridge** (evaluation and rule checks only):
+  - `wesnoth_ai/wesnoth_interface.py` runs one Wesnoth process per game.
+    State arrives via `std_print`, tailed from the log file; actions are
+    written atomically as `action.lua` and read with `wesnoth.read_file`.
+  - The Lua side (`lua/`) only serializes state and executes actions:
+    it never decides game logic.
+  - It runs on the project's patched Wesnoth (`tools/wesnoth_build/`).
+- **Also:**
+  - `main.py`: the setup CLI (`--check-setup`, `--clean-games`).
+  - `configs/`: `reference_player.json`, `imitation.json`.
+  - `tests/`: the suite; `tests/conftest.py` bootstraps `sys.path`.
 
-### Data patterns
-- Structured data → `@dataclass`, not raw dicts.
-- Action payloads on the wire are dicts (they cross the Lua boundary);
-  internally prefer typed structures.
-- Material/faction properties → LUTs in config, not `if`-chains.
+## Wesnoth data and rules
 
-### Encapsulation
-- Python systems talk through explicit APIs (on the live bridge,
-  `WesnothGame`), not by reaching into private attributes.
-- Lua code never decides game logic; it just serializes state and
-  executes actions the Python side chose.
+- **Coordinates:** Wesnoth is 1-indexed (WML, replays, Lua), and Python is
+  0-indexed everywhere internally. The ±1 happens only where Wesnoth data
+  enters or leaves Python:
+  - the live tools;
+  - the WML and replay readers (`tools/replay_extract.py`,
+    `wesnoth_ai/rules/scenario_pool.py`, `tools/scenario_events.py`,
+    `wesnoth_ai/rules/wml_state.py`);
+  - the writers (`tools/sim_to_replay.py`, `tools/dump_savestate.py`, the
+    oracles).
+- **`wesnoth_src/data/`** is a WML-only copy (cfg, lua, map; no art and no
+  `src/` tree) of the Steam install's data, taken from 1.18.7. It is
+  refreshed with:
+
+      robocopy "C:\Program Files (x86)\Steam\steamapps\common\wesnoth\data" wesnoth_src\data *.cfg *.lua *.map /S
+
+  - The sim's runtime subset is tracked in git, so a bare clone can train
+    with no Wesnoth install:
+    - `data/multiplayer/{factions,scenarios,maps}`;
+    - `data/core/macros`;
+    - the add-ons `Mini_Maps_Collection`, `Seamless_Map_Picker` and
+      `WL_Mappack`.
+  - The rest is untracked. A refresh shows up as git diffs, on purpose.
+- **`unit_stats.json` and `terrain_db.json` are pinned 1.18.4 scrapes.
+  Never re-scrape them from `wesnoth_src/`.** Stats drift between releases
+  (1.19's Ghoul gained a pierce resistance), and combat parity and every
+  checkpoint assume 1.18.4. A re-scrape starts from the 1.18.4 tag on
+  GitHub. If a replay's `[scenario] version=` is not 1.18.x, scrape from
+  that version's tag instead.
+- **Read `docs/wesnoth_rules.md` before researching a rule.** When you
+  establish or correct one, add it there with a file:line citation, a
+  verbatim quote of the enforcing code, and a "why non-obvious" note where
+  it was not where you'd expect.
+- **Don't guess Wesnoth semantics: check the source.**
+  - For C++, read the 1.18.4 tag on GitHub raw, e.g.
+    `https://raw.githubusercontent.com/wesnoth/wesnoth/1.18.4/src/units/unit.cpp`.
+  - For WML and Lua, grep `wesnoth_src/data/`.
+  - A rule can live in C++, Lua or WML, so search all three. Rules that
+    feel like a post-pass often hide in `[event]name=prestart` Lua in
+    `data/multiplayer/eras.lua` or `data/core/macros/`.
+  - The wiki (https://wiki.wesnoth.org/, the Lua API reference) sometimes
+    lags. The engine's changelog is historical: check any entry against
+    the code at 1.18.4.
+
+## Code style
+
+- **Files** target about 600 lines; split by responsibility past that.
+- **Naming:** classes `PascalCase`, functions `snake_case`, constants
+  `UPPER_SNAKE_CASE`, private members `_leading_underscore`. Lua follows
+  the same.
+- **Imports:** no unused imports and no circular imports (pass data
+  explicitly). Use `TYPE_CHECKING` blocks for type-only cycles.
+- **Data:**
+  - Structured data is a `@dataclass`, not a raw dict. Action payloads on
+    the wire are dicts, since they cross the Lua boundary.
+  - Faction and material properties are lookup tables in config, not
+    `if`-chains.
+- **Encapsulation:** Python systems talk through explicit APIs (on the live
+  bridge, `WesnothGame`), never through private attributes.
+- **Numbers:** if a number's origin isn't obvious from its name or a
+  one-line comment, explain it. A derived constant goes in
+  `docs/design_constants.md`, cited from the code. A tuning knob stays in
+  `constants.py` with its rationale beside it.
+- **Prefer removing over adding.** The codebase is recovering from bloat; a
+  feature comes back with evidence.
+- **Lint:** `ruff check .` is clean before every commit (config in
+  `ruff.toml`). Intentional exceptions get a targeted `# noqa: <rule>` with
+  a reason, never a file-wide ignore.
+
+## Branches, versions, pushing
+
+- **GitHub flow:** `main` holds finished, checked work.
+  - Everything else goes on a short-lived topic branch cut from `main`:
+    `feature/`, `fix/`, `test/` or `exp/<name>`, one task per branch.
+  - Parallel sessions each use their own branch in their own worktree.
+- **Ready to merge** means ruff is clean and the branch's latest CI run is
+  green, both tiers (`gh run list --branch <branch>`; on the desktop the
+  `gh` on PATH is an unrelated Python package, and GitHub's CLI installs
+  with `winget install GitHub.cli`). When CI cannot run
+  because nothing can be pushed, the stand-in is the full suite on the
+  desktop at the merged code, named in the merge commit.
+- **Merges into `main`:**
+  - Always `git merge --no-ff`, never squash: the commit messages are the
+    lab notebook.
+  - **Ask the user before merging into `main`,** and before pushing `main`
+    for anything beyond a trivial fix.
+  - Trivial fixes (records, docs, typos, small mechanical fixes that change
+    no behaviour) go straight to `main`, with their version bump.
+- **`exp/` branches:** the code merges only if it wins. Its
+  pre-registration and result land on `main` either way.
+- **Records:** status entries (`docs/status.md`, `BACKLOG.md`) are written
+  on `main` when the work lands, not on the branch.
+- **Deleting a branch** that holds commits `main` lacks: first tag its tip
+  `archive/<name>` and push the tag.
+- **The version:** `wesnoth_ai.__version__` (in `wesnoth_ai/__init__.py`)
+  numbers the states of `main`.
+  - Every change that lands bumps it once: M for a feature, P for anything
+    else. N changes only on the user's decision.
+  - Bump it in the commit that lands the change (`git merge --no-ff
+    --no-commit`, bump, commit), and state the new version on the first
+    line of the commit body. Topic branches never touch it.
+- **Pushing:**
+  - Pushing a topic branch is free (2026-09-23).
+  - The credentials are the user's: they sign in themselves
+    (`docs/new_machine.md`, step 2).
+  - When none are stored, a push fails at the password prompt. Commit
+    locally and tell the user what is waiting to be pushed.
 
 ## Testing
 
-### Philosophy
-Tests exist to catch regressions you'd otherwise only notice after
-burning an overnight training run. Prefer few behavioral tests over
-many line-coverage tests.
+- **Tests catch regressions** you would otherwise find only after burning
+  a training run. Prefer a few behavioural tests over line coverage.
+  - No test launches Wesnoth. The live bridge's test
+    (`tests/test_lua_actions.py`) uses synthetic inputs.
+  - The engine oracles run only by hand.
+- **Two tiers:**
+  - A bare `pytest` runs the fast tier. `slow` tests (full games,
+    subprocesses, threading e2e) are excluded by `pytest.ini`.
+  - CI (`.github/workflows/tests.yml`) runs `pytest -m ""` on every push,
+    with a freshly built Rust wheel, and is the merge gate.
+  - A fast-tier test over 10 s moves to the slow tier or is slimmed: CI
+    lists the 30 slowest tests on every run.
+- **Before a push:** run ruff and the test files that exercise the change.
+- **Never run more than one pytest at a time.** Each one imports torch and
+  the model (5+ GB), and parallel or stuck runs have locked the machine
+  before.
+  - Wait for each run to return, or kill it, before starting another.
+  - `scripts/window_20261029/pytest_locked.py` serializes runs across
+    sessions.
+- **Run pytest from the Bash tool,** not the PowerShell tool. In
+  PowerShell's environment `bash` is the WSL stub, and 38 box-script tests
+  fail there.
+- **Every run lists its failed, errored and skipped tests** (`-rfEs`). A
+  skip count that differs between two runs of one tree is a test that
+  sometimes does not run: diff the SKIPPED lists to name it.
+- **A test that builds a search policy seeds it** (`rng_seed=` or `rng=`).
+- **Use `constants.py` values in assertions,** not copies.
+- **Never weaken a test without the user's confirmation.** A failing test
+  is a signal: find the root cause.
+- **The Rust core:**
+  - CI tests every Rust change.
+  - A local run tests whatever wheel is installed, so check `python
+    tools/kernel_status.py` before believing one.
+  - To rebuild, from `rust/wesnoth_core` (`docs/new_machine.md`, step 5):
 
-### What tests we have (and what they are NOT)
-- `test_integration.py` and `test_lua_actions.py` cover the live
-  bridge with **synthetic inputs**: JSON payloads shaped like the Lua
-  collector's, and the Lua action files Python writes. Despite the
-  name, `test_integration.py` does NOT launch Wesnoth, and no test
-  does. The engine oracles (`tools/hidden_units_oracle.py`,
-  `tools/scenario_init_oracle.py`) launch real Wesnoth and run only by
-  hand, with the user's agreement.
+        CARGO_TARGET_DIR="$USERPROFILE/.cargo-target" maturin build --release -i python --out "$USERPROFILE/.cargo-target/wheels"
+        pip install --force-reinstall --no-deps "$USERPROFILE"/.cargo-target/wheels/wesnoth_core-*.whl
 
-### Guidelines
-- **Before a push:** `ruff check .` and the test files that exercise
-  the change (`pytest tests/test_x.py ...`). The whole fast tier on the
-  laptop (a bare `pytest`: tests marked `slow`, full-game / subprocess /
-  threading e2e, are excluded by default, see pytest.ini) is optional.
-- **CI runs the FULL suite — `pytest -m ""` — on every push, and is the
-  merge gate** (`.github/workflows/tests.yml`, GitHub Actions). The slow
-  tier holds the e2e regression guards (MCTS self-play smoke,
-  concurrent train-step races, export validation); the fast tier alone
-  does NOT cover them, and the laptop does not run them (they generate
-  self-play games). A branch merges on a green run of its tip, and a
-  training campaign launches from a commit that has one. CI has no GPU
-  and no corpora: the CUDA tests and the tests that read replay,
-  imitation or value data skip there.
-- **"Slow" is measured.** Every CI run lists its 30 slowest tests
-  (`--durations=30`); a fast-tier test over 10 s moves to the slow tier
-  or is slimmed.
-- **Never run more than one pytest invocation at a time.** Each
-  pytest spawns a Python process that imports torch + the model;
-  parallel runs balloon memory (5+ GB per process) and a stuck
-  test compounds the problem. Wait for each command to fully
-  return (foreground) or be killed before launching the next. 
-  If a test hangs, kill the process before starting another — 
-  don't queue a second behind it. No "let me also kick off X 
-  while we wait" patterns. (Lesson from 2026-05-10: four parallel 
-  pytest jobs stuck on a hanging `_select_one` loop produced 
-  multiple multi-GB zombie Python processes that locked up the 
-  user's machine.)
-- Use `constants.py` values in assertions (not hardcoded duplicates).
-- **Every run lists its failed, errored and skipped tests** (pytest.ini
-  `-rfEs`). A skip count that differs between two runs of one tree is a
-  test that sometimes does not run; diff the two SKIPPED lists to name
-  it.
-- **A test that builds a search policy seeds it**: `MCTSPolicy(...,
-  rng_seed=N)` / `TurnCommitPolicy(..., rng_seed=N)`, or `rng=` on a
-  direct `mcts_search`. Unseeded, the search draws fresh OS entropy,
-  so any assertion or skip that depends on what it chose varies from
-  run to run -- the fast tier's 41/42 skip flicker was exactly that
-  (2026-09-23).
-- Never weaken a test without explicit user confirmation. A failing
-  test is a signal — find the root cause first.
-- **The Rust paths are tested on CI, not on the laptop.** CI builds
-  the wheel from each pushed commit and asserts its `__phase__` equals
-  the one `rust/wesnoth_core/src/lib.rs` declares, so every Rust test
-  runs there; a green CI run certifies a Rust change, and a box is
-  needed only for what CI cannot run (CUDA, throughput). The laptop's
-  installed wheel is whatever was last installed and lags the source
-  until rebuilt (phase 1 against the source's 31 on 2026-10-08). Every
-  rule runs in the core, so a local run tests the installed wheel's
-  Rust: one older than the adapter's phase stops the simulator, and the
-  tests that need it skip or fail (the suite prints a banner saying so).
-  Check `python tools/kernel_status.py` before believing any local
-  result.
-  The laptop builds the wheel since 2026-09-28, into the cargo target
-  directory Defender excludes (any other directory is refused, "Accès
-  refusé", os error 5): from `rust/wesnoth_core`,
-  `CARGO_TARGET_DIR=C:/Users/amaur/.cargo-target maturin build --release
-  -i python --out C:/Users/amaur/.cargo-target/wheels`, then
-  `pip install --force-reinstall --no-deps` the wheel it names. Never
-  install a wheel while a pytest run is going.
+    Defender blocks builds outside the excluded `.cargo-target` folder.
+  - Never install a wheel while a pytest run or a training run is going.
+- **CI has no GPU and no corpora,** so the CUDA tests and the tests that
+  read replay or imitation data skip there. The HIP tests
+  (`tests/test_hip_kernels.py`) run on the desktop under the ROCm venv.
 
-## Working Style
+## Working style
 
-- **High autonomy** on reversible local work (edits, tests, reads),
-  including creating, switching, committing on and pushing topic
-  branches (see Branching).
-- **Ask before**: merging a topic branch into `main` or pushing `main`
-  for anything beyond a trivial fix (Branching), force-pushing, deleting
-  a branch whose work is not merged,
-  deleting tracked files, making architectural changes (new IPC,
-  replacing the model, etc.).
-- **Give best effort**: production-quality code with edge cases handled,
-  not sketches.
-- **Research first** on non-trivial Wesnoth internals (WML, Lua API,
-  scenario/add-on loading, `--plugin`, stdout behavior). The
-  [Wesnoth wiki](https://wiki.wesnoth.org/) and
-  [Lua API reference](https://wiki.wesnoth.org/LuaAPI) are authoritative.
-- **Don't guess at Wesnoth WML attrs / engine semantics — check the
-  source.** The wiki sometimes lags, has edge cases wrong, or omits
-  attrs. **`wesnoth_src/` has NO `src/` tree** -- it is a WML-only
-  copy of the local 1.18.7 install (see the provenance note above), so
-  `grep wesnoth_src/src/` returns nothing, and the rules catalog's
-  citations of C++ files cannot be checked locally. For C++ engine
-  internals read the **1.18.4 tag on GitHub raw**, e.g.
-  `https://raw.githubusercontent.com/wesnoth/wesnoth/1.18.4/src/units/unit.cpp`,
-  and cite `src/...:line` as the rules catalog does. For WML and Lua,
-  `wesnoth_src/data/` IS local and authoritative -- grep it first when
-  you would otherwise hand-wave ("`income=` is probably an offset").
-- **Don't assert without checking.** This applies to factual claims
-  about Wesnoth (rules, mechanics, unit stats) AND to claims about
-  our own code ("the function does X", "this list covers all cases",
-  "the heuristic always fires correctly"). If you find yourself about
-  to write a confident-sounding sentence in a commit message, code
-  comment, or message to the user, pause: have you actually verified
-  the claim with a grep / read / test? If not, either verify first OR
-  hedge the language ("I believe X holds because Y; not yet verified").
-  Especially: when listing a closed set ("the three races that get
-  undrainable are undead, mechanical, elemental"), grep the source for
-  the relevant marker and confirm the count matches before publishing.
-- **`docs/wesnoth_rules.md` is the source-of-truth catalog.** Read
-  it BEFORE researching a Wesnoth rule from scratch — most
-  established rules are pinned there with verbatim source quotes.
-  When you establish a new rule (or correct an existing one), add
-  / edit the entry in `docs/wesnoth_rules.md`. Required: file:line
-  citation, verbatim quote of the enforcing code, and (when the
-  rule wasn't where you'd naively expect) a "why non-obvious" note.
-  Grep recipes and a file map for common Wesnoth-source questions
-  also live there. Treat the doc as a force multiplier: each rule
-  added saves the next exploration session hours, and the doc
-  prevents truth-drift across sessions.
-- **Wesnoth rules can live in C++, Lua, OR WML — search all three.**
-  Common gotcha: a rule we're hunting in the engine's C++ (`src/` at
-  the 1.18.4 tag) is actually in
-  `wesnoth_src/data/multiplayer/eras.lua` or a WML macro under
-  `wesnoth_src/data/core/macros/`. After reading the C++, always also
-  grep `wesnoth_src/data/multiplayer/`, `wesnoth_src/data/core/macros/`,
-  `wesnoth_src/data/lua/`. Rules with a "post-pass" feel (applied after
-  unit setup) often hide in `[event]name=prestart` Lua callbacks.
-- **Wesnoth's `changelog.md` is HISTORICAL — verify against current
-  source.** It lives in the engine repository on GitHub (`wesnoth_src/`
-  has no copy). Old changelog entries describe behavior at THAT
-  version, which may have changed since. Cross-check any changelog
-  quote against the code at the 1.18.4 tag (C++) or in
-  `wesnoth_src/data/` (WML, Lua) before treating it as authority.
-- **`docs/design_constants.md` catalogues DERIVED numerical
-  constants** (not arbitrary tuning knobs). Anything with a
-  derivation — math, measurement, fixed external standard —
-  belongs there rather than buried in a one-line code comment.
-  When you find yourself writing "where does this 0.577 come
-  from?" or "why exactly 51 atoms?", the rationale belongs in
-  `docs/design_constants.md`; cite it from the code with a short
-  comment + cross-reference. Pure tuning knobs (learning rate,
-  c_puct, etc.) stay in `constants.py` with their own comment
-  block — those aren't derived, they're picked, and the picking
-  rationale (which may be "AlphaZero paper" or "experiment
-  pending") stays nearby.
-- **Magic-number principle, more generally:** if a number's
-  origin isn't obvious from its name or its surrounding
-  comment, the reader will eventually waste time deriving it
-  again. Either rename it (`PRIOR_VAR_UNIFORM_M1_P1`), comment
-  it inline (1-2 lines, no math), or — for anything more
-  involved — write it up in `docs/design_constants.md` and
-  cross-reference. Same principle applies to thresholds,
-  bucket sizes, atom counts, normalizers, anything where
-  someone could reasonably ask "why exactly that value?".
-- **Prefer removing over adding.** This codebase is recovering from
-  bloat. When a feature is load-bearing, we'll re-add it with evidence.
+- **High autonomy on reversible local work:** edits, tests, reads, and
+  topic branches (create, commit, push).
+- **Ask first before:**
+  - merging into `main`, or pushing `main` beyond a trivial fix;
+  - force-pushing;
+  - deleting a branch whose work is unmerged, or deleting tracked files;
+  - architectural changes (new IPC, replacing the model);
+  - changing the reference player;
+  - spending money.
+- **Give best effort:** production-quality code with its edge cases
+  handled, not sketches.
+- **Don't assert without checking.** This holds for claims about Wesnoth
+  and about this code ("the function does X", "this list is complete").
+  Before a confident sentence goes in a commit message, a comment or a
+  reply, verify it with a grep, a read or a test, or hedge it. Before
+  listing a closed set, grep for its marker and count.
 - **Credentials never reach a transcript** (user decision 2026-09-29).
-  What a tool returns to Claude is stored and sent to the model, so
-  `tools/secret_guard` redacts credentials from every tool result: Bash
-  output through the shell prefix, failed commands included, and the other
-  tools' results through a hook; a `<redacted>` in output is the guard at
-  work. A new key is created in the user's own terminal or browser and
-  saved to its store before any tool call touches it. Keys are restricted
-  (Vast: offers and instances; Hugging Face: write on the checkpoint
-  repository only), and every checkpoint load uses `weights_only=True`,
-  since a leaked Hugging Face token could otherwise plant code in a
-  checkpoint we download. Rejected (user, 2026-09-29): pinning by hash
-  the code and scripts boxes download from Hugging Face, against a
-  dishonest Vast host reusing the box's token; not worth the hardening.
+  - `tools/secret_guard` redacts credentials from every tool result, so a
+    `<redacted>` in output is the guard at work.
+  - A new key is created in the user's own terminal or browser.
+  - Keys are restricted: Vast to offers and instances, Hugging Face to
+    write on the checkpoint repository only.
+  - Every checkpoint load uses `weights_only=True`.
