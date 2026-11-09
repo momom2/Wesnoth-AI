@@ -104,6 +104,8 @@ GPU's time, against about half before.
     the reference's decode comes first, and a flat line pauses for a
     decision rather than spend the GPU.
   A reading with none before it is only logged.
+- A round is measured as its own step ran (its decision's "lean"): a lean
+  run resumed over earlier rounds plays and reads their claims as before.
 
 A round's games start from SEED_BASE + k * SEED_STRIDE, or from the base in
 its seed_base.txt (prereg departure 42's replay), which must leave the
@@ -217,7 +219,6 @@ class Rounds(Steps):
         self.held = int(getattr(args, "held", None) or N_HELD)          # |H| for rounds whose games start now
         self.xp_gate = False            # round 1's cross-play match decides whether the rounds go on
         self.lean = bool(getattr(args, "lean", False))                    # prereg departure 43
-        self.claim_games = LEAN_GAMES if self.lean else CLAIM_GAMES
 
     # ---- the rounds' files
     def rdir(self, k: int) -> Path:
@@ -227,6 +228,12 @@ class Rounds(Steps):
 
     def round_json(self, k: int) -> dict:
         return json.loads((self.rdir(k) / "round.json").read_text(encoding="utf-8"))
+
+    def lean_round(self, k: int) -> bool:
+        """Whether round k's step was lean (its decision says so): a lean
+        run resumed over earlier rounds measures and stops them as they were
+        run, not as lean rounds."""
+        return bool(self.round_json(k)["decision"].get("lean"))
 
     def policy_after(self, k: int) -> str:
         """The policy round k left: its candidate when it adopted one, else
@@ -572,6 +579,7 @@ class Rounds(Steps):
         """pi at temperature 1 against the reference: (Elo, SE), or None."""
         tag, d = f"r{k:02d}_claim", self.rdir(k)
         label = f"pi{k}t1"
+        n = LEAN_GAMES if self.lean_round(k) else CLAIM_GAMES
         fit = d / "claim.fit.json"
         if not self.skip(tag):
             self.check_stop(f"round {k}'s claim")
@@ -580,8 +588,8 @@ class Rounds(Steps):
             games = d / "claim"
             rc = self.play_match(f"round {k} claim", ["tools/run_elo_batch.py", *side_a, *ref_b, "--mcts-sims", "0",
                                                       "--raw-temperature-a", "1", "--raw-temperature-b", "0",
-                                                      "--outdir", str(games), "--games", str(self.claim_games),
-                                                      "--max-extra-games", str(self.claim_games // 2), "--seed-base",
+                                                      "--outdir", str(games), "--games", str(n),
+                                                      "--max-extra-games", str(n // 2), "--seed-base",
                                                       str(CLAIM_SEED_BASE + k * CLAIM_SEED_STRIDE), *POOL],
                                  f"claim_{k:02d}.log", CLAIM_CUT_MIN)
             if rc in (0, 4):
@@ -711,28 +719,29 @@ def run(r: Rounds, rounds: int) -> int:
                 log(out, f"ROUNDS_FAILED at round {k}: {' '.join(r.state)}")
                 return 1
             dec = r.round_json(k)["decision"]
-            paired, lean = r.round_json(k).get("paired"), r.round_json(k).get("lean")
-            along = f" along {paired['chosen']}" if paired else f" along {lean['along']} (lean)" if lean else ""
+            paired, leaned = r.round_json(k).get("paired"), r.round_json(k).get("lean")
+            along = f" along {paired['chosen']}" if paired else f" along {leaned['along']} (lean)" if leaned else ""
             log(out, f"round {k}: adopt={dec.get('adopt')} next_eps={dec.get('next_eps')}{along}: {dec.get('reason')}")
             if k == 1 and r.xp_gate:
                 why = r.xp_resolved()
                 if why:
                     log(out, f"ROUNDS_WAIT after round 1: {why}")
                     return 3
-            if k % (LEAN_EVERY if r.lean else CLAIM_EVERY) == 0:
+            lean = r.lean_round(k)
+            if k % (LEAN_EVERY if lean else CLAIM_EVERY) == 0:
                 claim = r.claim(k)
                 if claim is None:
                     log(out, f"ROUNDS_FAILED at round {k}'s claim: {' '.join(r.state)}")
                     return 1
                 log(out, f"round {k}'s claim: {claim[0]:+.1f} +- {claim[1]:.1f} Elo against the reference")
-                if r.lean:
+                if lean:
                     best = r.argmax(k)
                     if best is None:
                         log(out, f"ROUNDS_FAILED at round {k}'s argmax match: {' '.join(r.state)}")
                         return 1
                     log(out, f"round {k}'s argmax match: {best[0]:+.1f} +- {best[1]:.1f} Elo against the reference "
                              f"({LEAN_GAMES} decisive games from seed {ARGMAX_SEED_BASE})")
-                why, notes = r.lean_stops(k, claim, best) if r.lean else r.stops(k, claim)
+                why, notes = r.lean_stops(k, claim, best) if lean else r.stops(k, claim)
                 for note in notes:
                     log(out, note)
                 if why:

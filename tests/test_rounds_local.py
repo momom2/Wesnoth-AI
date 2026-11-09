@@ -83,6 +83,8 @@ class FakeTools:
             adopted = self.adopt.get(k, True)
             dec = {"adopt": adopted, "s": 0.4 if adopted else 0.0, "eps": 1e-3, "next_eps": 2e-3 if adopted else 5e-4,
                    "chosen": 0, "reason": "read"}
+            if "--lean" in cmd:
+                dec["lean"] = True
             if k > 1:
                 dec["rungs"] = [_rung(*self.reading)]
             Path(arg("--out")).write_text(json.dumps({"decision": dec, "candidate": {"path": arg("--candidate")}
@@ -747,3 +749,25 @@ def test_a_round_plays_from_its_seed_base_file_inside_its_block(tmp_path, monkey
             r.seed_base(3)
     (r.rdir(3) / "seed_base.txt").unlink()
     assert r.seed_base(3) == block
+
+
+def test_a_lean_run_resumed_over_plain_rounds_measures_each_round_as_it_ran(tmp_path, monkeypatch):
+    """Rounds 1-6 ran plain (claims at 3 and 6, their stops acted on:
+    --rebase-after 6); the lean run resumed over them plays nothing for them, no argmax match at round 6, and from round
+    12 on, a lean round, the claim of LEAN_GAMES and the argmax match, its
+    claim tested against round 6's."""
+    _reference(monkeypatch)
+    first = FakeTools()
+    assert _run(tmp_path, first, rounds=6, rebase_after=6)[0] == 0
+    assert "round 6 claim" in first.names() and "round 6 argmax" not in first.names()
+    tools = FakeTools(claim_elo=lambda k: {12: -380.0}.get(k, -400.0))
+    rc, out = _run(tmp_path, tools, rounds=12, lean=True, rebase_after=6)
+    assert rc == 0
+    names = tools.names()
+    assert all(not n.startswith(f"round {k} ") for k in range(1, 7) for n in names)
+    assert "round 6 argmax" not in names and "round 9 claim" not in names
+    assert names[-3:] == ["round 12 claim", "round 12 claim fit", "round 12 argmax"]
+    claim = tools.cmd("round 12 claim")
+    assert claim[claim.index("--games") + 1] == str(rl.LEAN_GAMES)
+    log = (out / "runner.log").read_text(encoding="utf-8")
+    assert "round 12's claim: claim - round 6's claim reads +20.0 Elo (combined SE 7.1), above 0 by 2 SE" in log
