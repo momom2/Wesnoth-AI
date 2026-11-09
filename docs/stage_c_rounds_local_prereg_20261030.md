@@ -1429,7 +1429,7 @@ Design §6, unchanged:
         - the claims shrink to about 3,200 games. That gives a combined SE of 28.7 against 28.2 and saves about 2.6 GPU-h a claim round (the review's M3).
     - Nothing is adopted; configs/reference_player.json is untouched.
 
-43. **Lean evaluation, and round 19 replayed under it** (`feature/lean-rounds` d448a4b4; registered 2026-11-10 00:15, before any lean round, any fresh game of round 19, and the end of departure 42's final).
+43. **Lean evaluation, and round 19 replayed under it** (`feature/lean-rounds` d448a4b4 and e9bdb463, which measures each round as its own step ran, so the resumed walk over rounds 1-18 plays nothing; registered 2026-11-10 00:15, before any lean round, any fresh game of round 19, and the end of departure 42's final).
     - **Why:** the user, back on 2026-11-09, wrote "Try to reduce evaluation proportion, from ~50% of compute to ~10%." Their next message reads "You're running autonomously for the next several hours. Find the highest value improvement and iterate." That hands departure 42's open decision back to the assistant: the line goes on, under this departure.
     - **Where a round's GPU time went** (round 18's phase times from runner.log and its eval_cache files; rounds 16-18 for the matches):
 
