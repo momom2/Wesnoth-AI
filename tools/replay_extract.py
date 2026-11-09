@@ -518,8 +518,7 @@ def build_initial_state(root: WMLNode) -> GameState:
             unit_type = u_node.attrs.get("type", "")
             stats = _unit_stats(unit_type)
             # Convert WML 1-indexed → Python 0-indexed at extract time
-            # (CLAUDE.md: "Python uses 0-indexed hex coordinates everywhere
-            # internally"). dump_savestate adds +1 when emitting back to WML.
+            # (CLAUDE.md: "Python is 0-indexed everywhere internally"). dump_savestate adds +1 when emitting back to WML.
             #
             # Wesnoth campaign saves embed recall-list units inside
             # [side] with `x="recall" y="recall"` to mark "stored, not

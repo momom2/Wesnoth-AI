@@ -33,7 +33,7 @@ and `docs/plan_20260904.md`.
 
 | file | period | why it is here |
 |---|---|---|
-| eval_box.md | 2026-08-03 | the CPU eval box for the sampling player (`raw`); matches now run on a 4090 through persistent workers and a shared inference server (CLAUDE.md, "Eval procedure") |
+| eval_box.md | 2026-08-03 | the CPU eval box for the sampling player (`raw`); matches now run on a 4090 through persistent workers and a shared inference server (CLAUDE.md, "Strength claims") |
 | running_on_gpu.md | 2026-07 | launching `tools/sim_self_play.py` on a CUDA node; its command passes `--drill-ratio`, which no parser defines, and self-play runs through `tools/az_loop.py` now |
 | gpu_perf_patches.md | 2026-07-02 | CUDA-stall patches for in-process MCTS rollouts: B3, #1 and #2 are in the code (`tools/mcts.py`, `wesnoth_ai/encoder.py`), and the note lists their CUDA checks as still required |
 

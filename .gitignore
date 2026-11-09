@@ -72,7 +72,7 @@ kaggle/*token*
 box.env
 
 # External Wesnoth source — refreshed from the Steam install (see
-# CLAUDE.md "Wesnoth data provenance"). Mostly untracked, EXCEPT the
+# CLAUDE.md "Wesnoth data and rules"). Mostly untracked, EXCEPT the
 # sim's runtime WML inputs (~840KB), tracked since 2026-07-02 so a
 # bare clone can train on a rented GPU node without a Wesnoth
 # install: factions (scenario_pool.load_factions hard-errors without
@@ -122,8 +122,8 @@ replays_dataset_set_aside/
 # 2026-06-12: the local 1.18.4 source they were scraped from is
 # gone (wesnoth_src now mirrors the Steam install's NEWER data),
 # so losing these would force a drifted re-scrape that breaks the
-# sim's bit-exact combat pin. See CLAUDE.md "Wesnoth data
-# provenance".
+# sim's bit-exact combat pin. See CLAUDE.md "Wesnoth data and
+# rules".
 # (unit_stats.json and terrain_db.json intentionally not ignored)
 tmp_scratch/
 test_replays_temp/
@@ -170,3 +170,6 @@ kaggle.json
 id_rsa*
 id_ed25519*
 *.pem
+
+# pytest_locked.py's machine-wide lock file
+scripts/window_20261029/pytest.lock

@@ -1,4 +1,4 @@
-# The merge gate the laptop cannot run (CLAUDE.md "Branching").
+# The merge gate the laptop cannot run (CLAUDE.md "Branches, versions, pushing").
 #
 # The local fast tier certifies the Python paths only. The laptop may not
 # run the slow tier, which generates self-play games, and cannot build

@@ -46,7 +46,7 @@ followed by fine-tuning on its own recorded games.
 ## Self-play: the policy-iteration rounds
 
 - **Design:** `docs/training_design_20261019/current_design.md`. The
-  pre-registration and its 41 departures are in
+  pre-registration and its 42 departures are in
   `docs/stage_c_rounds_local_prereg_20261030.md`. The autonomous window's
   card, plan, reviews and log are in `docs/autonomy_20261029.md`.
 - **A round:**
@@ -74,9 +74,18 @@ followed by fine-tuning on its own recorded games.
   more.
 - **Run state:** `C:\Users\momom2\wesnoth_runs\` (`rounds_local/`,
   `chain.log`). The code runs from the detached worktree `wesnoth_ai-run`
-  at f8697706. On 2026-11-09 round 19 is running, and its argmax final is
-  due about 05:15 Nov 10 in `final_match_r20/`. Departure 41 then re-arms
-  rounds 20 to 28 or 29, ending about 14:00 Nov 13.
+  at f8697706.
+- **Round 19 stopped the line** (2026-11-09 20:41, departure 42, on
+  `feature/local-gpu-stage1`). Its games failed the readout's I-V gate:
+  v against recruit read z −3.66 against the gates' 3.45.
+  - The signal is diffuse: both shards, every map, not a few games. A
+    bootstrap reproduces its SE, and over the line's 228 I-V readings z
+    reads RMS 1.03. So it fits the gates' 1% false-alarm rate, but it
+    stands on these games.
+  - The final match on round 18 (argmax against `own2`, seed base
+    900,000, 12,800 decisive games) runs into `final_match_r18/` from
+    21:46, due about 01:55 Nov 10. It pairs with round 16's final.
+  - Departure 41 does not re-arm.
 
 ### Measured
 
@@ -125,7 +134,7 @@ by +134.1 ± 3.3.
     a sound plan or a hole in `own2` is not established.
 - **The rounds mostly sharpen the sampled policy toward its own argmax.**
   The gap between the policy at T=1 and at argmax shrank from 415 Elo
-  (`own2`) to about 141 (round 15). That headroom is finite.
+  (`own2`) to about 140 (round 15). That headroom is finite.
 - **The heads' gradient signal is falling.** Its norm went from 3.97 (round
   2) to about 1.3 (rounds 11-13), while the noise per split stayed flat, so
   each round's 5,000 games buy less (`training/metrics/denoise_20261105.json`).
@@ -141,6 +150,11 @@ by +134.1 ± 3.3.
 
 ## Open (for the user unless noted)
 
+- **After round 18's final: replay round 19 or end the line.** Replaying
+  draws round 19's games on fresh seeds, and the line goes on only if
+  every gate passes on them (the retry rule is in departure 42). The
+  2026-11-09 evening review advises ending the heads-only line if round
+  18 minus round 16, paired on the final's seeds, is under 2 SE.
 - **Adopt round 16, or a later round, as the reference.** The evidence is a
   local match of 12,800 decisive games, and the checkpoint is
   `C:\Users\momom2\wesnoth_runs\rounds_local\round_16\pi.pt` (SHA-256
@@ -195,7 +209,7 @@ by +134.1 ± 3.3.
 
 | | desktop (RX 6600) | a 4090 box |
 |---|---|---|
-| self-play generation | about 470-570 decisions a second (about 4,300 games an hour) | about 2,900 decisions a second |
+| self-play generation | about 470-570 decisions a second (about 3,450 games an hour in rounds 18-19, about 490 decisions a game) | about 2,900 decisions a second |
 | a training step of `own2` | about 150 positions a second (fp16, HIP kernels) | about 1,480 |
 | an 800-decisive-game match | about 15 min | about 17 min |
 

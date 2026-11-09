@@ -1,6 +1,6 @@
 """Run pytest under a machine-wide lock, so parallel agents never run two
 pytest processes at once (CLAUDE.md, Testing: "Never run more than one
-pytest invocation at a time").
+pytest at a time").
 
     <python> C:/Users/momom2/wesnoth_runs/tools/pytest_locked.py [pytest args...]
 

@@ -26,7 +26,7 @@ what `replay_extract.WMLNode` provides, so this module imports nothing
 from the project and both pipelines can depend on it.
 
 Coordinates: WML is 1-indexed, everything here returns 0-indexed
-(CLAUDE.md, Coordinates).
+(CLAUDE.md, "Wesnoth data and rules").
 """
 from __future__ import annotations
 

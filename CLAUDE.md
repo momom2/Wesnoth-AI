@@ -163,8 +163,10 @@ The user's, with dates. Ask before acting against one.
 - **Imitation's remaining gains are parked** (2026-10-04).
 - **Runs:**
   - Results are written as the run goes, never as one dump at the end.
-  - A run past about 1.5x its estimate is inspected, and cut if it is
-    stuck.
+  - Every box test is scoped to its smallest informative version, and
+    training runs sparingly (2026-09-05).
+  - A box job past about 1.5x its estimate is inspected and cut
+    (2026-09-05).
   - Rented compute is proposed to the user with its cost first. The
     budget is about $100 on Vast (2026-10-09).
 
@@ -175,7 +177,9 @@ The user's, with dates. Ask before acting against one.
   are absences.
 - **The candidate plays side A** at the reference's decode. The
   reference plays side B.
-- **800 decisive games is the minimum** for an adoption.
+- **Every adoption so far** rested on a match of at least 800 decisive
+  games (the lineage in `docs/status.md`): a convention, not a user
+  ruling.
 - **Elo does not chain** across observation epochs (`OBSERVATION_EPOCH` in
   `wesnoth_ai/constants.py`) or across the 2026-09-28 faction change.
 - **The procedure tag** names the decode:
@@ -190,7 +194,9 @@ The user's, with dates. Ask before acting against one.
   and both factions drawn uniformly.
 - **On the desktop:** `scripts/match_local.py` is the whole procedure in
   one command (README, "On the local Windows machine"). It serves both
-  sides in fp16 and is a valid claim.
+  sides in fp16. Whether a desktop match suffices for an adoption is
+  the user's to confirm (proposed 2026-11-09: fp16 serving matches
+  fp32's argmax on 200 of 200 bench positions).
 - **On a box:** use README's Quickstart command with `$(python
   tools/reference_player.py --flags b)`, `--raw-end-turn-offset-a -1.5`,
   `--mcts-sims 0 --raw-temperature-a 0 --raw-temperature-b 0`, and
@@ -396,12 +402,13 @@ The user's, with dates. Ask before acting against one.
   a training run. Prefer a few behavioural tests over line coverage.
   - No test launches Wesnoth. The live bridge's test
     (`tests/test_lua_actions.py`) uses synthetic inputs.
-  - The engine oracles run only by hand.
+  - The engine oracles run only by hand, with the user's agreement.
 - **Two tiers:**
   - A bare `pytest` runs the fast tier. `slow` tests (full games,
     subprocesses, threading e2e) are excluded by `pytest.ini`.
   - CI (`.github/workflows/tests.yml`) runs `pytest -m ""` on every push,
-    with a freshly built Rust wheel, and is the merge gate.
+    with a freshly built Rust wheel, and is the merge gate. A training
+    campaign launches from a commit that has a green run.
   - A fast-tier test over 10 s moves to the slow tier or is slimmed: CI
     lists the 30 slowest tests on every run.
 - **Before a push:** run ruff and the test files that exercise the change.
