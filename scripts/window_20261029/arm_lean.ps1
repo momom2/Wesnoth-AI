@@ -11,7 +11,7 @@ $args = "-u scripts\chain_local.py --stage-c $runs\stage_c_local --stage1 $runs\
         "--checkpoint-sha256 aea027b2696a9fbce0ebcdc0a8483c9df7d35957934b81b0c62093a02cdd9129 " +
         "--expect-head $Head --gpu-python $gpu --tools-python $py --final-out $runs\final_match_lean " +
         "--heads-only-pass --rounds-n-train 5000 --rounds-end-by `"$EndBy`" --skip-p --after-stop 3 " +
-        "--rounds-held 1250 --rounds-average 2 --rounds-lean --final-after-failure"
+        "--rounds-held 1250 --rounds-average 8 --rounds-lean --final-after-failure"   # departures 43, 44
 $cmd = "cmd.exe /c `"`"$py`" $args >> $runs\chain_lean.console.log 2>&1`""
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
     CommandLine = $cmd; CurrentDirectory = 'C:\Users\momom2\Desktop\perso\projects\wesnoth_ai-run' }

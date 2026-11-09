@@ -1484,7 +1484,7 @@ Design §6, unchanged:
       - `--after-stop 3` (a REDEPLOY STOP naming round 3, as before);
       - `--rounds 39 --rounds-end-by "2026-11-13 18:00"`;
       - `--rounds-lean --final-after-failure`;
-      - `--rounds-held 1250 --rounds-average 2 --rounds-n-train 5000`;
+      - `--rounds-held 1250 --rounds-average 2 --rounds-n-train 5000` (`--rounds-average 8` by departure 44);
       - `--heads-only-pass --skip-p`;
       - the final into final_match_lean.
 
@@ -1503,4 +1503,30 @@ Design §6, unchanged:
       - the two stops;
       - a gate failure, as before (departure 42), now with the final after it;
       - a lean round past 1.5 times its estimate (about 7.7 h) is inspected.
+    - Nothing is adopted; configs/reference_player.json is untouched.
+
+44. **The averaged direction takes 8 earlier rounds, not 2** (no code change: chain_local `--rounds-average 8`; registered 2026-11-10 01:00, before round 19's replay and after departure 43).
+    - **Why:** each round's direction is now mostly noise, but its signal barely turns from round to round.
+      - Rounds 2-9 (training/metrics/denoise_20261105.json): the signal's share of the direction fell from 0.73 to 0.24, while the signal's cosine with the previous round's read 0.6-1.1.
+      - By round 18 the share reads about 0.11 (training/metrics/average_window_20261110.json).
+    - **The reading** (`scripts/window_20261029/average_window.py`, read-only on the rounds' pass.pt and direction.pt files, CPU, Idle):
+      - It scores the step along averaged([d_k, d_k-1, ..., d_k-K]) by its cosine with round k's own signal.
+      - The signal's squared norm is round k's cross-split mean. The earlier rounds' part is independent of round k's games.
+      - Mean cosine over rounds 8-18, by K:
+
+        | K | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+        |---|---|---|---|---|---|---|---|---|---|---|---|
+        | cos | 0.40 | 0.56 | 0.67 | 0.77 | 0.81 | 0.86 | 0.89 | 0.92 | 0.93 | 0.96 | 0.97 |
+
+        Larger K reads fewer rounds (K 10: 6), and single rounds are noisy (round 14's |s|^2 is small, so its cosines pass 1). On rounds 12, 13, 15, 16 and 18, which hold every K up to 10, the means read 0.61 (K 2), 0.81 (6), 0.83 (8) and 0.84 (10).
+    - **The check against the rounds' own readings:**
+      - Departure 37's paired half-A difference (K 2 minus K 0, at x1) over rounds 11-18 reads -0.009, -0.010, +0.035, +0.040, +0.005, +0.052, +0.027 and +0.004. The mean is +0.018 ± 0.009, about 2.1 SE.
+      - The mean half-A gain is 0.058 against 0.040, a ratio of about 1.46. The cosines forecast about 2.2.
+      - So the gain grows more slowly than the cosine (about as its square root here), but in the same direction. K 2 to K 8 raises the cosine about 1.36-1.39 times, so the forecast is about 1.15 to 1.4 times the gain a round.
+    - **What changes:** rounds_local `--average 8` from round 19. The step goes along the average of d and the 8 rounds before it that hold a direction.pt (rounds 11-18 for round 19). No code changes.
+    - **Its number:** the claim's gain a round over rounds 19-24 against rounds 16-18's +11.6 a round (round 15's claim to round 18's, +34.7 ± 4.4).
+      - It carries departure 43 as well, whose expected effect a round is about 0. The steps are the same, only unread, and |H| fits 9 coefficients.
+      - The cosine reading is repeated on rounds 19-24's passes as each lands: its forecast for K 8 is about 0.83 or more.
+      - Departure 43 is judged on its own number instead of Elo per GPU-hour: the evaluation share of the GPU, read from runner.log and times.json. Its stops stand.
+    - **Kill:** departure 43's two stops. If the repeated reading puts K 8's cosine below K 2's on rounds 19-24, the average returns to 2 at the next round.
     - Nothing is adopted; configs/reference_player.json is untouched.
